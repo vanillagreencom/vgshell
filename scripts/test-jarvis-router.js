@@ -672,7 +672,7 @@ world(() => {
             ["draw-ack", ": approval.shownAt === null ||", ": (false && approval.shownAt === null) ||", "early"],
             ["draw-delay", "e.at - approval.shownAt < APPROVAL_DRAW_MS", "(false && e.at - approval.shownAt < APPROVAL_DRAW_MS)", "early"],
             ["voice-physical", 'e.source === "voice" && approval.physical', "false", "voice-physical"],
-            ["accepted-once", 's.approval = { kind: "none" };\n        var accepted', 's.approval = approval;\n        var accepted', "replay"]
+            ["accepted-once", 's.approval = { kind: "none" };\n        if (s.turn.kind === "thinking")', 's.approval = approval;\n        if (s.turn.kind === "thinking")', "replay"]
         ]) {
             qmlCopy(sessionFile, [[needle, replacement]], session =>
                 assert.throws(() => byName(row)(Router, session), assert.AssertionError, name + " must turn red"));

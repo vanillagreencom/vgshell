@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Window
 import QtQuick.Layouts
 import Quickshell
 import qs.Commons
@@ -62,7 +61,7 @@ Item {
         : service.shell.status.values.transcript || null
     // The user's words while they arrive, then Jarvis's for this conversation.
     // The status keeps an ended conversation's caption until the next one.
-    readonly property string words: state === null ? ""
+    readonly property string words: state === null || root.hold !== null ? ""
         : fault !== null ? fault.action
         : state.turn.kind === "collecting" ? state.turn.partial
         : caption !== null && caption.role === "assistant" && caption.gen === state.gen ? caption.text : ""

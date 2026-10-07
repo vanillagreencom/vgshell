@@ -74,7 +74,7 @@ world(async () => {
         const root = path.join(process.env.JARVIS_TEST_ROOT, "b" + ++serial);
         fs.mkdirSync(root);
         let at = 0, locked = false, transcript;
-        const starts = [], answers = [], brain = [];
+        const starts = [], answers = [], brain = [], preparations = [];
         const timers = new Map();
         const helloTimers = new Set();
         const audit = Audit.create({ state: path.join(root, "state"), now: () => Date.UTC(2026, 9, 1) });
@@ -108,13 +108,16 @@ world(async () => {
             speech: [{ kind: "local", provider: "fixture-speech", account: "" }] });
         // Under J09's runtime directory, whose path no checkout lengthens.
         const runtime = options.runtime ?? path.join(process.env.XDG_RUNTIME_DIR, "r" + serial.toString(36));
-        bridge = Bridge.create({ router, state: () => runner.state, audit, release: { prepare: async () => [] }, directory: runtime, clock: {
+        bridge = Bridge.create({ router, state: () => runner.state, audit, release: { prepare: async (value, recipients) => {
+            preparations.push({ value, recipients });
+            return options.prepare === undefined ? [] : options.prepare(value, recipients);
+        } }, directory: runtime, clock: {
             set: (fn, ms) => { const timer = { fn, ms }; helloTimers.add(timer); return timer; },
             clear: timer => helloTimers.delete(timer) } });
         owners.push(() => { bridge.close(); audit.close(); });
         const open = () => bridge.open({ gen: runner.state.gen, recipients });
         const launch = options.open === false ? null : await open();
-        const w = { runner, router, bridge, rows, starts, answers, brain, launch, runtime, root, recipients, open,
+        const w = { runner, router, bridge, rows, starts, answers, brain, preparations, launch, runtime, root, recipients, open,
             helloTimers, newTurn, dispatch: e => runner.dispatch(e), lock: value => { locked = value; },
             time: value => { at = value; },
             show: () => runner.dispatch({ type: "shown", gen: runner.state.gen, op: runner.state.approval.op, id: runner.state.approval.id }),
@@ -497,11 +500,39 @@ world(async () => {
             c.end();
             assert.equal((await c.exited()).code, 0);
             const before = w.rows().length;
+            const prepared = w.preparations.length;
             w.dispatch({ type: "cancel" });
             assert.equal(w.runner.state.approval.kind, "none");
             assert.deepEqual(w.brain, [], "a closed connection's result is dropped, not given to the brain");
             assert.deepEqual(w.rows().slice(before).filter(row => row.kind === "release"), [], "nothing is released to a closed connection");
+            assert.equal(w.preparations.length, prepared, "a closed connection never starts release preparation");
             assert.ok(w.rows().slice(before).some(row => row.kind === "action" && row.decision === "refuse"), "the router still retires its hold");
+        }],
+        ["pending-release", async folder => {
+            for (const end of ["close", "invalid"]) {
+                let finish;
+                const w = await make(folder, { prepare: () => new Promise(resolve => { finish = resolve; }) });
+                const c = await w.ready();
+                c.send(call(86, "windows_list", {}));
+                c.send(ping(87));
+                assert.equal((await c.next()).id, 87);
+                w.answers[0]({ outcome: "completed", content: "fixture windows" });
+                await until(() => finish !== undefined, "release preparation started");
+                assert.equal(w.preparations.length, 1);
+                const before = w.rows().length;
+                if (end === "close") {
+                    w.launch.close();
+                    assert.equal((await c.exited()).code, 69);
+                }
+                finish(end === "close" ? [] : null);
+                await new Promise(resolve => setImmediate(resolve));
+                assert.deepEqual(w.rows().slice(before).filter(row => row.kind === "release"), [],
+                    end + " invalidates the pending transfer before audit");
+                if (end === "invalid") {
+                    c.send(ping(88));
+                    assert.equal((await c.next()).id, 88, "an invalidated release writes no tool answer");
+                }
+            }
         }],
         ["timeout", async folder => {
             const w = await make(folder);
@@ -563,6 +594,8 @@ world(async () => {
             ["close-connections", "            connection.socket.destroy();\n", "", "close"],
             ["owner-closed", 'if (lifetime !== "open") fail("closed");', "", "close"],
             ["drop-closed", "if (entry.answered || entry.connection.closed) return true;", "if (entry.answered) return true;", "dropped"],
+            ["release-closed", "grants === null || entry.connection.closed", "grants === null", "pending-release"],
+            ["release-invalid", "grants === null || entry.connection.closed", "entry.connection.closed", "pending-release"],
             ["final-delete", "if (value.final) pending.delete(answer.id);", "pending.delete(answer.id);", "timeout"],
             ["hello-delay", "const HELLO_MS = 2000;", "const HELLO_MS = 2001;", "bounds"],
             ["socket-path-edge", "Buffer.byteLength(socketPath) > SOCKET_PATH_BYTES", "Buffer.byteLength(socketPath) >= SOCKET_PATH_BYTES", "runtime"],
@@ -599,4 +632,9 @@ world(async () => {
         // check above already proved the real owner's teardown.
         process.exit(0);
     } finally { cleanup(); }
-})?.catch(error => { console.error(error); process.exitCode = 1; });
+})?.catch(error => {
+    console.error(error);
+    // Listener-removal controls intentionally retain listeners. A failed
+    // assertion must still exit with its cause before the outer world bound.
+    process.exit(1);
+});

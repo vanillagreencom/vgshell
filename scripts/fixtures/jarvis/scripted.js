@@ -61,11 +61,12 @@ function ports(root, engine) {
         brain: {
             send: (e, done) => {
                 record("brain-send", e);
-                for (const purpose of ["action", "release"]) gates.wait("approve-" + purpose, () => done("approval", {
-                    purpose, id: crypto.randomUUID(), digest: "a".repeat(64), physical: purpose === "action",
-                    text: purpose === "action" ? "Delete /home/fixture/draft.txt." : "Send file text to Claude Code?",
-                    tool: "fixture", timeoutMs: 30000, cancellable: false
-                }));
+                for (const purpose of ["action", "release"]) gates.wait("approve-" + purpose, () => {
+                    const text = purpose === "action" ? "Delete /home/fixture/draft.txt." : "Send file text to Claude Code?";
+                    done("transcript", { role: "assistant", text, stage: "final", rev: 1 });
+                    done("approval", { purpose, id: crypto.randomUUID(), digest: "a".repeat(64), physical: purpose === "action",
+                        text, tool: "fixture", timeoutMs: 30000, cancellable: false });
+                });
                 if (chained) { engine.brain.send(e, done); return; }
                 wait("brain", () => {
                     record("brain-callback", e);
@@ -194,7 +195,7 @@ function instrument(file, root, engine = "chained", mappedIndicator = false) {
         ['audio.playbackSource = engine.playbackSource;',
             'audio.playbackSource = engine.playbackSource;\n                    const scripted = require("./scripted-fixture.js").ports(' + JSON.stringify(root) + ', engine);\n' +
             '                    runner.ports.speech = scripted.speech;\n' +
-            '                    Object.assign(runner.ports, { capture: scripted.capture, brain: scripted.brain, playback: scripted.playback, approval: scripted.approval, tools: scripted.tools, release: scripted.release });'],
+            '                    Object.assign(runner.ports, { capture: scripted.capture, brain: scripted.brain, playback: scripted.playback });'],
         ['configured: configuration.kind === "ready", settings: context.settings',
             'configured: true, settings: context.settings']
     ];
@@ -229,9 +230,20 @@ function chainedEngine(file) {
     ]);
 }
 
-module.exports = { ports, instrument, plan, driver, chainedEngine };
+// The bubble row owns these held requests. Other drivers retain the real
+// router's approval and tool ports while using scripted capture and brain.
+function heldApprovals(file) {
+    edit(file, [[
+        'Object.assign(runner.ports, { capture: scripted.capture, brain: scripted.brain, playback: scripted.playback });',
+        'Object.assign(runner.ports, { capture: scripted.capture, brain: scripted.brain, playback: scripted.playback });\n' +
+        '                    Object.assign(runner.ports, { approval: scripted.approval, tools: scripted.tools, release: scripted.release });'
+    ]]);
+}
+
+module.exports = { ports, instrument, plan, driver, chainedEngine, heldApprovals };
 if (require.main === module) {
     if (process.argv.length === 4 && process.argv[2] === "--chained-engine") chainedEngine(process.argv[3]);
+    else if (process.argv.length === 4 && process.argv[2] === "--held-approvals") heldApprovals(process.argv[3]);
     else if (process.argv.length === 4 || (process.argv.length === 5 && process.argv[4] === "--mapped-indicator"))
         instrument(process.argv[2], process.argv[3], "chained", process.argv[4] === "--mapped-indicator");
     else throw new Error("scripted: arguments");

@@ -171,6 +171,17 @@ a=json.load(sys.stdin)["status"]["detail"]["state"]["approval"]
 print("drawn" if a["kind"]=="held" and a["shownAt"] is not None else "pending")
 '
 }
+jarvis_bubble_request_text() {
+  local state labels
+  state="$(ipc smoke jarvisProcess)" &&
+    labels="$(ipc smoke layerItems vgs.jarvis Label text,visible)" || return 1
+  python3 -c '
+import json,sys
+s=json.loads(sys.argv[1])["status"]["detail"]["state"]
+labels=json.loads(sys.argv[2]); a=s["approval"]
+print(sum(v["visible"] and v["text"]==a["text"] for screen,box,v in labels) if a["kind"]=="held" else 0)
+' "$state" "$labels"
+}
 jarvis_bubble_confirm_key() {
   hold_send "down 133" "down 64" "down 29" "up 29" "up 64" "up 133"
   jarvis_key_state approval
@@ -193,7 +204,9 @@ jarvis_bubble_accept() { # key|BUTTON EFFECT EXPECTED
 
 jarvis_bubble_engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
 cp -- "$jarvis_bubble_engine" "$sandbox/jarvis-bubble-engine-before"
+cp -- "$jarvis_key_backend" "$sandbox/jarvis-bubble-backend-before"
 jarvis_disable
+"$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --held-approvals "$jarvis_key_backend"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --chained-engine "$jarvis_bubble_engine"
 # Every sandbox shell lacks a required Jarvis command (tesseract is in
 # qml-smoke.sh's shell_hidden_commands), so an enable raises the core
@@ -269,6 +282,7 @@ for jarvis_bubble_answer in key Confirm Cancel Yes No; do
   jarvis_bubble_before="$(jarvis_key_effects "$jarvis_bubble_effect")"
   jarvis_bubble_approval "$jarvis_bubble_purpose"
   expect_poll "the held request receives a drawn-frame acknowledgment" drawn jarvis_bubble_acknowledged
+  expect "the drawn hold shows its complete request once" 1 jarvis_bubble_request_text
   expect "drawing a hold starts no request" "$jarvis_bubble_before" jarvis_key_effects "$jarvis_bubble_effect"
   expect "approval keeps the application's keyboard focus" '["smoke.other", "Other window"]' active_window
   geometry expect_poll "the held request stays inside its surface" bottom-centre jarvis_bubble_geometry
@@ -347,7 +361,7 @@ jarvis_disable
 # words controls keep the caption on the wire and break one bubble rule each.
 jarvis_bubble_file="$repo/shell/plugins/vgs.jarvis/Bubble.qml"
 cp -- "$jarvis_bubble_file" "$sandbox/jarvis-bubble-before"
-for jarvis_bubble_mutant in geometry focus words lines head generation approval-key approval-button approval-cancel approval-shown; do
+for jarvis_bubble_mutant in geometry focus words lines head generation approval-key approval-button approval-cancel approval-shown approval-caption; do
   jarvis_bubble_mutation_file="$jarvis_bubble_file"
   if [[ $jarvis_bubble_mutant == approval-key || $jarvis_bubble_mutant == approval-shown ]]; then
     jarvis_bubble_mutation_file="$jarvis_key_service"
@@ -366,7 +380,8 @@ needle,replacement={
     "approval-key": ('() => confirmApproval(displayedApproval(), "key")', '() => {}'),
     "approval-button": ('root.service.confirmApproval(root.displayedHold, "button")', 'void root.displayedHold'),
     "approval-cancel": ('root.service.cancelApproval(root.displayedHold)', 'void root.displayedHold'),
-    "approval-shown": ('send({ type: "shown", id: hold.id });', 'void hold;')
+    "approval-shown": ('send({ type: "shown", id: hold.id });', 'void hold;'),
+    "approval-caption": ('state === null || root.hold !== null ? ""', 'state === null ? ""')
 }[sys.argv[2]]
 s=p.read_text(); assert s.count(needle)==1
 changed=s.replace(needle,replacement); assert changed!=s
@@ -378,6 +393,14 @@ PY
     approval-*)
       jarvis_bubble_approval action
       case "$jarvis_bubble_mutant" in
+        approval-caption)
+          expect_poll "control: the held request frame is acknowledged" drawn jarvis_bubble_acknowledged
+          jarvis_bubble_failures="$(
+            failures=0 behaviour_failures=0
+            expect "the drawn hold shows its complete request once" 1 jarvis_bubble_request_text >"$sandbox/$jarvis_bubble_mutant.log"
+            echo "$failures"
+          )"
+          expect "control: repeating the caption fails the same request-count assertion" 1 printf '%s\n' "$jarvis_bubble_failures" ;;
         approval-shown)
           jarvis_bubble_failures="$(
             failures=0 behaviour_failures=0
@@ -464,6 +487,7 @@ jarvis_disable
 jarvis_restore_requirements
 cp -- "$sandbox/jarvis-bubble-before" "$jarvis_bubble_file"
 cp -- "$sandbox/jarvis-bubble-engine-before" "$jarvis_bubble_engine"
+cp -- "$sandbox/jarvis-bubble-backend-before" "$jarvis_key_backend"
 jarvis_rescan
 jarvis_enable
 jarvis_key_mode hold

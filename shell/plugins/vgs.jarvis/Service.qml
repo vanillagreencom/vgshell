@@ -50,7 +50,7 @@ Item {
                 () => intent("talk-down"), () => intent("talk-up"));
             shell.shortcut.register("mute", "Mute Jarvis", () => intent("mute"));
             shell.shortcut.register("stop", "Stop Jarvis", () => intent("stop"));
-            shell.shortcut.register("confirm", "Confirm Jarvis request", () => confirmApproval(displayedApproval(), "key"));
+            shell.shortcut.register("confirm", "Confirm Jarvis", () => confirmApproval(displayedApproval(), "key"));
             // The bar widget's click and `vgshell ipc call vgs.jarvis invoke
             // mute` reach the Mute key's intent.
             shell.ipc.handle("mute", () => { intent("mute"); return "ok"; });
