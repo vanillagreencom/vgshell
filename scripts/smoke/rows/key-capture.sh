@@ -1,4 +1,4 @@
-# Key capture, D086. The Settings window's Keys row takes a key combo by
+# Key capture, D067. The Settings window's Keys row takes a key combo by
 # its keys. Tab presses on the nested seat reach the Settings shortcut's
 # field, which shows its focus ring; Return starts a capture, which puts
 # the nested Hyprland in the vgs:passthrough submap; and SUPER+SPACE,

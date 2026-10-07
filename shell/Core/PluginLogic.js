@@ -1070,7 +1070,7 @@ function statusDisplayable(entry) {
 
 // Select models keyed by string setting name. Only accepted status enters
 // here. Neither a new list nor an absent configured id writes settings.
-// REVISIT(D057): A multi-value setting needs a separate schema contract.
+// Settings choices: docs/architecture/design-system.md § Settings pages.
 function settingChoices(manifest, values, settings) {
     var out = {};
     var choices = function (from, configured) {

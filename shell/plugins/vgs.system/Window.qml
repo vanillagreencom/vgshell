@@ -8,7 +8,7 @@ import "Memory.js" as Memory
 // window holds the exclusive `panes` capability, lists the sections from
 // `shell.panes.list` and mounts one at a time through `shell.panes.mount`,
 // which builds it with that plugin's own shell and destroys the one before
-// it (D088). The window host builds the window as a Hyprland window titled
+// it (docs/architecture/overview.md § Hosts and capabilities). The window host builds the window as a Hyprland window titled
 // System Settings. It asks to be `size.panel.sm` wider than
 // `size.window.width`, the sidebar's width beside a page as wide as a
 // Settings page, or the monitor's width less `size.window.gutter` a side
@@ -20,7 +20,7 @@ import "Memory.js" as Memory
 // through `shell.panes.setPlaced`. The window owns the section's title,
 // its inset and its scrolling; the section is a body drawn from x 0, which
 // fills the room under the header, or grows to its implicit height and
-// scrolls in the page's ScrollArea when it is taller (D050). Moving the
+// scrolls in the page's ScrollArea when it is taller (docs/architecture/design-system.md § Layout). Moving the
 // sidebar's selection mounts nothing; entering a row does, and moves the
 // keyboard into the section. Escape in a section returns the keyboard to
 // the sidebar's search field; Escape there with no query is left to the

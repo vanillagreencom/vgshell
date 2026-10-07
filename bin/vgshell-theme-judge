@@ -1368,7 +1368,7 @@ function applyTo(result, failures, configDir, stateDir, lock, name) {
         throw e;
     }
     replaceFile(path.join(stateDir, "theme.name"), name + "\n", key);
-    // An apply shows the package on every screen: it clears `screens` (D039).
+    // An apply shows the package on every screen: it clears `screens` (docs/architecture/themes.md § Backgrounds).
     backgrounds.land(stateDir, { current: background, themes: shown.themes, screens: {} }, shown, key);
     // Asserted on every apply, unchanged bytes included, so a line removed
     // by hand comes back.

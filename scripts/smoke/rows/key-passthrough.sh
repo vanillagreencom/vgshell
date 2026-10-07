@@ -1,4 +1,4 @@
-# Key capture pass-through, D086, after rows/key-capture.sh, whose shell
+# Key capture pass-through, D067, after rows/key-capture.sh, whose shell
 # and Settings plugin it keeps. Every way a capture ends leaves the nested
 # Hyprland's vgs:passthrough submap, read through `hyprctl submap` of the
 # nested instance alone: a commit, Escape (the submap's own bind), a focus

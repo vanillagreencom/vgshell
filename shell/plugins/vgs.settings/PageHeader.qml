@@ -11,7 +11,7 @@ import qs.Ui
 // puts its glyph's ink, not its box, on the content edge, and the title's
 // text starts `control.gap` after that leading box, its title button's
 // side padding reaching back into the gap; the button's box and focus
-// ring reach into the window's inset (D050).
+// ring reach into the window's inset (docs/architecture/design-system.md § Layout).
 Item {
     id: root
 

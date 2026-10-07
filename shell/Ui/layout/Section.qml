@@ -7,7 +7,7 @@ import qs.Ui
 // spacing, and the first item takes no top padding. Rows inside the section
 // are spaced by `rowSpacing`, `stack.row`; a section of blocks, such as a
 // line of buttons and a code line, sets it to `stack.group`. The heading
-// sits on the content edge, as D050 puts unboxed text; `headerInset`
+// sits on the content edge, as docs/architecture/design-system.md § Layout puts unboxed text; `headerInset`
 // indents it for a surface whose rows inset their text.
 Column {
     id: root

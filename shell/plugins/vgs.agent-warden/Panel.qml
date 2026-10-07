@@ -15,7 +15,8 @@ import "ViewLogic.js" as View
 //
 // A panel is built on summon and destroyed on hide, so its lifetime is one
 // open: it runs `vsys --once --summary` once per open() and holds the
-// clock at seconds while it lives (D041).
+// clock at seconds while it lives. The observation boundary is
+// shell/plugins/vgs.agent-warden/README.md § How it works.
 Item {
     id: root
 

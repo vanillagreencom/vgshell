@@ -1,6 +1,6 @@
 # Agent Warden developer reference
 
-The service's contract, the heartbeat that takes the warden's notices over and the rules for each episode are [D041](../../../docs/decisions/D041-agent-warden-observes-the-vsys-warden.md).
+The plugin's observation boundary is [How it works](README.md#how-it-works).
 
 ## States
 

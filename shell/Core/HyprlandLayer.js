@@ -774,7 +774,7 @@ function padMotion(theme) {
 // layout change, or the layer running again, fits each shown pad to its
 // monitor again. The pad is tiled because a floating `size` or `move` rule
 // applies once at map, while a tiled area is reapplied on every change
-// (docs/decisions/D102-pads-tiled-in-their-special-workspace.md).
+// (docs/architecture/hyprland.md § Configuration layer).
 function padLines(section, motion) {
     var p = PADS;
     var lines = [

@@ -55,7 +55,7 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // whose arrows move among the alternatives through KeyNav; Enter, Return
 // and keypad Enter activate the alternative edited through it, or the box
 // through KeyNavLogic.activate while none is there, as every button-like
-// control does (D068), and `focusPreview` draws its focus ring for the
+// control does (docs/architecture/design-system.md § Keyboard), and `focusPreview` draws its focus ring for the
 // gallery.
 FocusScope {
     id: root

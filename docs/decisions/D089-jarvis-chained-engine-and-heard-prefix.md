@@ -5,7 +5,7 @@
 **Date**: 2026-10-01
 **Status**: Active
 **Research**: the Jarvis plan attached to [VGS-623](https://linear.app/vanillagreen/issue/VGS-623), [VGS-652](https://linear.app/vanillagreen/issue/VGS-652)
-**Refines**: [D079](D079-brains-wire-and-harness-adapters.md), [D082](D082-jarvis-approval-bound-to-the-action.md)
+**Refines**: [D079](D079-brains-wire-and-harness-adapters.md), [D070](D070-jarvis-action-policy.md)
 
 **Decision**: One engine object per conversation owns the speech adapter, the brain, the release grants and the heard prefix, and ends them all when Session's generation changes. After a barge-in, the next user turn carries a separate labelled item with the prefix Audio reports as heard, and a cancelled turn stays in history unanswered. A duplex conversation is the same owner over one GPT-Live session, opened before its first capture and closed with the conversation; any server error or refused frame ends the conversation and no other voice takes over.
 

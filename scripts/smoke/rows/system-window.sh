@@ -1,5 +1,5 @@
 # The System window, vgs.system: the holder of the exclusive `panes`
-# capability (D088), a Hyprland window titled System Settings. Over four
+# capability (docs/architecture/overview.md § Hosts and capabilities), a Hyprland window titled System Settings. Over four
 # copies of the acme.pane fixture, three enabled in two groups and one left
 # disabled, the row reads the sidebar listing exactly the enabled sections
 # under their groups in the capability's order; `{}` opening the first

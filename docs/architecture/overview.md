@@ -42,6 +42,7 @@ The boundary is a static import check plus the scoped object, not a process sand
 - Do return a disposer from every registration a provider makes, so that disabling a plugin releases everything it held. `shell/Core/Lifetime.js` releases them with the instance; `scripts/test-lifetime.js` and `scripts/smoke/rows/capability-release.sh` pin it.
 - Never let a plugin own a session-wide object; the core owns it and lends it through a capability. `scripts/check-plugin-boundary.py` refuses a lent type in a plugin.
 - Never lend authority with a reading: a read-only capability exposes state without the power to change it ([D056](../decisions/D056-read-only-session-state.md), [D090](../decisions/D090-core-input-facts.md)). `scripts/smoke/rows/session.sh` and `scripts/test-input-facts.js` pin it.
+- Do keep a system section as its own `pane` plugin. One enabled window holds the exclusive `panes` capability and mounts one pane at a time with that pane plugin's own scoped `shell`. A holder's scope would give the pane the wrong settings and capabilities. Separate plugins let each section keep its widget, flyout and service and be enabled or updated alone. `scripts/smoke/rows/panes.sh` pins the mount.
 
 ## The canonical example
 
@@ -49,7 +50,7 @@ The boundary is a static import check plus the scoped object, not a process sand
 
 ## Revisit when
 
-A feature needs a surface no host can give without a core rewrite, a plugin cannot work without another plugin's service and no capability can carry it, or the resident-size budgets are measured against a process-per-plugin design and it fits.
+A feature needs a surface no host can give without a core rewrite, a plugin cannot work without another plugin's service and no capability can carry it, or the resident-size budgets are measured against a process-per-plugin design and it fits. Two enabled windows must host the same pane set, or a pane must outlive its holder.
 
 ## Not governed
 

@@ -14,7 +14,7 @@ floating TUI closes without a failure prompt that would hold it busy. 2
 arguments; 65 a refused spec; 74 an I/O failure or a record that could not
 be written (a held child is killed first and never execs).
 Stderr carries one keyed `jarvis: task-run=` line per failure.
-See docs/decisions/D087-jarvis-task-control.md.
+See docs/decisions/D072-coding-task-records-and-four-fact-state.md.
 """
 import errno
 import json

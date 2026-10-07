@@ -292,7 +292,7 @@ var SCREEN_SCOPES = [
 ];
 
 // The theme capability's `set` screen that shows an image on every screen
-// and clears each screen's own (D039).
+// and clears each screen's own (docs/architecture/themes.md § Backgrounds).
 var EVERY_SCREEN = "*";
 
 // Letter key codes the browsers read (Qt::Key in qnamespace.h). The

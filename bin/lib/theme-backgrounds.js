@@ -14,7 +14,7 @@
 // chose for each theme, and `screens` the image `set --screen` chose for
 // one Hyprland output, stamped the same way. `screens` is written only
 // while it holds an output, so a file without it is a current file with
-// no screen image (D039). An absent file is no current image, nothing
+// no screen image. An absent file is no current image, nothing
 // remembered and no screen image; a state that is all three is written as
 // no file. The judge is this file's only writer:
 // docs/architecture/themes.md § Backgrounds.

@@ -1,4 +1,4 @@
-# vgs.agent-warden, D041. The service is the one reader of the warden's
+# vgs.agent-warden, shell/plugins/vgs.agent-warden/README.md § How it works. The service is the one reader of the warden's
 # status file. The row writes vsys's own fixture documents into the
 # sandbox's runtime dir, $rt_dir/agent-warden/status.json, each replaced by
 # rename as the warden replaces it, with its time and its events' set to

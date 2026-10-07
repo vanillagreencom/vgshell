@@ -10,9 +10,9 @@ A target is data too: one `target.json` and its templates under `themes/targets/
 
 An apply lands whole or not at all. It stages every file beside its destination, swaps under the theme lock, and writes the shell's theme file last ([D021](../decisions/D021-theme-apply-writes-beside-each-destination.md)). A target that fails costs only itself and keeps its last files.
 
-VGS never overwrites what the user placed. A file reaches its application only through a managed form that proves itself ([D022](../decisions/D022-theme-apply-keeps-managed-links-in-application-directories.md), [D030](../decisions/D030-managed-copies-for-watched-theme-directories.md)). A `select` sets one key in a settings file that already exists ([D024](../decisions/D024-theme-apply-sets-one-theme-key-in-an-application-settings-file.md)). A follow never replaces a hand-edited theme file. A package changes only as a whole, and no layer merges over it ([D025](../decisions/D025-no-theme-override-layer.md)).
+VGS never overwrites what the user placed. Application entries and selection keys follow [D022](../decisions/D022-theme-apply-keeps-managed-links-in-application-directories.md). A follow never replaces a hand-edited theme file. A package changes only as a whole, and no layer merges over it ([D025](../decisions/D025-no-theme-override-layer.md)).
 
-A catalog package installs as an ordinary installed package and earns no trust of its own ([D038](../decisions/D038-judged-theme-catalog.md)). The wallpaper state is one file with one writer and one reader ([D039](../decisions/D039-per-screen-wallpaper-map.md)).
+A catalog package earns no trust of its own. The Catalog and Backgrounds rules below govern catalog installs and wallpaper state.
 
 ## Why
 
@@ -48,12 +48,12 @@ A wallpaper another program draws must not be covered by a bare background colou
 - Do declare `runsCode` on every target, and never take an installed package's curated file on a target that runs code. `scripts/test-vgshell-targets.sh` pins both.
 - Never run a target's `detect` entry. `scripts/test-vgshell.sh` pins it.
 - Never replace anything at an entry path that is not a managed form; skip the target as `entry-occupied`. `scripts/test-vgshell-entries.sh` pins it.
-- Never create an absent settings file for a `select`, and never change a byte but the theme key. `scripts/test-vgshell-agents.sh` and `scripts/test-theme-select.js` pin both.
+- Never create an absent settings file for a `select`, and never change a byte outside its declared theme selection keys. `scripts/test-vgshell-agents.sh` and `scripts/test-theme-select.js` pin both.
 - Never prompt during an apply: skip a target whose privileged `setup` is absent, and give its writer the narrowest argument grammar ([D029](../decisions/D029-chromium-policy-writer.md)). `scripts/test-vgshell-browsers.sh`, `scripts/test-vgshell-browser-policy.sh` and `scripts/test-themes-setup.js` pin them.
 - Do give a hook `/dev/null` for its streams and no lock descriptor, and kill it at its timeout. `scripts/test-vgshell-reload.sh` pins it.
 - Never let a hook replace what the user set: link a shipped theme only over an absent name or a dangling link, set nothing that already holds, and set no value the system lacks. `scripts/test-vgshell-toolkits.sh` pins each.
 - Never source `gum.env`; the floating TUI parses it. `scripts/test-theme-gum.js` pins it.
-- Never add a Hyprland target; the theme reaches Hyprland through the generated layer ([D028](../decisions/D028-one-generated-hyprland-layer.md), [D048](../decisions/D048-theme-owned-hyprland-appearance.md)). Review.
+- Never add a Hyprland target; the theme reaches Hyprland through the generated layer ([D028](../decisions/D028-one-generated-hyprland-layer.md)). Review.
 
 ### Applying
 
@@ -67,18 +67,19 @@ A wallpaper another program draws must not be covered by a bare background colou
 
 ### Catalog
 
-- Do judge the catalog index and every catalog package through `ThemeLogic`. `bin/vgshell-theme-judge catalog-check` refuses a bad one, and `scripts/test-vgshell-theme-judge.js` runs it over the shipped catalog.
+- Do keep first-party catalog data in `themes/catalog/`, with one index judged by `ThemeLogic`. `bin/vgshell-theme-judge catalog-check` refuses a bad index or package, and `scripts/test-vgshell-theme-judge.js` runs it over the shipped catalog.
 - Never ship a curated file on a target that runs code, a file no target writes, or a symlink in a catalog package. `catalog-check` refuses each.
-- Do install a catalog package as an ordinary installed package with a marker. `scripts/test-vgshell-catalog.sh` pins it.
+- Do install a catalog package on demand as an ordinary installed package with a marker. `scripts/test-vgshell-catalog.sh` pins it. Shipping it as an applied package would grant curated code trust and remove install-on-demand.
 - Never let install or update delete a package or its edits. `scripts/test-vgshell-catalog.sh` pins it.
 - Do run `recover` under the theme lock before any install verb changes anything. `scripts/test-vgshell-catalog.sh` pins it.
 - Do keep every shipped and catalog package readable, with any fix in the package's own `theme.json`. `scripts/check-theme-contrast.js` refuses a shortfall, and `scripts/test-check-theme-contrast.js` runs it over `themes/`.
-- Do accept wallpaper bytes only by the pin in the catalog index, over HTTPS. `scripts/test-theme-download.js` pins it.
+- Do fetch wallpapers on demand from the release archive pinned in the catalog index, over HTTPS. `scripts/test-theme-download.js` pins the accepted bytes.
 - Do hold the download lock for the fetch and the theme lock only for the land, and judge the package again at the land. `scripts/test-vgshell-wallpapers.sh` pins both.
 
 ### Backgrounds
 
 - Do keep `bin/lib/theme-backgrounds.js` the only writer of the wallpaper state and the `vgs.themes` plugin's `WallpaperState.qml` the only reader. `scripts/test-vgshell-backgrounds.sh` and `scripts/smoke/rows/themes.sh` pin both.
+- Do keep per-output images in the optional `screens` map of `backgrounds.json`, overriding `current` for those outputs. An absent entry uses `current`; use no separate mode flag or seeded map. Theme apply clears the map, and `set` accepts only an image the `list --all` result names. `scripts/test-vgshell-backgrounds.sh` pins the state and writer; `scripts/test-theme-logic.js` pins the screen argument grammar.
 - Never map the background surface while no image is current. `scripts/smoke/rows/themes.sh` pins it.
 - Never put a user image into a package, and never give the wallpaper browser an add, remove or delete action; user images live in the user folder. Review.
 
@@ -95,7 +96,7 @@ A wallpaper another program draws must not be covered by a bare background colou
 
 ## Revisit when
 
-Packages carry signatures or a trusted-author list, or a theme needs a code file with no template. Each other case is the revisit condition of the decision it would reopen: D021, D022, D024, D025, D030, D038 or D039.
+Packages carry signatures or a trusted-author list, a theme needs a code file with no template, the catalog outgrows the repository, a screen needs more than an image, or apply must keep a screen's image. Other cases follow the revisit condition of D021, D022 or D025.
 
 ## Not governed
 
