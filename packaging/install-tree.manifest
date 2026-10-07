@@ -197,6 +197,7 @@ f share/vgshell/shell/Ui/overlay/DismissScope.qml
 f share/vgshell/shell/Ui/overlay/ListMask.qml
 f share/vgshell/shell/Ui/overlay/Menu.qml
 f share/vgshell/shell/Ui/overlay/MenuItem.qml
+f share/vgshell/shell/Ui/overlay/ModalDialog.qml
 f share/vgshell/shell/Ui/overlay/OverlayState.qml
 f share/vgshell/shell/Ui/overlay/Popover.qml
 f share/vgshell/shell/Ui/overlay/Tooltip.qml

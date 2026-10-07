@@ -58,7 +58,7 @@
 # user file, so vgs.system and vgs.displays are as it found them, and
 # removes the output, the assignments file and the stub backlight and
 # gives hidraw2 its mode back. The dim settings live in the user file.
-# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprctlReader.qml shell/Hosts/PaneHost.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprctlReader.qml shell/Hosts/PaneHost.qml shell/Hosts/OverlaySurface.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
 set -euo pipefail
 devices_ready displays || return 0
 # The core probes the system steps once vgs.displays holds `system`, and
@@ -222,6 +222,83 @@ rest_pointer || fail "moving the pointer off the bar failed"
 expect "the deep link opens the System window on Displays" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
 expect_poll "the System window mounts the displays pane" '["vgs.displays"]' window_panes
 expect_poll "the pane opens with the keyboard on the arrangement canvas" '["Arrangement", "Display arrangement"]' disp_focus
+# The copies keep the production layout and substitute only the holding
+# trial and capable-panel input. The headless output has no VRR panel.
+# Typed properties report the actual card geometry and row parents.
+# Each control changes shipped QML in a fresh directory before Qt reads it.
+disp_layout_dir="$(mktemp -d "$repo/shell/plugins/vgs.displays/layout-copies.XXXXXX")" || { fail "the display layout copies cannot be allocated"; return 0; }
+python3 - "$repo/shell/plugins/vgs.displays/Pane.qml" "$repo/shell/Ui/overlay/ModalDialog.qml" "$disp_layout_dir" <<'PY'
+from pathlib import Path
+import sys
+pane, modal, folder = Path(sys.argv[1]).read_text(), Path(sys.argv[2]).read_text(), Path(sys.argv[3])
+def swap(source, old, new):
+    assert source.count(old) == 1, old
+    changed = source.replace(old, new)
+    assert changed != source
+    return changed
+pane = swap(pane, 'import "DisplaysLogic.js" as Logic', 'import ".."\nimport "../DisplaysLogic.js" as Logic')
+pane = swap(pane, 'property var shell: null', 'property var shell: parent.shell')
+pane = swap(pane, 'readonly property bool vrrShown: shell !== null && Logic.hasVrrPanel(shell.monitors.support)', 'readonly property bool vrrShown: true')
+pane = swap(pane, 'readonly property var trialState: shell === null ? ({ phase: "idle", token: "", deadline: 0, failure: "" }) : shell.monitors.trialState', 'readonly property var trialState: ({ phase: "holding", token: "", deadline: Math.floor(Date.now() / 1000) + 60, failure: "" })')
+end = pane.rfind('}')
+pane = pane[:end] + '''
+    readonly property bool vrrGrouped: vrrRow.parent === refreshRow.parent && vrrRow.y >= refreshRow.y + refreshRow.height && vrrRow.y <= refreshRow.y + refreshRow.height + Theme.stack.group
+    readonly property var modalEvidence: {
+        const surface = trialDialog.children[0].item;
+        if (surface === null) return { loaded: false };
+        const card = surface.contentItem.children.find(child => child.modal !== undefined);
+        if (card === undefined) return { loaded: true, card: false };
+        const at = card.mapToItem(surface.contentItem, 0, 0);
+        return { loaded: true, card: card.width > 0 && card.height > 0, modal: card.modal,
+            centered: Math.abs(at.x + card.width / 2 - surface.contentItem.width / 2) < 0.5 && Math.abs(at.y + card.height / 2 - surface.contentItem.height / 2) < 0.5,
+            focused: card.activeFocus, screen: surface.screen.name };
+    }
+''' + pane[end:]
+(folder / 'PaneLayout.qml').write_text(pane)
+(folder / 'ModalNotModal.qml').write_text(swap(modal, '                id: card', '                id: card\n                modal: false'))
+(folder / 'ModalNotCentered.qml').write_text(swap(modal, '                anchors.centerIn: parent', '                anchors.left: parent.left\n                anchors.top: parent.top'))
+for name, host in [('PaneNotModal', 'ModalNotModal'), ('PaneNotCentered', 'ModalNotCentered')]:
+    (folder / (name + '.qml')).write_text(swap(pane, '    ModalDialog {', '    ' + host + ' {'))
+start = pane.index('            FormRow {\n                id: vrrRow')
+end = pane.index('\n            FormRow {', start + 1)
+row = pane[start:end]
+changed = pane[:start] + pane[end:]
+at = changed.index('    Column {\n        id: content')
+changed = changed[:at] + row + '\n' + changed[at:]
+assert changed != pane
+(folder / 'PaneVrrOutside.qml').write_text(changed)
+PY
+disp_modal_read() { ipc smoke popupRead "displays-layout-$1" modalEvidence; }
+disp_modal_focus() { disp_modal_read PaneLayout | py_reply 'import json,sys; print(json.load(sys.stdin).get("focused") is True)'; }
+disp_modal_matches() {
+  disp_modal_read "$1" | py_reply 'import json,sys; value=json.load(sys.stdin); print(value.get("loaded") is True and value.get("card") is True and value.get("modal") is True and value.get("centered") is True and value.get("screen")==sys.argv[1])' "$disp_main"
+}
+disp_bottom="$(ipc smoke scrollTo window vgs.system 100000)" || { fail "the System page cannot scroll for the modal test"; return 0; }
+[[ $disp_bottom == \[* ]] || fail "the System page scroll is unavailable: $disp_bottom"
+for disp_layout in PaneLayout PaneNotModal PaneNotCentered PaneVrrOutside; do
+  expect "the probe builds the layout copy $disp_layout" ok ipc smoke popupLoad "displays-layout-$disp_layout" "$disp_layout_dir/$disp_layout.qml" window vgs.displays '{"width":600}'
+  if [[ $disp_layout == PaneLayout ]]; then
+    geometry expect_poll "the display trial is modal and centered on its screen at the bottom scroll" True disp_modal_matches "$disp_layout"
+    expect_poll "the display trial takes keyboard focus" True disp_modal_focus
+    expect_poll "the VRR row follows Refresh rate in the display group" true ipc smoke popupRead "displays-layout-$disp_layout" vrrGrouped
+  elif [[ $disp_layout == PaneVrrOutside ]]; then
+    expect_poll "control: the VRR row outside the display group is rejected" false ipc smoke popupRead "displays-layout-$disp_layout" vrrGrouped
+  else
+    disp_modal_expected='[false, true]'
+    [[ $disp_layout != PaneNotCentered ]] || disp_modal_expected='[true, false]'
+    disp_modal_control() {
+      disp_modal_read "$disp_layout" | py_reply 'import json,sys; value=json.load(sys.stdin); print(value.get("loaded") is True and value.get("card") is True and value.get("screen")==sys.argv[1] and [value.get("modal"),value.get("centered")]==json.loads(sys.argv[2]))' "$disp_main" "$disp_modal_expected"
+    }
+    geometry expect_poll "control: $disp_layout keeps a drawn card and breaks only its named property" True disp_modal_control
+    geometry expect_poll "control: $disp_layout fails the modal and centering contract" False disp_modal_matches "$disp_layout"
+  fi
+  expect "the probe drops the layout copy $disp_layout" ok ipc smoke popupDrop "displays-layout-$disp_layout"
+done
+rm -r -- "${disp_layout_dir:?}" || fail "removing the display layout copies failed"
+expect_poll "destroying the display layout copies removes their modal surfaces" 0 layer_count vgs:dialog
+ipc smoke scrollTo window vgs.system 0 >/dev/null || fail "restoring the System page scroll failed"
+expect "the System window restores Displays after the modal test" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
+expect_poll "the arrangement regains keyboard focus after the modal test" '["Arrangement", "Display arrangement"]' disp_focus
 type_keys -k Tab -k Tab || fail "typing Tab to the Resolution choice failed"
 expect_poll "Tab passes the Use this display switch the only display cannot turn off, and no Mirror choice, to Resolution" '["Select", "Resolution"]' disp_focus
 type_keys -k Tab -k Tab -k Tab -k Tab || fail "typing Tab to the Colour depth choice failed"

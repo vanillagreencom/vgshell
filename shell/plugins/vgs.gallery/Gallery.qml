@@ -425,6 +425,21 @@ Item {
                     title: "Dialogs"
                     rowSpacing: Theme.stack.group
                     description: "Confirmations, progress and disabled actions"
+                Button {
+                    id: modalExample
+                    property string focusExample: "Modal dialog launcher"
+                    text: "Open modal dialog"
+                    variant: "secondary"
+                    onClicked: modalSample.shown = true
+                }
+                ModalDialog {
+                    id: modalSample
+                    title: "Keep these settings?"
+                    message: "This confirmation stays at the center of the screen."
+                    actions: [{ label: "Keep", role: "accept" }, { label: "Revert", role: "cancel" }]
+                    onAccepted: shown = false
+                    onRejected: shown = false
+                }
                 Dialog {
                     modal: false
                     title: "Warden"

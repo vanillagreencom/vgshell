@@ -84,3 +84,4 @@ internal AvatarFace feedback/AvatarFace.qml
 internal LevelLabel feedback/LevelLabel.qml
 singleton OverlayState 1.0 overlay/OverlayState.qml
 singleton ImagePool 1.0 foundation/ImagePool.qml
+ModalDialog 1.0 overlay/ModalDialog.qml

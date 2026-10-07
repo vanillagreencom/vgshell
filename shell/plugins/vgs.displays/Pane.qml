@@ -185,30 +185,20 @@ FocusScope {
     implicitHeight: content.implicitHeight
     focus: true
 
+    ModalDialog {
+        id: trialDialog
+        shown: root.trialState.phase === "holding"
+        title: "Keep these display settings?"
+        message: Logic.countdownDetail(root.trialState.deadline - root.nowSeconds)
+        actions: [{ label: "Keep", role: "accept" }, { label: "Revert", role: "cancel" }]
+        onAccepted: root.keepTrial()
+        onRejected: root.revertTrial()
+    }
+
     Column {
         id: content
         width: root.width
         spacing: Theme.stack.section
-
-        FormRow {
-            width: parent.width
-            visible: root.vrrShown
-            label: "Variable refresh rate"
-            warning: root.vrrProblem === "" ? "Applies to all capable displays." : root.vrrProblem
-            warningTone: root.vrrProblem === "" ? "muted" : "warning"
-
-            Select {
-                width: parent.width
-                model: root.vrrChoices
-                textRole: "label"
-                currentIndex: Logic.indexByValue(root.vrrChoices, root.vrr)
-                Accessible.name: "Variable refresh rate"
-                onActivated: index => {
-                    root.setVrr(root.vrrChoices[index].value);
-                    currentIndex = Qt.binding(() => Logic.indexByValue(root.vrrChoices, root.vrr));
-                }
-            }
-        }
 
         Column {
             width: parent.width
@@ -218,18 +208,6 @@ FocusScope {
                 width: parent.width
                 text: "Display"
                 description: "Set the mode, scale, orientation and colour of one screen."
-            }
-
-            Dialog {
-                id: trialDialog
-                width: parent.width
-                visible: root.trialState.phase === "holding"
-                modal: false
-                title: "Keep these display settings?"
-                message: Logic.countdownDetail(root.trialState.deadline - root.nowSeconds)
-                actions: [{ label: "Keep", role: "accept" }, { label: "Revert", role: "cancel" }]
-                onAccepted: root.keepTrial()
-                onRejected: root.revertTrial()
             }
 
             Arrangement {
@@ -347,6 +325,7 @@ FocusScope {
             }
 
             FormRow {
+                id: refreshRow
                 width: parent.width
                 enabled: !root.trialHolding
                 visible: root.selected !== null && root.selectedOn
@@ -364,6 +343,27 @@ FocusScope {
                     onActivated: index => {
                         root.setOutputDraft({ mode: choices[index].mode });
                         currentIndex = Qt.binding(() => root.selectedRule === null ? 0 : Logic.indexByValue(choices, root.selectedRule.mode.refresh));
+                    }
+                }
+            }
+
+            FormRow {
+                id: vrrRow
+                width: parent.width
+                visible: root.vrrShown
+                label: "Variable refresh rate"
+                warning: root.vrrProblem === "" ? "Applies to all capable displays." : root.vrrProblem
+                warningTone: root.vrrProblem === "" ? "muted" : "warning"
+
+                Select {
+                    width: parent.width
+                    model: root.vrrChoices
+                    textRole: "label"
+                    currentIndex: Logic.indexByValue(root.vrrChoices, root.vrr)
+                    Accessible.name: "Variable refresh rate"
+                    onActivated: index => {
+                        root.setVrr(root.vrrChoices[index].value);
+                        currentIndex = Qt.binding(() => Logic.indexByValue(root.vrrChoices, root.vrr));
                     }
                 }
             }
