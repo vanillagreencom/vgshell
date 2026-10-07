@@ -81,7 +81,7 @@ A terminal slot that programs draw text in, `color1` to `color6` and `color9` to
 | `artzen` | white | `color1` #9b584d + 0.18 → #ad766d, `color2` #9f6769 + 0.10 → #a97678 |
 | `bauhaus` | white | `color4` #5e738b + 0.09 → #6c8095, `color5` #8d758f + 0.01 → #8e7690, `color12` #6c7c82 + 0.03 → #708086 |
 | `biscuit-de-mar` | white | `color4` #756d94 + 0.10 → #837c9f, `color5` #7b3d79 + 0.27 → #9f719d, `color6` #756d94 + 0.10 → #837c9f, `color12` #756d94 + 0.10 → #837c9f, `color13` #7b3d79 + 0.27 → #9f719d, `color14` #756d94 + 0.10 → #837c9f |
-| `brutalism` | white | `color1` #450404 + 0.45 → #997575, `color2` #630a0a + 0.42 → #a57171, `color9` #9c0909 + 0.36 → #c06262, `color10` #9f1d1d + 0.31 → #bd6363 |
+| `brutalism` | white | `color1` takes the source `color2`: #630a0a + 0.42 → #a57171; `color9` takes the source `color10`: #9f1d1d + 0.31 → #bd6363; `color2` #e8708c and `color10` #f590a6 are a reddish pink the owner chose for added diff lines |
 | `catppuccin-latte` | black | `color2` #40a02b + 0.22 → #327d22, `color3` #df8e1d + 0.32 → #986114, `color4` #1e66f5 + 0.03 → #1d63ee, `color5` #ea76cb + 0.31 → #a1518c, `color6` #179299 + 0.17 → #13797f, `color10` #40a02b + 0.22 → #327d22, `color11` #df8e1d + 0.32 → #986114, `color12` #1e66f5 + 0.03 → #1d63ee, `color13` #ea76cb + 0.31 → #a1518c, `color14` #179299 + 0.17 → #13797f |
 | `eldritch` | white | `color4` #9071f4 + 0.04 → #9477f4 |
 | `ember-n-ash` | white | `color4` #6c5b4c + 0.23 → #8e8175, `color12` #7f6b5d + 0.14 → #918074 |
