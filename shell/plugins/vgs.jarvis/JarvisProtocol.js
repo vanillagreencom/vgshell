@@ -249,7 +249,9 @@ function accept(line, direction) {
     case "hello":
         if (direction !== "shell") fail("direction-hello");
         keys(message, ["v", "type", "gen", "settings", "directories", "revision", "locked", "keys"], "hello");
-        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"], "settings");
+        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount"], "settings");
+        if (!["local", "gpt-live"].includes(message.settings.voiceProvider) || typeof message.settings.voiceAccount !== "string"
+                || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings.voiceAccount)) fail("voice-settings");
         if (typeof message.settings.sounds !== "boolean") fail("sounds");
         if (typeof message.settings.brain !== "string") fail("shape-settings");
         if (message.settings.mode !== "hold" && message.settings.mode !== "toggle") fail("mode");

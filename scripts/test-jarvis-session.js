@@ -13,7 +13,7 @@ const copy = value => JSON.parse(JSON.stringify(value));
 const events = ["snapshot", "indicator", "talk-down", "talk-up", "toggle", "mute", "unmute", "mute-toggle", "stop",
     "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial", "final", "say", "collect-failed", "brain-done",
     "brain-failed", "brain-ended", "cancelled", "play", "played", "flushed", "tool", "tool-done", "approval",
-    "shown", "confirm", "approval-cancel", "deadline", "lease-ended", "speak", "transcript", "speech-idle", "speech-failed", "feedback"];
+    "shown", "confirm", "approval-cancel", "deadline", "lease-ended", "speak", "transcript", "speech-idle", "speech-failed", "feedback", "delegation"];
 assert.deepEqual(copy(Session.EVENTS), events, "every supported event enters the pair matrix");
 const snapshot = extra => ({ type: "snapshot", at: 0, locked: false, engine: "chained", configured: true,
     settings: {}, ...extra });
@@ -862,7 +862,7 @@ const table = [
         assert.equal(logic.phaseOf(s), "down");
     }]
 ];
-for (const key of ["voiceProvider", "voice", "language", "brain", "model", "customBaseUrl", "policy", "cloudVision", "account"])
+for (const key of ["voiceProvider", "voice", "language", "brain", "model", "customBaseUrl", "policy", "cloudVision", "account", "voiceAccount"])
     table.push(["settings-" + key, logic => {
         const s = held(logic);
         const r = step(logic, s, snapshot({ at: 50, settings: { [key]: "changed" } }));
@@ -881,7 +881,23 @@ table.push(["next-setting", logic => {
     const s = held(logic);
     assert.equal(step(logic, s, snapshot({ settings: { microphone: "next" } })).state.gen, s.gen);
 }]);
-table.push(["duplex-open", logic => {
+table.push(["duplex-delegation", logic => {
+    const s = duplexListening(logic);
+    const first = step(logic, s, callback("delegation", s.speech, 30, { id: "old", text: "context" }));
+    assert.equal(first.state.turn.kind, "thinking");
+    assert.equal(first.state.capture.kind, "open", "delegation does not change the voice model's capture");
+    assert.equal(first.effects.find(e => e.kind === "brain-send").delegation, "old");
+    const replacement = step(logic, first.state, callback("delegation", first.state.speech, 31, { id: "new", text: "new context" }));
+    assert.ok(replacement.effects.some(e => e.kind === "brain-cancel" && e.target === first.state.turn.op));
+    assert.ok(replacement.state.turn.op > first.state.turn.op);
+    const late = step(logic, replacement.state, callback("brain-done", first.state.turn, 32));
+    assert.equal(late.state.turn.op, replacement.state.turn.op);
+    assert.equal(late.state.stale, replacement.state.stale + 1);
+    const ended = step(logic, replacement.state, event("stop", 33)).state;
+    const stale = step(logic, ended, callback("delegation", first.state.speech, 34, { id: "old", text: "old context" }));
+    assert.equal(stale.effects.some(e => e.kind === "brain-send"), false);
+    assert.equal(stale.state.stale, ended.stale + 1);
+}], ["duplex-open", logic => {
     const chained = step(logic, ready(logic), event("talk-down"));
     assert.equal(kinds(chained).includes("speech-open"), false, "a chained engine opens no speech session");
     const r = step(logic, duplexReady(logic), event("talk-down"));
@@ -1144,7 +1160,7 @@ function fixtureEvent(type, s, at) {
         "brain-done": "turn", "brain-failed": "turn", "brain-ended": "turn", cancelled: "turn", play: "turn",
         played: "playback", flushed: "playback", tool: "turn", "tool-done": "action",
         approval: "turn", shown: "approval", confirm: "approval", "approval-cancel": "approval", deadline: "turn",
-        speak: "speech", transcript: "speech", "speech-idle": "speech", "speech-failed": "speech", feedback: "turn"
+        speak: "speech", transcript: "speech", "speech-idle": "speech", "speech-failed": "speech", feedback: "turn", delegation: "speech"
     };
     const owner = s[regions[type]] || {};
     return { ...snapshot(), type, at, shown: true, text: "fixture", reason: "fixture", outcome: "completed",
@@ -1228,8 +1244,12 @@ const createdCallbacks = [
         assert.equal(r.effects.find(e => e.kind === "brain-close").target, s.brain.op);
     } },
     { effect: "brain-send", type: "play", check: (s, r, e) => {
-        assert.equal(r.state.playback.kind, "playing");
-        assert.equal(r.state.playback.source, e.op);
+        if (s.playback.kind !== "idle" || s.conversation.kind === "interrupted")
+            assert.deepEqual(r.state.playback, s.playback, "an existing reply keeps its owner");
+        else {
+            assert.equal(r.state.playback.kind, "playing");
+            assert.equal(r.state.playback.source, e.op);
+        }
     } },
     { effect: "brain-send", type: "tool", check: (s, r) => {
         if (s.action.kind === "none" && s.approval.kind === "none") {
@@ -1266,6 +1286,10 @@ const createdCallbacks = [
     { effect: "speech-open", type: "speak", check: (s, r, e) => assert.ok(r.state.speech.reply.kind === "waiting"
         || (r.state.playback.kind === "playing" && r.state.playback.source === e.op)) },
     { effect: "speech-open", type: "transcript", check: (s, r) => assert.equal(r.effects.find(e => e.kind === "transcript").text, "fixture") },
+    { effect: "speech-open", type: "delegation", check: (s, r) => {
+        assert.equal(r.state.turn.kind, "thinking");
+        assert.equal(r.effects.find(e => e.kind === "brain-send").delegation, "fixture");
+    } },
     { effect: "brain-send", type: "transcript", extra: { role: "assistant" },
         check: (s, r) => assert.equal(r.effects.find(e => e.kind === "transcript").role, "assistant") },
     { effect: "speech-open", type: "speech-idle", check: (s, r, e) => {
@@ -1345,7 +1369,7 @@ function createdPairMatrix(logic) {
         "playback-start:played", "playback-start:playback-failed", "playback-flush:flushed",
         "tool-start:tool-done", "tool-start:deadline",
         "approval-show:shown", "approval-show:deadline",
-        "speech-open:speak", "speech-open:transcript", "speech-open:speech-idle", "speech-open:speech-failed"
+        "speech-open:speak", "speech-open:transcript", "speech-open:speech-idle", "speech-open:speech-failed", "speech-open:delegation"
     ].sort(), "created-owner discovery omitted a producer or deadline owner");
     assert.ok(count >= 18, "created-owner discovery did not complete its required callbacks");
     return count;
@@ -1483,7 +1507,8 @@ try {
         ["start-gen", 's.gen++;\n        s.conversation = { kind: "active" };', 's.gen += 0;\n        s.conversation = { kind: "active" };', "start-generation"],
         ["end-gen", 's.gen++;\n        s.conversation = { kind: "ended" };', 's.gen += 0;\n        s.conversation = { kind: "ended" };', "end-generation"],
         ["settings", 'a[key] !== b[key]', '(false && a[key] !== b[key])', "settings-model"],
-        ["settings-cloud-vision", '"policy", "cloudVision", "account"]', '"policy", "account"]', "settings-cloudVision"],
+        ["settings-voice-account", '"account", "voiceAccount"]', '"account"]', "settings-voiceAccount"],
+        ["settings-cloud-vision", '"policy", "cloudVision", "account", "voiceAccount"]', '"policy", "account", "voiceAccount"]', "settings-cloudVision"],
         ["mute-ack", 's.mute.kind === "muting" && s.capture.kind === "closed"', 's.mute.kind === "muting"', "mute-ack"],
         ["cancel-ack", 'live(s, e, "turn", ["cancelling"])', 'live(s, e, "turn", ["none"])', "cancel-ack"],
         ["cancel-ack-retains", 'if (s.conversation.kind === "ended") closeBrain(s, effects);\n        s.turn',
@@ -1524,6 +1549,9 @@ try {
         ["echo-state", 'duplex: { half: "" }', 'duplex: { half: "", echo: "" }', "echo-unavailable"],
         ["phase", 'if (s.approval.kind === "held") return "confirming";', 'if (false && s.approval.kind === "held") return "confirming";', "phase-priority"],
         ["speech-open", 'if (s.engine.kind === "duplex" && s.speech.kind === "closed" && canCapture(s)) {', "if (false) {", "duplex-open"],
+        ["delegation-cancel", 'cancelTurn(s, effects, e.at);\n            dropApproval(s, effects, "replaced", e.at);',
+            'dropApproval(s, effects, "replaced", e.at);', "duplex-delegation"],
+        ["delegation-stale", 's.engine.kind !== "duplex" || !live(s, e, "speech", ["open"])', "false", "duplex-delegation"],
         ["duplex-collect", 'if (s.engine.kind === "chained" && canCapture(s)', "if (canCapture(s)", "duplex-open"],
         ["held-reply", '&& s.input.kind !== "held";', ";", "duplex-hold-reply"],
         ["speech-flush", 'effect(s, effects, "speech-flush", { gen: s.speech.gen, target: s.speech.op });', "", "duplex-interrupt"],

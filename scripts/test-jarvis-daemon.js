@@ -15,7 +15,7 @@ const { instrument: instrumentDesktop } = require("./fixtures/jarvis/desktop-dri
 const tree = path.resolve(__dirname, "..");
 const daemon = path.join(tree, "shell/plugins/vgs.jarvis/backend/jarvisd.js");
 const source = fs.readFileSync(daemon, "utf8");
-const hello = { v: 1, type: "hello", gen: 0, settings: { sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto",
+const hello = { v: 1, type: "hello", gen: 0, settings: { sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "",
     cloudVision: "ask", privateWindows: "bitwarden" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
@@ -821,7 +821,7 @@ async function inside() {
         assert.equal(w.last().state.input.kind, "conversation", "release does not commit toggle");
         await new Promise(resolve => setTimeout(resolve, 250)); // Reach the reducer's next permitted toggle edge.
         w.send("talk-down");
-        await w.wait(m => m.state.conversation.kind === "ended");
+        await w.wait(m => m.state.conversation.kind === "ended" && m.state.capture.kind === "closed");
         assert.equal(w.last().state.capture.kind, "closed");
     }, "toggle");
     // The duplex wire: a caption from the live speech session reaches stdout as

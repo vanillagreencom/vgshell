@@ -8,6 +8,7 @@ const Policy = require("./Policy.js");
 const Providers = require("./Providers.js");
 const Net = require("./net.js");
 const Guidance = require("./Guidance.js");
+const Speakable = require("./Speakable.js");
 const { sourceLimit, PCM_RATE } = require("./Audio.js");
 
 const MODEL = "gpt-live-1";
@@ -24,6 +25,9 @@ const PENDING_BYTES = PCM_RATE * 2 * START_WAIT_MS / 1000;  // queued input, ope
 const APPEND_BYTES = PCM_RATE * 2;
 const SEND_BACKLOG_BYTES = 256 * 1024;
 const FRAME_CHARS = 1024 * 1024;
+const CONTEXT_CHARS = 65536;
+// At most 400 UTF-8 bytes, below the vendor's 500-token commentary limit.
+const COMMENTARY_CHARS = 100;
 const FINALIZING = 4;
 const REPLY_BYTES = sourceLimit(false, false);
 const CLOSED_REASONS = ["close_requested", "expired", "content", "remote_hangup", "connection_lost"];
@@ -38,8 +42,7 @@ function reasonOf(error) { return String(error.message).replace(/^jarvis: /, "")
 
 /**
  * The one narrowing door for a server message. Returns a tagged event or
- * throws a keyed error. Types the session never requests, delegation included,
- * refuse: J36 configures client delegation and does not serve it.
+ * throws a keyed error. Client delegation carries identity and time, never task text.
  */
 function eventOf(data) {
     if (typeof data !== "string") fail("frame-binary");
@@ -77,7 +80,10 @@ function eventOf(data) {
         if (!CLOSED_REASONS.includes(value.reason)) fail("frame-shape");
         return { kind: "closed", reason: value.reason };
     case "session.delegation.created":
-        return fail("delegation-unsupported");
+        if (!plain(value.delegation) || value.delegation.type !== "delegation" || value.delegation.target !== "client"
+                || typeof value.delegation.id !== "string" || value.delegation.id === "" || value.delegation.id.length > 512
+                || !time(value.offset_ms)) fail("delegation-shape");
+        return { kind: "delegation", id: value.delegation.id, offset: value.offset_ms };
     case "error":
         return fail("server-error code=" + token(plain(value.error) ? value.error.code : undefined));
     default:
@@ -87,10 +93,11 @@ function eventOf(data) {
 
 /**
  * create({provider, clock, conversation, captionLimit, log}) returns
- * {port, captureSink, playbackSource}. provider is the Providers.select
- * "openai-live" row. conversation(e) answers {net, key, language} for a
+ * {port, captureSink, playbackSource, commentary}. provider is the Providers.select
+ * "openai-live" row. conversation(e) answers {net, key, language, transfer, grants} for a
  * speech-open effect: the session's net owner, null or {secrets, reference},
- * and the speech language. captionLimit is the wire's transcript bound. log
+ * the speech language, audited transfer and current release grants. captionLimit
+ * is the wire's transcript bound. log
  * receives keyed diagnostic lines. One session at a time is live; closed ones
  * finalize in the background.
  */
@@ -106,14 +113,19 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         session.timers[name] = null;
     }
     function release(session) {
+        conclude(session, "assistant");
         for (const name of Object.keys(session.timers)) clear(session, name);
         if (session.next !== null) session.next.stream.destroy();
         session.next = null;
         session.playing = null;
         session.capture = null;
         session.pending = [];
-        if (session.channel !== null) session.channel.close();
+        session.context = [];
+        session.delegation = null;
+        // Closing a connecting channel can emit close synchronously. The
+        // released session must refuse that callback before it closes.
         session.state = { kind: "ended" };
+        if (session.channel !== null) session.channel.close();
         sessions.delete(session.op);
         if (live === session) live = null;
     }
@@ -132,8 +144,9 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         release(session);
         if (cause !== null) log("jarvis: live=close-unconfirmed cause=" + cause);
     }
-    function send(session, value) {
-        const answer = session.channel.send(Policy.item(JSON.stringify(value), ["speech"]));
+    function send(session, value, items = [Policy.item("", ["speech"])]) {
+        const frame = Policy.summary(JSON.stringify(value), items);
+        const answer = session.transfer(frame, () => session.channel.send(frame, session.grants()));
         if (answer.kind !== "send") fail("release-" + answer.kind);
         if (session.channel.bufferedAmount > SEND_BACKLOG_BYTES) fail("send-backlog");
     }
@@ -229,17 +242,22 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         if (role === "user" && session.output.kind === "discarding" && start >= session.output.from)
             session.output = { kind: "passing" };
         let text = delta.replace(/[\x00-\x1f\x7f]/g, " ");
+        session.contextChars += text.length;
+        if (session.contextChars > CONTEXT_CHARS) fail("context-limit");
+        if (text !== "") session.context.push({ role, text, start, end });
         let segment = session.segments[role];
         const emit = (value, stage) => {
             session.rev++;
             session.events.transcript({ role, text: value, stage, rev: session.rev });
         };
         if (segment !== null && start - segment.end >= SEGMENT_GAP_MS) {
+            conclude(session, role);
             emit(segment.text, "final");
             segment = session.segments[role] = null;
         }
         while (text !== "") {
             if (segment !== null && segment.text.length === captionLimit) {
+                conclude(session, role);
                 emit(segment.text, "final");
                 segment = null;
             }
@@ -249,6 +267,20 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             text = text.slice(room);
             segment.end = end;
             emit(segment.text, "partial");
+        }
+    }
+    // Caption windows never overlap. The log carries only violation kinds and counts.
+    function conclude(session, role) {
+        const segment = session.segments[role];
+        if (role !== "assistant" || segment === null || segment.counted) return;
+        segment.counted = true;
+        try {
+            const counts = Speakable.violations(segment.text, session.language);
+            if (Object.values(counts).some(count => count !== 0))
+                log("jarvis: live=violations counts=" + JSON.stringify(counts));
+        } catch {
+            // Privacy teardown must finish even when a transcript exceeds a sanitizer bound.
+            log("jarvis: live=violation-overflow");
         }
     }
     function receive(session, data) {
@@ -267,6 +299,13 @@ function create({ provider, clock, conversation, captionLimit, log }) {
                 if (kind === "running") caption(session, event.role, event.text, event.start, event.end);
                 else if (kind !== "closing") fail("event-order");
                 break;
+            case "delegation":
+                if (kind !== "running") fail("event-order");
+                activity(session);
+                session.delegation = event.id;
+                session.events.delegation({ id: event.id, text: session.context.filter(item => item.end <= event.offset)
+                    .map(item => item.role + ": " + item.text).join("\n") });
+                break;
             case "closed":
                 if (kind === "closing") finalize(session, null);
                 else fail("closed reason=" + event.reason);
@@ -276,7 +315,10 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             }
         } catch (error) { failed(session, reasonOf(error)); }
     }
-    function connect(session, { net, key, language }) {
+    function connect(session, { net, key, language, transfer, grants }) {
+        session.transfer = transfer;
+        session.grants = grants;
+        session.language = language;
         if (key === null) fail("no-key");
         Net.assertKeyTarget(provider.base, key.reference.origin);
         session.start = { type: "session.start", session: { model: MODEL,
@@ -285,8 +327,9 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         const secret = key.secrets.lookup(key.reference);
         let answer;
         try {
-            answer = net.websocket(Policy.item(provider.base, ["speech"]), { url: provider.base,
-                key: { origin: key.reference.origin, header: "authorization", prefix: "Bearer ", value: secret.toString("utf8") } });
+            const item = Policy.item(provider.base, ["speech"]);
+            answer = transfer(item, () => net.websocket(item, { url: provider.base,
+                key: { origin: key.reference.origin, header: "authorization", prefix: "Bearer ", value: secret.toString("utf8") } }));
         } finally { secret.fill(0); }
         if (answer.kind !== "channel") fail("release-" + answer.kind);
         session.channel = answer;
@@ -311,6 +354,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
                 timers: { start: null, silence: null, idle: null, gap: null, close: null },
                 pending: [], pendingBytes: 0, inputAt: now, sent: 0, capture: null, playing: null, next: null,
                 output: { kind: "passing" }, segments: { user: null, assistant: null }, rev: 0 };
+            Object.assign(session, { context: [], contextChars: 0, delegation: null, language: "" });
             sessions.set(e.op, session);
             live = session;
             session.timers.start = clock.set(() => failed(session, "live=start-timeout"), START_WAIT_MS);
@@ -324,6 +368,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
                 finalize(session, e.mode === "abort" ? "lease" : session.state.kind);
                 return;
             }
+            conclude(session, "assistant");
             for (const name of ["silence", "idle", "gap"]) clear(session, name);
             if (session.next !== null) session.next.stream.destroy();
             session.next = null;
@@ -346,6 +391,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         flush(e) {
             const session = sessions.get(e.target);
             if (session === undefined || session !== live) return;
+            session.delegation = null;
             session.output = { kind: "discarding", from: Math.floor(session.sent * 1000 / PCM_RATE) };
             clear(session, "gap");
             if (session.next !== null) session.next.stream.destroy();
@@ -355,6 +401,20 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             activity(session);
         }
     };
+
+    function commentary(id, item) {
+        const session = live;
+        if (session === null || session.state.kind !== "running" || session.delegation !== id) return false;
+        // Speakable sentences enter here; each frame keeps all source labels.
+        let text = item.content;
+        while (text !== "") {
+            let prefix = [...text].slice(0, COMMENTARY_CHARS).join("");
+            if (prefix.length < text.length && prefix.lastIndexOf(" ") > 0) prefix = prefix.slice(0, prefix.lastIndexOf(" ") + 1);
+            text = text.slice(prefix.length);
+            send(session, { type: "session.commentary.append", delegation_id: id, content: prefix }, [item]);
+        }
+        return true;
+    }
 
     function captureSink() {
         const session = live;
@@ -399,7 +459,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         return reply.stream;
     }
 
-    return Object.freeze({ port: Object.freeze(port), captureSink, playbackSource });
+    return Object.freeze({ port: Object.freeze(port), captureSink, playbackSource, commentary });
 }
 
 module.exports = { create };

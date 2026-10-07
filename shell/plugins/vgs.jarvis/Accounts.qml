@@ -57,12 +57,13 @@ Item {
             const accounts = value.accounts.map(item => ({ label: item.label, value: item.value, hint: Words.accountHint(item) }));
             const search = Words.searchValue({ kind: "found", found: value.search.found, partial: value.search.partial });
             if (shell.status.set("accounts", accounts) !== "ok" || shell.status.set("brains", value.brains) !== "ok"
+                || shell.status.set("voiceAccounts", value.voiceAccounts) !== "ok"
                 || shell.status.set("accountSearch", search) !== "ok"
                 || shell.status.set("setupSignIn", { tone: "info", text: "Optional", action: true }) !== "ok") throw new Error("status");
         } catch (error) {
             const reason = Providers.probeFailure(completion, diagnostic);
             console.warn(reason);
-            const replies = [shell.status.set("accounts", []), shell.status.set("brains", []),
+            const replies = [shell.status.set("accounts", []), shell.status.set("brains", []), shell.status.set("voiceAccounts", []),
                 shell.status.set("accountSearch", Words.searchValue({ kind: "failed", reason: reason })),
                 shell.status.set("setupSignIn", { tone: "info", text: "Optional", action: true })];
             if (replies.some(reply => reply !== "ok")) throw new Error("jarvis-accounts: status=refused");

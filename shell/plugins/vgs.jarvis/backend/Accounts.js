@@ -784,7 +784,10 @@ class Accounts {
                 label = one ? row.label : item.email ? row.label + " / " + item.email : row.label + " / " + item.label;
             return [{ value: item.id, label: label.slice(0, 60) }];
         }).sort((left, right) => order(left.label, right.label) || order(left.value, right.value)).slice(0, MAX_ROWS);
-        return { accounts, brains, search: { found: accounts.length, partial: this.partial } };
+        const voiceAccounts = offered.filter(item => item.provider === "openai")
+            .map(item => ({ value: item.id, label: ("OpenAI / " + item.label).slice(0, 60) }))
+            .sort((left, right) => order(left.label, right.label) || order(left.value, right.value));
+        return { accounts, brains, voiceAccounts, search: { found: accounts.length, partial: this.partial } };
     }
 }
 

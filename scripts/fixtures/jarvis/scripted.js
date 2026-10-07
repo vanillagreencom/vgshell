@@ -219,7 +219,7 @@ const driver = { create() {
 // option, environment switch or import into scripts/.
 function instrument(file, root, engine = "chained", mappedIndicator = false) {
     const changes = [
-        ['engine: "chained",', "engine: " + JSON.stringify(engine) + ","],
+        ['engine: engine.engine(),', "engine: " + JSON.stringify(engine) + ","],
         ['audio.playbackSource = engine.playbackSource;',
             'audio.playbackSource = engine.playbackSource;\n                    const scripted = require("./scripted-fixture.js").ports(' + JSON.stringify(root) + ', engine, () => runner.state);\n' +
             '                    runner.ports.speech = scripted.speech;\n' +

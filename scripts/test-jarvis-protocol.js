@@ -8,7 +8,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const { freshSuite } = require("./fixtures/jarvis/prepare.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.jarvis/JarvisProtocol.js");
 const Protocol = load(file);
-const hello = { v: 1, type: "hello", gen: 0, settings: { sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto",
+const hello = { v: 1, type: "hello", gen: 0, settings: { sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "",
     cloudVision: "ask", privateWindows: "bitwarden, incognito" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
@@ -24,7 +24,7 @@ const shellStatus = { v: 1, type: "shell-status", gen: 0, revision: hello.revisi
 const state = { v: 1, type: "state", gen: 0, revision: hello.revision, seq: 1,
     state: JSON.parse(JSON.stringify(Protocol.Session.initial())), phase: "down" };
 const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
-assert.deepEqual(Object.keys(manifest.settings), ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"]);
+assert.deepEqual(Object.keys(manifest.settings), ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount"]);
 assert.deepEqual([manifest.settings.cloudVision, manifest.schema.cloudVision.options], ["ask", ["ask", "allow", "never"]]);
 assert.equal(typeof manifest.settings.privateWindows, "string");
 assert.deepEqual(manifest.schema.mode.options, ["hold", "toggle"]);
@@ -219,6 +219,10 @@ const cases = [
     ["task-terminal", changed(hello, { settings: { ...hello.settings, taskTerminal: "kitty" } }), "shell", "task-terminal"],
     ["sounds-type", changed(hello, { settings: { ...hello.settings, sounds: "true" } }), "shell", "sounds"],
     ["cloud-vision", changed(hello, { settings: { ...hello.settings, cloudVision: "sometimes" } }), "shell", "cloud-vision"],
+    ["voice-provider", changed(hello, { settings: { ...hello.settings, voiceProvider: "other" } }), "shell", "voice-settings"],
+    ["live-account-type", changed(hello, { settings: { ...hello.settings, voiceAccount: true } }), "shell", "voice-settings"],
+    ["live-account-control", changed(hello, { settings: { ...hello.settings, voiceAccount: "key\n" } }), "shell", "voice-settings"],
+    ["live-account-size", changed(hello, { settings: { ...hello.settings, voiceAccount: "x".repeat(201) } }), "shell", "voice-settings"],
     ["missing-cloud-vision", changed(hello, { settings: { ...hello.settings, cloudVision: undefined } }), "shell", "shape-settings"],
     ["private-windows-type", changed(hello, { settings: { ...hello.settings, privateWindows: ["bitwarden"] } }), "shell", "private-windows"],
     ["private-windows-control", changed(hello, { settings: { ...hello.settings, privateWindows: "bitwarden\nvault" } }), "shell", "private-windows"],
@@ -431,8 +435,8 @@ try {
         ["hello-direction", 'if (direction !== "shell") fail("direction-hello");', 'if (false) fail("direction-hello");', "hello-direction"],
         ["status-direction", 'if (direction !== "daemon") fail("direction-status");', 'if (false) fail("direction-status");', "status-direction"],
         ["shape", 'fail("shape-" + name);', ';', "hello-shape"],
-        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"], "settings");',
-            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"], "settings");', "extra-setting"],
+        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount"], "settings");',
+            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount"], "settings");', "extra-setting"],
         ["brain-type", 'typeof message.settings.brain !== "string"', 'false', "brain-setting"],
         ["sounds-type", 'if (typeof message.settings.sounds !== "boolean") fail("sounds");', 'void message;', "sounds-type"],
         ["directory", 'if (!directory(message.directories[name])) fail("directory-" + name);', 'if (false) fail("directory-" + name);', "directory"],
@@ -471,6 +475,10 @@ try {
             'if (false) fail("task-terminal");', "task-terminal"],
         ["cloud-vision", 'if (CLOUD_VISION.indexOf(message.settings.cloudVision) === -1) fail("cloud-vision");',
             'if (false) fail("cloud-vision");', "cloud-vision"],
+        ["voice-provider", '!["local", "gpt-live"].includes(message.settings.voiceProvider)', "false", "voice-provider"],
+        ["live-account-type", 'typeof message.settings.voiceAccount !== "string"', "false", "live-account-type"],
+        ["live-account-control", "/^[^\\x00-\\x1f\\x7f]{0,200}$/", "/^[^]{0,200}$/", "live-account-control", 2],
+        ["live-account-size", "/^[^\\x00-\\x1f\\x7f]{0,200}$/", "/^[^\\x00-\\x1f\\x7f]*$/", "live-account-size", 2],
         ["private-windows-type", 'if (typeof message.settings.privateWindows !== "string"\n                || ', 'if (', "private-windows-type"],
         ["private-windows-control", "/^[^\\x00-\\x1f\\x7f]{0,1024}$/", "/^[^]{0,1024}$/", "private-windows-control"],
         ["private-windows-size", "/^[^\\x00-\\x1f\\x7f]{0,1024}$/", "/^[^\\x00-\\x1f\\x7f]*$/", "private-windows-size"],
@@ -489,8 +497,8 @@ try {
     ];
     for (const [name, needle, replacement, example, matches] of guards)
         control(name, needle, replacement, logic => rejected(logic, cases.find(row => row[0] === example)), matches);
-    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"], "settings");',
-        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"], "settings");',
+    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount"], "settings");',
+        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount"], "settings");',
         logic => {
             for (const row of cases.filter(row => row[0].startsWith("echo-setting-"))) rejected(logic, row);
         });

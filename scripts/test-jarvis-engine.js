@@ -1414,7 +1414,7 @@ world(async () => {
             ["heard-once", "            c.heard = null;\n", "", "barge-in"],
             ["full-reply-heard", 'heard(c, turn, report === null ? "" : report.heardText);',
                 'heard(c, turn, "Hello there. The time is noon.");', "barge-in"],
-            ["cancel-heard", '            heard(c, turn, "");\n', "", "cancel-thinking"],
+            ["cancel-heard", '            if (c.live === null) heard(c, turn, "");\n', "", "cancel-thinking"],
             ["partial-to-brain", 'utterance.collection?.done("partial", event.text);', 'utterance.collection?.done("final", event.text);', "turn-loop"],
             ["speakable-bypass", "for (const sentence of text.push(event.text)) say(c, turn, sentence);",
                 "text.push(event.text); say(c, turn, event.text);", "turn-loop"],

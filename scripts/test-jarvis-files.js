@@ -906,7 +906,7 @@ world(async () => {
             ["config", path.join(roots.config, "vgshell", "shell.json")], ["install", path.join(folder, "VERSION")]];
         try {
             child.stdin.write(JSON.stringify({ v: 1, type: "hello", gen: 0, revision: "a".repeat(64), locked: false,
-                settings: { sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", cloudVision: "ask", privateWindows: "" },
+                settings: { sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", cloudVision: "ask", privateWindows: "" },
                 directories: { state, data: path.join(process.env.JARVIS_TEST_ROOT, name + "-data"),
                     runtime: path.join(process.env.JARVIS_TEST_ROOT, name + "-run") },
                 keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } }) + "\n");

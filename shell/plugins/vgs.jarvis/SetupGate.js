@@ -38,6 +38,9 @@ var TODO = {
     "brain=account-unavailable": "The chosen AI model cannot be used. Add a key or sign in, then choose it below.",
     "brain=model-required": "The chosen AI model cannot be used. Choose another AI model below.",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Open Accounts to check them.",
+    "speech=live-account-unselected": "Choose a GPT-Live key in Voice below. Open Details and use Add key under AI model.",
+    "speech=live-account-unreadable": "Jarvis could not read your GPT-Live key. Use Accounts in Setup to check it.",
+    "speech=live-key-required": "GPT-Live needs a saved OpenAI key. Open Details and use Add key under AI model, then choose the key in Voice.",
     "speech=local-not-ready": "Local voice did not start. Set it up again."
 };
 var STEP_TODO = { brain: "The chosen AI model cannot be used. Add a key or sign in, then choose it below." };
@@ -86,7 +89,7 @@ function readiness(answer) {
             }
             var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];
             out[REQUIRED[step]] = hint === undefined ? { tone: "warning", text: "To do", action: true }
-                : { tone: "warning", text: "To do", hint: hint, action: true };
+                : { tone: "warning", text: "To do", hint: hint, action: cause.indexOf("speech=live-") !== 0 };
         });
         return out;
     }

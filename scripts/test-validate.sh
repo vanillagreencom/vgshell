@@ -670,7 +670,7 @@ cases=(
   "jarvis-live-suite|scripts/test-jarvis-live.js|offline|$jarvis_live_plan"
   "jarvis-live-scripts|scripts/fixtures/jarvis-live/gpt-live-scripts.json|offline|$jarvis_live_plan"
   "jarvis-live-schema|scripts/fixtures/jarvis-live/gpt-live.schema.json|offline|$jarvis_live_plan"
-  "jarvis-live-input|shell/plugins/vgs.jarvis/backend/GptLive.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-daemon.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-live-input|shell/plugins/vgs.jarvis/backend/GptLive.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
   "jarvis-websocket-fixture|scripts/fixtures/jarvis/websocket.js|offline|node scripts/test-jarvis-net.js"$'\nnode scripts/test-jarvis-live.js\n'"$jarvis_daemon_plan"
   "jarvis-session-cli|shell/plugins/vgs.jarvis/Session.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\n'"$jarvis_audio_rows"$'node scripts/test-jarvis-claude-task.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
   "schema-check-suite|scripts/test-schema-check.js|offline|node scripts/test-schema-check.js"$'\n'"$repo_plan"
@@ -745,11 +745,38 @@ cases=(
   "harness-settings|kendex.local.toml|all|$repo_plan"
   "workflow|.github/workflows/example.yml|all|$repo_plan"
 )
+# The live suite now starts the real daemon. Its copied backend and the
+# shared core files are inputs, as well as its loopback brain and audio fixtures.
+with_live_consumer() { # FILE AREA EXPECTED
+  python3 - "$1" "$2" "$3" <<'PYLIVE'
+import fnmatch, sys
+file, area, wanted = sys.argv[1:]
+inputs = ["shell/plugins/vgs.jarvis/backend/*", "shell/plugins/vgs.jarvis/AccountProviders.js",
+          "shell/Core/Dispatch.js", "shell/Commons/DesktopLaunch.js", "bin/lib/judge-files.js",
+          "bin/lib/anchored.js", "bin/lib/account-folders.js", "shell/Commons/AccountDirectories.js",
+          "scripts/fixtures/jarvis/audio*", "scripts/fixtures/jarvis/engine.js",
+          "scripts/fixtures/jarvis-brain/openai-chat*"]
+command = "node scripts/test-jarvis-live.js"
+lines = wanted.split("\n")
+if area in ["cli", "offline", "all"] and command not in lines and any(fnmatch.fnmatchcase(file, pattern) for pattern in inputs):
+    earlier = {"session", "session-runner", "widget", "setup-gate", "protocol", "tools", "requests",
+               "policy", "redact", "release", "sse", "providers", "net", "brain-openai", "brain-anthropic"}
+    for at, line in enumerate(lines):
+        if ((line.startswith("node scripts/test-jarvis-") and line.removeprefix("node scripts/test-jarvis-").removesuffix(".js") not in earlier)
+                or line == "scripts/test-install-tree.sh"):
+            lines.insert(at, command)
+            break
+    else:
+        raise AssertionError("no later consumer in expected plan: " + file)
+print("\n".join(lines), end="")
+PYLIVE
+}
 plan_consumer_case() { # SPEC
   local spec="$1" name rest file area wanted d state status out err
   name="${spec%%|*}"; rest="${spec#*|}"
   file="${rest%%|*}"; rest="${rest#*|}"
   area="${rest%%|*}"; wanted="${rest#*|}"
+  wanted="$(with_live_consumer "$file" "$area" "$wanted")"
   d="$tmp/plan-$name"; fresh "$d"
   mkdir -p -- "$d/$(dirname -- "$file")"
   printf 'changed\n' >"$d/$file"
@@ -915,6 +942,7 @@ printf 'source\n' >"$d/shell/Core/Dispatch.js"
 # The removed path's consumers, and README.md's: the install tree and the
 # README check, and the ceiling row, since README.md is a document.
 rename_plan=$'node scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows"$'python3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check$repo_plan"$'\ndoc_limits_check\nscripts/test-validate.sh'
+rename_plan="$(with_live_consumer shell/Core/Dispatch.js offline "$rename_plan")"
 if out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate offline --changed HEAD --list 2>"$tmp/plan.err")" && [[ $out == "$rename_plan" ]]; then ok "a rename selects consumers of the removed source path"; else fail "rename omitted the old path's consumers: $out"; fi
 
 d="$tmp/plan-shared"; fresh "$d"

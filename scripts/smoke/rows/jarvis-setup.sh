@@ -53,28 +53,39 @@ setup_codex="$home/setup-codex"
 setup_marker="$setup_state/local-ready.json"
 setup_config="$home/.config/vgshell/shell.json"
 setup_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
-# The Setup section by row: a required row as [label, chip tones, the TUI
-# of each button beside it, line count], an optional row as [label,
-# whether its chip reads done or optional], since its readers' states
-# depend on the world.
+# Setup rows use manifest ids. The renderer puts its summary first and
+# labels each step from its manifest entry. Optional rows read their chip
+# category because their readers depend on the world.
 setup_rows() {
   ipc smoke setupRows window vgs.settings | py_reply '
 import json,sys
 rows=json.load(sys.stdin)
+try:
+    with open(sys.argv[1]) as stream:
+        manifest=json.load(stream)
+except (OSError, ValueError):
+    print("unread")
+    sys.exit(0)
+steps=[(key, entry["label"]) for key, entry in manifest["status"].items() if entry.get("group")=="Setup" and key!="setup"]
+ids={label:key for key, label in steps}
+if len(ids)!=len(steps):
+    print("unread")
+    sys.exit(0)
 out=[]
-for r in rows:
+for index, r in enumerate(rows):
     if r["label"] == "Sign in":
         continue
-    if r["label"] in ("Browser", "Input"):
-        out.append([r["label"], len(r["chips"]) == 1 and r["chips"][0][1] in ("success", "info")])
+    key="setup" if index==0 else ids.get(r["label"], "unmapped")
+    if key in ("setupBrowser", "setupInput"):
+        out.append([key, len(r["chips"]) == 1 and r["chips"][0][1] in ("success", "info")])
     else:
-        out.append([r["label"], [c[1] for c in r["chips"]], [b["tui"] for b in r["buttons"]], len(r["lines"])])
+        out.append([key, [c[1] for c in r["chips"]], [b["tui"] for b in r["buttons"]], len(r["lines"])])
 print(json.dumps(out))
-'
+' "$repo/shell/plugins/vgs.jarvis/manifest.json"
 }
-setup_fresh='[["Status", ["warning"], [], 1], ["AI model", ["warning"], ["add-key"], 1], ["Local voice", ["warning"], ["setup-local"], 1], ["Browser", true], ["Input", true]]'
-setup_voice_left='[["Status", ["warning"], [], 1], ["AI model", ["success"], [], 1], ["Local voice", ["warning"], ["setup-local"], 1], ["Browser", true], ["Input", true]]'
-setup_ready='[["Status", ["success"], [], 1], ["AI model", ["success"], [], 1], ["Local voice", ["success"], [], 1], ["Browser", true], ["Input", true]]'
+setup_fresh='[["setup", ["warning"], [], 1], ["setupModel", ["warning"], ["add-key"], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true]]'
+setup_voice_left='[["setup", ["warning"], [], 1], ["setupModel", ["success"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true]]'
+setup_ready='[["setup", ["success"], [], 1], ["setupModel", ["success"], [], 1], ["setupVoice", ["success"], [], 1], ["setupBrowser", true], ["setupInput", true]]'
 # BRAIN as the Jarvis AI model setting, "" for none, delivered by a reload.
 setup_brain() { # BRAIN
   python3 - "$setup_config" "$1" <<'PY'

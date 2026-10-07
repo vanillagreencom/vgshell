@@ -46,8 +46,8 @@ function world(implementation = Owner, synchronous = false, session = Session) {
         playback: { start: port("play"), flush: port("flush") },
         tools: { start: port("tool"), cancel: port("tool-cancel"), outcome: port("outcome"), sync: () => {}, close: () => {} },
         approval: { show: port("approval"), end: port("approval-end"), refused: port("confirm-refused") },
-        speech: { release: port("speech-release") },
-        transcript: port("transcript")
+        speech: { open: (e, events) => { calls.push({ name: "speech-open", e }); pending.speech = events; },
+            close: port("speech-close"), flush: port("speech-flush"), release: port("speech-release") }
     }, {
         now: () => at,
         set: (fn, ms) => {
@@ -108,6 +108,21 @@ const tests = [
         assert.equal(w.runner.state.capture.kind, "closed");
         w.runner.close();
     }]),
+    ["delegation-identity", impl => {
+        const w = world(impl);
+        w.dispatch("snapshot", { locked: false, engine: "duplex", configured: true, settings: {} });
+        w.dispatch("talk-down");
+        w.pending.open();
+        w.pending.speech.delegation({ id: "fixture", text: "transcript context" });
+        assert.equal(w.runner.state.turn.kind, "thinking");
+        assert.equal(w.calls.find(value => value.name === "send").e.delegation, "fixture");
+        assert.equal(w.calls.find(value => value.name === "send").e.text, "transcript context");
+        w.dispatch("stop");
+        const stale = w.runner.state.stale;
+        w.pending.speech.delegation({ id: "old", text: "old context" });
+        assert.equal(w.runner.state.stale, stale + 1);
+        assert.equal(w.calls.filter(value => value.name === "send").length, 1);
+    }],
     ["speech-deadlines", impl => {
         const w = world(impl);
         w.dispatch("talk-down");
@@ -411,6 +426,7 @@ const source = fs.readFileSync(file, "utf8");
 let controls = 0;
 try {
     const mutants = [
+        ["delegation-identity", 'delegation: task => done("delegation", task),', 'delegation: task => done("delegation", { ...task, id: "changed" }),', "delegation-identity"],
         ["speech-deadline-scheduling", 'this.state.playback, ', '', "speech-deadlines"],
         ["durable-mute", 'if (effect.kind === "mute-store") this.consume(effect);',
             'if (false) this.consume(effect);', "durable-mute"],

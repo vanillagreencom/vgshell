@@ -8,7 +8,7 @@
 // Startup validates coding-task records and publishes their durable producer,
 // then TaskRunner observes them; tasks outlive this process and EOF stops
 // only that observation. A task-stop intent answers with task-answer.
-// Device discovery is read-only. The chained engine raises the gate only for a
+// Device discovery is read-only. The conversation owner raises the gate only for a
 // ready speech adapter and brain; the local row is ready only after local setup
 // published its runtime. EOF closes the audio owner and waits for all child exits.
 "use strict";
@@ -79,7 +79,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         // A selected healthy loading plan can accept bounded capture. The
         // loading cause remains until the same child reports model readiness.
         // Session still owns lock, mute, fault and indicator admission.
-        runner.dispatch({ type: "snapshot", locked: context.locked, engine: "chained",
+        runner.dispatch({ type: "snapshot", locked: context.locked, engine: engine.engine(),
             configured: configuration.kind === "ready" || configuration.kind === "loading", settings: context.settings });
     }
 
@@ -437,6 +437,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         accounts: () => new Accounts(state, process.env),
                         policy: () => ({ profile: profile(), cloudVision: context.settings.cloudVision }), fault,
                         captionLimit: Protocol.TRANSCRIPT_CHARS, dispatch: event => runner.dispatch(event), clock, configured,
+                        log: line => process.stderr.write(line + "\n"),
                         harness: { bridge, gate, env: process.env, runtime: () => context.directories.runtime },
                         directories: context.directories });
                     const actionApproval = runner.ports.approval;
@@ -447,6 +448,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     };
                     runner.ports.release = engine.release;
                     runner.ports.brain = engine.brain;
+                    runner.ports.speech = engine.speech;
                     runner.ports.capture = { ...runner.ports.capture, collect: engine.collect };
                     runner.ports.playback = engine.playback(audio.playbackPort);
                     audio.captureSink = engine.captureSink;

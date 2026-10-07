@@ -14,6 +14,10 @@ const excerpt = require("./fixtures/jarvis-live/gpt-live.schema.json");
 const fixtures = require("./fixtures/jarvis-live/gpt-live-scripts.json");
 const { load } = require("../bin/lib/qml-library.js");
 const http = require("node:http");
+const cp = require("node:child_process");
+const { once } = require("node:events");
+const BrainFixture = require("./fixtures/jarvis/engine.js");
+const { standins: audioStandins } = require("./fixtures/jarvis/audio.js");
 const backend = path.join(tree, "shell/plugins/vgs.jarvis/backend");
 const file = path.join(backend, "GptLive.js");
 const Protocol = load(path.join(tree, "shell/plugins/vgs.jarvis/JarvisProtocol.js"));
@@ -25,7 +29,7 @@ const FRAME = 1024 * 1024;
 const OPENING = 24000 * 2 * 20;
 const APPEND = "session.input_audio.append";
 const CLIENT = { "session.start": "LiveSessionStartEvent", [APPEND]: "LiveInputAudioAppendEvent",
-    "session.close": "LiveSessionCloseParam" };
+    "session.close": "LiveSessionCloseParam", "session.commentary.append": "LiveCommentaryAppendEvent" };
 const SERVER = { "session.started": "LiveSessionStarted", "session.output_audio.delta": "LiveOutputAudioDelta",
     "session.input_transcript.delta": "LiveInputTranscriptDelta", "session.output_transcript.delta": "LiveOutputTranscriptDelta",
     "session.usage.updated": "LiveSessionUsageUpdated", info: "LiveInfoEvent", "session.closed": "LiveSessionClosed",
@@ -153,14 +157,14 @@ world(async () => {
             fs.writeFileSync(path.join(table, name), source.replace(needle, replacement));
         }
         const load = name => require(path.join(table, name));
-        return { Live: load("GptLive.js"), Policy: load("Policy.js"), Net: load("net.js"), Providers: load("Providers.js"),
+        return { folder: table, Live: load("GptLive.js"), Policy: load("Policy.js"), Net: load("net.js"), Providers: load("Providers.js"),
             Secrets: load("Secrets.js"), Runner: load("session-runner.js") };
     }
 
-    function rig(kit, { key = "own", mode = "hold" } = {}) {
+    function rig(kit, { key = "own", mode = "hold", synchronousClose = false } = {}) {
         const clock = manual();
         const w = { id: ++conversations, clock, played: [], flushes: 0, transcripts: [], logs: [], collected: [], sink: null,
-            source: null, handed: [], backlog: null };
+            source: null, handed: [], backlog: null, delegations: [] };
         const store = new kit.Secrets.Secrets(path.join(childEnv.XDG_STATE_HOME, "vgshell/jarvis"), childEnv);
         const reference = kit.Secrets.ownReference("openai", "fixture", key === "elsewhere" ? other.origin : main.origin);
         const secrets = { lookup: value => { const secret = store.lookup(value); w.handed.push(secret); return secret; } };
@@ -175,13 +179,22 @@ world(async () => {
         const net = { websocket(value, options) {
             const channel = w.net.websocket(value, { ...options, url: options.url + "?rig=" + w.id });
             if (channel.kind !== "channel") return channel;
-            return { kind: channel.kind, events: channel.events, send: channel.send, close: channel.close,
+            let closing = false;
+            return { kind: channel.kind, events: channel.events, send: channel.send, close() {
+                if (synchronousClose && !closing) {
+                    closing = true;
+                    channel.events.dispatchEvent(Object.assign(new Event("close"), { code: 1006, wasClean: false }));
+                }
+                channel.close();
+            },
                 get readyState() { return channel.readyState; },
                 get bufferedAmount() { return w.backlog === null ? channel.bufferedAmount : w.backlog; } };
         } };
         const engine = kit.Live.create({ provider: kit.Providers.select("openai-live"), clock,
             captionLimit: Protocol.TRANSCRIPT_CHARS, log: line => w.logs.push(line),
-            conversation: () => ({ net, key: key === null ? null : { secrets, reference }, language: "" }) });
+            conversation: () => ({ net, key: key === null ? null : { secrets, reference }, language: "",
+                transfer: (item, start) => start(), grants: () => [] }) });
+        w.engine = engine;
         const ports = kit.Runner.unavailable();
         ports.capture = {
             // Audio refuses capture without a sink, as here.
@@ -210,6 +223,7 @@ world(async () => {
         };
         ports.mute = { store: () => {} };
         ports.speech = engine.port;
+        ports.brain = { ...ports.brain, send: (e, done) => { w.delegations.push(e); done("brain-done"); } };
         w.runner = new kit.Runner.SessionRunner(Protocol.Session, ports, clock, (state, phase) => { w.state = state; w.phase = phase; });
         w.dispatch = (type, values = {}) => w.runner.dispatch({ type, ...values });
         w.dispatch("snapshot", { locked: false, engine: "duplex", configured: true, settings: { mode } });
@@ -452,7 +466,12 @@ world(async () => {
     // reaches the wire only when the act did not fault, so a red row is quick.
     const rows = [
         ["error", running, conn => conn.play("error"), "live=server-error code=unknown_parameter"],
-        ["delegation", running, conn => conn.play("delegation"), "live=delegation-unsupported"],
+        ["delegation-shape", running, conn => conn.raw(off("delegation", event => ({ ...event, delegation: { ...event.delegation, target: "responses" } }))), "live=delegation-shape"],
+        ["delegation-id", running, conn => conn.raw(off("delegation", event => ({ ...event, delegation: { ...event.delegation, id: "" } }))), "live=delegation-shape"],
+        ["delegation-id-type", running, conn => conn.raw(off("delegation", event => ({ ...event, delegation: { ...event.delegation, id: 0 } }))), "live=delegation-shape"],
+        ["delegation-id-size", running, conn => conn.raw(off("delegation", event => ({ ...event, delegation: { ...event.delegation, id: "x".repeat(513) } }))), "live=delegation-shape"],
+        ["delegation-offset", running, conn => conn.raw(off("delegation", event => ({ ...event, offset_ms: -1 }))), "live=delegation-shape"],
+        ["delegation-kind", running, conn => conn.raw(off("delegation", event => ({ ...event, delegation: { ...event.delegation, type: "tool" } }))), "live=delegation-shape"],
         ["expired", running, conn => conn.play("expired"), "live=closed reason=expired"],
         ["closed-reason", running, conn => conn.raw(off("expired", event => ({ ...event, reason: "hung_up" }))), "live=frame-shape"],
         ["json", running, conn => conn.raw("{"), "live=frame-json"],
@@ -540,9 +559,7 @@ world(async () => {
     // The full opening fits; it leaves after session.started in order, ahead
     // of later words, without meeting the send backlog.
     async function opening(kit) {
-        const early = rig(kit);
-        early.dispatch("talk-down");
-        await main.accept(early);
+        const { w: early } = await starting(kit);
         for (let sent = 0; sent < OPENING; sent += 48000) early.sink.write(Buffer.alloc(48000));
         assert.equal(early.state.fault.kind, "none", "20 s of opening words fit");
         early.sink.write(Buffer.alloc(2));
@@ -563,6 +580,17 @@ world(async () => {
         }
         assert.equal(w.state.fault.kind, "none", "the full opening never meets the send backlog");
         assert.ok(appended(conn).equals(all), "every opening byte leaves once, in order, before later words");
+    }
+
+    async function releaseLifetime(kit) {
+        const { w, conn } = await starting(kit, { synchronousClose: true });
+        w.sink.write(Buffer.alloc(OPENING + 2));
+        fault(w, "live=input-overflow");
+        assert.equal(w.state.speech.kind, "closed", "released speech closes once");
+        await until(() => conn.ended, "overflow closes its transport");
+        w.clock.advance(20000);
+        fault(w, "live=input-overflow");
+        assert.equal(w.state.conversation.kind, "ended", "released callbacks cannot restore the session");
     }
 
     async function replyQueue(kit) {
@@ -600,8 +628,237 @@ world(async () => {
         assert.equal(w.state.fault.kind, "none", "a 1 MiB frame is kept");
     }
 
+    async function delegation(kit) {
+        const { w, conn } = await running(kit);
+        conn.play("captions");
+        conn.send({ type: "session.input_transcript.delta", event_id: "straddling", delta: "Across the boundary.", start_ms: 3500, end_ms: 3700 });
+        conn.play("delegation");
+        await until(() => w.delegations.length === 1 || w.state.fault.kind === "error", "delegation reaches the brain");
+        assert.equal(w.delegations.length, 1);
+        const task = w.delegations[0];
+        assert.equal(task.delegation, "del_fixture");
+        assert.ok(task.text.includes("What is") && task.text.includes("It is noon."));
+        assert.equal(task.text.includes("Thanks."), false, "context after the delegation offset does not enter the request");
+        assert.equal(task.text.includes("Across the boundary."), false, "a delta that ends after delegation is excluded");
+        const item = kit.Policy.item("The result is ready. ".repeat(30), ["speech"]);
+        assert.equal(w.engine.commentary(task.delegation, item), true);
+        await until(() => conn.events.some(event => event.type === "session.commentary.append"), "commentary leaves");
+        const sent = conn.events.filter(event => event.type === "session.commentary.append");
+        assert.equal(sent.map(event => event.content).join(""), item.content);
+        assert.ok(sent.every(event => Buffer.byteLength(event.content) <= 400 && event.delegation_id === task.delegation));
+        assert.equal(w.engine.commentary("stale", item), false);
+        w.dispatch("interrupt");
+        assert.equal(w.engine.commentary(task.delegation, item), false);
+        conn.play("speech-after");
+        conn.play("delegation");
+        await until(() => w.delegations.length === 2, "a new delegation uses new identity");
+        w.dispatch("stop");
+        assert.equal(w.engine.commentary(task.delegation, item), false, "an ended conversation sends no commentary");
+    }
+
+    async function violations(kit) {
+        const { w, conn } = await running(kit);
+        conn.send({ type: "session.output_transcript.delta", event_id: "format_1", delta: "Visit https://example.com.", start_ms: 0, end_ms: 100 });
+        conn.send({ type: "session.output_transcript.delta", event_id: "format_2", delta: "Use **bold**.", start_ms: 2000, end_ms: 2100 });
+        conn.play("speech-before");
+        await until(() => w.transcripts.some(item => item.text === "earlier"), "the transcript windows arrive");
+        let counts = w.logs.filter(line => line.startsWith("jarvis: live=violations counts="))
+            .map(line => JSON.parse(line.split("counts=")[1]));
+        assert.equal(counts.length, 1, "the closed window is counted once");
+        assert.equal(counts[0].url, 1);
+        w.dispatch("stop");
+        counts = w.logs.filter(line => line.startsWith("jarvis: live=violations counts="))
+            .map(line => JSON.parse(line.split("counts=")[1]));
+        assert.equal(counts.length, 2, "teardown counts the final non-overlapping window");
+        assert.equal(counts[1].markdown, 4);
+        assert.equal(w.logs.some(line => line.includes("example.com") || line.includes("bold")), false);
+    }
+
+    async function contextBound(kit) {
+        const { w, conn } = await running(kit);
+        conn.send({ type: "session.input_transcript.delta", event_id: "bound", delta: "x".repeat(65536), start_ms: 0, end_ms: 100 });
+        await until(() => w.transcripts.length >= 16 || w.state.fault.kind === "error", "context at its limit arrives");
+        assert.equal(w.state.fault.kind, "none");
+        conn.play("speech-before");
+        await until(() => w.state.fault.kind === "error", "overflow ends the session");
+        fault(w, "live=context-limit");
+    }
+
+    // The real daemon selects Accounts, the configured brain, Session,
+    // ToolRouter, Policy, Files, Audit and the duplex speech owner. Only the
+    // provider address, local fixture model and clock are instrumented in its disposable tree.
+    async function daemonDelegation(kit, only = "action") {
+        const root = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "delegation-daemon-"));
+        const plugin = path.join(root, "plugin");
+        fs.cpSync(path.join(tree, "shell/plugins/vgs.jarvis"), plugin, { recursive: true });
+        for (const file of fs.readdirSync(kit.folder).filter(name => name.endsWith(".js")))
+            fs.copyFileSync(path.join(kit.folder, file), path.join(plugin, "backend", file));
+        const accountsFile = path.join(plugin, "AccountProviders.js");
+        const accountSource = fs.readFileSync(accountsFile, "utf8");
+        const modelNeedle = 'probe: { driver: "ollama", path: "/api/generate", model: "" }';
+        assert.equal(accountSource.split(modelNeedle).length - 1, 1, "the local fixture names its scripted model");
+        fs.writeFileSync(accountsFile, accountSource.replace(modelNeedle,
+            'probe: { driver: "ollama", path: "/api/generate", model: "fixture-model" }'));
+        const runnerFile = path.join(plugin, "backend/jarvisd.js");
+        const offset = path.join(root, "clock");
+        fs.writeFileSync(offset, "0");
+        let source = fs.readFileSync(runnerFile, "utf8");
+        assert.equal(source.split("performance.now()").length - 1, 3, "the daemon clocks share the injected offset");
+        source = source.replaceAll("performance.now()", 'performance.now() + Number(fs.readFileSync(' + JSON.stringify(offset) + ', "utf8"))');
+        fs.writeFileSync(runnerFile, source);
+        if (only === "release") {
+            const engineFile = path.join(plugin, "backend/ChainedEngine.js");
+            const engineSource = fs.readFileSync(engineFile, "utf8");
+            const needle = "speech: plan.speech.recipients";
+            assert.equal(engineSource.split(needle).length - 1, 1);
+            fs.writeFileSync(engineFile, engineSource.replace(needle,
+                needle + '.concat(plan.speech.recipients.map(recipient => ({...recipient,origin:"https://example.invalid"})))'));
+        }
+        const directories = Object.fromEntries(["state", "data", "runtime"].map(name => [name, path.join(root, name)]));
+        for (const folder of Object.values(directories)) fs.mkdirSync(folder, { mode: 0o700 });
+        fs.writeFileSync(path.join(directories.state, "keys.json"), JSON.stringify([kit.Secrets.ownReference("openai", "fixture", main.origin)]));
+        require(path.join(plugin, "backend/Core.js")).use(tree);
+        const { Accounts } = require(path.join(plugin, "backend/Accounts.js"));
+        const { PROVIDERS } = require(path.join(plugin, "AccountProviders.js"));
+        const accounts = new Accounts(directories.state, childEnv);
+        const live = accounts.account(PROVIDERS.find(row => row.id === "openai"), "fixture", { kind: "found" },
+            { kind: "keyring", reference: kit.Secrets.ownReference("openai", "fixture", main.origin) }).id;
+        const local = PROVIDERS.find(row => row.id === "ollama");
+        const brain = accounts.account(local, "local", { kind: "found" }, { kind: "local", origin: local.origin }).id;
+        const victim = path.join(process.env.HOME, "delegated-file-" + path.basename(root));
+        fs.writeFileSync(victim, "fixture", { mode: 0o600 });
+        const server = BrainFixture.brain(11434);
+        await server.ready;
+        const child = cp.spawn("node", [runnerFile, "--tree", tree], { env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
+        const closed = once(child, "close");
+        const deadline = setTimeout(() => child.kill("SIGKILL"), 15000);
+        const messages = [];
+        let tail = "", stderr = "";
+        child.stdout.on("data", data => {
+            const lines = (tail + data).split("\n"); tail = lines.pop();
+            for (const line of lines) messages.push(Protocol.accept(line, "daemon"));
+        });
+        child.stderr.on("data", data => { stderr += data; });
+        child.stdin.on("error", error => { if (error.code !== "EPIPE") throw error; });
+        const last = () => messages.filter(value => value.type === "state").at(-1)?.state;
+        const revision = "a".repeat(64);
+        const send = value => child.stdin.write(JSON.stringify({ v: 1, gen: last()?.gen ?? 0, revision, ...value }) + "\n");
+        const wait = async (check, label) => {
+            try { await until(() => check() || child.exitCode !== null, label); }
+            catch { assert.fail(label + ": " + JSON.stringify(messages.filter(value => value.type === "status")) + " state=" + JSON.stringify(last()) + " stderr=" + stderr); }
+            assert.ok(check(), label + ": " + stderr);
+        };
+        const rows = () => fs.readdirSync(path.join(directories.state, "audit"))
+            .flatMap(file => fs.readFileSync(path.join(directories.state, "audit", file), "utf8").trim().split("\n").map(JSON.parse));
+        let releaseReply;
+        const heldReply = new Promise(resolve => { releaseReply = resolve; });
+        try {
+            send({ type: "hello", settings: { mode: "hold", microphone: "", speaker: "", brain, taskTerminal: "auto",
+                cloudVision: "ask", privateWindows: "", voiceProvider: "gpt-live", voiceAccount: live }, directories, locked: false,
+                keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y" } });
+            await wait(() => last()?.gate.kind === "up", "configured GPT-Live raises the daemon gate");
+            assert.equal(last().engine.kind, "duplex");
+            send({ type: "indicator", shown: true });
+            send({ type: "intent", intent: "talk-down" });
+            await wait(() => main.conns.some(conn => conn.rig === null && !conn.taken), "the actual daemon connects its voice");
+            const conn = main.conns.find(conn => conn.rig === null && !conn.taken); conn.taken = true;
+            await conn.event("session.start");
+            conn.play("started");
+            await wait(() => last()?.capture.kind === "open", "synthetic capture opens behind the indicator");
+            send({ type: "intent", intent: "talk-up" });
+            if (only === "action") server.replies.push(BrainFixture.calls({ id: "delete_call", name: "files_delete", arguments: { path: victim } }),
+                BrainFixture.text("**Completed.** Visit https://example.com."));
+            else if (only === "release") server.replies.push(BrainFixture.calls({ id: "read_call", name: "files_read", arguments: { path: victim } }),
+                BrainFixture.text("The private result was withheld."));
+            else if (only === "stale") server.replies.push([{ wait: heldReply },
+                ...BrainFixture.calls({ id: "stale_delete", name: "files_delete", arguments: { path: victim } })]);
+            else {
+                server.replies.push(BrainFixture.text({ wait: heldReply }, "Late reply."));
+                if (only === "replacement") server.replies.push(BrainFixture.text("Current reply."));
+            }
+            conn.play("captions"); conn.play("delegation");
+            await wait(() => server.requests[0]?.body !== null && server.requests.length > 0, "the configured brain receives the delegation");
+            const first = server.requests[0].body;
+            assert.ok(first.messages.some(value => value.role === "user" && value.content.includes("What is")));
+            assert.equal(first.model, "fixture-model");
+            assert.ok(Array.isArray(first.tools) && first.tools.some(value => value.function.name === "files_delete"), "the configured router offers its tools");
+            assert.equal(JSON.stringify(first).includes("Thanks."), false);
+            if (only === "action") {
+                await wait(() => last()?.approval.kind === "held", "the router holds the destructive call");
+                assert.equal(fs.existsSync(victim), true, "Policy blocks deletion before approval");
+                const approval = last().approval;
+                assert.equal(approval.physical, true);
+                send({ type: "shown", id: approval.id });
+                await wait(() => last().approval.shownAt !== null, "the action is drawn");
+                fs.writeFileSync(offset, "1000");
+                send({ type: "intent", intent: "confirm", id: approval.id, digest: approval.digest, source: "key" });
+                await wait(() => conn.count("session.commentary.append") > 0 || last()?.fault.kind === "error", "the approved result returns through commentary");
+                assert.ok(conn.count("session.commentary.append") > 0, JSON.stringify(last()?.fault));
+                assert.equal(fs.existsSync(victim), false);
+                assert.equal(server.requests.length, 2);
+                assert.ok(server.requests[1].body.messages.some(value => value.role === "tool" && value.tool_call_id === "delete_call"));
+                const commentary = conn.events.filter(value => value.type === "session.commentary.append");
+                assert.ok(commentary.every(value => value.delegation_id === "del_fixture" && !value.content.includes("https://") && !value.content.includes("**")));
+                assert.ok(rows().some(row => row.kind === "action" && row.effect === "destructive" && row.confirmed === "physical"));
+                assert.ok(rows().some(row => row.kind === "release" && row.decision === "send" && row.op === last().speech.op
+                    && row.outcome === "pending" && row.args.labels === "[redacted]"),
+                    "outbound commentary has a prior audit for its live operation");
+            } else if (only === "release") {
+                await wait(() => last()?.approval.kind === "held", "the whole recipient set asks for file release");
+                assert.equal(last().approval.purpose, "release");
+                assert.ok(last().approval.text.includes(PROVIDERS.find(row => row.id === "openai").label),
+                    "release names the selected account provider");
+                assert.equal(last().approval.text.includes("openai-live"), false, "release shows no adapter id");
+                assert.equal(server.requests.length, 1, "no tool result reaches the brain while release is held");
+                send({ type: "intent", intent: "cancel", id: last().approval.id });
+                await wait(() => conn.count("session.commentary.append") > 0, "the refused release completes with a withheld result");
+                assert.equal(server.requests.length, 2);
+                const tool = server.requests[1].body.messages.find(value => value.role === "tool");
+                assert.equal(tool.tool_call_id, "read_call");
+                assert.equal(tool.content.includes("fixture"), false, "the private file does not leave for the brain");
+                assert.ok(rows().some(row => row.kind === "release" && row.decision === "ask"));
+                assert.ok(rows().some(row => row.kind === "release" && row.decision === "withhold"));
+            } else {
+                let requestClosed = false;
+                server.requests[0].closed.then(() => { requestClosed = true; });
+                if (only === "replacement") {
+                    const event = structuredClone(fixtures.scripts.delegation[0]);
+                    event.delegation.id = "del_current";
+                    conn.send(event);
+                } else send({ type: "intent", intent: only === "interrupt" ? "talk-down" : "stop" });
+                await wait(() => requestClosed, "cancel closes the old brain request");
+                releaseReply();
+                if (only === "replacement") {
+                    await wait(() => conn.count("session.commentary.append") > 0, "the new delegation returns after cancellation");
+                    assert.equal(server.requests.length, 2);
+                    const commentary = conn.events.filter(value => value.type === "session.commentary.append");
+                    assert.ok(commentary.every(value => value.delegation_id === "del_current" && !value.content.includes("Late")));
+                } else {
+                    if (only === "stale") {
+                        await wait(() => last()?.conversation.kind === "ended", "stop ends delegated work");
+                        await wait(() => conn.ended, "stop closes the old speech transport");
+                    } else await wait(() => last()?.turn.kind === "none", "interrupt ends delegated work");
+                    assert.equal(conn.count("session.commentary.append"), 0, "stale brain work never reaches GPT-Live");
+                }
+                assert.equal(fs.existsSync(victim), true, "stale work starts no file action");
+            }
+            child.stdin.end();
+            const [code, signal] = await closed;
+            assert.equal(signal, null);
+            assert.equal(code, 0, stderr);
+            assert.equal(stderr.includes(KEY), false);
+        } finally {
+            clearTimeout(deadline); releaseReply();
+            if (child.exitCode === null) { child.kill("SIGKILL"); await closed; }
+            server.closeAll(); await server.close();
+            fs.rmSync(victim, { force: true });
+        }
+    }
+
     const cases = { roundTrip, idle, unconfirmed, finalizing, captions, interruptPlaying, interruptQueued,
-        failures, startTimeout, keys, opening, replyQueue, backlog, frameBound };
+        failures, startTimeout, keys, opening, releaseLifetime, replyQueue, backlog, frameBound, delegation, violations, contextBound,
+        daemonDelegation, daemonStale: kit => daemonDelegation(kit, "stale"), daemonRelease: kit => daemonDelegation(kit, "release"),
+        daemonReplacement: kit => daemonDelegation(kit, "replacement"), daemonInterrupt: kit => daemonDelegation(kit, "interrupt") };
     const withheld = ["Policy.js", "const current = item(value.content, value.labels);",
         'const current = item(value.content, value.labels);\n    if (String(current.content).includes("input_audio.append")) return { kind: "withhold", content: "[withheld]", labels: current.labels };'];
     const withheldConnect = ["Policy.js", "const current = item(value.content, value.labels);",
@@ -619,6 +876,13 @@ world(async () => {
         const as = name => folder => cases[name](kitFrom(folder));
         const row = name => folder => failures(kitFrom(folder), name);
         const mutations = [
+            ["delegation-dispatch", "session.events.delegation({ id: event.id,", "void ({ id: event.id,", as("delegation")],
+            ["delegation-context", "item.end <= event.offset", "true", as("delegation")],
+            ["stale-delegation", " || session.delegation !== id", "", as("delegation")],
+            ["flush-delegation", "session.delegation = null;\n            session.output", "session.output", as("delegation")],
+            ["commentary-bound", "slice(0, COMMENTARY_CHARS)", "slice(0)", as("delegation")],
+            ["violation-count", "const counts = Speakable.violations(segment.text, session.language);", 'const counts = Speakable.violations("", session.language);', as("violations")],
+            ["context-bound", 'if (session.contextChars > CONTEXT_CHARS) fail("context-limit");', "", as("contextBound")],
             ["flush-queue", "if (session.next !== null) session.next.stream.destroy();\n            session.next = null;\n            // Audio's",
                 "// Audio's", as("interruptQueued")],
             ["discard", 'if (session.output.kind === "discarding" || pcm.length === 0) return;', "if (pcm.length === 0) return;", as("interruptPlaying")],
@@ -635,7 +899,12 @@ world(async () => {
             ["lease-release", 'for (const session of [...sessions.values()]) finalize(session, "lease");', "", as("unconfirmed")],
             ["finalizing", 'if (closing.length > FINALIZING) finalize(closing[0], "finalizing-limit");', "", as("finalizing")],
             ["server-error", 'return fail("server-error code="', 'return { kind: "ignored" }; return fail("server-error code="', row("error")],
-            ["delegation", 'return fail("delegation-unsupported");', 'return { kind: "ignored" };', row("delegation")],
+            ["delegation-shape", 'value.delegation.target !== "client"', 'false', row("delegation-shape")],
+            ["delegation-id", 'value.delegation.id === ""', "false", row("delegation-id")],
+            ["delegation-id-type", 'typeof value.delegation.id !== "string"', "false", row("delegation-id-type")],
+            ["delegation-id-size", 'value.delegation.id.length > 512', "false", row("delegation-id-size")],
+            ["delegation-offset", '!time(value.offset_ms)', "false", row("delegation-offset")],
+            ["delegation-kind", 'value.delegation.type !== "delegation"', "false", row("delegation-kind")],
             ["closed-running", 'else fail("closed reason=" + event.reason);', "", row("expired")],
             ["closed-reason", 'if (!CLOSED_REASONS.includes(value.reason)) fail("frame-shape");', "", row("closed-reason")],
             ["frame-json", 'catch { fail("frame-json"); }', 'catch { return { kind: "ignored" }; }', row("json")],
@@ -667,7 +936,9 @@ world(async () => {
             ["reply-gap", "reply.stream.push(null);", "", as("roundTrip")],
             ["gap-restart", "if (reply === session.playing) gap(session);", "", as("roundTrip")],
             ["segment-gap", "start - segment.end >= SEGMENT_GAP_MS", "false", as("captions")],
-            ["segment-limit", 'captionLimit) {\n                emit(segment.text, "final");', "captionLimit) {", as("captions")],
+            ["segment-limit", 'captionLimit) {\n                conclude(session, role);\n                emit(segment.text, "final");', "captionLimit) {", as("captions")],
+            ["release-before-close", 'session.state = { kind: "ended" };\n        if (session.channel !== null) session.channel.close();',
+                'if (session.channel !== null) session.channel.close();\n        session.state = { kind: "ended" };', as("releaseLifetime")],
             ["input-overflow", 'if (session.pendingBytes > PENDING_BYTES) { failed(session, "live=input-overflow"); return false; }', "",
                 as("opening")],
             ["input-order", "if (!waiting && session.pending.length === 0) return append(session, pcm);",
@@ -682,6 +953,30 @@ world(async () => {
                 folder => releaseConnect(kitFrom(folder, [withheldConnect]))]
         ];
         for (const [name, needle, replacement, check] of mutations) await control(name, needle, replacement, check);
+        for (const [name, needle, replacement, scenario] of [
+            ["daemon-live-selection", 'settings.voiceProvider === "gpt-live"', "false", "action"],
+            ["daemon-commentary", "c.live.commentary(turn.delegation, item);", "void item;", "action"],
+            ["daemon-router-tools", "tools: router.offer()", "tools: []", "action"],
+            ["daemon-router-approval", "router.route(call, { gen: turn.gen, op: turn.op });", "void call;", "action"],
+            ["daemon-speakable", "for (const sentence of text.push(event.text))", "for (const sentence of [event.text])", "action"],
+            ["daemon-recipient-provider", 'provider: account.provider, account: account.id, origin: Net.endpoint(provider.base).origin',
+                'provider: provider.id, account: account.id, origin: Net.endpoint(provider.base).origin', "release"],
+            ["daemon-release-request", "if (needed.length === 0) return;", "return;", "release"],
+            ["daemon-audit-before-send", 'const result = audit.before(releaseEvent(c, identity, item.labels, "send", "pending"), start);\n        if (result.kind !== "started") fail("audit-write");\n        return result.value;',
+                'return start();', "action"]
+        ]) {
+            const kit = kitFrom(backend, [["ChainedEngine.js", needle, replacement]]);
+            // The audit plant must parse, send the real commentary frame, and
+            // fail at its missing operation record rather than at setup.
+            new (require("node:vm").Script)(fs.readFileSync(path.join(kit.folder, "ChainedEngine.js"), "utf8"));
+            const failed = name === "daemon-audit-before-send"
+                ? error => error instanceof assert.AssertionError
+                    && error.message === "outbound commentary has a prior audit for its live operation"
+                : assert.AssertionError;
+            await assert.rejects(() => daemonDelegation(kit, scenario), failed, name + " must turn red");
+            controls++;
+            console.log("control=" + name + " detected");
+        }
         console.log("test-jarvis-live: ok cases=" + (Object.keys(cases).length + 2) + " controls=" + controls
             + " connections=" + main.conns.length);
     } finally {
@@ -692,4 +987,4 @@ world(async () => {
             await new Promise(resolve => server.instance.close(resolve));
         }
     }
-}, standins)?.catch(error => { console.error(error); process.exitCode = 1; });
+}, folder => { standins(folder); audioStandins(folder); }, 180000)?.catch(error => { console.error(error); process.exitCode = 1; });

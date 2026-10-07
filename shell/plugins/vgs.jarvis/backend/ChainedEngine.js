@@ -1,4 +1,4 @@
-// One chained conversation: speech to text, brain, Speakable, text to speech.
+// One conversation owner: chained speech or GPT-Live duplex delegation.
 // Session owns identity and deadlines, Audio owns pacing and heard accounting,
 // WireBrain owns history and ToolRouter owns actions. This owner connects them
 // per conversation and keeps the heard prefix that the next turn reports.
@@ -20,6 +20,7 @@ const PiHarness = require("./PiHarness.js");
 const ClaudeCode = require("./ClaudeCode.js");
 const LocalSpeech = require("./LocalSpeech.js");
 const { PCM_RATE } = require("./Audio.js");
+const GptLive = require("./GptLive.js");
 
 // Speech adapter rows in selection order. A row is {select({settings,
 // accounts, directories})} answering {kind:"ready", recipients, open({net,
@@ -89,6 +90,22 @@ function select(settings, accounts, directories) {
 }
 
 function selectSpeech(settings, accounts, directories) {
+    if (settings.voiceProvider === "gpt-live") {
+        const provider = Providers.select("openai-live");
+        if (!settings.voiceAccount) return unconfigured("speech=live-account-unselected");
+        let judge, account;
+        try { judge = accounts(); account = judge.resolve(settings.voiceAccount); }
+        catch (error) {
+            if (!/^jarvis-(?:accounts|keys): /.test(error?.message ?? "")) throw error;
+            return unconfigured("speech=live-account-unreadable");
+        }
+        if (account === null || account.provider !== "openai" || account.source.kind !== "keyring")
+            return unconfigured("speech=live-key-required");
+        const reference = account.source.reference;
+        Net.assertKeyTarget(provider.base, reference.origin);
+        return { kind: "ready", id: "openai-live", provider, key: { secrets: judge.secrets, reference },
+            recipients: [{ kind: "network", provider: account.provider, account: account.id, origin: Net.endpoint(provider.base).origin }] };
+    }
     let speech = unconfigured("speech=no-adapter");
     for (const [id, row] of Object.entries(SPEECH)) {
         const answer = row.select({ settings, accounts, directories });
@@ -124,7 +141,7 @@ function selectBrain(settings, accounts) {
 
 /**
  * create({session, state, audit, router, accounts, policy, fault, captionLimit,
- * harness, directories}) owns the daemon's chained conversations. session is
+ * harness, directories}) owns the daemon's conversations. session is
  * the Session judge and state returns its current record; audit is the daemon's
  * writer; directories are the hello's state, data and runtime roots; router supplies
  * offer, route, observe and interrupted; accounts returns an Accounts judge;
@@ -134,7 +151,7 @@ function selectBrain(settings, accounts) {
  * tool bridge, the HarnessGate, the environment its program is started from
  * and a function answering the runtime directory.
  */
-function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, directories, dispatch, clock, configured = () => {} }) {
+function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, directories, dispatch, clock, configured = () => {}, log = () => {} }) {
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
     let plan = unconfigured("engine=starting");
     let conversation = null;
@@ -146,9 +163,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
 
     function configuration() {
         if (plan.kind !== "ready") return plan;
-        if (speechState.kind === "starting")
+        if (plan.speech.lifetime === "daemon" && speechState.kind === "starting")
             return { kind: "loading", cause: "speech=local-loading", causes: ["speech=local-loading"] };
-        if (speechState.kind === "refused") {
+        if (plan.speech.lifetime === "daemon" && speechState.kind === "refused") {
             const cause = "speech=local-" + speechState.error.code.split(" ")[0];
             return { kind: "unconfigured", cause, causes: [cause] };
         }
@@ -199,14 +216,22 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         const recipients = Policy.recipients({ conversation: "jarvis-" + gen, profile: facts.profile,
             cloudVision: facts.cloudVision, brain: plan.brain.recipient, speech: plan.speech.recipients });
         const net = Net.create(recipients);
-        let speech;
-        if (plan.speech.lifetime === "daemon" && daemonSpeech === null) startSpeech(plan.speech);
-        try { speech = plan.speech.lifetime === "daemon" ? daemonSpeech : plan.speech.open({ net, recipients }); }
-        catch (error) { net.close(); throw error; }
         // late holds at most one call: the router runs one action at a time.
-        return { gen, plan, recipients, net, speech, brain: null, owner: null, grants: [], heard: null,
+        const c = { gen, plan, recipients, net, speech: null, brain: null, owner: null, grants: [], heard: null,
             decisions: new Set(), releasePending: null, late: new Map(), results: [], turn: null, last: null,
-            feedback: null, collection: null, unbound: null, rev: 0 };
+            feedback: null, collection: null, unbound: null, rev: 0, quiet: Promise.resolve(), live: null };
+        try {
+            if (plan.speech.id === "openai-live") {
+                c.live = GptLive.create({ provider: plan.speech.provider, clock, captionLimit,
+                    log, conversation: e => ({ net, key: plan.speech.key, language: LANGUAGE,
+                        grants: () => c.grants, transfer: (item, start) => transfer(c, e, item, start) }) });
+                c.speech = { close: () => c.live.port.release() };
+            } else {
+                if (plan.speech.lifetime === "daemon" && daemonSpeech === null) startSpeech(plan.speech);
+                c.speech = plan.speech.lifetime === "daemon" ? daemonSpeech : plan.speech.open({ net, recipients });
+            }
+        } catch (error) { net.close(); throw error; }
+        return c;
     }
     // observe() ends a conversation before any effect of a newer generation.
     function current(gen) {
@@ -402,6 +427,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     function say(c, turn, sentence) {
         if (turn.stopped) return;
         const item = Policy.item(sentence, [...turn.labels]);
+        if (c.live !== null) {
+            c.live.commentary(turn.delegation, item);
+            return;
+        }
         transfer(c, turn, item, () => {
             if (turn.speech === null) {
                 turn.speech = speech(c);
@@ -454,7 +483,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         turn.feedbackTimer = null;
     }
     function working(c, turn) {
-        if (state().settings.sounds !== true || clock === undefined) return;
+        if (c.live !== null || state().settings.sounds !== true || clock === undefined) return;
         turn.feedbackTimer = clock.set(() => {
             turn.feedbackTimer = null;
             if (conversation !== c || turn.stopped || !session.live(state(), turn, "turn", ["thinking"])) return;
@@ -619,7 +648,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 c.owner = e.owner;
             } else if (c.owner !== e.owner) fail("brain-owner");
             if (c.turn !== null) fail("brain-busy");
-            const turn = { gen: e.gen, op: e.op, done, labels: new Set(), speech: null, stopped: false, speaking: false,
+            const turn = { gen: e.gen, op: e.op, done, labels: new Set(), speech: null, stopped: false, speaking: false, delegation: e.delegation,
                 feedbackTimer: null,
                 phase: "streaming", calls: [], answers: new Map(), routing: null, caption: "" };
             if (e.text.trim() === "") {
@@ -635,7 +664,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             items.push(...c.results);
             c.results = [];
             items.push(Policy.item(e.text, ["speech"]));
-            void respond(c, turn, { kind: "user", items });
+            // A replaced duplex delegation waits for the prior adapter's cancellation.
+            void c.quiet.then(() => {
+                if (!turn.stopped && conversation === c) return respond(c, turn, { kind: "user", items });
+            });
         },
         cancel(e, done) {
             const c = conversation;
@@ -647,9 +679,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (turn === null || turn.op !== e.target) { done(); return; }
             c.turn = null;
             stop(turn);
-            heard(c, turn, "");
+            if (c.live === null) heard(c, turn, "");
             const routing = turn.phase === "routing";
-            void c.brain.cancel().then(() => {
+            c.quiet = c.brain.cancel().then(() => {
                 // Every call in history gets an answer, so the next request is
                 // valid. A running call's real outcome follows on a later turn.
                 if (routing && c.brain !== null) c.brain.record({ kind: "tool-results", results: turn.calls.map(call => {
@@ -701,7 +733,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 const turn = c?.last;
                 const speaking = turn?.speaking === true;
                 return port.flush(e, report => {
-                    if (speaking && conversation === c && c.last === turn && (report === null || report.source === turn.op))
+                    if (speaking && c.live === null && conversation === c && c.last === turn && (report === null || report.source === turn.op))
                         heard(c, turn, report === null ? "" : report.heardText);
                     done(report);
                 });
@@ -784,6 +816,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // unbound, replacing and abandoning any earlier unbound one.
         captureSink(e) {
             const c = current(e.gen);
+            if (c.live !== null) return c.live.captureSink(e);
             const utterance = transcription(c, e);
             const collection = c.collection;
             if (collecting(c, collection) && collection.utterance === null) {
@@ -807,12 +840,20 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         },
         playbackSource(op) {
             if (conversation?.feedback?.source === op) return conversation.feedback.readable;
+            if (conversation?.live !== null && conversation?.live !== undefined) return conversation.live.playbackSource(op);
             const turn = conversation?.last;
             if (!turn || turn.op !== op || turn.speech === null || turn.speech.handed) return null;
             turn.speech.handed = true;
             return turn.speech.readable;
         },
         playback, brain,
+        engine() { return plan.kind === "ready" && plan.speech.id === "openai-live" ? "duplex" : "chained"; },
+        speech: {
+            open(e, events) { current(e.gen).live.port.open(e, events); },
+            close(e) { conversation?.live?.port.close(e); },
+            flush(e) { conversation?.live?.port.flush(e); },
+            release() { conversation?.live?.port.release(); }
+        },
         close() {
             end();
             closed = true;

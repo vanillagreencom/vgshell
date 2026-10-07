@@ -69,6 +69,7 @@ class SessionRunner {
         case "mute-store": this.ports.mute.store(e.muted); break;
         case "speech-open": this.ports.speech.open(e, {
             speak: () => done("speak"),
+            delegation: task => done("delegation", task),
             transcript: record => done("transcript", record),
             idle: () => done("speech-idle"),
             failed: reason => done("speech-failed", { reason })

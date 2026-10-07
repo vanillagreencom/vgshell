@@ -195,6 +195,7 @@ world(async () => {
         const item = store.discover().find(row => row.source.kind === "keyring");
         assert.equal(item.state.kind, value === "present" ? "found" : value === "locked" ? "locked" : "unavailable");
         assert.equal(store.status().brains.some(row => row.value === item.id), value === "present");
+        assert.equal(store.status().voiceAccounts.some(row => row.value === item.id), value === "present");
         safe(store.status());
         cases++;
     }
@@ -210,6 +211,28 @@ world(async () => {
     const ownedAlias = ownReference("anthropic", "Claude Code", "https://api.anthropic.com");
     references.remember(ownedAlias);
     assert.equal(store.discover().find(item => item.source.reference?.account === "Claude Code").state.kind, "found");
+    const voiceOffers = Judge => {
+        const judge = new Judge(directory, { ...env, OPENAI_API_KEY: privateValue });
+        const rows = judge.discover();
+        const wanted = rows.find(item => item.source.reference?.account === "other");
+        const environmentAccount = rows.find(item => item.provider === "openai" && item.source.kind === "variable");
+        assert.ok(environmentAccount, "the fixture discovers an environment account");
+        const choices = judge.status().voiceAccounts;
+        assert.equal(choices.some(choice => choice.value === environmentAccount.id), false);
+        assert.deepEqual(choices.map(choice => choice.value), [wanted.id]);
+        safe(choices);
+    };
+    voiceOffers(Accounts);
+    for (const [name, needle, replacement] of [
+        ["live-provider-offer", 'offered.filter(item => item.provider === "openai")', "offered"],
+        ["live-resolved-account-offer", 'if (resolved === null) return { kind: "refused", cause: "account-unavailable" };',
+            'if (resolved === null) return { kind: "accepted", account: null };']
+    ]) {
+        await mutant("backend/Accounts.js", name, needle,
+            replacement, folder => voiceOffers(require(path.join(folder, "backend/Accounts.js")).Accounts));
+        controls++;
+        cases++;
+    }
     const stableReference = Judge => {
         const original = references.references().find(ref => ref.account === "other");
         const before = new Judge(directory, env).discover().find(item => item.source.reference?.account === "other").id;

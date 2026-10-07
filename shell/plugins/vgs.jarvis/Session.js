@@ -5,7 +5,7 @@
 // Cleanup acknowledgments and a running tool's outcome retain their original
 // identity across stop; content callbacks do not. A duplex engine owns one
 // speech session per conversation; its callbacks carry the session's gen/op.
-var SESSION_SETTINGS = ["mode", "voiceProvider", "voice", "language", "brain", "model", "customBaseUrl", "policy", "cloudVision", "account"];
+var SESSION_SETTINGS = ["mode", "voiceProvider", "voice", "language", "brain", "model", "customBaseUrl", "policy", "cloudVision", "account", "voiceAccount"];
 var RESPONSE_TIMEOUT_MS = 60000;
 var COLLECTION_TIMEOUT_MS = 60000;
 var PLAYBACK_TIMEOUT_MS = 300000;
@@ -18,7 +18,7 @@ var EVENTS = [
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
     "final", "say", "collect-failed", "brain-done", "brain-failed", "brain-ended", "cancelled", "play", "played",
     "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "deadline", "lease-ended",
-    "speak", "transcript", "speech-idle", "speech-failed", "feedback"
+    "speak", "transcript", "speech-idle", "speech-failed", "feedback", "delegation"
 ];
 
 function initial() {
@@ -449,9 +449,21 @@ function reduce(state, e) {
         if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
         s.turn.partial = e.text;
         break;
+    case "delegation":
     case "final":
-        if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
-        commitUserText(s, effects, e.text, e.at, e.op);
+        if (e.type === "delegation") {
+            if (s.engine.kind !== "duplex" || !live(s, e, "speech", ["open"]) || !canEngage(s)) { stale(s); break; }
+            cancelTurn(s, effects, e.at);
+            dropApproval(s, effects, "replaced", e.at);
+            if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
+            var brain = effect(s, effects, "brain-send", { text: e.text, delegation: e.id });
+            if (s.brain.kind === "closed") s.brain = { kind: "acquired", gen: brain.gen, op: brain.op };
+            brain.owner = s.brain.op;
+            s.turn = { kind: "thinking", gen: brain.gen, op: brain.op, deadline: e.at + RESPONSE_TIMEOUT_MS };
+        } else {
+            if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
+            commitUserText(s, effects, e.text, e.at, e.op);
+        }
         break;
     case "say":
         if (sayRefusal(s) !== null) break;
