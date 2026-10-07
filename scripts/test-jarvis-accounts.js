@@ -256,22 +256,26 @@ world(async () => {
             { kind: "local", origin: "http://127.0.0.1:11434" });
         assert.deepEqual(judge.resolve(local.id), { id: local.id, provider: "ollama", label: "local",
             source: local.source, model: "" });
+        // A speech-only key is found, with no model, and the engine refuses it.
         const speech = found.find(item => item.provider === "elevenlabs");
         assert.ok(speech, "a speech-only key reference exists");
+        assert.deepEqual(judge.resolve(speech.id), { id: speech.id, provider: "elevenlabs", label: speech.label,
+            source: speech.source, model: "" });
+        assert.deepEqual(judge.choose(speech.id), { kind: "refused", cause: "model-required" }, "a speech-only key");
         // A Claude Code folder's program is the brain, with its own default model.
         const claude = found.find(item => item.source.kind === "cli" && item.provider === "claude");
         assert.deepEqual(judge.resolve(claude.id), { id: claude.id, provider: "claude", label: claude.label,
             source: { kind: "cli", directory: claude.source.directory }, model: "" });
-        for (const other of [unknown.id, speech.id, "", "keyring:0"]) {
+        for (const other of [unknown.id, "", "keyring:0"]) {
             let value;
             assert.doesNotThrow(() => { value = judge.resolve(other); }, "resolution judges every saved reference");
-            assert.equal(value, null, "a speech-only, unsupported or unknown id selects nothing");
+            assert.equal(value, null, "an unsupported or unknown id selects nothing");
         }
         assert.deepEqual([calls("cli-calls").length, calls("port-calls").length, calls("secret-calls").length], before,
             "resolution runs no vendor command, port read or key lookup");
     };
     resolution(Accounts);
-    await mutant("backend/Accounts.js", "resolve-unsupported", 'if ((source.kind === "keyring" && !keyProvider(row)) || !brainRow(row)) return null;', "",
+    await mutant("backend/Accounts.js", "resolve-unsupported", 'if (source.kind === "keyring" && !keyProvider(row)) return null;', "",
         folder => resolution(require(path.join(folder, "backend/Accounts.js")).Accounts));
     controls++;
     cases++;
@@ -434,8 +438,10 @@ world(async () => {
         controls++;
     }
     cases++;
-    // Labels: one account of a harness reads as its name, more read as its
-    // sign-in emails, or say none was found, grouped by provider and sorted.
+    // Labels: one account of a harness reads as its provider's name, more
+    // read as their sign-in emails, and one with no email names no folder;
+    // grouped by provider, a provider's emails in order. The words around
+    // them are the label's own.
     const labelWorld = (name, folders) => {
         const own = worldOf(name);
         const directories = folders.map(([folder, email]) => {
@@ -445,22 +451,46 @@ world(async () => {
         });
         return { own, directories };
     };
+    const providerLabel = id => PROVIDERS.find(row => row.id === id).label;
+    // WANT: [provider id, its email, "alone" for a provider's one account or
+    // null for none, folder name] for each offered account.
+    const checkLabels = (judge, found, want, name) => {
+        const got = judge.status().brains.map(choice => {
+            const item = found.find(account => account.id === choice.value);
+            return { label: choice.label, provider: item.provider, folder: path.basename(item.source.directory), name: item.label };
+        });
+        assert.deepEqual(got.map(row => row.provider + " " + row.folder).sort(),
+            want.map(([provider, , folder]) => provider + " " + folder).sort(), name + ": the accounts offered");
+        for (const row of got) {
+            const [, email] = want.find(([provider, , folder]) => provider === row.provider && folder === row.folder);
+            const first = providerLabel(row.provider);
+            assert.ok(row.label.startsWith(first), name + ": " + row.label + " names its provider first");
+            if (email === "alone") assert.equal(row.label, first, name + ": a provider's one account");
+            else if (email === null)
+                assert.ok(row.label !== first && !row.label.includes("@") && !row.label.includes(row.name),
+                    name + ": " + row.label + " says no email and names no folder");
+            else assert.ok(row.label.includes(email), name + ": " + row.label + " names " + email);
+        }
+        const groups = got.map(row => providerLabel(row.provider));
+        assert.deepEqual(groups, [...groups].sort(), name + ": grouped by provider");
+        for (const provider of new Set(got.map(row => row.provider))) {
+            const emails = got.filter(row => row.provider === provider)
+                .map(row => want.find(([id, , folder]) => id === provider && folder === row.folder)[1])
+                .filter(email => email !== null && email !== "alone");
+            assert.deepEqual(emails, [...emails].sort(), name + ": " + provider + " in email order");
+        }
+    };
     const several = labelWorld("labels", [[".claude", "bob@example.invalid"], [".claude-a", "zed@example.invalid"],
-        [".claude-b", "amy@example.invalid"], [".claude-c", ""], [".2codex", null]]);
+        [".claude-b", "amy@example.invalid"], [".claude-q", ""], [".2codex", null]]);
     const single = labelWorld("single", [[".claude", "bob@example.invalid"]]);
     const labels = Judge => {
-        for (const [world, want] of [
-            [several, [["Claude Code (no email found)", ".claude-c"], ["Claude Code / amy@example.invalid", ".claude-b"],
-                ["Claude Code / bob@example.invalid", ".claude"], ["Claude Code / zed@example.invalid", ".claude-a"],
-                ["Codex (no email found)", ".2codex"], ["Codex (no email found)", ".codex"]]],
-            [single, [["Claude Code", ".claude"], ["Codex", ".codex"]]]]) {
+        for (const [world, want, name] of [
+            [several, [["claude", null, ".claude-q"], ["claude", "amy@example.invalid", ".claude-b"],
+                ["claude", "bob@example.invalid", ".claude"], ["claude", "zed@example.invalid", ".claude-a"],
+                ["codex", null, ".2codex"], ["codex", null, ".codex"]], "several"],
+            [single, [["claude", "alone", ".claude"], ["codex", "alone", ".codex"]], "single"]]) {
             const judge = new Judge(world.own.state, world.own.env);
-            const found = judge.discover();
-            const folderOf = value => path.basename(found.find(item => item.id === value).source.directory);
-            const got = judge.status().brains.map(choice => [choice.label, folderOf(choice.value)]);
-            // Two Codex folders read alike; their order is by id.
-            const codex = got.filter(([label]) => label.startsWith("Codex")).map(([, folder]) => folder).sort();
-            assert.deepEqual(got.map(([label, folder]) => label.startsWith("Codex") ? [label, codex.shift()] : [label, folder]), want);
+            checkLabels(judge, judge.discover(), want, name);
         }
     };
     labels(Accounts);
@@ -475,28 +505,25 @@ world(async () => {
     cases++;
     // A signed-in Codex account's email comes from its own program's
     // account/read, as AI Usage reads it: one bounded program per account,
-    // CODEX_HOME its folder. Any failed or late read names no email.
+    // CODEX_HOME its folder. Any failed or late read names no email. Only
+    // the silent program's row times the bound; the others keep the
+    // production bound, far above a loaded host's start.
     const codexWorld = labelWorld("codex-emails", [[".codex", "amy@example.invalid"], [".2codex", "zed@example.invalid"]]);
     const codexFolders = [".codex", ".2codex"].map(name => path.join(codexWorld.own.env.HOME, name));
-    const noEmail = [["Codex (no email found)", ".2codex"], ["Codex (no email found)", ".codex"]];
+    const noEmail = [["claude", "alone", ".claude"], ["codex", null, ".codex"], ["codex", null, ".2codex"]];
     const codexEmails = async Judge => {
         for (const [appMode, want] of [
-            ["chatgpt", [["Codex / amy@example.invalid", ".codex"], ["Codex / zed@example.invalid", ".2codex"]]],
+            ["chatgpt", [["claude", "alone", ".claude"], ["codex", "amy@example.invalid", ".codex"], ["codex", "zed@example.invalid", ".2codex"]]],
             ["api", noEmail], ["exit", noEmail], ["silent", noEmail]]) {
             mode("codex-app", appMode);
             const judge = new Judge(codexWorld.own.state, codexWorld.own.env);
             const found = judge.discover();
             const before = calls("app-calls").length;
             const started = Date.now();
-            await judge.readEmails({ deadlineMs: 300 });
+            await judge.readEmails(appMode === "silent" ? { deadlineMs: 300 } : {});
             // The bound, not the silent program's own exit at 3000 ms, ends its read.
-            assert.ok(Date.now() - started < 1500, appMode + ": the read ends at its bound");
-            const folderOf = value => path.basename(found.find(item => item.id === value).source.directory);
-            const got = judge.status().brains.filter(choice => choice.label.startsWith("Codex"))
-                .map(choice => [choice.label, folderOf(choice.value)]);
-            const sorted = want === noEmail ? got.map(([label]) => label).map((label, index) =>
-                [label, got.map(([, folder]) => folder).sort()[index]]) : got;
-            assert.deepEqual(sorted, want, appMode);
+            if (appMode === "silent") assert.ok(Date.now() - started < 1500, "silent: the read ends at its bound");
+            checkLabels(judge, found, want, appMode);
             const reads = calls("app-calls").slice(before);
             assert.deepEqual(reads.map(call => call.env.CODEX_HOME).sort(), [...codexFolders].sort(), appMode + ": one program per account");
             for (const call of reads) assert.equal(call.env.VGSHELL_RUNNER_PID, undefined);

@@ -375,7 +375,9 @@ world(async () => {
             assert.deepEqual(judge.resolve(codex.id), { id: codex.id, provider: "codex", label: "default",
                 source: { kind: "cli", directory: account }, model: "" });
             assert.deepEqual(judge.resolve(claude.id), { id: claude.id, provider: "claude", label: "default",
-                source: { kind: "cli", directory: path.join(process.env.HOME, ".claude") }, model: "" }, "a Claude Code folder is a harness brain");
+                source: { kind: "cli", directory: path.join(process.env.HOME, ".claude") }, model: "" });
+            for (const item of [codex, claude])
+                assert.equal(judge.choose(item.id).kind, "accepted", item.provider + " folder is a harness brain");
             scenario({ reply: "OK" });
             assert.deepEqual(await judge.verify(codex.id, "user"), { kind: "verified" });
             assert.deepEqual(read("codex-log").filter(row => row.direction === "audit").map(row => row.message.lines), [1],
@@ -484,7 +486,7 @@ world(async () => {
             ["handoff-audit", "backend/Accounts.js", [["release.start(() => CodexHarness.probe(",
                 "(send => send())(() => CodexHarness.probe("]], "verify"],
             ["handoff-release", "backend/Accounts.js", [['const grants = [{ recipients: selected, labels: ["command"] }];', "const grants = [];"]], "verify"],
-            ["resolve-claude", "backend/Accounts.js", [['HARNESS_BRAINS = Object.freeze(["claude", "codex"]);', 'HARNESS_BRAINS = Object.freeze(["codex"]);']], "verify"],
+            ["harness-brain", "AccountProviders.js", [['return row.kind === "cli" || (', "return ("]], "verify"],
             ["handoff-runtime", "backend/Accounts.js", [["runtime: this.runtime,", 'runtime: path.join(this.env.XDG_RUNTIME_DIR, "vgshell/jarvis"),']], "verify"],
             ["default-runtime", "backend/Accounts.js", [["runtime = runtimeDirectory(env.XDG_RUNTIME_DIR)) {", 'runtime = "") {']], "verify"],
             ["harness-reason", "backend/Accounts.js", [[": harness ? harness[1]", ": false ? harness[1]"]], "verify"],

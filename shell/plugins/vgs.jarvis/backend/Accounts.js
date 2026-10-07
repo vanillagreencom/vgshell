@@ -22,8 +22,6 @@ const PROBE_TEXT = "Reply OK.";
 const PROBE_MS = 30000;
 // The harness probe's whole system prompt, so the probe stays one short turn.
 const HARNESS_INSTRUCTIONS = "Answer in one word.";
-// Subscriptions whose vendor program the chained engine can run as the brain.
-const HARNESS_BRAINS = Object.freeze(["claude", "codex"]);
 
 function fail(reason) { throw new Error("jarvis-accounts: " + reason); }
 function printable(value, max) {
@@ -39,8 +37,6 @@ function provider(id) {
     // not list stays visible but unavailable; it never selects a driver.
     return row || { id, label: id, kind: "unsupported" };
 }
-// A brain choice is any account but a speech-only key.
-function brainRow(row) { return row.kind !== "speech-key"; }
 /**
  * Whether the chained engine runs an account, read by the engine and by the
  * AI model list: RESOLVED, resolve()'s answer, as { kind: "accepted",
@@ -400,13 +396,13 @@ class Accounts {
     }
 
     /**
-     * The daemon's brain selection: a saved Brain account id among keyring
-     * references, local servers and subscription directories with a harness
-     * handoff, with the declaration's Verify probe model; a subscription's
-     * model is "", its program's own default. It runs no vendor command and
-     * reads no port, so it proves neither login nor a listening server. A
-     * subscription without a handoff, a speech-only key, an unsupported label
-     * or an unknown id is null.
+     * The saved Brain account id's account among keyring references, local
+     * servers and subscription directories, with its row's Verify probe
+     * model, "" for a row without one; a subscription's model is "", its
+     * program's own default. Whether the engine runs it is accepted()'s. It
+     * runs no vendor command and reads no port, so it proves neither login
+     * nor a listening server. A reference to an unsupported provider and an
+     * unknown id are null.
      */
     resolve(id) {
         return this.resolver()(id);
@@ -420,12 +416,11 @@ class Accounts {
         return id => {
             for (const { row, label, source } of rows) {
                 if (this.account(row, label, { kind: "found" }, source).id !== id) continue;
-                if ((source.kind === "keyring" && !keyProvider(row)) || !brainRow(row)) return null;
-                return { id, provider: row.id, label, source, model: row.probe.model };
+                if (source.kind === "keyring" && !keyProvider(row)) return null;
+                return { id, provider: row.id, label, source, model: row.probe === undefined ? "" : row.probe.model };
             }
             for (const candidate of candidates) {
                 if (identity("cli", [candidate.provider, candidate.directory]) !== id) continue;
-                if (!HARNESS_BRAINS.includes(candidate.provider)) return null;
                 return { id, provider: candidate.provider, label: candidate.label.slice(0, 60),
                     source: { kind: "cli", directory: candidate.directory }, model: "" };
             }
