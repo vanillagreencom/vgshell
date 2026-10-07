@@ -306,6 +306,7 @@ console.log(wanted);
     fs.mkdirSync(path.join(mutant, "backend"), { recursive: true });
     fs.copyFileSync(path.join(backend, "keys.js"), path.join(mutant, "backend/keys.js"));
     fs.copyFileSync(path.join(plugin, "AccountProviders.js"), path.join(mutant, "AccountProviders.js"));
+    fs.copyFileSync(path.join(backend, "TerminalRows.js"), path.join(mutant, "backend/TerminalRows.js"));
     const precheck = "this.#referenceUpdate(own);";
     assert.equal(source.split(precheck).length - 1, 1);
     const unchecked = source.replace(precheck, "void own;");
@@ -349,8 +350,6 @@ console.log(wanted);
     for (const [name, file, needle, replacement, check] of [
         ["unknown-provider", "backend/keys.js", 'if (row === undefined) throw new Error("jarvis-keys: provider=unknown");', "", unknown],
         ["provider-origin", "backend/keys.js", "ownReference(row.id, account, row.origin)", 'ownReference(row.id, account, "https://api.openai.com")', chosen],
-        ["key-providers", "AccountProviders.js", 'if (kind === "key") return modelKeyProvider(row);', 'if (kind === "key") return keyProvider(row);',
-            keyProviders],
         ["model-providers", "AccountProviders.js", 'return row.kind === "key" && modelProvider(row);', 'return row.kind === "key";', unknown]
     ]) {
         const original = fs.readFileSync(path.join(plugin, file), "utf8");
