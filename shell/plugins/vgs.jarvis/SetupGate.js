@@ -41,9 +41,11 @@ var TODO = {
 var STEP_TODO = { speech: "Set up local voice.", brain: "The chosen AI model cannot be used. Add a key or sign in, then choose it below." };
 var DONE = { tone: "ok", text: "Done", action: false };
 var CHECKING = { tone: "info", text: "Checking", action: false };
+var LOADING = { tone: "info", text: "Loading", action: false };
 // The summary declares no action, so its value carries none: the manifest
 // judge refuses an action key on an entry without one.
 var CHECKING_SUMMARY = { tone: "info", text: "Checking" };
+var LOADING_SUMMARY = { tone: "info", text: "Loading" };
 // A required step once the daemon stopped: no check runs, none is offered.
 var UNCHECKED = { tone: "warning", text: "Not checked", action: false };
 
@@ -65,8 +67,8 @@ function readiness(answer) {
             var step = cause.slice(0, cause.indexOf("="));
             if (!Object.prototype.hasOwnProperty.call(REQUIRED, step)) throw new Error("jarvis-setup: cause=" + cause + " names no step");
             if (cause === "speech=local-loading") {
-                out.setupVoice = CHECKING;
-                if (answer.causes.length === 1) out.setup = CHECKING_SUMMARY;
+                out.setupVoice = LOADING;
+                if (answer.causes.length === 1) out.setup = LOADING_SUMMARY;
                 return;
             }
             var line = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];

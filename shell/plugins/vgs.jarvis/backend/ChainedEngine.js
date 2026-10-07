@@ -129,8 +129,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
 
     function configuration() {
         if (plan.kind !== "ready") return plan;
-        if (["starting", "refused"].includes(speechState.kind)) {
-            const cause = speechState.kind === "refused" ? "speech=local-" + speechState.error.code.split(" ")[0] : "speech=local-loading";
+        if (speechState.kind === "starting")
+            return { kind: "loading", cause: "speech=local-loading", causes: ["speech=local-loading"] };
+        if (speechState.kind === "refused") {
+            const cause = "speech=local-" + speechState.error.code.split(" ")[0];
             return { kind: "unconfigured", cause, causes: [cause] };
         }
         return { kind: "ready" };
@@ -148,9 +150,11 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         void owner.closed.then(({ error }) => {
             if (closed || daemonSpeech !== owner) return;
             daemonSpeech = null;
-            // A loaded child's fault does not revoke setup admission. The
-            // next permitted capture reloads, after this child is reaped.
-            speechState = speechState.kind === "ready" ? { kind: "unloaded" } : { kind: "refused", error, publication: row.publication };
+            // Only the child's setup refusal revokes admission. An own-child
+            // fault, including during loading capture, reloads on the next
+            // permitted request after this child is reaped.
+            speechState = ["not-ready", "runtime-not-ready"].includes(error.code)
+                ? { kind: "refused", error, publication: row.publication } : { kind: "unloaded" };
             configured(configuration());
         });
     }

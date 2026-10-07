@@ -11,6 +11,7 @@
 //   problem  the daemon or audio report danger, or Session reads `error`
 //   off      no Session state yet: the daemon's own text
 //   muted    privacy mute is on, or turning on
+//   loading  selected local voice is loading, with the AI model ready
 //   working  required Setup steps are checking, with no action to take
 //   off      the Session gate is down: one sentence per reason
 //   working  Jarvis thinks, speaks, waits for a confirmation or acts
@@ -24,6 +25,7 @@ var LOOKS = {
     "problem": { icon: "circle-alert", tone: "danger" },
     "off": { icon: "power-off", tone: "neutral" },
     "muted": { icon: "mic-off", tone: "neutral" },
+    "loading": { icon: "loader", tone: "info" },
     "working": { icon: "loader", tone: "info" },
     "ready": { icon: "mic", tone: "calm" }
 };
@@ -172,6 +174,15 @@ function setupChecking(values) {
     return checking;
 }
 
+// Voice loading is distinct from the unanswered initial setup check. The
+// ready AI step and the absence of setup actions identify the selected plan.
+function voiceLoading(values) {
+    var voice = values.setupVoice;
+    var model = values.setupModel;
+    return !!voice && voice.tone === "info" && voice.action === false
+        && !!model && model.tone === "ok" && model.action === false;
+}
+
 // The second tooltip line names what a click does to MUTEON, the mute
 // region the click toggles, whatever state the icon shows.
 function look(state, line, muteOn) {
@@ -201,7 +212,10 @@ function view(values) {
     if (audio !== null && audio.tone === "danger") return look("problem", AUDIO_TEXT, muteOn);
     if (state === null) return look("off", daemon === null ? GATE_TEXT.starting : "Jarvis: " + daemon.text, muteOn);
     if (muteOn) return look("muted", "Jarvis is muted", muteOn);
-    if (gateDown(state.gate)) {
+    var down = gateDown(state.gate);
+    if ((!down || state.gate.reason === "unconfigured") && voiceLoading(values))
+        return look("loading", "Jarvis is loading its voice", muteOn);
+    if (down) {
         if (state.gate.reason === "unconfigured" && setupChecking(values))
             return look("working", "Jarvis is checking setup", muteOn);
         return look("off", state.gate.reason === "unconfigured" ? unconfiguredText(values) : GATE_TEXT[state.gate.reason], muteOn);

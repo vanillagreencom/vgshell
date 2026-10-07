@@ -76,9 +76,11 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         write({ v: 1, type: "status", gen: runner.state.gen, revision: context.revision,
             daemon: context.locked ? "locked" : "ready",
             causes: configuration.kind === "ready" ? [] : configuration.causes });
-        // A healthy child is not permission to capture or start a tool.
+        // A selected healthy loading plan can accept bounded capture. The
+        // loading cause remains until the same child reports model readiness.
+        // Session still owns lock, mute, fault and indicator admission.
         runner.dispatch({ type: "snapshot", locked: context.locked, engine: "chained",
-            configured: configuration.kind === "ready", settings: context.settings });
+            configured: configuration.kind === "ready" || configuration.kind === "loading", settings: context.settings });
     }
 
     function teardown() {
