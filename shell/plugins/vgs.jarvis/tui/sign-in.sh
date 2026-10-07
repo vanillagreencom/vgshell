@@ -17,8 +17,8 @@ child_env=(env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8
   DISPLAY="${DISPLAY:-}" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}"
   VGS_TUI_ACCENT="${VGS_TUI_ACCENT:-}" VGS_TUI_SUCCESS="${VGS_TUI_SUCCESS:-}"
   VGS_TUI_WARNING="${VGS_TUI_WARNING:-}" VGS_TUI_DANGER="${VGS_TUI_DANGER:-}")
-# The presenter validates the theme. Only gum inherits its exported colors.
-gum_env=()
+# The presenter validates the theme. Gum also needs the terminal's color profile.
+gum_env=(TERM="${TERM:-}" COLORTERM="${COLORTERM:-}")
 while IFS= read -r name; do
   gum_env+=("$name=${!name}")
 done < <(compgen -e GUM_)

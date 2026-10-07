@@ -289,22 +289,27 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
         clearSignIns();
         const colors = { GUM_CHOOSE_SELECTED_BACKGROUND: "#124578",
             GUM_INPUT_PROMPT_FOREGROUND: "#2468ab", GUM_CONFIRM_SELECTED_BACKGROUND: "#3579bc" };
+        const terminal = { TERM: "xterm-kitty", COLORTERM: "truecolor" };
         const gumBefore = fs.readFileSync(path.join(env.XDG_STATE_HOME, "gum-calls"), "utf8").trim().split("\n").length;
         const vendorBefore = records().length;
-        const result = signIn(folder, "claude", "new", "themed", "success", "yes", colors);
+        const result = signIn(folder, "claude", "new", "themed", "success", "yes", { ...colors, ...terminal });
         assert.equal(result.status, 0, result.stdout + result.stderr);
         const calls = fs.readFileSync(path.join(env.XDG_STATE_HOME, "gum-calls"), "utf8").trim().split("\n")
             .slice(gumBefore).map(JSON.parse);
         for (const kind of ["choose", "input", "confirm"]) {
             const prompts = calls.filter(item => item.args[0] === kind);
             assert.ok(prompts.length > 0, "the themed prompt ran: " + kind);
-            for (const prompt of prompts)
+            for (const prompt of prompts) {
                 for (const [name, value] of Object.entries(colors)) assert.equal(prompt.env[name], value);
+                for (const [name, value] of Object.entries(terminal)) assert.equal(prompt.env[name], value);
+            }
         }
         const vendors = records().slice(vendorBefore);
         assert.ok(vendors.some(item => JSON.stringify(item.args) === JSON.stringify(["auth", "login"])));
-        for (const vendor of vendors)
+        for (const vendor of vendors) {
             for (const name of Object.keys(colors)) assert.equal(vendor.env[name], undefined);
+            for (const name of Object.keys(terminal)) assert.equal(vendor.env[name], undefined);
+        }
     };
     themedSignIn(plugin);
     const incompleteSignIn = folder => {
@@ -421,6 +426,8 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
         'if (false)', terminalRequired);
     await control("tui/sign-in.sh", "sign-in-prompt-colors", '"${gum_env[@]}" gum "$@"',
         'gum "$@"', themedSignIn);
+    await control("tui/sign-in.sh", "sign-in-terminal-profile", 'gum_env=(TERM="${TERM:-}" COLORTERM="${COLORTERM:-}")',
+        'gum_env=()', themedSignIn);
     await control("tui/sign-in.sh", "sign-in-picked-directory", 'sign-in "$selected" "$dir" "$label"',
         'sign-in "$selected" "$HOME" "$label"', successfulSignIn);
     await control("backend/Accounts.js", "sign-in-default-folder", 'folders.length === 0 ? "" : "-" + label',
