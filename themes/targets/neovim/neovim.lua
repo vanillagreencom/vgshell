@@ -1,11 +1,18 @@
 -- The vgs theme for Neovim, rendered by vgshell theme apply. Neovim sources
 -- nvim/plugin/vgs-theme.lua at startup; the colours are set once Neovim has
 -- started, after any colorscheme a plugin loads at startup.
+-- Neovim's terminal background detection can reset highlights. Set the
+-- declared mode first (Neovim runtime/doc/options.txt, 'background').
+vim.o.background = "@{scheme.mode}"
+
 local function apply()
   vim.cmd("highlight clear")
   vim.g.colors_name = "vgs"
   local hl = function(group, spec) vim.api.nvim_set_hl(0, group, spec) end
   hl("Normal", { fg = "#@{color.text}", bg = "#@{color.background}" })
+  -- Inactive windows use NormalNC, so they must take the same fill as
+  -- Normal (Neovim runtime/doc/syntax.txt, NormalNC).
+  hl("NormalNC", { fg = "#@{color.text}", bg = "#@{color.background}" })
   hl("NormalFloat", { fg = "#@{color.text}", bg = "#@{color.surfaceRaised}" })
   hl("FloatBorder", { fg = "#@{color.borderStrong}", bg = "#@{color.surfaceRaised}" })
   hl("WinSeparator", { fg = "#@{color.border}" })
