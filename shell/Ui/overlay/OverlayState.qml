@@ -1,6 +1,6 @@
 pragma Singleton
 import QtQuick
-import QtQuick.Window
+import Quickshell
 import qs.Commons
 
 // Which overlays are open, for the tooltip policy: a tooltip does not open
@@ -15,10 +15,15 @@ QtObject {
     function opened() { open += 1; }
     function closed() { if (open > 0) open -= 1; }
 
-    // The output `item` draws on, or null while it has none yet.
+    // The output `item` draws on, or null while it has none yet. The Qt
+    // window an item reports is Quickshell's backing window, which has no
+    // `screen`; Quickshell's QsWindow attached object names the Quickshell
+    // window, whose `screen` is its output, and answers no window for an
+    // item in a plain Qt window (Quickshell 0.3.1, QsWindow attached
+    // properties and ProxyWindowAttached::updateWindow).
     function outputOf(item) {
-        const window = item === null || item === undefined ? null : item.Window.window;
-        return window === null || window === undefined || window.screen === null || window.screen === undefined ? null : window.screen;
+        const window = item === null || item === undefined ? null : item.QsWindow.window;
+        return window === null || window === undefined ? null : window.screen;
     }
 
     // The room an output leaves a surface: its width and height less

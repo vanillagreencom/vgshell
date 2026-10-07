@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Window
 import QtTest
+import Quickshell
 import qs.Commons
 import qs.Ui
 import qs.Unit
@@ -100,6 +101,7 @@ Item {
 
         function init() {
             UnitTheme.reset();
+            QsWindow.window = null;
             dialog.busy = false;
             for (const spy of [accepts, rejects, threeAccepts, threeRejects, blockedAccepts, promptAccepts, promptRejects]) spy.clear();
             secret.text = "";
@@ -468,10 +470,13 @@ Item {
             tall.destroy();
         }
 
-        function test_the_default_maximum_height_comes_from_the_screen() {
+        // The stand-in QsWindow answers the test window for every item, and
+        // the window's screen is its output.
+        function test_the_default_maximum_height_comes_from_the_output() {
             const window = Qt.createQmlObject("import QtQuick\nimport QtQuick.Window\nimport qs.Ui\nWindow { width: 300; height: 300; visible: true; Dialog { id: d; objectName: \"dialog\"; width: 240; title: \"Screen\"; Rectangle { width: parent.width; height: 4000; color: \"transparent\" } } }", root);
-            wait(0);
             const made = window.contentItem.children[0];
+            compare(made.maximumHeight, Theme.size.panel.maxHeight, "no output caps at the panel height");
+            QsWindow.window = window;
             const screenHeight = made.screenHeight();
             verify(screenHeight > 0, "the test window has a screen");
             tryCompare(made, "maximumHeight", screenHeight * Theme.dialog.maxHeightShare);

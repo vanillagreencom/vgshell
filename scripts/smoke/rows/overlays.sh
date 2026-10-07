@@ -15,7 +15,10 @@
 # three share: in the application window, a select copy whose scope takes
 # the press without closing, and one whose scope drops Escape, stay open
 # through the same press and key.
-# inputs: scripts/smoke/fixtures/plugins/acme.overlays/* shell/Ui/overlay/* shell/Ui/controls/Select.qml
+# A popover and a dialog in the summoned panel's popup cap their height at
+# their share of the output; copies that find the output as the Qt window's
+# own `screen` cap at the fallback.
+# inputs: scripts/smoke/fixtures/plugins/acme.overlays/* shell/Ui/overlay/* shell/Ui/controls/Select.qml shell/Ui/feedback/Dialog.qml
 set -euo pipefail
 ov="$home/.config/vgshell/plugins/acme.overlays"
 mkdir -p "$ov"
@@ -238,6 +241,30 @@ if name == "select":
 target.write_text(text)
 PYEDIT
 done
+# The height caps' copies, written with the others: a popover that reads
+# its cap back, and a popover and a dialog that find their output as the
+# Qt window's own `screen`, which a Quickshell window does not have.
+python3 - "$repo/shell/Ui/overlay/Popover.qml" "$repo/shell/Ui/overlay" "$repo/shell/Ui/feedback/Dialog.qml" <<'PYEDIT'
+import pathlib, sys
+popover, overlay, dialog = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+old_read = """    function windowScreen(item) {
+        const window = item === null || item === undefined ? null : item.Window.window;
+        return window === null || window === undefined || window.screen === null || window.screen === undefined ? null : window.screen;
+    }
+"""
+def planted(text, call, anchor):
+    assert text.count(call) == 1, call + " must occur once"
+    assert text.count(anchor) == 1, anchor + " must occur once"
+    return text.replace(call, call.replace("OverlayState.outputOf", "root.windowScreen")).replace(anchor, anchor + old_read)
+text = popover.read_text()
+marker = "    readonly property real availableHeight: screenHeight()\n"
+assert text.count(marker) == 1, "the available height must occur once in Popover.qml"
+text = text.replace(marker, marker + "    readonly property real smokeCap: pane.maximumHeight\n")
+(overlay / "PopoverCap.qml").write_text(text)
+(overlay / "PopoverOldRead.qml").write_text(planted(text, "OverlayState.outputOf(anchorItem)", marker))
+text = dialog.read_text()
+(dialog.parent / "DialogOldRead.qml").write_text(planted(text, "OverlayState.outputOf(root)", "    property real availableHeight: 0\n"))
+PYEDIT
 # name -> [the member that opens it, the property that reads it open, its properties]
 declare -A nograb_use=(
   [popover]='open opened {"width":160}'
@@ -317,6 +344,29 @@ expect_poll "the nested list is open before Escape" true ipc smoke readInstance 
 type_keys -k Escape || fail "sending Escape to the nested list failed"
 expect_poll "Escape closes the nested list" false ipc smoke readInstance panel acme.overlays selectOpen
 expect "the flyout stays open through the press and Escape" 1 ipc smoke readInstance panel acme.overlays opened
+# A popover and a dialog in the flyout's popup cap their height at their
+# share of the output's height, read from Hyprland. Their copies with the
+# Qt window's `screen` find no output and cap at the fallback; an output
+# whose share equals the fallback would read `share` there and fail.
+read -r _ out_h < <(monitor_logical_size)
+cap_reads() { # COPY PROPERTY SHARE: `share` when the copy's cap is that share of the output's height, `fallback` when it is the fallback
+  local cap share fallback
+  cap="$(ipc smoke popupRead "$1" "$2")" || return
+  share="$(ipc smoke readInstance panel acme.overlays "$3")" || return
+  fallback="$(ipc smoke readInstance panel acme.overlays fallbackCap)" || return
+  python3 -c 'import sys; cap, share, height, fallback = map(float, sys.argv[1:]); print("share" if abs(cap - share * height) < 1 else "fallback" if cap == fallback else "cap=%g want=%g" % (cap, share * height))' "$cap" "$share" "$out_h" "$fallback"
+}
+expect "the probe builds the popover copy that reads its cap" ok ipc smoke popupLoad popover-cap "$repo/shell/Ui/overlay/PopoverCap.qml" panel acme.overlays '{"width":160}'
+expect "the probe builds the popover copy with the window's screen" ok ipc smoke popupLoad popover-old "$repo/shell/Ui/overlay/PopoverOldRead.qml" panel acme.overlays '{"width":160}'
+expect "the probe builds a dialog in the flyout" ok ipc smoke popupLoad dialog-cap "$repo/shell/Ui/feedback/Dialog.qml" panel acme.overlays '{"width":240}'
+expect "the probe builds the dialog copy with the window's screen" ok ipc smoke popupLoad dialog-old "$repo/shell/Ui/feedback/DialogOldRead.qml" panel acme.overlays '{"width":240}'
+expect_poll "a popover in a popup caps at its share of the output" share cap_reads popover-cap smokeCap popoverShare
+expect "the popover copy with the window's screen caps at the fallback" fallback cap_reads popover-old smokeCap popoverShare
+expect_poll "a dialog in a popup caps at its share of the output" share cap_reads dialog-cap maximumHeight dialogShare
+expect "the dialog copy with the window's screen caps at the fallback" fallback cap_reads dialog-old maximumHeight dialogShare
+for name in popover-cap popover-old dialog-cap dialog-old; do
+  expect "the probe drops the $name copy" ok ipc smoke popupDrop "$name"
+done
 expect "hiding the panel is allowed" ok ipc shell hide panel acme.overlays
 
 # Disabling the plugin with a popover open leaves no record and no error;

@@ -21,7 +21,8 @@
 # positions nothing, a ScriptModel that rebuilds its rows whole, a
 # LazyLoader that builds its component while active, a DesktopEntries whose
 # application list a test replaces and a Quickshell singleton whose env
-# answers "env:NAME", so Paths names directories under it, and a stand-in
+# answers "env:NAME", so Paths names directories under it, a QsWindow
+# singleton whose window a test names, and a stand-in
 # Quickshell.Io a FileView and Process the test finishes by hand, since the real
 # modules' plugins do not load outside the shell. qs/Core holds the shipped
 # core files the tests drive beside stand-in Registry, Capabilities and
@@ -124,10 +125,10 @@ cp -- "$tests/stand-ins/UnitTheme.qml" "$imports/qs/Unit/UnitTheme.qml"
 # Where the module under test is, for the test that reads its qmldir.
 printf '.pragma library\nvar UI_DIR = %s;\n' "$(python3 -c 'import json, sys; print(json.dumps("file://" + sys.argv[1]))' "$ui")" >"$imports/qs/Unit/UnitPaths.js"
 printf 'module qs.Unit\nsingleton UnitTheme 1.0 UnitTheme.qml\nUnitPaths 1.0 UnitPaths.js\n' >"$imports/qs/Unit/qmldir"
-for file in Singleton.qml Scope.qml PopupWindow.qml Edges.qml PopupAdjustment.qml Quickshell.qml DesktopEntries.qml ScriptModel.qml LazyLoader.qml; do
+for file in Singleton.qml Scope.qml PopupWindow.qml Edges.qml PopupAdjustment.qml Quickshell.qml QsWindow.qml DesktopEntries.qml ScriptModel.qml LazyLoader.qml; do
   cp -- "$tests/stand-ins/$file" "$imports/Quickshell/$file"
 done
-printf 'module Quickshell\nSingleton 1.0 Singleton.qml\nScope 1.0 Scope.qml\nPopupWindow 1.0 PopupWindow.qml\nEdges 1.0 Edges.qml\nPopupAdjustment 1.0 PopupAdjustment.qml\nsingleton Quickshell 1.0 Quickshell.qml\nsingleton DesktopEntries 1.0 DesktopEntries.qml\nScriptModel 1.0 ScriptModel.qml\nLazyLoader 1.0 LazyLoader.qml\n' >"$imports/Quickshell/qmldir"
+printf 'module Quickshell\nSingleton 1.0 Singleton.qml\nScope 1.0 Scope.qml\nPopupWindow 1.0 PopupWindow.qml\nEdges 1.0 Edges.qml\nPopupAdjustment 1.0 PopupAdjustment.qml\nsingleton Quickshell 1.0 Quickshell.qml\nsingleton QsWindow 1.0 QsWindow.qml\nsingleton DesktopEntries 1.0 DesktopEntries.qml\nScriptModel 1.0 ScriptModel.qml\nLazyLoader 1.0 LazyLoader.qml\n' >"$imports/Quickshell/qmldir"
 mkdir -p -- "$imports/Quickshell/Hyprland"
 cp -- "$tests/stand-ins/GlobalShortcut.qml" "$imports/Quickshell/Hyprland/GlobalShortcut.qml"
 cp -- "$tests/stand-ins/Hyprland.qml" "$imports/Quickshell/Hyprland/Hyprland.qml"

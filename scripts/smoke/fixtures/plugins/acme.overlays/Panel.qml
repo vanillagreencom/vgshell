@@ -1,4 +1,5 @@
 import QtQuick
+import qs.Commons
 import qs.Ui
 Item {
     id: root
@@ -8,6 +9,9 @@ Item {
     implicitHeight: 120
     readonly property bool selectOpen: select.listOpen
     readonly property int selected: select.currentIndex
+    readonly property real popoverShare: Theme.popover.maxHeightShare
+    readonly property real dialogShare: Theme.dialog.maxHeightShare
+    readonly property real fallbackCap: Theme.size.panel.maxHeight
     function open(payloadJson) { opened += 1; }
     function close() {}
     function openSelect() { select.openList(); return "ok"; }
