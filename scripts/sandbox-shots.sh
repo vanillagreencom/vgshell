@@ -35,7 +35,8 @@
 # System → Displays over the device fakes and two monitors when the tree
 # ships it, and
 # its Sound section over the sandbox's private PipeWire, then the window
-# as Sound is turned off while shown; bluetooth is
+# as Sound is turned off while shown, the Mouse pane and Keyboard's pane,
+# widget menu and panel source menu; bluetooth is
 # its Bluetooth section, then the Bluetooth dropdown, over the device
 # fakes; vpn is its VPN section, then the VPN dropdown, over the
 # tailscale stand-in; power is its flyout over the sandbox's fake
@@ -2676,6 +2677,18 @@ PYKEYBOARD
     expect_poll "System is gone before the keyboard widget shot" hidden system_shown
     park_pointer
     take "system-$1-keyboard-widget"
+    keyboard_shot_right_click || fail "opening the Keyboard widget menu failed"
+    expect_poll "the Keyboard widget menu is open for its shot" true ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuOpen
+    expect "the widget menu includes Keyboard controls and System settings" '["Hide","Keyboard controls","Keyboard Settings"]' ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries
+    take "system-$1-keyboard-widget-menu"
+    type_keys -k Home -k Down -k Return || fail "opening Keyboard controls from its widget menu failed"
+    expect_poll "the widget action opens the typed Keyboard panel" '[["us", ""], ["de", "nodeadkeys"]]' keyboard_shot_panel_sources
+    expect "the panel takes source-list focus" '["DeviceRow","English (US)"]' ipc smoke activeFocusItem panel vgs.keyboard
+    type_keys -M shift -k F10 -m shift || fail "opening the Keyboard input source menu failed"
+    expect_poll "the source menu opens with the Remove entry" True keyboard_shot_source_menu
+    take "system-$1-keyboard-panel-menu"
+    type_keys -k Escape || fail "closing the Keyboard input source menu failed"
+    expect "Keyboard controls hides after its shot" ok ipc shell hide panel vgs.keyboard
     expect "disabling Keyboard after its shot is allowed" ok ipc shell setPluginEnabled vgs.keyboard false
     cp -- "$keyboard_saved" "$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
     expect "the keyboard shot configuration restores" ok ipc shell reloadConfig
@@ -2686,6 +2699,15 @@ PYKEYBOARD
   fi
   expect "disabling vgs.system after its shot is allowed" ok ipc shell setPluginEnabled vgs.system false
 }
+keyboard_shot_right_click() {
+  local box x y
+  box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.keyboard)" || return 1
+  [[ $box == \[* ]] || return 1
+  read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$box") || return 1
+  hover "$((x - 1))" "$y" && right_click "$x" "$y"
+}
+keyboard_shot_panel_sources() { ipc smoke readDescendant panel vgs.keyboard KeyboardControls sources | py_reply 'import json,sys; print(json.dumps([[r["code"], r["variant"]] for r in json.load(sys.stdin)]))'; }
+keyboard_shot_source_menu() { ipc smoke menus panel vgs.keyboard | py_reply 'import json,sys; menus=json.load(sys.stdin); print(any(m["opened"] and m["entries"] == ["Move up", "Move down", "Remove"] for m in menus))'; }
 keyboard_shot_reveal() {
   local at
   at="$(ipc smoke revealText window vgs.system SectionHeader "$1")" || { fail "the Keyboard section cannot be revealed"; return 1; }

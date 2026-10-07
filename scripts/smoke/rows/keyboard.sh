@@ -1,7 +1,7 @@
 # vgs.keyboard's real editor, layer options and bar click in the nested
 # sandbox. The direct-hyprctl widget control changes the keymap but fails
 # the widget's source contract: only the core owns the transport.
-# inputs: shell/plugins/vgs.keyboard/* shell/plugins/vgs.system/* shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Ui/layout/DeviceList.qml shell/Ui/layout/DeviceRow.qml shell/Ui/controls/Select.qml shell/Ui/controls/Button.qml shell/Ui/controls/Slider.qml shell/Ui/controls/TextField.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js scripts/smoke/Probe.qml scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.keyboard/* shell/plugins/vgs.system/* shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Ui/layout/DeviceList.qml shell/Ui/layout/DeviceRow.qml shell/Ui/controls/Select.qml shell/Ui/controls/Button.qml shell/Ui/controls/Slider.qml shell/Ui/controls/TextField.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Hosts/SummonPopup.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js scripts/smoke/Probe.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 keyboard_file="$home/.config/vgshell/shell.json"
 keyboard_saved="$sandbox/shell-before-keyboard.json"
@@ -12,6 +12,22 @@ keyboard_keymaps() { hypr -j devices | py_reply 'import json,sys; print(json.dum
 keyboard_sources() { ipc smoke readDescendant window vgs.keyboard KeyboardControls sources | py_reply 'import json,sys; print(json.dumps([[r["code"], r["variant"]] for r in json.load(sys.stdin)]))'; }
 keyboard_active_code() { ipc smoke readInstance "$(bar_key)" vgs.keyboard active | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("code", "")))'; }
 keyboard_panels() { ipc shell built | py_reply 'import json,sys; print(sum(r["id"] == "vgs.keyboard" for r in json.load(sys.stdin).get("panel", [])))'; }
+keyboard_right_click() {
+  local box x y
+  box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.keyboard)" || return 1
+  [[ $box == \[* ]] || return 1
+  read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$box") || return 1
+  hover "$((x - 1))" "$y" && right_click "$x" "$y"
+}
+keyboard_controls_activate() {
+  local index keyboard_index
+  index="$(ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries | py_reply 'import json,sys; rows=json.load(sys.stdin); print(rows.index("Keyboard controls") if "Keyboard controls" in rows else -1)')" || return 1
+  [[ $index =~ ^[0-9]+$ ]] || return 1
+  type_keys -k Home || return 1
+  for ((keyboard_index=0; keyboard_index<index; keyboard_index++)); do type_keys -k Down || return 1; done
+  type_keys -k Return
+}
+keyboard_panel_sources() { ipc smoke readDescendant panel vgs.keyboard KeyboardControls sources | py_reply 'import json,sys; print(json.dumps([[r["code"], r["variant"]] for r in json.load(sys.stdin)]))'; }
 keyboard_catalog() { ipc smoke statusValues vgs.keyboard | py_reply 'import json,sys; print(json.load(sys.stdin).get("catalog", {}).get("state", "absent"))'; }
 keyboard_saved_value() {
   cat -- "$keyboard_file" | py_reply 'import json,sys
@@ -82,6 +98,14 @@ expect "the shipped widget uses the core transport" ok keyboard_transport_contra
 click_item "$(bar_key)" vgs.keyboard BarItem US || fail "clicking the Keyboard widget failed"
 expect_poll "the widget click switches the real keymap" '["German (no dead keys)"]' keyboard_keymaps
 expect_poll "the widget follows the active code" '"DE"' keyboard_active_code
+keyboard_right_click || fail "right clicking Keyboard failed"
+expect_poll "the Keyboard widget menu opens" true ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuOpen
+expect "the widget keeps both Keyboard controls and System settings" '["Hide","Keyboard controls","Keyboard Settings"]' ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries
+keyboard_controls_activate || fail "activating Keyboard controls failed"
+expect_poll "the menu action builds the typed Keyboard panel" '[["us", ""], ["de", "nodeadkeys"]]' keyboard_panel_sources
+expect "the opened panel has the Keyboard title" '"Keyboard"' ipc smoke readDescendant panel vgs.keyboard Pane title
+expect "the menu-opened Keyboard panel closes" ok ipc shell hide panel vgs.keyboard
+expect_poll "the menu-opened panel is gone" 0 keyboard_panels
 expect "the Keyboard pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.keyboard"}'
 expect_poll "the Keyboard pane mounts" '["vgs.keyboard"]' window_panes
 expect_poll "the editor holds both sources and variants" '[["us", ""], ["de", "nodeadkeys"]]' keyboard_sources
@@ -133,6 +157,33 @@ expect "the Keyboard panel closes" ok ipc shell hide panel vgs.keyboard
 expect_poll "the Keyboard panel is gone" 0 keyboard_panels
 expect "disabling Keyboard before its control is allowed" ok ipc shell setPluginEnabled vgs.keyboard false
 cp -R -- "$repo/shell/plugins/vgs.keyboard" "$keyboard_copy"
+# Control: remove only the new action. The widget still builds, switches
+# layouts and offers System settings, but the same menu opener cannot run.
+python3 - "$keyboard_copy/Widget.qml" <<'PYNOPANEL'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+needle = '        { label: "Keyboard controls", action: () => widget.toggleControls() },\n'
+assert text.count(needle) == 1
+changed = text.replace(needle, '')
+assert changed != text
+path.write_text(changed)
+PYNOPANEL
+rescan "rescan discovers the absent-action Keyboard control"
+keyboard_set_sources us,de ',nodeadkeys'
+expect "the absent-action control layout reloads" ok ipc shell reloadConfig
+expect "enabling the absent-action control is allowed" ok ipc shell setPluginEnabled vgs.keyboard true
+expect_poll "the absent-action widget builds and stays visible" true ipc smoke readInstance "$(bar_key)" vgs.keyboard visible
+expect_poll "the absent-action widget still reads US" '"US"' keyboard_active_code
+keyboard_right_click || fail "right clicking the absent-action control failed"
+expect_poll "the absent-action widget menu opens" true ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuOpen
+expect "the absent-action menu keeps System settings" '["Hide","Keyboard Settings"]' ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries
+if keyboard_controls_activate; then fail "control: an absent action still activates Keyboard controls"
+else ok "control: removing the action fails the same menu opener"; fi
+expect "control: the absent action builds no typed Keyboard panel" absent ipc smoke readDescendant panel vgs.keyboard KeyboardControls sources
+type_keys -k Escape || fail "closing the absent-action menu failed"
+expect "disabling the absent-action control is allowed" ok ipc shell setPluginEnabled vgs.keyboard false
+cp -- "$repo/shell/plugins/vgs.keyboard/Widget.qml" "$keyboard_copy/Widget.qml"
 python3 - "$keyboard_copy/Widget.qml" <<'PY'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
