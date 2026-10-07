@@ -18,7 +18,7 @@
 # page draws neither button, and each requirement row reads back with its
 # state and purpose. rows/settings.sh continues with the same window and
 # takes the plug off the bar again.
-# inputs: shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/BindField.qml shell/Core/Plugins.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/AppWindow.qml shell/Ui/foundation/PointerCursor.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* config/shell.json shell/Core/Capabilities.qml shell/Core/Registry.qml scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml
+# inputs: shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/BindField.qml shell/Core/Plugins.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/AppWindow.qml shell/Ui/foundation/PointerCursor.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* config/shell.json shell/Core/Capabilities.qml shell/Core/Registry.qml scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js
 set -euo pipefail
 # rows/status.sh removes a monitor just before this row, and its bar's
 # layer can outlive the removal, so the reading waits for the settled set.

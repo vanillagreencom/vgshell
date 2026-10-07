@@ -30,7 +30,7 @@
 # summon unfocused, and a copy of the plugin whose service ignores a run's
 # end and a change of the scan's missing commands leaves the list as it
 # was after each.
-# inputs: shell/plugins/vgs.devtools/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.requires/* shell/Core/Notices.qml shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml bin/vgshell VERSION config/requirements.json bin/lib/qml-library.js scripts/smoke/rows/status.sh bin/vgshell-tui scripts/smoke/rows/settings.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.devtools/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.requires/* shell/Core/Notices.qml shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml bin/vgshell VERSION config/requirements.json bin/lib/qml-library.js scripts/smoke/rows/status.sh bin/vgshell-tui scripts/smoke/rows/settings.sh scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js
 set -euo pipefail
 devtools_stand_ins
 requires_dir="$home/.config/vgshell/plugins/acme.requires"

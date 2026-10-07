@@ -245,14 +245,14 @@ Item {
         implicitWidth: root.slotWidth(headerSlot)
     }
 
-    // The viewport starts `ringRoom` left of and above the content edge and
-    // ends that far below it; the body sits `ringRoom` into the content, so
-    // the visible edges are the inset box's.
+    // ScrollArea adds its own side inset for keyboard scrolling. Give that
+    // inset room outside the body's width so the body keeps the header's
+    // edges and the bar stays in the container's right inset strip.
     ScrollArea {
         id: scroll
-        x: root.contentInset - root.ringRoom
+        x: root.contentInset - root.ringRoom - focusInset
         y: root.contentInset + root.headerHeight + root.headerGap - root.ringRoom
-        width: Math.max(0, root.width - root.contentInset + root.ringRoom)
+        width: Math.max(0, root.width - root.contentInset + root.ringRoom + 2 * focusInset)
         // A container inset narrower than the bar's gutter still leaves the
         // gutter, so the bar never covers the content.
         rightInset: Math.max(root.contentInset, Theme.scrollArea.gutter)

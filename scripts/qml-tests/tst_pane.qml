@@ -321,6 +321,32 @@ Item {
             host.destroy();
         }
 
+        function test_keyboard_scrolling_keeps_the_body_on_the_header_edges_data() {
+            return [
+                { tag: "pointer scrolling", keyboard: false, focused: false },
+                { tag: "keyboard scrolling without focus", keyboard: true, focused: false },
+                { tag: "focused keyboard scrolling", keyboard: true, focused: true },
+            ];
+        }
+
+        function test_keyboard_scrolling_keeps_the_body_on_the_header_edges(data) {
+            const made = scrolledPanel.createObject(root);
+            const view = made.scrollArea;
+            view.keyboardScroll = data.keyboard;
+            if (data.focused) view.focusProxy.forceActiveFocus(Qt.TabFocusReason);
+            waitForRendering(made);
+            const column = body(made);
+            const head = headerSlot(made);
+            tryCompare(column, "width", made.contentWidth);
+            compare(column.mapToItem(made, 0, 0).x, head.x);
+            compare(column.mapToItem(made, 0, 0).x + column.width, head.x + head.width);
+            const barLeft = view.bar.mapToItem(made, 0, 0).x;
+            verify(barLeft >= head.x + head.width, "the bar stays past the body's right edge");
+            verify(barLeft + view.bar.width <= made.width, "the bar stays inside the pane");
+            if (data.focused) verify(view.focusProxy.visualFocus, "the viewport shows keyboard focus");
+            made.destroy();
+        }
+
         function test_scroll_bar_sits_inside_the_right_inset_strip() {
             const contentRight = body(pane).mapToItem(pane, 0, 0).x + body(pane).width;
             const insetRight = pane.width - pane.contentInset;
