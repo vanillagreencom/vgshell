@@ -19,7 +19,7 @@ const hello = { v: 1, type: "hello", gen: 0, settings: { sounds: false, mode: "h
     cloudVision: "ask", privateWindows: "bitwarden" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
-keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+code:54" } };
+keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } };
 
 async function inside() {
     process.chdir(process.env.JARVIS_TEST_ROOT);

@@ -25,7 +25,7 @@ elif sys.argv[1] == "last": print("none" if not s else s[-1]["role"]+":"+s[-1]["
 elif sys.argv[1] == "text": print("\n".join(row["role"]+":"+row["text"] for row in s))
 ' "$1"
 }
-jarvis_console_open() { hold_send "down 133" "down 64" "down 54" "up 54" "up 64" "up 133"; }
+jarvis_console_open() { type_keys -M super -M alt c -m alt -m super || fail "typing the Jarvis console shortcut failed"; }
 jarvis_console_client_count() { window_count Jarvis; }
 jarvis_console_say_count() {
   python3 - "$jarvis_console_gates/effects.jsonl" <<'PY'
@@ -79,7 +79,7 @@ jarvis_console_cleanup() {
 trap jarvis_console_cleanup EXIT
 
 printf '%s\n' \
-  'hl.config({ input = { resolve_binds_by_sym = false } })' \
+  'hl.config({ input = { resolve_binds_by_sym = true } })' \
   'hl.bind("code:67", hl.dsp.global("smoke:hold-marker"), { description = "smoke:hold-marker", ignore_mods = true })' >>"$jarvis_console_lua"
 expect "Jarvis console keys use the physical evdev map" ok hypr reload config-only
 expect "the console row creates its ordering marker" ok ipc smoke holdMarkerStart

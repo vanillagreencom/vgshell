@@ -41,7 +41,7 @@
       { "shortcut": "mute", "key": "SUPER+SHIFT+code:108", "info": "Turns the Jarvis microphone off, or on again. Mute stays on after a restart, and Talk does nothing while it is on." },
       { "shortcut": "stop", "key": "SUPER+ALT+PERIOD", "info": "Ends what Jarvis is doing now: listening, thinking or speaking." },
       { "shortcut": "confirm", "key": "SUPER+ALT+Y", "info": "Confirms the Jarvis request shown on screen." },
-      { "shortcut": "console", "key": "SUPER+ALT+code:54", "info": "Opens the Jarvis console window for typed messages." }
+      { "shortcut": "console", "key": "SUPER+ALT+C", "info": "Opens the Jarvis console window for typed messages." }
     ]
   },
   "requirements": [

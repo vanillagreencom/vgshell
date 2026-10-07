@@ -909,7 +909,7 @@ world(async () => {
                 settings: { sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", cloudVision: "ask", privateWindows: "" },
                 directories: { state, data: path.join(process.env.JARVIS_TEST_ROOT, name + "-data"),
                     runtime: path.join(process.env.JARVIS_TEST_ROOT, name + "-run") },
-                keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+code:54" } }) + "\n");
+                keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } }) + "\n");
             for (const [id, target] of reads) {
                 fs.mkdirSync(driver, { recursive: true });
                 fs.writeFileSync(path.join(driver, "call.next"), JSON.stringify({ id, tool: "files.read", arguments: { path: target } }));

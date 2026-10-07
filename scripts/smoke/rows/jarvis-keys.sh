@@ -195,7 +195,7 @@ hold_start_keyboard jarvis "$sandbox/keyboard" us ""
 jarvis_key_startup
 expect_poll "Jarvis registers only its manifest shortcuts and the talk release companion" '["vgs.jarvis:confirm", "vgs.jarvis:console", "vgs.jarvis:mute", "vgs.jarvis:stop", "vgs.jarvis:talk", "vgs.jarvis:talk.release"]' jarvis_shortcuts
 expect_poll "the service reads the effective default key map" \
-  '{"talk":"SUPER+code:108","mute":"SUPER+SHIFT+code:108","stop":"SUPER+ALT+PERIOD","confirm":"SUPER+ALT+Y","console":"SUPER+ALT+code:54"}' \
+  '{"talk":"SUPER+code:108","mute":"SUPER+SHIFT+code:108","stop":"SUPER+ALT+PERIOD","confirm":"SUPER+ALT+Y","console":"SUPER+ALT+C"}' \
   ipc smoke readInstance service vgs.jarvis effectiveKeys
 : >"$jarvis_gate"
 jarvis_key_muted
