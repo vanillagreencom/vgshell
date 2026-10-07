@@ -13,6 +13,7 @@
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
+const vm = require("vm");
 const { load } = require("../bin/lib/qml-library.js");
 
 // A library's objects come from another realm, so they are compared as the
@@ -1179,6 +1180,52 @@ const SEQUENCES = [
 
 const shellText = fs.readFileSync(shellFile, "utf8");
 verify(load(logicFile), load(layerFile), shellText);
+
+// HyprlandLayer.qml supplies the locked group's fill and caption to the
+// Lua renderer. Catalog themes can lift the fill above or below its palette.
+const themeJudge = load(path.join(__dirname, "..", "shell", "Commons", "ThemeLogic.js"));
+const tokens = load(path.join(__dirname, "..", "shell", "Commons", "Tokens.js")).TOKENS;
+const themeSource = fs.readFileSync(path.join(__dirname, "..", "shell", "Commons", "Theme.qml"), "utf8");
+const conversions = [...themeSource.matchAll(/^    function toColor\(text\) \{\n[\s\S]*?^    \}/gm)];
+assert.equal(conversions.length, 1);
+const toColor = vm.runInNewContext("(" + conversions[0][0] + ")");
+const catalog = path.join(__dirname, "..", "themes", "catalog");
+const catalogIndex = themeJudge.acceptCatalogIndex(tokens, fs.readFileSync(path.join(catalog, "index.json"), "utf8"));
+assert.equal(catalogIndex.ok, true);
+assert.ok(catalogIndex.entries.some(entry => entry.name === "catppuccin-latte"));
+assert.ok(catalogIndex.entries.some(entry => entry.name === "last-horizon"));
+function verifyStatusAppearance(source) {
+    const bindings = [...source.matchAll(/^    readonly property var themeAppearance: (\(\{[\s\S]*?^    \}\))/gm)];
+    assert.equal(bindings.length, 1);
+    const layer = load(layerFile);
+    for (const entry of catalogIndex.entries) {
+        const result = themeJudge.accept(tokens, fs.readFileSync(path.join(catalog, entry.name, "theme.json"), "utf8"));
+        assert.equal(result.ok, true);
+        const published = Object.assign({}, result.values);
+        for (const group of ["color", "palette"])
+            published[group] = Object.fromEntries(Object.entries(result.values[group]).map(([key, value]) => [key, toColor(value)]));
+        published.hyprland = Object.assign({}, result.values.hyprland, {
+            shadow: Object.assign({}, result.values.hyprland.shadow, { color: toColor(result.values.hyprland.shadow.color) })
+        });
+        const appearance = vm.runInNewContext(bindings[0][1], { Theme: published });
+        const lines = layer.borderLines(appearance, entry.name).join("\n");
+        const fills = [...lines.matchAll(/^\s+locked_active = "rgba\(([0-9a-f]{8})\)",$/gm)];
+        const captions = [...lines.matchAll(/^\s+text_color_locked_active = "rgba\(([0-9a-f]{8})\)",$/gm)];
+        assert.equal(fills.length, 1);
+        assert.equal(captions.length, 1);
+        const fill = themeJudge.parseColor("#" + fills[0][1]);
+        const caption = themeJudge.parseColor("#" + captions[0][1]);
+        assert.notEqual(fill, null);
+        assert.notEqual(caption, null);
+        const ratio = themeJudge.contrastRatio(caption, fill);
+        assert.ok(ratio >= themeJudge.READABILITY_FLOOR, `${entry.name} locked group caption: ${ratio}`);
+    }
+}
+const appearanceSource = fs.readFileSync(path.join(__dirname, "..", "shell", "Core", "HyprlandLayer.qml"), "utf8");
+verifyStatusAppearance(appearanceSource);
+const statusNeedle = "warning: Theme.color.warning,";
+assert.equal(appearanceSource.split(statusNeedle).length, 2);
+assert.throws(() => verifyStatusAppearance(appearanceSource.replace(statusNeedle, "warning: Theme.palette.warning,")), { code: "ERR_ASSERTION" });
 
 // Each control removes one rule from a copy of one file and keeps the text
 // around it. The suite must fail on every copy.
