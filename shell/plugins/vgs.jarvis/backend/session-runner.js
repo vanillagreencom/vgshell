@@ -75,7 +75,7 @@ class SessionRunner {
         }); break;
         case "speech-close": this.ports.speech.close(e); break;
         case "speech-flush": this.ports.speech.flush(e); break;
-        case "transcript": if (typeof this.ports.transcript === "function") this.ports.transcript(e); break;
+        case "transcript": this.ports.transcript(e); break;
         default: throw new Error("jarvis: session=effect kind=" + e.kind);
         }
     }
@@ -121,7 +121,7 @@ function unavailable() {
         approval: { show: refuse, end: () => {}, refused: refuse },
         release: { confirmed: refuse },
         speech: { open: refuse, close: () => {}, flush: () => {}, release: () => {} },
-        transcript: () => {}
+        transcript: refuse
     };
 }
 

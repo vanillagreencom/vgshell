@@ -109,6 +109,10 @@ jarvis_key_mute_control() {
    echo "$failures")
 }
 jarvis_key_pending() { ipc smoke readInstance service vgs.jarvis lifetime; }
+
+jarvis_shortcuts() {
+  hypr globalshortcuts | python3 -c 'import json,re,sys; print(json.dumps(sorted(set(re.findall(r"vgs\.jarvis:[A-Za-z0-9_.-]+", sys.stdin.read())))))'
+}
 # The Jarvis cards that say Mute was not saved for CAUSE.
 jarvis_key_refusals() { # CAUSE
   plugin_card_count Jarvis "Jarvis mute not saved" "$1"
@@ -189,9 +193,9 @@ hold_markers="$(ipc smoke holdMarkerCount)"
 hold_delayed_keyboard=""
 hold_start_keyboard jarvis "$sandbox/keyboard" us ""
 jarvis_key_startup
-expect_poll "Jarvis registers only its implemented shortcuts" 5 hold_native vgs.jarvis:
+expect_poll "Jarvis registers only its manifest shortcuts and the talk release companion" '["vgs.jarvis:confirm", "vgs.jarvis:console", "vgs.jarvis:mute", "vgs.jarvis:stop", "vgs.jarvis:talk", "vgs.jarvis:talk.release"]' jarvis_shortcuts
 expect_poll "the service reads the effective default key map" \
-  '{"talk":"SUPER+code:108","mute":"SUPER+SHIFT+code:108","stop":"SUPER+ALT+PERIOD","confirm":"SUPER+ALT+Y","console":"SUPER+ALT+T"}' \
+  '{"talk":"SUPER+code:108","mute":"SUPER+SHIFT+code:108","stop":"SUPER+ALT+PERIOD","confirm":"SUPER+ALT+Y","console":"SUPER+ALT+code:54"}' \
   ipc smoke readInstance service vgs.jarvis effectiveKeys
 : >"$jarvis_gate"
 jarvis_key_muted

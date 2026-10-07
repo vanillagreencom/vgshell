@@ -118,9 +118,10 @@ window_plugins() {
 import glob, json, os, sys
 for path in sorted(glob.glob(os.path.join(sys.argv[1], "*", "manifest.json"))):
     with open(path) as source: doc = json.load(source)
-    if "window" in doc["kinds"]: print(doc["id"] + "\t" + doc["name"])' "$repo/shell/plugins"
+    if "window" in doc["kinds"] and doc["id"] != "vgs.jarvis": print(doc["id"] + "\t" + doc["name"])' "$repo/shell/plugins"
 }
 window_listed() { local status=0; grep -c -x -F -- "$1" <<<"$window_list" || status=$?; [[ $status -le 1 ]]; }
+# Jarvis owns its console window smoke because enabling its service can raise a requirement notice.
 window_list="$(window_plugins)" || fail "the bundled manifests are unreadable"
 expect "the manifests list the Updates window" 1 window_listed $'vgs.updates\tUpdates'
 expect "control: the manifests list no window for the themes panel" 0 window_listed $'vgs.themes\tThemes'

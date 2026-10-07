@@ -46,7 +46,8 @@ function world(implementation = Owner, synchronous = false, session = Session) {
         playback: { start: port("play"), flush: port("flush") },
         tools: { start: port("tool"), cancel: port("tool-cancel"), outcome: port("outcome"), sync: () => {}, close: () => {} },
         approval: { show: port("approval"), end: port("approval-end"), refused: port("confirm-refused") },
-        speech: { release: port("speech-release") }
+        speech: { release: port("speech-release") },
+        transcript: port("transcript")
     }, {
         now: () => at,
         set: (fn, ms) => {
@@ -389,6 +390,7 @@ const tests = [
     }],
     ["unavailable", impl => {
         const ports = impl.unavailable();
+        ports.transcript = () => {};
         for (const operation of [ports.capture.open, ports.capture.collect, ports.brain.send,
             ports.playback.start, ports.tools.start, ports.tools.cancel, ports.brain.outcome])
             assert.throws(() => operation({}), { message: "jarvis: session=adapter-unavailable" });

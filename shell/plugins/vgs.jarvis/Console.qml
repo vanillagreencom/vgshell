@@ -37,9 +37,7 @@ FocusScope {
     function close() {}
 
     function stateText() {
-        if (shell === null) return "Jarvis is not ready";
-        try { return WidgetView.view(values).tooltip; }
-        catch (error) { return "Jarvis is not ready"; }
+        return WidgetView.view(values).tooltip;
     }
 
     function rows() {
@@ -53,9 +51,11 @@ FocusScope {
     function refusalText(key) {
         if (key === null) return draft.trim() === "" ? "Type a message to Jarvis" : "Enter sends the message";
         if (key === "muted") return "Unmute Jarvis to type";
+        if (key === "speaking") return "Wait for Jarvis to finish speaking, or press Stop";
         if (key === "busy") return "Wait, or press Stop";
         if (key === "held") return "Confirm or cancel the request first";
         if (key === "duplex") return "This voice mode owns the turn";
+        if (key === "say-text") return "Message too long or has unsupported characters";
         return "Jarvis is not ready";
     }
 
@@ -137,14 +137,14 @@ FocusScope {
 
                         Label {
                             width: parent.width
-                            role: "caption"
+                            role: "label"
                             text: root.speaker(modelData.role)
                             color: Theme.color.textMuted
                             elide: Text.ElideRight
                         }
                         Label {
                             width: parent.width
-                            role: modelData.role === "user" ? "item" : "body"
+                            role: modelData.role === "user" ? "bodyStrong" : "body"
                             text: String(modelData.text)
                             wrapMode: Text.Wrap
                             color: modelData.stage === "partial" ? Theme.color.textMuted : Theme.color.text
@@ -182,11 +182,12 @@ FocusScope {
                         id: entryField
                         width: parent.width - sendButton.width - stopButton.width - parent.spacing - parent.spacing
                         placeholderText: "Message Jarvis"
+                        maximumLength: Session.TRANSCRIPT_CHARS
                         onTextChanged: root.draft = text
                         Keys.onReturnPressed: event => { root.sendMessage(); event.accepted = true; }
                         Keys.onEnterPressed: event => { root.sendMessage(); event.accepted = true; }
                         Keys.onPressed: event => {
-                            if (transcript.handleScrollKey(event)) event.accepted = true;
+                            if ((event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown) && transcript.handleScrollKey(event)) event.accepted = true;
                         }
                     }
                     Button {

@@ -19,7 +19,7 @@ const hello = { v: 1, type: "hello", gen: 0, settings: { sounds: false, mode: "h
     cloudVision: "ask", privateWindows: "bitwarden" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
-keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+T" } };
+keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+code:54" } };
 
 async function inside() {
     process.chdir(process.env.JARVIS_TEST_ROOT);
@@ -680,6 +680,32 @@ async function inside() {
         await assert.rejects(() => mappedCheck(copy), assert.AssertionError, name + " must turn red");
         controls++;
     }
+
+    await conversation(scripted, async w => {
+        w.raw({ v: 1, type: "intent", gen: 0, revision: hello.revision, intent: "say", text: "typed daemon words" });
+        await w.wait(m => m.phase === "thinking" && w.messages.some(row => row.type === "transcript" && row.role === "user"));
+        assert.deepEqual(w.messages.filter(m => m.type === "transcript").map(m => [m.role, m.stage, m.text]),
+            [["user", "final", "typed daemon words"]]);
+        const sent = fs.readFileSync(path.join(gates, "effects.jsonl"), "utf8").trim().split("\n").map(JSON.parse)
+            .filter(row => row.kind === "brain-send").at(-1);
+        assert.deepEqual([sent.kind, sent.text], ["brain-send", "typed daemon words"]);
+    });
+    await control("say-text-dispatch", 'message.intent === "say" ? { type: "say", text: message.text }',
+        'message.intent === "say" ? { type: "say", text: "wrong" }', async file => {
+            const sayGates = path.join(root, "say-text-dispatch-gates");
+            instrument(file, sayGates);
+            await conversation(file, async w => {
+                w.raw({ v: 1, type: "intent", gen: 0, revision: hello.revision, intent: "say", text: "typed daemon words" });
+                await w.wait(m => m.phase === "thinking" && w.messages.some(row => row.type === "transcript" && row.role === "user"));
+                const transcript = w.messages.find(m => m.type === "transcript" && m.role === "user");
+                assert.ok(transcript);
+                assert.equal(transcript.text, "typed daemon words");
+                const sent = fs.readFileSync(path.join(sayGates, "effects.jsonl"), "utf8").trim().split("\n").map(JSON.parse)
+                    .filter(row => row.kind === "brain-send").at(-1);
+                assert.ok(sent);
+                assert.equal(sent.text, "typed daemon words");
+            });
+        });
     // Stop's settled frame: the flush acknowledgement publishes the idle
     // playback after the flushing frame, so a reader waits for it.
     const stopSettled = m => m.state.conversation.kind === "ended" && m.phase === "idle"

@@ -523,9 +523,10 @@ Item {
                 if (message.type === "transcript") {
                     // A caption from an ended conversation never replaces the current one.
                     if (sessionState !== null && message.gen === sessionState.gen) {
-                        const segment = { gen: message.gen, role: message.role, text: message.text, stage: message.stage };
-                        const reply = shell.status.set("transcript", Object.assign({ rev: message.rev }, segment));
+                        const reply = shell.status.set("transcript", { gen: message.gen, role: message.role,
+                            text: message.text, stage: message.stage, rev: message.rev });
                         if (reply !== "ok") throw new Error("jarvis: " + reply);
+                        const segment = { gen: message.gen, role: message.role, text: message.text, stage: message.stage };
                         conversationLog = Conversation.update(conversationLog, segment);
                         const history = shell.status.set("conversation", conversationLog);
                         if (history !== "ok") throw new Error("jarvis: " + history);

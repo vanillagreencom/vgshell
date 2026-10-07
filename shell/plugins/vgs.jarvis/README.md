@@ -9,7 +9,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 ## Features
 
 - A bar icon that shows whether Jarvis is off, ready, listening, working, muted or has a problem. A click toggles mute.
-- Talk, Mute, Stop and Console keys. Talk is Super with Right Alt, Mute is Super with Shift and Right Alt, Stop is Super with Alt and Period, and Console is Super with Alt and T.
+- Talk, Mute, Stop and Console keys. Talk is Super with Right Alt, Mute is Super with Shift and Right Alt, Stop is Super with Alt and Period, and Console is Super with Alt and C.
 - The Console window lets you type a message to Jarvis, review the conversation, and stop the current turn without using the microphone.
 - Mute stays on across restarts and blocks talk input.
 - A listening bubble whose orb and text let clicks reach the application below.

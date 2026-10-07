@@ -209,6 +209,7 @@ async function stalledDeadline(Implementation = Audio) {
     } });
     const w = setup(source, undefined, Implementation);
     const ports = unavailable();
+    ports.transcript = () => {};
     ports.playback = w.audio.playbackPort;
     const faults = [];
     const runner = new SessionRunner(Session, ports, w.time, state => {

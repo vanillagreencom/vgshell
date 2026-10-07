@@ -2,7 +2,7 @@
 .import "JarvisProtocol.js" as Protocol
 
 var MAX_ENTRIES = 64;
-var MAX_BYTES = 48 * 1024;
+var MAX_BYTES = 24 * 1024;
 
 function start() { return []; }
 

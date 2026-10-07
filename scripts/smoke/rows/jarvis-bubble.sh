@@ -96,7 +96,7 @@ jarvis_bubble_caption() {
   ipc smoke jarvisProcess | py_reply '
 import json,sys
 s=json.load(sys.stdin)["status"]; t=s.get("transcript")
-print("none" if t is None else "current" if t["gen"]==s["detail"]["state"]["gen"] else "stale")
+print("none" if t is None else "current" if t["gen"]==s["detail"]["state"]["gen"] and t["role"]=="assistant" else "stale")
 '
 }
 jarvis_bubble_text() { # TEXT
