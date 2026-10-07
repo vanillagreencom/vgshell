@@ -1376,7 +1376,12 @@ exit "$failures"
             const file = engineCopy("engine-" + name, said);
             const original = fs.readFileSync(file, "utf8");
             assert.equal(original.split(needle).length - 1, 1, name + " mutation match");
-            fs.writeFileSync(file, original.replace(needle, replacement));
+            // The outbound judge refuses a malformed caption before stdout.
+            // Only these copies bypass that judge so the conversation's text
+            // assertion sees each planted defect. Positive rows keep the judge.
+            const judge = '        Protocol.accept(wire, "daemon");';
+            assert.equal(original.split(judge).length - 1, 1, name + " outbound judge match");
+            fs.writeFileSync(file, original.replace(needle, replacement).replace(judge, ""));
             await assert.rejects(() => engineConversation(file, said, caption),
                 error => error instanceof assert.AssertionError
                     && error.message.startsWith("the user final caption keeps the sanitized tail"),
