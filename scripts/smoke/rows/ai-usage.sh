@@ -12,18 +12,20 @@
 # opening the panel publishes no read and sends the endpoint no request;
 # the panel's Settings gear, which always-on Plugins gives every panel,
 # clicked with the nested pointer, which opens the Settings window on AI Usage's page and closes the panel;
-# a 429 from the endpoint's limited mode, which keeps the figures as ok
-# with no warning, then ten opens and closes of the panel that send no
-# request; a refused token's expired warning and a failed request's stale
-# figures; and that no read changed a credential file's bytes or
-# modification time.
+# the panel's Check now, clicked with the nested pointer, which publishes a
+# read and sends the endpoint a request; a 429 from the endpoint's limited
+# mode on that Check now, which keeps the figures, marked limited, with a
+# plain note and no warning, then ten opens and closes of the panel that
+# send no request; a refused token's expired warning and a failed
+# request's stale figures; and that no read changed a credential file's
+# bytes or modification time.
 # Controls: a widget copy shown with no account, a panel copy capped at its
-# output's whole height, a panel copy whose open asks for a read, a helper
-# copy that writes the credential file, one that reads a failed request as
-# 0 % and a panel host copy whose slot opens Settings with no page each
-# fail their own reading.
+# output's whole height, a panel copy whose open asks for a read, a panel
+# copy whose Check now asks for none, a helper copy that writes the
+# credential file, one that reads a failed request as 0 % and a panel host
+# copy whose slot opens Settings with no page each fail their own reading.
 # This row has no latency ceiling; every reading polls through expect_poll.
-# inputs: shell/plugins/vgs.ai-usage/* bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js scripts/fixtures/ai-usage/* scripts/smoke/fixtures/ai-usage/* shell/plugins/vgs.settings/* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/Pane.qml shell/Ui/controls/IconButton.qml config/shell.json bin/vgshell-tui scripts/qml-smoke.sh shell/Commons/Duration.js shell/Commons/qmldir
+# inputs: shell/plugins/vgs.ai-usage/* bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js scripts/fixtures/ai-usage/* scripts/smoke/fixtures/ai-usage/* shell/plugins/vgs.settings/* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/Pane.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Commons/Time.qml config/shell.json bin/vgshell-tui scripts/qml-smoke.sh shell/Commons/Duration.js shell/Commons/qmldir
 set -euo pipefail
 usage_dir="$sandbox/ai-usage"
 mkdir -p -- "$usage_dir"
@@ -114,23 +116,25 @@ PY
 }
 usage_credentials_kept() { if [[ $(usage_credentials) == "$usage_credentials_before" ]]; then echo kept; else echo changed; fi; }
 usage_panel() { ipc smoke readInstance panel vgs.ai-usage rows; }
-# The panel's Settings gear: its box, or `absent` with no shown gear;
-# usage_gear_shown reads `shown` once it has one. usage_gear_click: one
-# real click on its centre, the pointer moved there a pixel off first,
-# since a popup mapped while the pointer rests on the bar takes no click
-# until the pointer moves. usage_settings_page: the
+# usage_click WHAT BOX: one real click on the centre of BOX, a control's
+# box, the pointer moved there a pixel off first, since a popup mapped
+# while the pointer rests on the bar takes no click until the pointer
+# moves. The panel's Settings gear: its box, or `absent` with no shown
+# gear; usage_gear_shown reads `shown` once it has one. usage_gear_click
+# and usage_check_now_click click the gear and Check now. usage_settings_page: the
 # page the Settings window shows, `""` for its list, or `absent` with no
 # window.
-usage_gear() { ipc smoke labelledGeometry panel vgs.ai-usage IconButton Settings; }
-usage_gear_shown() { local box; box="$(usage_gear)" || return; if [[ $box == \[* ]]; then echo shown; else echo "$box"; fi; }
-usage_gear_click() {
-  local box x y
-  box="$(usage_gear)" || return 1
-  [[ $box == \[* ]] || { echo "usage_gear_click: no gear: $box" >&2; return 1; }
-  read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$box") || return 1
+usage_click() { # WHAT BOX
+  local x y
+  [[ $2 == \[* ]] || { echo "usage_click: no $1: $2" >&2; return 1; }
+  read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$2") || return 1
   hover "$((x + 1))" "$y" || return 1
   click "$x" "$y"
 }
+usage_gear() { ipc smoke labelledGeometry panel vgs.ai-usage IconButton Settings; }
+usage_gear_shown() { local box; box="$(usage_gear)" || return; if [[ $box == \[* ]]; then echo shown; else echo "$box"; fi; }
+usage_gear_click() { local box; box="$(usage_gear)" || return 1; usage_click gear "$box"; }
+usage_check_now_click() { local box; box="$(ipc smoke itemGeometry panel vgs.ai-usage Button "Check now")" || return 1; usage_click "Check now" "$box"; }
 usage_settings_page() { ipc smoke readInstance window vgs.settings page; }
 # Each card's state, whether it holds no note, the note's tone and whether
 # it says how long ago its figures were read.
@@ -187,6 +191,15 @@ usage_control() { # LOG LABEL WANT CMD...
   shift
   (failures=0 behaviour_failures=0
    expect "$@" >"$log"
+   echo "$failures")
+}
+# usage_poll_control LOG LABEL WANT CMD...: the same for an expect_poll,
+# which in this subshell polls for the harness's control bound.
+usage_poll_control() { # LOG LABEL WANT CMD...
+  local log="$1"
+  shift
+  (failures=0 behaviour_failures=0
+   expect_poll "$@" >"$log"
    echo "$failures")
 }
 
@@ -369,28 +382,64 @@ usage_refresh "the restored helper"
 usage_credentials_before="$(usage_credentials)"
 
 # Claude's endpoint turns away frequent reads with 429, as the stand-in's
-# limited mode does inside 60 s of the answer it served. A Check now inside
-# that window keeps the figures as ok with their read time and no warning,
+# limited mode does inside 60 s of the answer it served. The panel's Check
+# now inside that window publishes a read and sends a request, whose 429
+# keeps the figures, marked limited, with their read time and a plain note,
 # and ten opens and closes of the panel send no request at all.
 expected_errors+=('ai-usage: account=claude-[0-9a-f]+ limited=http-429')
 usage_figures='[["ok", [["five_hour", 42], ["seven_day", 83], ["seven_day_fable", 12]]]]'
+usage_kept='[["limited", [["five_hour", 42], ["seven_day", 83], ["seven_day_fable", 12]]]]'
+usage_notes_limited='[["claude", "limited", false, "normal", true], ["codex", "ok", true, "normal", true]]'
 usage_mode limited
 usage_refresh "the first read under the limit"
 expect "the first read under the limit is served" "$usage_figures" usage_windows claude
 usage_claude_read_at="$(usage_account_read_at claude)"
-usage_refresh "a Check now inside the limit"
-expect "a Check now inside the limit keeps the figures as ok" "$usage_figures" usage_windows claude
+click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage for Check now failed"
+summon_drawn panel vgs.ai-usage || fail "the panel for Check now never drew a frame"
+expect_poll "the service is idle before Check now" idle usage_idle
+usage_before_check="$(usage_read_at)" || usage_before_check=0
+usage_sent_before_check="$(usage_requests)"
+usage_check_now_click || fail "the click on the panel's Check now failed"
+expect_poll "the panel's Check now publishes a read" new usage_read_after "$usage_before_check"
+expect "the panel's Check now sends the endpoint one request" "requests=+1" usage_requests_since "$usage_sent_before_check"
+expect "a Check now inside the limit keeps the figures, marked limited" "$usage_kept" usage_windows claude
 expect "a Check now inside the limit keeps the figures' read time" "$usage_claude_read_at" usage_account_read_at claude
+expect_poll "the limited card draws a plain note and no warning" "$usage_notes_limited" usage_panel_notes
+expect "the Check now panel hides" ok ipc shell hide panel vgs.ai-usage
+expect_poll "the Check now panel is gone" absent usage_panel
 usage_sent_before_cycles="$(usage_requests)"
 for usage_cycle in 1 2 3 4 5 6 7 8 9 10; do
   click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage under the limit, time $usage_cycle, failed"
-  expect_poll "under the limit the panel opens with no stale note, time $usage_cycle" "$usage_notes_ok" usage_panel_notes
+  expect_poll "under the limit the panel opens with no stale note, time $usage_cycle" "$usage_notes_limited" usage_panel_notes
   expect "under the limit the panel hides, time $usage_cycle" ok ipc shell hide panel vgs.ai-usage
   expect_poll "under the limit the panel is gone, time $usage_cycle" absent usage_panel
 done
 expect "ten opens of the panel send the endpoint no request" none usage_requests_since "$usage_sent_before_cycles"
-expect "ten opens of the panel keep the figures as ok" "$usage_figures" usage_windows claude
+expect "ten opens of the panel keep the figures" "$usage_kept" usage_windows claude
 expect "the limited reads changed no credential file" kept usage_credentials_kept
+# A panel copy whose Check now asks for no read fails the published-read
+# reading on the read time before the click. The rescan may rebuild the
+# service, so a check it publishes first ends any read that starts.
+usage_edit "$usage_panel_qml" '                onClicked: root.refresh()' '                onClicked: {}' || fail "the dead Check now control's edit failed"
+rescan "the dead Check now copy is scanned"
+usage_refresh "the dead Check now copy's service"
+click_centre "$(bar_key)" vgs.ai-usage || fail "opening the dead Check now copy failed"
+summon_drawn panel vgs.ai-usage || fail "the dead Check now copy never drew a frame"
+expect_poll "the service is idle before the dead Check now" idle usage_idle
+usage_before_dead="$(usage_read_at)" || usage_before_dead=0
+usage_check_now_click || fail "the click on the dead Check now failed"
+expect "a Check now that asks for no read breaks the published-read reading" 1 \
+  usage_poll_control "$usage_dir/check-now-control.log" "the panel's Check now must publish a read" new usage_read_after "$usage_before_dead"
+expect "the published-read reading fails on the old read time" 1 grep -c -F -- "the panel's Check now must publish a read: got readAt=$usage_before_dead want new" "$usage_dir/check-now-control.log"
+expect "the dead Check now copy hides" ok ipc shell hide panel vgs.ai-usage
+expect_poll "the dead Check now copy is gone" absent usage_panel
+cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
+rescan "the panel restored after the Check now control is scanned"
+# The rescans rebuilt the service, whose first read under the limit holds
+# no figures; a served read gives the next readings their figures.
+usage_mode relative
+usage_refresh "the panel restored after the Check now control"
+expect "the restored panel's service reads the figures" "$usage_figures" usage_windows claude
 
 # A failed read keeps the last figures, marked stale, never 0 %.
 expected_errors+=('ai-usage: account=claude-[0-9a-f]+ failed=http-500')
