@@ -143,7 +143,7 @@ function verifyReadiness(gate) {
         assert.equal(accepted.ok, true);
         const row = judge.statusRows(manifest, accepted.values, []).find(entry => entry.key === key);
         const view = settings.statusView(row, String);
-        assert.deepEqual([view.hint, view.lines], [hint, []], "Settings draws one badge with plain guidance: " + key);
+        assert.deepEqual(plain([view.hint, view.lines]), [hint, []], "Settings draws one badge with plain guidance: " + key);
     }
 }
 
