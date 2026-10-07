@@ -61,7 +61,30 @@ Item {
                 required property var modelData
                 width: layout.contentWidth
 
-                Label { role: "label"; text: modelData.title }
+                Item {
+                    width: parent.width
+                    implicitHeight: Math.max(identity.implicitHeight, providerLogo.height)
+                    Row {
+                        id: identity
+                        spacing: Theme.stack.inline
+                        Label { anchors.verticalCenter: parent.verticalCenter; role: "label"; text: modelData.title }
+                        Badge { anchors.verticalCenter: parent.verticalCenter; visible: modelData.api; text: "[API]"; tone: "info" }
+                    }
+                    // QsMenuEntry's 0.3.1 reference sizes Image's source to
+                    // its rendered box; SVG data retains the published mark.
+                    Image {
+                        id: providerLogo
+                        objectName: "providerLogo"
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Theme.icon.size.md
+                        height: Theme.icon.size.md
+                        sourceSize.width: width
+                        sourceSize.height: height
+                        source: View.logo(modelData.provider, Theme.color.text)
+                        visible: source.toString() !== ""
+                    }
+                }
                 Label { visible: text !== ""; role: "hint"; text: modelData.account }
                 Label { visible: text !== ""; role: "hint"; text: modelData.checked }
                 Label { visible: root.fullView && text !== ""; role: "hint"; text: modelData.detail }
@@ -111,8 +134,7 @@ Item {
                                         anchors.verticalCenter: parent.verticalCenter
                                         role: "body"
                                         text: modelData.text
-                                        color: modelData.tone === "warning" ? Theme.badge.tone.warning.foreground
-                                            : modelData.started ? Theme.color.text : Theme.text.hint.color
+                                        color: modelData.started ? Theme.badge.tone[modelData.tone].foreground : Theme.text.hint.color
                                     }
                                 }
                             }

@@ -843,8 +843,9 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         assert.deepEqual(shown(below), [true, 79, "normal"], "the highest share across accounts");
         const only = state => View.merge(null, { accounts: [{ id: "c", provider: "codex", label: "x", email: "", state,
             windows: [] }], partial: "" }, NOW);
-        for (const usage of [null, { accounts: [], readAt: NOW }, only("signed-out"), only("no-plan")])
-            assert.equal(View.widget(usage, null, NOW).shown, false, "no plan sign-in hides the widget");
+        for (const usage of [null, { accounts: [], readAt: NOW }, only("signed-out")])
+            assert.equal(View.widget(usage, null, NOW).shown, false, "no sign-in hides the widget");
+        assert.equal(View.widget(only("no-plan"), null, NOW).shown, true, "an API sign-in can open its card");
 
         // The bar settings over three accounts: peaks 80 and 20, and one
         // with no window, which no figure counts as 0. The defaults draw
@@ -881,8 +882,8 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         // label; its account line is the email the helper read.
         assert.deepEqual(plainOf(View.panel(first, NOW).map(r => [r.id, r.title, r.label, r.email, r.state,
             r.windows.map(w => [w.name, w.percent, w.tone, w.resetIn])])), [
-            ["claude-a", View.NAMES.claude, "default", "", "ok", [["seven_day", 80, "warning", { kind: "in", days: 1, hours: 2, minutes: 0 }]]],
-            ["codex-b", View.NAMES.codex, "work", "person@example.invalid", "ok", [["five_hour", 79, "normal", { kind: "in", days: 0, hours: 1, minutes: 1 }]]]]);
+            ["claude-a", View.NAMES.claude, "default", "", "ok", [["seven_day", 80, "danger", { kind: "in", days: 1, hours: 2, minutes: 0 }]]],
+            ["codex-b", View.NAMES.codex, "work", "person@example.invalid", "ok", [["five_hour", 79, "warning", { kind: "in", days: 0, hours: 1, minutes: 1 }]]]]);
         for (const r of View.panel(first, NOW)) assert.equal("plan" in r, false, r.id + " carries no plan");
         // The reset reads as the time left alone.
         for (const [resetAt, text] of [[null, ""], [NOW, "now"], [NOW + 59000, "1m"], [NOW + 61 * 60000, "1h 1m"], [NOW + 4 * 24 * HOUR, "4d 0h"]])
@@ -935,16 +936,16 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
             details: { gateway: { balance: 10.5, totalUsed: 5.25 } }, windows: [{ name: "credits", usedPercent: 33.3333333333, resetsAt: null }] }], partial: "" }, NOW);
         assert.deepEqual(plainOf(View.panel(copilot, NOW).map(r => [r.id, r.title, r.email, r.detail, r.note,
             r.windows.map(w => [w.label, w.text, w.percent, w.started]), r.details.map(d => [d.label, d.value])])), [
-            ["copilot-a", "Copilot", "octo-user", "", "", [["AI credits", "45.2k of 1M", 4.5225, true]], [["Month credits used", "362k"], ["Renews", "2026-11-01"]]],
-            ["copilot-b", "Copilot", "zero-user", "No premium request pool", "", [], []],
             ["claude-enterprise", "Claude Code", "", "", "This plan reports no usage limits.", [], []],
             ["codex-c", "Codex", "c@example.invalid", "", "", [["5-hour limit", "3%", 3, true]], [["Codex credits", "59,295 available"]]],
+            ["copilot-a", "Copilot", "octo-user", "", "", [["AI credits", "45.2k of 1M", 4.5225, true]], [["Month credits used", "362k"], ["Renews", "2026-11-01"]]],
+            ["copilot-b", "Copilot", "zero-user", "No premium request pool", "", [], []],
             ["gateway-a", "AI Gateway", "", "", "", [["AI Gateway credits", "33%", 33.3333333333, true]], [["Balance left", "$10.50"], ["Total used", "$5.25"]]]]);
         assert.deepEqual(["0", "999", "1,000", "59,295", "1,234,568", ""].map((want, i) =>
             [View.wholeNumber([0, "999.4", 999.5, "59295.2328000000", 1234567.8, "credits"][i]), want]).filter(r => r[0] !== r[1]), []);
         assert.deepEqual(shown(copilot, { showCopilot: false }), [true, 33.3333333333, "normal"], "provider filters remove Copilot from the widget");
         assert.deepEqual(View.panel(copilot, NOW, { showCopilot: false }).map(r => r.provider), ["claude", "codex", "gateway"]);
-        assert.deepEqual(View.panel(copilot, NOW, { hidden: [{ account: "" }] }).map(r => r.id), ["copilot-b", "claude-enterprise", "codex-c", "gateway-a"], "empty hidden account means the first offer");
+        assert.deepEqual(View.panel(copilot, NOW, { hidden: [{ account: "" }] }).map(r => r.id), ["claude-enterprise", "codex-c", "copilot-b", "gateway-a"], "empty hidden account means the first offer");
         assert.deepEqual(View.accountChoices(copilot).map(r => r.value), ["copilot-a", "copilot-b", "claude-enterprise", "codex-c", "gateway-a"]);
         assert.deepEqual(plainOf(View.gatewayKey("present")), [{ label: "AI Gateway", value: "present", secret: "ai-gateway" }]);
         const failedCreditless = View.merge(copilot, { accounts: [{ id: "copilot-b", provider: "copilot", label: "zero",
@@ -965,6 +966,51 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
             [{ minutes: 300, model: "" }, { minutes: 10080, model: "" }, { minutes: 10080, model: "fable" }, { minutes: 120, model: "" },
                 { minutes: null, model: "" }]);
     };
+    const cardChanges = folder => {
+        const View = viewIn(folder);
+        const usage = View.merge(null, { accounts: [
+            { id: "copilot-z", provider: "copilot", label: "work", email: "z@example.invalid", state: "ok", windows: [
+                { name: "credits", usedPercent: 10, resetsAt: NOW + HOUR }] },
+            { id: "codex-b", provider: "codex", label: "default", email: "B@example.invalid", state: "ok", windows: [
+                { name: "five_hour", usedPercent: 20, resetsAt: NOW + HOUR }, { name: "seven_day", usedPercent: 90, resetsAt: NOW + HOUR }] },
+            { id: "claude-a", provider: "claude", label: "work", email: "a@example.invalid", state: "limited", windows: [
+                { name: "five_hour", usedPercent: 50, resetsAt: NOW + HOUR }] },
+            { id: "codex-api", provider: "codex", label: "api", email: "", state: "no-plan", windows: [] },
+            { id: "gateway-api", provider: "gateway", label: "AI Gateway", email: "", state: "ok", windows: [
+                { name: "credits", usedPercent: 30, resetsAt: null }] }
+        ] }, NOW);
+        for (const [sort, ids] of [
+            ["provider", ["claude-a", "codex-b", "codex-api", "copilot-z", "gateway-api"]],
+            ["email", ["codex-api", "gateway-api", "claude-a", "codex-b", "copilot-z"]],
+            ["most-left", ["copilot-z", "gateway-api", "claude-a", "codex-b", "codex-api"]]
+        ]) assert.deepEqual(View.panel(usage, NOW, { sort }).map(r => r.id), ids, sort);
+        assert.deepEqual(usage.accounts.map(r => r.id), ["copilot-z", "codex-b", "claude-a", "codex-api", "gateway-api"], "sorting leaves published order unchanged");
+        assert.deepEqual(View.panel({ accounts: [] }, NOW, { sort: "most-left" }), []);
+        for (const [used, tone] of [[0, "success"], [49.99, "success"], [50, "warning"], [79.99, "warning"], [80, "danger"], [100, "danger"], [120, "danger"]]) {
+            const window = View.windowRow({ provider: "claude" }, { name: "five_hour", usedPercent: used, resetsAt: NOW + HOUR }, NOW);
+            assert.equal(window.tone, tone, "used=" + used);
+        }
+        const cards = View.panel(usage, NOW, { sort: "provider" });
+        assert.deepEqual(cards.map(r => [r.id, r.api]), [["claude-a", false], ["codex-b", false], ["codex-api", true], ["copilot-z", false], ["gateway-api", true]]);
+        assert.equal(cards.find(r => r.id === "codex-api").note, View.NO_PLAN);
+        for (const provider of ["claude", "copilot", "gateway"]) {
+            const source = View.logo(provider, "#abcdef");
+            assert.ok(source.startsWith("data:image/svg+xml,"));
+            assert.ok(decodeURIComponent(source).includes('fill="#abcdef"'));
+            assert.ok(decodeURIComponent(source).includes('<path '));
+        }
+        for (const provider of ["codex", "unknown"]) assert.equal(View.logo(provider, "#abcdef"), "");
+    };
+    cardChanges(plugin);
+    cases++;
+    await control("provider-sort-ignored", "UsageView.js", "return a.provider.localeCompare(b.provider);", "return 0;", cardChanges);
+    await control("email-sort-ignored", "UsageView.js", 'if (mode === "email") {', 'if (false) {', cardChanges);
+    await control("room-sort-ignored", "UsageView.js", 'if (mode === "most-left") {', 'if (false) {', cardChanges);
+    await control("room-lowest-limit", "UsageView.js", 'return row.windows.length === 0 ? Infinity : Math.max.apply', 'return row.windows.length === 0 ? Infinity : Math.min.apply', cardChanges);
+    await control("medium-boundary", "UsageView.js", "percent >= MEDIUM_PERCENT", "percent > MEDIUM_PERCENT", cardChanges);
+    await control("almost-out-boundary", "UsageView.js", "percent >= WARNING_PERCENT", "percent > WARNING_PERCENT", cardChanges);
+    await control("api-chip-absent", "UsageView.js", 'api: row.state === "no-plan" || row.provider === "gateway"', 'api: false', cardChanges);
+    await control("logo-absent", "UsageView.js", 'var mark = MARKS[provider];', 'var mark = undefined;', cardChanges);
     views(plugin);
     cases++;
     await control("stale-dropped", "UsageView.js", 'if ((row.state === "failed" || row.state === "limited") && last !== null && hasFigures(last))',
@@ -1014,7 +1060,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     await control("left-ignored", "UsageView.js", "var percent = used === null ? null : left ? Math.max(0, 100 - used) : used;", "var percent = used;", views);
     await control("colour-ignored", "UsageView.js", "given.colourByUsage !== false && ", "", views);
     await control("always-shown", "UsageView.js", "shown: accounts.length > 0", "shown: true", views);
-    await control("no-plan-counted", "UsageView.js", 'return row.state !== "signed-out" && row.state !== "no-plan";', 'return row.state !== "signed-out";', views);
+    await control("api-account-hidden", "UsageView.js", 'return row.state !== "signed-out";', 'return row.state !== "signed-out" && row.state !== "no-plan";', views);
     await control("provider-filter-ignored", "UsageView.js", 'if (provider === "copilot") return settings.showCopilot !== false;', 'if (provider === "copilot") return true;', views);
     await control("hidden-first-ignored", "UsageView.js", 'if (id === "") id = first;', 'if (id === "") id = "";', views);
     await control("details-dropped", "UsageView.js", 'if (d.gateway !== undefined) {', 'if (false) {', views);

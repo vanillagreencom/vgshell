@@ -25,7 +25,7 @@
 # credential file, one that reads a failed request as 0 % and a panel host
 # copy whose slot opens Settings with no page each fail their own reading.
 # This row has no latency ceiling; every reading polls through expect_poll.
-# inputs: shell/plugins/vgs.ai-usage/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js scripts/fixtures/ai-usage/* scripts/smoke/fixtures/ai-usage/* shell/plugins/vgs.settings/* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/Pane.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Commons/Time.qml config/shell.json bin/vgshell-tui scripts/qml-smoke.sh shell/Commons/Duration.js shell/Commons/qmldir
+# inputs: shell/plugins/vgs.ai-usage/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js scripts/fixtures/ai-usage/* scripts/smoke/fixtures/ai-usage/* shell/plugins/vgs.settings/* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/Pane.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/feedback/Badge.qml shell/Commons/Time.qml config/shell.json bin/vgshell-tui scripts/qml-smoke.sh shell/Commons/Duration.js shell/Commons/qmldir
 set -euo pipefail
 usage_dir="$sandbox/ai-usage"
 mkdir -p -- "$usage_dir"
@@ -266,7 +266,7 @@ usage_before_panel="$(usage_read_at)" || usage_before_panel=0
 usage_sent_before_panel="$(usage_requests)"
 usage_notes_ok='[["claude", "ok", true, "normal", true], ["codex", "ok", true, "normal", true]]'
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget failed"
-expect_poll "the widget opens its panel" '[["claude", "default", "", [["five_hour", 42, "normal"], ["seven_day", 83, "warning"], ["seven_day_fable", 12, "normal"]]], ["codex", "default", "person@example.invalid", [["five_hour", 27, "normal"], ["seven_day", 64, "normal"]]]]' usage_panel_rows
+expect_poll "the widget opens its panel" '[["claude", "default", "", [["five_hour", 42, "success"], ["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"]]], ["codex", "default", "person@example.invalid", [["five_hour", 27, "success"], ["seven_day", 64, "warning"]]]]' usage_panel_rows
 expect_poll "the panel's reset times are the stand-ins'" matched usage_panel_resets
 expect "the full panel is selected by default" true usage_panel_view
 expect "the full panel carries provider details" '[["claude", "default", [["Extra usage", "$123.45 of $500.00"]]], ["codex", "default", [["Codex credits", "12,345 available"]]]]' usage_panel_details
@@ -314,13 +314,13 @@ expect "the account choices list all read accounts" '["Claude Code \u00b7 defaul
 expect "choosing compact view is allowed" ok usage_apply_setting view '"compact"'
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage for compact view failed"
 expect_poll "the compact panel is selected" false usage_panel_view
-expect_poll "the compact panel still shows every limit" '[["claude", "default", "", [["five_hour", 42, "normal"], ["seven_day", 83, "warning"], ["seven_day_fable", 12, "normal"]]], ["codex", "default", "person@example.invalid", [["five_hour", 27, "normal"], ["seven_day", 64, "normal"]]]]' usage_panel_rows
+expect_poll "the compact panel still shows every limit" '[["claude", "default", "", [["five_hour", 42, "success"], ["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"]]], ["codex", "default", "person@example.invalid", [["five_hour", 27, "success"], ["seven_day", 64, "warning"]]]]' usage_panel_rows
 expect "the compact panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the compact panel is gone" absent usage_panel
 expect "hiding Codex by provider is allowed" ok usage_apply_setting showCodex false
 expect_poll "the widget recomputes without Codex" '[true, true, 83, "warning"]' usage_widget_state
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage with Codex filtered failed"
-expect_poll "the provider filter leaves Claude only" '[["claude", "default", "", [["five_hour", 42, "normal"], ["seven_day", 83, "warning"], ["seven_day_fable", 12, "normal"]]]]' usage_panel_rows
+expect_poll "the provider filter leaves Claude only" '[["claude", "default", "", [["five_hour", 42, "success"], ["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"]]]]' usage_panel_rows
 expect "the filtered panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the filtered panel is gone" absent usage_panel
 expect "hiding the first offered account is allowed" ok usage_apply_setting hidden '[{"name":"item-1","account":""}]'
@@ -476,6 +476,43 @@ expect "a helper that reads a failure as 0 % breaks the stale reading" 1 \
   usage_control "$usage_dir/zero-control.log" "a failed request must keep the last figures" "$usage_stale" usage_windows claude
 expect "the stale reading fails on the 0 % window" 1 grep -c -F -- 'a failed request must keep the last figures: got [["ok", [["five_hour", 0]]]]' "$usage_dir/zero-control.log"
 usage_mode relative
+
+# A gateway-shaped published reading is API billing. Plant it in the
+# disposable helper so the real service, merge and panel draw its card,
+# without a live keyring or Vercel request.
+usage_edit "$usage_helper" '    return { accounts, partial, gatewayKey };' '    accounts.push({ id: "gateway-planted", provider: "gateway", label: "AI Gateway", email: "", state: "ok", windows: [{ name: "credits", usedPercent: 25, resetsAt: null }], credits: null, details: { gateway: { balance: 75, totalUsed: 25 } } });
+    return { accounts, partial, gatewayKey };' || fail "planting the gateway API reading failed"
+rescan "the gateway API reading is scanned"
+usage_refresh "the gateway API reading"
+click_centre "$(bar_key)" vgs.ai-usage || fail "opening the gateway API card failed"
+ipc smoke scrollTo panel vgs.ai-usage 99999 >/dev/null || fail "the gateway API card did not scroll into view"
+summon_drawn panel vgs.ai-usage || fail "the gateway API card never drew a frame"
+usage_gateway_api() { usage_panel | py_reply 'import json,sys; r=json.load(sys.stdin); print(any(a["provider"] == "gateway" and a["api"] is True for a in r))'; }
+usage_api_chip() { ipc smoke readMatchingDescendant panel vgs.ai-usage Badge text '[API]' visible; }
+usage_gateway_logo() { ipc smoke images panel vgs.ai-usage | py_reply 'import json,sys; print(any("m12 1.608 12 20.784H0Z" in r[0] and r[1] == "ready" for r in json.load(sys.stdin)))'; }
+expect_poll "the gateway card carries API billing" True usage_gateway_api
+expect_poll "the gateway card draws its API chip" true usage_api_chip
+expect_poll "the gateway card draws its published Vercel mark" True usage_gateway_logo
+expect "the API card panel hides" ok ipc shell hide panel vgs.ai-usage
+expect_poll "the API card panel is gone" absent usage_panel
+usage_edit "$usage_panel_qml" 'visible: modelData.api;' 'visible: false;' || fail "the hidden API chip control edit failed"
+rescan "the hidden API chip control is scanned"
+usage_refresh "the hidden API chip control"
+click_centre "$(bar_key)" vgs.ai-usage || fail "opening the hidden API chip control failed"
+summon_drawn panel vgs.ai-usage || fail "the hidden API chip control never drew a frame"
+expect "a hidden API chip fails the drawn chip reading" 1 usage_control "$usage_dir/api-chip-control.log" "API chip must draw" true usage_api_chip
+expect "the hidden API chip panel hides" ok ipc shell hide panel vgs.ai-usage
+expect_poll "the hidden API chip panel is gone" absent usage_panel
+cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
+usage_edit "$usage_panel_qml" 'source: View.logo(modelData.provider, Theme.color.text)' 'source: ""' || fail "the absent logo control edit failed"
+rescan "the absent logo control is scanned"
+usage_refresh "the absent logo control"
+click_centre "$(bar_key)" vgs.ai-usage || fail "opening the absent logo control failed"
+summon_drawn panel vgs.ai-usage || fail "the absent logo control never drew a frame"
+expect "an absent logo fails the ready mark reading" 1 usage_control "$usage_dir/logo-control.log" "Vercel mark must draw" True usage_gateway_logo
+expect "the absent logo panel hides" ok ipc shell hide panel vgs.ai-usage
+expect_poll "the absent logo panel is gone" absent usage_panel
+cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
 
 expect "AI Usage is disabled after the row" ok ipc shell setPluginEnabled vgs.ai-usage false
 expect_poll "disabled AI Usage releases its service" False record_exists vgs.ai-usage

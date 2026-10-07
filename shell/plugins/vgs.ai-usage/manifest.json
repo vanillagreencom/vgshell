@@ -19,10 +19,11 @@
     { "command": "codex", "packages": {}, "optional": true, "purpose": "Signs in to Codex and reports its plan limits" },
     { "command": "secret-tool", "packages": { "pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "nix": "libsecret" }, "optional": true, "purpose": "Reads the Copilot sign-in from the keyring" }
   ],
-  "settings": { "refreshMinutes": 15, "view": "full", "barNumber": "most-used", "barShows": "used", "colourByUsage": true, "showClaude": true, "showCodex": true, "showCopilot": true, "hidden": [], "aiGateway": false },
+  "settings": { "refreshMinutes": 15, "view": "full", "sort": "provider", "barNumber": "most-used", "barShows": "used", "colourByUsage": true, "showClaude": true, "showCodex": true, "showCopilot": true, "hidden": [], "aiGateway": false },
   "schema": {
     "refreshMinutes": { "type": "number", "label": "Check interval", "description": "Time between usage checks.", "min": 5, "max": 120, "step": 5, "unit": "minutes" },
     "view": { "type": "enum", "label": "View", "options": ["compact", "full"] },
+    "sort": { "type": "string", "label": "Sort accounts", "presets": [ { "value": "provider", "label": "Provider" }, { "value": "email", "label": "Email" }, { "value": "most-left", "label": "Most room first" } ] },
     "barNumber": { "type": "string", "label": "Bar number", "group": "Bar", "description": "How the bar figures one number from each account's highest limit.",
       "presets": [ { "value": "average", "label": "Average" }, { "value": "most-left", "label": "Most left" }, { "value": "most-used", "label": "Most used" } ] },
     "barShows": { "type": "string", "label": "Bar shows", "group": "Bar",

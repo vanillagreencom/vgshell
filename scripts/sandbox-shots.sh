@@ -1784,18 +1784,18 @@ scene_capture() { # MODE
 
 # AI Usage's dropdown from its widget, at rest, then scrolled halfway down
 # its body, where both dividers show.
-usage_shot_rows() { ipc smoke readInstance panel vgs.ai-usage rows | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+usage_shot_rows() { ipc smoke readInstance panel vgs.ai-usage rows | py_reply 'import json,sys; r=json.load(sys.stdin); print(isinstance(r,list) and len(r) >= 3)'; }
 scene_ai-usage() { # MODE
   local at y
   expect "enabling AI Usage for its dropdown is allowed" ok ipc shell setPluginEnabled vgs.ai-usage true
   expect "AI Usage's widget is placed" ok ipc shell setPluginPlaced vgs.ai-usage true
   expect_poll "AI Usage's widget shows" true ipc smoke readInstance "$(bar_key)" vgs.ai-usage visible
   click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget failed"
-  expect_poll "the widget opens its panel over every account" 3 usage_shot_rows
+  expect_poll "the widget opens its panel over its accounts" True usage_shot_rows
   park_pointer
   take "ai-usage-$1-panel"
   at="$(ipc smoke scrollTo panel vgs.ai-usage 0)" || at=""
-  if y="$(python3 -c 'import json,sys; _, content, view = json.loads(sys.argv[1]); print(int((content - view) / 2)) if content - view > 2 else sys.exit(1)' "$at" 2>/dev/null)"; then
+  if y="$(python3 -c 'import json,sys; _, content, view = json.loads(sys.argv[1]); print(int(content - view)) if content - view > 2 else sys.exit(1)' "$at" 2>/dev/null)"; then
     ipc smoke scrollTo panel vgs.ai-usage "$y" >/dev/null || fail "the AI Usage panel did not scroll"
     take "ai-usage-$1-panel-scrolled"
   else
@@ -3088,6 +3088,10 @@ for scene in "${setups[@]}"; do
       expect_poll "the stand-in usage endpoint listens" ready usage_port
       python3 "$checkout/scripts/smoke/fixtures/ai-usage/edit.py" "$repo/shell/plugins/vgs.ai-usage/backend/usage.js" 'const ORIGIN = "https://api.anthropic.com";' "const ORIGIN = \"http://127.0.0.1:$(cat -- "$usage_dir/port")\";" || fail "pointing the usage helper at the stand-in failed"
       ln -sfn -- "$checkout/scripts/fixtures/ai-usage/codex" "$shim/codex"
+      # A published gateway-shaped reading plants API billing without a
+      # keyring or a live Vercel request, in this sandbox copy alone.
+      python3 "$checkout/scripts/smoke/fixtures/ai-usage/edit.py" "$repo/shell/plugins/vgs.ai-usage/backend/usage.js" '    return { accounts, partial, gatewayKey };' '    accounts.push({ id: "gateway-shots", provider: "gateway", label: "AI Gateway", email: "", state: "ok", windows: [{ name: "credits", usedPercent: 25, resetsAt: null }], credits: null, details: { gateway: { balance: 75, totalUsed: 25 } } });
+    return { accounts, partial, gatewayKey };' || fail "planting the API gateway reading failed"
       python3 - "$home" <<'PY' || fail "planting the AI Usage sign-ins failed"
 import json, os, sys, time
 home = sys.argv[1]
@@ -3099,13 +3103,16 @@ for folder, plan in ((".claude", "max"), (".claude-work", "pro")):
 os.makedirs(os.path.join(home, ".codex"), exist_ok=True)
 json.dump({"OPENAI_API_KEY": None, "tokens": {"access_token": "shots-access"}}, open(os.path.join(home, ".codex", "auth.json"), "w"))
 open(os.path.join(home, ".codex", "stand-in-mode"), "w").write("relative\n")
+os.makedirs(os.path.join(home, ".codex-api"), exist_ok=True)
+json.dump({"OPENAI_API_KEY": "shots-api-key"}, open(os.path.join(home, ".codex-api", "auth.json"), "w"))
+open(os.path.join(home, ".codex-api", "stand-in-mode"), "w").write("api-key\n")
 PY
       tree_rescan "the AI Usage stand-ins are scanned"
       expect "enabling AI Usage for its dropdown is allowed" ok ipc shell setPluginEnabled vgs.ai-usage true
       expect "AI Usage's widget is placed" ok ipc shell setPluginPlaced vgs.ai-usage true
       expect_poll "AI Usage's service is built" True record_exists vgs.ai-usage
       usage_shot_states() { ipc smoke readInstance service vgs.ai-usage usage | py_reply 'import json,sys; u=json.load(sys.stdin); print("none" if u is None else json.dumps(sorted(a["state"] for a in u["accounts"])))'; }
-      expect_poll "every planted account reads as signed in" '["ok", "ok", "ok"]' usage_shot_states
+      expect_poll "every planted account reads as signed in" '["no-plan", "ok", "ok", "ok", "ok"]' usage_shot_states
       expect_poll "AI Usage's widget shows" true ipc smoke readInstance "$(bar_key)" vgs.ai-usage visible ;;
     keyhints)
       for id in vgs.launcher vgs.keyhints; do

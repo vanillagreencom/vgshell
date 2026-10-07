@@ -10,6 +10,9 @@ Images come from `scripts/readme-shots.sh` in the nested sandbox.
 
 - One number for your visible accounts in the bar: by default the highest share of a plan limit used. It turns to the warning colour at 80 % used.
 - A card for each visible account, with the provider and the account's email. Copilot gives no email, so its card shows the GitHub login.
+- Sort cards by provider, email or the most room left in their limits. Accounts with no reported limit come last when sorted by room.
+- Provider marks identify the cards. An API account carries an [API] chip. Codex API accounts show that they have no plan limits.
+- Limit values use the theme's success, warning and danger colours as their used share grows.
 - A compact panel view with one line for each limit and the time left until it resets.
 - A full panel view with meters and provider details when the provider sends them.
 - An account that has had no use yet says so instead of showing 0 %. A limit that starts with your first message reads Not started until then.
@@ -29,6 +32,7 @@ Images come from `scripts/readme-shots.sh` in the nested sandbox.
 | --- | --- |
 | Check interval | Time between usage checks. Check now in the panel starts a check at once. |
 | View | Compact shows account identity and limit lines. Full adds meters and provider details. |
+| Sort accounts | Provider, Email or Most room first. |
 | Bar number | How the bar figures one number from each account's highest limit: Average, Most left or Most used. An account with no limits is left out. |
 | Bar shows | Used shows the share used. Left shows the share that is left. |
 | Colour by usage | Shows the bar number in the warning colour from 80 % used, whichever share it shows. |
@@ -60,3 +64,7 @@ secret-tool store --label='VGS AI Usage AI Gateway key' service vgs-ai-usage acc
 ```
 
 </details>
+
+## Credits
+
+The Claude, GitHub Copilot and Vercel marks come from [Simple Icons 16.17.0](https://github.com/simple-icons/simple-icons/tree/16.17.0), under [CC0-1.0](https://github.com/simple-icons/simple-icons/blob/16.17.0/LICENSE.md). The source files are [Claude](https://github.com/simple-icons/simple-icons/blob/16.17.0/icons/claude.svg), [GitHub Copilot](https://github.com/simple-icons/simple-icons/blob/16.17.0/icons/githubcopilot.svg) and [Vercel](https://github.com/simple-icons/simple-icons/blob/16.17.0/icons/vercel.svg). The cards draw these marks in the theme's text colour. Codex has no bundled mark.
