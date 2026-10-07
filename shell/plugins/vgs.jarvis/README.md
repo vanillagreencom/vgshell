@@ -12,7 +12,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Talk, Mute and Stop keys. Talk is Super with Right Alt, Mute is Super with Shift and Right Alt, and Stop is Super with Alt and Period.
 - Mute stays on across restarts and blocks talk input.
 - A listening bubble whose orb and text let clicks reach the application below.
-- An AI model from an API key you added, or from an app you are signed in to, such as Claude Code or Codex.
+- An AI model from an API key you added, or from an app you are signed in to, such as Claude Code, Codex or GitHub Copilot.
 - Local voice: speech to text and spoken replies on your computer, with no network access, after Set up local voice.
 - Half duplex audio: Jarvis closes its microphone while speech plays, and Talk interrupts speech.
 - Provider keys stored in your desktop keyring. Plugins shows whether a key is present, absent, locked or unavailable without reading it.

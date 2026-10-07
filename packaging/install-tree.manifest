@@ -335,6 +335,8 @@ f share/vgshell/shell/plugins/vgs.jarvis/backend/ClaudeCode.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/CodexAppServer.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/CodexHarness.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/ComputerHelp.js
+f share/vgshell/shell/plugins/vgs.jarvis/backend/CopilotAcp.js
+f share/vgshell/shell/plugins/vgs.jarvis/backend/CopilotHarness.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Core.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Denied.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Desktop.js

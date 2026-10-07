@@ -15,6 +15,7 @@ const Audit = require("./Audit.js");
 const ClaudeCode = require("./ClaudeCode.js");
 const Providers = require("./Providers.js");
 const CodexHarness = require("./CodexHarness.js");
+const CopilotHarness = require("./CopilotHarness.js");
 const MAX_ROWS = 32; // The core's presenceList and choices ceiling.
 const MAX_BYTES = 64 * 1024;
 const PROBE_TEXT = "Reply OK.";
@@ -322,10 +323,12 @@ class Accounts {
     cliAccount(candidate) {
         const row = provider(candidate.provider);
         const opened = directory(candidate.directory, true);
-        const result = this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory });
-        let state;
-        try { state = login(row, result); }
-        finally { result.stdout?.fill(0); result.stderr?.fill(0); }
+        let state = { kind: "found" };
+        if (row.command !== null) {
+            const result = this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory });
+            try { state = login(row, result); }
+            finally { result.stdout?.fill(0); result.stderr?.fill(0); }
+        }
         // Fallback metadata only. No marker is opened, even when mode 000.
         let marker = "absent";
         try {
@@ -526,7 +529,7 @@ class Accounts {
             const keyed = /^jarvis-accounts: verify=([a-z0-9-]+)$/.exec(error.message);
             const network = /^jarvis: net=([a-z0-9-]+)$/.exec(error.message);
             const secret = /^jarvis-keys: secret-tool=([a-z-]+)$/.exec(error.message);
-            const harness = /^jarvis: brain=((?:harness|codex)-[a-z0-9-]+)(?: |$)/.exec(error.message);
+            const harness = /^jarvis: brain=((?:harness|codex|copilot)-[a-z0-9-]+)(?: |$)/.exec(error.message);
             state = { kind: "unavailable", reason: keyed ? keyed[1] : network ? "network-" + network[1] : secret ? "key-" + secret[1]
                 : harness ? harness[1] : typeof request === "function" ? "verification-failed" : "verification-request-unavailable" };
         }
@@ -563,6 +566,10 @@ class Accounts {
                 return this.released(account, row.id, Providers.select(row.id).base, PROBE_TEXT, release =>
                     release.start(() => CodexHarness.probe({ directory: account.source.directory, env: this.env,
                         runtime: this.runtime, model, text: release.item.content })).then(() => true));
+            case "copilot":
+                return this.released(account, row.id, Providers.select(row.id).base, PROBE_TEXT, release =>
+                    release.start(() => CopilotHarness.probe({ provider: row.id, directory: account.source.directory,
+                        env: this.env, runtime: this.runtime, model, text: release.item.content })).then(() => true));
             default:
                 fail("verify=subscription-handoff-unavailable");
             }

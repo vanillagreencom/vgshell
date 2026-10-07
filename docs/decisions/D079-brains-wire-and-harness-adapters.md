@@ -11,6 +11,6 @@
 
 **Why**: VGS ships no npm tree and has no install route for one. Vendor terms allow a subscription only through the vendor's unmodified program, so a harness is the only lawful subscription path, and a harness tool left on would bypass the policy gate. `scripts/test-jarvis-providers.js` and `scripts/test-jarvis-claude.js` hold the adapters.
 
-**Rejected**: Vendor npm SDKs. No install route, and the subscription path must stay the unmodified program.
+**Rejected**: Vendor npm SDKs. No install route, and the subscription path must stay the unmodified program. The Copilot SDK speaks Copilot's own JSON-RPC to the CLI through an npm or pip package; VGS uses `copilot --acp`, which needs no package.
 
 **Revisit when**: A provider speaks neither a compatible wire nor a harness program, VGS gains an npm route, or a vendor permits a subscription outside its own program.

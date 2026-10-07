@@ -68,6 +68,7 @@
     { "command": "gio", "packages": { "pacman": "glib2", "apt": "libglib2.0-bin", "dnf": "glib2", "nix": "glib" }, "optional": false, "purpose": "Opens a file or web link for Jarvis with its default application" },
     { "command": "claude", "packages": { "aur": "claude-code", "mise": "claude", "nix": "claude-code" }, "optional": true, "purpose": "Signs in to Claude Code and runs its account as the AI model" },
     { "command": "codex", "packages": { "pacman": "openai-codex", "mise": "codex", "nix": "codex" }, "optional": true, "purpose": "Signs in to Codex and runs its account as the AI model" },
+    { "command": "copilot", "packages": {}, "optional": true, "purpose": "Runs the GitHub Copilot subscription brain and its Verify" },
     { "command": "agent-browser", "packages": { "aur": "agent-browser-bin", "mise": "npm:agent-browser" }, "optional": false, "purpose": "Drives a private Jarvis browser; requires version 0.38.1 or later" },
     { "command": "chromium", "packages": { "pacman": "chromium", "apt": "chromium", "dnf": "chromium", "nix": "chromium" }, "optional": false, "purpose": "Provides the browser Jarvis verifies during setup" },
     { "command": "tmux", "packages": { "pacman": "tmux", "apt": "tmux", "dnf": "tmux", "nix": "tmux" }, "optional": true, "purpose": "Runs several coding tasks at once, each in its own session" },

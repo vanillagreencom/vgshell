@@ -577,7 +577,7 @@ world(async () => {
                 "(send => send())(() => CodexHarness.probe("]], "verify"],
             ["handoff-release", "backend/Accounts.js", [['const grants = [{ recipients: selected, labels: ["command"] }];', "const grants = [];"]], "verify"],
             ["harness-brain", "AccountProviders.js", [['return row.kind === "cli" || (', "return ("]], "verify"],
-            ["handoff-runtime", "backend/Accounts.js", [["runtime: this.runtime,", 'runtime: path.join(this.env.XDG_RUNTIME_DIR, "vgshell/jarvis"),']], "verify"],
+            ["handoff-runtime", "backend/Accounts.js", [["CodexHarness.probe({ directory: account.source.directory, env: this.env,\n                        runtime: this.runtime, model, text", 'CodexHarness.probe({ directory: account.source.directory, env: this.env,\n                        runtime: path.join(this.env.XDG_RUNTIME_DIR, "vgshell/jarvis"), model, text']], "verify"],
             ["default-runtime", "backend/Accounts.js", [["runtime = runtimeDirectory(env.XDG_RUNTIME_DIR)) {", 'runtime = "") {']], "verify"],
             ["harness-reason", "backend/Accounts.js", [[": harness ? harness[1]", ": false ? harness[1]"]], "verify"],
             ["gate-outcome", "backend/CodexHarness.js", [['outcome: item.status === "completed" ? "completed"', 'outcome: item.status === "unreachable" ? "completed"']], "allowed"]

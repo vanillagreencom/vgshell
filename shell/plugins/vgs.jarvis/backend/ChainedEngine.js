@@ -15,6 +15,7 @@ const Speakable = require("./Speakable.js");
 const OpenAIChat = require("./OpenAIChat.js");
 const AnthropicMessages = require("./AnthropicMessages.js");
 const CodexHarness = require("./CodexHarness.js");
+const CopilotHarness = require("./CopilotHarness.js");
 const ClaudeCode = require("./ClaudeCode.js");
 const LocalSpeech = require("./LocalSpeech.js");
 const { PCM_RATE } = require("./Audio.js");
@@ -25,7 +26,7 @@ const { PCM_RATE } = require("./Audio.js");
 // adds its own.
 const SPEECH = Object.freeze({ local: LocalSpeech.row });
 const DRIVERS = Object.freeze({ "openai-chat": OpenAIChat, "anthropic-messages": AnthropicMessages,
-    "codex-app-server": CodexHarness, "claude-code": ClaudeCode });
+    "codex-app-server": CodexHarness, "copilot-acp": CopilotHarness, "claude-code": ClaudeCode });
 // The hello carries no language setting; empty selects English.
 const LANGUAGE = "";
 // Object-mode chunks queued toward Audio, below its playback allowance.
