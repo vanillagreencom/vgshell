@@ -3,8 +3,11 @@
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-09-30
+
 **Status**: Active
+
 **Research**: the Jarvis plan attached to [VGS-623](https://linear.app/vanillagreen/issue/VGS-623)
+
 **Refines**: [D033](D033-floating-tuis-are-core.md), [D052](D052-automations-engine.md)
 
 **Decision**: A task record keeps the process, turn, wait and reported-outcome facts apart. Events are written by rename under one lock, replayed from disk at start, and produced from a content-addressed copy, never a plugin snapshot. A launcher forks the agent as leader of a new process group and records its pid, pgid, sid and start ticks before it execs. The runner verifies that identity before every signal, escalates against the group, and writes `stopped` only after the group reads empty. The launch spec travels as a private file, never as TUI arguments.

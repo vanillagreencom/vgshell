@@ -3,8 +3,11 @@
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-09-27
+
 **Status**: Active
+
 **Research**: [VGS-468](https://linear.app/vanillagreen/issue/VGS-468), [VGS-471](https://linear.app/vanillagreen/issue/VGS-471), [VGS-492](https://linear.app/vanillagreen/issue/VGS-492)
+
 **Refines**: [D021](D021-theme-apply-writes-beside-each-destination.md)
 
 **Decision**: An application target declares each entry as a link or a copy. A link proves ownership by its exact destination in the state `theme/` directory. A copy lands by rename in the application's watched directory and proves ownership by bytes equal to the previous or new render. Apply skips an occupied path; disable removes only managed entries and an owned directory only when empty. A target may also declare theme selection keys in an existing settings file. Every apply repairs those keys, preserves every other byte, refuses an ambiguous edit and never creates an absent file. Disable leaves the keys in place.

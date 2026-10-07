@@ -3,7 +3,9 @@
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-09-26
+
 **Status**: Active (a plugin-owned look → [D023](D023-plugin-owned-appearance.md))
+
 **Research**: [VGS-585](https://linear.app/vanillagreen/issue/VGS-585)
 
 **Decision**: One token table of typed leaves in `shell/Commons/Tokens.js` is the default theme. One pure judge resolves a theme document against it, under node too, and `Theme` publishes each group as a deep-frozen object with a revision counter. The grammar evaluates no JavaScript from a document. The shell bundles two variable fonts, Inter and JetBrains Mono, and a theme names font families only, never a font file. The theme's `hyprland` group supplies borders, radius and motion only. [D028](D028-one-generated-hyprland-layer.md) owns their manifest switches and rendering into the generated layer.

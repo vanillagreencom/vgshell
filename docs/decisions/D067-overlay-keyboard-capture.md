@@ -3,8 +3,11 @@
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-09-29
+
 **Status**: Active
+
 **Research**: [VGS-596](https://linear.app/vanillagreen/issue/VGS-596), [VGS-687](https://linear.app/vanillagreen/issue/VGS-687)
+
 **Refines**: [D028](D028-one-generated-hyprland-layer.md)
 
 **Decision**: The generated layer enters one capture submap while any `vgs:overlay` layer is mapped, repeats plugin shortcuts inside it, learns the user's focus binds by wrapping `hl.dsp.focus` and `hl.bind`, and forwards direction keys to the frontmost overlay's `navigate`. A key field uses a second constant core submap whose only bind is Escape, so every other key reaches the focused Settings window. Each exit has one owner. Hyprland owns the window-close exit and a timer that resets the pass-through submap even when the shell dies or stops answering.

@@ -3,7 +3,9 @@
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-09-28
+
 **Status**: Active (keyboard capture → [D067](D067-overlay-keyboard-capture.md))
+
 **Research**: [VGS-489](https://linear.app/vanillagreen/issue/VGS-489), [VGS-585](https://linear.app/vanillagreen/issue/VGS-585), [VGS-694](https://linear.app/vanillagreen/issue/VGS-694), [VGS-695](https://linear.app/vanillagreen/issue/VGS-695), [VGS-696](https://linear.app/vanillagreen/issue/VGS-696), [VGS-744](https://linear.app/vanillagreen/issue/VGS-744), [VGS-707](https://linear.app/vanillagreen/issue/VGS-707), [VGS-924](https://linear.app/vanillagreen/issue/VGS-924)
 
 **Decision**: The core renders one Lua file from judged manifest data and theme tokens, loaded by one `pcall(dofile, …)` line kept first in the user's `hyprland.lua` and wired only after the user consents. A plugin declares binds, layer rules and settings as data and never writes Lua. Theme appearance reaches the layer only through the bounded groups [D015](D015-tokens-are-a-judged-table.md) names, behind manifest switches owned by the first enabled declaring plugin by id. An option names a path in the closed core table and is written only while the user's `plugins` row sets it, never from a manifest default. The `hyprland` capability supplies reads of options, overrides, devices, foreign binds and the layout switch. One enabled owner of `hyprland.monitors` supplies monitor rules, including colour mode, depth and HDR levels. A display change starts as a guarded trial; a detached guard restores the captured live rules by Hyprland eval unless the user keeps it. Restore reloads configuration only when FALLBACK is the only lit output.

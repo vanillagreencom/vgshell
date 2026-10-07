@@ -3,8 +3,11 @@
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-09-30
+
 **Status**: Active
+
 **Research**: the Jarvis plan attached to [VGS-623](https://linear.app/vanillagreen/issue/VGS-623)
+
 **Refines**: [D010](D010-facade-scope-not-sandbox.md)
 
 **Decision**: `Policy.decide` is the one action judge: typed tool schemas, refined arguments, real resolved paths for denial, and turn taint that raises a changing action to confirmation and never lowers a physical approval. The router holds one immutable typed call behind a random id and a canonical digest. Session owns confirmation identity, timing and expiry. Policy rejudges fresh facts, and Audit must succeed before the action starts. The model has no confirmation API, and the serial action slot stays held while consent is pending.

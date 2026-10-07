@@ -3,7 +3,9 @@
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-09-30
+
 **Status**: Active
+
 **Research**: the Jarvis plan attached to [VGS-623](https://linear.app/vanillagreen/issue/VGS-623)
 
 **Decision**: Release is judged per labelled item against the whole immutable brain-plus-speech recipient set, a summary keeps every contributing label, and one network door attaches a key only to its exact stored origin and refuses every redirect. One screenshot executor captures only during the live thinking turn the user started. It reads Hyprland before and after `grim`, paints every window matching `privateWindows` black before the image leaves the executor, and refuses when the readings disagree or the session locked. Screen tools register only when both `grim` and `magick` exist. Action approval remains [D070](D070-jarvis-action-policy.md).
