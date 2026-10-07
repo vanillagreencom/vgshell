@@ -249,7 +249,7 @@ Scope {
                 property var completion: null
                 command: ["test", "-e", reader.path]
                 clearEnvironment: true
-                environment: ({ PATH: "/usr/bin:/bin" })
+                environment: ({ PATH: Quickshell.env("PATH") })
                 onExited: (code, status) => { completion = { code: code, status: status }; }
                 // Quickshell 0.3.1 reports a failed start only through
                 // runningChanged, without exited: preserve the read error.

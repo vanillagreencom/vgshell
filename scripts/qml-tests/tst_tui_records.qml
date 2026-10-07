@@ -75,6 +75,8 @@ Item {
             const probes = ProcessRegistry.runningWithVerb("-e");
             compare(probes.length, 1);
             compare(probes[0].command, ["test", "-e", runningPath]);
+            compare(probes[0].clearEnvironment, true);
+            compare(probes[0].environment, { PATH: "env:PATH" });
             return probes[0];
         }
 
