@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Layouts
 import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
@@ -15,6 +16,13 @@ import qs.Ui
 // rounded theme the side padding grows until the text clears the corner.
 T.TextField {
     id: root
+
+    readonly property real minimumWidth: Theme.field.minWidth
+    readonly property real maximumWidth: Theme.control.maxWidth
+    Layout.minimumWidth: minimumWidth
+    Layout.maximumWidth: maximumWidth
+    width: Math.max(minimumWidth, Math.min(maximumWidth, implicitWidth))
+    InputWidth { target: root }
 
     property string leadingIcon: ""
     property string trailingIcon: ""

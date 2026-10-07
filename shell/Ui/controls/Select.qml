@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Layouts
 import QtQuick.Effects
 import QtQuick.Templates as T
 import Quickshell
@@ -28,6 +29,13 @@ import qs.Ui
 // without `emptyText` an empty list does not open.
 T.AbstractButton {
     id: root
+
+    readonly property real minimumWidth: Theme.field.minWidth
+    readonly property real maximumWidth: Theme.control.maxWidth
+    Layout.minimumWidth: minimumWidth
+    Layout.maximumWidth: maximumWidth
+    width: Math.max(minimumWidth, Math.min(maximumWidth, implicitWidth))
+    InputWidth { target: root }
 
     property var model: []
     property int currentIndex: 0

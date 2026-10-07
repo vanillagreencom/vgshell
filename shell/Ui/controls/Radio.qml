@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Layouts
 import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
@@ -9,6 +10,13 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // or Enter checks the focused one.
 T.RadioButton {
     id: root
+
+    readonly property real minimumWidth: Theme.control.minWidth
+    readonly property real maximumWidth: Theme.control.maxWidth
+    Layout.minimumWidth: minimumWidth
+    Layout.maximumWidth: maximumWidth
+    width: Math.max(minimumWidth, Math.min(maximumWidth, implicitWidth))
+    InputWidth { target: root }
 
     property bool focusPreview: false
     readonly property var radioSiblings: parent === null ? [root] : parent.children.filter(child => child !== null && child !== undefined && child.checked !== undefined && child.autoExclusive === true)

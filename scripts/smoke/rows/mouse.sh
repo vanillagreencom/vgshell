@@ -30,7 +30,7 @@
 # message and whose action hands the keys to no control failed "no row
 # shows a message before the user table", read the flyout's message -10.95
 # px wide beside an action 186.95 px wide, and read the keys on the action.
-# inputs: shell/plugins/vgs.mouse/* shell/plugins/vgs.system/* shell/Core/PluginLogic.js shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Hosts/PaneHost.qml shell/Ui/controls/Button.qml shell/Ui/controls/Slider.qml shell/Ui/controls/Switch.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml shell/Ui/layout/DeviceRow.qml bin/vgshell scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.mouse/* shell/plugins/vgs.system/* shell/Core/PluginLogic.js shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Hosts/PaneHost.qml shell/Ui/controls/Button.qml shell/Ui/controls/Slider.qml shell/Ui/controls/Switch.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml shell/Ui/layout/DeviceRow.qml bin/vgshell scripts/smoke/rows/hyprland-consent.sh shell/Commons/Tokens.js shell/Ui/controls/TextField.qml scripts/smoke/Probe.qml
 set -euo pipefail
 
 mouse_file="$home/.config/vgshell/shell.json"
@@ -141,6 +141,61 @@ expect_poll "the Mouse pane is mounted" '["vgs.mouse"]' window_panes
 expect_poll "Hyprland devices are read before Mouse checks touchpads" true ipc smoke readInstance service vgs.mouse devicesRead
 expect_poll "the sandbox has no touchpad section" 0 mouse_text_count SectionHeader Touchpad
 expect_poll "the Mouse service publishes its status value" ok mouse_status_published
+
+# System Settings supplies the real parent-width bindings. The same reader
+# must reject a visible slider whose width the probe sets past its token.
+mouse_input_widths() {
+  ipc smoke descendantGeometry window vgs.system | py_reply '
+import json, math, sys
+rows = json.load(sys.stdin)
+inputs = [r for r in rows if r["visible"] and "maximumWidth" in r and r["box"][2] > 0]
+if not any(r["type"] == "Slider" for r in inputs):
+    print("missing")
+elif any(not math.isfinite(r["maximumWidth"]) or r["maximumWidth"] <= 0 for r in inputs):
+    print("unbounded")
+elif any(r["box"][2] > r["maximumWidth"] for r in inputs):
+    print("oversized")
+else:
+    print("bounded")'
+}
+mouse_wide_window() {
+  ipc smoke instanceGeometry window vgs.system | py_reply 'import json,sys; r=json.load(sys.stdin); print(r[2] > 2 * float(sys.argv[1]))' "$mouse_input_max"
+}
+mouse_theme="$home/.config/vgshell/theme.json"
+mouse_theme_was="$(ipc smoke themeValue size.window.width)" || fail "the window width token is unreadable"
+mouse_theme_present=false
+if [[ -f $mouse_theme ]]; then
+  mouse_theme_present=true
+  cp -- "$mouse_theme" "$sandbox/mouse-theme.json"
+fi
+expect "the Mouse pane closes before the wide window" ok ipc shell hide window vgs.system
+python3 - "$mouse_theme" <<'PYWIDTH'
+import json, os, sys
+path = sys.argv[1]
+doc = json.load(open(path)) if os.path.exists(path) else {"schemaVersion": 1, "name": "wide-inputs", "tokens": {}}
+doc.setdefault("tokens", {}).setdefault("size", {}).setdefault("window", {})["width"] = 2000
+with open(path + ".tmp", "w") as out:
+    json.dump(doc, out)
+os.replace(path + ".tmp", path)
+PYWIDTH
+expect_poll "the wide window token is published" 2000 ipc smoke themeValue size.window.width
+mouse_input_max="$(ipc smoke themeValue control.maxWidth)" || fail "the input maximum is unreadable"
+mouse_input_oversize="$(python3 -c 'import sys; print(int(float(sys.argv[1])) + 4)' "$mouse_input_max")" || fail "the oversized width is unreadable"
+expect "the Mouse page opens in wide Settings" ok ipc shell summon window vgs.system '{"pane":"vgs.mouse"}'
+expect_poll "wide Settings mounts Mouse" '["vgs.mouse"]' window_panes
+geometry expect_poll "Settings is wider than twice the input maximum" True mouse_wide_window
+expect_poll "every visible input in wide Settings respects its maximum" bounded mouse_input_widths
+expect "control: the probe renders an oversized slider" "$mouse_input_oversize" ipc smoke forceInputWidth window vgs.system Slider "$mouse_input_oversize"
+expect "control: the wide Settings check rejects an oversized rendered slider" oversized mouse_input_widths
+expect "the oversized control window closes" ok ipc shell hide window vgs.system
+if "$mouse_theme_present"; then
+  cp -- "$sandbox/mouse-theme.json" "$mouse_theme.tmp" && mv -T -- "$mouse_theme.tmp" "$mouse_theme"
+else
+  rm -f -- "${mouse_theme:?}"
+fi
+expect_poll "the window width token returns to its row start" "$mouse_theme_was" ipc smoke themeValue size.window.width
+expect "the Mouse pane reopens after the width control" ok ipc shell summon window vgs.system '{"pane":"vgs.mouse"}'
+expect_poll "the Mouse pane is mounted after the width control" '["vgs.mouse"]' window_panes
 
 read -r sx sy < <(mouse_slider_point 0.75) || fail "the Mouse pointer-speed slider has no box"
 hover "$sx" "$sy" || fail "hovering the Mouse pointer-speed slider failed"

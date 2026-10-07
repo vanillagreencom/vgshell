@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Layouts
 import qs.Commons
 import qs.Ui
 
@@ -6,6 +7,13 @@ import qs.Ui
 // PageUp/PageDown move months, Enter picks and Escape closes.
 Item {
     id: root
+
+    readonly property real minimumWidth: Theme.field.minWidth
+    readonly property real maximumWidth: Theme.control.maxWidth
+    Layout.minimumWidth: minimumWidth
+    Layout.maximumWidth: maximumWidth
+    width: Math.max(minimumWidth, Math.min(maximumWidth, implicitWidth))
+    InputWidth { target: root }
 
     property string date: today()
     property string placeholderText: "YYYY-MM-DD"

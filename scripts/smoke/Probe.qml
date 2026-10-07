@@ -1432,6 +1432,8 @@ Scope {
                     type: root.typeName(child),
                     box: [at.x, at.y, child.width, child.height],
                     implicit: [child.implicitWidth, child.implicitHeight],
+                    minimumWidth: child.minimumWidth,
+                    maximumWidth: child.maximumWidth,
                     parent: items.indexOf(child.parent),
                     name: child.objectName,
                     visible: child.visible,
@@ -1826,6 +1828,20 @@ Scope {
                 for (const name of names) values[name] = child[name] !== null && typeof child[name] === "object" && "hslHue" in child[name] ? child[name].toString() : child[name];
                 return values;
             }));
+        }
+        // Plant an oversized rendered control for the input-width smoke
+        // check. Disable the private allocation correction on this instance.
+        // Closing the disposable window destroys the planted fault.
+        function forceInputWidth(hostKey: string, id: string, type: string, width: real): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const input = root.descendants(item).find(child => root.typeName(child) === type && child.visible && child.maximumWidth !== undefined);
+            if (input === undefined) return "absent";
+            const constraint = Array.from(input.data).find(child => root.typeName(child) === "InputWidth");
+            if (constraint === undefined) return "constraint-absent";
+            constraint.ready = false;
+            input.width = width;
+            return root.json(input.width);
         }
         function readDescendant(hostKey: string, id: string, type: string, property: string): string {
             const item = root.instance(hostKey, id);

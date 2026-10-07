@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Layouts
 import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
@@ -13,6 +14,13 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // beside the box still reaches it.
 T.CheckBox {
     id: root
+
+    readonly property real minimumWidth: Theme.control.minWidth
+    readonly property real maximumWidth: Theme.control.maxWidth
+    Layout.minimumWidth: minimumWidth
+    Layout.maximumWidth: maximumWidth
+    width: Math.max(minimumWidth, Math.min(maximumWidth, implicitWidth))
+    InputWidth { target: root }
 
     property bool focusPreview: false
 

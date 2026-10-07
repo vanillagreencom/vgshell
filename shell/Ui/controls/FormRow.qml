@@ -3,8 +3,8 @@ import qs.Commons
 import qs.Ui
 
 // The one key/value row: a label column `field.labelWidth` wide, then the
-// control slot, `field.labelGap` after the column, ending on the row's end
-// edge. The row box is `row.height` tall unless its label wraps or its
+// control slot, `field.labelGap` after the column, bounded by
+// `control.maxWidth`. The control stays on the value column's start edge. The row box is `row.height` tall unless its label wraps or its
 // control is taller, so every key/value row of a page shares one height. A
 // one-line label is placed by capital height, a two-line label is centred,
 // and the control is centred by its box. A label too long for its column
@@ -44,10 +44,11 @@ Item {
     default property alias control: slot.data
     property alias action: actionSlot.data
     readonly property Item actionItem: actionSlot.visibleChildren.length > 0 ? actionSlot.visibleChildren[0] : null
-    readonly property bool actionBelow: actionItem !== null && slot.width - actionItem.width - Theme.stack.inline < Theme.field.labelWidth
+    readonly property bool actionBelow: actionItem !== null && valueRoom - actionItem.width - Theme.stack.inline < Theme.field.labelWidth
     readonly property real actionRoom: actionItem === null || actionBelow ? 0 : actionItem.width + Theme.stack.inline
     readonly property real messageLine: actionBelow ? message.height + Theme.field.gap + actionItem.height : Math.max(message.height, actionItem === null ? 0 : actionItem.height)
     readonly property real valueX: labelColumn ? Theme.field.labelWidth + Theme.field.labelGap : 0
+    readonly property real valueRoom: Math.max(0, width - valueX)
     readonly property real messageRoom: warning === "" ? 0 : Theme.field.gap + messageLine
     readonly property real subTextRoom: Theme.subTextRoom(warning !== "", Positioner.index, Positioner.isLastItem, parent)
     // Where the message's line ends, above the room under it.
@@ -66,7 +67,7 @@ Item {
     // Smoke rows read this hook to verify all key/value rows use one
     // height without depending on the private tree shape.
     objectName: "fieldRow"
-    implicitWidth: slot.x + slot.childrenRect.width
+    implicitWidth: slot.x + Math.max(Theme.field.minWidth, Math.min(Theme.control.maxWidth, slot.childrenRect.width))
     implicitHeight: (labelColumn ? Math.max(Theme.row.height, labelText.implicitHeight, slot.childrenRect.height) : slot.childrenRect.height) + messageRoom + subTextRoom
 
     Label {
@@ -95,7 +96,7 @@ Item {
     Item {
         id: slot
         x: root.valueX
-        width: root.width - x
+        width: Math.min(root.valueRoom, Theme.control.maxWidth)
         height: childrenRect.height
         y: root.labelColumn ? Math.round((root.boxHeight - height) / 2) : 0
     }
@@ -109,7 +110,7 @@ Item {
         visible: root.warning !== ""
         x: slot.x
         y: root.boxHeight + Theme.field.gap + (root.actionBelow ? 0 : Math.round((root.messageLine - height) / 2))
-        width: slot.width - root.actionRoom
+        width: root.valueRoom - root.actionRoom
         wrapMode: Text.Wrap
         onActivated: root.warningLinkActivated()
     }

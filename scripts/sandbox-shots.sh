@@ -14,7 +14,7 @@
 # WAYLAND_DISPLAY and XDG_RUNTIME_DIR included, plus grim.
 #
 
-# SCENE is gallery, settings, focus, plugin-pages, manager, launcher,
+# SCENE is gallery, settings, wide-settings, focus, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
 # keyhints, clipboard, voice, voice-setup, plugin-messages or ai-usage. settings takes the
@@ -195,7 +195,7 @@ while [[ $# -gt 0 ]]; do
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    gallery|settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|plugin-messages|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver) scenes+=("$1"); shift ;;
+    gallery|settings|wide-settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|plugin-messages|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -286,6 +286,7 @@ scene_ships() {
   case $1 in
     settings|manager) [[ $1 == "$manager_scene" ]] ;;
     plugin-pages) [[ $manager_scene == settings ]] ;;
+    wide-settings) ships_plugin vgs.system vgs.displays vgs.mouse ;;
     gallery) ships_plugin vgs.gallery ;;
     focus) ships_plugin vgs.gallery vgs.settings ;;
     launcher|notifications) ships_plugin "vgs.$1" ;;
@@ -2327,6 +2328,40 @@ PY
   cp -- "$saved" "$user.next" && mv -T -- "$user.next" "$user" || fail "the user file is put back after the overridden Mouse shot"
   expect "the configuration reloads as the Mouse shot found it" ok ipc shell reloadConfig
 }
+scene_wide-settings() { # MODE
+  local first_output status=0
+  devices_up || status=$?
+  if ((status != 0)); then fail "the wide Settings device fakes failed: $devices_state"; return; fi
+  devices_system_tree >/dev/null || { fail "the wide Settings system tree failed"; return; }
+  for id in vgs.system vgs.displays vgs.mouse; do
+    expect "enabling $id for wide Settings is allowed" ok ipc shell setPluginEnabled "$id" true
+    expect_poll "$id is built for wide Settings" True record_exists "$id"
+  done
+  expect_poll "the wide Settings displays are listed" 3 displays_listed
+  first_output="$(ipc smoke readInstance service vgs.displays outputs | py_reply 'import json,sys; print(json.load(sys.stdin)[0]["identifier"])')" || return
+  expect "wide Settings assigns the XDR" ok ipc vgs.displays invoke assign "{\"device\":\"usb:class/hidraw/hidraw0/device#VGSSMOKEXDR01\",\"output\":\"$first_output\"}"
+  python3 - "$theme_file" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+doc = json.load(open(path))
+doc.setdefault("tokens", {}).setdefault("size", {}).setdefault("window", {}).update({"width": 2000, "heightShare": 0.8})
+with open(path + ".tmp", "w") as out:
+    json.dump(doc, out)
+os.replace(path + ".tmp", path)
+PY
+  expect_poll "the wide Settings window token is published" 2000 ipc smoke themeValue size.window.width
+  for id in vgs.displays vgs.mouse; do
+    expect "wide Settings opens $id" ok ipc shell summon window vgs.system "{\"pane\":\"$id\"}"
+    expect_poll "wide Settings mounts $id" "[\"$id\"]" window_panes
+    expect "wide Settings clears visual focus" focused ipc smoke invokeInstance window vgs.system focusInstance ""
+    park_pointer
+    take "wide-settings-$1-$id"
+    expect "wide Settings closes $id" ok ipc shell hide window vgs.system
+    expect_poll "wide Settings is gone after $id" hidden system_shown
+  done
+  set_mode "$1"
+}
+
 scene_system() { # MODE
   local status=0 tree_state first_output displays_on=false geometry_failures
   expect "enabling vgs.system for its shot is allowed" ok ipc shell setPluginEnabled vgs.system true

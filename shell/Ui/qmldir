@@ -76,6 +76,7 @@ internal AnchorTracker overlay/AnchorTracker.qml
 internal DismissScope overlay/DismissScope.qml
 internal ListMask overlay/ListMask.qml
 internal ScrollBar layout/ScrollBar.qml
+internal InputWidth controls/InputWidth.qml
 internal IndicatorLabel controls/IndicatorLabel.qml
 internal ListAnimation layout/ListAnimation.qml
 internal ListCursorRow layout/ListCursorRow.qml

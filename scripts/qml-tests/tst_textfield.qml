@@ -26,7 +26,7 @@ Item {
         Keys.onEscapePressed: escapes += 1
         TextField { id: passEscape; width: parent.width; text: "saved"; committedText: "saved"; escapeReverts: true }
     }
-    Field { id: field; label: "Name"; hint: "Shown in the bar"; width: 200; y: 120; TextField { id: inner; width: parent.width } }
+    Field { id: field; label: "Name"; hint: "Shown in the bar"; width: 360; y: 120; TextField { id: inner; width: parent.width } }
     FontMetrics {
         id: itemMetrics
         font.family: Theme.text.item.family

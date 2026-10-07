@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Layouts
 import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
@@ -7,6 +8,13 @@ import qs.Ui
 // typography tokens as TextField, while the caller owns its height.
 T.TextArea {
     id: root
+
+    readonly property real minimumWidth: Theme.field.minWidth
+    readonly property real maximumWidth: Theme.control.maxWidth
+    Layout.minimumWidth: minimumWidth
+    Layout.maximumWidth: maximumWidth
+    width: Math.max(minimumWidth, Math.min(maximumWidth, implicitWidth))
+    InputWidth { target: root }
 
     property bool error: false
     readonly property color outline: error ? Theme.textField.error : activeFocus ? Theme.textField.focus : hovered ? Theme.textField.hover : Theme.textField.borderColor

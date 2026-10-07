@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Layouts
 import qs.Commons
 import qs.Ui
 
@@ -9,6 +10,13 @@ import qs.Ui
 // focus-indicator: the focused chip's ToggleButton draws the ring.
 FocusScope {
     id: root
+
+    readonly property real minimumWidth: Theme.field.minWidth
+    readonly property real maximumWidth: Theme.control.maxWidth
+    Layout.minimumWidth: minimumWidth
+    Layout.maximumWidth: maximumWidth
+    width: Math.max(minimumWidth, Math.min(maximumWidth, implicitWidth))
+    InputWidth { target: root }
 
     property var selected: []
     property var displaySelected: selected

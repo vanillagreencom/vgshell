@@ -191,20 +191,21 @@ expect_poll "the empty Settings search has no listed rows" '[]' listed_names
 expect "control: Return on an empty Settings result opens no page" '""' settings_page
 type_keys -k BackSpace -k BackSpace -k BackSpace -k BackSpace -k BackSpace || fail "clearing the empty keyboard path control failed"
 # The list page: the content box's left and right insets match
-# `inset.window`; the search field, every row and the heading span that
-# content box; the scroll bar is in the right inset; the placeholder and
+# `inset.window`; every row spans that content box, and the search field
+# stops at its token maximum; the scroll bar is in the right inset; the placeholder and
 # typed text are vertically centred; and each row's lines centre on its
 # icon. Unit mutations in tst_pane, tst_scroll, tst_textfield and
 # tst_layout are the controls for these geometry rules. `[]` is the pass.
 list_alignment() {
-  local rows pad inset
+  local rows pad inset maximum
   rows="$(settings_geometry)" || return
   pad="$(ipc smoke themeValue row.paddingX)" || return
   inset="$(ipc smoke themeValue inset.window)" || return
-  python3 - "$rows" "$pad" "$inset" <<'PY'
+  maximum="$(ipc smoke themeValue control.maxWidth)" || return
+  python3 - "$rows" "$pad" "$inset" "$maximum" <<'PY'
 import json, sys
 sys.argv[1] = open(sys.argv[1]).read()
-rows, pad, inset = (json.loads(a) for a in sys.argv[1:])
+rows, pad, inset, maximum = (json.loads(a) for a in sys.argv[1:])
 out = []
 def inside(j, i):
     while j != -1:
@@ -227,10 +228,10 @@ search, areas, items = under("TextField"), under("ScrollArea"), under("ListItem"
 heading = [i for i in under("Label") if rows[i].get("role") == "windowTitle"]
 if len(search) != 1 or len(areas) != 1 or len(heading) != 1 or len(items) < 3:
     print(json.dumps(["search=%d areas=%d heading=%d items=%d" % (len(search), len(areas), len(heading), len(items))])); sys.exit()
-edge_l, edge_r = rows[search[0]]["box"][0], right(rows[search[0]])
+edge_l, edge_r = rows[search[0]]["box"][0], right(rows[areas[0]]) - inset
 check("content.leftInset", edge_l - rows[page[0]]["box"][0], inset)
 check("content.rightInset", right(rows[page[0]]) - edge_r, inset)
-check("search.right", edge_r, right(rows[areas[0]]) - inset)
+check("search.width", rows[search[0]]["box"][2], min(edge_r - edge_l, maximum))
 check("heading.x", rows[heading[0]]["box"][0], edge_l)
 placeholders = [j for j, r in enumerate(rows) if r["type"] == "Label" and r.get("text") == "Search plugins" and inside(j, search[0])]
 if len(placeholders) != 1: out.append("placeholder=%d" % len(placeholders))
@@ -251,7 +252,7 @@ for n, i in enumerate(items):
 print(json.dumps(out))
 PY
 }
-geometry expect_poll "the list's heading, search field and rows share its edges, each row's lines on its icon" '[]' list_alignment
+geometry expect_poll "the list's heading and rows share its edges, its search respects the token maximum, each row's lines on its icon" '[]' list_alignment
 page_header_height() {
   local rows
   rows="$(settings_geometry)" || return

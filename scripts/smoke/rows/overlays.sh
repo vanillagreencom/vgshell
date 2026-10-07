@@ -18,7 +18,7 @@
 # A popover and a dialog in the summoned panel's popup cap their height at
 # their share of the output; copies that find the output as the Qt window's
 # own `screen` cap at the fallback.
-# inputs: scripts/smoke/fixtures/plugins/acme.overlays/* shell/Ui/overlay/* shell/Ui/controls/Select.qml shell/Ui/feedback/Dialog.qml
+# inputs: scripts/smoke/fixtures/plugins/acme.overlays/* shell/Ui/overlay/* shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/feedback/Dialog.qml
 set -euo pipefail
 ov="$home/.config/vgshell/plugins/acme.overlays"
 mkdir -p "$ov"
@@ -187,7 +187,7 @@ expect_poll "a press outside closes the select list" false ovr selectOpen
 # read and refuses a file written after it as a case mismatch. A copy is no member of qs.Ui and sees
 # the module's internal types only through their directories, so the
 # select's copy sits beside AnchorTracker in overlay/ and imports the
-# directory of ScrollBar, which its list draws.
+# directories of ScrollBar and InputWidth, which its list and control use.
 declare -A nograb_copy=(
   [popover]="$repo/shell/Ui/overlay/Popover.qml|$repo/shell/Ui/overlay/PopoverNoGrab.qml"
   [menu]="$repo/shell/Ui/overlay/Menu.qml|$repo/shell/Ui/overlay/MenuNoGrab.qml"
@@ -222,7 +222,7 @@ if signal:
 pathlib.Path(scope_copy).write_text(text)
 text = pathlib.Path(select).read_text()
 handler = "                onSmokePressed: root.smokeMarks += 1\n" if name == "NoCatch" else "                onSmokeEscaped: root.smokeMarks += 1\n"
-for line, replacement in (("import qs.Ui\n", "import qs.Ui\nimport \"../layout\"\n"), ("    property string emptyText: \"\"\n", "    property string emptyText: \"\"\n    property int smokeMarks: 0\n"), ("        DismissScope {\n", "        DismissScope" + name + " {\n" + handler)):
+for line, replacement in (("import qs.Ui\n", "import qs.Ui\nimport \"../layout\"\nimport \"../controls\" as Controls\n"), ("    InputWidth { target: root }", "    Controls.InputWidth { target: root }"), ("    property string emptyText: \"\"\n", "    property string emptyText: \"\"\n    property int smokeMarks: 0\n"), ("        DismissScope {\n", "        DismissScope" + name + " {\n" + handler)):
     assert text.count(line) == 1, line + " must occur once in Select.qml"
     text = text.replace(line, replacement)
 pathlib.Path(select_copy).write_text(text)
@@ -237,7 +237,9 @@ assert text.count("        grabFocus: true\n") == 1, "the grab must occur once i
 text = text.replace("        grabFocus: true\n", "        grabFocus: false\n")
 if name == "select":
     assert text.count("import qs.Ui\n") == 1, "the qs.Ui import must occur once in " + source.name
-    text = text.replace("import qs.Ui\n", "import qs.Ui\nimport \"../layout\"\n")
+    text = text.replace("import qs.Ui\n", "import qs.Ui\nimport \"../layout\"\nimport \"../controls\" as Controls\n")
+    assert text.count("    InputWidth { target: root }") == 1, "the width helper must occur once in " + source.name
+    text = text.replace("    InputWidth { target: root }", "    Controls.InputWidth { target: root }")
 target.write_text(text)
 PYEDIT
 done

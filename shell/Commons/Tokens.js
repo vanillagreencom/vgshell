@@ -314,6 +314,8 @@ var TOKENS = {
     // `sm` and `lg` hold the same two for a button of that size. The
     // values are Radix Themes' button sizes 1, 2 and 3 on the 4 px unit.
     control: {
+        minWidth: step(4),
+        maxWidth: step(120),
         paddingX: step(3),
         gap: step(2),
         sm: { paddingX: step(2), gap: step(1) },
@@ -577,6 +579,7 @@ var TOKENS = {
     // moving it. `gap` stacks the label, the control and the hint;
     // `labelGap` is the gap after an inline label.
     field: {
+        minWidth: step(32),
         inline: flag(false),
         paddingX: length(0),
         labelWidth: length("{row.labelWidth}"),

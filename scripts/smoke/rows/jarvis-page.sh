@@ -8,7 +8,7 @@
 # budget.
 # Poll once per nested IPC round trip. Only J09's process double and the
 # allow-listed TUI fixtures run here.
-# inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/Capabilities.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh
+# inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/Capabilities.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh
 set -euo pipefail
 page_tuis="$repo/shell/plugins/vgs.jarvis/tui"
 page_manifest="$repo/shell/plugins/vgs.jarvis/manifest.json"
@@ -141,8 +141,8 @@ page_copy_line() { ipc smoke popupSelectList "$1" | page_empty_line; }
 # directory it has read, so a .qml file written later beside the shipped
 # ones is refused as a file name case mismatch: the copies
 # go in a fresh folder under overlay/, named as the types they make, and
-# import the two directories whose internal types the Select draws
-# (AnchorTracker and ListMask, ScrollBar and ListCursorRow). Each closes
+# import the directories whose internal types the Select uses
+# (AnchorTracker and ListMask, ScrollBar and ListCursorRow, InputWidth). Each closes
 # with its drop before the next opens.
 page_copy_dir="$repo/shell/Ui/overlay/jarvis-page-copies"
 mkdir -- "$page_copy_dir"
@@ -151,7 +151,9 @@ python3 - "$repo/shell/Ui/controls/Select.qml" "${page_copies[@]}" <<'PY'
 import pathlib, sys
 source = pathlib.Path(sys.argv[1]).read_text()
 assert source.count("import qs.Ui\n") == 1
-copy = source.replace("import qs.Ui\n", "import qs.Ui\nimport \"..\"\nimport \"../../layout\"\n")
+copy = source.replace("import qs.Ui\n", "import qs.Ui\nimport \"..\"\nimport \"../../layout\"\nimport \"../../controls\" as Controls\n")
+assert copy.count("    InputWidth { target: root }") == 1
+copy = copy.replace("    InputWidth { target: root }", "    Controls.InputWidth { target: root }")
 needle = "            visible: root.showsEmpty\n"
 assert copy.count(needle) == 1
 pathlib.Path(sys.argv[2]).write_text(copy)

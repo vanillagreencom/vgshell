@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Layouts
 import qs.Commons
 import qs.Ui
 
@@ -22,6 +23,14 @@ import qs.Ui
 Item {
     id: root
 
+    // The inner slider keeps its field minimum beside the button and readout.
+    readonly property real minimumWidth: bar.x + bar.minimumWidth + spacing + readout.width
+    readonly property real maximumWidth: Theme.control.maxWidth
+    Layout.minimumWidth: minimumWidth
+    Layout.maximumWidth: maximumWidth
+    width: Math.max(minimumWidth, Math.min(maximumWidth, implicitWidth))
+    InputWidth { target: root }
+
     property string iconName: ""
     property string buttonLabel: "Mute"
     property real value: 0
@@ -34,6 +43,7 @@ Item {
     signal moved(real value)
     signal buttonClicked()
 
+    implicitWidth: minimumWidth
     implicitHeight: Math.max(button.implicitHeight, bar.implicitHeight, readout.height)
 
     IconButton {
@@ -73,6 +83,7 @@ Item {
 
     LevelLabel {
         id: readout
+        maxWidth: root.maximumWidth - bar.x - bar.minimumWidth - root.spacing
         x: root.width - width
         anchors.verticalCenter: parent.verticalCenter
         height: lineBox
