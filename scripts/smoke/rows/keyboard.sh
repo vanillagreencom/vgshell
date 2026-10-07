@@ -1,7 +1,7 @@
 # vgs.keyboard's real editor, layer options and bar click in the nested
 # sandbox. The direct-hyprctl widget control changes the keymap but fails
 # the widget's source contract: only the core owns the transport.
-# inputs: shell/plugins/vgs.keyboard/* shell/plugins/vgs.system/* shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/PluginLogic.js shell/Core/Capabilities.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Ui/layout/DeviceList.qml shell/Ui/layout/DeviceRow.qml shell/Ui/controls/Select.qml shell/Ui/controls/Slider.qml shell/Ui/controls/TextField.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml scripts/smoke/Probe.qml scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.keyboard/* shell/plugins/vgs.system/* shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Ui/layout/DeviceList.qml shell/Ui/layout/DeviceRow.qml shell/Ui/controls/Select.qml shell/Ui/controls/Button.qml shell/Ui/controls/Slider.qml shell/Ui/controls/TextField.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js scripts/smoke/Probe.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 keyboard_file="$home/.config/vgshell/shell.json"
 keyboard_saved="$sandbox/shell-before-keyboard.json"
@@ -13,6 +13,36 @@ keyboard_sources() { ipc smoke readDescendant window vgs.keyboard KeyboardContro
 keyboard_active_code() { ipc smoke readInstance "$(bar_key)" vgs.keyboard active | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("code", "")))'; }
 keyboard_panels() { ipc shell built | py_reply 'import json,sys; print(sum(r["id"] == "vgs.keyboard" for r in json.load(sys.stdin).get("panel", [])))'; }
 keyboard_catalog() { ipc smoke statusValues vgs.keyboard | py_reply 'import json,sys; print(json.load(sys.stdin).get("catalog", {}).get("state", "absent"))'; }
+keyboard_saved_value() {
+  cat -- "$keyboard_file" | py_reply 'import json,sys
+doc=json.load(sys.stdin)
+entries=[e for section in doc.get("bar", {}).get("layout", {}).values() for e in section if e.get("id") == "vgs.keyboard"]
+entries += [r for r in doc.get("plugins", []) if r.get("id") == "vgs.keyboard"]
+print(json.dumps([r.get(sys.argv[1], "absent") for r in entries]))' "$1"
+}
+keyboard_focus() {
+  for _ in $(seq 1 40); do
+    [[ $(ipc smoke readMatchingDescendant window vgs.keyboard "$1" objectName "$2" activeFocus) == true ]] && return 0
+    type_keys -k Tab || return 1
+  done
+  return 1
+}
+keyboard_reveal_button() { ipc smoke revealText window vgs.system Button "$1" | py_reply 'import json,sys; value=sys.stdin.read().strip(); print("scrolled" if value.replace(".", "", 1).isdigit() else value)'; }
+# Select through its real closed-list key path. The model identifies the
+# requested entry; Home and Down activate its normal user handlers.
+keyboard_pick() {
+  local index keyboard_index
+  index="$(ipc smoke readMatchingDescendant window vgs.keyboard Select objectName "$1" model | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+want=None if sys.argv[2] == "__custom" else sys.argv[2]
+print(next((i for i,row in enumerate(rows) if row.get(sys.argv[1]) == want), "absent"))' "$2" "$3")" || return 1
+  [[ $index =~ ^[0-9]+$ ]] || return 1
+  keyboard_focus Select "$1" || return 1
+  type_keys -k Home || return 1
+  for ((keyboard_index=0; keyboard_index<index; keyboard_index++)); do type_keys -k Down || return 1; done
+}
+keyboard_system_layout="$(keyboard_option input:kb_layout str)"
+keyboard_system_variant="$(keyboard_option input:kb_variant str)"
 keyboard_transport_contract() {
   python3 -c 'import pathlib,sys; source=pathlib.Path(sys.argv[1]).read_text(); print("ok" if "hyprctl" not in source and "shell.hyprland.switchKeyboardLayout(\"next\")" in source else "direct")' "$1/Widget.qml"
 }
@@ -73,6 +103,29 @@ done
 expect_poll "the repeat slider holds keyboard focus" '["Slider",null]' ipc smoke activeFocusItem window vgs.keyboard
 type_keys -k End || fail "changing repeat rate from the keyboard failed"
 expect_poll "repeat rate reaches Hyprland" 200 keyboard_option input:repeat_rate int
+keyboard_pick layoutPicker code de || fail "choosing German through the layout control failed"
+keyboard_pick variantPicker code nodeadkeys || fail "choosing the non-default variant failed"
+expect "the Add button is revealed" scrolled keyboard_reveal_button "Add input source"
+click_item window vgs.keyboard Button "Add input source" || fail "activating Add input source failed"
+expect_poll "Add saves the selected layout in every settings entry" '["us,de", "us,de"]' keyboard_saved_value layouts
+expect_poll "Add saves the selected variant in every settings entry" '[",nodeadkeys", ",nodeadkeys"]' keyboard_saved_value variants
+expect_poll "Add applies the selected layout" '"us,de"' keyboard_option input:kb_layout str
+expect_poll "Add applies the selected variant" '",nodeadkeys"' keyboard_option input:kb_variant str
+click_item window vgs.keyboard Button "Use system layout" || fail "activating Use system layout failed"
+expect_poll "reset removes both saved layout values" '["absent", "absent"]' keyboard_saved_value layouts
+expect_poll "reset removes both saved variant values" '["absent", "absent"]' keyboard_saved_value variants
+expect_poll "reset restores the compositor's system layout" "$keyboard_system_layout" keyboard_option input:kb_layout str
+expect_poll "reset restores the compositor's system variant" "$keyboard_system_variant" keyboard_option input:kb_variant str
+keyboard_pick modifierPicker value caps:escape || fail "choosing the modifier preset failed"
+expect_poll "the modifier preset is saved" '["caps:escape", "caps:escape"]' keyboard_saved_value options
+expect_poll "the modifier preset reaches Hyprland" '"caps:escape"' keyboard_option input:kb_options str
+keyboard_pick modifierPicker value __custom || fail "choosing custom modifiers failed"
+keyboard_focus TextField customOptions || fail "the custom modifier field cannot take keys"
+type_keys -M ctrl -k a -m ctrl || fail "selecting the custom modifier text failed"
+type_keys 'compose:ralt,grp:alt_shift_toggle' || fail "typing custom modifier options failed"
+type_keys -k Return || fail "committing custom modifiers failed"
+expect_poll "custom modifiers are saved" '["compose:ralt,grp:alt_shift_toggle", "compose:ralt,grp:alt_shift_toggle"]' keyboard_saved_value options
+expect_poll "custom modifiers reach Hyprland" '"compose:ralt,grp:alt_shift_toggle"' keyboard_option input:kb_options str
 expect "the Keyboard pane closes before the control" ok ipc shell hide window vgs.system
 expect "the Keyboard panel opens" ok ipc shell summon panel vgs.keyboard '{}'
 expect_poll "the Keyboard panel is built" 1 keyboard_panels

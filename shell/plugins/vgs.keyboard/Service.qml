@@ -12,17 +12,18 @@ Item {
     readonly property var devices: shell === null ? null : shell.hyprland.devices
     readonly property var active: Logic.activeValue(devices, layoutEvent)
 
-    onShellChanged: publish()
-    onCatalogStateChanged: publish()
-    onActiveChanged: publish()
+    onShellChanged: { publishCatalog(); publishActive(); }
+    onCatalogStateChanged: publishCatalog()
+    onActiveChanged: publishActive()
 
-    function publish() {
+    function publishValue(key, value) {
         if (shell === null) return;
-        for (const entry of [["catalog", { state: catalogState, layouts: catalog }], ["active", active]]) {
-            const reply = shell.status.set(entry[0], entry[1]);
-            if (reply !== "ok" && reply.indexOf("reason=retired") === -1) console.warn("keyboard: status " + reply);
-        }
+        const reply = shell.status.set(key, value);
+        if (reply !== "ok" && reply.indexOf("reason=retired") === -1) console.warn("keyboard: status " + reply);
     }
+
+    function publishCatalog() { publishValue("catalog", { state: catalogState, layouts: catalog }); }
+    function publishActive() { publishValue("active", active); }
 
     // FileView loads once without watchChanges. loaded precedes text(),
     // so parsing never blocks startup. Quickshell 0.3.1 FileView reference:

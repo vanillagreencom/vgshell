@@ -11,17 +11,37 @@ Column {
     property bool customOptions: false
     property int layoutChoice: 0
     property int variantChoice: 0
-    readonly property var catalogStatus: shell === null || shell.status.values.catalog === undefined ? ({ state: "pending", layouts: [] }) : shell.status.values.catalog
+    readonly property int statusRevision: shell === null ? 0 : shell.status.revision
+    property var catalogStatus: ({ state: "pending", layouts: [] })
+    property string catalogKey: ""
     readonly property var catalog: catalogStatus.layouts
     readonly property var sources: shell === null ? [] : Logic.sources(shell.settings.layouts, shell.settings.variants, shell.hyprland.devices)
     readonly property var variants: catalog.length === 0 ? [] : [{ code: "", name: "Default" }].concat(catalog[Math.min(layoutChoice, catalog.length - 1)].variants)
     readonly property Item firstFocus: sourceList.count > 0 ? sourceList : layoutPicker
     spacing: Theme.stack.group
+    onStatusRevisionChanged: refreshStatus()
+    onShellChanged: refreshStatus()
     Keys.onPressed: event => {
         if (sourceList.activeFocus && (event.modifiers & Qt.ControlModifier) && (event.key === Qt.Key_Up || event.key === Qt.Key_Down)) {
             root.editSource(sourceList.currentKey, event.key === Qt.Key_Up ? "up" : "down");
             event.accepted = true;
         }
+    }
+
+    function refreshStatus() {
+        const values = shell === null ? {} : shell.status.values;
+        const next = values.catalog === undefined ? ({ state: "pending", layouts: [] }) : values.catalog;
+        const key = JSON.stringify(next);
+        // Active-layout writes must retain the catalog and its list models.
+        if (key === catalogKey) return;
+        catalogKey = key;
+        catalogStatus = next;
+    }
+
+    function addSource() {
+        const result = Logic.addSource(sources, catalog[layoutChoice].code, variants[variantChoice].code);
+        if (!result.ok) { problem = "Use up to four input sources."; return; }
+        saveSources(result.rows);
     }
 
     function setValue(key, value) {
@@ -112,9 +132,10 @@ Column {
                 text: "Add input source"
                 iconName: "plus"
                 enabled: root.catalog.length > 0
-                onClicked: root.saveSources(Logic.addSource(root.sources, root.catalog[root.layoutChoice].code, root.variants[root.variantChoice].code))
+                onClicked: root.addSource()
             }
             Button {
+                objectName: "systemLayout"
                 text: "Use system layout"
                 variant: "secondary"
                 onClicked: {
@@ -175,6 +196,7 @@ Column {
             label: "Modifier keys"
             warning: root.warning("options")
             Select {
+                objectName: "modifierPicker"
                 readonly property var presets: root.shell === null ? [] : root.shell.manifest.schema.options.presets
                 model: presets.concat([{ label: "Custom…", value: null }])
                 textRole: "label"
@@ -194,6 +216,7 @@ Column {
             label: "Custom options"
             hint: "Separate XKB option names with commas."
             TextField {
+                objectName: "customOptions"
                 width: parent.width
                 text: root.shell === null ? "" : root.shell.settings.options
                 onEditingFinished: root.setValue("options", text)

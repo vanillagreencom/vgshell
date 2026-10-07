@@ -20,8 +20,12 @@ function verify(logic) {
     const rows = [{ code: "us", variant: "" }, { code: "de", variant: "nodeadkeys" }];
     for (const [layouts, variants, source, want] of [["", "", devices, rows], ["fr,us", ",intl", devices, [{ code: "fr", variant: "" }, { code: "us", variant: "intl" }]], ["", "", null, []]]) same(logic.sources(layouts, variants, source), want);
     same(logic.serialize(rows), { layouts: "us,de", variants: ",nodeadkeys" });
-    same(logic.addSource(rows, "us", ""), rows);
-    same(logic.addSource(rows, "us", "intl"), rows.concat([{ code: "us", variant: "intl" }]));
+    same(logic.addSource(rows, "us", ""), { ok: true, rows });
+    same(logic.addSource(rows, "us", "intl"), { ok: true, rows: rows.concat([{ code: "us", variant: "intl" }]) });
+    const groups = ["us", "de", "fr", "es"].map(code => ({ code, variant: "" }));
+    same(logic.addSource(groups, "it", ""), { ok: false, reason: "source-limit" });
+    same(logic.addSource(groups, "us", ""), { ok: true, rows: groups });
+    same(logic.sources("us,de,fr,es,it", "", null), groups);
     same(logic.moveSource(rows, 1, -1), [rows[1], rows[0]]);
     same(logic.moveSource(rows, 0, 1), [rows[1], rows[0]]);
     same(logic.moveSource(rows, 0, -1), rows);
@@ -39,6 +43,7 @@ const controls = [
     ["source bound", 'if (xml.length > XML_MAX) throw new Error("catalog=source-bound");', 'if (false) throw new Error("catalog=source-bound");'],
     ["data bound", 'if (JSON.stringify(layouts).length > DATA_MAX) throw new Error("catalog=data-bound");', 'if (false) throw new Error("catalog=data-bound");'],
     ["ordered move", "next.splice(target, 0, moved);", "next.splice(index, 0, moved);"],
+    ["source limit", 'if (rows.length >= SOURCE_MAX) return { ok: false, reason: "source-limit" };', 'if (false) return { ok: false, reason: "source-limit" };'],
     ["last source", "if (rows.length <= 1 || index < 0 || index >= rows.length) return rows;", "if (index < 0 || index >= rows.length) return rows;"],
     ["variant alignment", 'return { layouts: rows.map(function (row) { return row.code; }).join(","),', 'return { layouts: rows.map(function (row) { return row.variant; }).join(","),'],
     ["main keyboard", "return rows.find(function (row) { return row.main; }) || rows[0];", "return rows[0];"]

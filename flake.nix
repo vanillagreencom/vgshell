@@ -92,6 +92,8 @@
             substituteInPlace $out/share/vgshell/bin/lib/xkb-keys.py \
               --replace-fail 'SYSTEM_XKB_ROOT = "/usr/share/X11/xkb"' 'SYSTEM_XKB_ROOT = "${pkgs.xkeyboard_config}/share/X11/xkb"' \
               --replace-fail 'SYSTEM_XKB_LIBRARY = "libxkbcommon.so.0"' 'SYSTEM_XKB_LIBRARY = "${pkgs.libxkbcommon}/lib/libxkbcommon.so.0"'
+            substituteInPlace $out/share/vgshell/shell/plugins/vgs.keyboard/Service.qml \
+              --replace-fail '"/usr/share/X11/xkb/rules/evdev.xml"' '"${pkgs.xkeyboard_config}/share/X11/xkb/rules/evdev.xml"'
             line='case :$PATH: in *:${runtimePath pkgs}:*) ;; *) PATH=${runtimePath pkgs}''${PATH:+:$PATH} ;; esac; export PATH # vgs-nix-path'
             for entry in $out/share/vgshell/bin/*; do
               [[ -f $entry && ! -L $entry ]] || continue

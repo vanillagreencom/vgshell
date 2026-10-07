@@ -10,6 +10,7 @@
 #   - `nix flake check` passes with the committed flake.lock unchanged.
 #   - `nix build` succeeds. The build runs scripts/check-install-tree.sh on the
 #     installed tree, so it ships the tree every other channel ships.
+#   - The installed Keyboard service reads its nonempty Nix-store catalog.
 #   - `nix run .# -- --version` prints `vgshell <VERSION>`.
 #   - For the file $out/bin/vgshell resolves to and for bin/vgshell-tui, the PATH
 #     row: the one `# vgs-nix-path` line, run in an empty environment,
@@ -20,6 +21,7 @@
 #   - The same two files are their source with only that line added, right
 #     after the leading comment block the usage text is read from.
 # Controls:
+#   - Removing the Keyboard catalog substitution must fail its installed reader.
 #   - flake.nix with the requirements rows cut from the runtime PATH must fail
 #     the PATH row on every requirement.
 #   - the closure without qrencode must fail the PATH row for
@@ -127,11 +129,25 @@ placed() { # ENTRY SOURCE
   [[ "${got[*]}" == "${want[*]}" ]]
 }
 
+# Installed FileView catalog: one declared path into the package closure,
+# readable in the Nix container without a system XKB directory.
+keyboard_catalog_holds() {
+  local line catalog
+  line="$(grep -E '^ *path: "[^"]+/rules/evdev.xml"$' "$1")" || { echo 'flake: keyboard-catalog=missing'; return 1; }
+  [[ $line != *$'\n'* ]] || { echo 'flake: keyboard-catalog=ambiguous'; return 1; }
+  catalog="${line#*\"}"; catalog="${catalog%\"}"
+  [[ $catalog == /nix/store/*/share/X11/xkb/rules/evdev.xml ]] || { echo 'flake: keyboard-catalog=outside-store'; return 1; }
+  [[ -r $catalog && -s $catalog ]] || { echo 'flake: keyboard-catalog=unreadable'; return 1; }
+}
+
 if nix flake check --no-update-lock-file path:/src >/tmp/check.log 2>&1; then ok "nix flake check passes"
 else cat /tmp/check.log; fail "nix flake check passes"
 fi
 if out="$(nix build "${flags[@]}" path:/src 2>/tmp/build.log)"; then
   ok "nix build succeeds and checks the install tree"
+  if keyboard_catalog_holds "$out/share/vgshell/shell/plugins/vgs.keyboard/Service.qml"; then
+    ok "Keyboard reads the package closure's layout catalog"
+  else fail "Keyboard reads the package closure's layout catalog"; fi
   if version="$(nix run --no-update-lock-file path:/src -- --version 2>&1)" && [[ $version == "vgshell $VGS_VERSION" ]]; then
     ok "nix run -- --version prints vgshell $VGS_VERSION"
   else fail "nix run -- --version prints vgshell $VGS_VERSION, got [$version]"
@@ -160,6 +176,26 @@ else
   cat /tmp/build.log; fail "nix build succeeds and checks the install tree"
   exit 1
 fi
+
+# Control: remove only the Keyboard catalog substitution. The package
+# still builds, but its service then names the absent system directory.
+cp -r /src /tmp/no-keyboard-catalog
+removed=0
+skip=0
+while IFS= read -r line; do
+  if ((skip)); then skip=0; continue; fi
+  if [[ $line == *'substituteInPlace $out/share/vgshell/shell/plugins/vgs.keyboard/Service.qml'* ]]; then
+    removed=$((removed + 1)); skip=1; continue
+  fi
+  printf '%s\n' "$line"
+done </src/flake.nix >/tmp/no-keyboard-catalog/flake.nix
+if ((removed != 1 || skip)) || cmp -s /src/flake.nix /tmp/no-keyboard-catalog/flake.nix; then
+  fail "control: the Keyboard catalog substitution is removed once"
+elif ! mutant="$(nix build "${flags[@]}" path:/tmp/no-keyboard-catalog 2>/tmp/no-keyboard-catalog.log)"; then
+  cat /tmp/no-keyboard-catalog.log; fail "control: the package without a Keyboard catalog substitution builds"
+elif [[ $(keyboard_catalog_holds "$mutant/share/vgshell/shell/plugins/vgs.keyboard/Service.qml") == 'flake: keyboard-catalog=outside-store' ]]; then
+  ok "control: the absent Keyboard catalog substitution fails its installed reader check"
+else fail "control: the absent Keyboard catalog substitution fails its installed reader check"; fi
 
 # Control: the flake with no requirements rows on the runtime PATH.
 # The container supplies Bash. Its builtins assert the block boundaries

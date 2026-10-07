@@ -5,6 +5,9 @@
 // publish a partial list as the complete set of input sources.
 var XML_MAX = 1048576;
 var DATA_MAX = 58000;
+// The keyboard library supports four evdev groups. Offer only sources
+// that the compositor can activate.
+var SOURCE_MAX = 4;
 
 function xmlText(value) {
     return value.replace(/&#(x[0-9a-f]+|[0-9]+);/gi, function (_, code) {
@@ -49,7 +52,7 @@ function sources(layouts, variants, devices) {
     var keyboard = mainKeyboard(devices);
     var codes = (layouts === "" && keyboard !== null ? keyboard.layout : layouts).split(",");
     var names = (layouts === "" && keyboard !== null ? keyboard.variant : variants).split(",");
-    return codes.filter(function (code) { return code.trim() !== ""; }).map(function (code, index) {
+    return codes.filter(function (code) { return code.trim() !== ""; }).slice(0, SOURCE_MAX).map(function (code, index) {
         return { code: code.trim(), variant: (names[index] || "").trim() };
     });
 }
@@ -60,8 +63,9 @@ function serialize(rows) {
 }
 
 function addSource(rows, code, variant) {
-    if (rows.some(function (row) { return row.code === code && row.variant === variant; })) return rows;
-    return rows.concat([{ code: code, variant: variant }]);
+    if (rows.some(function (row) { return row.code === code && row.variant === variant; })) return { ok: true, rows: rows };
+    if (rows.length >= SOURCE_MAX) return { ok: false, reason: "source-limit" };
+    return { ok: true, rows: rows.concat([{ code: code, variant: variant }]) };
 }
 
 function moveSource(rows, index, delta) {
@@ -89,7 +93,7 @@ function sourceRows(rows, catalog) {
 function activeValue(devices, event) {
     var keyboard = mainKeyboard(devices);
     if (keyboard === null) return { code: "", name: "", count: 0 };
-    var codes = keyboard.layout.split(",");
+    var codes = keyboard.layout.split(",").slice(0, SOURCE_MAX);
     var name = event !== null && event.keyboard === keyboard.name ? event.name : keyboard.activeKeymap;
     return { code: (codes[keyboard.activeLayoutIndex] || "").toUpperCase(), name: name, count: codes.length };
 }
