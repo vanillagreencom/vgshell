@@ -59,6 +59,8 @@ world(async () => {
     const hand = path.join(env.HOME, "manual-account");
     fs.mkdirSync(hand);
     const log = path.join(env.XDG_STATE_HOME, "vgshell/jarvis/setup.log");
+    env.GUM_CHOOSE_CURSOR_FOREGROUND = "#112233";
+    env.ANTHROPIC_API_KEY = "fixture-secret-private";
     const queue = choices => fs.writeFileSync(path.join(env.XDG_STATE_HOME, "gum-queue"), JSON.stringify(choices));
     const run = (folder, columns = 64) => cp.spawnSync("python3", [path.join(tree, "scripts/fixtures/jarvis/accounts-tui.py"),
         path.join(folder, "tui/accounts.sh"), path.join(tree, "bin/lib/tui.sh"), folder, String(columns)], {
@@ -103,7 +105,10 @@ world(async () => {
             const records = fs.readFileSync(path.join(env.XDG_STATE_HOME, file), "utf8").trim().split("\n").map(JSON.parse);
             for (const record of records) {
                 assert.equal(record.env.OPENAI_API_KEY, undefined);
+                assert.equal(record.env.ANTHROPIC_API_KEY, undefined);
                 assert.equal(record.env.VGSHELL_RUNNER_PID, undefined);
+                if (file === "gum-calls") assert.equal(record.env.GUM_CHOOSE_CURSOR_FOREGROUND, "#112233");
+                else assert.equal(record.env.GUM_CHOOSE_CURSOR_FOREGROUND, undefined);
                 assert.ok(record.args.every(arg => arg !== "-p" && arg !== "exec"), "no inference during discovery or unavailable Verify");
             }
         }
@@ -199,6 +204,8 @@ world(async () => {
     await control("AccountStatus.js", "table-state", 'case "signed-in": return "Signed in";', 'case "signed-in": return state;', wide);
     await control("tui/accounts.sh", "screen-no-table", 'gum table --print <<<"$table"', ':', check);
     await control("tui/accounts.sh", "screen-width", 'columns="$(vgs_tui_columns)"', 'columns=1000', check);
+    await control("tui/accounts.sh", "gum-theme", 'gum() {\n  local gum_theme=() name\n  while IFS=\'=\' read -r name _; do\n    [[ $name =~ ^GUM_[A-Z_]+$ ]] || continue\n    gum_theme+=("$name=${!name}")\n  done < <(env)\n  "${child_env[@]}" "${gum_theme[@]}" gum "$@"\n}',
+        'gum() { "${child_env[@]}" gum "$@"; }', check);
     await control("AccountProviders.js", "width-format", '!/^[0-9]{1,4}$/.test(text)', 'false', folder => widths(folder, "format"));
     await control("AccountProviders.js", "width-minimum", 'return value >= MIN_WIDTH && value <= MAX_WIDTH ? value : null;',
         'return value <= MAX_WIDTH ? value : null;', folder => widths(folder, "minimum"));

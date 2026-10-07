@@ -24,7 +24,14 @@ child_env=(env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8
   VGS_TUI_ACCENT="${VGS_TUI_ACCENT:-}" VGS_TUI_SUCCESS="${VGS_TUI_SUCCESS:-}"
   VGS_TUI_WARNING="${VGS_TUI_WARNING:-}" VGS_TUI_DANGER="${VGS_TUI_DANGER:-}")
 # The core presentation functions call this scoped executable wrapper too.
-gum() { "${child_env[@]}" gum "$@"; }
+gum() {
+  local gum_theme=() name
+  while IFS='=' read -r name _; do
+    [[ $name =~ ^GUM_[A-Z_]+$ ]] || continue
+    gum_theme+=("$name=${!name}")
+  done < <(env)
+  "${child_env[@]}" "${gum_theme[@]}" gum "$@"
+}
 # A selection carries a stable id, never a label, back into the judge. No
 # secret value enters the shell.
 accounts() { vgs_tui_logged "$log" "${child_env[@]}" node "$program" --tree "$tree" "$@"; }
