@@ -268,22 +268,39 @@ function arrangementItems(outputs, saved, draft) {
         var top = Math.min.apply(null, rules.map(function (rule) { return rule.position.y; }));
         var right = Math.max.apply(null, rules.map(function (rule) { var rect = logicalRect(rule); return rect.x + rect.width; }));
         var bottom = Math.max.apply(null, rules.map(function (rule) { var rect = logicalRect(rule); return rect.y + rect.height; }));
-        groups.push({ identifier: output.identifier, label: members.map(function (m) { return m.name; }).join(" + "), x: left, y: top, width: right - left, height: bottom - top,
+        groups.push({ identifier: output.identifier, label: members.map(function (m) { return m.name; }).join(" + "), product: productOf(output),
+            x: left, y: top, width: right - left, height: bottom - top,
             members: members.map(function (member) { return member.name; }), off: rules.every(function (rule) { return rule.disabled === true; }) });
     });
     return groups;
 }
 
-function arrangementContentWidth(items) {
-    var right = 1;
-    items.forEach(function (item) { right = Math.max(right, item.x + item.width); });
-    return right;
+// The rectangle around ITEMS in layout pixels: { x, y, width, height }
+// from the leftmost and topmost edge, negative positions included, to the
+// rightmost and bottommost. No item gives a 1 by 1 rectangle, so a fit never
+// divides by zero.
+function arrangementBounds(items) {
+    if (items.length === 0) return { x: 0, y: 0, width: 1, height: 1 };
+    var left = Math.min.apply(null, items.map(function (item) { return item.x; }));
+    var top = Math.min.apply(null, items.map(function (item) { return item.y; }));
+    var right = Math.max.apply(null, items.map(function (item) { return item.x + item.width; }));
+    var bottom = Math.max.apply(null, items.map(function (item) { return item.y + item.height; }));
+    return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
-function arrangementContentHeight(items) {
-    var bottom = 1;
-    items.forEach(function (item) { bottom = Math.max(bottom, item.y + item.height); });
-    return bottom;
+// BOUNDS fitted into a box WIDTH wide and at most MAX_HEIGHT tall with
+// MARGIN on every side: { scale, x, y, height }, where an item draws at
+// x + item.x * scale, y + item.y * scale and the box is HEIGHT tall. The
+// drawing is centred across the box; the box takes the drawing's height
+// plus both margins, so it is centred down the box too.
+function arrangementFit(bounds, width, maxHeight, margin) {
+    var scale = Math.max(0, Math.min((width - 2 * margin) / bounds.width, (maxHeight - 2 * margin) / bounds.height));
+    return {
+        scale: scale,
+        x: (width - bounds.width * scale) / 2 - bounds.x * scale,
+        y: margin - bounds.y * scale,
+        height: bounds.height * scale + 2 * margin
+    };
 }
 
 function normaliseRules(rules) {
@@ -666,10 +683,14 @@ function outputGroups(outputs) {
     var groups = [];
     outputs.forEach(function (o) {
         var group = groupOf(groups, o.identifier);
-        if (group === null) groups.push({ identifier: o.identifier, names: [o.name], product: (o.make + " " + o.model).trim() });
+        if (group === null) groups.push({ identifier: o.identifier, names: [o.name], product: productOf(o) });
         else group.names.push(o.name);
     });
     return groups;
+}
+
+function productOf(output) {
+    return (output.make + " " + output.model).trim();
 }
 
 function groupLabel(g) {

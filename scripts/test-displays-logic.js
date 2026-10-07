@@ -192,8 +192,40 @@ function verify(logic) {
   const tiledMove = logic.moveGroup(tiledOutputs, {}, tiledDraft, "xdr", 200, 0);
   same([tiledMove["DP-1"].position, tiledMove["DP-5"].position], [{ x: 0, y: 0 }, { x: 3800, y: 0 }],
     "a tiled group moves through connector rules and keeps tile offsets after normalisation");
-  same([logic.arrangementContentWidth([{ x: 5, width: 10 }]), logic.arrangementContentHeight([{ y: 7, height: 11 }])], [15, 18],
-    "the arrangement canvas sizes from its drawn rectangles");
+
+  // --- The arrangement canvas ------------------------------------------------
+  // rows: [name, items, bounds]
+  const boundsRows = [
+    ["no display", [], { x: 0, y: 0, width: 1, height: 1 }],
+    ["one display off the origin", [{ x: 5, y: 7, width: 10, height: 11 }], { x: 5, y: 7, width: 10, height: 11 }],
+    ["a display left of and above the origin", [{ x: 0, y: 0, width: 3008, height: 1692 }, { x: -1440, y: -620, width: 1440, height: 2560 }],
+      { x: -1440, y: -620, width: 4448, height: 2560 }]
+  ];
+  for (const [name, items, want] of boundsRows) same(logic.arrangementBounds(items), want, "arrangementBounds: " + name);
+  // rows: [name, bounds, box width, max height, margin, fit]
+  const fitRows = [
+    ["the width limits a wide layout", { x: 0, y: 0, width: 400, height: 100 }, 220, 500, 10, { scale: 0.5, x: 10, y: 10, height: 70 }],
+    ["the height limits a tall layout, centred across", { x: -1440, y: -620, width: 4448, height: 2560 }, 1000, 300, 20,
+      { scale: 260 / 2560, x: 274.125 + 146.25, y: 20 + 62.96875, height: 300 }],
+    ["a box too narrow for its margins draws nothing", { x: 0, y: 0, width: 10, height: 10 }, 0, 300, 20, { scale: 0, x: 0, y: 20, height: 40 }]
+  ];
+  for (const [name, bounds, width, maxHeight, margin, want] of fitRows) same(logic.arrangementFit(bounds, width, maxHeight, margin), want, "arrangementFit: " + name);
+  // The owner's desk: a portrait 5K at scale 2 left of and above a 6K at
+  // scale 2. Each display is drawn whole inside the box's margin.
+  const ownerDesk = [
+    Object.assign({}, monitorOutput, { identifier: "DP-1", name: "DP-1", make: "Apple Computer Inc", model: "ProDisplayXDR", width: 6016, height: 3384, x: 0, y: 0, scale: 2, transform: 0 }),
+    Object.assign({}, monitorOutput, { identifier: "DP-2", name: "DP-2", make: "Apple Computer Inc", model: "StudioDisplay", width: 5120, height: 2880, x: -1440, y: -620, scale: 2, transform: 1 })
+  ];
+  const deskItems = logic.arrangementItems(ownerDesk, {}, {});
+  same(deskItems.map(item => [item.label, item.product]), [["DP-1", "Apple Computer Inc ProDisplayXDR"], ["DP-2", "Apple Computer Inc StudioDisplay"]],
+    "the canvas names each display's connector and model");
+  const deskFit = logic.arrangementFit(logic.arrangementBounds(deskItems), 1000, 300, 20);
+  assert.equal(deskFit.height, 300, "the desk's box is its drawing's height plus both margins");
+  for (const item of deskItems) {
+    const left = deskFit.x + item.x * deskFit.scale, top = deskFit.y + item.y * deskFit.scale;
+    assert.ok(left >= 20 && top >= 20 && left + item.width * deskFit.scale <= 980 && top + item.height * deskFit.scale <= 280,
+      `${item.label} draws inside the box's margin: ${[left, top, item.width * deskFit.scale, item.height * deskFit.scale]}`);
+  }
 
   // --- Use this display and Mirror -------------------------------------------
   same(logic.outputChoices(tiledOutputs), [{ label: "DP-1 + DP-5: LG HDR 4K", value: "xdr" }], "the output chooser takes a tiled group once");
@@ -496,6 +528,9 @@ const CONTROLS = [
   ["scale choices allow fractional logical pixels", "if (!scaleFits(mode, scale)) return;", ""],
   ["a draft loses the current position", "merged.position = { x: current.position.x, y: current.position.y };", "merged.position = { x: 0, y: 0 };"],
   ["dirty rules ignore pending changes", "if (JSON.stringify(draft[id]) !== JSON.stringify((saved || {})[id] || {}))", "if (false)"],
+  ["the canvas measures from 0,0", "var left = Math.min.apply(null, items.map(function (item) { return item.x; }));", "var left = 0;"],
+  ["the canvas measures from 0,0 down", "var top = Math.min.apply(null, items.map(function (item) { return item.y; }));", "var top = 0;"],
+  ["the canvas names no model", "product: productOf(output),", "product: \"\","],
   ["normalisation leaves a non-zero origin", "out[key].position = { x: out[key].position.x - left, y: out[key].position.y - top };", ""],
   ["snap ignores neighbour edges", "if (Math.abs(x - candidate) <= SNAP) x = candidate;", "if (false) x = candidate;"],
   ["mode resize leaves neighbours behind", "if (otherRule.position.x >= current.position.x + before.width) {", "if (false) {"],
