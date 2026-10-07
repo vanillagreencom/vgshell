@@ -12,7 +12,8 @@
 #   TEST           one or more test files to run instead of the directory
 #
 # The import root is built in a temporary directory: qs/Ui links to the
-# module under test; qs/Commons holds the shipped Theme.qml, Tokens.js,
+# module under test with an offscreen ModalDialog interface; qs/Commons
+# holds the shipped Theme.qml, Tokens.js,
 # ThemeLogic.js, Inset.js, SessionLockState.js, WatchedFile.qml,
 # Paths.qml and DesktopLaunch.js, under a qmldir of their own, beside a
 # stand-in ThemeSource that takes a document from the UnitTheme singleton of
@@ -99,7 +100,16 @@ printf '%s\n' "$root" >>"$VGSHELL_FENCE_LEDGER"
 imports="$root/imports"
 mkdir -p "$imports/qs/Commons" "$imports/qs/Core" "$imports/qs/Unit" "$imports/Quickshell/Io" "$imports/Qt/labs/folderlistmodel" "$root/home" "$root/runtime"
 chmod 700 "$root/runtime"
-ln -s -- "$ui" "$imports/qs/Ui"
+# A plugin's footer test builds the real Displays pane offscreen. Its
+# inactive modal still resolves its window imports, so only this interface
+# is replaced. The nested Displays row tests the actual modal host.
+mkdir -p "$imports/qs/Ui"
+for entry in "$ui"/*; do
+  [[ ${entry##*/} == qmldir ]] && continue
+  ln -s -- "$entry" "$imports/qs/Ui/${entry##*/}"
+done
+sed 's@^ModalDialog 1.0 overlay/ModalDialog.qml$@ModalDialog 1.0 UnitModalDialog.qml@' "$ui/qmldir" >"$imports/qs/Ui/qmldir"
+cp -- "$tests/stand-ins/ModalDialog.qml" "$imports/qs/Ui/UnitModalDialog.qml"
 # Theme.qml resolves the bundled font relative to its own directory.
 ln -s -- "$repo/shell/assets" "$imports/qs/assets"
 # The list is the part of qs.Commons these modules host: the module's own
