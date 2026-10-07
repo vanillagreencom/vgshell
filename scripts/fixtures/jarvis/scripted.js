@@ -205,7 +205,7 @@ function instrument(file, root, engine = "chained", mappedIndicator = false) {
             'audio.playbackSource = engine.playbackSource;\n                    const scripted = require("./scripted-fixture.js").ports(' + JSON.stringify(root) + ', engine);\n' +
             '                    runner.ports.speech = scripted.speech;\n' +
             '                    Object.assign(runner.ports, { capture: scripted.capture, brain: scripted.brain, playback: scripted.playback });'],
-        ['configured: configuration.kind === "ready", settings: context.settings',
+        ['configured: configuration.kind === "ready" || configuration.kind === "loading", settings: context.settings',
             'configured: true, settings: context.settings']
     ];
     if (!mappedIndicator) changes.push(

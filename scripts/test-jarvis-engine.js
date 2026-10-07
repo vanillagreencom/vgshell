@@ -309,7 +309,8 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     if (ending === "muted") fs.writeFileSync(path.join(state, "mute.json"), JSON.stringify({ muted: true }));
     if (ending === "device") fs.writeFileSync(path.join(process.env.HOME, "no-devices"), "");
     const preload = path.join(root, "accounts.js");
-    fs.writeFileSync(preload, 'require(' + JSON.stringify(path.join(kit.folder, "backend/Accounts.js")) + ').Accounts.prototype.choose = id => ({ kind: "accepted", account: { id, provider: "ollama", label: "local", source: { kind: "local", origin: "http://127.0.0.1:11434" }, model: "fixture-model" } });');
+    fs.writeFileSync(preload, 'require(' + JSON.stringify(path.join(kit.folder, "backend/Core.js")) + ').use(' + JSON.stringify(tree) + ');\n' +
+        'require(' + JSON.stringify(path.join(kit.folder, "backend/Accounts.js")) + ').Accounts.prototype.choose = id => ({ kind: "accepted", account: { id, provider: "ollama", label: "local", source: { kind: "local", origin: "http://127.0.0.1:11434" }, model: "fixture-model" } });');
     const child = cp.spawn("node", ["--require", preload, path.join(kit.folder, "backend/jarvisd.js"), "--tree", tree], {
         env: { PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR }, stdio: ["pipe", "pipe", "pipe"] });
     const closed = once(child, "close");
@@ -388,6 +389,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
             assert.equal(server.requests.length, before);
             intent("talk-down");
             await until(() => starts().length === 2 && s().capture.kind === "open", "next permitted request reloads the reaped loading child");
+            assert.deepEqual(status().causes, ["speech=local-loading"], "replacement loading is published by its daemon owner");
             assert.equal(s().fault.kind, "none");
             assert.equal(s().turn.kind, "collecting");
             assert.equal(server.requests.length, before, "faulted utterance is not replayed during recovery");
@@ -410,12 +412,16 @@ async function loadingTalk(server, ending = "ready", edits = []) {
         if (ending === "ready") {
             const body = await requested({ server }, before + 1, "one held utterance reaches the real wire brain");
             assert.deepEqual(user(body), ["Captured once."]);
-            assert.deepEqual({ gen: s().gen, op: s().turn.op }, identity, "ready snapshot preserves collecting identity");
+            const readyIndex = rows.findIndex(row => row.type === "status" && row.causes.length === 0);
+            const readyState = rows.slice(readyIndex + 1).find(row => row.type === "state").state;
+            assert.equal(readyState.turn.kind, "collecting");
+            assert.deepEqual({ gen: readyState.gen, op: readyState.turn.op }, identity, "ready snapshot preserves collecting identity before final starts its brain operation");
             assert.equal(server.requests.length, before + 1);
             const ends = logs().filter(row => row.end);
             assert.equal(ends.length, 1);
             assert.ok(ends[0].samples > 0, "queued utterance contains actual fixture PCM");
         } else {
+            await until(() => logs().some(row => row.abort), "cancelled loading utterance abort reaches the same child");
             assert.equal(s().conversation.kind, "ended");
             assert.equal(s().turn.kind, "none");
             assert.equal(server.requests.length, before, "ready does not replay cancelled Talk");
@@ -1096,9 +1102,12 @@ world(async () => {
             ["loading admission removed", "backend/jarvisd.js", ' || configuration.kind === "loading"', ""],
             ["loading ready too early", "backend/ChainedEngine.js", 'return { kind: "loading", cause: "speech=local-loading", causes: ["speech=local-loading"] };', 'return { kind: "ready" };'],
             ["loading ignores presented indicator", "Session.js", 's.indicator.kind === "shown"', "true"],
+            ["loading starts a second child", "backend/ChainedEngine.js", 'if (plan.speech.lifetime === "daemon" && daemonSpeech === null) startSpeech(plan.speech);', 'if (plan.speech.lifetime === "daemon") startSpeech(plan.speech);'],
+            ["replacement loading unpublished", "backend/ChainedEngine.js", 'daemonSpeech = owner;\n        configured(configuration());', 'daemonSpeech = owner;'],
             ["loading cancellation replays", "backend/ChainedEngine.js", '            if (utterance) utterance.abort();', '            void utterance;']
         ]) {
-            await assert.rejects(() => loadingTalk(server, name === "loading cancellation replays" ? "stop" : "ready", [[file, needle, replacement]]), assert.AssertionError, name);
+            const ending = name === "loading cancellation replays" ? "stop" : name === "replacement loading unpublished" ? "fault" : "ready";
+            await assert.rejects(() => loadingTalk(server, ending, [[file, needle, replacement]]), assert.AssertionError, name);
             console.log("control=" + name + " detected");
             controls++;
         }

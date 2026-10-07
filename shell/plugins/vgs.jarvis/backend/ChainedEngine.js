@@ -147,6 +147,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             }
         } });
         daemonSpeech = owner;
+        configured(configuration());
         void owner.closed.then(({ error }) => {
             if (closed || daemonSpeech !== owner) return;
             daemonSpeech = null;
@@ -668,7 +669,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     }
 
     return Object.freeze({
-        /** Select from snapshot settings; the daemon raises its gate only on ready. */
+        /** Select setup admission; healthy loading can accept bounded capture. */
         configure(settings) {
             plan = select(settings, accounts, directories);
             if (plan.kind === "ready" && plan.speech.lifetime === "daemon") {
