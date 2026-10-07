@@ -387,7 +387,7 @@ function controls() {
         ["team mismatch", "if (safeSegment(info && info.id) !== id) {", "if (false) {", /the mismatched team is refused|team=mismatch/],
         ["a team without a token is swept", "if (name === ACCOUNTS_FILE || photoTeams.has(name)) continue;", "if (name === ACCOUNTS_FILE || /^T/.test(name)) continue;", /a workspace with no token keeps no cache/],
         ["cached account matches its team", 'team.account !== "slack:" + id', 'typeof team.account !== "string"', /a foreign account supplies no stale photos/],
-        ["foreign names stay", "TEAM_FILES.indexOf(name) !== -1 ? !keep.has(name) : TEMP_NAME.test(name)", "true", /names the helper does not own stay/],
+        ["foreign names stay", "TEAM_FILES.indexOf(name) !== -1 ? !keep.has(name) : TEMP_NAME.test(name)", "TEAM_FILES.indexOf(name) !== -1 ? !keep.has(name) : true", /names the helper does not own stay/],
         ["the photos extra off reads no token", "const tokens = photos ? storedTokens(ids, lines) : [];", "const tokens = storedTokens(ids, lines);", /the photos extra off runs no secret-tool/],
         ["the photos extra off fetches no photo", "const photoRun = !photos ? { value: { status: \"off\" }, kept: new Set(), accounts: null }\n        : tokens.length", "const photoRun = false ? null\n        : tokens.length", /the photos extra off looks no token up|the photos extra off asks Slack nothing/],
         ["the photos option is read", "            photos = true;\n", "", /no token returns no cache/],
