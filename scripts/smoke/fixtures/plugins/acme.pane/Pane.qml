@@ -36,6 +36,7 @@ FocusScope {
     function stageChange() {
         pending = true;
         editButton.forceActiveFocus(Qt.TabFocusReason);
+        return "ok";
     }
     function scrollBody() {
         for (let item = root.parent; item !== null; item = item.parent) {
