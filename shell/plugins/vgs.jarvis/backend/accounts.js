@@ -5,7 +5,8 @@
 // the others AccountProviders.choiceLine lines.
 "use strict";
 const path = require("node:path");
-const { PROVIDERS, parseWidth, fitText, choiceLine, providerChoices, helperFailure } = require("../AccountProviders.js");
+const { parseWidth, fitText, choiceLine, providerChoices, helperFailure } = require("../AccountProviders.js");
+const { stateLabel } = require("../AccountStatus.js");
 
 // gum 2.0.2 `table --print`, rounded border, draws one space on each side
 // of every cell and a rule before, between and after the cells: a row is
@@ -22,11 +23,6 @@ function width(text) {
     return value;
 }
 
-function providerLabel(id) {
-    const row = PROVIDERS.find(item => item.id === id);
-    return row === undefined ? id : row.label;
-}
-
 // An account by its sign-in email where the program reports one.
 function accountName(account) {
     if (account.email) return account.email;
@@ -36,29 +32,19 @@ function accountName(account) {
 }
 
 function status(account) {
-    const state = account.state;
-    switch (state.kind) {
-    case "signed-in": return "Signed in";
-    case "found": return account.source.kind === "cli" ? "Not signed in" : account.source.kind === "local" ? "Running" : "Key found";
-    case "verifying": return "Checking";
-    case "verified": return "Answered a test";
-    case "locked": return "Keyring locked";
-    case "unavailable":
-        return state.reason === "key-absent" ? "Key missing" : state.reason === "provider-unsupported" ? "Not supported"
-            : state.reason === "command-missing" ? "Program missing" : "Cannot check";
-    default: fail("state=unknown");
-    }
+    return stateLabel(account.state.kind, account.source.kind);
 }
 
 function csv(cells) {
     return cells.map(cell => "\"" + cell.replace(/"/g, "\"\"") + "\"").join(",");
 }
 
-// The header first, then one row per account, no line for no account. The
-// widest column gives up one character at a time until a row fits.
-function accountTable(accounts, columns) {
+// The header first, then one row per account, no line for no account; label
+// is the account judge's provider label. The widest column gives up one
+// character at a time until a row fits.
+function accountTable(accounts, columns, label) {
     if (accounts.length === 0) return [];
-    const rows = [TABLE_COLUMNS, ...accounts.map(account => [providerLabel(account.provider), accountName(account),
+    const rows = [TABLE_COLUMNS, ...accounts.map(account => [label(account.provider), accountName(account),
         status(account), account.plan || ""])];
     const widths = TABLE_COLUMNS.map((_, column) => Math.max(...rows.map(row => Array.from(row[column]).length)));
     while (widths.reduce((sum, value) => sum + value, 0) > columns - TABLE_FRAME) widths[widths.indexOf(Math.max(...widths))]--;
@@ -68,7 +54,8 @@ function accountTable(accounts, columns) {
 async function main() {
     if (process.argv[2] !== "--tree" || !path.isAbsolute(process.argv[3] || "")) throw new Error("jarvis-accounts: arguments=tree");
     require("./Core.js").use(process.argv[3]);
-    const { Accounts } = require("./Accounts.js");
+    const { Accounts, provider } = require("./Accounts.js");
+    const label = id => provider(id).label;
     const args = process.argv.slice(4);
     const state = path.join(process.env.XDG_STATE_HOME || path.join(process.env.HOME, ".local/state"), "vgshell/jarvis");
     const snapshot = args[0] === "presence" && args.length === 2 ? JSON.parse(args[1]) : undefined;
@@ -89,14 +76,14 @@ async function main() {
         if (args.length !== 2) throw new Error("jarvis-accounts: arguments=table");
         judge.discover();
         await judge.readEmails();
-        lines = accountTable(judge.accounts, width(args[1]));
+        lines = accountTable(judge.accounts, width(args[1]), label);
         break;
     case "accounts": {
         if (args.length !== 2) throw new Error("jarvis-accounts: arguments=accounts");
         const columns = width(args[1]);
         judge.discover();
         await judge.readEmails();
-        lines = judge.accounts.map(account => choiceLine(providerLabel(account.provider) + ": " + accountName(account)
+        lines = judge.accounts.map(account => choiceLine(label(account.provider) + ": " + accountName(account)
             + " (" + status(account) + ")", account.id, columns));
         break;
     }

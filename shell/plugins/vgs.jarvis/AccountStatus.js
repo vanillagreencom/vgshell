@@ -62,28 +62,33 @@ function keyHint(row) {
 }
 
 /**
+ * The words for an account's state, state its kind and source its source's
+ * kind: the setup terminal's Status column, and the start of accountHint.
+ * Any other state reads as one that could not be checked.
+ */
+function stateLabel(state, source) {
+    switch (state) {
+    case "signed-in": return "Signed in";
+    case "found": return source === "cli" ? "Not signed in" : source === "local" ? "Running on this computer" : "Key found";
+    case "verifying": return "Checking that it answers";
+    case "verified": return "Answered a test request";
+    case "locked": return "Keyring locked";
+    default: return "Could not check";
+    }
+}
+
+/**
  * The hint of one account item from Accounts.status(): its state, source,
  * plan, email and whether the email disagrees with the folder name.
  */
 function accountHint(account) {
-    var text;
-    switch (account.state) {
-    case "signed-in":
-        text = "Signed in" + (account.plan !== "" ? ", " + account.plan + " plan" : "")
-            + (account.email !== "" ? ", " + account.email : "") + ".";
-        break;
-    case "found":
-        text = account.source === "cli" ? "Found, not signed in."
-            : account.source === "local" ? "Running on this computer."
-            : "Key found.";
-        break;
-    case "verifying": text = "Checking that it answers."; break;
-    case "verified": text = "Answered a test request."; break;
-    case "locked": text = "Your keyring is locked."; break;
-    default: text = "Could not check this account.";
-    }
+    var text = stateLabel(account.state, account.source);
+    if (account.state === "signed-in")
+        text += (account.plan !== "" ? ", " + account.plan + " plan" : "") + (account.email !== "" ? ", " + account.email : "");
+    text += ".";
     if (account.mismatch === true) text += " The email does not match the folder name.";
     return text.slice(0, 200);
 }
 
-if (typeof module !== "undefined") module.exports = { searchValue: searchValue, keysValue: keysValue, keyHint: keyHint, accountHint: accountHint };
+if (typeof module !== "undefined") module.exports = { searchValue: searchValue, keysValue: keysValue, keyHint: keyHint,
+    stateLabel: stateLabel, accountHint: accountHint };

@@ -6,19 +6,15 @@ set -euo pipefail
 # shellcheck source=/dev/null
 source "$VGS_TUI_LIB"
 log="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/jarvis/setup.log"
-keyed() { printf '%s\n' "$1" >&2; }
-refuse() { # KEY_LINE
-  vgs_tui_logged "$log" keyed "$1" || :
-  vgs_tui_failed "$log" "Open Accounts from the Jarvis page in Settings."
-  exit 2
-}
-[[ $# == 0 ]] || refuse "jarvis-accounts: arguments=none"
-[[ -t 0 ]] || refuse "jarvis-accounts: input=terminal-required"
+opened_elsewhere="Open Accounts from the Jarvis page in Settings."
+[[ $# == 0 ]] || vgs_tui_refuse "$log" 2 "jarvis-accounts: arguments=none" "$opened_elsewhere" || exit
+[[ -t 0 ]] || vgs_tui_refuse "$log" 2 "jarvis-accounts: input=terminal-required" "$opened_elsewhere" || exit
 program="$VGS_PLUGIN_DIR/backend/accounts.js"
 # The VGS tree is the one VGS_TUI_LIB lies in; the helper reads the core's
 # account rule from there.
 tree="${VGS_TUI_LIB%/bin/lib/tui.sh}"
-[[ $tree != "$VGS_TUI_LIB" && $tree == /* ]] || refuse "jarvis-accounts: tui=lib-outside-tree"
+[[ $tree != "$VGS_TUI_LIB" && $tree == /* ]] ||
+  vgs_tui_refuse "$log" 2 "jarvis-accounts: tui=lib-outside-tree" "$opened_elsewhere" || exit
 child_env=(env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8
   XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-}" XDG_STATE_HOME="${XDG_STATE_HOME:-}"
   XDG_DATA_HOME="${XDG_DATA_HOME:-}" XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}"
@@ -105,6 +101,6 @@ while true; do
       esac
       ;;
     close) exit 0 ;;
-    *) refuse "jarvis-accounts: selection=unknown" ;;
+    *) vgs_tui_refuse "$log" 2 "jarvis-accounts: selection=unknown" "$opened_elsewhere" || exit ;;
   esac
 done

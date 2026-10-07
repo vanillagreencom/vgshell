@@ -31,8 +31,13 @@
 #                                    run COMMAND with its stderr added to FILE, so its
 #                                    keyed causes reach the log and not the screen;
 #                                    COMMAND's status
+#   vgs_tui_note FILE LINE           add LINE, a keyed cause, to the log FILE
 #   vgs_tui_failed FILE LINE...      an error line per LINE, then a line naming FILE,
 #                                    the log that holds the cause, with $HOME as ~
+#   vgs_tui_refuse FILE STATUS KEY_LINE SENTENCE...
+#                                    KEY_LINE to the log FILE, the SENTENCEs and the
+#                                    log's name on the screen, as vgs_tui_failed;
+#                                    returns STATUS
 #   vgs_tui_columns                  the terminal's width in columns, 80 when it
 #                                    reports none
 #   vgs_tui_reboot_check             print why a reboot is needed; 1 when none is
@@ -257,11 +262,22 @@ vgs_tui_logged() { # FILE COMMAND [ARG...]
   "$@" 2>>"$file"
 }
 
+_vgs_tui_keyed() { printf '%s\n' "$1" >&2; }
+vgs_tui_note() { vgs_tui_logged "$1" _vgs_tui_keyed "$2"; } # FILE LINE
+
 vgs_tui_failed() { # FILE LINE...
   local file="$1" line
   shift
   for line; do vgs_tui_error "$line"; done
   vgs_tui_error "The details are in ${file/#"$HOME"/\~}."
+}
+
+vgs_tui_refuse() { # FILE STATUS KEY_LINE SENTENCE...
+  local file="$1" refused="$2"
+  vgs_tui_note "$file" "$3" || :
+  shift 3
+  vgs_tui_failed "$file" "$@"
+  return "$refused"
 }
 
 # stty prints 0 columns for a terminal nobody gave a size, such as a

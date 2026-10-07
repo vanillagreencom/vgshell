@@ -50,6 +50,11 @@ console.log(value);
 
 world(async () => {
     fs.writeFileSync(path.join(process.env.JARVIS_TEST_ROOT, "standins/gum"), GUM, { mode: 0o700 });
+    // The world's PATH holds no stty, which vgs_tui_columns reads the
+    // terminal's width with.
+    const stty = ["/usr/bin/stty", "/bin/stty"].find(file => fs.existsSync(file));
+    assert.ok(stty, "stty");
+    fs.symlinkSync(stty, path.join(process.env.JARVIS_TEST_ROOT, "standins/stty"));
     const env = environment();
     const hand = path.join(env.HOME, "manual-account");
     fs.mkdirSync(hand);
@@ -84,6 +89,16 @@ world(async () => {
         assert.doesNotMatch(result.stdout, /"kind"|jarvis-accounts:/);
         assert.doesNotMatch(result.stdout, HASH);
         assert.equal((result.stdout + result.stderr + logged).includes("fixture-secret-private"), false);
+        // Show accounts draws the table the gum stand-in echoes: a header
+        // and the signed-in account's row, each row within the pty's 64
+        // columns once gum frames it.
+        const drawn = result.stdout.split(/\r?\n/).filter(line => line.startsWith("\"")).map(parseCsv);
+        assert.ok(drawn.length >= 2 && drawn.every(row => row.length === 4), "Show accounts draws its table");
+        // A cut cell keeps the start of its text before the ellipsis.
+        const shows = (cell, text) => cell === text || (cell.length > 1 && cell.endsWith("…") && text.startsWith(cell.slice(0, -1)));
+        assert.ok(drawn.some(row => shows(row[1], "team@example.invalid")), "the signed-in account's row is drawn");
+        for (const row of drawn)
+            assert.ok(row.reduce((sum, cell) => sum + chars(cell), 0) + frame(4) <= 64, "fits the terminal: " + row);
         for (const file of ["cli-calls", "port-calls", "bus-calls", "gum-calls"]) {
             const records = fs.readFileSync(path.join(env.XDG_STATE_HOME, file), "utf8").trim().split("\n").map(JSON.parse);
             for (const record of records) {
@@ -139,7 +154,10 @@ world(async () => {
     wide(plugin);
     narrow(plugin);
     choices(plugin);
-    assert.deepEqual(providerIds(plugin, "cli"), ["claude", "codex"]);
+    // Add directory offers sign-in programs only, claude and codex among them.
+    const cliIds = providerIds(plugin, "cli");
+    assert.ok(cliIds.includes("claude") && cliIds.includes("codex"));
+    assert.ok(cliIds.every(id => PROVIDERS.find(row => row.id === id)?.kind === "cli"));
     // Use keyring item offers the AI model key providers Add key does: key
     // rows with a model, openai among them, never the speech-only
     // ElevenLabs key or Cerebras, whose row names no model.
@@ -153,8 +171,20 @@ world(async () => {
         }
     };
     keyProviders(plugin);
-    const refused = cp.spawnSync("node", [path.join(plugin, "backend/accounts.js"), "--tree", tree, "table", "0"], { env, encoding: "utf8" });
-    assert.deepEqual([refused.status, refused.stderr], [1, "jarvis-accounts: arguments=width\n"]);
+    // A width that is no integer from 20 to 1000 is refused, each rule by
+    // its own row.
+    const widthRows = { format: ["3e1", "8x"], minimum: ["0", "19"], maximum: ["1001"] };
+    const widths = (folder, rule) => {
+        for (const value of widthRows[rule]) {
+            const result = cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), "--tree", tree, "table", value],
+                { env, encoding: "utf8", timeout: 15000 });
+            assert.deepEqual([result.status, result.stderr], [1, "jarvis-accounts: arguments=width\n"], "table " + value);
+        }
+        const providers = cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), "--tree", tree, "providers", "cli", "0"],
+            { env, encoding: "utf8", timeout: 15000 });
+        assert.deepEqual([providers.status, providers.stderr], [1, "jarvis-accounts: arguments=width\n"], "providers cli 0");
+    };
+    for (const rule of Object.keys(widthRows)) widths(plugin, rule);
     let controls = 0;
     const control = async (file, name, needle, replacement, assertion) => { await mutant(file, name, needle, replacement, assertion); controls++; };
     await control("tui/accounts.sh", "tui-wrong-directory", 'accounts add "$selected" "$dir" "$label"',
@@ -166,8 +196,15 @@ world(async () => {
     await control("backend/accounts.js", "table-frame", "const TABLE_FRAME = 3 * TABLE_COLUMNS.length + 1;",
         "const TABLE_FRAME = 2 * TABLE_COLUMNS.length;", narrow);
     await control("backend/accounts.js", "table-label", "if (account.email) return account.email;", "", wide);
-    await control("backend/accounts.js", "table-state", 'case "signed-in": return "Signed in";', 'case "signed-in": return state.kind;', wide);
-    await control("backend/accounts.js", "choice-id", 'lines = judge.accounts.map(account => choiceLine(providerLabel(account.provider) + ": "',
+    await control("AccountStatus.js", "table-state", 'case "signed-in": return "Signed in";', 'case "signed-in": return state;', wide);
+    await control("tui/accounts.sh", "screen-no-table", 'gum table --print <<<"$table"', ':', check);
+    await control("tui/accounts.sh", "screen-width", 'columns="$(vgs_tui_columns)"', 'columns=1000', check);
+    await control("AccountProviders.js", "width-format", '!/^[0-9]{1,4}$/.test(text)', 'false', folder => widths(folder, "format"));
+    await control("AccountProviders.js", "width-minimum", 'return value >= MIN_WIDTH && value <= MAX_WIDTH ? value : null;',
+        'return value <= MAX_WIDTH ? value : null;', folder => widths(folder, "minimum"));
+    await control("AccountProviders.js", "width-maximum", 'return value >= MIN_WIDTH && value <= MAX_WIDTH ? value : null;',
+        'return value >= MIN_WIDTH ? value : null;', folder => widths(folder, "maximum"));
+    await control("backend/accounts.js", "choice-id", 'lines = judge.accounts.map(account => choiceLine(label(account.provider) + ": "',
         'lines = judge.accounts.map(account => choiceLine(account.id + ": "', choices);
     await control("AccountProviders.js", "speech-key-offered", 'if (kind === "key") return modelKeyProvider(row);',
         'if (kind === "key") return keyProvider(row);', keyProviders);

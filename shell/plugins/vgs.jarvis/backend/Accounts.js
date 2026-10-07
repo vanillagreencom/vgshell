@@ -680,4 +680,4 @@ class Accounts {
     }
 }
 
-module.exports = { Accounts, accountRoots };
+module.exports = { Accounts, accountRoots, provider };

@@ -7,17 +7,12 @@ set -euo pipefail
 # shellcheck source=/dev/null
 source "$VGS_TUI_LIB"
 log="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/jarvis/setup.log"
-keyed() { printf '%s\n' "$1" >&2; }
-refuse() { # KEY_LINE
-  vgs_tui_logged "$log" keyed "$1" || :
-  vgs_tui_failed "$log" "Open Add key from the Jarvis page in Settings."
-  exit 2
-}
-[[ $# == 0 ]] || refuse "jarvis-keys: arguments=none"
+opened_elsewhere="Open Add key from the Jarvis page in Settings."
+[[ $# == 0 ]] || vgs_tui_refuse "$log" 2 "jarvis-keys: arguments=none" "$opened_elsewhere" || exit
 keys() { vgs_tui_logged "$log" node "$VGS_PLUGIN_DIR/backend/keys.js" "$@"; }
 vgs_tui_header "Add an API key" "An API key from an AI provider lets Jarvis use that provider." \
   "The key stays in your desktop keyring. Jarvis does not show it."
-[[ -t 0 ]] || refuse "jarvis-keys: store=terminal-required"
+[[ -t 0 ]] || vgs_tui_refuse "$log" 2 "jarvis-keys: store=terminal-required" "$opened_elsewhere" || exit
 choices="$(keys providers "$(vgs_tui_columns)")" ||
   { vgs_tui_failed "$log" "Jarvis could not list the providers. Close this window and try again."; exit 1; }
 provider="$(vgs_tui_choose --label-delimiter=$'\t' --header "Select the provider of your key. Make the key on its page first." \

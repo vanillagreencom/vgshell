@@ -76,7 +76,8 @@ function inside() {
 
     // Add key's gum: choose answers with the provider in gum-provider, as
     // gum 2.0.2 prints an option's value under --label-delimiter, and fails
-    // on a provider it was not offered; input answers the key's name.
+    // on a provider it was not offered; it keeps the lines it was offered in
+    // gum-choose. input answers the key's name.
     fs.writeFileSync(path.join(env.PATH.split(":")[0], "gum"), `#!/usr/bin/env node
 const fs = require("node:fs"), path = require("node:path");
 const state = process.env.XDG_STATE_HOME, args = process.argv.slice(2);
@@ -85,11 +86,18 @@ if (args[0] === "input") { console.log("test"); process.exit(0); }
 if (args[0] !== "choose") process.exit(0);
 const delimiter = args.find(arg => arg.startsWith("--label-delimiter="))?.slice("--label-delimiter=".length);
 const wanted = fs.readFileSync(path.join(state, "gum-provider"), "utf8").trim();
-const values = fs.readFileSync(0, "utf8").replace(/\\n$/, "").split("\\n")
+const offered = fs.readFileSync(0, "utf8");
+fs.writeFileSync(path.join(state, "gum-choose"), offered);
+const values = offered.replace(/\\n$/, "").split("\\n")
     .map(line => delimiter ? line.slice(line.indexOf(delimiter) + delimiter.length) : line);
 if (!values.includes(wanted)) process.exit(9);
 console.log(wanted);
 `, { mode: 0o700 });
+    // The world's PATH holds no stty, which vgs_tui_columns reads the
+    // terminal's width with.
+    const stty = ["/usr/bin/stty", "/bin/stty"].find(file => fs.existsSync(file));
+    assert.ok(stty, "stty");
+    fs.symlinkSync(stty, path.join(env.PATH.split(":")[0], "stty"));
     const provider = id => fs.writeFileSync(path.join(env.XDG_STATE_HOME, "gum-provider"), id);
     provider("openai");
     // The reference Add key stores: the chosen provider's own origin.
@@ -208,9 +216,25 @@ console.log(wanted);
             cases++;
         }
     };
+    // The choices fit the terminal: each label within its width after
+    // gum's two-column cursor.
+    const fitted = (folder, script) => {
+        goodTui(tui(folder, script, ["--columns", "40"]));
+        const labels = fs.readFileSync(path.join(env.XDG_STATE_HOME, "gum-choose"), "utf8").trimEnd().split("\n")
+            .map(line => line.split("\t")[0]);
+        assert.ok(labels.length > 0);
+        for (const label of labels) assert.ok(Array.from(label).length <= 38, "fits 40 columns: " + label);
+    };
+    const widthRefused = folder => {
+        const result = cp.spawnSync("node", [path.join(folder, "backend/keys.js"), "providers", "0"], { env, encoding: "utf8" });
+        assert.deepEqual([result.status, result.stderr], [1, "jarvis-keys: arguments=width\n"]);
+    };
     keyProviders(plugin);
     chosen(plugin);
     unknown(plugin);
+    fitted(plugin);
+    widthRefused(plugin);
+    cases += 2;
 
     // Removing each stand-in must break its own behavioral assertion.
     for (const name of ["secret-tool", "busctl", "gum"]) {
@@ -315,6 +339,12 @@ console.log(wanted);
     fs.writeFileSync(scriptCopy, scriptSource.replace(scriptNeedle, 'add-key "$account" "$provider"'));
     assert.throws(() => goodTui(tui(path.dirname(backend), scriptCopy)), assert.AssertionError,
         "TUI must pass complete metadata, not a key");
+    controls++;
+    const widthNeedle = 'keys providers "$(vgs_tui_columns)"';
+    assert.equal(scriptSource.split(widthNeedle).length - 1, 1);
+    const wideCopy = path.join(root, "unfitted-choices.sh");
+    fs.writeFileSync(wideCopy, scriptSource.replace(widthNeedle, "keys providers 1000"));
+    assert.throws(() => fitted(path.dirname(backend), wideCopy), assert.AssertionError, "choices must fit the terminal");
     controls++;
     for (const [name, file, needle, replacement, check] of [
         ["unknown-provider", "backend/keys.js", 'if (row === undefined) throw new Error("jarvis-keys: provider=unknown");', "", unknown],

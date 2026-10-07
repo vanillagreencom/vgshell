@@ -300,6 +300,15 @@ logged_row() {
 check "a logged command's stderr goes to the log, its output and status stay" logged_row
 run "vgs_tui_logged /proc/version/causes.log true"
 check "an unopenable log is refused" test "$status:$(err_first)" == "1:vgs-tui: refused: logged=/proc/version/causes.log reason=open-failed"
+# A refusal: the keyed line to the log, each sentence and the log's name on
+# the screen, and the status it was given.
+refuse_row() {
+  rm -rf -- "${tmp:?}/causes"
+  run "vgs_tui_refuse $(printf %q "$causes") 3 'jarvis: key=value' 'One.' 'Two.' || echo st=\$?"
+  [[ $(cat "$tmp/out") == st=3 && $(cat "$causes" 2>/dev/null) == 'jarvis: key=value' ]] &&
+    [[ $(wc -l <"$tmp/err") == 3 ]] && ! grep -qF 'key=value' "$tmp/err"
+}
+check "a refusal logs its key, shows each sentence and keeps its status" refuse_row
 # The failure lines name the log, $HOME as ~.
 failed_row() {
   run 'vgs_tui_failed "$HOME/state/setup.log" "Could not."'
@@ -411,6 +420,10 @@ run 'vgs_tui_success "Ready."' VGS_TUI_SUCCESS='#070809' VGS_TUI_ACCENT='#010203
 check "the accent-success mutant fails the success colour row" test "$(cat "$tmp/out")" != $'\n'"${esc}[38;2;7;8;9mReady.${esc}[0m"
 control stderr-on-screen '"$@" 2>>"$file"' '"$@"'
 check "the stderr-on-screen mutant fails the cause log row" test "$(logged_row && echo green || echo red)" == red
+control refuse-status 'return "$refused"' 'return 0'
+check "the refuse-status mutant fails the refusal row" test "$(refuse_row && echo green || echo red)" == red
+control refuse-one-sentence '  vgs_tui_failed "$file" "$@"' '  vgs_tui_failed "$file" "$1"'
+check "the refuse-one-sentence mutant fails the refusal row" test "$(refuse_row && echo green || echo red)" == red
 control no-home '"The details are in ${file/#"$HOME"/\~}."' '"The details are in $file."'
 check "the no-home mutant fails the failure row" test "$(failed_row && echo green || echo red)" == red
 control zero-width '[[ $size =~ ^[123456789][0123456789]*$ ]] || size=80' '[[ $size =~ ^[0123456789]+$ ]] || size=80'

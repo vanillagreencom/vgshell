@@ -120,8 +120,8 @@ world(async () => {
     scriptControl("judge-package", 'row.package.manager + " " + row.package.name', '"aur agent-browser-bin"',
         cases.find(row => row[0] === "driver-installed"));
     scriptControl("no-package", '[[ -n $package ]] ||', '[[ -n $package || 1 ]] ||', cases.find(row => row[0] === "driver-no-package"));
-    scriptControl("recheck-after-install", 'command -v agent-browser >/dev/null ||\n    refuse 1 "still-missing',
-        'true ||\n    refuse 1 "still-missing', cases.find(row => row[0] === "driver-unreachable"));
+    scriptControl("recheck-after-install", 'command -v agent-browser >/dev/null ||\n    vgs_tui_refuse "$log" 1 "jarvis: browser-setup=still-missing',
+        'true ||\n    vgs_tui_refuse "$log" 1 "jarvis: browser-setup=still-missing', cases.find(row => row[0] === "driver-unreachable"));
     scriptControl("continue-after-install", 'command -v agent-browser >/dev/null || install_driver',
         'command -v agent-browser >/dev/null || { install_driver; exit 0; }', cases.find(row => row[0] === "driver-installed"));
     scriptControl("vendor-log", 'process.stderr.write("jarvis: browser-vendor="', 'void ("jarvis: browser-vendor="',

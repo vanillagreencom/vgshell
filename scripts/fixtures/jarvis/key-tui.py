@@ -15,8 +15,14 @@ arguments.add_argument("script")
 arguments.add_argument("library")
 arguments.add_argument("plugin")
 arguments.add_argument("--expect-metadata-refusal", action="store_true")
+arguments.add_argument("--columns", type=int, help="size the terminal COLUMNS wide")
 args = arguments.parse_args()
 master, slave = pty.openpty()
+if args.columns is not None:
+    import fcntl
+    import struct
+    import termios
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, args.columns, 0, 0))
 env = {name: os.environ[name] for name in (
     "PATH", "HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME",
     "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")}
