@@ -126,12 +126,14 @@ async function inside() {
         return { ...result, ms: Date.now() - begun };
     }
     function hookAsync(engine, args, input) {
-        const child = cp.spawn(process.execPath, [path.join(path.dirname(engine), "claude-hook"), ...args], { env });
+        const child = cp.spawn(process.execPath, [path.join(path.dirname(engine), "claude-hook"), ...args],
+            { env, timeout: 20000, killSignal: "SIGKILL" });
         let stdout = "", stderr = "";
         child.stdout.on("data", chunk => { stdout += chunk; });
         child.stderr.on("data", chunk => { stderr += chunk; });
         child.stdin.end(JSON.stringify(input));
-        return once(child, "close").then(([status, signal]) => ({ status, signal, stdout, stderr }));
+        const ended = once(child, "close").then(([status, signal]) => ({ status, signal, stdout, stderr }));
+        return { child, ended };
     }
     function create(w, id) {
         const result = cp.spawnSync(process.execPath, [w.engine, "--state", w.directories.state, id, "create"],
@@ -261,7 +263,7 @@ async function inside() {
             create(w, id);
             const running = hookAsync(w.engine, hookArgs(w, id, event), input(event, fields));
             const held = await w.prompt(id, wait);
-            const result = await running;
+            const result = await running.ended;
             assert.deepEqual([result.status, result.stdout], [0, ""], result.stderr);
             assert.equal(w.read(id).wait.kind, wait);
             const late = wait === "permission" ? { v: 1, kind: "allow" } : { v: 1, kind: "reply", text: "x" };
@@ -291,7 +293,7 @@ async function inside() {
         const running = hookAsync(w.engine, hookArgs(w, "full", "PermissionRequest", "5000"), input("PermissionRequest", { tool_name: "Bash" }));
         const held = await w.prompt("full", "permission");
         assert.equal(w.runner.answer("full", held.id, { v: 1, kind: "allow" }), "answered");
-        const result = await running;
+        const result = await running.ended;
         assert.equal(JSON.parse(result.stdout).hookSpecificOutput.decision.behavior, "allow", result.stderr);
         assert.deepEqual(fs.readdirSync(w.prompts).filter(name => name !== ".relay.lock"), [], "expired prompts were swept");
         w.close();
@@ -338,7 +340,7 @@ async function inside() {
             input("PermissionRequest", { tool_name: "Bash" }));
         const held = await w.prompt("capped", "permission");
         assert.equal(w.runner.answer("capped", held.id, { v: 1, kind: "allow" }), "answered");
-        const result = await running;
+        const result = await running.ended;
         assert.equal(result.status, 0, result.stderr);
         assert.equal(JSON.parse(result.stdout).hookSpecificOutput.decision.behavior, "allow");
         assert.deepEqual([w.read("capped").noisy, w.read("capped").dropped], [true, 2]);
@@ -393,17 +395,25 @@ async function inside() {
     async function takeover(modules) {
         const w = world(modules);
         create(w, "takeover");
-        const running = hookAsync(w.engine, hookArgs(w, "takeover", "Stop", "5000"),
+        // Stop must remain held beyond the child deadline, so expiry cannot
+        // satisfy the terminal takeover assertion.
+        const running = hookAsync(w.engine, hookArgs(w, "takeover", "Stop", "600000"),
             input("Stop", { last_assistant_message: "Which branch?" }));
-        const prompt = await w.prompt("takeover", "question");
-        const submitted = hook(w.engine, hookArgs(w, "takeover", "UserPromptSubmit"),
-            input("UserPromptSubmit", { prompt: "Answered in terminal" }));
-        assert.equal(submitted.status, 0, submitted.stderr);
-        const ended = await running;
-        assert.deepEqual([ended.status, ended.stdout], [0, ""]);
-        assert.equal(w.runner.answer("takeover", prompt.id, { v: 1, kind: "reply", text: "late" }), "prompt-unknown");
-        assert.deepEqual([w.read("takeover").wait.kind, w.read("takeover").turn.kind], ["none", "working"]);
-        w.close();
+        try {
+            const prompt = await w.prompt("takeover", "question");
+            const submitted = hook(w.engine, hookArgs(w, "takeover", "UserPromptSubmit"),
+                input("UserPromptSubmit", { prompt: "Answered in terminal" }));
+            assert.equal(submitted.status, 0, submitted.stderr);
+            assert.equal(modules.Relay.present(w.prompts, prompt), false, "terminal input withdraws the live prompt");
+            const ended = await running.ended;
+            assert.deepEqual([ended.status, ended.stdout], [0, ""]);
+            assert.equal(w.runner.answer("takeover", prompt.id, { v: 1, kind: "reply", text: "late" }), "prompt-unknown");
+            assert.deepEqual([w.read("takeover").wait.kind, w.read("takeover").turn.kind], ["none", "working"]);
+        } finally {
+            if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL");
+            await running.ended;
+            w.close();
+        }
         cases++;
     }
 

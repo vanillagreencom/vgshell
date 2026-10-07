@@ -82,7 +82,7 @@ print(value["kind"] if value else "none")
 '
 }
 task_response() {
-  ipc vgs.jarvis invoke task-response | py_reply '
+  ipc vgs.jarvis invoke task-response "" | py_reply '
 import json,sys
 value=json.load(sys.stdin).get("response")
 print(value["answer"] if value else "none")
