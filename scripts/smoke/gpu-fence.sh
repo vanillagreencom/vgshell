@@ -309,7 +309,8 @@ declare -A forwarded=()
 forward() {
   ((forwarded[$1]++ == 0)) || return 0
   local monitor="${!:-}" init="" child=""
-  [[ -n $monitor ]] || exit "$2"
+  # The EXIT trap's release must not be cut short by another kind.
+  [[ -n $monitor ]] || { trap '' TERM INT HUP; exit "$2"; }
   ours "$monitor" || return 0
   read -r init _ 2>/dev/null <"/proc/$monitor/task/$monitor/children" || true
   [[ -z $init ]] || read -r child _ 2>/dev/null <"/proc/$init/task/$init/children" || true

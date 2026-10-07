@@ -92,6 +92,9 @@ fi
 
 root="$(mktemp -d)"
 trap 'rm -rf -- "${root:?}"' EXIT
+# A later stop signal can end the EXIT trap part way; the fence removes
+# what its ledger names once the namespace has ended.
+printf '%s\n' "$root" >>"$VGSHELL_FENCE_LEDGER"
 imports="$root/imports"
 mkdir -p "$imports/qs/Commons" "$imports/qs/Core" "$imports/qs/Unit" "$imports/Quickshell/Io" "$imports/Qt/labs/folderlistmodel" "$root/home" "$root/runtime"
 chmod 700 "$root/runtime"
