@@ -390,6 +390,9 @@ blocks = [text[text.index('system_shown() {'):text.index('\nsound_lists_player()
 for start, end in [('py_reply() {', '\n# jarvis_ready'), ('expect() {', '\n# rescan LABEL'), ('hypr_lua_save() {', '\n# The key capture rows')]:
     offset = harness.index(start)
     blocks.append(harness[offset:harness.index(end, offset)])
+shim_functions = [line for line in harness.splitlines() if line.startswith('shim_hyprctl() {')]
+assert len(shim_functions) == 1
+blocks.extend(shim_functions)
 open(sys.argv[3], 'w').write('\n'.join(blocks))
 PY
   cat >"$dir/monitor.py" <<'PY'
@@ -398,11 +401,11 @@ rules = open(sys.argv[1]).read()
 monitors = []
 for body in re.findall(r'hl\.monitor\(\{([^}]+)\}\)', rules):
     fields = dict(re.findall(r'(\w+)\s*=\s*("[^"]*"|-?[\d.]+)', body))
-    if json.loads(fields['output']) != 'VGS-DISPLAYS':
+    if json.loads(fields['output']) != 'VGS-PLANTED-VRR':
         continue
     width, height = map(int, json.loads(fields['mode']).split('@')[0].split('x'))
     x, y = map(int, json.loads(fields['position']).split('x'))
-    monitors = [dict(name='VGS-DISPLAYS', identifier='VGS-DISPLAYS',
+    monitors = [dict(name='VGS-PLANTED-VRR', identifier='VGS-PLANTED-VRR',
                      width=width, height=height, x=x, y=y,
                      scale=float(fields['scale']), transform=int(fields['transform']))]
 print(json.dumps(monitors))
@@ -410,9 +413,10 @@ PY
   env -i PATH="$PATH" D="$dir" bash -c '
     set -euo pipefail
     source "$D/scene.sh"
-    sandbox="$D" home="$D/home"
-    mkdir -p "$home/.local/state/vgshell/plugins/vgs.displays" "$home/.config/hypr"
-    printf "%s\n" '\''hl.monitor({ output = "VGS-DISPLAYS", mode = "5120x2880@60", position = "1755x0", scale = 2, transform = 0 })'\'' >"$D/original.lua"
+    sandbox="$D" home="$D/home" shim="$D/shim"
+    mkdir -p "$home/.local/state/vgshell/plugins/vgs.displays" "$home/.config/hypr" "$shim"
+    printf "#!/usr/bin/env bash\nexit 1\n" >"$shim/hyprctl.real"
+    printf "%s\n" '\''hl.monitor({ output = "VGS-PLANTED-VRR", mode = "5120x2880@60", position = "1755x0", scale = 2, transform = 0 })'\'' >"$D/original.lua"
     cp "$D/original.lua" "$home/.config/hypr/hyprland.lua"
     ok() { :; }
     fail() { failures=$((failures + 1)); }
@@ -471,14 +475,14 @@ PY
           fi
           echo eval >>"$D/evals"; echo ok ;;
         "-j monitors all") emit_output "$D/compositor" ;;
-        "output create wayland VGS-DISPLAYS") : >"$D/output"; echo ok ;;
-        "output remove VGS-DISPLAYS-READ")
+        "output create wayland VGS-PLANTED-VRR") : >"$D/output"; echo ok ;;
+        "output remove VGS-PLANTED-VRR-READ")
           if [[ $scenario == reload && ! -e $D/reset ]]; then
             : >"$D/reset"; load_config "$D/original.lua"
           fi
           [[ $scenario == stale ]] || cp "$D/compositor" "$D/service"
           echo ok ;;
-        "output remove VGS-DISPLAYS")
+        "output remove VGS-PLANTED-VRR")
           rm "$D/output"; echo "[]" >"$D/compositor"; echo "[]" >"$D/service"; echo ok ;;
         "reload config-only")
           load_config "$home/.config/hypr/hyprland.lua"
@@ -494,6 +498,7 @@ PY
       : >"$D/output"
       load_config "$D/original.lua"; cp "$D/compositor" "$D/service"; echo absent >"$D/window"
       scene_system dark
+      cmp "$shim/hyprctl.real" "$shim/hyprctl" || exit 1
       cmp "$D/original.lua" "$home/.config/hypr/hyprland.lua" || exit 1
       [[ $(cat "$D/compositor") == "[]" && $(cat "$D/service") == "[]" && ! -e $D/output ]] || exit 1
       if [[ $scenario == reload ]]; then
@@ -503,7 +508,7 @@ PY
       else
         [[ $failures -gt 0 && ! -e $D/captured-compositor && ! -e $D/reloaded && -s $D/evals ]] || exit 1
       fi
-      hypr output create wayland VGS-DISPLAYS >/dev/null
+      hypr output create wayland VGS-PLANTED-VRR >/dev/null
       hypr reload config-only >/dev/null
       assert_geometry "$D/compositor" 1755 0 0
       assert_geometry "$D/service" 1755 0 0
