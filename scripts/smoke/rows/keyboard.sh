@@ -81,6 +81,30 @@ print(next((i for i,row in enumerate(rows) if row.get(sys.argv[1]) == want), "ab
 }
 keyboard_system_layout="$(keyboard_option input:kb_layout str)"
 keyboard_system_variant="$(keyboard_option input:kb_variant str)"
+keyboard_input_options() {
+  local option
+  for option in kb_layout kb_variant kb_options repeat_rate repeat_delay; do
+    case "$option" in repeat_*) keyboard_option "input:$option" int || return 1;;
+      *) keyboard_option "input:$option" str || return 1;; esac
+  done
+}
+keyboard_saved_options="$(keyboard_input_options)"
+# The row shares its sandbox with later rows, including after a timeout.
+# Its saved file and input options belong to the same cleanup path.
+keyboard_restore() {
+  expect "Keyboard closes its System window during restore" ok ipc shell hide window vgs.system
+  expect "Keyboard closes its panel during restore" ok ipc shell hide panel vgs.keyboard
+  expect_poll "Keyboard leaves no System window during restore" 0 window_count 'System Settings'
+  expect_poll "Keyboard leaves no panel during restore" 0 keyboard_panels
+  expect_poll "Keyboard unmaps its panel during restore" 0 layer_count vgs:panel
+  if ! cp -- "$keyboard_saved" "$keyboard_file.tmp" || ! mv -T -- "$keyboard_file.tmp" "$keyboard_file"; then
+    fail "keyboard-restore: status=file-failed"
+    return 1
+  fi
+  expect "Keyboard restores the row's configuration" ok ipc shell reloadConfig
+  expect "Keyboard reloads its starting system options" ok hypr reload config-only
+  expect_poll "Keyboard restores its starting input options" "$keyboard_saved_options" keyboard_input_options
+}
 keyboard_transport_contract() {
   python3 -c 'import pathlib,sys; source=pathlib.Path(sys.argv[1]).read_text(); print("ok" if "hyprctl" not in source and "shell.hyprland.switchKeyboardLayout(\"next\")" in source else "direct")' "$1/Widget.qml"
 }
@@ -153,14 +177,14 @@ expect_poll "the menu-opened panel is gone" 0 keyboard_panels
 expect "the Keyboard pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.keyboard"}'
 expect_poll "the Keyboard pane mounts" '["vgs.keyboard"]' window_panes
 expect_poll "the editor holds both sources and variants" '[["us", ""], ["de", "nodeadkeys"]]' keyboard_sources
-keyboard_wait || return 0
+keyboard_wait || { keyboard_restore; return 0; }
 ok "the System window holds the keyboard before editor input"
 
 # Hold the real panel mapped and focused. The same input driver must stop
 # before sending a key; omitting its wait must turn that assertion red.
 expect "the keyboard-holder control opens the panel" ok ipc shell summon panel vgs.keyboard '{}'
 expect_poll "the keyboard-holder control maps the panel" 1 layer_count vgs:panel
-click_in vgs:panel panel vgs.keyboard DeviceRow 'English (US)' || { fail "the keyboard-holder control focuses the panel"; return 0; }
+click_in vgs:panel panel vgs.keyboard DeviceRow 'English (US)' || { fail "the keyboard-holder control focuses the panel"; keyboard_restore; return 0; }
 expect_poll "the keyboard-holder control gives the panel the keyboard" true ipc smoke windowFocused panel vgs.keyboard
 expect_poll "the System window reads the keyboard leave before the control" false window_keyboard vgs.system
 keyboard_reject_panel() {
@@ -197,45 +221,45 @@ expect "the keyboard-holder control closes its System window" ok ipc shell hide 
 expect_poll "the keyboard-holder control unmaps its System window" 0 window_count 'System Settings'
 expect "the Keyboard pane reopens after the keyboard-holder control" ok ipc shell summon window vgs.system '{"pane":"vgs.keyboard"}'
 expect_poll "the reopened Keyboard pane mounts" '["vgs.keyboard"]' window_panes
-keyboard_editor_keys -k End || return 0
-keyboard_editor_keys -M ctrl -k Up -m ctrl || return 0
+keyboard_editor_keys -k End || { keyboard_restore; return 0; }
+keyboard_editor_keys -M ctrl -k Up -m ctrl || { keyboard_restore; return 0; }
 expect_poll "keyboard move keeps the source and variant together" '[["de", "nodeadkeys"], ["us", ""]]' keyboard_sources
 expect_poll "keyboard move reaches Hyprland" '"de,us"' keyboard_option input:kb_layout str
-keyboard_editor_keys -k Delete || return 0
+keyboard_editor_keys -k Delete || { keyboard_restore; return 0; }
 expect_poll "keyboard removal keeps the remaining source" '[["us", ""]]' keyboard_sources
-keyboard_editor_keys -k Delete || return 0
+keyboard_editor_keys -k Delete || { keyboard_restore; return 0; }
 expect "the editor keeps the last source" '[["us", ""]]' keyboard_sources
 # DeviceRow includes a focusable overflow button. Traverse the actual
 # controls until the first repeat slider, rather than assume a Tab count.
 for _ in $(seq 1 12); do
   [[ $(ipc smoke activeFocusItem window vgs.keyboard) == '["Slider",null]' ]] && break
-  keyboard_editor_keys -k Tab || return 0
+  keyboard_editor_keys -k Tab || { keyboard_restore; return 0; }
 done
 expect_poll "the repeat slider holds keyboard focus" '["Slider",null]' ipc smoke activeFocusItem window vgs.keyboard
-keyboard_editor_keys -k End || return 0
+keyboard_editor_keys -k End || { keyboard_restore; return 0; }
 expect_poll "repeat rate reaches Hyprland" 200 keyboard_option input:repeat_rate int
-keyboard_pick layoutPicker code de || return 0
-keyboard_pick variantPicker code nodeadkeys || return 0
-keyboard_focus Button addSource || return 0
-keyboard_editor_keys -k space || return 0
+keyboard_pick layoutPicker code de || { keyboard_restore; return 0; }
+keyboard_pick variantPicker code nodeadkeys || { keyboard_restore; return 0; }
+keyboard_focus Button addSource || { keyboard_restore; return 0; }
+keyboard_editor_keys -k space || { keyboard_restore; return 0; }
 expect_poll "Add saves the selected layout in every settings entry" '["us,de", "us,de"]' keyboard_saved_value layouts
 expect_poll "Add saves the selected variant in every settings entry" '[",nodeadkeys", ",nodeadkeys"]' keyboard_saved_value variants
 expect_poll "Add applies the selected layout" '"us,de"' keyboard_option input:kb_layout str
 expect_poll "Add applies the selected variant" '",nodeadkeys"' keyboard_option input:kb_variant str
-keyboard_focus Button systemLayout || return 0
-keyboard_editor_keys -k space || return 0
+keyboard_focus Button systemLayout || { keyboard_restore; return 0; }
+keyboard_editor_keys -k space || { keyboard_restore; return 0; }
 expect_poll "reset removes both saved layout values" '["absent", "absent"]' keyboard_saved_value layouts
 expect_poll "reset removes both saved variant values" '["absent", "absent"]' keyboard_saved_value variants
 expect_poll "reset restores the compositor's system layout" "$keyboard_system_layout" keyboard_option input:kb_layout str
 expect_poll "reset restores the compositor's system variant" "$keyboard_system_variant" keyboard_option input:kb_variant str
-keyboard_pick modifierPicker value caps:escape || return 0
+keyboard_pick modifierPicker value caps:escape || { keyboard_restore; return 0; }
 expect_poll "the modifier preset is saved" '["caps:escape", "caps:escape"]' keyboard_saved_value options
 expect_poll "the modifier preset reaches Hyprland" '"caps:escape"' keyboard_option input:kb_options str
-keyboard_pick modifierPicker value __custom || return 0
-keyboard_focus TextField customOptions || return 0
-keyboard_editor_keys -M ctrl -k a -m ctrl || return 0
-keyboard_editor_keys 'compose:ralt,grp:alt_shift_toggle' || return 0
-keyboard_editor_keys -k Return || return 0
+keyboard_pick modifierPicker value __custom || { keyboard_restore; return 0; }
+keyboard_focus TextField customOptions || { keyboard_restore; return 0; }
+keyboard_editor_keys -M ctrl -k a -m ctrl || { keyboard_restore; return 0; }
+keyboard_editor_keys 'compose:ralt,grp:alt_shift_toggle' || { keyboard_restore; return 0; }
+keyboard_editor_keys -k Return || { keyboard_restore; return 0; }
 expect_poll "custom modifiers are saved" '["compose:ralt,grp:alt_shift_toggle", "compose:ralt,grp:alt_shift_toggle"]' keyboard_saved_value options
 expect_poll "custom modifiers reach Hyprland" '"compose:ralt,grp:alt_shift_toggle"' keyboard_option input:kb_options str
 expect "the Keyboard pane closes before the control" ok ipc shell hide window vgs.system
@@ -294,8 +318,7 @@ expect "control: the source contract rejects the direct transport" direct keyboa
 expect "disabling the control is allowed" ok ipc shell setPluginEnabled vgs.keyboard false
 rm -rf -- "${keyboard_copy:?}"
 rescan "rescan restores the shipped Keyboard plugin"
-cp -- "$keyboard_saved" "$keyboard_file.tmp" && mv -T -- "$keyboard_file.tmp" "$keyboard_file"
-expect "Keyboard restores the row's configuration" ok ipc shell reloadConfig
+keyboard_restore
 
 
 # Remove the plugin's handler in fresh copies so only the post-switch core
@@ -336,11 +359,67 @@ for keyboard_fixture in keyboard-no-layout-event keyboard-no-completion; do
     expect "control: removing the completion read fails the same active source check" 1 keyboard_completion_control
   fi
   expect "the completion fixture holds no plugin layout event" null ipc smoke readInstance service vgs.keyboard layoutEvent
-  cp -- "$keyboard_saved" "$keyboard_file.tmp" && mv -T -- "$keyboard_file.tmp" "$keyboard_file"
-  expect "the completion fixture restores the configuration" ok ipc shell reloadConfig
+  keyboard_restore
 done
 stop_shell
 start_shell "$repo" "$sandbox/keyboard-completion-restored.log" || fail "the completion fixtures restore the shipped shell"
 expect "the restored shell reloads the system sources" ok hypr reload config-only
 expect_poll "the restored shell keeps the system layout" "$keyboard_system_layout" keyboard_option input:kb_layout str
 expect_poll "the restored shell keeps the system variant" "$keyboard_system_variant" keyboard_option input:kb_variant str
+
+# Source the actual row through its failure return, not just its input
+# driver. A focused panel plants the timeout before any editor key.
+keyboard_cleanup_state() {
+  local configuration=changed windows panels options
+  cmp -s -- "$keyboard_saved" "$keyboard_file" && configuration=restored
+  windows="$(window_count 'System Settings')" && panels="$(keyboard_panels)" && options="$(keyboard_input_options)" || return 1
+  if [[ $configuration == restored && $windows == 0 && $panels == 0 && $options == "$keyboard_saved_options" ]]; then
+    echo restored
+  else
+    printf 'configuration=%s windows=%s panels=%s options_match=%s\n' "$configuration" "$windows" "$panels" "$([[ $options == "$keyboard_saved_options" ]] && echo true || echo false)"
+  fi
+}
+keyboard_timeout_row() {
+  (failures=0 behaviour_failures=0
+   source "$sandbox/keyboard-timeout-$1.sh" >"$sandbox/keyboard-timeout-$1.log"
+   echo "$failures")
+}
+keyboard_cleanup_check() { expect "a stopped Keyboard row restores its starting file, windows and options" restored keyboard_cleanup_state; }
+keyboard_cleanup_control() {
+  (failures=0 behaviour_failures=0
+   keyboard_cleanup_check >"$sandbox/keyboard-cleanup-control.log"
+   echo "$failures")
+}
+for keyboard_cleanup_fixture in restored omitted; do
+  python3 - "$repo/scripts/smoke/rows/keyboard.sh" "$sandbox/keyboard-timeout-$keyboard_cleanup_fixture.sh" "$keyboard_cleanup_fixture" <<'PYCLEANUP'
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+wait = 'keyboard_wait || { keyboard_restore; return 0; }\n'
+assert text.count(wait) == 1
+plant = '''expect "the timeout-row control opens its panel" ok ipc shell summon panel vgs.keyboard '{}'
+expect_poll "the timeout-row control maps its panel" 1 layer_count vgs:panel
+click_in vgs:panel panel vgs.keyboard DeviceRow 'English (US)' || { fail "the timeout-row control focuses its panel"; keyboard_restore; return 0; }
+expect_poll "the timeout-row control gives the panel the keyboard" true ipc smoke windowFocused panel vgs.keyboard
+expect_poll "the timeout-row control reads the System keyboard leave" false window_keyboard vgs.system
+'''
+replacement = wait if sys.argv[3] == 'restored' else 'keyboard_wait || { if false; then keyboard_restore; fi; return 0; }\n'
+# Stop the copy at the tested return so a failed plant cannot enter the
+# row's later controls or recursively source another copy.
+changed = text.split(wait, 1)[0] + plant + replacement + '''fail "keyboard-timeout-control: status=not-rejected"
+keyboard_restore
+return 0
+'''
+assert changed != text
+pathlib.Path(sys.argv[2]).write_text(changed)
+PYCLEANUP
+  expect "the $keyboard_cleanup_fixture cleanup fixture stops on one keyboard timeout" 1 keyboard_timeout_row "$keyboard_cleanup_fixture"
+  grep -F 'keyboard-input: status=timeout' "$sandbox/keyboard-timeout-$keyboard_cleanup_fixture.log"
+  if [[ $keyboard_cleanup_fixture == restored ]]; then
+    keyboard_cleanup_check
+  else
+    expect "control: omitting failure cleanup fails the same restored-state assertion" 1 keyboard_cleanup_control
+    cat -- "$sandbox/keyboard-cleanup-control.log"
+    keyboard_restore
+    keyboard_cleanup_check
+  fi
+done
