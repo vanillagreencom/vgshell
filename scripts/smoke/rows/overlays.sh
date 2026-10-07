@@ -244,9 +244,13 @@ done
 # The height caps' copies, written with the others: a popover that reads
 # its cap back, and a popover and a dialog that find their output as the
 # Qt window's own `screen`, which a Quickshell window does not have.
-python3 - "$repo/shell/Ui/overlay/Popover.qml" "$repo/shell/Ui/overlay" "$repo/shell/Ui/feedback/Dialog.qml" <<'PYEDIT'
+# feedback/ was read at startup, so Qt's cached listing cannot see a new
+# Dialog file there. Its control uses a fresh directory instead.
+dialog_controls="$repo/shell/Ui/feedback/overlays-controls"
+mkdir "$dialog_controls"
+python3 - "$repo/shell/Ui/overlay/Popover.qml" "$repo/shell/Ui/overlay" "$repo/shell/Ui/feedback/Dialog.qml" "$dialog_controls" <<'PYEDIT'
 import pathlib, sys
-popover, overlay, dialog = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+popover, overlay, dialog, dialog_controls = map(pathlib.Path, sys.argv[1:])
 old_read = """    function windowScreen(item) {
         const window = item === null || item === undefined ? null : item.Window.window;
         return window === null || window === undefined || window.screen === null || window.screen === undefined ? null : window.screen;
@@ -263,7 +267,10 @@ text = text.replace(marker, marker + "    readonly property real smokeCap: pane.
 (overlay / "PopoverCap.qml").write_text(text)
 (overlay / "PopoverOldRead.qml").write_text(planted(text, "OverlayState.outputOf(anchorItem)", marker))
 text = dialog.read_text()
-(dialog.parent / "DialogOldRead.qml").write_text(planted(text, "OverlayState.outputOf(root)", "    property real availableHeight: 0\n"))
+keynav = 'import "../foundation/KeyNavLogic.js" as KeyNavLogic\n'
+assert text.count(keynav) == 1, "the KeyNavLogic import must occur once in Dialog.qml"
+text = text.replace(keynav, 'import "../../foundation/KeyNavLogic.js" as KeyNavLogic\n')
+(dialog_controls / "DialogOldRead.qml").write_text(planted(text, "OverlayState.outputOf(root)", "    property real availableHeight: 0\n"))
 PYEDIT
 # name -> [the member that opens it, the property that reads it open, its properties]
 declare -A nograb_use=(
@@ -354,16 +361,38 @@ cap_reads() { # COPY PROPERTY SHARE: `share` when the copy's cap is that share o
   cap="$(ipc smoke popupRead "$1" "$2")" || return
   share="$(ipc smoke readInstance panel acme.overlays "$3")" || return
   fallback="$(ipc smoke readInstance panel acme.overlays fallbackCap)" || return
-  python3 -c 'import sys; cap, share, height, fallback = map(float, sys.argv[1:]); print("share" if abs(cap - share * height) < 1 else "fallback" if cap == fallback else "cap=%g want=%g" % (cap, share * height))' "$cap" "$share" "$out_h" "$fallback"
+  python3 - "$cap" "$share" "$out_h" "$fallback" <<'PY'
+import math, sys
+values = []
+for name, raw in zip(("cap", "share", "height", "fallback"), sys.argv[1:]):
+    try:
+        value = float(raw)
+    except ValueError:
+        print("cap-read-unavailable=" + name + ":" + (raw or "empty"))
+        sys.exit()
+    if not math.isfinite(value):
+        print("cap-read-unavailable=" + name + ":non-finite")
+        sys.exit()
+    values.append(value)
+cap, share, height, fallback = values
+print("share" if abs(cap - share * height) < 1 else "fallback" if cap == fallback else "cap=%g want=%g" % (cap, share * height))
+PY
 }
 expect "the probe builds the popover copy that reads its cap" ok ipc smoke popupLoad popover-cap "$repo/shell/Ui/overlay/PopoverCap.qml" panel acme.overlays '{"width":160}'
 expect "the probe builds the popover copy with the window's screen" ok ipc smoke popupLoad popover-old "$repo/shell/Ui/overlay/PopoverOldRead.qml" panel acme.overlays '{"width":160}'
 expect "the probe builds a dialog in the flyout" ok ipc smoke popupLoad dialog-cap "$repo/shell/Ui/feedback/Dialog.qml" panel acme.overlays '{"width":240}'
-expect "the probe builds the dialog copy with the window's screen" ok ipc smoke popupLoad dialog-old "$repo/shell/Ui/feedback/DialogOldRead.qml" panel acme.overlays '{"width":240}'
+expect "the probe builds the dialog copy with the window's screen" ok ipc smoke popupLoad dialog-old "$dialog_controls/DialogOldRead.qml" panel acme.overlays '{"width":240}'
 expect_poll "a popover in a popup caps at its share of the output" share cap_reads popover-cap smokeCap popoverShare
 expect "the popover copy with the window's screen caps at the fallback" fallback cap_reads popover-old smokeCap popoverShare
 expect_poll "a dialog in a popup caps at its share of the output" share cap_reads dialog-cap maximumHeight dialogShare
 expect "the dialog copy with the window's screen caps at the fallback" fallback cap_reads dialog-old maximumHeight dialogShare
+dialog_share_control() {
+  (failures=0 behaviour_failures=0
+   expect "a dialog in a popup caps at its share of the output" share cap_reads dialog-old maximumHeight dialogShare >"$sandbox/overlays-dialog-share-control.log"
+   echo "$failures")
+}
+expect "control: reading the window's screen fails the dialog output share check" 1 dialog_share_control
+expect "a missing dialog cap has a named reason" cap-read-unavailable=cap:absent cap_reads dialog-absent maximumHeight dialogShare
 for name in popover-cap popover-old dialog-cap dialog-old; do
   expect "the probe drops the $name copy" ok ipc smoke popupDrop "$name"
 done
