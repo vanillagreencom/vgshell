@@ -1,7 +1,7 @@
 # vgs.keyboard's real editor, layer options and bar click in the nested
 # sandbox. The direct-hyprctl widget control changes the keymap but fails
 # the widget's source contract: only the core owns the transport.
-# inputs: shell/plugins/vgs.keyboard/* shell/plugins/vgs.system/* shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Ui/layout/DeviceList.qml shell/Ui/layout/DeviceRow.qml shell/Ui/controls/Select.qml shell/Ui/controls/Button.qml shell/Ui/controls/Slider.qml shell/Ui/controls/TextField.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Hosts/SummonPopup.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js scripts/smoke/Probe.qml scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.keyboard/* shell/plugins/vgs.system/* shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Ui/layout/DeviceList.qml shell/Ui/layout/DeviceRow.qml shell/Ui/controls/Select.qml shell/Ui/controls/Button.qml shell/Ui/controls/Slider.qml shell/Ui/controls/TextField.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Hosts/SummonPopup.qml shell/Hosts/SummonLayer.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js scripts/smoke/Probe.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 keyboard_file="$home/.config/vgshell/shell.json"
 keyboard_saved="$sandbox/shell-before-keyboard.json"
@@ -15,6 +15,25 @@ keyboard_active_fields() { ipc smoke statusValues vgs.keyboard | py_reply 'impor
 keyboard_service_index() { ipc smoke readInstance service vgs.keyboard devices | py_reply 'import json,sys; value=json.load(sys.stdin); rows=[] if value is None else value.get("keyboards", []); print(next((r["activeLayoutIndex"] for r in rows if r["main"]), "absent"))'; }
 keyboard_event_fields() { ipc smoke readInstance service vgs.keyboard layoutEvent | py_reply 'import json,sys; row=json.load(sys.stdin); print(json.dumps(None if row is None else [row["code"],row["name"],row["layouts"],row["variants"]]))'; }
 keyboard_panels() { ipc shell built | py_reply 'import json,sys; print(sum(r["id"] == "vgs.keyboard" for r in json.load(sys.stdin).get("panel", [])))'; }
+# A built pane can have item focus before its window receives the seat.
+# Wait on the activated window, not on the editor's remembered focus.
+keyboard_wait() {
+  local held="unreadable" panel="unreadable" active="unreadable" holder="unknown"
+  smoke_poll_tries 200
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    if held="$(window_keyboard vgs.system)" && [[ $held == true ]]; then return 0; fi
+    sleep 0.2
+  done
+  panel="$(ipc smoke windowFocused panel vgs.keyboard)" || panel=unreadable
+  active="$(active_window)" || active=unreadable
+  if [[ $panel == true ]]; then holder=panel:vgs.keyboard; else holder="active-window:$active"; fi
+  fail "keyboard-input: status=timeout target=window:vgs.system holder=$holder window_keyboard=$held panel_keyboard=$panel"
+  return 1
+}
+keyboard_editor_keys() {
+  keyboard_wait || return 1
+  type_keys "$@" || { fail "keyboard-input: status=type-failed target=window:vgs.system"; return 1; }
+}
 keyboard_right_click() {
   local box x y
   box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.keyboard)" || return 1
@@ -42,8 +61,9 @@ print(json.dumps([r.get(sys.argv[1], "absent") for r in entries]))' "$1"
 keyboard_focus() {
   for _ in $(seq 1 40); do
     [[ $(ipc smoke readMatchingDescendant window vgs.keyboard "$1" objectName "$2" activeFocus) == true ]] && return 0
-    type_keys -k Tab || return 1
+    keyboard_editor_keys -k Tab || return 1
   done
+  fail "keyboard-input: status=control-unreachable type=$1 object=$2"
   return 1
 }
 # Select through its real closed-list key path. The model identifies the
@@ -53,11 +73,11 @@ keyboard_pick() {
   index="$(ipc smoke readMatchingDescendant window vgs.keyboard Select objectName "$1" model | py_reply 'import json,sys
 rows=json.load(sys.stdin)
 want=None if sys.argv[2] == "__custom" else sys.argv[2]
-print(next((i for i,row in enumerate(rows) if row.get(sys.argv[1]) == want), "absent"))' "$2" "$3")" || return 1
-  [[ $index =~ ^[0-9]+$ ]] || return 1
+print(next((i for i,row in enumerate(rows) if row.get(sys.argv[1]) == want), "absent"))' "$2" "$3")" || { fail "keyboard-input: status=choices-unreadable control=$1"; return 1; }
+  [[ $index =~ ^[0-9]+$ ]] || { fail "keyboard-input: status=choice-absent control=$1 value=$3"; return 1; }
   keyboard_focus Select "$1" || return 1
-  type_keys -k Home || return 1
-  for ((keyboard_index=0; keyboard_index<index; keyboard_index++)); do type_keys -k Down || return 1; done
+  keyboard_editor_keys -k Home || return 1
+  for ((keyboard_index=0; keyboard_index<index; keyboard_index++)); do keyboard_editor_keys -k Down || return 1; done
 }
 keyboard_system_layout="$(keyboard_option input:kb_layout str)"
 keyboard_system_variant="$(keyboard_option input:kb_variant str)"
@@ -133,45 +153,89 @@ expect_poll "the menu-opened panel is gone" 0 keyboard_panels
 expect "the Keyboard pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.keyboard"}'
 expect_poll "the Keyboard pane mounts" '["vgs.keyboard"]' window_panes
 expect_poll "the editor holds both sources and variants" '[["us", ""], ["de", "nodeadkeys"]]' keyboard_sources
-type_keys -k End || fail "selecting the last source failed"
-type_keys -M ctrl -k Up -m ctrl || fail "moving the source up failed"
+keyboard_wait || return 0
+ok "the System window holds the keyboard before editor input"
+
+# Hold the real panel mapped and focused. The same input driver must stop
+# before sending a key; omitting its wait must turn that assertion red.
+expect "the keyboard-holder control opens the panel" ok ipc shell summon panel vgs.keyboard '{}'
+expect_poll "the keyboard-holder control maps the panel" 1 layer_count vgs:panel
+click_in vgs:panel panel vgs.keyboard DeviceRow 'English (US)' || { fail "the keyboard-holder control focuses the panel"; return 0; }
+expect_poll "the keyboard-holder control gives the panel the keyboard" true ipc smoke windowFocused panel vgs.keyboard
+expect_poll "the System window reads the keyboard leave before the control" false window_keyboard vgs.system
+keyboard_reject_panel() {
+  local status=0 count
+  (failures=0 behaviour_failures=0; "$1" -k End) >"$sandbox/keyboard-input-$1.log" || status=$?
+  if [[ $status != 1 ]]; then echo "accepted status=$status"; return; fi
+  count="$(grep -cE 'keyboard-input: status=timeout target=window:vgs.system holder=panel:vgs.keyboard window_keyboard=false panel_keyboard=true$' "$sandbox/keyboard-input-$1.log")" || return 1
+  if [[ $count == 1 ]]; then echo rejected; else echo "timeouts=$count"; fi
+}
+expect "a mapped panel stops editor input at the keyboard-holder wait" rejected keyboard_reject_panel keyboard_editor_keys
+cat -- "$sandbox/keyboard-input-keyboard_editor_keys.log"
+declare -f keyboard_editor_keys >"$sandbox/keyboard-input-driver.sh"
+python3 - "$sandbox/keyboard-input-driver.sh" "$sandbox/keyboard-input-no-wait.sh" <<'PYNOWAIT'
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+name = 'keyboard_editor_keys ()'
+wait = '    keyboard_wait || return 1;'
+assert text.count(name) == 1 and text.count(wait) == 1
+changed = text.replace(name, 'keyboard_editor_keys_unchecked ()').replace(wait, '    if false; then keyboard_wait || return 1; fi;')
+assert changed != text
+pathlib.Path(sys.argv[2]).write_text(changed)
+PYNOWAIT
+source "$sandbox/keyboard-input-no-wait.sh"
+keyboard_rejection_control() {
+  (failures=0 behaviour_failures=0
+   expect "a mapped panel stops editor input at the keyboard-holder wait" rejected keyboard_reject_panel keyboard_editor_keys_unchecked >"$sandbox/keyboard-input-control.log"
+   echo "$failures")
+}
+expect "control: removing the wait fails the same keyboard-holder assertion" 1 keyboard_rejection_control
+cat -- "$sandbox/keyboard-input-control.log"
+expect "the keyboard-holder control hides its panel" ok ipc shell hide panel vgs.keyboard
+expect_poll "the keyboard-holder control unmaps its panel" 0 layer_count vgs:panel
+expect "the keyboard-holder control closes its System window" ok ipc shell hide window vgs.system
+expect_poll "the keyboard-holder control unmaps its System window" 0 window_count 'System Settings'
+expect "the Keyboard pane reopens after the keyboard-holder control" ok ipc shell summon window vgs.system '{"pane":"vgs.keyboard"}'
+expect_poll "the reopened Keyboard pane mounts" '["vgs.keyboard"]' window_panes
+keyboard_editor_keys -k End || return 0
+keyboard_editor_keys -M ctrl -k Up -m ctrl || return 0
 expect_poll "keyboard move keeps the source and variant together" '[["de", "nodeadkeys"], ["us", ""]]' keyboard_sources
 expect_poll "keyboard move reaches Hyprland" '"de,us"' keyboard_option input:kb_layout str
-type_keys -k Delete || fail "removing the selected source failed"
+keyboard_editor_keys -k Delete || return 0
 expect_poll "keyboard removal keeps the remaining source" '[["us", ""]]' keyboard_sources
-type_keys -k Delete || fail "trying to remove the last source failed"
+keyboard_editor_keys -k Delete || return 0
 expect "the editor keeps the last source" '[["us", ""]]' keyboard_sources
 # DeviceRow includes a focusable overflow button. Traverse the actual
 # controls until the first repeat slider, rather than assume a Tab count.
 for _ in $(seq 1 12); do
   [[ $(ipc smoke activeFocusItem window vgs.keyboard) == '["Slider",null]' ]] && break
-  type_keys -k Tab || fail "tabbing to repeat rate failed"
+  keyboard_editor_keys -k Tab || return 0
 done
 expect_poll "the repeat slider holds keyboard focus" '["Slider",null]' ipc smoke activeFocusItem window vgs.keyboard
-type_keys -k End || fail "changing repeat rate from the keyboard failed"
+keyboard_editor_keys -k End || return 0
 expect_poll "repeat rate reaches Hyprland" 200 keyboard_option input:repeat_rate int
-keyboard_pick layoutPicker code de || fail "choosing German through the layout control failed"
-keyboard_pick variantPicker code nodeadkeys || fail "choosing the non-default variant failed"
-keyboard_focus Button addSource || fail "the Add button cannot take keys"
-type_keys -k space || fail "activating Add input source failed"
+keyboard_pick layoutPicker code de || return 0
+keyboard_pick variantPicker code nodeadkeys || return 0
+keyboard_focus Button addSource || return 0
+keyboard_editor_keys -k space || return 0
 expect_poll "Add saves the selected layout in every settings entry" '["us,de", "us,de"]' keyboard_saved_value layouts
 expect_poll "Add saves the selected variant in every settings entry" '[",nodeadkeys", ",nodeadkeys"]' keyboard_saved_value variants
 expect_poll "Add applies the selected layout" '"us,de"' keyboard_option input:kb_layout str
 expect_poll "Add applies the selected variant" '",nodeadkeys"' keyboard_option input:kb_variant str
-keyboard_focus Button systemLayout || fail "the system layout button cannot take keys"
-type_keys -k space || fail "activating Use system layout failed"
+keyboard_focus Button systemLayout || return 0
+keyboard_editor_keys -k space || return 0
 expect_poll "reset removes both saved layout values" '["absent", "absent"]' keyboard_saved_value layouts
 expect_poll "reset removes both saved variant values" '["absent", "absent"]' keyboard_saved_value variants
 expect_poll "reset restores the compositor's system layout" "$keyboard_system_layout" keyboard_option input:kb_layout str
 expect_poll "reset restores the compositor's system variant" "$keyboard_system_variant" keyboard_option input:kb_variant str
-keyboard_pick modifierPicker value caps:escape || fail "choosing the modifier preset failed"
+keyboard_pick modifierPicker value caps:escape || return 0
 expect_poll "the modifier preset is saved" '["caps:escape", "caps:escape"]' keyboard_saved_value options
 expect_poll "the modifier preset reaches Hyprland" '"caps:escape"' keyboard_option input:kb_options str
-keyboard_pick modifierPicker value __custom || fail "choosing custom modifiers failed"
-keyboard_focus TextField customOptions || fail "the custom modifier field cannot take keys"
-type_keys -M ctrl -k a -m ctrl || fail "selecting the custom modifier text failed"
-type_keys 'compose:ralt,grp:alt_shift_toggle' || fail "typing custom modifier options failed"
-type_keys -k Return || fail "committing custom modifiers failed"
+keyboard_pick modifierPicker value __custom || return 0
+keyboard_focus TextField customOptions || return 0
+keyboard_editor_keys -M ctrl -k a -m ctrl || return 0
+keyboard_editor_keys 'compose:ralt,grp:alt_shift_toggle' || return 0
+keyboard_editor_keys -k Return || return 0
 expect_poll "custom modifiers are saved" '["compose:ralt,grp:alt_shift_toggle", "compose:ralt,grp:alt_shift_toggle"]' keyboard_saved_value options
 expect_poll "custom modifiers reach Hyprland" '"compose:ralt,grp:alt_shift_toggle"' keyboard_option input:kb_options str
 expect "the Keyboard pane closes before the control" ok ipc shell hide window vgs.system
