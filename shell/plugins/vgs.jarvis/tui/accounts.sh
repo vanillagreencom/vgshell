@@ -27,7 +27,7 @@ child_env=(env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8
 gum() {
   local gum_theme=() name
   while IFS='=' read -r name _; do
-    [[ $name =~ ^GUM_[A-Z_]+$ ]] || continue
+    [[ $name =~ ^GUM_[A-Z_]+$ || $name == TERM || $name == COLORTERM ]] || continue
     gum_theme+=("$name=${!name}")
   done < <(env)
   "${child_env[@]}" "${gum_theme[@]}" gum "$@"

@@ -60,6 +60,8 @@ world(async () => {
     fs.mkdirSync(hand);
     const log = path.join(env.XDG_STATE_HOME, "vgshell/jarvis/setup.log");
     env.GUM_CHOOSE_CURSOR_FOREGROUND = "#112233";
+    env.TERM = "xterm-256color";
+    env.COLORTERM = "truecolor";
     env.ANTHROPIC_API_KEY = "fixture-secret-private";
     const queue = choices => fs.writeFileSync(path.join(env.XDG_STATE_HOME, "gum-queue"), JSON.stringify(choices));
     const run = (folder, columns = 64) => cp.spawnSync("python3", [path.join(tree, "scripts/fixtures/jarvis/accounts-tui.py"),
@@ -107,8 +109,15 @@ world(async () => {
                 assert.equal(record.env.OPENAI_API_KEY, undefined);
                 assert.equal(record.env.ANTHROPIC_API_KEY, undefined);
                 assert.equal(record.env.VGSHELL_RUNNER_PID, undefined);
-                if (file === "gum-calls") assert.equal(record.env.GUM_CHOOSE_CURSOR_FOREGROUND, "#112233");
-                else assert.equal(record.env.GUM_CHOOSE_CURSOR_FOREGROUND, undefined);
+                if (file === "gum-calls") {
+                    assert.equal(record.env.GUM_CHOOSE_CURSOR_FOREGROUND, "#112233");
+                    assert.equal(record.env.TERM, "xterm-256color");
+                    assert.equal(record.env.COLORTERM, "truecolor");
+                } else {
+                    assert.equal(record.env.GUM_CHOOSE_CURSOR_FOREGROUND, undefined);
+                    assert.equal(record.env.TERM, undefined);
+                    assert.equal(record.env.COLORTERM, undefined);
+                }
                 assert.ok(record.args.every(arg => arg !== "-p" && arg !== "exec"), "no inference during discovery or unavailable Verify");
             }
         }
@@ -204,8 +213,9 @@ world(async () => {
     await control("AccountStatus.js", "table-state", 'case "signed-in": return "Signed in";', 'case "signed-in": return state;', wide);
     await control("tui/accounts.sh", "screen-no-table", 'gum table --print <<<"$table"', ':', check);
     await control("tui/accounts.sh", "screen-width", 'columns="$(vgs_tui_columns)"', 'columns=1000', check);
-    await control("tui/accounts.sh", "gum-theme", 'gum() {\n  local gum_theme=() name\n  while IFS=\'=\' read -r name _; do\n    [[ $name =~ ^GUM_[A-Z_]+$ ]] || continue\n    gum_theme+=("$name=${!name}")\n  done < <(env)\n  "${child_env[@]}" "${gum_theme[@]}" gum "$@"\n}',
-        'gum() { "${child_env[@]}" gum "$@"; }', check);
+    await control("tui/accounts.sh", "gum-theme", 'GUM_[A-Z_]+$ || ', "", check);
+    await control("tui/accounts.sh", "gum-term", ' || $name == TERM', "", check);
+    await control("tui/accounts.sh", "gum-colorterm", ' || $name == COLORTERM', "", check);
     await control("AccountProviders.js", "width-format", '!/^[0-9]{1,4}$/.test(text)', 'false', folder => widths(folder, "format"));
     await control("AccountProviders.js", "width-minimum", 'return value >= MIN_WIDTH && value <= MAX_WIDTH ? value : null;',
         'return value <= MAX_WIDTH ? value : null;', folder => widths(folder, "minimum"));
