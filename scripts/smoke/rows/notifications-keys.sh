@@ -25,6 +25,10 @@
 # control is a Panel.qml copy whose list keeps its whole height, which ran
 # the list past the panel's bottom (clipped=list) on all eight opens in the
 # sandbox on 2026-10-02.
+# One more open of the long inbox, read at the list's top and again with
+# the list wheeled to the end of its scroll, shows the key hints inside
+# the panel with no card over them; its control is a Panel.qml copy whose
+# hints are the scrolled list's last row, below the panel at the top.
 # No latency is measured; each reading polls every 200 ms for up to 5 s.
 # A press that reaches nothing changes nothing to poll for, so the
 # controls read after a native key marker on the same virtual keyboard.
@@ -177,43 +181,54 @@ long_inbox_rows() {
   done
   echo "$shown"
 }
-# long_inbox_cut TOGGLE...: eight opens of the long inbox by the command
-# TOGGLE, which also closes it. Each open is read once the panel lists the
-# newest row and has drawn, with panel_fit until it reads `fits` or a
-# reading began long_inbox_settle_s or more after the first: a first card
-# scrolled under the header stays there, so a reading that stays off fits
-# for the settle is the cut. The settle is counted on the clock, since one
-# reading of forty cards takes longer than a poll's sleep. Prints the one
-# reading every open gave, such as `fits` or
-# `cut-top=card under-header=card`, `mixed` when the opens differ, or
-# `open=<n> <failure>` at the first open the instrument could not read:
-# `unlisted` when the panel never listed the newest row, `unread` when
-# panel_fit read no header, list or card, `not-drawn`, or a toggle that
-# failed. Each open's reading goes to $sandbox/long-inbox.txt, which
-# long_inbox_readings prints.
+# long_inbox_shown: `shown` once the open panel lists the long inbox's
+# newest row and has drawn, else `unlisted` or `not-drawn`.
+long_inbox_shown() {
+  local listed=False
+  for _ in $(seq 1 25); do
+    listed="$(has_row panel "Long newest")" || listed=False
+    [[ $listed == True ]] && break
+    sleep 0.2
+  done
+  [[ $listed == True ]] || { echo unlisted; return; }
+  summon_drawn panel vgs.notifications || { echo not-drawn; return; }
+  echo shown
+}
+# long_inbox_settled: panel_fit until it reads `fits` or a reading began
+# long_inbox_settle_s or more after the first: a first card scrolled under
+# the header stays there, so a reading that stays off fits for the settle
+# is the cut. The settle is counted on the clock, since one reading of
+# forty cards takes longer than a poll's sleep. Prints the last reading,
+# `unread...` when panel_fit read no header, list, hints or card.
 long_inbox_settle_s=1
+long_inbox_settled() {
+  local reading opened began
+  opened="${EPOCHREALTIME/[.,]/}"
+  while :; do
+    began="${EPOCHREALTIME/[.,]/}"
+    reading="$(panel_fit)" || reading="unread"
+    [[ $reading == fits ]] && break
+    (( began - opened >= long_inbox_settle_s * 1000000 )) && break
+    sleep 0.2
+  done
+  echo "$reading"
+}
+# long_inbox_cut TOGGLE...: eight opens of the long inbox by the command
+# TOGGLE, which also closes it, each read with long_inbox_settled once
+# long_inbox_shown. Prints the one reading every open gave, such as `fits`
+# or `cut-top=card under-header=card`, `mixed` when the opens differ, or
+# `open=<n> <failure>` at the first open the instrument could not read:
+# long_inbox_shown's failure, `unread`, or a toggle that failed. Each
+# open's reading goes to $sandbox/long-inbox.txt, which long_inbox_readings
+# prints.
 long_inbox_cut() {
-  local n reading listed opened began readings=() first
+  local n reading shown readings=() first
   rm -f -- "${sandbox:?}/long-inbox.txt"
   for n in 1 2 3 4 5 6 7 8; do
     "$@" >/dev/null || { echo "open=$n toggle-failed"; return; }
-    listed=False
-    for _ in $(seq 1 25); do
-      listed="$(has_row panel "Long newest")" || listed=False
-      [[ $listed == True ]] && break
-      sleep 0.2
-    done
-    [[ $listed == True ]] || { echo "open=$n unlisted"; return; }
-    summon_drawn panel vgs.notifications || { echo "open=$n not-drawn"; return; }
-    reading=""
-    opened="${EPOCHREALTIME/[.,]/}"
-    while :; do
-      began="${EPOCHREALTIME/[.,]/}"
-      reading="$(panel_fit)" || reading="unread"
-      [[ $reading == fits ]] && break
-      (( began - opened >= long_inbox_settle_s * 1000000 )) && break
-      sleep 0.2
-    done
+    shown="$(long_inbox_shown)"
+    [[ $shown == shown ]] || { echo "open=$n $shown"; return; }
+    reading="$(long_inbox_settled)"
     [[ $reading == unread* ]] && { echo "open=$n unread"; return; }
     readings+=("$reading")
     "$@" >/dev/null || { echo "close=$n toggle-failed"; return; }
@@ -239,6 +254,34 @@ long_inbox_warm() {
   "$@" >/dev/null || return
   for _ in $(seq 1 25); do [[ $(layer_count vgs:panel) == 0 ]] && return 0; sleep 0.2; done
   return 1
+}
+# long_inbox_ends TOGGLE...: one open of the long inbox by TOGGLE, read
+# with long_inbox_settled at the list's top and again once wheel notches
+# over the list have scrolled it to its end, where the scroll rests at its
+# whole travel. Prints `top=<reading> end=<reading>`, or the step that
+# failed: long_inbox_shown's failure, `view=<answer>`, `wheel-failed`,
+# `not-at-end <view>` or a toggle that failed. The pointer leaves the panel
+# after, so no later open starts with a card under it.
+long_inbox_ends() {
+  local shown top end view spot x y
+  "$@" >/dev/null || { echo toggle-failed; return; }
+  shown="$(long_inbox_shown)"
+  [[ $shown == shown ]] || { echo "$shown"; return; }
+  top="$(long_inbox_settled)"
+  for _ in 1 2 3 4 5 6 7 8; do
+    view="$(view_at_rest panel vgs.notifications "Long newest")" || view=unread
+    [[ $view == \{* ]] || { echo "view=$view"; return; }
+    spot="$(python3 -c 'import json,sys; v=json.loads(sys.argv[1]); print("end" if v["contentY"] > 0 and v["contentY"] >= v["contentHeight"] - v["height"] - 0.5 else json.dumps(v["box"]))' "$view")" || spot=unread
+    [[ $spot == end ]] && break
+    read -r x y < <(panel_point "$spot" - -) || { echo "view=$view"; return; }
+    wheel "$x" "$y" 10 || { echo wheel-failed; return; }
+  done
+  [[ $spot == end ]] || { echo "not-at-end $view"; return; }
+  end="$(long_inbox_settled)"
+  "$@" >/dev/null || { echo close-toggle-failed; return; }
+  for _ in $(seq 1 25); do [[ $(layer_count vgs:panel) == 0 ]] && break; sleep 0.2; done
+  read -r x y < <(nk_panel_outside_point) && hover "$x" "$y"
+  echo "top=$top end=$end"
 }
 # PRESSES LABEL: five presses from a closed inbox, each read before the next.
 nk_presses() {
@@ -297,6 +340,7 @@ expect_poll "the last Escape closes the inbox" closed inbox_shown
 expect "the long inbox's toasts leave the screen" 0 long_inbox_rows
 geometry expect "a long inbox opened by the key eight times shows its first card whole each time" fits long_inbox_cut nk_press
 ok "long inbox readings: $(long_inbox_readings)"
+geometry expect "the long inbox shows its key hints whole and uncovered at the list's top and at the end of its scroll" "top=fits end=fits" long_inbox_ends nk_press
 expect "disabling the notifications before the panel copy is allowed" ok ipc shell setPluginEnabled vgs.notifications false
 expect_poll "the compositor lists no inbox shortcut before the panel copy" 0 note_shortcuts
 nk_panel="$repo/shell/plugins/vgs.notifications/Panel.qml"
@@ -319,6 +363,55 @@ ok "control long inbox readings: $(long_inbox_readings)"
 cp -- "$sandbox/Panel.qml.keys-kept" "$nk_panel"
 rescan "a rescan restores the panel"
 expect_poll "the service is built beside the restored panel" True record_exists vgs.notifications
+# Control: the key hints as the last row of the scrolled list, as they drew
+# before they left it, sit below the panel while the list shows its top.
+expect "disabling the notifications before the in-list hints copy is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+expect_poll "the compositor lists no inbox shortcut before the in-list hints copy" 0 note_shortcuts
+cp -- "$nk_panel" "$sandbox/Panel.qml.keys-kept"
+python3 - "$nk_panel" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+room = "readonly property real hintRoom: hintRow.visible ? look.header.gap + hintRow.Layout.topMargin + hintRow.implicitHeight : 0"
+footer = '''            }
+        }
+
+        KeyHints {
+            id: hintRow
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: root.look.card.width
+            Layout.topMargin: root.look.card.gap
+            visible: root.rows.length > 0
+'''
+in_list = '''
+                KeyHints {
+                    id: hintRow
+                    Layout.preferredWidth: root.look.card.width
+                    visible: root.rows.length > 0
+                    hints: [
+                        { key: "Delete", text: "dismiss" },
+                        { key: "Left/Right", text: "actions" }
+                    ]
+                }
+            }
+        }
+'''
+assert text.count(room) == 1, "the hints' room under the list occurs once"
+assert text.count(footer) == 1, "the hints under the list occur once"
+text = text.replace(room, "readonly property real hintRoom: 0")
+head, tail = text.split(footer)
+tail = tail.split("        }\n", 1)[1]
+open(path, "w").write(head + in_list + tail)
+PY
+rescan "a rescan reads the in-list hints panel copy"
+expect "enabling the notifications beside the in-list hints copy is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "the service is built beside the in-list hints copy" True record_exists vgs.notifications
+expect_poll "the inbox shortcut is listed beside the in-list hints copy" 1 note_shortcuts
+long_inbox_warm nk_press || fail "the in-list hints copy's first open failed"
+geometry expect "control: a panel whose key hints end its scrolled list shows them below the panel at the list's top" "top=clipped=hints end=fits" long_inbox_ends nk_press
+cp -- "$sandbox/Panel.qml.keys-kept" "$nk_panel"
+rescan "a rescan restores the panel after the in-list hints copy"
+expect_poll "the service is built beside the panel restored after the in-list hints copy" True record_exists vgs.notifications
 notes dismiss-all >/dev/null # `none` once every toast's clock ran out
 expect "clearing the long inbox's history is allowed" ok notes clear-history
 
@@ -361,7 +454,7 @@ expect "enabling the notifications beside the whole-height list copy is allowed"
 expect_poll "the service is built beside the whole-height list copy" True record_exists vgs.notifications
 expect_poll "the inbox shortcut is listed beside the whole-height list copy" 1 note_shortcuts
 long_inbox_warm nk_press || fail "the whole-height list copy's first open failed"
-geometry expect "control: a panel whose list keeps its whole height runs a long inbox past the short room's panel on every open" "clipped=list" long_inbox_cut nk_press
+geometry expect "control: a panel whose list keeps its whole height runs a long inbox past the short room's panel on every open" "clipped=hints clipped=list" long_inbox_cut nk_press
 ok "control short room readings: $(long_inbox_readings)"
 cp -- "$sandbox/Panel.qml.keys-kept" "$nk_panel"
 rescan "a rescan restores the panel after the short room"

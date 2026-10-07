@@ -1587,16 +1587,17 @@ expect "the shortcut closes it again" ok hypr dispatch 'hl.dsp.global("vgs.notif
 expect_poll "the shortcut closed the inbox" '""' read_notes panelMode
 
 # The inbox's content against the panel's own box, the size the panel asks
-# for: the header, the card list and its scroll bar inside it, every card
-# and the key hints inside the list and the panel across, and the list and
-# its first card below the header. The list clips what it scrolls, so the
-# first card of a list just opened also starts inside the list's own top:
-# a card between the header's bottom and the list's top shows its top edge
-# cut.
+# for: the header, the card list, its scroll bar and the key hints inside
+# it, every card inside the list and the panel across, and the list and its
+# first card below the header. The list clips what it scrolls, so the first
+# card of a list just opened also starts inside the list's own top: a card
+# between the header's bottom and the list's top shows its top edge cut.
+# The key hints stay in the panel at any scroll, and no card's shown part
+# lies over them.
 # panel_fit_value reads the panel's [x, y, w, h] on its first line and its
 # descendantGeometry on its second, every box in the layer's coordinates:
-# `fits`, or each violation as `clipped=<part>`, `under-header=<part>` or
-# `cut-top=card`.
+# `fits`, or each violation as `clipped=<part>`, `under-header=<part>`,
+# `cut-top=card` or `covered=hints`.
 panel_fit_value() {
   py_reply 'import json,sys
 lines = sys.stdin.read().splitlines()
@@ -1607,8 +1608,9 @@ def first(pred):
 header = first(lambda i: i["type"] == "InboxHeader")
 view = first(lambda i: i["type"] == "QQuickFlickable")
 cards = [i for i in items if i["type"] == "NotificationCard"]
-if header is None or view is None or not cards:
-    print("unread header=%s list=%s cards=%d" % (header is not None, view is not None, len(cards)))
+hints = first(lambda i: i["type"] == "KeyHints")
+if header is None or view is None or hints is None or not cards:
+    print("unread header=%s list=%s hints=%s cards=%d" % (header is not None, view is not None, hints is not None, len(cards)))
     sys.exit()
 bad = []
 def inside(name, box, vertical=True):
@@ -1617,15 +1619,20 @@ def inside(name, box, vertical=True):
         bad.append("clipped=" + name)
 inside("header", header["box"])
 inside("list", view["box"])
+inside("hints", hints["box"])
 scrollbar = first(lambda i: i["name"] == "notificationPanelScrollBar")
 if scrollbar is not None: inside("scrollbar", scrollbar["box"])
-# The cards and the hints under them scroll in the list, which clips them
-# top and bottom; across, each sits inside the list and the window.
-vx, vw = view["box"][0], view["box"][2]
-listed = [("card%d" % n, card) for n, card in enumerate(cards)] + [("hints", i) for i in items if i["type"] == "KeyHints"]
-for name, item in listed:
-    inside(name, item["box"], vertical=False)
-    if item["box"][0] < vx - 0.5 or item["box"][0] + item["box"][2] > vx + vw + 0.5: bad.append("clipped=%s-in-list" % name)
+# The cards scroll in the list, which clips them top and bottom; across,
+# each sits inside the list and the window.
+vx, vy, vw, vh = view["box"]
+hx, hy, hw, hh = hints["box"]
+for n, card in enumerate(cards):
+    name = "card%d" % n
+    inside(name, card["box"], vertical=False)
+    cx, cy, cw, ch = card["box"]
+    if cx < vx - 0.5 or cx + cw > vx + vw + 0.5: bad.append("clipped=%s-in-list" % name)
+    top, bottom = max(cy, vy), min(cy + ch, vy + vh)
+    if bottom - top > 0.5 and min(bottom, hy + hh) - max(top, hy) > 0.5 and min(cx + cw, hx + hw) - max(cx, hx) > 0.5: bad.append("covered=hints")
 header_bottom = header["box"][1] + header["box"][3]
 if view["box"][1] < header_bottom - 0.5: bad.append("under-header=list")
 top = min(cards, key=lambda c: c["box"][1])
@@ -1641,25 +1648,31 @@ panel_fit() {
 }
 # Controls: the readings the predicate must refuse. The clipped one is the
 # panel as it drew before its width followed its column; Appearance.js
-# `card.width`, `stack.pad`, `header.height`, `header.gap` and
+# `card.width`, `stack.pad`, `header.height`, `header.gap`, `card.gap` and
 # `scrollbar.width` provide the planted dimensions. The second puts the
 # first card into the header; the third puts it below the header and above
-# the list's top.
-panel_fit_reading() { # PANEL_W HEADER_X CARD_Y
+# the list's top. The fourth is the hints at the end of the scrolled list,
+# below the panel while the list shows its top, as they drew before they
+# left the list; the fifth puts them under a shown card.
+panel_fit_hints_y="$((303 - 20))"
+panel_fit_view_h="$((panel_fit_hints_y - note_card_gap - note_header_gap - note_header_height - note_header_gap))"
+panel_fit_reading() { # PANEL_W HEADER_X CARD_Y HINTS_Y
   printf '[0, 0, %s, 303]\n' "$1"
   printf '[{"type":"InboxHeader","name":"","box":[%s,0,%s,%s],"visible":true},' "$2" "$note_card_width" "$note_header_height"
-  printf '{"type":"QQuickFlickable","name":"","box":[0,%s,%s,251],"visible":true},' "$((note_header_height + note_header_gap))" "$((note_card_width + 2 * note_stack_pad))"
-  printf '{"type":"SlimScrollBar","name":"notificationPanelScrollBar","box":[%s,%s,%s,251],"visible":false},' "$((note_card_width + note_stack_pad + note_scrollbar_width / 3))" "$((note_header_height + note_header_gap))" "$note_scrollbar_width"
-  printf '{"type":"KeyHints","name":"","box":[%s,259,%s,20],"visible":true},' "$note_stack_pad" "$note_card_width"
+  printf '{"type":"QQuickFlickable","name":"","box":[0,%s,%s,%s],"visible":true},' "$((note_header_height + note_header_gap))" "$((note_card_width + 2 * note_stack_pad))" "$panel_fit_view_h"
+  printf '{"type":"SlimScrollBar","name":"notificationPanelScrollBar","box":[%s,%s,%s,%s],"visible":false},' "$((note_card_width + note_stack_pad + note_scrollbar_width / 3))" "$((note_header_height + note_header_gap))" "$note_scrollbar_width" "$panel_fit_view_h"
+  printf '{"type":"KeyHints","name":"","box":[%s,%s,%s,20],"visible":true},' "$note_stack_pad" "$4" "$note_card_width"
   printf '{"type":"NotificationCard","name":"","box":[%s,%s,%s,61],"visible":true},' "$note_stack_pad" "$3" "$note_card_width"
   printf '{"type":"NotificationCard","name":"","box":[%s,129,%s,61],"visible":true}]\n' "$note_stack_pad" "$note_card_width"
 }
 panel_fit_width="$((note_card_width + 2 * note_stack_pad))"
 panel_fit_first_card_y="$((note_header_height + note_header_gap + note_card_gap - note_card_gap / 4))"
-expect "the fit predicate passes the panel drawn whole" fits panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y")
-expect "control: the fit predicate refuses the clipped panel" "clipped=card0 clipped=card1 clipped=header clipped=hints clipped=list" panel_fit_value < <(panel_fit_reading "$note_card_width" "$note_stack_pad" "$panel_fit_first_card_y")
-expect "control: the fit predicate refuses a first card under the header" "cut-top=card under-header=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height - note_stack_pad / 4))")
-expect "control: the fit predicate refuses a first card the list cuts under the header" "cut-top=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height + note_header_gap - note_header_gap / 2))")
+expect "the fit predicate passes the panel drawn whole" fits panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" "$panel_fit_hints_y")
+expect "control: the fit predicate refuses the clipped panel" "clipped=card0 clipped=card1 clipped=header clipped=hints clipped=list" panel_fit_value < <(panel_fit_reading "$note_card_width" "$note_stack_pad" "$panel_fit_first_card_y" "$panel_fit_hints_y")
+expect "control: the fit predicate refuses a first card under the header" "cut-top=card under-header=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height - note_stack_pad / 4))" "$panel_fit_hints_y")
+expect "control: the fit predicate refuses a first card the list cuts under the header" "cut-top=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height + note_header_gap - note_header_gap / 2))" "$panel_fit_hints_y")
+expect "control: the fit predicate refuses hints below the panel" "clipped=hints" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" 400)
+expect "control: the fit predicate refuses hints under a shown card" "covered=hints" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" 150)
 for n in 1 2 3 4 5 6 7 8; do
   notify smoke-app 0 "Fit $n" "A body long enough to wrap onto a second line of the card, so the card is tall" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
 done

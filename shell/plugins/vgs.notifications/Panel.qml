@@ -32,7 +32,10 @@ FocusScope {
     // scroll bar sits, wider than the header they sit under.
     implicitWidth: column.implicitWidth
     readonly property real panelMaxHeight: look.header.height + look.header.gap + look.panel.rowCap * (look.card.maxHeight + look.card.gap) + look.stack.tail
-    implicitHeight: Math.min(look.header.height + look.header.gap + listFrame.implicitHeight, panelMaxHeight)
+    // The key hints sit under the list, outside its scroll, and the list
+    // gives up their room within the panel's cap.
+    readonly property real hintRoom: hintRow.visible ? look.header.gap + hintRow.Layout.topMargin + hintRow.implicitHeight : 0
+    implicitHeight: Math.min(look.header.height + look.header.gap + listFrame.implicitHeight + hintRoom, panelMaxHeight)
 
     onCurrentIndexChanged: {
         if (refreshing) return;
@@ -305,7 +308,7 @@ FocusScope {
                 anchors.fill: parent
                 scrollObjectName: "notificationPanelScrollBar"
                 look: root.look
-                maxHeight: root.panelMaxHeight - header.height - root.look.header.gap
+                maxHeight: root.panelMaxHeight - header.height - root.look.header.gap - root.hintRoom
 
                 Label {
                     Layout.preferredWidth: root.look.card.width
@@ -403,17 +406,19 @@ FocusScope {
                         }
                     }
                 }
-
-                KeyHints {
-                    id: hintRow
-                    Layout.preferredWidth: root.look.card.width
-                    visible: root.rows.length > 0
-                    hints: [
-                        { key: "Delete", text: "dismiss" },
-                        { key: "Left/Right", text: "actions" }
-                    ]
-                }
             }
+        }
+
+        KeyHints {
+            id: hintRow
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: root.look.card.width
+            Layout.topMargin: root.look.card.gap
+            visible: root.rows.length > 0
+            hints: [
+                { key: "Delete", text: "dismiss" },
+                { key: "Left/Right", text: "actions" }
+            ]
         }
     }
 }
