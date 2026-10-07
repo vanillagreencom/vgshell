@@ -2,8 +2,10 @@
 // Which setup step Jarvis offers while a command its setup needs is missing,
 // shell/plugins/vgs.jarvis/SetupGate.js, under node: the value a setup reader
 // publishes for its probe's value and the requirements capability's missing
-// list, and the value of a requirement's own Install row. Every expected
-// value is written out by hand. No process, file or network is used.
+// list, the value of a requirement's own Install row, and the Setup
+// section's summary and steps from the daemon's answer, read by their tone,
+// action and line count. Every expected value is written out by hand. No
+// process, file or network is used.
 //
 // The controls at the end edit a copy of the library, one rule at a time,
 // and require this suite to fail an assertion on each copy.
@@ -34,7 +36,60 @@ const REQUIREMENT = [
     ["missing", "agent-browser", ["bwrap", "agent-browser"], { tone: "warning", text: "Not installed", action: true }]
 ];
 
+// The Setup section from the daemon's answer: [label, answer, the summary's
+// tone, the steps still to do]. A step to do is a warning with one line and
+// its action; a done step is ok with none.
+const READINESS = [
+    ["ready", { kind: "answered", causes: [] }, "ok", []],
+    ["nothing set up", { kind: "answered", causes: ["speech=local-not-set-up", "brain=unselected"] }, "warning", ["setupVoice", "setupModel"]],
+    ["local voice only", { kind: "answered", causes: ["speech=local-not-ready"] }, "warning", ["setupVoice"]],
+    ["the AI model only", { kind: "answered", causes: ["brain=account-unavailable"] }, "warning", ["setupModel"]],
+    // ChainedEngine's cause while no speech row exists has no line of its own.
+    ["a cause with no line of its own", { kind: "answered", causes: ["speech=no-adapter"] }, "warning", ["setupVoice"]]
+];
+// Each brain cause asks for its own action.
+const BRAIN_CAUSES = ["brain=unselected", "brain=account-unavailable", "brain=model-required", "brain=accounts-unreadable"];
+const plain = value => JSON.parse(JSON.stringify(value));
+
+function verifyReadiness(gate) {
+    for (const [label, answer, tone, todo] of READINESS) {
+        const got = plain(gate.readiness(answer));
+        assert.deepEqual(Object.keys(got).sort(), ["setup", "setupModel", "setupVoice"], label);
+        assert.equal(got.setup.tone, tone, label + ": the summary");
+        assert.equal(got.setup.action, undefined, label + ": the summary offers no step");
+        for (const key of ["setupVoice", "setupModel"]) {
+            const step = got[key];
+            const open = todo.includes(key);
+            assert.deepEqual([step.tone, step.action, (step.lines || []).length], open ? ["warning", true, 1] : ["ok", false, 0], label + ": " + key);
+            if (open) assert.equal(typeof step.lines[0] === "string" && step.lines[0] !== "" && !/=/.test(step.lines[0]), true,
+                label + ": a plain line, no keyed cause on screen");
+        }
+    }
+    const lines = BRAIN_CAUSES.map(cause => plain(gate.readiness({ kind: "answered", causes: [cause] })).setupModel.lines[0]);
+    assert.equal(new Set(lines).size, BRAIN_CAUSES.length, "each brain cause says its own line");
+    // Before the daemon answers nothing reads ready or to do.
+    const checking = plain(gate.readiness({ kind: "checking" }));
+    for (const key of ["setup", "setupVoice", "setupModel"])
+        assert.deepEqual([checking[key].tone, checking[key].action], ["info", false], "checking: " + key);
+    const stopped = plain(gate.readiness({ kind: "stopped" }));
+    assert.deepEqual([Object.keys(stopped), stopped.setup.tone], [["setup"], "danger"], "a stopped daemon leaves the steps");
+    assert.throws(() => gate.readiness({ kind: "answered", causes: ["voice=missing"] }), /^Error: jarvis-setup: cause=voice=missing/);
+    // An optional step: done while its reader is ok, else optional with
+    // its reader's action.
+    for (const [label, key, value, want] of [
+        ["browser ready", "setupBrowser", READY, ["ok", false, 0]],
+        ["browser to set up", "setupBrowser", ABSENT, ["info", true, 1]],
+        ["browser withheld", "setupBrowser", { tone: "warning", text: "Needs agent-browser", action: false }, ["info", false, 1]],
+        ["input ready", "setupInput", { tone: "ok", text: "Keys ready; pointer ready", action: true }, ["ok", false, 0]],
+        ["input missing", "setupInput", { tone: "warning", text: "Input tools unavailable", action: true }, ["info", true, 1]]]) {
+        const got = plain(gate.optionalStep(key, value));
+        assert.deepEqual([got.tone, got.action, (got.lines || []).length], want, label);
+    }
+    assert.throws(() => gate.optionalStep("setupModel", READY), /step=setupModel is not optional/);
+}
+
 function verify(gate) {
+    verifyReadiness(gate);
     for (const [label, value, requires, missing, names] of SETUP) {
         const got = gate.setupValue(value, requires, missing);
         if (names === null) {
@@ -63,7 +118,15 @@ const CONTROLS = [
     ["any missing command withholds setup", "var lacking = requires.filter(", "var lacking = missing.filter("],
     ["the withheld text names every required command", 'lacking.join(" and ")', 'requires.join(" and ")'],
     ["a missing requirement offers no install", 'if (missing.indexOf(command) === -1) return { tone: "ok"', 'if (true) return { tone: "ok"'],
-    ["a found requirement offers its install", 'if (missing.indexOf(command) === -1) return { tone: "ok"', 'if (false) return { tone: "ok"']
+    ["a found requirement offers its install", 'if (missing.indexOf(command) === -1) return { tone: "ok"', 'if (false) return { tone: "ok"'],
+    ["a cause marks no step", "out[REQUIRED[step]] = {", "void {"],
+    ["a cause marks the other step", 'var REQUIRED = { speech: "setupVoice", brain: "setupModel" };', 'var REQUIRED = { speech: "setupModel", brain: "setupVoice" };'],
+    ["the brain causes share one line", "var line = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var line = STEP_TODO[step];"],
+    ["an unknown cause has no line", "var line = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var line = TODO[cause];"],
+    ["causes leave the summary ready", 'setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
+    ["checking reads done", 'return { setup: CHECKING, setupVoice: CHECKING, setupModel: CHECKING };', 'return { setup: CHECKING, setupVoice: DONE, setupModel: DONE };'],
+    ["an optional step reads done when not ok", 'if (value.tone === "ok") return DONE;', "if (true) return DONE;"],
+    ["an optional step drops its action", "action: value.action === true };", "action: false };"]
 ];
 
 const source = fs.readFileSync(file, "utf8");
@@ -89,4 +152,4 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length} controls=${CONTROLS.length}`);
+console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length} controls=${CONTROLS.length}`);

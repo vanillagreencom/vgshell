@@ -36,8 +36,8 @@ jarvis_input_control_start() { # NAME
 copy_tree jarvis-input-not-offered
 cp -- "$source_repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/setup-input.sh" "$sandbox/tree-jarvis-input-not-offered/shell/plugins/vgs.jarvis/tui/setup-input.sh"
 if edit_tree jarvis-input-not-offered shell/plugins/vgs.jarvis/Service.qml \
-    '        const inputStatus = shell.status.set("input", { tone: "warning", text: "Input tools unavailable", action: true });' \
-    '        const inputStatus = shell.status.set("input", { tone: "warning", text: "Input tools unavailable", action: false });'; then
+    '        publishInput({ tone: "warning", text: "Input tools unavailable", action: true });' \
+    '        publishInput({ tone: "warning", text: "Input tools unavailable", action: false });'; then
   jarvis_input_control_start jarvis-input-not-offered
   expect_poll "control: a service that does not offer the input action leaves it pending" pending input_action
   settings_page_close vgs.jarvis

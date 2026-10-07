@@ -16,7 +16,7 @@
   "schema": {
     "mode": { "type": "enum", "label": "Talk mode", "group": "Listening",
       "options": ["hold", "toggle"],
-      "description": "Hold commits on release. Toggle keeps a conversation open. Audio engines are not configured yet." },
+      "description": "Hold: Jarvis takes what you said when you let go of the Talk key. Toggle: the conversation stays open until you press Talk again." },
     "microphone": { "type": "string", "label": "Microphone", "group": "Audio", "optionsFrom": "microphones" },
     "speaker": { "type": "string", "label": "Speaker", "group": "Audio", "optionsFrom": "speakers",
       "description": "Half duplex: Jarvis closes its microphone while speech plays. Talk interrupts speech." },
@@ -97,7 +97,12 @@
     "localRuntime": { "type": "state", "label": "Local voice", "hint": "Setup downloads models and verifies the selected runtime without opening audio devices.",
       "action": { "label": "Set up local voice", "tui": "setup-local" } },
     "tasks": { "type": "count", "label": "Coding tasks", "hint": "Coding tasks whose agent is starting or running." },
-    "input": {"type": "state", "label": "Desktop input", "hint": "Protected layer rectangles include pass-through gaps. Unrecognized applications refuse input.", "action": {"label": "Check input", "tui": "setup-input"}}
+    "input": {"type": "state", "label": "Desktop input", "hint": "Protected layer rectangles include pass-through gaps. Unrecognized applications refuse input.", "action": {"label": "Check input", "tui": "setup-input"}},
+    "setup": { "type": "state", "label": "Setup", "group": "Setup", "hint": "Jarvis needs an AI model and local voice. The browser and input are optional." },
+    "setupModel": { "type": "state", "label": "AI model", "group": "Setup", "action": { "label": "Add key", "tui": "add-key" } },
+    "setupVoice": { "type": "state", "label": "Local voice", "group": "Setup", "action": { "label": "Set up local voice", "tui": "setup-local" } },
+    "setupBrowser": { "type": "state", "label": "Browser", "group": "Setup", "action": { "label": "Set up browser", "tui": "setup-browser" } },
+    "setupInput": { "type": "state", "label": "Input", "group": "Setup", "action": { "label": "Check input", "tui": "setup-input" } }
   },
   "tui": {
     "add-key": { "script": "tui/add-key.sh", "title": "Add Jarvis key", "requires": ["gum", "node", "secret-tool", "busctl"],

@@ -1392,7 +1392,7 @@ Scope {
             const process = Array.from(service.resources).find(resource => resource.processId !== undefined);
             if (process === undefined) return "missing";
             return JSON.stringify({ pid: process.processId, lifetime: service.lifetime, retries: service.retries,
-                status: service.shell.status.values });
+                cause: service.cause, audioHealth: service.audioHealth, status: service.shell.status.values });
         }
         function instanceGeometry(hostKey: string, id: string): string { return root.geometry(root.instance(hostKey, id)); }
         // `drawn` once the window of plugin ID's HOST_KEY instance has
@@ -1789,6 +1789,30 @@ Scope {
                     return [button.text, button.variant, button.enabled, tip === undefined ? "" : tip.text];
                 })
             });
+        }
+        // A plugin page's shown Setup section by row, as [{ label, chips,
+        // buttons, lines }]: each shown Field of the section, its label, its
+        // Badges as [text, tone] and its Buttons as [text, variant, enabled],
+        // and the shown lines of text its row draws under the Field, each in
+        // tree order; "absent" while no Setup section shows.
+        function setupRows(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const section = root.descendants(item).find(child => root.typeName(child) === "Section" && child.visible && child.title === "Setup");
+            if (section === undefined) return "absent";
+            const fields = root.descendants(section).filter(child => root.typeName(child) === "Field" && child.visible);
+            return root.json(fields.map(field => {
+                const inside = root.descendants(field);
+                const shown = inside.filter(child => child.visible);
+                const under = root.descendants(field.parent).filter(child => child.visible && root.typeName(child) === "Label"
+                    && child.text !== "" && inside.indexOf(child) === -1);
+                return {
+                    label: field.label,
+                    chips: shown.filter(child => root.typeName(child) === "Badge").map(badge => [badge.text, badge.tone]),
+                    buttons: shown.filter(child => root.typeName(child) === "Button").map(button => [button.text, button.variant, button.enabled]),
+                    lines: under.map(line => line.text)
+                };
+            }));
         }
         function itemValues(hostKey: string, id: string, type: string, properties: string): string {
             const item = root.instance(hostKey, id);

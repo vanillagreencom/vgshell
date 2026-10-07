@@ -5,7 +5,10 @@
 // Each Session record comes from Session.js's own initial state with the
 // named regions set, passes Session.validate, and takes its phase from
 // Session.phaseOf, as the daemon publishes it. Every expected value is
-// written out by hand. No process, file, network or audio is used.
+// written out by hand, but for the words of a fault, the audio problem and
+// a remaining Setup step: those come from the view's own table under the
+// kind or step this suite names, and no tooltip carries a keyed cause. No
+// process, file, network or audio is used.
 //
 // The controls at the end edit a copy of the view, one rule at a time, and
 // require this suite to fail an assertion on each copy.
@@ -34,23 +37,35 @@ const THINKING = { turn: { kind: "thinking", gen: 1, op: 4, deadline: 70 } };
 const MUTED = { mute: { kind: "on" } };
 const READY = { tone: "info", text: "Ready; no capture" };
 const DEVICES = { tone: "ok", text: "Device list ready" };
-const FLOOR = { tone: "danger", text: "Problem: jarvis: node=21.0.0 need=22" };
+const FLOOR = { tone: "danger", text: "Stopped after a problem. Turn Jarvis off and on again." };
 const OVERFLOW = { tone: "danger", text: "capture-overflow" };
 const up = (regions, extra) => Object.assign({ daemon: READY, audio: DEVICES, detail: detail(regions) }, extra);
 
 const MUTE = "\nClick to mute";
 const UNMUTE = "\nClick to unmute";
-function splitTooltip(row) {
-    const parts = row[3].split("\n");
+// A tooltip the view words from one of its own tables: the kind of fault,
+// the retry, the audio problem or the Setup step this suite names by hand.
+const fault = kind => v => v.FAULT_TEXT[kind].title + ". " + v.FAULT_TEXT[kind].action;
+const retrying = v => v.RETRYING.title + ". " + v.RETRYING.action;
+const audioText = v => v.AUDIO_TEXT;
+const setupStep = key => v => v.SETUP_TEXT.find(([name]) => name === key)[1];
+const unconfigured = v => v.GATE_TEXT.unconfigured;
+function splitTooltip(row, view) {
+    const parts = (typeof row[3] === "function" ? row[3](view) : row[3]).split("\n");
     return [row[0], row[1], row[2], parts[0], [parts[1]]];
 }
+const WITH = (line, details) => v => line(v) + details;
+// The Setup steps as the service publishes them (SetupGate.readiness).
+const TODO = { tone: "warning", text: "To do", lines: ["fixture line"], action: true };
+const DONE = { tone: "ok", text: "Done", action: false };
+const CHECKING = { tone: "info", text: "Checking", action: false };
 // [label, status values, [state, icon, tone, tooltip title plus detail]].
 const CASES = [
     ["nothing published yet", {}, ["off", "power-off", "neutral", "Jarvis is starting" + MUTE]],
     ["starting before the first state", { daemon: { tone: "info", text: "Starting" }, detail: null, audio: { tone: "info", text: "Reading devices" } },
         ["off", "power-off", "neutral", "Jarvis: Starting" + MUTE]],
-    ["restarting", { daemon: { tone: "warning", text: "Restarting: jarvis: daemon=ended" }, detail: null },
-        ["off", "power-off", "neutral", "Jarvis: Restarting: jarvis: daemon=ended" + MUTE]],
+    ["restarting", { daemon: { tone: "warning", text: "Restarting after a problem" }, detail: null },
+        ["off", "power-off", "neutral", "Jarvis: Restarting after a problem" + MUTE]],
     ["mute pending", { daemon: { tone: "warning", text: "Mute pending; disabling Jarvis cancels the request" }, detail: null },
         ["off", "power-off", "neutral", "Jarvis: Mute pending; disabling Jarvis cancels the request" + MUTE]],
     ["ready", up({}), ["ready", "mic", "calm", "Jarvis is ready" + MUTE]],
@@ -66,26 +81,39 @@ const CASES = [
     ["live over an audio problem", up(OPEN, { audio: OVERFLOW }),
         ["live", "audio-lines", "accent", "Jarvis is using the microphone" + MUTE]],
     ["permanent daemon problem", { daemon: FLOOR, detail: null, audio: DEVICES },
-        ["problem", "circle-alert", "danger", "Problem: jarvis: node=21.0.0 need=22" + MUTE]],
+        ["problem", "circle-alert", "danger", "Stopped after a problem. Turn Jarvis off and on again." + MUTE]],
     ["Session error", up({ fault: { kind: "error", reason: "thinking-timeout", retry: 0 } }),
-        ["problem", "circle-alert", "danger", "Problem: thinking-timeout" + MUTE]],
+        ["problem", "circle-alert", "danger", WITH(fault("slow"), MUTE)]],
     ["Session retrying a lost device", up({ fault: { kind: "retrying", reason: "device-lost", retry: 1 } }),
-        ["problem", "circle-alert", "danger", "Problem: device-lost" + MUTE]],
+        ["problem", "circle-alert", "danger", WITH(retrying, MUTE)]],
     ["audio fault", up({}, { audio: OVERFLOW }),
-        ["problem", "circle-alert", "danger", "Audio problem: capture-overflow" + MUTE]],
+        ["problem", "circle-alert", "danger", WITH(audioText, MUTE)]],
     ["audio fault before the first state", { daemon: { tone: "info", text: "Starting" }, detail: null, audio: OVERFLOW },
-        ["problem", "circle-alert", "danger", "Audio problem: capture-overflow" + MUTE]],
+        ["problem", "circle-alert", "danger", WITH(audioText, MUTE)]],
     ["problem over mute", up(MUTED, { audio: OVERFLOW }),
-        ["problem", "circle-alert", "danger", "Audio problem: capture-overflow" + UNMUTE]],
+        ["problem", "circle-alert", "danger", WITH(audioText, UNMUTE)]],
     ["Session error while muted", up({ ...MUTED, fault: { kind: "error", reason: "thinking-timeout", retry: 0 } }),
-        ["problem", "circle-alert", "danger", "Problem: thinking-timeout" + UNMUTE]],
+        ["problem", "circle-alert", "danger", WITH(fault("slow"), UNMUTE)]],
+    // Each producer's keyed reason reads as its kind of failure.
+    ...[["a lost device", "device-lost", "device"], ["a brain stream error", "brain=stream-error", "brain"],
+        ["a harness exit", "brain=harness-exit", "brain"], ["a network refusal", "net=timeout", "brain"],
+        ["local speech", "speech=local-not-ready", "voice"], ["a capture start", "audio-start: device-busy", "audio"],
+        ["a device probe", "device-probe: pw-dump-exit", "audio"], ["a busy player", "playback-busy", "audio"],
+        ["an unexpected engine failure", "engine=unexpected", "other"]].map(([label, reason, kind]) =>
+        [label, up({ fault: { kind: "error", reason, retry: 0 } }), ["problem", "circle-alert", "danger", WITH(fault(kind), MUTE)]]),
     ["muted", up(MUTED), ["muted", "mic-off", "neutral", "Jarvis is muted" + UNMUTE]],
     ["muted while locked", up({ ...MUTED, ...down("locked") }), ["muted", "mic-off", "neutral", "Jarvis is muted" + UNMUTE]],
     ["muted over a cancelling turn", up({ ...MUTED, turn: { kind: "cancelling", gen: 1, op: 4, deadline: 70 } }),
         ["muted", "mic-off", "neutral", "Jarvis is muted" + UNMUTE]],
     ["muting with capture closed", up({ mute: { kind: "muting" } }), ["muted", "mic-off", "neutral", "Jarvis is muted" + UNMUTE]],
     ["gate starting", up(down("starting")), ["off", "power-off", "neutral", "Jarvis is starting" + MUTE]],
-    ["gate unconfigured", up(down("unconfigured")), ["off", "power-off", "neutral", "Jarvis is not set up" + MUTE]],
+    ["gate unconfigured before the daemon answered", up(down("unconfigured"), { setupVoice: CHECKING, setupModel: CHECKING }),
+        ["off", "power-off", "neutral", WITH(unconfigured, MUTE)]],
+    ["gate unconfigured, nothing published", up(down("unconfigured")), ["off", "power-off", "neutral", WITH(unconfigured, MUTE)]],
+    ["local voice to do", up(down("unconfigured"), { setupVoice: TODO, setupModel: TODO }),
+        ["off", "power-off", "neutral", WITH(setupStep("setupVoice"), MUTE)]],
+    ["the AI model to do", up(down("unconfigured"), { setupVoice: DONE, setupModel: TODO }),
+        ["off", "power-off", "neutral", WITH(setupStep("setupModel"), MUTE)]],
     ["gate node", up(down("node")), ["off", "power-off", "neutral", "Jarvis needs Node 22 or later" + MUTE]],
     ["gate lock unknown", up(down("lock-unknown")), ["off", "power-off", "neutral", "Jarvis is off until the screen lock is known" + MUTE]],
     ["gate locked", up(down("locked")), ["off", "power-off", "neutral", "Jarvis is off while the screen is locked" + MUTE]],
@@ -137,8 +165,15 @@ function verify(view) {
         } catch (e) {
             got = "threw: " + e.message;
         }
-        assert.deepEqual(copy(got), splitTooltip(want), label);
+        assert.deepEqual(copy(got), splitTooltip(want, view), label);
+        // A keyed cause stays in the log: no tooltip carries one.
+        if (typeof got !== "string") assert.equal(/[a-z-]+=[a-z0-9-]/.test(got[3]), false, label + ": no keyed cause on screen");
     }
+    // Each kind and step the suite names has its own words.
+    for (const kind of ["slow", "device", "brain", "voice", "audio", "other"])
+        assert.equal(typeof view.FAULT_TEXT[kind].title === "string" && typeof view.FAULT_TEXT[kind].action === "string", true, kind);
+    const words = [view.GATE_TEXT.unconfigured, ...view.SETUP_TEXT.map(([, line]) => line)];
+    assert.equal(new Set(words).size, words.length, "each remaining step says its own sentence");
     for (const [label, values, pattern] of REFUSALS)
         assert.throws(() => view.view(copy(values)), error => pattern.test(error.message), label);
 }
@@ -156,14 +191,24 @@ const CONTROLS = [
     ["the daemon text is not shown before a state", '"Jarvis: " + daemon.text', 'GATE_TEXT.starting'],
     ["mute is not shown", "if (muteOn) return look(\"muted\"", "if (false) return look(\"muted\""],
     ["muting is not muted", 'case "muting": case "on": return true;', 'case "on": return true;'],
-    ["a lowered gate is not off", "if (gateDown(state.gate)) return", "if (false) return"],
+    ["a lowered gate is not off", "if (gateDown(state.gate))", "if (false)"],
     ["working phases read ready", 'return look("working", WORK_TEXT[detail.phase], muteOn);', 'return look("ready", "Jarvis is ready", muteOn);'],
     ["the click line follows the icon, not the mute region", 'muteOn ? "Click to unmute" : "Click to mute"', 'state === "muted" ? "Click to unmute" : "Click to mute"'],
     ["the click line never offers unmute", 'muteOn ? "Click to unmute" : "Click to mute"', '"Click to mute"'],
     ["any report tone is accepted", "tones.indexOf(value.tone) === -1", "false"],
     ["an unknown capture is closed", 'default: refuse("capture", capture);', "default: return false;"],
     ["an unknown gate reason is off", 'if (!Object.prototype.hasOwnProperty.call(GATE_TEXT, gate.reason)) refuse("gate", gate);', ""],
-    ["an unexpected phase reads ready", 'refuse("phase", detail.phase);', 'return look("ready", "Jarvis is ready", muteOn);']
+    ["an unexpected phase reads ready", 'refuse("phase", detail.phase);', 'return look("ready", "Jarvis is ready", muteOn);'],
+    ["a fault shows its keyed reason", 'return look("problem", text.title + ". " + text.action, muteOn);',
+        'return look("problem", "Problem: " + state.fault.reason, muteOn);'],
+    ["a brain fault reads as another", '[/^(brain|net)=/, "brain"],', ""],
+    ["a slow answer reads as another", '[/^thinking-timeout$/, "slow"],', ""],
+    ["a retry asks for a restart", 'fault.kind === "retrying" ? RETRYING : FAULT_TEXT[kind]', "FAULT_TEXT[kind]"],
+    ["an audio problem shows its text", 'look("problem", AUDIO_TEXT, muteOn)', 'look("problem", "Audio problem: " + audio.text, muteOn)'],
+    ["an unconfigured gate names no step", 'state.gate.reason === "unconfigured" ? unconfiguredText(values) : GATE_TEXT[state.gate.reason]',
+        "GATE_TEXT[state.gate.reason]"],
+    ["a step done reads as to do", "step.action === true", "step.action !== undefined"],
+    ["the AI model reads before local voice", "for (var i = 0; i < SETUP_TEXT.length; i++) {", "for (var i = SETUP_TEXT.length - 1; i >= 0; i--) {"]
 ];
 
 const source = fs.readFileSync(path.join(dir, "WidgetView.js"), "utf8");

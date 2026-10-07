@@ -21,6 +21,8 @@ Item {
     onShellChanged: refresh()
     onEndedAtChanged: if (endedAt !== null) refresh()
     onAccountsEndedAtChanged: if (accountsEndedAt !== null) refresh()
+    // Emitted once each check has published, whatever it read.
+    signal refreshed()
 
     function refresh() {
         if (shell === null) return;
@@ -42,11 +44,13 @@ Item {
         } catch (error) {
             console.warn("jarvis-keys: presence=failed");
         }
-        if (shown !== null && shell.status.set("keys", shown) === "ok"
-            && shell.status.set("keyStore", Words.keysValue({ kind: "listed", rows: shown })) === "ok") return;
-        if (shown !== null) console.warn("jarvis-keys: presence=invalid");
-        if (shell.status.set("keys", []) !== "ok"
-            || shell.status.set("keyStore", Words.keysValue({ kind: "failed" })) !== "ok") throw new Error("jarvis-keys: status=refused");
+        if (shown === null || shell.status.set("keys", shown) !== "ok"
+                || shell.status.set("keyStore", Words.keysValue({ kind: "listed", rows: shown })) !== "ok") {
+            if (shown !== null) console.warn("jarvis-keys: presence=invalid");
+            if (shell.status.set("keys", []) !== "ok"
+                || shell.status.set("keyStore", Words.keysValue({ kind: "failed" })) !== "ok") throw new Error("jarvis-keys: status=refused");
+        }
+        refreshed();
     }
     Process {
         id: probe

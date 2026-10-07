@@ -4,6 +4,7 @@ import Quickshell
 import qs.Commons
 import qs.Ui
 import "Session.js" as Session
+import "WidgetView.js" as View
 
 Item {
     id: root
@@ -22,7 +23,10 @@ Item {
         : phase === "error" ? "danger"
         : phase === "confirming" || phase === "acting" ? "warning"
         : phase === "speaking" ? "success" : phase === "thinking" ? "info" : "accent"
+    // A fault reads as the bar says it: what went wrong, then what to do.
+    readonly property var fault: phase === "error" ? View.faultText(state.fault) : null
     readonly property string stateText: state === null ? "" : state.mute.kind !== "off" ? "Muting"
+        : fault !== null ? fault.title
         : phase === "idle" ? "Waiting for indicator" : phase === "down" ? "Stopping"
         : phase[0].toUpperCase() + phase.slice(1)
     readonly property var levels: service === null || service.shell === null ? {}
@@ -32,6 +36,7 @@ Item {
     // The user's words while they arrive, then Jarvis's for this conversation.
     // The status keeps an ended conversation's caption until the next one.
     readonly property string words: state === null ? ""
+        : fault !== null ? fault.action
         : state.turn.kind === "collecting" ? state.turn.partial
         : caption !== null && caption.role === "assistant" && caption.gen === state.gen ? caption.text : ""
 

@@ -22,6 +22,8 @@ Item {
     onShellChanged: refresh()
     onEndedAtChanged: if (endedAt !== null) refresh()
     onKeyEndedAtChanged: if (keyEndedAt !== null) refresh()
+    // Emitted once each check has published, whatever it read.
+    signal refreshed()
 
     function refresh() {
         if (shell === null) return;
@@ -49,6 +51,7 @@ Item {
                 shell.status.set("accountSearch", Words.searchValue({ kind: "failed", reason: reason }))];
             if (replies.some(reply => reply !== "ok")) throw new Error("jarvis-accounts: status=refused");
         }
+        refreshed();
     }
     Process {
         id: probe

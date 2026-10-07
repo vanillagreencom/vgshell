@@ -7,6 +7,7 @@ import "." as Jarvis
 import "JarvisProtocol.js" as Protocol
 import "AccountProviders.js" as Providers
 import "Session.js" as Session
+import "SetupGate.js" as Gate
 
 Item {
     id: root
@@ -97,6 +98,22 @@ Item {
         if (reply !== "ok") throw new Error("jarvis: " + reply);
     }
 
+    // The Setup section's summary and required steps for ANSWER
+    // (SetupGate.readiness), and the input step from its reader's VALUE.
+    function publishSetup(answer) {
+        const values = Gate.readiness(answer);
+        for (const key of Object.keys(values)) {
+            const reply = shell.status.set(key, values[key]);
+            if (reply !== "ok") throw new Error("jarvis: " + reply);
+        }
+    }
+    function publishInput(value) {
+        for (const [key, shown] of [["input", value], ["setupInput", Gate.optionalStep("setupInput", value)]]) {
+            const reply = shell.status.set(key, shown);
+            if (reply !== "ok") throw new Error("jarvis: " + reply);
+        }
+    }
+
     function start() {
         childSerial += 1;
         lifetime = { kind: "starting", pendingMute: lifetime.pendingMute === "none" ? "none" : "waiting" };
@@ -122,8 +139,8 @@ Item {
         if (idle !== "ok") throw new Error("jarvis: " + idle);
         const silent = shell.status.set("transcript", null);
         if (silent !== "ok") throw new Error("jarvis: " + silent);
-        const inputStatus = shell.status.set("input", { tone: "warning", text: "Input tools unavailable", action: true });
-        if (inputStatus !== "ok") throw new Error("jarvis: " + inputStatus);
+        publishInput({ tone: "warning", text: "Input tools unavailable", action: true });
+        publishSetup({ kind: "checking" });
         shellStatus({ kind: "checking" });
         child.completion = null;
         child.stdinEnabled = true;
@@ -372,14 +389,16 @@ Item {
                 if (message.type === "input-ready") {
                     const keys = message.commands.indexOf("wtype") !== -1;
                     const pointer = message.commands.indexOf("wlrctl") !== -1 || message.commands.indexOf("ydotool") !== -1;
-                    const reply = shell.status.set("input", { tone: keys && pointer ? "ok" : "warning",
+                    publishInput({ tone: keys && pointer ? "ok" : "warning",
                         text: "Keys " + (keys ? "ready" : "unavailable") + "; pointer " + (pointer ? "ready" : "unavailable"), action: true });
-                    if (reply !== "ok") throw new Error("jarvis: " + reply);
                     continue;
                 }
                 if (message.type === "audio-fault") {
+                    // The keyed reason goes to the log; the page and the bar
+                    // say what stopped.
+                    console.warn("jarvis: audio-fault=" + message.reason);
                     audioHealth = { kind: "fault", reason: message.reason };
-                    const report = shell.status.set("audio", { tone: "danger", text: message.reason });
+                    const report = shell.status.set("audio", { tone: "danger", text: "Microphones and speakers unavailable" });
                     if (report !== "ok") throw new Error("jarvis: " + report);
                     continue;
                 }
@@ -416,6 +435,9 @@ Item {
                     // An ordered old lock snapshot can precede the latest
                     // hello's answer. Do not publish it as current state.
                     if ((message.state.gate.reason === "locked") !== lockObservation()) continue;
+                    const fault = message.state.fault;
+                    if (fault.kind !== "none" && (sessionState === null || JSON.stringify(sessionState.fault) !== JSON.stringify(fault)))
+                        console.warn("jarvis: fault=" + fault.reason + " kind=" + fault.kind);
                     sessionState = message.state;
                     const result = shell.status.set("detail", { phase: message.phase, seq: message.seq, state: message.state });
                     if (result !== "ok") throw new Error("jarvis: " + result);
@@ -428,6 +450,7 @@ Item {
                 lifetime = { kind: "ready", pendingMute: lifetime.pendingMute };
                 helloDeadline.stop();
                 publish("info", message.daemon === "locked" ? "Locked; no capture" : "Ready; no capture");
+                publishSetup({ kind: "answered", causes: message.causes });
                 sendTuiState();
                 Qt.callLater(() => sendIndicator(indicatorPresented));
                 refreshShell();
@@ -442,6 +465,8 @@ Item {
         if (errorTail !== "") cause = errorTail;
         if (cause === "") cause = "jarvis: daemon=ended";
         const permanent = completion !== null && completion.status === 0 && completion.code === 78;
+        // The keyed cause goes to the log; the daemon row says what happened.
+        console.warn("jarvis: ended cause=" + cause);
         // The ended child's Session state is no longer current: neither the
         // retry wait nor a problem may show or act on it.
         sessionState = null;
@@ -451,7 +476,8 @@ Item {
         if (permanent || retries === 5) {
             if (lifetime.pendingMute !== "none") refuseMute(cause);
             lifetime = { kind: "problem", pendingMute: "none" };
-            publish("danger", "Problem: " + cause.slice(0, 180));
+            publish("danger", "Stopped after a problem. Turn Jarvis off and on again.");
+            publishSetup({ kind: "stopped" });
             notice({ title: "Jarvis daemon stopped", message: cause.slice(0, 180), tone: "danger", icon: "mic" });
             return;
         }
@@ -460,7 +486,7 @@ Item {
         retry.interval = 250 * Math.pow(2, retries);
         retries++;
         lifetime = { kind: "retry", pendingMute: lifetime.pendingMute };
-        publish("warning", "Restarting: " + cause.slice(0, 170));
+        publish("warning", "Restarting after a problem");
         retry.start();
     }
 
@@ -527,8 +553,11 @@ Item {
     }
     Timer { id: retry; onTriggered: root.start() }
     Timer { id: helloDeadline; interval: 5000; onTriggered: root.broken("jarvis: hello=timeout") }
-    Jarvis.Keys { shell: root.shell }
-    Jarvis.LocalRuntime { shell: root.shell }
-    Jarvis.BrowserRuntime { shell: root.shell }
-    Jarvis.Accounts { shell: root.shell }
+    // A finished key, account or local voice step can change what the
+    // engine judges, so each reader's refresh sends the daemon a fresh
+    // snapshot; hello() sends none while the child is not running or broken.
+    Jarvis.Keys { shell: root.shell; onRefreshed: root.hello() }
+    Jarvis.LocalRuntime { shell: root.shell; onRefreshed: root.hello() }
+    Jarvis.BrowserRuntime { shell: root.shell; stepKey: "setupBrowser" }
+    Jarvis.Accounts { shell: root.shell; onRefreshed: root.hello() }
 }

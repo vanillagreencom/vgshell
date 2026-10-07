@@ -11,6 +11,10 @@ expected_errors+=('.*jarvis-account-missing-helper.*')
 # The readers log a failed check's safe cause; the page shows plain words.
 expected_errors+=('WARN qml: jarvis-accounts: (process|output|diagnostic|added|directory|discovery)=[a-z-]+')
 expected_errors+=('WARN qml: jarvis-keys: (presence|busctl)=[a-z-]+')
+# The service logs a fault's, an audio fault's and an ended daemon's keyed
+# cause; the bar and the page say what happened in plain words.
+expected_errors+=('WARN qml: jarvis: (fault|audio-fault)=')
+expected_errors+=('WARN qml: jarvis: ended cause=')
 
 # Read the actual daemon below the Process-owned J09 launcher. PIDs come
 # only from that launcher's /proc descendants, never a name-based search.
@@ -263,9 +267,10 @@ jarvis_devices_assertion() {
 jarvis_audio_fault() {
   ipc smoke jarvisProcess | py_reply '
 import json,sys
-status=json.load(sys.stdin)["status"]
-expected={"tone":"danger","text":"capture-overflow"}
-print("fault" if status.get("audio")==expected else "pending")
+d=json.load(sys.stdin)
+expected={"tone":"danger","text":"Microphones and speakers unavailable"}
+ok=d["status"].get("audio")==expected and d["audioHealth"]=={"kind":"fault","reason":"capture-overflow"}
+print("fault" if ok else "pending")
 '
 }
 
@@ -345,7 +350,8 @@ import json,sys
 d=json.load(sys.stdin)
 if d["retries"] != 0:
     print("retried")
-elif d["lifetime"]["kind"] == "problem" and d["pid"] is None and d["status"]["daemon"]["text"] == "Problem: jarvis: node=21.0.0 need=22":
+elif (d["lifetime"]["kind"] == "problem" and d["pid"] is None and d["cause"] == "jarvis: node=21.0.0 need=22"
+        and d["status"]["daemon"]["tone"] == "danger"):
     print("permanent")
 else:
     print("pending")

@@ -28,6 +28,8 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 ## Setup
 
+The Setup section at the top of the Jarvis page says Ready when Jarvis has an AI model it can use and local voice, and Not ready when it does not. Below that it shows each step, AI model, Local voice, Browser and Input, as Done or To do, with what to do and its button beside it. The browser and input steps are optional and read Optional until they are done.
+
 Each setup step is a button on the Jarvis page in Plugins or a row in the launcher's Jarvis group. Each opens a floating terminal.
 
 - Add key stores a new provider key in your keyring, with hidden key input. It asks for the provider, an account label and the provider's origin, such as `https://api.openai.com`, without a path.
@@ -42,9 +44,9 @@ The shell's requirement notice installs a missing tool in one click.
 
 | Setting | What it changes |
 | --- | --- |
-| Talk mode | Hold commits on release. Toggle keeps a conversation open. |
+| Talk mode | Hold: Jarvis takes what you said when you let go of the Talk key. Toggle: the conversation stays open until you press Talk again. |
 | Microphone, Speaker | The audio devices Jarvis uses. |
-| AI model | The AI that answers you: an API key you added, or an app you are signed in to. |
+| AI model | The AI that answers you: an API key you added, or an app you are signed in to. It lists only the choices Jarvis can use. An app with more than one account shows each by its sign-in email. |
 | Task terminal | Where a coding task opens. Auto uses tmux when it is installed, so several tasks run at once, and the floating terminal otherwise. |
 | Screen to cloud | Whether a screenshot or its text goes to an AI outside this computer. Ask withholds it unless granted for the conversation, Allow sends it, Never withholds it. When the AI and the voice both run on this computer, they always receive it. |
 | Private windows | Comma-separated words. A window whose class or title contains one is painted black before a screenshot leaves Jarvis. A title cannot always show private browsing. |

@@ -5,7 +5,9 @@ import "SetupGate.js" as Gate
 
 // One readiness reader. Every completed setup run and every requirement scan
 // triggers a fresh check. While the last scan misses a command of `requires`,
-// the published value withholds the setup step (SetupGate.setupValue).
+// the published value withholds the setup step (SetupGate.setupValue). A
+// reader with a `stepKey` also publishes its optional Setup step from that
+// value (SetupGate.optionalStep). Each published check emits `refreshed`.
 Item {
     id: root
     property var shell: null
@@ -14,6 +16,8 @@ Item {
     property var command: ["python3", "-I", program, "status"]
     // The declared requirement commands the setup TUI needs.
     property var requires: []
+    // The Setup group's step this reader's value sets, "" for none.
+    property string stepKey: ""
     property bool pending: false
     property int code: -1
     property string output: ""
@@ -25,6 +29,7 @@ Item {
     onShellChanged: refresh()
     onEndedAtChanged: if (endedAt !== null) refresh()
     onRequirementsRevisionChanged: refresh()
+    signal refreshed()
 
     function refresh() {
         if (shell === null) return;
@@ -42,12 +47,14 @@ Item {
             value = { tone: "warning", text: "Setup check returned invalid status", action: true };
         }
         const missing = shell.requirements.missing;
-        const reply = shell.status.set(statusKey, Gate.setupValue(value, requires, missing));
-        if (reply !== "ok") {
-            const fallback = shell.status.set(statusKey, Gate.setupValue(
-                { tone: "warning", text: "Setup check returned invalid status", action: true }, requires, missing));
-            if (fallback !== "ok") throw new Error("jarvis-setup: status=refused");
+        let published = Gate.setupValue(value, requires, missing);
+        if (shell.status.set(statusKey, published) !== "ok") {
+            published = Gate.setupValue({ tone: "warning", text: "Setup check returned invalid status", action: true }, requires, missing);
+            if (shell.status.set(statusKey, published) !== "ok") throw new Error("jarvis-setup: status=refused");
         }
+        if (stepKey !== "" && shell.status.set(stepKey, Gate.optionalStep(stepKey, published)) !== "ok")
+            throw new Error("jarvis-setup: status=refused");
+        refreshed();
     }
     Process {
         id: probe

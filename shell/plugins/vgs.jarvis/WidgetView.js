@@ -2,8 +2,11 @@
 
 // What the Jarvis bar widget shows, pure so scripts/test-jarvis-widget.js
 // runs it under node: the one judge from the status the service publishes
-// (`daemon`, `detail`, `audio`) to the widget's state, icon, tone and
-// tooltip. The first matching rule wins:
+// (`daemon`, `detail`, `audio` and the Setup steps `setupVoice` and
+// `setupModel`) to the widget's state, icon, tone and tooltip. A fault
+// reads in plain words with what to do (faultText), which the bubble also
+// shows; its keyed reason is in the service's log. The first matching
+// rule wins:
 //   live     capture is not closed: an open microphone always shows
 //   problem  the daemon or audio report danger, or Session reads `error`
 //   off      no Session state yet: the daemon's own text
@@ -26,7 +29,7 @@ var LOOKS = {
 // Session's gate-down reasons (Session.js validate).
 var GATE_TEXT = {
     "starting": "Jarvis is starting",
-    "unconfigured": "Jarvis is not set up",
+    "unconfigured": "Jarvis is not set up. Open Settings > Jarvis.",
     "node": "Jarvis needs Node 22 or later",
     "lock-unknown": "Jarvis is off until the screen lock is known",
     "locked": "Jarvis is off while the screen is locked"
@@ -40,6 +43,40 @@ var WORK_TEXT = {
     "confirming": "Jarvis is waiting for your confirmation",
     "acting": "Jarvis is running a task"
 };
+// The required Setup steps the service publishes (SetupGate.readiness), in
+// the engine's order, and what the bar says while one is still to do.
+var SETUP_TEXT = [
+    ["setupVoice", "Jarvis needs local voice. Set it up in Settings > Jarvis."],
+    ["setupModel", "Jarvis needs an AI model. Choose one in Settings > Jarvis."]
+];
+// A Session fault's kind of failure, by its keyed reason: the first
+// pattern that matches wins. Examples are the producers' own reasons:
+// Session's thinking-timeout and device-lost, the engine's keyed brain and
+// speech causes (ChainedEngine keyed: brain=stream-error, net=timeout,
+// speech=local-not-ready) and Audio's capture and playback failures
+// (audio-start: ..., device-probe: ..., playback-busy).
+var FAULT_KINDS = [
+    [/^thinking-timeout$/, "slow"],
+    [/^device-lost$/, "device"],
+    [/^(brain|net)=/, "brain"],
+    [/^speech=/, "voice"],
+    [/^(audio-start|device-probe|capture|playback)/, "audio"]
+];
+// What the bar and the bubble say of each kind: what went wrong, then what
+// to do. Only a changed device setting or a restart clears a fault, so a
+// device fault asks for a device and every other for a restart.
+var RESTART = "Turn Jarvis off and on again in Settings > Jarvis.";
+var FAULT_TEXT = {
+    "slow": { title: "The AI model took too long to answer", action: RESTART },
+    "device": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another in Settings > Jarvis." },
+    "brain": { title: "The AI model did not answer", action: RESTART },
+    "voice": { title: "Local voice stopped working", action: RESTART },
+    "audio": { title: "The microphone or speaker stopped working", action: RESTART },
+    "other": { title: "Jarvis stopped after a problem", action: RESTART }
+};
+// While Session retries a lost device, Jarvis acts by itself.
+var RETRYING = { title: "The microphone or speaker is gone", action: "Jarvis is trying it again." };
+var AUDIO_TEXT = "Jarvis cannot read the microphones and speakers. " + RESTART;
 // The tones Service.qml publishes for `daemon` and for `audio`.
 var DAEMON_TONES = ["info", "warning", "danger"];
 var AUDIO_TONES = ["info", "ok", "danger"];
@@ -86,6 +123,30 @@ function gateDown(gate) {
     }
 }
 
+// The kind of FAULT, a Session fault, by FAULT_KINDS.
+function faultKind(fault) {
+    if (fault === null || typeof fault !== "object" || typeof fault.reason !== "string") refuse("fault", fault);
+    for (var i = 0; i < FAULT_KINDS.length; i++)
+        if (FAULT_KINDS[i][0].test(fault.reason)) return FAULT_KINDS[i][1];
+    return "other";
+}
+
+// What FAULT, a Session fault that is not none, says: { title, action }.
+function faultText(fault) {
+    var kind = faultKind(fault);
+    return fault.kind === "retrying" ? RETRYING : FAULT_TEXT[kind];
+}
+
+// What the bar says while the gate is down unconfigured: the first
+// required step VALUES still holds to do, as SetupGate offers its action.
+function unconfiguredText(values) {
+    for (var i = 0; i < SETUP_TEXT.length; i++) {
+        var step = values[SETUP_TEXT[i][0]];
+        if (step !== undefined && step !== null && step.action === true) return SETUP_TEXT[i][1];
+    }
+    return GATE_TEXT.unconfigured;
+}
+
 // The second tooltip line names what a click does to MUTEON, the mute
 // region the click toggles, whatever state the icon shows.
 function look(state, line, muteOn) {
@@ -109,14 +170,14 @@ function view(values) {
     if (state !== null && microphoneOpen(state.capture)) return look("live", "Jarvis is using the microphone", muteOn);
     if (daemon !== null && daemon.tone === "danger") return look("problem", daemon.text, muteOn);
     if (detail !== null && detail.phase === "error") {
-        if (state.fault === null || typeof state.fault !== "object" || typeof state.fault.reason !== "string")
-            refuse("fault", state.fault);
-        return look("problem", "Problem: " + state.fault.reason, muteOn);
+        var text = faultText(state.fault);
+        return look("problem", text.title + ". " + text.action, muteOn);
     }
-    if (audio !== null && audio.tone === "danger") return look("problem", "Audio problem: " + audio.text, muteOn);
+    if (audio !== null && audio.tone === "danger") return look("problem", AUDIO_TEXT, muteOn);
     if (state === null) return look("off", daemon === null ? GATE_TEXT.starting : "Jarvis: " + daemon.text, muteOn);
     if (muteOn) return look("muted", "Jarvis is muted", muteOn);
-    if (gateDown(state.gate)) return look("off", GATE_TEXT[state.gate.reason], muteOn);
+    if (gateDown(state.gate))
+        return look("off", state.gate.reason === "unconfigured" ? unconfiguredText(values) : GATE_TEXT[state.gate.reason], muteOn);
     switch (detail.phase) {
     case "thinking": case "speaking": case "confirming": case "acting":
         return look("working", WORK_TEXT[detail.phase], muteOn);

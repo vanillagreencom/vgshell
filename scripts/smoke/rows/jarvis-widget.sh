@@ -115,7 +115,7 @@ jarvis_widget_restarting() {
 import json, sys
 t = sys.stdin.read().strip()
 r = None if t == "absent" else json.loads(t)
-ok = r is not None and r[:2] == ["power-off", "neutral"] and r[2].startswith("Jarvis: Restarting: ") and r[2].endswith("\nClick to mute")
+ok = r is not None and r == ["power-off", "neutral", "Jarvis: Restarting after a problem\nClick to mute"]
 print("restarting" if ok else t)
 '
 }
@@ -228,7 +228,7 @@ cp -- "$sandbox/jarvis-widget-before-jarvisd.js" "$jarvis_widget_dir/backend/jar
 jarvis_rescan
 expect "the permanent-problem widget service enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "the real service reports its permanent cause" permanent jarvis_permanent
-expect_poll "the widget reads the permanent problem" '["circle-alert", "danger", "Problem: jarvis: node=21.0.0 need=22\nClick to mute"]' jarvis_widget
+expect_poll "the widget reads the permanent problem" '["circle-alert", "danger", "Stopped after a problem. Turn Jarvis off and on again.\nClick to mute"]' jarvis_widget
 # The refusal is a Jarvis card, read while vgs.notifications draws with
 # Silence off; it goes back to disabled, as the row found it, after.
 notes_on "the problem-state refusal"
@@ -251,7 +251,7 @@ expect "restore the Jarvis widget configuration" ok ipc shell reloadConfig
 expect "restore the nested keyboard configuration" ok hypr reload config-only
 jarvis_enable
 expect_poll "the restored stock daemon remains unconfigured" session jarvis_session unconfigured
-expect_poll "the widget reads off for the unconfigured daemon" '["power-off", "neutral", "Jarvis is not set up\nClick to mute"]' jarvis_widget
+expect_poll "the widget names the remaining setup step for the unconfigured daemon" '["power-off", "neutral", "Jarvis needs local voice. Set it up in Settings > Jarvis.\nClick to mute"]' jarvis_widget
 expect "the restored nested keys have no configuration errors" '[]' hypr_reload_errors
 expect "the widget row leaves no Jarvis state file" False \
   python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgshell/jarvis/mute.json"
