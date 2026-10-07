@@ -80,6 +80,7 @@ world(() => {
         cleanups.push(() => audit.close());
         return { runner, router, audit, directory, rows, starts, answers, results, records,
             call, show, confirm, dispatch, refusal, newTurn, ready: value => { readiness = value; },
+            deadlines: () => [...timers.values()].map(timer => timer.deadline),
             tick: value => {
                 at = value;
                 const due = [...timers].find(([, timer]) => timer.deadline <= at);
@@ -320,6 +321,7 @@ world(() => {
             assert.equal(approval.kind, "held");
             assert.equal(w.runner.state.approval.deadline, 70000);
             w.show();
+            assert.deepEqual(w.deadlines(), [70000], "the runner schedules the held deadline instead of an early thinking wake");
             const identity = { id: approval.id, digest: approval.digest, gen: w.runner.state.gen };
             if (entry === "deadline") {
                 w.time(60000); w.dispatch({type: "deadline"});
