@@ -30,6 +30,7 @@ async function inside() {
     const Tasks = require(path.join(backend, "Tasks.js"));
     const groups = new Set();
     const launchers = [];
+    const runners = new Set();
     let cases = 0, controls = 0, worlds = 0;
 
     // Real processes cross exec, pipes, the producer's lock and the relay's
@@ -84,6 +85,7 @@ async function inside() {
             environment: { ...env, XDG_RUNTIME_DIR: path.join(base, "xdg"), VGSH_RUNNER_PID: "1", FIXTURE_SECRET: "x" },
             lookup: command => command === "claude",
             clock: { now: Date.now, set: setTimeout, clear: clearTimeout } });
+        runners.add(runner);
         runner.tuiState(false);
         const read = id => new Tasks.Store(directories.state).read(id);
         const log = () => fs.readFileSync(path.join(account, "log.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line));
@@ -113,6 +115,7 @@ async function inside() {
         });
         function close() {
             runner.close();
+            runners.delete(runner);
             assert.deepEqual(seen.faults, [], "the runner reported no fault");
         }
         return { runner, directories, engine, prompts, account, seen, read, log, start, started, prompt, close };
@@ -412,8 +415,8 @@ async function inside() {
         } finally {
             if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL");
             await running.ended;
-            w.close();
         }
+        w.close();
         cases++;
     }
 
@@ -461,77 +464,92 @@ async function inside() {
         w.close();
         cases++;
     }
-    profile(current);
-    await relay(current);
-    await deny(current);
-    await expiry(current);
-    await full(current);
-    failures(current);
-    await ceiling(current);
-    answers(current);
-    await account(current);
-    await takeover(current);
-    await concurrent(current);
-    snapshot(current);
+    try {
+        profile(current);
+        await relay(current);
+        await deny(current);
+        await expiry(current);
+        await full(current);
+        failures(current);
+        await ceiling(current);
+        answers(current);
+        await account(current);
+        await takeover(current);
+        await concurrent(current);
+        snapshot(current);
 
-    async function control(name, file, needle, replacement, check) {
-        const source = fs.readFileSync(path.join(backend, file), "utf8");
-        assert.equal(source.split(needle).length - 1, 1, name + " match");
-        const changed = source.replace(needle, replacement);
-        assert.notEqual(changed, source);
-        const copy = path.join(root, "control-" + name);
-        fs.mkdirSync(copy);
-        for (const entry of SOURCES) fs.copyFileSync(path.join(backend, entry), path.join(copy, entry));
-        fs.writeFileSync(path.join(copy, file), changed);
-        await assert.rejects(async () => check(load(copy)), error => {
-            assert.ok(error instanceof assert.AssertionError, name + " must turn red, not crash: " + error.stack);
-            console.log("test-jarvis-claude-task: control=" + name + " killed by=" + JSON.stringify(error.message.split("\n")[0]));
-            return true;
-        });
-        // A mutant can leave a held hook or a running stand-in: end every
-        // group this suite recorded, by its recorded pgid.
-        for (const pgid of groups) try { process.kill(-pgid, "SIGKILL"); } catch (error) { if (error.code !== "ESRCH") throw error; }
-        for (const child of launchers) if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-        controls++;
+        async function control(name, file, needle, replacement, check) {
+            const source = fs.readFileSync(path.join(backend, file), "utf8");
+            assert.equal(source.split(needle).length - 1, 1, name + " match");
+            const changed = source.replace(needle, replacement);
+            assert.notEqual(changed, source);
+            const copy = path.join(root, "control-" + name);
+            fs.mkdirSync(copy);
+            for (const entry of SOURCES) fs.copyFileSync(path.join(backend, entry), path.join(copy, entry));
+            fs.writeFileSync(path.join(copy, file), changed);
+            const before = new Set(runners);
+            try {
+                await assert.rejects(async () => check(load(copy)), error => {
+                    assert.ok(error instanceof assert.AssertionError, name + " must turn red, not crash: " + error.stack);
+                    console.log("test-jarvis-claude-task: control=" + name + " killed by=" + JSON.stringify(error.message.split("\n")[0]));
+                    return true;
+                });
+            } finally {
+                // Failed controls can retain live prompts. Dispose their polling
+                // owners without the positive scenario's no-fault assertion.
+                for (const runner of runners) if (!before.has(runner)) {
+                    runner.close();
+                    runners.delete(runner);
+                }
+                // A mutant can leave a held hook or a running stand-in: end every
+                // group this suite recorded, by its recorded pgid.
+                for (const pgid of groups) try { process.kill(-pgid, "SIGKILL"); } catch (error) { if (error.code !== "ESRCH") throw error; }
+                for (const child of launchers) if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+            }
+            controls++;
+        }
+        await control("exec-form", "AgentProfiles.js", "hooks: [{ type: \"command\", command: task.node, timeout,\n            args: [hook,",
+            "hooks: [{ type: \"command\", command: task.node, timeout,\n            argv: [hook,", profile);
+        await control("prompt-after-options", "AgentProfiles.js", 'claudeSettings(task), "--", task.brief]', "claudeSettings(task), task.brief]", profile);
+        await control("prompt-submit-silent", "claude-hook", '        record(hook, "working");\n        return null;\n    case "Notification"',
+            '        record(hook, "working");\n        return {};\n    case "Notification"', relay);
+        await control("permission-held", "claude-hook",
+            "    const prompt = Relay.ask(hook.prompts, hook.task, detail, Date.now(), hook.window);",
+            '    if (detail.kind === "permission") return { v: 1, kind: "allow" };\n    const prompt = Relay.ask(hook.prompts, hook.task, detail, Date.now(), hook.window);', relay);
+        await control("deny", "claude-hook", 'decision: { behavior: "deny", message', 'decision: { behavior: "allow", message', deny);
+        await control("stop-outcome", "claude-hook", 'if (task.outcome.kind !== "none") return null;', "if (false) return null;", relay);
+        await control("stop-working", "claude-hook", '    record(hook, "working");\n    return { decision: "block"',
+            '    return { decision: "block"', relay);
+        await control("failure-kind", "claude-hook", "FAILURES.includes(value.error) ? value.error : \"unknown\"", '"unknown"', deny);
+        await control("notification-map", "claude-hook", 'idle_prompt: "idle"', 'idle_prompt: "question"', relay);
+        await control("expiry-silent", "claude-hook", "if (Date.now() >= prompt.deadline) return null;",
+            'if (Date.now() >= prompt.deadline) return { v: 1, kind: "deny" };', expiry);
+        await control("event-ceiling", "claude-hook", "if (result.status === 75 && dropped(result.stdout)) return;",
+            "if (false && dropped(result.stdout)) return;", ceiling);
+        await control("exit-code", "claude-hook", "    process.exitCode = 1;\n", "    process.exitCode = 2;\n", failures);
+        await control("engine-copy", "Tasks.js", '"TaskRelay.js", "claude-hook"];', '"TaskRelay.js"];', relay);
+        await control("answer-once", "TaskRelay.js", "fs.linkSync(temporary, answerFile(directory, task, id));",
+            "fs.renameSync(temporary, answerFile(directory, task, id));", answers);
+        await control("answer-kind", "TaskRelay.js", 'shape(value, ["v", "kind"]) && value.v === 1 && ["allow", "deny"].includes(value.kind)',
+            "value !== null && typeof value === \"object\" && value.v === 1", answers);
+        await control("answer-expired", "TaskRelay.js", 'if (prompt.deadline <= now) return "prompt-expired";',
+            "if (false) return \"prompt-expired\";", answers);
+        await control("pending-answered", "TaskRelay.js", "item.deadline > now && !fs.existsSync(answerFile(directory, item.task, item.id))",
+            "item.deadline > now", answers);
+        await control("relay-full", "TaskRelay.js", "if (live.length >= MAX_PROMPTS) return null;", "if (false) return null;", full);
+        await control("relay-text-bytes", "TaskRelay.js", "    if (Buffer.byteLength(JSON.stringify(flat)) <= MAX_TEXT) return flat;",
+            "    return flat.slice(0, MAX_TEXT);", snapshot);
+        await control("relay-sweep", "TaskRelay.js", "        if (item.deadline <= now) withdrawLocked(directory, item);\n        else live.push(item);",
+            "        live.push(item);", full);
+        await control("account", "TaskRunner.js", 'if (value === null) return { reason: "account-unknown" };',
+            'if (false) return { reason: "account-unknown" };', account);
+        await control("takeover", "claude-hook", '        Relay.withdrawTask(hook.prompts, hook.task);\n        record(hook, "wait", { kind: "none" });\n        record(hook, "working");',
+            '        record(hook, "wait", { kind: "none" });\n        record(hook, "working");', takeover);
+        console.log("test-jarvis-claude-task: ok cases=" + cases + " controls=" + controls);
+    } finally {
+        for (const runner of runners) runner.close();
+        runners.clear();
     }
-    await control("exec-form", "AgentProfiles.js", "hooks: [{ type: \"command\", command: task.node, timeout,\n            args: [hook,",
-        "hooks: [{ type: \"command\", command: task.node, timeout,\n            argv: [hook,", profile);
-    await control("prompt-after-options", "AgentProfiles.js", 'claudeSettings(task), "--", task.brief]', "claudeSettings(task), task.brief]", profile);
-    await control("prompt-submit-silent", "claude-hook", '        record(hook, "working");\n        return null;\n    case "Notification"',
-        '        record(hook, "working");\n        return {};\n    case "Notification"', relay);
-    await control("permission-held", "claude-hook",
-        "    const prompt = Relay.ask(hook.prompts, hook.task, detail, Date.now(), hook.window);",
-        '    if (detail.kind === "permission") return { v: 1, kind: "allow" };\n    const prompt = Relay.ask(hook.prompts, hook.task, detail, Date.now(), hook.window);', relay);
-    await control("deny", "claude-hook", 'decision: { behavior: "deny", message', 'decision: { behavior: "allow", message', deny);
-    await control("stop-outcome", "claude-hook", 'if (task.outcome.kind !== "none") return null;', "if (false) return null;", relay);
-    await control("stop-working", "claude-hook", '    record(hook, "working");\n    return { decision: "block"',
-        '    return { decision: "block"', relay);
-    await control("failure-kind", "claude-hook", "FAILURES.includes(value.error) ? value.error : \"unknown\"", '"unknown"', deny);
-    await control("notification-map", "claude-hook", 'idle_prompt: "idle"', 'idle_prompt: "question"', relay);
-    await control("expiry-silent", "claude-hook", "if (Date.now() >= prompt.deadline) return null;",
-        'if (Date.now() >= prompt.deadline) return { v: 1, kind: "deny" };', expiry);
-    await control("event-ceiling", "claude-hook", "if (result.status === 75 && dropped(result.stdout)) return;",
-        "if (false && dropped(result.stdout)) return;", ceiling);
-    await control("exit-code", "claude-hook", "    process.exitCode = 1;\n", "    process.exitCode = 2;\n", failures);
-    await control("engine-copy", "Tasks.js", '"TaskRelay.js", "claude-hook"];', '"TaskRelay.js"];', relay);
-    await control("answer-once", "TaskRelay.js", "fs.linkSync(temporary, answerFile(directory, task, id));",
-        "fs.renameSync(temporary, answerFile(directory, task, id));", answers);
-    await control("answer-kind", "TaskRelay.js", 'shape(value, ["v", "kind"]) && value.v === 1 && ["allow", "deny"].includes(value.kind)',
-        "value !== null && typeof value === \"object\" && value.v === 1", answers);
-    await control("answer-expired", "TaskRelay.js", 'if (prompt.deadline <= now) return "prompt-expired";',
-        "if (false) return \"prompt-expired\";", answers);
-    await control("pending-answered", "TaskRelay.js", "item.deadline > now && !fs.existsSync(answerFile(directory, item.task, item.id))",
-        "item.deadline > now", answers);
-    await control("relay-full", "TaskRelay.js", "if (live.length >= MAX_PROMPTS) return null;", "if (false) return null;", full);
-    await control("relay-text-bytes", "TaskRelay.js", "    if (Buffer.byteLength(JSON.stringify(flat)) <= MAX_TEXT) return flat;",
-        "    return flat.slice(0, MAX_TEXT);", snapshot);
-    await control("relay-sweep", "TaskRelay.js", "        if (item.deadline <= now) withdrawLocked(directory, item);\n        else live.push(item);",
-        "        live.push(item);", full);
-    await control("account", "TaskRunner.js", 'if (value === null) return { reason: "account-unknown" };',
-        'if (false) return { reason: "account-unknown" };', account);
-    await control("takeover", "claude-hook", '        Relay.withdrawTask(hook.prompts, hook.task);\n        record(hook, "wait", { kind: "none" });\n        record(hook, "working");',
-        '        record(hook, "wait", { kind: "none" });\n        record(hook, "working");', takeover);
-    console.log("test-jarvis-claude-task: ok cases=" + cases + " controls=" + controls);
 }
 
 function main() {
