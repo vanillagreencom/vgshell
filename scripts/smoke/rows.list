@@ -121,6 +121,7 @@ panes
 system-window
 # After system-window, whose vgs.system it enables again for the Mouse pane.
 mouse
+keyboard
 # After system-window, whose vgs.system it enables again for the displays
 # pane, and after device-fakes, which leaves the XDR's report at 40 %, the
 # level the row reads first.

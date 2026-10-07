@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.keyboard",
+  "name": "Keyboard",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Choose input sources and key repeat.",
+  "license": "MIT",
+  "icon": "keyboard",
+  "kinds": [
+    "service",
+    "bar-widget",
+    "panel",
+    "pane"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "bar-widget": "Widget.qml",
+    "panel": "Panel.qml",
+    "pane": "Pane.qml"
+  },
+  "capabilities": [
+    "status",
+    "surfaces",
+    "configure",
+    "hyprland",
+    "run"
+  ],
+  "defaultSection": "right",
+  "pane": {
+    "group": "Hardware",
+    "order": 40
+  },
+  "settings": {
+    "layouts": "",
+    "variants": "",
+    "options": "",
+    "repeatRate": 25,
+    "repeatDelay": 600,
+    "numlockByDefault": false
+  },
+  "schema": {
+    "layouts": {
+      "type": "string",
+      "label": "Input sources",
+      "presets": [
+        {
+          "label": "System layout",
+          "value": ""
+        }
+      ],
+      "allowCustom": true,
+      "group": "Input Sources"
+    },
+    "variants": {
+      "type": "string",
+      "label": "Variants",
+      "presets": [
+        {
+          "label": "Default",
+          "value": ""
+        }
+      ],
+      "allowCustom": true,
+      "group": "Input Sources"
+    },
+    "options": {
+      "type": "string",
+      "label": "Modifier options",
+      "presets": [
+        {
+          "label": "Default",
+          "value": ""
+        },
+        {
+          "label": "Caps Lock as Escape",
+          "value": "caps:escape"
+        },
+        {
+          "label": "Swap Caps Lock and Control",
+          "value": "ctrl:swapcaps"
+        },
+        {
+          "label": "Right Alt as Compose",
+          "value": "compose:ralt"
+        },
+        {
+          "label": "Alt+Shift switches layouts",
+          "value": "grp:alt_shift_toggle"
+        }
+      ],
+      "allowCustom": true,
+      "group": "Modifier Options"
+    },
+    "repeatRate": {
+      "type": "number",
+      "label": "Repeat rate",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "/s",
+      "group": "Key Repeat"
+    },
+    "repeatDelay": {
+      "type": "number",
+      "label": "Repeat delay",
+      "min": 0,
+      "max": 2000,
+      "step": 1,
+      "unit": "ms",
+      "group": "Key Repeat"
+    },
+    "numlockByDefault": {
+      "type": "boolean",
+      "label": "Num Lock on at startup",
+      "group": "Modifier Options"
+    }
+  },
+  "hyprland": {
+    "options": {
+      "layouts": "input.kb_layout",
+      "variants": "input.kb_variant",
+      "options": "input.kb_options",
+      "repeatRate": "input.repeat_rate",
+      "repeatDelay": "input.repeat_delay",
+      "numlockByDefault": "input.numlock_by_default"
+    }
+  },
+  "status": {
+    "catalog": {
+      "type": "data",
+      "label": "Input sources"
+    },
+    "active": {
+      "type": "data",
+      "label": "Active layout"
+    }
+  }
+}

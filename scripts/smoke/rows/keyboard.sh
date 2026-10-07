@@ -1,0 +1,100 @@
+# vgs.keyboard's real editor, layer options and bar click in the nested
+# sandbox. The direct-hyprctl widget control changes the keymap but fails
+# the widget's source contract: only the core owns the transport.
+# inputs: shell/plugins/vgs.keyboard/* shell/plugins/vgs.system/* shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/PluginLogic.js shell/Core/Capabilities.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Ui/layout/DeviceList.qml shell/Ui/layout/DeviceRow.qml shell/Ui/controls/Select.qml shell/Ui/controls/Slider.qml shell/Ui/controls/TextField.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml scripts/smoke/Probe.qml scripts/smoke/rows/hyprland-consent.sh
+set -euo pipefail
+keyboard_file="$home/.config/vgshell/shell.json"
+keyboard_saved="$sandbox/shell-before-keyboard.json"
+keyboard_copy="$home/.config/vgshell/plugins/vgs.keyboard"
+cp -- "$keyboard_file" "$keyboard_saved"
+keyboard_option() { hypr -j getoption "$1" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get(sys.argv[1])))' "$2"; }
+keyboard_keymaps() { hypr -j devices | py_reply 'import json,sys; print(json.dumps(sorted({k["active_keymap"] for k in json.load(sys.stdin).get("keyboards", [])})))'; }
+keyboard_sources() { ipc smoke readDescendant window vgs.keyboard KeyboardControls sources | py_reply 'import json,sys; print(json.dumps([[r["code"], r["variant"]] for r in json.load(sys.stdin)]))'; }
+keyboard_active_code() { ipc smoke readInstance "$(bar_key)" vgs.keyboard active | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("code", "")))'; }
+keyboard_catalog() { ipc smoke statusValues vgs.keyboard | py_reply 'import json,sys; print(json.load(sys.stdin).get("catalog", {}).get("state", "absent"))'; }
+keyboard_widget_point() { local rect; rect="$(ipc smoke instanceGeometry "$(bar_key)" vgs.keyboard)" && at_centre vgs:bar "$rect"; }
+keyboard_transport_contract() {
+  python3 -c 'import pathlib,sys; source=pathlib.Path(sys.argv[1]).read_text(); print("ok" if "hyprctl" not in source and "shell.hyprland.switchKeyboardLayout(\"next\")" in source else "direct")' "$1/Widget.qml"
+}
+keyboard_set_sources() {
+  python3 - "$keyboard_file" "$1" "$2" <<'PY'
+import json, os, sys
+path, layouts, variants = sys.argv[1:]
+doc = json.load(open(path))
+rows = doc.setdefault("plugins", [])
+row = next((r for r in rows if r.get("id") == "vgs.keyboard"), None)
+if row is None:
+    row = {"id":"vgs.keyboard"}
+    rows.append(row)
+row.update(layouts=layouts, variants=variants)
+for section in doc.get("bar", {}).get("layout", {}).values():
+    for entry in section:
+        if entry.get("id") == "vgs.keyboard": entry.update(layouts=layouts, variants=variants)
+with open(path + ".tmp", "w") as out: json.dump(doc, out)
+os.replace(path + ".tmp", path)
+PY
+}
+expect "enabling Keyboard is allowed" ok ipc shell setPluginEnabled vgs.keyboard true
+expect "placing Keyboard is allowed" ok ipc shell setPluginPlaced vgs.keyboard true
+expect "enabling System for Keyboard is allowed" ok ipc shell setPluginEnabled vgs.system true
+expect_poll "the Keyboard catalog is complete" ready keyboard_catalog
+keyboard_set_sources us ''
+expect "the keyboard configuration reloads" ok ipc shell reloadConfig
+expect_poll "one source reaches Hyprland" '"us"' keyboard_option input:kb_layout str
+expect_poll "one source hides the widget" false ipc smoke readInstance "$(bar_key)" vgs.keyboard visible
+keyboard_set_sources us,de ',nodeadkeys'
+expect "the second source configuration reloads" ok ipc shell reloadConfig
+expect_poll "the second source reaches Hyprland" '"us,de"' keyboard_option input:kb_layout str
+expect_poll "the aligned variants reach Hyprland" '",nodeadkeys"' keyboard_option input:kb_variant str
+expect_poll "two sources show the widget" true ipc smoke readInstance "$(bar_key)" vgs.keyboard visible
+expect_poll "the initial keymap is English" '["English (US)"]' keyboard_keymaps
+expect "the shipped widget uses the core transport" ok keyboard_transport_contract "$repo/shell/plugins/vgs.keyboard"
+read -r kx ky < <(keyboard_widget_point) || fail "the Keyboard widget has no box"
+hover "$kx" "$ky" || fail "hovering the Keyboard widget failed"
+click "$kx" "$ky" || fail "clicking the Keyboard widget failed"
+expect_poll "the widget click switches the real keymap" '["German (no dead keys)"]' keyboard_keymaps
+expect_poll "the widget follows the active code" '"DE"' keyboard_active_code
+expect "the Keyboard pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.keyboard"}'
+expect_poll "the Keyboard pane mounts" '["vgs.keyboard"]' window_panes
+expect_poll "the editor holds both sources and variants" '[["us", ""], ["de", "nodeadkeys"]]' keyboard_sources
+type_keys -k End || fail "selecting the last source failed"
+type_keys -M ctrl -k Up -m ctrl || fail "moving the source up failed"
+expect_poll "keyboard move keeps the source and variant together" '[["de", "nodeadkeys"], ["us", ""]]' keyboard_sources
+expect_poll "keyboard move reaches Hyprland" '"de,us"' keyboard_option input:kb_layout str
+type_keys -k Delete || fail "removing the selected source failed"
+expect_poll "keyboard removal keeps the remaining source" '[["us", ""]]' keyboard_sources
+type_keys -k Delete || fail "trying to remove the last source failed"
+expect "the editor keeps the last source" '[["us", ""]]' keyboard_sources
+# Tab traverses the list's one stop, layout, variant, Add, system default,
+# then the real repeat slider. End writes through configure, not the probe.
+type_keys -k Tab -k Tab -k Tab -k Tab -k Tab || fail "tabbing to repeat rate failed"
+expect_poll "the repeat slider holds keyboard focus" '["Slider",null]' ipc smoke activeFocusItem window vgs.keyboard
+type_keys -k End || fail "changing repeat rate from the keyboard failed"
+expect_poll "repeat rate reaches Hyprland" 200 keyboard_option input:repeat_rate int
+expect "the Keyboard pane closes before the control" ok ipc shell hide window vgs.system
+expect "disabling Keyboard before its control is allowed" ok ipc shell setPluginEnabled vgs.keyboard false
+cp -R -- "$repo/shell/plugins/vgs.keyboard" "$keyboard_copy"
+python3 - "$keyboard_copy/Widget.qml" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+needle = 'shell.hyprland.switchKeyboardLayout("next")'
+assert text.count(needle) == 1
+text = text.replace('import QtQuick\n', 'import QtQuick\nimport Quickshell\n', 1)
+path.write_text(text.replace(needle, '(Quickshell.execDetached(["hyprctl", "switchxkblayout", "all", "next"]), "ok")'))
+PY
+rescan "rescan discovers the direct-hyprctl Keyboard control"
+keyboard_set_sources us,de ',nodeadkeys'
+expect "the control layout reloads" ok ipc shell reloadConfig
+expect "enabling the control widget is allowed" ok ipc shell setPluginEnabled vgs.keyboard true
+expect_poll "the control starts on English" '["English (US)"]' keyboard_keymaps
+read -r kx ky < <(keyboard_widget_point) || fail "the control widget has no box"
+hover "$kx" "$ky" || fail "hovering the control widget failed"
+click "$kx" "$ky" || fail "clicking the control widget failed"
+expect_poll "control: direct hyprctl changes the keymap" '["German (no dead keys)"]' keyboard_keymaps
+expect "control: the source contract rejects the direct transport" direct keyboard_transport_contract "$keyboard_copy"
+expect "disabling the control is allowed" ok ipc shell setPluginEnabled vgs.keyboard false
+rm -rf -- "${keyboard_copy:?}"
+rescan "rescan restores the shipped Keyboard plugin"
+cp -- "$keyboard_saved" "$keyboard_file.tmp" && mv -T -- "$keyboard_file.tmp" "$keyboard_file"
+expect "Keyboard restores the row's configuration" ok ipc shell reloadConfig

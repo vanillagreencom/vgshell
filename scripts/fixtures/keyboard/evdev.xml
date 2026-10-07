@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xkbConfigRegistry>
+  <modelList><model><configItem><name>pc105</name><description>Generic keyboard</description></configItem></model></modelList>
+  <layoutList>
+    <layout><configItem><name>us</name><description>English (US)</description></configItem>
+      <variantList>
+        <variant><configItem><name>intl</name><description>English (US, intl., with dead keys)</description></configItem></variant>
+        <variant><configItem><name>altgr-intl</name><description>English &amp; international</description></configItem></variant>
+      </variantList>
+    </layout>
+    <layout><configItem><name>de</name><description>German</description></configItem>
+      <variantList><variant><configItem><name>nodeadkeys</name><description>German (no dead keys)</description></configItem></variant></variantList>
+    </layout>
+    <layout><configItem><name>fr</name><description>Fran&#231;ais</description></configItem></layout>
+  </layoutList>
+  <optionList><group><option><configItem><name>caps:escape</name><description>Caps Lock as Escape</description></configItem></option></group></optionList>
+</xkbConfigRegistry>

@@ -2638,12 +2638,50 @@ EOF
     expect_poll "the System window is gone after Mouse" hidden system_shown
     expect "disabling vgs.mouse after its shot is allowed" ok ipc shell setPluginEnabled vgs.mouse false
   fi
+  if ships_plugin vgs.keyboard; then
+    local keyboard_saved="$sandbox/shell-before-keyboard-shot.json"
+    cp -- "$home/.config/vgshell/shell.json" "$keyboard_saved"
+    python3 - "$home/.config/vgshell/shell.json" <<'PYKEYBOARD'
+import json, os, sys
+path = sys.argv[1]
+doc = json.load(open(path))
+rows = doc.setdefault("plugins", [])
+row = next((r for r in rows if r.get("id") == "vgs.keyboard"), None)
+if row is None:
+    row = {"id": "vgs.keyboard"}
+    rows.append(row)
+row.update(layouts="us,de", variants=",nodeadkeys")
+for section in doc.get("bar", {}).get("layout", {}).values():
+    for entry in section:
+        if entry.get("id") == "vgs.keyboard": entry.update(layouts="us,de", variants=",nodeadkeys")
+with open(path + ".tmp", "w") as out: json.dump(doc, out)
+os.replace(path + ".tmp", path)
+PYKEYBOARD
+    expect "the keyboard shot configuration reloads" ok ipc shell reloadConfig
+    expect "enabling Keyboard for its shot is allowed" ok ipc shell setPluginEnabled vgs.keyboard true
+    expect "placing Keyboard for its shot is allowed" ok ipc shell setPluginPlaced vgs.keyboard true
+    expect_poll "the keyboard shot has two layouts" '"us,de"' keyboard_shot_layouts
+    expect "System Keyboard summons" ok ipc shell summon window vgs.system '{"pane":"vgs.keyboard"}'
+    expect_poll "System Keyboard is mounted" '["vgs.keyboard"]' window_panes
+    expect_poll "the Keyboard layout catalog is ready" '"ready"' keyboard_shot_catalog
+    park_pointer
+    take "system-$1-keyboard"
+    expect "System hides after the keyboard pane shot" ok ipc shell hide window vgs.system
+    expect_poll "System is gone before the keyboard widget shot" hidden system_shown
+    park_pointer
+    take "system-$1-keyboard-widget"
+    expect "disabling Keyboard after its shot is allowed" ok ipc shell setPluginEnabled vgs.keyboard false
+    cp -- "$keyboard_saved" "$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
+    expect "the keyboard shot configuration restores" ok ipc shell reloadConfig
+  fi
   if [[ $displays_on == true ]]; then
     expect "disabling vgs.displays after the System shots is allowed" ok ipc shell setPluginEnabled vgs.displays false
     rm -f -- "${home:?}/.local/state/vgshell/plugins/vgs.displays/assignments.json"
   fi
   expect "disabling vgs.system after its shot is allowed" ok ipc shell setPluginEnabled vgs.system false
 }
+keyboard_shot_layouts() { hypr -j getoption input:kb_layout | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("str")))'; }
+keyboard_shot_catalog() { ipc smoke statusValues vgs.keyboard | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("catalog", {}).get("state", "absent")))'; }
 sound_lists_player() { ipc smoke itemTexts window vgs.sound FormRow | py_reply 'import json,sys; print(json.dumps(any("Smoke Player" in t for row in json.load(sys.stdin) for t in row)))'; }
 
 # The System window's Bluetooth section over the device fakes: the

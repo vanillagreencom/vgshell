@@ -5,7 +5,7 @@
     "layout": {
       "left": [],
       "center": [],
-      "right": [{ "id": "vgs.settings" }]
+      "right": [{ "id": "vgs.keyboard" }, { "id": "vgs.settings" }]
     }
   },
   "manager": { "id": "vgs.settings" },

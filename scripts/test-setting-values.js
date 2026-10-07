@@ -21,7 +21,11 @@ function verify(values) {
         ["120 minutes", 120, "minutes", "2 hours"],
         ["5 percent", 5, "%", "5%"],
         ["100 percent", 100, "%", "100%"],
-        ["1.25 factor", 1.25, "×", "1.25×"]
+        ["1.25 factor", 1.25, "×", "1.25×"],
+        ["repeat rate", 25, "/s", "25 /s"],
+        ["repeat delay", 600, "ms", "600 ms"],
+        ["zero repeat", 0, "/s", "0 /s"],
+        ["delay keeps scale", 2000, "ms", "2000 ms"]
     ];
     for (const [name, value, unit, want] of quantities)
         assert.equal(values.quantityText(value, unit), want, "quantityText: " + name);
@@ -61,6 +65,7 @@ function verify(values) {
 verify(load(file));
 
 const CONTROLS = [
+    ["repeat units keep their scale", 'if (unit === "/s" || unit === "ms") return String(value) + " " + unit;', 'if (false) return String(value) + " " + unit;'],
     ["unit conversion", "if (value % factor === 0) {", "if (false) {"],
     ["zero keeps declared unit", "if (value !== 0) {", "if (true) {"],
     ["percent is drawn with its sign", "if (unit === \"%\") return String(value) + \"%\";", "if (unit === \"%\") return String(value) + \" percent\";"],

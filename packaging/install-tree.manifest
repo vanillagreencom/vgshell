@@ -404,6 +404,13 @@ f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-browser.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-input.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-local.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/task.sh
+f share/vgshell/shell/plugins/vgs.keyboard/KeyboardControls.qml
+f share/vgshell/shell/plugins/vgs.keyboard/KeyboardLogic.js
+f share/vgshell/shell/plugins/vgs.keyboard/Pane.qml
+f share/vgshell/shell/plugins/vgs.keyboard/Panel.qml
+f share/vgshell/shell/plugins/vgs.keyboard/Service.qml
+f share/vgshell/shell/plugins/vgs.keyboard/Widget.qml
+f share/vgshell/shell/plugins/vgs.keyboard/manifest.json
 f share/vgshell/shell/plugins/vgs.keyhints/Service.qml
 f share/vgshell/shell/plugins/vgs.keyhints/Window.qml
 f share/vgshell/shell/plugins/vgs.keyhints/manifest.json

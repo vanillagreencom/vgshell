@@ -1,10 +1,9 @@
 .pragma library
 
 // A number's units: the time units, which a value converts between, and
-// `%`, a share drawn as the number and the sign, and `×`, a factor drawn
-// after the number.
+// `%`, `×`, `/s` and `ms` keep the declared scale.
 var TIME_UNITS = ["seconds", "minutes", "hours", "days"];
-var UNITS = TIME_UNITS.concat(["%", "×"]);
+var UNITS = TIME_UNITS.concat(["%", "×", "/s", "ms"]);
 var FORMATS = ["datetime"];
 var PROBLEM_TEXT = {
     empty: "Enter a date or time format.",
@@ -32,6 +31,7 @@ function quantityText(value, unit) {
         throw new Error("SettingValues.quantityText: unit " + JSON.stringify(unit) + " is not one of " + UNITS.join(", "));
     if (unit === "%") return String(value) + "%";
     if (unit === "×") return String(value) + "×";
+    if (unit === "/s" || unit === "ms") return String(value) + " " + unit;
     var base = unitStep(unit);
     var chosen = unit;
     var shown = value;
