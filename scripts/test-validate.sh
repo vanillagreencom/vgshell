@@ -506,7 +506,7 @@ jarvis_language_plan=$'node scripts/test-jarvis-guidance.js\nnode scripts/test-j
 keyboard_rows=$'python3 scripts/check-keyboard.py shell\npython3 scripts/test-check-keyboard.py\n'
 keyboard_check=$'python3 scripts/check-keyboard.py shell\n'
 dispatch_plan=$'node scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check$repo_plan"$'\nscripts/test-validate.sh'
-session_plan=$'scripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check$repo_plan"$'\nscripts/test-validate.sh\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nscripts/test-session-lock.sh\nscripts/test-flake.sh\nscripts/qml-smoke.sh'
+session_plan=$'node scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check$repo_plan"$'\nscripts/test-validate.sh\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nscripts/test-session-lock.sh\nscripts/test-flake.sh\nscripts/qml-smoke.sh'
 fixture_plan=$'node bin/lib/check-manifests.js --base scripts/smoke/fixtures/plugins\npython3 scripts/check-plugin-boundary.py --shell scripts/smoke/fixtures\npython3 scripts/check-design-tokens.py\nsmoke_reads_named\n'"$repo_plan"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh'
 smoke_plan=$'python3 scripts/check-smoke-readers.py\npython3 scripts/test-check-smoke-readers.py\npython3 scripts/check-smoke-terminal.py\npython3 scripts/test-check-smoke-terminal.py\nsmoke_reads_named\n'"$repo_plan"$'\nscripts/qml-smoke.sh'
 orb_shader_plan=$'scripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-voiceorb-shader.py\npython3 scripts/test-check-voiceorb-shader.py\npython3 scripts/test-measure-shader.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_rows$repo_plan"$'\nscripts/test-validate.sh\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nnode scripts/test-key-labels.js\nscripts/test-flake.sh\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
@@ -792,6 +792,39 @@ PY
 "${base_env[@]}" git -C "$d" commit -q -m control
 row "control: an omitted catalog input skips engine tests while the adapter still runs" "$d" 0 "" \
   "!node scripts/test-jarvis-engine.js" "node scripts/test-jarvis-local-speech.js"
+
+# The shipped daemon loads Dispatch and its recursive Core imports before
+# loading admission. Use the shipped loader's closure, not another path list.
+mapfile -t jarvis_core_imports < <("$node_bin" - "$repo" <<'JS'
+const assert = require("node:assert/strict");
+const path = require("node:path");
+const root = process.argv[2];
+const { closure } = require(path.join(root, "bin/lib/qml-library.js"));
+const files = [...closure(path.join(root, "shell/Core/Dispatch.js"))].map(file => path.relative(root, file));
+assert.ok(files.every(file => file.startsWith("shell/Core/")), "daemon Core import family");
+process.stdout.write(files.join("\n") + "\n");
+JS
+)
+if (( ${#jarvis_core_imports[@]} < 2 )); then fail "daemon closure must include transitive Core inputs"; fi
+for imported in "${jarvis_core_imports[@]}"; do
+  d="$tmp/plan-engine-core-${imported##*/}"; fresh "$d"
+  mkdir -p -- "$d/$(dirname -- "$imported")"
+  printf 'changed\n' >"$d/$imported"
+  row "the daemon Core family selects engine tests for $imported" "$d" 0 "" "node scripts/test-jarvis-engine.js"
+  if [[ $imported == shell/Core/Dispatch.js ]]; then continue; fi
+  python3 - "$d/scripts/validate" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+source = path.read_text()
+rows = [line for line in source.splitlines() if line.startswith('  "cli|Jarvis chained engine|')]
+assert len(rows) == 1 and rows[0].count(' shell/Core/* ') == 1
+path.write_text(source.replace(rows[0], rows[0].replace(' shell/Core/* ', ' shell/Core/Dispatch.js ', 1)))
+PY
+  "${base_env[@]}" git -C "$d" add scripts/validate
+  "${base_env[@]}" git -C "$d" commit -q -m control
+  row "control: manual Core enumeration omits consumed $imported" "$d" 0 "" "!node scripts/test-jarvis-engine.js"
+done
 test_area=manifests
 test_args=()
 
