@@ -105,7 +105,8 @@ ln -s "$host/wayland-1" "$rt/wayland-9"
 # fixed-b write one image each time; counter writes a new one each call;
 # hang never returns; unsized-layout fails as grim 1.5.0 does when the
 # layout holds an output with no size, unless -o names the sized output
-# WAYLAND-1. It records its environment in env.log beside it.
+# WAYLAND-1. pixel-scale2 follows grim's default output scale of 2,
+# unless -s sets the image scale to 1. It records its environment in env.log.
 cat >"$tmp/bin/grim" <<'SH'
 #!/usr/bin/env bash
 out="${!#}"
@@ -117,6 +118,12 @@ case "$(cat "$here/mode")" in
   counter) n=$(( $(cat "$here/count" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$here/count"; printf 'image-%s' "$n" >"$out" ;;
   hang) sleep 5 ;;
   unsized-layout) if [[ $1 == -o && $2 == WAYLAND-1 ]]; then printf 'image-b' >"$out"; else echo "failed to create buffer" >&2; exit 1; fi ;;
+  pixel-scale2)
+    if [[ $1 == -s && $2 == 1 ]]; then
+      printf 'P6\n1 1\n255\n\x33\x66\x99'
+    else
+      printf 'P6\n2 2\n255\n\x33\x66\x99\x33\x66\x99\x33\x66\x99\x33\x66\x99'
+    fi ;;
 esac
 SH
 chmod 755 "$tmp/bin/grim"
@@ -204,6 +211,8 @@ cases=(
   'echo hang >"$T/bin/mode"; SHOT_GRIM_TIMEOUT_S=1 shot four' 2 "shot: capture-failed name=four grim-status=timeout"
   "grim sees only the nested socket"
   'echo fixed-b >"$T/bin/mode"; shot five >/dev/null; grep -qx WAYLAND_DISPLAY=wayland-1 "$T/bin/env.log"; grep -qx "XDG_RUNTIME_DIR=$RT" "$T/bin/env.log"; ! grep -q HOST_MARKER "$T/bin/env.log"' 0 ""
+  "a layout pixel on a scale-2 output reads its colour"
+  'echo pixel-scale2 >"$T/bin/mode"; [[ $(shot_pixel "$RT/wayland-1" "$RT" 10 20) == 336699 ]]' 0 ""
   "a capture under a hold held before and after is taken"
   "$held_stubs"'shot_held six hold settle >/dev/null; [[ $(cat "$D/log") == $(printf "settle\nread") && $(cat "$D/shots.tsv") == "$(image_b_row six)" && -e $D/six.png ]]' 0 ""
   "a held mode is settled before the capture"
@@ -296,6 +305,8 @@ controls=(
   '[[ $status -eq 124 ]] && return 2' 'true' "a grim that never returns reads as no frame"
   "grim inherits the caller's environment"
   'env -i PATH="$PATH"' 'env PATH="$PATH"' "grim sees only the nested socket"
+  "a layout pixel uses the output scale"
+  '-s 1 -g "$3,$4 1x1"' '-g "$3,$4 1x1"' "a layout pixel on a scale-2 output reads its colour"
   "the hold is not settled before the capture"
   'if ! "$settle"; then' 'if false; then' "a held mode is settled before the capture"
   "a capture the hold left is not retaken"
