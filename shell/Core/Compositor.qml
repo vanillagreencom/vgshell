@@ -319,7 +319,7 @@ Singleton {
         const target = Dispatch.revealTarget(state, revealing.addresses, revealing.named);
         switch (target.state) {
         case "reveal":
-            send("focusWindow", [target.address]);
+            enqueueRequest(Dispatch.revealFocusRequest(target.address, Hyprland.usingLua), null);
             endReveal("shell", target.address);
             break;
         case "shown":

@@ -149,6 +149,19 @@ function padWorkspace(name) {
 // the windows of one application: at most REVEAL_WINDOWS_MAX of them.
 var REVEAL_WINDOWS_MAX = 16;
 
+// Compositor.stateRead found this address in j/clients, but the window can
+// close before the queue sends its focus. In Lua, hl.get_window and the
+// focus run in the same dispatcher callback, so no close can land between
+// them (scripts/smoke/rows/compositor-reveal.sh). A direct focus request
+// still refuses an unknown address. Return hl.dispatch's result so other
+// focus failures reach the reply judge. hl.dispatch runs the dispatcher table:
+// https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/dispatchers.md
+function revealFocusRequest(address, usingLua) {
+    var focus = request("focusWindow", [address], usingLua);
+    if (!focus.ok || !usingLua) return focus;
+    return { ok: true, request: "function() if hl.get_window(\"address:" + address + "\") ~= nil then return hl.dispatch(" + focus.request + ") end end" };
+}
+
 // How long a reveal that follows an action the caller delivered waits for
 // the application to bring its own window forward before the shell does.
 // An application that raised itself on a notification action in the

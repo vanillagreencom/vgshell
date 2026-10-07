@@ -244,6 +244,81 @@ if open_other "$sandbox/toplevel-reveal-other.log"; then
     fail "the self-raise windows map"
   fi
 
+  # The client snapshot sees a mapped target. The transport barrier holds
+  # only its subsequent focus, so closing the helper proves the address
+  # became stale after stateRead selected it. Removing the guard from that
+  # request must produce the original error; the shipped request must not.
+  for focus_mode in guarded unguarded; do
+    if open_reveal "close-$focus_mode"; then
+      focus_race_pid="$reveal_pid"
+      focus_race_address="$reveal_window"
+      reveal_other "close-$focus_mode"
+      focus_gate="$sandbox/focus-$focus_mode"
+      mkfifo "$focus_gate.release"
+      cat >"$shim/hyprctl.focus-close" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ \${1:-} == dispatch && \${2:-} == *'address:$focus_race_address'* ]]; then
+  exec 3<>"$focus_gate.release"
+  printf '%s\n' "\$2" >"$focus_gate.request"
+  read -r -t 30 release <&3
+  if [[ $focus_mode == unguarded ]]; then
+    set -- dispatch 'hl.dsp.focus({ window = "address:$focus_race_address" })'
+  fi
+fi
+exec "$hyprctl_bin" "\$@"
+EOF
+      chmod 755 "$shim/hyprctl.focus-close"
+      shim_hyprctl focus-close
+      expect "the $focus_mode reveal starts from a live target" ok probe reveal "$focus_race_address"
+      focus_request_seen() { [[ -s $focus_gate.request ]] && echo held || echo pending; }
+      expect_poll "the $focus_mode focus waits after the clients snapshot" held focus_request_seen
+      close_toplevel "$focus_race_pid" "the $focus_mode target closes before focus"
+      expect_poll "the $focus_mode address has left Hyprland's clients" absent in_view "$focus_race_address"
+      printf 'release\n' >"$focus_gate.release"
+      shim_hyprctl real
+      # The queue starts the next request only after it judged the held
+      # focus's reply. A distinct workspace proves that completion.
+      expect "the completion request follows the $focus_mode focus" ok probe dispatch 'focusWorkspace 6'
+      expect_poll "the $focus_mode focus finishes before its log is read" 6 active_ws
+      focus_pattern="ERROR qml: compositor: request .*address:$focus_race_address.* answered "
+      if [[ $focus_mode == guarded ]]; then
+        expect "a window closed after the snapshot logs no focus error" 0 log_lines "$focus_pattern"
+      else
+        expected_errors+=("$focus_pattern")
+        expect_log "control: removing the guard logs the stale-address failure" 1 "$focus_pattern"
+        expect "control: the stale focus logs exactly one reply error" 1 log_lines "$focus_pattern"
+      fi
+    else
+      fail "the $focus_mode close-control window maps"
+    fi
+  done
+
+  # No close occurs in this control. A direct request for an address that
+  # never existed still reaches the compositor's refusal and logs it.
+  focus_unknown=0x0
+  expect "the must-fail address is absent before the focus" absent in_view "$focus_unknown"
+  expected_errors+=("ERROR qml: compositor: request .*address:$focus_unknown.* answered ")
+  expect "the unknown direct focus reaches the queue" ok probe dispatch "focusWindow $focus_unknown"
+  expect_log "an unknown address with no close still logs an error" 1 "ERROR qml: compositor: request .*address:$focus_unknown.* answered "
+
+  # A live target's other dispatcher failure must pass through the guarded
+  # callback. Hyprland returns hl.dispatch's failure value to the caller.
+  if open_reveal refused; then
+    focus_refused_pid="$reveal_pid"
+    focus_refused_address="$reveal_window"
+    reveal_other "other-focus-failure"
+    expect "the nested focus control installs a failing dispatcher" ok hypr eval "hl.__vgs_focus_control_saved = hl.dsp.focus; hl.dsp.focus = function(a) if a.window == \"address:$focus_refused_address\" then return function() error(\"vgs-focus-control\") end end return hl.__vgs_focus_control_saved(a) end"
+    expected_errors+=("ERROR qml: compositor: request .*address:$focus_refused_address.* answered .*vgs-focus-control")
+    expect "the live target's failing reveal reaches the queue" ok probe reveal "$focus_refused_address"
+    expect_log "a failure other than window closure still logs an error" 1 "ERROR qml: compositor: request .*address:$focus_refused_address.* answered .*vgs-focus-control"
+    expect "the nested focus dispatcher is restored" ok hypr eval 'hl.dsp.focus = hl.__vgs_focus_control_saved; hl.__vgs_focus_control_saved = nil'
+    close_toplevel "$focus_refused_pid" "the other-failure control window closes"
+  else
+    fail "the other-failure control window maps"
+  fi
+  rm -f -- "${shim:?}/hyprctl.focus-close"
+
   close_other "the reveal rows' other window exits 0 on SIGTERM"
 else
   fail "the reveal rows' other window maps"

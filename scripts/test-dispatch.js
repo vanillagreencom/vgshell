@@ -142,6 +142,13 @@ function verifyReveal(lib, report) {
         ["an address that is not text", [12], { ok: false, error: "refused: reveal window=0 value=12" }]
     ];
     for (const [name, addresses, want] of requests) row("reveal request: " + name, lib.revealRequest(addresses), want);
+    const focusRequests = [
+        ["a Lua target observed before it closes", "0xabc", true, { ok: true, request: 'function() if hl.get_window("address:0xabc") ~= nil then return hl.dispatch(hl.dsp.focus({ window = "address:0xabc" })) end end' }],
+        ["a classic focus", "0xabc", false, { ok: true, request: "focuswindow address:0xabc" }],
+        ["an unchecked address cannot reach Lua", "0xzz", true, { ok: false, error: 'refused: dispatcher=focusWindow argument=0 value="0xzz"' }]
+    ];
+    for (const [name, address, lua, want] of focusRequests) row("reveal focus: " + name, lib.revealFocusRequest(address, lua), want);
+    row("a direct Lua focus still reaches Hyprland's refusal", lib.request("focusWindow", ["0xabc"], true), { ok: true, request: 'hl.dsp.focus({ window = "address:0xabc" })' });
     // rows: [name, event, data, want]
     const events = [
         ["the application focused its window", "activewindowv2", "ABC", { by: "sender", address: "0xabc" }],
@@ -302,6 +309,7 @@ failures += verifyPads(ctx, true);
 // the text around it; verifyReveal must fail on every copy.
 const fs = require("fs");
 const revealControls = [
+    ["an observed window is checked at focus execution", 'if hl.get_window(\\\"address:" + address + "\\\") ~= nil then', 'if true then'],
     ["the window bound", "addresses.length > REVEAL_WINDOWS_MAX)", "false)"],
     ["an address is checked", "!ADDRESS.test(addresses[i]))", "false)"],
     ["each window once", "if (out.indexOf(address) === -1) out.push(address);", "out.push(address);"],
