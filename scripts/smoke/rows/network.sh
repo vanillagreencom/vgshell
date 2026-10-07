@@ -115,7 +115,7 @@ net_join_result() {
 }
 net_other_reveal() { ipc smoke revealText window vgs.system Button 'Other Network…' | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 net_join_cancel_reveal() { ipc smoke revealText window vgs.system Button Cancel | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
-net_join_record() { python3 - "$net_join_dir/calls" "$net_join_dir/world.json" <<'PYJOINCALLS'
+net_join_record() { python3 - "$net_join_dir/calls" "$net_join_dir/world.json" "${1:-Hidden smoke Wi-Fi}" "${2:-yes}" "${3:-psk}" "${4:-}" "${5:-}" <<'PYJOINCALLS'
 import json,pathlib,sys,uuid
 p=pathlib.Path(sys.argv[1]); rows=[json.loads(line) for line in p.read_text().splitlines()] if p.exists() else []
 up=next((r for r in rows if r["operation"]=="up"),None)
@@ -126,8 +126,15 @@ else:
     valid=all(not r["argv_secret"] and not r["helper_argv_secret"] for r in rows)
     valid=valid and up["stdin_ok"] and up["argv"]==["--wait","120","connection","up","uuid",profile,"passwd-file","/dev/stdin"]
     valid=valid and str(uuid.UUID(profile))==profile
-    valid=valid and up["helper_argv"][2:]==["wlan0","Hidden smoke Wi-Fi","yes","psk","",""]
-    valid=valid and rows[-1]["argv"]==["--wait","120","connection","delete","uuid",profile]
+    valid=valid and up["helper_argv"][2:]==["wlan0"]+sys.argv[3:]
+    valid=valid and add[add.index("ssid")+1]==sys.argv[3] and add[add.index("ifname")+1]=="wlan0"
+    valid=valid and add[add.index("802-11-wireless.hidden")+1]==sys.argv[4]
+    valid=valid and add[add.index("802-11-wireless-security.key-mgmt")+1]==("wpa-psk" if sys.argv[5]=="psk" else "wpa-eap")
+    if sys.argv[5]!="psk":
+        valid=valid and add[add.index("802-1x.eap")+1]==sys.argv[5]
+        valid=valid and add[add.index("802-1x.phase2-auth")+1]==("mschapv2" if sys.argv[5]=="peap" else "pap")
+        valid=valid and add[add.index("802-1x.identity")+1]==sys.argv[6] and add[add.index("802-1x.domain-suffix-match")+1]==sys.argv[7]
+    valid=valid and rows[-1]["argv"]==["--wait","5","connection","delete","uuid",profile]
     valid=valid and profile not in json.loads(pathlib.Path(sys.argv[2]).read_text()).get("profiles", [])
     print("private-cleaned" if valid else "invalid")
 PYJOINCALLS
@@ -148,9 +155,18 @@ expect "the submitted hidden form needs a new password" false ipc smoke readDesc
 click_in 'window:System Settings' window vgs.network Button Cancel || fail "Other Network could not be canceled"
 expect_poll "Cancel releases the hidden form" closed net_join_result
 expect "the hidden operation releases its shared owner" idle net_action
-# Hold nmcli activation until the real form closes. The service must keep
-# its Process alive while SIGTERM lets the helper delete the created UUID.
-net_join_close_test() { # RECORD OPERATION
+net_join_child_stopped() { python3 - "$net_join_dir/ready" <<'PYJOINSTOP'
+import os,pathlib,sys
+p=pathlib.Path(sys.argv[1])
+if not p.exists(): print("not-started")
+else:
+    try: os.kill(int(p.read_text()),0)
+    except ProcessLookupError: print("stopped")
+    else: print("running")
+PYJOINSTOP
+}
+# The held command acknowledges activation before each real removal path.
+net_join_close_test() { # RECORD OPERATION [form|device|disable|rebuild]
 rm -f -- "${net_join_dir:?}/calls" "${net_join_dir:?}/ready"
 net_join_world 802-11-wireless-security.psk hold
 expect "Other Network is revealed for its close test" scrolled net_other_reveal
@@ -172,23 +188,93 @@ PYJOINHELD
 }
 expect_poll "the real helper reaches held activation" held net_join_held
 expect "the pending helper holds the service operation" join net_action
+case ${3:-form} in
+form)
 expect "Cancel is visible during activation" scrolled net_join_cancel_reveal
 click_in 'window:System Settings' window vgs.network Button Cancel || fail "the pending form could not close"
+;;
+device) expect "the join adapter is replaced" ok net_fixture replace ;;
+disable)
+expect "Network disables during held activation" ok ipc shell setPluginEnabled vgs.network false
+expect_poll "disabling destroys the service" False record_exists vgs.network
+;;
+rebuild)
+printf '\n' >>"$net_copy/Service.qml"
+rescan "source replacement destroys the pending service"
+;;
+esac
 expect_poll "closing during activation releases the form" closed net_join_result
 expect_poll "closing during activation reads cleanup ownership" "$1" net_join_record
-expect_poll "closing during activation reads the shared operation" "$2" net_action
+if [[ ${3:-form} != disable ]]; then expect_poll "closing during activation reads the shared operation" "$2" net_action; fi
+if [[ $1 == private-cleaned ]]; then expect_poll "cancellation reaps the network command" stopped net_join_child_stopped; fi
+case ${3:-form} in
+device)
+expect "the join adapter returns" ok net_fixture restore
+expect_poll "the restored adapter is selected" '{"leases":1,"device":"wlan0","scanning":true}' ipc smoke networkScan
+;;
+disable)
+expect "Network enables after held activation cleanup" ok ipc shell setPluginEnabled vgs.network true
+expect_poll "the service returns after cleanup" True record_exists vgs.network
+expect "System remounts Network" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+expect_poll "the pane returns after service removal" shown net_shown window
+;;
+esac
+if [[ ${3:-form} != form ]]; then expect_poll "the replacement service is ready" '"offline"' net_state; fi
 }
 net_join_close_test private-cleaned idle
+net_join_close_test private-cleaned idle device
+net_join_close_test private-cleaned idle disable
 expect "the mock adds a scanned enterprise network" ok net_fixture enterprise
 net_enterprise_seen() { net_snapshot | py_reply 'import json,sys; print(any(r["name"]=="VGS Enterprise Wi-Fi" and r["security"]=="Wpa2Eap" for r in json.load(sys.stdin)["network"]["wifi"]))'; }
+net_enterprise_reveal() { ipc smoke revealText window vgs.system DeviceRow 'VGS Enterprise Wi-Fi' | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 expect_poll "the scanned enterprise row uses its security kind" True net_enterprise_seen
-click_in 'window:System Settings' window vgs.network DeviceRow 'VGS Enterprise Wi-Fi' || fail "the enterprise row could not be opened"
-expect_poll "a scanned enterprise opens the same form" idle net_join_result
-expect "the scanned enterprise form selects enterprise security" true ipc smoke readDescendant window vgs.network NetworkJoin enterprise
+net_join_notice_shared() {
+  local notice problem
+  notice="$(ipc smoke readDescendant window vgs.network NetworkJoin notice)" || return
+  problem="$(net_problem)" || return
+  [[ $notice != '""' && $notice == "$problem" ]] && echo shared || echo invalid
+}
+net_enterprise_submit_test() { # HIDDEN METHOD RECORD
+local net_enterprise_hidden=$1 net_enterprise_method=$2 net_enterprise_name
+rm -f -- "${net_join_dir:?}/calls" "${net_join_dir:?}/ready"
+net_join_world 802-1x.password failed
+if [[ $net_enterprise_hidden == no ]]; then
+net_enterprise_name='VGS Enterprise Wi-Fi'
+expect "the enterprise row is revealed" scrolled net_enterprise_reveal
+click_in 'window:System Settings' window vgs.network DeviceRow "$net_enterprise_name" || fail "the enterprise row could not be opened"
+else
+net_enterprise_name='Hidden enterprise Wi-Fi'
+expect "Other Network is revealed for enterprise input" scrolled net_other_reveal
+click_in 'window:System Settings' window vgs.network Button 'Other Network…' || fail "the hidden enterprise form could not open"
+expect_poll "the hidden enterprise form takes focus" true ipc smoke activeFocusWithin window vgs.network NetworkJoin
+type_keys "$net_enterprise_name"
+click_in 'window:System Settings' window vgs.network Select 'WPA/WPA2 Personal' || fail "the enterprise security choice could not open"
+type_keys -k Down -k Return
+fi
+expect_poll "enterprise input uses the shared form" idle net_join_result
+expect "the form selects enterprise security" true ipc smoke readDescendant window vgs.network NetworkJoin enterprise
 expect "the enterprise password field is masked" true ipc smoke readMatchingDescendant window vgs.network TextField objectName network-join-password password
+click_in 'window:System Settings' window vgs.network Select 'PEAP / MSCHAPv2' || fail "the enterprise method choice could not open"
+if [[ $net_enterprise_method == ttls ]]; then type_keys -k Down; fi
+type_keys -k Return -k Tab
+type_keys 'enterprise.user'
+type_keys -k Tab
+type_keys 'auth.example.test'
+type_keys -k Tab
+type_keys network-smoke-joined-secret
+type_keys -k Return
+expect_poll "enterprise submission reports its typed result" failed net_join_result
+expect "enterprise submission maps public fields and privately cleans its UUID" "$3" net_join_record "$net_enterprise_name" "$net_enterprise_hidden" "$net_enterprise_method" enterprise.user auth.example.test
+expect "the form renders the service's terminal notice" shared net_join_notice_shared
 expect "the enterprise Cancel button scrolls into view" scrolled net_join_cancel_reveal
 click_in 'window:System Settings' window vgs.network Button Cancel || fail "the enterprise form could not be canceled"
-expect_poll "Cancel releases the scanned enterprise form" closed net_join_result
+expect_poll "Cancel releases the enterprise form" closed net_join_result
+}
+for net_enterprise_hidden in no yes; do
+for net_enterprise_method in peap ttls; do
+net_enterprise_submit_test "$net_enterprise_hidden" "$net_enterprise_method" private-cleaned
+done
+done
 expect "the mock removes its scanned enterprise network" ok net_fixture unenterprise
 expect "the flyout opens over the pane" ok ipc shell summon panel vgs.network '{"source":"smoke"}'
 expect_poll "Network's flyout is shown" shown net_shown panel
@@ -491,6 +577,24 @@ expect_poll "Network is disconnected again" '"offline"' net_state
 net_copy="$home/.config/vgshell/plugins/vgs.network"
 mkdir -p -- "$net_copy"
 cp -R -- "$repo/shell/plugins/vgs.network/." "$net_copy/"
+rescan "the disposable service source is discovered"
+expect_poll "the disposable service is ready" '"offline"' net_state
+expect "System opens the rebuild cancellation test" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+expect_poll "the rebuild cancellation pane is mounted" shown net_shown window
+net_join_close_test private-cleaned idle rebuild
+python3 - "$net_copy/NetworkJoin.qml" <<'PYEAPCONTROL'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);source=p.read_text();old='identity: identity.text, domain: domain.text'
+assert source.count(old)==1
+p.write_text(source.replace(old,'identity: "wrong-user", domain: domain.text'))
+PYEAPCONTROL
+rescan "the enterprise field mapping control is discovered"
+expect_poll "the enterprise mapping control is ready" '"offline"' net_state
+expect "the control adds scanned enterprise input" ok net_fixture enterprise
+expect_poll "the control sees the scanned enterprise network" True net_enterprise_seen
+net_enterprise_submit_test no peap invalid
+expect "the control removes its enterprise input" ok net_fixture unenterprise
+cp -- "$repo/shell/plugins/vgs.network/NetworkJoin.qml" "$net_copy/NetworkJoin.qml"
 python3 - "$net_copy/Service.qml" <<'PYCANCELCONTROL'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1]);s=p.read_text();old='joinHelper.running = false;'

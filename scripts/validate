@@ -207,7 +207,7 @@ run() { # AREA LABEL CMD...
 # counts, a root file such as VERSION included.
 rows=(
   "logic|duration formatter|node scripts/test-duration.js|shell/Commons/Duration.js bin/lib/qml-library.js"
-  "logic|network snapshot decisions|node scripts/test-network-logic.js|shell/Commons/Nmcli.js shell/Commons/qmldir shell/plugins/vgs.network/NetworkLogic.js bin/lib/qml-library.js"
+  "logic|network snapshot decisions|node scripts/test-network-logic.js|shell/Commons/Nmcli.js shell/Commons/qmldir shell/plugins/vgs.network/NetworkLogic.js shell/plugins/vgs.network/NetworkBody.qml bin/lib/qml-library.js"
   "logic|network QR secret transport controls|python3 scripts/test-network-share.py|shell/plugins/vgs.network/bin/share-qr scripts/smoke/fixtures/devices/network-qr-tools.py"
   "logic|network join secret transport and cleanup controls|scripts/test-network-enterprise.sh|shell/plugins/vgs.network/bin/join-network scripts/smoke/fixtures/devices/network-join-nmcli.py"
   "logic|VPN decisions|node scripts/test-vpn-logic.js|shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Commons/qmldir shell/Core/PluginLogic.js shell/Core/PackageManagers.js shell/Core/HyprlandLayer.js shell/Core/Pads.js shell/Core/MonitorLogic.js shell/Ui/icons/Lucide.js shell/plugins/vgs.vpn/Service.qml shell/plugins/vgs.vpn/VpnLogic.js shell/plugins/vgs.vpn/manifest.json scripts/fixtures/vpn/* bin/lib/qml-library.js"

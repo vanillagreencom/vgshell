@@ -4,7 +4,7 @@ import qs.Commons
 import qs.Ui
 import "NetworkLogic.js" as Logic
 
-// The service owns the helper through cancellation and profile cleanup.
+// The helper worker owns cancellation and profile cleanup.
 // This form hands it a one-use stdin closure through a direct local call.
 FocusScope {
     id: root
@@ -15,6 +15,7 @@ FocusScope {
     property string owner: String(root)
     property bool pending: false
     property var result: ({ kind: "idle" })
+    property string notice: ""
     readonly property bool enterprise: security.currentIndex === 1
     readonly property bool canSubmit: !pending && ssid.text !== "" && password.text !== "" && (!enterprise || (identity.text !== "" && domain.text !== ""))
     readonly property Item initialFocus: target === null ? ssid : identity
@@ -22,10 +23,11 @@ FocusScope {
     implicitHeight: content.implicitHeight
     Keys.onEscapePressed: event => { root.dismissed(); event.accepted = true; }
 
-    function finish(value) {
+    function finish(value, message) {
         if (!pending) return;
         pending = false;
         result = value;
+        notice = message;
         if (value.kind === "ok") dismissed();
     }
     function clear() {
@@ -42,11 +44,12 @@ FocusScope {
         password.text = "";
         pending = true;
         result = { kind: "joining" };
+        notice = "";
         const reply = Logic.submitJoin({ owner: owner, interface: interfaceName, name: ssid.text,
             hidden: target === null ? "yes" : "no", method: enterprise ? (method.currentIndex === 0 ? "peap" : "ttls") : "psk",
             identity: identity.text, domain: domain.text },
             helper => { helper.write(secret); helper.stdinEnabled = false; }, root.finish);
-        if (reply !== "ok") { pending = false; result = { kind: reply === "busy" ? "busy" : "refused" }; }
+        if (reply !== "ok") { pending = false; result = { kind: reply === "busy" ? "busy" : "unavailable" }; notice = reply === "busy" ? "A network change is still in progress." : "The network action is unavailable."; }
     }
     Column {
         id: content
@@ -57,11 +60,7 @@ FocusScope {
             width: parent.width
             role: "hint"
             visible: text !== ""
-            text: root.result.cleanup === "failed" ? "The connection failed. Its new network profile could not be removed."
-                : root.result.kind === "refused" ? "NetworkManager denied access to this network change."
-                : root.result.kind === "busy" ? "A network change is still in progress."
-                : ["failed", "timeout", "start-failed", "invalid"].includes(root.result.kind) ? "The network could not connect. Check the network settings and try again."
-                : root.result.kind === "joining" ? "Connecting…" : ""
+            text: root.result.kind === "joining" ? "Connecting…" : root.notice
             wrapMode: Text.Wrap
         }
         Field {

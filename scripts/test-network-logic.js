@@ -10,6 +10,27 @@ const { load } = require("../bin/lib/qml-library.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.network/NetworkLogic.js");
 const nmcliFile = path.join(__dirname, "../shell/Commons/Nmcli.js");
 const commons = { "qs.Commons 1.0": { Nmcli: load(nmcliFile) } };
+function activateSuite(source) {
+    const match = source.match(/function activate\(row\) \{([\s\S]*?)\n    \}\n    function join\(row\)/);
+    assert.ok(match);
+    const activate = new Function("row", "Logic", "network", "busy", "join", "action", match[1]);
+    const logic = load(file, commons);
+    for (const [security, known, connected, want] of [
+        ["Wpa2Eap", true, false, "connect"], ["WpaEap", true, false, "connect"],
+        ["Wpa2Eap", false, false, "join"], ["WpaEap", false, false, "join"],
+        ["Wpa2Eap", true, true, "disconnect"], ["Wpa2Psk", false, false, "connect"]
+    ]) {
+        const calls = [];
+        const row = { security, known, connected };
+        activate(row, logic, { writable: true }, false, value => calls.push(["join", value]), (kind, value) => calls.push([kind, value]));
+        assert.deepEqual(calls, [[want, row]]);
+    }
+}
+const body = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.network/NetworkBody.qml"), "utf8");
+activateSuite(body);
+assert.equal(body.split("!row.known && Logic.supportsEnterprise").length - 1, 1);
+assert.throws(() => activateSuite(body.replace("!row.known && Logic.supportsEnterprise", "Logic.supportsEnterprise")));
+console.log("network-logic: control=saved enterprise reconnect red");
 function suite(logic) {
     // This exercises the shared endpoint itself. QML smoke owns proof that
     // the real service Process outlives the form during UUID cleanup.

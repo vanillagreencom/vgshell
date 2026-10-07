@@ -203,9 +203,8 @@ Item {
         joinDone = null;
         joinFeed = null;
         joinHelper.stdinEnabled = false;
-        // running=false sends SIGTERM. Destroying Process sends SIGKILL, so
-        // this service keeps it until the helper's UUID cleanup has ended:
-        // Quickshell 0.3.1 src/io/process.cpp, setRunning and destructor.
+        // SIGTERM closes the helper worker's lifetime pipe. Service removal
+        // sends SIGKILL to its direct child; the same pipe then closes.
         joinHelper.running = false;
     }
     function finishJoin(value) {
@@ -213,10 +212,11 @@ Item {
         if (operation === null || operation.kind !== "join") return;
         const done = joinDone;
         joinDone = null;
-        finishOperation(value.cleanup === "failed" ? "The new network profile could not be removed."
+        const notice = value.cleanup === "failed" ? "The new network profile could not be removed."
             : value.kind === "refused" ? "NetworkManager denied access to this network change."
-            : ["failed", "timeout", "start-failed", "invalid"].includes(value.kind) ? "The network could not connect. Check the network settings and try again." : "");
-        if (done !== null) done(value);
+            : ["failed", "timeout", "start-failed", "invalid"].includes(value.kind) ? "The network could not connect. Check the network settings and try again." : "";
+        finishOperation(notice);
+        if (done !== null) done(value, notice);
     }
     Process {
         id: joinHelper

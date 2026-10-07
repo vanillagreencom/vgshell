@@ -6,7 +6,7 @@ import qs.Ui
 import "NetworkLogic.js" as Logic
 
 // Shared body for the dropdown and System pane. Masked fields deliver their
-// secrets to NetworkManager; the service receives public identity alone.
+// secrets to NetworkManager; IPC receives public identity alone.
 // A device's Details draws its rows once they are read: while the service
 // reads, the row shows a Spinner and its content takes no height, so the
 // rows under it move once.
@@ -58,7 +58,7 @@ FocusScope {
         if (shareTarget !== null && !rows.some(row => row.key === shareTarget.key && row.known)) closeShare();
     }
     onNetworkChanged: {
-        if (!network.wifiEnabled || !network.hasWifi) closeJoin();
+        if (!network.wifiEnabled || !network.hasWifi || (joinLoader.item !== null && joinLoader.item.interfaceName !== network.wifiInterface)) closeJoin();
         if (!network.wifiEnabled) closeShare();
         const detail = network.detail || {};
         if (detail.interface !== undefined && detail.interface !== "" && detail.state === "ready") {
@@ -85,7 +85,7 @@ FocusScope {
     }
     function activate(row) {
         if (row === null || !network.writable || busy) return;
-        if (!row.connected && Logic.supportsEnterprise(row.security)) { join(row); return; }
+        if (!row.connected && !row.known && Logic.supportsEnterprise(row.security)) { join(row); return; }
         action(row.connected ? "disconnect" : "connect", row);
     }
     function join(row) {

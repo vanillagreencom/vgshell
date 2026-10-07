@@ -36,7 +36,11 @@ def contract(p,result,rows,method,hidden,expect_kind):
     assert str(uuid.UUID(profile))==profile==result['uuid']
     assert add[add.index('802-11-wireless.hidden')+1]==('yes' if hidden else 'no')
     assert add[add.index('connection.autoconnect')+1]=='no'
+    assert add[add.index('ifname')+1]=='wlan0'
+    assert add[add.index('ssid')+1]=='A: network \\ $(literal)'
+    assert add[add.index('802-11-wireless-security.key-mgmt')+1]==('wpa-psk' if method=='psk' else 'wpa-eap')
     if method!='psk':
+        assert add[add.index('802-1x.identity')+1]=='person'
         assert add[add.index('802-1x.eap')+1]==method
         assert add[add.index('802-1x.phase2-auth')+1]==('mschapv2' if method=='peap' else 'pap')
         assert add[add.index('802-1x.system-ca-certs')+1]=='yes'
@@ -45,7 +49,7 @@ def contract(p,result,rows,method,hidden,expect_kind):
     assert up['helper_argv'][2:]==['wlan0','A: network \\ $(literal)','yes' if hidden else 'no',method,'' if method=='psk' else 'person','' if method=='psk' else 'auth.example.test']
     assert up['argv']==['--wait','120','connection','up','uuid',profile,'passwd-file','/dev/stdin'] and up['stdin_ok']
     if expect_kind!='ok':
-        assert rows[-1]['argv']==['--wait','120','connection','delete','uuid',profile]
+        assert rows[-1]['argv']==['--wait','5','connection','delete','uuid',profile]
         assert result['cleanup']=='deleted'
         assert profile not in json.loads(fixture.read_text())['profiles']
     else:
@@ -69,28 +73,39 @@ assert [r['operation'] for r in rows]==['add']
 world('802-1x.password',{'up':'failed','delete':'refused'})
 p,result,rows=run(helper,'peap','person','auth.example.test',False)
 assert result['kind']=='failed' and result['cleanup']=='failed'
-# Cancellation stops the nmcli child and cleans the same owned UUID.
-world('802-1x.password',hold='up')
-p=subprocess.Popen(['/usr/bin/python3',str(helper),'wlan0','Hidden','yes','peap','person','auth.example.test'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=env)
-p.stdin.write(secret);p.stdin.close();p.stdin=None
-deadline=time.monotonic()+5
-while not ready.exists() and time.monotonic()<deadline:
-    if p.poll() is not None: raise AssertionError('helper exited before acknowledgement')
-    time.sleep(.01)
-assert ready.exists()
-p.send_signal(signal.SIGTERM)
-out,err=p.communicate(timeout=5)
-result=json.loads(out); rows=records()
-assert result['kind']=='canceled' and result['cleanup']=='deleted'
-assert result['uuid'] not in json.loads(fixture.read_text())['profiles']
-assert rows[-1]['argv']==['--wait','120','connection','delete','uuid',result['uuid']]
-assert secret not in out+err
+# A NetworkManager delete that never replies must release the worker.
+world('802-1x.password',{'up':'failed'},hold='delete')
+p,result,rows=run(helper,'peap','person','auth.example.test',False)
+assert p.returncode==1 and result['kind']=='failed' and result['cleanup']=='failed'
+assert rows[-1]['argv']==['--wait','5','connection','delete','uuid',result['uuid']]
 try: os.kill(int(ready.read_text()),0)
 except ProcessLookupError: pass
-else: raise AssertionError('nmcli child survived')
+else: raise AssertionError('cleanup command survived its deadline')
+# Both form cancellation and Quickshell's direct-child SIGKILL leave the
+# worker responsible for stopping nmcli and deleting its owned UUID.
+for stop in (signal.SIGTERM,signal.SIGKILL):
+    world('802-1x.password',hold='up')
+    p=subprocess.Popen(['/usr/bin/python3',str(helper),'wlan0','Hidden','yes','peap','person','auth.example.test'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=env)
+    p.stdin.write(secret);p.stdin.close();p.stdin=None
+    deadline=time.monotonic()+5
+    while not ready.exists() and time.monotonic()<deadline:
+        if p.poll() is not None: raise AssertionError('helper exited before acknowledgement')
+        time.sleep(.01)
+    assert ready.exists()
+    p.send_signal(stop)
+    out,err=p.communicate(timeout=10)
+    result=json.loads(out); rows=records()
+    assert p.returncode==(1 if stop==signal.SIGTERM else -signal.SIGKILL)
+    assert result['kind']=='canceled' and result['cleanup']=='deleted'
+    assert result['uuid'] not in json.loads(fixture.read_text())['profiles']
+    assert rows[-1]['argv']==['--wait','5','connection','delete','uuid',result['uuid']]
+    assert secret not in out+err
+    try: os.kill(int(ready.read_text()),0)
+    except ProcessLookupError: pass
+    else: raise AssertionError('nmcli child survived')
 # Disposable production mutations must violate the same assertions.
 source=helper.read_text()
-mutations=[('argv', '"passwd-file", "/dev/stdin"],', '"passwd-file", "/dev/stdin", secret],'),('cleanup','if created and not complete:', 'if created and False:')]
+mutations=[('argv', '"passwd-file", "/dev/stdin"],', '"passwd-file", "/dev/stdin", secret],'),('cleanup','if created and not complete:', 'if created and False:'),('network-settings','"con-name", ssid, "ssid", ssid,','"con-name", ssid, "ssid", "wrong-network",')]
 for name,old,new in mutations:
     assert source.count(old)==1
     mutant=scratch/('mutant-'+name);mutant.write_text(source.replace(old,new))
@@ -100,5 +115,6 @@ for name,old,new in mutations:
     except AssertionError: pass
     else: raise AssertionError('control survived: '+name)
     assert secret not in calls.read_text()
+    print('network-enterprise: control='+name+' red')
 print('network-enterprise: pass')
 PY
