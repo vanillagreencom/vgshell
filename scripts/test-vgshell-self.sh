@@ -194,7 +194,7 @@ trap 'kill "$fake_shell" "$www_pid" 2>/dev/null || true; rm -rf -- "${tmp:?}"' E
 printf '%s\n' "$fake_shell" >"$rt_running/vgshell.lock"
 inst_env=(VGS_RELEASE_API="$api" XDG_DATA_HOME="$running_data")
 INST_BIN="$running_data/vgshell/current/bin/vgshell" inst "an update beside a running shell restarts it, refused here below the floor" "$cfg" "$rt_running" 78 \
-  "" "vgshell: refused: preflight=quickshell have=unknown need=0.3.1" self update
+  "ok updated=vgshell from=$version_text to=$release path=$running_data/vgshell/$release" "vgshell: refused: preflight=quickshell have=unknown need=0.3.1" self update
 check "the update beside a running shell names the new tree" has_line "ok updated=vgshell from=$version_text to=$release path=$running_data/vgshell/$release"
 check "the running shell's tree stays" test -d "$running_data/vgshell/0.0.8/shell"
 check "the tree the update ran from stays" test -d "$running_data/vgshell/$version_text"

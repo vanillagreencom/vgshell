@@ -389,8 +389,9 @@ mkdir -p "$shots_repo/scripts" "$shots_repo/shell/plugins/vgs.bar" "$shots_repo/
 ln -s "$repo/scripts/smoke" "$shots_repo/scripts/smoke"
 : >"$shots_repo/shell/plugins/vgs.bar/Manager.qml"; : >"$shots_repo/bin/vgshell"; : >"$shots_repo/config/shell.json"; : >"$shots_repo/themes/.keep"
 git_quiet() { git -C "$shots_repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@" >/dev/null; }
+cp -- "$repo/VERSION" "$repo/LICENSE" "$repo/README.md" "$shots_repo/"
 git_quiet init -q
-git_quiet add shell bin config themes
+git_quiet add shell bin config themes VERSION LICENSE README.md
 git_quiet commit -q -m manager
 old_rev="$(git -C "$shots_repo" rev-parse HEAD)"
 mkdir -p "$shots_repo/shell/plugins/vgs.settings" "$shots_repo/shell/plugins/vgs.themes" "$shots_repo/shell/plugins/vgs.polkit" "$shots_repo/shell/plugins/vgs.capture"

@@ -149,9 +149,7 @@ rm -- "$cfg/occ/themes/vgs.toml"; ln -s -- "$tmp/elsewhere.toml" "$cfg/occ/theme
 disable '"occ"'
 apply_json "the any-link mutant disables occ" 0 dusk
 check "the any-link mutant removes a link it never made" test ! -L "$cfg/occ/themes/vgs.toml"
-control symlink-managed '    case "copy":
-        if (!stat.isFile()) return "occupied";' '    case "copy":
-        if (stat.isSymbolicLink()) return "managed";
+control symlink-managed '        if (!stat.isFile()) return "occupied";' '        if (stat.isSymbolicLink()) return "managed";
         if (!stat.isFile()) return "occupied";'
 mkdir -p "$cfg/cpy/themes"
 ln -s -- "$live/cpy.toml" "$cfg/cpy/themes/vgs.toml"
