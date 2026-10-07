@@ -17,8 +17,9 @@ Item {
     property string outputTail: ""
     property string errorTail: ""
     property string cause: ""
-    // The daemon writes diagnostics to stderr and keeps running; its last
-    // complete line names the reason only when it then exits.
+    // The daemon writes diagnostics to stderr and keeps running. The last
+    // complete line becomes the cause only if the daemon then exits, even
+    // when that exit writes no line of its own.
     property string lastDiagnostic: ""
     property var audioHealth: ({ kind: "reading" })
     property var sessionState: null

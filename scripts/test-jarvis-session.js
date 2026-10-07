@@ -359,6 +359,7 @@ const table = [
         kept(muted, event("toggle", 63), "a muted toggle");
         const locked = step(logic, s, snapshot({ at: 64, locked: true })).state;
         const lockedPress = step(logic, locked, event("talk-down", 65)).state;
+        assert.deepEqual(lockedPress.fault, locked.fault, "a press while the gate is down keeps the fault");
         kept(lockedPress, snapshot({ at: 66 }), "a press while the gate is down");
         // A press inside the toggle debounce is not a press.
         s = step(logic, ready(logic), snapshot({ at: 2, settings: { mode: "toggle" } })).state;
@@ -419,6 +420,15 @@ const table = [
             assert.ok(capture, label + " press opens capture");
             assert.equal(capture.gen, r.state.gen, label + " capture belongs to the new conversation");
         }
+        // With no fault a press keeps its ordinary meaning in a live conversation.
+        const live = thinking(logic);
+        const held = step(logic, live, event("talk-down", 50)).state;
+        assert.deepEqual([held.gen, held.conversation.kind], [live.gen, "active"],
+            "a healthy hold press interrupts and keeps its conversation");
+        const talking = opened(toggleReady(), "toggle");
+        const ended = step(logic, talking, event("toggle", 500));
+        assert.equal(ended.state.conversation.kind, "ended", "a healthy toggle press ends its conversation");
+        assert.equal(kinds(ended).includes("capture-open"), false, "a healthy toggle press starts no conversation");
     }],
     ["indicator-gate", logic => {
         const s = step(logic, logic.initial(), snapshot()).state;
@@ -1156,6 +1166,8 @@ try {
         ["recover-mute", ' || s.mute.kind !== "off") return;', ') return;', "fault-gate"],
         ["recover-gate", 's.fault.kind !== "error" || s.gate.kind !== "up" ||', 's.fault.kind !== "error" ||', "fault-gate"],
         ["recover-fault", 's.fault = { kind: "none" };\n}', '}', "fault-recovery"],
+        ["recover-error-only", 'if (s.fault.kind !== "error" || s.gate', 'if (false || s.gate', "fault-recovery"],
+        ["recover-end", 'end(s, effects, at, "recover", false);', 'void at;', "fault-recovery"],
         ["device-retry-limit", 'e.reason === "device-lost" && retry < 3',
             'e.reason === "device-lost" && retry < 4', "device-retries"],
         ["device-choice-recovery", 'if (devicesChanged && s.fault.kind === "error" && s.fault.reason === "device-lost")',
