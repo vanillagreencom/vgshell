@@ -807,17 +807,32 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
             "a server error still reads stale");
         // Each card says how long ago its figures were read: nothing with
         // none, one text through the first minute, a new one after it, and
-        // its own account's read time.
-        const age = (readAt, ms) => View.checkedText(readAt, readAt === null ? NOW : readAt + ms);
-        assert.equal(age(null, 0), "", "no figures, no age");
-        assert.notEqual(age(NOW, 0), "", "figures have an age");
-        assert.equal(age(NOW, 59000), age(NOW, 0), "the first minute reads as one");
-        assert.notEqual(age(NOW, 60000), age(NOW, 59000), "a minute on reads anew");
-        assert.notEqual(age(NOW, 4 * 60000), age(NOW, 2 * HOUR), "minutes and hours read apart");
+        // its own account's read time. Kept figures, limited or stale, name
+        // their own age in a form of their own.
+        for (const kept of [false, true]) {
+            const age = (readAt, ms) => View.checkedText(readAt, readAt === null ? NOW : readAt + ms, kept);
+            assert.equal(age(null, 0), "", "no figures, no age");
+            assert.notEqual(age(NOW, 0), "", "figures have an age");
+            assert.equal(age(NOW, 59000), age(NOW, 0), "the first minute reads as one");
+            assert.notEqual(age(NOW, 60000), age(NOW, 59000), "a minute on reads anew");
+            assert.notEqual(age(NOW, 4 * 60000), age(NOW, 2 * HOUR), "minutes and hours read apart");
+        }
+        for (const ms of [0, 10 * 60000])
+            assert.notEqual(View.checkedText(NOW, NOW + ms, true), View.checkedText(NOW, NOW + ms, false), "kept figures name their age apart");
         const ages = View.panel(limitedRead, NOW + 9 * 60000 + 30000).map(r => r.checked);
-        assert.deepEqual(ages, [View.checkedText(NOW, NOW + 9 * 60000 + 30000), View.checkedText(NOW + 5 * 60000, NOW + 9 * 60000 + 30000)],
+        assert.deepEqual(ages, [View.checkedText(NOW, NOW + 9 * 60000 + 30000, true), View.checkedText(NOW + 5 * 60000, NOW + 9 * 60000 + 30000, false)],
             "a card's age is its own account's read time");
         assert.notEqual(ages[0], ages[1]);
+        // First read at NOW, a limited one ten minutes on: the limited card
+        // is ten minutes old in the kept form, not as old as the attempt.
+        const tenOn = NOW + 10 * 60000;
+        const limitedTen = View.panel(View.merge(first, reading("limited", []), tenOn), tenOn)[0];
+        assert.equal(limitedTen.checked, View.checkedText(NOW, tenOn, true), "a limited card's age is its last figures' read time");
+        assert.notEqual(limitedTen.checked, View.checkedText(tenOn, tenOn, true), "a limited card's age is not the attempt's");
+        assert.notEqual(limitedTen.checked, View.checkedText(NOW, tenOn, false), "a limited card's age takes the kept form");
+        const staleTen = View.panel(View.merge(first, reading("failed", []), tenOn), tenOn)[0];
+        assert.deepEqual([staleTen.state, staleTen.checked], ["stale", View.checkedText(NOW, tenOn, true)], "a stale card's age takes the kept form");
+        assert.equal(View.panel(first, tenOn)[0].checked, View.checkedText(NOW, tenOn, false), "an ok card's age takes the checked form");
         const never = View.merge(null, reading("failed", []), NOW);
         assert.deepEqual(plainOf(never.accounts[0].windows), [], "a failed first read holds no window");
         assert.deepEqual(shown(View.merge(null, { accounts: [never.accounts[0]], partial: "" }, NOW)), [true, null, "normal"],
@@ -975,7 +990,16 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     await control("limited-signed-out", "UsageView.js", 'return row.state === "ok" || row.state === "stale" || row.state === "limited"; }))',
         'return row.state === "ok" || row.state === "stale"; }))', views);
     await control("checked-minute-floor", "UsageView.js", 'return seconds < 60 ? "Checked just now"', 'return seconds < 1 ? "Checked just now"', views);
-    await control("checked-absent", "UsageView.js", '            checked: checkedText(row.readAt, now),\n', '            checked: "",\n', views);
+    await control("checked-absent", "UsageView.js", '            checked: checkedText(row.readAt, now, row.state === "limited" || row.state === "stale"),\n', '            checked: "",\n', views);
+    await control("limited-age-from-attempt", "UsageView.js", 'checked: checkedText(row.readAt, now, row.state === "limited" || row.state === "stale"),',
+        'checked: checkedText(row.state === "limited" ? usage.readAt : row.readAt, now, row.state === "limited" || row.state === "stale"),', views);
+    await control("limited-age-checked-form", "UsageView.js", 'checked: checkedText(row.readAt, now, row.state === "limited" || row.state === "stale"),',
+        'checked: checkedText(row.readAt, now, row.state === "stale"),', views);
+    await control("stale-age-checked-form", "UsageView.js", 'checked: checkedText(row.readAt, now, row.state === "limited" || row.state === "stale"),',
+        'checked: checkedText(row.readAt, now, row.state === "limited"),', views);
+    await control("kept-form-ignored", "UsageView.js",
+        '    if (kept) return seconds < 60 ? "Figures from under a minute ago" : "Figures from " + Commons.Duration.format(seconds, 1) + " ago";\n', "", views);
+    await control("kept-minute-floor", "UsageView.js", 'if (kept) return seconds < 60 ?', 'if (kept) return seconds < 1 ?', views);
     await control("plan-kept", "UsageView.js", 'email: row.email || "",\n        state: row.state,', 'email: row.email || "", plan: row.plan || "",\n        state: row.state,', views);
     await control("warning-boundary", "UsageView.js", 'used >= WARNING_PERCENT ? "warning"', 'used > WARNING_PERCENT ? "warning"', views);
     await control("lowest-share", "UsageView.js", "    return Math.max.apply(null, peaks);", "    return Math.min.apply(null, peaks);", views);
