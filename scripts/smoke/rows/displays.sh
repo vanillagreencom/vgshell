@@ -248,10 +248,14 @@ pane = pane[:end] + '''
         if (surface === null) return { loaded: false };
         const card = surface.contentItem.children.find(child => child.modal !== undefined);
         if (card === undefined) return { loaded: true, card: false };
-        const at = card.mapToItem(surface.contentItem, 0, 0);
+        const centerErrorX = card.x + card.width / 2 - surface.contentItem.width / 2;
+        const centerErrorY = card.y + card.height / 2 - surface.contentItem.height / 2;
         return { loaded: true, card: card.width > 0 && card.height > 0, modal: card.modal,
-            centered: Math.abs(at.x + card.width / 2 - surface.contentItem.width / 2) < 0.5 && Math.abs(at.y + card.height / 2 - surface.contentItem.height / 2) < 0.5,
-            focused: card.activeFocus, screen: surface.screen.name };
+            centered: Math.abs(centerErrorX) < 0.5 && Math.abs(centerErrorY) < 0.5,
+            focused: card.activeFocus, screen: surface.screen.name,
+            x: card.x, y: card.y, width: card.width, height: card.height,
+            surfaceWidth: surface.contentItem.width, surfaceHeight: surface.contentItem.height,
+            centerErrorX: centerErrorX, centerErrorY: centerErrorY };
     }
 ''' + pane[end:]
 (folder / 'PaneLayout.qml').write_text(pane)
@@ -296,6 +300,8 @@ for disp_layout in PaneLayout PaneNotModal PaneNotCentered PaneVrrOutside; do
     geometry expect_poll "control: $disp_layout keeps a drawn card and breaks only its named property" True disp_modal_control
     geometry expect_poll "control: $disp_layout fails the modal and centering contract" False disp_modal_matches "$disp_layout"
   fi
+  printf '  modal-evidence expected-screen=%s copy=%s value=' "$disp_main" "$disp_layout"
+  disp_modal_read "$disp_layout"
   expect "the probe drops the layout copy $disp_layout" ok ipc smoke popupDrop "displays-layout-$disp_layout"
 done
 rm -r -- "${disp_layout_dir:?}" || fail "removing the display layout copies failed"
