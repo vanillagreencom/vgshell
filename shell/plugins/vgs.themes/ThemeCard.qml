@@ -108,6 +108,7 @@ Item {
     // drawn lean in from the slice's width. It is as long as its text, up
     // to the axis less the inset at each end, where it elides.
     Label {
+        id: sliceName
         objectName: "sliceName"
         readonly property real inset: Theme.carousel.sliceName.inset
         parent: root.foreground ?? root
@@ -123,15 +124,29 @@ Item {
         color: Theme.carousel.sliceName.foreground
         layer.enabled: visible
         layer.smooth: true
-        // blurMax is the radius a blur of 1 reaches, so the shadow blurs
-        // exactly the token's pixels.
+        // MultiEffect (doc.qt.io/qt-6/qml-qtquick-effects-multieffect.html):
+        // shadowBlur 1 is the full blur blurMax allows, so the shadow blurs
+        // exactly the token's pixels. The shadow offsets are in the effect's
+        // own frame, which a layer's effect shares with its item, so the
+        // screen's down-right offset is turned back through the name's
+        // rotation (the theme-browser shots show it falling down and right).
+        // Automatic padding covers blurMax alone and an offset shadow would
+        // be clipped, so the padding is set by hand: the blur plus the
+        // offset's length on every side.
         layer.effect: MultiEffect {
+            readonly property real offset: Theme.carousel.sliceName.shadowOffset
+            readonly property real turn: sliceName.rotation * Math.PI / 180
+            readonly property real padding: Math.ceil(blurMax + offset * Math.SQRT2)
             objectName: "sliceNameShadow"
             shadowEnabled: true
             shadowColor: Theme.carousel.sliceName.shadow
             shadowOpacity: Theme.carousel.sliceName.shadowOpacity
             blurMax: Theme.carousel.sliceName.blur
             shadowBlur: 1
+            shadowHorizontalOffset: offset * (Math.cos(turn) + Math.sin(turn))
+            shadowVerticalOffset: offset * (Math.cos(turn) - Math.sin(turn))
+            autoPaddingEnabled: false
+            paddingRect: Qt.rect(padding, padding, padding, padding)
         }
     }
 

@@ -77,7 +77,9 @@ slices_unnamed() { slice_names | py_reply 'import json,sys; shown, unnamed = jso
 # its slice's slanted axis from the slice's bottom edge, on that axis
 # within a pixel (`inset`), and reads up it (`upward`); it draws in h2
 # (`role`), white (`colour`), over a shadow, one per shown name, of black
-# at 0.8 blurred 2 pixels (`shadow`); on a card whose dim wash shows, it
+# at full opacity blurred 4 pixels, its offsets turned through the name's
+# rotation landing carousel.sliceName.shadowOffset down and right on
+# screen (`shadow`); on a card whose dim wash shows, it
 # is drawn after the wash, so the wash does not reach it (`wash`). The
 # wash is the Rectangle AngledCard keeps beside its content inside the
 # masked item, a grandchild of the card; the name is over it when one of
@@ -90,7 +92,7 @@ slices_unnamed() { slice_names | py_reply 'import json,sys; shown, unnamed = jso
 # layer's effect is a sibling of the item it draws and reads as its C++
 # type, QQuickMultiEffect. `none` while no side card draws a name.
 slice_look() {
-  local rows rotation colour enabled shadow opacity blur radius inset skew height
+  local rows rotation colour enabled shadow opacity blur radius sideways downward offset inset skew height
   rows="$(ipc smoke descendantGeometry overlay vgs.themes)" || return
   rotation="$(ipc smoke readMatchingDescendant overlay vgs.themes Label objectName sliceName rotation)" || return
   colour="$(ipc smoke readMatchingDescendant overlay vgs.themes Label objectName sliceName color)" || return
@@ -99,13 +101,16 @@ slice_look() {
   opacity="$(ipc smoke readMatchingDescendant overlay vgs.themes QQuickMultiEffect objectName sliceNameShadow shadowOpacity)" || return
   blur="$(ipc smoke readMatchingDescendant overlay vgs.themes QQuickMultiEffect objectName sliceNameShadow blurMax)" || return
   radius="$(ipc smoke readMatchingDescendant overlay vgs.themes QQuickMultiEffect objectName sliceNameShadow shadowBlur)" || return
+  sideways="$(ipc smoke readMatchingDescendant overlay vgs.themes QQuickMultiEffect objectName sliceNameShadow shadowHorizontalOffset)" || return
+  downward="$(ipc smoke readMatchingDescendant overlay vgs.themes QQuickMultiEffect objectName sliceNameShadow shadowVerticalOffset)" || return
+  offset="$(ipc smoke themeValue carousel.sliceName.shadowOffset)" || return
   inset="$(ipc smoke themeValue carousel.sliceName.inset)" || return
   skew="$(ipc smoke themeValue angledCard.skew)" || return
   height="$(ipc smoke themeValue carousel.sliceHeight)" || return
   printf '%s\n' "$rows" | py_reply '
 import json, math, sys
 rows = json.load(sys.stdin)
-rotation, colour, enabled, shadow, opacity, blur, radius, inset, skew, height = sys.argv[1:]
+rotation, colour, enabled, shadow, opacity, blur, radius, sideways, downward, offset, inset, skew, height = sys.argv[1:]
 def card_of(j):
     while j != -1:
         if rows[j]["type"] == "AngledCard": return j
@@ -149,8 +154,12 @@ for r in names:
     if r["role"] != "h2": found.add("role")
 if rgba(colour) != [1, 1, 1, 1]: found.add("colour")
 effects = [r for r in rows if r["type"] == "QQuickMultiEffect" and r["name"] == "sliceNameShadow" and r["visible"]]
-if len(effects) < len(names) or enabled != "true" or rgba(shadow) != [0, 0, 0, 1] or opacity == "absent" or abs(float(opacity) - 0.8) > 0.005 or blur != "2" or radius != "1": found.add("shadow")
-print(json.dumps(sorted(found)))' "$rotation" "$colour" "$enabled" "$shadow" "$opacity" "$blur" "$radius" "$inset" "$skew" "$height"
+def dropped():
+    if "absent" in (sideways, downward): return False
+    h, v, o = float(sideways), float(downward), float(offset)
+    return abs(h * math.cos(turn) - v * math.sin(turn) - o) <= 0.01 and abs(h * math.sin(turn) + v * math.cos(turn) - o) <= 0.01
+if len(effects) < len(names) or enabled != "true" or rgba(shadow) != [0, 0, 0, 1] or opacity == "absent" or abs(float(opacity) - 1) > 0.005 or blur != "4" or radius != "1" or not dropped(): found.add("shadow")
+print(json.dumps(sorted(found)))' "$rotation" "$colour" "$enabled" "$shadow" "$opacity" "$blur" "$radius" "$sideways" "$downward" "$offset" "$inset" "$skew" "$height"
 }
 dialog_has() { ipc smoke itemTexts overlay vgs.themes Dialog | py_reply 'import json,sys; print(any(sys.argv[1] in t for t in json.load(sys.stdin)))' "$1"; }
 # The status of the card image drawing PATH, `none` when no card draws it.

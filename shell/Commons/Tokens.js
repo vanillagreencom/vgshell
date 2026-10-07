@@ -881,8 +881,9 @@ var TOKENS = {
     // the slice's slanted axis in `sliceName.role`, starting
     // `sliceName.inset` along that axis from its bottom edge, in
     // `sliceName.foreground` over a `sliceName.shadow` shadow at
-    // `sliceName.shadowOpacity`, blurred `sliceName.blur` pixels, the same
-    // in every mode.
+    // `sliceName.shadowOpacity`, blurred `sliceName.blur` pixels and
+    // dropped `sliceName.shadowOffset` pixels down and right on screen,
+    // the same in every mode.
     carousel: {
         expandedWidth: length(768),
         expandedHeight: length(476),
@@ -902,8 +903,9 @@ var TOKENS = {
             inset: length("{space.xxl}"),
             foreground: color("#ffffff"),
             shadow: color("#000000"),
-            shadowOpacity: share(0.8),
-            blur: length(2)
+            shadowOpacity: share(1),
+            blur: length(4),
+            shadowOffset: length(2)
         }
     },
 

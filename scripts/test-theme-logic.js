@@ -294,13 +294,14 @@ const DEFAULTS = [
     ["carousel.previewDwell", 250],
     ["carousel.duration", 150],
     // A slice's name: h2, space.xxl 24 up the slice from its bottom edge,
-    // white over black at 0.8 blurred 2 pixels.
+    // white over black at full opacity blurred 4 pixels, dropped 2 pixels.
     ["carousel.sliceName.role", "h2"],
     ["carousel.sliceName.inset", 24],
     ["carousel.sliceName.foreground", "#ffffffff"],
     ["carousel.sliceName.shadow", "#000000ff"],
-    ["carousel.sliceName.shadowOpacity", 0.8],
-    ["carousel.sliceName.blur", 2],
+    ["carousel.sliceName.shadowOpacity", 1],
+    ["carousel.sliceName.blur", 4],
+    ["carousel.sliceName.shadowOffset", 2],
     ["desktopPreview.referenceWidth", 1600],
     ["desktopPreview.referenceHeight", 900],
     // The preview's desktop: the bar's own 28 pixels, windows space.xxl
@@ -973,7 +974,7 @@ const GRID_EXCEPTIONS = [
     [/^(font\.size|text\.[^.]+\.size)$/, "type sizes"],
     [/(^border\.|\.border$|[bB]orderWidth$|^divider\.thickness$|^focusRing\.width$|^titleButton\.underline$|^tabs\.indicator$|^segmented\.indicator$|^avatarGroup\.ringWidth$|^hyprland\.border\.size$)/, "strokes"],
     [/^(icon\.size\.|button\.size\.[^.]+\.icon$|slider\.handle$|radio\.dot$)/, "indicator and icon drawing sizes"],
-    [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap)$/, "2 px steps inside one component"],
+    [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap|carousel\.sliceName\.shadowOffset)$/, "2 px steps inside one component"],
     [/^(badge\.paddingEnd|textField\.paddingX)$/, "optical insets inside one component"],
     [/^(space\.sm|badge\.size\.sm\.paddingX|kbd\.paddingX|tooltip\.paddingY)$/, "6 px padding inside a chip, a key cap or a tooltip"],
     [/^motion\./, "motion distances"],
