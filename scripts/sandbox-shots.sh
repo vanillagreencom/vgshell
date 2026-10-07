@@ -89,7 +89,6 @@
 # so every theme-rounded component shows whether its content clears its
 # corners.
 # --rev REV runs that revision's shell, bin, config and themes (git archive),
-# with the runtime helpers a revision before bin/lib kept under scripts/,
 # under this checkout's harness and probe, for a before shot; the plugin
 # fixtures a scene installs are that revision's, which its judge accepts.
 # A scene reaches what that tree ships: the gear's and the launcher
@@ -743,12 +742,6 @@ settings_close() {
   expect "the Settings window closes" ok ipc shell hide "$settings_kind" vgs.settings
   expect_poll "the Settings window is gone" 0 settings_count
 }
-# The single-workspace token's store command: the last line of the Slack
-# section, on the page of this checkout and of a revision before per-workspace
-# tokens alike. A tree with the setup steps of D061 ends the section with
-# that line's Disconnect button instead: its token is stored, and a stored
-# token draws no command.
-slack_legacy_command="secret-tool store --label='VGS notifications Slack token' service vgs-notifications account slack"
 # settings_section HEADING [SCOPE_TYPE SCOPE_TEXT] TYPE TEXT: the page's
 # section headed HEADING, through the item TYPE TEXT, inside the first
 # shown SCOPE_TYPE that draws SCOPE_TEXT when one is named, in its scroll
@@ -794,13 +787,9 @@ page_reported() { # ID
 jarvis_started() { ipc smoke jarvisProcess | py_reply 'import json,sys; d=json.load(sys.stdin); print("ready" if d["retries"] == 0 and d["lifetime"]["kind"] == "ready" else "retries=%d kind=%s" % (d["retries"], d["lifetime"]["kind"]))'; }
 # Whether the Jarvis page's Status rows draw its Daemon row as ready.
 jarvis_page_ready() { ipc smoke itemTexts "$settings_kind" vgs.settings StatusRow | py_reply 'import json,sys; print(any("Daemon" in r and "Ready; no capture" in r for r in json.load(sys.stdin)))'; }
-# slack_section: the Slack section through its last line: on a tree with
-# the setup steps of D061, the single-workspace token's Disconnect, else
-# the command that line draws.
+# slack_section: the Slack section through Globex's Connect button.
 slack_section() {
-  if "$has_setup_steps"; then settings_section Slack StatusLine "Single-workspace token" Button "Disconnect"
-  else settings_section Slack CodeLine "$slack_legacy_command"
-  fi
+  settings_section Slack StatusLine "Globex" Button "Connect"
 }
 # The setup steps of D061 on the open Settings window: Globex's Connect with
 # its masked field typed into, the status fixture's Set up token and Install
@@ -3128,14 +3117,11 @@ PY2
       # The notifications' page reads the synthetic Slack's workspace list
       # and a stub libsecret, whose `<account> <state>` lines answer the
       # token probe's search as libsecret's secret-tool does: acme's own
-      # token stored, globex's locked, the single-workspace one stored. A
+      # token stored, globex's absent. A
       # lookup finds no token, so the photo helper calls nothing.
       mkdir -p -- "$home/.config/Slack"
       cp -R -- "$checkout/scripts/smoke/fixtures/slack/." "$home/.config/Slack/"
-      # A tree with the setup steps of D061 holds globex's token absent, so
-      # its line offers Connect.
-      if "$has_setup_steps"; then globex_state=absent; else globex_state=locked; fi
-      printf '%s\n' "slack:T0ACME present" "slack:T0GLOBEX $globex_state" "slack present" >"$shim/secret-tool.states"
+      printf '%s\n' "slack:T0ACME present" "slack:T0GLOBEX absent" >"$shim/secret-tool.states"
       cat >"$shim/secret-tool" <<SH
 #!/usr/bin/env bash
 [[ \${1:-} == search && \${2:-} == service && \${3:-} == vgs-notifications && \${4:-} == account && \$# -eq 5 ]] || exit 1
