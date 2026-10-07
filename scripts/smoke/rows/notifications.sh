@@ -1855,6 +1855,79 @@ expect "one reference is held for it in place of the old" "$held_before" note_st
 expect "the inbox opens under Silence" ok notes inbox
 notify smoke-app 0 "Quiet while open" "" '[]' '{}' 0 >/dev/null
 expect_poll "a silenced notification joins the open inbox" True has_row panel "Quiet while open"
+# Hold the real image helper before its copy. historyChanged must not
+# expose the pending path to an open panel, even if it refreshes again.
+# The control removes only that guard in the sandbox's service copy.
+cp -- "$service_qml" "$sandbox/Service.qml.image-kept"
+image_helper="$repo/shell/plugins/vgs.notifications/images.sh"
+cp -- "$image_helper" "$sandbox/images.sh.kept"
+image_gate="$sandbox/notification-image-gate"
+image_entered="$sandbox/notification-image-entered"
+mkfifo -- "$image_gate"
+python3 - "$image_helper" "$image_gate" "$image_entered" <<'PY_IMAGE_GATE'
+import shlex, sys
+path, gate, entered = sys.argv[1:]
+text = open(path).read()
+needle = '      timeout 5 head -c'
+assert text.count(needle) == 1, "the image copy occurs once"
+replacement = '      printf started >' + shlex.quote(entered) + '\n      read -r release <' + shlex.quote(gate) + '\n' + needle
+open(path, 'w').write(text.replace(needle, replacement))
+PY_IMAGE_GATE
+python3 - "$service_qml" <<'PY_IMAGE_CONTROL'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+needle = 'if (Logic.hasOwn(silencedRefs, entry.key)) continue;'
+assert text.count(needle) == 1, "the pending-image guard occurs once"
+open(path, 'w').write(text.replace(needle, 'if (false && Logic.hasOwn(silencedRefs, entry.key)) continue;'))
+PY_IMAGE_CONTROL
+rescan "the pending-image control service is built"
+expect_poll "the pending-image control service is ready" True record_exists vgs.notifications
+
+pending_image_case() { # SUMMARY CONTROL
+  local summary="$1" control="$2" key pattern
+  rm -f -- "${image_entered:?}"
+  expect "$summary: Silence stays on" on notes silence on
+  expect "$summary: the inbox opens before the copy" ok notes panel
+  notify smoke-chat 0 "$summary" "" '[]' "{\"image-path\": <\"$home/avatar.png\">}" 0 >/dev/null
+  expect_poll "$summary: the helper reaches the copy barrier" True test_file "$image_entered"
+  key="$(note_state_py 'import json,sys; print(next((e["key"] for e in json.load(open(sys.argv[1]))["history"] if e["summary"] == sys.argv[2]), "none"))' "$summary")"
+  expect "$summary: the saved image does not exist at the barrier" False test_file "$note_images/$key-image"
+  expect "$summary: the inbox refreshes while the copy waits" ok notes panel
+  pattern="MediaSlot\\.qml.*Cannot open: file://.*/$key-image"
+  if [[ $control == yes ]]; then
+    expect_poll "control: the unguarded pending row reaches the inbox" True has_row panel "$summary"
+    pending_row_control() { (failures=0; behaviour_failures=0; expect "a pending copy stays out of the inbox" False has_row panel "$summary" >"$sandbox/pending-image-control.log"; echo "$failures"); }
+    expect "control: publishing a pending copy fails the hidden-row assertion" 1 pending_row_control
+    expect_log "control: the pending copy reproduces the MediaSlot warning" 1 "$pattern"
+    expected_errors+=("$pattern")
+  else
+    expect "$summary: the pending image stays out of the refreshed inbox" False has_row panel "$summary"
+  fi
+  if [[ -e $image_entered ]]; then
+    printf 'release\n' >"$image_gate"
+  else
+    fail "$summary: the image helper did not enter its barrier"
+    return
+  fi
+  expect_poll "$summary: the copy exists before its card appears" True test_file "$note_images/$key-image"
+  expect_poll "$summary: the completed image joins the open inbox" True has_row panel "$summary"
+  if [[ $control == no ]]; then
+    expect "$summary: the completed card logs no MediaSlot warning" 0 log_lines "$pattern"
+  fi
+  expect "$summary: the inbox closes" ok notes close
+  expect "$summary: the history releases the copied image" ok notes clear-history
+}
+pending_image_case "Pending image control" yes
+cp -- "$sandbox/Service.qml.image-kept" "$service_qml"
+rescan "the pending-image guard is restored"
+expect_poll "the service with the restored pending-image guard is ready" True record_exists vgs.notifications
+pending_image_case "Pending image fixed" no
+cp -- "$sandbox/images.sh.kept" "$image_helper"
+rm -f -- "${image_gate:?}" "${image_entered:?}"
+rescan "the image helper is restored"
+expect_poll "the service with the restored image helper is ready" True record_exists vgs.notifications
+expect "the inbox reopens under Silence after the image control" ok notes panel
 notify smoke-chat 0 "Quiet pictured" "" '[]' "{\"image-path\": <\"$home/avatar.png\">}" 0 >/dev/null
 expect_poll "a silenced notification with an image joins the open inbox" True has_row panel "Quiet pictured"
 expect_poll "its row draws the copy, made before the row showed" True shows_slot "Quiet pictured"

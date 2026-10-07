@@ -521,8 +521,8 @@ Item {
                 root.silence(n, updated);
                 return;
             }
-            root.bumpPanel();
             root.holdSilenced(entry.key);
+            root.bumpPanel();
         });
     }
 
@@ -855,6 +855,9 @@ Item {
         const stored = Logic.panelRows(store.history, panelMode, store.readBefore);
         for (const entry of stored) {
             if (present[entry.key]) continue;
+            // historyChanged publishes before the image helper finishes.
+            // The pending reference owns that copy until holdSilenced runs.
+            if (Logic.hasOwn(silencedRefs, entry.key)) continue;
             entries.push(rowOf(entry, "panel"));
             present[entry.key] = true;
         }
