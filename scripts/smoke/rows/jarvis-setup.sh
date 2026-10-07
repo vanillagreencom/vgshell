@@ -1,15 +1,15 @@
 # No latency budget. Poll once per nested IPC round trip.
-# Only J09's process double and the allow-listed TUI fixture run here.
+# Process, local-speech and allow-listed TUI stand-ins run here.
 # The Setup section reads the real daemon's engine answer by row: label,
 # chip tone, the screen beside a step and its line count. A fresh profile
 # reads the AI model and local voice to do; an AI model whose account is
 # not there yet stays to do until an Accounts screen ends with the
-# account added, and local voice until its marker is there and its setup
-# run ends; then it reads ready. Browser and input are optional rows. Its
+# account added, and local voice until its marker is there, its setup
+# run ends and the sidecar reports ready. Browser and input are optional rows. Its
 # controls are two Service copies, one whose key and account readers send
 # no snapshot when their checks end and one whose local voice reader
 # sends none.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js
 set -euo pipefail
 local_reader="$repo/shell/plugins/vgs.jarvis/LocalRuntime.qml"
 local_tui="$repo/shell/plugins/vgs.jarvis/tui/setup-local.sh"
@@ -112,11 +112,14 @@ setup_codex_id() {
 # Local setup's marker for the plugin's first declared tier and the data
 # root the engine compares (LocalSpeech.select).
 setup_write_marker() {
-  mkdir -p -- "$setup_data/local" &&
+  mkdir -p -- "$setup_data/local/venv/bin" &&
+  cp -- "$source_repo/scripts/fixtures/jarvis-local-speech/standin.py" "$setup_data/local/venv/bin/python" &&
+  chmod 700 -- "$setup_data/local/venv/bin/python" &&
   python3 - "$repo/shell/plugins/vgs.jarvis/artifacts.json" "$setup_data/local" "$setup_marker" <<'PY'
 import json,os,sys
 tier=next(iter(json.load(open(sys.argv[1]))["tiers"]))
 open(sys.argv[3],"w").write(json.dumps({"tier": tier, "data": os.path.realpath(sys.argv[2])}))
+open(os.path.join(sys.argv[2],"scenario.json"),"w").write(json.dumps({"start":"ready"}))
 PY
 }
 # The key reader with no check pending, its last one ended.
