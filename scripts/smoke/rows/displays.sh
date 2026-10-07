@@ -273,8 +273,12 @@ disp_modal_focus() { disp_modal_read PaneLayout | py_reply 'import json,sys; pri
 disp_modal_matches() {
   disp_modal_read "$1" | py_reply 'import json,sys; value=json.load(sys.stdin); print(value.get("loaded") is True and value.get("card") is True and value.get("modal") is True and value.get("centered") is True and value.get("screen")==sys.argv[1])' "$disp_main"
 }
-disp_bottom="$(ipc smoke scrollTo window vgs.system 100000)" || { fail "the System page cannot scroll for the modal test"; return 0; }
-[[ $disp_bottom == \[* ]] || fail "the System page scroll is unavailable: $disp_bottom"
+disp_bottom="$(ipc smoke revealText window vgs.system FormRow "Dimmed brightness")" || { fail "the System page cannot scroll for the modal test"; return 0; }
+[[ $disp_bottom =~ ^[0-9.]+$ ]] || fail "the System page scroll is unavailable: $disp_bottom"
+disp_page_at_bottom() {
+  ipc smoke viewHolding window vgs.system "Dimmed brightness" | py_reply 'import json,sys; value=json.load(sys.stdin); print(value["contentY"] > 0 and abs(value["contentY"] - max(0,value["contentHeight"] - value["height"])) < 0.5)'
+}
+geometry expect_poll "the System page reaches its bottom before the modal test" True disp_page_at_bottom
 for disp_layout in PaneLayout PaneNotModal PaneNotCentered PaneVrrOutside; do
   expect "the probe builds the layout copy $disp_layout" ok ipc smoke popupLoad "displays-layout-$disp_layout" "$disp_layout_dir/$disp_layout.qml" window vgs.displays '{"width":600}'
   if [[ $disp_layout == PaneLayout ]]; then
@@ -296,7 +300,7 @@ for disp_layout in PaneLayout PaneNotModal PaneNotCentered PaneVrrOutside; do
 done
 rm -r -- "${disp_layout_dir:?}" || fail "removing the display layout copies failed"
 expect_poll "destroying the display layout copies removes their modal surfaces" 0 layer_count vgs:dialog
-ipc smoke scrollTo window vgs.system 0 >/dev/null || fail "restoring the System page scroll failed"
+ipc smoke revealText window vgs.system SectionHeader Display >/dev/null || fail "restoring the System page scroll failed"
 expect "the System window restores Displays after the modal test" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
 expect_poll "the arrangement regains keyboard focus after the modal test" '["Arrangement", "Display arrangement"]' disp_focus
 type_keys -k Tab -k Tab || fail "typing Tab to the Resolution choice failed"
