@@ -3,7 +3,13 @@
 // Copilot usage endpoints on 127.0.0.1, for scripts/test-ai-usage.js and
 // scripts/smoke/rows/ai-usage.sh. It writes the port it listens on to
 // PORT_FILE. GET /api/oauth/usage answers by MODE_FILE for Claude: ok,
-// relative, missing, null, malformed, refused, error or hang. GET
+// relative, missing, null, malformed, refused, error, hang, throttled or
+// limited. throttled answers 429 to every request. limited answers each
+// bearer token's first request after MODE_FILE was written as relative
+// does, then 429 with `retry-after: 60` to that token's requests for
+// LIMIT_MS after the answer it served, as Anthropic's per-account limit
+// turns away frequent reads; a request past that window is served again
+// and opens a new one. GET
 // /copilot_internal/user answers by MODE_FILE for Copilot: copilot,
 // copilot-zero, copilot-unlimited, copilot-refused, copilot-malformed or
 // error. The Claude replies are written by hand from the recorded shape:
@@ -17,17 +23,21 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 
 const RELATIVE = Object.freeze({ five_hour: 19800000, seven_day: 280800000, seven_day_fable: 280800000 });
+const LIMIT_MS = 60000;
 
 function hash(value) {
     return value ? crypto.createHash("sha256").update(value).digest("hex") : null;
 }
+// The request's line in LOG_FILE, which it also returns.
 function record(request, logFile) {
     const auth = request.headers.authorization || "";
     const bearer = /^Bearer (.+)$/.exec(auth);
     const token = /^token (.+)$/.exec(auth);
-    fs.appendFileSync(logFile, JSON.stringify({ method: request.method, path: request.url,
+    const line = { method: request.method, path: request.url,
         beta: request.headers["anthropic-beta"] || null, token: bearer === null ? null : hash(bearer[1]),
-        authHash: token === null ? null : hash(token[1]), userAgent: request.headers["user-agent"] || null }) + "\n");
+        authHash: token === null ? null : hash(token[1]), userAgent: request.headers["user-agent"] || null };
+    fs.appendFileSync(logFile, JSON.stringify(line) + "\n");
+    return line;
 }
 function relativeClaude() {
     const reply = JSON.parse(fs.readFileSync(path.join(__dirname, "claude-usage.json"), "utf8"));
@@ -52,13 +62,32 @@ function copilotBody(mode) {
     return base;
 }
 function start(portFile, modeFile, logFile) {
+    // Mode limited's windows: when each bearer token's hash was last served,
+    // for the MODE_FILE write they were opened under.
+    let served = new Map();
+    let modeWritten = null;
+    // Whether limited mode turns this request away: inside its token's
+    // window, which a newer write of MODE_FILE closes.
+    const limited = token => {
+        const written = fs.statSync(modeFile).mtimeMs;
+        if (written !== modeWritten) { served = new Map(); modeWritten = written; }
+        const at = served.get(token);
+        if (at !== undefined && Date.now() - at < LIMIT_MS) return true;
+        served.set(token, Date.now());
+        return false;
+    };
     const server = http.createServer((request, response) => {
-        record(request, logFile);
+        const line = record(request, logFile);
         const mode = fs.readFileSync(modeFile, "utf8").trim();
         if (request.url === "/api/oauth/usage") {
             if (request.method !== "GET") { response.writeHead(404); response.end(); return; }
             if (mode === "hang") return;
-            if (mode === "relative") {
+            if (mode === "throttled" || (mode === "limited" && limited(line.token))) {
+                response.writeHead(429, { "content-type": "application/json", "retry-after": "60" });
+                response.end("{}");
+                return;
+            }
+            if (mode === "relative" || mode === "limited") {
                 response.writeHead(200, { "content-type": "application/json" });
                 response.end(JSON.stringify(relativeClaude()));
                 return;

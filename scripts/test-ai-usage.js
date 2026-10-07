@@ -279,6 +279,9 @@ async function main() {
     const linked = path.join(home, ".claude-linked");
     fs.mkdirSync(linked);
     fs.symlinkSync(path.join(fresh, ".credentials.json"), path.join(linked, ".credentials.json"));
+    const second = path.join(home, ".claude-second");
+    write(path.join(second, ".credentials.json"), JSON.stringify({ claudeAiOauth: {
+        accessToken: TOKEN + "-second", expiresAt: NOW + HOUR, scopes: ["user:inference"] } }));
     const before = credentials(home);
     const tokenHash = crypto.createHash("sha256").update(TOKEN).digest("hex");
     const claudeCases = async folder => {
@@ -300,6 +303,14 @@ async function main() {
         assert.deepEqual(await readOf(fresh, "malformed"), { state: "failed", reason: "reply-json", email: "" }, "a malformed body fails");
         assert.deepEqual(await readOf(fresh, "null"), { state: "failed", reason: "reply-shape", email: "" }, "a null body fails one account, not the whole run");
         assert.deepEqual(await readOf(fresh, "error"), { state: "failed", reason: "http-500", email: "" });
+        assert.deepEqual(await readOf(fresh, "throttled"), { state: "limited", email: "" }, "a 429 reads limited, no failure");
+        // The stand-in's limited mode: each token's first read is served,
+        // its next one inside the window turned away, another token's served.
+        mode("limited");
+        const again = directory => readClaude(Anchored, directory, { origin, now: NOW });
+        assert.equal((await again(fresh)).state, "ok", "limited mode serves a token's first read");
+        assert.deepEqual(await again(fresh), { state: "limited", email: "" }, "limited mode turns away the token's next read");
+        assert.equal((await again(second)).state, "ok", "limited mode serves another token's first read");
         assert.deepEqual(await readOf(unsigned, "ok"), { state: "signed-out" });
         assert.deepEqual(await readOf(path.join(home, ".claude-absent"), "ok"), { state: "signed-out" });
         assert.deepEqual(await readOf(linked, "ok"), { state: "failed", reason: "credentials-link" }, "a linked credential file is not followed");
@@ -322,6 +333,8 @@ async function main() {
         "    try { file = readHeld(Anchored, opened.fd, \".credentials.json\"); }\n    finally { fs.closeSync(opened.fd); }\n    if (file.kind === \"file\") fs.utimesSync(path.join(directory, \".credentials.json\"), new Date(), new Date());\n    if (file.kind === \"absent\") return { state: \"signed-out\" };",
         claudeCases);
     await control("request-deadline", "backend/usage.js", "request.destroy(); finish({ error: \"deadline\" });", "void request;", claudeCases);
+    await control("throttle-failed", "backend/usage.js", '    if (reply.status === 429) return { state: "limited", email };',
+        '    if (reply.status === 429) return lost("http-429");', claudeCases);
     fs.unlinkSync(path.join(linked, ".credentials.json"));
 
     // The account's email, from the `.claude.json` Claude Code reads for it:
@@ -646,7 +659,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     const helperLines = [];
     const leaks = async folder => {
         const View = viewIn(plugin);
-        for (const word of ["ok", "error", "malformed"]) {
+        for (const word of ["ok", "error", "malformed", "throttled"]) {
             const result = await driver(folder, word);
             if (folder === plugin) helperLines.push(...result.stderr.split("\n").filter(Boolean));
             assert.equal(result.status, 0, result.stderr);
@@ -656,7 +669,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
             for (const [where, text] of [["stdout", result.stdout], ["stderr", result.stderr], ["status", status]])
                 assert.equal(text.includes(TOKEN), false, "the token reaches " + where + " for " + word);
             const states = Object.fromEntries(reading.accounts.map(row => [row.provider + "/" + row.label, row.state]));
-            assert.deepEqual(states, { "claude/default": word === "ok" ? "ok" : "failed", "claude/work": "expired",
+            assert.deepEqual(states, { "claude/default": word === "ok" ? "ok" : word === "throttled" ? "limited" : "failed", "claude/work": "expired",
                 "codex/default": "ok", "copilot/default": "failed" }, result.stderr);
         }
         assert.deepEqual(credentials(world), worldBefore, "no credential file changed");
@@ -664,8 +677,8 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     await leaks(plugin);
     cases++;
     await control("token-in-log", "backend/usage.js",
-        '    if (reply.status === 401 || reply.status === 403) return { state: "expired", email };\n    if (reply.status !== 200) return lost("http-" + reply.status);',
-        '    if (reply.status === 401 || reply.status === 403) return { state: "expired", email };\n    if (reply.status !== 200) return lost("http-" + reply.status + "-" + oauth.accessToken);',
+        '    if (reply.status === 429) return { state: "limited", email };\n    if (reply.status !== 200) return lost("http-" + reply.status);',
+        '    if (reply.status === 429) return { state: "limited", email };\n    if (reply.status !== 200) return lost("http-" + reply.status + "-" + oauth.accessToken);',
         leaks);
     await control("copilot-token-in-log", "backend/usage.js",
         '    if (reply.status === 401) return { state: "expired", email };\n    if (reply.status !== 200) return lost("http-" + reply.status);',
@@ -711,6 +724,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         const lines = [...helperLines, ...result.stderr.split("\n").filter(Boolean)];
         assert.ok(lines.some(line => line.startsWith("ai-usage: read=")), "a failed discovery prints its line");
         assert.ok(lines.some(line => line.startsWith("ai-usage: account=")), "a failed account prints its line");
+        assert.ok(lines.some(line => /^ai-usage: account=claude-[0-9a-f]+ limited=http-429$/.test(line)), "a limited account prints its line");
         const View = viewIn(plugin);
         for (const line of lines) assert.equal(View.keyed(line), true, line);
         for (const line of ["node:internal/main", TOKEN, "ai-usage: read=" + TOKEN]) assert.equal(View.keyed(line), false, line);
@@ -736,12 +750,49 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         assert.deepEqual(shown(first), [true, 80, "warning"]);
         const failedRead = View.merge(first, reading("failed", []), NOW + 1);
         assert.deepEqual(plainOf(failedRead.accounts[0]), { id: "claude-a", provider: "claude", label: "default", email: "",
-            state: "stale", windows: [{ name: "seven_day", usedPercent: 80, resetsAt: NOW + 26 * HOUR }], credits: null, details: {} },
-        "a failed read keeps its last figures");
+            state: "stale", windows: [{ name: "seven_day", usedPercent: 80, resetsAt: NOW + 26 * HOUR }], credits: null, details: {}, readAt: NOW },
+        "a failed read keeps its last figures and when they were read");
         assert.equal(failedRead.readAt, NOW + 1);
         const failedRun = View.merge(first, null, NOW + 2);
-        assert.deepEqual(plainOf(failedRun.accounts.map(row => [row.state, row.windows.length])), [["stale", 1], ["stale", 1]]);
+        assert.deepEqual(plainOf(failedRun.accounts.map(row => [row.state, row.windows.length, row.readAt])), [["stale", 1, NOW], ["stale", 1, NOW]],
+            "a failed run keeps each account's read time");
         assert.equal(failedRun.readAt, NOW);
+
+        // A limited read, the endpoint turning away a frequent read, keeps
+        // the last figures as ok with the time they were read and draws no
+        // warning; with none, the account reads limited with a plain note.
+        assert.deepEqual(plainOf(first.accounts.map(row => row.readAt)), [NOW, NOW], "an ok read sets its read time");
+        const limitedRead = View.merge(first, reading("limited", []), NOW + 5 * 60000);
+        assert.deepEqual(plainOf(limitedRead.accounts[0]), { id: "claude-a", provider: "claude", label: "default", email: "",
+            state: "ok", windows: [{ name: "seven_day", usedPercent: 80, resetsAt: NOW + 26 * HOUR }], credits: null, details: {}, readAt: NOW },
+        "a limited read keeps the last figures as ok");
+        assert.equal(limitedRead.readAt, NOW + 5 * 60000, "a limited run still answered");
+        const limitedCard = View.panel(limitedRead, NOW + 5 * 60000)[0];
+        assert.deepEqual([limitedCard.state, limitedCard.note, limitedCard.noteTone, limitedCard.windows.length], ["ok", "", "normal", 1],
+            "kept figures draw no warning");
+        assert.notEqual(limitedCard.note, View.STALE_NOTE);
+        assert.deepEqual(shown(limitedRead), [true, 80, "warning"], "the bar keeps the kept share");
+        assert.equal(View.widget(limitedRead).tooltip.indexOf("may be old"), -1, "kept figures add no stale tooltip");
+        const limitedFirst = View.merge(null, reading("limited", []), NOW);
+        assert.deepEqual(plainOf([limitedFirst.accounts[0].state, limitedFirst.accounts[0].windows, limitedFirst.accounts[0].readAt]),
+            ["limited", [], null], "a limited first read holds no figures");
+        const limitedEmpty = View.panel(limitedFirst, NOW)[0];
+        assert.deepEqual([limitedEmpty.note, limitedEmpty.noteTone, limitedEmpty.checked], [View.LIMITED_NOTE, "normal", ""],
+            "a limited account with no figures draws a plain note");
+        assert.deepEqual(shown(limitedFirst), [true, 79, "normal"], "a limited account adds no share");
+        const refusedRead = View.panel(View.merge(first, reading("expired", []), NOW + 1), NOW + 1)[0];
+        assert.deepEqual([refusedRead.state, refusedRead.note, refusedRead.noteTone], ["expired", View.EXPIRED.claude, "warning"],
+            "a refused token still reads expired");
+        const erroredRead = View.panel(failedRead, NOW + 1)[0];
+        assert.deepEqual([erroredRead.state, erroredRead.note, erroredRead.noteTone], ["stale", View.STALE_NOTE, "warning"],
+            "a server error still reads stale");
+        // Each card says how long ago its figures were read.
+        for (const [readAt, now, text] of [[NOW, NOW, "Checked just now"], [NOW, NOW + 59000, "Checked just now"],
+            [NOW, NOW + 60000, "Checked 1m ago"], [NOW, NOW + 4 * 60000 + 30000, "Checked 4m ago"], [NOW, NOW + 2 * HOUR + 60000, "Checked 2h ago"],
+            [null, NOW, ""], [NOW + 1000, NOW, "Checked just now"]])
+            assert.equal(View.checkedText(readAt, now), text, JSON.stringify([readAt, now]));
+        assert.deepEqual(View.panel(limitedRead, NOW + 9 * 60000 + 30000).map(r => r.checked), ["Checked 9m ago", "Checked 4m ago"],
+            "a card's age is its own account's read time");
         const never = View.merge(null, reading("failed", []), NOW);
         assert.deepEqual(plainOf(never.accounts[0].windows), [], "a failed first read holds no window");
         assert.deepEqual(shown(View.merge(null, { accounts: [never.accounts[0]], partial: "" }, NOW)), [true, null, "normal"],
@@ -781,6 +832,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         assert.deepEqual(row(only("no-plan"), "codex"), ["info", false], "an API-key sign-in is no failure and offers nothing");
         assert.deepEqual(row(View.merge(first, reading("failed", []), NOW), "claude"), ["ok", false], "stale figures stay signed in");
         assert.deepEqual(row(View.merge(null, reading("failed", []), NOW), "claude"), ["danger", false]);
+        assert.deepEqual(row(View.merge(null, reading("limited", []), NOW), "claude"), ["ok", false], "a limited account stays signed in");
         assert.equal(View.signIn(View.merge(null, reading("expired", []), NOW), "claude").text, View.EXPIRED.claude);
 
         // A card's title is the provider's name alone, never the folder's
@@ -856,7 +908,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         const failedCreditless = View.merge(copilot, { accounts: [{ id: "copilot-b", provider: "copilot", label: "zero",
             email: "", state: "failed", windows: [], credits: null }], partial: "" }, NOW + 1);
         assert.deepEqual(plainOf(failedCreditless.accounts[0]), { id: "copilot-b", provider: "copilot", label: "zero",
-            email: "zero-user", state: "stale", windows: [], credits: { unit: "requests", granted: 0 }, details: {} },
+            email: "zero-user", state: "stale", windows: [], credits: { unit: "requests", granted: 0 }, details: {}, readAt: NOW },
         "a failed read keeps credit data that has no meter");
         const expiredCard = View.panel(View.merge(null, { accounts: [{ id: "copilot-expired", provider: "copilot", label: "default",
             email: "", state: "expired", windows: [], credits: null }], partial: "" }, NOW), NOW)[0];
@@ -873,8 +925,21 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     };
     views(plugin);
     cases++;
-    await control("stale-dropped", "UsageView.js", 'if (row.state === "failed" && last !== null && (last.windows.length > 0 || last.credits !== null || hasDetails(last.details)))',
+    await control("stale-dropped", "UsageView.js", 'if ((row.state === "failed" || row.state === "limited") && last !== null && hasFigures(last))',
         "if (false)", views);
+    await control("limited-dropped", "UsageView.js", 'if ((row.state === "failed" || row.state === "limited") && last !== null && hasFigures(last))',
+        'if (row.state === "failed" && last !== null && hasFigures(last))', views);
+    await control("limited-stale", "UsageView.js", 'state: row.state === "limited" ? "ok" : "stale",', 'state: "stale",', views);
+    await control("kept-read-time-dropped", "UsageView.js", "                readAt: last.readAt });", "                readAt: now });", views);
+    await control("read-time-unset", "UsageView.js", 'return accountCopy(row, { readAt: row.state === "ok" ? now : null });',
+        "return accountCopy(row, { readAt: null });", views);
+    await control("run-read-time-dropped", "UsageView.js", "var copy = accountCopy(row, { readAt: row.readAt });", "var copy = accountCopy(row);", views);
+    await control("limited-warned", "UsageView.js", 'noteTone: warning !== "" ? "warning" : "normal"',
+        'noteTone: warning !== "" || row.state === "limited" ? "warning" : "normal"', views);
+    await control("limited-signed-out", "UsageView.js", 'return row.state === "ok" || row.state === "stale" || row.state === "limited"; }))',
+        'return row.state === "ok" || row.state === "stale"; }))', views);
+    await control("checked-minute-floor", "UsageView.js", 'return seconds < 60 ? "Checked just now"', 'return seconds < 1 ? "Checked just now"', views);
+    await control("checked-absent", "UsageView.js", '            checked: checkedText(row.readAt, now),\n', '            checked: "",\n', views);
     await control("plan-kept", "UsageView.js", 'email: row.email || "",\n        state: row.state,', 'email: row.email || "", plan: row.plan || "",\n        state: row.state,', views);
     await control("warning-boundary", "UsageView.js", 'used >= WARNING_PERCENT ? "warning"', 'used > WARNING_PERCENT ? "warning"', views);
     await control("lowest-share", "UsageView.js", "    return Math.max.apply(null, peaks);", "    return Math.min.apply(null, peaks);", views);
