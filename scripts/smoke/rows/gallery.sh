@@ -18,6 +18,20 @@ ipc smoke revealText window vgs.gallery Button 'Open modal dialog' >/dev/null
 read -r gallery_modal_x gallery_modal_y < <(at_centre 'window:VGS Components' "$(control_box window vgs.gallery Button 'Open modal dialog')")
 click "$gallery_modal_x" "$gallery_modal_y" || fail "opening the Gallery modal failed"
 expect_poll "the Gallery modal maps its own surface" 1 layer_count vgs:dialog
+# The launcher center is behind the dialog card. Its left edge is in the
+# page and outside the card, proven from native bounds and the shared width.
+gallery_background_point="$(python3 -c 'import json,sys
+window,surface,button,width=[json.loads(a) for a in sys.argv[1:]]
+x=window[0]+button[0]+4; y=window[1]+button[1]+button[3]/2
+cardwidth=min(width,surface[2]); left=surface[0]+(surface[2]-cardwidth)/2
+assert window[0]<=x<window[0]+window[2] and window[1]<=y<window[1]+window[3]
+assert button[0]<=x-window[0]<button[0]+button[2] and button[1]<=y-window[1]<button[1]+button[3]
+assert x<left-1 or x>left+cardwidth+1
+print(json.dumps({"point":[int(x),int(y)],"cardX":[left,left+cardwidth],"insideLauncher":True,"outsideCard":True}))' "$(surface_box 'window:VGS Components')" "$(surface_box vgs:dialog)" "$(control_box window vgs.gallery Button 'Open modal dialog')" "$(ipc smoke themeValue dialog.width)")"
+printf '  gallery-background-point=%s\n' "$gallery_background_point"
+read -r gallery_modal_x gallery_modal_y < <(py_reply 'import json,sys; print(*json.load(sys.stdin)["point"])' <<<"$gallery_background_point")
+hover "$gallery_modal_x" "$gallery_modal_y" || fail "hovering the Gallery scrim failed"
+expect_poll "the Gallery scrim blocks launcher hover" false control_hovered window vgs.gallery Button 'Open modal dialog'
 gallery_modal_before="$(ipc smoke viewHolding window vgs.gallery 'Open modal dialog')"
 wheel "$gallery_modal_x" "$gallery_modal_y" -2 || fail "wheeling behind the Gallery modal failed"
 sleep 0.2

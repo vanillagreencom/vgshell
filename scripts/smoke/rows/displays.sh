@@ -246,6 +246,7 @@ end = pane.rfind('}')
 pane = pane[:end] + '''
     property int trialActionCalls: 0
     function closeBeforeLoad() { open(""); close(); }
+    function hideCopyBody() { content.visible = false; }
     readonly property bool vrrGrouped: vrrRow.parent === refreshRow.parent && vrrRow.y >= refreshRow.y + refreshRow.height && vrrRow.y <= refreshRow.y + refreshRow.height + Theme.stack.group
     readonly property var modalEvidence: {
         const surface = trialDialog.children[0].item;
@@ -306,6 +307,8 @@ for disp_layout in PaneLayout PaneNotModal PaneNotCentered PaneVrrOutside PaneNo
     geometry expect_poll "the display trial is modal and centered on its screen at the bottom scroll" True disp_modal_matches "$disp_layout"
     expect_poll "the display trial takes keyboard focus" True disp_modal_focus
     expect_poll "the modal has a full shared scrim and full input region" True disp_scrim_matches "$disp_layout"
+    expect_poll "the VRR row follows Refresh rate in the display group" true ipc smoke popupRead "displays-layout-$disp_layout" vrrGrouped
+    expect "the disposable body hides for real-page pointer checks" ok ipc smoke popupCall "displays-layout-$disp_layout" hideCopyBody
     read -r disp_bg_x disp_bg_y < <(at_centre "window:System Settings" "$(control_box window vgs.system ListItem 'Shell & Plugins')")
     hover "$disp_bg_x" "$disp_bg_y" || fail "hovering behind the trial failed"
     disp_scrim_hovered() { disp_modal_read PaneLayout | py_reply 'import json,sys; print(json.load(sys.stdin).get("scrimHovered") is True)'; }
@@ -315,19 +318,41 @@ for disp_layout in PaneLayout PaneNotModal PaneNotCentered PaneVrrOutside PaneNo
     expect "clicking the trial scrim does not activate the sidebar" 0 window_count Plugins
     expect "clicking the trial scrim calls neither Keep nor Revert" 0 ipc smoke popupRead displays-layout-PaneLayout trialActionCalls
     disp_page_before="$(ipc smoke viewHolding window vgs.system 'Dimmed brightness')"
-    read -r disp_wheel_x disp_wheel_y < <(at_centre "window:System Settings" "$(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1])["box"]; print(json.dumps([x+w-20,y+h-20,1,1]))' "$disp_page_before")")
+    # Use the blank left gutter. The former bottom-right point landed on
+    # Dimmed brightness's Select, not a blank part of the scrolling page.
+    disp_wheel_evidence="$(python3 -c 'import json,sys
+page,window,surface,card,items=[json.loads(a) for a in sys.argv[1:]]
+x,y,w,h=page["box"]; px,py=x+2,y+h-20
+sx,sy=window[0]+px,window[1]+py
+cx,cy=surface[0]+card["x"],surface[1]+card["y"]
+assert x<px<x+w and y<py<y+h
+assert not(cx<=sx<cx+card["width"] and cy<=sy<cy+card["height"])
+assert not any(i["type"]=="Select" and i["visible"] and i["box"][0]<=px<i["box"][0]+i["box"][2] and i["box"][1]<=py<i["box"][1]+i["box"][3] for i in items)
+print(json.dumps({"point":[int(sx),int(sy)],"page":page["box"],"card":[cx,cy,card["width"],card["height"]],"outsideCard":True,"outsideSelects":True}))' "$disp_page_before" "$(surface_box 'window:System Settings')" "$(surface_box vgs:dialog)" "$(disp_modal_read PaneLayout)" "$(ipc smoke descendantGeometry window vgs.displays)")"
+    printf '  display-background-point=%s\n' "$disp_wheel_evidence"
+    read -r disp_wheel_x disp_wheel_y < <(py_reply 'import json,sys; print(*json.load(sys.stdin)["point"])' <<<"$disp_wheel_evidence")
     wheel "$disp_wheel_x" "$disp_wheel_y" -2 || fail "wheeling behind the trial failed"
     sleep 0.2
     expect "the trial scrim blocks the Settings page wheel" "$disp_page_before" ipc smoke viewHolding window vgs.system 'Dimmed brightness'
     disp_copy_holding() { ipc smoke popupRead displays-layout-PaneLayout trialState | py_reply 'import json,sys; print(json.load(sys.stdin)["phase"])'; }
     expect "the trial remains holding after background input" holding disp_copy_holding
 
-    expect_poll "the VRR row follows Refresh rate in the display group" true ipc smoke popupRead "displays-layout-$disp_layout" vrrGrouped
   elif [[ $disp_layout == PaneNoScrim || $disp_layout == PaneMasked ]]; then
     geometry expect_poll "control: $disp_layout retains its modal centered card" True disp_modal_matches "$disp_layout"
     expect_poll "control: $disp_layout fails the scrim and full input contract" False disp_scrim_matches "$disp_layout"
     if [[ $disp_layout == PaneMasked ]]; then
+      expect "the masked copy hides its disposable body for real-page input" ok ipc smoke popupCall "displays-layout-$disp_layout" hideCopyBody
+      # Move across two points after mapping so native input-mask commits
+      # can update pointer focus before the same background action.
+      disp_masked_hover() { hover "$((disp_bg_x+1))" "$disp_bg_y" >/dev/null && hover "$disp_bg_x" "$disp_bg_y" >/dev/null && control_hovered window vgs.system ListItem 'Shell & Plugins'; }
+      expect_poll "control: a card-only input region lets the sidebar take hover" true disp_masked_hover
+      click "$disp_bg_x" "$disp_bg_y" || fail "clicking the masked sidebar control failed"
+      expect_poll "control: a card-only input region lets the sidebar open Plugins" 1 window_count Plugins
+      expect "the masked sidebar control closes Plugins" ok ipc shell hide window vgs.settings
+      expect_poll "the masked sidebar control leaves only System" 0 window_count Plugins
       disp_masked_before="$(ipc smoke viewHolding window vgs.system 'Dimmed brightness')"
+      hover "$((disp_wheel_x+1))" "$disp_wheel_y" || fail "entering the masked wheel gutter failed"
+      hover "$disp_wheel_x" "$disp_wheel_y" || fail "resting on the masked wheel gutter failed"
       wheel "$disp_wheel_x" "$disp_wheel_y" -2 || fail "the masked modal wheel control failed"
       disp_masked_page_moved() { ipc smoke viewHolding window vgs.system 'Dimmed brightness' | py_reply 'import json,sys; before=json.loads(sys.argv[1]); after=json.load(sys.stdin); print(abs(before["contentY"]-after["contentY"])>=1)' "$disp_masked_before"; }
       expect_poll "control: a card-only input region lets the same wheel move the page" True disp_masked_page_moved
