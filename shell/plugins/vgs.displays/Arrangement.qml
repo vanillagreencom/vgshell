@@ -125,20 +125,26 @@ FocusScope {
                         tile.pressY = point.y;
                         tile.startX = tile.x;
                         tile.startY = tile.y;
-                        tile.dragX = tile.x;
-                        tile.dragY = tile.y;
-                        tile.dragging = true;
                     }
                     onPositionChanged: {
                         if (!pressed) return;
                         const point = mapToItem(root, mouse.x, mouse.y);
-                        tile.dragX = tile.startX + point.x - tile.pressX;
-                        tile.dragY = tile.startY + point.y - tile.pressY;
+                        const dx = point.x - tile.pressX;
+                        const dy = point.y - tile.pressY;
+                        // A press that moves no further than the platform's
+                        // drag threshold is a click and only selects:
+                        // QStyleHints.startDragDistance, read in QML as
+                        // Application.styleHints (doc.qt.io/qt-6/qstylehints.html,
+                        // qml-qtquick-application.html).
+                        const threshold = Application.styleHints.startDragDistance;
+                        if (!tile.dragging && Math.abs(dx) <= threshold && Math.abs(dy) <= threshold) return;
+                        tile.dragX = tile.startX + dx;
+                        tile.dragY = tile.startY + dy;
+                        tile.dragging = true;
                     }
                     onReleased: {
+                        if (!tile.dragging) return;
                         tile.dragging = false;
-                        // A click with no movement only selects.
-                        if (tile.dragX === tile.startX && tile.dragY === tile.startY) return;
                         const x = (tile.dragX - root.fit.x) / root.fit.scale;
                         const y = (tile.dragY - root.fit.y) / root.fit.scale;
                         root.moved(Logic.moveGroup(root.outputs, root.savedRules, root.draftRules, tile.modelData.identifier, x, y));
