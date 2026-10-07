@@ -250,8 +250,9 @@ pane = pane[:end] + '''
         if (card === undefined) return { loaded: true, card: false };
         const centerErrorX = card.x + card.width / 2 - surface.contentItem.width / 2;
         const centerErrorY = card.y + card.height / 2 - surface.contentItem.height / 2;
+        // Qt rounds centered anchors to whole pixels on an odd-sized output.
         return { loaded: true, card: card.width > 0 && card.height > 0, modal: card.modal,
-            centered: Math.abs(centerErrorX) < 0.5 && Math.abs(centerErrorY) < 0.5,
+            centered: Math.abs(centerErrorX) <= 0.5 && Math.abs(centerErrorY) <= 0.5,
             focused: card.activeFocus, screen: surface.screen.name,
             x: card.x, y: card.y, width: card.width, height: card.height,
             surfaceWidth: surface.contentItem.width, surfaceHeight: surface.contentItem.height,
