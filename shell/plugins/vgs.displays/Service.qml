@@ -39,6 +39,9 @@ Item {
 
     property var shell: null
     property bool registered: false
+    // The mapped trial dialogs. Closing a pane releases its one hold,
+    // so the passive countdown remains when Settings has no dialog.
+    property int trialDialogs: 0
     property var runs: Logic.emptyRuns()
     // The helper's last list, { backends, displays }, null before one.
     property var listed: null
@@ -99,6 +102,12 @@ Item {
         shell.ipc.handle("set", arg => root.setFromRequest(arg));
         shell.ipc.handle("assign", arg => root.assign(arg));
         shell.ipc.handle("identify", arg => root.identify(arg));
+        shell.ipc.handle("trial-dialog", event => {
+            if (event === "opened") root.trialDialogs++;
+            else if (event === "closed" && root.trialDialogs > 0) root.trialDialogs--;
+            else return "refused: trial-dialog=" + event;
+            return "ok";
+        });
         shell.layers.show(osdLayer);
         shell.layers.show(identifyLayer);
         shell.layers.show(trialLayer);

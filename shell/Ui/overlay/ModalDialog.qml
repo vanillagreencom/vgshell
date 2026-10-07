@@ -19,18 +19,24 @@ Item {
     property var actions: []
     property bool busy: false
     readonly property var screen: OverlayState.outputOf(root)
+    visible: surfaceLoader.item !== null && surfaceLoader.item.visible && surfaceLoader.item.backingWindowVisible
     signal accepted()
     signal rejected()
 
     Loader {
+        id: surfaceLoader
         active: root.shown && root.screen !== null
         sourceComponent: Hosts.OverlaySurface {
             screen: root.screen
             placement: "center"
             inset: Theme.dialog.margin
-            inputItems: [card]
+            inputAll: true
             WlrLayershell.namespace: "vgs:dialog"
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+
+            // The shared scrim consumes background input. A timed trial
+            // can only end through its actions, Escape or its countdown.
+            Scrim {}
 
             Dialog {
                 id: card

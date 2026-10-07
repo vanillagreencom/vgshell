@@ -24,6 +24,8 @@ FocusScope {
     id: root
 
     property var shell: null
+    property bool opened: false
+    property var trialDialogIpc: null
     readonly property var values: shell === null ? ({}) : shell.status.values
     readonly property var list: values.displays === undefined ? ({ state: "pending", items: [] }) : values.displays
     readonly property var assignments: values.assignments === undefined ? ({ entries: [], error: null }) : values.assignments
@@ -72,14 +74,45 @@ FocusScope {
         onDiscard: root.outputDraft = ({})
     }
 
-    onShellChanged: if (shell !== null && releaseSupport === null) releaseSupport = shell.monitors.wantSupport()
-    Component.onDestruction: if (releaseSupport !== null) releaseSupport()
+    onShellChanged: {
+        if (shell !== null && releaseSupport === null) releaseSupport = shell.monitors.wantSupport();
+        syncTrialDialog();
+    }
+    Component.onDestruction: {
+        releaseTrialDialog();
+        if (releaseSupport !== null) releaseSupport();
+    }
 
     function open(payloadJson) {
+        opened = true;
         problem = "";
         dimProblem = "";
+        syncTrialDialog();
     }
-    function close() {}
+    function close() {
+        opened = false;
+        releaseTrialDialog();
+    }
+
+    // The service hides its passive prompt only while this pane has a
+    // mapped modal. Each pane releases its one hold before unloading.
+    function syncTrialDialog() {
+        const ipc = shell === null ? null : shell.ipc;
+        const wanted = opened && trialDialog.shown && trialDialog.visible;
+        if (trialDialogIpc !== null && (!wanted || trialDialogIpc !== ipc)) releaseTrialDialog();
+        if (!wanted || ipc === null || trialDialogIpc !== null) return;
+        const reply = ipc.call("trial-dialog", "opened");
+        if (reply === "ok") trialDialogIpc = ipc;
+        else console.warn("displays pane: trial dialog " + reply);
+    }
+
+    function releaseTrialDialog() {
+        if (trialDialogIpc === null) return;
+        const ipc = trialDialogIpc;
+        trialDialogIpc = null;
+        const reply = ipc.call("trial-dialog", "closed");
+        if (reply !== "ok") console.warn("displays pane: trial dialog " + reply);
+    }
 
     function answered(reply) {
         problem = Logic.replyText(reply);
@@ -187,7 +220,8 @@ FocusScope {
 
     ModalDialog {
         id: trialDialog
-        shown: root.trialState.phase === "holding"
+        shown: root.opened && root.trialState.phase === "holding"
+        onVisibleChanged: root.syncTrialDialog()
         title: "Keep these display settings?"
         message: Logic.countdownDetail(root.trialState.deadline - root.nowSeconds)
         actions: [{ label: "Keep", role: "accept" }, { label: "Revert", role: "cancel" }]

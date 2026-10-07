@@ -3,14 +3,14 @@ import qs.Commons
 import "DisplaysLogic.js" as Logic
 import qs.Ui
 
-// Passive trial countdown on every screen. The pane owns Keep and Revert.
+// Passive trial countdown while no pane has the mapped Keep/Revert modal.
 Item {
     id: root
 
     property var screen: null
     property var service: null
     readonly property var trialState: service === null || service.shell === null ? ({ phase: "idle", deadline: 0 }) : service.shell.monitors.trialState
-    readonly property bool shown: trialState.phase === "holding"
+    readonly property bool shown: trialState.phase === "holding" && (service === null || service.trialDialogs === 0)
     property int nowSeconds: Math.floor(Date.now() / 1000)
 
     visible: shown

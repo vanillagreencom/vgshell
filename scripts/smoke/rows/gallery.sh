@@ -12,6 +12,21 @@ set -euo pipefail
 expect "the gallery summons over IPC" ok ipc shell summon window vgs.gallery '{}'
 expect_poll "the gallery maps one window" 1 window_count "VGS Components"
 expect "the gallery maps no layer surface" 0 layer_count vgs:panel
+# The real modal's shared scrim prevents the page from taking a wheel or
+# a repeated launcher click. Escape remains the dialog's dismissal path.
+ipc smoke revealText window vgs.gallery Button 'Open modal dialog' >/dev/null
+read -r gallery_modal_x gallery_modal_y < <(at_centre 'window:VGS Components' "$(control_box window vgs.gallery Button 'Open modal dialog')")
+click "$gallery_modal_x" "$gallery_modal_y" || fail "opening the Gallery modal failed"
+expect_poll "the Gallery modal maps its own surface" 1 layer_count vgs:dialog
+gallery_modal_before="$(ipc smoke viewHolding window vgs.gallery 'Open modal dialog')"
+wheel "$gallery_modal_x" "$gallery_modal_y" 2 || fail "wheeling behind the Gallery modal failed"
+sleep 0.2
+expect "the Gallery modal blocks its page wheel" "$gallery_modal_before" ipc smoke viewHolding window vgs.gallery 'Open modal dialog'
+click "$gallery_modal_x" "$gallery_modal_y" || fail "clicking behind the Gallery modal failed"
+expect "clicking the Gallery scrim leaves its modal open" 1 layer_count vgs:dialog
+type_keys -k Escape || fail "closing the Gallery modal with Escape failed"
+expect_poll "Escape closes the Gallery modal surface" 0 layer_count vgs:dialog
+ipc smoke scrollTo window vgs.gallery 0 >/dev/null || fail "restoring the Gallery page after the modal check failed"
 # Every component the module's qmldir lists is drawn, read back by type
 # name; the headings have a size, so they show.
 expect_poll "the gallery draws every component of the module" '[]' ipc smoke galleryMissing window vgs.gallery

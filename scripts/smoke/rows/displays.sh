@@ -58,7 +58,7 @@
 # user file, so vgs.system and vgs.displays are as it found them, and
 # removes the output, the assignments file and the stub backlight and
 # gives hidraw2 its mode back. The dim settings live in the user file.
-# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprctlReader.qml shell/Hosts/PaneHost.qml shell/Hosts/OverlaySurface.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprctlReader.qml shell/Hosts/PaneHost.qml shell/Hosts/OverlaySurface.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/foundation/Scrim.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
 set -euo pipefail
 devices_ready displays || return 0
 # The core probes the system steps once vgs.displays holds `system`, and
@@ -240,20 +240,27 @@ pane = swap(pane, 'import "DisplaysLogic.js" as Logic', 'import ".."\nimport "..
 pane = swap(pane, 'property var shell: null', 'property var shell: parent.shell')
 pane = swap(pane, 'readonly property bool vrrShown: shell !== null && Logic.hasVrrPanel(shell.monitors.support)', 'readonly property bool vrrShown: true')
 pane = swap(pane, 'readonly property var trialState: shell === null ? ({ phase: "idle", token: "", deadline: 0, failure: "" }) : shell.monitors.trialState', 'readonly property var trialState: ({ phase: "holding", token: "", deadline: Math.floor(Date.now() / 1000) + 60, failure: "" })')
+pane = swap(pane, '    function keepTrial() {', '    function keepTrial() {\n        trialActionCalls++;')
+pane = swap(pane, '    function revertTrial() {', '    function revertTrial() {\n        trialActionCalls++;')
 end = pane.rfind('}')
 pane = pane[:end] + '''
+    property int trialActionCalls: 0
+    function closeBeforeLoad() { open(""); close(); }
     readonly property bool vrrGrouped: vrrRow.parent === refreshRow.parent && vrrRow.y >= refreshRow.y + refreshRow.height && vrrRow.y <= refreshRow.y + refreshRow.height + Theme.stack.group
     readonly property var modalEvidence: {
         const surface = trialDialog.children[0].item;
         if (surface === null) return { loaded: false };
         const card = surface.contentItem.children.find(child => child.modal !== undefined);
         if (card === undefined) return { loaded: true, card: false };
+        const scrim = surface.contentItem.children.find(child => child.clicked !== undefined && child.color !== undefined);
+        const washed = scrim !== undefined && scrim.color.toString() === Theme.color.scrim.toString() && scrim.width === surface.contentItem.width && scrim.height === surface.contentItem.height;
         const centerErrorX = card.x + card.width / 2 - surface.contentItem.width / 2;
         const centerErrorY = card.y + card.height / 2 - surface.contentItem.height / 2;
         // Qt rounds centered anchors to whole pixels on an odd-sized output.
         return { loaded: true, card: card.width > 0 && card.height > 0, modal: card.modal,
             centered: Math.abs(centerErrorX) <= 0.5 && Math.abs(centerErrorY) <= 0.5,
             focused: card.activeFocus, screen: surface.screen.name,
+            scrim: washed, inputAll: surface.inputAll, scrimHovered: scrim !== undefined && scrim.children[0].containsMouse,
             x: card.x, y: card.y, width: card.width, height: card.height,
             surfaceWidth: surface.contentItem.width, surfaceHeight: surface.contentItem.height,
             centerErrorX: centerErrorX, centerErrorY: centerErrorY };
@@ -262,7 +269,9 @@ pane = pane[:end] + '''
 (folder / 'PaneLayout.qml').write_text(pane)
 (folder / 'ModalNotModal.qml').write_text(swap(modal, '                id: card', '                id: card\n                modal: false'))
 (folder / 'ModalNotCentered.qml').write_text(swap(modal, '                anchors.centerIn: parent', '                anchors.left: parent.left\n                anchors.top: parent.top'))
-for name, host in [('PaneNotModal', 'ModalNotModal'), ('PaneNotCentered', 'ModalNotCentered')]:
+(folder / 'ModalNoScrim.qml').write_text(swap(modal, '            Scrim {}', '            Item {}'))
+(folder / 'ModalMasked.qml').write_text(swap(modal, '            inputAll: true', '            inputItems: [card]'))
+for name, host in [('PaneNotModal', 'ModalNotModal'), ('PaneNotCentered', 'ModalNotCentered'), ('PaneNoScrim', 'ModalNoScrim'), ('PaneMasked', 'ModalMasked')]:
     (folder / (name + '.qml')).write_text(swap(pane, '    ModalDialog {', '    ' + host + ' {'))
 start = pane.index('            FormRow {\n                id: vrrRow')
 end = pane.index('\n            FormRow {', start + 1)
@@ -284,12 +293,46 @@ disp_page_at_bottom() {
   ipc smoke viewHolding window vgs.system "Dimmed brightness" | py_reply 'import json,sys; value=json.load(sys.stdin); print(value["contentY"] > 0 and abs(value["contentY"] - max(0,value["contentHeight"] - value["height"])) < 0.5)'
 }
 geometry expect_poll "the System page reaches its bottom before the modal test" True disp_page_at_bottom
-for disp_layout in PaneLayout PaneNotModal PaneNotCentered PaneVrrOutside; do
+disp_scrim_matches() {
+  disp_modal_read "$1" | py_reply 'import json,sys; v=json.load(sys.stdin); print(v.get("loaded") is True and v.get("card") is True and v.get("scrim") is True and v.get("inputAll") is True)'
+}
+for disp_layout in PaneLayout PaneNotModal PaneNotCentered PaneVrrOutside PaneNoScrim PaneMasked; do
   expect "the probe builds the layout copy $disp_layout" ok ipc smoke popupLoad "displays-layout-$disp_layout" "$disp_layout_dir/$disp_layout.qml" window vgs.displays '{"width":600}'
+  expect "the layout copy closes before its modal can map" ok ipc smoke popupCall "displays-layout-$disp_layout" closeBeforeLoad
+  expect "closing before mapping keeps the dialog hold count zero" 0 disp_read trialDialogs
+  expect "the layout copy opens through its pane lifecycle" ok ipc smoke popupCall "displays-layout-$disp_layout" open
+  expect_poll "the mapped layout copy holds one passive-banner suppression" 1 disp_read trialDialogs
   if [[ $disp_layout == PaneLayout ]]; then
     geometry expect_poll "the display trial is modal and centered on its screen at the bottom scroll" True disp_modal_matches "$disp_layout"
     expect_poll "the display trial takes keyboard focus" True disp_modal_focus
+    expect_poll "the modal has a full shared scrim and full input region" True disp_scrim_matches "$disp_layout"
+    read -r disp_bg_x disp_bg_y < <(at_centre "window:System Settings" "$(control_box window vgs.system ListItem 'Shell & Plugins')")
+    hover "$disp_bg_x" "$disp_bg_y" || fail "hovering behind the trial failed"
+    disp_scrim_hovered() { disp_modal_read PaneLayout | py_reply 'import json,sys; print(json.load(sys.stdin).get("scrimHovered") is True)'; }
+    expect_poll "the scrim takes background hover" True disp_scrim_hovered
+    expect "the Settings sidebar does not take hover through the scrim" false control_hovered window vgs.system ListItem 'Shell & Plugins'
+    click "$disp_bg_x" "$disp_bg_y" || fail "clicking the trial scrim failed"
+    expect "clicking the trial scrim does not activate the sidebar" 0 window_count Plugins
+    expect "clicking the trial scrim calls neither Keep nor Revert" 0 ipc smoke popupRead displays-layout-PaneLayout trialActionCalls
+    disp_page_before="$(ipc smoke viewHolding window vgs.system 'Dimmed brightness')"
+    read -r disp_wheel_x disp_wheel_y < <(at_centre "window:System Settings" "$(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1])["box"]; print(json.dumps([x+w-20,y+h-20,1,1]))' "$disp_page_before")")
+    wheel "$disp_wheel_x" "$disp_wheel_y" 2 || fail "wheeling behind the trial failed"
+    sleep 0.2
+    expect "the trial scrim blocks the Settings page wheel" "$disp_page_before" ipc smoke viewHolding window vgs.system 'Dimmed brightness'
+    disp_copy_holding() { ipc smoke popupRead displays-layout-PaneLayout trialState | py_reply 'import json,sys; print(json.load(sys.stdin)["phase"])'; }
+    expect "the trial remains holding after background input" holding disp_copy_holding
+
     expect_poll "the VRR row follows Refresh rate in the display group" true ipc smoke popupRead "displays-layout-$disp_layout" vrrGrouped
+  elif [[ $disp_layout == PaneNoScrim || $disp_layout == PaneMasked ]]; then
+    geometry expect_poll "control: $disp_layout retains its modal centered card" True disp_modal_matches "$disp_layout"
+    expect_poll "control: $disp_layout fails the scrim and full input contract" False disp_scrim_matches "$disp_layout"
+    if [[ $disp_layout == PaneMasked ]]; then
+      disp_masked_before="$(ipc smoke viewHolding window vgs.system 'Dimmed brightness')"
+      wheel "$disp_wheel_x" "$disp_wheel_y" 2 || fail "the masked modal wheel control failed"
+      disp_masked_page_moved() { ipc smoke viewHolding window vgs.system 'Dimmed brightness' | py_reply 'import json,sys; before=json.loads(sys.argv[1]); after=json.load(sys.stdin); print(abs(before["contentY"]-after["contentY"])>=1)' "$disp_masked_before"; }
+      expect_poll "control: a card-only input region lets the same wheel move the page" True disp_masked_page_moved
+      ipc smoke revealText window vgs.system FormRow 'Dimmed brightness' >/dev/null
+    fi
   elif [[ $disp_layout == PaneVrrOutside ]]; then
     expect_poll "control: the VRR row outside the display group is rejected" false ipc smoke popupRead "displays-layout-$disp_layout" vrrGrouped
   else
@@ -303,10 +346,40 @@ for disp_layout in PaneLayout PaneNotModal PaneNotCentered PaneVrrOutside; do
   fi
   printf '  modal-evidence expected-screen=%s copy=%s value=' "$disp_main" "$disp_layout"
   disp_modal_read "$disp_layout"
-  expect "the probe drops the layout copy $disp_layout" ok ipc smoke popupDrop "displays-layout-$disp_layout"
+  if [[ $disp_layout == PaneVrrOutside ]]; then
+    expect "the destruction control still has a mapped dialog hold" 1 disp_read trialDialogs
+    expect "the probe destroys a still-open layout copy" ok ipc smoke popupDrop "displays-layout-$disp_layout"
+    expect_poll "destroying a mapped copy releases its one dialog hold" 0 disp_read trialDialogs
+    expect_poll "destroying a mapped copy removes its modal surface" 0 layer_count vgs:dialog
+  else
+    expect "closing the layout copy hides its modal" ok ipc smoke popupCall "displays-layout-$disp_layout" close
+    expect_poll "closing the layout copy releases its one dialog hold" 0 disp_read trialDialogs
+    expect "the probe drops the layout copy $disp_layout" ok ipc smoke popupDrop "displays-layout-$disp_layout"
+  fi
 done
+expect "destroying already-closed copies leaves no dialog hold" 0 disp_read trialDialogs
 rm -r -- "${disp_layout_dir:?}" || fail "removing the display layout copies failed"
 expect_poll "destroying the display layout copies removes their modal surfaces" 0 layer_count vgs:dialog
+# A real guarded mode trial outlives its Settings pane. Closing Settings
+# removes the modal and restores the passive banner without ending the trial.
+disp_banner_screens() { ipc smoke layerWindows vgs.displays | py_reply 'import json,sys; rows=json.load(sys.stdin); print(json.dumps(sorted(r["screen"] for r in rows[2*(len(rows)//3):] if r["shown"])))'; }
+disp_trial_phase() { ipc smoke readInstance window vgs.displays trialState | py_reply 'import json,sys; print(json.load(sys.stdin)["phase"])'; }
+disp_mode_args="$(ipc smoke readInstance window vgs.displays selectedRule | py_reply 'import json,sys; mode=json.load(sys.stdin)["mode"]; mode["refresh"]=75; print(json.dumps({"args":[{"mode":mode}]}))')"
+expect "the mode draft starts the real banner lifecycle test" "" ipc smoke invokeInstanceArgs window vgs.displays setOutputDraft "$disp_mode_args"
+expect "the real display trial starts" "" ipc smoke invokeInstance window vgs.displays applyOutputDraft ''
+expect_poll "the real trial holds" holding disp_trial_phase
+expect_poll "the real trial modal suppresses the passive banner" 1 disp_read trialDialogs
+expect "the passive trial banner is hidden while its modal is mapped" '[]' disp_banner_screens
+click "$disp_bg_x" "$disp_bg_y" || fail "clicking the real trial scrim failed"
+expect "a real trial keeps holding after its scrim is clicked" holding disp_trial_phase
+expect "Settings closes during the real holding trial" ok ipc shell hide window vgs.system
+expect_poll "closing Settings removes the real modal" 0 layer_count vgs:dialog
+expect_poll "closing Settings releases its dialog hold" 0 disp_read trialDialogs
+expect_poll "the passive banner returns with Settings closed" "[\"$disp_main\"]" disp_banner_screens
+expect "Settings reopens during the holding trial" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
+expect_poll "reopening Settings restores one dialog hold" 1 disp_read trialDialogs
+expect "the reopened pane reverts the real trial" "" ipc smoke invokeInstance window vgs.displays revertTrial ''
+expect_poll "reverting clears the dialog hold" 0 disp_read trialDialogs
 ipc smoke revealText window vgs.system SectionHeader Display >/dev/null || fail "restoring the System page scroll failed"
 expect "the System window restores Displays after the modal test" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
 expect_poll "the arrangement regains keyboard focus after the modal test" '["Arrangement", "Display arrangement"]' disp_focus
