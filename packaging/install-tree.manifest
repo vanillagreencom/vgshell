@@ -600,6 +600,7 @@ f share/vgshell/shell/plugins/vgs.voice/tui/model.sh
 f share/vgshell/shell/plugins/vgs.voice/tui/setup.sh
 f share/vgshell/shell/plugins/vgs.vpn/Pane.qml
 f share/vgshell/shell/plugins/vgs.vpn/Panel.qml
+f share/vgshell/shell/plugins/vgs.vpn/ProfileRow.qml
 f share/vgshell/shell/plugins/vgs.vpn/Service.qml
 f share/vgshell/shell/plugins/vgs.vpn/VpnBody.qml
 f share/vgshell/shell/plugins/vgs.vpn/VpnLogic.js

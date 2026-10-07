@@ -246,27 +246,14 @@ FocusScope {
             Repeater {
                 model: root.profileRows
 
-                Field {
+                ProfileRow {
                     id: profileRow
-                    required property var modelData
                     width: parent.width
-                    label: modelData.name
-                    hint: modelData.type === "wireguard" ? "WireGuard" : "VPN"
-                    inline: true
-
-                    Switch {
-                        objectName: "vpn-profile-toggle"
-                        size: "sm"
-                        Accessible.name: profileRow.modelData.name
-                        checked: profileRow.modelData.active
-                        enabled: root.profiles.action === ""
-                        onToggled: {
-                            const wanted = checked;
-                            checked = Qt.binding(() => profileRow.modelData.active);
-                            root.answered(root.shell.ipc.call("action", JSON.stringify({
-                                kind: wanted ? "profile-up" : "profile-down", id: profileRow.modelData.id
-                            })), "This VPN profile cannot change now.");
-                        }
+                    busy: root.profiles.action !== ""
+                    onToggleRequested: wanted => {
+                        root.answered(root.shell.ipc.call("action", JSON.stringify({
+                            kind: wanted ? "profile-up" : "profile-down", id: profileRow.modelData.id
+                        })), "This VPN profile cannot change now.");
                     }
                 }
             }
