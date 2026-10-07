@@ -536,6 +536,38 @@ function curatedTaken(logic, file, bytes) {
     return logic.isPlainObject(document) && file.curatedKeys.some(key => logic.hasOwn(document, key));
 }
 
+// The owner's tmux formats use ANSI blue for active text and brightblack
+// for inactive text. Preserve a readable, distinct brightblack; otherwise
+// use the nearest grey to the theme's muted text. The RGB separation floor
+// is the smallest nonzero gap in the seven owner-requested main renders,
+// measured in tmp/tmux-block-role-probe.json on 2026-10-07. It is a channel
+// distance, not a perceptual standard; the pictures judge appearance.
+function tmuxSlots(logic, input) {
+    const background = logic.parseColor(input.values.color.background);
+    const active = logic.parseColor(input.values.color.info);
+    const inactive = logic.parseColor(input.slots.color8);
+    const separation = color => 255 * Math.hypot(color.r - active.r, color.g - active.g, color.b - active.b);
+    const readable = color => color.a === 1 && logic.contrastRatio(color, background) >= logic.READABILITY_FLOOR;
+    const distinct = color => separation(color) >= 55.65;
+    if (readable(inactive) && distinct(inactive)) return input.slots;
+    const muted = logic.parseColor(input.values.color.textMuted);
+    const middle = (muted.r + muted.g + muted.b) / 3;
+    let chosen = null;
+    let distance = Infinity;
+    for (let channel = 0; channel <= 255; channel++) {
+        const value = channel / 255;
+        const grey = { r: value, g: value, b: value, a: 1 };
+        if (!readable(grey) || !distinct(grey)) continue;
+        const next = Math.abs(value - middle);
+        if (next < distance) {
+            chosen = grey;
+            distance = next;
+        }
+    }
+    if (chosen === null) throw new Error("theme-render: tmux has no readable, distinct inactive colour");
+    return { ...input.slots, color8: logic.formatColor(chosen) };
+}
+
 // Render every file of an accepted TARGET. TEMPLATES maps each template name
 // the target names to its text. INPUT carries the package's resolved token
 // `values`, the terminal `slots` terminalSource chose, `curated`, a Map
@@ -553,6 +585,7 @@ function renderTarget(logic, tokens, target, templates, input) {
         throw new Error("theme-render: renderTarget: target " + target.name + " rendered without terminal slots");
     if (typeof input.installed !== "boolean")
         throw new Error("theme-render: renderTarget: target " + target.name + " rendered without the package's source");
+    if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };
     const encode = hex => ENCODERS[target.encoder](hex, input.values.color.background);
     const files = [];
     const dropped = [];

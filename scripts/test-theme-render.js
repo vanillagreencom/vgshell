@@ -858,9 +858,113 @@ try {
 }
 console.log(`test-theme-render: selection packages=${selectionPackages.length} roles=${SELECTION_ROLES.length} controls=${selectionControls}`);
 
+// RGB channel separation is a numerical distinction check. The owner judges
+// appearance in real terminal pictures. Rose Pine's main ANSI blue/brightblack
+// pair measured 55.650696 channels in the VGS-1043 role probe on 2026-10-07.
+function channelSeparation(first, second) {
+    const a = logic.parseColor(first), b = logic.parseColor(second);
+    return 255 * Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b);
+}
+function tmuxStyle(text, option) {
+    const line = text.split("\n").find(line => line.startsWith("set -g " + option + " "));
+    assert.ok(line, option);
+    const value = /^set -g [^ ]+ "([^"\n]+)"$/.exec(line);
+    assert.ok(value, option);
+    return Object.fromEntries(value[1].split(",").map(part => part.includes("=") ? part.split("=") : [part, true]));
+}
+function verifyAppStyles(render, changedTemplates = {}) {
+    const targets = Object.fromEntries(["tmux", "neovim", "ghostty"].map(name => {
+        const dir = path.join(repo, "themes", "targets", name);
+        const accepted = render.acceptTarget(logic, name, fs.readFileSync(path.join(dir, "target.json"), "utf8"));
+        assert.equal(accepted.ok, true);
+        const templates = new Map(accepted.target.files.map(file => [file.template,
+            changedTemplates[name] ?? fs.readFileSync(path.join(dir, file.template), "utf8")]));
+        return [name, { target: accepted.target, templates }];
+    }));
+    const catalog = JSON.parse(fs.readFileSync(path.join(repo, "themes", "catalog", "index.json"), "utf8"));
+    assert.ok(catalog.entries.some(entry => entry.name === "horizon-light"));
+    assert.ok(catalog.entries.some(entry => entry.name === "white"));
+    const metrics = [];
+    for (const name of ["vgs", ...catalog.entries.map(entry => entry.name)]) {
+        const dir = path.join(repo, "themes", name === "vgs" ? "vgs" : "catalog/" + name);
+        const pkg = logic.acceptPackage(TOKENS, { directoryName: name,
+            themeJson: fs.readFileSync(path.join(dir, "theme.json"), "utf8"),
+            terminalJson: fs.readFileSync(path.join(dir, "terminal.json"), "utf8"), shipped: name === "vgs" });
+        assert.equal(pkg.ok, true);
+        const original = JSON.stringify({ values: pkg.values, slots: pkg.terminal });
+        const rendered = Object.fromEntries(Object.entries(targets).map(([app, data]) => {
+            const result = render.renderTarget(logic, TOKENS, data.target, data.templates,
+                { values: pkg.values, slots: pkg.terminal, curated: new Map(), installed: name !== "vgs" });
+            assert.equal(result.ok, true);
+            return [app, result.files[0].bytes.toString("utf8")];
+        }));
+        assert.equal(JSON.stringify({ values: pkg.values, slots: pkg.terminal }), original, "render leaves package data unchanged");
+        const bg = /^background = (#[0-9a-f]{6})$/m.exec(rendered.ghostty)[1];
+        assert.equal(/^vim.o.background = "(dark|light)"$/m.exec(rendered.neovim)[1], pkg.values.scheme.mode);
+        for (const group of ["Normal", "NormalNC", "SignColumn"]) {
+            const highlight = rendered.neovim.split("\n").find(line => line.trimStart().startsWith('hl("' + group + '",'));
+            assert.ok(highlight, group);
+            assert.equal(/bg = "(#[0-9a-f]{6})"/.exec(highlight)[1], bg, name + "/" + group);
+        }
+        const status = tmuxStyle(rendered.tmux, "status-style");
+        const session = tmuxStyle(rendered.tmux, "status-left-style");
+        const active = tmuxStyle(rendered.tmux, "window-status-current-style");
+        const inactive = tmuxStyle(rendered.tmux, "window-status-style");
+        assert.equal(status.bg, bg);
+        assert.equal(active.bg, bg);
+        assert.equal(inactive.bg, bg);
+        assert.equal(session.bg, pkg.values.palette.info.slice(0, 7));
+        assert.equal(session.fg, pkg.values.color.onInfo.slice(0, 7));
+        assert.equal(active.fg, pkg.values.color.info.slice(0, 7));
+        assert.equal(active.bold, true);
+        assert.equal(inactive.bold, undefined);
+        const ratios = Object.fromEntries(Object.entries({ status, session, active, inactive }).map(([role, style]) => {
+            const ratio = logic.contrastRatio(logic.parseColor(style.fg), logic.parseColor(style.bg));
+            assert.ok(ratio >= 4.5, name + "/" + role + " contrast=" + ratio);
+            return [role, ratio];
+        }));
+        const separation = channelSeparation(active.fg, inactive.fg);
+        assert.ok(separation >= 55.65, name + "/inactive RGB separation=" + separation);
+        const old = pkg.terminal.color8.slice(0, 7);
+        const oldRatio = logic.contrastRatio(logic.parseColor(old), logic.parseColor(bg));
+        if (oldRatio >= 4.5 && channelSeparation(old, active.fg) >= 55.65) {
+            assert.equal(inactive.fg, old, name + "/preserve distinct readable inactive text");
+        } else {
+            const colour = logic.parseColor(inactive.fg);
+            assert.equal(colour.r, colour.g, name + "/repair uses grey");
+            assert.equal(colour.g, colour.b, name + "/repair uses grey");
+        }
+        for (const option of ["status-left", "window-status-format", "window-status-current-format"]) {
+            const line = rendered.tmux.split("\n").find(line => line.startsWith("set -g " + option + " "));
+            assert.ok(line);
+            assert.equal(line.includes("#["), false, option + "/inline style overrides managed colours");
+        }
+        if (name === "horizon-light") assert.equal(session.fg, "#ffffff");
+        metrics.push({ name, background: bg, session, active, inactive, ratios, separation, preserved: inactive.fg === old });
+    }
+    return metrics;
+}
+verifyAppStyles(require(rendererFile));
+const tmuxTemplate = fs.readFileSync(path.join(repo, "themes/targets/tmux/tmux.conf"), "utf8");
+const styleControls = [
+    ["old session block text", 'fg=#@{color.onInfo}', 'fg=#@{color.text}'],
+    ["rejected session without block", 'bg=#@{palette.info}', 'bg=#@{color.background}'],
+    ["old filled active tab", 'set -g window-status-current-style "bg=#@{color.background}', 'set -g window-status-current-style "bg=#@{palette.accent}'],
+    ["rejected neutral unbolded active", 'fg=#@{color.info},bold', 'fg=#@{color.textHeading}'],
+    ["old inline active", 'set -g window-status-current-format " #I:#W#F "', 'set -g window-status-current-format "#[fg=blue,bold] #I:#W#F "']
+];
+for (const [label, needle, replacement] of styleControls) {
+    assert.equal(tmuxTemplate.split(needle).length, 2, label);
+    assert.throws(() => verifyAppStyles(require(rendererFile), { tmux: tmuxTemplate.replace(needle, replacement) }), undefined, label);
+}
+
 // Each control removes one rule's behaviour from a copy of the renderer and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["tmux old inactive values", 'if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };', "", verifyAppStyles],
+    ["tmux readability", 'const readable = color => color.a === 1 && logic.contrastRatio(color, background) >= logic.READABILITY_FLOOR;', 'const readable = color => true;', verifyAppStyles],
+    ["tmux distinction", 'const distinct = color => separation(color) >= 55.65;', 'const distinct = color => true;', verifyAppStyles],
+    ["tmux preserve distinct readable", 'if (readable(inactive) && distinct(inactive)) return input.slots;', '', verifyAppStyles],
     ["hex6 encoder", "hex6: (hex, background) => hex6(hex, background)", "hex6: hex => hex.slice(1, 7)"],
     ["hex8 encoder", "hex8: hex => hex.slice(1, 9)", "hex8: hex => hex.slice(1, 7)"],
     ["gnome accent composited", '"gnome-accent": (hex, background) => gnomeAccent(hex6(hex, background))', '"gnome-accent": hex => gnomeAccent(hex.slice(1, 7))'],
@@ -1029,14 +1133,14 @@ const CONTROLS = [
 const source = fs.readFileSync(rendererFile, "utf8");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "theme-render-control-"));
 try {
-    CONTROLS.forEach(([label, needle, replacement], index) => {
+    CONTROLS.forEach(([label, needle, replacement, surface = verify], index) => {
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);
         // One file per control: require caches a module by its path.
         const mutant = path.join(temp, `theme-render-${index}.js`);
         fs.writeFileSync(mutant, source.replace(needle, () => replacement));
         let failed = false;
         try {
-            verify(require(mutant));
+            surface(require(mutant));
         } catch (e) {
             failed = true;
         }
