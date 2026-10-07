@@ -102,8 +102,8 @@
     "setup": { "type": "state", "label": "Setup", "group": "Setup", "hint": "Jarvis needs an AI model and local voice. The browser and input are optional." },
     "setupModel": { "type": "state", "label": "AI model", "group": "Setup", "action": { "label": "Add key", "tui": "add-key" } },
     "setupVoice": { "type": "state", "label": "Local voice", "group": "Setup", "action": { "label": "Set up local voice", "tui": "setup-local" } },
-    "setupBrowser": { "type": "state", "label": "Browser", "group": "Setup", "action": { "label": "Set up browser", "tui": "setup-browser" } },
-    "setupInput": { "type": "state", "label": "Input", "group": "Setup", "action": { "label": "Check input", "tui": "setup-input" } }
+    "setupBrowser": { "type": "state", "label": "Browser", "group": "Setup", "hint": "Set up the browser so Jarvis can use websites for you.", "action": { "label": "Set up browser", "tui": "setup-browser" } },
+    "setupInput": { "type": "state", "label": "Input", "group": "Setup", "hint": "Check input so Jarvis can type and click for you.", "action": { "label": "Check input", "tui": "setup-input" } }
   },
   "tui": {
     "add-key": { "script": "tui/add-key.sh", "title": "Add Jarvis key", "requires": ["gum", "node", "secret-tool", "busctl"],

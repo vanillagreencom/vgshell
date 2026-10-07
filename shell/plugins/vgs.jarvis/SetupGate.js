@@ -90,17 +90,18 @@ function readiness(answer) {
     throw new Error("jarvis-setup: answer=" + JSON.stringify(answer.kind) + " unexpected");
 }
 
-// What an optional step not done yet offers, by its status key.
+// The optional steps, by their status key. Their guidance is declared by
+// the manifest and does not change with their state.
 var OPTIONAL = {
-    setupBrowser: "Set up the browser so Jarvis can use websites for you.",
-    setupInput: "Check input so Jarvis can type and click for you."
+    setupBrowser: true,
+    setupInput: true
 };
 
 // The value of optional step KEY from VALUE, its reader's state: done while
-// that state is ok, else Optional with its line, offering the step while the
+// that state is ok, else Optional, offering the step while the
 // reader offers its own action.
 function optionalStep(key, value) {
     if (!Object.prototype.hasOwnProperty.call(OPTIONAL, key)) throw new Error("jarvis-setup: step=" + key + " is not optional");
     if (value.tone === "ok") return DONE;
-    return { tone: "info", text: "Optional", hint: OPTIONAL[key], action: value.action === true };
+    return { tone: "info", text: "Optional", action: value.action === true };
 }

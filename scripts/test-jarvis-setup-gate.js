@@ -104,10 +104,10 @@ function verifyReadiness(gate) {
     // its reader's action.
     for (const [label, key, value, want] of [
         ["browser ready", "setupBrowser", READY, ["ok", false, "Done", undefined]],
-        ["browser to set up", "setupBrowser", ABSENT, ["info", true, "Optional", "Set up the browser so Jarvis can use websites for you."]],
-        ["browser withheld", "setupBrowser", { tone: "warning", text: "Needs agent-browser", action: false }, ["info", false, "Optional", "Set up the browser so Jarvis can use websites for you."]],
+        ["browser to set up", "setupBrowser", ABSENT, ["info", true, "Optional", undefined]],
+        ["browser withheld", "setupBrowser", { tone: "warning", text: "Needs agent-browser", action: false }, ["info", false, "Optional", undefined]],
         ["input ready", "setupInput", { tone: "ok", text: "Keys ready; pointer ready", action: true }, ["ok", false, "Done", undefined]],
-        ["input missing", "setupInput", { tone: "warning", text: "Input tools unavailable", action: true }, ["info", true, "Optional", "Check input so Jarvis can type and click for you."]]]) {
+        ["input missing", "setupInput", { tone: "warning", text: "Input tools unavailable", action: true }, ["info", true, "Optional", undefined]]]) {
         const got = plain(gate.optionalStep(key, value));
         assert.deepEqual([got.tone, got.action, got.text, got.hint], want, label);
         assert.equal(got.lines, undefined, "optional guidance is no state badge");
@@ -135,6 +135,10 @@ function verifyReadiness(gate) {
         setupInput: "Check input so Jarvis can type and click for you."
     };
     for (const [key, hint] of Object.entries(expectedHints)) {
+        if (key !== "setupVoice") {
+            assert.equal(published[key].hint, undefined, "optional guidance stays in the manifest");
+            assert.equal(manifest.status[key].hint, hint, "the manifest owns the unchanged guidance");
+        }
         const accepted = judge.statusWrite(manifest, {}, key, published[key]);
         assert.equal(accepted.ok, true);
         const row = judge.statusRows(manifest, accepted.values, []).find(entry => entry.key === key);
@@ -169,7 +173,8 @@ verify(load(file));
 // [label, needle, replacement].
 const CONTROLS = [
     ["memory guidance is a badge", 'hint: "Close other apps, then turn Jarvis off and on."', 'lines: ["Close other apps, then turn Jarvis off and on."]'],
-    ["optional guidance is a badge", "hint: OPTIONAL[key]", "lines: [OPTIONAL[key]]"],
+    ["optional guidance is a badge", 'text: "Optional", action: value.action === true', 'text: "Optional", lines: ["Guidance"], action: value.action === true'],
+    ["optional guidance changes with state", 'text: "Optional", action: value.action === true', 'text: "Optional", hint: "Guidance", action: value.action === true'],
     ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
     ["loading is initial checking", "out.setupVoice = LOADING;", "out.setupVoice = CHECKING;"],
     ["loading offers setup", 'if (cause === "speech=local-loading") {', 'if (false) {'],
