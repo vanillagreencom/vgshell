@@ -140,10 +140,19 @@ world(async () => {
     narrow(plugin);
     choices(plugin);
     assert.deepEqual(providerIds(plugin, "cli"), ["claude", "codex"]);
-    // Use keyring item offers the AI model key providers Add key does.
-    const keyIds = providerIds(plugin, "key");
-    assert.ok(keyIds.includes("openai") && !keyIds.includes("elevenlabs") && !keyIds.includes("cerebras"));
-    assert.ok(keyIds.every(id => PROVIDERS.find(row => row.id === id)?.kind === "key"));
+    // Use keyring item offers the AI model key providers Add key does: key
+    // rows with a model, openai among them, never the speech-only
+    // ElevenLabs key or Cerebras, whose row names no model.
+    const keyProviders = folder => {
+        const ids = providerIds(folder, "key");
+        assert.ok(ids.includes("openai"));
+        for (const id of ["elevenlabs", "cerebras"]) assert.equal(ids.includes(id), false, "offered [" + id + "]");
+        for (const id of ids) {
+            const row = PROVIDERS.find(item => item.id === id);
+            assert.ok(row && row.kind === "key" && row.probe.model !== "", "offered [" + id + "]");
+        }
+    };
+    keyProviders(plugin);
     const refused = cp.spawnSync("node", [path.join(plugin, "backend/accounts.js"), "--tree", tree, "table", "0"], { env, encoding: "utf8" });
     assert.deepEqual([refused.status, refused.stderr], [1, "jarvis-accounts: arguments=width\n"]);
     let controls = 0;
@@ -160,6 +169,10 @@ world(async () => {
     await control("backend/accounts.js", "table-state", 'case "signed-in": return "Signed in";', 'case "signed-in": return state.kind;', wide);
     await control("backend/accounts.js", "choice-id", 'lines = judge.discover().map(account => choiceLine(providerLabel(account.provider) + ": "',
         'lines = judge.discover().map(account => choiceLine(account.id + ": "', choices);
+    await control("AccountProviders.js", "speech-key-offered", 'if (kind === "key") return modelKeyProvider(row);',
+        'if (kind === "key") return keyProvider(row);', keyProviders);
+    await control("AccountProviders.js", "model-less-offered", 'return row.kind === "key" && row.probe.model !== "";',
+        'return row.kind === "key";', keyProviders);
     await control("AccountProviders.js", "choice-fit", "fitText(label, width - CHOICE_CURSOR)", "label", choices);
     queue(["verify", "first", "", "no", "close"]);
     fs.rmSync(log, { force: true });
