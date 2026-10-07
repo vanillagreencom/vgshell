@@ -275,6 +275,9 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
         for (const outcome of ["failure", "failure-signed-in", "no-account"] ) {
             const result = signIn(folder, "claude", hand, outcome);
             assert.equal(result.status, 1);
+            const terminal = result.stdout + result.stderr;
+            assert.equal(terminal.includes(log), false, "failed login does not refer to a log without its details");
+            assert.equal(terminal.includes(log.replace(env.HOME, "~")), false, "the abbreviated log path is also absent");
             assert.equal(fs.existsSync(accountFile), false, "failed or unconfirmed login is not remembered");
         }
     };
@@ -296,5 +299,7 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
         'if (false)', incompleteSignIn);
     await control("backend/Accounts.js", "sign-in-process-failed", 'result.error || result.signal || result.status !== 0',
         'result.error || result.signal', incompleteSignIn);
+    await control("tui/sign-in.sh", "sign-in-empty-log-promise", 'vgs_tui_error "Sign in did not complete.";',
+        'vgs_tui_failed "$log" "Sign in did not complete.";', incompleteSignIn);
     console.log("test-jarvis-accounts-tui: ok controls=" + controls);
 });

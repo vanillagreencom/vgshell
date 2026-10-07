@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# The vendor's prompts stay on the terminal. Only metadata and fixed
-# completion causes enter the Jarvis setup log.
+# The vendor's prompts and sign-in result stay on the terminal.
 set -euo pipefail
 # shellcheck source=/dev/null
 source "$VGS_TUI_LIB"
@@ -32,5 +31,5 @@ code=0
 case "$code" in
   0) vgs_tui_success "You are signed in. Select the account as the AI model on the Jarvis page." ;;
   69) vgs_tui_warn "The app is not installed. Use its Install button on the Jarvis page, then try Sign in again."; exit 69 ;;
-  *) vgs_tui_failed "$log" "Sign in did not complete." "Check the folder path and the app's sign-in, then try again."; exit "$code" ;;
+  *) vgs_tui_error "Sign in did not complete."; vgs_tui_error "Check the folder path and the app's sign-in, then try again."; exit "$code" ;;
 esac

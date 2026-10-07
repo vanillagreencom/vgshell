@@ -620,6 +620,7 @@ cases=(
   "jarvis-playback-config|scripts/fixtures/jarvis/playback.conf|offline|node scripts/test-jarvis-daemon.js"$'\nnode scripts/test-jarvis-playback-pipewire.js\n'"$repo_plan"
   "jarvis-audio-fixture|scripts/fixtures/jarvis/audio-tool.py|offline|node scripts/test-jarvis-browser.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\n'"$jarvis_audio_rows$repo_plan"
   "jarvis-accounts-suite|scripts/test-jarvis-accounts.js|offline|node scripts/test-jarvis-accounts.js"$'\n'"$repo_plan"
+  "jarvis-sign-in-terminal|shell/plugins/vgs.jarvis/tui/sign-in.sh|cli|node scripts/test-jarvis-files.js"$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-secrets.js\nnode scripts/test-jarvis-accounts-tui.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
   "jarvis-accounts-tui-suite|scripts/test-jarvis-accounts-tui.js|offline|node scripts/test-jarvis-accounts-tui.js"$'\n'"$repo_plan"
   "jarvis-account-verify-suite|scripts/test-jarvis-account-verify.js|offline|node scripts/test-jarvis-account-verify.js"$'\n'"$repo_plan"
   "jarvis-accounts-fixture|scripts/fixtures/jarvis/accounts-world.js|offline|node scripts/test-jarvis-daemon.js"$'\n'"$jarvis_accounts_rows$repo_plan"
@@ -794,6 +795,28 @@ PY
 "${base_env[@]}" git -C "$d" commit -q -m control
 row "control: an omitted Settings input skips Jarvis integration while the Settings suite runs" "$d" 0 "" \
   "!node scripts/test-jarvis-setup-gate.js" "node scripts/test-settings-steps.js"
+
+# The terminal suite runs the shipped sign-in script. Broad Jarvis checks
+# do not replace its interactive folder, vendor and failure assertions.
+d="$tmp/plan-jarvis-sign-in-terminal-control"; fresh "$d"
+mkdir -p "$d/shell/plugins/vgs.jarvis/tui"
+printf 'changed\n' >"$d/shell/plugins/vgs.jarvis/tui/sign-in.sh"
+test_area=cli
+test_args=(--changed HEAD --list)
+row "sign-in selects its terminal assertions" "$d" 0 "" "node scripts/test-jarvis-accounts-tui.js"
+python3 - "$d/scripts/validate" <<'PYCONTROL'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+source = path.read_text()
+rows = [line for line in source.splitlines() if line.startswith('  "cli|Jarvis accounts terminal|')]
+assert len(rows) == 1 and rows[0].count(' shell/plugins/vgs.jarvis/tui/sign-in.sh ') == 1
+path.write_text(source.replace(rows[0], rows[0].replace(' shell/plugins/vgs.jarvis/tui/sign-in.sh ', ' ', 1)))
+PYCONTROL
+"${base_env[@]}" git -C "$d" add scripts/validate
+"${base_env[@]}" git -C "$d" commit -q -m control
+row "control: an omitted sign-in input skips terminal assertions" "$d" 0 "" \
+  "!node scripts/test-jarvis-accounts-tui.js" "node scripts/test-jarvis-secrets.js"
 
 # The engine's daemon-speech case reads the catalog, independently of the
 # adapter's own selection tests. Other catalog consumers cannot cover it.

@@ -69,7 +69,7 @@ PY
 jarvis_key_received_control() { # FIXTURE_FILE
   (failures=0 behaviour_failures=0
    jarvis_key_intents="$1"
-   expect "the exact three muted key inputs must arrive in order" '["talk-down", "talk-up", "stop"]' jarvis_key_received 0 >"$sandbox/jarvis-key-received-control.log"
+   expect "the exact muted key inputs and unmute must arrive in order" '["talk-down", "talk-up", "stop", "mute"]' jarvis_key_received 0 >"$sandbox/jarvis-key-received-control.log"
    echo "$failures")
 }
 jarvis_key_gate() { : >"$jarvis_key_gates/$1"; }
@@ -329,10 +329,10 @@ expect "one key press opens one scripted capture" "$((jarvis_key_initial_opens +
 jarvis_key_received_before="$(jarvis_key_received count)"
 hold_send "down 108" "down 108"
 hold_barrier
-expect "physical repeat sends no extra intent" "$jarvis_key_received_before" jarvis_key_received count
 expect "physical repeat opens no second capture" "$((jarvis_key_initial_opens + 1))" jarvis_key_effects capture-open
 jarvis_key_talk_up
 jarvis_key_commit
+expect "physical repeat sends only the release intent" "$((jarvis_key_received_before + 1))" jarvis_key_received count
 jarvis_key_gate brain
 expect_poll "the scripted brain starts speaking" speaking jarvis_key_state phase
 jarvis_key_gate played
@@ -381,15 +381,15 @@ jarvis_key_talk_down
 jarvis_key_talk_up
 jarvis_key_stop
 hold_barrier
-expect_poll "the muted daemon receives exactly talk down, up and stop" '["talk-down", "talk-up", "stop"]' jarvis_key_received "$jarvis_key_received_before"
-printf '"talk-down"\n"stop"\n' >"$sandbox/jarvis-key-missing-intent.jsonl"
-expect "a missing muted key input fails the delivery assertion" 1 jarvis_key_received_control "$sandbox/jarvis-key-missing-intent.jsonl"
-printf '"talk-up"\n"talk-down"\n"stop"\n' >"$sandbox/jarvis-key-reordered-intents.jsonl"
-expect "reordered muted key inputs fail the delivery assertion" 1 jarvis_key_received_control "$sandbox/jarvis-key-reordered-intents.jsonl"
 expect "all implemented non-mute keys leave privacy mute on" on jarvis_key_state mute
 expect "muted keys after restart acquire no capture" "$jarvis_key_opens" jarvis_key_effects capture-open
 jarvis_key_mute
 expect_poll "the mute key explicitly unmutes" off jarvis_key_state mute
+expect "the daemon receives muted keys then the acknowledged unmute" '["talk-down", "talk-up", "stop", "mute"]' jarvis_key_received "$jarvis_key_received_before"
+printf '"talk-down"\n"stop"\n"mute"\n' >"$sandbox/jarvis-key-missing-intent.jsonl"
+expect "a missing muted key input fails the delivery assertion" 1 jarvis_key_received_control "$sandbox/jarvis-key-missing-intent.jsonl"
+printf '"talk-up"\n"talk-down"\n"stop"\n"mute"\n' >"$sandbox/jarvis-key-reordered-intents.jsonl"
+expect "reordered muted key inputs fail the delivery assertion" 1 jarvis_key_received_control "$sandbox/jarvis-key-reordered-intents.jsonl"
 expect "unmute alone keeps capture closed" closed jarvis_key_state capture
 
 # Preserve both registration and wire dispatch. Misroute only Stop.
