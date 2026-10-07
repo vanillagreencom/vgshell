@@ -21,6 +21,10 @@ env = {name: os.environ[name] for name in (
 for name in ("CLAUDE_CONFIG_DIR", "CODEX_HOME"):
     if name in os.environ:
         env[name] = os.environ[name]
+# The suite supplies synthetic presenter colors inside its private world.
+for name, value in os.environ.items():
+    if name.startswith("GUM_"):
+        env[name] = value
 env["VGS_TUI_LIB"] = sys.argv[2]
 env["VGS_PLUGIN_DIR"] = sys.argv[3]
 env["VGS_PLUGIN_ID"] = "vgs.jarvis"

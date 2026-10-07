@@ -17,7 +17,12 @@ child_env=(env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8
   DISPLAY="${DISPLAY:-}" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}"
   VGS_TUI_ACCENT="${VGS_TUI_ACCENT:-}" VGS_TUI_SUCCESS="${VGS_TUI_SUCCESS:-}"
   VGS_TUI_WARNING="${VGS_TUI_WARNING:-}" VGS_TUI_DANGER="${VGS_TUI_DANGER:-}")
-gum() { "${child_env[@]}" gum "$@"; }
+# The presenter validates the theme. Only gum inherits its exported colors.
+gum_env=()
+while IFS= read -r name; do
+  gum_env+=("$name=${!name}")
+done < <(compgen -e GUM_)
+gum() { "${child_env[@]}" "${gum_env[@]}" gum "$@"; }
 program="$VGS_PLUGIN_DIR/backend/accounts.js"
 vgs_tui_header "Sign in to an AI account" "Use your Claude Code or Codex account as the Jarvis AI model." \
   "The app runs its own sign-in. Jarvis does not read or copy its login token."
