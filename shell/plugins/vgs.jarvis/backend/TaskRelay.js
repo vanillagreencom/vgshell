@@ -36,10 +36,19 @@ function name(value) {
 const CONTROL = /[\x00-\x09\x0b-\x1f\x7f]/g;
 
 /** Text the user reads or hears: control characters other than a line
- * break become spaces, and it is cut to MAX_TEXT characters. */
+ * break become spaces. Bound its JSON UTF-8 bytes so a full prompt index
+ * fits the wire, including multibyte characters and JSON escapes. */
 function clip(text) {
     const flat = String(text).replace(CONTROL, " ");
-    return flat.length > MAX_TEXT ? flat.slice(0, MAX_TEXT - 1) + "…" : flat;
+    if (Buffer.byteLength(JSON.stringify(flat)) <= MAX_TEXT) return flat;
+    let clipped = "", bytes = 2;
+    for (const character of flat) {
+        const size = Buffer.byteLength(JSON.stringify(character)) - 2;
+        if (bytes + size + 3 > MAX_TEXT) break;
+        clipped += character;
+        bytes += size;
+    }
+    return clipped + "…";
 }
 
 function promptRecord(value) {

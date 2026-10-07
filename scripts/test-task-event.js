@@ -281,6 +281,8 @@ async function inside() {
     for (const name of ["prefix-good", "prefix-control"]) {
         fs.mkdirSync(path.join(root, name));
         fs.copyFileSync(engine, path.join(root, name, "task-event"));
+        for (const file of ["TaskRelay.js", "claude-hook"])
+            fs.copyFileSync(path.join(backend, file), path.join(root, name, file));
         fs.writeFileSync(path.join(root, name, "Tasks.js"), name === "prefix-good" ? taskSource : changed);
     }
     prefixInside(path.join(root, "prefix-good"));

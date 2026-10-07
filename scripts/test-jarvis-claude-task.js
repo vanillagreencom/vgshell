@@ -13,6 +13,7 @@ const path = require("node:path");
 const cp = require("node:child_process");
 const { once } = require("node:events");
 const { seedTaskEvents } = require("./fixtures/jarvis/prepare.js");
+const { load: loadQml } = require("../bin/lib/qml-library.js");
 const tree = path.resolve(__dirname, "..");
 const backend = path.join(tree, "shell/plugins/vgs.jarvis/backend");
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -279,6 +280,8 @@ async function inside() {
         const now = Date.now();
         for (let i = 0; i < modules.Relay.MAX_PROMPTS; i++)
             modules.Relay.ask(w.prompts, "other", { kind: "question", tool: null, text: "q" }, now, 600000);
+        assert.equal(modules.Relay.ask(w.prompts, "full", { kind: "permission", tool: "Bash", text: "extra" }, now, 600000),
+            null, "the full live relay refuses another prompt");
         const refused = hook(w.engine, hookArgs(w, "full", "PermissionRequest"), input("PermissionRequest", { tool_name: "Bash" }));
         assert.deepEqual([refused.status, refused.stdout], [0, ""], refused.stderr);
         assert.equal(w.read("full").wait.kind, "permission");
@@ -426,6 +429,28 @@ async function inside() {
     }
 
     const current = load(backend);
+    function snapshot(modules) {
+        const w = world(modules);
+        const Protocol = loadQml(path.join(backend, "../JarvisProtocol.js"));
+        const now = Date.now();
+        for (const text of ["界".repeat(4096), "😀".repeat(4096), '\\"\n'.repeat(4096)]) {
+            for (let i = 0; i < modules.Relay.MAX_PROMPTS; i++)
+                modules.Relay.ask(w.prompts, "snapshot", { kind: "question", tool: null, text }, now, 600000);
+            const prompts = w.runner.held();
+            assert.equal(prompts.length, modules.Relay.MAX_PROMPTS, "the full index reaches the wire judge");
+            const wire = JSON.stringify({ v: 1, type: "task-prompts", gen: 0, revision: "a".repeat(64), prompts });
+            assert.doesNotThrow(() => Protocol.accept(wire, "daemon"), "a full multibyte index fits the wire");
+            for (const prompt of prompts) {
+                assert.ok(Buffer.byteLength(JSON.stringify(prompt.text)) <= modules.Relay.MAX_TEXT,
+                    "prompt JSON bytes stay within the relay text limit");
+                assert.equal(prompt.text.endsWith("…"), true);
+                assert.equal(Buffer.from(prompt.text).toString("utf8"), prompt.text, "clipping keeps complete code points");
+                modules.Relay.withdraw(w.prompts, prompt);
+            }
+        }
+        w.close();
+        cases++;
+    }
     profile(current);
     await relay(current);
     await deny(current);
@@ -437,6 +462,7 @@ async function inside() {
     await account(current);
     await takeover(current);
     await concurrent(current);
+    snapshot(current);
 
     async function control(name, file, needle, replacement, check) {
         const source = fs.readFileSync(path.join(backend, file), "utf8");
@@ -487,7 +513,9 @@ async function inside() {
     await control("pending-answered", "TaskRelay.js", "item.deadline > now && !fs.existsSync(answerFile(directory, item.task, item.id))",
         "item.deadline > now", answers);
     await control("relay-full", "TaskRelay.js", "if (live.length >= MAX_PROMPTS) return null;", "if (false) return null;", full);
-    await control("relay-sweep", "TaskRelay.js", "        if (item.deadline <= now) withdraw(directory, item);\n        else live.push(item);",
+    await control("relay-text-bytes", "TaskRelay.js", "    if (Buffer.byteLength(JSON.stringify(flat)) <= MAX_TEXT) return flat;",
+        "    return flat.slice(0, MAX_TEXT);", snapshot);
+    await control("relay-sweep", "TaskRelay.js", "        if (item.deadline <= now) withdrawLocked(directory, item);\n        else live.push(item);",
         "        live.push(item);", full);
     await control("account", "TaskRunner.js", 'if (value === null) return { reason: "account-unknown" };',
         'if (false) return { reason: "account-unknown" };', account);

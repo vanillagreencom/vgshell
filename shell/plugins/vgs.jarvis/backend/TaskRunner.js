@@ -118,7 +118,7 @@ function create({ directories, engine, backend, profiles = Profiles.TABLE, setti
     let again = false;
     let timer = null;
     let published = 0;
-    let publishedPrompts = "";
+    let publishedPrompts = "[]";
     let closed = false;
 
     const sleep = ms => new Promise(resolve => clock.set(resolve, ms));
