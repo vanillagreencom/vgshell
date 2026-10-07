@@ -70,11 +70,13 @@ if mode.get('launchFailed'):
     sys.exit(1)
 if command == ['get', 'url'] and mode.get('launchDelayMs'):
     time.sleep(mode['launchDelayMs'] / 1000)
+    (root / 'browser-launch-completed').write_text('completed')
 if mode.get('malformed') and command != ['close']:
     print('not json')
     sys.exit(0)
-if mode.get('fail') and command != ['close']:
-    print(json.dumps({'success': False, 'error': 'fixture failure'}))
+# A command refused after a good launch, as a navigation failure is on 0.38.2.
+if mode.get('fail') and command not in (['close'], ['get', 'url']):
+    print(json.dumps({'success': False, 'error': mode.get('failText', 'fixture failure')}))
     sys.exit(1)
 if command[0] == 'open' and mode.get('delayMs'):
     time.sleep(mode['delayMs'] / 1000)

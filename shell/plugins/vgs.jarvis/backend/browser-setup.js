@@ -12,7 +12,7 @@ if (process.argv.length !== 3 || !["status", "verify", "download"].includes(comm
 } else {
     let owner;
     try {
-        owner = Browser.create({ environment: process.env });
+        owner = Browser.create({ environment: process.env, log: Browser.vendorLine });
         if (command === "download") owner.download();
         else owner.verify();
     } catch (error) {

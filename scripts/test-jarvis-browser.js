@@ -3,6 +3,7 @@
 "use strict";
 const { assert, fs, path, tree, world, mutant } = require("./fixtures/jarvis/policy.js");
 const { daemonStandins, daemonLease, mode, update, calls } = require("./fixtures/jarvis/browser.js");
+const cp = require("node:child_process");
 const backend = path.join(tree, "shell/plugins/vgs.jarvis/backend");
 const file = path.join(backend, "Browser.js");
 world(async () => {
@@ -12,13 +13,6 @@ world(async () => {
     const environment = { ...process.env, OPENAI_API_KEY: "fixture-secret", AGENT_BROWSER_CDP: "host-browser",
         AGENT_BROWSER_PROFILE: "/fixture/profile", AGENT_BROWSER_CONFIG: "/fixture/config", VGSHELL_RUNNER_PID: "fixture" };
     const marker = path.join(environment.XDG_DATA_HOME, "vgshell/jarvis/browser-ready.json");
-    // browser-vendor lines are the shell log's machine lines; each case reads its own.
-    const vendor = [];
-    const write = process.stderr.write.bind(process.stderr);
-    process.stderr.write = (chunk, ...rest) => {
-        if (String(chunk).startsWith("jarvis: browser-vendor=")) { vendor.push(String(chunk)); return true; }
-        return write(chunk, ...rest);
-    };
     const call = (command, args = {}) => ({ id: "browser", args: { command, args } });
     const run = (owner, command, args = {}) => new Promise(resolve => owner.record.start(call(command, args), resolve));
     async function check(implementation, name, fixture, command, args, outcome, reason, changed) {
@@ -58,6 +52,9 @@ world(async () => {
         ["command-failed", { fail: true }, "read", {}, "failed", /browser=command-failed/]
     ];
     for (const row of cases) await check(Browser, ...row);
+    // A command refused after a good launch leaves a browser that close still ends.
+    await check(Browser, ...cases.find(row => row[0] === "command-failed"));
+    assert.equal(calls().filter(row => row.args.at(-1) === "close").length, 1, "command-failed closes once");
     const forbidden = ["--cdp", "--auto-connect", "--profile", "--executable-path", "--allow-file-access", "--init-script",
         "--extension", "--args", "--config", "--session", "--action-policy", "--state", "--restore"];
     for (const flag of forbidden) {
@@ -343,34 +340,85 @@ world(async () => {
     ];
     function refusedLaunch(implementation) {
         for (const [fixture, key, said] of refusals) {
-            mode(fixture); fs.rmSync(marker, { force: true }); vendor.length = 0;
-            const owner = implementation.create({ environment });
+            mode(fixture); fs.rmSync(marker, { force: true });
+            const vendor = [];
+            const owner = implementation.create({ environment, log: text => vendor.push(text) });
             assert.throws(() => owner.verify(), error => error.message === "jarvis: browser=" + key, key);
             assert.doesNotThrow(() => owner.close());
             const rows = calls().filter(row => row.args.includes("--json"));
             assert.deepEqual(rows.map(row => row.args.slice(row.args.indexOf("--json") + 1)), [["get", "url"]], key + " sends no close");
             assert.equal(fs.existsSync(rows[0].env.XDG_RUNTIME_DIR), false, key + " releases session files");
             assert.equal(fs.existsSync(marker), false);
-            assert.equal(vendor.length, 1, key + " logs one vendor line");
-            const line = /^jarvis: browser-vendor=(.*)\n$/.exec(vendor[0]);
-            assert.ok(line, key + " vendor line shape");
-            assert.match(JSON.parse(line[1]), said);
+            assert.equal(vendor.length, 1, key + " logs one vendor text");
+            assert.match(vendor[0], said);
         }
     }
     refusedLaunch(Browser);
+    // The sink gets a character-boundary prefix within 2048 bytes; é straddles the cut.
+    const long = "x".repeat(2047) + "\u00e9 vendor tail";
+    function clipped(implementation) {
+        mode({ fail: true, failText: long });
+        const vendor = [];
+        const owner = implementation.create({ environment, log: text => vendor.push(text) });
+        try { assert.throws(() => owner.verify(), /browser=command-failed/); } finally { owner.close(); }
+        assert.equal(vendor.length, 1);
+        assert.ok(Buffer.byteLength(vendor[0]) <= 2048 && Buffer.byteLength(vendor[0]) >= 2044, "clip keeps the bound");
+        assert.ok(long.startsWith(vendor[0]), "clip keeps a prefix");
+        assert.equal(vendor[0].includes("\ufffd"), false, "clip splits no character");
+    }
+    clipped(Browser);
+    // jarvisd makes its owner with no sink: Service.qml takes any daemon stderr line as fatal.
+    // A child runs the real module so no stub stands between it and stderr.
+    function quiet(module) {
+        for (const fixture of [{ fail: true }, { socketRefused: true }, { malformed: true }]) {
+            mode(fixture);
+            const child = cp.spawnSync(process.execPath, ["-e", `
+                const owner = require(process.argv[1]).create({ environment: process.env });
+                owner.record.start({ id: "browser", args: { command: "read", args: {} } }, answer => {
+                    owner.close(); process.stdout.write(answer.outcome); });`, module],
+                { env: process.env, encoding: "utf8", timeout: 20000 });
+            assert.equal(child.status, 0, child.stderr);
+            assert.equal(child.stdout, "failed", JSON.stringify(fixture) + " reaches a vendor failure");
+            assert.equal(child.stderr, "", JSON.stringify(fixture) + " daemon owner writes no vendor text");
+        }
+    }
+    quiet(file);
     // A launch with no vendor answer may have left a browser: close still runs once.
-    const silences = [[{ malformed: true }, undefined, "reply-json"], [{ launchDelayMs: 2000 }, 300, "command cause=ETIMEDOUT"]];
+    const silences = [[{ malformed: true }, undefined, "reply-json"], [{ launchDelayMs: 6000 }, 1500, "command cause=ETIMEDOUT"]];
     function silentLaunch(implementation) {
         for (const [fixture, commandMs, key] of silences) {
             mode(fixture);
-            const owner = implementation.create({ environment, commandMs });
+            const vendor = [];
+            const owner = implementation.create({ environment, commandMs, log: text => vendor.push(text) });
             assert.throws(() => owner.verify(), error => error.message === "jarvis: browser=" + key, key);
             owner.close();
             assert.equal(calls().filter(row => row.args.at(-1) === "close").length, 1, JSON.stringify(fixture) + " closes once");
+            // Vendor stdout can carry page content; only its size may reach the log.
+            assert.equal(vendor.some(text => text.includes("not json")), false, "no vendor stdout in the log");
         }
     }
     silentLaunch(Browser);
-    await control("vendor-log", 'process.stderr.write("jarvis: browser-vendor="', 'void ("jarvis: browser-vendor="', refusedLaunch);
+    // The first open's launch runs as a killable child; a cancel during it still ends the vendor session.
+    async function cancelLaunch(implementation) {
+        mode({ launchDelayMs: 5000 });
+        const owner = implementation.create({ environment });
+        const result = run(owner, "open", { url: "https://first.test/" });
+        for (let n = 0; !calls().some(row => row.args.at(-1) === "url"); n++) {
+            assert.ok(n < 500, "the fixture reaches its pending launch");
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        owner.record.cancel();
+        assert.equal((await result).outcome, "failed");
+        assert.equal(fs.existsSync(path.join(process.env.JARVIS_TEST_ROOT, "browser-launch-completed")), false, "cancel kills the launch child");
+        assert.equal(calls().filter(row => row.args.at(-1) === "close").length, 1, "an in-flight launch is closed once");
+        assert.equal(calls().some(row => row.args.includes("open")), false, "a cancelled launch starts no command");
+    }
+    await cancelLaunch(Browser);
+    await control("vendor-log", "log(clip(answer.text));", "void clip(answer.text);", refusedLaunch);
+    await control("vendor-clip", "bytes.length <= VENDOR_LOG_BYTES ? text", "true ? text", clipped);
+    await mutant(file, "daemon-sink", "log = null }", "log = vendorLine }", (implementation, folder) => quiet(path.join(folder, "Browser.js")));
+    controls++;
+    await control("unknown-before-spawn", 'state = { kind: "unknown" };\n        return true;', "return true;", cancelLaunch);
     await control("refused-close", 'if (state.kind !== "none") {', "if (true) {", refusedLaunch);
     await control("silent-launch", 'answer.kind === "refused" ? "none" : "unknown"', 'answer.kind === "refused" ? "none" : "none"', silentLaunch);
     await control("verified-close", 'try { decode(result); } catch { throw new Error("jarvis: browser=close-failed"); }',
@@ -390,5 +438,5 @@ world(async () => {
     await control("conversation-close", 'if (generation !== state.gen || state.conversation.kind === "ended") clear();',
         'if (generation !== state.gen) clear();', implementation => lifecycle(implementation, "end"));
     await control("lease-close", 'close() { closed = true; clear(); }', 'close() { closed = true; }', implementation => lifecycle(implementation, "lease"));
-    console.log("test-jarvis-browser: ok cases=" + (cases.length + 2 + refusals.length + silences.length) + " controls=" + controls);
+    console.log("test-jarvis-browser: ok cases=" + (cases.length + 6 + refusals.length + silences.length) + " controls=" + controls);
 }, daemonStandins);

@@ -11,6 +11,7 @@ function standins(directory) {
 }
 function mode(value) {
     fs.rmSync(path.join(process.env.JARVIS_TEST_ROOT, "browser-open-completed"), { force: true });
+    fs.rmSync(path.join(process.env.JARVIS_TEST_ROOT, "browser-launch-completed"), { force: true });
     update(value);
     fs.writeFileSync(path.join(process.env.JARVIS_TEST_ROOT, "browser-calls.jsonl"), "");
 }
@@ -80,8 +81,8 @@ async function daemonLease(ending, removeClose = false) {
     try {
         child.stdin.write(JSON.stringify(hello) + "\n");
         if (ending === "signal") {
-            for (let n = 0; !calls().some(row => row.args.includes("snapshot")); n++) {
-                assert.ok(n < 400, "the daemon reaches its vendor snapshot");
+            for (let n = 0; !calls().some(row => row.args.includes("--session")); n++) {
+                assert.ok(n < 400, "the daemon reaches its vendor session");
                 // Poll the synthetic vendor's log before signalling the exact daemon PID.
                 await new Promise(resolve => setTimeout(resolve, 10));
             }
@@ -108,7 +109,7 @@ async function daemonLease(ending, removeClose = false) {
                 }, phase: "down" }
             ]);
         }
-        const session = calls().find(row => row.args.includes("snapshot"));
+        const session = calls().find(row => row.args.includes("--session"));
         assert.ok(session, "the fixture starts a private vendor session");
         assert.equal(calls().filter(row => row.args.at(-1) === "close").length, 1,
             "daemon " + ending + " closes the owned vendor session");

@@ -44,13 +44,18 @@ function version(environment) {
     return found.join(".");
 }
 
-// jarvisd's stderr reaches the shell log and browser-setup.js's the setup terminal.
-// Only the keyed error, never this vendor text, reaches the model and the wire.
-function vendorLog(text) {
+// Every vendor-log sink receives at most VENDOR_LOG_BYTES, cut on a character boundary.
+function clip(text) {
     const bytes = Buffer.from(text);
-    const kept = bytes.length <= VENDOR_LOG_BYTES ? text
+    return bytes.length <= VENDOR_LOG_BYTES ? text
         : new TextDecoder().decode(bytes.subarray(0, VENDOR_LOG_BYTES), { stream: true });
-    process.stderr.write("jarvis: browser-vendor=" + JSON.stringify(kept) + "\n");
+}
+
+/** browser-setup.js's vendor-log sink: its stderr reaches the setup terminal. jarvisd passes
+ * no sink, because Service.qml takes every daemon stderr line as its fatal cause. Only the
+ * keyed error, never vendor text, reaches the model and the wire. */
+function vendorLine(text) {
+    process.stderr.write("jarvis: browser-vendor=" + JSON.stringify(text) + "\n");
 }
 
 function roots(environment) {
@@ -80,7 +85,7 @@ function status(environment) {
 }
 
 /** The owner holds the CLI calls, settings, session, output and skill cache. */
-function create({ environment, commandMs = COMMAND_MS }) {
+function create({ environment, commandMs = COMMAND_MS, log = null }) {
     const installed = version(environment);
     const dirs = roots(environment);
     fs.mkdirSync(dirs.home, { recursive: true, mode: 0o700 });
@@ -113,24 +118,26 @@ function create({ environment, commandMs = COMMAND_MS }) {
     let observation = null;
 
     function options() { return { env, cwd: directory, encoding: "utf8", timeout: commandMs, maxBuffer: VENDOR_BYTES }; }
-    // silent: no vendor answer came back; refused: the vendor answered a failure.
+    // silent: no vendor answer came back; refused: the vendor answered a failure. Vendor
+    // stdout can carry page content, so only its size reaches the log text.
     function read(result) {
         if (result.error) return { kind: "silent", key: "command cause=" + result.error.code, text: result.stderr ?? "" };
+        const size = "stdout bytes=" + Buffer.byteLength(result.stdout ?? "");
         let reply;
         try { reply = JSON.parse(result.stdout); } catch { reply = null; }
         if (reply === null || typeof reply !== "object")
-            return { kind: "silent", key: "reply-json", text: [result.stdout, result.stderr].filter(Boolean).join("\n") };
+            return { kind: "silent", key: "reply-json", text: [size, result.stderr].filter(Boolean).join("\n") };
         if (result.status !== 0 || reply.success !== true) {
             const error = typeof reply.error === "string" ? reply.error : null;
             // v0.38.1 browser launch reports this cause. No other failure installs.
             return { kind: "refused", key: error?.startsWith("Chrome not found.") ? "missing" : "command-failed",
-                text: error ?? result.stdout };
+                text: error ?? size };
         }
         return { kind: "reply", reply };
     }
     function accept(answer) {
         if (answer.kind !== "reply") {
-            if (answer.text !== "") vendorLog(answer.text);
+            if (log !== null && answer.text !== "") log(clip(answer.text));
             throw new Error("jarvis: browser=" + answer.key);
         }
         const reply = answer.reply;
@@ -139,12 +146,29 @@ function create({ environment, commandMs = COMMAND_MS }) {
         return reply;
     }
     function decode(result) { return accept(read(result)); }
-    // The first session command launches the browser; its answer decides whether close runs.
-    function launch() {
-        if (state.kind !== "none") return;
-        const answer = read(cp.spawnSync("agent-browser", [...prefix, "get", "url"], options()));
+    // The first session command launches the browser. A browser may exist from the spawn on,
+    // so close() sends the vendor close until the launch's answer says none opened.
+    function launching() {
+        if (state.kind !== "none") return false;
+        state = { kind: "unknown" };
+        return true;
+    }
+    function settle(result) {
+        const answer = read(result);
         state = { kind: answer.kind === "reply" ? "open" : answer.kind === "refused" ? "none" : "unknown" };
         accept(answer);
+    }
+    function launch() {
+        if (launching()) settle(cp.spawnSync("agent-browser", [...prefix, "get", "url"], options()));
+    }
+    // The child stays in active until it exits, so close() can kill it.
+    function spawn(argv) {
+        return new Promise(resolve => {
+            active = cp.execFile("agent-browser", [...prefix, ...argv], options(), (error, stdout, stderr) => {
+                active = null;
+                resolve({ error: error && !Number.isInteger(error.code) ? error : null, status: error ? error.code : 0, stdout, stderr });
+            });
+        });
     }
     function run(argv) {
         if (closed) throw new Error("jarvis: browser=closed");
@@ -201,7 +225,12 @@ function create({ environment, commandMs = COMMAND_MS }) {
     async function execute(call) {
         const { command, args } = narrow(call);
         if (closed) throw new Error("jarvis: browser=closed");
-        launch();
+        // A cold browser start runs off the daemon's event loop, where cancel can kill it.
+        if (launching()) {
+            const result = await spawn(["get", "url"]);
+            if (closed) throw new Error("jarvis: browser=closed");
+            settle(result);
+        }
         if (["click", "fill", "submit"].includes(command)) {
             const fresh = inspect(call);
             if (fresh.target.password) throw new Error("jarvis: browser=password");
@@ -211,14 +240,7 @@ function create({ environment, commandMs = COMMAND_MS }) {
         const argv = command === "open" ? ["open", args.url] : command === "read" ? null
             : command === "fill" ? ["fill", args.ref, args.text] : ["click", args.ref];
         if (argv !== null) {
-            const result = await new Promise((resolve, reject) => {
-                const child = cp.execFile("agent-browser", [...prefix, ...argv], options(), (error, stdout, stderr) => {
-                    active = null;
-                    try { resolve(decode({ error: error && !Number.isInteger(error.code) ? error : null,
-                        status: error ? error.code : 0, stdout, stderr })); } catch (failure) { reject(failure); }
-                });
-                active = child;
-            });
+            const result = decode(await spawn(argv));
             // Open or input can redirect to a non-web document. Refuse its content.
             if (command === "open") page(result);
         }
@@ -322,4 +344,4 @@ function install({ router, environment }) {
         close() { closed = true; clear(); }
     });
 }
-module.exports = { create, install, status };
+module.exports = { create, install, status, vendorLine };
