@@ -1888,8 +1888,8 @@ layer_bar_clear() { # NAMESPACE TOKEN
   t="$(layer_bar_geometry "$1" "$2")" || return
   layer_bar_contract_value <<<"$t"
 }
-# The first monitor's width and height and the bar's reserved height.
-monitor_size() { hypr -j monitors | py_reply 'import json,sys; m=json.load(sys.stdin)[0]; print(m["width"], m["height"], m["reserved"][1])'; }
+# The first monitor's logical width and height and the bar's reserved height.
+monitor_size() { hypr -j monitors | py_reply 'import json,sys; m=json.load(sys.stdin)[0]; print(round(m["width"] / m["scale"]), round(m["height"] / m["scale"]), m["reserved"][1])'; }
 # bar_settled: monitor_size's reading once the bar set has settled, else
 # `unsettled` and each mismatch. Settled is the core's build records
 # holding one bar for each Hyprland monitor and no other, Hyprland mapping
@@ -1927,7 +1927,7 @@ for name in sorted(set(names) | set(layers)):
 m = monitors[0]
 if m["reserved"][1] <= 0:
     out.append("reserved=%d" % m["reserved"][1])
-print("unsettled " + " ".join(out) if out else "%d %d %d" % (m["width"], m["height"], m["reserved"][1]))' "$1"
+print("unsettled " + " ".join(out) if out else "%d %d %d" % (round(m["width"] / m["scale"]), round(m["height"] / m["scale"]), m["reserved"][1]))' "$1"
 }
 # read_bar_settled LABEL: mon_w, mon_h and bar_reserved from bar_settled,
 # polled as expect_poll polls, for a row that reads the bar's reserved
@@ -2085,6 +2085,7 @@ click_in() {
   rect="$(ipc smoke windowGeometry "$2" "$3" "$4" "$5")" || return 1
   [[ $rect == \[* ]] || { echo "click_in: no $4 $5: $rect" >&2; return 1; }
   read -r x y < <(at_centre "$1" "$rect") || return 1
+  hover "$((x + 1))" "$y" || return 1
   click "$x" "$y"
 }
 # view_at_rest HOST_KEY ID TEXT: the probe's viewHolding reading of the
