@@ -49,9 +49,9 @@ var LOADING_SUMMARY = { tone: "info", text: "Loading" };
 // The installed voice stays verified. Reinstalling it cannot free memory.
 var MEMORY = {
     "speech=local-memory-insufficient": { tone: "warning", text: "Not enough memory",
-        lines: ["Local voice needs more free memory. Close other apps, then turn Jarvis off and on again in Settings > Jarvis."], action: false },
+        lines: ["Close other apps.", "Turn Jarvis off and on."], action: false },
     "speech=local-memory-unavailable": { tone: "warning", text: "Memory check failed",
-        lines: ["Jarvis could not check free memory. Turn Jarvis off and on again in Settings > Jarvis."], action: false }
+        lines: ["Turn Jarvis off and on."], action: false }
 };
 // A required step once the daemon stopped: no check runs, none is offered.
 var UNCHECKED = { tone: "warning", text: "Not checked", action: false };

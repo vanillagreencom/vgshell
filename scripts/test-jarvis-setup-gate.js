@@ -71,7 +71,7 @@ function verifyReadiness(gate) {
         const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setup.tone, got.setupVoice.tone, got.setupVoice.action, got.setupModel.tone],
             ["warning", "warning", false, "ok"], "memory refuses capture without reinstall action");
-        assert.equal(got.setupVoice.lines.length, 1);
+        assert.ok(got.setupVoice.lines.length > 0);
         assert.equal(typeof got.setupVoice.lines[0], "string");
         assert.equal(got.setupVoice.lines[0].includes("="), false);
     }
