@@ -456,7 +456,7 @@ Singleton {
         const mount = mounts[hostKey];
         const manifests = Registry.manifests;
         const holders = Capabilities.exclusiveHolders();
-        const pool = Logic.SECTIONS.flatMap(section => mount.sections[section].entries);
+        const pool = Logic.SECTIONS.reduce((entries, section) => entries.concat(mount.sections[section].entries), []);
         for (const section of Logic.SECTIONS) {
             const wanted = layout[section].filter(e => Logic.lendRefusal(holders, manifests[e.id]) === "");
             const container = sectionContainer(mount.row, section);
@@ -477,6 +477,13 @@ Singleton {
                     if (entry.widget !== null) refreshRow(rowFor(hostKey, entry.widget), spec);
                     entry.key = key;
                 } else {
+                    // A source replacement must release registrations before
+                    // its new instance asks for the same capability names.
+                    for (let stale = pool.length - 1; stale >= 0; --stale) {
+                        if (pool[stale].locator.id !== spec.id || pool[stale].revision === revision) continue;
+                        const obsolete = pool.splice(stale, 1)[0];
+                        if (obsolete.widget !== null) destroyBuilt(hostKey, obsolete.widget);
+                    }
                     const locator = { id: spec.id, section: section, nth: nth };
                     entry = { key: key, revision: revision, locator: locator,
                         widget: createWidget(spec.id, container, mount.row, spec, hostKey, locator) };
