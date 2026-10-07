@@ -16,9 +16,11 @@ import "Steps.js" as Steps
 // bar-widget, which stays enabled once unplaced, the switch turning only
 // while the plugin is enabled (for a widget-only plugin Enabled is the
 // placement), a Setup section with the plugin's status entries of the
-// `Setup` group at its top, each a Status row whose value is a Badge chip in
-// its tone with its lines and hint under it, then, one group space below,
-// one button per setup screen the manifest lists, which
+// `Setup` group at its top, the first a Status row and each further one a
+// step row under its own label, whose value is a Badge chip in its tone,
+// beside it a step's offered screen as a button, with its lines and hint
+// under it (Steps.setupRows), then, one group space below, one button per
+// other setup screen the manifest lists, which
 // opens it through the manager: a screen an offered status action opens
 // first, primary, with the action's label, then the others secondary
 // (Steps.setupButtons), one settings section
@@ -101,6 +103,7 @@ FocusScope {
     // The status entries the Setup section draws at its top, and its
     // buttons in drawn order.
     readonly property var setupEntries: row === null ? [] : Steps.setupEntries(row.status)
+    readonly property var setupRows: row === null ? [] : Steps.setupRows(row.tuis, row.status)
     readonly property var setupButtons: row === null ? [] : Steps.setupButtons(row.tuis, row.status)
 
     // The displayable status entries' keys by section, as `sections` holds
@@ -322,42 +325,59 @@ FocusScope {
                         title: "Setup"
                         rowSpacing: Theme.stack.group
 
-                        // Each entry: a "Status" row in the page's
-                        // key/value style whose value is the entry's
-                        // chip in its tone, or its text while it has no
-                        // tone, so the label sits level with the chip;
-                        // then its lines and its hint under the row, from
-                        // the value column (Field.valueX). Unkeyed, so
-                        // each status write draws the entry anew.
+                        // Each entry (Steps.setupRows): the first a
+                        // "Status" row, each further one a step row under
+                        // its own label, in the page's key/value style
+                        // whose value is the entry's chip in its tone, or
+                        // its text while it has no tone, so the label sits
+                        // level with the chip, and a step's offered screen
+                        // as a button beside it; then its lines and its
+                        // hint under the row, from the value column
+                        // (Field.valueX). Unkeyed, so each status write
+                        // draws the entry anew.
                         Column {
                             width: setup.width
                             spacing: Theme.stack.row
                             visible: page.setupEntries.length > 0
                             Repeater {
                                 model: ScriptModel {
-                                    values: page.setupEntries
+                                    values: page.setupRows
                                 }
                                 Column {
                                     id: setupState
                                     required property var modelData
-                                    readonly property var view: Steps.statusView(modelData, ms => new Date(ms).toLocaleString(Qt.locale(), Locale.ShortFormat))
+                                    readonly property var view: Steps.statusView(modelData.entry, ms => new Date(ms).toLocaleString(Qt.locale(), Locale.ShortFormat))
                                     width: setup.width
                                     spacing: Theme.field.gap
                                     Field {
                                         id: statusField
                                         width: parent.width
-                                        label: "Status"
+                                        label: setupState.modelData.label
                                         inline: true
+                                        // A Row places only its visible
+                                        // children, so a row with no button
+                                        // draws as the chip alone.
                                         Row {
+                                            spacing: Theme.stack.inline
                                             Badge {
+                                                anchors.verticalCenter: parent.verticalCenter
                                                 visible: setupState.view.tone !== ""
                                                 text: setupState.view.text
                                                 tone: setupState.view.tone === "" ? "neutral" : setupState.view.tone
                                             }
                                             Label {
+                                                anchors.verticalCenter: parent.verticalCenter
                                                 role: setupState.view.muted ? "itemHint" : "value"
                                                 visible: setupState.view.tone === "" && setupState.view.text !== ""
                                                 text: setupState.view.text
+                                            }
+                                            Button {
+                                                visible: setupState.modelData.button !== null
+                                                text: visible ? setupState.modelData.button.label : ""
+                                                iconName: visible ? setupState.modelData.button.icon : ""
+                                                variant: "primary"
+                                                enabled: page.editable
+                                                onClicked: page.panel.openTui(page.row.id, setupState.modelData.button.name)
                                             }
                                         }
                                     }

@@ -66,6 +66,51 @@ const BUTTONS = [
 // withheld step reads.
 const NORMAL = Object.assign({}, MANIFEST, { requirements: producer.normalRequirements(MANIFEST.requirements) });
 
+// A page with setup steps: a summary, then two steps of the Setup group,
+// and an entry elsewhere that offers the first step's screen too.
+const STEPPED = {
+    requirements: [],
+    tui: {
+        keys: { script: "tui/keys.sh", title: "Add key", size: "default", presentation: "full", entry: null, requires: null },
+        browser: { script: "tui/browser.sh", title: "Set up browser", size: "default", presentation: "full", entry: null, requires: null },
+        accounts: { script: "tui/accounts.sh", title: "Accounts", size: "default", presentation: "full", entry: null, requires: null }
+    },
+    status: {
+        summary: { type: "state", label: "Setup", group: "Setup" },
+        model: { type: "state", label: "AI model", group: "Setup", action: { label: "Add key", tui: "keys" } },
+        browser: { type: "state", label: "Browser", group: "Setup", action: { label: "Set up browser", tui: "browser" } },
+        keyStore: { type: "state", label: "API keys", action: { label: "Add key", tui: "keys" } }
+    }
+};
+const STEPPED_TUIS = [
+    { name: "keys", label: "Add key", icon: "key-round", withheld: "" },
+    { name: "browser", label: "Set up browser", icon: "globe", withheld: "" },
+    { name: "accounts", label: "Accounts", icon: "users", withheld: "" }
+];
+const TODO = { tone: "warning", text: "To do", action: true };
+const DONE = { tone: "ok", text: "Done", action: false };
+// [label, manifest, listed screens, published values, the rows as [label,
+// step, button name and label or null], the Flow's buttons as [name,
+// label, primary]].
+const ROWS = [
+    ["a step to do draws its screen beside it, once", STEPPED, STEPPED_TUIS,
+        { summary: { tone: "warning", text: "Not ready" }, model: TODO, browser: DONE, keyStore: { tone: "info", text: "No key", action: true } },
+        [["Status", false, null], ["AI model", true, ["keys", "Add key"]], ["Browser", true, null]],
+        [["browser", "Set up browser", false], ["accounts", "Accounts", false]]],
+    ["every step done draws no button beside a step", STEPPED, STEPPED_TUIS,
+        { summary: { tone: "ok", text: "Ready" }, model: DONE, browser: DONE, keyStore: { tone: "ok", text: "1 key", action: true } },
+        [["Status", false, null], ["AI model", true, null], ["Browser", true, null]],
+        [["keys", "Add key", true], ["browser", "Set up browser", false], ["accounts", "Accounts", false]]],
+    ["two steps to do each draw their own screen", STEPPED, STEPPED_TUIS,
+        { summary: { tone: "warning", text: "Not ready" }, model: TODO, browser: TODO },
+        [["Status", false, null], ["AI model", true, ["keys", "Add key"]], ["Browser", true, ["browser", "Set up browser"]]],
+        [["accounts", "Accounts", false]]],
+    ["a single Setup entry stays the Status row, its screen in the Flow", MANIFEST, TUIS,
+        { warden: { tone: "warning", text: "Not set up", action: true } },
+        [["Status", false, null]],
+        [["setup", "Set up", true], ["configure", "Configure", false]]]
+];
+
 function verify(logic) {
     for (const [label, key, values, want] of ENTRIES) {
         const row = producer.statusRows(MANIFEST, values, []).find(entry => entry.key === key);
@@ -87,6 +132,15 @@ function verify(logic) {
     same(logic.setupButtons(TUIS, producer.statusRows(NORMAL, {}, [])).map(b => [b.enabled, b.reason]), [[true, ""], [true, ""]], "setupButtons: a screen that lacks nothing takes a press");
     same(new Set(logic.setupButtons(TUIS, producer.statusRows(MANIFEST, { warden: { tone: "warning", text: "Not set up", action: true } }, [])).concat(logic.setupButtons(TUIS, producer.statusRows(MANIFEST, {}, [])))
         .map(b => b.key)).size, 3, "setupButtons: a step and the same screen's plain button are drawn as different buttons");
+    // setupRows: the first Setup entry is the Status row, each further one
+    // a step under its own label with its offered screen beside it, which
+    // the Flow then leaves out.
+    for (const [label, manifest, tuis, values, rows, flow] of ROWS) {
+        const status = producer.statusRows(manifest, values, []);
+        same(logic.setupRows(tuis, status).map(row => [row.label, row.step, row.button === null ? null : [row.button.name, row.button.label]]),
+            rows, "setupRows: " + label);
+        same(logic.setupButtons(tuis, status).map(b => [b.name, b.label, b.primary]), flow, "setupButtons beside steps: " + label);
+    }
     // statusView: what a line draws of a state, with its lines.
     same(logic.statusView(producer.statusRows(MANIFEST, { warden: { tone: "ok", text: "Ready", lines: ["v1"] } }, []).find(e => e.key === "warden"), String),
         { label: "Warden", hint: "", info: "", offered: false, tone: "success", text: "Ready", lines: ["v1"], muted: false, items: [] }, "a reported state draws its text, tone and lines");
@@ -110,7 +164,11 @@ const CONTROLS = [
     ["a withheld screen takes a press", "var enabled = primary || tui.withheld === \"\";", "var enabled = true;"],
     ["the step is withheld too", "var enabled = primary || tui.withheld === \"\";", "var enabled = tui.withheld === \"\";"],
     ["a withheld screen gives no reason", "reason: enabled ? \"\" : tui.withheld", "reason: \"\""],
-    ["a state draws no lines", "if (entry.value.lines !== undefined) out.lines = entry.value.lines;", ""]
+    ["a state draws no lines", "if (entry.value.lines !== undefined) out.lines = entry.value.lines;", ""],
+    ["a step drops its button", "button: step ? stepButton(tuis, entry) : null", "button: null"],
+    ["a step's screen draws in the Flow too", "beside.indexOf(name) !== -1 || ", ""],
+    ["a step reads Status", 'label: step ? entry.label : "Status"', 'label: "Status"'],
+    ["a single Setup entry draws as a step", "var step = index > 0;", "var step = true;"]
 ];
 
 const source = fs.readFileSync(file, "utf8");
@@ -133,4 +191,4 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-settings-steps: ok entries=${ENTRIES.length} controls=${CONTROLS.length}`);
+console.log(`test-settings-steps: ok entries=${ENTRIES.length} rows=${ROWS.length} controls=${CONTROLS.length}`);
