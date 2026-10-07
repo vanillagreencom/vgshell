@@ -51,7 +51,7 @@ function clip(text) {
         : new TextDecoder().decode(bytes.subarray(0, VENDOR_LOG_BYTES), { stream: true });
 }
 
-/** browser-setup.js's vendor-log sink: its stderr reaches the setup terminal. jarvisd passes
+/** browser-setup.js's vendor-log sink: its stderr reaches the Jarvis setup log. jarvisd passes
  * no sink, because Service.qml takes every daemon stderr line as its fatal cause. Only the
  * keyed error, never vendor text, reaches the model and the wire. */
 function vendorLine(text) {

@@ -35,15 +35,20 @@ world(async () => {
             XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS },
         encoding: "utf8", timeout: 15000 });
     const marker = path.join(process.env.XDG_DATA_HOME, "vgshell/jarvis/browser-ready.json");
+    const log = path.join(process.env.XDG_STATE_HOME, "vgshell/jarvis/setup.log");
     // INSTALLS counts browser downloads, DRIVER the driver installs through
-    // vgshell, KEY the keyed line the run must print, VENDOR the vendor text its
-    // browser-vendor line must carry for the shell log.
+    // vgshell, KEY the keyed line the run must add to the setup log, VENDOR
+    // the vendor text its browser-vendor line there must carry. No keyed
+    // line reaches the screen.
     function check(folder, name, fixture, expected, installs, driver = 0, key = null, vendor = null) {
         mode(fixture);
         fs.rmSync(marker, { force: true });
         fs.rmSync(path.join(driverless, "agent-browser"), { force: true });
         fs.writeFileSync(vgshellLog, "");
+        fs.rmSync(log, { force: true });
         const result = setup(folder, fixture.driverMissing ? driverPath : process.env.PATH);
+        const logged = fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "";
+        assert.doesNotMatch(result.stdout, /jarvis: browser/, name + " keeps keyed lines off the screen");
         assert.equal(result.error, undefined);
         assert.equal(result.status, expected, name + ": " + result.stdout + result.stderr);
         assert.equal(calls().filter(row => row.args[0] === "install").length, installs, name);
@@ -52,10 +57,10 @@ world(async () => {
             Array(driver).fill(["pkg", "run", "install", "--manager", pick === null ? "" : pick.manager, pick === null ? "" : pick.name]), name);
         for (const row of vgshellCalls().filter(row => row[0] !== "pkg"))
             assert.deepEqual(row, ["plugin", "requirements", "--json", "vgs.jarvis"], name);
-        if (key !== null) assert.ok(result.stdout.includes("jarvis: browser-setup=" + key + "\r\n"), name + " prints " + key);
+        if (key !== null) assert.ok(logged.includes("jarvis: browser-setup=" + key + "\n"), name + " logs " + key);
         if (vendor !== null) {
-            const line = /^jarvis: browser-vendor=(.*)\r$/m.exec(result.stdout);
-            assert.ok(line, name + " prints the vendor line");
+            const line = /^jarvis: browser-vendor=(.*)$/m.exec(logged);
+            assert.ok(line, name + " logs the vendor line");
             assert.match(JSON.parse(line[1]), vendor, name);
             assert.equal(calls().some(row => row.args.at(-1) === "close"), false, name + " closes no unopened session");
         }
@@ -105,8 +110,10 @@ world(async () => {
     }
     scriptControl("download-consent", 'vgs_tui_confirm "Download a private Chrome browser for Jarvis?" || exit 130',
         'true "Download a private Chrome browser for Jarvis?" || exit 130', cases.find(row => row[0] === "declined"));
-    scriptControl("verify-after-download", '    node "$program" verify', '    true "$program" verify', cases.find(row => row[0] === "download"));
-    scriptControl("download-error", '    node "$program" download', '    node "$program" download || true', cases.find(row => row[0] === "install-failed"));
+    scriptControl("verify-after-download", '    browser verify || {', '    true verify || {', cases.find(row => row[0] === "download"));
+    scriptControl("download-error", '    browser download ||', '    browser download || true ||', cases.find(row => row[0] === "install-failed"));
+    scriptControl("cause-on-screen", 'browser() { vgs_tui_logged "$log" node "$program" "$@"; }', 'browser() { node "$program" "$@"; }',
+        cases.find(row => row[0] === "verify-failed"));
     scriptControl("only-missing-browser", '  69)', '  1|69)', cases.find(row => row[0] === "unrelated-failure"));
     scriptControl("install-consent", 'vgs_tui_confirm "Install agent-browser now?" || exit 130',
         'true "Install agent-browser now?" || exit 130', cases.find(row => row[0] === "driver-declined"));

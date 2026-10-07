@@ -1,13 +1,31 @@
 #!/usr/bin/env bash
 # Only metadata reaches the shell. secret-tool's terminal prompt masks the
 # key and stores it directly. No transcript or shell variable holds it.
+# Every keyed line goes to the Jarvis setup log; the screen shows a plain
+# sentence.
 set -euo pipefail
 # shellcheck source=/dev/null
 source "$VGS_TUI_LIB"
-[[ $# == 0 ]] || { printf 'jarvis-keys: arguments=none\n' >&2; exit 2; }
-vgs_tui_header "Add Jarvis key" "The key stays in your desktop keyring." "Use the provider's origin, with no path."
-[[ -t 0 ]] || { printf 'jarvis-keys: store=terminal-required\n' >&2; exit 2; }
-read -r -p "Provider: " provider || { printf 'jarvis-keys: input=cancelled\n' >&2; exit 130; }
-read -r -p "Account label: " account || { printf 'jarvis-keys: input=cancelled\n' >&2; exit 130; }
-read -r -p "Origin (for example https://api.openai.com): " origin || { printf 'jarvis-keys: input=cancelled\n' >&2; exit 130; }
-exec node "$VGS_PLUGIN_DIR/backend/keys.js" add-key "$provider" "$account" "$origin"
+log="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/jarvis/setup.log"
+keyed() { printf '%s\n' "$1" >&2; }
+refuse() { # KEY_LINE
+  vgs_tui_logged "$log" keyed "$1" || :
+  vgs_tui_failed "$log" "Open Add key from the Jarvis page in Settings."
+  exit 2
+}
+[[ $# == 0 ]] || refuse "jarvis-keys: arguments=none"
+keys() { vgs_tui_logged "$log" node "$VGS_PLUGIN_DIR/backend/keys.js" "$@"; }
+vgs_tui_header "Add an API key" "An API key from an AI provider lets Jarvis use that provider." \
+  "The key stays in your desktop keyring. Jarvis does not show it."
+[[ -t 0 ]] || refuse "jarvis-keys: store=terminal-required"
+choices="$(keys providers "$(vgs_tui_columns)")" ||
+  { vgs_tui_failed "$log" "Jarvis could not list the providers. Close this window and try again."; exit 1; }
+provider="$(vgs_tui_choose --label-delimiter=$'\t' --header "Select the provider of your key. Make the key on its page first." \
+  <<<"$choices")" || exit 130
+[[ -n $provider ]] || exit 130
+account="$(vgs_tui_input --header "A name for this key, to find it in the account list" --placeholder "for example work")" || exit 130
+[[ -n $account ]] || exit 130
+vgs_tui_step "Paste the key at the prompt. The key does not show while you type."
+keys add-key "$provider" "$account" >>"$log" ||
+  { vgs_tui_failed "$log" "Jarvis could not save the key." "Make sure that your keyring is unlocked, then try again."; exit 1; }
+vgs_tui_success "The key is in your keyring. Select it as the AI model on the Jarvis page."

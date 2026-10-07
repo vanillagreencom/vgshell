@@ -74,18 +74,46 @@ function inside() {
         [" ".repeat(65537), /references=size/], [JSON.stringify([{ ...ref, key }]), /reference=shape/]
     ];
 
+    // Add key's gum: choose answers with the provider in gum-provider, as
+    // gum 2.0.2 prints an option's value under --label-delimiter, and fails
+    // on a provider it was not offered; input answers the key's name.
+    fs.writeFileSync(path.join(env.PATH.split(":")[0], "gum"), `#!/usr/bin/env node
+const fs = require("node:fs"), path = require("node:path");
+const state = process.env.XDG_STATE_HOME, args = process.argv.slice(2);
+fs.appendFileSync(path.join(state, "gum-calls"), JSON.stringify(args) + "\\n");
+if (args[0] === "input") { console.log("test"); process.exit(0); }
+if (args[0] !== "choose") process.exit(0);
+const delimiter = args.find(arg => arg.startsWith("--label-delimiter="))?.slice("--label-delimiter=".length);
+const wanted = fs.readFileSync(path.join(state, "gum-provider"), "utf8").trim();
+const values = fs.readFileSync(0, "utf8").replace(/\\n$/, "").split("\\n")
+    .map(line => delimiter ? line.slice(line.indexOf(delimiter) + delimiter.length) : line);
+if (!values.includes(wanted)) process.exit(9);
+console.log(wanted);
+`, { mode: 0o700 });
+    const provider = id => fs.writeFileSync(path.join(env.XDG_STATE_HOME, "gum-provider"), id);
+    provider("openai");
+    // The reference Add key stores: the chosen provider's own origin.
+    const added = (id, origin) => ({ provider: id, account: "test", origin,
+        attributes: { service: "vgs-jarvis", provider: id, account: "test", origin } });
+    const openai = added("openai", "https://api.openai.com");
+    const log = path.join(env.XDG_STATE_HOME, "vgshell/jarvis/setup.log");
+    const logged = () => fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "";
     function tui(folder = path.dirname(backend), script = path.join(tree, "shell/plugins/vgs.jarvis/tui/add-key.sh"),
         extra = []) {
+        fs.rmSync(log, { force: true });
+        fs.rmSync(path.join(env.XDG_STATE_HOME, "gum-calls"), { force: true });
         return cp.spawnSync("python3", [path.join(tree, "scripts/fixtures/jarvis/key-tui.py"),
             script, path.join(tree, "bin/lib/tui.sh"), folder, ...extra], { env, encoding: "utf8", timeout: 15000 });
     }
-    function goodTui(result) {
+    // Keyed lines go to the log; the screen holds none.
+    function goodTui(result, expected = openai) {
         assert.equal(result.error, undefined);
         assert.equal(result.status, 0, result.stdout + result.stderr);
         assert.match(result.stdout, /Password: /);
-        assert.match(result.stdout, /jarvis-keys: stored=libsecret/);
-        safe(result.stdout + result.stderr);
-        assert.deepEqual(store.references().find(item => item.account === "test"), ref);
+        assert.match(logged(), /jarvis-keys: stored=libsecret/);
+        assert.doesNotMatch(result.stdout, /jarvis-keys:/);
+        safe(result.stdout + result.stderr + logged());
+        assert.deepEqual(store.references().find(item => item.provider === expected.provider && item.account === "test"), expected);
     }
     function refusedTui(expected, folder = path.dirname(backend)) {
         const before = calls("secret-calls");
@@ -93,7 +121,8 @@ function inside() {
         const result = tui(folder, undefined, ["--expect-metadata-refusal"]);
         assert.equal(result.error, undefined);
         assert.equal(result.status, 1, result.stdout + result.stderr);
-        assert.match(result.stdout, expected);
+        assert.match(logged(), expected);
+        assert.doesNotMatch(result.stdout, /jarvis-keys:/);
         assert.doesNotMatch(result.stdout, /Password: /, "metadata must fail before prompting for a key");
         assert.equal(calls("secret-calls"), before, "invalid metadata must not call secret-tool");
         assert.deepEqual(fs.readFileSync(store.file), metadata, "refusal must preserve reference metadata");
@@ -119,7 +148,7 @@ function inside() {
     store.remember(replacement);
     assert.equal(store.references().length, 32, "a full list permits an existing identity update");
     assert.deepEqual(store.references()[0], replacement);
-    fs.writeFileSync(store.file, JSON.stringify([...full.slice(1), ref]));
+    fs.writeFileSync(store.file, JSON.stringify([...full.slice(1), openai]));
     goodTui(tui());
     assert.equal(store.references().length, 32, "a full list permits storing an existing identity");
     fs.writeFileSync(store.file, clean);
@@ -130,10 +159,48 @@ function inside() {
     fs.writeFileSync(path.join(env.XDG_STATE_HOME, "store-fail"), "");
     const failed = tui();
     assert.equal(failed.status, 1);
-    assert.match(failed.stdout, /jarvis-keys: secret-tool=failed/);
-    safe(failed.stdout + failed.stderr);
+    assert.match(logged(), /jarvis-keys: secret-tool=failed/);
+    assert.doesNotMatch(failed.stdout, /jarvis-keys:/);
+    safe(failed.stdout + failed.stderr + logged());
     assert.deepEqual(fs.readFileSync(store.file), snapshot, "failed storage does not change references");
     fs.unlinkSync(path.join(env.XDG_STATE_HOME, "store-fail"));
+
+    // Add key offers the provider table's key providers and no other, and
+    // binds the key to the chosen provider's own origin: the key's name is
+    // the one typed answer. keys.js refuses any other provider before the
+    // keyring, as a typed id or a custom origin would bind a key no account
+    // can use.
+    const plugin = path.dirname(backend);
+    const { PROVIDERS } = require(path.join(plugin, "AccountProviders.js"));
+    const offered = folder => {
+        const result = cp.spawnSync("node", [path.join(folder, "backend/keys.js"), "providers", "80"], { env, encoding: "utf8" });
+        assert.equal(result.status, 0, result.stderr);
+        return result.stdout.trimEnd().split("\n").map(line => line.split("\t")[1]);
+    };
+    const keyProviders = folder => assert.deepEqual(offered(folder),
+        PROVIDERS.filter(row => row.kind === "key" || row.kind === "speech-key").map(row => row.id));
+    const chosen = folder => {
+        provider("anthropic");
+        try {
+            goodTui(tui(folder), added("anthropic", "https://api.anthropic.com"));
+            const gum = calls("gum-calls").trim().split("\n").map(JSON.parse);
+            assert.equal(gum.filter(args => args[0] === "input").length, 1, "only the key's name is typed");
+        } finally { provider("openai"); }
+    };
+    const unknown = folder => {
+        for (const id of ["fixture", "custom", "ollama", ""]) {
+            const before = calls("secret-calls");
+            const metadata = fs.readFileSync(store.file);
+            const result = cp.spawnSync("node", [path.join(folder, "backend/keys.js"), "add-key", id, "test"], { env, encoding: "utf8" });
+            assert.deepEqual([result.status, result.stderr], [1, "jarvis-keys: provider=unknown\n"], "provider [" + id + "]");
+            assert.equal(calls("secret-calls"), before);
+            assert.deepEqual(fs.readFileSync(store.file), metadata);
+            cases++;
+        }
+    };
+    keyProviders(plugin);
+    chosen(plugin);
+    unknown(plugin);
 
     // Removing each stand-in must break its own behavioral assertion.
     for (const name of ["secret-tool", "busctl", "gum"]) {
@@ -204,7 +271,7 @@ function inside() {
     const mutant = path.join(root, "tui-copy");
     fs.mkdirSync(path.join(mutant, "backend"), { recursive: true });
     fs.copyFileSync(path.join(backend, "keys.js"), path.join(mutant, "backend/keys.js"));
-    fs.copyFileSync(path.join(backend, "net.js"), path.join(mutant, "backend/net.js"));
+    fs.copyFileSync(path.join(plugin, "AccountProviders.js"), path.join(mutant, "AccountProviders.js"));
     const precheck = "this.#referenceUpdate(own);";
     assert.equal(source.split(precheck).length - 1, 1);
     const unchecked = source.replace(precheck, "void own;");
@@ -232,13 +299,26 @@ function inside() {
     controls++;
     fs.writeFileSync(path.join(mutant, "backend/keys.js"), cliSource);
     const scriptSource = fs.readFileSync(path.join(tree, "shell/plugins/vgs.jarvis/tui/add-key.sh"), "utf8");
-    const scriptNeedle = 'add-key "$provider" "$account" "$origin"';
+    const scriptNeedle = 'add-key "$provider" "$account"';
     assert.equal(scriptSource.split(scriptNeedle).length - 1, 1);
     const scriptCopy = path.join(root, "wrong-metadata.sh");
-    fs.writeFileSync(scriptCopy, scriptSource.replace(scriptNeedle, 'add-key "$account" "$origin"'));
+    fs.writeFileSync(scriptCopy, scriptSource.replace(scriptNeedle, 'add-key "$account" "$provider"'));
     assert.throws(() => goodTui(tui(path.dirname(backend), scriptCopy)), assert.AssertionError,
         "TUI must pass complete metadata, not a key");
     controls++;
+    for (const [name, file, needle, replacement, check] of [
+        ["unknown-provider", "backend/keys.js", 'if (row === undefined) throw new Error("jarvis-keys: provider=unknown");', "", unknown],
+        ["provider-origin", "backend/keys.js", "ownReference(row.id, account, row.origin)", 'ownReference(row.id, account, "https://api.openai.com")', chosen],
+        ["key-providers", "AccountProviders.js", 'if (kind === "key") return keyProvider(row);', 'if (kind === "key") return row.kind !== "cli";',
+            keyProviders]
+    ]) {
+        const original = fs.readFileSync(path.join(plugin, file), "utf8");
+        assert.equal(original.split(needle).length - 1, 1, name + " matches");
+        fs.writeFileSync(path.join(mutant, file), original.replace(needle, replacement));
+        try { assert.throws(() => check(mutant), assert.AssertionError, name + " must turn red"); }
+        finally { fs.writeFileSync(path.join(mutant, file), original); }
+        controls++;
+    }
     function walk(folder) {
         for (const item of fs.readdirSync(folder, { withFileTypes: true })) {
             const file = path.join(folder, item.name);

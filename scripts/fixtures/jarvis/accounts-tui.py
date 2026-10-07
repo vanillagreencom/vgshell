@@ -5,12 +5,16 @@ import fcntl
 import os
 import pty
 import select
+import struct
 import subprocess
 import sys
 import termios
 import time
 
 master, slave = pty.openpty()
+# An optional fourth argument sizes the terminal, COLUMNS wide.
+if len(sys.argv) > 4:
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, int(sys.argv[4]), 0, 0))
 env = {name: os.environ[name] for name in (
     "PATH", "HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME",
     "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")}

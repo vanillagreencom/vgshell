@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
 # The core owns terminal presentation. This script carries metadata only.
+# The helper prints the rows this screen shows; every keyed line and result
+# goes to the Jarvis setup log, and the screen shows a plain sentence.
 set -euo pipefail
 # shellcheck source=/dev/null
 source "$VGS_TUI_LIB"
-[[ $# == 0 ]] || { printf 'jarvis-accounts: arguments=none\n' >&2; exit 2; }
-[[ -t 0 ]] || { printf 'jarvis-accounts: input=terminal-required\n' >&2; exit 2; }
+log="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/jarvis/setup.log"
+keyed() { printf '%s\n' "$1" >&2; }
+refuse() { # KEY_LINE
+  vgs_tui_logged "$log" keyed "$1" || :
+  vgs_tui_failed "$log" "Open Accounts from the Jarvis page in Settings."
+  exit 2
+}
+[[ $# == 0 ]] || refuse "jarvis-accounts: arguments=none"
+[[ -t 0 ]] || refuse "jarvis-accounts: input=terminal-required"
 program="$VGS_PLUGIN_DIR/backend/accounts.js"
 # The VGS tree is the one VGS_TUI_LIB lies in; the helper reads the core's
 # account rule from there.
 tree="${VGS_TUI_LIB%/bin/lib/tui.sh}"
-[[ $tree != "$VGS_TUI_LIB" && $tree == /* ]] || { printf 'jarvis-accounts: tui=lib-outside-tree\n' >&2; exit 2; }
+[[ $tree != "$VGS_TUI_LIB" && $tree == /* ]] || refuse "jarvis-accounts: tui=lib-outside-tree"
 child_env=(env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8
   XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-}" XDG_STATE_HOME="${XDG_STATE_HOME:-}"
   XDG_DATA_HOME="${XDG_DATA_HOME:-}" XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}"
@@ -19,72 +28,83 @@ child_env=(env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8
   VGS_TUI_WARNING="${VGS_TUI_WARNING:-}" VGS_TUI_DANGER="${VGS_TUI_DANGER:-}")
 # The core presentation functions call this scoped executable wrapper too.
 gum() { "${child_env[@]}" gum "$@"; }
-vgs_tui_header "Jarvis accounts" "Login status is a hint, not verified inference access." "Verify may cost money. Keys stay in your desktop keyring."
-accounts() { "${child_env[@]}" node "$program" --tree "$tree" "$@"; }
-# Convert judged JSON to menu lines. Selection carries a stable id, never
-# a directory label, back into the judge. No secret value enters the shell.
-menu() {
-  "${child_env[@]}" node -e '
-let text=""; process.stdin.on("data", x => text += x);
-process.stdin.on("end", () => {
-    const rows=JSON.parse(text);
-    for (const row of rows) {
-        if (typeof row === "string") console.log(row);
-        else if (row.path) console.log(row.path + " | " + row.label + " | " + row.presence);
-        else console.log(row.id + " | " + row.provider + " / " + row.label + " | " + row.state.kind
-            + (row.email ? " | " + row.email : "")
-            + (row.plan ? " | " + row.plan : "")
-            + (row.marker === "present" ? " | Marker present" : "")
-            + (row.identity.kind === "mismatch" ? " | Identity mismatch" : ""));
-    }
-});'
-}
+# A selection carries a stable id, never a label, back into the judge. No
+# secret value enters the shell.
+accounts() { vgs_tui_logged "$log" "${child_env[@]}" node "$program" --tree "$tree" "$@"; }
+choose() { vgs_tui_choose --label-delimiter=$'\t' "$@"; }
+vgs_tui_header "Jarvis accounts" "The accounts Jarvis can use as its AI model." \
+  "Signed in does not prove that the AI answers. Verify checks that."
+# Each action with one line that says what it does.
+actions="Show accounts      See each account Jarvis found and its status."$'\t'show
+actions+=$'\n'"Add directory      Add a Claude Code or Codex folder Jarvis did not find."$'\t'add
+actions+=$'\n'"Use keyring item   Use an API key you saved in your keyring before."$'\t'item
+actions+=$'\n'"Verify             Send one small paid request to check an account."$'\t'verify
+actions+=$'\n'"Close              Close this window."$'\t'close
 while true; do
-  action="$(vgs_tui_choose -- "Show accounts" "Add directory" "Use keyring item" "Verify" "Close")" || exit 130
+  action="$(choose --header "Select an action." <<<"$actions")" || exit 130
+  columns="$(vgs_tui_columns)"
   case "$action" in
-    "Show accounts")
-      listing="$(accounts list)" || exit $?
-      menu <<<"$listing"
-      ;;
-    "Add directory")
-      choices="$(accounts providers cli)" || exit $?
-      choices="$(menu <<<"$choices")" || exit $?
-      selected="$(vgs_tui_choose <<<"$choices")" || exit 130
-      dir="$(vgs_tui_input --header "Account directory" --placeholder "Absolute path")" || exit 130
-      label="$(vgs_tui_input --header "Account label")" || exit 130
-      accounts add "$selected" "$dir" "$label"
-      ;;
-    "Use keyring item")
-      choices="$(accounts items)" || exit $?
-      choices="$(menu <<<"$choices")" || exit $?
-      [[ -n $choices ]] || { vgs_tui_warn "No eligible API-key item is available."; continue; }
-      item="$(vgs_tui_choose <<<"$choices")" || exit 130
-      items="$(accounts providers key)" || exit $?
-      items="$(menu <<<"$items")" || exit $?
-      selected="$(vgs_tui_choose <<<"$items")" || exit 130
-      label="$(vgs_tui_input --header "Account label")" || exit 130
-      accounts remember "${item%% | *}" "$selected" "$label"
-      ;;
-    "Verify")
-      choices="$(accounts list)" || exit $?
-      choices="$(menu <<<"$choices")" || exit $?
-      [[ -n $choices ]] || { vgs_tui_warn "No account is available."; continue; }
-      selected="$(vgs_tui_choose <<<"$choices")" || exit 130
-      model="$(vgs_tui_input --header "Model (blank uses the provider default; Ollama and LM Studio need a model)")" || exit 130
-      if vgs_tui_confirm "Send a small inference request? This may cost money."; then
-        code=0
-        accounts verify "${selected%% | *}" user "$model" || code=$?
-        if [[ $code == 69 ]]; then
-          vgs_tui_warn "Verification did not succeed. The result above names the cause."
-        elif [[ $code != 0 ]]; then
-          exit "$code"
-        fi
+    show)
+      table="$(accounts table "$columns")" ||
+        { vgs_tui_failed "$log" "Jarvis could not read your accounts. Close this window and try again."; continue; }
+      if [[ -z $table ]]; then
+        vgs_tui_warn "Jarvis found no account."
+        vgs_tui_warn "Add a folder with Add directory, or a key with Add key."
       else
-        code=$?
-        [[ $code == 1 ]] || exit "$code"
+        gum table --print <<<"$table"
       fi
       ;;
-    "Close") exit 0 ;;
-    *) printf 'jarvis-accounts: selection=unknown\n' >&2; exit 2 ;;
+    add)
+      choices="$(accounts providers cli "$columns")" ||
+        { vgs_tui_failed "$log" "Jarvis could not list the programs. Close this window and try again."; continue; }
+      selected="$(choose --header "Select the program that signs in from this folder." <<<"$choices")" || exit 130
+      dir="$(vgs_tui_input --header "The full path of the folder where the program keeps its sign-in" \
+        --placeholder "for example $HOME/.claude-work")" || exit 130
+      label="$(vgs_tui_input --header "A name for this account" --placeholder "for example work")" || exit 130
+      if accounts add "$selected" "$dir" "$label" >>"$log"; then
+        vgs_tui_success "Jarvis added the folder."
+      else
+        vgs_tui_failed "$log" "Jarvis could not add the folder." "Type the full path of a folder that exists, then try again."
+      fi
+      ;;
+    item)
+      choices="$(accounts items "$columns")" ||
+        { vgs_tui_failed "$log" "Jarvis could not read your keyring. Unlock it, then try again."; continue; }
+      [[ -n $choices ]] || { vgs_tui_warn "Your keyring has no API key that Jarvis can use. Add one with Add key."; continue; }
+      item="$(choose --header "Select the keyring item that holds the API key." <<<"$choices")" || exit 130
+      providers="$(accounts providers key "$columns")" ||
+        { vgs_tui_failed "$log" "Jarvis could not list the providers. Close this window and try again."; continue; }
+      selected="$(choose --header "Select the provider of this key." <<<"$providers")" || exit 130
+      label="$(vgs_tui_input --header "A name for this key, to find it in the account list" --placeholder "for example work")" || exit 130
+      if accounts remember "$item" "$selected" "$label" >>"$log"; then
+        vgs_tui_success "Jarvis can use the key now."
+      else
+        vgs_tui_failed "$log" "Jarvis could not use this keyring item." "Select a different item, or add the key with Add key."
+      fi
+      ;;
+    verify)
+      choices="$(accounts accounts "$columns")" ||
+        { vgs_tui_failed "$log" "Jarvis could not read your accounts. Close this window and try again."; continue; }
+      [[ -n $choices ]] || { vgs_tui_warn "Jarvis found no account to check."; continue; }
+      selected="$(choose --header "Select the account to check." <<<"$choices")" || exit 130
+      model="$(vgs_tui_input --header "Model name. Leave it empty for the default. A local server needs one.")" || exit 130
+      code=0
+      vgs_tui_confirm "Send one small paid request to this account? It can cost money." || code=$?
+      case "$code" in
+        0)
+          code=0
+          accounts verify "$selected" user "$model" >>"$log" || code=$?
+          case "$code" in
+            0) vgs_tui_success "The account answered. Jarvis can use it." ;;
+            69) vgs_tui_failed "$log" "The account did not answer." "Make sure that it is signed in or that its key is correct, then try again." ;;
+            *) vgs_tui_failed "$log" "Jarvis could not check the account. Close this window and try again." ;;
+          esac
+          ;;
+        1) ;;
+        *) exit "$code" ;;
+      esac
+      ;;
+    close) exit 0 ;;
+    *) refuse "jarvis-accounts: selection=unknown" ;;
   esac
 done

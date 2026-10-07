@@ -1,8 +1,10 @@
-// Only add-key and presence are public CLI verbs. A key never reaches stdout.
+// Only add-key, providers and presence are public CLI verbs. A key never
+// reaches stdout. providers WIDTH prints Add key's provider choices,
+// AccountProviders.choiceLine lines with each provider's key page.
 "use strict";
 const path = require("node:path");
 const { Secrets, ownReference } = require("./Secrets.js");
-const Net = require("./net.js");
+const { PROVIDERS, keyProvider, parseWidth, providerChoices } = require("../AccountProviders.js");
 
 function main() {
     const directory = path.join(process.env.XDG_STATE_HOME || path.join(process.env.HOME, ".local/state"), "vgshell/jarvis");
@@ -12,10 +14,20 @@ function main() {
         if (process.argv.length !== 3) throw new Error("jarvis-keys: arguments=verb");
         process.stdout.write(JSON.stringify(store.rows()) + "\n");
         break;
+    case "providers": {
+        const width = process.argv.length === 4 ? parseWidth(process.argv[3]) : null;
+        if (width === null) throw new Error("jarvis-keys: arguments=width");
+        process.stdout.write(providerChoices("key", width, true).join("\n") + "\n");
+        break;
+    }
     case "add-key": {
-        if (process.argv.length !== 6) throw new Error("jarvis-keys: arguments=metadata");
-        const [provider, account, origin] = process.argv.slice(3);
-        const ref = ownReference(provider, account, Net.endpoint(origin).origin);
+        if (process.argv.length !== 5) throw new Error("jarvis-keys: arguments=metadata");
+        const [provider, account] = process.argv.slice(3);
+        // The key is bound to the provider's own origin, so a typed id
+        // that names no key provider would store a key no account can use.
+        const row = PROVIDERS.find(item => item.id === provider && keyProvider(item));
+        if (row === undefined) throw new Error("jarvis-keys: provider=unknown");
+        const ref = ownReference(row.id, account, row.origin);
         store.addKey(ref);
         process.stdout.write("jarvis-keys: stored=libsecret\n");
         break;

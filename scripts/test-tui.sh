@@ -289,6 +289,30 @@ check "a logged script does not hang while filtering" test "$status" == 23
 copy_with unfiltered-log "$lib" '_vgs_tui_log_clean >&"$fd"' 'cat >&"$fd"'
 check "the unfiltered-log mutant fails the clean-log row" test "$(log_bytes_row "$copy" && echo green || echo red)" == red
 
+# The cause log: a command's stderr goes to the file, which is made with its
+# directory and added to; its stdout and status stay the command's.
+causes="$tmp/causes/setup.log"
+logged_row() {
+  rm -rf -- "${tmp:?}/causes"
+  run "cmd() { echo out; echo key=\$1 >&2; return 5; }; vgs_tui_logged $(printf %q "$causes") cmd one || echo st=\$?; vgs_tui_logged $(printf %q "$causes") cmd two || :"
+  [[ $(cat "$tmp/out") == $'out\nst=5\nout' && $(cat "$causes" 2>/dev/null) == $'key=one\nkey=two' && ! -s $tmp/err ]]
+}
+check "a logged command's stderr goes to the log, its output and status stay" logged_row
+run "vgs_tui_logged /proc/version/causes.log true"
+check "an unopenable log is refused" test "$status:$(err_first)" == "1:vgs-tui: refused: logged=/proc/version/causes.log reason=open-failed"
+# The failure lines name the log, $HOME as ~.
+failed_row() {
+  run 'vgs_tui_failed "$HOME/state/setup.log" "Could not."'
+  grep -qF '~/state/setup.log' "$tmp/err" && ! grep -qF "$tmp/home" "$tmp/err"
+}
+check "a failure names its log under ~" failed_row
+# The width: a sized terminal's columns, 80 for one that reports none.
+columns_row() {
+  on_tty_capture '{ vgs_tui_columns; stty cols 132 </dev/tty; vgs_tui_columns; }'
+  [[ $(cat "$tmp/captured") == $'80\n132' ]]
+}
+check "the width is the terminal's, 80 when it reports none" columns_row
+
 # The reboot check: the running kernel's modules and a replaced Hyprland.
 kernel=""
 for dir in /lib/modules/*/; do [[ -d $dir ]] && { kernel="$(basename -- "$dir")"; break; }; done
@@ -385,6 +409,12 @@ check "the no-prompt-blank mutant fails the prompt blank row" test "$(starts_one
 control accent-success '"$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" "$*"' '"$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 32)" "$*"'
 run 'vgs_tui_success "Ready."' VGS_TUI_SUCCESS='#070809' VGS_TUI_ACCENT='#010203'
 check "the accent-success mutant fails the success colour row" test "$(cat "$tmp/out")" != $'\n'"${esc}[38;2;7;8;9mReady.${esc}[0m"
+control stderr-on-screen '"$@" 2>>"$file"' '"$@"'
+check "the stderr-on-screen mutant fails the cause log row" test "$(logged_row && echo green || echo red)" == red
+control no-home '"The details are in ${file/#"$HOME"/\~}."' '"The details are in $file."'
+check "the no-home mutant fails the failure row" test "$(failed_row && echo green || echo red)" == red
+control zero-width '[[ $size =~ ^[123456789][0123456789]*$ ]] || size=80' '[[ $size =~ ^[0123456789]+$ ]] || size=80'
+check "the zero-width mutant fails the width row" test "$(columns_row && echo green || echo red)" == red
 LIB="$lib"
 
 # The template's control: a copy that turns every confirm status into success.

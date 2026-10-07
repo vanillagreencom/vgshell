@@ -1,5 +1,6 @@
-# Drive the actual add-key script on a private terminal. Input waits for each
-# prompt, so secret bytes are never sent while the terminal still echoes.
+# Drive the actual add-key script on a private terminal. The provider and
+# name come from the caller's gum stand-in; the key waits for its prompt, so
+# secret bytes are never sent while the terminal still echoes.
 import errno
 import argparse
 import os
@@ -14,7 +15,6 @@ arguments.add_argument("script")
 arguments.add_argument("library")
 arguments.add_argument("plugin")
 arguments.add_argument("--expect-metadata-refusal", action="store_true")
-arguments.add_argument("--origin", default="https://fixture.invalid")
 args = arguments.parse_args()
 master, slave = pty.openpty()
 env = {name: os.environ[name] for name in (
@@ -30,9 +30,7 @@ def terminal():
 child = subprocess.Popen(["bash", args.script], stdin=slave, stdout=slave,
                          stderr=slave, env=env, preexec_fn=terminal)
 os.close(slave)
-steps = [(b"Provider: ", b"fixture\n"), (b"Account label: ", b"test\n"),
-         (b"Origin (for example https://api.openai.com): ", (args.origin + "\n").encode()),
-         (b"Password: ", b"test-key-must-stay-private\n")]
+steps = [(b"Password: ", b"test-key-must-stay-private\n")]
 output = b""
 deadline = time.monotonic() + 10  # Bound an interactive fixture that misses a prompt.
 try:

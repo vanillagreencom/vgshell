@@ -27,6 +27,14 @@
 #   vgs_tui_lock NAME                hold $XDG_RUNTIME_DIR/vgs-tui-NAME.lock until exit
 #   vgs_tui_log FILE [ARG...]        run this script again under script(1) into FILE,
 #                                    keeping SGR colour and dropping terminal controls
+#   vgs_tui_logged FILE COMMAND [ARG...]
+#                                    run COMMAND with its stderr added to FILE, so its
+#                                    keyed causes reach the log and not the screen;
+#                                    COMMAND's status
+#   vgs_tui_failed FILE LINE...      an error line per LINE, then a line naming FILE,
+#                                    the log that holds the cause, with $HOME as ~
+#   vgs_tui_columns                  the terminal's width in columns, 80 when it
+#                                    reports none
 #   vgs_tui_reboot_check             print why a reboot is needed; 1 when none is
 #   vgs_tui_close_prompt CODE [MARKER]
 #                                    `● Done!` for 0, `● Failed (exit code CODE)!`
@@ -236,6 +244,34 @@ vgs_tui_log() { # FILE [ARG...]
   exec {fd}>&-
   wait "$!" || :
   exit "$status"
+}
+
+# FILE's directory is made when absent. A FILE that cannot be opened is
+# refused before COMMAND runs.
+vgs_tui_logged() { # FILE COMMAND [ARG...]
+  local file="${1:-}"
+  [[ -n $file && $# -ge 2 ]] || _vgs_tui_refuse 2 "logged=missing" || return
+  shift
+  { mkdir -p -- "$(dirname -- "$file")" && : >>"$file"; } 2>/dev/null ||
+    _vgs_tui_refuse 1 "logged=$file reason=open-failed" || return
+  "$@" 2>>"$file"
+}
+
+vgs_tui_failed() { # FILE LINE...
+  local file="$1" line
+  shift
+  for line; do vgs_tui_error "$line"; done
+  vgs_tui_error "The details are in ${file/#"$HOME"/\~}."
+}
+
+# stty prints 0 columns for a terminal nobody gave a size, such as a
+# pseudo-terminal a test opens.
+vgs_tui_columns() {
+  local size
+  size="$(stty size </dev/tty 2>/dev/null)" || size=""
+  size="${size##* }"
+  [[ $size =~ ^[123456789][0123456789]*$ ]] || size=80
+  printf '%s\n' "$size"
 }
 
 # The presenter's closing prompt, which a `plain` script that fails calls

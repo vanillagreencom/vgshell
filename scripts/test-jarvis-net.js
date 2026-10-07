@@ -120,23 +120,13 @@ world(async () => {
     for (const name of ["PATH", "HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME",
         "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]) childEnv[name] = process.env[name];
     const { Secrets, ownReference } = require("../shell/plugins/vgs.jarvis/backend/Secrets.js");
-    function storedLocalKey(folder = path.join(tree, "shell/plugins/vgs.jarvis")) {
+    // A key stored under the numeric origin a localhost URL resolves to.
+    function storedLocalKey() {
         const entered = first.replace("127.0.0.1", "localhost");
-        const added = cp.spawnSync("python3", [path.join(tree, "scripts/fixtures/jarvis/key-tui.py"),
-            path.join(tree, "shell/plugins/vgs.jarvis/tui/add-key.sh"), path.join(tree, "bin/lib/tui.sh"),
-            folder, "--origin", entered], { env: childEnv, encoding: "utf8", timeout: 15000 });
-        assert.equal(added.error, undefined);
-        assert.equal(added.status, 0, added.stdout + added.stderr);
-        assert.match(added.stdout, /jarvis-keys: stored=libsecret/);
-        assert.equal((added.stdout + added.stderr).includes("test-key-must-stay-private"), false);
         const store = new Secrets(path.join(childEnv.XDG_STATE_HOME, "vgshell/jarvis"), childEnv);
-        const reference = store.references().find(value => value.provider === "fixture" && value.account === "test"
-            && value.origin === first);
-        assert.ok(reference, "real Add key must store the selected numeric origin");
-        assert.equal(reference.attributes.origin, first);
-        const calls = fs.readFileSync(path.join(childEnv.XDG_STATE_HOME, "secret-calls"), "utf8").trim().split("\n").map(JSON.parse);
-        const receipt = calls.findLast(value => value.argv[0] === "store");
-        assert.equal(receipt.argv[receipt.argv.indexOf("origin") + 1], first);
+        const reference = ownReference("fixture", "test", Net.endpoint(entered).origin);
+        assert.equal(reference.origin, first);
+        store.remember(reference);
         return { store, reference, entered };
     }
     async function closeOutcome(net, policy, route, code, wasClean) {
@@ -370,16 +360,6 @@ world(async () => {
             async (net, policy) => {
                 for (const value of malformedCredentials) await safeHeaderError(net, policy, value);
             });
-        await mutant(path.join(tree, "shell/plugins/vgs.jarvis/backend/keys.js"), "stored-origin",
-            "Net.endpoint(origin).origin", "origin", async (_api, folder) => {
-                // The real CLI expects backend/ beside its snapshot's script.
-                const target = path.join(folder, "tui-plugin", "backend");
-                fs.mkdirSync(target, { recursive: true });
-                for (const source of ["Secrets.js", "net.js", "keys.js"])
-                    fs.copyFileSync(path.join(folder, source), path.join(target, source));
-                storedLocalKey(path.dirname(target));
-            }, "Secrets.js");
-        controls++;
         await control("key-origin", 'typeof origin !== "string" || origin !== target.origin', "false", refuseKey);
         for (const [name, needle, bad] of [
             ["key-header", '!["authorization", "x-api-key", "xi-api-key"].includes(key.header)', { ...key, header: "host" }],
