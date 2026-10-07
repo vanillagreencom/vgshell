@@ -1194,10 +1194,9 @@ const catalogIndex = themeJudge.acceptCatalogIndex(tokens, fs.readFileSync(path.
 assert.equal(catalogIndex.ok, true);
 assert.ok(catalogIndex.entries.some(entry => entry.name === "catppuccin-latte"));
 assert.ok(catalogIndex.entries.some(entry => entry.name === "last-horizon"));
-function verifyStatusAppearance(source) {
+function verifyStatusAppearance(source, layer = load(layerFile)) {
     const bindings = [...source.matchAll(/^    readonly property var themeAppearance: (\(\{[\s\S]*?^    \}\))/gm)];
     assert.equal(bindings.length, 1);
-    const layer = load(layerFile);
     for (const entry of catalogIndex.entries) {
         const result = themeJudge.accept(tokens, fs.readFileSync(path.join(catalog, entry.name, "theme.json"), "utf8"));
         assert.equal(result.ok, true);
@@ -1209,6 +1208,7 @@ function verifyStatusAppearance(source) {
         });
         const appearance = vm.runInNewContext(bindings[0][1], { Theme: published });
         const lines = layer.borderLines(appearance, entry.name).join("\n");
+        assert.match(lines, /^\s+gradients = true,$/m);
         const fills = [...lines.matchAll(/^\s+locked_active = "rgba\(([0-9a-f]{8})\)",$/gm)];
         const captions = [...lines.matchAll(/^\s+text_color_locked_active = "rgba\(([0-9a-f]{8})\)",$/gm)];
         assert.equal(fills.length, 1);
@@ -1469,6 +1469,13 @@ try {
     fs.symlinkSync(layerFile, path.join(temp, "shell", "Core", "HyprlandLayer.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "MonitorLogic.js"), path.join(temp, "shell", "Core", "MonitorLogic.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "Pads.js"), path.join(temp, "shell", "Core", "Pads.js"));
+    const fillSource = fs.readFileSync(layerFile, "utf8");
+    const fillNeedle = "    tree.group.groupbar.gradients = true;\n";
+    assert.equal(fillSource.split(fillNeedle).length, 2);
+    const unfilledFile = path.join(temp, "shell", "Core", "unfilled-HyprlandLayer.js");
+    fs.writeFileSync(unfilledFile, fillSource.replace(fillNeedle, ""));
+    const unfilledLayer = load(unfilledFile);
+    assert.throws(() => verifyStatusAppearance(appearanceSource, unfilledLayer), { code: "ERR_ASSERTION" });
     CONTROLS.forEach(([file, label, needle, replacement], index) => {
         const source = fs.readFileSync(file, "utf8");
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once in ${path.basename(file)}`);

@@ -315,6 +315,9 @@ function borderLines(theme, themeName) {
         }
         node[path[path.length - 1]] = hyprColour(row[1], theme.colours[row[1]]);
     });
+    // Hyprland v0.56.2 draws the caption fill only with groupbar gradients:
+    // CHyprGroupBarDecoration.cpp, draw(). On-fill text needs that fill.
+    tree.group.groupbar.gradients = true;
     tree.general.border_size = theme.hyprland.border.size;
     tree.decoration = { shadow: { color: hyprColour("hyprland.shadow.color", theme.hyprland.shadow.color) } };
     return ["-- Theme " + commentText(themeName) + ": window, group and group bar borders.", "hl.config({"]
