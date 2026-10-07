@@ -151,10 +151,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         void owner.closed.then(({ error }) => {
             if (closed || daemonSpeech !== owner) return;
             daemonSpeech = null;
-            // Only the child's setup refusal revokes admission. An own-child
-            // fault, including during loading capture, reloads on the next
-            // permitted request after this child is reaped.
-            speechState = ["not-ready", "runtime-not-ready"].includes(error.code)
+            // A startup refusal revokes admission. An own-child fault
+            // reloads on the next permitted request after the child is reaped.
+            speechState = error.kind === "refused"
                 ? { kind: "refused", error, publication: row.publication } : { kind: "unloaded" };
             configured(configuration());
         });

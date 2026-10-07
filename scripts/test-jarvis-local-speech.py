@@ -19,6 +19,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 PLUGIN = REPO / "shell/plugins/vgs.jarvis"
@@ -460,6 +462,55 @@ def readiness_cases(m):
                 raise AssertionError("the sidecar started while setup ran")
 
 
+def admission_case(m):
+    """The sidecar asks the real admission owner before any vendor model load."""
+    with tempfile.TemporaryDirectory() as name:
+        state = Path(name)
+        (state / "models").mkdir()
+        (state / "local-ready.json").write_text(json.dumps({"tier": "small", "memory": {"ram": 2048, "gpu": None}}))
+        judge = m.module("admission_measure", PLUGIN / "measure-local")
+        loaded = []
+        def locked():
+            with (state / "local-load.lock").open("a") as other:
+                try:
+                    fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    return
+                raise AssertionError("memory reading or model load ran without the load lock")
+        def reading(resource):
+            locked()
+            return 1024
+        judge.available = reading
+        def model(artifact, *args):
+            locked()
+            loaded.append(artifact["id"])
+            return object()
+        judge.load = model
+        setup = Setup("ok")
+        setup.measurement = lambda: judge
+        setup.selected = lambda value, tier: ([a for a in value["artifacts"]
+            if a["id"] in value["tiers"][tier]["artifacts"]], value["tiers"][tier]["provider"])
+        with patch.dict(sys.modules, {"numpy": SimpleNamespace(), "sherpa_onnx": SimpleNamespace()}):
+            try:
+                m.load(setup, state, state)
+            except m.NotReady as error:
+                if str(error) != "memory-insufficient resource=ram need=2048 free=1024" or loaded:
+                    raise AssertionError(f"memory refusal loaded models: {error} {loaded}")
+            else:
+                raise AssertionError("the sidecar loaded despite insufficient free memory")
+            def enough(resource):
+                locked()
+                return 2048
+            judge.available = enough
+            value = m.load(setup, state, state)
+            if not isinstance(value, m.Speech) or not {"moonshine", "piper", "silero"}.issubset(loaded):
+                raise AssertionError(f"admitted model roles missing: {loaded}")
+        with judge.loading(state / "models"):
+            # The returned Speech has released the load lock for the next
+            # load. Setup's separate shared lock covers its whole lifetime.
+            pass
+
+
 def roles_case(m):
     value = json.loads((PLUGIN / "artifacts.json").read_text())
     by_id = {a["id"]: a for a in value["artifacts"]}
@@ -549,6 +600,8 @@ CONTROLS = [
     ("setup lock", "fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)", "fcntl.flock(lock, fcntl.LOCK_UN)",
      readiness_cases),
     ("one role each", "if role in found:", "if False:", roles_case),
+    ("memory admission", 'judge.admit(ready["memory"], provider)', 'False and judge.admit(ready["memory"], provider)', admission_case),
+    ("load serialization", 'with judge.loading(data / "models"):', 'if True:', admission_case),
 ]
 
 
@@ -614,6 +667,9 @@ class LocalSpeech(unittest.TestCase):
         m = load()
         readiness_cases(m)
         roles_case(m)
+
+    def test_admission(self):
+        admission_case(load())
 
     def test_entry_point(self):
         main_cases(SOURCE.read_text())

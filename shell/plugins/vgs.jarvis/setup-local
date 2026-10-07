@@ -75,9 +75,9 @@ class ChildFailed(SystemExit):
     """A child's nonzero exit, apart from a cancel's; the process exits with it."""
 
 
-def command(argv, data, offline=False, stderr=None):
+def command(argv, data, offline=False, stderr=None, stdout=None):
     """Preserve every child failure, including unavailable evidence."""
-    result = subprocess.run(argv, env=environment(data, offline), stderr=stderr, check=False)
+    result = subprocess.run(argv, env=environment(data, offline), stderr=stderr, stdout=stdout, check=False)
     if result.returncode != 0:
         raise ChildFailed(result.returncode if result.returncode > 0 else 1)
 
@@ -254,10 +254,10 @@ def install(judge, state, data, tier):
             print("jarvis-setup: step=probe", flush=True)
             # The owner reads the plain line; the engine's own lines go to the log.
             log = state / "local-setup.log"
-            with log.open("w") as output:
+            with log.open("w") as output, tempfile.TemporaryFile(mode="w+") as reading:
                 try:
                     command(["unshare", "-rn", "--", str(python), "-I", str(HERE / "setup-local"),
-                             "probe", tier], data, offline=True, stderr=output)
+                             "probe", tier], data, offline=True, stderr=output, stdout=reading)
                 except ChildFailed:
                     # Only a CUDA tier has a tier that runs on any computer to fall back to.
                     advice = " Run setup again and choose a tier that runs on any computer." if provider == "cuda" else ""
@@ -265,9 +265,12 @@ def install(judge, state, data, tier):
                           f"Local voice did not pass its test on this computer. The details are in {log}." + advice,
                           file=sys.stderr)
                     raise
+                reading.seek(0)
+                need = judge.memory_need(json.load(reading), value, tier)
             judge.verify(value, models, artifacts)
             if ready != identity(judge, tier, data):
                 raise ValueError("runtime=changed-during-probe")
+            ready["memory"] = need
             with tempfile.NamedTemporaryFile(mode="w", dir=state, prefix=".local-ready-", delete=False) as output:
                 temporary = Path(output.name)
                 try:
@@ -305,7 +308,8 @@ def status(judge, state, data):
             tier = saved["tier"]
             value = judge.manifest(HERE / "artifacts.json")
             artifacts, _ = selected(value, tier)
-            if saved != identity(judge, tier, data):
+            judge.validate_memory(saved["memory"], value["tiers"][tier]["provider"])
+            if {key: item for key, item in saved.items() if key != "memory"} != identity(judge, tier, data):
                 raise ValueError("marker=stale")
             judge.clip(value)
             judge.verify(value, data / "models", artifacts)

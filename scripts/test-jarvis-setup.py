@@ -223,7 +223,8 @@ class Setup(unittest.TestCase):
                 original = path.read_bytes()
                 path.write_bytes(original + b"\n# changed\n")
                 self.not_ready()
-                self.mutant("if saved != identity(judge, tier, data):", "if False and saved != identity(judge, tier, data):")
+                needle = 'if {key: item for key, item in saved.items() if key != "memory"} != identity(judge, tier, data):'
+                self.mutant(needle, 'if False and ' + needle[3:])
                 self.ready()
                 path.write_bytes(original)
                 (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
@@ -239,6 +240,39 @@ class Setup(unittest.TestCase):
         # The saved pre-probe identity still makes status refuse.
         self.assertTrue((self.state / "local-ready.json").exists())
         self.not_ready()
+
+    def test_memory_publication_and_controls(self):
+        self.install()
+        marker = self.state / "local-ready.json"
+        saved = json.loads(marker.read_text())
+        self.assertEqual(saved["memory"], {"ram": 4096, "gpu": None})
+        for need in (None, {"ram": 0, "gpu": None}, {"ram": True, "gpu": None}):
+            with self.subTest(need=need):
+                marker.write_text(json.dumps(dict(saved, memory=need)))
+                self.not_ready()
+        marker.write_text(json.dumps(dict(saved, memory={"ram": 0, "gpu": None})))
+        self.mutant('judge.validate_memory(saved["memory"], value["tiers"][tier]["provider"])',
+                    'False and judge.validate_memory(saved["memory"], value["tiers"][tier]["provider"])')
+        setup = self.load_module()
+        current = setup.identity(setup.measurement(), "small", self.data)
+        marker.write_text(json.dumps(dict(current, memory={"ram": 0, "gpu": None})))
+        self.ready()
+        (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
+        self.config["probe_record"] = {"scope": "wrong", "provider_requested": "cpu",
+            "artifact_ids": self.spec["tiers"]["small"]["artifacts"], "peak_rss_bytes": 4096,
+            "gpu_peak_bytes": None}
+        self.write_config()
+        result = self.install(1)
+        self.assertIn("memory-measurement=mismatched", result.stderr)
+        self.assertFalse(marker.exists())
+        self.assertFalse((self.data / "venv").exists())
+        path = self.plugin / "measure-local"
+        source = path.read_text()
+        needle = 'if (record.get("scope") != tier or record.get("provider_requested") != row["provider"]'
+        self.assertEqual(source.count(needle), 1)
+        path.write_text(source.replace(needle, 'if False and (record.get("scope") != tier or record.get("provider_requested") != row["provider"]'))
+        self.install()
+        self.ready()
 
     def test_serialization_and_control(self):
         self.install()

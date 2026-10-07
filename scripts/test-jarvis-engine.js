@@ -229,12 +229,14 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
             assert.equal(server.requests.length, before, "deadline does not replay an utterance");
             return;
         }
-        if (scenario === "not-ready") {
+        if (["not-ready", "memory-refused", "memory-unavailable"].includes(scenario)) {
+            const expected = { "not-ready": "speech=local-runtime-not-ready",
+                "memory-refused": "speech=local-memory-insufficient", "memory-unavailable": "speech=local-memory-unavailable" }[scenario];
             await until(() => !alive(starts()[0].pid), "admission refusal closes child");
-            assert.equal(w.configure(w.s().settings).cause, "speech=local-runtime-not-ready");
+            assert.equal(w.configure(w.s().settings).cause, expected);
             assert.equal(starts().length, 1);
             fs.writeFileSync(path.join(local, "scenario.json"), JSON.stringify({ ...scripts, start: "ready" }));
-            assert.equal(w.configure(w.s().settings).cause, "speech=local-runtime-not-ready");
+            assert.equal(w.configure(w.s().settings).cause, expected);
             assert.equal(w.s().gate.kind, "down");
             assert.equal(starts().length, 1, "ordinary hello does not retry an unpublished runtime");
             // setup-local publishes with rename after its inference probe.
@@ -1102,6 +1104,13 @@ world(async () => {
         await daemonSpeech(server);
         await daemonSpeech(server, [], "ready", "brain-failed");
         await daemonSpeech(server, [], "not-ready");
+        await daemonSpeech(server, [], "memory-refused");
+        await daemonSpeech(server, [], "memory-unavailable");
+        await assert.rejects(() => daemonSpeech(server,
+            [['error.kind === "refused"', 'false']], "memory-refused"), assert.AssertionError,
+            "a startup memory refusal cannot restore readiness");
+        console.log("control=memory refusal admitted detected");
+        controls++;
         await daemonSpeech(server, [], "held");
         for (const ending of ["ready", "stop", "mute", "lock", "lease", "fault", "locked", "muted", "missing", "brain", "device"])
             await loadingTalk(server, ending);
@@ -1121,8 +1130,8 @@ world(async () => {
         for (const [name, edits] of [
             ["ready before model load", [['speechState.kind === "new" || published) startSpeech(plan.speech);', 'false) startSpeech(plan.speech);']]],
             ["conversation unloads local speech", [['if (c.plan.speech.lifetime !== "daemon") c.speech.close();', 'c.speech.close();']]],
-            ["faulted child kept", [["daemonSpeech = null;\n            // Only", "// Only"]]],
-            ["admission refusal admitted", [['{ kind: "refused", error, publication: row.publication };', '{ kind: "unloaded" };']]],
+            ["faulted child kept", [["daemonSpeech = null;\n            // A startup", "// A startup"]]],
+            ["admission refusal admitted", [['{ kind: "refused", error, publication: row.publication }', '{ kind: "unloaded" }']]],
             ["ordinary hello retries refusal", [['speechState.publication !== plan.speech.publication', 'true']]],
             ["setup publication ignored", [['speechState.publication !== plan.speech.publication', 'false']]]
         ]) {

@@ -67,6 +67,14 @@ function verifyReadiness(gate) {
         }
     }
     const lines = BRAIN_CAUSES.map(cause => plain(gate.readiness({ kind: "answered", causes: [cause] })).setupModel.lines[0]);
+    for (const cause of ["speech=local-memory-insufficient", "speech=local-memory-unavailable"]) {
+        const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
+        assert.deepEqual([got.setup.tone, got.setupVoice.tone, got.setupVoice.action, got.setupModel.tone],
+            ["warning", "warning", false, "ok"], "memory refuses capture without reinstall action");
+        assert.equal(got.setupVoice.lines.length, 1);
+        assert.equal(typeof got.setupVoice.lines[0], "string");
+        assert.equal(got.setupVoice.lines[0].includes("="), false);
+    }
     assert.equal(new Set(lines).size, BRAIN_CAUSES.length, "each brain cause says its own line");
     // Before the daemon answers nothing reads ready or to do.
     const checking = plain(gate.readiness({ kind: "checking" }));
@@ -139,6 +147,7 @@ verify(load(file));
 // Each control removes one rule from a copy and keeps the text around it:
 // [label, needle, replacement].
 const CONTROLS = [
+    ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
     ["loading is initial checking", "out.setupVoice = LOADING;", "out.setupVoice = CHECKING;"],
     ["loading offers setup", 'if (cause === "speech=local-loading") {', 'if (false) {'],
     ["a missing command does not withhold setup", "return missing.indexOf(command) !== -1; });", "return false; });"],

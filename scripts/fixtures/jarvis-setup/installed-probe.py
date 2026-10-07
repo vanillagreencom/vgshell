@@ -35,6 +35,9 @@ def inference(value, artifacts, models, provider, seconds, scope):
     (data / "probed").write_text(tier)
     (data / "probe-observed.json").write_text(json.dumps({
         "models": str(models), "state": str(state), "data": str(data)}))
+    print(json.dumps({"scope": scope, "provider_requested": provider,
+        "artifact_ids": [a["id"] for a in artifacts], "peak_rss_bytes": 4096,
+        "gpu_peak_bytes": 2048 if provider == "cuda" else None}))
 
 
 judge.run = inference

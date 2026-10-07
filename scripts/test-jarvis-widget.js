@@ -153,6 +153,12 @@ const REFUSALS = [
 ];
 
 function verify(view) {
+    for (const cause of ["speech=local-memory-insufficient", "speech=local-memory-unavailable"]) {
+        const status = SetupGate.readiness({ kind: "answered", causes: [cause] });
+        const got = view.view(up(down("unconfigured"), status));
+        assert.deepEqual([got.state, got.icon, got.tone], ["off", "power-off", "neutral"]);
+        assert.equal(got.tooltip, status.setupVoice.lines.join(" "), "the widget carries the published recovery explanation");
+    }
     const loading = SetupGate.readiness({ kind: "answered", causes: ["speech=local-loading"] });
     const checking = SetupGate.readiness({ kind: "checking" });
     for (const [label, values, want] of [
@@ -219,6 +225,7 @@ verify(load(path.join(dir, "WidgetView.js")));
 // Each control removes one rule from a copy of the view and keeps the text
 // around it: [label, needle, replacement].
 const CONTROLS = [
+    ["memory explanation discarded", 'return step.lines.join(" ");', 'return GATE_TEXT.unconfigured;'],
     ["checking setup reads off", 'state.gate.reason === "unconfigured" && setupChecking(values)', 'state.gate.reason === "unconfigured" && false'],
     ["checking hides an offered setup action", 'step.action !== false', 'false'],
     ["missing requirements read checking", '(step.tone !== "info" && step.tone !== "ok")', 'false'],

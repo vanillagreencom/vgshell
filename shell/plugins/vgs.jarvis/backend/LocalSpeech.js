@@ -38,7 +38,7 @@ const SHAPES = Object.freeze({
     spoken: [["id", "rate", "type"], false], failed: [["cause", "type"], false]
 });
 
-function failure(cause) { return Object.assign(new Error("jarvis: speech=local-" + cause), { code: cause }); }
+function failure(cause, kind = "fault") { return Object.assign(new Error("jarvis: speech=local-" + cause), { code: cause, kind }); }
 function unconfigured(cause, detail) { return detail === undefined ? { kind: "unconfigured", cause } : { kind: "unconfigured", cause, detail }; }
 function gcd(a, b) { return b === 0 ? a : gcd(b, a % b); }
 
@@ -210,7 +210,10 @@ function open(state, data, clock = CLOCK, changed = () => {}) {
         case "failed": {
             if (typeof header.cause !== "string" || !CAUSE.test(header.cause) || header.cause.length > 120)
                 throw new Error("cause=invalid");
-            if (!Object.hasOwn(header, "id")) { end(failure(header.cause), false); return; }
+            if (!Object.hasOwn(header, "id")) {
+                end(failure(header.cause, life.kind === "starting" ? "refused" : "fault"), false);
+                return;
+            }
             request(header, pending.get(header.id)?.kind)?.settle({ kind: "failed", error: failure(header.cause) });
             return;
         }
@@ -254,7 +257,7 @@ function open(state, data, clock = CLOCK, changed = () => {}) {
     child.stdin.on("error", error => end(failure("write code=" + error.code), true));
     child.on("error", error => end(failure("spawn code=" + error.code), true));
     child.on("close", (code, signal) => {
-        end(code === 77 ? failure("not-ready") : failure("exit code=" + code + " signal=" + signal), true);
+        end(code === 77 ? failure("not-ready", "refused") : failure("exit code=" + code + " signal=" + signal), true);
         resolveClosed({ code, signal, error: life.error });
     });
 

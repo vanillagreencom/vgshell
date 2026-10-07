@@ -11,7 +11,9 @@ device-wide use. A CUDA request without a process allocation is not evidence.
 Cold means fresh model objects, not an evicted filesystem cache.
 """
 import argparse
+from contextlib import contextmanager
 from datetime import datetime, timezone
+import fcntl
 import gc
 import hashlib
 import importlib.metadata
@@ -146,6 +148,81 @@ def rss():
         if line.startswith("VmRSS:"):
             return int(line.split()[1]) * 1024
     raise Unavailable("rss=not-readable")
+
+
+@contextmanager
+def loading(root):
+    """Serialize VGS model loads for the same installed model directory.
+
+    The lock stays outside models, which setup replaces. Never unlink it:
+    another opener must reach the same inode while a load holds it.
+    """
+    with (root.resolve().parent / "local-load.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def memory_need(record, value, tier):
+    """Take memory evidence only from the selected installed runtime's probe."""
+    row = value["tiers"][tier]
+    if (record.get("scope") != tier or record.get("provider_requested") != row["provider"]
+            or record.get("artifact_ids") != row["artifacts"]):
+        raise ValueError("memory-measurement=mismatched")
+    need = {"ram": record.get("peak_rss_bytes"), "gpu": record.get("gpu_peak_bytes")}
+    validate_memory(need, row["provider"])
+    return need
+
+
+def validate_memory(need, provider):
+    """Setup publishes byte counts, never a missing reading or a guessed need."""
+    if (not isinstance(need, dict) or set(need) != {"ram", "gpu"}
+            or type(need["ram"]) is not int or need["ram"] <= 0
+            or (provider == "cpu" and need["gpu"] is not None)
+            or (provider == "cuda" and (type(need["gpu"]) is not int or need["gpu"] <= 0))):
+        raise ValueError("memory-measurement=invalid")
+
+
+def available(resource):
+    """Read allocatable RAM or CUDA memory without opening an audio device."""
+    try:
+        if resource == "ram":
+            # Linux proc.rst defines MemAvailable as memory for a new
+            # application without swapping, including reclaimable pages.
+            lines = Path("/proc/meminfo").read_text().splitlines()
+            readings = [line.split()[1:] for line in lines if line.startswith("MemAvailable:")]
+            if len(readings) != 1 or len(readings[0]) != 2 or readings[0][1] != "kB":
+                raise ValueError("meminfo")
+            free = int(readings[0][0]) * 1024
+        else:
+            # NVIDIA documents --query-gpu memory.free in MiB. Take the
+            # least free device: the runtime chooses its CUDA device, not VGS.
+            child = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+                env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LC_ALL": "C"},
+                capture_output=True, text=True, timeout=10, check=True)
+            readings = [int(line.strip()) * 1024 * 1024 for line in child.stdout.splitlines()]
+            if not readings or any(value < 0 for value in readings):
+                raise ValueError("gpu-memory")
+            free = min(readings)
+        if free < 0:
+            raise ValueError("negative-memory")
+        return free
+    except (OSError, ValueError, subprocess.SubprocessError):
+        raise Unavailable(f"memory-unavailable resource={resource}") from None
+
+
+def admit(need, provider):
+    """Refuse before a model load if its measured peak will not fit.
+
+    The caller holds loading's lock. Other programs do not share that lock;
+    their current allocations reduce available memory, but a later allocation
+    cannot be reserved or prevented by this check.
+    """
+    validate_memory(need, provider)
+    for resource in ("ram", "gpu") if provider == "cuda" else ("ram",):
+        free = available(resource)
+        if need[resource] > free:
+            raise Unavailable(f"memory-insufficient resource={resource} need={need[resource]} free={free}")
 
 
 class GpuSamples:
@@ -371,6 +448,12 @@ def speed(artifacts, warm, input_seconds, elapsed):
 
 
 def run(value, artifacts, root, provider, seconds, scope):
+    """Measure under the same load lock that the installed sidecar holds."""
+    with loading(root):
+        measure(value, artifacts, root, provider, seconds, scope)
+
+
+def measure(value, artifacts, root, provider, seconds, scope):
     """Measure one artifact or a concurrently resident tier as one lifetime."""
     if {name for _, name in socket.if_nameindex()} - {"lo"}:
         raise ValueError("isolation=network-namespace-required")

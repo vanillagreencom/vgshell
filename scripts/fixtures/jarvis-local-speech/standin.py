@@ -57,8 +57,11 @@ if start == "held":
     # the test permits ready. No host clock determines the transition.
     with (data / "ready-gate").open("rb") as gate:
         gate.read(1)
-if start == "not-ready":
-    send({"type": "failed", "cause": "runtime-not-ready"})
+if start in ("not-ready", "memory-refused", "memory-unavailable"):
+    cause = {"not-ready": "runtime-not-ready",
+        "memory-refused": "memory-insufficient resource=ram need=2048 free=1024",
+        "memory-unavailable": "memory-unavailable resource=ram"}[start]
+    send({"type": "failed", "cause": cause})
     sys.exit(77)
 if start == "exit":
     print("Traceback: stand-in failed to load", file=sys.stderr)

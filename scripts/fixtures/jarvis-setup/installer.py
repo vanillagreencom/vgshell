@@ -65,6 +65,11 @@ elif name == "python":
             time.sleep(0.01)
     # A failing engine's own lines, which the owner must not see.
     sys.stderr.write(config.get("probe_stderr", ""))
+    value = json.loads((Path(args[1]).parent / "artifacts.json").read_text())
+    tier = value["tiers"][config["tier"]]
+    print(json.dumps(config.get("probe_record", {"scope": config["tier"],
+        "provider_requested": tier["provider"], "artifact_ids": tier["artifacts"],
+        "peak_rss_bytes": 4096, "gpu_peak_bytes": 2048 if tier["provider"] == "cuda" else None})))
     sys.exit(config.get("probe_exit", 0))
 elif name == "nvidia-smi":
     # Stands in for the declared GPU requirement; no host GPU is read.

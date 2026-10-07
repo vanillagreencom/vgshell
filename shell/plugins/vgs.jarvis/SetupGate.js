@@ -46,6 +46,13 @@ var LOADING = { tone: "info", text: "Loading", action: false };
 // judge refuses an action key on an entry without one.
 var CHECKING_SUMMARY = { tone: "info", text: "Checking" };
 var LOADING_SUMMARY = { tone: "info", text: "Loading" };
+// The installed voice stays verified. Reinstalling it cannot free memory.
+var MEMORY = {
+    "speech=local-memory-insufficient": { tone: "warning", text: "Not enough memory",
+        lines: ["Local voice needs more free memory. Close other apps, then turn Jarvis off and on again in Settings > Jarvis."], action: false },
+    "speech=local-memory-unavailable": { tone: "warning", text: "Memory check failed",
+        lines: ["Jarvis could not check free memory. Turn Jarvis off and on again in Settings > Jarvis."], action: false }
+};
 // A required step once the daemon stopped: no check runs, none is offered.
 var UNCHECKED = { tone: "warning", text: "Not checked", action: false };
 
@@ -69,6 +76,10 @@ function readiness(answer) {
             if (cause === "speech=local-loading") {
                 out.setupVoice = LOADING;
                 if (answer.causes.length === 1) out.setup = LOADING_SUMMARY;
+                return;
+            }
+            if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {
+                out.setupVoice = MEMORY[cause];
                 return;
             }
             var line = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];

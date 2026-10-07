@@ -399,13 +399,19 @@ def load(setup, state, data):
     judge = setup.measurement()
     if setup.status(judge, state, data)["tone"] != "ok":
         raise NotReady("runtime-not-ready")
-    tier = json.loads((state / "local-ready.json").read_text())["tier"]
+    ready = json.loads((state / "local-ready.json").read_text())
+    tier = ready["tier"]
     value = judge.manifest(setup.HERE / "artifacts.json")
     artifacts, provider = setup.selected(value, tier)
     chosen = roles(artifacts, tier)
-    import numpy as np
-    import sherpa_onnx as sherpa
-    models = {role: judge.load(artifact, data / "models", provider, np, sherpa) for role, artifact in chosen.items()}
+    with judge.loading(data / "models"):
+        try:
+            judge.admit(ready["memory"], provider)
+        except judge.Unavailable as error:
+            raise NotReady(str(error)) from None
+        import numpy as np
+        import sherpa_onnx as sherpa
+        models = {role: judge.load(artifact, data / "models", provider, np, sherpa) for role, artifact in chosen.items()}
     def turn(samples):
         return judge.infer(chosen["turn"], models["turn"], np.frombuffer(samples, dtype=np.float32), "", value, np)["probability"]
     return Speech(models["stt"], chosen["stt"].get("maxInputSamples"), models["vad"], models["tts"],

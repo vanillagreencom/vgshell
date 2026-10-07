@@ -20,6 +20,7 @@ import io
 import contextlib
 import wave
 import unittest
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 SOURCE = REPO / "shell/plugins/vgs.jarvis/measure-local"
@@ -423,6 +424,129 @@ class LocalContract(unittest.TestCase):
         self.assertEqual(text.count(needle), 1)
         self.program.write_text(text.replace(needle, "if True:"))
         self.assertNotEqual(read(self.load_module()), 32 * 1024 * 1024)
+
+    def test_memory_readings(self):
+        from types import SimpleNamespace
+        module = self.load_module()
+        for text, expected in [("MemFree: 99 kB\nMemAvailable: 7 kB\n", 7168),
+                               ("MemAvailable: 0 kB\n", 0), ("MemFree: 7 kB\n", None),
+                               ("MemAvailable: -1 kB\n", None), ("MemAvailable: 1 MB\n", None),
+                               ("MemAvailable: 1 kB\nMemAvailable: 2 kB\n", None)]:
+            with self.subTest(text=text), patch.object(module.Path, "read_text", return_value=text):
+                if expected is None:
+                    with self.assertRaisesRegex(module.Unavailable, "memory-unavailable resource=ram"):
+                        module.available("ram")
+                else:
+                    self.assertEqual(module.available("ram"), expected)
+        for text, expected in [("4\n2\n", 2097152), ("0\n", 0), ("", None),
+                               ("N/A\n", None), ("-1\n", None)]:
+            with self.subTest(text=text), patch.object(module.subprocess, "run",
+                    return_value=SimpleNamespace(stdout=text)) as call:
+                if expected is None:
+                    with self.assertRaisesRegex(module.Unavailable, "memory-unavailable resource=gpu"):
+                        module.available("gpu")
+                else:
+                    self.assertEqual(module.available("gpu"), expected)
+                self.assertEqual(call.call_args.args[0],
+                    ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"])
+                self.assertEqual(set(call.call_args.kwargs["env"]), {"PATH", "LC_ALL"})
+        for resource, source in [("ram", module.Path), ("gpu", module.subprocess)]:
+            name = "read_text" if resource == "ram" else "run"
+            with patch.object(source, name, side_effect=OSError("synthetic-private-detail")):
+                with self.assertRaisesRegex(module.Unavailable, "^memory-unavailable resource=" + resource + "$"):
+                    module.available(resource)
+        text = SOURCE.read_text()
+        needle = "return free\n"
+        self.assertEqual(text.count(needle), 1)
+        self.program.write_text(text.replace(needle, "return free + 1\n"))
+        module = self.load_module()
+        with patch.object(module.Path, "read_text", return_value="MemAvailable: 7 kB\n"):
+            self.assertNotEqual(module.available("ram"), 7168, "the memory-reader control must turn red")
+
+    def test_memory_admission_and_control(self):
+        for provider, need, free, refused in [
+                ("cpu", {"ram": 2048, "gpu": None}, {"ram": 2048}, None),
+                ("cpu", {"ram": 2048, "gpu": None}, {"ram": 2047}, "ram"),
+                ("cuda", {"ram": 2048, "gpu": 4096}, {"ram": 2048, "gpu": 4096}, None),
+                ("cuda", {"ram": 2048, "gpu": 4096}, {"ram": 2048, "gpu": 4095}, "gpu")]:
+            with self.subTest(provider=provider, free=free):
+                module = self.load_module()
+                module.available = free.__getitem__
+                if refused:
+                    with self.assertRaisesRegex(module.Unavailable, "^memory-insufficient resource=" + refused):
+                        module.admit(need, provider)
+                else:
+                    module.admit(need, provider)
+        self.mutant("if need[resource] > free:")
+        module = self.load_module()
+        module.available = lambda resource: 0
+        module.admit({"ram": 2048, "gpu": 4096}, "cuda")
+
+    def test_memory_measurement_guard_control(self):
+        module = self.load_module()
+        for provider, need in [("cpu", {"ram": 1, "gpu": None}), ("cuda", {"ram": 1, "gpu": 2})]:
+            module.validate_memory(need, provider)
+        for provider, need in [("cpu", None), ("cpu", {}), ("cpu", {"ram": 0, "gpu": None}),
+                ("cpu", {"ram": True, "gpu": None}), ("cpu", {"ram": 1, "gpu": 1}),
+                ("cuda", {"ram": 1, "gpu": None}), ("cuda", {"ram": 1, "gpu": 0}),
+                ("cuda", {"ram": 1, "gpu": True})]:
+            with self.subTest(provider=provider, need=need):
+                with self.assertRaisesRegex(ValueError, "memory-measurement=invalid"):
+                    module.validate_memory(need, provider)
+        text = SOURCE.read_text()
+        needle = 'if (not isinstance(need, dict) or set(need) != {"ram", "gpu"}'
+        self.assertEqual(text.count(needle), 1)
+        self.program.write_text(text.replace(needle, 'if False and (not isinstance(need, dict) or set(need) != {"ram", "gpu"}'))
+        self.load_module().validate_memory({"ram": 0, "gpu": None}, "cpu")
+
+    def test_model_load_serialization_and_control(self):
+        import select
+        def check():
+            module = self.load_module()
+            program = '''import importlib.machinery,importlib.util,fcntl,sys
+from pathlib import Path
+loader=importlib.machinery.SourceFileLoader("measure",sys.argv[1])
+spec=importlib.util.spec_from_loader(loader.name,loader)
+m=importlib.util.module_from_spec(spec)
+loader.exec_module(m)
+original=fcntl.flock
+def observed(lock,flags):
+    try:
+        original(lock,flags|fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("blocked",flush=True)
+        original(lock,flags)
+m.fcntl.flock=observed
+with m.loading(Path(sys.argv[2])):
+    print("entered",flush=True)
+'''
+            with module.loading(self.models):
+                child = subprocess.Popen([sys.executable, "-I", "-c", program, str(self.program), str(self.models)],
+                    env={"PATH": os.environ["PATH"], "LC_ALL": "C"}, stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE, text=True)
+                try:
+                    self.assertTrue(select.select([child.stdout], [], [], 10)[0], "child did not report lock progress")
+                    first = child.stdout.readline().strip()
+                except BaseException:
+                    child.kill()
+                    child.communicate()
+                    raise
+            try:
+                out, err = child.communicate(timeout=10)
+            except BaseException:
+                child.kill()
+                child.communicate()
+                raise
+            self.assertEqual(child.returncode, 0, err)
+            self.assertEqual((first, out.strip()), ("blocked", "entered"))
+            self.assertTrue((self.models.parent / "local-load.lock").is_file())
+        check()
+        text = SOURCE.read_text()
+        needle = "fcntl.flock(lock, fcntl.LOCK_EX)"
+        self.assertEqual(text.count(needle), 1)
+        self.program.write_text(text.replace(needle, "False and " + needle))
+        with self.assertRaises(AssertionError):
+            check()
 
     def test_namespace_guard_control(self):
         from types import SimpleNamespace
