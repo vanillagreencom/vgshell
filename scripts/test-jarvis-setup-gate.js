@@ -71,8 +71,12 @@ function verifyReadiness(gate) {
     const checking = plain(gate.readiness({ kind: "checking" }));
     for (const key of ["setup", "setupVoice", "setupModel"])
         assert.deepEqual([checking[key].tone, checking[key].action], ["info", false], "checking: " + key);
+    // A stopped daemon runs no check: its steps claim none and offer none.
     const stopped = plain(gate.readiness({ kind: "stopped" }));
-    assert.deepEqual([Object.keys(stopped), stopped.setup.tone], [["setup"], "danger"], "a stopped daemon leaves the steps");
+    assert.deepEqual(Object.keys(stopped).sort(), ["setup", "setupModel", "setupVoice"], "stopped");
+    assert.equal(stopped.setup.tone, "danger", "stopped: the summary");
+    for (const key of ["setupVoice", "setupModel"])
+        assert.deepEqual([stopped[key].tone === checking[key].tone, stopped[key].action], [false, false], "stopped: " + key);
     assert.throws(() => gate.readiness({ kind: "answered", causes: ["voice=missing"] }), /^Error: jarvis-setup: cause=voice=missing/);
     // An optional step: done while its reader is ok, else optional with
     // its reader's action.
@@ -126,7 +130,10 @@ const CONTROLS = [
     ["causes leave the summary ready", 'setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
     ["checking reads done", 'return { setup: CHECKING, setupVoice: CHECKING, setupModel: CHECKING };', 'return { setup: CHECKING, setupVoice: DONE, setupModel: DONE };'],
     ["an optional step reads done when not ok", 'if (value.tone === "ok") return DONE;', "if (true) return DONE;"],
-    ["an optional step drops its action", "action: value.action === true };", "action: false };"]
+    ["an optional step drops its action", "action: value.action === true };", "action: false };"],
+    ["a stopped daemon's steps read checking", "setupVoice: UNCHECKED, setupModel: UNCHECKED };", "setupVoice: CHECKING, setupModel: CHECKING };"],
+    ["a cause naming no step is taken", 'if (!Object.prototype.hasOwnProperty.call(REQUIRED, step)) throw new Error("jarvis-setup: cause=" + cause + " names no step");', ""],
+    ["a required step reads as optional", 'if (!Object.prototype.hasOwnProperty.call(OPTIONAL, key)) throw new Error("jarvis-setup: step=" + key + " is not optional");', ""]
 ];
 
 const source = fs.readFileSync(file, "utf8");

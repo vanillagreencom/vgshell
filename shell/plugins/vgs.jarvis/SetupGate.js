@@ -41,18 +41,20 @@ var TODO = {
 var STEP_TODO = { speech: "Set up local voice.", brain: "The chosen AI model cannot be used. Add a key or sign in, then choose it below." };
 var DONE = { tone: "ok", text: "Done", action: false };
 var CHECKING = { tone: "info", text: "Checking", action: false };
+// A required step once the daemon stopped: no check runs, none is offered.
+var UNCHECKED = { tone: "warning", text: "Not checked", action: false };
 
 // The summary and required step values for ANSWER: { kind: "checking" }
 // while the daemon has not answered, { kind: "stopped" } once it stopped
 // for good, or { kind: "answered", causes } from its status, as { setup,
-// setupVoice, setupModel }; a stopped daemon leaves the steps unchanged, so
-// it has no step values.
+// setupVoice, setupModel }.
 function readiness(answer) {
     switch (answer.kind) {
     case "checking":
         return { setup: CHECKING, setupVoice: CHECKING, setupModel: CHECKING };
     case "stopped":
-        return { setup: { tone: "danger", text: "Not ready", lines: ["Jarvis stopped after a problem. Turn Jarvis off and on again."] } };
+        return { setup: { tone: "danger", text: "Not ready", lines: ["Jarvis stopped after a problem. Turn Jarvis off and on again."] },
+            setupVoice: UNCHECKED, setupModel: UNCHECKED };
     case "answered":
         var out = { setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" } : { tone: "warning", text: "Not ready" },
             setupVoice: DONE, setupModel: DONE };
