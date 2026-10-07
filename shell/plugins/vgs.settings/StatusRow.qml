@@ -6,7 +6,7 @@ import "Steps.js" as Steps
 
 // One Status row of a plugin's page, drawn from one entry of its manager
 // row's `status` (PluginLogic.statusRows) as StatusLines: the entry's label
-// beside its value, the manifest's hint and, while its step applies
+// beside its value, the entry's hint and, while its step applies
 // (Steps.js), its action. A presence
 // or a state draws as a Badge in the tone the entry carries, a state's
 // further lines each as a Badge of that tone under it; a text, a

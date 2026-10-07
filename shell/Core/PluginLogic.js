@@ -126,8 +126,9 @@ var STATUS_STATE_TONES = { ok: "success", info: "info", warning: "warning", dang
 // (D061): true when the entry's declared `action` applies to this value,
 // or the name of the one of the entry's declared `actions` that does.
 // `lines` is the further printable lines a state that names several things
-// draws under `text`, at most STATUS_LIST_MAX.
-var STATUS_STATE_KEYS = ["tone", "text", "lines", "action"];
+// draws under `text`, at most STATUS_LIST_MAX. `hint` is bounded plain
+// guidance for this state; without it, the declaration's hint applies.
+var STATUS_STATE_KEYS = ["tone", "text", "lines", "hint", "action"];
 // A `presenceList` value is a list of at most STATUS_LIST_MAX items, each
 // carrying these keys: a printable `label` and a `presence` value, with an
 // optional printable `hint` and an optional `secret`, the account of the
@@ -955,6 +956,7 @@ function statusValueFits(type, value) {
         return typeof value.tone === "string" && hasOwn(STATUS_STATE_TONES, value.tone) && isPrintableLine(value.text, STATUS_TEXT_MAX)
             && (value.lines === undefined || (Array.isArray(value.lines) && value.lines.length > 0 && value.lines.length <= STATUS_LIST_MAX
                 && value.lines.every(function (line) { return isPrintableLine(line, STATUS_TEXT_MAX); })))
+            && (value.hint === undefined || isPrintableLine(value.hint, STATUS_HINT_MAX))
             && (value.action === undefined || typeof value.action === "boolean" || typeof value.action === "string");
     }
     if (type === "text") return isPrintableLine(value, STATUS_TEXT_MAX);
@@ -1198,7 +1200,8 @@ function statusRows(manifest, values, missing) {
         var reported = hasOwn(values, key);
         var value = reported ? values[key] : null;
         var lacking = statusActionLacking(manifest, entry, value, missing);
-        var hint = entry.hint === undefined ? "" : entry.hint;
+        var hint = entry.type === "state" && value !== null && value.hint !== undefined
+            ? value.hint : entry.hint === undefined ? "" : entry.hint;
         if (lacking.length > 0) {
             hint = statusWithheldHint(lacking);
             if (entry.type === "state") value = Object.assign({ action: value.action }, STATUS_WITHHELD_STATE);

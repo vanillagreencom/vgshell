@@ -157,8 +157,8 @@ function approvalPrompt(hold) {
 function unconfiguredText(values) {
     for (var i = 0; i < SETUP_TEXT.length; i++) {
         var step = values[SETUP_TEXT[i][0]];
-        if (step && step.tone === "warning" && step.action === false && step.lines && step.lines.length > 0)
-            return step.text + ". Open Settings > Jarvis. " + step.lines.join(" ");
+        if (step && step.tone === "warning" && step.action === false && step.hint)
+            return step.text + ". Open Settings > Jarvis. " + step.hint;
         if (step !== undefined && step !== null && step.action === true) return SETUP_TEXT[i][1];
     }
     return GATE_TEXT.unconfigured;

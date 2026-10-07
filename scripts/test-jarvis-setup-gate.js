@@ -15,6 +15,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
 const judge = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
+const settings = load(path.join(__dirname, "..", "shell", "plugins", "vgs.settings", "Steps.js"));
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "SetupGate.js");
 const ABSENT = { tone: "warning", text: "Browser needs setup", action: true };
@@ -67,13 +68,13 @@ function verifyReadiness(gate) {
         }
     }
     const lines = BRAIN_CAUSES.map(cause => plain(gate.readiness({ kind: "answered", causes: [cause] })).setupModel.lines[0]);
-    for (const cause of ["speech=local-memory-insufficient", "speech=local-memory-unavailable"]) {
+    for (const [cause, hint] of [["speech=local-memory-insufficient", "Close other apps, then turn Jarvis off and on."],
+            ["speech=local-memory-unavailable", "Turn Jarvis off and on."]]) {
         const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setup.tone, got.setupVoice.tone, got.setupVoice.action, got.setupModel.tone],
             ["warning", "warning", false, "ok"], "memory refuses capture without reinstall action");
-        assert.ok(got.setupVoice.lines.length > 0);
-        assert.equal(typeof got.setupVoice.lines[0], "string");
-        assert.equal(got.setupVoice.lines[0].includes("="), false);
+        assert.equal(got.setupVoice.lines, undefined, "recovery is no state badge");
+        assert.equal(got.setupVoice.hint, hint);
     }
     assert.equal(new Set(lines).size, BRAIN_CAUSES.length, "each brain cause says its own line");
     // Before the daemon answers nothing reads ready or to do.
@@ -102,24 +103,44 @@ function verifyReadiness(gate) {
     // An optional step: done while its reader is ok, else optional with
     // its reader's action.
     for (const [label, key, value, want] of [
-        ["browser ready", "setupBrowser", READY, ["ok", false, 0]],
-        ["browser to set up", "setupBrowser", ABSENT, ["info", true, 1]],
-        ["browser withheld", "setupBrowser", { tone: "warning", text: "Needs agent-browser", action: false }, ["info", false, 1]],
-        ["input ready", "setupInput", { tone: "ok", text: "Keys ready; pointer ready", action: true }, ["ok", false, 0]],
-        ["input missing", "setupInput", { tone: "warning", text: "Input tools unavailable", action: true }, ["info", true, 1]]]) {
+        ["browser ready", "setupBrowser", READY, ["ok", false, "Done", undefined]],
+        ["browser to set up", "setupBrowser", ABSENT, ["info", true, "Optional", "Set up the browser so Jarvis can use websites for you."]],
+        ["browser withheld", "setupBrowser", { tone: "warning", text: "Needs agent-browser", action: false }, ["info", false, "Optional", "Set up the browser so Jarvis can use websites for you."]],
+        ["input ready", "setupInput", { tone: "ok", text: "Keys ready; pointer ready", action: true }, ["ok", false, "Done", undefined]],
+        ["input missing", "setupInput", { tone: "warning", text: "Input tools unavailable", action: true }, ["info", true, "Optional", "Check input so Jarvis can type and click for you."]]]) {
         const got = plain(gate.optionalStep(key, value));
-        assert.deepEqual([got.tone, got.action, (got.lines || []).length], want, label);
+        assert.deepEqual([got.tone, got.action, got.text, got.hint], want, label);
+        assert.equal(got.lines, undefined, "optional guidance is no state badge");
     }
     assert.throws(() => gate.optionalStep("setupModel", READY), /step=setupModel is not optional/);
     // Every value the service publishes is one the manifest judge accepts
     // for its entry, so a refused write cannot stop the service's start.
     const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
-    const answers = READINESS.map(row => row[1]).concat([{ kind: "checking" }, { kind: "stopped" }]);
+    const answers = READINESS.map(row => row[1]).concat([{ kind: "checking" }, { kind: "stopped" },
+        { kind: "answered", causes: ["speech=local-memory-insufficient"] },
+        { kind: "answered", causes: ["speech=local-memory-unavailable"] }]);
     for (const answer of answers)
         for (const [key, value] of Object.entries(plain(gate.readiness(answer))))
             assert.equal(judge.statusWrite(manifest, {}, key, value).ok, true, "the manifest judge accepts " + key + " for " + JSON.stringify(answer));
     for (const [key, value] of [["setupBrowser", READY], ["setupBrowser", ABSENT], ["setupInput", ABSENT]])
         assert.equal(judge.statusWrite(manifest, {}, key, plain(gate.optionalStep(key, value))).ok, true, "the manifest judge accepts " + key);
+    const published = {
+        ...plain(gate.readiness({ kind: "answered", causes: ["speech=local-memory-insufficient"] })),
+        setupBrowser: plain(gate.optionalStep("setupBrowser", ABSENT)),
+        setupInput: plain(gate.optionalStep("setupInput", ABSENT))
+    };
+    const expectedHints = {
+        setupVoice: "Close other apps, then turn Jarvis off and on.",
+        setupBrowser: "Set up the browser so Jarvis can use websites for you.",
+        setupInput: "Check input so Jarvis can type and click for you."
+    };
+    for (const [key, hint] of Object.entries(expectedHints)) {
+        const accepted = judge.statusWrite(manifest, {}, key, published[key]);
+        assert.equal(accepted.ok, true);
+        const row = judge.statusRows(manifest, accepted.values, []).find(entry => entry.key === key);
+        const view = settings.statusView(row, String);
+        assert.deepEqual([view.hint, view.lines], [hint, []], "Settings draws one badge with plain guidance: " + key);
+    }
 }
 
 function verify(gate) {
@@ -147,6 +168,8 @@ verify(load(file));
 // Each control removes one rule from a copy and keeps the text around it:
 // [label, needle, replacement].
 const CONTROLS = [
+    ["memory guidance is a badge", 'hint: "Close other apps, then turn Jarvis off and on."', 'lines: ["Close other apps, then turn Jarvis off and on."]'],
+    ["optional guidance is a badge", "hint: OPTIONAL[key]", "lines: [OPTIONAL[key]]"],
     ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
     ["loading is initial checking", "out.setupVoice = LOADING;", "out.setupVoice = CHECKING;"],
     ["loading offers setup", 'if (cause === "speech=local-loading") {', 'if (false) {'],

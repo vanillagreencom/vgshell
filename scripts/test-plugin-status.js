@@ -39,7 +39,7 @@ function suite(ctx, check) {
             catalog: { type: "launcherRows", label: "Catalog" },
             token: { type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", action: { label: "Set up token", tui: "setup" } },
             tokens: { type: "presenceList", label: "Tokens", group: "Keys", hint: "One per workspace" },
-            check: { type: "state", label: "Check", action: { label: "Install sync", install: ["acme-sync"] } },
+            check: { type: "state", label: "Check", hint: "Check information", action: { label: "Install sync", install: ["acme-sync"] } },
             note: { type: "text", label: "Note" },
             pending: { type: "count", label: "Pending" },
             lastCheck: { type: "time", label: "Last check" },
@@ -276,6 +276,13 @@ function suite(ctx, check) {
         ["a presence list item holding a function", "tokens", [{ label: "A", value: "present", hint: function () {} }], "refused: status=tokens reason=type"],
         ["a presence list item that is a class instance", "tokens", [new (class Item { constructor() { this.label = "A"; this.value = "present"; } })()], "refused: status=tokens reason=type"],
         ["a state value", "check", { tone: "warning", text: "Two sources failed" }, "ok"],
+        ["a state with plain guidance", "check", { tone: "warning", text: "Unavailable", hint: "Try again." }, "ok"],
+        ["a state hint at its ceiling", "check", { tone: "warning", text: "t", hint: "x".repeat(200) }, "ok"],
+        ["a state hint above its ceiling", "check", { tone: "warning", text: "t", hint: "x".repeat(201) }, "refused: status=check reason=type"],
+        ["a state hint with a newline", "check", { tone: "warning", text: "t", hint: "a\nb" }, "refused: status=check reason=type"],
+        ["a state hint with a C1 control", "check", { tone: "warning", text: "t", hint: "a\u0085b" }, "refused: status=check reason=type"],
+        ["a state with an empty hint", "check", { tone: "warning", text: "t", hint: "" }, "refused: status=check reason=type"],
+        ["a state hint that is no string", "check", { tone: "warning", text: "t", hint: 1 }, "refused: status=check reason=type"],
         ["a state tone outside the set", "check", { tone: "success", text: "t" }, "refused: status=check reason=type"],
         ["a state without text", "check", { tone: "ok" }, "refused: status=check reason=type"],
         ["a state with an empty text", "check", { tone: "ok", text: "" }, "refused: status=check reason=type"],
@@ -358,6 +365,15 @@ function suite(ctx, check) {
     check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", action: { label: "Set up token", offered: false, tui: "" }, report: "reported", value: "locked", tone: "info" });
     check("statusRows: a declaration carries info", rows[0].info, "Explains this status");
     check("statusRows: a reported state carries its tone", [rows[2].report, rows[2].value, rows[2].tone], ["reported", { tone: "ok", text: "Up to date" }, "success"]);
+    check("statusRows: a state without guidance carries declaration help", rows[2].hint, "Check information");
+    const guidance = ctx.statusWrite(m, {}, "check", { tone: "warning", text: "Unavailable", hint: "Try again.", action: true }).values;
+    const guidanceRow = ctx.statusRows(m, guidance, []).find(r => r.key === "check");
+    check("statusRows: state guidance reaches the plain hint", [guidanceRow.hint, guidanceRow.value.lines], ["Try again.", undefined]);
+    check("statusRows: an unreported state retains declaration help", ctx.statusRows(m, {}, []).find(r => r.key === "check").hint, "Check information");
+    check("statusRows: clearing state guidance restores declaration help", ctx.statusRows(m, ctx.statusWrite(m, guidance, "check", null).values, []).find(r => r.key === "check").hint, "Check information");
+    const guidedTui = ctx.validateManifest({ ...raw, status: { ...raw.status,
+        check: { ...raw.status.check, action: { label: "Set up", tui: "setup" } } } }, "/p").manifest;
+    check("statusRows: missing TUI requirements override state guidance", ctx.statusRows(guidedTui, guidance, ["acme-sync"]).find(r => r.key === "check").hint, "acme-sync is missing. Install requirements installs it.");
     check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", hint: "", info: "", action: null, report: "unreported", value: null, tone: "" });
     check("statusRows: a reported count of 0 is reported, drawn without a tone", [rows[4].report, rows[4].value, rows[4].tone], ["reported", 0, ""]);
     check("statusRows: nothing published leaves every row unreported", ctx.statusRows(m, {}, []).map(r => r.report), ["unreported", "unreported", "unreported", "unreported", "unreported", "unreported", "unreported"]);
@@ -611,6 +627,8 @@ const CONTROLS = [
     ["a presence list row carries its items", "value: reported ? statusRowValue(entry.type, value) : null,", "value: reported ? value : null,"],
     ["a state tone is one of the set", "typeof value.tone === \"string\" && hasOwn(STATUS_STATE_TONES, value.tone) &&", ""],
     ["a state has only its keys", "if (STATUS_STATE_KEYS.indexOf(keys[i]) === -1) return false;", ""],
+    ["a state hint is a bounded printable line", "&& (value.hint === undefined || isPrintableLine(value.hint, STATUS_HINT_MAX))", ""],
+    ["a row carries state guidance", 'entry.type === "state" && value !== null && value.hint !== undefined', "false"],
     ["a state text is a printable line", "&& isPrintableLine(value.text, STATUS_TEXT_MAX)\n", "\n"],
     ["a text is a printable line", "if (type === \"text\") return isPrintableLine(value, STATUS_TEXT_MAX);", "if (type === \"text\") return typeof value === \"string\";"],
     ["a count is whole", "&& Math.floor(value) === value &&", "&&"],

@@ -217,7 +217,7 @@ function verify(view) {
         const got = view.view(up(down("unconfigured"), status));
         assert.deepEqual([got.state, got.icon, got.tone], ["off", "power-off", "neutral"]);
         assert.equal(got.tooltip.startsWith(status.setupVoice.text), true);
-        assert.equal(got.tooltip.includes(status.setupVoice.lines.join(" ")), true, "the widget carries the published recovery explanation");
+        assert.equal(got.tooltip.includes(status.setupVoice.hint), true, "the widget carries the published recovery explanation");
     }
 }
 
@@ -226,7 +226,7 @@ verify(load(path.join(dir, "WidgetView.js")));
 // Each control removes one rule from a copy of the view and keeps the text
 // around it: [label, needle, replacement].
 const CONTROLS = [
-    ["memory explanation discarded", 'return step.text + ". Open Settings > Jarvis. " + step.lines.join(" ");', 'return GATE_TEXT.unconfigured;'],
+    ["memory explanation discarded", 'return step.text + ". Open Settings > Jarvis. " + step.hint;', 'return GATE_TEXT.unconfigured;'],
     ["checking setup reads off", 'state.gate.reason === "unconfigured" && setupChecking(values)', 'state.gate.reason === "unconfigured" && false'],
     ["checking hides an offered setup action", 'step.action !== false', 'false'],
     ["missing requirements read checking", '(step.tone !== "info" && step.tone !== "ok")', 'false'],
