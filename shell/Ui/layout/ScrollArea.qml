@@ -28,7 +28,7 @@ Flickable {
     property real rightInset: Theme.scrollArea.gutter
     property bool barOverContent: false
     property bool keyboardScroll: false
-    readonly property real focusInset: keyboardScroll ? Theme.focusRing.width + 2 * Theme.focusRing.offset : 0
+    readonly property real focusInset: keyboardScroll ? Theme.focusRing.width + Theme.focusRing.offset : 0
     readonly property real measuredContentHeight: measureContentHeight()
     readonly property bool overflowing: scrollBar.needed
     readonly property alias bar: scrollBar
@@ -106,7 +106,7 @@ Flickable {
     }
 
     HoverHandler { id: hover }
-    TouchpadScroll { id: touchpad; view: root }
+    TouchpadScroll { id: touchpad; view: root; width: contentClip.width; height: contentClip.height }
 
     // Clip scrolling content before it reaches the ring, including during
     // a scroll. The added content height keeps the last row reachable.
@@ -143,7 +143,7 @@ Flickable {
         parent: root
         target: keyboardFocus
         // The Flickable clips its children. Keep the ring inside that clip.
-        anchors.margins: Theme.focusRing.offset
+        anchors.margins: 0
         visible: root.keyboardScroll && keyboardFocus.visualFocus
     }
 }
