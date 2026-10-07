@@ -1792,7 +1792,8 @@ Scope {
         }
         // A plugin page's shown Setup section by row, as [{ label, chips,
         // buttons, lines }]: each shown Field of the section, its label, its
-        // Badges as [text, tone] and its Buttons as [text, variant, enabled],
+        // Badges as [text, tone], its Buttons as { tui, variant, enabled },
+        // tui the screen the row's step opens (its Steps.setupRows button),
         // and the shown lines of text its row draws under the Field, each in
         // tree order; "absent" while no Setup section shows.
         function setupRows(hostKey: string, id: string): string {
@@ -1806,10 +1807,12 @@ Scope {
                 const shown = inside.filter(child => child.visible);
                 const under = root.descendants(field.parent).filter(child => child.visible && root.typeName(child) === "Label"
                     && child.text !== "" && inside.indexOf(child) === -1);
+                const step = field.parent.modelData === undefined ? null : field.parent.modelData.button;
                 return {
                     label: field.label,
                     chips: shown.filter(child => root.typeName(child) === "Badge").map(badge => [badge.text, badge.tone]),
-                    buttons: shown.filter(child => root.typeName(child) === "Button").map(button => [button.text, button.variant, button.enabled]),
+                    buttons: shown.filter(child => root.typeName(child) === "Button").map(button => ({
+                        tui: step === null || step === undefined ? "" : step.name, variant: button.variant, enabled: button.enabled })),
                     lines: under.map(line => line.text)
                 };
             }));

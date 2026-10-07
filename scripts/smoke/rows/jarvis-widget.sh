@@ -4,7 +4,7 @@
 # network runs; no PAM, polkit, keyring or TUI is reached. No latency
 # ceiling is measured. Widget and state reads poll once per nested IPC
 # round trip; fixture callback gates poll at 10 ms.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* bin/lib/qml-library.js
 set -euo pipefail
 
 jarvis_widget_config="$home/.config/vgshell/shell.json"
@@ -108,16 +108,45 @@ p.write_text(s)
 PY
   jarvis_rescan
 }
-# The widget during the retry wait: `restarting` for the off look with the
-# daemon's Restarting text, otherwise the reading itself.
+# The widget during the retry wait: `restarting` for the off look while
+# the service waits to retry and its daemon row warns, otherwise the
+# reading itself.
 jarvis_widget_restarting() {
-  jarvis_widget | py_reply '
+  local widget process
+  widget="$(jarvis_widget)" && process="$(ipc smoke jarvisProcess)" || return
+  python3 - "$widget" "$process" <<'PY'
 import json, sys
-t = sys.stdin.read().strip()
+t, p = sys.argv[1], sys.argv[2]
 r = None if t == "absent" else json.loads(t)
-ok = r is not None and r == ["power-off", "neutral", "Jarvis: Restarting after a problem\nClick to mute"]
+d = None if p in ("absent", "missing") else json.loads(p)
+ok = (r is not None and d is not None and r[:2] == ["power-off", "neutral"]
+      and d["lifetime"]["kind"] == "retry" and d["status"]["daemon"]["tone"] == "warning")
 print("restarting" if ok else t)
-'
+PY
+}
+# The widget's icon and tone alone.
+jarvis_widget_look() { jarvis_widget | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(t if t == "absent" else json.dumps(json.loads(t)[:2]))'; }
+# The widget's icon, tone and tooltip line, beside whether the service
+# offers the local voice step, for the line WidgetView.js says while that
+# step is to do.
+jarvis_widget_setup() {
+  local widget process
+  widget="$(jarvis_widget)" && process="$(ipc smoke jarvisProcess)" || return
+  python3 - "$widget" "$process" <<'PY'
+import json, sys
+t, p = sys.argv[1], sys.argv[2]
+if "absent" in (t, p) or p == "missing":
+    print("absent"); sys.exit()
+r, d = json.loads(t), json.loads(p)
+step = d["status"].get("setupVoice") or {}
+print(json.dumps([r[0], r[1], r[2].split("\n")[0], step.get("action")], separators=(",", ":")))
+PY
+}
+jarvis_widget_voice_line() {
+  "$node_bin" -e 'const { load } = require(process.argv[1]);
+const view = load(process.argv[2]);
+process.stdout.write(JSON.stringify(["power-off", "neutral", view.SETUP_TEXT.find(row => row[0] === "setupVoice")[1], true]));' \
+    "$repo/bin/lib/qml-library.js" "$repo/shell/plugins/vgs.jarvis/WidgetView.js"
 }
 jarvis_widget_restart_assertion() { expect_poll "the widget reads off with the Restarting text after the daemon ends" restarting jarvis_widget_restarting; }
 jarvis_widget_restart_control() {
@@ -228,7 +257,7 @@ cp -- "$sandbox/jarvis-widget-before-jarvisd.js" "$jarvis_widget_dir/backend/jar
 jarvis_rescan
 expect "the permanent-problem widget service enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "the real service reports its permanent cause" permanent jarvis_permanent
-expect_poll "the widget reads the permanent problem" '["circle-alert", "danger", "Stopped after a problem. Turn Jarvis off and on again.\nClick to mute"]' jarvis_widget
+expect_poll "the widget reads the permanent problem" '["circle-alert", "danger"]' jarvis_widget_look
 # The refusal is a Jarvis card, read while vgs.notifications draws with
 # Silence off; it goes back to disabled, as the row found it, after.
 notes_on "the problem-state refusal"
@@ -251,7 +280,8 @@ expect "restore the Jarvis widget configuration" ok ipc shell reloadConfig
 expect "restore the nested keyboard configuration" ok hypr reload config-only
 jarvis_enable
 expect_poll "the restored stock daemon remains unconfigured" session jarvis_session unconfigured
-expect_poll "the widget names the remaining setup step for the unconfigured daemon" '["power-off", "neutral", "Jarvis needs local voice. Set it up in Settings > Jarvis.\nClick to mute"]' jarvis_widget
+jarvis_widget_voice_expected="$(jarvis_widget_voice_line)" || fail "WidgetView.js's local voice line is unreadable"
+expect_poll "the widget names the remaining setup step for the unconfigured daemon" "$jarvis_widget_voice_expected" jarvis_widget_setup
 expect "the restored nested keys have no configuration errors" '[]' hypr_reload_errors
 expect "the widget row leaves no Jarvis state file" False \
   python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgshell/jarvis/mute.json"

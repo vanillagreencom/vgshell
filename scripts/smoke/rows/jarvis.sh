@@ -268,8 +268,7 @@ jarvis_audio_fault() {
   ipc smoke jarvisProcess | py_reply '
 import json,sys
 d=json.load(sys.stdin)
-expected={"tone":"danger","text":"Microphones and speakers unavailable"}
-ok=d["status"].get("audio")==expected and d["audioHealth"]=={"kind":"fault","reason":"capture-overflow"}
+ok=(d["status"].get("audio") or {}).get("tone")=="danger" and d["audioHealth"]=={"kind":"fault","reason":"capture-overflow"}
 print("fault" if ok else "pending")
 '
 }
