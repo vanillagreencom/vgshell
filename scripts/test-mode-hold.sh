@@ -87,6 +87,31 @@ case "$stub_call" in
     expect_poll() { :; }
     hold_mode "the case" WAYLAND-1 3510x1866 2
     release_mode "the release" WAYLAND-1 1755x933 ;;
+  nested|nested-failed)
+    expect() { local label="$1" want="$2" got; shift 2; got="$("$@")"; [[ $got == "$want" ]] || failures=$((failures + 1)); }
+    expect_poll() { expect "$@"; }
+    check_hold() {
+      [[ ${mode_hold[1]} == "$1" && $mode_hold_window == 1755x933 && $(held_mode_state) == held ]] || failures=$((failures + 1))
+      local rule
+      rule="$(tail -n 1 "$mode_hold_file")"
+      [[ $rule =~ mode\ =\ \"([0-9x]+)\".*scale\ =\ ([0-9.]+) ]]
+      [[ "${BASH_REMATCH[1]} scale=${BASH_REMATCH[2]}" == "$1" ]] || failures=$((failures + 1))
+    }
+    hold_mode "the case" WAYLAND-1 3510x1866 2
+    hold_mode "the middle" WAYLAND-1 1440x900
+    if [[ $stub_call == nested ]]; then
+      check_hold "1440x900 scale=1"
+      hold_mode "the inner" WAYLAND-1 1440x320
+      check_hold "1440x320 scale=1"
+      release_mode "the inner release" WAYLAND-1 1755x933
+      check_hold "1440x900 scale=1"
+    else
+      check_hold "3510x1866 scale=2"
+    fi
+    release_mode "the middle release" WAYLAND-1 1755x933
+    check_hold "3510x1866 scale=2"
+    release_mode "the outer release" WAYLAND-1 1755x933
+    [[ $(mode_scale_of WAYLAND-1) == "1755x933 scale=1" && ${#mode_hold_parents[@]} -eq 0 ]] || failures=$((failures + 1)) ;;
 esac
 file=absent; [[ -f $mode_hold_file ]] && file=present
 state=none; [[ ${#mode_hold[@]} -eq 0 ]] || state="$(held_mode_state)"
@@ -117,6 +142,8 @@ cases=(
   "a restore the host always resets fails after the bound|restore|ok|1755x933 scale=1.5|status=1 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[] state=reset file=present|3|hold-restore: not-held output=WAYLAND-1 want=[3510x1866 scale=2] attempts=3 got=[1755x933 scale=1.5]"
   "a release empties the recorded window size|hold-release|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|1|ok the case: WAYLAND-1 reads 3510x1866 scale=2, attempts=1 got=[3510x1866 scale=2]"
   "a restore with no hold is refused|restore-none|ok|take|status=1 failures=0 resets=0 held=[] window=[] state=none file=absent|0|hold-restore: refused hold=none"
+  "nested holds restore each parent and its scale|nested|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|6|ok the case: WAYLAND-1 reads 3510x1866 scale=2, attempts=1 got=[3510x1866 scale=2]"
+  "a failed inner hold restores its parent|nested-failed|ok|take,1700x900 scale=1,1700x900 scale=1,1700x900 scale=1,take|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|7|ok the case: WAYLAND-1 reads 3510x1866 scale=2, attempts=1 got=[3510x1866 scale=2]"
 )
 for row in "${cases[@]}"; do
   if run_case "$subject" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
@@ -223,7 +250,9 @@ controls=(
   "held_mode_host_sized always answers true|held_mode_host_sized() {|held_mode_host_sized() { return 0|the held mode is not host-sized"
   "held_mode_host_sized reads a hold at the window's own size|[[ \$mode_hold_window != \"\${mode_hold[1]% scale=*}\" ]]|true|a hold at the window's own size is never host-sized"
   "take_mode polls after a refused rule|[[ \$reply != ok ]]|[[ \$reply == never ]]|a refused rule fails at once"
-  "hold_restore drops the held scale|\"\${mode_hold[1]##*scale=}\"|\"1\"|a restore after a reset takes the held mode and scale"
+  "hold_restore drops the held scale|take_mode \"\${mode_hold[0]}\" \"\${mode_hold[1]% scale=*}\" \"\${mode_hold[1]##*scale=}\"|take_mode \"\${mode_hold[0]}\" \"\${mode_hold[1]% scale=*}\" \"1\"|a restore after a reset takes the held mode and scale"
+  "a release drops every parent|if [[ \${#mode_hold_parents[@]} -gt 0 ]]; then|if false; then|nested holds restore each parent and its scale"
+  "a failed inner hold leaves the output changed|      hold_restore |      true |a failed inner hold restores its parent"
   "hold_restore runs with no hold|if [[ \${#mode_hold[@]} -eq 0 ]]; then|if [[ \${#mode_hold[@]} -eq -1 ]]; then|a restore with no hold is refused"
   "whole_scale_mode takes only a scale that divides|tw=\$((w - w % s)) th=\$((h - h % s))|tw=\$((w % s ? 0 : w)) th=\$((h % s ? 0 : h))|a mode no scale divides is trimmed by the fewest pixels"
   "whole_scale_mode takes the first scale tried|trim < best_trim))|trim < -1))|a mode no scale divides is trimmed by the fewest pixels"

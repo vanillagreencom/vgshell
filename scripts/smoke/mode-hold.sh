@@ -58,6 +58,7 @@ whole_scale_mode() {
 # took can read as another mode. The bound stops the retries when the
 # host keeps configuring the window.
 mode_attempts=3
+mode_hold_parents=()
 # take_mode NAME MODE SCALE: output NAME takes MODE at SCALE. output_mode
 # applies the rule, then mode_scale_of reads the output every 200 ms for
 # up to 5 s; an output that never reads `MODE scale=SCALE` gets the rule
@@ -86,20 +87,25 @@ take_mode() {
   return 1
 }
 # hold_mode LABEL NAME MODE [SCALE]: output NAME takes MODE at SCALE, 1 by
-# default, and the rows after it hold that mode and scale until
-# release_mode. The output's WxH, read before the rule, is kept as the
+# default, until release_mode restores the previous hold, or the caller's
+# mode when no outer hold exists. The first hold's WxH is kept as the
 # host window's size (mode_hold_window) once the hold begins. The rule
 # goes into mode_hold_file, which every load of the configuration runs,
 # and take_mode applies it now. The hold begins once the monitor reads
-# both; a mode or a scale never taken is a failure, holds nothing and
-# leaves no hold file. A hold never taken cannot tell a host configure
+# both; a mode or a scale never taken is a failure and restores the outer
+# hold, or leaves no hold file without one. A hold never taken cannot tell a host configure
 # from a rule that never applied: both leave the output at its WxH before
 # the rule.
 hold_mode() {
-  local label="$1" output="$2" want="$3 scale=${4:-1}" taken window
-  [[ ${#mode_hold[@]} -eq 0 ]] || { fail "$label: ${mode_hold[0]} already holds ${mode_hold[1]}; hold_mode does not nest"; return; }
+  local label="$1" output="$2" want="$3 scale=${4:-1}" taken window previous_rule=""
+  local row_class=hold
+  if [[ ${#mode_hold[@]} -gt 0 ]]; then
+    previous_rule="$(cat -- "$mode_hold_file")" || { fail "$label: the held rule is unreadable"; return 0; }
+    mode_hold_parents+=("${mode_hold[0]}" "${mode_hold[1]}" "$mode_hold_window" "$previous_rule")
+  fi
   if window="$(mode_scale_of "$output")"; then window="${window% scale=*}"; else window=""; fi
-  if ! monitor_rule "$output" "$3" "${4:-1}" >"$mode_hold_file.next" || ! mv -T -- "$mode_hold_file.next" "$mode_hold_file"; then
+  if [[ ${#mode_hold[@]} -gt 0 && $output == "${mode_hold[0]}" ]]; then window="$mode_hold_window"; fi
+  if ! { [[ -z $previous_rule ]] || printf '%s\n' "$previous_rule"; monitor_rule "$output" "$3" "${4:-1}"; } >"$mode_hold_file.next" || ! mv -T -- "$mode_hold_file.next" "$mode_hold_file"; then
     fail "$label: the hold file $mode_hold_file is not written"
     rm -f -- "$mode_hold_file.next" || fail "$label: the partial hold file $mode_hold_file.next is not removed"
     return 0
@@ -110,7 +116,12 @@ hold_mode() {
     ok "$label: $output reads $want, $taken"
   else
     fail "$label: $output does not read $want: $taken"
-    rm -f -- "$mode_hold_file" || fail "$label: the hold file $mode_hold_file of a hold never taken is not removed"
+    if [[ -n $previous_rule ]]; then
+      printf '%s\n' "$previous_rule" >"$mode_hold_file" || fail "$label: the outer hold file is not restored"
+      hold_restore || fail "$label: the outer hold is not restored"
+    else
+      rm -f -- "$mode_hold_file" || fail "$label: the hold file $mode_hold_file of a hold never taken is not removed"
+    fi
   fi
   return 0
 }
@@ -178,10 +189,21 @@ held_mode_host_sized() {
   state="$(mode_scale_of "${mode_hold[0]}")" || return 1
   [[ ${state% scale=*} == "$mode_hold_window" ]]
 }
-# release_mode LABEL NAME MODE [SCALE]: any hold ends, its file goes, and
-# output NAME takes MODE at SCALE, 1 by default, again, whether or not
-# hold_mode's mode was taken, and reads both before the rows go on.
+# release_mode LABEL NAME MODE [SCALE]: end the inner hold and restore its
+# parent's rule, mode and scale. Without a parent, remove the hold file and
+# give NAME the caller's MODE at SCALE, 1 by default. Read both before the
+# rows go on, whether or not the inner hold took.
 release_mode() {
+  if [[ ${#mode_hold_parents[@]} -gt 0 ]]; then
+    local top=$((${#mode_hold_parents[@]} - 4))
+    mode_hold=("${mode_hold_parents[top]}" "${mode_hold_parents[top + 1]}")
+    mode_hold_window="${mode_hold_parents[top + 2]}"
+    printf '%s\n' "${mode_hold_parents[top + 3]}" >"$mode_hold_file" || fail "$1: the outer hold file is not restored"
+    mode_hold_parents=("${mode_hold_parents[@]:0:top}")
+    expect "$1" ok output_mode "${mode_hold[0]}" "${mode_hold[1]% scale=*}" "${mode_hold[1]##*scale=}"
+    expect_poll "${mode_hold[0]} reads ${mode_hold[1]}" "${mode_hold[1]}" mode_scale_of "${mode_hold[0]}"
+    return 0
+  fi
   mode_hold=()
   mode_hold_window=""
   rm -f -- "$mode_hold_file" || fail "$1: the hold file $mode_hold_file is not removed"

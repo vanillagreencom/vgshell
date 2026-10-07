@@ -30,6 +30,64 @@ failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
+# A newly mapped Settings window takes pointer presses only after a move.
+# Exercise the harness's real coordinate and click helpers without a shell.
+click_helper="$tmp/click-helper.sh"
+sed -n '/^at_centre() {/,/^}/p; /^click_in() {/,/^}/p' "$repo/scripts/smoke/harness.sh" >"$click_helper"
+click_case() {
+  env -i PATH="$PATH" bash -c '
+set -euo pipefail
+source "$1"
+ipc() { printf "%s\n" "[20, 30, 40, 20]"; }
+surface_box() { printf "%s\n" "[100, 200, 800, 600]"; }
+hover() { [[ $1 == 141 && $2 == 240 ]] && moved=true; }
+click() { [[ ${moved:-false} == true && $1 == 140 && $2 == 240 ]]; }
+click_in window:Plugins window vgs.settings Button Install
+' _ "$1"
+}
+if click_case "$click_helper"; then ok "a click moves the pointer before pressing in a newly mapped window"; else fail "the pointer press did not reach the mapped window"; fi
+click_mutant="$tmp/click-mutant.sh"
+python3 - "$click_helper" "$click_mutant" <<'PY'
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+needle = '  hover "$((x + 1))" "$y" || return 1\n'
+assert text.count(needle) == 1
+pathlib.Path(sys.argv[2]).write_text(text.replace(needle, ""))
+PY
+if click_case "$click_mutant"; then fail "control: a click without a pointer move reached the mapped window"; else ok "control: a click without a pointer move misses the mapped window"; fi
+
+# Pointer targets and reserved space use logical dimensions at every scale.
+size_helper="$tmp/size-helper.sh"
+sed -n '/^monitor_size() {/p; /^bar_settled_judge() {/,/^}/p' "$repo/scripts/smoke/harness.sh" >"$size_helper"
+size_case() {
+  env -i PATH="$PATH" bash -c '
+set -euo pipefail
+source "$1"
+py_reply() { python3 -c "$@"; }
+for scale in 1 2; do
+  monitors="[{\"name\":\"WAYLAND-1\",\"width\":$((1440 * scale)),\"height\":$((900 * scale)),\"scale\":$scale,\"reserved\":[0,36,0,0]}]"
+  hypr() { printf "%s\n" "$monitors"; }
+  [[ $(monitor_size) == "1440 900 36" ]] || exit 1
+  layers="{\"WAYLAND-1\":{\"levels\":{\"2\":[{\"namespace\":\"vgs:bar\",\"pid\":123}]}}}"
+  [[ $(printf "%s\n%s\n" "$monitors" "$layers" | bar_settled_judge WAYLAND-1) == "1440 900 36" ]] || exit 1
+done
+' _ "$1"
+}
+if size_case "$size_helper"; then ok "monitor and settled-bar readers return logical sizes at scales 1 and 2"; else fail "monitor or settled-bar reader returned a physical size"; fi
+for reader in monitor_size bar_settled_judge; do
+  size_mutant="$tmp/size-$reader-mutant.sh"
+  python3 - "$size_helper" "$size_mutant" "$reader" <<'PY'
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+start = text.index(sys.argv[3] + '() {')
+end = text.index('\n}', start) + 2 if sys.argv[3] == 'bar_settled_judge' else text.index('\n', start)
+body = text[start:end]
+assert body.count(' / m["scale"]') == 2
+pathlib.Path(sys.argv[2]).write_text(text[:start] + body.replace(' / m["scale"]', '') + text[end:])
+PY
+  if size_case "$size_mutant"; then fail "control: $reader physical sizes passed the scale-2 pointer case"; else ok "control: $reader physical sizes fail the scale-2 pointer case"; fi
+done
+
 # The host's runtime dir with its socket, and the sandbox's beneath it, as
 # the harness makes them.
 host="$tmp/run"; rt="$host/vs.test"

@@ -1089,7 +1089,10 @@ done
 # card image is read back by the ratio it decodes to. A changed generation
 # makes the card image URL change; a copy that drops that stamp keeps Qt's
 # old decode for the same path.
-plugin_control WallpaperCard.qml identity "Files.stampedUrl(root.modelData.path, root.modelData.generation)" "Files.fileUrl(root.modelData.path)"
+# Qt reloads an Image when sourceSize changes (Qt 6 Image documentation).
+# Keep this control's decode at the native size so carousel movement cannot
+# replace the cached decode independently of the URL generation.
+plugin_control WallpaperCard.qml identity $'Files.stampedUrl(root.modelData.path, root.modelData.generation)\n        sourceSize: root.decodeSize' 'Files.fileUrl(root.modelData.path)'
 pin_nord vgs-theme-nord-smoke2.tar.gz "$thumbs/frankenstein.jpg"
 press_wallpapers || fail "typing SUPER+SHIFT+W for the identity control failed"
 expect_poll "SUPER+SHIFT+W opens the identity control's browser" 1 layer_count vgs:overlay
