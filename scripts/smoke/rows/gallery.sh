@@ -19,7 +19,7 @@ read -r gallery_modal_x gallery_modal_y < <(at_centre 'window:VGS Components' "$
 click "$gallery_modal_x" "$gallery_modal_y" || fail "opening the Gallery modal failed"
 expect_poll "the Gallery modal maps its own surface" 1 layer_count vgs:dialog
 gallery_modal_before="$(ipc smoke viewHolding window vgs.gallery 'Open modal dialog')"
-wheel "$gallery_modal_x" "$gallery_modal_y" 2 || fail "wheeling behind the Gallery modal failed"
+wheel "$gallery_modal_x" "$gallery_modal_y" -2 || fail "wheeling behind the Gallery modal failed"
 sleep 0.2
 expect "the Gallery modal blocks its page wheel" "$gallery_modal_before" ipc smoke viewHolding window vgs.gallery 'Open modal dialog'
 click "$gallery_modal_x" "$gallery_modal_y" || fail "clicking behind the Gallery modal failed"

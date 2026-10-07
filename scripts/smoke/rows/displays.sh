@@ -316,7 +316,7 @@ for disp_layout in PaneLayout PaneNotModal PaneNotCentered PaneVrrOutside PaneNo
     expect "clicking the trial scrim calls neither Keep nor Revert" 0 ipc smoke popupRead displays-layout-PaneLayout trialActionCalls
     disp_page_before="$(ipc smoke viewHolding window vgs.system 'Dimmed brightness')"
     read -r disp_wheel_x disp_wheel_y < <(at_centre "window:System Settings" "$(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1])["box"]; print(json.dumps([x+w-20,y+h-20,1,1]))' "$disp_page_before")")
-    wheel "$disp_wheel_x" "$disp_wheel_y" 2 || fail "wheeling behind the trial failed"
+    wheel "$disp_wheel_x" "$disp_wheel_y" -2 || fail "wheeling behind the trial failed"
     sleep 0.2
     expect "the trial scrim blocks the Settings page wheel" "$disp_page_before" ipc smoke viewHolding window vgs.system 'Dimmed brightness'
     disp_copy_holding() { ipc smoke popupRead displays-layout-PaneLayout trialState | py_reply 'import json,sys; print(json.load(sys.stdin)["phase"])'; }
@@ -328,7 +328,7 @@ for disp_layout in PaneLayout PaneNotModal PaneNotCentered PaneVrrOutside PaneNo
     expect_poll "control: $disp_layout fails the scrim and full input contract" False disp_scrim_matches "$disp_layout"
     if [[ $disp_layout == PaneMasked ]]; then
       disp_masked_before="$(ipc smoke viewHolding window vgs.system 'Dimmed brightness')"
-      wheel "$disp_wheel_x" "$disp_wheel_y" 2 || fail "the masked modal wheel control failed"
+      wheel "$disp_wheel_x" "$disp_wheel_y" -2 || fail "the masked modal wheel control failed"
       disp_masked_page_moved() { ipc smoke viewHolding window vgs.system 'Dimmed brightness' | py_reply 'import json,sys; before=json.loads(sys.argv[1]); after=json.load(sys.stdin); print(abs(before["contentY"]-after["contentY"])>=1)' "$disp_masked_before"; }
       expect_poll "control: a card-only input region lets the same wheel move the page" True disp_masked_page_moved
       ipc smoke revealText window vgs.system FormRow 'Dimmed brightness' >/dev/null
