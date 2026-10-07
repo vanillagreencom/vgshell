@@ -971,8 +971,14 @@ novel_gate="$sandbox/themes-novel-gate"
 novel='{"state":"partial","shell":"unchanged","targets":[{"name":"smoke-novel","state":"smoke-state","reason":"smoke-reason"}],"theme":"vgs","reason":null}'
 stand_in_vgshell "for _ in \$(seq 1 200); do [[ -e $(printf %q "$novel_gate") ]] && break; sleep 0.05; done
 if [[ \${2:-} == apply ]]; then printf '%s\\n' $(printf %q "$novel"); exit 3; fi"
-novel_data_revision="$(ipc smoke readInstance service vgs.themes dataRevision)"
-novel_data_text="$(ipc smoke readInstance service vgs.themes dataText)"
+if ! novel_data_revision="$(ipc smoke readInstance service vgs.themes dataRevision)"; then
+  fail "the held apply browser revision baseline could not be read"
+  return 1
+fi
+if ! novel_data_text="$(ipc smoke readInstance service vgs.themes dataText)"; then
+  fail "the held apply browser snapshot baseline could not be read"
+  return 1
+fi
 novel_data_unchanged() {
   [[ $(ipc smoke readInstance service vgs.themes dataText) == "$novel_data_text" ]] && echo unchanged || echo changed
 }
