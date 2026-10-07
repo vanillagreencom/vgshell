@@ -8,6 +8,8 @@ const path = require("path");
 const assert = require("node:assert/strict");
 const { load } = require("../bin/lib/qml-library.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.network/NetworkLogic.js");
+const nmcliFile = path.join(__dirname, "../shell/Commons/Nmcli.js");
+const commons = { "qs.Commons 1.0": { Nmcli: load(nmcliFile) } };
 function suite(logic) {
     assert.equal(logic.enumName(7, { NoSecrets: 7, WifiAuthTimeout: 8 }), "NoSecrets");
     assert.equal(logic.enumName(99, { NoSecrets: 7 }), "Unknown");
@@ -91,7 +93,7 @@ function suite(logic) {
         { key: "GENERAL.DEVICE", value: "wlan0" }, { key: "GENERAL.CONNECTION", value: "Office:west\\desk" }, { key: "IP6.ADDRESS[1]", value: "fe80::1/64" }
     ]));
 }
-suite(load(file));
+suite(load(file, commons));
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "network-logic-"));
 try {
     const source = fs.readFileSync(file, "utf8");
@@ -114,7 +116,7 @@ try {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");
         const mutant = path.join(scratch, "NetworkLogic.js");
         fs.writeFileSync(mutant, source.replace(needle, replacement));
-        assert.throws(() => suite(load(mutant)), undefined, "control: " + name);
+        assert.throws(() => suite(load(mutant, commons)), undefined, "control: " + name);
         console.log("network-logic: control=" + name + " red");
     }
 } finally { fs.rmSync(scratch, { recursive: true, force: true }); }

@@ -43,6 +43,7 @@ f share/vgshell/shell/Commons/ClearingInset.qml
 f share/vgshell/shell/Commons/DesktopLaunch.js
 f share/vgshell/shell/Commons/Duration.js
 f share/vgshell/shell/Commons/Inset.js
+f share/vgshell/shell/Commons/Nmcli.js
 f share/vgshell/shell/Commons/Paths.qml
 f share/vgshell/shell/Commons/Reply.js
 f share/vgshell/shell/Commons/SessionLockState.js
@@ -604,6 +605,7 @@ f share/vgshell/shell/plugins/vgs.vpn/VpnBody.qml
 f share/vgshell/shell/plugins/vgs.vpn/VpnLogic.js
 f share/vgshell/shell/plugins/vgs.vpn/Widget.qml
 f share/vgshell/shell/plugins/vgs.vpn/manifest.json
+f share/vgshell/shell/plugins/vgs.vpn/tui/import-wireguard.sh
 f share/vgshell/shell/plugins/vgs.webapps/Service.qml
 f share/vgshell/shell/plugins/vgs.webapps/WebApps.js
 f share/vgshell/shell/plugins/vgs.webapps/fallback.svg

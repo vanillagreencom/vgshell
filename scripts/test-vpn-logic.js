@@ -13,6 +13,8 @@ const path = require("path");
 const assert = require("node:assert/strict");
 const { load } = require("../bin/lib/qml-library.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.vpn/VpnLogic.js");
+const nmcliFile = path.join(__dirname, "../shell/Commons/Nmcli.js");
+const commons = { "qs.Commons 1.0": { Nmcli: load(nmcliFile) } };
 const fixtures = path.join(__dirname, "fixtures/vpn");
 const text = name => fs.readFileSync(path.join(fixtures, name), "utf8");
 // The core's ceiling for one plugin's published status
@@ -180,6 +182,32 @@ function suite(logic) {
         for (const key of Object.keys(want)) assert.equal(view[key], want[key], key + " of " + (vpn === null ? "null" : vpn.state));
     }
 
+    const profiles = plain(logic.profiles(0, "Office\\:west\\\\desk:vpn:\nHome tunnel:wireguard:activated\nWifi:wifi:activated\n"));
+    assert.deepEqual(profiles, { state: "available", rows: [
+        { id: "Office:west\\desk", name: "Office:west\\desk", type: "vpn", active: false },
+        { id: "Home tunnel", name: "Home tunnel", type: "wireguard", active: true }
+    ], count: 2 });
+    for (const [code, output, state] of [[0, "", "available"], [10, "x:vpn:", "unavailable"],
+        [0, "bad:vpn", "unavailable"], [0, "bad:vpn:ending\\", "unavailable"]])
+        assert.equal(logic.profiles(code, output).state, state);
+    for (const [request, argv, refusal] of [
+        [{ kind: "profile-up", id: "Office:west\\desk" }, ["nmcli", "connection", "up", "id", "Office:west\\desk"], undefined],
+        [{ kind: "profile-down", id: "Home tunnel" }, ["nmcli", "connection", "down", "id", "Home tunnel"], undefined],
+        [{ kind: "profile-up", id: "Home tunnel" }, undefined, "refused: profile=state"],
+        [{ kind: "profile-down", id: "gone" }, undefined, "refused: profile=absent"]
+    ]) assert.deepEqual(plain(logic.profileCommand(request, profiles)), argv ? { argv } : { refusal });
+    assert.equal(logic.profileCommand({ kind: "profile-up", id: "Office:west\\desk" }, { state: "available", rows: [profiles.rows[0], profiles.rows[0]] }).refusal, "refused: profile=ambiguous");
+    assert.equal(logic.profileCommand({ kind: "profile-up", id: "Home tunnel" }, logic.emptyProfiles()).refusal, "refused: profile=unavailable");
+    assert.equal(logic.barView({ state: "missing" }, profiles).shown, true);
+    assert.equal(logic.barView({ state: "missing" }, profiles).icon, "shield-check");
+    assert.equal(logic.barView({ state: "missing" }, logic.profiles(0, "")).icon, "shield-off");
+    assert.equal(logic.barView({ state: "missing" }, logic.emptyProfiles()).shown, false);
+    const profileCrowd = Array.from({ length: 100 }, (_, i) => String(i).padStart(3, "0") + "\u0001".repeat(250) + ":vpn:").join("\n");
+    const profileBound = plain(logic.profiles(0, profileCrowd));
+    assert.equal(profileBound.rows.length, logic.PROFILE_MAX);
+    assert.equal(profileBound.count, 100);
+    assert.ok(Buffer.byteLength(JSON.stringify(Object.assign(profileBound, { action: "x".repeat(logic.TARGET_MAX), problem: "" }))) < STATUS_MAX_BYTES);
+
     // A drawn line holds no markup start and no control character.
     assert.equal(logic.line("a<b>\u0007c\n"), "ab>c");
     assert.equal(logic.line(7), "");
@@ -209,11 +237,21 @@ function suite(logic) {
     assert.ok(bytes < STATUS_MAX_BYTES, "the largest vpn value is " + bytes + " bytes, the ceiling " + STATUS_MAX_BYTES);
 }
 
-suite(load(file));
+suite(load(file, commons));
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "vpn-logic-"));
 try {
     const source = fs.readFileSync(file, "utf8");
+    const parserSource = fs.readFileSync(nmcliFile, "utf8");
+    const parserNeedle = 'else if (c === "\\\\") escaped = true;';
+    assert.equal(parserSource.split(parserNeedle).length - 1, 1);
+    const parserMutant = path.join(scratch, "Nmcli.js");
+    fs.writeFileSync(parserMutant, parserSource.replace(parserNeedle, 'else if (c === "\\\\") out[out.length - 1] += c;'));
+    assert.throws(() => suite(load(file, { "qs.Commons 1.0": { Nmcli: load(parserMutant) } })));
+    console.log("vpn-logic: control=nmcli escaping red");
     for (const [name, needle, replacement] of [
+        ["VPN profiles exclude other types", 'fields[1] !== "vpn" && fields[1] !== "wireguard"', 'false'],
+        ["profile argv names id", '"down", "id", row.id]', '"down", row.id]'],
+        ["profile lists are bounded", 'rows: rows.slice(0, PROFILE_MAX)', 'rows: rows.slice(0)'],
         ["a target equal to the peer id", "{ id: peer.ID, target: target,", "{ id: peer.ID, target: peer.ID,"],
         ["a Mullvad node goes by its IPv4", "if (isMullvad(peer)) return address;", ""],
         ["the DNS name comes before the host name", 'if (dns !== "") return dns;', ""],
@@ -236,7 +274,7 @@ try {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");
         const mutant = path.join(scratch, "VpnLogic.js");
         fs.writeFileSync(mutant, source.replace(needle, replacement));
-        assert.throws(() => suite(load(mutant)), undefined, "control: " + name);
+        assert.throws(() => suite(load(mutant, commons)), undefined, "control: " + name);
         console.log("vpn-logic: control=" + name + " red");
     }
 } finally { fs.rmSync(scratch, { recursive: true, force: true }); }

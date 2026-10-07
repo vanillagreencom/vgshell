@@ -5,7 +5,7 @@
 # No latency budget is measured. Polls use expect_poll's IPC round trip.
 # The production reprompt control suppresses the password prompt in a
 # sandbox plugin copy. The secret reader's control plants a synthetic log.
-# inputs: shell/plugins/vgs.network/* shell/plugins/vgs.system/* shell/Core/* shell/Hosts/* shell/Ui/* shell/Commons/* shell/shell.qml config/shell.json bin/vgshell-scan bin/vgshell-plugin-judge bin/lib/check-manifests.js bin/lib/qml-library.js scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/overlay-capture.sh
+# inputs: shell/plugins/vgs.network/* shell/Commons/Nmcli.js shell/Commons/qmldir shell/plugins/vgs.system/* shell/Core/* shell/Hosts/* shell/Ui/* shell/Commons/* shell/shell.qml config/shell.json bin/vgshell-scan bin/vgshell-plugin-judge bin/lib/check-manifests.js bin/lib/qml-library.js scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/overlay-capture.sh
 set -euo pipefail
 devices_ready network || return 0
 net_saved="$sandbox/network-shell-before.json"
@@ -315,7 +315,7 @@ expect "the permission-notice flyout closes" ok ipc shell hide panel vgs.network
 # The dropdown and Details over two wired fakes on the sandbox bus:
 # enp10s0 connected with its cable in, enp11s0 with no cable.
 net_wired() { net_snapshot | py_reply 'import json,sys; print(json.dumps([[r["name"],r["state"]] for r in json.load(sys.stdin)["network"]["ethernet"]]))'; }
-net_wired_text() { node -e 'const { load } = require(process.argv[1] + "/bin/lib/qml-library.js"); console.log(load(process.argv[1] + "/shell/plugins/vgs.network/NetworkLogic.js").ethernetText(process.argv[2]));' "$repo" "$1"; }
+net_wired_text() { node -e 'const { load } = require(process.argv[1] + "/bin/lib/qml-library.js"); console.log(load(process.argv[1] + "/shell/plugins/vgs.network/NetworkLogic.js", { "qs.Commons 1.0": { Nmcli: load(process.argv[1] + "/shell/Commons/Nmcli.js") } }).ethernetText(process.argv[2]));' "$repo" "$1"; }
 net_wired_rows() { ipc smoke itemValues "$1" vgs.network ListItem text,secondary | py_reply 'import json,sys; print(json.dumps([[r["text"],r["secondary"]] for r in json.load(sys.stdin) if r["text"].startswith("enp")]))'; }
 net_wired_listed() { net_wired_rows "$1" | py_reply 'import json,sys; print(json.dumps([[t, s != ""] for t,s in json.load(sys.stdin)]))'; }
 # The System window's ScrollArea holds the pane, so its instance reveals.

@@ -4,36 +4,154 @@
   "name": "VPN",
   "version": "0.1.0",
   "author": "VanillaGreen",
-  "description": "Connect Tailscale and choose an exit node.",
+  "description": "Connect Tailscale or a saved VPN profile.",
   "license": "MIT",
   "icon": "shield-check",
-  "kinds": ["service", "bar-widget", "panel", "pane"],
-  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml", "pane": "Pane.qml" },
-  "capabilities": ["configure", "ipc", "requirements", "run", "status", "surfaces", "system"],
+  "kinds": [
+    "service",
+    "bar-widget",
+    "panel",
+    "pane"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "bar-widget": "Widget.qml",
+    "panel": "Panel.qml",
+    "pane": "Pane.qml"
+  },
+  "capabilities": [
+    "configure",
+    "ipc",
+    "requirements",
+    "run",
+    "status",
+    "surfaces",
+    "system",
+    "tui"
+  ],
   "defaultSection": "right",
-  "pane": { "group": "Connectivity", "order": 30 },
+  "pane": {
+    "group": "Connectivity",
+    "order": 30
+  },
   "settings": {
     "pollSeconds": 30
   },
   "schema": {
-    "pollSeconds": { "type": "number", "label": "Check every", "description": "How often VGS reads Tailscale while its views are closed", "unit": "seconds", "presets": [{ "value": 10 }, { "value": 30 }, { "value": 60 }], "group": "Updates" }
+    "pollSeconds": {
+      "type": "number",
+      "label": "Check every",
+      "description": "How often VGS reads Tailscale while its views are closed",
+      "unit": "seconds",
+      "presets": [
+        {
+          "value": 10
+        },
+        {
+          "value": 30
+        },
+        {
+          "value": 60
+        }
+      ],
+      "group": "Updates"
+    }
   },
   "requirements": [
-    { "command": "tailscale", "packages": { "pacman": "tailscale", "dnf": "tailscale", "xbps": "tailscale", "emerge": "net-vpn/tailscale", "nix": "tailscale" }, "optional": true, "purpose": "Reads and controls your Tailscale connection" },
-    { "command": "xdg-open", "packages": { "pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": false, "purpose": "Opens the Tailscale sign-in page in your browser" }
+    {
+      "command": "tailscale",
+      "packages": {
+        "pacman": "tailscale",
+        "dnf": "tailscale",
+        "xbps": "tailscale",
+        "emerge": "net-vpn/tailscale",
+        "nix": "tailscale"
+      },
+      "optional": true,
+      "purpose": "Reads and controls your Tailscale connection"
+    },
+    {
+      "command": "xdg-open",
+      "packages": {
+        "pacman": "xdg-utils",
+        "apt": "xdg-utils",
+        "dnf": "xdg-utils",
+        "nix": "xdg-utils"
+      },
+      "optional": false,
+      "purpose": "Opens the Tailscale sign-in page in your browser"
+    },
+    {
+      "command": "nmcli",
+      "packages": {
+        "pacman": "networkmanager",
+        "apt": "network-manager",
+        "dnf": "NetworkManager",
+        "xbps": "NetworkManager",
+        "emerge": "net-misc/networkmanager",
+        "nix": "networkmanager"
+      },
+      "optional": true,
+      "purpose": "Reads and controls saved VPN and WireGuard profiles"
+    },
+    {
+      "command": "gum",
+      "packages": {
+        "pacman": "gum",
+        "apt": "gum",
+        "dnf": "gum",
+        "nix": "gum"
+      },
+      "optional": true,
+      "purpose": "Chooses a WireGuard configuration file"
+    }
   ],
-  "systemSteps": ["service-tailscaled", "tailscale-operator"],
+  "systemSteps": [
+    "service-tailscaled",
+    "tailscale-operator"
+  ],
   "status": {
-    "connection": { "type": "state", "label": "Connection" },
+    "connection": {
+      "type": "state",
+      "label": "Connection"
+    },
     "setup": {
       "type": "state",
       "label": "Setup",
       "actions": {
-        "install": { "label": "Install", "install": ["tailscale"] },
-        "enable": { "label": "Enable", "system": "service-tailscaled" },
-        "allow": { "label": "Allow", "system": "tailscale-operator" }
+        "install": {
+          "label": "Install",
+          "install": [
+            "tailscale"
+          ]
+        },
+        "enable": {
+          "label": "Enable",
+          "system": "service-tailscaled"
+        },
+        "allow": {
+          "label": "Allow",
+          "system": "tailscale-operator"
+        }
       }
     },
-    "vpn": { "type": "data", "label": "VPN" }
+    "vpn": {
+      "type": "data",
+      "label": "VPN"
+    },
+    "profiles": {
+      "type": "data",
+      "label": "VPN profiles"
+    }
+  },
+  "tui": {
+    "import-wireguard": {
+      "script": "tui/import-wireguard.sh",
+      "title": "Import WireGuard",
+      "requires": [
+        "nmcli",
+        "gum"
+      ]
+    }
   }
 }

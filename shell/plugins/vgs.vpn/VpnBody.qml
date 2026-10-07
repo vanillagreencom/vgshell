@@ -24,6 +24,8 @@ FocusScope {
     property string localProblem: ""
 
     readonly property var vpn: shell === null || !shell.status.values.vpn ? Logic.unread() : shell.status.values.vpn
+    readonly property var profiles: shell === null || !shell.status.values.profiles ? Object.assign(Logic.emptyProfiles(), { action: "", problem: "" }) : shell.status.values.profiles
+    readonly property var profileRows: profiles.rows
     readonly property bool busy: vpn.action !== ""
     readonly property bool switchable: ["running", "starting", "stopped"].indexOf(vpn.state) !== -1
     readonly property bool reached: switchable || vpn.state === "signed-out" || vpn.state === "needs-approval"
@@ -68,7 +70,7 @@ FocusScope {
     Component.onDestruction: close()
 
     function answered(reply, refusal) {
-        localProblem = reply === "ok" ? "" : reply === "busy" ? "A Tailscale change is still in progress." : refusal;
+        localProblem = reply === "ok" ? "" : reply === "busy" ? "A VPN change is still in progress." : refusal;
         if (reply !== "ok" && reply !== "busy") console.warn("vpn: " + reply);
         return reply;
     }
@@ -86,6 +88,7 @@ FocusScope {
             width: parent.width
             role: "body"
             textFormat: Text.PlainText
+            visible: root.vpn.state !== "missing"
             text: root.vpn.text
             wrapMode: Text.Wrap
         }
@@ -100,7 +103,7 @@ FocusScope {
         }
         Button {
             objectName: "vpn-setup"
-            visible: root.setupAction !== null
+            visible: root.vpn.state !== "missing" && root.setupAction !== null
             text: root.setupAction === null ? "" : root.setupAction.label
             onClicked: root.answered(root.shell.status.act("setup"), "VGS could not open the setup step.")
         }
@@ -233,9 +236,59 @@ FocusScope {
                 }
             }
         }
+        Section {
+            width: parent.width
+            visible: root.profiles.state === "available"
+            title: "VPN profiles"
+            description: root.profiles.count > root.profileRows.length
+                ? "Showing " + root.profileRows.length + " of " + root.profiles.count + " profiles." : ""
+
+            Repeater {
+                model: root.profileRows
+
+                Field {
+                    id: profileRow
+                    required property var modelData
+                    width: parent.width
+                    label: modelData.name
+                    hint: modelData.type === "wireguard" ? "WireGuard" : "VPN"
+                    inline: true
+
+                    Switch {
+                        objectName: "vpn-profile-toggle"
+                        size: "sm"
+                        Accessible.name: profileRow.modelData.name
+                        checked: profileRow.modelData.active
+                        enabled: root.profiles.action === ""
+                        onToggled: {
+                            const wanted = checked;
+                            checked = Qt.binding(() => profileRow.modelData.active);
+                            root.answered(root.shell.ipc.call("action", JSON.stringify({
+                                kind: wanted ? "profile-up" : "profile-down", id: profileRow.modelData.id
+                            })), "This VPN profile cannot change now.");
+                        }
+                    }
+                }
+            }
+            Label {
+                width: parent.width
+                visible: text !== ""
+                role: "hint"
+                color: Theme.color.danger
+                text: root.profiles.problem
+                wrapMode: Text.Wrap
+            }
+            Button {
+                objectName: "vpn-import"
+                text: "Import WireGuard"
+                iconName: "file-up"
+                variant: "secondary"
+                onClicked: root.answered(root.shell.ipc.call("import-wireguard", ""), "VGS could not open the import window.")
+            }
+        }
         Field {
             width: parent.width
-            visible: root.expanded
+            visible: root.expanded && root.vpn.state !== "missing"
             label: "Check every"
             hint: "How often VGS reads Tailscale while this section is closed."
             inline: true

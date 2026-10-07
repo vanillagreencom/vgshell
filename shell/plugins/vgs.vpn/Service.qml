@@ -39,6 +39,17 @@ Item {
     property int pollsStarted: 0
     property int pollsKilled: 0
     property var snapshot: Logic.emptySnapshot("checking")
+    // nmcli reaches the private test bus in validation and the session's
+    // NetworkManager in use. No other caller environment is inherited.
+    readonly property var nmcliEnvironment: ({ PATH: Quickshell.env("PATH"), HOME: Quickshell.env("HOME"), LC_ALL: "C",
+        DBUS_SYSTEM_BUS_ADDRESS: Quickshell.env("DBUS_SYSTEM_BUS_ADDRESS") || null,
+        DBUS_SESSION_BUS_ADDRESS: Quickshell.env("DBUS_SESSION_BUS_ADDRESS") || null, XDG_RUNTIME_DIR: Quickshell.env("XDG_RUNTIME_DIR") })
+    readonly property bool profilesMissing: shell === null || shell.requirements.missing.indexOf("nmcli") !== -1
+    property var profileSnapshot: Logic.emptyProfiles()
+    property string profileAction: ""
+    property string profileProblem: ""
+    readonly property var profiles: Object.assign({}, profilesMissing ? Logic.emptyProfiles() : profileSnapshot,
+        { action: profileAction, problem: profileProblem })
     property var accounts: []
     // Why the last accounts read gave no list, "" for one that did.
     property string accountsFault: ""
@@ -71,7 +82,7 @@ Item {
         if (shell === null) return;
         const setupValue = { tone: setup.tone, text: setup.text };
         if (setup.action !== "") setupValue.action = setup.action;
-        const writes = [["connection", { tone: connection.tone, text: connection.text }], ["setup", setupValue], ["vpn", published]];
+        const writes = [["connection", { tone: connection.tone, text: connection.text }], ["setup", setupValue], ["vpn", published], ["profiles", profiles]];
         for (const write of writes) {
             const reply = shell.status.set(write[0], write[1]);
             if (reply !== "ok") console.warn("vpn: status " + write[0] + " " + reply);
@@ -79,6 +90,7 @@ Item {
     }
     onPublishedChanged: publish()
     onSetupChanged: publish()
+    onProfilesChanged: publish()
 
     onShellChanged: {
         if (shell === null) return;
@@ -86,6 +98,7 @@ Item {
             registered = true;
             shell.ipc.handle("lease", arg => root.lease(arg));
             shell.ipc.handle("action", arg => root.act(arg));
+            shell.ipc.handle("import-wireguard", () => root.importWireguard());
             shell.ipc.handle("refresh", () => root.refresh());
             shell.ipc.handle("open", arg => shell.surfaces.summon("panel", arg || "{}"));
             refresh();
@@ -94,10 +107,16 @@ Item {
     }
     // A scan ends each requirement install, so the command may be new.
     onScansChanged: refresh()
+    onProfilesMissingChanged: {
+        if (profilesMissing) profileSnapshot = Logic.emptyProfiles();
+        else readProfiles();
+    }
     onMissingChanged: if (missing) snapshot = Logic.emptySnapshot("checking")
 
     function refresh() {
-        if (!registered || commandMissing()) return "ok";
+        if (!registered) return "ok";
+        readProfiles();
+        if (commandMissing()) return "ok";
         runPoll("refresh");
         readAccounts();
         return "ok";
@@ -229,6 +248,7 @@ Item {
             if (signIn.running) root.endLogin();
             return "ok";
         }
+        if (request.kind === "profile-up" || request.kind === "profile-down") return actProfile(request);
         if (commandMissing()) return "refused: action=" + request.kind + " state=missing";
         const plan = Logic.command(request, { state: snapshot.state, exitNodes: snapshot.exitNodes, accounts: accounts });
         if (plan.refusal !== undefined) return plan.refusal;
@@ -341,4 +361,83 @@ Item {
             root.refresh();
         }
     }
+    function readProfiles() {
+        if (!registered || profilesMissing) return;
+        if (profilesReader.running) { profilesReader.again = true; return; }
+        profilesReader.completion = null;
+        profilesReader.running = true;
+        profilesDeadline.restart();
+    }
+
+    Timer {
+        interval: root.pollInterval
+        repeat: true
+        running: root.registered && !root.profilesMissing
+        onTriggered: root.readProfiles()
+    }
+    Timer {
+        id: profilesDeadline
+        interval: Logic.WATCHDOG_MS
+        onTriggered: profilesReader.signal(9)
+    }
+    // Process takes argv and reports running=false after the collected
+    // streams finish, as the existing Tailscale readers do.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
+    Process {
+        id: profilesReader
+        property var completion: null
+        property bool again: false
+        command: ["nmcli", "-t", "-f", "NAME,TYPE,STATE", "connection", "show"]
+        clearEnvironment: true
+        environment: root.nmcliEnvironment
+        stdout: StdioCollector { id: profilesText; waitForEnd: true }
+        stderr: StdioCollector { waitForEnd: true }
+        onExited: (code, status) => { profilesReader.completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            profilesDeadline.stop();
+            root.profileSnapshot = Logic.profiles(root.codeOf(completion), profilesText.text);
+            if (again) { again = false; root.readProfiles(); }
+        }
+    }
+
+    function actProfile(request) {
+        const plan = Logic.profileCommand(request, profiles);
+        if (plan.refusal !== undefined) return plan.refusal;
+        if (profileActor.running) return "busy";
+        profileAction = request.id;
+        profileProblem = "";
+        profileActor.completion = null;
+        profileActor.command = plan.argv;
+        profileActor.running = true;
+        profileActionDeadline.restart();
+        return "ok";
+    }
+    Timer {
+        id: profileActionDeadline
+        interval: Logic.ACTION_MS
+        onTriggered: profileActor.signal(9)
+    }
+    Process {
+        id: profileActor
+        property var completion: null
+        clearEnvironment: true
+        environment: root.nmcliEnvironment
+        stdout: StdioCollector { waitForEnd: true }
+        stderr: StdioCollector { waitForEnd: true }
+        onExited: (code, status) => { profileActor.completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            profileActionDeadline.stop();
+            const code = root.codeOf(completion);
+            if (code !== 0) root.profileProblem = code === -1 ? "NetworkManager did not answer." : "NetworkManager could not change this connection.";
+            root.profileAction = "";
+            root.readProfiles();
+        }
+    }
+    function importWireguard() {
+        if (profiles.state !== "available") return "refused: import=unavailable";
+        return shell.tui.run("import-wireguard", [], () => root.readProfiles());
+    }
+
 }

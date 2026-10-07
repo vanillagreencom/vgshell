@@ -39,7 +39,7 @@
 # widget menu and panel source menu; bluetooth is
 # its Bluetooth section, then the Bluetooth dropdown, over the device
 # fakes; vpn is its VPN section, then the VPN dropdown, over the
-# tailscale stand-in; power is its flyout over the sandbox's fake
+# tailscale and nmcli stand-ins; power is its flyout over the sandbox's fake
 # battery and power profile daemon; keyhints is the
 # Key Hints window over the Launcher's, Settings' and Themes' shortcuts and
 # its own; ai-usage is AI Usage's dropdown opened from its bar widget over
@@ -2828,11 +2828,12 @@ scene_network() { # MODE
   device_reply_clear nmcli
   device_reply_clear systemctl
 }
-# VPN reads the tailscale stand-in, which answers a running tailnet with
-# Mullvad nodes from scripts/fixtures/vpn/. The core's system tree holds
-# no tailscale, so the operator step reads absent and no setup step shows.
+# VPN reads a running Tailscale tailnet and saved NetworkManager profiles
+# from the device stand-ins. The core's system tree holds no tailscale,
+# so the operator step reads absent and no setup step shows.
 scene_vpn() { # MODE
   devices_ready vpn-shot || return 0
+  device_reply nmcli 0 $'Home tunnel:wireguard:activated\nOffice VPN:vpn:deactivated' -t -f NAME,TYPE,STATE connection show
   device_reply tailscale 0 "$(<"$repo/scripts/fixtures/vpn/mullvad.json")" status --json
   device_reply tailscale 0 "$(<"$repo/scripts/fixtures/vpn/accounts.txt")" switch --list
   expect "VPN enables for its shot" ok ipc shell setPluginEnabled vgs.vpn true
@@ -2840,21 +2841,28 @@ scene_vpn() { # MODE
   expect "VPN's pane summons" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
   expect_poll "VPN's pane is mounted" shown vpn_shot_shown
   expect_poll "VPN's pane reads the stand-in's tailnet" '["running", 2]' vpn_shot_read
+  expect_poll "VPN's pane lists the saved profile stand-ins" '[["Home tunnel", "wireguard", true], ["Office VPN", "vpn", false]]' vpn_shot_profiles window
+  expect "the saved VPN profiles scroll into the pane" scrolled vpn_shot_reveal window vgs.system
   park_pointer
   take "vpn-$1-pane"
   expect "the VPN System window closes" ok ipc shell hide window vgs.system
   click_centre "$(bar_key)" vgs.vpn || fail "the click on the VPN widget failed"
   expect_poll "the VPN widget opens its dropdown" shown vpn_shot_panel
+  expect_poll "VPN's dropdown lists the saved profile stand-ins" '[["Home tunnel", "wireguard", true], ["Office VPN", "vpn", false]]' vpn_shot_profiles panel
+  expect "the saved VPN profiles scroll into the dropdown" scrolled vpn_shot_reveal panel vgs.vpn
   park_pointer
   take "vpn-$1-dropdown"
   expect "the VPN dropdown hides" ok ipc shell hide panel vgs.vpn
   expect "VPN disables after its shot" ok ipc shell setPluginEnabled vgs.vpn false
   expect "System disables after the VPN shot" ok ipc shell setPluginEnabled vgs.system false
   device_reply_clear tailscale
+  device_reply_clear nmcli
 }
 vpn_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.vpn) != absent ]] && echo shown || echo hidden; }
 vpn_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.vpn) != absent ]] && echo shown || echo hidden; }
 vpn_shot_read() { ipc smoke readDescendant window vgs.vpn VpnBody vpn | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v["state"], len(v["accounts"])]))'; }
+vpn_shot_profiles() { ipc smoke readDescendant "$1" vgs.vpn VpnBody profileRows | py_reply 'import json,sys; print(json.dumps([[r["name"],r["type"],r["active"]] for r in json.load(sys.stdin)]))'; }
+vpn_shot_reveal() { ipc smoke revealText "$1" "$2" SectionHeader "VPN profiles" | py_reply 'import sys; s=sys.stdin.read().strip(); print("scrolled" if s.replace(".", "", 1).isdigit() else s)'; }
 network_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.network) != absent ]] && echo shown || echo hidden; }
 network_shot_reveal() { ipc smoke revealText window vgs.system ListItem enp10s0 | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 network_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.network) != absent ]] && echo shown || echo hidden; }

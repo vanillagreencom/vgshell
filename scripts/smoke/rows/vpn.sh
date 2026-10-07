@@ -32,7 +32,7 @@
 # wall clock with a refresh every second; the row accepts 9 s to 20 s,
 # since a refresh that moved the deadline would hold it past any bound.
 # Every other reading is expect_poll's: 25 reads 0.2 s apart.
-# inputs: shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* scripts/fixtures/vpn/* scripts/smoke/fixtures/devices/* shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh
+# inputs: shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* scripts/fixtures/vpn/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* shell/Commons/Nmcli.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh
 set -euo pipefail
 devices_ready vpn || return 0
 vpn_saved="$sandbox/vpn-shell-before.json"
@@ -108,6 +108,13 @@ vpn_surplus() { # BEFORE
 vpn_account_ids() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; print(json.dumps([a["id"] for a in json.load(sys.stdin)["vpn"]["accounts"]]))'; }
 vpn_opens() { device_calls xdg-open | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1]):]))' "$1"; }
 vpn_record() { ipc shell lent | py_reply 'import json,sys; print("held" if "vgs.vpn" in json.load(sys.stdin)["status"] else "absent")'; }
+vpn_profile_count() { vpn_body window profileRows | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+vpn_profiles() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles"); print("unpublished" if v is None else json.dumps(v[sys.argv[1]]))' "$1"; }
+vpn_nm_changes() { device_calls nmcli | py_reply 'import json,sys; print(json.dumps([c for c in json.load(sys.stdin)[int(sys.argv[1]):] if c[:2] == ["connection", "up"] or c[:2] == ["connection", "down"]]))' "$1"; }
+vpn_profile_press() {
+  ipc smoke revealScopedText window vgs.vpn Field "$1" Switch "" >/dev/null || return 1
+  click_scoped_in window:System window vgs.vpn Field "$1" Switch ""
+}
 vpn_refresh() { ipc vgs.vpn invoke refresh ""; }
 vpn_act() { ipc vgs.vpn invoke action "{\"kind\":\"$1\",\"id\":\"${2:-}\"}"; }
 # Sends the action KIND and prints the problem its run left once FIELD
@@ -348,6 +355,46 @@ expect_poll "a stopped daemon offers Enable" enable vpn_setup
 rm -f -- "${vpn_dir:?}/service-off"
 device_reply systemctl 0 "" is-active --quiet tailscaled.service
 vpn_use mullvad.json
+
+# NetworkManager profiles use the unescaped name as one id argument.
+device_reply nmcli 0 $'Office\\:west\\\\desk:vpn:deactivated\nHome tunnel:wireguard:activated' -t -f NAME,TYPE,STATE connection show
+device_reply nmcli 0 "" connection up id 'Office:west\desk'
+device_reply nmcli 0 "" connection down id 'Home tunnel'
+vpn_nm_before="$(vpn_call_count nmcli)" || { fail "vpn: nmcli calls are unreadable"; return 0; }
+expect "a refresh reads NetworkManager profiles" ok vpn_refresh
+expect_poll "both VPN types publish with their full identities" \
+  '[{"id": "Office:west\\desk", "name": "Office:west\\desk", "type": "vpn", "active": false}, {"id": "Home tunnel", "name": "Home tunnel", "type": "wireguard", "active": true}]' vpn_profiles rows
+expect "the profile section opens" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
+expect_poll "the pane reads both profiles" 2 vpn_profile_count
+vpn_profile_press 'Office:west\desk' || fail "the VPN profile switch could not be pressed"
+expect_poll "the VPN switch runs up with id and one unescaped name" '[["connection", "up", "id", "Office:west\\desk"]]' vpn_nm_changes "$vpn_nm_before"
+expect_poll "the profile change ends" '""' vpn_profiles action
+vpn_profile_press 'Home tunnel' || fail "the WireGuard profile switch could not be pressed"
+expect_poll "the WireGuard switch runs down with id and its name" '[["connection", "up", "id", "Office:west\\desk"], ["connection", "down", "id", "Home tunnel"]]' vpn_nm_changes "$vpn_nm_before"
+expect_poll "the second profile change ends" '""' vpn_profiles action
+expect "System closes after profile switches" ok ipc shell hide window vgs.system
+# Import runs a fixture copy. The terminal cannot execute the shipped TUI.
+expect "VPN disables before the import fixture" ok ipc shell setPluginEnabled vgs.vpn false
+expect_poll "the service is gone before the import fixture" False record_exists vgs.vpn
+vpn_copy="$home/.config/vgshell/plugins/vgs.vpn"
+mkdir -p -- "$vpn_copy"
+cp -R -- "$repo/shell/plugins/vgs.vpn/." "$vpn_copy/"
+cp -- "$repo/scripts/smoke/fixtures/tui/vgs.vpn/tui/import-wireguard.sh" "$vpn_copy/tui/import-wireguard.sh"
+rescan "the import fixture is discovered"
+expect "the import fixture enables" ok ipc shell setPluginEnabled vgs.vpn true
+expect_poll "the import fixture reads profiles" '"available"' vpn_profiles state
+expect "the import fixture pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
+forget_record
+ipc smoke revealText window vgs.vpn Button "Import WireGuard" >/dev/null || fail "the Import button could not be revealed"
+click_in window:System window vgs.vpn Button "Import WireGuard" || fail "the Import button could not be pressed"
+expect_poll "Import hands the terminal the declared TUI" "$(words vgs.vpn/import-wireguard tui/import-wireguard.sh)" recorded_tail
+expect_run_end "the import fixture ends" vgs.vpn/import-wireguard
+expect "System closes after Import" ok ipc shell hide window vgs.system
+device_reply nmcli 10 "" -t -f NAME,TYPE,STATE connection show
+expect "a refresh reads a missing NetworkManager" ok vpn_refresh
+expect_poll "profiles hide when NetworkManager cannot answer" '"unavailable"' vpn_profiles state
+expect "Import refuses without NetworkManager" 'refused: import=unavailable' ipc vgs.vpn invoke import-wireguard ""
+device_reply_clear nmcli
 
 # Controls, on a copy: a widget that polls on its own, a refresh that
 # restarts the watchdog, and a failure table without the access-denied text.

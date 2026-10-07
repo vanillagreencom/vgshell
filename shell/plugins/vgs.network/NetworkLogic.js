@@ -1,4 +1,5 @@
 .pragma library
+.import qs.Commons 1.0 as Commons
 // Pure decisions for Quickshell.Networking snapshots. Signal strength is
 // Quickshell's share from zero to one, not NetworkManager's percentage.
 // Enum toString() is localized display wording, not a stable identity.
@@ -133,15 +134,10 @@ function details(text) {
     const rows = [];
     const shown = /^(GENERAL\.(DEVICE|TYPE|STATE|CONNECTION|HWADDR)|IP[46]\.(ADDRESS\[\d+\]|GATEWAY|DNS\[\d+\]))$/;
     String(text).split(/\r?\n/).forEach(line => {
-        let key = "", value = "", escaped = false, found = false;
-        for (let i = 0; i < line.length; i++) {
-            const c = line[i];
-            if (escaped) { if (found) value += c; else key += c; escaped = false; }
-            else if (c === "\\") escaped = true;
-            else if (c === ":" && !found) found = true;
-            else if (found) value += c;
-            else key += c;
-        }
+        const columns = Commons.Nmcli.fields(line);
+        const found = columns !== null && columns.length >= 2;
+        const key = found ? columns[0] : "";
+        const value = found ? columns.slice(1).join(":") : "";
         if (found && shown.test(key) && value !== "") rows.push({ key: key, value: value });
     });
     return rows;

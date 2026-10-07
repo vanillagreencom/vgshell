@@ -11,7 +11,7 @@ import "VpnLogic.js" as Logic
 BarWidget {
     id: widget
 
-    readonly property var view: Logic.barView(shell === null ? null : shell.status.values.vpn || null)
+    readonly property var view: Logic.barView(shell === null ? null : shell.status.values.vpn || null, shell === null ? null : shell.status.values.profiles || null)
 
     visible: view.shown
     implicitWidth: view.shown ? button.implicitWidth : 0

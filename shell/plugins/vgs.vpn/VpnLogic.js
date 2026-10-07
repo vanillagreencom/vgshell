@@ -1,4 +1,5 @@
 .pragma library
+.import qs.Commons 1.0 as Commons
 // Pure decisions for the Tailscale section: the poll's one-in-flight rule,
 // the snapshot read from `tailscale status --json`, each exit node's CLI
 // target, the argv of every command, and the lines the views draw.
@@ -324,8 +325,45 @@ function unread() {
 
 // The bar icon for the published `vpn` value, null before the first
 // write: hidden while Tailscale is not installed.
-function barView(vpn) {
+function barView(vpn, profiles) {
+    if (isPlain(profiles) && profiles.state === "available" && (!isPlain(vpn) || vpn.state === "missing")) {
+        const active = profiles.rows.some(row => row.active);
+        return { shown: true, icon: active ? "shield-check" : "shield-off", tooltip: active ? "VPN connected" : "VPN" };
+    }
     if (!isPlain(vpn) || vpn.state === "missing") return { shown: false, icon: "shield-off", tooltip: "VPN" };
     if (vpn.state === "running") return { shown: true, icon: vpn.exit === null ? "shield-check" : "globe-lock", tooltip: vpn.text };
     return { shown: true, icon: vpn.tone === "warning" ? "shield-alert" : "shield-off", tooltip: vpn.text };
+}
+
+// The profile list has its own status value. test-vpn-logic.js proves the
+// largest published list remains under PluginLogic.STATUS_MAX_BYTES.
+var PROFILE_MAX = 32;
+function emptyProfiles() { return { state: "unavailable", rows: [], count: 0 }; }
+
+// nmcli's documented terse table is escaped, including the connection id.
+// https://networkmanager.dev/docs/api/latest/nmcli.html
+function profiles(code, text) {
+    if (code !== 0) return emptyProfiles();
+    const rows = [];
+    for (const raw of String(text).split(/\r?\n/)) {
+        if (raw === "") continue;
+        const fields = Commons.Nmcli.fields(raw);
+        if (fields === null || fields.length !== 3) return emptyProfiles();
+        if (fields[1] !== "vpn" && fields[1] !== "wireguard") continue;
+        if (fields[0] === "" || fields[0].length > TARGET_MAX) continue;
+        rows.push({ id: fields[0], name: line(fields[0]), type: fields[1], active: fields[2] === "activated" });
+    }
+    return { state: "available", rows: rows.slice(0, PROFILE_MAX), count: rows.length };
+}
+
+function profileCommand(request, data) {
+    if (!isPlain(request) || (request.kind !== "profile-up" && request.kind !== "profile-down"))
+        return { refusal: "refused: profile=action" };
+    if (data.state !== "available") return { refusal: "refused: profile=unavailable" };
+    const matches = data.rows.filter(row => row.id === request.id);
+    if (matches.length > 1) return { refusal: "refused: profile=ambiguous" };
+    const row = matches[0];
+    if (row === undefined) return { refusal: "refused: profile=absent" };
+    if ((request.kind === "profile-down") !== row.active) return { refusal: "refused: profile=state" };
+    return { argv: ["nmcli", "connection", request.kind === "profile-up" ? "up" : "down", "id", row.id] };
 }
