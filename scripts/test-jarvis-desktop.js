@@ -172,12 +172,9 @@ world(async () => {
         ["url", "apps.url", { url: "https://example.test/page" }, null, "unknown", /"https:\/\/example\.test\/page"/,
             d => assert.deepEqual(d.requests.at(-1), { kind: "run.detached", args: ["gio", "open", "https://example.test/page"] })],
         ["run-refused", "apps.url", { url: "https://example.test/" }, d => { d.modes["run.detached"] = "refuse"; }, "failed", /refused run\.detached/],
-        ["notify", "notify.send", { title: "Fixture", body: "Line one\nLine two" }, null, "completed", /notice was posted/,
-            d => assert.deepEqual(d.requests, [{ kind: "notify", args: ["Fixture", "Line one\nLine two"] }])],
-        ["notify-locked", "notify.send", { title: "Fixture", body: "body" }, d => { d.locked = true; }, "completed", /posted/],
-        ["notify-refused", "notify.send", { title: "Fixture", body: "body" }, d => { d.modes.notify = "refuse"; }, "failed", /refused notify/],
-        ["notify-silent", "notify.send", { title: "Fixture", body: "body" }, d => { d.modes.notify = "silent"; }, "unknown", /did not answer notify/],
-        ["notify-oversize", "notify.send", { title: "Fixture", body: "x".repeat(5000) }, null, "failed", /could not be sent: jarvis: protocol=request-args/,
+        // A request that changes nothing goes out while locked.
+        ["list-locked", "apps.list", { query: "TOOL" }, d => { d.locked = true; }, "completed", /^1 applications\n/],
+        ["launch-oversize", "apps.launch", { desktop: "x".repeat(5000) }, null, "failed", /could not be sent: jarvis: protocol=request-args/,
             d => assert.deepEqual(d.requests, [])]
     ];
 
@@ -205,7 +202,7 @@ world(async () => {
     }
     for (const row of cases) await check(require(file), row);
     const byName = name => cases.find(row => row[0] === name);
-    const toolsWithExecutors = Object.keys(Tools.TABLE).filter(id => ["windows", "compositor", "apps", "wire"].includes(Tools.TABLE[id].executor));
+    const toolsWithExecutors = Object.keys(Tools.TABLE).filter(id => ["windows", "compositor", "apps"].includes(Tools.TABLE[id].executor));
     for (const id of toolsWithExecutors)
         assert.ok(cases.some(row => row[1] === id), id + " has a case");
 
@@ -226,7 +223,7 @@ world(async () => {
         runLine + "with open(os.path.join(run, \"hyprctl.start\"), \"a\") as log:\n    log.write(str(os.getpid()) + \"\\n\")\n"),
     { mode: 0o700 });
 
-    // Registration: wire at once, the Hyprland executors after their probe.
+    // Registration: the Hyprland executors only after their probe.
     async function installedSession(Desktop, fail, closeEarly = false) {
         desk.reset();
         resetStartPids();
@@ -260,36 +257,36 @@ world(async () => {
             owner.close();
             await waitUntil("the probe's close reaches node", allStartedHyprctlDelivered);
             if (desk.hyprctlCalls().length > 0)
-                await waitUntil("the unclosed probe registers", () => ids.length > 1, eventLoopPoll);
+                await waitUntil("the unclosed probe registers", () => ids.length > 0, eventLoopPoll);
             return ids;
         }
         if (fail) {
             await waitUntil("the failed probe's close reaches node",
                 () => desk.hyprctlCalls().some(call => call.status !== 0) && allStartedHyprctlDelivered());
-        } else await waitUntil("the seam registers Hyprland executors", () => ids.length === 4);
+        } else await waitUntil("the seam registers Hyprland executors", () => ids.length === 3);
         owner.close();
         return ids;
     }
     const registration = async Desktop => {
-        assert.deepEqual(await installedSession(Desktop, false), [["wire", []], ["windows", ["hyprctl"]], ["compositor", ["hyprctl"]], ["apps", ["hyprctl"]]]);
-        assert.deepEqual(await installedSession(Desktop, true), [["wire", []]], "no Hyprland executor without a state read");
-        assert.deepEqual(await installedSession(Desktop, false, true), [["wire", []]], "a closed owner registers nothing");
+        assert.deepEqual(await installedSession(Desktop, false), [["windows", ["hyprctl"]], ["compositor", ["hyprctl"]], ["apps", ["hyprctl"]]]);
+        assert.deepEqual(await installedSession(Desktop, true), [], "no Hyprland executor without a state read");
+        assert.deepEqual(await installedSession(Desktop, false, true), [], "a closed owner registers nothing");
     };
     await registration(require(file));
     const integrated = async Executors => {
         assert.deepEqual(await installedSeam(Executors, false),
-            [["wire", []], ["windows", ["hyprctl"]], ["compositor", ["hyprctl"]], ["apps", ["hyprctl"]]],
+            [["windows", ["hyprctl"]], ["compositor", ["hyprctl"]], ["apps", ["hyprctl"]]],
             "the shared seam installs each desktop record once");
-        assert.deepEqual(await installedSeam(Executors, true), [["wire", []]],
-            "notify.send stays offered without Hyprland");
-        assert.deepEqual(await installedSeam(Executors, false, true), [["wire", []]],
+        assert.deepEqual(await installedSeam(Executors, true), [],
+            "no desktop record is offered without Hyprland");
+        assert.deepEqual(await installedSeam(Executors, false, true), [],
             "the seam closes the shared desktop lifetime before its probe registers");
     };
     const executorsFile = path.join(backend, "Executors.js");
     await integrated(require(executorsFile));
     assert.deepEqual(make(require(file), ["gio", "other"]).desktop.records.apps.commands, ["hyprctl", "gio"]);
     assert.deepEqual(make(require(file), []).desktop.records.apps.commands, ["hyprctl"]);
-    for (const id of ["windows", "compositor", "apps", "wire"])
+    for (const id of ["windows", "compositor", "apps"])
         assert.equal(make(require(file)).desktop.records[id].cancellable, false, "no executor can take back a dispatch or launch");
 
     // Lease loss: a poll waiting between reads starts no read after close.
@@ -353,8 +350,8 @@ world(async () => {
     await control("timeout-last-read", "bounds.launchMs + bounds.pollMs + hyprctlWorst + bounds.slackMs", "bounds.launchMs + bounds.pollMs + bounds.slackMs", red(["launch-slowest"]));
     await control("new-window", "state.clients.filter(c => c.mapped && !old.has(lower(c.address)))", "state.clients.filter(c => c.mapped)", red(["open-windowless"]));
     await control("apps-query", ".toLowerCase().includes(query))", ".length > 0)", red(["apps-query"]));
-    await control("probe-first", "router.register(\"wire\", desktop.records.wire);",
-        "for (const id of [\"wire\", \"windows\", \"compositor\", \"apps\"]) router.register(id, desktop.records[id]);", registration);
+    await control("probe-first", "    const ready = desktop.probe().then(() => {",
+        "    for (const id of [\"windows\", \"compositor\", \"apps\"]) router.register(id, desktop.records[id]);\n    const ready = desktop.probe().then(() => {", registration);
     await control("close-reads", "if (closed) { reject(new Error(\"closed\")); return; }", "", closing);
     for (const [name, needle, replacement] of [
         ["seam-install", "const session = DesktopSession.install({ router, ...desktop });",

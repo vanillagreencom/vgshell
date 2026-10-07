@@ -6,7 +6,9 @@
 # was sent with and a click that only dismisses; its message arrives with
 # `&`, `<` and `>` escaped, since the server reads a body as markup. A
 # transient message's card leaves no History entry and a lasting one's
-# does. Each malformed option is refused with its key, and a burst past
+# does. Under Silence a critical message still draws its card, as the
+# x-vgs-plugin hint the core adds lets it, and a normal one goes to History
+# unseen. Each malformed option is refused with its key, and a burst past
 # the run ceiling is refused as busy. With vgs.notifications disabled a
 # message goes to whatever holds the notification name: the fixture's
 # subscription keeps the core's server up and the fixture receives it;
@@ -93,6 +95,17 @@ expect_poll "the lasting card shows" '["", 1, "", "", "none"]' probe_card "Probe
 notes_clear "notify: the lasting card"
 expect_poll "the dismissed lasting card went to History" True in_probe_history "Probe kept"
 expect "the dismissed transient card left no History entry" False in_probe_history "Probe quiet"
+
+# Under Silence a critical plugin message draws its card and a normal one
+# goes to History unseen. The normal one goes first, so once the critical
+# card shows the normal one was judged too.
+expect "Silence turns on" on ipc vgs.notifications invoke silence on
+expect "a normal message is sent under Silence" ok notify_send '{"title": "Probe hushed"}'
+expect "a critical message is sent under Silence" ok notify_send '{"title": "Probe urgent", "urgency": "critical"}'
+expect_poll "the critical message draws its card under Silence" '["", 2, "", "", "none"]' probe_card "Probe urgent"
+expect_poll "the normal message went to History under Silence" True in_probe_history "Probe hushed"
+expect "the normal message draws no card under Silence" '"none"' probe_card "Probe hushed"
+expect "Silence turns off" off ipc vgs.notifications invoke silence off
 notes_off "notify"
 
 # With vgs.notifications disabled the fixture's own subscription keeps the

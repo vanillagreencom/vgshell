@@ -121,8 +121,7 @@ function desktopWorld(runtime, entries, Launch) {
             const launch = launches[argv[0] === "xdg-terminal-exec" ? argv[1] : argv[0]];
             if (launch !== undefined && launch.mode === "window")
                 s.clients.push(client("0x" + (serial++).toString(16), { class: launch.class, initialClass: launch.class, title: "Launched" }));
-        },
-        "notify": () => {}
+        }
     };
     // The reply Service.qml writes, from the real wire builders.
     function serve(Protocol, message) {

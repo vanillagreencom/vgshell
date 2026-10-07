@@ -288,10 +288,14 @@ Item {
         if (!locked) showMissedSleep();
     }
 
+    // A refused send keeps the warning, so the next unlock sends it again.
     function showMissedSleep() {
         if (missedSleep === null || shell === null) return;
         const reply = shell.notify.send(missedSleep);
-        if (reply !== "ok") console.error("lock: notice " + reply);
+        if (reply !== "ok") {
+            console.error("lock: notice " + reply);
+            return;
+        }
         missedSleep = null;
     }
 

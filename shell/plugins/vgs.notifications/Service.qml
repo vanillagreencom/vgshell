@@ -329,7 +329,7 @@ Item {
         // A second copy of a message that stays out is not kept.
         if (!keepCopy(entry)) return false;
         wantWorkspace(entry);
-        if (store.dnd && !Logic.bypassesSilence(fields.appName, fields.urgency)) {
+        if (store.dnd && !Logic.bypassesSilence(fields.appName, fields.urgency, fields.hints)) {
             if (Logic.isEphemeral(fields.appName, fields.transient)) return false;
             n.tracked = true;
             silence(n, entry);

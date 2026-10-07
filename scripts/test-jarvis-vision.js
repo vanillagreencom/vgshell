@@ -390,7 +390,7 @@ async function main() {
                     onScreen: Dispatch.onScreen, directory, state: () => RUNNING, route: () => "image", privateWindows: () => SHIPPED });
                 try {
                     assert.equal(await session.ready, false, "the probe failed");
-                    assert.deepEqual(ids, ["wire"], "no Hyprland answer registers no vision");
+                    assert.deepEqual(ids, [], "no Hyprland answer registers no vision");
                 } finally { vision.close(); session.close(); }
             } finally { process.env.PATH = saved; }
         }],

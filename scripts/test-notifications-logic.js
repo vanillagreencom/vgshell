@@ -151,11 +151,20 @@ function verify(logic) {
     assert.equal(logic.summaryStartsWithGlyph("Mail today"), false, "one space is text");
     assert.equal(logic.summaryStartsWithGlyph(""), false, "an empty summary has no glyph");
 
-    // Silence lets a critical notification from the bare command line through.
+    // Silence lets a critical notification from the bare command line or a
+    // VGS plugin through: [label, appName, urgency, hints, bypasses].
     const U = logic.URGENCY;
-    assert.equal(logic.bypassesSilence("notify-send", U.critical), true);
-    assert.equal(logic.bypassesSilence("notify-send", U.normal), false);
-    assert.equal(logic.bypassesSilence("Slack", U.critical), false, "a chat app marking everything critical stays silenced");
+    for (const [label, app, urgency, hints, want] of [
+        ["a critical bare notify-send", "notify-send", U.critical, {}, true],
+        ["a normal bare notify-send", "notify-send", U.normal, {}, false],
+        ["a chat app marking everything critical stays silenced", "Slack", U.critical, {}, false],
+        ["a critical plugin message", "Lock", U.critical, { "x-vgs-plugin": "vgs.lock" }, true],
+        ["a normal plugin message", "Lock", U.normal, { "x-vgs-plugin": "vgs.lock" }, false],
+        ["an empty plugin hint", "Lock", U.critical, { "x-vgs-plugin": "" }, false],
+        ["a plugin hint that is no string", "Lock", U.critical, { "x-vgs-plugin": 1 }, false],
+        ["no hints at all", "Lock", U.critical, undefined, false]
+    ])
+        assert.equal(logic.bypassesSilence(app, urgency, hints), want, "silence: " + label);
     assert.equal(logic.isEphemeral("notify-send", false), true);
     assert.equal(logic.isEphemeral("app", true), true, "a transient notification is not kept");
     assert.equal(logic.isEphemeral("app", false), false);
@@ -729,7 +738,11 @@ const CONTROLS = [
     ["a browser card says so", "source: \"browser\", body:", "source: \"desktop\", body:"],
     ["a direct title is normalised", "title: \"from \" + from[1]", "title: rest"],
     ["a conversation title is normalised", "title: \"in \" + within[1]", "title: rest"],
-    ["Silence exception", 'return String(appName || "") === "notify-send" && urgency === URGENCY.critical;', 'return String(appName || "") === "notify-send";'],
+    ["Silence exception", 'if (urgency !== URGENCY.critical) return false;', ''],
+    ["Silence lets the bare command line through", 'if (String(appName || "") === "notify-send") return true;', ''],
+    ["Silence lets a plugin message through", 'return isPlainObject(hints) && typeof hints["x-vgs-plugin"] === "string" && hints["x-vgs-plugin"] !== "";', 'return false;'],
+    ["a plugin hint is a string", 'typeof hints["x-vgs-plugin"] === "string" && hints', 'hints'],
+    ["a plugin hint is not empty", ' && hints["x-vgs-plugin"] !== "";', ';'],
     ["critical stays", "if (urgency === URGENCY.critical) return 0;", ""],
     ["lifetime ceiling", "return Math.min(MAX_LIFETIME, Math.max(floor, Math.round(asked)));", "return Math.max(floor, Math.round(asked));"],
     ["the duration setting is the normal floor", "var floor = urgency === URGENCY.low ? Math.min(LOW_LIFETIME, normal) : normal;", "var floor = urgency === URGENCY.low ? Math.min(LOW_LIFETIME, normal) : 8000;"],

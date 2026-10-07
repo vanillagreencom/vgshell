@@ -35,7 +35,6 @@ world(() => {
         ["media.volume", { value: 0 }, "reversible"], ["media.mute", { muted: false }, "reversible"],
         ["media.brightness", { value: 1 }, "reversible"],
         ["notify.notification", { title: "title", body: "body" }, "reversible"],
-        ["notify.send", { title: "title", body: "body" }, "reversible"],
         ["files.list", { path: target }, "read", "file"],
         ["files.read", { path: target }, "read", "file"],
         ["files.search", { path: project, query: "word" }, "read", "file"],

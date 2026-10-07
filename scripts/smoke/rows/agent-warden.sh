@@ -753,7 +753,7 @@ expect_poll "notify: off sent nothing, and back on only the lane that opened aga
 warden_notify everything
 warden_mark="$(warden_sent_count)"
 warden_put partial 0 moved >/dev/null
-expect_poll "under notify: everything a move goes out through the core" '["--app-name=Agent Warden", "--urgency=low", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-tone:info", "--hint=string:x-vgs-icon:shield-check", "--transient", "--", "Moved an agent back into its limits"]' warden_core_call "$warden_mark" "Moved an agent back into its limits"
+expect_poll "under notify: everything a move goes out through the core" '["--app-name=Agent Warden", "--urgency=low", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:vgs.agent-warden", "--hint=string:x-vgs-tone:info", "--hint=string:x-vgs-icon:shield-check", "--transient", "--", "Moved an agent back into its limits"]' warden_core_call "$warden_mark" "Moved an agent back into its limits"
 warden_notify ""
 
 # A warden that stopped: Start it runs the timer through the stand-in,

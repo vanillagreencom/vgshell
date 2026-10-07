@@ -30,6 +30,8 @@ Notification action ownership and window selection: [D051](../../../docs/decisio
 
 Any sender may add four freedesktop string hints, `x-vgs-icon`, `x-vgs-tone`, `x-vgs-open` and `x-vgs-click`, and the plugin draws a card's icon in the tone and opens the file on a click without naming the sender. `readHints` in `NotificationLogic.js` is the one judge and holds each hint's accepted shape; a hint of another shape is refused whole and the service logs its name, and `x-vgs-click: open` without an accepted `x-vgs-open` is refused, so a card never promises a file it cannot open. `scripts/test-notifications-logic.js` pins each shape with a control. `vgs.automations` is one sender ([D052](../../../docs/decisions/D052-automations-engine.md)); `AutomationsLogic.js` is the sender to copy.
 
+The core adds `x-vgs-plugin`, the sending plugin's id, to every `shell.notify.send` message; a critical message carrying it shows under Silence, as a critical bare `notify-send` does, and no card keeps it.
+
 A hint carries a path, never a command, so no notification can make the shell run a program. The roles are stored with the card, and the store's judge refuses a stored value the hint judge would, so a history card or one restored after a restart draws and clicks as it did live. A click opens the file through the plugin's `open` floating TUI with the path as its argument, under one key whatever the file, so a second open while one is live is `busy`; a refused run keeps the card and sends a transient notification through `shell.notify.send` that says why. The TUI splits `$EDITOR` on white space, falls back to `xdg-open`, and refuses an unreadable file; `scripts/test-notifications-open.sh` pins each.
 
 ## State

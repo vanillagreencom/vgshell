@@ -1529,6 +1529,17 @@ Scope {
             return -1;
         }
         function invokeInstance(hostKey: string, id: string, name: string, arg: string): string { return root.invoke(hostKey, id, name, arg); }
+        // Calls the instance's member NAME with the list ARGS_JSON's `args`
+        // holds, spread, answering as invokeInstance does. The list sits in
+        // an object, since qs ipc call strips the brackets of an argument
+        // that opens with `[`.
+        function invokeInstanceArgs(hostKey: string, id: string, name: string, argsJson: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            if (typeof item[name] !== "function") return "no-function";
+            const result = item[name](...JSON.parse(argsJson).args);
+            return result === undefined ? "" : IpcPages.answer(String(result));
+        }
         // Calls the instance's member NAME with ARG COUNT times in one turn,
         // as a burst of input events lands between two frames: the answers,
         // one JSON list.

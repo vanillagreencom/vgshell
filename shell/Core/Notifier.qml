@@ -33,7 +33,7 @@ Singleton {
             console.warn("notify: unsent plugin=" + ctx.id + " exit=null process");
             return "ok";
         }
-        run.command = Logic.notifyArgv(appName, judged.value);
+        run.command = Logic.notifyArgv(ctx.id, appName, judged.value);
         runs = runs.concat([run]);
         run.running = true;
         return "ok";

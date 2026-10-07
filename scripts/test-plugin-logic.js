@@ -766,16 +766,16 @@ function suite(ctx, check) {
     // notifyArgv: [name, options, argv]. The message is a body the server
     // reads as markup, so its `&`, `<` and `>` arrive escaped.
     const notifyArgvRows = [
-        ["the defaults", { title: "Saved" }, ["notify-send", "--app-name=Acme", "--urgency=normal", "--hint=string:x-vgs-click:none", "--", "Saved", ""]],
+        ["the defaults", { title: "Saved" }, ["notify-send", "--app-name=Acme", "--urgency=normal", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:acme.probe", "--", "Saved", ""]],
         ["every key", { title: "Saved", message: "to disk", tone: "danger", icon: "camera", urgency: "critical", transient: true },
-            ["notify-send", "--app-name=Acme", "--urgency=critical", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-tone:danger", "--hint=string:x-vgs-icon:camera", "--transient", "--", "Saved", "to disk"]],
+            ["notify-send", "--app-name=Acme", "--urgency=critical", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:acme.probe", "--hint=string:x-vgs-tone:danger", "--hint=string:x-vgs-icon:camera", "--transient", "--", "Saved", "to disk"]],
         ["markup in the message", { title: "<b>a</b> & b", message: "<b>bold</b> & a>b" },
-            ["notify-send", "--app-name=Acme", "--urgency=normal", "--hint=string:x-vgs-click:none", "--", "<b>a</b> & b", "&lt;b&gt;bold&lt;/b&gt; &amp; a&gt;b"]],
-        ["a title that starts like an option", { title: "--urgency=low" }, ["notify-send", "--app-name=Acme", "--urgency=normal", "--hint=string:x-vgs-click:none", "--", "--urgency=low", ""]]
+            ["notify-send", "--app-name=Acme", "--urgency=normal", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:acme.probe", "--", "<b>a</b> & b", "&lt;b&gt;bold&lt;/b&gt; &amp; a&gt;b"]],
+        ["a title that starts like an option", { title: "--urgency=low" }, ["notify-send", "--app-name=Acme", "--urgency=normal", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:acme.probe", "--", "--urgency=low", ""]]
     ];
     for (const [name, raw, want] of notifyArgvRows) {
         const judged = ctx.notifyOptions(raw);
-        check("notifyArgv: " + name, judged.ok ? ctx.notifyArgv("Acme", judged.value) : judged.error, want);
+        check("notifyArgv: " + name, judged.ok ? ctx.notifyArgv("acme.probe", "Acme", judged.value) : judged.error, want);
     }
     check("the notify run ceiling is a whole number above zero", Number.isInteger(ctx.NOTIFY_RUNS_MAX) && ctx.NOTIFY_RUNS_MAX > 0, true);
     check("notify is a capability", ctx.CAPABILITIES.indexOf("notify") !== -1, true);
@@ -1459,7 +1459,8 @@ const CONTROLS = [
     ["a notify icon is a Lucide name", "&& NOTIFY_ICON.test(raw.icon)))", "))"],
     ["a notify urgency is known", "if (raw.urgency !== undefined && NOTIFY_URGENCIES.indexOf(raw.urgency) === -1)", "if (false)"],
     ["notify transient is a boolean", 'if (raw.transient !== undefined && typeof raw.transient !== "boolean")', "if (false)"],
-    ["a notify click only dismisses", ', "--hint=string:x-vgs-click:none"];', '];'],
+    ["a notify click only dismisses", '"--hint=string:x-vgs-click:none", ', ''],
+    ["a notify names its plugin", ', "--hint=string:x-vgs-plugin:" + pluginId];', '];'],
     ["a notify tone is a hint", 'if (judged.tone !== "") argv.push("--hint=string:x-vgs-tone:" + judged.tone);', ''],
     ["a notify icon is a hint", 'if (judged.icon !== "") argv.push("--hint=string:x-vgs-icon:" + judged.icon);', ''],
     ["a transient notify skips History", 'if (judged.transient) argv.push("--transient");', ''],

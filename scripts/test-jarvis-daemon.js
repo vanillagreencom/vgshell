@@ -131,7 +131,7 @@ async function inside() {
             65, "jarvis: protocol=identity", states([false]));
     // The request wire's reply side: a reply answers only a request this
     // daemon sent, and only after hello.
-    const answer = { v: 1, type: "reply", gen: 0, revision: hello.revision, id: 1, kind: "notify", answer: "ok", data: null };
+    const answer = { v: 1, type: "reply", gen: 0, revision: hello.revision, id: 1, kind: "run.detached", answer: "ok", data: null };
     await run(daemon, [JSON.stringify(answer) + "\n"], 65, "jarvis: protocol=identity");
     const unknownReply = file => run(file, [JSON.stringify(hello) + "\n", JSON.stringify(answer) + "\n"],
         65, "jarvis: protocol=reply-unknown", states([false]));
@@ -485,7 +485,7 @@ async function inside() {
     async function desktopDriver(file, directory, mappedIndicator = false) {
         await conversation(file, async w => {
             fs.writeFileSync(path.join(directory, "call.json"), JSON.stringify({
-                id: "fixture-notice", tool: "notify.send", arguments: { title: "Fixture", body: "Notice" }
+                id: "fixture-help", tool: "help", arguments: { topic: "input" }
             }));
             if (mappedIndicator) {
                 const waiting = await w.wait(message => message.state.input.kind === "held");
@@ -494,14 +494,12 @@ async function inside() {
                 assert.equal(fs.existsSync(results), false, "the driver retains demand instead of reporting no-turn");
                 w.indicator(true);
             }
-            await w.wait(() => w.messages.some(message => message.type === "request" && message.kind === "notify"));
-            const request = w.messages.find(message => message.type === "request" && message.kind === "notify");
-            const { v, gen, revision, id, kind } = request;
-            w.reply({ v, type: "reply", gen, revision, id, kind, answer: "ok", data: null });
             const results = path.join(directory, "results.jsonl");
             await w.wait(() => fs.existsSync(results) && fs.readFileSync(results, "utf8").includes('"outcome"'));
-            const result = fs.readFileSync(results, "utf8").trim().split("\n").map(JSON.parse).at(-1);
-            assert.deepEqual(result, { id: "fixture-notice", outcome: "completed", content: "The notice was posted." });
+            // A help read answers within its route, so its outcome row can
+            // come before the route row.
+            const result = fs.readFileSync(results, "utf8").trim().split("\n").map(JSON.parse).find(row => row.outcome !== undefined);
+            assert.deepEqual([result.id, result.outcome, typeof result.content === "string" && result.content !== ""], ["fixture-help", "completed", true]);
         });
     }
     const desktopDriverFile = daemonCopy("desktop-driver");
@@ -1022,8 +1020,7 @@ exit "$failures"
     instrumentDesktop(driverDaemon, seamDriverRoot);
     const Protocol = require(path.join(tree, "bin/lib/qml-library.js")).load(path.join(tree, "shell/plugins/vgs.jarvis/JarvisProtocol.js"));
     for (const [tool, arguments_, kind, content] of [
-        ["windows.focus", { window: "0xa1" }, "compositor.focusWindow", /Read back: window 0xa1 has the focus/],
-        ["notify.send", { title: "Fixture", body: "Notice" }, "notify", /^The notice was posted\.$/]
+        ["windows.focus", { window: "0xa1" }, "compositor.focusWindow", /Read back: window 0xa1 has the focus/]
     ]) {
         desk.reset();
         fs.rmSync(path.join(seamDriverRoot, "results.jsonl"), { force: true });

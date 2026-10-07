@@ -17,7 +17,7 @@
 # SCENE is gallery, settings, focus, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup or ai-usage. settings takes the
+# keyhints, clipboard, voice, voice-setup, plugin-messages or ai-usage. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -56,7 +56,13 @@
 # stand-ins report it ready, taken only when named; voice-keys is the Keys
 # section of Voice's Settings page with Voice on, then the pointer on its
 # first key's info icon with that icon's tooltip open where the tree draws
-# one, taken only when named; focus is
+# one, taken only when named; plugin-messages is a plugin's message to the
+# user as the tree draws it, a core toast where the tree ships
+# shell/Core/Toasts.qml and else its card in vgs.notifications with
+# Silence off: the clipboard's paste failure, a transient message, its
+# unsaved history, a lasting one, and the lock's warning that the computer
+# slept unlocked, sent through the lock's own unlock path, taken only when
+# named; focus is
 # the keyboard focus proof set; dialog is the core's requirement notice;
 # lock is the vgs.lock screen, locked and after wrong attempts; polkit is
 # the vgs.polkit prompt, asking and after a failed attempt; greeter is the
@@ -291,6 +297,7 @@ scene_ships() {
     clipboard) ships_plugin vgs.clipboard ;;
     voice) ships_plugin vgs.voice ;;
     voice-setup) ships_plugin vgs.voice vgs.settings ;;
+    plugin-messages) ships_plugin vgs.clipboard vgs.lock vgs.notifications ;;
     voice-keys) [[ $manager_scene == settings ]] && ships_plugin vgs.voice ;;
     ai-usage) ships_plugin vgs.ai-usage ;;
     devtools) ships_plugin vgs.devtools ;;
@@ -2597,6 +2604,89 @@ scene_lock() { # MODE
   [[ $probe != True ]] || expect "re-enabling the probe fixture is allowed" ok ipc shell setPluginEnabled acme.probe true
 }
 
+# A plugin's message to the user, as the tree draws it: a core toast where
+# the tree ships shell/Core/Toasts.qml, else the system notification
+# vgs.notifications draws. The clipboard's paste failure is a message that
+# answers one key press, its unsaved history a lasting one, and the lock's
+# warning that the computer slept unlocked shows once the lock ends. Both
+# trees' vgs.clipboard has notice(title, message), which a tree with toasts
+# calls with two arguments and drops the third, and both trees' vgs.lock
+# has released(reason).
+messages_toasts=false
+[[ -f $tree/shell/Core/Toasts.qml ]] && messages_toasts=true
+messages_shown() {
+  if "$messages_toasts"; then
+    ipc shell lent | py_reply 'import json,sys; print(len(json.load(sys.stdin)["toasts"]["visible"]))'
+  else
+    notes status | py_reply 'import json,sys; print(json.load(sys.stdin)["onScreen"])'
+  fi
+}
+messages_silence() { notes status | py_reply 'import json,sys; print(str(json.load(sys.stdin)["silence"]).lower())'; }
+# messages_clear PLUGIN: a toast ends with its plugin's instance; a
+# notification is dismissed, `none` when no card shows, and its History
+# cleared.
+messages_clear() { # PLUGIN
+  local reply
+  if "$messages_toasts"; then
+    expect "disabling $1 ends its toasts" ok ipc shell setPluginEnabled "$1" false
+    expect_poll "$1 is gone" False record_exists "$1"
+    expect "enabling $1 again is allowed" ok ipc shell setPluginEnabled "$1" true
+    expect_poll "$1 is built again" True record_exists "$1"
+  else
+    reply="$(notes dismiss-all)" || reply=unread
+    [[ $reply == ok || $reply == none ]] || fail "dismissing the notifications answered $reply"
+    expect "the history clears" ok notes clear-history
+  fi
+  expect_poll "no message is left on screen" 0 messages_shown
+}
+scene_plugin-messages() { # MODE
+  local probe silence_found=false
+  if ! "$messages_toasts"; then
+    # The status function registers once the store is read, after the
+    # plugin is built: 10 s at most, polled as expect_poll polls.
+    for _ in $(seq 1 50); do
+      silence_found="$(messages_silence)" || silence_found=unread
+      [[ $silence_found == unread || $silence_found == empty ]] || break
+      sleep 0.2
+    done
+    [[ $silence_found == true || $silence_found == false ]] || fail "Silence is unreadable before the plugin messages: $silence_found"
+    [[ $silence_found == false ]] || expect "Silence goes off for the plugin messages" off notes silence off
+  fi
+  expect_poll "the clipboard history's store is ready" '"ready"' ipc smoke readInstance service vgs.clipboard store
+  expect_poll "no message shows at first" 0 messages_shown
+  expect "the clipboard's paste failure is sent" "" ipc smoke invokeInstanceArgs service vgs.clipboard notice \
+    '{"args": ["Paste failed", "The entry is on the clipboard. Paste it with the key of the application.", true]}'
+  expect_poll "the paste failure shows" 1 messages_shown
+  park_pointer
+  take "plugin-messages-$1-transient"
+  messages_clear vgs.clipboard
+  expect_poll "the clipboard history's store is ready again" '"ready"' ipc smoke readInstance service vgs.clipboard store
+  expect "the clipboard's unsaved history is sent" "" ipc smoke invokeInstanceArgs service vgs.clipboard notice \
+    '{"args": ["Clipboard history is not saved", "The history file cannot be written.", false]}'
+  expect_poll "the unsaved history shows" 1 messages_shown
+  park_pointer
+  take "plugin-messages-$1-lasting"
+  messages_clear vgs.clipboard
+  probe="$(plugin_enabled acme.probe)" || probe=unreadable
+  [[ $probe != True ]] || expect "disabling the probe fixture, which holds lock, is allowed" ok ipc shell setPluginEnabled acme.probe false
+  expect "enabling vgs.lock is allowed" ok ipc shell setPluginEnabled vgs.lock true
+  expect_poll "vgs.lock is built" True record_exists vgs.lock
+  expect "the lock answers ok" ok ipc vgs.lock invoke lock ''
+  expect_poll "the lock is confirmed with the lock screen" '[true, true, true]' lock_core
+  expect "a sleep the lock did not confirm is released" "" ipc smoke invokeInstanceArgs service vgs.lock released '{"args": ["timeout"]}'
+  expect "no message shows over the lock screen" 0 messages_shown
+  expect "the probe releases the lock" ok ipc smoke sessionUnlock
+  expect_poll "the core holds no lock" '[false, false, true]' lock_core
+  expect_poll "the warning shows once the lock ends" 1 messages_shown
+  park_pointer
+  take "plugin-messages-$1-lock"
+  messages_clear vgs.lock
+  expect "disabling vgs.lock is allowed" ok ipc shell setPluginEnabled vgs.lock false
+  expect_poll "vgs.lock is gone" False record_exists vgs.lock
+  [[ $probe != True ]] || expect "re-enabling the probe fixture is allowed" ok ipc shell setPluginEnabled acme.probe true
+  [[ $silence_found != true ]] || expect "Silence goes back on after the plugin messages" on notes silence on
+}
+
 # The vgs.polkit prompt, asking and after a failed attempt, over the
 # probe's stand-in flow (polkitStandInOpen in scripts/smoke/Probe.qml): the
 # plugin's own Prompt.qml in a stand-in of the summon host's overlay
@@ -2793,6 +2883,24 @@ scene_automations() { # MODE
   automations_stand_ins_restore "$auto_stub"
 }
 
+# The sleep hook and the idle watch stay off in vgs.lock's row: no logind
+# stand-in runs here, and an idle lock would cover the other scenes.
+lock_row_quiet() {
+  python3 - "$home/.config/vgshell/shell.json" <<'PY' || fail "writing vgs.lock's row failed"
+import json, os, sys
+path = sys.argv[1]
+config = json.load(open(path))
+rows = config.setdefault("plugins", [])
+row = next((r for r in rows if r.get("id") == "vgs.lock"), None)
+if row is None:
+    row = {"id": "vgs.lock"}
+    rows.append(row)
+row.update({"lockBeforeSleep": False, "idleLockSeconds": 0})
+with open(path + ".tmp", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".tmp", path)
+PY
+}
 for scene in "${scenes[@]}"; do
   case $scene in
     bar) need_setup launcher; need_setup panels; need_setup bar ;;
@@ -2945,24 +3053,16 @@ PY2
       cp -R -- "$fixtures/acme.needs/." "$home/.config/vgshell/plugins/acme.needs/"
       tree_rescan "the needs fixture is scanned"
       expect_poll "the needs fixture is listed" True plugin_known acme.needs ;;
-    lock)
-      # The sleep hook and the idle watch stay off: no logind stand-in runs
-      # here, and an idle lock would cover the other scenes.
-      python3 - "$home/.config/vgshell/shell.json" <<'PY'
-import json, os, sys
-path = sys.argv[1]
-config = json.load(open(path))
-rows = config.setdefault("plugins", [])
-row = next((r for r in rows if r.get("id") == "vgs.lock"), None)
-if row is None:
-    row = {"id": "vgs.lock"}
-    rows.append(row)
-row.update({"lockBeforeSleep": False, "idleLockSeconds": 0})
-with open(path + ".tmp", "w") as out:
-    json.dump(config, out)
-os.replace(path + ".tmp", path)
-PY
-      ;;
+    lock) lock_row_quiet ;;
+    plugin-messages)
+      # The clipboard's store needs the nested clipboard's tools, as the
+      # clipboard scene does.
+      command -v wl-copy >/dev/null && command -v wl-paste >/dev/null || fail "the plugin messages need wl-copy and wl-paste"
+      lock_row_quiet
+      for id in vgs.notifications vgs.clipboard; do
+        expect "enabling $id for the plugin messages is allowed" ok ipc shell setPluginEnabled "$id" true
+        expect_poll "$id is built for the plugin messages" True record_exists "$id"
+      done ;;
     launcher|notifications)
       # The notifications read the synthetic Slack's workspace list once,
       # when they start, beside a stub libsecret that holds no token: the

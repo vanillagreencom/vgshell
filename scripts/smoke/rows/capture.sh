@@ -54,17 +54,13 @@ capture_cards() {
 # capture_card_count: how many Capture cards vgs.notifications shows and is
 # not taking off.
 capture_card_count() { capture_cards | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
-# capture_posted MARK: the Capture cards on screen plus the failure notices
-# the core logged as unsent past the first MARK, so a notice counts while
-# vgs.notifications is disabled too, as it is until the notification rows.
+# A failure notice sent while no plugin holds the notification server is
+# dropped and logged by the core.
 expected_errors+=('notify: unsent plugin=vgs\.capture ')
-capture_unsent() { log_lines 'notify: unsent plugin=vgs\.capture '; }
-capture_posted() { # MARK
-  local cards unsent
-  cards="$(capture_card_count)" || return 1
-  unsent="$(capture_unsent)" || return 1
-  echo $((cards + unsent - $1))
-}
+# capture_no_card_for: `quiet` when no Capture card shows for 2 s, else the
+# count. It reads only while vgs.notifications draws, Silence off: with it
+# disabled another server can take a wrongly sent notice unseen.
+capture_no_card_for() { local got; for _ in $(seq 1 10); do got="$(capture_card_count)" || return 1; ((got == 0)) || { echo "$got"; return 0; }; sleep 0.2; done; echo quiet; }
 # capture_wait_cards: every card dismissed, how many Capture rows are left
 # once those taking off have gone, polled as expect_poll polls; 0 while
 # vgs.notifications is not built, which draws none.
@@ -446,20 +442,28 @@ expect_poll "the restored group-tab service is built" True record_exists vgs.cap
 close_toplevel "$capture_group_two_pid" "capture's current group tab closes"
 close_toplevel "$capture_group_one_pid" "capture's background group tab closes"
 capture_before="$(capture_counts)"
+# The cancel readings need vgs.notifications drawing with Silence off; it
+# goes back to the state the row found after them.
+expect "notifications are enabled for the cancel readings" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "the notifications service is built for the cancel readings" True record_exists vgs.notifications
+expect_poll "the notifications loaded their state with Silence off for the cancel readings" True notes_quiet
 expect "earlier capture notices expire before cancellation" 0 capture_wait_cards
-capture_unsent_mark="$(capture_unsent)" || capture_unsent_mark=unread
 capture_config cancel true
 expect "capture accepts an area selection that is cancelled" ok ipc vgs.capture invoke screenshot-area ''
 expect_poll "cancelled selection leaves capture idle" idle capture_phase
 expect "cancelled selection writes no file" "$capture_before" capture_counts
-expect "cancelled selection posts no notice" 0 capture_posted "$capture_unsent_mark"
+expect "cancelled selection posts no notice" quiet capture_no_card_for
 capture_config cancel false
 capture_config escape true
 expect "capture accepts an area selection that Escape ends" ok ipc vgs.capture invoke screenshot-area ''
 expect_poll "Escape leaves capture idle" idle capture_phase
 expect "Escape writes no file" "$capture_before" capture_counts
-expect "Escape posts no notice" 0 capture_posted "$capture_unsent_mark"
+expect "Escape posts no notice" quiet capture_no_card_for
 capture_config escape false
+if [[ $capture_notes_found != True ]]; then
+  expect "notifications go back to disabled after the cancel readings" ok ipc shell setPluginEnabled vgs.notifications false
+  expect_poll "the notifications service is gone after the cancel readings" False record_exists vgs.notifications
+fi
 capture_config real "{\"grim\": \"$capture_real_grim\", \"slurp\": \"$capture_real_slurp\", \"hyprpicker\": \"$capture_real_picker\"}"
 : >"$capture_state/calls.jsonl"
 expect "capture starts a real area selection" ok ipc vgs.capture invoke screenshot-area ''

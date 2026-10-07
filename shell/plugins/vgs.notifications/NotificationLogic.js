@@ -864,12 +864,16 @@ function receiveMessage(recent, message, onScreen) {
 
 // ----------------------------------------------------------- Silence
 
-// Silence lets one kind through: a critical notification from the bare
-// command line, whose sender named no application of its own. A chat
-// application marks everything critical to force it through, and it names
-// itself, so critical alone is not enough.
-function bypassesSilence(appName, urgency) {
-    return String(appName || "") === "notify-send" && urgency === URGENCY.critical;
+// Silence lets critical notifications through from two senders: the bare
+// command line, whose sender named no application of its own, and a VGS
+// plugin, whose message carries the core's x-vgs-plugin hint, since either
+// is the user's own desktop speaking. A chat application marks everything
+// critical to force it through, and it names itself, so critical alone is
+// not enough.
+function bypassesSilence(appName, urgency, hints) {
+    if (urgency !== URGENCY.critical) return false;
+    if (String(appName || "") === "notify-send") return true;
+    return isPlainObject(hints) && typeof hints["x-vgs-plugin"] === "string" && hints["x-vgs-plugin"] !== "";
 }
 
 // A notification nobody looks back at: marked transient, or sent from the
@@ -903,6 +907,8 @@ function lifetimeFor(urgency, expireTimeout, normal) {
 //   x-vgs-click  open (a click opens x-vgs-open) or none (a click only
 //                dismisses); without it a click runs the sender's default
 //                action or shows its window
+// The core adds a fifth, x-vgs-plugin, the sending plugin's id, which
+// bypassesSilence reads and no card keeps.
 // A hint of another shape is refused whole: its role stays "" and the
 // service logs its name.
 var HINTS = { "x-vgs-icon": "hintIcon", "x-vgs-tone": "hintTone", "x-vgs-open": "hintOpen", "x-vgs-click": "hintClick" };

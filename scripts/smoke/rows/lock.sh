@@ -80,6 +80,9 @@ sleep_status() { ipc smoke statusValues vgs.lock | py_reply 'import json,sys; v=
 status_value() { ipc smoke statusValues vgs.lock | py_reply 'import json,sys; v=json.load(sys.stdin).get(sys.argv[1]); print(json.dumps(v if v is None else [v["tone"], v["text"]]))' "$1"; }
 # The cards from Lock as [title, tone, urgency, icon].
 lock_cards() { plugin_cards Lock | py_reply 'import json,sys; print(json.dumps([[r[0], r[3], r[2], r[4]] for r in json.load(sys.stdin)]))'; }
+# lock_no_card_for: `quiet` when no Lock card shows for 2 s, else the cards.
+# It reads only while vgs.notifications draws, Silence off.
+lock_no_card_for() { local got; for _ in $(seq 1 10); do got="$(lock_cards)" || return 1; [[ $got == '[]' ]] || { echo "$got"; return 0; }; sleep 0.2; done; echo quiet; }
 # `vgshell lock`'s first line and its exit status.
 vgshell_lock() { local out status=0; out="$("${shell_env[@]}" "$repo/bin/vgshell" lock 2>&1)" || status=$?; printf '%s exit=%s\n' "$(head -n 1 <<<"$out")" "$status"; }
 client_said() { if grep -q -x -- "$2" "$1" 2>/dev/null; then echo "$2"; else echo waiting; fi; }
@@ -375,7 +378,7 @@ expect_poll "timeout: the hook read the short delay" "ready budget_ms=1" tail -n
 expect_poll "timeout: the hook let the sleep go on its budget" "released reason=timeout" bash -c 'grep -x "released reason=timeout" -- "$1" || :' _ "$sleep_log"
 expect_poll "timeout: the sleep still locked the session" locked session_lock
 expect_poll "timeout: the last sleep is published as unconfirmed" '["danger", "The computer slept before VGS confirmed the lock"]' status_value lastSleep
-expect "timeout: no notification shows over the lock screen" '[]' lock_cards
+expect "timeout: no notification shows over the lock screen" quiet lock_no_card_for
 release "the timed-out sleep lock"
 expect_poll "timeout: the user is told once back at the desktop" '[["The session was not locked before sleep", "danger", 2, "lock-open"]]' lock_cards
 notes_off "lock timeout"

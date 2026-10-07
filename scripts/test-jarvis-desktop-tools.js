@@ -251,8 +251,8 @@ async function main() {
                     process.env.PATH = directory;
                     const w = make(folder);
                     try {
-                        assert.deepEqual(w.router.offer().map(tool => tool.id), [...offered, "notify.send"], name);
-                        assert.deepEqual(w.registered, ["wire", ...registered], name + " registrations");
+                        assert.deepEqual(w.router.offer().map(tool => tool.id), offered, name);
+                        assert.deepEqual(w.registered, registered, name + " registrations");
                         assert.equal(fs.existsSync(path.join(directory, "ran")), false, "the probe runs no command");
                         const turn = w.runner.state.turn;
                         assert.deepEqual(w.router.route({ kind: "tool-call", id: "model-brightness", tool: "media.brightness",

@@ -4344,12 +4344,14 @@ function notifyOptions(raw) {
     return { ok: true, value: { title: raw.title, message: raw.message === undefined ? "" : raw.message, tone: raw.tone === undefined ? "" : raw.tone, icon: raw.icon === undefined ? "" : raw.icon, urgency: raw.urgency === undefined ? "normal" : raw.urgency, transient: raw.transient === true } };
 }
 
-// The notify-send argv for JUDGED, notifyOptions' value, sent as APP_NAME.
-// A plugin's message opens no window and offers no action, so a click only
-// dismisses it. The notification server reads a body as markup, so the
-// message's `&`, `<` and `>` are escaped and plain text shows as typed.
-function notifyArgv(appName, judged) {
-    var argv = ["notify-send", "--app-name=" + appName, "--urgency=" + judged.urgency, "--hint=string:x-vgs-click:none"];
+// The notify-send argv for JUDGED, notifyOptions' value, sent as APP_NAME
+// by plugin PLUGIN_ID. A plugin's message opens no window and offers no
+// action, so a click only dismisses it. The x-vgs-plugin hint names the
+// sender, so a critical plugin message shows under Silence. The
+// notification server reads a body as markup, so the message's `&`, `<`
+// and `>` are escaped and plain text shows as typed.
+function notifyArgv(pluginId, appName, judged) {
+    var argv = ["notify-send", "--app-name=" + appName, "--urgency=" + judged.urgency, "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:" + pluginId];
     if (judged.tone !== "") argv.push("--hint=string:x-vgs-tone:" + judged.tone);
     if (judged.icon !== "") argv.push("--hint=string:x-vgs-icon:" + judged.icon);
     if (judged.transient) argv.push("--transient");

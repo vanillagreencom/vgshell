@@ -263,7 +263,6 @@ Item {
             }), data: null }),
             "compositor.reveal": args => ({ answer: shell.compositor.reveal([args[0]], false), data: null }),
             "run.detached": args => ({ answer: shell.run.detached(args), data: null }),
-            "notify": args => ({ answer: shell.notify.send({ title: args[0], message: args[1], tone: "info", icon: "mic" }), data: null }),
             "desktop.list": () => ({ answer: "ok", data: Protocol.desktopEntries(DesktopEntries.applications.values.map(entryRecord)) }),
             "desktop.launch": args => {
                 const entry = DesktopEntries.byId(args[0]);

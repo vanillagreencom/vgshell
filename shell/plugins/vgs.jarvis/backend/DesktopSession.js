@@ -282,13 +282,6 @@ function create({ Dispatch, Launch, request, environment, clock, bounds = BOUNDS
             + result.seen + "." };
     }
 
-    async function wire(call) {
-        await ask("notify", [call.args.title, call.args.body]);
-        // The reply proves the core started the notification's send; the
-        // notification server's own answer does not come back.
-        return { outcome: "completed", content: "The notice was posted." };
-    }
-
     function executor(run, commandsPresent, timeoutMs) {
         return {
             commands: commandsPresent, timeoutMs, cancellable: false,
@@ -311,8 +304,7 @@ function create({ Dispatch, Launch, request, environment, clock, bounds = BOUNDS
         // Fullscreen's two steps are the longest plan.
         compositor: executor(change, ["hyprctl"], hyprctlWorst + 2 * settleWorst + bounds.slackMs),
         apps: executor(apps, ["hyprctl"].concat(commands.filter(c => c === "gio")),
-            hyprctlWorst + bounds.requestMs + bounds.launchMs + bounds.pollMs + hyprctlWorst + bounds.slackMs),
-        wire: executor(wire, [], bounds.requestMs + bounds.slackMs)
+            hyprctlWorst + bounds.requestMs + bounds.launchMs + bounds.pollMs + hyprctlWorst + bounds.slackMs)
     };
 
     // Lease loss: no read starts after close, and a read in flight ends.
@@ -334,9 +326,9 @@ function create({ Dispatch, Launch, request, environment, clock, bounds = BOUNDS
 }
 
 /**
- * install(options) registers the wire executor at once and the Hyprland
- * executors once one state read answers, the probe that proves hyprctl
- * reaches this session. Without it those tools stay unoffered. The lifetime
+ * install(options) registers the Hyprland executors once one state read
+ * answers, the probe that proves hyprctl reaches this session. Without it
+ * those tools stay unoffered. The lifetime
  * lends its reader to the vision executor: ready resolves whether the probe
  * registered the Hyprland executors, read is create's reading, readMs one
  * read's bound.
@@ -344,7 +336,6 @@ function create({ Dispatch, Launch, request, environment, clock, bounds = BOUNDS
 function install({ router, ...options }) {
     const desktop = create(options);
     let lifetime = "open";
-    router.register("wire", desktop.records.wire);
     const ready = desktop.probe().then(() => {
         if (lifetime !== "open") return false;
         for (const id of ["windows", "compositor", "apps"]) router.register(id, desktop.records[id]);
