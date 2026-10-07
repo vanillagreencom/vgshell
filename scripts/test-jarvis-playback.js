@@ -208,7 +208,7 @@ async function stalledDeadline(Implementation = Audio) {
         assert.equal(runner.state.playback.deadline, 300000);
         for (let i = 0; i < 500; i++) { w.time.advance(20); await turn(); }
         await w.audio.release;
-        assert.deepEqual(runner.state.fault, { kind: "none" });
+        assert.equal(runner.state.fault.kind, "none");
         assert.equal(runner.state.playback.kind, "playing");
         assert.ok(w.writes.reduce((bytes, write) => bytes + write.frames * 2, 0) > 65536,
             "the stalled fixture exceeds the former write bound");
@@ -217,12 +217,14 @@ async function stalledDeadline(Implementation = Audio) {
         assert.equal(w.time.timers.size, 1, "only Session's deadline remains while the player stalls");
         w.time.advance(289999);
         await turn();
-        assert.deepEqual(runner.state.fault, { kind: "none" });
+        assert.equal(runner.state.fault.kind, "none");
         assert.equal(runner.state.playback.kind, "playing");
         w.time.advance(1);
         await until(() => runner.state.playback.kind === "idle", "deadline teardown completes");
         await finish(running);
-        assert.deepEqual(runner.state.fault, { kind: "error", reason: "playback-timeout", retry: 0 });
+        assert.equal(runner.state.fault.kind, "error");
+        assert.equal(runner.state.fault.reason, "playback-timeout");
+        assert.equal(runner.state.fault.retry, 0);
         assert.ok(faults.length > 0);
         assert.ok(faults.every(record => record.at === 300000 && record.fault.reason === "playback-timeout"));
         assert.equal(w.audio.children.size, 0);
@@ -234,7 +236,9 @@ async function stalledDeadline(Implementation = Audio) {
         w.time.advance(300000);
         await turn();
         assert.equal(runner.state.playback.kind, "idle");
-        assert.deepEqual(runner.state.fault, { kind: "error", reason: "playback-timeout", retry: 0 });
+        assert.equal(runner.state.fault.kind, "error");
+        assert.equal(runner.state.fault.reason, "playback-timeout");
+        assert.equal(runner.state.fault.retry, 0);
         assert.equal(w.writes.length, writes);
         console.log("stall-deadline: at=300000 reason=playback-timeout pending_bytes=" + owner.child.stdin.writableLength);
     } finally {

@@ -154,8 +154,8 @@ async function inside() {
     await interrupt();
     await control("actual-audio-flush", 'const release = this.teardown("interrupt", ["playback"]);',
         'const release = false ? this.teardown("interrupt", ["playback"]) : Promise.resolve();', interrupt);
-    await control("actual-audio-present", "const flowing = owner.child.stdin.write(pcm);",
-        "const flowing = owner.child.stdin.write(Buffer.alloc(pcm.length));", interrupt);
+    await control("actual-audio-present", "acknowledged => owner.child.stdin.write(pcm, acknowledged)",
+        "acknowledged => owner.child.stdin.write(Buffer.alloc(pcm.length), acknowledged)", interrupt);
     console.log("test-jarvis-playback-pipewire: ok controls=2");
 }
 world(inside).catch(error => { console.error(error); process.exitCode = 1; });
