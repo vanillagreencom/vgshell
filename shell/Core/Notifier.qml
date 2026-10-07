@@ -6,25 +6,33 @@ import "PluginLogic.js" as Logic
 
 // A plugin's message to the user, the `notify` capability: one system
 // notification per send, through one notify-send run this singleton owns,
-// with the plugin's manifest name as the sender. The message goes to
-// whatever program holds org.freedesktop.Notifications. With none, notify-send
-// fails, the message is dropped and one `notify: unsent` line names the
-// plugin; the core draws nothing in its place and no plugin carries a
-// fallback. notify-send without --action or --wait exits once the server
-// answers; libnotify's Notify call passes timeout -1, the GDBus proxy
-// default of 25 seconds, so a server that never answers ends the run then.
+// with the plugin's manifest name as the sender. Until this shell first
+// builds its own notification server the message goes to whatever program
+// holds org.freedesktop.Notifications; with none, notify-send fails. Once
+// built, this shell holds that name for good (NotificationHub.holdsName),
+// so while no plugin holds the `notifications` role nothing would draw the
+// message and the core does not send it. Either way the message is
+// dropped and one `notify: unsent` line names the plugin; the core draws
+// nothing in its place and no plugin carries a fallback. notify-send
+// without --action or --wait exits once the server answers; libnotify's
+// Notify call passes timeout -1, the GDBus proxy default of 25 seconds, so
+// a server that never answers ends the run then.
 Singleton {
     id: root
 
     // The runs in flight, oldest first.
     property var runs: []
 
-    // Send OPTIONS for the instance CTX belongs to, as APP_NAME. Answers
-    // "ok" once the run is handed to Quickshell; delivery is not reported
-    // back.
-    function send(ctx, appName, options) {
+    // Send OPTIONS for the instance CTX belongs to, as APP_NAME, past HUB,
+    // the core's NotificationHub. Answers "ok" once the run is handed to
+    // Quickshell or the message is dropped; delivery is not reported back.
+    function send(ctx, appName, options, hub) {
         const judged = Logic.notifyOptions(options);
         if (!judged.ok) return "refused: notify=" + judged.error;
+        if (hub.holdsName && !hub.active) {
+            console.warn("notify: unsent plugin=" + ctx.id + " reason=no-drawer");
+            return "ok";
+        }
         if (runs.length >= Logic.NOTIFY_RUNS_MAX) return "refused: notify=busy limit=" + Logic.NOTIFY_RUNS_MAX;
         // A list crosses createObject's initial properties as something
         // else, so the run takes its command after creation.

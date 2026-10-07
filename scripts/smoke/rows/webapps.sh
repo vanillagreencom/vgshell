@@ -228,6 +228,7 @@ notes_on "webapps"
 wa_clients_before="$(wa_client_count)" || wa_clients_before=unread
 if wa_select "Smoke Mail" "with no browser" none; then
   expect_poll "control: the selection with no browser shows its message" 1 wa_card_count "Web app did not open"
+  notes_first_card "the web app message"
   expect "control: the selection with no browser launches nothing" 0 wa_launch_count
   expect "control: no window maps for the selection with no browser" "$wa_clients_before" wa_client_count
 fi

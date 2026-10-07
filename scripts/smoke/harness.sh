@@ -2387,6 +2387,22 @@ notes_off() { # LABEL
   if [[ $notes_fresh == yes ]]; then rm -rf -- "${home:?}/.local/state/vgshell/notifications"; fi
   notes_fresh=""
 }
+# The edge light of a vgs.notifications card loads its shader from the
+# plugin's published revision, and the shader compiled. Qt compiles a
+# shader once per process and marks only the effect that compiled it (read
+# in the sandbox on 2026-09-28: a later card's effect stayed Uncompiled
+# while it drew), so notes_first_card LABEL reads it on the first card a
+# shell draws, once per shell process, in whichever row draws that card;
+# a row calls it while its first card is on screen.
+edge_shaders_ok() { ipc smoke layerShaders vgs.notifications | py_reply 'import json,re,sys
+edges = [(u, ok) for _, u, ok in json.load(sys.stdin) if u.endswith("/edgelight.frag.qsb")]
+print(len(edges) >= 1 and all(re.search(r"/vgshell-sources-[0-9]+/[0-9a-f]+/shaders/edgelight\.frag\.qsb$", u) for u, _ in edges) and any(ok for _, ok in edges))'; }
+notes_edge_pid=""
+notes_first_card() { # LABEL
+  [[ $notes_edge_pid != "$shell_qs_pid" ]] || return 0
+  notes_edge_pid="$shell_qs_pid"
+  render expect_poll "$1: the edge light's shader compiled from the published revision" True edge_shaders_ok
+}
 # plugin_cards APP: the cards vgs.notifications shows from APP, the
 # sender's manifest name, and is not taking off, newest first, each as
 # [summary, body, urgency, hintTone, hintIcon, hintClick], urgency 0 low,

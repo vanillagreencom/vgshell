@@ -21,7 +21,7 @@ Screenshots come from `scripts/readme-shots.sh` in the nested sandbox, with the 
 - Slack notifications show sender initials and workspace icons without setup. Custom emoji appear when Slack has saved their images. See [Slack notifications](slack.md).
 - The panel says so when the saved history cannot be read. Clear history starts a new one.
 - A message from any VGS plugin is a system notification, which this plugin draws. VGS has no toast of its own.
-- With this plugin off, plugin messages go to another notification app if one runs. With none, VGS drops them and writes one line to its log.
+- With this plugin off, VGS drops plugin messages and writes one line to its log. Only before VGS first shows a notification after it starts can another notification app show them.
 
 ## Settings
 

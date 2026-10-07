@@ -4,7 +4,7 @@
 # network runs; no PAM, polkit, keyring or TUI is reached. No latency
 # ceiling is measured. Widget and state reads poll once per nested IPC
 # round trip; fixture callback gates poll at 10 ms.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 
 jarvis_widget_config="$home/.config/vgshell/shell.json"
@@ -229,10 +229,14 @@ jarvis_rescan
 expect "the permanent-problem widget service enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "the real service reports its permanent cause" permanent jarvis_permanent
 expect_poll "the widget reads the permanent problem" '["circle-alert", "danger", "Problem: jarvis: node=21.0.0 need=22\nClick to mute"]' jarvis_widget
+# The refusal is a Jarvis card, read while vgs.notifications draws with
+# Silence off; it goes back to disabled, as the row found it, after.
+notes_on "the problem-state refusal"
 jarvis_widget_refused="$(jarvis_key_refusals 'jarvis: node=21.0.0 need=22')"
 jarvis_widget_click
 expect_poll "a click in the problem state reports the refusal" "$((jarvis_widget_refused + 1))" jarvis_key_refusals 'jarvis: node=21.0.0 need=22'
 expect "the permanent-problem service disables" ok ipc shell setPluginEnabled vgs.jarvis false
+notes_off "the problem-state refusal"
 
 hold_stop_keyboard
 for jarvis_widget_file in "${jarvis_widget_files[@]}"; do

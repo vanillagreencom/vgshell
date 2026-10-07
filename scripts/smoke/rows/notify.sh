@@ -9,11 +9,10 @@
 # does. Under Silence a critical message still draws its card, as the
 # x-vgs-plugin hint the core adds lets it, and a normal one goes to History
 # unseen. Each malformed option is refused with its key, and a burst past
-# the run ceiling is refused as busy. With vgs.notifications disabled a
-# message goes to whatever holds the notification name: the fixture's
-# subscription keeps the core's server up and the fixture receives it;
-# with no plugin holding it, acme.notifier's message is dropped and the
-# shell logs one unsent line.
+# the run ceiling is refused as busy. With vgs.notifications disabled the
+# fixture's own subscription keeps the core's server up and the fixture
+# receives the message; with no plugin holding the `notifications` role,
+# acme.notifier's message is dropped and the shell logs one unsent line.
 # inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.notifier/* shell/Core/Notifier.qml shell/Core/PluginLogic.js shell/Core/Capabilities.qml shell/Core/NotificationHub.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/plugins.sh
 set -euo pipefail
 notify_send() { ipc acme.probe invoke notify "$1"; }
@@ -56,6 +55,7 @@ notes_on "notify"
 # a click that only dismisses, and the message escaped.
 expect "a message with every option is sent" ok notify_send '{"title": "Probe saved", "message": "a<b> & c", "tone": "success", "icon": "circle-check", "urgency": "critical"}'
 expect_poll "its card names the fixture and carries its options" '["a&lt;b&gt; &amp; c", 2, "success", "circle-check", "none"]' probe_card "Probe saved"
+notes_first_card "the critical card"
 expect "a transient low message is sent" ok notify_send '{"title": "Probe passing", "tone": "info", "icon": "bell", "urgency": "low", "transient": true}'
 expect_poll "its card carries low urgency" '["", 0, "info", "bell", "none"]' probe_card "Probe passing"
 expect "a message with a title alone is sent" ok notify_send '{"title": "Probe plain"}'
@@ -115,22 +115,28 @@ expect "a message with no drawing plugin is sent" ok notify_send '{"title": "Pro
 expect_poll "the server holding the name received it" '"Probe unseen"' probe_heard
 expect "the delivered message logs no unsent line" 0 log_lines 'notify: unsent plugin=acme\.probe '
 
-# With no plugin holding the name nothing answers notify-send: the
-# message is dropped and the core logs one line naming the sender.
+# With no plugin holding the `notifications` role nothing draws: the core
+# drops the message and logs one line naming the sender. This reads the
+# case where the shell already built its own server, which keeps the
+# notification name for the rest of its life (NotificationHub.holdsName):
+# notes_on built it above, so the case where no server was ever built, in
+# which notify-send itself fails, cannot be reached in a running smoke. The
+# delivered message above, which logged no line, is this reading's
+# counterpart.
 expected_errors+=('notify: unsent plugin=acme\.notifier ')
 notifier_dir="$home/.config/vgshell/plugins/acme.notifier"
 mkdir -p -- "$notifier_dir"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.notifier/." "$notifier_dir/"
 rescan "rescan after adding the notifier fixture answers ok"
 expect_poll "the notifier fixture is discovered" True plugin_known acme.notifier
-expect "disabling the fixture for the no-server message is allowed" ok ipc shell setPluginEnabled acme.probe false
+expect "disabling the fixture for the undrawn message is allowed" ok ipc shell setPluginEnabled acme.probe false
 expect_poll "the fixture service is gone" False record_exists acme.probe
 expect "enabling the notifier fixture is allowed" ok ipc shell setPluginEnabled acme.notifier true
 expect_poll "the notifier fixture service is built" True record_exists acme.notifier
 expect_poll "no plugin keeps the notification server up" False notify_server
 layers_before="$(layer_count vgs:layer)" || layers_before=unread
-expect "a message with no server answers ok" ok ipc acme.notifier invoke notify '{"title": "Notifier dropped"}'
-expect_log "the core logs the dropped message" 1 'notify: unsent plugin=acme\.notifier '
+expect "a message nothing draws answers ok" ok ipc acme.notifier invoke notify '{"title": "Notifier dropped"}'
+expect_log "the core logs the dropped message" 1 'notify: unsent plugin=acme\.notifier reason=no-drawer'
 expect "the core logs it once" 1 log_lines 'notify: unsent plugin=acme\.notifier '
 expect "the dropped message draws no surface" "$layers_before" layer_count vgs:layer
 expect "disabling the notifier fixture is allowed" ok ipc shell setPluginEnabled acme.notifier false

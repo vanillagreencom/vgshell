@@ -455,6 +455,7 @@ fi
 notes_on "gallery"
 expect "the gallery sends a notification through its capability" ok ipc smoke invokeInstance window vgs.gallery notify ''
 expect_poll "the gallery's notification shows as its card" '[["Saved", "The theme was saved", 1, "success", "check", "none"]]' plugin_cards "VGS Components"
+notes_first_card "the gallery's card"
 notes_off "gallery"
 expect "hiding the gallery is allowed" ok ipc shell hide window vgs.gallery
 expect_poll "the gallery's window is gone" 0 window_count "VGS Components"

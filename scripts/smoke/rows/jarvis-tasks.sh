@@ -122,6 +122,8 @@ task_controls=(
 )
 for task_row in "${task_controls[@]}"; do
   IFS='|' read -r -d '' task_name task_needle task_replacement task_target <<<"$task_row" || true
+  # A card from the round before would read as this round's notice.
+  notes_clear "the $task_name control"
   task_target="${task_target%$'\n'}"
   task_plant "$task_needle" "$task_replacement"
   task_round_start

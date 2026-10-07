@@ -9,6 +9,14 @@ Scope {
     required property bool active
     property var subscribers: []
     readonly property var server: notificationLoader.item
+    // Whether this process ever built the server. Quickshell 0.3.1 keeps
+    // one static server per process that registers
+    // org.freedesktop.Notifications on first use and is never destroyed
+    // (src/services/notifications/server.cpp, NotificationServer::instance),
+    // so from then on this shell holds the name, answering every Notify,
+    // while nothing here is active to draw. Never reset.
+    property bool holdsName: false
+    onServerChanged: if (server !== null) holdsName = true
 
     function provider(ctx) {
         return {

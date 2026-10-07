@@ -177,15 +177,9 @@ first_id="$(notify smoke-app 0 "First toast" "A body with <b>markup</b> and <img
 expect_poll "a notification becomes a live toast" '["First toast"]' row_summaries live
 expect_poll "its layer surface shows on every screen" "$monitors" layer_count vgs:layer
 expect_poll "the toast is in the state file as on screen" '["First toast"]' live_summaries
-# The edge light loads its shader from the plugin's published revision, and
-# the shader compiled. Qt compiles a shader once per process and marks only
-# the effect that compiled it, so the row reads the first toast's, the first
-# edge light this shell draws (read in the sandbox on 2026-09-28: a later
-# card's effect stayed Uncompiled while it drew).
-edge_shaders_ok() { ipc smoke layerShaders vgs.notifications | py_reply 'import json,re,sys
-edges = [(u, ok) for _, u, ok in json.load(sys.stdin) if u.endswith("/edgelight.frag.qsb")]
-print(len(edges) >= 1 and all(re.search(r"/vgshell-sources-[0-9]+/[0-9a-f]+/shaders/edgelight\.frag\.qsb$", u) for u, _ in edges) and any(ok for _, ok in edges))'; }
-render expect_poll "the edge light's shader compiled from the published revision" True edge_shaders_ok
+# The edge light's shader, read on the first card this shell draws, here
+# unless an earlier row drew one (notes_first_card).
+notes_first_card "the first toast"
 key_of() { ipc smoke modelRows vgs.notifications rows key,summary | py_reply 'import json,sys; print(next((k for k, s in json.load(sys.stdin) if s == sys.argv[1]), "none"))' "$1"; }
 clock_of() { read_notes clocks | py_reply 'import json,sys; c=json.load(sys.stdin).get(sys.argv[1]); print("none" if c is None else ("running" if c["since"] is not None else "paused") + " " + str(c["remaining"]))' "$1"; }
 note_stack_top="$(look_at stack.top)" || fail "the notification stack top token is unreadable"
@@ -368,7 +362,9 @@ expect "the busy open keeps its card" True has_row live "Hinted other"
 expect "the busy open reaches no terminal" absent recorded
 release_runs
 expect_poll "the first open run ends" idle key_idle vgs.notifications/open
-expect "a click on the kept card is allowed" ok notes invoke-latest
+# The busy open's own notice is newer than the kept card, so the click
+# names the kept card by its key.
+expect "a click on the kept card opens its file" left notes choose "{\"key\": \"$(key_of "Hinted other")\", \"choice\": \"open\"}"
 expect_poll "the kept card's click hands the open TUI its own file" "$(words vgs.notifications/open tui/open.sh "$hint_other")" recorded_tail
 expect_poll "the kept card leaves once its file opens" none key_of "Hinted other"
 wait_for "the open notice leaves when its lifetime ends" '[]' 12 open_notices

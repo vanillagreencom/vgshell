@@ -233,7 +233,7 @@ if clip_window "$sandbox/clipboard-terminal.log" smoke.clipboard-terminal "Clipb
   expect_poll "Enter closes the history" 0 layer_count vgs:overlay
   expect_poll "a terminal has the keyboard back, then receives V with Ctrl and Shift" '["enter", 5]' clip_keys_of "$sandbox/clipboard-terminal.log" "$clip_from"
   expect "the pasted entry is on the clipboard" "Smoke Alpha one" clip_holds
-  expect "a paste shows no notice" 0 clip_cards
+  expect "a paste shows no notice" quiet clip_no_card_past 0
 
   # Shift+Enter puts the entry on the clipboard and sends no key.
   clip_open "copy"
