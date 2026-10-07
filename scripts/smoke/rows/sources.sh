@@ -18,6 +18,14 @@ var VALUE = \"$1\";
 # The build records list a rebuilt widget last; the drawn order is the
 # order of the section's children, read from each widget's own index.
 widget_index() { ipc smoke childIndex "$(bar_key)" "$1"; }
+source_widgets_present() { bar_widget_ids | py_reply 'import json,sys; bars=json.load(sys.stdin); print(bool(bars) and all(sorted(ids)==["acme.probe","acme.tick"] for ids in bars))'; }
+probe_at_right_edge() {
+  local probe bar padding
+  probe="$(ipc smoke instanceGeometry "$(bar_key)" acme.probe)" || return
+  bar="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar)" || return
+  padding="$(ipc smoke themeValue bar.padding)" || return
+  py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); bx,by,bw,bh=json.loads(sys.argv[1]); print(w>0 and abs(x+w+float(sys.argv[2])-bx-bw)<=1)' "$bar" "$padding" <<<"$probe"
+}
 tick_before_probe() { python3 -c 'import sys; a, b = int(sys.argv[1]), int(sys.argv[2]); print(a >= 0 and b >= 0 and a < b)' "$(widget_index acme.tick)" "$(widget_index acme.probe)"; }
 
 expect "the placed widget reads its sibling import" '"one"' read_tick sibling
@@ -75,7 +83,7 @@ os.replace(p + ".tmp", p)
 PY
 }
 move_probe center
-expect_widgets "the fixture widget follows the placed widget in the centre section" '["acme.tick","acme.probe"]'
+expect_poll "both widgets remain mounted after moving to centre" True source_widgets_present
 expect_poll "the placed widget precedes the fixture widget in the section" True tick_before_probe
 if before="$(builds)"; then
   tick_sibling three
@@ -87,7 +95,7 @@ else
   fail "buildCount unreadable before the order rows"
 fi
 move_probe right
-expect_widgets "the fixture widget returns to the right section" '["acme.tick","acme.probe"]'
+geometry expect_poll "the fixture widget returns to the right section" True probe_at_right_edge
 
 # A widget whose code fails to load is logged once per bar and not tried
 # again for a settings change; the repaired code is tried on its rescan.

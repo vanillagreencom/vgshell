@@ -347,7 +347,9 @@ Singleton {
             drop.gap.destroy();
             drop.item.z = 0;
             const reply = moveWidget(drop.id, drop.section, drop.index, drop.from);
-            if (reply !== "ok") positionBar(hostKey, null);
+            // An unchanged write publishes no order change. Restore the
+            // canonical parents after either result, including that drop.
+            positionBar(hostKey, null);
             if (reply !== "ok") console.warn("plugins: move " + drop.id + " " + reply);
         });
     }

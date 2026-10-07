@@ -123,11 +123,24 @@ first_monitor() { hypr -j monitors | py_reply 'import json,sys; print(json.load(
 # from the start and the Hyprland layer binds SUPER+M. The harness keeps
 # its plug off the bar; shown, it joins every bar's right section last.
 expect_poll "listPlugins reads the Settings plugin enabled" True plugin_enabled vgs.settings
-gear_placed() { bar_widget_ids | py_reply 'import json,sys; b=json.load(sys.stdin); print(len(b) > 0 and all(ids[-1:] == ["vgs.settings"] for ids in b))'; }
+# Build records retain creation order; the plug is last in the drawn bar
+# when its right edge reaches the bar's right padding on every screen.
+gear_placed() {
+  local keys key gear bar padding rows=""
+  keys="$(ipc shell built | py_reply 'import json,sys; print("\n".join(k for k in json.load(sys.stdin) if k.startswith("bar:")))')" || return
+  padding="$(ipc smoke themeValue bar.padding)" || return
+  for key in $keys; do
+    gear="$(ipc smoke instanceGeometry "$key" vgs.settings)" || return
+    bar="$(ipc smoke instanceGeometry "$key" vgs.bar)" || return
+    [[ $gear == \[* && $bar == \[* ]] || { echo False; return; }
+    rows+="[$gear,$bar]"$'\n'
+  done
+  py_reply 'import json,sys; rows=[json.loads(line) for line in sys.stdin if line.strip()]; padding=float(sys.argv[1]); print(bool(rows) and all(g[2]>0 and abs(g[0]+g[2]+padding-b[0]-b[2])<=1 for g,b in rows))' "$padding" <<<"$rows"
+}
 gear_gone() { bar_widget_ids | py_reply 'import json,sys; print(all("vgs.settings" not in ids for ids in json.load(sys.stdin)))'; }
 expect "the harness starts with the plug off every bar" True gear_gone
 expect "showing the Settings plug in the bar is allowed" ok ipc shell setPluginPlaced vgs.settings true
-expect_poll "showing places the plug last in every bar" True gear_placed
+geometry expect_poll "showing places the plug last in every bar" True gear_placed
 settings_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); print("vgs.settings:toggle" in d["shortcuts"] and "vgs.settings" in d["ipcTargets"])'; }
 expect_poll "the Settings service registered its shortcut and IPC target" True settings_lent
 expect_poll "the Hyprland layer binds SUPER+M to the Settings shortcut" '[[64, "M"]]' settings_binds
@@ -1108,7 +1121,7 @@ PY
 }
 expect_poll "listPlugins reads the Settings plugin enabled after the refusals" True plugin_enabled vgs.settings
 expect "the Settings window stays open after the refusals" 1 window_count Plugins
-expect_poll "the plug stays in every bar after the refusals" True gear_placed
+geometry expect_poll "the plug stays in every bar after the refusals" True gear_placed
 expect "the window toggles the fixture off, the control" ok ipc smoke invokeInstance window vgs.settings toggle acme.probe
 expect_poll "control: the window's toggle disables the fixture" False plugin_enabled acme.probe
 expect "the window toggles the fixture back on" ok ipc smoke invokeInstance window vgs.settings toggle acme.probe

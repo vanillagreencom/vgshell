@@ -13,7 +13,7 @@
 # byte for byte, so rows after it find the fixture placed as before. The
 # disabled widget the refusals name is acme.tick, disabled for them and
 # enabled again.
-# inputs: shell/plugins/vgs.bar/* config/shell.json scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Hosts/BarHost.qml shell/shell.qml shell/Ui/BarWidget.qml scripts/smoke/pointer/click.c scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.bar/* config/shell.json scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Hosts/BarHost.qml shell/shell.qml shell/Ui/BarWidget.qml scripts/smoke/pointer/click.c scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh scripts/smoke/rows/sources.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 placement_file="$home/.config/vgshell/shell.json"
 placement_saved="$sandbox/shell-before-placement.json"
@@ -43,8 +43,33 @@ placement_visual_order() {
   py_reply 'import json,sys; rows=[]; [rows.append((json.loads(line.split(" ",1)[1])[0], line.split(" ",1)[0])) for line in sys.stdin if line.strip()]; print(json.dumps([i for _, i in sorted(rows)]))' <<<"$rows"
 }
 placement_center() { ipc smoke instanceGeometry "$(bar_key)" "$1" | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x + w / 2, y + h / 2))'; }
+# A Row transition can still move a widget after its layout is published.
+# Read the same box across the harness's 200 ms polls before pressing it.
 placement_point() {
-  placement_center "$1"
+  local box previous="" stable=0
+  smoke_poll_tries 200
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    box="$(ipc smoke instanceGeometry "$(bar_key)" "$1")" || return 1
+    [[ $box == \[* ]] || return 1
+    if [[ $box == "$previous" ]]; then stable=$((stable + 1)); else stable=0; fi
+    if [[ $stable -ge 2 ]]; then
+      py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x+w/2,y+h/2))' <<<"$box"
+      return
+    fi
+    previous="$box"
+    sleep 0.2
+  done
+  printf 'placement: widget did not settle: %s\n' "$1" >&2
+  return 1
+}
+# Aim before the neighbour after the gap displaces it, rather than at its
+# original midpoint, which can become the slot after the neighbour.
+placement_before() {
+  local x y source_box gap
+  read -r x y < <(placement_point "$1") || return 1
+  source_box="$(ipc smoke instanceGeometry "$(bar_key)" "$2")" || return 1
+  gap="$(ipc smoke themeValue bar.gap)" || return 1
+  py_reply 'import json,sys; width=json.load(sys.stdin)[2]; print("%d %d" % (int(sys.argv[1])-width-float(sys.argv[3]),int(sys.argv[2])))' "$x" "$y" "$gap" <<<"$source_box"
 }
 placement_drag_widget() {
   local x y
@@ -169,6 +194,32 @@ expect_poll "the rendered order follows the move to left" '["acme.probe", "acme.
 expect "moving the fixture back to right is allowed" ok ipc shell movePluginWidget acme.probe right 0
 expect_poll "the fixture is back in the right section after move tests" '{"left": [], "center": ["acme.tick"], "right": ["acme.probe"]}' placement_order
 
+placement_preview_slot() { ipc smoke barDragGeometry "$(bar_key)" | py_reply 'import json,sys; state=json.load(sys.stdin); print(json.dumps([state["section"],state["index"]]) if isinstance(state,dict) else "absent")'; }
+# An unchanged drop still must return the held widget to its Row. The
+# configuration writer publishes no change for this exact same slot.
+placement_same_slot() {
+  local x y tx ty barrier out_fd in_fd hold_pid
+  read -r x y < <(placement_point acme.probe) || return 1
+  read -r tx ty < <(ipc smoke instanceGeometry "$(bar_key)" vgs.bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x+w*5/6,y+h/2))') || return 1
+  cp -- "$placement_file" "$sandbox/shell-before-same-slot.json"
+  hover "$((x + 1))" "$y" || return 1
+  coproc placement_same { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$tx" "$ty" hold; }
+  out_fd="${placement_same[0]}" in_fd="${placement_same[1]}" hold_pid="$placement_same_PID"
+  read -r -t 10 barrier <&"$out_fd" || return 1
+  [[ $barrier == "holding $tx $ty" ]] || return 1
+  expect "the unchanged drop has an active right-section preview" '["right", 0]' placement_preview_slot
+  printf '\n' >&"$in_fd"
+  exec {in_fd}>&-
+  read -r -t 10 barrier <&"$out_fd" || return 1
+  wait "$hold_pid" || return 1
+  exec {out_fd}<&-
+  pointer_at="$tx $ty"
+  expect_poll "the unchanged drop leaves rearrange mode" absent ipc smoke barDragGeometry "$(bar_key)"
+  expect "the unchanged drop writes no configuration" unchanged placement_same_as "$sandbox/shell-before-same-slot.json"
+  geometry expect_poll "the unchanged drop restores the widget to the right edge" True probe_at_right_edge
+}
+placement_same_slot || fail "the unchanged drop press completes"
+
 # The same held press opens the target gap before it writes. The probe
 # retains QObject references, including the registered built-ins, so a
 # rebuilt section cannot pass the identity check.
@@ -186,7 +237,7 @@ print(json.dumps({"section":state["section"], "index":state["index"], "slid":abs
 placement_held_preview() {
   local x y tx ty before_x barrier out_fd in_fd hold_pid
   read -r x y < <(placement_point acme.probe) || return 1
-  read -r tx ty < <(placement_point acme.tick) || return 1
+  read -r tx ty < <(placement_before acme.tick acme.probe) || return 1
   before_x="$(ipc smoke instanceGeometry "$(bar_key)" acme.tick | py_reply 'import json,sys; print(json.load(sys.stdin)[0])')" || return 1
   expect "the identity snapshot includes built-ins and mounted widgets" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.bar/left-workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
   hover "$((x + 1))" "$y" || return 1
@@ -213,7 +264,7 @@ placement_held_preview || fail "the held preview press completes"
 expect "the fixture returns to right before the other pointer checks" ok ipc shell movePluginWidget acme.probe right 0
 expect_poll "the fixture is back in right" '{"left": [], "center": ["acme.tick"], "right": ["acme.probe"]}' placement_order
 
-read -r tick_x tick_y < <(placement_point acme.tick) || fail "the tick widget point is unreadable"
+read -r tick_x tick_y < <(placement_before acme.tick acme.probe) || fail "the tick widget point is unreadable"
 placement_drag_widget acme.probe "$tick_x" "$tick_y" || fail "dragging the fixture into center failed"
 expect_poll "a pointer drag moves the fixture into center in the file" '{"left": [], "center": ["acme.probe", "acme.tick"], "right": []}' placement_order
 expect_poll "a pointer drag moves the fixture into center on the bar" '["acme.probe", "acme.tick"]' placement_visual_order
@@ -367,7 +418,7 @@ if copy_tree placement-rebuild-control \
   start_shell "$sandbox/tree-placement-rebuild-control" "$sandbox/placement-rebuild-control.log" || fail "the rebuild control shell starts"
   expect_poll "control: the fixture is mounted before its snapshot" '[true]' placement_in_bars
   expect "control: the identity snapshot includes the widgets" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.bar/left-workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
-  read -r tick_x tick_y < <(placement_point acme.tick) || fail "control: the target point is unreadable"
+  read -r tick_x tick_y < <(placement_before acme.tick acme.probe) || fail "control: the target point is unreadable"
   placement_drag_widget acme.probe "$tick_x" "$tick_y" || fail "control: the pointer drop completes"
   expect_poll "control: the rebuild still commits the same order" '{"left": [], "center": ["acme.probe", "acme.tick"], "right": []}' placement_order
   expect "control: restoring the rebuild makes the object check red" '["acme.probe","acme.tick"]' ipc smoke barWidgetIdentities
