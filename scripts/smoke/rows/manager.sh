@@ -1017,23 +1017,22 @@ expect_poll "the window is gone after the shortcut" 0 window_count Plugins
 # measuring the window against it.
 width="$(ipc smoke themeValue size.window.width)" || fail "the width token is unreadable"
 gutter="$(ipc smoke themeValue size.window.gutter)" || fail "the gutter token is unreadable"
-narrow_state="$(hypr -j monitors | py_reply '
+main_state="$(base_mode_scale "$main_monitor")" || fail "the monitor's base mode and scale are unreadable"
+main_mode="${main_state% scale=*}"
+main_scale="${main_state##*scale=}"
+narrow_state="$(printf '%s\n' "$main_state" | py_reply '
 import json, math, sys
-monitors = json.load(sys.stdin)
-name, width, gutter = sys.argv[1], int(json.loads(sys.argv[2])), int(json.loads(sys.argv[3]))
-m = next(m for m in monitors if m["name"] == name)
-scale = float(m["scale"])
-logical_w, logical_h = m["width"] / scale, m["height"] / scale
+mode, scale = sys.stdin.read().strip().split(" scale=")
+mode_w, mode_h = (int(v) for v in mode.split("x"))
+width, gutter = (int(json.loads(v)) for v in sys.argv[1:3])
+scale = float(scale)
+logical_w, logical_h = mode_w / scale, mode_h / scale
 target_w = min(width - 1, max(2 * gutter + 1, math.floor(width / 2), math.floor(logical_w / 3)))
 target_h = max(1, min(round(logical_h), round(target_w * 3 / 2)))
 mode_w, mode_h = max(1, round(target_w * scale)), max(1, round(target_h * scale))
-print("%dx%d %g %d" % (mode_w, mode_h, scale, round(mode_w / scale)))
-' "$main_monitor" "$width" "$gutter")" || fail "the narrow monitor size is unreadable"
-read -r narrow_mode narrow_scale narrow_width <<<"$narrow_state"
-main_state="$(mode_scale_of "$main_monitor")" || fail "the monitor's mode and scale are unreadable"
-first_logical_width="$(first_width)" || fail "the monitor's logical width is unreadable"
-main_mode="${main_state% scale=*}"
-main_scale="${main_state##*scale=}"
+print("%dx%d %g %d %d" % (mode_w, mode_h, scale, round(mode_w / scale), round(logical_w)))
+' "$width" "$gutter")" || fail "the narrow monitor size is unreadable"
+read -r narrow_mode narrow_scale narrow_width first_logical_width <<<"$narrow_state"
 hold_mode "the nested compositor makes its monitor narrower than the window" "$main_monitor" "$narrow_mode" "$narrow_scale"
 expect_poll "the monitor has the derived narrow logical width" "$narrow_width" first_width
 bar_width() { one_layer vgs:bar | py_reply 'import json,sys; print(json.load(sys.stdin)[2])'; }
