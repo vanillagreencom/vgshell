@@ -61,8 +61,9 @@ const TABLE = table({
         interruptMs: 3000,
         // Codex's documented notify command receives one JSON argument. Its
         // own hook trust and permissions remain in force; this overrides no
-        // account file. The producer copy survives a plugin rescan (D072).
-        argv: task => ["codex", "-c", "notify=" + JSON.stringify([
+        // account file. --no-daemon keeps work in the owned group (D072).
+        // The producer copy survives a plugin rescan.
+        argv: task => ["codex", "--no-daemon", "-c", "notify=" + JSON.stringify([
             "node", task.engine, "--state", task.state, task.id, "--codex-notify"
         ]), "--", task.brief]
     }

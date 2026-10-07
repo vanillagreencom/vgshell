@@ -21,9 +21,9 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // This fixture interprets the shipped profile; it runs no vendor program.
 const codexFixture = `#!/usr/bin/env python3
 import json, os, pathlib, subprocess, sys, time, tomllib
-assert len(sys.argv) == 5 and sys.argv[1] == "-c" and sys.argv[3] == "--"
-notify = tomllib.loads(sys.argv[2])["notify"]
-brief = sys.argv[4]
+assert len(sys.argv) == 6 and sys.argv[1] == "--no-daemon" and sys.argv[2] == "-c" and sys.argv[4] == "--"
+notify = tomllib.loads(sys.argv[3])["notify"]
+brief = sys.argv[5]
 if not brief.startswith("fixture-untrusted"):
     payload = {"type": "agent-turn-complete", "thread-id": "fixture-thread",
                "input-messages": ["PRIVATE_INPUT"], "last-assistant-message": "PRIVATE_REPLY"}
@@ -668,6 +668,7 @@ const answer = spawnFixture("python3", ["-I", "-c", "import os; os._exit(23)"],
         assert.ok(row, "the production Codex profile is present");
         assert.deepEqual(row.account, { variable: "CODEX_HOME" });
         assert.equal(row.interrupt.signal, "SIGINT");
+        assert.equal(row.argv({ engine: "task-event", state: "state", id: "task", brief: "brief" })[1], "--no-daemon");
         for (const goal of ["fixture-turn", "fixture-outcome", "fixture-untrusted"]) {
             const taskCwd = path.join(root, "codex 'quoted' " + (++marker));
             fs.mkdirSync(taskCwd);
@@ -705,9 +706,10 @@ const answer = spawnFixture("python3", ["-I", "-c", "import os; os._exit(23)"],
             assert.equal(observed.env.CODEX_HOME, account);
             assert.equal(observed.env.OPENAI_API_KEY, undefined);
             assert.equal(observed.env.VGSHELL_RUNNER_PID, undefined);
-            assert.equal(observed.argv[0], "-c");
-            assert.equal(observed.argv[2], "--");
-            assert.ok(observed.argv[3].startsWith(goal + "\n\n"));
+            assert.equal(observed.argv[0], "--no-daemon");
+            assert.equal(observed.argv[1], "-c");
+            assert.equal(observed.argv[3], "--");
+            assert.ok(observed.argv[4].startsWith(goal + "\n\n"));
             const live = readTask(id);
             assert.equal(live.process.kind, "alive");
             assert.equal(live.turn.kind, goal === "fixture-untrusted" ? "working" : "turn-ended");
@@ -728,6 +730,8 @@ const answer = spawnFixture("python3", ["-I", "-c", "import os; os._exit(23)"],
         }
     }
     await codexProfile(current);
+    await control("codex-daemon", "AgentProfiles.js", '"codex", "--no-daemon", "-c"',
+        '"codex", "-c"', codexProfile);
     await control("codex-account", "AgentProfiles.js", 'account: { variable: "CODEX_HOME" }',
         'account: { variable: "WRONG_HOME" }', codexProfile);
     await control("codex-turn", "task-event", 'args.splice(3, 2, "turn-ended");',
