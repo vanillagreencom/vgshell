@@ -814,14 +814,20 @@ world(async () => {
                 assert.equal(fs.existsSync(victim), false);
                 assert.equal(server.requests.length, 2);
                 assert.ok(server.requests[1].body.messages.some(value => value.role === "tool" && value.tool_call_id === "delete_call"));
+                // Turn completion ends commentary production. The send trace
+                // precedes loopback receipt, so wait for those frames too.
+                await wait(() => last()?.turn.kind === "none", "delegation finishes its commentary sends");
+                const observed = fs.readFileSync(frameAudits, "utf8").trim().split("\n").map(JSON.parse)
+                    .filter(value => value.frame.type === "session.commentary.append");
+                await wait(() => conn.count("session.commentary.append") === observed.length, "the traced commentary frames arrive");
                 const commentary = conn.events.filter(value => value.type === "session.commentary.append");
                 assert.ok(commentary.every(value => value.delegation_id === "del_fixture" && !value.content.includes("https://") && !value.content.includes("**")));
                 assert.ok(rows().some(row => row.kind === "action" && row.effect === "destructive" && row.confirmed === "physical"));
-                const observed = fs.readFileSync(frameAudits, "utf8").trim().split("\n").map(JSON.parse);
-                assert.deepEqual(observed.filter(value => value.frame.type === "session.commentary.append").map(value => value.frame), commentary);
-                assert.ok(observed.filter(value => value.frame.type === "session.commentary.append").every(value =>
+                assert.deepEqual(observed.map(value => value.frame), commentary);
+                assert.deepEqual({ check: "commentary-audit-before-send", audited: observed.every(value =>
                     value.records.some(row => row.kind === "release" && row.decision === "send" && row.op === last().speech.op
-                        && row.outcome === "pending" && row.args.labels === "[redacted]")),
+                        && row.outcome === "pending" && row.args.labels === "[redacted]")) },
+                    { check: "commentary-audit-before-send", audited: true },
                     "each outbound commentary frame has its own prior audit");
             } else if (only === "release") {
                 await wait(() => last()?.approval.kind === "held", "the whole recipient set asks for file release");
@@ -991,7 +997,8 @@ world(async () => {
             new (require("node:vm").Script)(fs.readFileSync(path.join(kit.folder, "ChainedEngine.js"), "utf8"));
             const failed = name === "daemon-audit-before-send"
                 ? error => error instanceof assert.AssertionError
-                    && error.message === "each outbound commentary frame has its own prior audit"
+                    && error.actual?.check === "commentary-audit-before-send" && error.actual.audited === false
+                    && error.expected?.audited === true
                 : assert.AssertionError;
             await assert.rejects(() => daemonDelegation(kit, scenario), failed, name + " must turn red");
             controls++;
