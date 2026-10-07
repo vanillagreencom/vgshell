@@ -116,8 +116,8 @@ var FAILURE_KEYS = {
         "key-presence": ["shape"],
         ports: ["reply"],
         reference: ["provider", "item-unavailable", "vendor-login-or-provider"],
-        arguments: ["tree", "presence", "list", "table", "accounts", "providers", "items", "add", "remember", "verb", "width"],
-        "sign-in": ["terminal-required", "directory-create-failed"],
+        arguments: ["tree", "presence", "list", "table", "accounts", "providers", "items", "add", "remember", "verb", "width", "sign-in-folders", "sign-in-entry"],
+        "sign-in": ["terminal-required", "directory-create-failed", "provider", "search-incomplete", "folder-unavailable", "name-invalid", "name-in-use"],
         verify: ["explicit-user-required", "account-unavailable", "provider-unsupported", "busy", "keyring-locked"],
         state: ["unknown"],
         operation: ["failed"]

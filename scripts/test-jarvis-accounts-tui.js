@@ -238,26 +238,39 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
     const records = () => fs.readFileSync(path.join(env.XDG_STATE_HOME, "cli-calls"), "utf8")
         .trim().split("\n").map(JSON.parse);
     const accountFile = path.join(env.XDG_STATE_HOME, "vgshell/jarvis/accounts.json");
-    const signIn = (folder, vendor, target, outcome) => {
+    const clearSignIns = () => {
         fs.rmSync(accountFile, { force: true });
+        for (const name of fs.readdirSync(env.HOME))
+            if (/^\.(claude|codex)(-|$)/.test(name)) fs.rmSync(path.join(env.HOME, name), { recursive: true, force: true });
+    };
+    const signIn = (folder, vendor, selection, label, outcome, confirm = "yes", roots = {}) => {
         fs.writeFileSync(path.join(env.XDG_STATE_HOME, vendor + "-mode"), "found");
         fs.writeFileSync(path.join(env.XDG_STATE_HOME, "sign-in-mode"), outcome);
-        queue([vendor, target, "login-account"]);
+        queue([vendor, selection, ...(selection === "new" ? [label] : []), confirm]);
         return cp.spawnSync("python3", [path.join(tree, "scripts/fixtures/jarvis/accounts-tui.py"),
             path.join(folder, "tui/sign-in.sh"), path.join(tree, "bin/lib/tui.sh"), folder], {
-            env, encoding: "utf8", timeout: 20000 });
+            env: { ...env, ...roots }, encoding: "utf8", timeout: 20000 });
     };
     const successfulSignIn = folder => {
         for (const [vendor, argv, variable] of [["claude", ["auth", "login"], "CLAUDE_CONFIG_DIR"],
             ["codex", ["login"], "CODEX_HOME"]]) {
-            const target = path.join(env.HOME, vendor + " login ; $literal", "config");
+          clearSignIns();
+          for (const [label, suffix] of [["login-account", ""], ["work_2", "-work_2"]]) {
+            const target = path.join(env.HOME, "." + vendor + suffix);
             const before = records().length;
-            const result = signIn(folder, vendor, target, "success");
+            const gumBefore = fs.readFileSync(path.join(env.XDG_STATE_HOME, "gum-calls"), "utf8").trim().split("\n").length;
+            const result = signIn(folder, vendor, "new", label, "success");
             assert.equal(result.status, 0, result.stdout + result.stderr);
             assert.equal(result.error, undefined);
             assert.ok(result.stdout.includes("fixture-login-code-private"), "vendor output stays on the terminal");
             assert.equal(fs.readFileSync(log, "utf8").includes("fixture-login-code-private"), false, "no vendor login output in log");
-            assert.deepEqual(JSON.parse(fs.readFileSync(accountFile)), [{ provider: vendor, directory: target, label: "login-account" }]);
+            const saved = JSON.parse(fs.readFileSync(accountFile));
+            assert.ok(saved.some(item => item.provider === vendor && item.directory === target && item.label === label));
+            assert.equal(saved.filter(item => item.provider === vendor).length, suffix === "" ? 1 : 2);
+            const calls = fs.readFileSync(path.join(env.XDG_STATE_HOME, "gum-calls"), "utf8").trim().split("\n").slice(gumBefore).map(JSON.parse);
+            assert.equal(calls.filter(item => item.args[0] === "input").length, 1, "new account asks for a name only");
+            const confirmation = calls.find(item => item.args[0] === "confirm");
+            assert.ok(confirmation?.args.at(-1).includes("~/." + vendor + suffix), "confirmation shows the derived folder");
             const login = records().slice(before).find(item => JSON.stringify(item.args) === JSON.stringify(argv));
             assert.ok(login, "the vendor login ran");
             assert.equal(login.env[variable], target);
@@ -269,11 +282,13 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
             const presence = Object.fromEntries(PROVIDERS.filter(row => row.variable).map(row => [row.variable, false]));
             const shown = JSON.parse(cli(folder, "presence", JSON.stringify(presence)));
             assert.ok(shown.brains.some(item => item.value === account.id), "signed-in account offered as AI model");
+          }
         }
     };
     const incompleteSignIn = folder => {
         for (const outcome of ["failure", "failure-signed-in", "no-account"] ) {
-            const result = signIn(folder, "claude", hand, outcome);
+            clearSignIns();
+            const result = signIn(folder, "claude", "new", "login-account", outcome);
             assert.equal(result.status, 1);
             const terminal = result.stdout + result.stderr;
             assert.equal(terminal.includes(log), false, "failed login does not refer to a log without its details");
@@ -283,6 +298,95 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
     };
     successfulSignIn(plugin);
     incompleteSignIn(plugin);
+    const existingSignIn = folder => {
+      for (const [suffix, registered] of [["work", true], ["a".repeat(65), false]]) {
+        clearSignIns();
+        const target = path.join(env.HOME, ".claude-" + suffix);
+        fs.mkdirSync(target);
+        if (registered) cli(folder, "add", "claude", target, suffix);
+        const options = cli(folder, "sign-in-folders", "claude", "1000").trimEnd().split("\n").map(line => line.split("\t"));
+        const option = options.find(([label]) => label.includes("~/.claude-" + suffix));
+        assert.ok(option, "a discovered folder is offered for signing in again");
+        const before = records().length;
+        const result = signIn(folder, "claude", option[1], "", "success");
+        assert.equal(result.status, 0, result.stdout + result.stderr);
+        assert.deepEqual(JSON.parse(fs.readFileSync(accountFile)), [{ provider: "claude", directory: target, label: suffix.slice(0, 60) }]);
+        assert.equal(records().slice(before).find(item => JSON.stringify(item.args) === JSON.stringify(["auth", "login"]))?.env.CLAUDE_CONFIG_DIR, target);
+      }
+    };
+    existingSignIn(plugin);
+    const explicitSignIn = folder => {
+        for (const [vendor, variable, argv] of [["claude", "CLAUDE_CONFIG_DIR", ["auth", "login"]],
+            ["codex", "CODEX_HOME", ["login"]]]) {
+            clearSignIns();
+            const target = path.join(env.HOME, "manual-" + vendor);
+            fs.mkdirSync(target, { recursive: true });
+            const roots = { [variable]: target };
+            const choices = cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), "--tree", tree,
+                "sign-in-folders", vendor, "1000"], { env: { ...env, ...roots }, encoding: "utf8", timeout: 15000 });
+            assert.equal(choices.status, 0, choices.stderr);
+            const option = choices.stdout.trimEnd().split("\n").map(line => line.split("\t"))
+                .find(([label]) => label.includes("~/manual-" + vendor));
+            assert.ok(option, "explicit configured root is offered");
+            const before = records().length;
+            const result = signIn(folder, vendor, option[1], "", "success", "yes", roots);
+            assert.equal(result.status, 0, result.stdout + result.stderr);
+            assert.deepEqual(JSON.parse(fs.readFileSync(accountFile)), [{ provider: vendor, directory: target, label: "manual-" + vendor }]);
+            const login = records().slice(before).find(item => JSON.stringify(item.args) === JSON.stringify(argv));
+            assert.equal(login?.env[variable], target);
+            assert.equal(login.env[vendor === "claude" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"], undefined);
+        }
+    };
+    explicitSignIn(plugin);
+    const safeName = folder => {
+        clearSignIns();
+        for (const label of ["../escape", "a/b", "a\\b", "", ".hidden", "a\tbad", "a".repeat(61)]) {
+            const result = cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), "--tree", tree,
+                "sign-in-entry", "claude", "new", label], { env, encoding: "utf8", timeout: 15000 });
+            assert.equal(result.status, 1, JSON.stringify(label));
+            assert.equal(result.stderr, "jarvis-accounts: sign-in=name-invalid\n");
+        }
+    };
+    safeName(plugin);
+    const cancelledSignIn = folder => {
+        clearSignIns();
+        const before = records().length;
+        const result = signIn(folder, "claude", "new", "work", "success", "no");
+        assert.equal(result.status, 130);
+        assert.equal(records().slice(before).some(item => JSON.stringify(item.args) === JSON.stringify(["auth", "login"])), false);
+        assert.equal(fs.existsSync(accountFile), false);
+    };
+    cancelledSignIn(plugin);
+    const unavailableFolder = folder => {
+        clearSignIns();
+        fs.mkdirSync(path.join(env.HOME, ".claude-work"));
+        const result = cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), "--tree", tree,
+            "sign-in-entry", "claude", "cli:" + "0".repeat(32), ""], { env, encoding: "utf8", timeout: 15000 });
+        assert.equal(result.status, 1);
+        assert.equal(result.stderr, "jarvis-accounts: sign-in=folder-unavailable\n");
+    };
+    unavailableFolder(plugin);
+    const nameInUse = folder => {
+        clearSignIns();
+        fs.mkdirSync(path.join(env.HOME, ".claude-work"));
+        const result = cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), "--tree", tree,
+            "sign-in-entry", "claude", "new", "work"], { env, encoding: "utf8", timeout: 15000 });
+        assert.equal(result.status, 1);
+        assert.equal(result.stderr, "jarvis-accounts: sign-in=name-in-use\n");
+    };
+    nameInUse(plugin);
+    const partialFolders = folder => {
+        const held = env.XDG_CONFIG_HOME + "-held";
+        fs.renameSync(env.XDG_CONFIG_HOME, held);
+        fs.symlinkSync(env.HOME, env.XDG_CONFIG_HOME);
+        try {
+            const result = cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), "--tree", tree,
+                "sign-in-entry", "claude", "new", "work"], { env, encoding: "utf8", timeout: 15000 });
+            assert.equal(result.status, 1);
+            assert.equal(result.stderr, "jarvis-accounts: sign-in=search-incomplete\n");
+        } finally { fs.unlinkSync(env.XDG_CONFIG_HOME); fs.renameSync(held, env.XDG_CONFIG_HOME); }
+    };
+    partialFolders(plugin);
     const terminalRequired = folder => {
         fs.writeFileSync(path.join(env.XDG_STATE_HOME, "sign-in-mode"), "success");
         const result = cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), "--tree", tree,
@@ -295,6 +399,29 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
         'if (false)', terminalRequired);
     await control("tui/sign-in.sh", "sign-in-picked-directory", 'sign-in "$selected" "$dir" "$label"',
         'sign-in "$selected" "$HOME" "$label"', successfulSignIn);
+    await control("backend/Accounts.js", "sign-in-default-folder", 'folders.length === 0 ? "" : "-" + label',
+        '"-" + label', successfulSignIn);
+    await control("backend/Accounts.js", "sign-in-additional-folder", 'folders.length === 0 ? "" : "-" + label',
+        '""', successfulSignIn);
+    await control("backend/Accounts.js", "sign-in-existing-folder", 'directory: entry.directory, label: entry.label };',
+        'directory: this.home, label: entry.label };', existingSignIn);
+    await control("backend/Accounts.js", "sign-in-reuse-registration", 'if (index < 0) entries.push(entry); else entries[index] = entry;',
+        'entries.push(entry);', existingSignIn);
+    await control("backend/Accounts.js", "sign-in-discovered-label", 'label: item.label.slice(0, 60),',
+        'label: item.label,', existingSignIn);
+    await control("tui/sign-in.sh", "sign-in-explicit-roots", 'CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-}" CODEX_HOME="${CODEX_HOME:-}"',
+        'CLAUDE_CONFIG_DIR="" CODEX_HOME=""', explicitSignIn);
+    await control("tui/sign-in.sh", "sign-in-no-manual-folder", 'label="$(vgs_tui_input --header "A name for this account"',
+        'dir="$(vgs_tui_input)"; label="$(vgs_tui_input --header "A name for this account"', successfulSignIn);
+    await control("backend/Accounts.js", "sign-in-safe-name", '!/^[A-Za-z0-9][A-Za-z0-9_-]{0,59}$/.test(label)',
+        'false', safeName);
+    await control("tui/sign-in.sh", "sign-in-confirmed-folder", 'vgs_tui_confirm "Sign in to $label using $shown_dir?" || exit 130',
+        ':', cancelledSignIn);
+    await control("backend/Accounts.js", "sign-in-name-in-use", 'if (folders.some(item => item.directory === target))',
+        'if (false)', nameInUse);
+    await control("backend/Accounts.js", "sign-in-complete-search", 'if (found.partial)', 'if (false)', partialFolders);
+    await control("backend/Accounts.js", "sign-in-selected-folder", 'folders.find(item => item.id === selected)',
+        'folders[0]', unavailableFolder);
     await control("backend/Accounts.js", "sign-in-account-confirmed", 'if (account.state.kind !== "signed-in")',
         'if (false)', incompleteSignIn);
     await control("backend/Accounts.js", "sign-in-process-failed", 'result.error || result.signal || result.status !== 0',

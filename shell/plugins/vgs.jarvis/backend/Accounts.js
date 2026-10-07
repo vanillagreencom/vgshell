@@ -198,6 +198,31 @@ class Accounts {
         return addedRows(this.file);
     }
 
+    signInFolders(providerId) {
+        if (provider(providerId).kind !== "cli") fail("sign-in=provider");
+        const found = this.candidates();
+        if (found.partial) fail("sign-in=search-incomplete");
+        return found.candidates.filter(item => item.provider === providerId
+            && directory(item.directory).kind === "directory")
+            .map(item => ({ ...item, label: item.label.slice(0, 60), id: identity("cli", [item.provider, item.directory]) }));
+    }
+
+    signInEntry(providerId, selected, label) {
+        const folders = this.signInFolders(providerId);
+        if (selected !== "new") {
+            const entry = folders.find(item => item.id === selected);
+            if (!entry) fail("sign-in=folder-unavailable");
+            return { provider: entry.provider, directory: entry.directory, label: entry.label };
+        }
+        // A name becomes one folder component, never a path supplied by the user.
+        if (typeof label !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,59}$/.test(label))
+            fail("sign-in=name-invalid");
+        const directoryName = "." + harness(providerId).folder + (folders.length === 0 ? "" : "-" + label);
+        const target = path.join(this.home, directoryName);
+        if (folders.some(item => item.directory === target)) fail("sign-in=name-in-use");
+        return added({ provider: providerId, directory: target, label });
+    }
+
     // The vendor owns its login and token store. Its output and prompts stay
     // on the terminal, never in our metadata, parser or setup log.
     signIn(value) {

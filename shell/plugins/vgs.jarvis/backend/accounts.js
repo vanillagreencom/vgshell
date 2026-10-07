@@ -103,6 +103,21 @@ async function main() {
         judge.add({ provider: args[1], directory: args[2], label: args[3] });
         value = { kind: "stored" };
         break;
+    case "sign-in-folders": {
+        if (args.length !== 3) fail("arguments=sign-in-folders");
+        const columns = width(args[2]);
+        lines = [choiceLine("New account", "new", columns), ...judge.signInFolders(args[1]).map(item =>
+            choiceLine(item.label + " / " + item.directory.replace(judge.home + "/", "~/"),
+                item.id, columns))];
+        break;
+    }
+    case "sign-in-entry": {
+        if (args.length !== 4) fail("arguments=sign-in-entry");
+        const entry = judge.signInEntry(args[1], args[2], args[3]);
+        // sign-in.sh reads this control-character-free metadata as two tab-separated cells.
+        lines = [entry.directory + "\t" + entry.label];
+        break;
+    }
     case "sign-in":
         if (args.length !== 4) throw new Error("jarvis-accounts: arguments=add");
         value = judge.signIn({ provider: args[1], directory: args[2], label: args[3] });

@@ -13,6 +13,7 @@ child_env=(env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8
   XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-}" XDG_STATE_HOME="${XDG_STATE_HOME:-}"
   XDG_DATA_HOME="${XDG_DATA_HOME:-}" XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}"
   DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-}"
+  CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-}" CODEX_HOME="${CODEX_HOME:-}"
   DISPLAY="${DISPLAY:-}" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}"
   VGS_TUI_ACCENT="${VGS_TUI_ACCENT:-}" VGS_TUI_SUCCESS="${VGS_TUI_SUCCESS:-}"
   VGS_TUI_WARNING="${VGS_TUI_WARNING:-}" VGS_TUI_DANGER="${VGS_TUI_DANGER:-}")
@@ -23,13 +24,23 @@ vgs_tui_header "Sign in to an AI account" "Use your Claude Code or Codex account
 choices="$(vgs_tui_logged "$log" "${child_env[@]}" node "$program" --tree "$tree" providers cli "$(vgs_tui_columns)")" ||
   { vgs_tui_failed "$log" "Jarvis could not list the apps. Close this window and try again."; exit 1; }
 selected="$(vgs_tui_choose --label-delimiter=$'\t' --header "Select the app to sign in to." <<<"$choices")" || exit 130
-dir="$(vgs_tui_input --header "The full path of the folder where the app keeps this sign-in" \
-  --placeholder "for example $HOME/.$selected-work. Jarvis creates the folder if needed.")" || exit 130
-label="$(vgs_tui_input --header "A name for this account" --placeholder "for example work")" || exit 130
+folders="$(vgs_tui_logged "$log" "${child_env[@]}" node "$program" --tree "$tree" sign-in-folders "$selected" "$(vgs_tui_columns)")" ||
+  { vgs_tui_failed "$log" "Jarvis could not list account folders. Close this window and try again."; exit 1; }
+account="$(vgs_tui_choose --label-delimiter=$'\t' --header "Create an account or sign in to an existing account." <<<"$folders")" || exit 130
+label=""
+if [[ $account == new ]]; then
+  label="$(vgs_tui_input --header "A name for this account" --placeholder "work. Use letters, numbers, hyphens or underscores.")" || exit 130
+fi
+entry="$(vgs_tui_logged "$log" "${child_env[@]}" node "$program" --tree "$tree" sign-in-entry "$selected" "$account" "$label")" ||
+  { vgs_tui_error "Use a new account name with letters, numbers, hyphens or underscores, or choose an existing account."; exit 1; }
+IFS=$'\t' read -r dir label <<<"$entry"
+shown_dir="$dir"
+[[ $dir != "$HOME/"* ]] || shown_dir="~/${dir#"$HOME/"}"
+vgs_tui_confirm "Sign in to $label using $shown_dir?" || exit 130
 code=0
 "${child_env[@]}" node "$program" --tree "$tree" sign-in "$selected" "$dir" "$label" || code=$?
 case "$code" in
   0) vgs_tui_success "You are signed in. Select the account as the AI model on the Jarvis page." ;;
   69) vgs_tui_warn "The app is not installed. Use its Install button on the Jarvis page, then try Sign in again."; exit 69 ;;
-  *) vgs_tui_error "Sign in did not complete."; vgs_tui_error "Check the folder path and the app's sign-in, then try again."; exit "$code" ;;
+  *) vgs_tui_error "Sign in did not complete."; vgs_tui_error "Check the app's sign-in, then try again."; exit "$code" ;;
 esac
