@@ -735,6 +735,7 @@ cases=(
   "shortcut-provider|shell/Core/ShortcutRegistry.qml|unit|scripts/test-keyboard-ui.sh"$'\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh'
   "key-capture-owner|shell/Core/KeyCapture.qml|unit|scripts/test-keyboard-ui.sh"$'\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh'
   "settings-edit-set|shell/plugins/vgs.settings/EditSet.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
+  "displays-pane|shell/plugins/vgs.displays/Pane.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
   "harness-render|.agents/skills/review-gate/scripts/review-policy|all|$repo_plan"
   "harness-hook|.claude/hooks/example.sh|all|$repo_plan"
   "harness-settings|kendex.local.toml|all|$repo_plan"
