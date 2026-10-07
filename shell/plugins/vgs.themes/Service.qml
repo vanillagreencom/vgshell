@@ -72,10 +72,10 @@ Item {
     readonly property var listing: shell === null ? null : shell.theme.listing
     readonly property var themeLast: shell === null ? null : shell.theme.last
     // The runner replaces last for every apply result, an equal one too.
-    // Advance the snapshot only when the user-visible apply state changes.
+    // Setup follows apply state. The browser snapshot has no apply state:
+    // those notifications only copy it and make open views parse it again.
     readonly property string themeLastText: JSON.stringify(themeLast)
     onThemeLastTextChanged: {
-        dataRevision++;
         if (registeredWith !== null) checkSetup();
     }
     property var cards: []

@@ -27,10 +27,9 @@ Item {
     property var catalogEntries: []
     // Why the last catalog read failed, "" when it did not.
     property string catalogReason: ""
-    // `shell.theme.last` as last read: the apply running and the last
-    // result. The capability's member is not a binding, so the panel reads
-    // it again whenever an answer arrives.
-    property var last: ({ applying: null, result: null, downloading: null })
+    // Follow the core's apply and download state directly, including a
+    // result from elsewhere that writes no new theme or browser data.
+    readonly property var last: shell === null ? ({ applying: null, result: null, downloading: null }) : shell.theme.last
     // The package a click asked for and the refusal `apply` answered at
     // once, or null; shown on its row until the next click.
     property var refusal: null
@@ -70,7 +69,6 @@ Item {
 
     // Draw the core's last package list and the service's retained catalog.
     function refresh() {
-        readLast();
         const known = shell.theme.listing;
         packages = known === null ? [] : known.packages;
         file = known === null ? null : known.file;
@@ -87,16 +85,11 @@ Item {
         browserData.refresh();
     }
 
-    function readLast() {
-        last = shell.theme.last;
-    }
-
     // Apply package `name`; answers the capability's reply.
     function apply(name) {
-        const reply = shell.theme.apply(name, result => root.readLast());
+        const reply = shell.theme.apply(name, result => root.refresh());
         refusal = reply === "ok" ? null : { name: name, reply: reply };
         if (reply !== "ok") console.warn("themes panel: " + reply);
-        readLast();
         return reply;
     }
 
@@ -236,7 +229,6 @@ Item {
             catalogProblem = { name: name, message: BrowserLogic.reasonText(reply) };
             console.warn("themes panel: " + reply);
         }
-        readLast();
         return reply;
     }
 
@@ -245,13 +237,6 @@ Item {
         id: browserData
         shell: root.shell
         onSnapshotChanged: if (root.shell !== null) root.refresh()
-    }
-
-    Timer {
-        interval: BrowserLogic.PROGRESS_POLL_MS
-        repeat: true
-        running: root.catalogActionKind === "wallpapers" || root.last.downloading !== null
-        onTriggered: root.readLast()
     }
 
     // The lines the row of package `name` shows for the last result: the

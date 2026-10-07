@@ -971,8 +971,15 @@ novel_gate="$sandbox/themes-novel-gate"
 novel='{"state":"partial","shell":"unchanged","targets":[{"name":"smoke-novel","state":"smoke-state","reason":"smoke-reason"}],"theme":"vgs","reason":null}'
 stand_in_vgshell "for _ in \$(seq 1 200); do [[ -e $(printf %q "$novel_gate") ]] && break; sleep 0.05; done
 if [[ \${2:-} == apply ]]; then printf '%s\\n' $(printf %q "$novel"); exit 3; fi"
+novel_data_revision="$(ipc smoke readInstance service vgs.themes dataRevision)"
+novel_data_text="$(ipc smoke readInstance service vgs.themes dataText)"
+novel_data_unchanged() {
+  [[ $(ipc smoke readInstance service vgs.themes dataText) == "$novel_data_text" ]] && echo unchanged || echo changed
+}
 click_row vgs || fail "the click on the vgs row failed"
 expect_poll "the vgs row shows its apply running" '[["vgs", "shipped", "Applying"]]' theme_row vgs
+expect "a held apply leaves the browser data revision unchanged" "$novel_data_revision" ipc smoke readInstance service vgs.themes dataRevision
+expect "a held apply leaves the browser data unchanged" unchanged novel_data_unchanged
 click_outside || fail "the click outside the themes panel failed"
 expect_poll "the panel closes during the vgs apply" closed panel_open
 expect "the shortcut opens the themes panel" ok hypr dispatch 'hl.dsp.global("vgs.themes:panel")'
