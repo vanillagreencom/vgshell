@@ -367,8 +367,17 @@ function open(state, data, clock = CLOCK, changed = () => {}) {
 function select({ directories }) {
     const state = directories.state;
     const data = path.join(directories.data, "local");
-    let marker, root;
-    try { marker = JSON.parse(fs.readFileSync(path.join(state, "local-ready.json"), "utf8")); }
+    let marker, root, publication;
+    try {
+        const file = fs.openSync(path.join(state, "local-ready.json"), "r");
+        try {
+            marker = JSON.parse(fs.readFileSync(file, "utf8"));
+            // setup-local atomically replaces this file only after its probe
+            // succeeds. Read identity from the same file as the marker.
+            const stat = fs.fstatSync(file, { bigint: true });
+            publication = [stat.dev, stat.ino, stat.mtimeNs, stat.ctimeNs].join(":");
+        } finally { fs.closeSync(file); }
+    }
     catch (error) {
         if (error.code === "ENOENT") return unconfigured("speech=local-not-set-up");
         return unconfigured("speech=local-not-ready", error.code ?? "marker-json");
@@ -379,7 +388,7 @@ function select({ directories }) {
     if (marker === null || typeof marker !== "object" || typeof marker.tier !== "string"
             || !Object.hasOwn(tiers, marker.tier) || marker.data !== root)
         return unconfigured("speech=local-not-ready", "marker-stale");
-    return { kind: "ready", lifetime: "daemon", recipients: RECIPIENTS,
+    return { kind: "ready", lifetime: "daemon", publication, recipients: RECIPIENTS,
         open: ({ clock = CLOCK, changed } = {}) => open(state, data, clock, changed) };
 }
 

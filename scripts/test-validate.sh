@@ -641,6 +641,7 @@ cases=(
   "jarvis-local-fixture|scripts/fixtures/jarvis-local/run.py|all|$jarvis_local_rows$repo_plan"
   "jarvis-unbounded-probe|scripts/fixtures/jarvis-local/probe-moonshine.py|all|$jarvis_local_rows$repo_plan"
   "jarvis-artifacts|shell/plugins/vgs.jarvis/artifacts.json|tools|$jarvis_local_tools_plan"
+  "jarvis-artifacts-engine|shell/plugins/vgs.jarvis/artifacts.json|cli|node scripts/test-jarvis-engine.js"$'\nnode scripts/test-jarvis-local-speech.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
   "jarvis-measure|shell/plugins/vgs.jarvis/measure-local|tools|$jarvis_local_tools_plan"
   "jarvis-clip|shell/plugins/vgs.jarvis/fixtures/probe.wav|tools|$jarvis_local_tools_plan"
   "jarvis-browser-daemon-input|shell/plugins/vgs.jarvis/backend/jarvisd.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
@@ -769,6 +770,30 @@ plan_consumer_case() { # SPEC
   done
 }
 parallel_cases plan_consumer_case plan-case "${cases[@]}"
+
+# The engine's daemon-speech case reads the catalog, independently of the
+# adapter's own selection tests. Other catalog consumers cannot cover it.
+d="$tmp/plan-jarvis-artifacts-engine-control"; fresh "$d"
+mkdir -p "$d/shell/plugins/vgs.jarvis"
+printf 'changed\n' >"$d/shell/plugins/vgs.jarvis/artifacts.json"
+test_area=cli
+test_args=(--changed HEAD --list)
+row "the speech catalog selects the daemon lifetime engine tests" "$d" 0 "" "node scripts/test-jarvis-engine.js"
+python3 - "$d/scripts/validate" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+source = path.read_text()
+rows = [line for line in source.splitlines() if line.startswith('  "cli|Jarvis chained engine|')]
+assert len(rows) == 1 and rows[0].count(' shell/plugins/vgs.jarvis/artifacts.json ') == 1
+path.write_text(source.replace(rows[0], rows[0].replace(' shell/plugins/vgs.jarvis/artifacts.json ', ' ', 1)))
+PY
+"${base_env[@]}" git -C "$d" add scripts/validate
+"${base_env[@]}" git -C "$d" commit -q -m control
+row "control: an omitted catalog input skips engine tests while the adapter still runs" "$d" 0 "" \
+  "!node scripts/test-jarvis-engine.js" "node scripts/test-jarvis-local-speech.js"
+test_area=manifests
+test_args=()
 
 # product_fixture copies ProfileRow into the real token baseline. The
 # self-check must run when that source changes, even with no validator edit.

@@ -150,7 +150,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             daemonSpeech = null;
             // A loaded child's fault does not revoke setup admission. The
             // next permitted capture reloads, after this child is reaped.
-            speechState = speechState.kind === "ready" ? { kind: "unloaded" } : { kind: "refused", error };
+            speechState = speechState.kind === "ready" ? { kind: "unloaded" } : { kind: "refused", error, publication: row.publication };
             configured(configuration());
         });
     }
@@ -667,7 +667,12 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         /** Select from snapshot settings; the daemon raises its gate only on ready. */
         configure(settings) {
             plan = select(settings, accounts, directories);
-            if (plan.kind === "ready" && plan.speech.lifetime === "daemon" && speechState.kind === "new") startSpeech(plan.speech);
+            if (plan.kind === "ready" && plan.speech.lifetime === "daemon") {
+                // A completed setup publication can repair an initial
+                // refusal. Ordinary hellos leave that runtime unloaded.
+                const published = speechState.kind === "refused" && speechState.publication !== plan.speech.publication;
+                if (speechState.kind === "new" || published) startSpeech(plan.speech);
+            }
             return configuration();
         },
         observe(s) {

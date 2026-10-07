@@ -205,6 +205,19 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
             await until(() => !alive(starts()[0].pid), "admission refusal closes child");
             assert.equal(w.configure(w.s().settings).cause, "speech=local-runtime-not-ready");
             assert.equal(starts().length, 1);
+            fs.writeFileSync(path.join(local, "scenario.json"), JSON.stringify({ ...scripts, start: "ready" }));
+            assert.equal(w.configure(w.s().settings).cause, "speech=local-runtime-not-ready");
+            assert.equal(w.s().gate.kind, "down");
+            assert.equal(starts().length, 1, "ordinary hello does not retry an unpublished runtime");
+            // setup-local publishes with rename after its inference probe.
+            // Republish identical marker bytes: the publication is new.
+            const marker = path.join(state, "local-ready.json"), replacement = path.join(state, ".local-ready-repaired");
+            fs.copyFileSync(marker, replacement);
+            fs.renameSync(replacement, marker);
+            assert.equal(w.configure(w.s().settings).cause, "speech=local-loading");
+            await until(() => w.s().gate.kind === "up", "completed setup publication restores model readiness");
+            assert.equal(w.configure(w.s().settings).kind, "ready");
+            assert.equal(starts().length, 2);
             return;
         }
         await until(() => w.s().gate.kind === "up", "model ready raises admission");
@@ -901,12 +914,14 @@ world(async () => {
         await daemonSpeech(server, [], "ready", "brain-failed");
         await daemonSpeech(server, [], "not-ready");
         for (const [name, edits] of [
-            ["ready before model load", [['speechState.kind === "new") startSpeech(plan.speech);', 'false) startSpeech(plan.speech);']]],
+            ["ready before model load", [['speechState.kind === "new" || published) startSpeech(plan.speech);', 'false) startSpeech(plan.speech);']]],
             ["conversation unloads local speech", [['if (c.plan.speech.lifetime !== "daemon") c.speech.close();', 'c.speech.close();']]],
             ["faulted child kept", [["daemonSpeech = null;\n            // A loaded", "// A loaded"]]],
-            ["admission refusal admitted", [['{ kind: "refused", error };', '{ kind: "unloaded" };']]]
+            ["admission refusal admitted", [['{ kind: "refused", error, publication: row.publication };', '{ kind: "unloaded" };']]],
+            ["ordinary hello retries refusal", [['speechState.publication !== plan.speech.publication', 'true']]],
+            ["setup publication ignored", [['speechState.publication !== plan.speech.publication', 'false']]]
         ]) {
-            await assert.rejects(() => daemonSpeech(server, edits, name === "admission refusal admitted" ? "not-ready" : "ready"),
+            await assert.rejects(() => daemonSpeech(server, edits, ["admission refusal admitted", "ordinary hello retries refusal", "setup publication ignored"].includes(name) ? "not-ready" : "ready"),
                 assert.AssertionError, name + " control must fail");
             console.log("control=" + name + " detected");
             controls++;
