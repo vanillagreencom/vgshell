@@ -2,6 +2,7 @@
 // Session judges confirmation; Policy judges actions; Audit gates each start.
 "use strict";
 const crypto = require("node:crypto");
+const path = require("node:path");
 const Tools = require("./Tools.js");
 const Policy = require("./Policy.js");
 const RESULT_BYTES = 16 * 1024;
@@ -15,10 +16,28 @@ function canonical(value) {
 }
 
 function sentence(call, scope) {
-    const text = Tools.TABLE[call.id].sentence.replace(/\{(\w+)\}/g, (_, field) => {
+    let text = Tools.TABLE[call.id].sentence.replace(/\{(\w+)\}/g, (_, field) => {
         const value = call.args[field];
         return value === undefined ? "default" : typeof value === "string" ? value : canonical(value);
     });
+    const args = call.args;
+    const name = file => path.basename(file) || file;
+    switch (call.id) {
+    case "apps.open": text = "Open " + name(args.path) + "?\n" + args.path; break;
+    case "files.list": text = "List files in " + name(args.path) + "?\n" + args.path; break;
+    case "files.read": text = "Read " + name(args.path) + "?\n" + args.path; break;
+    case "files.search": text = "Search " + name(args.path) + "?\n" + args.path + "\nSearch for:\n" + args.query; break;
+    case "files.write": text = "Write " + name(args.path) + "?\n" + args.path + "\nText:\n" + args.text; break;
+    case "files.move": text = "Move " + name(args.from) + " to " + name(args.to) + "?\n" + args.from + " → " + args.to; break;
+    case "files.delete": text = "Delete " + name(args.path) + "?\n" + args.path; break;
+    case "harness.files": {
+        const groups = [["write", args.write], ["move", args.move], ["remove", args.remove]].filter(([, files]) => files.length > 0);
+        const actions = groups.map(([verb, files]) => verb + " " + files.map(name).join(", ")).join("; ");
+        const targets = groups.map(([verb, files]) => verb + ": " + files.join(", ")).join("; ");
+        text = "Let the brain's program " + (actions || "change files") + "?\n" + targets + "\nChanges:\n" + args.diff;
+        break;
+    }
+    }
     return scope === undefined ? text : text + "\nAllow input in " + scope + " for this conversation. Jarvis can act as you there.";
 }
 

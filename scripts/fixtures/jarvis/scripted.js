@@ -62,10 +62,10 @@ function ports(root, engine) {
             send: (e, done) => {
                 record("brain-send", e);
                 for (const purpose of ["action", "release"]) gates.wait("approve-" + purpose, () => {
-                    const text = purpose === "action" ? "Delete /home/fixture/draft.txt." : "Send file text to Claude Code?";
+                    const text = purpose === "action" ? "Delete draft.txt?\n/home/fixture/draft.txt" : "Send file text to Claude Code?";
                     done("transcript", { role: "assistant", text, stage: "final", rev: 1 });
                     done("approval", { purpose, id: crypto.randomUUID(), digest: "a".repeat(64), physical: purpose === "action",
-                        text, tool: "fixture", timeoutMs: 30000, cancellable: false });
+                        text, tool: purpose === "action" ? "files.delete" : "fixture", timeoutMs: 30000, cancellable: false });
                 });
                 if (chained) { engine.brain.send(e, done); return; }
                 wait("brain", () => {

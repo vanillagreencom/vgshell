@@ -179,7 +179,8 @@ jarvis_bubble_request_text() {
 import json,sys
 s=json.loads(sys.argv[1])["status"]["detail"]["state"]
 labels=json.loads(sys.argv[2]); a=s["approval"]
-print(sum(v["visible"] and v["text"]==a["text"] for screen,box,v in labels) if a["kind"]=="held" else 0)
+texts=[v["text"] for screen,box,v in labels if v["visible"] and v["text"]!=""]
+print(sum("\n".join(texts[start:stop])==a["text"] for start in range(len(texts)) for stop in range(start+1,len(texts)+1)) if a["kind"]=="held" else 0)
 ' "$state" "$labels"
 }
 jarvis_bubble_confirm_key() {

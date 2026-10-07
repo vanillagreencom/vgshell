@@ -588,7 +588,8 @@ world(() => {
             const existing = path.join(fixtures.project, "existing");
             assert.equal(w.call("harness.files", files([existing]), turn, "approval").kind, "held");
             assert.equal(w.runner.state.approval.physical, true, "an overwrite is destructive");
-            assert.match(w.runner.state.approval.text, /^Let the brain's program change files/);
+            assert.ok(w.runner.state.approval.text.includes(existing), "the approval retains the full target path");
+            assert.ok(w.runner.state.approval.text.includes("+fixture\n"), "the approval retains the proposed diff");
         }],
         ["harness-kind", implementation => {
             const w = make(implementation);

@@ -162,14 +162,44 @@ Item {
                     }
                 }
             }
-            Label {
+            Column {
                 id: approvalText
                 width: pane.contentWidth
                 visible: root.hold !== null
-                role: "body"
-                text: root.hold === null ? "" : root.hold.text
-                textFormat: Text.PlainText
-                wrapMode: Text.Wrap
+                spacing: Theme.stack.row
+                readonly property bool filePrompt: root.hold !== null && root.hold.purpose === "action"
+                    && (root.hold.tool === "apps.open" || root.hold.tool.startsWith("files.") || root.hold.tool === "harness.files")
+                readonly property var lines: root.hold === null ? [] : root.hold.text.split("\n")
+                // Recombine the actual drawn labels for the existing frame
+                // identity check; a missing path or detail cannot acknowledge.
+                readonly property string text: question.text + (filePrompt ? "\n" + (fullPath.visible ? fullPath.text : "")
+                    + (lines.length > 2 ? "\n" + (payload.visible ? payload.text : "") : "") : "")
+                Label {
+                    id: question
+                    width: parent.width
+                    role: "body"
+                    text: approvalText.filePrompt ? approvalText.lines[0] : root.hold === null ? "" : root.hold.text
+                    textFormat: Text.PlainText
+                    wrapMode: Text.Wrap
+                }
+                Label {
+                    id: fullPath
+                    width: parent.width
+                    visible: approvalText.filePrompt && text !== ""
+                    role: "hint"
+                    text: approvalText.filePrompt ? approvalText.lines[1] : ""
+                    textFormat: Text.PlainText
+                    wrapMode: Text.Wrap
+                }
+                Label {
+                    id: payload
+                    width: parent.width
+                    visible: approvalText.filePrompt && text !== ""
+                    role: "body"
+                    text: approvalText.filePrompt ? approvalText.lines.slice(2).join("\n") : ""
+                    textFormat: Text.PlainText
+                    wrapMode: Text.Wrap
+                }
             }
             Label {
                 width: pane.contentWidth
@@ -202,12 +232,18 @@ Item {
                     }
                 }
             }
-            KeyHints {
+            Item {
+                width: pane.contentWidth
+                implicitHeight: answerHints.implicitHeight
                 visible: root.hold !== null
-                hints: root.service === null || root.service.effectiveKeys === null ? [] : [
-                    {key: root.service.effectiveKeys.confirm || "", text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"},
-                    {key: root.service.effectiveKeys.stop || "", text: root.hold !== null && root.hold.purpose === "release" ? "No" : "Cancel"}
-                ]
+                KeyHints {
+                    id: answerHints
+                    anchors.right: parent.right
+                    hints: root.service === null || root.service.effectiveKeys === null ? [] : [
+                        {key: root.service.effectiveKeys.stop || "", text: root.hold !== null && root.hold.purpose === "release" ? "No" : "Cancel"},
+                        {key: root.service.effectiveKeys.confirm || "", text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"}
+                    ]
+                }
             }
         }
     }
