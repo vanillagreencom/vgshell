@@ -8,7 +8,9 @@
 // partial, gatewayKey }. email is the account's email address, or the login
 // where the provider gives no email (Copilot), else "".
 // state is ok, expired, signed-out, no-plan for a sign-in that has no plan
-// limits, or failed; a window the tool does not report is left out, never
+// limits, limited for a Claude read the endpoint turned away for asking too
+// often (HTTP 429), which the next interval's read tries again, or failed;
+// a window the tool does not report is left out, never
 // read as 0. Diagnostics are lines of `ai-usage: <key>=<value>` pairs on
 // stderr. No token or reply body reaches either stream; of what the tools
 // report, only an account's email, windows and credit totals do.
@@ -242,7 +244,9 @@ function claudeEmail(Anchored, profile) {
  * The Claude Code account in DIRECTORY: its `.credentials.json`, read
  * without following a link and never written, then one GET of the usage
  * endpoint at ORIGIN with the access token. An expired token sends nothing
- * and reads expired, as does a token the endpoint refuses. PROFILE is the
+ * and reads expired, as does a token the endpoint refuses. A 429 reads
+ * limited, no failure: the endpoint answers so to frequent reads, and the
+ * service keeps the last figures until a later read. PROFILE is the
  * folder whose `.claude.json` Claude Code reads for this account, which
  * names its email.
  */
@@ -268,6 +272,7 @@ async function readClaude(Anchored, directory, { origin = ORIGIN, now = Date.now
     }, deadlineMs);
     if (reply.error) return lost(reply.error);
     if (reply.status === 401 || reply.status === 403) return { state: "expired", email };
+    if (reply.status === 429) return { state: "limited", email };
     if (reply.status !== 200) return lost("http-" + reply.status);
     let body;
     try { body = JSON.parse(reply.body); } catch { return lost("reply-json"); }
@@ -563,6 +568,7 @@ async function read(tree, env, { origin = ORIGIN, copilotOrigin = COPILOT_ORIGIN
             : await readCodex(Anchored, folder.directory, { env });
         const id = folder.provider + "-" + crypto.createHash("sha256").update(folder.directory).digest("hex").slice(0, 12);
         if (result.state === "failed") process.stderr.write("ai-usage: account=" + id + " failed=" + result.reason + "\n");
+        if (result.state === "limited") process.stderr.write("ai-usage: account=" + id + " limited=http-429\n");
         return { id, provider: folder.provider, label: folder.label.slice(0, 60), email: result.email || "",
             state: result.state, windows: result.windows || [], credits: result.credits || null, details: result.details || {} };
     }));
