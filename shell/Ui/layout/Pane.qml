@@ -110,10 +110,16 @@ Item {
     // children's laid-out boxes: read through `childrenRect`, a header of
     // implicit width and a footer bound to `contentWidth` each moved the
     // other's box, which fed `implicitWidth` back into itself.
-    function slotWidth(slot) {
-        let widest = 0;
-        for (const child of slot.children) widest = Math.max(widest, child.implicitWidth);
-        return widest;
+    // Qt clears the Pane id before removing the slot's children, as the
+    // assembled System check reaches. Keep the binding in the slot so
+    // child removal does not call the destroyed Pane.
+    component Slot: Item {
+        implicitHeight: childrenRect.height
+        implicitWidth: {
+            let widest = 0;
+            for (const child of children) widest = Math.max(widest, child.implicitWidth);
+            return widest;
+        }
     }
 
     implicitWidth: Math.max(hasTitle ? titleLabel.implicitWidth + switchRoom + gearRoom : 0, headerSlot.implicitWidth > 0 ? headerSlot.implicitWidth + gearRoom : 0, bodyColumn.implicitWidth, footerSlot.implicitWidth) + 2 * contentInset
@@ -237,14 +243,12 @@ Item {
         }
     }
 
-    Item {
+    Slot {
         id: headerSlot
         x: root.contentInset
         y: root.contentInset + root.titleRowHeight + root.titleToHeaderGap
         width: root.headerWidth
         height: root.hasTitle ? root.headerSlotImplicitHeight : root.headerHeight
-        implicitHeight: childrenRect.height
-        implicitWidth: root.slotWidth(headerSlot)
     }
 
     // ScrollArea adds its own side inset for keyboard scrolling. Give that
@@ -276,14 +280,12 @@ Item {
         }
     }
 
-    Item {
+    Slot {
         id: footerSlot
         x: root.contentInset
         y: scroll.y + scroll.height - root.ringRoom + root.footerGap
         width: root.contentWidth
         height: root.footerHeight
-        implicitHeight: childrenRect.height
-        implicitWidth: root.slotWidth(footerSlot)
     }
 
     // Both dividers share one geometry: from the frame's border on one
