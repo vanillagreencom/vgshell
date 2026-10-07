@@ -453,6 +453,6 @@ world(async () => {
         'if (state.conversation.kind === "ended") clear();', implementation => lifecycle(implementation, "generation"));
     await control("conversation-close", 'if (generation !== state.gen || state.conversation.kind === "ended") clear();',
         'if (generation !== state.gen) clear();', implementation => lifecycle(implementation, "end"));
-    await control("lease-close", 'close() { closed = true; clear(); }', 'close() { closed = true; }', implementation => lifecycle(implementation, "lease"));
+    await control("lease-close", 'close() { closed = true; if (probe !== null) probe.kill("SIGKILL"); clear(); }', 'close() { closed = true; if (probe !== null) probe.kill("SIGKILL"); }', implementation => lifecycle(implementation, "lease"));
     console.log("test-jarvis-browser: ok cases=" + (cases.length + 6 + refusals.length + silences.length) + " controls=" + controls);
 }, daemonStandins);

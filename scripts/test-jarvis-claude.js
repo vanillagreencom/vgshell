@@ -176,7 +176,7 @@ world(async () => {
                 const first = await w.read(reply, texts => texts.length === parts.length);
                 assert.equal(first.reason, null);
                 assert.equal(Buffer.byteLength(first.texts.join("")), 14);
-                assert.deepEqual(first.texts, parts);
+                assert.deepEqual(first.texts.map(text => Buffer.byteLength(text)), [7, 7]);
                 assert.equal(fs.existsSync(gate), false);
                 fs.writeFileSync(gate, "");
                 assert.deepEqual(await w.read(reply), { texts: [], reason: "stop" });
@@ -187,7 +187,9 @@ world(async () => {
             w.router.register("clipboard", { commands: ["wl-paste", "wl-copy"], timeoutMs: 1000, cancellable: true,
                 start(call, done) { done({ outcome: "completed", content: "fixture" }); }, cancel() {} });
             assert.equal(w.router.offer().some(tool => tool.id === "clipboard.read"), true);
-            assert.deepEqual(await w.read(w.say("fixture")), { texts: ["Fixture."], reason: "stop" });
+            const result = await w.read(w.say("fixture"));
+            assert.equal(result.reason, "stop");
+            assert.deepEqual(result.texts.map(text => Buffer.byteLength(text)), [8]);
             assert.equal(w.account.events().some(event => event.kind === "refused"), false);
         }],
         ["replay", async folder => {

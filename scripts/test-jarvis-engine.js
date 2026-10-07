@@ -892,9 +892,9 @@ world(async () => {
         const toggleKit = Fixture.copy(root);
         const sessionFile = path.join(toggleKit.folder, "Session.js");
         const sessionSource = fs.readFileSync(sessionFile, "utf8");
-        const closeNeedle = '                closeCapture(s, effects);\n                start(s, effects, "held");';
+        const closeNeedle = '                closeCapture(s, effects);\n                start(s, effects, "held", e.at);';
         assert.equal(sessionSource.split(closeNeedle).length, 2, "one held-answer capture control match");
-        fs.writeFileSync(sessionFile, sessionSource.replace(closeNeedle, '                start(s, effects, "held");'));
+        fs.writeFileSync(sessionFile, sessionSource.replace(closeNeedle, '                start(s, effects, "held", e.at);'));
         await assert.rejects(() => cases(toggleKit, server, "voice-toggle-reopened"), assert.AssertionError,
             "retaining a prior Toggle capture must fail the fresh-answer assertion");
         console.log("control=voice-toggle-reopened detected");

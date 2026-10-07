@@ -163,15 +163,23 @@ world(async () => {
         async completedText(folder) {
             const complete = { notify: "item/completed", params: { threadId: "$THREAD", turnId: "$TURN", completedAtMs: 1,
                 item: { type: "agentMessage", id: "m1", text: "Fixture.", phase: null, memoryCitation: null, delivery: null, questions: null } } };
-            for (const steps of [[complete, complete], [delta("Fixture."), complete]]) {
-                scenario({ turns: [steps] });
+            for (const [steps, lengths] of [[[complete, complete], [8]], [[delta(""), complete], [8]],
+                [[delta("Fixture."), complete], [8]], [[delta("Fixt"), complete, complete], [4, 4]]]) {
+                scenario({ turns: [[...steps, { complete: "completed" }]] });
                 const w = make(folder);
                 const events = await drain(w.say("fixture"));
-                assert.deepEqual(events.map(event => event.kind), ["text", "done"]);
-                assert.equal(Buffer.byteLength(events[0].text), 8);
-                assert.equal(events[1].reason, "stop");
+                assert.deepEqual(events.map(event => event.kind), [...lengths.map(() => "text"), "done"]);
+                assert.deepEqual(events.filter(event => event.kind === "text").map(event => Buffer.byteLength(event.text)), lengths);
+                assert.equal(events.at(-1).reason, "stop");
                 await w.brain.close();
             }
+        },
+        async completionConflict(folder) {
+            scenario({ turns: [[delta("Wrong."), { notify: "item/completed", params: {
+                threadId: "$THREAD", turnId: "$TURN", completedAtMs: 1,
+                item: { type: "agentMessage", id: "m1", text: "Fixture.", phase: null } } }, { complete: "completed" }]] });
+            const w = make(folder);
+            await assert.rejects(() => drain(w.say("fixture")), error => error.code === "message-text");
         },
         // The handshake's lockdown, the scrubbed program environment and a streamed turn.
         async turn(folder) {
@@ -526,8 +534,10 @@ world(async () => {
         }
         let controls = 0;
         for (const [name, relative, edits, row] of [
-            ["completed-message", "backend/CodexHarness.js", [['e.item.kind === "message" && !turn.text.has(e.item.id)', 'false && e.item.kind === "message" && !turn.text.has(e.item.id)']], "completedText"],
-            ["message-dedupe", "backend/CodexHarness.js", [['e.item.kind === "message" && !turn.text.has(e.item.id)', 'e.item.kind === "message"']], "completedText"],
+            ["message-prefix", "backend/CodexHarness.js", [['if (!e.item.text.startsWith(prior.value)) {', 'if (false && !e.item.text.startsWith(prior.value)) {']], "completionConflict"],
+            ["empty-delta", "backend/CodexHarness.js", [['!prior.completed && e.delta !== ""', '!prior.completed']], "completedText"],
+            ["completed-message", "backend/CodexHarness.js", [['if (e.item.kind === "message") {', 'if (false && e.item.kind === "message") {']], "completedText"],
+            ["message-dedupe", "backend/CodexHarness.js", [['const remainder = e.item.text.slice(prior.value.length);', 'const remainder = e.item.text;']], "completedText"],
             ["environment-scrub", "backend/CodexHarness.js", [["env: { ...childEnvironment(env), CODEX_HOME", "env: { ...env, CODEX_HOME"]], "turn"],
             ["account-home", "backend/CodexHarness.js", [["CODEX_HOME: directory }", "CODEX_HOME: env.HOME }"]], "turn"],
             ["feature-check", "backend/CodexHarness.js", [["Codex.features(await p.call(id => Codex.featureList(id, thread)));", ""]], "turn"],

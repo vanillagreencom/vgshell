@@ -10,7 +10,7 @@ const sessionFile = path.join(tree, "shell/plugins/vgs.jarvis/Session.js");
 const browserFixture = require("./fixtures/jarvis/browser.js");
 const Browser = require(path.join(backend, "Browser.js"));
 
-world(() => {
+world(async () => {
     const Router = require(routerFile);
     const Session = load(sessionFile);
     const { SessionRunner, unavailable } = require(path.join(backend, "session-runner.js"));
@@ -91,13 +91,17 @@ world(() => {
             time: value => { at = value; }, lock: value => { locked = value; }, target: value => { target = value; },
             builds: () => builds };
     }
-    function browserHelp(implementation) {
+    async function browserHelp(implementation) {
         browserFixture.mode({});
         const marker = path.join(process.env.XDG_DATA_HOME, "vgshell/jarvis/browser-ready.json");
         fs.mkdirSync(path.dirname(marker), { recursive: true });
         fs.writeFileSync(marker, JSON.stringify({ version: "0.38.1" }));
         try {
             const w = make(Router, Session, { browser: implementation });
+            for (let n = 0; !w.router.offer().some(row => row.id === "browser"); n++) {
+                assert.ok(n < 500);
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
             const help = w.router.offer().find(row => row.id === "help");
             assert.ok(help, "the shared guidance executor offers help");
             assert.deepEqual(help.parameters.properties.topic.enum, ["input", "shell", "vision", "browser"]);
@@ -113,18 +117,18 @@ world(() => {
             assert.equal(browserFixture.calls().filter(row => row.args[0] === "skills").length, 1);
         } finally { fs.rmSync(marker, { force: true }); }
     }
-    browserHelp(Browser);
-    mutant(path.join(backend, "Browser.js"), "browser-help-consumer", 'router.register("guidance", guidance);',
+    await browserHelp(Browser);
+    await mutant(path.join(backend, "Browser.js"), "browser-help-consumer", 'router.register("guidance", guidance);',
         '', (implementation, folder) => {
             fs.cpSync(path.join(backend, "skills"), path.join(folder, "skills"), { recursive: true });
-            browserHelp(implementation);
+            return browserHelp(implementation);
         });
     controls++;
-    mutant(path.join(backend, "ComputerHelp.js"), "browser-help-provider",
+    await mutant(path.join(backend, "ComputerHelp.js"), "browser-help-provider",
         'if (topic === "browser" && browser !== null) { browser.start(call, done); return; }', ';',
         (implementation, folder) => {
             fs.cpSync(path.join(backend, "skills"), path.join(folder, "skills"), { recursive: true });
-            browserHelp(implementation);
+            return browserHelp(implementation);
         }, "Browser.js");
     controls++;
     const shell = { argv: ["fixture"], cwd: fixtures.project, network: false };
