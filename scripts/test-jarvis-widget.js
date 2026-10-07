@@ -161,7 +161,7 @@ function verify(view) {
         ["loading with open microphone", up({ ...down("unconfigured"), ...OPEN }, loading), ["live", "audio-lines", "accent"]],
         ["loading with daemon danger", up(down("unconfigured"), { ...loading, daemon: FLOOR }), ["problem", "circle-alert", "danger"]],
         ["loading with audio danger", up(down("unconfigured"), { ...loading, audio: OVERFLOW }), ["problem", "circle-alert", "danger"]],
-        ["loading with Session fault", up({ ...down("unconfigured"), fault: { kind: "error", reason: "brain=stream-error", retry: 0 } }, loading), ["problem", "circle-alert", "danger"]],
+        ["checking setup with Session fault", up({ fault: { kind: "error", reason: "brain=stream-error", retry: 0 } }, loading), ["problem", "circle-alert", "danger"]],
         ["loading while muted", up({ ...down("unconfigured"), ...MUTED }, loading), ["muted", "mic-off", "neutral"]],
         ["loading with missing model", up(down("unconfigured"), SetupGate.readiness({ kind: "answered", causes: ["speech=local-loading", "brain=unselected"] })), ["off", "power-off", "neutral"]],
         ["missing command with no setup action", up(down("unconfigured"), { setupVoice: { tone: "warning", action: false }, setupModel: DONE }), ["off", "power-off", "neutral"]],
@@ -250,7 +250,7 @@ const CONTROLS = [
     ["an unconfigured gate names no step", 'state.gate.reason === "unconfigured" ? unconfiguredText(values) : GATE_TEXT[state.gate.reason]',
         "GATE_TEXT[state.gate.reason]"],
     ["a step done reads as to do", "step.action === true", "step.action !== undefined"],
-    ["the AI model reads before local voice", "for (var i = 0; i < SETUP_TEXT.length; i++) {", "for (var i = SETUP_TEXT.length - 1; i >= 0; i--) {"]
+    ["the AI model reads before local voice", "function unconfiguredText(values) {\n    for (var i = 0; i < SETUP_TEXT.length; i++) {", "function unconfiguredText(values) {\n    for (var i = SETUP_TEXT.length - 1; i >= 0; i--) {"]
 ];
 
 const source = fs.readFileSync(path.join(dir, "WidgetView.js"), "utf8");
