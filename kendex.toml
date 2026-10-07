@@ -135,9 +135,9 @@ instructions = "Read docs/architecture/themes.md before reviewing a change here.
 
 [[bot-instructions.surface]]
 name = "arch-distribution"
-globs = ["packaging/**", "install.sh", "VERSION", "LICENSE", "flake.nix", "flake.lock", "bin/vgshell-migrate", "bin/migrations/**", "bin/lib/self.js", "bin/lib/first-start.sh"]
+globs = ["packaging/**", "install.sh", "VERSION", "LICENSE", "flake.nix", "flake.lock", "bin/lib/self.js", "bin/lib/first-start.sh"]
 reviewer_only = true
-instructions = "Read docs/architecture/distribution.md before reviewing a change here. It governs the licence, VERSION, package recipes, the installer, vgshell self and one-time migrations. Raise a finding where the change breaks one of its rules."
+instructions = "Read docs/architecture/distribution.md before reviewing a change here. It governs the licence, VERSION, package recipes, the installer and vgshell self. Raise a finding where the change breaks one of its rules."
 
 [[bot-instructions.surface]]
 name = "arch-jarvis"
