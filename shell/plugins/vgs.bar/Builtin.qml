@@ -16,7 +16,7 @@ Loader {
     required property string section
     property var release: null
 
-    anchors.verticalCenter: parent.verticalCenter
+    anchors.verticalCenter: parent ? parent.verticalCenter : undefined
     sourceComponent: name === "clock" ? clock : name === "workspaces" ? workspaces : null
 
     Component { id: clock; Clock { bar: root.barItem } }
