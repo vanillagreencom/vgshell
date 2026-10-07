@@ -693,10 +693,13 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         return {
             start: port.start,
             flush(e, done) {
+                // The report belongs to the turn being flushed. Cue-only
+                // teardown must not mark its later reply as interrupted.
+                const c = conversation;
+                const turn = c?.last;
+                const speaking = turn?.speaking === true;
                 return port.flush(e, report => {
-                    const c = conversation;
-                    const turn = c?.last;
-                    if (turn && (report === null || report.source === turn.op))
+                    if (speaking && conversation === c && c.last === turn && (report === null || report.source === turn.op))
                         heard(c, turn, report === null ? "" : report.heardText);
                     done(report);
                 });
@@ -735,9 +738,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             const turn = conversation?.turn;
             if (turn && (s.settings.sounds !== true || !session.live(s, turn, "turn", ["thinking"])
                     || s.approval.kind !== "none")) quiet(turn);
-            // Disabling sounds flushes a working cue before any reply began.
-            // Its pending synthesis stream must not consume the later reply.
-            if (turn && s.settings.sounds !== true && !turn.speaking && turn.speech !== null) {
+            // A cue-only stream cannot wait for sentences while the user
+            // answers approval. Later speech gets a new stream after flush.
+            if (turn && (s.settings.sounds !== true || s.approval.kind === "held")
+                    && !turn.speaking && turn.speech !== null) {
                 turn.speech.end();
                 turn.speech.readable.destroy();
                 turn.speech = null;

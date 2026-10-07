@@ -72,6 +72,7 @@ function closeCapture(s, effects) {
 }
 
 function cancelTurn(s, effects, at) {
+    if (s.playback.kind === "flushing") s.playback.reply = { kind: "none" };
     if (s.turn.kind === "thinking") {
         var old = s.turn;
         s.turn = { kind: "cancelling", gen: old.gen, op: old.op, deadline: at + 2000 };
@@ -94,10 +95,11 @@ function closeBrain(s, effects) {
 }
 
 function flushPlayback(s, effects) {
+    if (s.playback.kind === "flushing") s.playback.reply = { kind: "none" };
     if (["playing", "feedback"].indexOf(s.playback.kind) === -1) return;
     var old = s.playback;
     var e = effect(s, effects, "playback-flush", { gen: old.gen, target: old.op });
-    s.playback = { kind: "flushing", gen: e.gen, op: e.op };
+    s.playback = { kind: "flushing", gen: e.gen, op: e.op, reply: { kind: "none" } };
 }
 
 function dropApproval(s, effects, reason, at) {
@@ -442,6 +444,8 @@ function reduce(state, e) {
         s.turn = { kind: "none" };
         if (e.type === "brain-done" && ["playing", "feedback"].indexOf(s.playback.kind) !== -1)
             s.playback.deadline = e.at + PLAYBACK_TIMEOUT_MS;
+        if (e.type === "brain-done" && s.playback.kind === "flushing" && s.playback.reply.kind === "waiting")
+            s.playback.reply.deadline = e.at + PLAYBACK_TIMEOUT_MS;
         if (e.type === "brain-failed") {
             s.fault = { kind: "error", reason: e.reason, retry: 0 };
             end(s, effects, e.at, "brain-failed", false);
@@ -461,6 +465,13 @@ function reduce(state, e) {
                 interruptible: e.interruptible, admission: s.playback.admission, deadline: s.playback.deadline };
             break;
         }
+        // Audio closes asynchronously. The reply keeps its one admission
+        // request until the old player's matching flush acknowledgment.
+        if (s.playback.kind === "flushing" && s.conversation.kind === "active") {
+            s.playback.reply = { kind: "waiting", gen: e.gen, source: e.op,
+                interruptible: e.interruptible, deadline: null };
+            break;
+        }
         if (s.playback.kind !== "idle" || s.conversation.kind === "interrupted") break;
         s.playback = { kind: "playing", gen: s.gen, op: operation(s), source: e.op,
             interruptible: e.interruptible, admission: { kind: "waiting" }, deadline: null };
@@ -471,7 +482,11 @@ function reduce(state, e) {
         break;
     case "flushed":
         if (!live(s, e, "playback", ["flushing"])) { stale(s); break; }
-        s.playback = { kind: "idle" };
+        var reply = s.playback.reply;
+        s.playback = reply.kind === "waiting" && reply.gen === s.gen && s.conversation.kind === "active" && canEngage(s)
+            ? { kind: "playing", gen: reply.gen, op: operation(s), source: reply.source,
+                interruptible: reply.interruptible, admission: { kind: "waiting" }, deadline: reply.deadline }
+            : { kind: "idle" };
         break;
     case "playback-failed":
         if (!live(s, e, "playback", ["playing", "feedback"])) { stale(s); break; }
@@ -507,6 +522,7 @@ function reduce(state, e) {
         if (!canPropose(s)) break;
         toolDuration(e);
         var purpose = e.purpose === "release" ? "release" : "action";
+        if (s.playback.kind === "feedback" && s.playback.cue === "working") flushPlayback(s, effects);
         var hold = effect(s, effects, "approval-show", { id: e.id, digest: e.digest, purpose: purpose });
         s.approval = { kind: "held", purpose: purpose, gen: hold.gen, op: hold.op, id: e.id, digest: e.digest,
             deadline: e.at + APPROVAL_TIMEOUT_MS, shownAt: null, physical: e.physical,
@@ -586,7 +602,7 @@ function reduce(state, e) {
         break;
     case "deadline":
         if (live(s, e, "turn", ["collecting", "thinking", "cancelling"])
-                || live(s, e, "playback", ["playing"])
+                || live(s, e, "playback", ["playing", "feedback"])
                 || live(s, e, "approval", ["held"]) || live(s, e, "action", ["running"]))
             expire(s, effects, e.at);
         else stale(s);
@@ -604,7 +620,7 @@ var REGIONS = {
     turn: { none: "", collecting: "gen op partial deadline", thinking: "gen op deadline", cancelling: "gen op deadline" },
     brain: { closed: "", acquired: "gen op" },
     playback: { idle: "", playing: "gen op source interruptible admission deadline",
-        feedback: "gen op source cue admission deadline", flushing: "gen op" },
+        feedback: "gen op source cue admission deadline", flushing: "gen op reply" },
     action: { none: "", running: "gen op tool brain limit cancellation" },
     approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain" },
     fault: { none: "", error: "reason retry", retrying: "reason retry" }, conversation: { ended: "", active: "", interrupted: "" },
@@ -644,7 +660,16 @@ function validate(s) {
             } else if (f === "admission") {
                 if (!exact(r[f], ["kind"]) || ["waiting", "started"].indexOf(r[f].kind) === -1) return false;
             } else if (f === "reply") {
+                if (region === "playback" && r[f] && r[f].kind === "waiting") {
+                    if (!exact(r[f], ["kind", "gen", "source", "interruptible", "deadline"])
+                            || !Number.isSafeInteger(r[f].gen) || r[f].gen < 0
+                            || !Number.isSafeInteger(r[f].source) || r[f].source < 1
+                            || typeof r[f].interruptible !== "boolean"
+                            || (r[f].deadline !== null && (!Number.isFinite(r[f].deadline) || r[f].deadline < 0))) return false;
+                    continue;
+                }
                 if (!exact(r[f], ["kind"]) || ["none", "waiting"].indexOf(r[f].kind) === -1) return false;
+                if (region === "playback" && r[f].kind !== "none") return false;
             } else if (f === "limit") {
                 if (r[f] === null || typeof r[f] !== "object") return false;
                 if (!exact(r[f], r[f].kind === "pending" ? ["kind", "deadline"] : ["kind"])) return false;

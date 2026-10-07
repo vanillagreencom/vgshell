@@ -85,6 +85,28 @@ function thinking(w) {
     assert.equal(w.runner.state.turn.kind, "thinking");
 }
 const tests = [
+    ...["start", "working"].map(cue => ["feedback-deadline-" + cue, (impl, session = Session) => {
+        const w = world(impl, false, session);
+        if (cue === "working") thinking(w);
+        w.dispatch("snapshot", { locked: false, engine: "chained", configured: true, settings: { sounds: true } });
+        if (cue === "start") w.dispatch("talk-down");
+        else {
+            w.dispatch("feedback", { gen: w.runner.state.turn.gen, op: w.runner.state.turn.op });
+            w.pending.send("brain-done");
+        }
+        assert.equal(w.runner.state.playback.kind, "feedback");
+        assert.equal(w.runner.state.playback.cue, cue);
+        w.tick(w.runner.state.playback.deadline);
+        assert.equal(w.runner.state.fault.reason, "playback-timeout");
+        assert.equal(w.runner.state.playback.kind, "flushing");
+        assert.equal(w.calls.at(-1).name, "flush");
+        assert.equal(w.timers.size, 0, "the expired feedback timer is removed");
+        w.pending.flush();
+        w.pending.play();
+        assert.equal(w.runner.state.playback.kind, "idle");
+        assert.equal(w.runner.state.capture.kind, "closed");
+        w.runner.close();
+    }]),
     ["speech-deadlines", impl => {
         const w = world(impl);
         w.dispatch("talk-down");
@@ -437,6 +459,14 @@ try {
     fs.writeFileSync(mutant, changed);
     assert.throws(() => tests.find(item => item[0] === "completed-connection")[1](Owner, load(mutant)),
         assert.AssertionError, "discarding a completed resource owner must turn the teardown test red");
+    controls++;
+    const feedbackNeedle = '|| live(s, e, "playback", ["playing", "feedback"])';
+    assert.equal(sessionSource.split(feedbackNeedle).length - 1, 1, "feedback deadline control match");
+    const feedbackMutant = path.join(root, "feedback-deadline.js");
+    fs.writeFileSync(feedbackMutant, sessionSource.replace(feedbackNeedle, '|| live(s, e, "playback", ["playing"])'));
+    for (const cue of ["start", "working"])
+        assert.throws(() => tests.find(item => item[0] === "feedback-deadline-" + cue)[1](Owner, load(feedbackMutant)),
+            assert.AssertionError, cue + " must reject the feedback deadline defect");
     controls++;
 } finally { fs.rmSync(root, { recursive: true, force: true }); }
 console.log("test-jarvis-session-runner: ok cases=" + tests.length + " controls=" + controls);

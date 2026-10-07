@@ -893,6 +893,16 @@ function startFeedback(logic) {
     const s = step(logic, ready(logic), snapshot({ settings: { sounds: true } })).state;
     return step(logic, s, event("talk-down", 10));
 }
+function workingFeedback(logic) {
+    let s = thinking(logic);
+    s = step(logic, s, snapshot({ at: 35, settings: { sounds: true } })).state;
+    return step(logic, s, callback("feedback", s.turn, 40)).state;
+}
+function pendingFeedbackReply(logic) {
+    const s = workingFeedback(logic);
+    const flushing = step(logic, s, snapshot({ at: 41, settings: { sounds: false } })).state;
+    return step(logic, flushing, callback("play", s.turn, 42, { interruptible: true })).state;
+}
 table.push(["feedback-start", logic => {
     const started = startFeedback(logic);
     const s = started.state;
@@ -948,6 +958,47 @@ table.push(["feedback-start", logic => {
         ["stale operation", s, { ...s.turn, op: s.turn.op + 1 }],
         ["ended turn", step(logic, s, callback("brain-done", s.turn, 41)).state, s.turn]
     ]) assert.equal(kinds(step(logic, state, callback("feedback", owner, 42))).includes("playback-start"), false, label);
+}], ["feedback-approval", logic => {
+    for (const purpose of ["action", "release"]) {
+        const s = workingFeedback(logic);
+        const held = step(logic, s, callback("approval", s.turn, 41, { purpose, id: "held", digest: "a".repeat(64),
+            physical: false, text: "Fixture", tool: "fixture", timeoutMs: 1000, cancellable: false }));
+        assert.equal(held.state.playback.kind, "flushing");
+        assert.equal(kinds(held).includes("playback-flush"), true);
+        const talk = step(logic, held.state, event("talk-down", 42)).state;
+        assert.equal(talk.capture.kind, "closed");
+        const flushed = step(logic, talk, callback("flushed", talk.playback, 43));
+        assert.equal(flushed.state.capture.kind, "opening");
+        assert.equal(flushed.state.approval.purpose, purpose);
+        assert.equal(flushed.state.turn.op, s.turn.op, "approval keeps the brain turn");
+    }
+}], ["feedback-pending-reply", logic => {
+    for (const done of [false, true]) {
+        let s = pendingFeedbackReply(logic);
+        assert.equal(s.playback.reply.kind, "waiting");
+        const source = s.playback.reply.source;
+        assert.equal(logic.validate(s), true);
+        const stale = step(logic, s, callback("flushed", { ...s.playback, op: s.playback.op + 1 }, 43));
+        assert.equal(stale.state.playback.reply.source, source, "a stale flush keeps the reply waiting");
+        if (done) s = step(logic, s, callback("brain-done", s.turn, 43)).state;
+        const admitted = step(logic, s, callback("flushed", s.playback, 44));
+        assert.equal(admitted.state.playback.kind, "playing");
+        assert.equal(admitted.state.playback.source, source);
+        assert.equal(admitted.state.playback.deadline, done ? 300043 : null);
+        assert.deepEqual(kinds(admitted), ["playback-start"]);
+        assert.equal(logic.validate(admitted.state), true);
+    }
+}], ["feedback-pending-cancel", logic => {
+    for (const done of [false, true]) for (const trigger of [event("stop", 44), event("cancel", 44), event("interrupt", 44),
+        event("lease-ended", 44), event("mute", 44), snapshot({ at: 44, locked: true, settings: { sounds: false } }),
+        snapshot({ at: 44, settings: { sounds: false, brain: "changed" } })]) {
+        let s = pendingFeedbackReply(logic);
+        if (done) s = step(logic, s, callback("brain-done", s.turn, 43)).state;
+        const cancelled = step(logic, s, trigger).state;
+        assert.equal(cancelled.playback.reply.kind, "none", trigger.type + " retires pending speech");
+        const flushed = step(logic, cancelled, callback("flushed", cancelled.playback, 45));
+        assert.equal(kinds(flushed).includes("playback-start"), false, "cleanup cannot replay cancelled speech");
+    }
 }]);
 for (const [name, check] of table) { check(Session); }
 
@@ -971,7 +1022,14 @@ const shapes = [
     ["gate-reason", s => { s.gate.reason = "unknown"; }, logic => copy(logic.initial())],
     ["speech-reply-tag", s => { s.speech.reply = { kind: "unknown" }; }, duplexListening],
     ["engine-tag", s => { s.engine = { kind: "unknown" }; }],
-    ["feedback-cue", s => { s.playback.cue = "unknown"; }, logic => startFeedback(logic).state]
+    ["feedback-cue", s => { s.playback.cue = "unknown"; }, logic => startFeedback(logic).state],
+    ...[
+        ["shape", r => { r.extra = true; }], ["gen", r => { r.gen = -1; }],
+        ["source", r => { r.source = 0; }], ["interruptible", r => { r.interruptible = "yes"; }],
+        ["deadline", r => { r.deadline = -1; }], ["tag", r => { r.kind = "unknown"; }]
+    ].map(([name, mutate]) => ["pending-reply-" + name, s => mutate(s.playback.reply), pendingFeedbackReply]),
+    ["pending-reply-null", s => { s.playback.reply = null; }, pendingFeedbackReply],
+    ["pending-reply-missing", s => { s.playback.reply = { kind: "waiting" }; }, pendingFeedbackReply]
 ];
 for (const [name, mutate, seed = logic => copy(logic.initial())] of shapes) {
     const check = logic => {
@@ -1252,6 +1310,26 @@ try {
         ["feedback-working-sounds", 's.settings.sounds !== true || s.playback.kind !== "idle" || !canEngage(s)', 's.playback.kind !== "idle" || !canEngage(s)', "feedback-working"],
         ["feedback-working-busy", 's.settings.sounds !== true || s.playback.kind !== "idle" || !canEngage(s)', 's.settings.sounds !== true || !canEngage(s)', "feedback-working"],
         ["feedback-working-held", '|| s.conversation.kind !== "active" || s.approval.kind !== "none") break;', '|| s.conversation.kind !== "active") break;', "feedback-working"],
+        ["feedback-approval-flush", 'if (s.playback.kind === "feedback" && s.playback.cue === "working") flushPlayback(s, effects);',
+            'if (false) flushPlayback(s, effects);', "feedback-approval"],
+        ["pending-play-admission", 'if (s.playback.kind === "flushing" && s.conversation.kind === "active") {',
+            'if (false && s.playback.kind === "flushing" && s.conversation.kind === "active") {', "feedback-pending-reply"],
+        ["pending-flush-admission", 'reply.kind === "waiting" && reply.gen === s.gen',
+            'false && reply.kind === "waiting" && reply.gen === s.gen', "feedback-pending-reply"],
+        ["pending-completion-deadline", 's.playback.reply.deadline = e.at + PLAYBACK_TIMEOUT_MS;',
+            's.playback.reply.deadline = null;', "feedback-pending-reply"],
+        ["pending-cancel", 'function cancelTurn(s, effects, at) {\n    if (s.playback.kind === "flushing") s.playback.reply = { kind: "none" };',
+            'function cancelTurn(s, effects, at) {\n    if (false) s.playback.reply = { kind: "none" };', "feedback-pending-cancel"],
+        ["pending-shape", '!exact(r[f], ["kind", "gen", "source", "interruptible", "deadline"])',
+            'false', "wire-pending-reply-shape"],
+        ["pending-gen", '!Number.isSafeInteger(r[f].gen) || r[f].gen < 0',
+            'false', "wire-pending-reply-gen"],
+        ["pending-source", '!Number.isSafeInteger(r[f].source) || r[f].source < 1',
+            'false', "wire-pending-reply-source"],
+        ["pending-interruptible", 'typeof r[f].interruptible !== "boolean"',
+            'false', "wire-pending-reply-interruptible"],
+        ["pending-deadline", '(r[f].deadline !== null && (!Number.isFinite(r[f].deadline) || r[f].deadline < 0))',
+            'false', "wire-pending-reply-deadline"],
         ["confirm-id", "e.id !== approval.id", "(false && e.id !== approval.id)", "confirm-id"],
         ["confirm-digest", "e.digest !== approval.digest", "(false && e.digest !== approval.digest)", "confirm-digest"],
         ["confirm-generation", "e.gen !== approval.gen", "(false && e.gen !== approval.gen)", "confirm-generation"],

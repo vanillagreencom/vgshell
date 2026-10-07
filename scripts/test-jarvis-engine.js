@@ -36,6 +36,7 @@ function rig(kit, server, options = {}) {
     const { Audio } = backend("Audio.js");
     const Audit = backend("Audit.js");
     const Router = backend("ToolRouter.js");
+    const Denied = backend("Denied.js");
     const audioClock = clock();
     // Session deadlines run on an injected clock that only the case advances.
     let at = 0;
@@ -47,6 +48,7 @@ function rig(kit, server, options = {}) {
         for (const [key, timer] of [...timers]) if (timer.at <= at) { timers.delete(key); timer.fn(); }
     };
     const state = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "state-"));
+    const workspace = options.actionApproval ? fs.mkdtempSync(path.join(process.env.HOME, "workspace-")) : null;
     const audit = Audit.create({ state, now: () => Date.UTC(2026, 9, 1) });
     const faults = [], executions = [], held = [], partials = [], captions = [];
     const audio = new Audio({ session: Session, environment: { PATH: process.env.PATH, HOME: process.env.HOME,
@@ -77,7 +79,10 @@ function rig(kit, server, options = {}) {
             partials.push(s.turn.partial);
     });
     const router = Router.create({ session: Session, state: () => runner.state, dispatch: e => runner.dispatch(e), audit,
-        context: () => ({ profile: "standard", locked: false, denied: null }),
+        context: () => ({ profile: "standard", locked: false, denied: options.actionApproval ? Denied.create({
+            home: process.env.HOME, config: process.env.XDG_CONFIG_HOME, data: process.env.XDG_DATA_HOME,
+            state: process.env.XDG_STATE_HOME, runtime: process.env.XDG_RUNTIME_DIR, install: kit.folder, accountRoots: []
+        }) : null }),
         result: value => runner.ports.brain.outcome(value) });
     Object.assign(ports, router.ports);
     // The callback stands in for a command-ready executor; it never starts hyprctl.
@@ -94,6 +99,12 @@ function rig(kit, server, options = {}) {
         executions.push(call);
         done({ outcome: "completed", content: "screen text", image: { type: "image/png", bytes: PNG } });
     } });
+    // The action approval case uses an inert executor, with no process.
+    if (options.actionApproval) router.register("sandbox", { commands: ["bwrap"], timeoutMs: 30000,
+        cancellable: false, start(call, done) {
+            executions.push(call);
+            done({ outcome: "completed", content: "fixture result" });
+        } });
     // Accounts.choose has its own suite; this stand-in names a loopback row.
     const accounts = () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "ollama", label: "local",
         source: { kind: "local", origin: "http://127.0.0.1:" + PORT }, model: "fixture-model" } }) });
@@ -129,7 +140,7 @@ function rig(kit, server, options = {}) {
         return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
     };
     return { runner, audio, audioClock, engine, audit, faults, executions, held, partials, captions, rows, configure,
-        state, server, advanceRunner, writes, timers,
+        state, workspace, server, advanceRunner, writes, timers,
         s: () => runner.state,
         async close() {
             runner.close();
@@ -576,6 +587,76 @@ async function cases(kit, server, only = null) {
         assert.deepEqual(w.faults, []);
         assert.equal(w.s().fault.kind, "none");
     }, { sounds: true });
+
+    await run("feedback-delayed-flush", async w => {
+        const first = await say(w, utterance("Hello."));
+        await requested(w, first + 1, "the request starts");
+        w.advanceRunner(1200);
+        await until(() => w.audio.playback?.received === 2880, "the working cue enters Audio");
+        const flush = w.runner.ports.playback.flush;
+        let acknowledge = null;
+        w.runner.ports.playback.flush = (e, done) => flush(e, report => { acknowledge = () => done(report); });
+        w.configure({ ...w.s().settings, sounds: false });
+        await until(() => acknowledge !== null, "Audio closes the old player before its held acknowledgment");
+        assert.equal(w.audio.playback, null);
+        const writes = w.writes.length;
+        server.replies.push(text("Hello there."));
+        await until(() => w.s().turn.kind === "none", "the brain finishes before flush acknowledgment");
+        assert.deepEqual(control.spoken, ["Hello there."]);
+        assert.equal(w.writes.length, writes, "reply PCM waits for the old flush");
+        assert.equal(w.s().playback.kind, "flushing");
+        acknowledge();
+        await playOut(w);
+        assert.ok(w.writes.slice(writes).some(write => write.pcm.includes(0x11)), "reply PCM reaches the new player");
+        assert.equal(w.audio.lastPlayback.heardText, "Hello");
+        assert.deepEqual(w.faults, []);
+        await say(w, utterance("Another turn."));
+        const body = await requested(w, first + 2, "the next request follows the completed delayed reply");
+        assert.equal(user(body).at(-1), "Another turn.", "a cue flush adds no interrupted speech context");
+        server.replies.push(text(""));
+        await until(() => w.s().turn.kind === "none", "the next request completes");
+    }, { sounds: true });
+
+    for (const purpose of ["action", "release"]) await run("feedback-voice-" + purpose, async w => {
+        const first = await say(w, utterance("Do the fixture."));
+        await requested(w, first + 1, "the quiet request starts");
+        w.advanceRunner(1200);
+        await until(() => w.audio.playback?.received === 2880, "working feedback enters Audio");
+        const oldSource = w.audio.playbackFeed;
+        server.replies.push(calls(purpose === "action"
+            ? { id: "call_action", name: "shell_argv", arguments: { argv: ["true"], cwd: w.workspace, network: false } }
+            : { id: "call_release", name: "clipboard_read", arguments: {} }));
+        await until(() => w.s().approval.kind === "held", "approval follows the working cue");
+        const h = w.s().approval;
+        assert.equal(h.purpose, purpose);
+        assert.equal(h.physical, false);
+        w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
+        await until(() => w.s().playback.kind === "idle", "the approval releases cue playback");
+        assert.equal(w.audio.playback, null, "Audio released the old player");
+        assert.equal(oldSource.destroyed, true, "the cue-only speech stream is released");
+        w.advanceRunner(1100);
+        control.utterances.push(utterance("Yes."));
+        w.runner.dispatch({ type: "talk-down" });
+        await until(() => w.s().capture.kind === "open", "Talk admits the voice answer after flush");
+        assert.equal(w.s().turn.kind, "thinking");
+        w.runner.dispatch({ type: "talk-up" });
+        await requested(w, first + 2, "voice approval continues the same brain turn");
+        const writes = w.writes.length;
+        server.replies.push(text("Done."));
+        await until(() => w.s().turn.kind === "none", "the approved reply completes");
+        await playOut(w);
+        assert.deepEqual(control.spoken, ["Done."]);
+        assert.ok(w.writes.slice(writes).some(write => write.pcm.includes(0x11)), "later speech acquires a fresh player");
+        assert.equal(w.s().approval.kind, "none");
+        assert.deepEqual(w.faults, []);
+        await say(w, utterance("Another turn."));
+        const body = await requested(w, first + 3, "the next request follows the completed approved reply");
+        assert.equal(user(body).at(-1), "Another turn.", "approval cue teardown adds no interrupted speech context");
+        server.replies.push(text(""));
+        await until(() => w.s().turn.kind === "none", "the next request completes");
+    }, { sounds: true, actionApproval: purpose === "action", fixture: purpose === "release"
+        ? { recipients: [{ kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9" }] }
+        : undefined });
 
     await run("feedback-off", async w => {
         const first = await say(w, utterance("Hello."));
@@ -1309,6 +1390,11 @@ world(async () => {
                 'case "done":\n                    void turn;', "feedback-suppressed-tool"],
             ["feedback-disable-stream", 'turn.speech = null;\n            }\n            if (s.playback.kind',
                 'void turn.speech;\n            }\n            if (s.playback.kind', "feedback-disable-working"],
+            ...["action", "release"].map(purpose => ["feedback-approval-stream-" + purpose,
+                's.settings.sounds !== true || s.approval.kind === "held"', 's.settings.sounds !== true',
+                "feedback-voice-" + purpose]),
+            ["feedback-flush-heard-context", 'const speaking = turn?.speaking === true;',
+                'const speaking = true;', "feedback-delayed-flush"],
             ["release-grant", "if (accepted) c.grants.push(grant);", "void grant;", "release-grants"],
             ["release-decline-once", "for (const label of pending.labels) c.decisions.add(label);", "void pending.labels;", "release-decisions"],
             ["voice-confirmation", 'dispatch({ type: "confirm", ...answer, source: "voice" });',
@@ -1384,6 +1470,23 @@ world(async () => {
             "retaining a prior Toggle capture must fail the fresh-answer assertion");
         console.log("control=voice-toggle-reopened detected");
         controls++;
+        for (const [name, needle, replacement, scenario] of [
+            ["feedback-pending-play", 'if (s.playback.kind === "flushing" && s.conversation.kind === "active") {',
+                'if (false && s.playback.kind === "flushing" && s.conversation.kind === "active") {', "feedback-delayed-flush"],
+            ...["action", "release"].map(purpose => ["feedback-approval-flush-" + purpose,
+                'if (s.playback.kind === "feedback" && s.playback.cue === "working") flushPlayback(s, effects);',
+                'if (false) flushPlayback(s, effects);', "feedback-voice-" + purpose])
+        ]) {
+            const kit = Fixture.copy(root);
+            const file = path.join(kit.folder, "Session.js");
+            const source = fs.readFileSync(file, "utf8");
+            assert.equal(source.split(needle).length - 1, 1, name + " mutation match");
+            fs.writeFileSync(file, source.replace(needle, replacement));
+            await assert.rejects(() => cases(kit, server, scenario), assert.AssertionError,
+                name + " must turn the playback assertion red");
+            console.log("control=" + name + " detected");
+            controls++;
+        }
         const refusalKit = Fixture.copy(root);
         const daemonFile = path.join(refusalKit.folder, "backend/jarvisd.js");
         const daemonSource = fs.readFileSync(daemonFile, "utf8");
