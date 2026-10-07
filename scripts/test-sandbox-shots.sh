@@ -376,9 +376,9 @@ PY
   if scene_continuation_case "$continuation_mutant"; then fail "control: $label stayed green"; else ok "control: $label"; fi
 done
 
-# Run the System scene's geometry wait against a compositor fixture. Its
-# first refresh clears the eval rule, as the scale-triggered layer reload
-# does. A stale service or a rule that never applies must prevent capture.
+# Run the System scene's geometry wait against a compositor fixture. A
+# queued layer reload reads the active Lua configuration after both readers
+# agree, before capture. A stale service or unapplied rule prevents capture.
 displays_geometry_case() { # SCRIPT
   local script="$1" dir status=0
   dir="$(mktemp -d "$tmp/displays-geometry.XXXXXX")" || return 1
@@ -392,12 +392,28 @@ for start, end in [('py_reply() {', '\n# jarvis_ready'), ('expect() {', '\n# res
     blocks.append(harness[offset:harness.index(end, offset)])
 open(sys.argv[3], 'w').write('\n'.join(blocks))
 PY
+  cat >"$dir/monitor.py" <<'PY'
+import json, re, sys
+rules = open(sys.argv[1]).read()
+monitors = []
+for body in re.findall(r'hl\.monitor\(\{([^}]+)\}\)', rules):
+    fields = dict(re.findall(r'(\w+)\s*=\s*("[^"]*"|-?[\d.]+)', body))
+    if json.loads(fields['output']) != 'VGS-DISPLAYS':
+        continue
+    width, height = map(int, json.loads(fields['mode']).split('@')[0].split('x'))
+    x, y = map(int, json.loads(fields['position']).split('x'))
+    monitors = [dict(name='VGS-DISPLAYS', identifier='VGS-DISPLAYS',
+                     width=width, height=height, x=x, y=y,
+                     scale=float(fields['scale']), transform=int(fields['transform']))]
+print(json.dumps(monitors))
+PY
   env -i PATH="$PATH" D="$dir" bash -c '
     set -euo pipefail
     source "$D/scene.sh"
     sandbox="$D" home="$D/home"
     mkdir -p "$home/.local/state/vgshell/plugins/vgs.displays" "$home/.config/hypr"
-    printf "fixture configuration\n" >"$home/.config/hypr/hyprland.lua"
+    printf "%s\n" '\''hl.monitor({ output = "VGS-DISPLAYS", mode = "5120x2880@60", position = "1755x0", scale = 2, transform = 0 })'\'' >"$D/original.lua"
+    cp "$D/original.lua" "$home/.config/hypr/hyprland.lua"
     ok() { :; }
     fail() { failures=$((failures + 1)); }
     reader_stderr() { [[ ! -s $2 ]]; }
@@ -409,15 +425,33 @@ PY
     park_pointer() { :; }
     take() {
       if [[ $1 == *-displays ]]; then
-        printf "%s %s\n" "$(cat "$D/compositor")" "$(cat "$D/service")" >"$D/captured"
+        # Receipts prove agreement before the queued reload. No eval can
+        # repair the configuration between that reload and capture.
+        assert_geometry "$D/compositor-read" -1440 -620 1
+        assert_geometry "$D/service-read" -1440 -620 1
+        hypr reload config-only >/dev/null
+        : >"$D/reloaded"
+        cp "$D/compositor" "$D/captured-compositor"
+        cp "$D/service" "$D/captured-service"
+      fi
+    }
+    assert_geometry() {
+      python3 - "$@" <<PY
+import json, sys
+m, = json.load(open(sys.argv[1]))
+assert (m["width"], m["height"], m["x"], m["y"], m["scale"], m["transform"]) == (5120, 2880, int(sys.argv[2]), int(sys.argv[3]), 2, int(sys.argv[4]))
+PY
+    }
+    load_config() {
+      if [[ -e $D/output ]]; then
+        python3 "$D/monitor.py" "$1" >"$D/compositor"
+      else
+        echo "[]" >"$D/compositor"
       fi
     }
     emit_output() {
-      case "$(cat "$1")" in
-        absent) echo "[]" ;;
-        applied) echo "[{\"name\":\"VGS-DISPLAYS\",\"identifier\":\"VGS-DISPLAYS\",\"width\":5120,\"height\":2880,\"x\":-1440,\"y\":-620,\"scale\":2,\"transform\":1}]" ;;
-        old) echo "[{\"name\":\"VGS-DISPLAYS\",\"identifier\":\"VGS-DISPLAYS\",\"width\":5120,\"height\":2880,\"x\":1755,\"y\":0,\"scale\":2,\"transform\":0}]" ;;
-      esac
+      cp "$1" "$1-read"
+      cat "$1"
     }
     ipc() {
       if [[ $* == "smoke instanceGeometry window vgs.system" ]]; then cat "$D/window"
@@ -430,15 +464,25 @@ PY
     }
     hypr() {
       case "$*" in
-        eval*) [[ $scenario == blocked ]] || echo applied >"$D/compositor"; echo eval >>"$D/evals"; echo ok ;;
+        eval*)
+          if [[ $scenario != blocked ]]; then
+            printf "%s\n" "$2" >"$D/eval.lua"
+            load_config "$D/eval.lua"
+          fi
+          echo eval >>"$D/evals"; echo ok ;;
         "-j monitors all") emit_output "$D/compositor" ;;
+        "output create wayland VGS-DISPLAYS") : >"$D/output"; echo ok ;;
         "output remove VGS-DISPLAYS-READ")
-          if [[ $scenario == reload && ! -e $D/reloaded ]]; then
-            : >"$D/reloaded"; echo old >"$D/compositor"
+          if [[ $scenario == reload && ! -e $D/reset ]]; then
+            : >"$D/reset"; load_config "$D/original.lua"
           fi
           [[ $scenario == stale ]] || cp "$D/compositor" "$D/service"
           echo ok ;;
-        "output remove VGS-DISPLAYS") echo absent >"$D/service"; echo ok ;;
+        "output remove VGS-DISPLAYS")
+          rm "$D/output"; echo "[]" >"$D/compositor"; echo "[]" >"$D/service"; echo ok ;;
+        "reload config-only")
+          load_config "$home/.config/hypr/hyprland.lua"
+          cp "$D/compositor" "$D/service"; echo ok ;;
         *) echo ok ;;
       esac
     }
@@ -446,23 +490,31 @@ PY
     window_panes() { echo "[\"vgs.displays\"]"; }
     for scenario in reload stale blocked; do
       failures=0
-      rm -f -- "${D:?}/captured" "${D:?}/reloaded" "${D:?}/evals"
-      echo old >"$D/compositor"; echo old >"$D/service"; echo absent >"$D/window"
+      rm -f -- "${D:?}/captured-compositor" "${D:?}/captured-service" "${D:?}/reloaded" "${D:?}/reset" "${D:?}/evals" "${D:?}/compositor-read" "${D:?}/service-read"
+      : >"$D/output"
+      load_config "$D/original.lua"; cp "$D/compositor" "$D/service"; echo absent >"$D/window"
       scene_system dark
-      [[ $(cat "$home/.config/hypr/hyprland.lua") == "fixture configuration" ]] || exit 1
+      cmp "$D/original.lua" "$home/.config/hypr/hyprland.lua" || exit 1
+      [[ $(cat "$D/compositor") == "[]" && $(cat "$D/service") == "[]" && ! -e $D/output ]] || exit 1
       if [[ $scenario == reload ]]; then
-        [[ $failures == 0 && $(cat "$D/captured") == "applied applied" && -e $D/reloaded ]] || exit 1
+        [[ $failures == 0 && -e $D/reset && -e $D/reloaded ]] || exit 1
+        assert_geometry "$D/captured-compositor" -1440 -620 1
+        assert_geometry "$D/captured-service" -1440 -620 1
       else
-        [[ $failures -gt 0 && ! -e $D/captured && -s $D/evals ]] || exit 1
+        [[ $failures -gt 0 && ! -e $D/captured-compositor && ! -e $D/reloaded && -s $D/evals ]] || exit 1
       fi
+      hypr output create wayland VGS-DISPLAYS >/dev/null
+      hypr reload config-only >/dev/null
+      assert_geometry "$D/compositor" 1755 0 0
+      assert_geometry "$D/service" 1755 0 0
     done
   ' >"$dir/out" 2>"$dir/err" || status=$?
   [[ $status == 0 ]]
 }
 if displays_geometry_case "$repo/scripts/sandbox-shots.sh"; then
-  ok "Displays waits for both readers after a reset and refuses a capture without agreement"
+  ok "Displays keeps exact geometry across a reload after agreement, restores it, and refuses capture without agreement"
 else
-  fail "Displays waits for both readers after a reset and refuses a capture without agreement"
+  fail "Displays keeps exact geometry across a reload after agreement, restores it, and refuses capture without agreement"
 fi
 displays_mutant="$tmp/displays-without-wait.sh"
 python3 - "$repo/scripts/sandbox-shots.sh" "$displays_mutant" <<'PY'
@@ -480,6 +532,16 @@ if displays_geometry_case "$displays_mutant"; then
   fail "control: Displays without its wait stayed green"
 else
   ok "control: Displays without its wait fails geometry"
+fi
+displays_mutant="$tmp/displays-without-saved-rule.sh"
+if mutate "$repo/scripts/sandbox-shots.sh" '      printf '\''%s\n'\'' "$displays_output_rule" >>"$home/.config/hypr/hyprland.lua"' '      :' "$displays_mutant"; then
+  if displays_geometry_case "$displays_mutant"; then
+    fail "control: Displays without its saved rule stayed green"
+  else
+    ok "control: Displays without its saved rule fails geometry after the queued reload"
+  fi
+else
+  fail "control: Displays saved-rule mutation"
 fi
 
 # The scene choice of scripts/sandbox-shots.sh, before any sandbox starts:
