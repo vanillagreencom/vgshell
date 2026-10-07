@@ -33,7 +33,7 @@ function setup(source, time = clock(), Implementation = Audio, environment = nul
     state.gate = { kind: "up" };
     state.playback = { kind: "playing", gen: 1, op: 2, source: 3, interruptible: true,
         admission: { kind: "started" } };
-    state.settings = { microphone: "", speaker: "" };
+    state.settings = { microphone: "", speaker: "fixture.speaker" };
     audio.observe(state);
     audio.devices.speakers = [{ label: "Fixture speaker", value: "fixture.speaker" }];
     const e = { gen: 1, op: 2, source: 3 };

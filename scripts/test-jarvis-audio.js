@@ -71,6 +71,50 @@ async function trigger(Implementation, type) {
 
 async function inside() {
     let controls = 0;
+    async function desktopDefaults(Implementation = Audio) {
+        const w = setup(Implementation);
+        const metadata = entries => ({ id: 4, type: "PipeWire:Interface:Metadata",
+            props: { "metadata.name": "default" }, metadata: entries });
+        const entry = (key, name) => ({ subject: 0, key, type: "Spa:String:JSON", value: { name } });
+        const groups = [
+            { group: "microphones", setting: "microphone", media: "Audio/Source", key: "default.audio.source" },
+            { group: "speakers", setting: "speaker", media: "Audio/Sink", key: "default.audio.sink" }
+        ];
+        try {
+            const nodes = groups.flatMap((row, i) => ["a.first", "z.default"].map((name, j) => ({
+                id: 10 + i * 2 + j, type: "PipeWire:Interface:Node",
+                info: { props: { "media.class": row.media, "node.name": name + "." + row.setting } }
+            })));
+            w.audio.snapshot([...nodes, metadata(groups.map(row => entry(row.key, "z.default." + row.setting)))]);
+            for (const row of groups) {
+                assert.equal(w.audio.devices[row.group][0].value, "a.first." + row.setting);
+                assert.equal(w.audio.selected(row.group, row.setting), "z.default." + row.setting);
+                assert.equal(w.runner.state.settings[row.setting], "");
+            }
+            // Configured defaults and other metadata stores are not the active desktop choice.
+            w.audio.snapshot([metadata([entry("default.configured.audio.source", "a.first.microphone")]),
+                { ...metadata([entry("default.audio.source", "a.first.microphone")]), id: 5,
+                    props: { "metadata.name": "other" } }]);
+            assert.equal(w.audio.selected("microphones", "microphone"), "z.default.microphone");
+            w.audio.snapshot([metadata([entry("default.audio.source", "a.first.microphone")])]);
+            assert.equal(w.audio.selected("microphones", "microphone"), "a.first.microphone");
+            assert.equal(w.audio.selected("speakers", "speaker"), "z.default.speaker");
+            w.dispatch("snapshot", { locked: false, engine: "chained", configured: true,
+                settings: { microphone: "z.default.microphone", speaker: "a.first.speaker" } });
+            for (const row of groups)
+                assert.equal(w.audio.selected(row.group, row.setting), w.runner.state.settings[row.setting]);
+            w.dispatch("snapshot", { locked: false, engine: "chained", configured: true,
+                settings: { microphone: "", speaker: "" } });
+            w.audio.snapshot([{ id: 4, info: null }]);
+            for (const row of groups)
+                assert.throws(() => w.audio.selected(row.group, row.setting), { message: "device-lost" });
+            w.audio.snapshot([metadata(groups.map(row => entry(row.key, "z.default." + row.setting)))]);
+            w.audio.snapshot(nodes, "full");
+            for (const row of groups)
+                assert.throws(() => w.audio.selected(row.group, row.setting), { message: "device-lost" });
+        } finally { w.runner.close(); await w.audio.close("test-end"); }
+    }
+    await desktopDefaults();
     for (const type of ["mute", "locked", "unknown", "indicator", "provider", "lease"])
         await trigger(Audio, type);
     const retired = setup();
@@ -447,6 +491,8 @@ async function inside() {
         await assert.rejects(() => check(require(path.join(folder, "Audio.js")).Audio), assert.AssertionError);
         controls++;
     }
+    await control("desktop-default", 'configured === "" ? this.defaults[group] : configured',
+        'configured === "" ? (offers[0] && offers[0].value) : configured', desktopDefaults);
     await control("early-muted", "return this.release;", "return Promise.resolve();", async impl => {
         let released;
         const sink = new Writable({ write(frame, encoding, done) { done(); },

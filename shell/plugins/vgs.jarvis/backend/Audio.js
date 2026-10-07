@@ -44,6 +44,7 @@ class Audio {
         this.devices = { microphones: [], speakers: [] };
         this.discovery = { kind: "idle", retries: 0 };
         this.nodes = new Map();
+        this.defaults = { id: null, microphones: null, speakers: null };
         this.capture = null;
         this.playback = null;
         this.feed = null;
@@ -166,6 +167,7 @@ class Audio {
         });
         this.devices = { microphones: [], speakers: [] };
         this.nodes.clear();
+        this.defaults = { id: null, microphones: null, speakers: null };
         this.offers(this.devices);
         this.failCapture("discovery-failed", error.message);
         this.fault(error.message);
@@ -220,10 +222,40 @@ class Audio {
 
     snapshot(snapshot, mode = "delta") {
         if (!Array.isArray(snapshot) || snapshot.length > 4096) throw new Error("discovery-shape");
-        if (mode === "full") this.nodes.clear();
+        if (mode === "full") {
+            this.nodes.clear();
+            this.defaults = { id: null, microphones: null, speakers: null };
+        }
         for (const node of snapshot) {
             if (!Number.isSafeInteger(node.id)) throw new Error("discovery-id");
-            if (node.info === null) this.nodes.delete(node.id);
+            if (node.info === null) {
+                this.nodes.delete(node.id);
+                if (node.id === this.defaults.id)
+                    this.defaults = { id: null, microphones: null, speakers: null };
+            }
+            // WirePlumber publishes the active defaults on subject 0 of the
+            // default metadata store. pw-dump emits decoded JSON values and
+            // only changed entries: retain the other default across deltas.
+            // https://github.com/PipeWire/wireplumber/blob/master/src/scripts/default-nodes/apply-default-node.lua
+            // https://github.com/PipeWire/pipewire/blob/master/src/tools/pw-dump.c
+            else if (node.type === "PipeWire:Interface:Metadata"
+                    && node.props && node.props["metadata.name"] === "default") {
+                if (!Array.isArray(node.metadata) || node.metadata.length > 4096)
+                    throw new Error("discovery-default");
+                if (node.id !== this.defaults.id || node.metadata.length === 0)
+                    this.defaults = { id: node.id, microphones: null, speakers: null };
+                for (const entry of node.metadata) {
+                    if (entry.subject !== 0) continue;
+                    const group = entry.key === "default.audio.source" ? "microphones"
+                        : entry.key === "default.audio.sink" ? "speakers" : null;
+                    if (group === null) continue;
+                    const value = entry.value && entry.value.name;
+                    if (entry.type !== "Spa:String:JSON" || typeof value !== "string"
+                            || !/^[^\x00-\x1f\x7f]{1,200}$/.test(value))
+                        throw new Error("discovery-default");
+                    this.defaults[group] = value;
+                }
+            }
             else if (node.type === "PipeWire:Interface:Node") {
                 const prior = this.nodes.get(node.id);
                 const props = node.info && node.info.props;
@@ -265,7 +297,7 @@ class Audio {
     selected(group, setting) {
         const offers = this.devices[group];
         const configured = this.state.settings[setting] || "";
-        const value = configured === "" ? (offers[0] && offers[0].value) : configured;
+        const value = configured === "" ? this.defaults[group] : configured;
         if (!offers.some(item => item.value === value)) throw new Error("device-lost");
         return value;
     }

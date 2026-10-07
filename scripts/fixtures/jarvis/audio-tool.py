@@ -31,13 +31,17 @@ if name == "pw-dump":
         print("{}")
     else:
         snapshot = [
+            {"id": 4, "type": "PipeWire:Interface:Metadata", "props": {"metadata.name": "default"}, "metadata": [
+                {"subject": 0, "key": "default.audio.source", "type": "Spa:String:JSON", "value": {"name": "fixture.mic"}},
+                {"subject": 0, "key": "default.audio.sink", "type": "Spa:String:JSON", "value": {"name": "fixture.speaker"}}
+            ]},
             {"id": 91, "type": "PipeWire:Interface:Node", "info": {"props":
                 {"media.class": "Audio/Source", "node.name": "fixture.mic", "node.description": "Fixture microphone"}}},
             {"id": 12, "type": "PipeWire:Interface:Node", "info": {"props":
                 {"media.class": "Audio/Sink", "node.name": "fixture.speaker", "node.description": "Fixture speaker"}}}
         ]
         if (home / "extra-properties").exists():
-            snapshot[0]["info"]["props"]["fixture.metadata"] = "a" * 100000
+            snapshot[1]["info"]["props"]["fixture.metadata"] = "a" * 100000
         print(json.dumps(snapshot))
     if "--monitor" in sys.argv:
         sys.stdout.flush()
