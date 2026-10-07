@@ -383,6 +383,8 @@ const answer = spawnFixture("python3", ["-I", "-c", "import os; os._exit(23)"],
                 assert.equal(Relay.present(prompts, prompt), true, "daemon teardown preserves the live hook's prompt");
                 w = world(modules);
                 assert.ok(w.runner.held().some(item => item.id === prompt.id));
+                await w.runner.observe();
+                assert.ok(w.seen.prompts.at(-1).some(item => item.id === prompt.id));
                 if (frozen) process.kill(child.pid, "SIGSTOP");
                 assert.equal(await w.runner.stop(id), "stopped");
                 assert.equal(groupState(stat.pgid), "ESRCH");

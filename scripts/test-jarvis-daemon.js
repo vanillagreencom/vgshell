@@ -1500,7 +1500,7 @@ exit "$failures"
 
 async function main() {
     if (process.argv[2] === "--inside") return inside();
-    const parent = require("node:os").tmpdir();
+    const parent = path.join(tree, "tmp");
     fs.mkdirSync(parent, { recursive: true });
     const root = fs.mkdtempSync(path.join(parent, "jd-"));
     try {
@@ -1519,7 +1519,7 @@ async function main() {
         fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis/desktop-tool.py"), path.join(root, "standins/playerctl"));
         fs.chmodSync(path.join(root, "standins/playerctl"), 0o700);
         const result = cp.spawnSync("/bin/bash", [launcher, path.join(root, "standins"), "--", "node", __filename, "--inside"],
-            { env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: root },
+            { env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: path.join(tree, "tmp") },
                 // Bounds a hung world, not a latency: the suite runs real children.
                 encoding: "utf8", timeout: 180000 });
         process.stdout.write(result.stdout || "");

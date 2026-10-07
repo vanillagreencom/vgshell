@@ -23,6 +23,11 @@ const SOURCES = ENGINE.concat(["TaskRunner.js", "AgentProfiles.js", "task-run.py
 const EVENTS = ["Notification", "PermissionRequest", "SessionEnd", "Stop", "StopFailure", "UserPromptSubmit"];
 // Hook timeouts in seconds: a held event's is the 600 s window plus 60.
 const TIMEOUTS = { UserPromptSubmit: 30, Notification: 30, PermissionRequest: 660, Stop: 660, StopFailure: 30, SessionEnd: 10 };
+// J09 maps the test user to root. Remove its DAC bypass across every exec
+// for the unwritable-project actor, including the hooks and flock children.
+// setpriv(1): https://github.com/util-linux/util-linux/blob/master/sys-utils/setpriv.1.adoc
+const FILE_PERMISSIONS = ["--bounding-set=-dac_override,-dac_read_search",
+    "--inh-caps=-dac_override,-dac_read_search", "--ambient-caps=-dac_override,-dac_read_search"];
 
 async function inside() {
     const root = process.env.JARVIS_TEST_ROOT;
@@ -55,7 +60,7 @@ async function inside() {
     // space, an engine published from a snapshot of modules.dir that is then
     // removed, an account directory, and a runner whose floating display runs
     // task-run.py in a session of its own.
-    function world(modules) {
+    function world(modules, readOnly = false) {
         const base = path.join(root, "w" + (++worlds));
         const directories = { state: path.join(base, "it's \"state\""), runtime: path.join(base, "run time") };
         const snapshot = path.join(base, "snapshot");
@@ -71,7 +76,8 @@ async function inside() {
         runner = modules.Runner.create({ directories, engine, backend: modules.dir,
             settings: () => ({ taskTerminal: "floating" }),
             display: { run(args) {
-                const child = cp.spawn("python3", [path.join(modules.dir, "task-run.py"), "--spec", args[0]],
+                const command = readOnly ? ["setpriv", ...FILE_PERMISSIONS, "--", "python3"] : ["python3"];
+                const child = cp.spawn(command[0], [...command.slice(1), path.join(modules.dir, "task-run.py"), "--spec", args[0]],
                     { env, stdio: ["ignore", "pipe", "pipe"], detached: true });
                 const entry = { child, stderr: "", closed: once(child, "close") };
                 child.stderr.on("data", chunk => { entry.stderr += chunk; });
@@ -176,12 +182,18 @@ async function inside() {
     // Permission and question relay end to end: the stand-in runs the wired
     // hooks; the user's answers reach them only through runner.answer.
     async function relay(modules, readOnly = false) {
-        const w = world(modules);
+        const w = world(modules, readOnly);
         const project = path.join(w.account, "project");
         fs.mkdirSync(project);
         if (readOnly) {
             fs.chmodSync(project, 0o555);
-            assert.throws(() => fs.accessSync(project, fs.constants.W_OK), { code: "EACCES" });
+            const refused = cp.spawnSync("setpriv", [...FILE_PERMISSIONS, "--", process.execPath, "-e",
+                'const fs = require("node:fs"), assert = require("node:assert/strict");' +
+                'assert.throws(() => fs.writeFileSync(process.argv[1], "probe", { flag: "wx" }), { code: "EACCES" });',
+                path.join(project, "write-probe")], { env, encoding: "utf8", timeout: 10000 });
+            assert.equal(refused.error, undefined);
+            assert.equal(refused.signal, null);
+            assert.equal(refused.status, 0, refused.stderr);
         }
         const id = await w.started([
             { hook: "UserPromptSubmit", input: { prompt: "brief" } },
