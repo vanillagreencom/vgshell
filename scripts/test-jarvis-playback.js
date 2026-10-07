@@ -191,9 +191,11 @@ async function stalledDeadline(Implementation = Audio) {
     const highWaterMark = getDefaultHighWaterMark(false);
     setDefaultHighWaterMark(false, 65536);
     let produced = 0;
-    const source = new Readable({ highWaterMark: 65536, read() {
-        produced += 65536;
-        this.push(Buffer.alloc(65536));
+    // Uneven packet boundaries cross the former bound instead of landing
+    // exactly on Node's high-water mark and waiting for drain first.
+    const source = new Readable({ objectMode: true, highWaterMark: 1, read() {
+        produced += 65534;
+        this.push({ pcm: Buffer.alloc(65534) });
     } });
     const w = setup(source, undefined, Implementation);
     const ports = unavailable();
@@ -223,7 +225,7 @@ async function stalledDeadline(Implementation = Audio) {
         assert.ok(produced > 65536, "the stalled fixture produces more PCM than the former write bound");
         assert.ok(owner.child.stdin.writableLength > 0 && owner.child.stdin.writableLength <= 960);
         const pendingBytes = owner.child.stdin.writableLength;
-        assert.ok(source.readableLength <= 65536);
+        assert.ok(source.readableLength <= 1);
         assert.equal(w.time.timers.size, 1, "only Session's deadline remains while the player stalls");
         w.time.advance(289999);
         await turn();
