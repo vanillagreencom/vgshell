@@ -224,6 +224,33 @@ for row in "${sized_cases[@]}"; do
   if sized_case "$subject" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
 done
 
+# base_case FILE ROW: the base of a temporary hold comes from its matching
+# outer hold, even when the live output has reset to a different scale.
+base_case() {
+  local label output held_output held want got status=0
+  IFS='|' read -r label output held_output held want <<<"$2"
+  got="$(env -i PATH="$PATH" bash -c '
+set -euo pipefail
+source "$1/scripts/smoke/verdict.sh"
+source "$2"
+mode_scale_of() { printf "%s\n" "1755x933 scale=1.5"; }
+mode_hold=()
+[[ -z $4 ]] || mode_hold=("$4" "$5")
+base_mode_scale "$3"
+' _ "$repo" "$1" "$output" "$held_output" "$held")" || status=$?
+  [[ $status -eq 0 && $got == "$want" ]] && return 0
+  printf '        %s: exit=%s got [%s] want [%s]\n' "$label" "$status" "$got" "$want"
+  return 1
+}
+base_cases=(
+  "a reset output keeps its matching outer hold as the fixture base|WAYLAND-1|WAYLAND-1|3510x1866 scale=2|3510x1866 scale=2"
+  "an unheld output uses its live mode and scale as the fixture base|WAYLAND-1|||1755x933 scale=1.5"
+  "another output's hold does not replace the fixture base|WAYLAND-1|WAYLAND-2|3510x1866 scale=2|1755x933 scale=1.5"
+)
+for row in "${base_cases[@]}"; do
+  if base_case "$subject" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
+done
+
 # mutate OLD NEW OUT: a copy of the hold with OLD, which must occur once,
 # replaced by NEW.
 mutate() {
@@ -253,6 +280,8 @@ controls=(
   "hold_restore drops the held scale|take_mode \"\${mode_hold[0]}\" \"\${mode_hold[1]% scale=*}\" \"\${mode_hold[1]##*scale=}\"|take_mode \"\${mode_hold[0]}\" \"\${mode_hold[1]% scale=*}\" \"1\"|a restore after a reset takes the held mode and scale"
   "a release drops every parent|if [[ \${#mode_hold_parents[@]} -gt 0 ]]; then|if false; then|nested holds restore each parent and its scale"
   "a failed inner hold leaves the output changed|      hold_restore |      true |a failed inner hold restores its parent"
+  "the fixture base ignores a matching outer hold|base_mode_scale() {|base_mode_scale() { mode_scale_of \"\$1\"; return|a reset output keeps its matching outer hold as the fixture base"
+  "the fixture base takes another output's hold|\${mode_hold[0]} == \"\$1\"|true|another output's hold does not replace the fixture base"
   "hold_restore runs with no hold|if [[ \${#mode_hold[@]} -eq 0 ]]; then|if [[ \${#mode_hold[@]} -eq -1 ]]; then|a restore with no hold is refused"
   "whole_scale_mode takes only a scale that divides|tw=\$((w - w % s)) th=\$((h - h % s))|tw=\$((w % s ? 0 : w)) th=\$((h % s ? 0 : h))|a mode no scale divides is trimmed by the fewest pixels"
   "whole_scale_mode takes the first scale tried|trim < best_trim))|trim < -1))|a mode no scale divides is trimmed by the fewest pixels"
@@ -267,6 +296,7 @@ for i in "${!controls[@]}"; do
   for candidate in "${cases[@]}"; do [[ ${candidate%%|*} == "$target" ]] && row="$candidate" runner=run_case; done
   for candidate in "${scale_cases[@]}"; do [[ ${candidate%%|*} == "$target" ]] && row="$candidate" runner=scale_case; done
   for candidate in "${sized_cases[@]}"; do [[ ${candidate%%|*} == "$target" ]] && row="$candidate" runner=sized_case; done
+  for candidate in "${base_cases[@]}"; do [[ ${candidate%%|*} == "$target" ]] && row="$candidate" runner=base_case; done
   if [[ -z $row ]]; then fail "control: $label names no case: $target"; continue; fi
   if "$runner" "$mutant" "$row" >/dev/null 2>&1; then fail "control: $label left '$target' green"; else ok "control: $label"; fi
 done

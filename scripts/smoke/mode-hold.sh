@@ -21,6 +21,16 @@ output_mode() { hypr eval "$(monitor_rule "$@")"; }
 # as `3510x1866 scale=2`, the mode in device pixels; returns 1 when no
 # monitor has that name.
 mode_scale_of() { hypr -j monitors | python3 -c 'import json,sys; m=[m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]]; print("%dx%d scale=%g" % (m[0]["width"], m[0]["height"], m[0]["scale"])) if len(m)==1 else sys.exit(1)' "$1"; }
+# base_mode_scale NAME: the mode and scale a temporary hold restores.
+# A matching outer hold owns that state even after a host configure resets
+# the output. With no matching hold, the output's current state owns it.
+base_mode_scale() {
+  if [[ ${#mode_hold[@]} -gt 0 && ${mode_hold[0]} == "$1" ]]; then
+    printf '%s\n' "${mode_hold[1]}"
+  else
+    mode_scale_of "$1"
+  fi
+}
 # whole_scale_mode MODE: the mode and scale, as `WxH S`, that a hold above
 # scale 1 takes on an output whose own mode at scale 1 is MODE, such as
 # 1755x933. S is the scale from 2 to 4 that removes the fewest device

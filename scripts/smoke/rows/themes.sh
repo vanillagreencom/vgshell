@@ -998,9 +998,8 @@ expect_poll "the themes panel closes" closed panel_open
 # first screen through the probe's `images`, and the surface the host maps
 # from the compositor: none while no image is drawn, one per screen while
 # one is. The panel is read back through the labels it draws and clicked
-# through its icon buttons. The first screen, at scale 1, requests its
-# logical size, the mode the compositor reports; rows/hidpi.sh reads the
-# request at scale 2 on a shell started there. A headless second monitor
+# through its icon buttons. The first screen requests its mode in device
+# pixels at the scale the sandbox holds. A headless second monitor
 # draws an image set on it alone while the first screen draws `current`. A
 # copy of the shared state reader that ignores `screens`, one that never
 # reloads the state file and a copy of the background that is always shown
@@ -1053,11 +1052,38 @@ expect "the apply links the package's first image" "$scenic/backgrounds/a.png" b
 expect_poll "the background draws the applied package's first image" "$scenic/backgrounds/a.png ready" background_image
 expect_poll "the host maps one surface per screen once the image is drawn" "$monitors" layer_count vgs:background
 expect "the image is decoded to cover the screen, not at the file's size" True background_covers
-# The first screen's mode at scale 1 is its logical size, which the
-# background requests. The mode comes from the compositor, so a screen Qt
-# reads as 0x0 cannot pass.
-screen_mode="$(unscaled_mode_of "$screen_name")" || { fail "the first screen reads no sized mode at scale 1"; screen_mode=unread; }
-expect_poll "the scale-1 screen requests its logical size" "$screen_mode" background_source_size "$screen_name"
+# The background requests device pixels. The held mode, or the live mode
+# without a hold, supplies the expectation independently of Qt's screen.
+screen_state="$(base_mode_scale "$screen_name")" || { fail "the first screen's mode and scale are unreadable"; screen_state=unread; }
+screen_mode="${screen_state% scale=*}"
+[[ $screen_mode =~ ^[1-9][0-9]*x[1-9][0-9]*$ ]] || { fail "the first screen reads no sized mode"; screen_mode=unread; }
+expect_poll "the background requests the screen's device size" "$screen_mode" background_source_size "$screen_name"
+
+# Control: a background that requests one pixel across fails the same
+# device-size assertion at either sandbox scale.
+background_qml="$repo/shell/plugins/vgs.themes/Background.qml"
+cp -p -- "$background_qml" "$sandbox/Background.qml.size.real"
+python3 - "$sandbox/Background.qml.size.real" "$background_qml.tmp" <<'PY'
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+old = "Math.ceil(root.screen.width * root.screen.devicePixelRatio)"
+assert text.count(old) == 1
+pathlib.Path(sys.argv[2]).write_text(text.replace(old, "1"))
+PY
+mv -T -- "$background_qml.tmp" "$background_qml"
+rescan "a rescan builds the background device-size control"
+expect_poll "the background size control draws the prepared image" "$scenic/backgrounds/a.png ready" background_image
+expect_poll "the background size control requests one pixel across" "1x${screen_mode#*x}" background_source_size "$screen_name"
+background_size_control_failures() {
+  (failures=0 behaviour_failures=0
+  expect "the one-pixel background requests the screen's device size" "$screen_mode" background_source_size "$screen_name" >"$sandbox/background-size-control.log"
+  printf '%s\n' "$failures")
+}
+expect "control: the device-size assertion refuses the one-pixel background" 1 background_size_control_failures
+cp -p -- "$sandbox/Background.qml.size.real" "$background_qml.tmp" && mv -T -- "$background_qml.tmp" "$background_qml"
+rescan "a rescan restores the background device size"
+expect_poll "the restored background requests the screen's device size" "$screen_mode" background_source_size "$screen_name"
+expect "the follow after the background size controls ends" idle theme_idle
 
 # Each screen draws its own entry in `screens`, else `current`: an image
 # from the user folder set on a second monitor alone, which a step of
