@@ -70,6 +70,7 @@ function stateLabel(state, source) {
     switch (state) {
     case "signed-in": return "Signed in";
     case "found": return source === "cli" ? "Not signed in" : source === "local" ? "Running on this computer" : "Key found";
+    case "unchecked": return source === "cli" ? "Found; Verify checks sign-in" : "Could not check";
     case "verifying": return "Checking that it answers";
     case "verified": return "Answered a test request";
     case "locked": return "Keyring locked";

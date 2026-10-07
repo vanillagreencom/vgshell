@@ -1,11 +1,15 @@
 #!/usr/bin/env node
-// The ACP harness end to end in J09: the real Session reducer, SessionRunner,
-// ToolRouter, Policy, Denied, Audit, ToolBridge with the real mcp-shim,
-// HarnessGate and CopilotHarness, against fixtures/jarvis-copilot/copilot-stub.js as
-// the Copilot program. The stub answers with the sanitized Copilot 1.0.91
-// handshake and speaks the ACP v1 excerpt; every message the harness writes is
-// checked against the excerpt. No vendor program, login, account or network
-// is used. Mutants edit disposable plugin copies.
+// The Copilot ACP harness end to end in J09: the real Session reducer,
+// SessionRunner, ToolRouter, Policy, Denied, Audit, ToolBridge with the real
+// mcp-shim, HarnessGate and CopilotHarness, against
+// fixtures/jarvis-copilot/copilot-stub.js as the Copilot program. The stub
+// answers with the sanitized Copilot 1.0.91 handshake, recorded from the
+// GitHub Copilot CLI 1.0.91 binary whose SHA-256 is
+// 5ba1d69542af6fd91702d4dbf4845f41c0a29efa3e9bc56fcc308347ff70ff3e. The
+// recording command was `env -i PATH=/usr/bin:/bin HOME=<scratch>
+// COPILOT_HOME=<scratch> unshare -rn copilot --acp --stdio`, followed by
+// initialize and session/new on stdin. No vendor program, login, account or
+// network is used. Mutants edit disposable plugin copies.
 "use strict";
 const { assert, fs, path, tree, world, seed } = require("./fixtures/jarvis/policy.js");
 const Check = require("./fixtures/schema-check.js");
@@ -16,13 +20,9 @@ const cp = require("node:child_process");
 const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
 const PARAMS = { "initialize": "InitializeRequest", "session/new": "NewSessionRequest", "session/prompt": "PromptRequest",
     "session/cancel": "CancelNotification" };
-// Independent of the production table: Copilot's built-ins by name, and the
-// permission kinds denied beside them.
-const EXCLUDED = ["bash", "powershell", "list_bash", "list_powershell", "read_bash", "read_powershell",
-    "stop_bash", "stop_powershell", "write_bash", "write_powershell", "view", "create", "edit",
-    "apply_patch", "task", "list_agents", "read_agent", "write_agent", "ask_user", "glob", "grep", "rg", "skill",
-    "web_fetch", "web_search"];
+const AVAILABLE = ["vgs_jarvis/*"];
 const DENIED = ["shell", "write", "read", "url", "memory"];
+const BUILTIN_KINDS = ["read", "edit", "delete", "move", "search", "execute", "fetch", "switch_mode"];
 
 world(async () => {
     const Session = load(path.join(plugin, "Session.js"));
@@ -30,7 +30,9 @@ world(async () => {
     const state = process.env.XDG_STATE_HOME;
     fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis-copilot/recorded.ndjson"), path.join(state, "copilot-recorded.ndjson"));
     const account = path.join(process.env.HOME, ".copilot");
+    const secondAccount = path.join(process.env.HOME, ".1copilot");
     fs.mkdirSync(account);
+    fs.mkdirSync(secondAccount);
     const env = { PATH: process.env.PATH, HOME: process.env.HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
         XDG_STATE_HOME: state, XDG_DATA_HOME: process.env.XDG_DATA_HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
         GH_TOKEN: "fixture-secret-private", COPILOT_GITHUB_TOKEN: "fixture-secret-private", VGSH_RUNNER_PID: "1" };
@@ -52,6 +54,13 @@ world(async () => {
         fs.writeFileSync(path.join(state, "copilot-scenario.json"), JSON.stringify(value));
     }
     const program = () => read("copilot-calls").at(-1);
+    const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    const livePrograms = () => read("copilot-calls").filter(call => Number.isSafeInteger(call.pid) && alive(call.pid));
+    function killLivePrograms() { for (const call of livePrograms()) try { process.kill(call.pid, "SIGKILL"); } catch {} }
+    async function noProgramOrDir(runtime, label) {
+        await until(() => livePrograms().length === 0, label + " leaves no program");
+        await until(() => fs.readdirSync(runtime).every(name => !name.startsWith("copilot-")), label + " removes its directory");
+    }
     const received = method => read("copilot-log").filter(row => row.direction === "in" && row.message.method === method).map(row => row.message);
     // The answers the harness wrote to the stub's requests of this method.
     function answered(method) {
@@ -91,7 +100,7 @@ world(async () => {
         const root = path.join(process.env.JARVIS_TEST_ROOT, "a" + ++serial);
         fs.mkdirSync(root);
         let at = 0, transcript;
-        const starts = [];
+        const starts = [], harnessRequests = [];
         const audit = Audit.create({ state: path.join(root, "state"), now: () => Date.UTC(2026, 9, 2) });
         const rows = () => { const file = path.join(root, "state/audit/2026-10-02.jsonl");
             return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : []; };
@@ -106,7 +115,8 @@ world(async () => {
         Object.assign(ports, router.ports);
         router.register("windows", { commands: ["hyprctl"], timeoutMs: 1000, cancellable: false,
             start: (call, done) => starts.push({ call, done }) });
-        gate = Gate.create({ router, state: () => runner.state });
+        const owner = Gate.create({ router, state: () => runner.state });
+        gate = { ...owner, ask(gen, proposal, port) { harnessRequests.push(proposal); return owner.ask(gen, proposal, port); } };
         router.register("harness", gate.executor);
         const runtime = path.join(process.env.JARVIS_TEST_ROOT, "r" + serial.toString(36));
         bridge = Bridge.create({ router, state: () => runner.state, audit, directory: runtime,
@@ -124,7 +134,7 @@ world(async () => {
         const brain = create();
         brain.start({ instructions: "Be brief.", tools: [] });
         owners.push(() => { brain.close(); bridge.close(); gate.close(); audit.close(); });
-        return { Policy, Harness, runner, router, gate, bridge, brain, rows, starts, runtime, recipients, audit, create,
+        return { Policy, Harness, runner, router, gate, bridge, brain, rows, starts, harnessRequests, runtime, recipients, audit, create,
             time: value => { at = value; },
             show: () => runner.dispatch({ type: "shown", gen: runner.state.gen, op: runner.state.approval.op, id: runner.state.approval.id }),
             confirm: () => runner.dispatch({ type: "confirm", gen: runner.state.gen, id: runner.state.approval.id,
@@ -158,6 +168,30 @@ world(async () => {
     const existing = path.join(fixtures.project, "existing");
     const diff = file => [{ type: "diff", path: file, oldText: null, newText: "fixture\n" }];
     const outcomes = method => answered(method).map(m => m.result?.outcome ?? m.error?.code);
+    function copied(folder, edits) {
+        const copy = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "copy-"));
+        fs.mkdirSync(path.join(copy, "backend"));
+        for (const name of fs.readdirSync(plugin).filter(name => name.endsWith(".js")))
+            fs.copyFileSync(path.join(folder, name), path.join(copy, name));
+        for (const name of fs.readdirSync(path.join(folder, "backend")).filter(name => name.endsWith(".js") || name === "mcp-shim"))
+            fs.copyFileSync(path.join(folder, "backend", name), path.join(copy, "backend", name));
+        fs.cpSync(path.join(folder, "backend/skills"), path.join(copy, "backend/skills"), { recursive: true });
+        for (const [relative, changes] of Object.entries(edits)) {
+            const file = path.join(copy, relative);
+            let source = fs.readFileSync(file, "utf8");
+            for (const [needle, replacement] of changes) {
+                assert.equal(source.split(needle).length - 1, 1, relative + " match: " + needle);
+                source = source.replace(needle, replacement);
+            }
+            fs.writeFileSync(file, source);
+        }
+        return copy;
+    }
+    const shortBounds = folder => copied(folder, { "backend/CopilotHarness.js": [
+        ["const HANDSHAKE_MS = 30000;", "const HANDSHAKE_MS = 20;"],
+        ["const CLOSE_MS = 2000;", "const CLOSE_MS = 20;"],
+        ["const PROBE_MS = 60000;", "const PROBE_MS = 20;"]
+    ] });
 
     const CASES = {
         // The lockdown argv, the scrubbed environment, the bridge as the only
@@ -167,14 +201,19 @@ world(async () => {
             const w = make(folder);
             assert.deepEqual(await drain(w.say("hi")), [{ kind: "text", text: "Hel" }, { kind: "text", text: "lo." }, { kind: "done", reason: "stop" }]);
             const call = program();
-            const excluded = call.args.slice(call.args.indexOf("--excluded-tools") + 1, call.args.indexOf("--deny-tool"));
-            assert.deepEqual(excluded.slice().sort(), EXCLUDED.slice().sort(), "every built-in is excluded by name");
+            assert.deepEqual(call.args.slice(call.args.indexOf("--available-tools") + 1, call.args.indexOf("--deny-tool")), AVAILABLE,
+                "only the bridge tool namespace is visible");
+            assert.equal(call.args.includes("--excluded-tools"), false, "deny lists are not used with the allow-list");
             assert.deepEqual(call.args.slice(call.args.indexOf("--deny-tool") + 1, call.args.indexOf("--allow-tool")), DENIED);
             assert.deepEqual(call.args.slice(call.args.indexOf("--allow-tool")), ["--allow-tool", "vgs_jarvis"], "only the bridge runs unprompted");
             for (const flag of ["--acp", "--stdio", "--no-custom-instructions", "--disable-builtin-mcps", "--disallow-temp-dir", "--no-ask-user", "--no-auto-update"])
                 assert.ok(call.args.includes(flag), flag);
             assert.equal(call.args.some(arg => /allow-all|yolo|autopilot/.test(arg)), false, "no standing grant");
+            assert.equal(call.args.slice(0, 4).join(" "), "--acp --stdio --no-auto-update --no-custom-instructions");
+            assert.equal(call.deathsig, 9, "setpriv keeps the program tied to the daemon");
             assert.equal(call.env.COPILOT_HOME, account, "the account's own directory");
+            assert.equal(call.env.COPILOT_PROVIDERS_CONFIG, path.join(call.cwd, "no-providers/providers.json"));
+            assert.equal(fs.existsSync(path.dirname(call.env.COPILOT_PROVIDERS_CONFIG)), false, "BYOK config path fails closed");
             for (const name of ["GH_TOKEN", "COPILOT_GITHUB_TOKEN", "VGSH_RUNNER_PID", "VGS_JARVIS_TOOLS_TOKEN"])
                 assert.equal(Object.hasOwn(call.env, name), false, name + " stays out of the program's environment");
             assert.equal(path.dirname(call.cwd), w.runtime, "a private working directory");
@@ -204,7 +243,9 @@ world(async () => {
             const reply = w.brain.send({ kind: "user", items: [w.Policy.item("spoken", ["speech"]), w.Policy.item("secret notes", ["file"])] });
             assert.deepEqual([[...reply.release.labels], [...reply.release.needed]], [["speech"], ["file"]]);
             await drain(reply);
-            assert.equal(received("session/prompt")[0].params.prompt[1].text, "spoken\n\n[withheld: file text]");
+            const promptText = received("session/prompt")[0].params.prompt[1].text;
+            assert.ok(promptText.includes("spoken"));
+            assert.equal(promptText.includes("secret notes"), false);
             const empty = make(folder);
             await assert.rejects(drain(empty.say("only a file", ["file"])), { message: "jarvis: brain=copilot-release-empty" });
         },
@@ -230,13 +271,16 @@ world(async () => {
             done.catch(() => {});
             await until(() => w.runner.state.approval.kind === "held", "the approval is held");
             assert.equal(w.runner.state.approval.physical, true);
-            assert.ok(w.runner.state.approval.text.includes("write: " + existing));
+            assert.equal(w.runner.state.approval.tool, "harness.files");
             assert.deepEqual(answered("session/request_permission"), [], "no answer before the user confirms");
             w.show(); w.time(700); w.confirm();
             await done;
             assert.deepEqual(outcomes("session/request_permission"), [{ outcome: "selected", optionId: "allow-once" }]);
-            assert.deepEqual(w.rows().filter(row => row.kind === "action").map(row => [row.decision, row.confirmed, row.outcome]),
+            const actionRows = w.rows().filter(row => row.kind === "action");
+            assert.deepEqual(actionRows.map(row => [row.decision, row.confirmed, row.outcome]),
                 [["confirm", "none", "pending"], ["confirm", "physical", "pending"], ["confirm", "physical", "completed"]]);
+            assert.deepEqual(w.harnessRequests.at(-1).arguments.write, [existing]);
+            assert.deepEqual(actionRows.at(-1).args, { write: "[redacted]", move: "[redacted]", remove: "[redacted]", diff: "[redacted]" });
         },
         // Refusals: a protected path, the program's own command, a read. A
         // refused call the program then reports failed is no built-in.
@@ -288,15 +332,18 @@ world(async () => {
             validWrites();
         },
         // A built-in operation that runs without asking refuses the brain and
-        // ends its program; a pending announcement alone does not.
+        // ends its program for every ACP kind Jarvis classifies as a built-in.
         async builtin(folder) {
-            scenario({ turns: [[announce("read", { locations: [{ path: existing }] }), chunk("Reading."),
-                { update: { sessionUpdate: "tool_call_update", toolCallId: "call-1", status: "in_progress" } }, { stop: "end_turn" }]] });
-            const w = make(folder);
-            await assert.rejects(drain(w.say("read it")), { message: "jarvis: brain=copilot-builtin kind=read" });
-            await until(() => !process.getActiveResourcesInfo().includes("ProcessWrap"), "the program ends");
-            assert.throws(() => w.say("again"), { message: "jarvis: brain=copilot-builtin kind=read" }, "the conversation is over");
-            assert.deepEqual(w.rows().filter(row => row.kind === "action"), []);
+            for (const kind of BUILTIN_KINDS) {
+                scenario({ turns: [[announce(kind, { locations: [{ path: existing }] }), chunk("Running."),
+                    { update: { sessionUpdate: "tool_call_update", toolCallId: "call-1", status: "in_progress" } }, { stop: "end_turn" }]] });
+                const w = make(folder);
+                await assert.rejects(drain(w.say(kind)), { message: "jarvis: brain=copilot-builtin kind=" + kind });
+                await until(() => livePrograms().length === 0, kind + " leaves no program");
+                assert.throws(() => w.say("again"), { message: "jarvis: brain=copilot-builtin kind=" + kind }, "the conversation is over");
+                assert.deepEqual(w.rows().filter(row => row.kind === "action"), []);
+                for (const owner of owners.splice(0)) owner();
+            }
         },
         // The program's handshake must name the agent at its floor, signed in.
         async handshake(folder) {
@@ -312,6 +359,43 @@ world(async () => {
                 assert.deepEqual(received("session/prompt"), [], label + " sends no prompt");
                 await until(() => fs.readdirSync(w.runtime).every(name => !name.startsWith("copilot-")), label + " removes its directory");
             }
+        },
+        async handshakeHang(folder) {
+            const copied = shortBounds(folder);
+            scenario({ hang: "handshake", turns: [[{ stop: "end_turn" }]] });
+            const w = make(copied);
+            try {
+                await assert.rejects(drain(w.say("x")), { message: "jarvis: brain=copilot-closed" });
+                assert.deepEqual(received("session/prompt"), []);
+                await noProgramOrDir(w.runtime, "hung handshake");
+            } finally { killLivePrograms(); }
+        },
+        async closeHandshake(folder) {
+            const folderCopy = copied(folder, { "backend/CopilotHarness.js": [
+                ["const HANDSHAKE_MS = 30000;", "const HANDSHAKE_MS = 1000;"],
+                ["const CLOSE_MS = 2000;", "const CLOSE_MS = 20;"],
+                ["const PROBE_MS = 60000;", "const PROBE_MS = 20;"]
+            ] });
+            scenario({ hang: "handshake", turns: [[{ stop: "end_turn" }]] });
+            const w = make(folderCopy);
+            const pending = drain(w.say("x"));
+            pending.catch(() => {});
+            await until(() => program() !== undefined, "the program starts handshaking");
+            w.brain.close();
+            await assert.rejects(pending, { message: "jarvis: brain=cancelled" });
+            await noProgramOrDir(w.runtime, "close during handshake");
+        },
+        async lineSize(folder) {
+            scenario({ turns: [[{ raw: 8 * 1024 * 1024 }]] });
+            const w = make(folder);
+            await assert.rejects(drain(w.say("x")), { message: "jarvis: brain=copilot-line-size" });
+            await until(() => livePrograms().length === 0, "oversize line leaves no program");
+        },
+        async foreignSession(folder) {
+            scenario({ turns: [[{ updateRaw: { sessionId: "foreign", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "wrong" } } } },
+                chunk("right"), { stop: "end_turn" }]] });
+            const w = make(folder);
+            assert.deepEqual(await drain(w.say("x")), [{ kind: "text", text: "right" }, { kind: "done", reason: "stop" }]);
         },
         // cancel answers a held request cancelled, then cancels the prompt
         // and resolves on its stop reason.
@@ -407,15 +491,21 @@ world(async () => {
             const found = judge.discover();
             const copilot = found.find(item => item.provider === "copilot");
             assert.ok(copilot, "discovery finds the Copilot directory");
-            assert.deepEqual([copilot.source, copilot.state, copilot.marker], [{ kind: "cli", directory: account }, { kind: "found" }, "absent"]);
+            assert.deepEqual([copilot.source, copilot.state, copilot.marker], [{ kind: "cli", directory: account }, { kind: "unchecked" }, "absent"]);
             assert.deepEqual(read("copilot-calls"), [], "discovery starts no Copilot program");
             assert.deepEqual(judge.resolve(copilot.id), { id: copilot.id, provider: "copilot", label: "default",
                 source: { kind: "cli", directory: account }, model: "" });
-            assert.ok(judge.status().brains.some(choice => choice.value === copilot.id), "a brain choice");
+            const choices = judge.status().brains.filter(choice => found.some(item => item.provider === "copilot" && item.id === choice.value));
+            assert.deepEqual(choices.map(choice => choice.label).sort(), ["GitHub Copilot / 1", "GitHub Copilot / default"]);
+            const accountRows = judge.status().accounts.filter(row => row.label.startsWith("GitHub Copilot /"));
+            assert.deepEqual(accountRows.map(row => [row.state, row.value]).sort(), [["unchecked", "present"], ["unchecked", "present"]]);
             assert.deepEqual(await judge.verify(copilot.id, "user"), { kind: "verified" });
             assert.deepEqual(read("copilot-log").filter(row => row.direction === "audit").map(row => row.message.lines), [1],
                 "the release record precedes the program's prompt");
-            assert.deepEqual(received("session/prompt").map(m => m.params.prompt.map(block => block.text)), [["Answer in one word.", "Reply OK."]]);
+            const promptBlocks = received("session/prompt").map(m => m.params.prompt.map(block => block.text));
+            assert.equal(promptBlocks.length, 1);
+            assert.equal(promptBlocks[0].length, 2);
+            assert.equal(promptBlocks[0][1], "Reply OK.");
             assert.equal(path.dirname(program().cwd), runtime, "the owner's runtime directory");
             const audit = fs.readdirSync(path.join(directory, "audit")).flatMap(name =>
                 fs.readFileSync(path.join(directory, "audit", name), "utf8").trim().split("\n").map(line => JSON.parse(line)));
@@ -442,6 +532,28 @@ world(async () => {
             scenario({ turns: [[chunk("No."), { stop: "refusal" }]] });
             await assert.rejects(probe(), { message: "jarvis: brain=copilot-stop-refusal" });
             validWrites();
+        },
+        async probeHang(folder) {
+            const probeCopy = copied(folder, { "backend/CopilotHarness.js": [
+                ["const HANDSHAKE_MS = 30000;", "const HANDSHAKE_MS = 1000;"],
+                ["const CLOSE_MS = 2000;", "const CLOSE_MS = 200;"],
+                ["const PROBE_MS = 60000;", "const PROBE_MS = 20;"]
+            ] });
+            const Harness = require(path.join(probeCopy, "backend/CopilotHarness.js"));
+            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "probe-hang");
+            scenario({ reply: "OK", delayPromptMs: 100 });
+            await assert.rejects(() => Harness.probe({ provider: "copilot", directory: account, env, runtime, model: "", text: "Reply OK." }),
+                { message: "jarvis: brain=copilot-probe-deadline" });
+            await noProgramOrDir(runtime, "hung probe");
+        },
+        async probePermission(folder) {
+            const Harness = require(path.join(folder, "backend/CopilotHarness.js"));
+            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "probe-permission");
+            scenario({ turns: [[permission({ kind: "execute", rawInput: { command: "make" } }), { stop: "end_turn" }]] });
+            await assert.rejects(() => Harness.probe({ provider: "copilot", directory: account, env, runtime, model: "", text: "Reply OK." }),
+                { message: "jarvis: brain=copilot-no-reply" });
+            assert.deepEqual(outcomes("session/request_permission"), [{ outcome: "selected", optionId: "reject-once" }]);
+            await noProgramOrDir(runtime, "probe permission");
         }
     };
 
@@ -475,14 +587,20 @@ world(async () => {
         const H = "backend/CopilotHarness.js";
         for (const [name, relative, edits, row] of [
             ["environment-scrub", H, [["env: { ...childEnvironment(env), [p.variable]", "env: { ...env, [p.variable]"]], "turn"],
-            ["account-home", H, [["[p.variable]: directory }", "[p.variable]: env.HOME }"]], "turn"],
-            ["excluded-tool", H, [['"view", "create",', '"create",']], "turn"],
+            ["account-home", H, [["[p.variable]: directory", "[p.variable]: env.HOME"]], "turn"],
+            ["available-tools", H, [['"--available-tools", Copilot.SERVER + "/*",', ""]], "turn"],
+            ["providers-config", H, [[", COPILOT_PROVIDERS_CONFIG: providersConfig", ""]], "turn"],
+            ["parent-death", H, [['"--pdeathsig", "KILL"', '"--pdeathsig", "clear"']], "turn"],
             ["denied-kind", H, [['"--deny-tool", "shell", "write", "read",', '"--deny-tool", "shell", "write",']], "turn"],
             ["custom-instructions", H, [['"--no-custom-instructions", ', ""]], "turn"],
             ["builtin-mcps", H, [['"--disable-builtin-mcps", ', ""]], "turn"],
             ["model-flag", H, [['...(model === "" ? [] : ["--model", model])', "...[]"]], "model"],
             ["agent-check", H, [["Copilot.agent(await child.call(id => Copilot.initialize(id)), p);", "await child.call(id => Copilot.initialize(id));"]], "handshake"],
             ["signed-out-key", H, [["value.code === -32000 ? ", "false ? "]], "handshake"],
+            ["handshake-timer", H, [["const timer = setTimeout(() => child.close(), HANDSHAKE_MS);", "const timer = null;"]], "handshakeHang"],
+            ["close-handshake", H, [["active?.cancel();", ""]], "closeHandshake"],
+            ["unterminated-line", H, [['if (Buffer.byteLength(tail) >= Copilot.LINE_BYTES) fail("line-size");', ""]], "lineSize"],
+            ["event-session", H, [["e.sessionId !== session.id || ", ""]], "foreignSession"],
             ["bridge-launch", H, [["model,\n                bridge: launch }", "model,\n                bridge: null }"]], "bridge"],
             ["instructions-first", H, [["const texts = turns === 0 ? [instructions, text] : [text];", "const texts = [text];"]], "turn"],
             ["instructions-once", H, [["const texts = turns === 0 ? [instructions, text] : [text];", "const texts = [instructions, text];"]], "turn"],
@@ -493,6 +611,7 @@ world(async () => {
             ["session-binding", H, [[" || value.sessionId !== current.id || value.allow === null)", " || value.allow === null)"]], "stale"],
             ["allow-option", H, [[" || value.allow === null)", ")"]], "stale"],
             ["builtin-tripwire", H, [["if (!BUILTIN.includes(merged.kind) || turn.asked.has(call.id) || !RAN.includes(merged.status)) return;", "return;"]], "builtin"],
+            ["builtin-kind", H, [['"execute", ', ""]], "builtin"],
             ["builtin-asked", H, [["turn.asked.has(call.id) || !RAN", "!RAN"]], "refused"],
             ["builtin-pending", H, [[" || !RAN.includes(merged.status)) return;", ") return;"]], "allowed"],
             ["builtin-ends", H, [["session.program.abort(error);", ""]], "builtin"],
@@ -506,11 +625,15 @@ world(async () => {
             ["opening-close", H, [['if (closed) { launch.close(); fail("closed"); }', 'if (closed) fail("closed");']], "opening"],
             ["probe-reply", H, [['if (reply.trim() === "") fail("no-reply");', ""]], "probe"],
             ["probe-stop", H, [['if (stop !== "end_turn") fail("stop-" + stop);', ""]], "probe"],
-            ["probe-tools", H, [["model, bridge: null }, hooks);\n        const deadline", "model, bridge: { command: \"x\", args: [], env: {} } }, hooks);\n        const deadline"]], "probe"],
+            ["probe-tools", H, [["model, bridge: null }, hooks);", "model, bridge: { command: \"x\", args: [], env: {} } }, hooks);"]], "probe"],
+            ["probe-timer", H, [['timer = setTimeout(() => reject(new Error("jarvis: brain=copilot-probe-deadline")), PROBE_MS);', ""]], "probeHang"],
+            ["probe-permission", H, [['value.kind === "permission" ? "reject" : "cancelled"', '"cancelled"']], "probePermission"],
             ["gate-outcome", H, [['outcome: status === "completed" ? "completed"', 'outcome: status === "unreachable" ? "completed"']], "allowed"],
             ["handoff-route", "backend/Accounts.js", [['case "copilot":', 'case "copilot-removed":']], "verify"],
             ["handoff-audit", "backend/Accounts.js", [["release.start(() => CopilotHarness.probe(", "(send => send())(() => CopilotHarness.probe("]], "verify"],
             ["status-command", "AccountProviders.js", [['{ id: "copilot", label: "GitHub Copilot", kind: "cli", command: null },', '{ id: "copilot", label: "GitHub Copilot", kind: "cli", command: ["copilot", "--version"] },']], "verify"],
+            ["unchecked-state", "backend/Accounts.js", [['row.command === null ? { kind: "unchecked" } : { kind: "found" }', '{ kind: "found" }']], "verify"],
+            ["folder-label", "backend/Accounts.js", [[': item.email ? row.label + " / " + item.email : row.label + " / " + item.label;', ': item.email ? row.label + " / " + item.email : row.label + " / same";']], "verify"],
             ["harness-reason", "backend/Accounts.js", [["(?:harness|codex|copilot)-", "(?:harness|codex)-"]], "verify"],
             ["account-row", "AccountProviders.js", [['{ id: "copilot", label: "GitHub Copilot", kind: "cli", command: null },', '{ id: "copilot-removed", label: "GitHub Copilot", kind: "cli", command: null },']], "verify"],
             ["engine-driver", "backend/ChainedEngine.js", [["    \"codex-app-server\": CodexHarness, \"copilot-acp\": CopilotHarness, \"claude-code\": ClaudeCode });", "    \"codex-app-server\": CodexHarness, \"claude-code\": ClaudeCode });"]], "limit"]

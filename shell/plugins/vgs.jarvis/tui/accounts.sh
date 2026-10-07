@@ -33,7 +33,7 @@ vgs_tui_header "Jarvis accounts" "The accounts Jarvis can use as its AI model." 
   "Signed in does not prove that the AI answers. Verify checks that."
 # Each action with one line that says what it does.
 actions="Show accounts      See each account Jarvis found and its status."$'\t'show
-actions+=$'\n'"Add directory      Add a Claude Code or Codex folder Jarvis did not find."$'\t'add
+actions+=$'\n'"Add directory      Add a Claude Code, Codex or Copilot folder Jarvis did not find."$'\t'add
 actions+=$'\n'"Use keyring item   Use an API key you saved in your keyring before."$'\t'item
 actions+=$'\n'"Verify             Send one small paid request to check an account."$'\t'verify
 actions+=$'\n'"Close              Close this window."$'\t'close

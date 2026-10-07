@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 // The ACP harness's protocol judge. Every message it builds is checked
 // against the excerpt of the ACP v1 schema (fixtures/jarvis-copilot/acp.schema.json);
-// the handshake it narrows comes from the sanitized Copilot 1.0.91 recording
-// in fixtures/jarvis-copilot/recorded.ndjson, made 2026-10-02 in a loopback-only
-// namespace with no account; the other agent lines are synthetic rows, each
-// checked against the excerpt first. Mutants run in J09.
+// the handshake it narrows comes from the sanitized GitHub Copilot CLI 1.0.91
+// recording in fixtures/jarvis-copilot/recorded.ndjson. The binary SHA-256 was
+// 5ba1d69542af6fd91702d4dbf4845f41c0a29efa3e9bc56fcc308347ff70ff3e. The
+// recording command was `env -i PATH=/usr/bin:/bin HOME=<scratch>
+// COPILOT_HOME=<scratch> unshare -rn copilot --acp --stdio`, followed by
+// initialize and session/new on stdin. The other agent lines are synthetic
+// rows, each checked against the excerpt first. Mutants run in J09.
 "use strict";
 const { assert, fs, path, tree, world, mutant } = require("./fixtures/jarvis/policy.js");
 const Check = require("./fixtures/schema-check.js");

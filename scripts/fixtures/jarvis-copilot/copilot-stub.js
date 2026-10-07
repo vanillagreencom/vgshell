@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 // Stand-in `copilot` built from the ACP v1 schema excerpt (acp.schema.json)
-// and the sanitized Copilot 1.0.91 recording beside it, whose initialize
-// result it answers with. It speaks the ACP subset Jarvis uses on stdio and
+// and the sanitized Copilot 1.0.91 recording beside it. The recording used
+// GitHub Copilot CLI 1.0.91, binary SHA-256
+// 5ba1d69542af6fd91702d4dbf4845f41c0a29efa3e9bc56fcc308347ff70ff3e,
+// run offline with `env -i PATH=/usr/bin:/bin HOME=<scratch> COPILOT_HOME=<scratch>
+// unshare -rn copilot --acp --stdio` and initialize plus session/new on stdin. It speaks the ACP subset Jarvis uses on stdio and
 // replays a scenario the test writes to $XDG_STATE_HOME/copilot-scenario.json:
 //   { agent: {agentInfo overrides}, signedOut: bool, crash: "handshake",
 //     refuse: method (answered with a JSON-RPC error), reply: "text" (Verify),
@@ -19,11 +22,22 @@ const path = require("node:path");
 const cp = require("node:child_process");
 const state = process.env.XDG_STATE_HOME;
 const args = process.argv.slice(2);
-fs.appendFileSync(path.join(state, "copilot-calls"), JSON.stringify({ args, env: process.env, cwd: process.cwd() }) + "\n");
+const DEATHSIG = "FIXTURE_COPILOT_DEATHSIG";
+if (process.env[DEATHSIG] === undefined)
+    process.execve("/usr/bin/env", ["env", "python3", "-I", "-c", [
+        "import ctypes, os, sys",
+        "value = ctypes.c_int(-1)",
+        "if ctypes.CDLL(None, use_errno=True).prctl(2, ctypes.byref(value), 0, 0, 0) != 0: sys.exit(9)",
+        "os.environ['" + DEATHSIG + "'] = str(value.value)",
+        "os.execv(sys.argv[1], sys.argv[1:])"].join("\n"), process.execPath, __filename, ...args]);
+const deathsig = Number(process.env[DEATHSIG]);
+delete process.env[DEATHSIG];
+fs.appendFileSync(path.join(state, "copilot-calls"), JSON.stringify({ args, env: process.env, cwd: process.cwd(), pid: process.pid, parent: process.ppid, deathsig }) + "\n");
 if (args[0] !== "--acp") process.exit(9);
 const scenario = JSON.parse(fs.readFileSync(path.join(state, "copilot-scenario.json"), "utf8"));
 const recorded = fs.readFileSync(path.join(state, "copilot-recorded.ndjson"), "utf8").trim().split("\n").map(line => JSON.parse(line));
 const log = (direction, message) => fs.appendFileSync(path.join(state, "copilot-log"), JSON.stringify({ direction, message }) + "\n");
+const keepalive = () => setInterval(() => {}, 1000);
 const SESSION = "6f1c0a52-3c1e-4d7a-9a0e-5b8f2f1d7c11";
 let cwd = null, servers = [], prompts = 0, agentId = 0;
 const answers = new Map();
@@ -82,6 +96,8 @@ async function mcp(call) {
 async function turn(id, steps) {
     for (const step of steps) {
         if (step.update) write({ jsonrpc: "2.0", method: "session/update", params: { sessionId: SESSION, update: substitute(step.update) } });
+        else if (step.updateRaw) write({ jsonrpc: "2.0", method: "session/update", params: substitute(step.updateRaw) });
+        else if (step.raw) process.stdout.write("x".repeat(step.raw));
         else if (step.request) await ask(step.request, substitute(step.params));
         else if (step.mcp) await mcp(step.mcp);
         else if (step.cancel) { if (!cancelSeen) await new Promise(resolve => { cancelled = resolve; }); }
@@ -102,7 +118,7 @@ process.stdin.on("data", chunk => {
         handle(message);
     }
 });
-process.stdin.on("end", () => process.exit(0));
+process.stdin.on("end", () => { if (!scenario.hang) process.exit(0); });
 
 function handle(message) {
     if (message.method === undefined) { answers.get(message.id)?.(message); answers.delete(message.id); return; }
@@ -114,6 +130,7 @@ function handle(message) {
     switch (message.method) {
     case "initialize": {
         if (scenario.crash === "handshake") process.exit(3);
+        if (scenario.hang === "handshake") { keepalive(); return; }
         const result = structuredClone(recorded.find(entry => entry.line.id === 1 && entry.direction === "out").line.result);
         Object.assign(result.agentInfo, scenario.agent ?? {});
         respond(result);
@@ -129,11 +146,13 @@ function handle(message) {
         respond({ sessionId: SESSION });
         return;
     case "session/prompt": {
+        if (scenario.hang === "prompt") { keepalive(); return; }
         const steps = scenario.reply !== undefined
             ? [{ update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: scenario.reply } } }, { stop: "end_turn" }]
             : scenario.turns[prompts];
         prompts++;
-        void turn(message.id, steps);
+        if (scenario.delayPromptMs) setTimeout(() => { void turn(message.id, steps); }, scenario.delayPromptMs);
+        else void turn(message.id, steps);
         return;
     }
     case "session/cancel": cancelSeen = true; cancelled?.(); return;

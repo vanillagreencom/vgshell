@@ -59,8 +59,6 @@ function accepted(resolved) {
 function identityOf(label, email) {
     return { kind: email && label.includes("@") && email !== label ? "mismatch" : "match" };
 }
-// The AI model list's word for an account whose harness record names no email.
-const NO_EMAIL = " (no email found)";
 function identity(kind, values) {
     const canonical = JSON.stringify(values, (_key, value) => value && typeof value === "object" && !Array.isArray(value)
         ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)) : value);
@@ -323,7 +321,7 @@ class Accounts {
     cliAccount(candidate) {
         const row = provider(candidate.provider);
         const opened = directory(candidate.directory, true);
-        let state = { kind: "found" };
+        let state = row.command === null ? { kind: "unchecked" } : { kind: "found" };
         if (row.command !== null) {
             const result = this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory });
             try { state = login(row, result); }
@@ -343,7 +341,7 @@ class Accounts {
                 state = { kind: "unavailable", reason: error.message.startsWith("jarvis-accounts:") ? "marker-link" : "marker-unreadable" };
             }
         } finally { if (opened.kind === "directory") fs.closeSync(opened.fd); }
-        if (state.kind === "found" && directory(candidate.directory).kind === "absent" && marker === "absent")
+        if (["found", "unchecked"].includes(state.kind) && directory(candidate.directory).kind === "absent" && marker === "absent")
             return null;
         const email = state.email || "";
         const plan = state.plan || "";
@@ -712,15 +710,15 @@ class Accounts {
      * and the search's found count and partial reason. No reason code leaves.
      * The brain choices are the accounts accepted() takes, grouped by
      * provider and sorted by email: a harness with one account reads as its
-     * name, one with more names each by the sign-in email its login status
-     * reports, or says that it reports none; a key reads as provider / label.
+     * name; with more accounts it reads each by the sign-in email, or by the
+     * folder label when it has no email; a key reads as provider / label.
      */
     status() {
         const accounts = this.accounts.map(item => {
             const row = provider(item.provider);
             let value;
             switch (item.state.kind) {
-            case "found": case "signed-in": case "verifying": case "verified": value = "present"; break;
+            case "found": case "unchecked": case "signed-in": case "verifying": case "verified": value = "present"; break;
             case "locked": value = "locked"; break;
             case "unavailable": value = "unavailable"; break;
             default: fail("state=unknown");
@@ -730,7 +728,7 @@ class Accounts {
                 mismatch: item.identity.kind === "mismatch" };
         });
         const resolve = this.resolver();
-        const offered = this.accounts.filter(item => ["found", "signed-in", "verified"].includes(item.state.kind)
+        const offered = this.accounts.filter(item => ["found", "unchecked", "signed-in", "verified"].includes(item.state.kind)
             && accepted(resolve(item.id)).kind === "accepted");
         const order = (left, right) => left < right ? -1 : left > right ? 1 : 0;
         // Every label starts with its provider's name, so label order groups
@@ -740,7 +738,7 @@ class Accounts {
             let label = row.label + " / " + item.label;
             if (item.source.kind === "cli")
                 label = offered.filter(other => other.provider === item.provider).length === 1 ? row.label
-                    : item.email ? row.label + " / " + item.email : row.label + NO_EMAIL;
+                    : item.email ? row.label + " / " + item.email : row.label + " / " + item.label;
             return { value: item.id, label: label.slice(0, 60) };
         }).sort((left, right) => order(left.label, right.label) || order(left.value, right.value));
         return { accounts, brains, search: { found: accounts.length, partial: this.partial } };

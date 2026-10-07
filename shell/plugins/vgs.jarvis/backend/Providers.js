@@ -62,7 +62,7 @@ const ROWS = Object.freeze({
     // sockets. base is the release recipient's origin; Jarvis opens no
     // socket to it.
     copilot: { driver: "copilot-acp", base: "https://api.githubcopilot.com", key: "none", images: false,
-        noStore: null, retention: { text: "Set by the GitHub account Copilot signs in with; Jarvis cannot read its data controls.", source: null } },
+        noStore: null, retention: { text: "Set by the GitHub account Copilot signs in with; Copilot keeps each Jarvis conversation in its own session history in the account folder.", source: null } },
     // The Claude Code harness: the vendor's program owns its login and
     // sockets. base is the release recipient's origin, the API origin Claude
     // Code's account Verify names; Jarvis opens no socket to it. No vendor

@@ -1,9 +1,12 @@
 // The Copilot harness brain starts one `copilot --acp --stdio` program per
 // conversation with COPILOT_HOME set to the selected account directory. Jarvis
-// hands it released text only. Copilot sees the bridge server for this
-// conversation, while built-ins are excluded by argv, denied by kind and
-// watched by the runtime tripwire. Permission requests pass HarnessGate before
-// Copilot proceeds. CopilotAcp is the protocol judge.
+// hands it released text only. Copilot sees only the bridge tools, denied tool
+// kinds and the runtime tripwire. Permission requests pass HarnessGate before
+// Copilot proceeds. CopilotAcp is the protocol judge. Residuals: Copilot can
+// still load account MCP server, plugin and extension configuration, with those
+// tools hidden by the allow-list; Copilot also keeps each ACP session in its
+// own history under the account directory because ACP v1 has no close or
+// delete method and Copilot documents no no-session switch.
 "use strict";
 const cp = require("node:child_process");
 const fs = require("node:fs");
@@ -13,19 +16,17 @@ const Policy = require("./Policy.js");
 const Private = require("./Private.js");
 const { childEnvironment } = require("./Secrets.js");
 
-// Copilot 1.0.91 documents ACP over stdio and these launch flags. Jarvis
-// excludes each documented built-in tool family, denies broad permission
-// kinds beside that, disables Copilot MCP servers and custom instructions, and
-// still watches reported tool calls because --available-tools does not document
-// MCP tool-name semantics. The bridge's tools run unprompted; the router is
-// their gate.
+// Copilot 1.0.91 documents ACP over stdio. Its shipped changelog.json says
+// `server/tool` and `server/*` filters match MCP tool names with slashes;
+// copilot-sdk/types.d.ts and toolSet.d.ts say availableTools is
+// source-qualified and makes only matching tools available; tmp/allowing-tools.md
+// says --available-tools disables every other tool and wins over
+// --excluded-tools. The bridge uses vgs_jarvis/*, so a wrong filter form hides
+// the bridge and fails closed before a turn can act.
 const COPILOT = Object.freeze({ command: "copilot", variable: "COPILOT_HOME", agent: "Copilot", floor: "1.0.60",
     args: Object.freeze(["--acp", "--stdio", "--no-auto-update", "--no-custom-instructions", "--no-ask-user",
         "--disable-builtin-mcps", "--disallow-temp-dir",
-        "--excluded-tools", "bash", "powershell", "list_bash", "list_powershell", "read_bash", "read_powershell",
-        "stop_bash", "stop_powershell", "write_bash", "write_powershell", "view", "create", "edit",
-        "apply_patch", "task", "list_agents", "read_agent", "write_agent", "ask_user", "glob", "grep", "rg",
-        "skill", "web_fetch", "web_search",
+        "--available-tools", Copilot.SERVER + "/*",
         "--deny-tool", "shell", "write", "read", "url", "memory",
         "--allow-tool", Copilot.SERVER])
 });
@@ -55,8 +56,10 @@ function fail(code) { throw new Error("jarvis: brain=copilot-" + code); }
  */
 function program({ program: p, directory, env, cwd, model }, listener) {
     const args = ["--pdeathsig", "KILL", "--", p.command, ...p.args, ...(model === "" ? [] : ["--model", model])];
+    const providersConfig = path.join(cwd, "no-providers", "providers.json");
     const child = cp.spawn("setpriv", args, {
-        cwd, env: { ...childEnvironment(env), [p.variable]: directory }, stdio: ["pipe", "pipe", "pipe"] });
+        cwd, env: { ...childEnvironment(env), [p.variable]: directory, COPILOT_PROVIDERS_CONFIG: providersConfig },
+        stdio: ["pipe", "pipe", "pipe"] });
     const calls = new Map();
     let next = 1;
     let tail = "";

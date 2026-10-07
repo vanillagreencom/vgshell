@@ -467,8 +467,8 @@ world(async () => {
             assert.ok(row.label.startsWith(first), name + ": " + row.label + " names its provider first");
             if (email === "alone") assert.equal(row.label, first, name + ": a provider's one account");
             else if (email === null)
-                assert.ok(row.label !== first && !row.label.includes("@") && !row.label.includes(row.name),
-                    name + ": " + row.label + " says no email and names no folder");
+                assert.equal(row.label, first + " / " + row.name,
+                    name + ": " + row.label + " falls back to the folder label");
             else assert.ok(row.label.includes(email), name + ": " + row.label + " names " + email);
         }
         const groups = got.map(row => providerLabel(row.provider));
@@ -497,7 +497,7 @@ world(async () => {
     for (const [name, needle, replacement] of [
         ["label-email", 'item.email ? row.label + " / " + item.email', 'item.email ? row.label + " / " + item.label'],
         ["label-single", ".length === 1 ? row.label", ".length === 0 ? row.label"],
-        ["label-no-email", ": row.label + NO_EMAIL;", ': row.label + " / " + item.label;'],
+        ["label-no-email", ": row.label + \" / \" + item.label;", ": row.label;"],
         ["label-order", ".sort((left, right) => order(left.label, right.label) || order(left.value, right.value));", ";"]]) {
         await mutant("backend/Accounts.js", name, needle, replacement, folder => labels(judgeIn(folder)));
         controls++;
@@ -895,7 +895,7 @@ world(async () => {
         for (const value of ["present", "absent", "locked"]) assert.equal(Words.keyHint(keyRow(value)), "", value);
         plain(Words.keyHint({ label: "fixture / test", value: "unavailable", hint: "jarvis-keys: busctl=failed" }));
         const hints = [];
-        for (const state of ["signed-in", "found", "verifying", "verified", "locked", "unavailable"])
+        for (const state of ["signed-in", "found", "unchecked", "verifying", "verified", "locked", "unavailable"])
             for (const source of ["cli", "variable", "keyring", "local"])
                 for (const mismatch of [false, true]) {
                     const hint = Words.accountHint({ state, source, plan: "pro", email: "team@example.invalid", mismatch });
@@ -906,6 +906,7 @@ world(async () => {
         const hintOf = (state, source) => hints.find(row => row[0] === state && row[1] === source && !row[2])[3];
         assert.notEqual(hintOf("signed-in", "cli"), hintOf("found", "cli"), "signed in and found read apart");
         assert.notEqual(hintOf("found", "cli"), hintOf("unavailable", "cli"), "found and unavailable read apart");
+        assert.notEqual(hintOf("unchecked", "cli"), hintOf("found", "cli"), "unchecked and found read apart");
         for (const [state, source] of [["found", "cli"], ["locked", "keyring"]])
             assert.notEqual(Words.accountHint({ state, source, plan: "", email: "", mismatch: true }),
                 Words.accountHint({ state, source, plan: "", email: "", mismatch: false }), "a mismatch is named");
