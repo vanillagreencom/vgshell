@@ -278,9 +278,9 @@ long_inbox_ends() {
   done
   [[ $spot == end ]] || { echo "not-at-end $view"; return; }
   end="$(long_inbox_settled)"
+  read -r x y < <(nk_panel_outside_point) && hover "$x" "$y"
   "$@" >/dev/null || { echo close-toggle-failed; return; }
   for _ in $(seq 1 25); do [[ $(layer_count vgs:panel) == 0 ]] && break; sleep 0.2; done
-  read -r x y < <(nk_panel_outside_point) && hover "$x" "$y"
   echo "top=$top end=$end"
 }
 # PRESSES LABEL: five presses from a closed inbox, each read before the next.
