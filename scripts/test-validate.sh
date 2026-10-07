@@ -931,8 +931,13 @@ inputs = lines[0]
 for pattern in inputs.split():
     for original in glob.glob(str(repo / pattern)):
         original = pathlib.Path(original)
+        path = target / original.relative_to(repo)
+        if original.is_dir():
+            path.mkdir(parents=True, exist_ok=True)
+            # Git tracks files only. Preserve matched directories in this
+            # committed fixture even when their contents are not inputs.
+            (path / '.fixture').touch()
         if original.is_file():
-            path = target / original.relative_to(repo)
             if not path.exists():
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('# neutral input\n')

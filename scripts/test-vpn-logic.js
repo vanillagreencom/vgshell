@@ -225,6 +225,31 @@ function suite(logic, service = serviceSource) {
         assert.equal(logic.barView({ state }, profiles).icon, "shield-check", state);
     }
     assert.equal(logic.barView(shown, profiles).icon, "globe-lock");
+
+    // Execute the shipped profile completion body. start-order reads its
+    // log severity; process output can contain private profile data.
+    const completionBody = /id: profilesReader[\s\S]*?onRunningChanged: \{([\s\S]*?)\n        \}/.exec(service);
+    const codeBody = /function codeOf\(completion\) \{([\s\S]*?)\n    \}/.exec(service);
+    assert.ok(completionBody);
+    assert.ok(codeBody);
+    const complete = new Function("running", "completion", "root", "Logic", "profilesText", "profilesDeadline", "again", "console", completionBody[1]);
+    for (const [code, output, state, level, kind] of [
+        [1, "/private/fixture.conf", "unavailable", "log", "failed"],
+        [8, "/private/fixture.conf", "unavailable", "log", "failed"],
+        [10, "PRIVATE-FIXTURE-PROFILE-ERROR", "unavailable", "warn", "failed"],
+        [-1, "PRIVATE-FIXTURE-PROFILE-ERROR", "unavailable", "warn", "interrupted"],
+        [0, "malformed", "unavailable", "warn", "invalid-reply"],
+        [0, "", "available", null, null]
+    ]) {
+        const messages = [];
+        const owner = { codeOf: new Function("completion", codeBody[1]) };
+        let stopped = false;
+        complete(false, { code, status: 0 }, owner, logic, { text: output }, { stop() { stopped = true; } }, false,
+            { log(message) { messages.push(["log", message]); }, warn(message) { messages.push(["warn", message]); } });
+        assert.equal(owner.profileSnapshot.state, state);
+        assert.equal(stopped, true);
+        assert.deepEqual(messages, level === null ? [] : [[level, "vpn: operation=profile-read completion=" + kind + " code=" + code]]);
+    }
     assert.equal(logic.barView(Object.assign({}, shown, { exit: null }), profiles).icon, "shield-check");
     const trimmedProfiles = logic.statusWrites({ tone: "ok", text: "" }, ready, shown,
         Object.assign({}, hiddenActive, { rows: hiddenActive.rows.map(row => Object.assign({}, row, { id: "界".repeat(logic.TARGET_MAX), name: "界".repeat(logic.TEXT_MAX) })), action: "", problem: "" }))[3][1];
@@ -382,6 +407,7 @@ try {
     assert.throws(() => suite(load(file, commons), unboundedService));
     console.log("vpn-logic: control=service uses combined bound red");
     for (const [name, old, replacement] of [
+        ["optional profile absence is informational", "if (code === 1 || code === 8) console.log(diagnostic);", "if (code === 1 || code === 8) console.warn(diagnostic);"],
         ["missing import tools offer setup", "if (needed.length > 0)", "if (false)"],
         ["import availability", 'if (profiles.state !== "available")', 'if (false)'],
         ["import completion refreshes", '() => root.readProfiles()', '() => {}']

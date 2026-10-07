@@ -397,8 +397,14 @@ Item {
             profilesDeadline.stop();
             const code = root.codeOf(completion);
             root.profileSnapshot = Logic.profiles(code, profilesText.text);
-            if (root.profileSnapshot.state === "unavailable")
-                console.warn("vpn: operation=profile-read completion=" + (code === -1 ? "interrupted" : code === 0 ? "invalid-reply" : "failed") + " code=" + code);
+            if (root.profileSnapshot.state === "unavailable") {
+                const diagnostic = "vpn: operation=profile-read completion=" + (code === -1 ? "interrupted" : code === 0 ? "invalid-reply" : "failed") + " code=" + code;
+                // An optional availability read can fail normally. nmcli's
+                // 1 is unspecified; 8 means NetworkManager is not running.
+                // https://networkmanager.dev/docs/api/latest/nmcli.html#exit_status
+                if (code === 1 || code === 8) console.log(diagnostic);
+                else console.warn(diagnostic);
+            }
             if (again) { again = false; root.readProfiles(); }
         }
     }

@@ -116,8 +116,42 @@ vpn_profile_press() {
   click_scoped_in "window:System Settings" window vgs.vpn Field "$1" Switch ""
 }
 vpn_import_press() {
+  local view rect x y hovered=false
+  vpn_import_state before-reveal
   ipc smoke revealText window vgs.system Button "Import WireGuard" | py_reply 'import json,sys; value=json.load(sys.stdin); sys.exit(0 if type(value) in (int,float) else 1)' || return 1
-  click_in "window:System Settings" window vgs.vpn Button "Import WireGuard"
+  view="$(view_at_rest window vgs.system 'Import WireGuard')" || return 1
+  [[ $view == \{* ]] || { vpn_import_state scroll-unsettled; return 1; }
+  rect="$(ipc smoke windowGeometry window vgs.vpn Button 'Import WireGuard')" || return 1
+  [[ $rect == \[* ]] || { vpn_import_state button-absent; return 1; }
+  read -r x y < <(at_centre 'window:System Settings' "$rect") || return 1
+  # A reveal changes the scene before the pointer has reached the button.
+  # Wait for its real hover acknowledgement before the one acceptance click.
+  hover "$x" "$y" || return 1
+  smoke_poll_tries 200
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    hovered="$(ipc smoke readMatchingDescendant window vgs.vpn Button objectName vpn-import hovered)" || return 1
+    [[ $hovered == true ]] && break
+    sleep 0.2
+  done
+  [[ $hovered == true ]] || { vpn_import_state pointer-unreceived; return 1; }
+  vpn_import_state before-click
+  click "$x" "$y" || return 1
+  vpn_import_state after-click
+}
+# State and geometry alone explain a missed press without profile identities
+# or private import data. The pane lives inside System's scrolling view.
+vpn_import_state() {
+  local key
+  printf '        vpn-import phase=%s profiles=%s action=%s window=%s button=%s view=%s\n' "$1" \
+    "$(vpn_profiles state)" "$(vpn_profiles action)" "$(surface_box 'window:System Settings')" \
+    "$(ipc smoke windowGeometry window vgs.vpn Button 'Import WireGuard')" \
+    "$(ipc smoke viewHolding window vgs.system 'Import WireGuard')" >&2
+  for key in visible enabled hovered pressed activeFocus; do
+    printf '        vpn-import button.%s=%s\n' "$key" \
+      "$(ipc smoke readMatchingDescendant window vgs.vpn Button objectName vpn-import "$key")" >&2
+  done
+  printf '        vpn-import local-problem=%s\n' \
+    "$(vpn_body window localProblem | py_reply 'import json,sys; print("present" if json.load(sys.stdin) else "absent")')" >&2
 }
 vpn_profile_error() {
   local problem visible drawn
@@ -421,6 +455,7 @@ expect "the import fixture pane opens" ok ipc shell summon window vgs.system '{"
 forget_record
 vpn_import_press || fail "the Import button could not be pressed"
 expect_poll "Import hands the terminal the declared TUI" "$(words vgs.vpn/import-wireguard tui/import-wireguard.sh)" recorded_tail
+vpn_import_state after-launch-check
 expect_run_end "the import fixture ends" vgs.vpn/import-wireguard
 expect "System closes after Import" ok ipc shell hide window vgs.system
 device_reply nmcli 10 "" -t -f NAME,TYPE,STATE connection show
