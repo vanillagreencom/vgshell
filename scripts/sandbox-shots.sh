@@ -2811,6 +2811,25 @@ scene_network() { # MODE
   expect_poll "Network's pane reads the saved mock" '[["VGS Smoke Wi-Fi", "Wpa2Psk", true]]' network_shot_names
   park_pointer
   take "network-$1-pane"
+  expect "Other Network is revealed for its form shot" scrolled network_shot_other_reveal
+  click_in 'window:System Settings' window vgs.network Button 'Other Network…' || fail "Other Network did not open for its shot"
+  expect_poll "the hidden PSK form takes focus" true ipc smoke activeFocusWithin window vgs.network NetworkJoin
+  type_keys 'Hidden office Wi-Fi'
+  type_keys -k Tab
+  type_keys -k Tab
+  type_keys 'network-shot-synthetic-password'
+  park_pointer
+  take "network-$1-other-psk"
+  # Click the existing shared Select; Down chooses Enterprise without a popup.
+  click_in 'window:System Settings' window vgs.network Select 'WPA/WPA2 Personal' || fail "the security choice did not open"
+  type_keys -k Down -k Return
+  expect_poll "the enterprise form is selected" true ipc smoke readDescendant window vgs.network NetworkJoin enterprise
+  click_in 'window:System Settings' window vgs.network Select 'PEAP / MSCHAPv2' || fail "the enterprise method choice did not open"
+  type_keys -k Down -k Return
+  park_pointer
+  take "network-$1-other-enterprise"
+  click_in 'window:System Settings' window vgs.network Button Cancel || fail "the form did not close after its shot"
+  expect_poll "the Other Network shot releases its form" absent ipc smoke readDescendant window vgs.network NetworkJoin result
   expect "enp10s0 scrolls into view" scrolled network_shot_reveal
   click_in "window:System Settings" window vgs.network ListItem enp10s0 || fail "the click on enp10s0 failed"
   expect_poll "enp10s0's details draw" True network_shot_details
@@ -2864,6 +2883,7 @@ vpn_shot_read() { ipc smoke readDescendant window vgs.vpn VpnBody vpn | py_reply
 vpn_shot_profiles() { ipc smoke readDescendant "$1" vgs.vpn VpnBody profileRows | py_reply 'import json,sys; print(json.dumps([[r["name"],r["type"],r["active"]] for r in json.load(sys.stdin)]))'; }
 vpn_shot_reveal() { ipc smoke revealText "$1" "$2" SectionHeader "VPN profiles" | py_reply 'import sys; s=sys.stdin.read().strip(); print("scrolled" if s.replace(".", "", 1).isdigit() else s)'; }
 network_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.network) != absent ]] && echo shown || echo hidden; }
+network_shot_other_reveal() { ipc smoke revealText window vgs.system Button 'Other Network…' | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 network_shot_reveal() { ipc smoke revealText window vgs.system ListItem enp10s0 | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 network_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.network) != absent ]] && echo shown || echo hidden; }
 network_shot_details() { ipc smoke networkDetails window | py_reply 'import json,sys; s=sys.stdin.read(); print(s.startswith("{") and len(json.loads(s)["rows"]) > 0)'; }

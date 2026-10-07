@@ -454,12 +454,14 @@ f share/vgshell/shell/plugins/vgs.mouse/Service.qml
 f share/vgshell/shell/plugins/vgs.mouse/Widget.qml
 f share/vgshell/shell/plugins/vgs.mouse/manifest.json
 f share/vgshell/shell/plugins/vgs.network/NetworkBody.qml
+f share/vgshell/shell/plugins/vgs.network/NetworkJoin.qml
 f share/vgshell/shell/plugins/vgs.network/NetworkLogic.js
 f share/vgshell/shell/plugins/vgs.network/NetworkShare.qml
 f share/vgshell/shell/plugins/vgs.network/Pane.qml
 f share/vgshell/shell/plugins/vgs.network/Panel.qml
 f share/vgshell/shell/plugins/vgs.network/Service.qml
 f share/vgshell/shell/plugins/vgs.network/Widget.qml
+f share/vgshell/shell/plugins/vgs.network/bin/join-network
 f share/vgshell/shell/plugins/vgs.network/bin/share-qr
 f share/vgshell/shell/plugins/vgs.network/manifest.json
 f share/vgshell/shell/plugins/vgs.notifications/Anim.qml

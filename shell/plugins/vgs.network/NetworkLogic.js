@@ -25,6 +25,10 @@ function supportsPsk(security) {
     return security === "WpaPsk" || security === "Wpa2Psk" || security === "Sae";
 }
 
+function supportsEnterprise(security) {
+    return security === "WpaEap" || security === "Wpa2Eap";
+}
+
 function shareable(row) {
     return !!row && !!row.known && (supportsPsk(row.security) || row.security === "Open" || row.security === "Owe" || row.security === "StaticWep");
 }

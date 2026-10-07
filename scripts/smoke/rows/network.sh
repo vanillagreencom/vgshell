@@ -23,9 +23,18 @@ pathlib.Path(sys.argv[1]).write_text(json.dumps({"active":"--", "profiles":[{"uu
 PYWORLD
 }
 net_qr_world ready
+net_join_dir="$sandbox/network-join"
+mkdir -p -- "$net_join_dir"
+net_join_world() { python3 - "$net_join_dir/world.json" "$1" "$2" <<'PYJOINWORLD'
+import hashlib,json,pathlib,sys
+secret="network-smoke-joined-secret"
+pathlib.Path(sys.argv[1]).write_text(json.dumps({"secret_codes":list(map(ord,secret)), "stdin_digest":hashlib.sha256((sys.argv[2]+":"+secret+"\n").encode()).hexdigest(), "fail":{"up":"refused"} if sys.argv[3]=="refused" else {}}))
+PYJOINWORLD
+}
+net_join_world 802-11-wireless-security.psk refused
 # A details read waits while $net_hold exists, so the row sees its loading state.
 net_hold="$sandbox/network-details-hold"
-printf '#!/usr/bin/env bash\nif [[ " $* " == *" --get-values "* ]]; then\n  export NETWORK_QR_WORLD=%q NETWORK_QR_CALLS=%q NETWORK_QR_READY=%q\n  exec python3 %q "$@"\nfi\nif [[ " $* " == *" device show "* ]]; then while [[ -e %q ]]; do sleep 0.05; done; fi\nexec %q "$@"\n' "$net_qr_dir/world.json" "$net_qr_dir/calls" "$net_qr_dir/ready" "$net_qr_dir/nmcli" "$net_hold" "$(sentinel_saved "$shim/nmcli")" | sentinel_stand_over "$shim/nmcli"
+printf '#!/usr/bin/env bash\nif [[ " $* " == *" --get-values "* ]]; then\n  export NETWORK_QR_WORLD=%q NETWORK_QR_CALLS=%q NETWORK_QR_READY=%q\n  exec python3 %q "$@"\nfi\nif [[ " $* " == *" connection add "* || " $* " == *" connection up "* || " $* " == *" connection delete "* ]]; then exec python3 %q %q %q %q "$@"; fi\nif [[ " $* " == *" device show "* ]]; then while [[ -e %q ]]; do sleep 0.05; done; fi\nexec %q "$@"\n' "$net_qr_dir/world.json" "$net_qr_dir/calls" "$net_qr_dir/ready" "$net_qr_dir/nmcli" "$repo/scripts/smoke/fixtures/devices/network-join-nmcli.py" "$net_join_dir/world.json" "$net_join_dir/calls" "$net_join_dir/ready" "$net_hold" "$(sentinel_saved "$shim/nmcli")" | sentinel_stand_over "$shim/nmcli"
 net_qr_had_shim=false
 if [[ -e $shim/qrencode ]]; then net_qr_had_shim=true; else printf '#!/usr/bin/env bash\nexit 1\n' >"$shim/qrencode"; fi
 printf '#!/usr/bin/env bash\nexport NETWORK_QR_WORLD=%q NETWORK_QR_CALLS=%q NETWORK_QR_READY=%q\nexec python3 %q "$@"\n' "$net_qr_dir/world.json" "$net_qr_dir/calls" "$net_qr_dir/ready" "$net_qr_dir/qrencode" | sentinel_stand_over "$shim/qrencode"
@@ -97,6 +106,50 @@ expect "the network pane opens in System" ok ipc shell summon window vgs.system 
 expect_poll "Network's pane is mounted" shown net_shown window
 expect "the pane receives its payload" '{"source":"smoke"}' ipc smoke readInstance window vgs.network payload
 expect_poll "the pane owns one scan lease" '{"leases":1,"device":"wlan0","scanning":true}' ipc smoke networkScan
+net_join_result() { ipc smoke readDescendant window vgs.network NetworkJoin result | py_reply 'import json,sys; s=sys.stdin.read().strip(); print(json.loads(s)["kind"] if s.startswith("{") else "closed" if s=="absent" else s)'; }
+net_other_reveal() { ipc smoke revealText window vgs.system Button 'Other Network…' | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
+net_join_record() { python3 - "$net_join_dir/calls" <<'PYJOINCALLS'
+import json,pathlib,sys,uuid
+p=pathlib.Path(sys.argv[1]); rows=[json.loads(line) for line in p.read_text().splitlines()] if p.exists() else []
+up=next((r for r in rows if r["operation"]=="up"),None)
+if up is None:
+    print("pending")
+else:
+    add=rows[0]["argv"]; profile=add[add.index("connection.uuid")+1]
+    valid=all(not r["argv_secret"] and not r["helper_argv_secret"] for r in rows)
+    valid=valid and up["stdin_ok"] and up["argv"]==["--wait","120","connection","up","uuid",profile,"passwd-file","/dev/stdin"]
+    valid=valid and str(uuid.UUID(profile))==profile
+    valid=valid and up["helper_argv"][2:]==["wlan0","Hidden smoke Wi-Fi","yes","psk","",""]
+    valid=valid and rows[-1]["argv"]==["--wait","120","connection","delete","uuid",profile]
+    print("private-cleaned" if valid else "invalid")
+PYJOINCALLS
+}
+expect "Other Network scrolls into view" scrolled net_other_reveal
+click_in 'window:System Settings' window vgs.network Button 'Other Network…' || fail "Other Network could not be opened"
+expect_poll "Other Network opens its hidden form" idle net_join_result
+expect "the hidden password field is masked" true ipc smoke readMatchingDescendant window vgs.network TextField objectName network-join-password password
+expect "the hidden form selects personal security" false ipc smoke readDescendant window vgs.network NetworkJoin enterprise
+type_keys 'Hidden smoke Wi-Fi'
+type_keys -k Tab
+type_keys -k Tab
+type_keys network-smoke-joined-secret
+type_keys -k Return
+expect_poll "a refused hidden connection reports its typed result" refused net_join_result
+expect "the helper receives no secret argument and cleans its UUID" private-cleaned net_join_record
+expect "the submitted hidden form needs a new password" false ipc smoke readDescendant window vgs.network NetworkJoin canSubmit
+click_in 'window:System Settings' window vgs.network Button Cancel || fail "Other Network could not be canceled"
+expect_poll "Cancel releases the hidden form" closed net_join_result
+expect "the hidden operation releases its shared owner" idle net_action
+expect "the mock adds a scanned enterprise network" ok net_fixture enterprise
+net_enterprise_seen() { net_snapshot | py_reply 'import json,sys; print(any(r["name"]=="VGS Enterprise Wi-Fi" and r["security"]=="Wpa2Eap" for r in json.load(sys.stdin)["network"]["wifi"]))'; }
+expect_poll "the scanned enterprise row uses its security kind" True net_enterprise_seen
+click_in 'window:System Settings' window vgs.network DeviceRow 'VGS Enterprise Wi-Fi' || fail "the enterprise row could not be opened"
+expect_poll "a scanned enterprise opens the same form" idle net_join_result
+expect "the scanned enterprise form selects enterprise security" true ipc smoke readDescendant window vgs.network NetworkJoin enterprise
+expect "the enterprise password field is masked" true ipc smoke readMatchingDescendant window vgs.network TextField objectName network-join-password password
+click_in 'window:System Settings' window vgs.network Button Cancel || fail "the enterprise form could not be canceled"
+expect_poll "Cancel releases the scanned enterprise form" closed net_join_result
+expect "the mock removes its scanned enterprise network" ok net_fixture unenterprise
 expect "the flyout opens over the pane" ok ipc shell summon panel vgs.network '{"source":"smoke"}'
 expect_poll "Network's flyout is shown" shown net_shown panel
 expect "the flyout receives its payload" '{"source":"smoke"}' ipc smoke readInstance panel vgs.network payload

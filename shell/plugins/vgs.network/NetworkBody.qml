@@ -5,8 +5,8 @@ import qs.Commons
 import qs.Ui
 import "NetworkLogic.js" as Logic
 
-// Shared body for the dropdown and System pane. Only this field holds a PSK.
-// The service receives the network key; NetworkManager receives the secret.
+// Shared body for the dropdown and System pane. Masked fields deliver their
+// secrets to NetworkManager; the service receives public identity alone.
 // A device's Details draws its rows once they are read: while the service
 // reads, the row shows a Spinner and its content takes no height, so the
 // rows under it move once.
@@ -21,6 +21,7 @@ FocusScope {
     property string promptKey: ""
     property string localProblem: ""
     property var shareTarget: null
+    property var joinTarget: undefined
     property string openDetails: ""
     property var readyDetails: ({})
     readonly property var values: shell === null ? ({}) : shell.status.values
@@ -31,7 +32,7 @@ FocusScope {
     readonly property bool busy: network.action.kind !== "idle"
     readonly property Item initialFocus: list
     readonly property string promptName: network.prompt === null || !network.prompt ? "" : network.prompt.name
-    implicitHeight: shareTarget === null ? content.implicitHeight : shareLoader.item === null ? 0 : shareLoader.item.implicitHeight
+    implicitHeight: joinTarget !== undefined ? (joinLoader.item === null ? 0 : joinLoader.item.implicitHeight) : shareTarget === null ? content.implicitHeight : shareLoader.item === null ? 0 : shareLoader.item.implicitHeight
 
     function open() {
         if (leaseId === "") leaseId = String(root);
@@ -41,6 +42,7 @@ FocusScope {
         if (currentKey === "" && rows.length) currentKey = rows[0].key;
     }
     function close() {
+        closeJoin();
         closeShare();
         password.text = "";
         promptKey = "";
@@ -56,6 +58,7 @@ FocusScope {
         if (shareTarget !== null && !rows.some(row => row.key === shareTarget.key && row.known)) closeShare();
     }
     onNetworkChanged: {
+        if (!network.wifiEnabled || !network.hasWifi) closeJoin();
         if (!network.wifiEnabled) closeShare();
         const detail = network.detail || {};
         if (detail.interface !== undefined && detail.interface !== "" && detail.state === "ready") {
@@ -82,7 +85,18 @@ FocusScope {
     }
     function activate(row) {
         if (row === null || !network.writable || busy) return;
+        if (!row.connected && Logic.supportsEnterprise(row.security)) { join(row); return; }
         action(row.connected ? "disconnect" : "connect", row);
+    }
+    function join(row) {
+        if (!network.writable || busy || shell === null) return;
+        if (shell.requirements.missing.includes("nmcli")) { shell.requirements.offer(["nmcli"]); return; }
+        closeShare();
+        joinTarget = row;
+    }
+    function closeJoin() {
+        if (joinLoader.item !== null) joinLoader.item.clear();
+        joinTarget = undefined;
     }
     function cancelPassword() {
         password.text = "";
@@ -205,6 +219,18 @@ FocusScope {
     }
 
     Loader {
+        id: joinLoader
+        width: root.width
+        active: root.joinTarget !== undefined
+        sourceComponent: NetworkJoin {
+            width: root.width
+            shell: root.shell
+            target: root.joinTarget === undefined ? null : root.joinTarget
+            interfaceName: root.network.wifiInterface || ""
+            onDismissed: { root.closeJoin(); list.forceActiveFocus(Qt.ShortcutFocusReason); }
+        }
+    }
+    Loader {
         id: shareLoader
         objectName: "network-share-owner"
         width: root.width
@@ -219,7 +245,7 @@ FocusScope {
     Column {
         id: content
         width: root.width
-        visible: root.shareTarget === null
+        visible: root.shareTarget === null && root.joinTarget === undefined
         spacing: Theme.stack.group
         Label {
             width: parent.width
@@ -336,6 +362,14 @@ FocusScope {
                 Button { text: "Join"; enabled: password.text !== ""; onClicked: root.submitPassword() }
                 Button { text: "Cancel"; variant: "secondary"; onClicked: root.cancelPassword() }
             }
+        }
+        Button {
+            objectName: "network-other"
+            text: "Other Network…"
+            variant: "secondary"
+            visible: !!root.network.hasWifi && !!root.network.wifiEnabled
+            enabled: !!root.network.writable && !root.busy
+            onClicked: root.join(null)
         }
         Section {
             width: parent.width

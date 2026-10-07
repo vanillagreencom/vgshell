@@ -84,6 +84,12 @@ profile.log = lambda msg: None
         active.EmitSignal(ACTIVE, "StateChanged", "uu", [dbus.UInt32(4), dbus.UInt32(3)])
     elif action == "drop-active":
         root.RemoveActiveConnection(DEVICE, MANAGER + "/ActiveConnection/network_active")
+    elif action == "enterprise":
+        root.AddAccessPoint(DEVICE, "enterprise", "VGS Enterprise Wi-Fi", "00:11:22:33:44:02",
+                            dbus.UInt32(2), dbus.UInt32(2437), dbus.UInt32(54000), dbus.Byte(70), dbus.UInt32(0x288))
+        root.NetworkQuiet()
+    elif action == "unenterprise":
+        root.RemoveAccessPoint(DEVICE, MANAGER + "/AccessPoint/enterprise")
     elif action == "replace":
         root.AddMethod(MOCK, "NetworkReplace", "", "s", f'''
 ret = self.AddWiFiDevice("wlan1", "wlan1", 30)

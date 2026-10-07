@@ -11,6 +11,7 @@ const file = path.join(__dirname, "../shell/plugins/vgs.network/NetworkLogic.js"
 const nmcliFile = path.join(__dirname, "../shell/Commons/Nmcli.js");
 const commons = { "qs.Commons 1.0": { Nmcli: load(nmcliFile) } };
 function suite(logic) {
+    for (const [security, supported] of [["WpaEap", true], ["Wpa2Eap", true], ["Wpa3SuiteB192", false], ["Wpa2Psk", false], ["Unknown", false]]) assert.equal(logic.supportsEnterprise(security), supported);
     assert.equal(logic.enumName(7, { NoSecrets: 7, WifiAuthTimeout: 8 }), "NoSecrets");
     assert.equal(logic.enumName(99, { NoSecrets: 7 }), "Unknown");
     for (const [row, want] of [[null, false], [{ known: false, security: "Wpa2Psk" }, false], [{ known: true, security: "Wpa2Eap" }, false], [{ known: true, security: "Unknown" }, false], ...["Open", "Owe", "StaticWep", "WpaPsk", "Wpa2Psk", "Sae"].map(security => [{ known: true, security }, true])]) assert.equal(logic.shareable(row), want);
@@ -98,6 +99,7 @@ const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "network-logic-"));
 try {
     const source = fs.readFileSync(file, "utf8");
     for (const [name, needle, replacement] of [
+        ["enterprise security routing", 'return security === "WpaEap" || security === "Wpa2Eap";', 'return false;'],
         ["strength uses the upstream share", " * 100)", ")"],
         ["connected ordering", "Number(b.connected) - Number(a.connected)", "0"],
         ["security label", 'Wpa2Psk: "WPA2"', 'Wpa2Psk: "Open"'],

@@ -92,7 +92,7 @@ Item {
     }
     onLeaseCountChanged: moveScanner()
     onWifiObjectsChanged: {
-        if (operation !== null && wifiObjects.indexOf(operation.network) === -1)
+        if (operation !== null && operation.kind !== "join" && wifiObjects.indexOf(operation.network) === -1)
             finishOperation("The network is no longer available.");
         if (prompt !== null && network(prompt.key) === null) prompt = null;
     }
@@ -176,8 +176,25 @@ Item {
 
     function act(arg) {
         const request = JSON.parse(arg);
+        if (request.kind === "join-result") {
+            if (operation === null || operation.kind !== "join" || operation.owner !== request.owner) return "refused: owner=absent";
+            finishOperation(request.cleanup === "failed" ? "The new network profile could not be removed."
+                : request.result === "refused" ? "NetworkManager denied access to this network change."
+                : ["failed", "timeout", "start-failed", "invalid"].includes(request.result) ? "The network could not connect. Check the network settings and try again." : "");
+            return "ok";
+        }
         if (request.kind === "cancel") { prompt = null; problem = ""; return "ok"; }
         if (!Logic.writable(state)) return "refused: network=" + state;
+        if (operation !== null && operation.kind === "join") return "busy";
+        if (request.kind === "join") {
+            if (operation !== null) return "busy";
+            if (!nmcliPresent || wifiDevice === null || request.interface !== wifiDevice.name || !Networking.wifiEnabled) return "refused: device=unavailable";
+            if (typeof request.owner !== "string" || request.owner === "" || typeof request.name !== "string" || request.name === "") return "refused: join=value";
+            prompt = null;
+            problem = "";
+            operation = { kind: "join", owner: request.owner, key: JSON.stringify([request.interface, request.name]), known: false, network: null };
+            return "ok";
+        }
         if (request.kind === "radio") {
             if (Networking.wifiEnabled) {
                 prompt = null;

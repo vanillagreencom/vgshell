@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""Create and activate one Wi-Fi profile. Only stdin carries its secret.
+
+The form consumes the typed result on stdout. Child output never leaves this
+owner, because NetworkManager diagnostics can contain supplied credentials.
+"""
+import json
+import os
+import signal
+import subprocess
+import sys
+import uuid
+
+
+class Cancelled(Exception):
+    pass
+
+
+class Commands:
+    def __init__(self):
+        self.child = None
+
+    def run(self, args, feed=None):
+        env = {key: os.environ[key] for key in (
+            "PATH", "HOME", "XDG_RUNTIME_DIR", "DBUS_SYSTEM_BUS_ADDRESS",
+            "DBUS_SESSION_BUS_ADDRESS") if key in os.environ}
+        env["LC_ALL"] = "C"
+        try:
+            self.child = subprocess.Popen(
+                ["nmcli", "--wait", "120"] + args,
+                stdin=subprocess.PIPE if feed is not None else subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env)
+            _, errors = self.child.communicate(feed, timeout=125)
+            code = self.child.returncode
+            # NetworkManager's nmcli refusal messages under LC_ALL=C.
+            refused = any(text in errors.lower() for text in (
+                b"not authorized", b"not authorised", b"permission denied",
+                b"insufficient privileges", b"authorization failed"))
+            return {"kind": "ok" if code == 0 else "refused" if refused else "failed", "code": code}
+        except subprocess.TimeoutExpired:
+            return {"kind": "timeout", "code": None}
+        except OSError:
+            return {"kind": "start-failed", "code": None}
+        finally:
+            self.stop()
+
+    def stop(self):
+        if self.child is None:
+            return
+        if self.child.poll() is None:
+            self.child.terminate()
+            try:
+                self.child.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                self.child.kill()
+                self.child.wait()
+        self.child = None
+
+
+def join(commands, interface, ssid, hidden, method, identity, domain, secret):
+    profile = str(uuid.uuid4())
+    result = {"kind": "invalid", "phase": "input", "code": None, "uuid": "", "cleanup": "not-needed"}
+    if (not interface or not ssid or hidden not in ("yes", "no")
+            or method not in ("psk", "peap", "ttls") or not secret
+            or any(c in secret for c in ("\n", "\r", "\0"))
+            or (method != "psk" and (not identity or not domain))):
+        return result
+    args = ["connection", "add", "type", "wifi", "ifname", interface,
+            "con-name", ssid, "ssid", ssid, "connection.uuid", profile,
+            "connection.autoconnect", "no", "802-11-wireless.hidden", hidden]
+    if method == "psk":
+        args += ["802-11-wireless-security.key-mgmt", "wpa-psk"]
+        password_field = "802-11-wireless-security.psk"
+    else:
+        # Validate both trust and server identity before the EAP password:
+        # https://networkmanager.dev/docs/api/latest/settings-802-1x.html
+        args += ["802-11-wireless-security.key-mgmt", "wpa-eap",
+                 "802-1x.eap", method, "802-1x.phase2-auth", "mschapv2" if method == "peap" else "pap",
+                 "802-1x.identity", identity, "802-1x.system-ca-certs", "yes",
+                 "802-1x.domain-suffix-match", domain]
+        password_field = "802-1x.password"
+    created = False
+    complete = False
+    result.update(uuid=profile, phase="create")
+    try:
+        result.update(commands.run(args))
+        if result["kind"] != "ok":
+            return result
+        created = True
+        result["phase"] = "activate"
+        # nmcli documents passwd-file as setting.property:password records:
+        # https://networkmanager.dev/docs/api/latest/nmcli.html
+        result.update(commands.run(["connection", "up", "uuid", profile,
+                                    "passwd-file", "/dev/stdin"],
+                                   (password_field + ":" + secret + "\n").encode("utf-8")))
+        secret = ""
+        complete = result["kind"] == "ok"
+        return result
+    except Cancelled:
+        # Add may have committed before nmcli was interrupted. This fresh
+        # UUID belongs only to this attempt, so also remove an uncertain add.
+        if result["phase"] == "create":
+            created = True
+        result.update(kind="canceled", code=None)
+        return result
+    finally:
+        secret = ""
+        commands.stop()
+        if created and not complete:
+            # Cleanup owns this newly created UUID, never a display name.
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+            cleanup = commands.run(["connection", "delete", "uuid", profile])
+            result["cleanup"] = "deleted" if cleanup["kind"] == "ok" else "failed"
+
+
+def main():
+    if len(sys.argv) != 7:
+        print(json.dumps({"kind": "invalid", "phase": "input", "code": None, "uuid": "", "cleanup": "not-needed"}))
+        return 2
+    commands = Commands()
+    def cancel(_signal, _frame):
+        raise Cancelled()
+    signal.signal(signal.SIGTERM, cancel)
+    signal.signal(signal.SIGINT, cancel)
+    try:
+        secret = sys.stdin.read()
+        result = join(commands, *sys.argv[1:], secret)
+        secret = ""
+    except (Cancelled, UnicodeError, ValueError):
+        result = {"kind": "canceled", "phase": "input", "code": None, "uuid": "", "cleanup": "not-needed"}
+    finally:
+        commands.stop()
+    print(json.dumps(result))
+    return 0 if result["kind"] == "ok" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

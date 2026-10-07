@@ -12,7 +12,7 @@ An argument sits in every process list, an IPC reply in the shell's log, a statu
 
 ## Rules
 
-- Do send a Wi-Fi password straight to `WifiNetwork.connectWithPsk`; the IPC action carries the network identity alone. `scripts/smoke/rows/network.sh` reads the joined PSK absent from status, configuration and logs.
+- Do send a scanned personal Wi-Fi password straight to `WifiNetwork.connectWithPsk`. Hidden and enterprise Wi-Fi deliver their password through the plugin helper's stdin. The IPC action carries the network identity alone. `scripts/smoke/rows/network.sh` reads the joined PSK absent from status, configuration and logs.
 - Never put a shared profile's password in argv or a file; feed `qrencode` on stdin. `scripts/test-network-share.py` pins it.
 - Never log, publish or answer a lock or polkit password over IPC. `scripts/test-lock-model.js` and `scripts/test-polkit-model.js` pin it.
 - Never put a secret on an argv, in a log line, a reply or a status value; it reaches `secret-tool` on stdin alone. `scripts/test-plugin-status.js` pins it with a copy that puts it on the argv.
