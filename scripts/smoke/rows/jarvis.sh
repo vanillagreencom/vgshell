@@ -197,17 +197,15 @@ print("problem" if ok else "not-problem")
 ' <<<"$answer"
 }
 
-jarvis_lock_answer() {
-  ipc smoke jarvisProcess | py_reply '
-import json,sys
-d=json.load(sys.stdin)
-if d["retries"] != 0:
-    print("restarted")
-elif d["lifetime"]["kind"] == "ready":
-    print(d["status"]["daemon"]["text"])
-else:
-    print("pending")
-'
+jarvis_lock_assertion() { # expect | expect_poll
+  "$1" "startup keeps the current lock snapshot without restarting" ready jarvis_ready 0
+  "$1" "the reducer observes lock without capture" session jarvis_session locked
+}
+
+jarvis_lock_control() {
+  (failures=0 behaviour_failures=0
+   jarvis_lock_assertion expect >"$sandbox/jarvis-lock-control-assertions.log"
+   echo "$failures")
 }
 
 jarvis_session() { # EXPECTED_GATE_REASON
@@ -340,7 +338,19 @@ jarvis_transcript_assertion() { # expect | expect_poll
 }
 
 jarvis_seen_hello() {
-  [[ -s $jarvis_seen ]] && echo seen || echo pending
+  py_reply '
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1])
+if not p.exists():
+    print("pending")
+else:
+    # Other startup messages precede the hello answer. The gated status
+    # proves the unlocked snapshot was answered before the row locks.
+    lines=p.read_text().split("\n")[:-1]
+    seen=any(d.get("type")=="status" and d.get("daemon")=="ready" for d in map(json.loads, lines))
+    print("seen" if seen else "pending")
+' "$jarvis_seen" </dev/null
 }
 
 jarvis_permanent() {
@@ -357,22 +367,26 @@ else:
 '
 }
 
-jarvis_lock_case() { # EXPECTED
+jarvis_lock_case() { # real | control
   rm -f -- "$jarvis_gate" "$jarvis_seen"
   expect "the test-only holder unlocks before startup" ok probe unlock
   expect "the gated Jarvis service enables" ok ipc shell setPluginEnabled vgs.jarvis true
-  expect_poll "the daemon has consumed its first hello" seen jarvis_seen_hello
+  expect_poll "the daemon has queued its unlocked hello answer" seen jarvis_seen_hello
   expect "the real test-only holder locks during startup" ok probe lock
   expect_poll "the compositor confirms the fixture lock" true read_service lockSecure
   : >"$jarvis_gate"
-  expect_poll "startup keeps the current lock snapshot without restarting" "$1" jarvis_lock_answer
-  if [[ $1 == "Locked; no capture" ]]; then
-    expect_poll "the reducer observes lock without capture" session jarvis_session locked
+  if [[ $1 == real ]]; then
+    jarvis_lock_assertion expect_poll
+  else
+    # Ready acknowledges that the mutant handled the withheld answer.
+    # Its missing lock snapshot then fails the same assertion as above.
+    expect_poll "the lock control handles the stale hello answer" ready jarvis_ready 0
+    expect "the stale startup snapshot breaks the real lock assertion" 1 jarvis_lock_control
   fi
   expect "the fixture unlocks without authentication" ok probe unlock
-  if [[ $1 == "Locked; no capture" ]]; then
+  if [[ $1 == real ]]; then
     expect_poll "the reducer observes unlock without capture" session jarvis_session unconfigured
-    expect_poll "the running daemon observes unlock" "Ready; no capture" jarvis_lock_answer
+    expect "the running daemon stays ready without restarting" ready jarvis_ready 0
   fi
   expect "the gated service disables" ok ipc shell setPluginEnabled vgs.jarvis false
 }
@@ -697,7 +711,7 @@ assert s.count(needle)==1
 p.write_text(s.replace(needle, ""))
 PY
 jarvis_rescan
-jarvis_lock_case "Locked; no capture"
+jarvis_lock_case real
 # Control: a service that neither resends hello on the startup lock nor
 # drops the reply to the earlier snapshot publishes that stale answer.
 python3 - "$jarvis_service" <<'PY'
@@ -713,7 +727,7 @@ for needle, replacement in (
 p.write_text(s)
 PY
 jarvis_rescan
-jarvis_lock_case "Ready; no capture"
+jarvis_lock_case control
 cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
 cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
 jarvis_rescan
