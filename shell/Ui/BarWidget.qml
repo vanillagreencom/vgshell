@@ -79,7 +79,8 @@ Item {
             else {
                 if (root.frame !== null) {
                     const p = root.dragPoint();
-                    root.frame.dragMove(p);
+                    // Release commits the last preview; displaced neighbours
+                    // must not select a new slot without pointer motion.
                     root.frame.dragEnd(p);
                 }
             }
