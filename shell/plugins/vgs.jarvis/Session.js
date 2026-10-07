@@ -7,6 +7,8 @@
 // speech session per conversation; its callbacks carry the session's gen/op.
 var SESSION_SETTINGS = ["mode", "voiceProvider", "voice", "language", "brain", "model", "customBaseUrl", "policy", "cloudVision", "account"];
 var RESPONSE_TIMEOUT_MS = 60000;
+var COLLECTION_TIMEOUT_MS = 60000;
+var PLAYBACK_TIMEOUT_MS = 300000;
 var APPROVAL_TIMEOUT_MS = 60000;
 var APPROVAL_DRAW_MS = 700;
 var VOICE_QUIET_MS = 1000;
@@ -149,10 +151,10 @@ function canSpeak(s) {
         && s.input.kind !== "held";
 }
 
-function reconcile(s, effects) {
+function reconcile(s, effects, at) {
     if (s.speech.kind === "open" && s.speech.reply.kind === "waiting" && canSpeak(s)) {
         s.playback = { kind: "playing", gen: s.gen, op: operation(s), source: s.speech.op,
-            interruptible: true, admission: { kind: "waiting" } };
+            interruptible: true, admission: { kind: "waiting" }, deadline: at + PLAYBACK_TIMEOUT_MS };
         s.speech.reply = { kind: "none" };
     }
     // The session opens with the conversation's first capture, before it.
@@ -166,11 +168,13 @@ function reconcile(s, effects) {
         var e = effect(s, effects, "capture-open", { mode: mode });
         s.capture = { kind: "opening", gen: e.gen, op: e.op, mode: mode };
     }
+    if (s.turn.kind === "collecting" && s.capture.kind === "closing" && s.turn.deadline === null)
+        s.turn.deadline = at + COLLECTION_TIMEOUT_MS;
     // The duplex voice model owns turn-taking; no utterance is collected.
     if (s.engine.kind === "chained" && canCapture(s)
             && (s.capture.kind === "opening" || s.capture.kind === "open") && s.turn.kind === "none") {
         var collect = effect(s, effects, "collect", {});
-        s.turn = { kind: "collecting", gen: collect.gen, op: collect.op, partial: "" };
+        s.turn = { kind: "collecting", gen: collect.gen, op: collect.op, partial: "", deadline: at + COLLECTION_TIMEOUT_MS };
     }
     if (s.playback.kind === "playing" && s.playback.admission.kind === "waiting" && canPlayback(s)) {
         effect(s, effects, "playback-start", { gen: s.playback.gen, op: s.playback.op, source: s.playback.source });
@@ -179,14 +183,14 @@ function reconcile(s, effects) {
     if (s.mute.kind === "muting" && s.capture.kind === "closed") s.mute = { kind: "on" };
 }
 
-function start(s, effects, mode) {
+function start(s, effects, mode, at) {
     if (!canEngage(s)) return;
     if (s.conversation.kind === "ended") {
         s.gen++;
         s.conversation = { kind: "active" };
     } else if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
     s.input = { kind: mode };
-    reconcile(s, effects);
+    reconcile(s, effects, at);
 }
 
 // A callback must match its owner, not merely the newest allocated number.
@@ -240,11 +244,19 @@ function toggle(s, effects, at) {
     recover(s, effects, at);
     if (!canEngage(s)) return;
     s.toggleAt = at;
-    if (s.conversation.kind === "ended") start(s, effects, "conversation");
+    if (s.conversation.kind === "ended") start(s, effects, "conversation", at);
     else end(s, effects, at, "toggle", false);
 }
 
 function expire(s, effects, at) {
+    if (s.turn.kind === "collecting" && s.turn.deadline !== null && at >= s.turn.deadline) {
+        s.fault = { kind: "error", reason: "speech=collect-timeout", retry: 0 };
+        end(s, effects, at, "collect-timeout", false);
+    }
+    if (s.playback.kind === "playing" && s.playback.deadline !== null && at >= s.playback.deadline) {
+        s.fault = { kind: "error", reason: "playback-timeout", retry: 0 };
+        end(s, effects, at, "playback-timeout", false);
+    }
     if (s.turn.kind === "thinking" && s.approval.kind !== "held" && at >= s.turn.deadline) {
         dropApproval(s, effects, "thinking-timeout", at);
         cancelTurn(s, effects, at);
@@ -309,7 +321,7 @@ function reduce(state, e) {
                 // Its transcript owns no answer identity. Talk replaces it,
                 // then capture-closed admits an answer bound to this hold.
                 closeCapture(s, effects);
-                start(s, effects, "held");
+                start(s, effects, "held", e.at);
             }
             break;
         }
@@ -317,7 +329,7 @@ function reduce(state, e) {
         if (s.input.kind === "held") break;
         recover(s, effects, e.at);
         interrupt(s, effects, e.at);
-        start(s, effects, "held");
+        start(s, effects, "held", e.at);
         break;
     case "talk-up":
         if (s.settings.mode === "toggle" && s.approval.kind !== "held") break;
@@ -368,6 +380,7 @@ function reduce(state, e) {
     case "capture-opened":
         if (!live(s, e, "capture", ["opening"])) { stale(s); break; }
         s.capture.kind = "open";
+        if (s.turn.kind === "collecting") s.turn.deadline = null;
         if (s.fault.kind === "retrying") s.fault = { kind: "none" };
         break;
     case "capture-failed": {
@@ -383,6 +396,7 @@ function reduce(state, e) {
     case "capture-closed":
         if (!live(s, e, "capture", ["closing"])) { stale(s); break; }
         s.capture = { kind: "closed" };
+        if (s.turn.kind === "collecting") s.turn.deadline = e.at + COLLECTION_TIMEOUT_MS;
         break;
     case "partial":
         if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
@@ -415,6 +429,8 @@ function reduce(state, e) {
     case "brain-failed":
         if (!live(s, e, "turn", ["thinking"])) { stale(s); break; }
         s.turn = { kind: "none" };
+        if (e.type === "brain-done" && s.playback.kind === "playing")
+            s.playback.deadline = e.at + PLAYBACK_TIMEOUT_MS;
         if (e.type === "brain-failed") {
             s.fault = { kind: "error", reason: e.reason, retry: 0 };
             end(s, effects, e.at, "brain-failed", false);
@@ -431,7 +447,7 @@ function reduce(state, e) {
         if (!live(s, e, "turn", ["thinking"])) { stale(s); break; }
         if (s.playback.kind !== "idle" || s.conversation.kind === "interrupted") break;
         s.playback = { kind: "playing", gen: s.gen, op: operation(s), source: e.op,
-            interruptible: e.interruptible, admission: { kind: "waiting" } };
+            interruptible: e.interruptible, admission: { kind: "waiting" }, deadline: null };
         break;
     case "played":
         if (!live(s, e, "playback", ["playing"])) { stale(s); break; }
@@ -546,13 +562,14 @@ function reduce(state, e) {
         end(s, effects, e.at, "speech-failed", false);
         break;
     case "deadline":
-        if (live(s, e, "turn", ["thinking", "cancelling"])
+        if (live(s, e, "turn", ["collecting", "thinking", "cancelling"])
+                || live(s, e, "playback", ["playing"])
                 || live(s, e, "approval", ["held"]) || live(s, e, "action", ["running"]))
             expire(s, effects, e.at);
         else stale(s);
         break;
     }
-    reconcile(s, effects);
+    reconcile(s, effects, e.at);
     return { state: s, effects: effects };
 }
 
@@ -561,9 +578,9 @@ function reduce(state, e) {
 var REGIONS = {
     gate: { down: "reason", up: "" }, mute: { off: "", muting: "", on: "" },
     capture: { closed: "", opening: "gen op mode", open: "gen op mode", closing: "gen op" },
-    turn: { none: "", collecting: "gen op partial", thinking: "gen op deadline", cancelling: "gen op deadline" },
+    turn: { none: "", collecting: "gen op partial deadline", thinking: "gen op deadline", cancelling: "gen op deadline" },
     brain: { closed: "", acquired: "gen op" },
-    playback: { idle: "", playing: "gen op source interruptible admission", flushing: "gen op" },
+    playback: { idle: "", playing: "gen op source interruptible admission deadline", flushing: "gen op" },
     action: { none: "", running: "gen op tool brain limit cancellation" },
     approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain" },
     fault: { none: "", error: "reason retry", retrying: "reason retry" }, conversation: { ended: "", active: "", interrupted: "" },
@@ -592,6 +609,7 @@ function validate(s) {
             if (["gen", "op", "brain", "source", "retry"].indexOf(f) !== -1) {
                 if (!Number.isSafeInteger(r[f]) || r[f] < (["op", "brain", "source"].indexOf(f) !== -1 ? 1 : 0)) return false;
             } else if (f === "deadline" || f === "shownAt") {
+                if (f === "deadline" && r[f] === null && (region === "playback" || r.kind === "collecting")) continue;
                 if (!(f === "shownAt" && r[f] === null) && (!Number.isFinite(r[f]) || r[f] < 0)) return false;
             } else if (f === "timeoutMs") {
                 if (!Number.isFinite(r[f]) || r[f] <= 0) return false;

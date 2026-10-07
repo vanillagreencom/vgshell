@@ -7,6 +7,7 @@ const path = require("node:path");
 const { Readable } = require("node:stream");
 
 const PCM_RATE = 24000;
+const SENTENCE_FRAMES = PCM_RATE * 30;
 const BUFFER_BYTES = 64 * 1024;
 const PLAYBACK_LEAD_MS = 60;
 const NODE_LATENCY_MS = 20;
@@ -467,7 +468,7 @@ class Audio {
         if (sentence !== undefined) {
             if (sentence === null || typeof sentence.text !== "string" || sentence.text.trim() === ""
                     || !Number.isSafeInteger(sentence.frames) || sentence.frames < pcm.length / 2
-                    || sentence.frames > PCM_RATE * 30 || playback.received < playback.sentenceEnd)
+                    || sentence.frames > SENTENCE_FRAMES || playback.received < playback.sentenceEnd)
                 throw new Error("playback-sentence");
             const separator = playback.text === "" ? "" : " ";
             if (Buffer.byteLength(playback.text + separator + sentence.text) > TRANSCRIPT_BYTES)
@@ -661,4 +662,4 @@ class Audio {
     }
 }
 
-module.exports = { Audio, sourceLimit, PCM_RATE };
+module.exports = { Audio, sourceLimit, PCM_RATE, SENTENCE_FRAMES };

@@ -57,10 +57,10 @@ function runtime(scenario, marker = {}) {
     worlds.push(world_);
     return world_;
 }
-function adapter(folder, world_) {
+function adapter(folder, world_, clock) {
     const answer = row(folder).select({ settings: {}, accounts: () => assert.fail("no account"), directories: world_.directories });
     assert.equal(answer.kind, "ready", JSON.stringify(answer));
-    return answer.open({ net: null, recipients: answer.recipients });
+    return answer.open({ net: null, recipients: answer.recipients, ...(clock ? { clock } : {}) });
 }
 
 function tone(frequency, seconds, amplitude, rate = 24000) {
@@ -235,9 +235,79 @@ async function speaking(folder) {
     cases++;
 }
 
-const CASES = { selection, utterance, antiAlias, failures, abort, backlog, close, speaking };
+async function speechWaits(folder) {
+    for (const [kind, scenario, cause, observed] of [
+        ["ready", { start: "silent" }, "ready-timeout", log => start(log) !== undefined],
+        ["transcribe", { utterances: [{ stall: true }] }, "transcribe-timeout", log => log.some(entry => entry.end)],
+        ["synthesis", { speech: [{ stall: true }] }, "synthesis-timeout", log => log.some(entry => entry.speak)]
+    ]) {
+        const timers = new Set();
+        const clock = { set: (fn, ms) => { const timer = { fn, ms }; timers.add(timer); return timer; },
+            clear: timer => timers.delete(timer) };
+        const w = runtime(scenario), speech = adapter(folder, w, clock);
+        let release;
+        const held = new Promise(resolve => { release = resolve; });
+        const input = kind === "ready" ? (async function* () { await held; yield { content: Buffer.alloc(4800) }; })() : frames(Buffer.alloc(4800));
+        const result = final(kind === "synthesis" ? speech.speak((async function* () { yield { content: "Fixture.", labels: [] }; })())
+            : speech.transcribe(input));
+        result.catch(() => {});
+        try {
+            await until(() => observed(w.log()), kind, OBSERVE_MS);
+            const pending = [...timers];
+            assert.equal(pending.length, 1);
+            assert.equal(pending[0].ms, 60000);
+            pending[0].fn();
+            await assert.rejects(result, error => error.code === cause);
+            assert.equal(timers.size, 0);
+            await until(() => !alive(start(w.log()).pid), "deadline closes sidecar", OBSERVE_MS);
+        } finally { release(); speech.close(); }
+    }
+    // The final-result wait starts only after capture ends. A user may hold
+    // the key beyond it without expiring a healthy capture.
+    const timers = new Set();
+    const clock = { set: (fn, ms) => { const timer = { fn, ms }; timers.add(timer); return timer; }, clear: timer => timers.delete(timer) };
+    const w = runtime({ utterances: [{ final: "fixture" }] });
+    const speech = adapter(folder, w, clock);
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    const result = final(speech.transcribe((async function* () { yield { content: Buffer.alloc(4800) }; await held; })()));
+    try {
+        await until(() => start(w.log()) !== undefined && timers.size === 0, "model ready during capture", OBSERVE_MS);
+        assert.equal(timers.size, 0);
+        release();
+        assert.equal((await result)[0].kind, "final");
+        assert.equal(timers.size, 0);
+    } finally { release(); speech.close(); }
+    cases++;
+}
+async function longReply(folder) {
+    const w = runtime({ speech: [{ rate: 24000, samples: 24000 * 31, value: 0.25 }] });
+    const speech = adapter(folder, w);
+    const { Audio } = require(path.join(folder, "backend/Audio.js"));
+    const audio = new Audio({ session: {}, environment: {}, clock: {}, offers() {}, level() {}, fault() {} });
+    const playback = { received: 0, sentenceEnd: 0, text: "", words: [] };
+    try {
+        let bytes = 0, descriptions = 0;
+        for await (const packet of speech.speak((async function* () { yield { content: "Fixture sentence.", labels: [] }; })())) {
+            bytes += audio.playbackPacket(playback, packet).length;
+            if (packet.sentence) descriptions++;
+        }
+        assert.equal(bytes, 24000 * 31 * 2);
+        assert.equal(playback.received, 24000 * 31);
+        assert.equal(descriptions, 1);
+        assert.equal(playback.words.length, 1);
+        assert.equal(playback.words[0].frame, 24000 * 31);
+        assert.equal(Buffer.byteLength(playback.text), 17);
+    } finally { speech.close(); }
+    cases++;
+}
+const CASES = { selection, utterance, antiAlias, failures, abort, backlog, close, speaking, speechWaits, longReply };
 // Controls: name, edits to LocalSpeech.js, the case that must turn red.
 const CONTROLS = [
+    ["ready deadline", [["let readyTimer = clock.set(() => end(failure(\"ready-timeout\"), false), READY_MS);", "let readyTimer = null;"]], "speechWaits"],
+    ["transcription deadline", [["value.bound(TRANSCRIBE_MS, \"transcribe-timeout\");", ""]], "speechWaits"],
+    ["synthesis deadline", [["value.bound(SYNTHESIS_MS, \"synthesis-timeout\");", ""]], "speechWaits"],
+    ["long PCM framing", [["const textAt = Math.max(0, Math.ceil((frames - SENTENCE_FRAMES) / CHUNK_FRAMES) * CHUNK_FRAMES);", "const textAt = 0;"]], "longReply"],
     ["tier check", [["|| !Object.hasOwn(tiers, marker.tier) ", ""]], "selection"],
     ["data root check", [[" || marker.data !== root)", ")"]], "selection"],
     ["shared network", [['"--map-current-user", "--net", "--"', '"--map-current-user", "--"']], "utterance"],

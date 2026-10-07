@@ -200,9 +200,16 @@ function create({ model, recipients, account, gen, harness }) {
         if (e.kind === "turn-started" && turn.id === null) turn.id = e.turnId;
         if (e.turnId !== turn.id) return;
         switch (e.kind) {
-        case "delta": turn.push({ kind: "text", text: e.delta }); break;
+        case "delta":
+            turn.text.add(e.itemId);
+            turn.push({ kind: "text", text: e.delta });
+            break;
         case "item-started": turn.items.set(e.item.id, e.item); break;
         case "item-completed": {
+            if (e.item.kind === "message" && !turn.text.has(e.item.id)) {
+                turn.text.add(e.item.id);
+                if (e.item.text !== "") turn.push({ kind: "text", text: e.item.text });
+            }
             turn.items.set(e.item.id, e.item);
             const waiter = turn.waiters.get(e.item.id);
             if (waiter !== undefined) { turn.waiters.delete(e.item.id); waiter(e.item); }
@@ -270,7 +277,7 @@ function create({ model, recipients, account, gen, harness }) {
         const finished = new Promise(resolve => { acknowledged = resolve; });
         // requested: turn/start is written, so only the program's completion
         // acknowledges a cancel.
-        const current = { id: null, requested: false, items: new Map(), waiters: new Map(),
+        const current = { id: null, requested: false, items: new Map(), waiters: new Map(), text: new Set(),
             push(value) { queue.push(value); wake(); },
             complete(status) {
                 if (state.kind === "streaming") state = status === "completed" ? { kind: "complete" }

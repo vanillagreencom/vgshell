@@ -87,8 +87,8 @@ class SessionRunner {
         const action = this.state.action;
         const toolDeadline = action.kind === "running" && action.limit.kind === "pending"
             ? { gen: action.gen, op: action.op, deadline: action.limit.deadline } : {};
-        const owners = [this.state.turn, this.state.approval, toolDeadline]
-            .filter(owner => Object.hasOwn(owner, "deadline"));
+        const owners = [this.state.turn, this.state.playback, this.state.approval, toolDeadline]
+            .filter(owner => Number.isFinite(owner.deadline));
         if (owners.length === 0) return;
         const owner = owners.reduce((a, b) => a.deadline <= b.deadline ? a : b);
         this.timer = this.clock.set(() => {

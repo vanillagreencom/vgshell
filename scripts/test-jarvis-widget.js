@@ -120,7 +120,7 @@ const CASES = [
     ["gate locked", up(down("locked")), ["off", "power-off", "neutral", "Jarvis is off while the screen is locked" + MUTE]],
     ["thinking", up(THINKING), ["working", "loader", "info", "Jarvis is thinking" + MUTE]],
     ["cancelling a turn", up({ turn: { kind: "cancelling", gen: 1, op: 4, deadline: 70 } }), ["working", "loader", "info", "Jarvis is thinking" + MUTE]],
-    ["speaking", up({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" } } }),
+    ["speaking", up({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }),
         ["working", "loader", "info", "Jarvis is speaking" + MUTE]],
     ["confirming", up({ approval: { kind: "held", purpose: "action", gen: 1, op: 6, id: "a1", digest: "d1", deadline: 90, shownAt: null,
         physical: true, text: "Fixture action", tool: "fixture", timeoutMs: 1000, cancellable: false, brain: 4 } }),

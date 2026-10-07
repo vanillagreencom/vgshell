@@ -42,6 +42,20 @@ function inside() {
         "--timeout=5", "--json=short", "call", "org.freedesktop.secrets", "/org/freedesktop/secrets",
         "org.freedesktop.Secret.Service", "SearchItems", "a{ss}", "4",
         "service", "vgs-jarvis", "provider", "fixture", "account", "test", "origin", "https://fixture.invalid"]);
+    function normalized(copy) {
+        for (const [input, expected] of [[[65, 66], [65, 66]], [[65, 66, 10], [65, 66]],
+            [[65, 10, 66, 10], [65, 10, 66]], [[65, 13, 10], [65, 13]]]) {
+            const owner = new copy.Secrets(directory, env);
+            const bytes = Buffer.from(input);
+            owner.run = () => bytes;
+            const value = owner.lookup(ref);
+            assert.deepEqual([...value], expected);
+            assert.equal(value.length, expected.length);
+            assert.equal(bytes.every(byte => byte === 0), true);
+            value.fill(0);
+        }
+    }
+    normalized(api); cases++;
     const lookedUp = store.lookup(ref);
     assert.equal(lookedUp.toString(), key);
     lookedUp.fill(0);
@@ -291,6 +305,9 @@ console.log(wanted);
         copy => safe(JSON.stringify(new copy.Secrets(directory, { ...env, OPENAI_API_KEY: key }).env)));
     mutate("presence", '"SearchItems", "a{ss}"', '"GetSecrets", "a{ss}"',
         copy => assert.equal(new copy.Secrets(directory, env).rows()[0].value, "present"));
+    mutate("key-final-lf", 'key.at(-1) === 10 ? 1 : 0', 'false ? 1 : 0', normalized);
+    mutate("key-buffer-zero", 'const value = Buffer.from(key.subarray(0, size));\n        key.fill(0);',
+        'const value = Buffer.from(key.subarray(0, size));', normalized);
     mutate("lookup", '["lookup", ...this.attributes(ref)]', '["search", ...this.attributes(ref)]',
         copy => assert.doesNotThrow(() => new copy.Secrets(directory, env).lookup(ref)));
     mutate("error-output", 'fail(command + "=" + cause);',

@@ -84,6 +84,38 @@ function thinking(w) {
     assert.equal(w.runner.state.turn.kind, "thinking");
 }
 const tests = [
+    ["speech-deadlines", impl => {
+        const w = world(impl);
+        w.dispatch("talk-down");
+        assert.equal([...w.timers.values()][0]?.deadline, 60000);
+        w.pending.open();
+        assert.equal(w.timers.size, 0);
+        w.tick(100000);
+        assert.equal(w.runner.state.turn.kind, "collecting");
+        w.dispatch("talk-up");
+        w.pending.close();
+        assert.equal([...w.timers.values()][0]?.deadline, 160000);
+        w.tick(160000);
+        assert.equal(w.runner.state.fault.reason, "speech=collect-timeout");
+        assert.equal(w.timers.size, 0);
+        w.pending.collect("final", "fixture");
+        assert.equal(w.runner.state.turn.kind, "none");
+        assert.equal(w.timers.size, 0);
+        w.runner.close();
+        const p = world(impl);
+        thinking(p);
+        p.pending.send("play", { interruptible: true });
+        p.pending.send("brain-done");
+        assert.equal([...p.timers.values()][0]?.deadline, 300000);
+        p.tick(300000);
+        assert.equal(p.runner.state.fault.reason, "playback-timeout");
+        assert.equal(p.calls.at(-1).name, "flush");
+        p.pending.flush();
+        p.pending.play();
+        assert.equal(p.runner.state.playback.kind, "idle");
+        assert.equal(p.timers.size, 0);
+        p.runner.close();
+    }],
     ["durable-mute", impl => {
         const w = world(impl);
         let stored = false;
@@ -354,6 +386,7 @@ const source = fs.readFileSync(file, "utf8");
 let controls = 0;
 try {
     const mutants = [
+        ["speech-deadline-scheduling", 'this.state.playback, ', '', "speech-deadlines"],
         ["durable-mute", 'if (effect.kind === "mute-store") this.consume(effect);',
             'if (false) this.consume(effect);', "durable-mute"],
         ["mute-cleanup-order", 'catch (error) { persistence = { kind: "failed", error }; }',
@@ -394,10 +427,10 @@ try {
     }
     const sessionFile = path.resolve(__dirname, "../shell/plugins/vgs.jarvis/Session.js");
     const sessionSource = fs.readFileSync(sessionFile, "utf8");
-    const needle = 's.turn = { kind: "none" };\n        if (e.type === "brain-failed")';
+    const needle = 's.turn = { kind: "none" };\n        if (e.type === "brain-done" && s.playback.kind === "playing")';
     assert.equal(sessionSource.split(needle).length - 1, 1, "completed-owner mutation match");
     const changed = sessionSource.replace(needle,
-        's.turn = { kind: "none" };\n        s.brain = { kind: "closed" };\n        if (e.type === "brain-failed")');
+        's.turn = { kind: "none" };\n        s.brain = { kind: "closed" };\n        if (e.type === "brain-done" && s.playback.kind === "playing")');
     assert.notEqual(changed, sessionSource);
     const mutant = path.join(root, "completed-owner.js");
     fs.writeFileSync(mutant, changed);

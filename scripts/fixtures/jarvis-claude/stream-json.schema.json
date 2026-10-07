@@ -18,10 +18,10 @@
   "String literal unions become enum. A property the declaration marks optional is listed but not required, and only when a fixture writes it.",
   "UserInput is SDKUserMessage; InterruptRequest is SDKControlRequest with SDKControlInterruptRequest; SystemInit is SDKSystemMessage; Assistant is SDKAssistantMessage; ResultSuccess and ResultError are SDKResultSuccess and SDKResultError; ControlResponse is SDKControlResponse with ControlResponse; ApiRetry is SDKAPIRetryMessage.",
   "Message, the content blocks and MessageParam come from @anthropic-ai/sdk BetaMessage and MessageParam, which sdk.d.ts imports; only the block types the adapter reads or a fixture writes are kept.",
-  "usage, modelUsage and a tool input stay open objects: the adapter reads none of their fields."
+  "usage, modelUsage and a tool input stay open objects: the adapter reads none of their fields.",
+  "StreamEvent is SDKPartialAssistantMessage. Its event excerpts follow Anthropic MessageStreamEvent: message_start and text content_block_delta."
  ],
  "omitted": [
-  "SDKPartialAssistantMessage",
   "SDKUserMessageReplay",
   "SDKCompactBoundaryMessage",
   "SDKStatusMessage",
@@ -797,6 +797,89 @@
     "error",
     "uuid",
     "session_id"
+   ]
+  },
+  "StreamEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "enum": [
+      "stream_event"
+     ]
+    },
+    "uuid": {
+     "type": "string"
+    },
+    "session_id": {
+     "type": "string"
+    },
+    "parent_tool_use_id": {
+     "type": "string",
+     "nullable": true
+    },
+    "event": {
+     "oneOf": [
+      {
+       "type": "object",
+       "properties": {
+        "type": {
+         "enum": [
+          "message_start"
+         ]
+        },
+        "message": {
+         "$ref": "#/schemas/Message"
+        }
+       },
+       "required": [
+        "type",
+        "message"
+       ]
+      },
+      {
+       "type": "object",
+       "properties": {
+        "type": {
+         "enum": [
+          "content_block_delta"
+         ]
+        },
+        "index": {
+         "type": "integer"
+        },
+        "delta": {
+         "type": "object",
+         "properties": {
+          "type": {
+           "enum": [
+            "text_delta"
+           ]
+          },
+          "text": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "type",
+          "text"
+         ]
+        }
+       },
+       "required": [
+        "type",
+        "index",
+        "delta"
+       ]
+      }
+     ]
+    }
+   },
+   "required": [
+    "type",
+    "event",
+    "uuid",
+    "session_id",
+    "parent_tool_use_id"
    ]
   }
  }

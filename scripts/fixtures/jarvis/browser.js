@@ -12,6 +12,7 @@ function standins(directory) {
 function mode(value) {
     fs.rmSync(path.join(process.env.JARVIS_TEST_ROOT, "browser-open-completed"), { force: true });
     fs.rmSync(path.join(process.env.JARVIS_TEST_ROOT, "browser-launch-completed"), { force: true });
+    fs.rmSync(path.join(process.env.JARVIS_TEST_ROOT, "browser-version-release"), { force: true });
     update(value);
     fs.writeFileSync(path.join(process.env.JARVIS_TEST_ROOT, "browser-calls.jsonl"), "");
 }
@@ -123,4 +124,59 @@ async function daemonLease(ending, removeClose = false) {
     }
 }
 
-module.exports = { standins, mode, update, calls, daemonStandins, daemonLease };
+// The optional probe is held across hello. Only the stand-in helper waits.
+async function daemonStartup(browserFile) {
+    mode({ versionHold: true });
+    require("./desktop.js").desktopWorld(process.env.XDG_RUNTIME_DIR, []);
+    const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
+    const folder = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "browser-startup-"));
+    require("./audio.js").copyBackend(path.join(folder, "backend"));
+    for (const file of ["JarvisProtocol.js", "Session.js", "AccountProviders.js"])
+        fs.copyFileSync(path.join(plugin, file), path.join(folder, file));
+    fs.copyFileSync(browserFile, path.join(folder, "backend/Browser.js"));
+    const hello = { v: 1, type: "hello", gen: 0,
+        settings: { mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", cloudVision: "ask", privateWindows: "" },
+        directories: {
+            state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgshell/jarvis"),
+            data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgshell/jarvis"),
+            runtime: path.join(process.env.JARVIS_TEST_ROOT, "run/vgshell/jarvis")
+        }, revision: "a".repeat(64), locked: false,
+        keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y" } };
+    const child = cp.spawn(process.execPath, [path.join(folder, "backend/jarvisd.js"), "--tree", tree],
+        { env: { PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
+            XDG_DATA_HOME: process.env.XDG_DATA_HOME }, stdio: ["pipe", "pipe", "pipe"] });
+    let out = "", err = "";
+    child.stdout.on("data", data => { out += data; });
+    child.stderr.on("data", data => { err += data; });
+    const closed = once(child, "close");
+    const until = async predicate => {
+        for (let n = 0; n < 500; n++) {
+            if (predicate()) return;
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        assert.fail("startup event absent");
+    };
+    try {
+        child.stdin.write(JSON.stringify(hello) + "\n");
+        await until(() => calls().some(row => row.args[0] === "--version"));
+        await until(() => out.split("\n").filter(Boolean).map(JSON.parse).some(row => row.type === "status"));
+        const ready = out.split("\n").filter(Boolean).map(JSON.parse).find(row => row.type === "status");
+        assert.equal(ready.daemon, "ready");
+        assert.equal(fs.existsSync(path.join(process.env.JARVIS_TEST_ROOT, "browser-version-release")), false);
+        assert.equal(err.length, 0);
+        const probe = calls().find(row => row.args[0] === "--version");
+        child.stdin.end();
+        let timer;
+        try {
+            const result = await Promise.race([closed, new Promise(resolve => { timer = setTimeout(() => resolve(null), 3000); })]);
+            assert.deepEqual(result, [0, null]);
+            await until(() => !fs.existsSync(probe.env.HOME));
+        } finally { clearTimeout(timer); }
+    } finally {
+        fs.writeFileSync(path.join(process.env.JARVIS_TEST_ROOT, "browser-version-release"), "");
+        if (child.exitCode === null && child.signalCode === null) { child.kill("SIGKILL"); await closed; }
+        fs.rmSync(folder, { recursive: true, force: true });
+    }
+}
+
+module.exports = { standins, mode, update, calls, daemonStandins, daemonLease, daemonStartup };

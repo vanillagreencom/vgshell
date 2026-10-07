@@ -35,7 +35,7 @@ args = sys.argv[1:]
 with (root / "secret-calls").open("a") as output:
     output.write(json.dumps({"argv": args, "env": dict(os.environ)}) + "\\n")
 if args[0] == "lookup":
-    sys.stdout.write("test-key-must-stay-private")
+    sys.stdout.write("test-key-must-stay-private\\n")
 elif args[0] == "store":
     if not sys.stdin.isatty():
         sys.exit(8)

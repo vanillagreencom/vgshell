@@ -7,7 +7,7 @@
 const cp = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { PCM_RATE } = require("./Audio.js");
+const { PCM_RATE, SENTENCE_FRAMES } = require("./Audio.js");
 
 const SIDECAR = path.join(__dirname, "local-speech.py");
 const ARTIFACTS = path.join(__dirname, "../artifacts.json");
@@ -25,6 +25,10 @@ const CHUNK_FRAMES = 24000;
 const TAPS = 64;
 const PASSBAND = 0.9;
 const STDERR_BYTES = 4096;
+const READY_MS = 60000;
+const TRANSCRIBE_MS = 60000;
+const SYNTHESIS_MS = 60000;
+const CLOCK = Object.freeze({ set: setTimeout, clear: clearTimeout });
 const RECIPIENTS = Object.freeze([Object.freeze({ kind: "local", provider: "local-speech", account: "" })]);
 const CAUSE = /^[a-z-]+(?: [a-z]+=[0-9A-Za-z._-]+)*$/;
 // The keys of each sidecar message and whether it carries a payload.
@@ -33,7 +37,7 @@ const SHAPES = Object.freeze({
     spoken: [["id", "rate", "type"], false], failed: [["cause", "type"], false]
 });
 
-function failure(cause) { return new Error("jarvis: speech=local-" + cause); }
+function failure(cause) { return Object.assign(new Error("jarvis: speech=local-" + cause), { code: cause }); }
 function unconfigured(cause, detail) { return detail === undefined ? { kind: "unconfigured", cause } : { kind: "unconfigured", cause, detail }; }
 function gcd(a, b) { return b === 0 ? a : gcd(b, a % b); }
 
@@ -151,7 +155,7 @@ function reader(receive) {
  * Start one conversation's sidecar. transcribe and speak follow the chained
  * engine's adapter contract; every failure is a keyed speech=local-* error.
  */
-function open(state, data) {
+function open(state, data, clock = CLOCK) {
     const environment = { LC_ALL: "C.UTF-8" };
     for (const key of ["PATH", "HOME"]) if (process.env[key] !== undefined) environment[key] = process.env[key];
     const child = cp.spawn("unshare", ["--map-current-user", "--net", "--", "setpriv", "--pdeathsig", "KILL", "--",
@@ -162,10 +166,12 @@ function open(state, data) {
     let next = 0;
     let stderr = "";
     const pending = new Map();
+    let readyTimer = clock.set(() => end(failure("ready-timeout"), false), READY_MS);
 
     function end(error, abnormal) {
         if (life.kind === "ended") return;
         life = { kind: "ended", error };
+        clock.clear(readyTimer);
         for (const request of pending.values()) request.settle({ kind: "failed", error });
         pending.clear();
         child.stdin.destroy();
@@ -194,6 +200,7 @@ function open(state, data) {
         case "ready":
             if (life.kind !== "starting") throw new Error("ready=repeated");
             life = { kind: "ready" };
+            clock.clear(readyTimer);
             return;
         case "failed": {
             if (typeof header.cause !== "string" || !CAUSE.test(header.cause) || header.cause.length > 120)
@@ -240,10 +247,14 @@ function open(state, data) {
     // One pending request; settle runs once and removes it.
     function track(kind, settled) {
         const id = ++next;
-        const value = { kind, chunks: [], bytes: 0, settle(outcome) {
+        const value = { kind, chunks: [], bytes: 0, timer: null, settle(outcome) {
             if (pending.get(id) !== value) return;
             pending.delete(id);
+            if (value.timer !== null) clock.clear(value.timer);
             settled(outcome);
+        }, bound(ms, cause) {
+            if (pending.get(id) === value)
+                value.timer = clock.set(() => end(failure(cause), false), ms);
         } };
         pending.set(id, value);
         if (life.kind === "ended") value.settle({ kind: "failed", error: life.error });
@@ -285,6 +296,7 @@ function open(state, data) {
                 // A half sample left when capture ended is not a sample.
                 sendAudio(id, resampler.flush());
                 write({ type: "end", id });
+                value.bound(TRANSCRIBE_MS, "transcribe-timeout");
             })().catch(error => value.settle({ kind: "failed", error }));
             let answered = false;
             return {
@@ -316,8 +328,9 @@ function open(state, data) {
                 if (text.length > PAYLOAD_BYTES) throw failure("sentence-too-long");
                 let resolve;
                 const outcome = new Promise(done => { resolve = done; });
-                const { id } = track("speech", resolve);
+                const { id, value } = track("speech", resolve);
                 write({ type: "speak", id }, text);
+                value.bound(SYNTHESIS_MS, "synthesis-timeout");
                 const result = await outcome;
                 if (result.kind !== "spoken") throw result.error;
                 const native = new Float32Array(result.bytes.length / 4);
@@ -325,9 +338,12 @@ function open(state, data) {
                 const resampler = new Resampler(result.rate, PCM_RATE);
                 const pcm = toPcm(result.rate === PCM_RATE ? native : Float32Array.from([...resampler.push(native), ...resampler.flush()]));
                 const frames = pcm.length / 2;
+                // No word alignment is supplied. Credit the whole text only
+                // after the final bounded segment, never for preceding PCM.
+                const textAt = Math.max(0, Math.ceil((frames - SENTENCE_FRAMES) / CHUNK_FRAMES) * CHUNK_FRAMES);
                 for (let at = 0; at < frames; at += CHUNK_FRAMES) {
                     const chunk = pcm.subarray(2 * at, 2 * Math.min(frames, at + CHUNK_FRAMES));
-                    yield at === 0 ? { pcm: chunk, sentence: { text: item.content, frames } } : { pcm: chunk };
+                    yield at === textAt ? { pcm: chunk, sentence: { text: item.content, frames: frames - textAt } } : { pcm: chunk };
                 }
             }
         },
@@ -355,7 +371,7 @@ function select({ directories }) {
     if (marker === null || typeof marker !== "object" || typeof marker.tier !== "string"
             || !Object.hasOwn(tiers, marker.tier) || marker.data !== root)
         return unconfigured("speech=local-not-ready", "marker-stale");
-    return { kind: "ready", recipients: RECIPIENTS, open: () => open(state, data) };
+    return { kind: "ready", recipients: RECIPIENTS, open: ({ clock = CLOCK } = {}) => open(state, data, clock) };
 }
 
 module.exports = { row: Object.freeze({ select }) };

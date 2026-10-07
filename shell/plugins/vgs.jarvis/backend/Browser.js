@@ -21,18 +21,19 @@ const ACTION_POLICY = Object.freeze({ default: "deny", allow: ["launch", "naviga
     deny: ["eval", "upload", "download", "state", "network"] });
 
 /** Probe the installed CLI without opening a browser. */
-function version(environment) {
+function versionRequest(environment) {
     const runtime = roots(environment).runtime;
     fs.mkdirSync(runtime, { recursive: true, mode: 0o700 });
     const scratch = fs.mkdtempSync(path.join(runtime, "browser-version-"));
     const config = path.join(scratch, "config.json");
-    let result;
-    try {
-        fs.writeFileSync(config, "{}", { mode: 0o600 });
-        result = cp.spawnSync("agent-browser", ["--version"], { cwd: scratch,
-            env: { PATH: environment.PATH, HOME: scratch, LANG: "C.UTF-8", AGENT_BROWSER_CONFIG: config },
-            encoding: "utf8", timeout: COMMAND_MS, maxBuffer: 1024 });
-    } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+    try { fs.writeFileSync(config, "{}", { mode: 0o600 }); }
+    catch (error) { fs.rmSync(scratch, { recursive: true, force: true }); throw error; }
+    return { options: { cwd: scratch,
+        env: { PATH: environment.PATH, HOME: scratch, LANG: "C.UTF-8", AGENT_BROWSER_CONFIG: config },
+        encoding: "utf8", timeout: COMMAND_MS, maxBuffer: 1024 },
+        close: () => fs.rmSync(scratch, { recursive: true, force: true }) };
+}
+function versionResult(result) {
     if (result.error) throw new Error("jarvis: browser=version cause=" + result.error.code);
     if (result.status !== 0) throw new Error("jarvis: browser=version exit=" + result.status);
     const match = /^agent-browser (\d+)\.(\d+)\.(\d+)\s*$/.exec(result.stdout);
@@ -42,6 +43,11 @@ function version(environment) {
     if (found[0] < floor[0] || found[0] === floor[0] && (found[1] < floor[1] || found[1] === floor[1] && found[2] < floor[2]))
         throw new Error("jarvis: browser=version-floor need=" + FLOOR);
     return found.join(".");
+}
+function version(environment) {
+    const request = versionRequest(environment);
+    try { return versionResult(cp.spawnSync("agent-browser", ["--version"], request.options)); }
+    finally { request.close(); }
 }
 
 // Every vendor-log sink receives at most VENDOR_LOG_BYTES, cut on a character boundary.
@@ -73,6 +79,9 @@ function status(environment) {
     let installed;
     try { installed = version(environment); }
     catch (error) { return { tone: "warning", text: error.message.includes("version-floor") ? "Browser driver needs an update" : "Browser driver unavailable", action: true }; }
+    return installedStatus(environment, installed);
+}
+function installedStatus(environment, installed) {
     try {
         const bytes = fs.readFileSync(roots(environment).marker);
         if (bytes.length > 1024) throw new Error("marker-size");
@@ -301,6 +310,8 @@ function install({ router, environment }) {
     let generation = null;
     let ended = false;
     let closed = false;
+    let checking = null;
+    let probe = null;
     function owner() {
         if (closed || ended) throw new Error("jarvis: browser=conversation-ended");
         if (current === null) {
@@ -321,8 +332,8 @@ function install({ router, environment }) {
             catch (error) { done({ outcome: "failed", content: error.message }); }
         } });
     router.register("guidance", guidance);
-    function prepare() {
-        if (registered || closed || status(environment).tone !== "ok") return;
+    function register() {
+        if (registered || closed) return;
         router.register("browser", { commands: ["agent-browser"], timeoutMs: COMMAND_MS * 5 + 1000, cancellable: true,
             observe(call) {
                 try { return owner().record.observe(call); } catch { return undefined; }
@@ -331,6 +342,26 @@ function install({ router, environment }) {
             cancel() { clear(); } });
         guidance.enableBrowser();
         registered = true;
+    }
+    function prepare() {
+        if (registered || closed || checking !== null) return;
+        // The optional CLI probe must never block hello or a desktop turn.
+        checking = (async () => {
+            let request = null;
+            try {
+                request = versionRequest(environment);
+                const result = await new Promise(resolve => {
+                    probe = cp.execFile("setpriv", ["--pdeathsig", "KILL", "--", "agent-browser", "--version"], request.options, (error, stdout) => {
+                        probe = null;
+                        resolve({ error: error && !Number.isInteger(error.code) ? error : null,
+                            status: error ? error.code : 0, stdout });
+                    });
+                });
+                if (!closed && installedStatus(environment, versionResult(result)).tone === "ok") register();
+            } catch (error) {
+                // An optional unavailable browser remains unoffered.
+            } finally { request?.close(); }
+        })().finally(() => { checking = null; });
     }
     prepare();
     return Object.freeze({
@@ -341,7 +372,7 @@ function install({ router, environment }) {
             ended = state.conversation.kind === "ended";
             if (changed && !ended) prepare();
         },
-        close() { closed = true; clear(); }
+        close() { closed = true; if (probe !== null) probe.kill("SIGKILL"); clear(); }
     });
 }
 module.exports = { create, install, status, vendorLine };

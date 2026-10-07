@@ -21,7 +21,7 @@ const stub = path.join(tree, "scripts/fixtures/jarvis-claude/claude");
 // tools off, only the bridge, its tools unprompted, no hooks, no user setting
 // source, slash commands or session files. CONFIG and the trailing prompt
 // flags vary per case.
-const ARGV = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+const ARGV = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
     "--tools", "", "--strict-mcp-config", "--mcp-config", "CONFIG",
     "--allowedTools", "mcp__vgs-jarvis", "--permission-mode", "dontAsk",
     "--settings", "{\"disableAllHooks\":true}", "--setting-sources", "project", "--disable-slash-commands",
@@ -167,6 +167,29 @@ world(async () => {
     const say = text => [{ text }];
 
     const cases = [
+        ["streaming", async folder => {
+            const gate = path.join(process.env.JARVIS_TEST_ROOT, "stream-" + ++serial);
+            const parts = ["First. ", "Second."];
+            const w = await make(folder, { turns: [[{ stream: parts, hold: gate }]] });
+            const reply = w.say("fixture");
+            try {
+                const first = await w.read(reply, texts => texts.length === parts.length);
+                assert.equal(first.reason, null);
+                assert.equal(Buffer.byteLength(first.texts.join("")), 14);
+                assert.deepEqual(first.texts, parts);
+                assert.equal(fs.existsSync(gate), false);
+                fs.writeFileSync(gate, "");
+                assert.deepEqual(await w.read(reply), { texts: [], reason: "stop" });
+            } finally { fs.writeFileSync(gate, ""); }
+        }],
+        ["frozen-tools", async folder => {
+            const w = await make(folder, { turns: [[{ text: "Fixture." }]] });
+            w.router.register("clipboard", { commands: ["wl-paste", "wl-copy"], timeoutMs: 1000, cancellable: true,
+                start(call, done) { done({ outcome: "completed", content: "fixture" }); }, cancel() {} });
+            assert.equal(w.router.offer().some(tool => tool.id === "clipboard.read"), true);
+            assert.deepEqual(await w.read(w.say("fixture")), { texts: ["Fixture."], reason: "stop" });
+            assert.equal(w.account.events().some(event => event.kind === "refused"), false);
+        }],
         ["replay", async folder => {
             const w = await make(folder, { turns: [[...say("Hello. "), { echo: true }], [{ echo: true }]] });
             const first = w.say("open the window list");
@@ -605,8 +628,10 @@ world(async () => {
             ["environment-key", '"XDG_CACHE_HOME", "XDG_RUNTIME_DIR"];', '"XDG_CACHE_HOME", "XDG_RUNTIME_DIR", "ANTHROPIC_API_KEY"];', "replay"],
             ["parent-death", '"setpriv", ["--pdeathsig", "KILL", "--", COMMAND,', "COMMAND, [", "replay"],
             ["one-process", 'record = process_.kind === "running" ? process_ : await spawn();', "record = await spawn();", "replay"],
-            ["bridge-gen", "launch = await bridge.open({ gen, recipients });", "launch = await bridge.open({ recipients });", "replay"],
-            ["bridge-recipients", "launch = await bridge.open({ gen, recipients });", "launch = await bridge.open({ gen });", "replay"],
+            ["partial-flag", '"--verbose", "--include-partial-messages",', '"--verbose",', "streaming"],
+            ["partial-repeat", 'const remainder = block.text.slice(consumed);', 'const remainder = block.text;', "streaming"],
+            ["bridge-gen", "launch = await bridge.open({ gen, recipients, tools: context.tools });", "launch = await bridge.open({ recipients, tools: context.tools });", "replay"],
+            ["bridge-recipients", "launch = await bridge.open({ gen, recipients, tools: context.tools });", "launch = await bridge.open({ gen, tools: context.tools });", "replay"],
             ["harness-unwired", 'if (!plain(harness) || typeof harness.runtime !== "function") fail("harness-unwired");', "", "bounds"],
             ["record", 'record() { fail("record"); }', "record() {}", "bounds"],
             ["init-tools", 'for (const name of init.tools) if (!allowed(name)) fail("harness-tool name=" + named(name));', "", "built-ins"],
@@ -624,7 +649,7 @@ world(async () => {
             ["api-error", 'return value.is_error ? { kind: "result", outcome: "api-error",', 'return false ? { kind: "result", outcome: "api-error",', "results"],
             ["block-type", 'default: return fail("harness-block type=" + named(block.type));', 'default: return { kind: "thinking" };', "results"],
             ["control-request", 'case "control-request": return fail("harness-control-request");', 'case "control-request": return;', "results"],
-            ["init-order", 'if (!record.initialized) fail("harness-order");', "", "results"],
+            ["init-order", 'case "assistant":\n                    if (!record.initialized) fail("harness-order");', 'case "assistant":', "results"],
             ["cancel-bound", "const CANCEL_MS = 2000;", "const CANCEL_MS = 2001;", "cancel"],
             ["cancel-timer", 'timer = clock.set(() => { timer = null; fault(record, new Error("jarvis: brain=harness-cancel-timeout")); }, CANCEL_MS);', "", "cancel-timeout"],
             ["subagent", 'if (value.parent_tool_use_id !== null) fail("harness-subagent");', "", "results"],
@@ -655,6 +680,11 @@ world(async () => {
             ["verify-model", "const model = modelOf(requestedModel); // Refused", "const model = requestedModel; // Refused"]
         ]) await control(accountsFile, name, needle, replacement, "verify");
         await control(engineFile, "claude-driver", ', "claude-code": ClaudeCode });', " });", "engine");
+        await mutant(path.join(backend, "ToolBridge.js"), "fresh-bridge-tools",
+            'const offers = structuredClone(tools);', 'const offers = structuredClone(router.offer());',
+            async (_module, folder) => { try { await cases.find(row => row[0] === "frozen-tools")[1](folder); }
+                finally { await cleanup(); } });
+        controls++;
         console.log("test-jarvis-claude: ok cases=" + cases.length + " controls=" + controls);
         // A control that removes close leaves its mutant child running; the
         // check above already proved the real owner's teardown.

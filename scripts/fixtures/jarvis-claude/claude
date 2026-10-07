@@ -195,7 +195,21 @@ async function run(prompt) {
     let text = "";
     for (const step of steps) {
         if (current.interrupted) return;
-        if (step.text !== undefined || step.echo) {
+        if (step.stream !== undefined) {
+            const complete = message(step.stream.map(text => ({ type: "text", text })));
+            if (flags.has("--include-partial-messages")) {
+                const event = value => write("StreamEvent", { type: "stream_event", event: value,
+                    parent_tool_use_id: null, uuid: id(), session_id: session });
+                event({ type: "message_start", message: { ...complete.message, content: [] } });
+                for (const [index, text] of step.stream.entries()) {
+                    event({ type: "content_block_delta", index, delta: { type: "text_delta", text } });
+                }
+                record("events.jsonl", { kind: "partial", bytes: Buffer.byteLength(step.stream.join("")) });
+            }
+            while (step.hold && !fs.existsSync(step.hold)) await new Promise(resolve => setTimeout(resolve, 10));
+            write("Assistant", complete);
+            text += step.stream.join("");
+        } else if (step.text !== undefined || step.echo) {
             const value = step.echo ? "heard: " + prompt : step.text;
             text += value;
             emit(said(value, step.parent));

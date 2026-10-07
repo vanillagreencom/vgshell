@@ -22,6 +22,8 @@ with (root / 'browser-calls.jsonl').open('a') as log:
         row['policy'] = json.loads(pathlib.Path(args[args.index('--action-policy') + 1]).read_text())
     log.write(json.dumps(row) + '\n')
 if args == ['--version']:
+    while mode.get('versionHold') and not (root / 'browser-version-release').exists():
+        time.sleep(0.01)
     print('agent-browser ' + mode.get('version', '0.38.1'))
     sys.exit(mode.get('versionExit', 0))
 if args == ['skills', 'get', 'core']:

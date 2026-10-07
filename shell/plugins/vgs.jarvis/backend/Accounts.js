@@ -547,7 +547,7 @@ class Accounts {
                 let key;
                 if (ref !== null) {
                     keyBytes = this.secrets.lookup(ref);
-                    const value = keyBytes.toString("utf8").replace(/\n$/, "");
+                    const value = keyBytes.toString("utf8");
                     key = { origin: ref.origin, value, header: row.probe.header, prefix: row.probe.prefix };
                 }
                 const headers = { "content-type": "application/json" };

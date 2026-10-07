@@ -307,7 +307,7 @@ async function inside() {
         impl => failureCase({ pcm: Buffer.alloc(65538) }, "playback-frame", impl));
     await control("pcm-alignment", "pcm.length % 2 !== 0", "false && pcm.length % 2 !== 0",
         impl => failureCase({ pcm: Buffer.alloc(1) }, "playback-frame", impl));
-    await control("sentence-bound", "sentence.frames > PCM_RATE * 30", "false && sentence.frames > PCM_RATE * 30",
+    await control("sentence-bound", "sentence.frames > SENTENCE_FRAMES", "false && sentence.frames > SENTENCE_FRAMES",
         impl => failureCase({ pcm: Buffer.alloc(480), sentence: { text: "one", frames: 720001 } }, "playback-sentence", impl));
     await control("sentence-complete", "if (playback.received < playback.sentenceEnd)",
         "if (false && playback.received < playback.sentenceEnd)",

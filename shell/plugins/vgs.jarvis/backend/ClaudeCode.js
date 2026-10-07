@@ -64,6 +64,26 @@ function messageOf(line) {
     try { value = JSON.parse(line); } catch { fail("harness-json"); }
     if (!plain(value) || typeof value.type !== "string") fail("harness-message");
     switch (value.type) {
+    case "stream_event": {
+        if (value.parent_tool_use_id !== null || !plain(value.event)) fail("harness-stream");
+        const event = value.event;
+        switch (event.type) {
+        case "message_start":
+            if (!plain(event.message) || typeof event.message.id !== "string") fail("harness-stream");
+            return { kind: "stream-start", id: event.message.id };
+        case "content_block_start":
+            if (!plain(event.content_block)) fail("harness-stream");
+            return event.content_block.type === "tool_use"
+                ? { kind: "stream-tool", name: event.content_block.name } : { kind: "other" };
+        case "content_block_delta":
+            if (!plain(event.delta)) fail("harness-stream");
+            if (event.delta.type !== "text_delta") return { kind: "other" };
+            if (typeof event.delta.text !== "string") fail("harness-stream");
+            return { kind: "stream-text", text: event.delta.text };
+        case "message_delta": case "message_stop": case "content_block_stop": return { kind: "other" };
+        default: return fail("harness-stream");
+        }
+    }
     case "system":
         if (value.subtype !== "init") return { kind: "other" };
         if (!Array.isArray(value.tools) || !value.tools.every(tool => typeof tool === "string")
@@ -91,7 +111,7 @@ function messageOf(line) {
             default: return fail("harness-block type=" + named(block.type));
             }
         });
-        return { kind: "assistant", blocks };
+        return { kind: "assistant", id: message.id, blocks };
     }
     // Tool result echoes carry what the bridge already released.
     case "user": return { kind: "other" };
@@ -135,7 +155,8 @@ function environmentOf(environment, directory) {
  * load: only the project source remains, and the working directory is empty.
  */
 function argvOf({ config, instructions, model }) {
-    const args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+    // https://code.claude.com/docs/en/headless#stream-responses
+    const args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
         "--tools", "", "--strict-mcp-config", "--mcp-config", config,
         "--allowedTools", "mcp__" + SERVER, "--permission-mode", "dontAsk",
         "--settings", JSON.stringify({ disableAllHooks: true }), "--setting-sources", "project",
@@ -192,7 +213,7 @@ function conversation({ directory, model, recipients, bridge, gen, parent, envir
         const names = Tools.wireNames(tools.map(tool => tool.id));
         if (names === null) fail("tool-name");
         if (names.size !== 0 && bridge === null) fail("harness-bridge");
-        context = { instructions, offered: new Set([...names.keys()].map(name => PREFIX + name)) };
+        context = { instructions, tools: structuredClone(tools), offered: new Set([...names.keys()].map(name => PREFIX + name)) };
     }
 
     function allowed(name) {
@@ -227,7 +248,7 @@ function conversation({ directory, model, recipients, bridge, gen, parent, envir
         fs.chmodSync(workdir, 0o700);
         const cwd = path.join(workdir, "cwd");
         fs.mkdirSync(cwd, { mode: 0o700 });
-        if (context.offered.size !== 0) launch = await bridge.open({ gen, recipients });
+        if (context.offered.size !== 0) launch = await bridge.open({ gen, recipients, tools: context.tools });
         // close() ran while the session opened; it could not close it then.
         if (closing !== null) { launch?.close(); fail("closed"); }
         // The token stays out of argv: the config is a private file.
@@ -349,6 +370,8 @@ function conversation({ directory, model, recipients, bridge, gen, parent, envir
         let bytes = 0;
         let timer = null;
         let record = null;
+        let streaming = null;
+        const emitted = new Map();
         let wake = () => {};
         let settle;
         const finished = new Promise(resolve => { settle = resolve; });
@@ -378,12 +401,36 @@ function conversation({ directory, model, recipients, bridge, gen, parent, envir
                 case "init": admit(record, message); return;
                 case "control": return acknowledge(message);
                 case "control-request": return fail("harness-control-request");
+                case "stream-start":
+                    if (!record.initialized) fail("harness-order");
+                    streaming = message.id;
+                    emitted.set(streaming, "");
+                    return;
+                case "stream-tool":
+                    if (!record.initialized || streaming === null) fail("harness-order");
+                    if (!allowed(message.name)) fail("harness-tool name=" + named(message.name));
+                    return;
+                case "stream-text":
+                    if (!record.initialized || streaming === null) fail("harness-order");
+                    emitted.set(streaming, emitted.get(streaming) + message.text);
+                    if (message.text !== "") queue.push({ kind: "text", text: message.text });
+                    notify();
+                    return;
                 case "assistant":
                     if (!record.initialized) fail("harness-order");
+                    let partial = emitted.get(message.id) ?? "";
                     for (const block of message.blocks) {
                         if (block.kind === "tool" && !allowed(block.name)) fail("harness-tool name=" + named(block.name));
-                        if (block.kind === "text" && block.text !== "") queue.push({ kind: "text", text: block.text });
+                        if (block.kind === "text" && block.text !== "") {
+                            const consumed = Math.min(partial.length, block.text.length);
+                            if (block.text.slice(0, consumed) !== partial.slice(0, consumed)) fail("harness-stream-text");
+                            const remainder = block.text.slice(consumed);
+                            partial = partial.slice(consumed);
+                            if (remainder !== "") queue.push({ kind: "text", text: remainder });
+                        }
                     }
+                    if (partial !== "") fail("harness-stream-text");
+                    emitted.delete(message.id);
                     notify();
                     return;
                 case "result":

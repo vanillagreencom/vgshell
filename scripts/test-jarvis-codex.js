@@ -160,6 +160,19 @@ world(async () => {
     fs.renameSync(path.join(fixtures.project, "existing"), existing);
 
     const CASES = {
+        async completedText(folder) {
+            const complete = { notify: "item/completed", params: { threadId: "$THREAD", turnId: "$TURN", completedAtMs: 1,
+                item: { type: "agentMessage", id: "m1", text: "Fixture.", phase: null, memoryCitation: null, delivery: null, questions: null } } };
+            for (const steps of [[complete, complete], [delta("Fixture."), complete]]) {
+                scenario({ turns: [steps] });
+                const w = make(folder);
+                const events = await drain(w.say("fixture"));
+                assert.deepEqual(events.map(event => event.kind), ["text", "done"]);
+                assert.equal(Buffer.byteLength(events[0].text), 8);
+                assert.equal(events[1].reason, "stop");
+                await w.brain.close();
+            }
+        },
         // The handshake's lockdown, the scrubbed program environment and a streamed turn.
         async turn(folder) {
             scenario({ servers: { userfs: { command: "fixture-server", env: { TOKEN: "fixture-secret-private" } } },
@@ -513,6 +526,8 @@ world(async () => {
         }
         let controls = 0;
         for (const [name, relative, edits, row] of [
+            ["completed-message", "backend/CodexHarness.js", [['e.item.kind === "message" && !turn.text.has(e.item.id)', 'false && e.item.kind === "message" && !turn.text.has(e.item.id)']], "completedText"],
+            ["message-dedupe", "backend/CodexHarness.js", [['e.item.kind === "message" && !turn.text.has(e.item.id)', 'e.item.kind === "message"']], "completedText"],
             ["environment-scrub", "backend/CodexHarness.js", [["env: { ...childEnvironment(env), CODEX_HOME", "env: { ...env, CODEX_HOME"]], "turn"],
             ["account-home", "backend/CodexHarness.js", [["CODEX_HOME: directory }", "CODEX_HOME: env.HOME }"]], "turn"],
             ["feature-check", "backend/CodexHarness.js", [["Codex.features(await p.call(id => Codex.featureList(id, thread)));", ""]], "turn"],

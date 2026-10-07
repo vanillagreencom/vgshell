@@ -56,7 +56,7 @@ function create({ router, state, audit, directory, release, clock = { set: setTi
      * frozen recipient set. Resolves the launch contract a harness's MCP
      * configuration uses; the token appears only in its environment.
      */
-    async function open({ gen, recipients }) {
+    async function open({ gen, recipients, tools = router.offer() }) {
         if (lifetime !== "open") fail("closed");
         if (session !== null) fail("session-open");
         if (!Number.isSafeInteger(gen) || gen < 0) fail("gen");
@@ -65,7 +65,12 @@ function create({ router, state, audit, directory, release, clock = { set: setTi
         Private.directory(directory);
         removeStale();
         const token = crypto.randomBytes(32).toString("hex");
-        const current = { gen, recipients, digest: digest(token), connections: new Set(), server: null };
+        const offers = structuredClone(tools);
+        const names = Tools.wireNames(offers.map(offer => offer.id));
+        if (names === null) fail("tool-name");
+        const offered = { names, tools: [...names.keys()].map((name, index) => ({
+            name, description: offers[index].description, inputSchema: offers[index].parameters })) };
+        const current = { gen, recipients, offered, digest: digest(token), connections: new Set(), server: null };
         current.server = net.createServer(socket => accept(current, socket));
         session = current;
         try {
@@ -165,14 +170,6 @@ function create({ router, state, audit, directory, release, clock = { set: setTi
         if (!connection.socket.write(JSON.stringify(message) + "\n")) connection.socket.pause();
     }
 
-    function offered() {
-        const offers = router.offer();
-        const names = Tools.wireNames(offers.map(offer => offer.id));
-        if (names === null) throw new Error("jarvis: bridge=tool-name");
-        return { names, tools: [...names.keys()].map((name, index) => ({
-            name, description: offers[index].description, inputSchema: offers[index].parameters })) };
-    }
-
     function judge(current, connection, line) {
         const verdict = Mcp.accept(line, connection.mcp);
         connection.mcp = verdict.phase;
@@ -180,14 +177,14 @@ function create({ router, state, audit, directory, release, clock = { set: setTi
         switch (act.kind) {
         case "reply": write(connection, act.message); return;
         case "none": return;
-        case "list": write(connection, Mcp.result(act.id, { tools: offered().tools })); return;
+        case "list": write(connection, Mcp.result(act.id, { tools: current.offered.tools })); return;
         case "call": call(current, connection, act); return;
         default: throw new Error("jarvis: bridge=act");
         }
     }
 
     function call(current, connection, act) {
-        const { names } = offered();
+        const { names } = current.offered;
         if (!names.has(act.name)) { write(connection, Mcp.error(act.id, Mcp.CODES.params, "Unknown tool")); return; }
         // The session serves one conversation generation's live thinking turn.
         const s = state();

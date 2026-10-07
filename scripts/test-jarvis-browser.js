@@ -2,7 +2,7 @@
 // Real executor and action judge in J09, using schema-shaped vendor replies.
 "use strict";
 const { assert, fs, path, tree, world, mutant } = require("./fixtures/jarvis/policy.js");
-const { daemonStandins, daemonLease, mode, update, calls } = require("./fixtures/jarvis/browser.js");
+const { daemonStandins, daemonLease, daemonStartup, mode, update, calls } = require("./fixtures/jarvis/browser.js");
 const cp = require("node:child_process");
 const backend = path.join(tree, "shell/plugins/vgs.jarvis/backend");
 const file = path.join(backend, "Browser.js");
@@ -204,6 +204,13 @@ world(async () => {
         owner.close();
     }
     await cancellation(Browser);
+    async function until(predicate) {
+        for (let n = 0; n < 500; n++) {
+            if (predicate()) return;
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        assert.fail("probe settlement absent");
+    }
     async function lifecycle(implementation, edge) {
         mode({});
         fs.mkdirSync(path.dirname(marker), { recursive: true });
@@ -212,6 +219,7 @@ world(async () => {
         const lease = implementation.install({ environment, router: { register: (id, record) => { records[id] = record; } } });
         assert.ok(lease);
         lease.sync({ gen: 1, conversation: { kind: "started" } });
+        await until(() => records.browser !== undefined);
         await new Promise(resolve => records.browser.start(call("read"), resolve));
         const first = calls().find(row => row.args.includes("snapshot"));
         if (edge === "generation") lease.sync({ gen: 2, conversation: { kind: "started" } });
@@ -230,7 +238,7 @@ world(async () => {
     }
     for (const edge of ["generation", "end", "lease"]) await lifecycle(Browser, edge);
 
-    function setupAfterStart(implementation) {
+    async function setupAfterStart(implementation) {
         mode({}); fs.rmSync(marker, { force: true });
         const records = {};
         const registrations = [];
@@ -244,9 +252,12 @@ world(async () => {
         guidance.start({ id: "help", args: { topic: "input" } }, value => { answer = value; });
         assert.deepEqual(answer, { outcome: "completed",
             content: fs.readFileSync(path.join(backend, "skills/computer/input.md"), "utf8").trim() });
+        await until(() => calls().some(row => row.args[0] === "--version") &&
+            !fs.existsSync(calls().find(row => row.args[0] === "--version").env.HOME));
         lease.sync({ gen: 1, conversation: { kind: "ended" } });
         fs.writeFileSync(marker, JSON.stringify({ version: "0.38.1" }));
         lease.sync({ gen: 2, conversation: { kind: "started" } });
+        await until(() => records.browser !== undefined);
         assert.equal(typeof records.browser?.start, "function", "setup becomes available to the next conversation");
         assert.equal(records.guidance, guidance, "browser setup retains the shared help owner");
         assert.deepEqual(registrations, ["guidance", "browser"], "each executor registers once");
@@ -260,7 +271,8 @@ world(async () => {
             "a removed or stale verification cannot start a new session");
         lease.close();
     }
-    setupAfterStart(Browser);
+    await setupAfterStart(Browser);
+    await daemonStartup(file);
     let controls = 0;
     for (const ending of ["eof", "signal"]) {
         await daemonLease(ending);
@@ -276,6 +288,10 @@ world(async () => {
         controls++;
     }
     const one = name => implementation => check(implementation, ...cases.find(row => row[0] === name));
+    await mutant(file, "startup-sync-probe", '                request = versionRequest(environment);',
+        '                version(environment); request = versionRequest(environment);',
+        (_module, folder) => daemonStartup(path.join(folder, "Browser.js")));
+    controls++;
     await control("setup-after-start", 'if (changed && !ended) prepare();', 'void changed;', setupAfterStart);
     await control("browser-topic-readiness", 'guidance.enableBrowser();', ';', setupAfterStart);
     await control("live-verification", 'if (status(environment).tone !== "ok") throw new Error("jarvis: browser=unverified");',

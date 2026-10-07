@@ -62,6 +62,9 @@ if start == "deaf":
     send({"type": "ready"})
     while True:
         time.sleep(60)
+if start == "silent":
+    while True:
+        time.sleep(60)
 if start == "garbage":
     sys.stdout.buffer.write(struct.pack(">II", 2, 0) + b"[]")
     sys.stdout.buffer.flush()
@@ -92,6 +95,8 @@ while True:
         rms = math.sqrt(sum(v * v for v in samples) / len(samples)) if samples else 0.0
         record({"end": ident, "samples": len(samples), "crossings": crossings, "rms": rms})
         action = utterances.pop(0)
+        if action.get("stall"):
+            continue
         if "exit" in action:
             sys.exit(action["exit"])
         if "final" in action:
@@ -101,6 +106,8 @@ while True:
     elif kind == "speak":
         record({"speak": ident, "text": payload.decode()})
         action = speech.pop(0)
+        if action.get("stall"):
+            continue
         if "failed" in action:
             send({"type": "failed", "id": ident, "cause": action["failed"]})
             continue

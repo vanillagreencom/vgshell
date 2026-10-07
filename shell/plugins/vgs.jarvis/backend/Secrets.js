@@ -153,11 +153,16 @@ class Secrets {
     // No cache and no CLI verb for lookup: adapters get the Buffer directly.
     lookup(ref) {
         const key = this.run("secret-tool", ["lookup", ...this.attributes(ref)]);
-        if (key.length === 0 || key.length > MAX_SECRET_BYTES) {
+        // secret-tool terminates its lookup output with LF. Keep all other
+        // bytes so the network owner can reject an invalid credential.
+        const size = key.length - (key.at(-1) === 10 ? 1 : 0);
+        if (size === 0 || size > MAX_SECRET_BYTES) {
             key.fill(0);
             fail("secret-tool=empty-or-oversize");
         }
-        return key;
+        const value = Buffer.from(key.subarray(0, size));
+        key.fill(0);
+        return value;
     }
 
     // SearchItems exposes paths, not secrets. Both presence and the explicit

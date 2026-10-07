@@ -63,6 +63,38 @@ function duplexSpeaking(logic) {
     return step(logic, s, callback("speak", s.speech, 32)).state;
 }
 const table = [
+    ["collection-deadline", logic => {
+        let s = listening(logic);
+        assert.equal(s.turn.deadline, null);
+        s = step(logic, s, event("talk-up", 100000)).state;
+        assert.equal(s.turn.deadline, 160000);
+        s = step(logic, s, callback("capture-closed", s.capture, 100001)).state;
+        assert.equal(s.turn.deadline, 160001);
+        assert.equal(step(logic, s, callback("deadline", s.turn, 160000)).state.turn.kind, "collecting");
+        const expired = step(logic, s, callback("deadline", s.turn, 160001));
+        assert.equal(expired.state.turn.kind, "none");
+        assert.equal(expired.state.fault.kind, "error");
+        assert.equal(expired.state.fault.reason, "speech=collect-timeout");
+        assert.equal(expired.state.conversation.kind, "ended");
+        assert.equal(step(logic, expired.state, callback("final", s.turn, 160002, { text: "fixture" })).state.stale,
+            expired.state.stale + 1);
+        assert.equal(logic.validate(expired.state), true);
+    }],
+    ["playback-deadline", logic => {
+        const playing = speaking(logic);
+        assert.equal(playing.playback.deadline, null);
+        const s = step(logic, playing, callback("brain-done", playing.turn, 100)).state;
+        assert.equal(s.playback.deadline, 300100);
+        assert.equal(logic.validate(s), true);
+        assert.equal(step(logic, s, callback("deadline", s.playback, 300099)).state.playback.kind, "playing");
+        const expired = step(logic, s, callback("deadline", s.playback, 300100));
+        assert.equal(expired.state.fault.reason, "playback-timeout");
+        assert.equal(expired.state.playback.kind, "flushing");
+        assert.equal(expired.state.conversation.kind, "ended");
+        assert.equal(kinds(expired).includes("playback-flush"), true);
+        assert.equal(kinds(expired).includes("brain-close"), true);
+        assert.equal(step(logic, expired.state, callback("played", s.playback, 300101)).state.stale, expired.state.stale + 1);
+    }],
     ["confirmation", logic => {
         const heldState = held(logic);
         const s = step(logic, heldState, callback("shown", heldState.approval, 50)).state;
@@ -1131,6 +1163,8 @@ let controls = 0;
 try {
     // Each independent lifetime rule has its own planted defect.
     const mutants = [
+        ["collect-limit", 's.turn.kind === "collecting" && s.turn.deadline !== null && at >= s.turn.deadline', 'false && s.turn.kind === "collecting" && s.turn.deadline !== null && at >= s.turn.deadline', "collection-deadline"],
+        ["playback-limit", 's.playback.kind === "playing" && s.playback.deadline !== null && at >= s.playback.deadline', 'false && s.playback.kind === "playing" && s.playback.deadline !== null && at >= s.playback.deadline', "playback-deadline"],
         ["confirm-id", "e.id !== approval.id", "(false && e.id !== approval.id)", "confirm-id"],
         ["confirm-digest", "e.digest !== approval.digest", "(false && e.digest !== approval.digest)", "confirm-digest"],
         ["confirm-generation", "e.gen !== approval.gen", "(false && e.gen !== approval.gen)", "confirm-generation"],
