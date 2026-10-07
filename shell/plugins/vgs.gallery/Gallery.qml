@@ -24,7 +24,12 @@ Item {
 
     function open(payloadJson) { payload = payloadJson ? JSON.parse(payloadJson) : {}; }
     function close() {}
-    function toast() { shell.toasts.show({ title: "Saved", message: "The theme was saved", tone: "success", icon: "check" }); return "ok"; }
+    // A sample of the one way a plugin tells the user something.
+    function notify() {
+        const reply = shell.notify.send({ title: "Saved", message: "The theme was saved", tone: "success", icon: "check" });
+        if (reply !== "ok") console.error("gallery: notice " + reply);
+        return reply;
+    }
 
     implicitWidth: Theme.size.panel.lg
     implicitHeight: Theme.size.panel.maxHeight
@@ -339,7 +344,7 @@ Item {
                 Flow {
                     width: parent.width
                     spacing: Theme.stack.inline
-                    Button { text: "Show a toast"; variant: "tertiary"; iconName: "bell"; onClicked: root.toast() }
+                    Button { text: "Send a notification"; variant: "tertiary"; iconName: "bell"; onClicked: root.notify() }
                     Button {
                         text: "Open a popover"
                         variant: "tertiary"
@@ -365,7 +370,8 @@ Item {
                         }
                     }
                 }
-                Toast { title: "Update available"; message: "io.github.example.deck is 42 commits behind"; tone: "info"; iconName: "download"; width: parent.width }
+                Label { role: "hint"; color: Theme.color.textMuted; text: "A plugin tells you something through a system notification, which Notifications draws."; width: parent.width; wrapMode: Text.Wrap }
+                Label { role: "hint"; color: Theme.color.textMuted; text: "VGS has no toast of its own."; width: parent.width; wrapMode: Text.Wrap }
 
                 }
                 Section {

@@ -34,7 +34,7 @@
 # write in the data home late in the full row order: the service's browser
 # and the launcher's first listing are polled every 200 ms for up to
 # wa_index_s.
-# inputs: scripts/smoke/webapps-browsers.sh shell/plugins/vgs.webapps/* shell/plugins/vgs.settings/* shell/plugins/vgs.launcher/* shell/Hosts/SummonLayer.qml shell/Commons/DesktopLaunch.js shell/Core/Compositor.qml shell/Core/Dispatch.js bin/lib/qml-library.js
+# inputs: scripts/smoke/webapps-browsers.sh shell/plugins/vgs.webapps/* shell/plugins/vgs.settings/* shell/plugins/vgs.launcher/* shell/plugins/vgs.notifications/* shell/Core/Notifier.qml shell/Hosts/SummonLayer.qml shell/Commons/DesktopLaunch.js shell/Core/Compositor.qml shell/Core/Dispatch.js bin/lib/qml-library.js
 set -euo pipefail
 
 wa_id=vgs.webapps
@@ -80,7 +80,9 @@ wa_launch_count() { if [[ -f $wa_launches ]]; then wc -l <"$wa_launches"; else e
 wa_windows() { hypr -j clients | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c["class"] == sys.argv[1] and c["mapped"]))' "$1"; }
 wa_client_count() { hypr -j clients | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 wa_active_class() { hypr -j activewindow | py_reply 'import json,sys; d=json.load(sys.stdin); print(d.get("class") or "none")'; }
-wa_toast_count() { ipc shell lent | py_reply 'import json,sys; t=json.load(sys.stdin)["toasts"]; print(sum(1 for e in t["visible"] + t["waiting"] if e["title"] == sys.argv[1]))' "$1"; }
+# wa_card_count TITLE: how many cards Notifications shows from Web Apps
+# with TITLE.
+wa_card_count() { plugin_card_count "Web Apps" "$1"; }
 wa_focused() { expect_poll "$1" true ipc smoke activeFocusIn overlay vgs.launcher; }
 # wa_index_poll LABEL WANT CMD...: as expect_poll, for up to wa_index_s;
 # 1 when CMD never answers WANT.
@@ -220,14 +222,16 @@ wa_focused "the launcher holds the keyboard before Escape"
 type_keys -k Escape -k Escape || fail "sending Escape in the launcher failed"
 expect_poll "Escape closes the launcher" 0 layer_count vgs:overlay
 
-# Control: with no browser, a selection shows its message, launches
-# nothing and maps no window.
+# Control: with no browser, a selection sends its message, which
+# Notifications draws as a card, launches nothing and maps no window.
+notes_on "webapps"
 wa_clients_before="$(wa_client_count)" || wa_clients_before=unread
 if wa_select "Smoke Mail" "with no browser" none; then
-  expect_poll "control: the selection with no browser shows its message" 1 wa_toast_count "Web app did not open"
+  expect_poll "control: the selection with no browser shows its message" 1 wa_card_count "Web app did not open"
   expect "control: the selection with no browser launches nothing" 0 wa_launch_count
   expect "control: no window maps for the selection with no browser" "$wa_clients_before" wa_client_count
 fi
+notes_off "webapps"
 
 # The stand-in browser's entry: once the service names it, a selection
 # launches it.

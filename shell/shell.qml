@@ -78,11 +78,6 @@ ShellRoot {
 
     LazyLoader {
         active: root.guarded
-        ToastHost {}
-    }
-
-    LazyLoader {
-        active: root.guarded
         NoticeHost {}
     }
 

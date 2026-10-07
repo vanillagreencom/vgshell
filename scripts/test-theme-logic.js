@@ -189,7 +189,7 @@ const DEFAULTS = [
     ["button.size.sm.icon", 14],
     ["button.size.lg.gap", 12],
     ["menu.maxWidth", 360],
-    ["toast.gap", 8],
+    ["tabs.gap", 8],
     // An on-screen level: mul(4, 3) = 12 padding and gaps, the 24 px
     // icon, a 144 px bar and labels up to 192 px, on the 4 px grid.
     ["osd.padding", 12],
@@ -328,7 +328,7 @@ const ACCEPTED = [
     { tokens: { bar: { active: "#ffffff" } }, want: [["bar.active", "#ffffffff"], ["bar.onActive", "#000000ff"], ["color.accent", "#ff5a36ff"]] },
     { tokens: { space: { unit: 5 } }, want: [["space.xs", 5], ["space.sm", 8], ["space.xl", 20], ["bar.gap", 10], ["row.paddingX", 15], ["listItem.paddingX", 15], ["field.paddingX", 0], ["stack.row", 5], ["badge.size.sm.paddingX", 8], ["codeLine.padding", 10], ["kbd.paddingX", 8], ["control.paddingX", 15], ["control.sm.gap", 5], ["textField.paddingX", 13]] },
     // One shared token moves every control that follows the rhythm.
-    { tokens: { control: { paddingX: 12, gap: 5 } }, want: [["button.paddingX", 12], ["textField.paddingX", 10], ["segmented.paddingX", 12], ["button.gap", 5], ["textField.gap", 5], ["listItem.gap", 5], ["menu.item.gap", 5], ["toast.contentGap", 5], ["bar.item.iconGap", 5], ["bar.item.paddingX", 8]] },
+    { tokens: { control: { paddingX: 12, gap: 5 } }, want: [["button.paddingX", 12], ["textField.paddingX", 10], ["segmented.paddingX", 12], ["button.gap", 5], ["textField.gap", 5], ["listItem.gap", 5], ["menu.item.gap", 5], ["checkbox.gap", 5], ["bar.item.iconGap", 5], ["bar.item.paddingX", 8]] },
     // Control sizes move the controls and never the rows' density.
     { tokens: { size: { control: { md: 34, lg: 44 } } }, want: [["textField.height", 34], ["segmented.height", 34], ["menu.item.height", 34], ["menu.maxHeight", 306], ["row.height", 36], ["listItem.height", 36], ["listItem.twoLineHeight", 56]] },
     { tokens: { row: { height: 40, twoLineHeight: 60 } }, want: [["listItem.height", 40], ["listItem.twoLineHeight", 60], ["textField.height", 32]] },
@@ -485,7 +485,7 @@ const BAD_TABLES = [
     [{ opacity: { disabled: { type: "number", value: 0.5 } } }, "opacity.disabled is a number without a range"],
     [{ motion: { scale: { type: "number", value: 1, min: 0, max: 4 } }, size: { panel: { sm: { type: "length", value: 1, min: "0" } } } }, "size.panel.sm.min must be a finite number"],
     [{ motion: { scale: { type: "number", value: 1, min: 0, max: 4 } }, size: { panel: { sm: { type: "length", value: 1, min: 4, max: 2 } } } }, "size.panel.sm.min must not be greater than max"],
-    [{ toast: { corner: { type: "choice", value: "top" } } }, "toast.corner is a choice without options"],
+    [{ scheme: { mode: { type: "choice", value: "dark" } } }, "scheme.mode is a choice without options"],
     [{ palette: { "on-accent": { type: "color", value: "#fff" } } }, "palette.on-accent is not a token name"],
     [{ palette: {} }, "group palette is empty"],
     [{ palette: { accent: "#fff" } }, "palette.accent is neither a group nor a token"],

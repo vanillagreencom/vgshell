@@ -50,8 +50,9 @@
 # voxtype's status stream and audio bridge, so no audio device opens, taken
 # only when named; voice-setup is the requirement notice Voice's Set up
 # raises without voxtype and Voice's Settings page then, the screen after a
-# Set up run over a voxtype stand-in ended with code 0, with the Voice
-# toast where the tree has it, and Voice's Settings page once the
+# Set up run over a voxtype stand-in ended with code 0, with Voice's
+# core toast or its notification card where the tree sends one, and
+# Voice's Settings page once the
 # stand-ins report it ready, taken only when named; voice-keys is the Keys
 # section of Voice's Settings page with Voice on, then the pointer on its
 # first key's info icon with that icon's tooltip open where the tree draws
@@ -1909,8 +1910,10 @@ voice_level_flowing() { ipc smoke readInstance service vgs.voice level | py_repl
 # shows whatever the host runs; Escape closes it and drops the Set up it
 # owed. Then a voxtype stand-in reports the speech model missing, Set up
 # runs, the stand-in terminal runs `true` for the script (harness.sh's
-# terminal_stand_in) and the run ends with code 0. A tree whose Voice shows
-# a toast for that end is shot once the toast shows; an older one after a
+# terminal_stand_in) and the run ends with code 0. A tree whose Voice names
+# capability toasts is shot once the core toast for that end shows; one
+# whose Voice names notify once Voice's card shows in vgs.notifications,
+# which the scene enables with Silence off for it; an older one after a
 # bounded wait. Voice's Settings page is shot without voxtype and once the
 # stand-ins report the model installed and a systemctl stand-in the
 # service enabled and running, scrolled so its whole Setup section is in
@@ -1919,11 +1922,29 @@ voice_level_flowing() { ipc smoke readInstance service vgs.voice level | py_repl
 # the section draws its chip. Enablement, stand-ins and the package script
 # are put back, and the Settings window is hidden again.
 scene_voice-setup() { # MODE
-  local voice_found settings_found pkg_real="$sandbox/voice-setup-vgshell-pkg.real" systemctl_saved="$sandbox/voice-setup-systemctl.saved" stood=() command before
+  local voice_found settings_found notes_found=True silence_found=false pkg_real="$sandbox/voice-setup-vgshell-pkg.real" systemctl_saved="$sandbox/voice-setup-systemctl.saved" stood=() command before notifies=false
   voice_found="$(plugin_enabled vgs.voice)" || voice_found=unread
   settings_found="$(plugin_enabled vgs.settings)" || settings_found=unread
   [[ $voice_found == True || $voice_found == False ]] || fail "vgs.voice's enablement is unreadable before the Voice setup scene: $voice_found"
   [[ $settings_found == True || $settings_found == False ]] || fail "vgs.settings' enablement is unreadable before the Voice setup scene: $settings_found"
+  if grep -qF '"notify"' "$tree/shell/plugins/vgs.voice/manifest.json"; then
+    notifies=true
+    notes_found="$(plugin_enabled vgs.notifications)" || notes_found=unread
+    [[ $notes_found == True || $notes_found == False ]] || fail "vgs.notifications' enablement is unreadable before the Voice setup scene: $notes_found"
+    if [[ $notes_found == False ]]; then
+      expect "enabling vgs.notifications for the Voice setup scene is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+      expect_poll "vgs.notifications is built for the Voice setup scene" True record_exists vgs.notifications
+    fi
+    # The status function registers once the store is read, after the
+    # plugin is built: 10 s at most, polled as expect_poll polls.
+    for _ in $(seq 1 50); do
+      silence_found="$(voice_setup_silence)" || silence_found=unread
+      [[ $silence_found == unread || $silence_found == empty ]] || break
+      sleep 0.2
+    done
+    [[ $silence_found == true || $silence_found == false ]] || fail "Silence is unreadable before the Voice setup scene: $silence_found"
+    [[ $silence_found == false ]] || expect "Silence goes off for the Voice setup scene" off notes silence off
+  fi
   # Voice's required commands stand in where the shell finds none, so
   # enabling it raises no notice of its own.
   for command in wtype wl-copy; do
@@ -1985,6 +2006,8 @@ EOF
   expect_poll "the Set up run ends with code 0" 0 voice_setup_code "$before"
   if grep -qF '"toasts"' "$tree/shell/plugins/vgs.voice/manifest.json"; then
     expect_poll "the finished Set up shows Voice's toast" 1 voice_setup_toasts
+  elif [[ $notifies == true ]]; then
+    expect_poll "the finished Set up shows Voice's notification" 1 voice_setup_cards
   else
     # A tree from before the toast: a short bounded wait, 2 s, for the
     # page and the bar to settle after the run.
@@ -1993,9 +2016,16 @@ EOF
   park_pointer
   take "voice-setup-$1-done"
 
-  # The toast goes before the page's shot and the next mode's dialog, so no
-  # shot holds it twice.
-  expect_poll "Voice's toast is gone after the Voice setup run" 0 voice_setup_toasts
+  # The toast or the notification goes before the page's shot and the next
+  # mode's dialog, so no shot holds it twice; the notification leaves the
+  # History too, so no later shot shows it there.
+  if [[ $notifies == true ]]; then
+    expect "Voice's notification is dismissed" ok notes dismiss-all
+    expect_poll "Voice's notification is gone after the Voice setup run" 0 on_screen
+    expect "the history clears after the Voice setup run" ok notes clear-history
+  else
+    expect_poll "Voice's toast is gone after the Voice setup run" 0 voice_setup_toasts
+  fi
   # Ready: the stand-in reports its version and the model installed, and a
   # systemctl stand-in, over whichever the sandbox holds, the service
   # enabled and running.
@@ -2030,6 +2060,11 @@ EOF
   if [[ $settings_found == False ]]; then
     expect "disabling vgs.settings after the Voice setup scene is allowed" ok ipc shell setPluginEnabled vgs.settings false
     expect_poll "vgs.settings is gone after the Voice setup scene" False record_exists vgs.settings
+  fi
+  [[ $silence_found != true ]] || expect "Silence goes back on after the Voice setup scene" on notes silence on
+  if [[ $notes_found == False ]]; then
+    expect "disabling vgs.notifications after the Voice setup scene is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+    expect_poll "vgs.notifications is gone after the Voice setup scene" False record_exists vgs.notifications
   fi
   rm -f -- "${shim:?}/voxtype" "${shim:?}/systemctl"
   if [[ -e $systemctl_saved ]]; then mv -- "$systemctl_saved" "$shim/systemctl"; fi
@@ -2091,6 +2126,10 @@ voice_setup_code() { # BEFORE
   ipc shell lent | py_reply 'import json,sys; r=json.load(sys.stdin)["tui"]["runs"].get("vgs.voice/setup") or {}; e=r.get("ended"); print(e["code"] if e and e["run"] != sys.argv[1] and r.get("running") is None else "pending")' "$1"
 }
 voice_setup_toasts() { ipc shell lent | py_reply 'import json,sys; t=json.load(sys.stdin)["toasts"]; print(sum(r["plugin"] == "vgs.voice" for k in ("visible", "waiting") for r in t[k]))'; }
+# Voice's cards in vgs.notifications' layer: the core sends Voice's
+# message under its manifest name.
+voice_setup_cards() { ipc smoke layerItems vgs.notifications NotificationCard app | py_reply 'import json,sys; print(sum(v["app"] == "Voice" for _, _, v in json.load(sys.stdin)))'; }
+voice_setup_silence() { notes status | py_reply 'import json,sys; print(str(json.load(sys.stdin)["silence"]).lower())'; }
 # The launcher state present, so the press launches: a host without
 # xdg-terminal-exec left it missing at the shell's start, and one request
 # then answers launcher-missing, launches nothing and probes again, now

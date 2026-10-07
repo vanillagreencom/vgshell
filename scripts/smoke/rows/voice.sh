@@ -21,8 +21,9 @@
 # systemctl stand-in. Install hands the terminal voxtype-bin through the AUR helper,
 # the row puts the stubs back as the package step would, and the scan after
 # the run closes the notice and opens Set up on its own; the stubs then
-# report the model and the service in place, a finished Set up shows one
-# Voice toast, and the toggle shortcut runs a test dictation. Its control: Not now on that notice drops the Set up, so
+# report the model and the service in place, a finished Set up sends one
+# Voice notification, which vgs.notifications, enabled for that part,
+# draws as a card, and the toggle shortcut runs a test dictation. Its control: Not now on that notice drops the Set up, so
 # no setup TUI opens once a scan finds voxtype. A stand-in bin/vgshell-pkg
 # answers detection with pacman and paru, whatever the host runs, for
 # that part alone. The key delivery
@@ -53,7 +54,7 @@
 # setting, theme and copy the display part changes is put back; it reuses
 # the Voice client above. States and frames poll once per IPC round trip;
 # no latency budget is claimed.
-# inputs: shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 
 voice_log="$sandbox/voice-record.log"
@@ -684,9 +685,9 @@ chmod 755 "$sandbox/voice-vgshell-pkg.stub"
 cp -- "$sandbox/voice-vgshell-pkg.stub" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
 voice_resumes() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["notices"]["resumes"]))'; }
 # The notice's entries as [chip, the number of lines under it].
-# The toasts Voice shows, shown or waiting; Voice shows none but the one a
-# finished Set up raises.
-voice_toasts() { ipc shell lent | py_reply 'import json,sys; t=json.load(sys.stdin)["toasts"]; print(sum(r["plugin"] == "vgs.voice" for k in ("visible", "waiting") for r in t[k]))'; }
+# The cards Notifications shows from Voice; Voice sends no notification
+# but the one a finished Set up sends.
+voice_cards() { plugin_cards Voice | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 voice_notice_groups() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps([[g[0], len(g[1])] for g in json.load(sys.stdin)["groups"]]))'; }
 # The Voice page's Setup section on its Settings tab: its chips as [text,
 # tone] and its buttons as [text, variant, enabled, whether its tooltip
@@ -822,9 +823,10 @@ rescan "control: voxtype is removed again"
 expect_poll "control: voxtype is missing again" missing voice_requirement voxtype
 
 # One press of Set up: the notice installs voxtype, then Set up runs.
-# The toast count before it and the one after its run ended are each
+# The card count before it and the one after its run ended are each
 # other's control.
-expect "no Voice toast shows before Set up runs" 0 voice_toasts
+notes_on "voice"
+expect "no Voice card shows before Set up runs" 0 voice_cards
 forget_record
 expect "Set up without voxtype is answered again" ok settings_open_tui vgs.voice setup
 expect_poll "Set up raises the notice again" "$voice_asked" notice_shown
@@ -841,7 +843,8 @@ expect_poll "the scan after the install closes the notice" null notice_shown
 expect_poll "the closed notice opens Set up on its own" "$(words vgs.voice/setup tui/setup.sh)" recorded_tail
 expect "nothing waits on a notice once Set up opened" '{}' voice_resumes
 expect_run_end "the setup run ends" vgs.voice/setup
-expect_poll "the setup run that ended with code 0 shows one Voice toast" 1 voice_toasts
+expect_poll "the setup run that ended with code 0 shows one Voice card" 1 voice_cards
+expect "the Voice card says it is ready in the success tone with the mic icon" success-mic py_reply 'import json,sys; r=json.load(sys.stdin)[0]; print(r[3] + "-" + r[4])' < <(plugin_cards Voice)
 expect_poll "Voice sees voxtype after the install" true ipc smoke readInstance service vgs.voice voxtypePresent
 # The stand-in terminal runs `true` for the setup script, so the stubs take
 # the state the script leaves, which scripts/test-voice-tui.sh reads.
@@ -872,7 +875,7 @@ expect "the toggle shortcut reaches Voice" ok hypr dispatch 'hl.dsp.global("vgs.
 expect_poll "a test dictation runs only voxtype record toggle" ok voice_toggle_only
 settings_page_close vgs.voice
 expect "disabling Voice after the setup rows is allowed" ok ipc shell setPluginEnabled vgs.voice false
-expect_poll "no Voice toast is left for the next row" 0 voice_toasts
+notes_off "voice"
 cp -- "$voice_pkg_real" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
 voice_engine_removed
 rm -f -- "${voice_installed:?}"

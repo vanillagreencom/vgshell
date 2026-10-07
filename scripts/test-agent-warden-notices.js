@@ -2,7 +2,8 @@
 // The Agent Warden plugin's notices, shell/plugins/vgs.agent-warden/Notices.js,
 // under node: when the service owns the notices, which episodes each status
 // holds, which are new against the episodes remembered, the notices each
-// `notify` setting sends, their words, the notify-send argv and the toast,
+// `notify` setting sends, their words, the notify-send argv and the
+// shell.notify.send options,
 // and the reading of a press. The statuses are vsys's fixtures, copied into
 // scripts/smoke/fixtures/agent-warden/, read through WardenLogic as the
 // service reads them, and every expected value is written out by hand. No
@@ -181,7 +182,7 @@ const COPY = [
 ];
 
 // One episode of each kind, for the settings: every kind but a move goes
-// out under problems, a move only under everything, as a toast.
+// out under problems, a move only under everything, through the shell.
 const ONE_EACH = [
     { key: "tasks:s", kind: "tasks", tool: "claude", worktree: null, used: 1, limit: 2 },
     { key: "memory:s", kind: "memory", tool: "claude", worktree: null, used: 1, limit: 2 },
@@ -204,7 +205,7 @@ const MODES = [
         ["tasks", ["tasks:s"], "notify", "normal", true], ["memory", ["memory:s"], "notify", "normal", true],
         ["not-moving", ["not-moving:agents.slice"], "notify", "critical", true], ["move-failure", ["move-failure:s"], "notify", "normal", true],
         ["not-checking", ["not-checking:agent-warden"], "notify", "normal", false], ["reaped", ["reaped:s", "reaped:t"], "notify", "low", false],
-        ["moved", ["moved:s"], "toast", null, false]
+        ["moved", ["moved:s"], "shell", "low", false]
     ]]
 ];
 
@@ -254,7 +255,7 @@ function verify(n) {
     assert.throws(() => n.notices(ONE_EACH, "loud", true, NOW), /notify="loud" unknown/);
     assert.throws(() => n.notices([{ key: "odd:s", kind: "odd" }], "everything", true, NOW), /episode kind="odd" unknown/);
 
-    // The argv, the action's ceiling and the toast.
+    // The argv, the action's ceiling and the shell.notify.send options.
     const [tasks] = n.notices([COPY[0][1][0]], "problems", true, NOW);
     same(n.argv(tasks, 0), ["notify-send", "-a", "Agent Warden", "-u", "normal", "-A", "open=Open vsys", "--", COPY[0][3], COPY[0][4]]);
     same(n.argv(tasks, n.MAX_WAITING - 1).slice(0, 7), ["notify-send", "-a", "Agent Warden", "-u", "normal", "-A", "open=Open vsys"], "the last waiting place offers the button");
@@ -267,9 +268,9 @@ function verify(n) {
     const dashed = Object.assign({}, tasks, { title: "-rf", body: "--hint=x" });
     same(n.argv(dashed, 0).slice(-3), ["--", "-rf", "--hint=x"], "text after -- stays text");
     const [moved] = n.notices([{ key: "moved:s", kind: "moved", tools: ["claude"] }], "everything", true, NOW);
-    same(n.toast(moved), { title: "Moved an agent back into its limits", message: "claude was running without limits. Agent Warden applied limits to keep your computer responsive.", tone: "accent", icon: "shield-check" });
-    assert.throws(() => n.argv(moved, 0), /channel="toast" is not notify-send's/);
-    assert.throws(() => n.toast(tasks), /channel="notify" is not a toast/);
+    same(n.shellOptions(moved), { title: "Moved an agent back into its limits", message: "claude was running without limits. Agent Warden applied limits to keep your computer responsive.", tone: "info", icon: "shield-check", urgency: "low", transient: true });
+    assert.throws(() => n.argv(moved, 0), /channel="shell"/);
+    assert.throws(() => n.shellOptions(tasks), /channel="notify"/);
     for (const [stdout, want] of PRESSES) assert.equal(n.pressed(stdout), want, "pressed " + JSON.stringify(stdout));
     assert.equal(n.HEARTBEAT_MS, 60000, "the heartbeat is touched well inside the warden's 120 s");
 
@@ -321,6 +322,9 @@ const CONTROLS = [
     ["Open vsys without vsys", "action: look.action && vsys,", "action: look.action,"],
     ["the button ignores the waiting ceiling", "return notice.action && waiting < MAX_WAITING;", "return notice.action;"],
     ["no end of options", "return out.concat([\"--\", notice.title, notice.body]);", "return out.concat([notice.title, notice.body]);"],
+    ["a move is a notify-send run", '"moved": { channel: "shell",', '"moved": { channel: "notify",'],
+    ["a move keeps History", "urgency: notice.urgency, transient: true };", "urgency: notice.urgency };"],
+    ["a notify-send notice goes through the shell", 'if (notice.channel !== "shell") throw', 'if (false) throw'],
     ["any output is a press", "return stdout.trim() === ACTION;", "return stdout.trim() !== \"\";"],
     ["owns without notify-send", " && missing.indexOf(\"notify-send\") === -1", ""],
     ["owns a status it cannot read", "return status.kind === \"read\" &&", "return status.kind !== \"pending\" &&"],

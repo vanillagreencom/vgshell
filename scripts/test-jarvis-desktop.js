@@ -172,12 +172,12 @@ world(async () => {
         ["url", "apps.url", { url: "https://example.test/page" }, null, "unknown", /"https:\/\/example\.test\/page"/,
             d => assert.deepEqual(d.requests.at(-1), { kind: "run.detached", args: ["gio", "open", "https://example.test/page"] })],
         ["run-refused", "apps.url", { url: "https://example.test/" }, d => { d.modes["run.detached"] = "refuse"; }, "failed", /refused run\.detached/],
-        ["toast", "notify.toast", { title: "Fixture", body: "Line one\nLine two" }, null, "completed", /notice was posted/,
-            d => assert.deepEqual(d.requests, [{ kind: "toast", args: ["Fixture", "Line one\nLine two"] }])],
-        ["toast-locked", "notify.toast", { title: "Fixture", body: "body" }, d => { d.locked = true; }, "completed", /posted/],
-        ["toast-refused", "notify.toast", { title: "Fixture", body: "body" }, d => { d.modes.toast = "refuse"; }, "failed", /refused toast/],
-        ["toast-silent", "notify.toast", { title: "Fixture", body: "body" }, d => { d.modes.toast = "silent"; }, "unknown", /did not answer toast/],
-        ["toast-oversize", "notify.toast", { title: "Fixture", body: "x".repeat(5000) }, null, "failed", /could not be sent: jarvis: protocol=request-args/,
+        ["notify", "notify.send", { title: "Fixture", body: "Line one\nLine two" }, null, "completed", /notice was posted/,
+            d => assert.deepEqual(d.requests, [{ kind: "notify", args: ["Fixture", "Line one\nLine two"] }])],
+        ["notify-locked", "notify.send", { title: "Fixture", body: "body" }, d => { d.locked = true; }, "completed", /posted/],
+        ["notify-refused", "notify.send", { title: "Fixture", body: "body" }, d => { d.modes.notify = "refuse"; }, "failed", /refused notify/],
+        ["notify-silent", "notify.send", { title: "Fixture", body: "body" }, d => { d.modes.notify = "silent"; }, "unknown", /did not answer notify/],
+        ["notify-oversize", "notify.send", { title: "Fixture", body: "x".repeat(5000) }, null, "failed", /could not be sent: jarvis: protocol=request-args/,
             d => assert.deepEqual(d.requests, [])]
     ];
 
@@ -281,7 +281,7 @@ world(async () => {
             [["wire", []], ["windows", ["hyprctl"]], ["compositor", ["hyprctl"]], ["apps", ["hyprctl"]]],
             "the shared seam installs each desktop record once");
         assert.deepEqual(await installedSeam(Executors, true), [["wire", []]],
-            "toast stays offered without Hyprland");
+            "notify.send stays offered without Hyprland");
         assert.deepEqual(await installedSeam(Executors, false, true), [["wire", []]],
             "the seam closes the shared desktop lifetime before its probe registers");
     };

@@ -77,7 +77,6 @@ Singleton {
     readonly property var tooltip: published.tooltip
     readonly property var menu: published.menu
     readonly property var select: published.select
-    readonly property var toast: published.toast
     readonly property var osd: published.osd
     readonly property var saveBar: published.saveBar
     readonly property var dialog: published.dialog

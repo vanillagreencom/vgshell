@@ -21,13 +21,13 @@ function harness(ShellRequests) {
         Protocol.accept(JSON.stringify({ v: 1, type: "request", gen: 0, revision: "a".repeat(64), ...fields }), "daemon");
         written.push(fields);
     } });
-    const send = (kind = "toast", args = ["Title", "Body"], timeoutMs = 100) => {
+    const send = (kind = "notify", args = ["Title", "Body"], timeoutMs = 100) => {
         const index = answers.length;
         answers.push([]);
         requests.send(kind, args, timeoutMs, value => answers[index].push(value));
         return index;
     };
-    const reply = (id, kind = "toast", answer = "ok", data = null) =>
+    const reply = (id, kind = "notify", answer = "ok", data = null) =>
         requests.reply({ v: 1, type: "reply", gen: 0, revision: "a".repeat(64), id, kind, answer, data });
     const advance = ms => {
         at += ms;
@@ -40,7 +40,7 @@ function checks(ShellRequests) {
     // An answered request delivers the shell's reply once and frees its slot.
     let h = harness(ShellRequests);
     const first = h.send();
-    assert.deepEqual(h.written, [{ id: 1, kind: "toast", args: ["Title", "Body"] }]);
+    assert.deepEqual(h.written, [{ id: 1, kind: "notify", args: ["Title", "Body"] }]);
     assert.equal(h.requests.pending, 1);
     h.reply(1);
     assert.deepEqual(h.answers[first], [{ kind: "answer", answer: "ok", data: null }]);
@@ -80,11 +80,11 @@ function checks(ShellRequests) {
     h.reply(1);
     assert.throws(() => h.reply(1), { message: "jarvis: protocol=reply-unknown" }, "a second reply");
     h.send("desktop.list", []);
-    assert.throws(() => h.reply(2, "toast"), { message: "jarvis: protocol=reply-kind" });
+    assert.throws(() => h.reply(2, "notify"), { message: "jarvis: protocol=reply-kind" });
 
     // A request the judge refuses fails alone and holds no slot.
     h = harness(ShellRequests);
-    const refused = h.send("toast", ["Title", "x".repeat(5000)]);
+    const refused = h.send("notify", ["Title", "x".repeat(5000)]);
     assert.deepEqual(h.answers[refused], [{ kind: "refused", reason: "jarvis: protocol=request-args" }]);
     assert.equal(h.requests.pending, 0);
     h.send();

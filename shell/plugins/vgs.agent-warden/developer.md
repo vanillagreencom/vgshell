@@ -47,9 +47,9 @@ The service sends one desktop notification when something starts to need a look,
 | `move-failure` | the tree's unit | a move failed or left part behind in the last 5 minutes | Some agent processes still have no limits | normal | yes |
 | `reaped` | the leftover unit | leftover work was stopped in the last 5 minutes | Cleaned up after a finished agent | low | no |
 | `not-checking` | `agent-warden` | the status is stale | Agent Warden has stopped checking | normal | no |
-| `moved` | the tree's unit | an agent was moved back into its limits in the last 5 minutes | Moved an agent back into its limits | toast | no |
+| `moved` | the tree's unit | an agent was moved back into its limits in the last 5 minutes | Moved an agent back into its limits | low, through `shell.notify.send`, left out of History | no |
 
-`problems`, the default, sends every kind but `moved`, which the panel shows. `everything` also shows each move as a toast, the only toast the plugin shows. `off` sends nothing. The cleanups and the moves one status opens go out as one notice. The body gives the numbers from `status.json`, GB for GiB values through `WardenLogic.gib`, and the tool and worktree as the panel names them, and never a process id or a scope unit.
+`problems`, the default, sends every kind but `moved`, which the panel shows. `everything` also sends each move, through the core's `shell.notify.send` rather than its own notify-send run. `off` sends nothing. The cleanups and the moves one status opens go out as one notice. The body gives the numbers from `status.json`, GB for GiB values through `WardenLogic.gib`, and the tool and worktree as the panel names them, and never a process id or a scope unit.
 
 ## IPC
 

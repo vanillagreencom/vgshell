@@ -34,7 +34,7 @@ var REQUESTS = {
     "compositor.reveal": { args: ["text"], data: "none", acts: true },
     "run.detached": { args: "argv", data: "none", acts: true },
     "desktop.launch": { args: ["text"], data: "entry", acts: true },
-    "toast": { args: ["text", "text"], data: "none", acts: false },
+    "notify": { args: ["text", "text"], data: "none", acts: false },
     "desktop.list": { args: [], data: "entries", acts: false },
     "tui.run": { args: "task-spec", data: "none", acts: true }
 };

@@ -20,8 +20,10 @@
 # terminal receives V with Ctrl and Shift, another application V with Ctrl
 # alone, each after the window has the keyboard back from the overlay, read
 # from the toplevel helper's keyboard, key and modifier log, and a window
-# no desktop entry names receives no key and a toast shows. A change the
-# service refuses shows a toast too. Shift+Enter sends no key. Ctrl+P pins,
+# no desktop entry names receives no key and a notification shows. A
+# change the service refuses shows one too. The notifications are
+# vgs.notifications' cards, enabled for the row and disabled again at its
+# end. Shift+Enter sends no key. Ctrl+P pins,
 # Delete removes an image entry and its file, and Shift+Delete then Enter
 # clears all but the pin. Disabling the plugin lists it in disabledPlugins
 # again, as the row found it, and leaves no watcher among the shell's
@@ -30,7 +32,7 @@
 # by the assertion that holds it: a shortcut that opens nothing, a watcher
 # whose lines are dropped, a filter the overlay does not send, a terminal
 # sent the application's chord, a helper without the secret checks, a
-# thumbnail whose URL names another directory, a refusal without its toast,
+# thumbnail whose URL names another directory, a refusal without its notice,
 # and a service that starts no watcher again.
 # Every clipboard program runs with the nested socket in its environment.
 # `input:resolve_binds_by_sym` is on while the row types its key, since a
@@ -40,7 +42,7 @@
 # No latency is measured; each reading polls every 200 ms for up to 5 s,
 # the watcher's return for up to 8 s, and a control that reads nothing
 # happen reads it for 2 s, or for those 8 s where it waits for no watcher.
-# inputs: shell/plugins/vgs.clipboard/* shell/plugins/vgs.keyhints/* shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/Capabilities.qml shell/Core/IpcRegistry.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/Toasts.qml shell/Core/PluginLogic.js shell/Hosts/Summon* shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Ui/foundation/KeyNav* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Ui/layout/ScrollArea.qml shell/Ui/controls/TextField.qml shell/Ui/feedback/Dialog.qml scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.clipboard/* shell/plugins/vgs.keyhints/* shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/Capabilities.qml shell/Core/IpcRegistry.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/Notifier.qml shell/plugins/vgs.notifications/* shell/Core/PluginLogic.js shell/Hosts/Summon* shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Ui/foundation/KeyNav* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Ui/layout/ScrollArea.qml shell/Ui/controls/TextField.qml shell/Ui/feedback/Dialog.qml scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 for clip_tool in wl-copy wl-paste; do
@@ -99,10 +101,10 @@ clip_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin)
 # clip_listed: whether the user file's disabledPlugins and its plugins name
 # the plugin, as a JSON pair.
 clip_listed() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps(["vgs.clipboard" in d.get("disabledPlugins", []), any(r.get("id") == "vgs.clipboard" for r in d.get("plugins", []))]))' "$home/.config/vgshell/shell.json"; }
-# clip_toasts: the plugin's toasts, shown and waiting. clip_no_toast_past N:
-# `quiet` when their count stays at or under N for 2 s.
-clip_toasts() { ipc shell lent | py_reply 'import json,sys; rows=json.load(sys.stdin)["toasts"]; print(sum(r["plugin"] == "vgs.clipboard" for k in ("visible", "waiting") for r in rows[k]))'; }
-clip_no_toast_past() { local got; for _ in $(seq 1 10); do got="$(clip_toasts)" || return 1; ((got <= $1)) || { echo "$got"; return 0; }; sleep 0.2; done; echo quiet; }
+# clip_cards: how many cards from the plugin Notifications shows.
+# clip_no_card_past N: `quiet` when their count stays at or under N for 2 s.
+clip_cards() { plugin_cards Clipboard | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+clip_no_card_past() { local got; for _ in $(seq 1 10); do got="$(clip_cards)" || return 1; ((got <= $1)) || { echo "$got"; return 0; }; sleep 0.2; done; echo quiet; }
 # An id no entry has.
 clip_no_id="$(printf 'f%.0s' $(seq 1 64))"
 clip_modes() { python3 -c 'import os,stat,sys; print(" ".join(oct(stat.S_IMODE(os.stat(p).st_mode))[2:] for p in sys.argv[1:]))' "$@"; }
@@ -167,6 +169,7 @@ expect "the nested instance reloads with typed keys reaching binds" ok hypr relo
 
 expect "the harness's disabled list names the clipboard history" '[true, false]' clip_listed
 expect "the clipboard history starts disabled" False plugin_enabled vgs.clipboard
+notes_on "clipboard"
 expect "enabling the clipboard history is allowed" ok ipc shell setPluginEnabled vgs.clipboard true
 expect_poll "enabling unlisted the id and wrote no plugins row" '[false, false]' clip_listed
 expect_poll "the clipboard history is enabled" True plugin_enabled vgs.clipboard
@@ -230,7 +233,7 @@ if clip_window "$sandbox/clipboard-terminal.log" smoke.clipboard-terminal "Clipb
   expect_poll "Enter closes the history" 0 layer_count vgs:overlay
   expect_poll "a terminal has the keyboard back, then receives V with Ctrl and Shift" '["enter", 5]' clip_keys_of "$sandbox/clipboard-terminal.log" "$clip_from"
   expect "the pasted entry is on the clipboard" "Smoke Alpha one" clip_holds
-  expect "a paste shows no toast" 0 clip_toasts
+  expect "a paste shows no notice" 0 clip_cards
 
   # Shift+Enter puts the entry on the clipboard and sends no key.
   clip_open "copy"
@@ -259,7 +262,7 @@ if clip_window "$sandbox/clipboard-app.log" smoke.clipboard-app "Clipboard appli
   close_toplevel "$clip_app_pid" "the application helper exits 0 on SIGTERM"
 fi
 
-# A window no desktop entry names: no key, a toast, the entry on the clipboard.
+# A window no desktop entry names: no key, a notice, the entry on the clipboard.
 expected_errors+=('clipboard: paste key not sent: refused: input=unknown-application')
 expected_errors+=('QML Image at .*/Overlay\.qml\[[0-9:]+\]: Cannot open: file://.*/clipboard/images-moved/')
 if clip_window "$sandbox/clipboard-unknown.log" smoke.clipboard-unknown "Clipboard unknown"; then
@@ -270,9 +273,9 @@ if clip_window "$sandbox/clipboard-unknown.log" smoke.clipboard-unknown "Clipboa
   clip_from="$(clip_lines "$sandbox/clipboard-unknown.log")"
   type_keys -k Return || fail "sending Return failed"
   expect_poll "Enter closes the history over an unknown window" 0 layer_count vgs:overlay
-  expect_poll "a paste the core refuses shows a toast" 1 clip_toasts
+  expect_poll "a paste the core refuses shows a notice" 1 clip_cards
   expect "a change of an entry the history does not hold is refused" "refused: entry=unknown" clip_invoke pin "$clip_no_id"
-  expect_poll "the refused change shows a toast" 2 clip_toasts
+  expect_poll "the refused change shows a notice" 2 clip_cards
   expect "an unknown window has the keyboard back and receives no key" '["enter"]' clip_keys_of "$sandbox/clipboard-unknown.log" "$clip_from"
   expect "the entry stays on the clipboard" "smoke first copy" clip_holds
   close_toplevel "$clip_unknown_pid" "the unknown helper exits 0 on SIGTERM"
@@ -318,7 +321,7 @@ changes = [
     ("Service.qml", "stdout: SplitParser { onRead: line => root.captured(line) }", "stdout: SplitParser { onRead: line => {} }"),
     ("Service.qml", 'History.pasteChord(kind === "terminal")', "History.pasteChord(false)"),
     ("Service.qml", "            retry.restart();\n", ""),
-    ("Service.qml", '        notice(title, message);\n        return "refused: " + key;', '        return "refused: " + key;'),
+    ("Service.qml", '        notice(title, message, true);\n        return "refused: " + key;', '        return "refused: " + key;'),
     ("Overlay.qml", 'shell.ipc.call("rows", filter)', 'shell.ipc.call("rows", "")'),
     ("Overlay.qml", '(imagesDir + "/" + id)', '(imagesDir + "-moved/" + id)'),
     ("helper/clipboard.py", '    if state != "data":\n        return\n', '    if state not in ("data", "sensitive"):\n        return\n'),
@@ -352,9 +355,9 @@ path.write_text(text.replace(before, after))
 PY
 rescan "a rescan gives the copy its watcher's lines back"
 expect_poll "control: the second copy's store is ready" '"ready"' clip_read service store
-clip_toasts_before="$(clip_toasts)" || clip_toasts_before=unread
+clip_cards_before="$(clip_cards)" || clip_cards_before=unread
 expect "control: the copy refuses a change of an entry the history does not hold" "refused: entry=unknown" clip_invoke pin "$clip_no_id"
-expect "control: a refusal without its toast shows none" quiet clip_no_toast_past "$clip_toasts_before"
+expect "control: a refusal without its notice shows none" quiet clip_no_card_past "$clip_cards_before"
 clip_copy_file image/png "$clip_image"
 expect_poll "control: the copy records the image" True clip_has "PNG image"
 clip_copy "smoke control one"
@@ -391,6 +394,7 @@ expect_poll "disabling listed the id" '[true, false]' clip_listed
 expect_poll "the disabled history leaves no service" False record_exists vgs.clipboard
 expect_poll "the disabled history holds no registration" '[[], []]' clip_lent
 expect_poll "the disabled history leaves no watcher" 0 clip_watchers
+notes_off "clipboard"
 rm -f -- "$home/.local/share/applications/smoke.clipboard-terminal.desktop" "$home/.local/share/applications/smoke.clipboard-app.desktop"
 hypr_lua_restore clipboard || fail "the clipboard row puts the harness hyprland.lua back"
 expect "the nested instance reloads the harness hyprland.lua" ok hypr reload config-only

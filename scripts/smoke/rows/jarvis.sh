@@ -1,7 +1,7 @@
 # This row has no latency ceiling. It polls once per nested IPC round trip.
 # The real child runs inside J09, with synthetic audio commands and no
 # account, real audio or desktop endpoint.
-# inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 expected_errors+=('WARN qml: jarvis: stderr=.*Killed.*')
 expected_errors+=('WARN qml: jarvis: stderr=jarvis: node=21[.]0[.]0 need=22')
@@ -108,9 +108,8 @@ jarvis_reject_timeout_start() {
    echo "$failures")
 }
 
-jarvis_toasts() {
-  ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin)["toasts"]; print(sum(e["plugin"] == "vgs.jarvis" for e in d["visible"] + d["waiting"]))'
-}
+# The cards from Jarvis as [title, tone, icon].
+jarvis_cards() { plugin_cards Jarvis | py_reply 'import json,sys; print(json.dumps([[r[0], r[3], r[4]] for r in json.load(sys.stdin)]))'; }
 
 jarvis_revision() {
   ipc shell listPlugins | py_reply 'import json,sys; print(next(p["revision"] for p in json.load(sys.stdin)["plugins"] if p["id"] == "vgs.jarvis"))'
@@ -685,10 +684,12 @@ cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
 cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
 jarvis_rescan
 
+notes_on "jarvis retries"
 jarvis_enable
 expect "five retries end in problem status" problem jarvis_exhaust
-expect "retry exhaustion raises one Jarvis toast" 1 jarvis_toasts
+expect_poll "retry exhaustion sends one Jarvis notification" '[["Jarvis daemon stopped", "danger", "mic"]]' jarvis_cards
 expect "the exhausted service disables" ok ipc shell setPluginEnabled vgs.jarvis false
+notes_off "jarvis retries"
 
 # The control changes the live retry rule in a disposable plugin copy.
 # Its six-crash observation must not satisfy the five-retry assertion.

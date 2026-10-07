@@ -737,29 +737,48 @@ function suite(ctx, check) {
     if (tunable === undefined) throw new Error("fixture manifest refused: acme.tune");
 
     // settingRefusal rows: [name, key, value, want]
-    // toastOptions: one row per rule. A refusal row pins the start of the error.
-    const toastRows = [
-        ["a title alone", { title: "Saved" }, { ok: true, value: { title: "Saved", message: "", tone: "neutral", icon: "", duration: null } }],
-        ["every key", { title: "Saved", message: "to disk", tone: "success", icon: "check", duration: 0 }, { ok: true, value: { title: "Saved", message: "to disk", tone: "success", icon: "check", duration: 0 } }],
-        ["not an object", "Saved", "options must be an object"],
-        ["an unknown key", { title: "Saved", body: "x" }, "body unknown"],
-        ["a missing title", { message: "x" }, "title must be"],
-        ["a blank title", { title: " " }, "title must be"],
-        ["a title past the ceiling", { title: "x".repeat(121) }, "title must be"],
-        ["a message that is not a string", { title: "t", message: 4 }, "message must be"],
-        ["an unknown tone", { title: "t", tone: "loud" }, "tone must be"],
-        ["an icon that is not a string", { title: "t", icon: 4 }, "icon must be"],
-        ["a negative duration", { title: "t", duration: -1 }, "duration must be"],
-        ["a fractional duration", { title: "t", duration: 1.5 }, "duration must be"],
-        ["a duration that is not a number", { title: "t", duration: "5s" }, "duration must be"]
+    // notifyOptions: one row per rule. A refusal row names the key its
+    // error starts with.
+    const notifyRows = [
+        ["a title alone", { title: "Saved" }, { ok: true, value: { title: "Saved", message: "", tone: "", icon: "", urgency: "normal", transient: false } }],
+        ["every key", { title: "Saved", message: "to disk", tone: "success", icon: "circle-check", urgency: "low", transient: true }, { ok: true, value: { title: "Saved", message: "to disk", tone: "success", icon: "circle-check", urgency: "low", transient: true } }],
+        ["a message at the ceiling", { title: "t", message: "x".repeat(600) }, { ok: true, value: { title: "t", message: "x".repeat(600), tone: "", icon: "", urgency: "normal", transient: false } }],
+        ["not an object", "Saved", "options"],
+        ["an unknown key", { title: "Saved", duration: 0 }, "duration"],
+        ["a missing title", { message: "x" }, "title"],
+        ["a title that is not a string", { title: 4 }, "title"],
+        ["a blank title", { title: " " }, "title"],
+        ["a title past the ceiling", { title: "x".repeat(121) }, "title"],
+        ["a message that is not a string", { title: "t", message: 4 }, "message"],
+        ["a message past the ceiling", { title: "t", message: "x".repeat(601) }, "message"],
+        ["a tone the hint does not take", { title: "t", tone: "neutral" }, "tone"],
+        ["an icon that is not a string", { title: "t", icon: ["camera"] }, "icon"],
+        ["an icon outside the Lucide grammar", { title: "t", icon: "Camera" }, "icon"],
+        ["an icon past the ceiling", { title: "t", icon: "a".repeat(65) }, "icon"],
+        ["an unknown urgency", { title: "t", urgency: "high" }, "urgency"],
+        ["a transient that is not a boolean", { title: "t", transient: "yes" }, "transient"]
     ];
-    for (const [name, raw, want] of toastRows) {
-        const got = ctx.toastOptions(raw);
-        if (typeof want === "string") check("toastOptions: " + name, got.ok === false && got.error.startsWith(want), true);
-        else check("toastOptions: " + name, got, want);
+    for (const [name, raw, want] of notifyRows) {
+        const got = ctx.notifyOptions(raw);
+        if (typeof want === "string") check("notifyOptions: " + name, got.ok === false && got.error.split(" ")[0] === want, true);
+        else check("notifyOptions: " + name, got, want);
     }
-    check("toast ceilings are whole numbers above zero", Number.isInteger(ctx.TOAST_VISIBLE_MAX) && ctx.TOAST_VISIBLE_MAX > 0 && Number.isInteger(ctx.TOAST_QUEUE_MAX) && ctx.TOAST_QUEUE_MAX >= ctx.TOAST_VISIBLE_MAX, true);
-    check("toasts is a capability", ctx.CAPABILITIES.indexOf("toasts") !== -1, true);
+    // notifyArgv: [name, options, argv]. The message is a body the server
+    // reads as markup, so its `&`, `<` and `>` arrive escaped.
+    const notifyArgvRows = [
+        ["the defaults", { title: "Saved" }, ["notify-send", "--app-name=Acme", "--urgency=normal", "--hint=string:x-vgs-click:none", "--", "Saved", ""]],
+        ["every key", { title: "Saved", message: "to disk", tone: "danger", icon: "camera", urgency: "critical", transient: true },
+            ["notify-send", "--app-name=Acme", "--urgency=critical", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-tone:danger", "--hint=string:x-vgs-icon:camera", "--transient", "--", "Saved", "to disk"]],
+        ["markup in the message", { title: "<b>a</b> & b", message: "<b>bold</b> & a>b" },
+            ["notify-send", "--app-name=Acme", "--urgency=normal", "--hint=string:x-vgs-click:none", "--", "<b>a</b> & b", "&lt;b&gt;bold&lt;/b&gt; &amp; a&gt;b"]],
+        ["a title that starts like an option", { title: "--urgency=low" }, ["notify-send", "--app-name=Acme", "--urgency=normal", "--hint=string:x-vgs-click:none", "--", "--urgency=low", ""]]
+    ];
+    for (const [name, raw, want] of notifyArgvRows) {
+        const judged = ctx.notifyOptions(raw);
+        check("notifyArgv: " + name, judged.ok ? ctx.notifyArgv("Acme", judged.value) : judged.error, want);
+    }
+    check("the notify run ceiling is a whole number above zero", Number.isInteger(ctx.NOTIFY_RUNS_MAX) && ctx.NOTIFY_RUNS_MAX > 0, true);
+    check("notify is a capability", ctx.CAPABILITIES.indexOf("notify") !== -1, true);
     check("theme is a capability", ctx.CAPABILITIES.indexOf("theme") !== -1, true);
     check("layers is a capability", ctx.CAPABILITIES.indexOf("layers") !== -1, true);
     check("requirements is a capability", ctx.CAPABILITIES.indexOf("requirements") !== -1, true);
@@ -1426,6 +1445,28 @@ const CONTROLS = [
     ["a bind explanation must be text", "if (bind.info !== undefined && (typeof bind.info !== \"string\" || bind.info.length === 0))", "if (false)"],
     ["a bind keeps its explanation", "if (bind.info !== undefined) result.info = bind.info;", ""],
     ["a Keys row carries its bind's explanation", "if (bind.info !== undefined) infoByShortcut[bind.shortcut] = bind.info;", ""],
+    ["notify is a capability", '"panes", "notify", "theme"', '"panes", "theme"'],
+    ["notify options are an object", "if (!isPlainObject(raw))\n        return { ok: false, error: \"options want=object\" };", "if (false)\n        return { ok: false, error: \"options want=object\" };"],
+    ["notify refuses an unknown key", "if (NOTIFY_KEYS.indexOf(keys[i]) === -1)", "if (false)"],
+    ["a notify title is a string", 'if (typeof raw.title !== "string" || raw.title.trim()', 'if (typeof raw.title === "planted" || raw.title.trim'],
+    ["a notify title is not blank", 'raw.title.trim() === "" || raw.title.length > NOTIFY_TITLE_MAX', 'raw.title.length > NOTIFY_TITLE_MAX'],
+    ["a notify title has a ceiling", '|| raw.title.length > NOTIFY_TITLE_MAX)', ')'],
+    ["a notify message is a string", '(typeof raw.message !== "string" || raw.message.length > NOTIFY_MESSAGE_MAX)', '(raw.message.length > NOTIFY_MESSAGE_MAX)'],
+    ["a notify message has a ceiling", '|| raw.message.length > NOTIFY_MESSAGE_MAX)', ')'],
+    ["a notify tone is one the hint takes", "if (raw.tone !== undefined && NOTIFY_TONES.indexOf(raw.tone) === -1)", "if (false)"],
+    ["a notify icon is a string", 'if (raw.icon !== undefined && !(typeof raw.icon === "string" && ', 'if (raw.icon !== undefined && !(String(raw.icon) && '],
+    ["a notify icon has a ceiling", "raw.icon.length <= NOTIFY_ICON_MAX && NOTIFY_ICON.test(raw.icon)", "NOTIFY_ICON.test(raw.icon)"],
+    ["a notify icon is a Lucide name", "&& NOTIFY_ICON.test(raw.icon)))", "))"],
+    ["a notify urgency is known", "if (raw.urgency !== undefined && NOTIFY_URGENCIES.indexOf(raw.urgency) === -1)", "if (false)"],
+    ["notify transient is a boolean", 'if (raw.transient !== undefined && typeof raw.transient !== "boolean")', "if (false)"],
+    ["a notify click only dismisses", ', "--hint=string:x-vgs-click:none"];', '];'],
+    ["a notify tone is a hint", 'if (judged.tone !== "") argv.push("--hint=string:x-vgs-tone:" + judged.tone);', ''],
+    ["a notify icon is a hint", 'if (judged.icon !== "") argv.push("--hint=string:x-vgs-icon:" + judged.icon);', ''],
+    ["a transient notify skips History", 'if (judged.transient) argv.push("--transient");', ''],
+    ["a notify message escapes &", '.replace(/&/g, "&amp;")', ''],
+    ["a notify message escapes <", '.replace(/</g, "&lt;")', ''],
+    ["a notify message escapes >", '.replace(/>/g, "&gt;");', ';'],
+    ["a notify title ends the options", 'return argv.concat(["--", judged.title, message]);', 'return argv.concat([judged.title, message]);'],
 ];
 
 fs.mkdirSync(path.join(__dirname, "..", "tmp"), { recursive: true });

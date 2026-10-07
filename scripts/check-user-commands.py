@@ -21,9 +21,10 @@ command:
                 head.
   code-command  a command inside a string literal of shipped QML or
                 JavaScript bound to a property of DRAWN, the text a page, a
-                notice, a toast or a CodeLine draws: inline code whose first
-                word is a command head, or a literal that opens with a head
-                and an argument, as "vgshell plugin enable x" does. A command
+                notice, a plugin's system notification or a CodeLine draws:
+                inline code whose first word is a command head, or a literal
+                that opens with a head and an argument, as "vgshell plugin
+                enable x" does. A command
                 there is copied off a label. A log line is read by
                 `instruction` alone. A binding reaches back over the lines its statement
                 wraps across, so `text: ready` then `? "..."` on the next
@@ -121,8 +122,9 @@ LITERAL_CODE = re.compile(r"`([^`\n]+)(?:`|$)")
 FENCE = re.compile(r"^([ \t]*)(```+|~~~+)[ \t]*([A-Za-z0-9_+-]*)[^\n]*\n(.*?)^\1\2[ \t]*$", re.M | re.S)
 DETAILS = re.compile(r"<details>\s*<summary>\s*Show command\s*</summary>.*?</details>", re.S | re.I)
 # The properties whose text a component draws: a Label's and a Button's
-# text, a Field's hint and error, a TextField's placeholder, a toast's or a
-# notice's title and message, a row's label and description.
+# text, a Field's hint and error, a TextField's placeholder, a notice's
+# title and message and those of shell.notify.send, a row's label and
+# description.
 DRAWN = ("text", "hint", "error", "description", "placeholderText", "title", "message", "label", "secondary", "body", "summary")
 DRAWN_BEFORE = re.compile(r"\b(?:" + "|".join(DRAWN) + r")\s*:")
 STRING = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'')

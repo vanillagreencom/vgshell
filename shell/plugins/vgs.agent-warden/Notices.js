@@ -44,7 +44,8 @@ var ACTION_LABEL = "Open vsys";
 var SLICE = "agents.slice";
 var WARDEN = "agent-warden";
 
-// Each episode kind: the notify-send urgency or the toast it is sent as,
+// Each episode kind: its channel, `notify` for the service's own
+// notify-send run or `shell` for the core's shell.notify.send, its urgency,
 // the least MODES value that sends it, whether it offers Open vsys, and
 // whether the episodes one status opens go out as one notice.
 var KINDS = {
@@ -54,7 +55,7 @@ var KINDS = {
     "move-failure": { channel: "notify", urgency: "normal", least: "problems", action: true, grouped: false },
     "reaped": { channel: "notify", urgency: "low", least: "problems", action: false, grouped: true },
     "not-checking": { channel: "notify", urgency: "normal", least: "problems", action: false, grouped: false },
-    "moved": { channel: "toast", urgency: null, least: "everything", action: false, grouped: true }
+    "moved": { channel: "shell", urgency: "low", least: "everything", action: false, grouped: true }
 };
 // The kinds whose episodes a fresh status judges, which a status that
 // cannot be judged keeps.
@@ -235,7 +236,7 @@ function kindOfEpisode(e) {
 // at NOW; VSYS is whether the last scan found vsys. Each notice is
 // { kind, keys, channel, urgency, action, title, body, tone, icon }:
 // `keys` the episodes it tells of, `action` whether it offers Open vsys,
-// `tone` and `icon` a toast's. A kind KINDS groups goes out as one notice
+// `tone` and `icon` a `shell` notice's. A kind KINDS groups goes out as one notice
 // after the others, in KINDS order.
 function notices(opened, mode, vsys, now) {
     var out = [];
@@ -267,8 +268,8 @@ function notice(kind, episodes, vsys, now) {
         action: look.action && vsys,
         title: words.title,
         body: words.body,
-        tone: look.channel === "toast" ? "accent" : null,
-        icon: look.channel === "toast" ? ViewLogic.ITEM_ICONS[kind] : null
+        tone: look.channel === "shell" ? "info" : null,
+        icon: look.channel === "shell" ? ViewLogic.ITEM_ICONS[kind] : null
     };
 }
 
@@ -358,10 +359,11 @@ function offers(notice, waiting) {
     return notice.action && waiting < MAX_WAITING;
 }
 
-// The options shell.toasts.show takes for NOTICE, a `toast` notice.
-function toast(notice) {
-    if (notice.channel !== "toast") throw new Error("agent-warden: channel=" + JSON.stringify(notice.channel) + " is not a toast");
-    return { title: notice.title, message: notice.body, tone: notice.tone, icon: notice.icon };
+// The options shell.notify.send takes for NOTICE, a `shell` notice. A move
+// back into limits needs no answer, so it skips History.
+function shellOptions(notice) {
+    if (notice.channel !== "shell") throw new Error("agent-warden: channel=" + JSON.stringify(notice.channel) + " is not the shell's");
+    return { title: notice.title, message: notice.body, tone: notice.tone, icon: notice.icon, urgency: notice.urgency, transient: true };
 }
 
 // Whether STDOUT, all a notify-send run printed, says Open vsys was

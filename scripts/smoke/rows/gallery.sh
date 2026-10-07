@@ -2,11 +2,12 @@
 # over IPC it maps one Hyprland window, holds every section and component
 # it claims, draws the custom-emoji ImageText image and rejects an alt-only
 # control copy through the shared grim pixel reader, shows the hand over an
-# enabled control and the arrow over a disabled one, shows a toast through
-# its capability, and takes them all down when hidden. Summoned again, it
+# enabled control and the arrow over a disabled one, sends a system
+# notification through its capability, which Notifications draws as a
+# card, and takes its window down when hidden. Summoned again, it
 # is read as every application window is (app_window_rows,
 # scripts/smoke/app-window.sh), ending closed by Escape.
-# inputs: shell/plugins/vgs.gallery/* shell/Ui/* shell/Core/Toasts.qml shell/Hosts/AppWindow.qml scripts/smoke/rows/toasts.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.gallery/* shell/Ui/* shell/Core/Notifier.qml shell/plugins/vgs.notifications/* shell/Hosts/AppWindow.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 expect "the gallery summons over IPC" ok ipc shell summon window vgs.gallery '{}'
 expect_poll "the gallery maps one window" 1 window_count "VGS Components"
@@ -451,11 +452,12 @@ if [[ $(ipc smoke scrollTo window vgs.gallery 0) == \[* ]] && offset="$(gallery_
 else
   fail "the gallery did not scroll its Buttons section to the top"
 fi
-expect "the gallery shows a toast through its capability" ok ipc smoke invokeInstance window vgs.gallery toast ''
-expect_poll "the gallery's toast is in the record under its plugin" '["Saved"]' toast_titles visible
+notes_on "gallery"
+expect "the gallery sends a notification through its capability" ok ipc smoke invokeInstance window vgs.gallery notify ''
+expect_poll "the gallery's notification shows as its card" '[["Saved", "The theme was saved", 1, "success", "check", "none"]]' plugin_cards "VGS Components"
+notes_off "gallery"
 expect "hiding the gallery is allowed" ok ipc shell hide window vgs.gallery
 expect_poll "the gallery's window is gone" 0 window_count "VGS Components"
-expect_poll "hiding the gallery released its toast" '[]' toast_titles visible
 expect "the gallery summons again for the window rows" ok ipc shell summon window vgs.gallery '{}'
 expect "the non-modal Gallery dialog example takes focus" focused ipc smoke focusExample window vgs.gallery "Dialog accept action"
 type_keys -k Escape || fail "Escape in the Gallery's non-modal Dialog failed"

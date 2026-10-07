@@ -14,7 +14,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Shows the time, the date and the password field on every screen. Typing on any screen fills every field.
 - Pauses the password check for two minutes after ten wrong passwords, and says so.
 - Takes over from another lock screen that holds the session. If that lock screen later unlocks the session, the Settings page warns you.
-- Warns you with a toast if the computer slept before the lock was confirmed.
+- Warns you with a notification if the computer slept before the lock was confirmed.
 - Locks the session again when the shell starts after a crash while locked.
 - Needs no setup. The password check uses the plugin's own PAM stack, and the shell's requirement notice installs a missing tool in one click.
 

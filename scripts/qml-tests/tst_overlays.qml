@@ -9,7 +9,7 @@ import qs.Unit
 // triggers by key and closes on a trigger but that of an entry that opens a
 // submenu, which draws a chevron, or keeps the menu open, a select chooses by index and
 // reads its text role, a tooltip opens after the delay while the pointer
-// rests and not under an open overlay, and a toast draws its tone. A menu
+// rests and not under an open overlay. A menu
 // taller than its maximum scrolls with the highlight kept in view, jumps
 // to the entry whose text starts with the letters typed, opens on its
 // checked entry and draws its mark. A menu and a select's list draw their
@@ -75,18 +75,16 @@ Item {
     property int wanted: 0
     Select { id: bound; y: 120; model: ["one", "two", "three"]; currentIndex: root.wanted }
     Select { id: longSelect; y: 160; model: ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p"] }
-    Toast { id: toast; y: 120; title: "Saved"; message: "to disk"; tone: "success"; iconName: "check" }
     property int triggered: -1
     property int reached: 0
     MouseArea { id: under; x: 250; width: 50; height: 30; onPressed: root.reached += 1 }
-    SignalSpy { id: dismissals; target: toast; signalName: "dismissed" }
     SignalSpy { id: activations; target: roled; signalName: "activated" }
 
     TestCase {
         name: "overlays"
         when: windowShown
 
-        function init() { UnitTheme.reset(); popover.close(); menu.close(); nested.close(); select.choose(0); root.triggered = -1; dismissals.clear(); }
+        function init() { UnitTheme.reset(); popover.close(); menu.close(); nested.close(); select.choose(0); root.triggered = -1; }
 
         function tooltipDelay(of) {
             return of.resources.find(child => child.running !== undefined && child.interval === Theme.tooltip.delay);
@@ -988,13 +986,6 @@ Item {
             mouseMove(host, host.width / 2, host.height / 2);
             tryCompare(tip, "opened", true, 2000);
             mouseMove(root, root.width - 1, root.height - 1);
-        }
-
-        function test_toast_draws_its_tone_and_dismisses() {
-            compare(toast.tokens.foreground, Theme.badge.tone.success.foreground);
-            compare(toast.width, Theme.toast.width);
-            mouseClick(toast.closeButton);
-            compare(dismissals.count, 1);
         }
     }
 }

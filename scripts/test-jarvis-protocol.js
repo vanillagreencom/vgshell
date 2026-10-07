@@ -160,8 +160,8 @@ const cases = [
     ["request-type", changed(request, { args: ["0xa1", "1", 2] }), "daemon", "request-args"],
     ["request-integer", changed(request, { args: ["0xa1", 1.5, 2] }), "daemon", "request-args"],
     ["request-text-empty", changed(request, { kind: "compositor.focusWindow", args: [""] }), "daemon", "request-args"],
-    ["request-text-nul", changed(request, { kind: "toast", args: ["Title", "a\u0000b"] }), "daemon", "request-args"],
-    ["request-text-size", changed(request, { kind: "toast", args: ["Title", "x".repeat(4097)] }), "daemon", "request-args"],
+    ["request-text-nul", changed(request, { kind: "notify", args: ["Title", "a\u0000b"] }), "daemon", "request-args"],
+    ["request-text-size", changed(request, { kind: "notify", args: ["Title", "x".repeat(4097)] }), "daemon", "request-args"],
     ["request-argv-empty", changed(request, { kind: "run.detached", args: [] }), "daemon", "request-args"],
     ["request-argv-size", changed(request, { kind: "run.detached", args: Array(65).fill("a") }), "daemon", "request-args"],
     ["request-argv-word", changed(request, { kind: "run.detached", args: ["gio", ""] }), "daemon", "request-args"],
@@ -252,7 +252,7 @@ for (const value of [0, 1])
     assert.equal(Protocol.accept(changed(level, { level: { capture: value, playback: value } }), "daemon").level.capture, value);
 assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, microphone: "missing.mic" } }), "shell").settings.microphone, "missing.mic");
 for (const message of [request, { ...request, kind: "run.detached", args: ["gio", "open", "/path with space"] },
-    { ...request, kind: "toast", args: ["Title", "Line\nnext"] }, { ...request, kind: "desktop.list", args: [] },
+    { ...request, kind: "notify", args: ["Title", "Line\nnext"] }, { ...request, kind: "desktop.list", args: [] },
     { ...request, kind: "compositor.fullscreenWindow", args: ["fullscreen", "set"] }, { ...request, id: Number.MAX_SAFE_INTEGER }])
     assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), "daemon")), JSON.stringify(message));
 for (const kind of Object.keys(Protocol.REQUESTS)) {
@@ -288,7 +288,7 @@ const acting = ["compositor.focusWorkspace", "compositor.focusWindow", "composit
     "compositor.toggleSpecialWorkspace", "compositor.closeWindow", "compositor.fullscreenWindow", "compositor.floatWindow",
     "compositor.moveWindow", "compositor.moveCursor", "compositor.resizeWindow", "compositor.focusMonitor", "compositor.reveal", "run.detached", "desktop.launch", "tui.run"];
 function lockedRows(logic) {
-    assert.deepEqual(Object.keys(logic.REQUESTS).sort(), [...acting, "toast", "desktop.list", "input.observe", "input.keys"].sort(), "the request kinds");
+    assert.deepEqual(Object.keys(logic.REQUESTS).sort(), [...acting, "notify", "desktop.list", "input.observe", "input.keys"].sort(), "the request kinds");
     for (const kind of Object.keys(logic.REQUESTS)) {
         assert.equal(logic.lockedRefusal(kind, true), acting.includes(kind) ? "refused: locked" : "", kind + " while locked");
         assert.equal(logic.lockedRefusal(kind, false), "", kind + " while unlocked");

@@ -9,7 +9,6 @@ SummonPopup 1.0 SummonPopup.qml
 SummonLayer 1.0 SummonLayer.qml
 AppWindow 1.0 AppWindow.qml
 PaneHost 1.0 PaneHost.qml
-ToastHost 1.0 ToastHost.qml
 NoticeHost 1.0 NoticeHost.qml
 LayerHost 1.0 LayerHost.qml
 OverlaySurface 1.0 OverlaySurface.qml

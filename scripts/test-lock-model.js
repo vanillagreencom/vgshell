@@ -69,15 +69,15 @@ function verify(model) {
     same(model.SLEEP_COMMANDS, ["systemd-inhibit", "dbus-monitor", "busctl"], "the hook's commands");
 
     assert.equal(model.lastSleep("secure").status.tone, "ok", "a confirmed lock is ok");
-    assert.equal(model.lastSleep("secure").toast, null, "a confirmed lock shows no toast");
+    assert.equal(model.lastSleep("secure").notice, null, "a confirmed lock sends no notice");
     for (const reason of ["refused", "timeout", "closed"]) {
         const value = model.lastSleep(reason);
         assert.equal(value.status.tone, "danger", reason);
         assert.ok(value.status.text.length > 0 && value.status.text.length <= 200, `${reason}: a text fits the status type`);
-        same(Object.keys(value.toast).sort(), ["duration", "icon", "message", "title", "tone"], `${reason}: the toast's options`);
-        assert.equal(value.toast.tone, "danger", `${reason}: the toast is danger`);
-        assert.equal(value.toast.duration, 0, `${reason}: the toast stays until dismissed`);
-        assert.ok(value.toast.message.length > 0, `${reason}: the user is told why`);
+        same(Object.keys(value.notice).sort(), ["icon", "message", "title", "tone", "urgency"], `${reason}: the notice's options`);
+        assert.equal(value.notice.tone, "danger", `${reason}: the notice is danger`);
+        assert.equal(value.notice.urgency, "critical", `${reason}: the notice stays until dismissed`);
+        assert.ok(value.notice.message.length > 0, `${reason}: the user is told why`);
     }
     assert.match(model.lastSleep("timeout").status.text, /before VGS confirmed the lock/, "a timeout says the lock was not confirmed");
     assert.throws(() => model.lastSleep("other"), /lastSleep: reason "other"/, "an unknown reason throws");
@@ -102,9 +102,9 @@ const CONTROLS = [
     ["a refused release is read", "released reason=(secure|refused|timeout|closed)$", "released reason=(secure|timeout|closed)$"],
     ["the budget is whole digits", "budget_ms=([0-9]+)$", "budget_ms=([0-9]*)$"],
     ["a timeout is danger", 'case "timeout": return { status: { tone: "danger"', 'case "timeout": return { status: { tone: "ok"'],
-    ["a timeout tells the user", 'case "timeout": return { status: { tone: "danger", text: "The computer slept before VGS confirmed the lock" }, toast: warn(', 'case "timeout": return { status: { tone: "danger", text: "The computer slept before VGS confirmed the lock" }, toast: null, w: warn('],
-    ["a confirmed lock shows no toast", 'last sleep" }, toast: null };', 'last sleep" }, toast: warn("x") };'],
-    ["the toast stays until dismissed", 'icon: "lock-open", duration: UNTIL_DISMISSED });', 'icon: "lock-open" });'],
+    ["a timeout tells the user", 'case "timeout": return { status: { tone: "danger", text: "The computer slept before VGS confirmed the lock" }, notice: warn(', 'case "timeout": return { status: { tone: "danger", text: "The computer slept before VGS confirmed the lock" }, notice: null, w: warn('],
+    ["a confirmed lock sends no notice", 'last sleep" }, notice: null };', 'last sleep" }, notice: warn("x") };'],
+    ["the notice stays until dismissed", 'icon: "lock-open", urgency: "critical" });', 'icon: "lock-open" });'],
     ["an unknown reason throws", '    throw new Error("lastSleep: reason "', '    return null;\n    throw new Error("lastSleep: reason "'],
     ["a refusal warns", 'if (refused !== true) return { tone: "ok", text: "Ready" };', 'return { tone: "ok", text: "Ready" };'],
     ["an unknown state throws", '    throw new Error("sleepStatus: state "', '    return null;\n    throw new Error("sleepStatus: state "']

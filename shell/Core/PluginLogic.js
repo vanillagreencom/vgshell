@@ -20,18 +20,21 @@ var KINDS = ["bar-widget", "bar", "panel", "overlay", "menu", "window", "pane", 
 
 // Capabilities the core can hand a plugin. A manifest naming another one is
 // refused. Capabilities.qml maps each name to its provider.
-var CAPABILITIES = ["compositor", "configure", "idle", "ipc", "lock", "session", "notifications", "polkit", "run", "screens", "shortcut", "surfaces", "builtins", "manager", "panes", "toasts", "theme", "layers", "status", "tui", "system", "requirements", "doctor", "secrets", "hyprland", "bluetoothAgent", "monitors"];
+var CAPABILITIES = ["compositor", "configure", "idle", "ipc", "lock", "session", "notifications", "polkit", "run", "screens", "shortcut", "surfaces", "builtins", "manager", "panes", "notify", "theme", "layers", "status", "tui", "system", "requirements", "doctor", "secrets", "hyprland", "bluetoothAgent", "monitors"];
 
-// The toast stack's ceilings: how many show at once and how many wait. Core
-// policy; a theme sets the look and the default duration, never these.
-var TOAST_VISIBLE_MAX = 3;
-var TOAST_QUEUE_MAX = 20;
-var TOAST_TONES = ["neutral", "accent", "success", "warning", "danger", "info"];
-var TOAST_KEYS = ["title", "message", "tone", "icon", "duration"];
-// A toast's title is one line and its message a few: longer text is not a
-// toast.
-var TOAST_TITLE_MAX = 120;
-var TOAST_MESSAGE_MAX = 600;
+// A plugin's system notification, shell.notify.send. The tones and the
+// icon grammar are the ones the `x-vgs-tone` and `x-vgs-icon` hints take
+// (shell/plugins/vgs.notifications/developer.md § Hints). A title is one
+// line and a message a few. At most NOTIFY_RUNS_MAX notify-send runs are in
+// flight at once, the ceiling the capture and agent-warden runs keep.
+var NOTIFY_KEYS = ["title", "message", "tone", "icon", "urgency", "transient"];
+var NOTIFY_TONES = ["success", "warning", "danger", "info"];
+var NOTIFY_URGENCIES = ["low", "normal", "critical"];
+var NOTIFY_ICON = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+var NOTIFY_ICON_MAX = 64;
+var NOTIFY_TITLE_MAX = 120;
+var NOTIFY_MESSAGE_MAX = 600;
+var NOTIFY_RUNS_MAX = 8;
 
 // Capabilities whose core object serves one plugin at a time: the session
 // lock, the polkit agent, the Bluetooth pairing agent and the panes
@@ -1835,7 +1838,7 @@ function requirementRows(manifest, missing) {
 // notice Not now, the plugin's own offers are refused for
 // NOTICE_OFFER_REST_MS; the install and enable triggers are the user's own
 // acts, which no rest refuses. An offer names 1 to NOTICE_OFFER_MAX
-// commands. Core policy, like the toast stack's ceilings.
+// commands. Core policy, like the notify run ceiling.
 var NOTICE_QUEUE_MAX = 8;
 var NOTICE_OFFER_REST_MS = 600000;
 var NOTICE_OFFER_MAX = 16;
@@ -4313,30 +4316,45 @@ function lendRefusal(held, manifest) {
     return "";
 }
 
-// Judge one toast's options, the argument of shell.toasts.show: an object
-// with a non-empty string `title`, an optional string `message`, `tone`
-// from TOAST_TONES, an optional string `icon` and an optional `duration` in
-// whole milliseconds at or above zero, zero meaning until dismissed.
-// Answers { ok: true, value } with every key present, or { ok: false,
-// error } with the offending key first.
-function toastOptions(raw) {
+// Judge the argument of shell.notify.send: an object with a non-blank
+// string `title`, an optional string `message`, `tone` from NOTIFY_TONES,
+// `icon` a Lucide name, `urgency` from NOTIFY_URGENCIES and a boolean
+// `transient`, a notification left out of History. Answers { ok: true,
+// value } with every key present, or { ok: false, error } whose first word
+// is the offending key.
+function notifyOptions(raw) {
     if (!isPlainObject(raw))
-        return { ok: false, error: "options must be an object" };
+        return { ok: false, error: "options want=object" };
     var keys = Object.keys(raw);
     for (var i = 0; i < keys.length; i++)
-        if (TOAST_KEYS.indexOf(keys[i]) === -1)
+        if (NOTIFY_KEYS.indexOf(keys[i]) === -1)
             return { ok: false, error: keys[i] + " unknown" };
-    if (typeof raw.title !== "string" || raw.title.trim() === "" || raw.title.length > TOAST_TITLE_MAX)
-        return { ok: false, error: "title must be a string of 1 to " + TOAST_TITLE_MAX + " characters" };
-    if (raw.message !== undefined && (typeof raw.message !== "string" || raw.message.length > TOAST_MESSAGE_MAX))
-        return { ok: false, error: "message must be a string of at most " + TOAST_MESSAGE_MAX + " characters" };
-    if (raw.tone !== undefined && TOAST_TONES.indexOf(raw.tone) === -1)
-        return { ok: false, error: "tone must be one of " + TOAST_TONES.join(", ") };
-    if (raw.icon !== undefined && typeof raw.icon !== "string")
-        return { ok: false, error: "icon must be a string" };
-    if (raw.duration !== undefined && !(typeof raw.duration === "number" && isFinite(raw.duration) && raw.duration >= 0 && Math.floor(raw.duration) === raw.duration))
-        return { ok: false, error: "duration must be a whole number of milliseconds at or above 0" };
-    return { ok: true, value: { title: raw.title, message: raw.message === undefined ? "" : raw.message, tone: raw.tone === undefined ? "neutral" : raw.tone, icon: raw.icon === undefined ? "" : raw.icon, duration: raw.duration === undefined ? null : raw.duration } };
+    if (typeof raw.title !== "string" || raw.title.trim() === "" || raw.title.length > NOTIFY_TITLE_MAX)
+        return { ok: false, error: "title want=string of 1 to " + NOTIFY_TITLE_MAX + " characters" };
+    if (raw.message !== undefined && (typeof raw.message !== "string" || raw.message.length > NOTIFY_MESSAGE_MAX))
+        return { ok: false, error: "message want=string of at most " + NOTIFY_MESSAGE_MAX + " characters" };
+    if (raw.tone !== undefined && NOTIFY_TONES.indexOf(raw.tone) === -1)
+        return { ok: false, error: "tone want=" + NOTIFY_TONES.join("|") };
+    if (raw.icon !== undefined && !(typeof raw.icon === "string" && raw.icon.length <= NOTIFY_ICON_MAX && NOTIFY_ICON.test(raw.icon)))
+        return { ok: false, error: "icon want=Lucide name of at most " + NOTIFY_ICON_MAX + " characters" };
+    if (raw.urgency !== undefined && NOTIFY_URGENCIES.indexOf(raw.urgency) === -1)
+        return { ok: false, error: "urgency want=" + NOTIFY_URGENCIES.join("|") };
+    if (raw.transient !== undefined && typeof raw.transient !== "boolean")
+        return { ok: false, error: "transient want=boolean" };
+    return { ok: true, value: { title: raw.title, message: raw.message === undefined ? "" : raw.message, tone: raw.tone === undefined ? "" : raw.tone, icon: raw.icon === undefined ? "" : raw.icon, urgency: raw.urgency === undefined ? "normal" : raw.urgency, transient: raw.transient === true } };
+}
+
+// The notify-send argv for JUDGED, notifyOptions' value, sent as APP_NAME.
+// A plugin's message opens no window and offers no action, so a click only
+// dismisses it. The notification server reads a body as markup, so the
+// message's `&`, `<` and `>` are escaped and plain text shows as typed.
+function notifyArgv(appName, judged) {
+    var argv = ["notify-send", "--app-name=" + appName, "--urgency=" + judged.urgency, "--hint=string:x-vgs-click:none"];
+    if (judged.tone !== "") argv.push("--hint=string:x-vgs-tone:" + judged.tone);
+    if (judged.icon !== "") argv.push("--hint=string:x-vgs-icon:" + judged.icon);
+    if (judged.transient) argv.push("--transient");
+    var message = judged.message.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return argv.concat(["--", judged.title, message]);
 }
 
 // The surface a summon of KIND builds: `window`, a Hyprland toplevel, for

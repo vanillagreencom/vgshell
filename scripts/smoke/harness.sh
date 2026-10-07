@@ -1842,8 +1842,8 @@ summon_drawn() { # KIND ID
   done
   return 1
 }
-# The acme.layers fixture's passive layer, which rows/toasts.sh,
-# rows/layers.sh and rows/notices.sh put under other surfaces: layered
+# The acme.layers fixture's passive layer, which rows/layers.sh and
+# rows/notices.sh put under other surfaces: layered
 # VERB [ARG] runs one of its IPC verbs, read_layers PROPERTY reads its
 # service, such as `presses`, the count of presses that reached it.
 layered() { ipc acme.layers invoke "$1" "${2:-}"; }
@@ -2356,6 +2356,52 @@ builds() { ipc smoke buildCount; }
 plugin_known() { ipc shell listPlugins | python3 -c 'import json,sys; print(any(p["id"]==sys.argv[1] for p in json.load(sys.stdin)["plugins"]))' "$1"; }
 plugin_enabled() { ipc shell listPlugins | python3 -c 'import json,sys; rows=[p["enabled"] for p in json.load(sys.stdin)["plugins"] if p["id"]==sys.argv[1]]; print(rows[0] if rows else "absent")' "$1"; }
 record_exists() { ipc shell built | python3 -c 'import json,sys; print(any(r["id"]==sys.argv[1] for rows in json.load(sys.stdin).values() for r in rows))' "$1"; }
+# A plugin tells the user something through shell.notify.send, one system
+# notification that vgs.notifications draws as a card; the smoke set starts
+# it disabled. notes_on LABEL enables it and waits for it to be built and
+# its saved state loaded with Silence off, since under Silence a transient
+# message is dropped and a lasting one goes to History unseen. notes_off
+# LABEL takes every card off, disables it and, when notes_on found no
+# saved state, removes the state it wrote, so the notifications row still
+# meets its first start. notes_clear LABEL takes every card off and waits
+# until none is left on screen.
+notes_quiet() { ipc vgs.notifications invoke status "" | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["store"]["state"] != "pending" and d["silence"] is False)'; }
+notes_on_screen() { ipc vgs.notifications invoke status "" | py_reply 'import json,sys; print(json.load(sys.stdin)["onScreen"])'; }
+notes_fresh=""
+notes_on() { # LABEL
+  if [[ -e $home/.local/state/vgshell/notifications ]]; then notes_fresh=no; else notes_fresh=yes; fi
+  expect "$1: enabling the notifications is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+  expect_poll "$1: the notifications service is built" True record_exists vgs.notifications
+  expect_poll "$1: the notifications loaded their state with Silence off" True notes_quiet
+}
+notes_clear() { # LABEL
+  local reply
+  reply="$(ipc vgs.notifications invoke dismiss-all "")" || reply="unread"
+  [[ $reply == ok || $reply == none ]] || fail "$1: dismissing every card answered $reply"
+  expect_poll "$1: no card is left on screen" 0 notes_on_screen
+}
+notes_off() { # LABEL
+  notes_clear "$1"
+  expect "$1: disabling the notifications is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+  expect_poll "$1: the notifications service is gone" False record_exists vgs.notifications
+  if [[ $notes_fresh == yes ]]; then rm -rf -- "${home:?}/.local/state/vgshell/notifications"; fi
+  notes_fresh=""
+}
+# plugin_cards APP: the cards vgs.notifications shows from APP, the
+# sender's manifest name, and is not taking off, newest first, each as
+# [summary, body, urgency, hintTone, hintIcon, hintClick], urgency 0 low,
+# 1 normal, 2 critical; [] while the plugin is not built.
+# plugin_card_count APP SUMMARY [TEXT]: how many of them carry SUMMARY,
+# and TEXT in their message when given.
+plugin_cards() { # APP
+  local raw
+  raw="$(ipc smoke modelRows vgs.notifications rows app,summary,body,urgency,hintTone,hintIcon,hintClick,leaving)" || return 1
+  if [[ $raw == absent ]]; then echo '[]'; return; fi
+  py_reply 'import json,sys; print(json.dumps([r[1:7] for r in json.load(sys.stdin) if r[0] == sys.argv[1] and r[7] == ""]))' "$1" <<<"$raw"
+}
+plugin_card_count() { # APP SUMMARY [TEXT]
+  plugin_cards "$1" | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r[0] == sys.argv[1] and sys.argv[2] in r[1]))' "$2" "${3:-}"
+}
 # window_panes: the ids of the panes the window host's records hold, the
 # one a panes holder mounted.
 window_panes() { ipc shell built | py_reply 'import json,sys; print(json.dumps([r["id"] for r in json.load(sys.stdin).get("window", []) if r["kind"] == "pane"], separators=(",", ":")))'; }

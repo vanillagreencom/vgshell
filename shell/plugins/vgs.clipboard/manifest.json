@@ -18,10 +18,10 @@
   "capabilities": [
     "compositor",
     "ipc",
+    "notify",
     "requirements",
     "shortcut",
-    "surfaces",
-    "toasts"
+    "surfaces"
   ],
   "requirements": [
     { "command": "wl-paste", "packages": { "pacman": "wl-clipboard", "apt": "wl-clipboard", "dnf": "wl-clipboard", "nix": "wl-clipboard" }, "optional": false, "purpose": "Reads each copy for the history" },

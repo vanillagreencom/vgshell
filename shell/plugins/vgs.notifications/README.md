@@ -20,6 +20,8 @@ Screenshots come from `scripts/readme-shots.sh` in the nested sandbox, with the 
 - A file notification opens the file in your editor, or in the default app for the file.
 - Slack notifications show sender initials and workspace icons without setup. Custom emoji appear when Slack has saved their images. See [Slack notifications](slack.md).
 - The panel says so when the saved history cannot be read. Clear history starts a new one.
+- A message from any VGS plugin is a system notification, which this plugin draws. VGS has no toast of its own.
+- With this plugin off, plugin messages go to another notification app if one runs. With none, VGS drops them and writes one line to its log.
 
 ## Settings
 

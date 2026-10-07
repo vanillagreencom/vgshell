@@ -171,9 +171,9 @@ Item {
             if (lifetime.kind !== "ready" || sessionState === null || cause !== "" || !child.running) {
                 lifetime = { kind: lifetime.kind, pendingMute: "waiting" };
                 publish("warning", "Mute pending; disabling Jarvis cancels the request");
-                shell.toasts.show({ title: "Jarvis mute pending",
+                notice({ title: "Jarvis mute pending",
                     message: "Waiting for daemon; disabling Jarvis cancels this request.",
-                    tone: "warning", icon: "mic" });
+                    tone: "warning", icon: "mic", transient: true });
                 return;
             }
         }
@@ -215,8 +215,14 @@ Item {
     function taskAnswer(message) {
         if (message.answer === "stopped") return;
         console.warn("jarvis: task-stop=" + message.answer + " task=" + message.task);
-        shell.toasts.show({ title: "Coding task not stopped",
+        notice({ title: "Coding task not stopped",
             message: "Task " + message.task + ": " + message.answer, tone: "danger", icon: "mic" });
+    }
+
+    // One system notification; the core sends it and no other path draws it.
+    function notice(options) {
+        const reply = shell.notify.send(options);
+        if (reply !== "ok") console.error("jarvis: notice " + reply);
     }
 
     function shellStatus(availability) {
@@ -240,7 +246,7 @@ Item {
     }
 
     function refuseMute(reason) {
-        shell.toasts.show({ title: "Jarvis mute not saved",
+        notice({ title: "Jarvis mute not saved",
             message: "Mute request could not be saved: " + reason.slice(0, 180),
             tone: "danger", icon: "mic" });
     }
@@ -257,10 +263,7 @@ Item {
             }), data: null }),
             "compositor.reveal": args => ({ answer: shell.compositor.reveal([args[0]], false), data: null }),
             "run.detached": args => ({ answer: shell.run.detached(args), data: null }),
-            "toast": args => {
-                shell.toasts.show({ title: args[0], message: args[1], tone: "info", icon: "mic" });
-                return { answer: "ok", data: null };
-            },
+            "notify": args => ({ answer: shell.notify.send({ title: args[0], message: args[1], tone: "info", icon: "mic" }), data: null }),
             "desktop.list": () => ({ answer: "ok", data: Protocol.desktopEntries(DesktopEntries.applications.values.map(entryRecord)) }),
             "desktop.launch": args => {
                 const entry = DesktopEntries.byId(args[0]);
@@ -307,7 +310,7 @@ Item {
         if (result.answer === "") {
             try { result = handler(message.args); }
             catch (error) {
-                // A capability refuses by throwing, as toasts do past their ceiling.
+                // A capability that refuses by throwing answers its message.
                 result = { answer: String(error.message), data: null };
             }
         }
@@ -443,7 +446,7 @@ Item {
             if (lifetime.pendingMute !== "none") refuseMute(cause);
             lifetime = { kind: "problem", pendingMute: "none" };
             publish("danger", "Problem: " + cause.slice(0, 180));
-            shell.toasts.show({ title: "Jarvis daemon stopped", message: cause.slice(0, 180), tone: "danger", icon: "mic" });
+            notice({ title: "Jarvis daemon stopped", message: cause.slice(0, 180), tone: "danger", icon: "mic" });
             return;
         }
         // A successful hello does not reset the allowance: a daemon that

@@ -888,8 +888,6 @@ Scope {
             }
             return root.json(out);
         }
-        function toastCloseGeometry(index: int): string { return Plugins.hosts.toast === undefined ? "absent" : IpcPages.answer(Plugins.hosts.toast.closeGeometry(index)); }
-        function toastWindowGeometry(index: int): string { return Plugins.hosts.toast === undefined ? "absent" : IpcPages.answer(Plugins.hosts.toast.toastWindowGeometry(index)); }
         // The core notice dialog: whether an item in it holds the keyboard
         // focus, and what it draws as { title, message, rows, groups,
         // actions, busy }, `rows` the visible lines under the message and
@@ -1391,10 +1389,6 @@ Scope {
             if (process === undefined) return "missing";
             return JSON.stringify({ pid: process.processId, lifetime: service.lifetime, retries: service.retries,
                 status: service.shell.status.values });
-        }
-        function jarvisMuteNotices(title: string, cause: string): int {
-            return Toasts.visible.concat(Toasts.waiting).filter(entry =>
-                entry.pluginId === "vgs.jarvis" && entry.title === title && entry.message.indexOf(cause) !== -1).length;
         }
         function instanceGeometry(hostKey: string, id: string): string { return root.geometry(root.instance(hostKey, id)); }
         // `drawn` once the window of plugin ID's HOST_KEY instance has

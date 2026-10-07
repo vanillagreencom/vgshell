@@ -5,7 +5,7 @@
 # through the probe, its state file, the compositor and the lending record.
 # No owner data reaches it: every notification here is made up. The row ends
 # with the plugin disabled and every registration released.
-# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* themes/catalog/thumbnails/akane.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* themes/catalog/thumbnails/akane.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 note_state="$home/.local/state/vgshell/notifications/state.json"
@@ -336,8 +336,9 @@ expect_poll "the closed toast is in the history" True in_history "First toast, u
 # which records the argv and runs no plugin script
 # (scripts/test-notifications-open.sh runs the script). A `none` card is
 # only dismissed. While hold_runs holds the open run live, a second card's
-# open finds the one open TUI busy: that card stays and a core toast says
-# why, and once the first run ends its click opens its own file.
+# open finds the one open TUI busy: that card stays and a notification the
+# plugin sends through the core says why, and once the first run ends its
+# click opens its own file.
 terminal_stand_in
 hint_file="$sandbox/hint-transcript.log"
 hint_other="$sandbox/hint-other.log"
@@ -353,12 +354,14 @@ hold_runs
 expect "a click on the newest card is allowed" ok notes invoke-latest
 expect_poll "the click hands the open TUI the hinted file" "$(words vgs.notifications/open tui/open.sh "$hint_file")" recorded_tail
 expect_poll "the clicked card leaves" none key_of "Hinted error"
-open_toasts() { ipc shell lent | py_reply 'import json,sys; print(json.dumps([[t["title"], t["tone"]] for t in json.load(sys.stdin)["toasts"]["visible"] if t["plugin"] == "vgs.notifications"]))'; }
+# The plugin's own notices, sent through shell.notify.send and drawn back
+# as its cards, as [title, tone].
+open_notices() { plugin_cards Notifications | py_reply 'import json,sys; print(json.dumps([[r[0], r[3]] for r in json.load(sys.stdin)]))'; }
 forget_record
 notify smoke-app 0 "Hinted other" "Exit code 4" '[]' "{\"x-vgs-icon\": <\"circle-x\">, \"x-vgs-tone\": <\"danger\">, \"x-vgs-open\": <\"$hint_other\">, \"x-vgs-click\": <\"open\">}" 0 >/dev/null
 expect_poll "a second hinted card shows while the first file is open" True has_row live "Hinted other"
 expect "a click on it while the open TUI is busy is allowed" ok notes invoke-latest
-expect_poll "the busy open shows why as a core toast" '[["Another file is open", "warning"]]' open_toasts
+expect_poll "the busy open says why in a notification" '[["Another file is open", "warning"]]' open_notices
 expect_log "the busy open is logged" 1 'notifications: open refused: tui=open reason=busy'
 expected_errors+=('notifications: open refused: tui=open reason=busy')
 expect "the busy open keeps its card" True has_row live "Hinted other"
@@ -368,7 +371,7 @@ expect_poll "the first open run ends" idle key_idle vgs.notifications/open
 expect "a click on the kept card is allowed" ok notes invoke-latest
 expect_poll "the kept card's click hands the open TUI its own file" "$(words vgs.notifications/open tui/open.sh "$hint_other")" recorded_tail
 expect_poll "the kept card leaves once its file opens" none key_of "Hinted other"
-wait_for "the open notice leaves after its five seconds" '[]' 9 open_toasts
+wait_for "the open notice leaves when its lifetime ends" '[]' 12 open_notices
 forget_record
 notify smoke-app 0 "Hinted start" "" '[]' '{"x-vgs-icon": <"play">, "x-vgs-tone": <"warning">, "x-vgs-click": <"none">}' 0 >/dev/null
 expect_poll "a none card shows" '["play", "warning", "", "none"]' hint_roles "Hinted start"

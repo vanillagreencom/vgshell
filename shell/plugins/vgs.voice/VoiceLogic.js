@@ -154,7 +154,7 @@ function readyKey(keys) {
     return { kind: "none", key: null };
 }
 
-// The message of the toast a finished Set up shows: readyKey's key, spelled
+// The message of the notification a finished Set up sends: readyKey's key, spelled
 // for people by SPELL.
 function readyMessage(keys, spell) {
     var ready = readyKey(keys);

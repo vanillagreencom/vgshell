@@ -25,8 +25,8 @@ Item {
     property bool bridgeStopping: false
     property bool closing: false
     // The end time of the last Set up run this instance read, undefined
-    // until its first read, so a run that ended before it started shows no
-    // toast.
+    // until its first read, so a run that ended before it started sends no
+    // notification.
     property var setupSeenEnd: undefined
     // The level the on-screen display draws from the latest
     // voxtype-audio-bridge frame; zero while no bridge runs.
@@ -90,18 +90,15 @@ Item {
     }
     onBridgeWantedChanged: bridgeWanted ? startBridge() : stopBridge()
 
-    // A Set up run that ended with code 0 since the last read shows one
-    // toast naming the key the user dictates with, spelled as KeyCaps
-    // spells it.
+    // A Set up run that ended with code 0 since the last read sends one
+    // notification naming the key the user dictates with, spelled as
+    // KeyCaps spells it.
     function noteSetupEnd() {
         if (tuiState === null) return;
         const setup = tuiState.setup;
         if (VoiceLogic.setupFinished(setupSeenEnd, setup)) {
-            try {
-                shell.toasts.show({ title: "Voice is ready", message: VoiceLogic.readyMessage(shortcutKeys, key => KeyNavLogic.keyCaps(key).join("+")), tone: "success", icon: "mic" });
-            } catch (e) {
-                console.error("voice: ready-toast " + e.message);
-            }
+            const reply = shell.notify.send({ title: "Voice is ready", message: VoiceLogic.readyMessage(shortcutKeys, key => KeyNavLogic.keyCaps(key).join("+")), tone: "success", icon: "mic" });
+            if (reply !== "ok") console.error("voice: notice " + reply);
         }
         setupSeenEnd = setup.endedAt;
     }

@@ -18,7 +18,6 @@ Item {
     property var jobs: []
     property var activeJob: null
     property int remaining: 0
-    property var countdownToast: null
     // The windows read a selection waits for, counted so a reply to a
     // cancelled or replaced read is dropped.
     property int windowsAsked: 0
@@ -204,7 +203,7 @@ Item {
         windowsAsked += 1;
         phase = "idle";
         action = "";
-        notice("Capture failed", "Window information could not be read", "danger");
+        notice("Capture failed", "Window information could not be read");
         publish();
     }
 
@@ -228,7 +227,7 @@ Item {
         if (job === null) {
             phase = "idle";
             action = "";
-            notice("Capture failed", "The capture worker could not start", "danger");
+            notice("Capture failed", "The capture worker could not start");
             publish();
             return "refused: capture=worker-unavailable";
         }
@@ -255,14 +254,12 @@ Item {
     }
 
     function clearCountdown() {
-        if (countdownToast !== null) countdownToast();
-        countdownToast = null;
         remaining = 0;
     }
 
     function accept(job, line) {
         let event;
-        try { event = JSON.parse(line); } catch (error) { notice("Capture failed", "The capture tool returned an invalid answer", "danger"); return; }
+        try { event = JSON.parse(line); } catch (error) { notice("Capture failed", "The capture tool returned an invalid answer"); return; }
         switch (event.event) {
         case "selection-ended":
             restoreFocus(job);
@@ -272,9 +269,10 @@ Item {
             remaining = event.remaining;
             if (remaining > 0) {
                 phase = "delaying";
-                countdownToast = shell.toasts.show({ title: "Screenshot in " + remaining + " seconds", message: "Press the capture key again or click Capture to cancel.", duration: 0, icon: "camera" });
             } else {
                 phase = "capturing";
+                // The widget's "Capture in Ns" leaves the bar before the
+                // worker takes the frame.
                 Qt.callLater(() => Qt.callLater(() => { if (root.activeJob === job) job.write("countdown-hidden\n"); }));
             }
             break;
@@ -308,17 +306,18 @@ Item {
             finishAction(job);
             break;
         default:
-            notice("Capture failed", "The capture tool returned an unknown answer", "danger");
+            notice("Capture failed", "The capture tool returned an unknown answer");
         }
         publish();
     }
 
-    function notice(title, message, tone) {
-        shell.toasts.show({ title: title, message: String(message).slice(0, 200), tone: tone, icon: "camera" });
+    function notice(title, message) {
+        const reply = shell.notify.send({ title: title, message: String(message).slice(0, 200), tone: "danger", icon: "camera" });
+        if (reply !== "ok") console.error("capture: notice " + reply);
     }
 
     function errorNotice(event) {
-        notice(event.reason === "language-data-unavailable" ? "Text capture unavailable" : "Capture failed", event.message, "danger");
+        notice(event.reason === "language-data-unavailable" ? "Text capture unavailable" : "Capture failed", event.message);
     }
 
     // The notify-send argv for a saved or copied capture, run as a child of
@@ -410,7 +409,7 @@ Item {
 
     function finished(job, error) {
         restoreFocus(job);
-        if (!job.answered) notice("Capture failed", error || "The capture tool stopped without an answer", "danger");
+        if (!job.answered) notice("Capture failed", error || "The capture tool stopped without an answer");
         finishAction(job);
         jobs = jobs.filter(item => item !== job);
         publish();

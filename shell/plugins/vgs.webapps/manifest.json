@@ -16,9 +16,9 @@
   "capabilities": [
     "compositor",
     "ipc",
+    "notify",
     "run",
-    "status",
-    "toasts"
+    "status"
   ],
   "requirements": [
     { "command": "curl", "packages": { "pacman": "curl", "dnf": "curl", "nix": "curl" }, "optional": false, "purpose": "Reads the name and icon of each site" },

@@ -65,7 +65,6 @@ Card 1.0 layout/Card.qml
 AngledCard 1.0 layout/AngledCard.qml
 CardCarousel 1.0 layout/CardCarousel.qml
 Select 1.0 controls/Select.qml
-Toast 1.0 feedback/Toast.qml
 Dialog 1.0 feedback/Dialog.qml
 SaveBar 1.0 feedback/SaveBar.qml
 Popover 1.0 overlay/Popover.qml

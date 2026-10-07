@@ -11,9 +11,6 @@ Item {
     property string duplicateIpc: ""
     property int notified: 0
     property string lastSummary: ""
-    // title -> disposer of a toast this service showed.
-    property var toasts: ({})
-    property string lastToastRefusal: ""
     // What the theme capability's callbacks last received, as JSON, and
     // how many times each ran.
     property string themeListed: ""
@@ -91,22 +88,18 @@ Item {
         // N dispatches of one request in one call; answers the last reply.
         shell.ipc.handle("flood", arg => { const a = arg.split(" "); let last = ""; for (let i = 0; i < Number(a[0]); i++) last = root.shell.compositor[a[1]].apply(null, a.slice(2)); return last; });
         shell.notifications.subscribe(n => { root.notified += 1; root.lastSummary = n.summary; });
-        // toast <title>[|<tone>[|<duration>]] shows one; a refusal is kept
-        // and answered. untoast <title> runs its disposer.
-        shell.ipc.handle("toast", arg => {
-            const parts = arg.split("|");
-            const options = { title: parts[0] };
-            if (parts[1] !== undefined && parts[1] !== "") options.tone = parts[1];
-            if (parts[2] !== undefined) options.duration = Number(parts[2]);
-            try {
-                root.toasts[parts[0]] = root.shell.toasts.show(options);
-                return "ok";
-            } catch (e) {
-                root.lastToastRefusal = e.message;
-                return e.message;
-            }
+        // notify <json options> sends one system notification through the
+        // core and answers its reply; notify-burst <n> <json options> sends
+        // N in one call, so no run can end between them, and answers the
+        // replies joined by ",".
+        shell.ipc.handle("notify", arg => root.shell.notify.send(JSON.parse(arg)));
+        shell.ipc.handle("notify-burst", arg => {
+            const at = arg.indexOf(" ");
+            const options = JSON.parse(arg.slice(at + 1));
+            const replies = [];
+            for (let i = 0; i < Number(arg.slice(0, at)); i++) replies.push(root.shell.notify.send(options));
+            return replies.join(",");
         });
-        shell.ipc.handle("untoast", title => { const release = root.toasts[title]; if (release === undefined) return "absent"; release(); delete root.toasts[title]; return "ok"; });
         // theme-list, theme-apply <name> and theme-background <step> keep
         // what their callbacks received; theme <member> answers one member
         // as JSON, and theme swatch=<name> one package's swatch.

@@ -19,12 +19,12 @@
   },
   "capabilities": [
     "ipc",
+    "notify",
     "requirements",
     "run",
     "shortcut",
     "status",
     "surfaces",
-    "toasts",
     "tui"
   ],
   "defaultSection": "right",

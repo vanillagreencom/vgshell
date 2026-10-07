@@ -809,14 +809,14 @@ def service_function(source, name):
 
 def service_notices(source=None):
     """Function 20: Service.qml's notification argv for saved and copied
-    captures and its error toasts, run in node with a stand-in toast
+    captures and its error notices, run in node with a stand-in notify
     capability. Answers whether every case holds."""
     source = source if source is not None else (HELPER.parent.parent / "Service.qml").read_text()
     functions = "\n".join(service_function(source, name) for name in ("isRecord", "notice", "errorNotice", "noticeCommand"))
     program = r'''
 const input = JSON.parse(process.argv[1]);
 const shown = [];
-const shell = { toasts: { show: toast => shown.push(toast) } };
+const shell = { notify: { send: options => { shown.push(options); return "ok"; } } };
 const api = new Function("shell", "helperPath", input.functions + "; return { noticeCommand, errorNotice };")(shell, "/helper/capture.py");
 const record = { actionName: "record-output" };
 const actions = [{ id: "default", label: "Open", argv: ["imv", "/pictures/a.png"] }, { id: "edit", label: "Edit", argv: ["satty", "/pictures/a.png"] }];

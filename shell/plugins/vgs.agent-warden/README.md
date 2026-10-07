@@ -30,6 +30,6 @@ vsys warden install
 | --- | --- |
 | Show count | Shows the number of running agents or problems beside the shield. |
 | Hide when idle | Hides the shield when no agents run and no problems need attention. |
-| Notifications | Alerts for problems, all events or none. Everything also shows each move back into limits as a toast. |
+| Notifications | Alerts for problems, all events or none. Everything also tells you of each move back into limits. |
 
 [developer.md](developer.md) states each state, notification and IPC function.

@@ -2,7 +2,7 @@
 # account, provider or network runs. No latency ceiling is measured.
 # State/effect reads poll once per nested IPC round trip. Fixture callback
 # gates poll at 10 ms; hold barriers use the shell's native marker.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/ShortcutRegistry.qml scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.probe/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml scripts/smoke/toplevel/* shell/Core/HyprlandLayer.js scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/ShortcutRegistry.qml scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.probe/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml scripts/smoke/toplevel/* shell/Core/HyprlandLayer.js scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 
 jarvis_key_config="$home/.config/vgshell/shell.json"
@@ -81,10 +81,11 @@ jarvis_key_mute_control() {
    echo "$failures")
 }
 jarvis_key_pending() { ipc smoke readInstance service vgs.jarvis lifetime; }
+# The Jarvis cards that say Mute was not saved for CAUSE.
 jarvis_key_refusals() { # CAUSE
-  ipc smoke jarvisMuteNotices "Jarvis mute not saved" "$1"
+  plugin_card_count Jarvis "Jarvis mute not saved" "$1"
 }
-jarvis_key_refusal_assertion() { expect "unavailable Mute reports its actual cause" "$1" jarvis_key_refusals "$2"; }
+jarvis_key_refusal_assertion() { expect_poll "unavailable Mute reports its actual cause" "$1" jarvis_key_refusals "$2"; }
 jarvis_key_refusal_control() {
   (failures=0 behaviour_failures=0
    jarvis_key_refusal_assertion "$1" "$2" >"$sandbox/jarvis-key-refusal-control.log"
@@ -148,6 +149,9 @@ jarvis_key_startup() {
   expect "unavailable repeated Mute keeps one pending privacy request" '{"kind":"starting","pendingMute":"waiting"}' jarvis_key_pending
 }
 
+# Every startup Mute sends its pending notice, so vgs.notifications draws
+# them from the first one on.
+notes_on "jarvis mute notices"
 printf '%s\n' \
   'hl.config({ input = { resolve_binds_by_sym = false } })' \
   'hl.bind("code:67", hl.dsp.global("smoke:hold-marker"), { description = "smoke:hold-marker", ignore_mods = true })' >>"$jarvis_key_lua"
@@ -223,9 +227,10 @@ jarvis_key_mute
 expect_poll "explicit ready unmute clears only privacy state" off jarvis_key_state mute
 
 jarvis_disable
+notes_clear "the earlier pending Mute notices"
 jarvis_key_startup
-expect "pending Mute tells the user that disable cancels the request" 1 \
-  ipc smoke jarvisMuteNotices "Jarvis mute pending" "disabling Jarvis cancels this request"
+expect_poll "pending Mute tells the user that disable cancels the request" 1 \
+  plugin_card_count Jarvis "Jarvis mute pending" "disabling Jarvis cancels this request"
 expect "disable ends the pending service" ok ipc shell setPluginEnabled vgs.jarvis false
 expect_poll "disable drops the pending owner" absent ipc smoke jarvisProcess
 expect "a cancelled request never changes the persisted privacy state" False \
@@ -282,6 +287,7 @@ jarvis_key_mute
 hold_barrier
 expect "dropping refusal breaks its same cause assertion" 1 jarvis_key_refusal_control "$((jarvis_key_refused + 1))" 'jarvis: node=21.0.0 need=22'
 expect "the refusal control disables" ok ipc shell setPluginEnabled vgs.jarvis false
+notes_off "jarvis mute notices"
 cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
 cp -- "$sandbox/jarvis-key-scripted-before" "$jarvis_key_backend"
 jarvis_rescan

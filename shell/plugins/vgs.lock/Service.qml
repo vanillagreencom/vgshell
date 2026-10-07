@@ -24,7 +24,7 @@ import "LockModel.js" as LockModel
 // hyprlock holds the session or releases it under this lock, drops the
 // core's request (SessionLock); the service publishes it in the `lock`
 // status, and a sleep waiting on it is released as refused. A suspend that went ahead unconfirmed is published in
-// `lastSleep`, logged, and shown as a toast once the user is back at the
+// `lastSleep`, logged, and sent as a notification once the user is back at the
 // desktop.
 //
 // The password lives in `password` while it is typed and in PAM's answer
@@ -89,7 +89,7 @@ Item {
     // The before-sleep hook: `off`, `missing`, `starting`, `held` or
     // `failed` with its detail; whether a sleep waits for the lock to be
     // confirmed; the exit the hook's run recorded, null before one; and the
-    // toast of a missed suspend still to show, null for none.
+    // notice of a missed suspend still to send, null for none.
     property string sleepState: "off"
     property var sleepDetail: null
     property bool sleepPending: false
@@ -282,15 +282,16 @@ Item {
     function released(reason) {
         const record = LockModel.lastSleep(reason);
         publish("lastSleep", record.status);
-        if (record.toast === null) return;
+        if (record.notice === null) return;
         console.warn("lock: sleep=unlocked reason=" + reason);
-        missedSleep = record.toast;
+        missedSleep = record.notice;
         if (!locked) showMissedSleep();
     }
 
     function showMissedSleep() {
         if (missedSleep === null || shell === null) return;
-        shell.toasts.show(missedSleep);
+        const reply = shell.notify.send(missedSleep);
+        if (reply !== "ok") console.error("lock: notice " + reply);
         missedSleep = null;
     }
 

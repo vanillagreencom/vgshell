@@ -9,7 +9,7 @@ import "NotificationLogic.js" as Logic
 // The notification service: every desktop notification the core's server
 // receives becomes a glass toast at the top of every screen, and leaves
 // into the history when it expires, is dismissed, closed by its sender or
-// let go by a full stack. The Inbox shows what arrived since the last Mark
+// let go by a full stack, unless its sender marked it transient. The Inbox shows what arrived since the last Mark
 // read, the History everything kept; while either is open the toasts stay
 // and do not expire. Opening a toast or an inbox row runs its primary
 // action, the sender's default, else its first; a pill runs its own. Each
@@ -636,16 +636,18 @@ Item {
     // NotificationLogic.heldAfterLeave says; the row itself goes once its
     // animation has played. `reason` is expire, dismiss, invoke or closed;
     // the store keeps the toast in the history or forgets it as
-    // NotificationLogic.storedAfterLeave says.
+    // NotificationLogic.storedAfterLeave says. Whether it is transient is
+    // read off the notification held for it; a toast restored after a
+    // restart holds none, so it leaves into the history.
     function leave(key, reason) {
         const at = indexOf(key);
         if (at === -1 || rowModel.get(at).leaving !== "") return;
         rowModel.setProperty(at, "leaving", reason);
         stopClock(key);
         countShown();
-        store.dropLive(key, Logic.storedAfterLeave(reason) === "forget");
+        const fields = Logic.hasOwn(held, key) ? fieldsOf(held[key].notification) : null;
+        store.dropLive(key, Logic.storedAfterLeave(reason, fields !== null && fields.transient) === "forget");
         if (Logic.hasOwn(held, key)) {
-            const fields = fieldsOf(held[key].notification);
             const fate = fields === null ? "drop" : Logic.heldAfterLeave(reason, fields.transient);
             if (fate === null) console.error("notifications: refused: leave=" + reason + " want=expire|invoke|dismiss|closed");
             else if (fate !== "keep") unlink(key, fate);
@@ -736,11 +738,8 @@ Item {
                 return true;
             }
             console.warn("notifications: open " + reply);
-            try {
-                shell.toasts.show(outcome.notice);
-            } catch (e) {
-                console.error("notifications: open notice " + e.message);
-            }
+            const sent = shell.notify.send(outcome.notice);
+            if (sent !== "ok") console.error("notifications: notice " + sent);
             return false;
         }
         if (route === "dismiss") {
@@ -787,7 +786,7 @@ Item {
             leave(key, reason);
             return;
         }
-        if (at === -1 || Logic.storedAfterLeave(reason) === "forget") store.dropHistory(key);
+        if (at === -1 || Logic.storedAfterLeave(reason, false) === "forget") store.dropHistory(key);
         if (Logic.hasOwn(held, key)) unlink(key, Logic.heldAfterLeave(reason, false));
         bumpPanel();
     }

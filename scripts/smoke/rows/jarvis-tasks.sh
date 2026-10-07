@@ -2,12 +2,13 @@
 # daemon request opens the `task` TUI, the reply carries the core's answer
 # and the TUI's run state reaches the daemon; the live-task count reaches
 # the status record; the stop-task IPC handle sends the intent and a failed
-# stop raises its toast. No task script, agent or tmux runs: the stand-in
+# stop sends its notification, read as its card while vgs.notifications
+# is enabled for the row. No task script, agent or tmux runs: the stand-in
 # terminal holds the shipped script's run, the requests come from a gated
 # daemon fixture, and the one task record is a synthetic starting record.
 # No latency ceiling. Reads poll once per nested IPC round trip; the
 # fixture polls its gates every 10 ms.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/TuiRunner.qml shell/Core/PluginStatus.qml shell/Core/Toasts.qml scripts/smoke/rows/jarvis.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/TuiRunner.qml shell/Core/PluginStatus.qml shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh bin/vgshell-tui
 set -euo pipefail
 expected_errors+=('WARN qml: jarvis: task-stop=not-alive task=smoke-task-[0-9]+')
 task_daemon="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
@@ -73,7 +74,7 @@ task_scenario() {
   task_record "$task_id" lost '{"seq":0}'
   expect "the stop-task IPC handle answers" ok ipc vgs.jarvis invoke stop-task "$task_id"
   expect_poll "the daemon receives the task-stop intent" "\"$task_id\"" task_last task-stops.jsonl
-  expect_poll "a failed stop raises its toast" 1 ipc smoke jarvisMuteNotices "Coding task not stopped" "Task $task_id: not-alive"
+  expect_poll "a failed stop sends its notification" 1 plugin_card_count Jarvis "Coding task not stopped" "Task $task_id: not-alive"
   expect_poll "the stop's observation clears the count" 0 task_count
   expect "the stop-task IPC handle refuses a malformed id" "refused: jarvis: protocol=task-id" \
     ipc vgs.jarvis invoke stop-task "../$task_id"
@@ -106,6 +107,7 @@ task_round_start() {
   jarvis_enable
 }
 
+notes_on "jarvis tasks"
 task_round_start
 task_scenario
 jarvis_disable
@@ -116,7 +118,7 @@ task_controls=(
   "count|const reply = shell.status.set(\"tasks\", message.count);|const reply = \"ok\";|the daemon's live task count reaches the status"
   "intent|        send(fields);
         return \"ok\";|        return \"ok\";|the daemon receives the task-stop intent"
-  "toast|if (message.answer === \"stopped\") return;|return;|a failed stop raises its toast"
+  "notice|if (message.answer === \"stopped\") return;|return;|a failed stop sends its notification"
 )
 for task_row in "${task_controls[@]}"; do
   IFS='|' read -r -d '' task_name task_needle task_replacement task_target <<<"$task_row" || true
@@ -127,6 +129,7 @@ for task_row in "${task_controls[@]}"; do
   release_runs
   jarvis_disable
 done
+notes_off "jarvis tasks"
 
 cp -- "$sandbox/jarvis-task-service-original" "$task_service"
 cp -- "$sandbox/jarvis-task-daemon-original" "$task_daemon"

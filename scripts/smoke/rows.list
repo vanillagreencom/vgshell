@@ -37,7 +37,7 @@ theme-browse
 theme-browser
 portal-accent
 theme-latency
-toasts
+notify
 layers
 shader-frames
 tui

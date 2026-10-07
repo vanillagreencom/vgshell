@@ -17,10 +17,10 @@
   },
   "capabilities": [
     "layers",
+    "notify",
     "requirements",
     "shortcut",
     "status",
-    "toasts",
     "tui"
   ],
   "defaultSection": "right",

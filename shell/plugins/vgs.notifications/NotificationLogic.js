@@ -964,28 +964,33 @@ function clickRoute(choice, row) {
 
 // What the service does with shell.tui.run's reply to an `open` click:
 // { leave, notice }. `ok` lets the card leave. A refusal keeps the card, so
-// its file stays one click away, and `notice` is the core toast that says
-// why: `busy` while another notification's file is open, since the open
-// TUI is one key whatever the file, and `launcher-missing` with no
-// terminal to open it in. Any other refusal names the reply.
+// its file stays one click away, and `notice` is the shell.notify.send
+// options of the notification that says why, transient since the kept card
+// is the lasting record. Any other refusal names the reply.
 function openOutcome(reply) {
     var text = String(reply);
     if (text === "ok") return { leave: true, notice: null };
     var match = /^refused: tui=\S+ reason=(\S+)$/.exec(text);
-    var reason = match === null ? "" : match[1];
+    return { leave: false, notice: Object.assign(openNotice(match === null ? "" : match[1]), { transient: true }) };
+}
+
+// The words of an open refused for REASON: `busy` while another
+// notification's file is open, since the open TUI is one key whatever the
+// file, and `launcher-missing` with no terminal to open it in.
+function openNotice(reason) {
     switch (reason) {
     case "busy":
-        return { leave: false, notice: { title: "Another file is open", message: "Close the open file window and try this notification again.", tone: "warning", icon: "file-lock" } };
+        return { title: "Another file is open", message: "Close the open file window and try this notification again.", tone: "warning", icon: "file-lock" };
     case "launcher-missing":
-        return { leave: false, notice: { title: "The file did not open", message: "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it.", tone: "danger", icon: "square-terminal" } };
+        return { title: "The file did not open", message: "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it.", tone: "danger", icon: "square-terminal" };
     case "disabled":
-        return { leave: false, notice: { title: "The file did not open", message: "Enable Notifications in Plugins and try again.", tone: "danger", icon: "file-x" } };
+        return { title: "The file did not open", message: "Enable Notifications in Plugins and try again.", tone: "danger", icon: "file-x" };
     case "undeclared":
-        return { leave: false, notice: { title: "The file did not open", message: "VGS cannot open notification files. Reinstall VGS to restore this feature.", tone: "danger", icon: "file-x" } };
+        return { title: "The file did not open", message: "VGS cannot open notification files. Reinstall VGS to restore this feature.", tone: "danger", icon: "file-x" };
     case "args":
-        return { leave: false, notice: { title: "The file did not open", message: "VGS could not use the file path in this notification.", tone: "danger", icon: "file-x" } };
+        return { title: "The file did not open", message: "VGS could not use the file path in this notification.", tone: "danger", icon: "file-x" };
     default:
-        return { leave: false, notice: { title: "The file did not open", message: "Try this notification again.", tone: "danger", icon: "file-x" } };
+        return { title: "The file did not open", message: "Try this notification again.", tone: "danger", icon: "file-x" };
     }
 }
 
@@ -1356,12 +1361,13 @@ function heldAfterLeave(reason, transient) {
 
 // Whether a toast that leaves for `reason` goes into the history: `forget`
 // after an action the user chose, which finishes the notification, so it
-// leaves the Inbox and the History too; `history` after it expired, was
-// dismissed or its sender closed it, which take it off the screen
-// without finishing it. Null for a reason no row leaves with.
-function storedAfterLeave(reason) {
+// leaves the Inbox and the History too, and for a `transient` one, which
+// its sender marked as nothing to look back at; `history` after it
+// expired, was dismissed or its sender closed it, which take it off the
+// screen without finishing it. Null for a reason no row leaves with.
+function storedAfterLeave(reason, transient) {
     if (reason === "invoke") return "forget";
-    if (reason === "expire" || reason === "dismiss" || reason === "closed") return "history";
+    if (reason === "expire" || reason === "dismiss" || reason === "closed") return transient ? "forget" : "history";
     return null;
 }
 

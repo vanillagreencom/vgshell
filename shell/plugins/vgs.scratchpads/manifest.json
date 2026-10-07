@@ -17,11 +17,11 @@
   },
   "capabilities": [
     "compositor",
+    "notify",
     "run",
     "screens",
     "shortcut",
-    "status",
-    "toasts"
+    "status"
   ],
   "settings": {
     "pads": []

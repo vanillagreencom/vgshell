@@ -251,7 +251,7 @@ async function main() {
                     process.env.PATH = directory;
                     const w = make(folder);
                     try {
-                        assert.deepEqual(w.router.offer().map(tool => tool.id), [...offered, "notify.toast"], name);
+                        assert.deepEqual(w.router.offer().map(tool => tool.id), [...offered, "notify.send"], name);
                         assert.deepEqual(w.registered, ["wire", ...registered], name + " registrations");
                         assert.equal(fs.existsSync(path.join(directory, "ran")), false, "the probe runs no command");
                         const turn = w.runner.state.turn;

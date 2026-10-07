@@ -3,7 +3,8 @@
 # each field is set through its drawn editor, Remove deletes one, and the
 # page draws what shell.json holds, field for field. A second pad left on
 # the first one's window class is reported among the plugin's problems,
-# keeps its Keys row, and its key starts no app and shows one toast. The
+# keeps its Keys row, and its key starts no app and sends one notification,
+# read as its card while vgs.notifications is enabled for it. The
 # pad the row works with runs the harness's toplevel helper with its own
 # app-id a second after a press, logging each start, its screen the first
 # monitor, its key recorded through the Keys row; the generated layer holds
@@ -26,7 +27,7 @@
 # the nested output, the pad opens there, and `focused` opens it on the
 # nested output; a focus move to a window on the nested output hides it. A
 # press beside the shown pad hides it. A pad whose app maps no window ends
-# in exactly one toast. A start with the pad set to start at login starts
+# in exactly one notification. A start with the pad set to start at login starts
 # its app once, hidden, and a shell started again takes that window and
 # starts nothing. Turning Scratchpads off and Remove each bring the pad's
 # window to the focused workspace, and Remove takes its bind out of
@@ -45,8 +46,8 @@
 # row puts the harness hyprland.lua
 # back at its end.
 # No latency is measured; each reading polls every 200 ms for up to 5 s,
-# the toast reading every 200 ms for up to 25 s.
-# inputs: shell/plugins/vgs.scratchpads/* shell/plugins/vgs.settings/* shell/Core/Pads.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Core/PluginLogic.js shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Capabilities.qml shell/Hosts/BackgroundHost.qml bin/lib/qml-library.js
+# the notification reading every 200 ms for up to 25 s.
+# inputs: shell/plugins/vgs.scratchpads/* shell/plugins/vgs.settings/* shell/Core/Pads.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Core/PluginLogic.js shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Capabilities.qml shell/Hosts/BackgroundHost.qml bin/lib/qml-library.js shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 
 sp_id=vgs.scratchpads
@@ -222,13 +223,13 @@ sp_holds() {
 sp_shown() { ipc smoke statusValues "$sp_id" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("shown")))'; }
 # sp_away: `sits` when sp_box reads the pad at its shares, else `differs`.
 sp_away() { local got; got="$(sp_box "$@")" || return 1; [[ $got == "[0, 0, 0, 0]" ]] && echo sits || echo differs; }
-# sp_toast_count TITLE: how many shown toasts carry TITLE.
-sp_toast_count() { ipc shell lent | py_reply 'import json,sys; t=json.load(sys.stdin)["toasts"]; print(sum(1 for e in t["visible"] + t["waiting"] if e["title"] == sys.argv[1]))' "$1"; }
-# sp_toast_within TITLE: `shown` once a toast with TITLE shows, polled
+# sp_card_count TITLE: how many cards from Scratchpads carry TITLE.
+sp_card_count() { plugin_card_count Scratchpads "$1"; }
+# sp_card_within TITLE: `shown` once a card with TITLE shows, polled
 # every 200 ms for up to 25 s, else `absent`.
-sp_toast_within() {
+sp_card_within() {
   for _ in $(seq 1 125); do
-    [[ $(sp_toast_count "$1") -ge 1 ]] && { echo shown; return; }
+    [[ $(sp_card_count "$1") -ge 1 ]] && { echo shown; return; }
     sleep 0.2
   done
   echo absent
@@ -287,10 +288,12 @@ expect_poll "a second pad on the first one's class is reported" '["hyprland: pad
 expect_poll "the refused pad keeps its Keys row" drawn sp_key_row 2
 expect "pad 2's app logs its start" applied sp_field command "\"echo start >>$sandbox/pad-starts-2\"" 2
 expect_poll "pad 2's app reaches shell.json" same sp_drawn_same
+notes_on "scratchpads refused pad"
 expect "pad 2's shortcut is pressed" ok hypr dispatch 'hl.dsp.global("vgs.scratchpads:pad-2")'
-expect "the refused pad's press says why" shown sp_toast_within "Pad 2 cannot open"
-expect "the refused pad's press shows one toast" 1 sp_toast_count "Pad 2 cannot open"
+expect "the refused pad's press says why" shown sp_card_within "Pad 2 cannot open"
+expect "the refused pad's press sends one notification" 1 sp_card_count "Pad 2 cannot open"
 expect "the refused pad's press starts no app" absent sp_started_2
+notes_off "scratchpads refused pad"
 expect "pad 1's Remove button is clicked" clicked sp_remove 1
 expect_poll "Remove leaves pad 2 alone" '["2"]' sp_drawn
 expect "the page's Add button is clicked after Remove" clicked sp_add
@@ -512,17 +515,19 @@ sp_refit_rows() {
 }
 sp_refit_rows "" sits
 
-# A pad whose app maps no window ends in exactly one toast.
+# A pad whose app maps no window ends in exactly one notification.
 sp_close_windows
 expect_poll "the pad's window is closed before the failing start" 0 sp_windows
 settings_page_open "$sp_id"
 expect "the pad's command editor takes a command that maps nothing" applied sp_field command '"true"'
 expect "the Settings window is hidden after the command change" ok ipc shell hide window vgs.settings
 expect_poll "the failing command reaches shell.json" '"true"' sp_pad_field command
+notes_on "scratchpads failed start"
 sp_press || fail "typing the pad's key for the failing start failed"
-expect "a start that maps no window ends in a toast" shown sp_toast_within "Pad 1 did not open"
-expect "a start that maps no window ends in one toast" 1 sp_toast_count "Pad 1 did not open"
+expect "a start that maps no window ends in a notification" shown sp_card_within "Pad 1 did not open"
+expect "a start that maps no window ends in one notification" 1 sp_card_count "Pad 1 did not open"
 expect "the failed start shows no pad" hidden sp_state
+notes_off "scratchpads failed start"
 
 # The pad set to start at login; the first control tree's start reads it.
 settings_page_open "$sp_id"

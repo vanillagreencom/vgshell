@@ -283,9 +283,9 @@ function create({ Dispatch, Launch, request, environment, clock, bounds = BOUNDS
     }
 
     async function wire(call) {
-        await ask("toast", [call.args.title, call.args.body]);
-        // The reply proves the core took the toast; it may wait in the
-        // core's queue behind others before it is drawn.
+        await ask("notify", [call.args.title, call.args.body]);
+        // The reply proves the core started the notification's send; the
+        // notification server's own answer does not come back.
         return { outcome: "completed", content: "The notice was posted." };
     }
 

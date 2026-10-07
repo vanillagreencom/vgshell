@@ -183,7 +183,8 @@ function verify(logic) {
         same(logic.parseState(stateText({ history: [logic.persistable(made, IMAGES).entry] })).ok, true, "a stored hinted entry reads back: " + label);
     }
     // An open click's reply: ok lets the card leave; a refusal keeps it and
-    // says why in a core toast whose options the core's judge accepts.
+    // says why in a transient notification whose options the core's judge
+    // accepts.
     same(logic.openOutcome("ok"), { leave: true, notice: null });
     const openManifest = pluginLogic.validateManifest(JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.notifications", "manifest.json"), "utf8")), "/x").manifest;
     const runner = { launcher: "present", busy: [], run: "fixture" };
@@ -199,8 +200,8 @@ function verify(logic) {
     for (const [reply, title, tone, message] of replies) {
         assert.equal(typeof reply, "string", "the actual core producer supplied a refusal");
         const outcome = logic.openOutcome(reply);
-        same([outcome.leave, outcome.notice.title, outcome.notice.tone, outcome.notice.message], [false, title, tone, message], "open reply: " + reply);
-        same(pluginLogic.toastOptions(outcome.notice).ok, true, "the core accepts the published notice for " + reply);
+        same([outcome.leave, outcome.notice.title, outcome.notice.tone, outcome.notice.message, outcome.notice.transient], [false, title, tone, message, true], "open reply: " + reply);
+        same(pluginLogic.notifyOptions(outcome.notice).ok, true, "the core accepts the published notice for " + reply);
         assert.doesNotMatch(JSON.stringify(outcome.notice), /reason=|tui=|private-path|future-private-reason/, "the published notice contains no diagnostic reply");
     }
     const hinted = logic.entryOf(Object.assign({}, fields, { hints: HINT_ROWS[2][1] }), 1000, null);
@@ -313,10 +314,14 @@ function verify(logic) {
         ["dismiss", false, "dismiss"], ["closed", false, "drop"], ["fade", false, null]
     ])
         assert.equal(logic.heldAfterLeave(reason, transient), want, `held after ${reason} transient=${transient}`);
-    // Storing: [reason, fate]. An action finishes the notification; every
-    // other way off the screen keeps it in the history.
-    for (const [reason, want] of [["invoke", "forget"], ["expire", "history"], ["dismiss", "history"], ["closed", "history"], ["fade", null]])
-        assert.equal(logic.storedAfterLeave(reason), want, `stored after ${reason}`);
+    // Storing: [reason, transient, fate]. An action finishes the
+    // notification and a transient one is not kept; every other way off the
+    // screen keeps it in the history.
+    for (const [reason, transient, want] of [
+        ["invoke", false, "forget"], ["expire", false, "history"], ["dismiss", false, "history"], ["closed", false, "history"],
+        ["invoke", true, "forget"], ["expire", true, "forget"], ["dismiss", true, "forget"], ["closed", true, "forget"], ["fade", false, null]
+    ])
+        assert.equal(logic.storedAfterLeave(reason, transient), want, `stored after ${reason} transient=${transient}`);
     same(logic.heldPastHistory(["a", "b", "c", "d"], [stored(1, 1, { key: "a" })], [stored(2, 2, { key: "c" })]), ["b", "d"], "held past the history");
     same(logic.heldPastHistory([], [], []), [], "nothing held");
 
@@ -713,6 +718,7 @@ verify(load(file));
 // Each control removes one rule from a copy of the logic and keeps the text
 // around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["a refused open's notice is transient", "notice: Object.assign(openNotice(match === null ? \"\" : match[1]), { transient: true })", "notice: openNotice(match === null ? \"\" : match[1])"],
     ["image tag", 'return !!name && name[1].toLowerCase() === "img";', "return false;"],
     ["strip after the newline rewrite", 'return stripImageTags(sanitizeBody(body, app, appIcon).replace(/\\r\\n|\\r|\\n/g, "<br/>"));', 'return sanitizeBody(body, app, appIcon).replace(/\\r\\n|\\r|\\n/g, "<br/>");'],
     ["Chromium address", "if (!chromium && String(app || \"\") !== \"\") return none;", "return none;"],
@@ -759,9 +765,11 @@ const CONTROLS = [
     ["an unknown choice is refused", 'if (id === "" && c !== "open") return null;', ""],
     ["an expired toast is held", 'if (reason === "expire") return transient ? "expire" : "keep";', 'if (reason === "expire") return "expire";'],
     ["a transient notification is never held", 'if (reason === "expire") return transient ? "expire" : "keep";', 'if (reason === "expire") return "keep";'],
+    ["a transient notification leaves no history", 'return transient ? "forget" : "history";', 'return "history";'],
+    ["a lasting notification leaves into the history", 'return transient ? "forget" : "history";', 'return "forget";'],
     ["an invoked notification is closed on the server", 'if (reason === "invoke") return "dismiss";', 'if (reason === "invoke") return transient ? "dismiss" : "keep";'],
     ["an action leaves no history entry", 'if (reason === "invoke") return "forget";', 'if (reason === "invoke") return "history";'],
-    ["a dismissal still goes into the history", 'if (reason === "expire" || reason === "dismiss" || reason === "closed") return "history";', 'if (reason === "dismiss") return "forget";\n    if (reason === "expire" || reason === "closed") return "history";'],
+    ["a dismissal still goes into the history", 'if (reason === "expire" || reason === "dismiss" || reason === "closed") return transient', 'if (reason === "dismiss") return "forget";\n    if (reason === "expire" || reason === "closed") return transient'],
     ["a dismissal closes", 'if (reason === "dismiss") return "dismiss";', 'if (reason === "dismiss") return "keep";'],
     ["a held key past the history", "return keys.filter(function (k) { return !stored[k]; });", "return [];"],
     ["a held toast on screen stays", "for (var i = 0; i < live.length; i++) stored[live[i].key] = true;", ""],

@@ -13,8 +13,8 @@ import "ClipboardHistory.js" as History
 //   vgshell ipc call vgs.clipboard invoke rows '<filter>'   { images, total, rows }
 //   vgshell ipc call vgs.clipboard invoke paste|copy|pin|delete '<entry id>'
 //   vgshell ipc call vgs.clipboard invoke clear ''
-// Each change answers `ok` or a keyed `refused:` line, and a refusal shows
-// a toast.
+// Each change answers `ok` or a keyed `refused:` line, and a refusal sends
+// a notification.
 //
 // One watcher, `wl-paste --watch`, runs the helper's `capture` for each
 // copy, the first for the copy on the clipboard as it starts. setpriv ends
@@ -26,7 +26,7 @@ import "ClipboardHistory.js" as History
 // A paste puts the entry on the clipboard, hides the overlay, asks the core
 // which window has the keyboard and sends that window the paste key. No key
 // goes out unless the core names a terminal or an application; the entry
-// then stays on the clipboard and a toast says so.
+// then stays on the clipboard and a notification says so.
 Item {
     id: root
 
@@ -86,7 +86,7 @@ Item {
         store = "sweeping";
         run("sweep", () => ({ args: ["sweep"].concat(History.files(root.entries)), input: null }), code => {
             root.store = code === 0 ? "ready" : "failed";
-            if (code !== 0) root.notice("Clipboard history is off", "The history folder cannot be used.");
+            if (code !== 0) root.notice("Clipboard history is off", "The history folder cannot be used.", false);
         });
     }
 
@@ -97,7 +97,7 @@ Item {
         entries = next;
         if (!jobs.some(waiting => waiting.name === "save"))
             run("save", () => ({ args: ["save"], input: History.serialize(root.entries) }), code => {
-                if (code !== 0) root.notice("Clipboard history is not saved", "The history file cannot be written.");
+                if (code !== 0) root.notice("Clipboard history is not saved", "The history file cannot be written.", false);
             });
         if (unusedFiles.length > 0 && !jobs.some(waiting => waiting.name === "drop"))
             run("drop", () => {
@@ -161,7 +161,7 @@ Item {
     function copied(code) {
         if (code !== 0) {
             putting = null;
-            notice("Copy failed", "The entry is not on the clipboard.");
+            notice("Copy failed", "The entry is not on the clipboard.", true);
             return;
         }
         const reply = shell.surfaces.hide("overlay");
@@ -184,18 +184,21 @@ Item {
     function unsent(reason) {
         putting = null;
         console.warn("clipboard: paste key not sent: " + reason);
-        notice("Paste failed", "The entry is on the clipboard. Paste it with the key of the application.");
+        notice("Paste failed", "The entry is on the clipboard. Paste it with the key of the application.", true);
     }
 
-    function notice(title, message) {
-        shell.toasts.show({ title: title, message: message, tone: "warning", icon: "clipboard-list" });
+    // A TRANSIENT notice answers one key press and stays out of History; a
+    // history that is off or not saved is a lasting fault History keeps.
+    function notice(title, message, transient) {
+        const reply = shell.notify.send({ title: title, message: message, tone: "warning", icon: "clipboard-list", transient: transient });
+        if (reply !== "ok") console.error("clipboard: notice " + reply);
     }
 
     // A change the service refuses: the caller gets the keyed line, and a
-    // toast says why, since the key that asked for the change shows
+    // notification says why, since the key that asked for the change shows
     // nothing else.
     function refused(key, title, message) {
-        notice(title, message);
+        notice(title, message, true);
         return "refused: " + key;
     }
 

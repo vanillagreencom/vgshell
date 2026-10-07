@@ -77,20 +77,18 @@ function sleepStatus(state, detail) {
     throw new Error("sleepStatus: state " + JSON.stringify(state) + " is not off, missing, starting, held or failed");
 }
 
-// shell.toasts.show's duration for a toast that stays until dismissed.
-var UNTIL_DISMISSED = 0;
-
 // What the hook's last release, REASON of sleepLine, says of the last
 // suspend: the `lastSleep` status as { tone, text }, and for anything but
-// a confirmed lock the options of the toast the user sees once back at the
-// desktop, which stays until dismissed; null for a confirmed lock.
+// a confirmed lock `notice`, the shell.notify.send options of the
+// notification the user sees once back at the desktop, critical so it stays
+// until dismissed; null for a confirmed lock.
 function lastSleep(reason) {
-    const warn = message => ({ title: "The session was not locked before sleep", message: message, tone: "danger", icon: "lock-open", duration: UNTIL_DISMISSED });
+    const warn = message => ({ title: "The session was not locked before sleep", message: message, tone: "danger", icon: "lock-open", urgency: "critical" });
     switch (reason) {
-    case "secure": return { status: { tone: "ok", text: "The session was locked before the last sleep" }, toast: null };
-    case "refused": return { status: { tone: "danger", text: "The computer slept without the VGS lock" }, toast: warn("Hyprland refused the VGS lock. Another lock screen may hold the session. Check the lock before sleep.") };
-    case "timeout": return { status: { tone: "danger", text: "The computer slept before VGS confirmed the lock" }, toast: warn("The computer may have slept unlocked. Lock the screen before sleep.") };
-    case "closed": return { status: { tone: "danger", text: "The lock check stopped before sleep" }, toast: warn("The computer may have slept unlocked. Lock the screen before sleep.") };
+    case "secure": return { status: { tone: "ok", text: "The session was locked before the last sleep" }, notice: null };
+    case "refused": return { status: { tone: "danger", text: "The computer slept without the VGS lock" }, notice: warn("Hyprland refused the VGS lock. Another lock screen may hold the session. Check the lock before sleep.") };
+    case "timeout": return { status: { tone: "danger", text: "The computer slept before VGS confirmed the lock" }, notice: warn("The computer may have slept unlocked. Lock the screen before sleep.") };
+    case "closed": return { status: { tone: "danger", text: "The lock check stopped before sleep" }, notice: warn("The computer may have slept unlocked. Lock the screen before sleep.") };
     }
     throw new Error("lastSleep: reason " + JSON.stringify(reason) + " is not secure, refused, timeout or closed");
 }

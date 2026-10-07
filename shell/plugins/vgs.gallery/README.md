@@ -10,7 +10,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 - One section per group of components: surfaces, typography, buttons, choices, inputs, groups, feedback, dialogs, cards, the carousel, titles and scrolling, and lists.
 - Every example follows the applied theme, so applying another theme restyles the whole window at once.
-- Show a toast raises a real toast.
+- Send a notification sends a real system notification, which Notifications draws. VGS has no toast of its own.
 - Escape or your close key closes the window.
 
 ## Setup

@@ -15,7 +15,8 @@
 # plugin's lock takes over under the restore option; the client's unlock
 # then unlocks the session, the core ends the plugin's lock, and the plugin
 # publishes it and locks again. A sleep whose budget runs out before the
-# lock is confirmed is published and shown as a toast once unlocked.
+# lock is confirmed is published and sent as a critical notification once
+# unlocked, read as its card while vgs.notifications is enabled for it.
 # A hook that cannot start is published as such and taken again once the
 # setting turns it back on. Disabling the plugin while locked keeps
 # the session locked, and the rebuilt plugin hands its lock screen over
@@ -60,7 +61,7 @@
 # capability rows' fixture, acme.probe, when an earlier row left it
 # enabled. The row ends with the plugin disabled, the fixture as it found
 # it, the stand-ins gone and hyprland.lua as the consent row left it.
-# inputs: shell/plugins/vgs.lock/* shell/plugins/vgs.settings/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/IdleRegistry.qml bin/vgshell bin/vgshell-lock scripts/smoke/lock/* shell/Core/HyprlandLayer.js scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.lock/* shell/plugins/vgs.settings/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/IdleRegistry.qml bin/vgshell bin/vgshell-lock scripts/smoke/lock/* shell/Core/HyprlandLayer.js scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 lock_user_config="$home/.config/vgshell/shell.json"
 lock_hypr_lua="$home/.config/hypr/hyprland.lua"
@@ -77,7 +78,8 @@ lock_status() { ipc vgs.lock invoke status '' | py_reply 'import json,sys; d=jso
 sleep_status() { ipc smoke statusValues vgs.lock | py_reply 'import json,sys; v=json.load(sys.stdin).get("sleep"); print(v["tone"] if v else "unpublished")'; }
 # A published status value of vgs.lock as [tone, text], or null.
 status_value() { ipc smoke statusValues vgs.lock | py_reply 'import json,sys; v=json.load(sys.stdin).get(sys.argv[1]); print(json.dumps(v if v is None else [v["tone"], v["text"]]))' "$1"; }
-lock_toasts() { ipc shell lent | py_reply 'import json,sys; print(json.dumps([[t["title"], t["tone"]] for t in json.load(sys.stdin)["toasts"]["visible"] if t["plugin"] == "vgs.lock"]))'; }
+# The cards from Lock as [title, tone, urgency, icon].
+lock_cards() { plugin_cards Lock | py_reply 'import json,sys; print(json.dumps([[r[0], r[3], r[2], r[4]] for r in json.load(sys.stdin)]))'; }
 # `vgshell lock`'s first line and its exit status.
 vgshell_lock() { local out status=0; out="$("${shell_env[@]}" "$repo/bin/vgshell" lock 2>&1)" || status=$?; printf '%s exit=%s\n' "$(head -n 1 <<<"$out")" "$status"; }
 client_said() { if grep -q -x -- "$2" "$1" 2>/dev/null; then echo "$2"; else echo waiting; fi; }
@@ -356,8 +358,8 @@ release "the lock after the takeover"
 
 # A sleep whose budget runs out before the lock is confirmed: logind's delay
 # reads 1 s, so the hook's budget is 1 ms. The hook lets the sleep go as
-# timed out, the plugin publishes it, and the user sees the toast once back
-# at the desktop, not over the lock screen.
+# timed out, the plugin publishes it, and the user sees its notification
+# once back at the desktop, not over the lock screen.
 expected_errors+=('lock: sleep=unlocked reason=timeout')
 retake_hook() { # LABEL
   set_setting lockBeforeSleep false
@@ -365,6 +367,7 @@ retake_hook() { # LABEL
   set_setting lockBeforeSleep null
   expect_poll "$1: the hook holds again" ok sleep_status
 }
+notes_on "lock timeout"
 printf '#!/bin/sh\ncase "$5" in PreparingForSleep) echo "b false" ;; *) echo "t 1000000" ;; esac\n' >"$shim/busctl"
 retake_hook "a 1 s delay"
 expect_poll "timeout: the hook read the short delay" "ready budget_ms=1" tail -n 1 -- "$sleep_log"
@@ -372,9 +375,10 @@ expect_poll "timeout: the hook read the short delay" "ready budget_ms=1" tail -n
 expect_poll "timeout: the hook let the sleep go on its budget" "released reason=timeout" bash -c 'grep -x "released reason=timeout" -- "$1" || :' _ "$sleep_log"
 expect_poll "timeout: the sleep still locked the session" locked session_lock
 expect_poll "timeout: the last sleep is published as unconfirmed" '["danger", "The computer slept before VGS confirmed the lock"]' status_value lastSleep
-expect "timeout: no toast shows over the lock screen" '[]' lock_toasts
+expect "timeout: no notification shows over the lock screen" '[]' lock_cards
 release "the timed-out sleep lock"
-expect_poll "timeout: the user is told once back at the desktop" '[["The session was not locked before sleep", "danger"]]' lock_toasts
+expect_poll "timeout: the user is told once back at the desktop" '[["The session was not locked before sleep", "danger", 2, "lock-open"]]' lock_cards
+notes_off "lock timeout"
 printf '#!/bin/sh\ncase "$5" in PreparingForSleep) echo "b false" ;; *) echo "t 5000000" ;; esac\n' >"$shim/busctl"
 retake_hook "logind's default delay"
 expect_poll "the hook read logind's default delay again" "ready budget_ms=4000" tail -n 1 -- "$sleep_log"

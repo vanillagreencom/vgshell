@@ -25,7 +25,7 @@ import "Notices.js" as Notices
 // heartbeat, $XDG_RUNTIME_DIR/agent-warden/notifier, every 60 s, and the
 // warden then sends none of its own. Each derivation steps the episodes it
 // remembers and sends each new one once, through one notify-send run, or
-// as a toast for a move under `notify: everything`. A press on Open vsys
+// through the core's shell.notify.send for a move under `notify: everything`. A press on Open vsys
 // opens the plugin's `vsys` TUI. The episodes live as long as the service:
 // a service built again, by a shell restart or a new plugin revision,
 // sends each episode still open once more.
@@ -127,15 +127,14 @@ Item {
         for (const notice of Notices.notices(result.opened, mode, vsys, now)) send(notice);
     }
 
-    // One notice: a toast, or one notify-send run that this service owns
-    // until it ends. A notice that fails to go out is forgotten, so the
+    // One notice: one shell.notify.send, or one notify-send run that this
+    // service owns until it ends. A notice that fails to go out is forgotten, so the
     // next status sends it again.
     function send(notice) {
-        if (notice.channel === "toast") {
-            try {
-                shell.toasts.show(Notices.toast(notice));
-            } catch (e) {
-                console.error("agent-warden: notice=" + notice.kind + " " + e.message);
+        if (notice.channel === "shell") {
+            const reply = shell.notify.send(Notices.shellOptions(notice));
+            if (reply !== "ok") {
+                console.error("agent-warden: notice=" + notice.kind + " " + reply);
                 episodes = Notices.forget(episodes, notice.keys);
             }
             return;

@@ -758,7 +758,7 @@ var TOKENS = {
         // A tooltip wraps its text past `maxWidth`, and never grows past its
         // output less `size.window.gutter` a side.
         maxWidth: length("{size.panel.sm}"),
-        // A raised surface, as a popover, a menu, a toast and an OSD are.
+        // A raised surface, as a popover, a menu and an OSD are.
         background: color("{color.surfaceRaised}"),
         border: color("{color.borderStrong}"),
         foreground: color("{color.text}")
@@ -799,21 +799,6 @@ var TOKENS = {
         highlight: color("{color.surfaceHover}"),
         selected: color("{color.accentSubtle}"),
         selectedForeground: color("{color.accent}")
-    },
-
-    // `gap` separates the toasts of the stack; `contentGap` the icon, the
-    // text and the close button of one toast.
-    toast: {
-        width: length("{size.panel.md}"),
-        margin: length("{space.lg}"),
-        gap: length("{space.md}"),
-        padding: length("{space.md}"),
-        contentGap: length("{control.gap}"),
-        radius: length("{radius.md}"),
-        duration: number(5000, 0, 60000),
-        corner: { type: "choice", value: "top-right", options: ["top-left", "top-right", "bottom-left", "bottom-right"] },
-        background: color("{color.surfaceRaised}"),
-        border: color("{color.borderStrong}")
     },
 
     // An on-screen display of one level, such as the volume: an icon

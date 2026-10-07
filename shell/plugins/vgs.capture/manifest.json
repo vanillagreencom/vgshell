@@ -9,7 +9,7 @@
   "icon": "camera",
   "kinds": ["service", "bar-widget", "panel"],
   "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml" },
-  "capabilities": ["compositor", "configure", "ipc", "monitors", "requirements", "run", "shortcut", "status", "surfaces", "toasts", "tui"],
+  "capabilities": ["compositor", "configure", "ipc", "monitors", "notify", "requirements", "run", "shortcut", "status", "surfaces", "tui"],
   "defaultSection": "right",
   "requirements": [
     { "command": "grim", "packages": { "pacman": "grim", "dnf": "grim", "nix": "grim" }, "optional": false, "purpose": "Captures screenshots and images for text recognition" },

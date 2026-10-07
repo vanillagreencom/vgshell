@@ -77,6 +77,7 @@ f share/vgshell/shell/Core/MonitorLogic.js
 f share/vgshell/shell/Core/MonitorState.qml
 f share/vgshell/shell/Core/Notices.qml
 f share/vgshell/shell/Core/NotificationHub.qml
+f share/vgshell/shell/Core/Notifier.qml
 f share/vgshell/shell/Core/PackageManagers.js
 f share/vgshell/shell/Core/Pads.js
 f share/vgshell/shell/Core/PluginLogic.js
@@ -89,7 +90,6 @@ f share/vgshell/shell/Core/SessionLock.qml
 f share/vgshell/shell/Core/ShortcutRegistry.qml
 f share/vgshell/shell/Core/SystemSteps.qml
 f share/vgshell/shell/Core/ThemeRunner.qml
-f share/vgshell/shell/Core/Toasts.qml
 f share/vgshell/shell/Core/TuiRecords.qml
 f share/vgshell/shell/Core/TuiRunner.qml
 f share/vgshell/shell/Core/qmldir
@@ -106,7 +106,6 @@ f share/vgshell/shell/Hosts/ServiceHost.qml
 f share/vgshell/shell/Hosts/SummonHost.qml
 f share/vgshell/shell/Hosts/SummonLayer.qml
 f share/vgshell/shell/Hosts/SummonPopup.qml
-f share/vgshell/shell/Hosts/ToastHost.qml
 f share/vgshell/shell/Hosts/qmldir
 f share/vgshell/shell/Ui/BarWidget.qml
 f share/vgshell/shell/Ui/controls/BarItem.qml
@@ -150,7 +149,6 @@ f share/vgshell/shell/Ui/feedback/LinkText.qml
 f share/vgshell/shell/Ui/feedback/ProgressBar.qml
 f share/vgshell/shell/Ui/feedback/SaveBar.qml
 f share/vgshell/shell/Ui/feedback/Spinner.qml
-f share/vgshell/shell/Ui/feedback/Toast.qml
 f share/vgshell/shell/Ui/feedback/VoiceOrb.qml
 f share/vgshell/shell/Ui/feedback/shaders/voiceorb.frag
 f share/vgshell/shell/Ui/feedback/shaders/voiceorb.frag.qsb

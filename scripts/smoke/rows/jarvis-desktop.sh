@@ -7,7 +7,7 @@
 # is read twice: the tool's own outcome, and Hyprland's state read by the
 # row. No latency ceiling is measured: outcome and state reads poll every
 # 200 ms (expect_poll); the driver polls its call file every 10 ms.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/Compositor.qml scripts/smoke/toplevel/* shell/Core/Dispatch.js shell/Commons/DesktopLaunch.js scripts/smoke/rows/jarvis.sh scripts/smoke/rows/launcher.sh
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/Compositor.qml scripts/smoke/toplevel/* shell/Core/Dispatch.js shell/Commons/DesktopLaunch.js scripts/smoke/rows/jarvis.sh scripts/smoke/rows/launcher.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 
 jd_dir="$repo/shell/plugins/vgs.jarvis"
@@ -271,10 +271,11 @@ PY
     expect "Hyprland lists the other window no more" absent jd_client "$jd_other" address
     close_toplevel "$jd_other_pid" "the closed window's helper exits"
 
-    jd_notices() { ipc smoke jarvisMuteNotices "Smoke Jarvis notice" "from the desktop row"; }
-    jd_notices_before="$(jd_notices)"
-    jd_tool "notify.toast reads the service's reply" completed notify.toast '{"title": "Smoke Jarvis notice", "body": "Posted from the desktop row."}'
-    expect "the shell shows the notice" "$((jd_notices_before + 1))" jd_notices
+    jd_notice() { plugin_cards Jarvis | py_reply 'import json,sys; print(json.dumps([r for r in json.load(sys.stdin) if r[0] == "Smoke Jarvis notice"]))'; }
+    notes_on "jarvis desktop notice"
+    jd_tool "notify.send reads the service's reply" completed notify.send '{"title": "Smoke Jarvis notice", "body": "Posted from the desktop row."}'
+    expect_poll "the notice shows as one Jarvis card in the info tone" '[["Smoke Jarvis notice", "Posted from the desktop row.", 1, "info", "mic", "none"]]' jd_notice
+    notes_off "jarvis desktop notice"
   else
     fail "the other desktop window maps"
   fi

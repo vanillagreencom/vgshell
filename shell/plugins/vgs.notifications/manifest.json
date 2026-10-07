@@ -20,10 +20,10 @@
     "ipc",
     "layers",
     "notifications",
+    "notify",
     "shortcut",
     "surfaces",
     "status",
-    "toasts",
     "tui",
     "secrets"
   ],

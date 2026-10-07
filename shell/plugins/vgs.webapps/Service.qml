@@ -318,11 +318,12 @@ Item {
         const app = current().good.find(app => app.name === name);
         if (app === undefined) return;
         if (browser === null) {
-            shell.toasts.show({
+            const sent = shell.notify.send({
                 title: "Web app did not open",
                 message: "No browser here opens a site in its own window. Install Chromium, Google Chrome, Brave, Vivaldi or Microsoft Edge.",
                 tone: "warning"
             });
+            if (sent !== "ok") console.error("webapps: notice " + sent);
             return;
         }
         const reply = shell.run.detached(WebApps.browserArgv(browser.command, app.url.href));

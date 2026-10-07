@@ -13,7 +13,7 @@ probe() { ipc acme.probe invoke "$1" "${2:-}"; }
 # The fixture holds every capability and the bare fixture none; another
 # plugin may hold a shared capability beside the fixture.
 lent_holds() { ipc shell lent | py_reply 'import json,sys; h=json.load(sys.stdin)["holders"].get(sys.argv[1],[]); print("acme.probe" in h and "acme.bare" not in h)' "$1"; }
-for cap in compositor configure idle ipc lock notifications polkit run screens shortcut toasts theme; do
+for cap in compositor configure idle ipc lock notifications polkit run screens shortcut notify theme; do
   expect "the $cap capability is lent to the fixture and not the bare plugin" True lent_holds "$cap"
 done
 

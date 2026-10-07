@@ -26,8 +26,9 @@
 # warden's heartbeat while a status reads, and again at once when one
 # reads after an unreadable one. It sends one notice per episode across
 # ticks, and again after the episode clears, as Agent Warden with its
-# urgency and Open vsys, sends nothing under notify: off, shows a move as
-# a toast under notify: everything, and a press on Open vsys hands the
+# urgency and Open vsys, sends nothing under notify: off, sends a move
+# through the core's shell.notify.send under notify: everything, which
+# runs the same stand-in, and a press on Open vsys hands the
 # stand-in terminal the vsys TUI's argv. A notice whose run fails, or
 # cannot start, goes out again on the next status; runs waiting for a
 # press stop at eight, the rest going without the button; and a run that
@@ -45,7 +46,7 @@
 # without the button.
 # The harness starts the plugin disabled; the row ends with it disabled,
 # its runtime files gone and no stub on PATH.
-# inputs: shell/plugins/vgs.agent-warden/* shell/plugins/vgs.settings/* shell/Ui/controls/InfoButton.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Popover.qml shell/Commons/Reply.js scripts/smoke/fixtures/agent-warden/* shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/PluginStatus.qml shell/Core/Notices.qml shell/Core/Toasts.qml shell/Core/TuiRunner.qml scripts/smoke/rows/manager.sh bin/vgshell-tui shell/Commons/Duration.js shell/Commons/qmldir
+# inputs: shell/plugins/vgs.agent-warden/* shell/plugins/vgs.settings/* shell/Ui/controls/InfoButton.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Popover.qml shell/Commons/Reply.js scripts/smoke/fixtures/agent-warden/* shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/PluginStatus.qml shell/Core/Notices.qml shell/Core/Notifier.qml shell/Core/TuiRunner.qml scripts/smoke/rows/manager.sh bin/vgshell-tui shell/Commons/Duration.js shell/Commons/qmldir
 set -euo pipefail
 warden_copy="$home/.config/vgshell/plugins/vgs.agent-warden"
 rm -rf -- "$warden_dir"
@@ -614,8 +615,9 @@ os.replace(path + ".tmp", path)
 PY
   expect_poll "the service reads notify: ${1:-problems}" "\"${1:-problems}\"" ipc smoke readInstance service vgs.agent-warden mode
 }
-# The toasts the plugin shows, as the lending record holds them.
-warden_toasts() { ipc shell lent | py_reply 'import json,sys; print(json.dumps([t for t in json.load(sys.stdin)["toasts"]["visible"] if t["plugin"] == "vgs.agent-warden"]))'; }
+# warden_core_call N TITLE: the argv of the first call after the first N
+# with TITLE, less its message, as one JSON line, or `absent`.
+warden_core_call() { warden_call "$1" "$2" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[:-1]))'; }
 warden_near_notices='[["normal", "An agent is near its memory limit", true], ["normal", "An agent is near its process limit", true]]'
 warden_held_notice='["critical", "Agents are close to their memory limit", true]'
 
@@ -745,10 +747,13 @@ warden_notify ""
 warden_put near-limit 0 >/dev/null
 expect_poll "notify: off sent nothing, and back on only the lane that opened again goes out" "$warden_near_notices" warden_notices_since "$warden_mark"
 
-# notify: everything shows a move back into limits as a toast.
+# notify: everything sends a move back into limits through the core: one
+# low, transient notification from Agent Warden in the info tone, whose
+# click only dismisses.
 warden_notify everything
+warden_mark="$(warden_sent_count)"
 warden_put partial 0 moved >/dev/null
-expect_poll "under notify: everything a move shows as a toast" '[{"plugin": "vgs.agent-warden", "title": "Moved an agent back into its limits", "tone": "accent"}]' warden_toasts
+expect_poll "under notify: everything a move goes out through the core" '["--app-name=Agent Warden", "--urgency=low", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-tone:info", "--hint=string:x-vgs-icon:shield-check", "--transient", "--", "Moved an agent back into its limits"]' warden_core_call "$warden_mark" "Moved an agent back into its limits"
 warden_notify ""
 
 # A warden that stopped: Start it runs the timer through the stand-in,

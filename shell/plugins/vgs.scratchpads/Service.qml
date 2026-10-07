@@ -16,8 +16,8 @@ import Quickshell.Hyprland
 // toggle again once Hyprland reports the window, only while the user still
 // wants the pad, so a press never shows an empty pad; presses meanwhile
 // flip that wish. A start that maps no window within startMs ends in one
-// toast. A pad the layer does not hold, as one whose window class another
-// pad holds, starts nothing and says why in one toast.
+// notification. A pad the layer does not hold, as one whose window class
+// another pad holds, starts nothing and says why in one notification.
 Item {
     id: root
 
@@ -182,11 +182,7 @@ Item {
             toggle(pad, null);
             return;
         case "no-pad":
-            shell.toasts.show({
-                title: "Pad " + name + " cannot open",
-                message: "Another pad uses its window class, " + pad["class"] + ". Give each pad its own window class in Plugins, and an app that opens its window with it.",
-                tone: "warning"
-            });
+            notice("Pad " + name + " cannot open", "Another pad uses its window class, " + pad["class"] + ". Give each pad its own window class in Plugins, and an app that opens its window with it.");
             return;
         default:
             console.warn("scratchpads: pad=" + name + " toggle answered " + JSON.stringify(answer));
@@ -287,13 +283,14 @@ Item {
             state.phase = "idle";
             state.wanted = false;
             const pad = padOf(name);
-            shell.toasts.show({
-                title: "Pad " + name + " did not open",
-                message: "Its app showed no window of class " + (pad === undefined ? "" : pad["class"]) + ". Check the app and window class of the pad in Plugins.",
-                tone: "warning"
-            });
+            notice("Pad " + name + " did not open", "Its app showed no window of class " + (pad === undefined ? "" : pad["class"]) + ". Check the app and window class of the pad in Plugins.");
         }
         armDeadline();
+    }
+
+    function notice(title, message) {
+        const reply = shell.notify.send({ title: title, message: message, tone: "warning", icon: "app-window" });
+        if (reply !== "ok") console.error("scratchpads: notice " + reply);
     }
 
     Timer {

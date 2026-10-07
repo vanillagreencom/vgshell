@@ -177,8 +177,10 @@ Singleton {
             hide: kind => root.surfaceRoute(ctx, "hide", kind, "", null),
             toggle: (kind, payloadJson, anchor) => root.surfaceRoute(ctx, "toggle", kind, payloadJson, anchor)
         }),
-        toasts: ctx => ({
-            show: options => Toasts.show(ctx, options)
+        // The sender's name on the notification is the plugin's manifest
+        // name, read at each send.
+        notify: ctx => ({
+            send: options => Notifier.send(ctx, Registry.manifests[ctx.id].name, options)
         }),
         layers: ctx => ({
             show: component => Layers.show(ctx, component)
@@ -463,7 +465,6 @@ Singleton {
             polkitRegistered: polkitLoader.item !== null && polkitLoader.item.isRegistered,
             polkitFlows: root.polkitFlows,
             lock: { requested: sessionLock.lockRequested, secure: sessionLock.lockSecure, content: sessionLock.lockContent !== null },
-            toasts: Toasts.record(),
             layers: Layers.record(),
             status: PluginStatus.record(),
             theme: themes.record(),
