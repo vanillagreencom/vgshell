@@ -30,7 +30,8 @@
 # apply held and answered by a stand-in
 # runner that changes no theme; devtools is the Dev Tools window; system
 # is the System window as it opens with no System section enabled, then
-# System → Displays over the device fakes when the tree ships it, and
+# System → Displays over the device fakes and two monitors when the tree
+# ships it, and
 # its Sound section over the sandbox's private PipeWire, then the window
 # as Sound is turned off while shown; bluetooth is
 # its Bluetooth section, then the Bluetooth dropdown, over the device
@@ -2241,7 +2242,10 @@ scene_devtools() { # MODE
 # → Displays, system-<mode>-displays, over the device fakes' Pro Display
 # XDR, placed on the output by the pane's own choice, and two Studio
 # Displays the helper cannot place; the fakes' system tree keeps the
-# core's step probe off the host's /sys and /dev.
+# core's step probe off the host's /sys and /dev. The arrangement shows two
+# monitors: the shot's own output and a headless one placed as the owner's
+# portrait 5K is, left of and above it, which the scene removes after the
+# shot.
 # A tree that ships vgs.sound then takes its Sound section,
 # system-<mode>-sound, over the sandbox's private PipeWire
 # (scripts/smoke/devices.sh), with a test stream that plays in the
@@ -2257,6 +2261,13 @@ scene_devtools() { # MODE
 # other Hardware shots, so the sidebar shows the group as a user with
 # several sections sees it.
 system_shown() { [[ $(ipc smoke instanceGeometry window vgs.system) != absent ]] && echo shown || echo hidden; }
+displays_output="VGS-DISPLAYS"
+# The rule of the Displays shot's second monitor: a 5120x2880 panel at
+# scale 2, turned to portrait, left of and above the shot's output.
+displays_output_rule="hl.monitor({ output = \"$displays_output\", mode = \"5120x2880@60\", position = \"-1440x-620\", scale = 2, transform = 1 })"
+# The displays service's reading of the second monitor as WxH@X,Y
+# scale=S transform=T, or absent while it lists none.
+displays_second_output() { ipc smoke readInstance service vgs.displays outputs | py_reply 'import json,sys; m=[o for o in json.load(sys.stdin) if o["name"]==sys.argv[1]]; print("%dx%d@%d,%d scale=%g transform=%d" % (m[0]["width"], m[0]["height"], m[0]["x"], m[0]["y"], m[0]["scale"], m[0]["transform"]) if m else "absent")' "$displays_output"; }
 displays_listed() { ipc smoke readInstance service vgs.displays values | py_reply 'import json,sys; print(len(json.load(sys.stdin)["displays"]["items"]))'; }
 # How many shown actions of the Mouse section offer the user's own value.
 mouse_offers() { ipc smoke descendantGeometry window vgs.mouse | py_reply 'import json,sys; print(sum(1 for i in json.load(sys.stdin) if i["name"] == "useHyprlandValue" and i["visible"]))'; }
@@ -2312,12 +2323,19 @@ scene_system() { # MODE
       expect_poll "the displays service lists the three fake displays" 3 displays_listed
       first_output="$(ipc smoke readInstance service vgs.displays outputs | py_reply 'import json,sys; print(json.load(sys.stdin)[0]["identifier"])')" || fail "the outputs the displays service reads are unreadable"
       expect "the pane's choice puts the XDR on the output" ok ipc vgs.displays invoke assign "{\"device\":\"usb:class/hidraw/hidraw0/device#VGSSMOKEXDR01\",\"output\":\"$first_output\"}"
+      # The rule goes in before the output comes: the core reads the
+      # outputs again on `monitoradded` and on no rule `hyprctl eval` adds.
+      expect "the nested compositor takes the Displays shot's second monitor rule" ok hypr eval "$displays_output_rule"
+      expect "the nested compositor adds the Displays shot's second monitor" ok hypr output create headless "$displays_output"
+      expect_poll "the displays service lists the second monitor where the rule puts it" "5120x2880@-1440,-620 scale=2 transform=1" displays_second_output
       expect "System → Displays summons" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
       expect_poll "System → Displays is shown" '["vgs.displays"]' window_panes
       park_pointer
       take "system-$1-displays"
       expect "the System window hides after Displays" ok ipc shell hide window vgs.system
       expect_poll "the System window is gone after Displays" hidden system_shown
+      expect "the Displays shot's second monitor is removed" ok hypr output remove "$displays_output"
+      expect_poll "the displays service drops the second monitor" absent displays_second_output
       displays_on=true
     fi
   fi
