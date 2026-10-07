@@ -258,12 +258,15 @@ long_inbox_warm() {
 # long_inbox_ends TOGGLE...: one open of the long inbox by TOGGLE, read
 # with long_inbox_settled at the list's top and again once wheel notches
 # over the list have scrolled it to its end, where the scroll rests at its
-# whole travel. Prints `top=<reading> end=<reading>`, or the step that
-# failed: long_inbox_shown's failure, `view=<answer>`, `wheel-failed`,
-# `not-at-end <view>` or a toggle that failed. The pointer leaves the panel
-# after, so no later open starts with a card under it.
+# whole travel. The end reading keeps only its words about the hints,
+# `fits` when there are none, since the scrolled list's first card then
+# lies above the list's top by design. Prints `top=<reading>
+# end=<reading>`, or the step that failed: long_inbox_shown's failure,
+# `view=<answer>`, `wheel-failed`, `not-at-end <view>` or a toggle that
+# failed. The pointer leaves the panel before it closes, so no later open
+# starts with a card under it.
 long_inbox_ends() {
-  local shown top end view spot x y
+  local shown top end hints="" word view spot x y
   "$@" >/dev/null || { echo toggle-failed; return; }
   shown="$(long_inbox_shown)"
   [[ $shown == shown ]] || { echo "$shown"; return; }
@@ -278,6 +281,9 @@ long_inbox_ends() {
   done
   [[ $spot == end ]] || { echo "not-at-end $view"; return; }
   end="$(long_inbox_settled)"
+  for word in $end; do [[ $word == *hints* ]] && hints+="${hints:+ }$word"; done
+  [[ $end == unread* ]] && hints="$end"
+  end="${hints:-fits}"
   read -r x y < <(nk_panel_outside_point) && hover "$x" "$y"
   "$@" >/dev/null || { echo close-toggle-failed; return; }
   for _ in $(seq 1 25); do [[ $(layer_count vgs:panel) == 0 ]] && break; sleep 0.2; done
