@@ -1109,8 +1109,8 @@ function currentEntries(target, dirs, live) {
 
 // What stands at FILE for an entry ITEM: `absent`, `managed`, or
 // `occupied`. A link is managed only when it is a symlink whose target is
-// exactly ITEM.to. A copy is managed when it is that old link form, or a
-// regular file whose bytes equal either the old bytes the plan saw or the
+// exactly ITEM.to. A copy is managed only when it is a regular file whose
+// bytes equal either the old bytes the plan saw or the
 // new bytes this apply is landing.
 function entryState(file, item) {
     const stat = fs.lstatSync(file, { throwIfNoEntry: false });
@@ -1119,7 +1119,6 @@ function entryState(file, item) {
     case "link":
         return stat.isSymbolicLink() && fs.readlinkSync(file) === item.to ? "managed" : "occupied";
     case "copy":
-        if (stat.isSymbolicLink()) return fs.readlinkSync(file) === item.to ? "managed" : "occupied";
         if (!stat.isFile()) return "occupied";
         {
             const bytes = fs.readFileSync(file);
@@ -1133,7 +1132,7 @@ function entryState(file, item) {
 
 function copyNeedsWrite(file, item) {
     const stat = fs.lstatSync(file, { throwIfNoEntry: false });
-    if (stat === undefined || stat.isSymbolicLink()) return true;
+    if (stat === undefined) return true;
     if (!stat.isFile()) return false;
     return !fs.readFileSync(file).equals(item.newBytes);
 }
@@ -1156,7 +1155,7 @@ function entryOccupied(plan) {
 
 // Keep entry TARGET's entries in each of its directories, each created with
 // its parents when absent. A managed link is left as it is. A managed copy is
-// replaced by rename only when its bytes differ or it is the old link form.
+// replaced by rename only when its bytes differ.
 // Answers null, or the failure's { reason, failure } for target NAME:
 // `entry-occupied` when a path came to be taken after the plan judged it
 // free, else what the read or write met.

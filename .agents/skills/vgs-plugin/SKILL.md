@@ -36,6 +36,8 @@ Write a plugin for the VGS shell. The contract is [`docs/architecture/overview.m
 
 ## Rules
 
+- Follow the no-legacy rule in [`AGENTS.md` § Conventions](../../../AGENTS.md#conventions).
+
 - Consumer text follows [`docs/architecture/design-system.md` § Copy](../../../docs/architecture/design-system.md#copy).
 
 - One directory, one `manifest.json` at its root, one QML entry point per kind. Copy the templates. The field table is [`references/api.md` § Manifest](references/api.md#manifest); an unknown key is refused.

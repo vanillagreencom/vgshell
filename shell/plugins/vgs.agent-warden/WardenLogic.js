@@ -10,8 +10,7 @@
 // https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/warden-status.md, schema 1.0. A minor version adds
 // fields and enum values an older reader ignores, so this file checks only
 // the fields it reads and skips an event kind or a `near` id it does not
-// know. A major version it does not know is refused whole. An older warden,
-// the one vsys imported, writes state.json and no status.json.
+// know. A major version it does not know is refused whole.
 
 // The status schema major this plugin reads.
 var SUPPORTED_MAJOR = 1;
@@ -27,7 +26,7 @@ var RECENT_KINDS = ["moved", "failed", "partial", "reaped"];
 var GIB = 1073741824;
 
 // The consumer states `derive` answers, in the order the widget ranks them.
-var STATES = ["calm", "working", "look", "problem", "not-checking", "not-set-up", "update-warden"];
+var STATES = ["calm", "working", "look", "problem", "not-checking", "not-set-up"];
 // Why a status is not checking: too old, unreadable, or a major version
 // this plugin does not read.
 var NOT_CHECKING_REASONS = ["stale", "unreadable", "schema"];
@@ -162,21 +161,6 @@ function readStatus(text) {
     return { kind: "read", doc: doc };
 }
 
-// What the warden's directory holds, from the two reads the service owns:
-// STATUS, the last readStatus answer or { kind: "absent" } or
-// { kind: "pending" } before the first read, and LEGACY, whether
-// state.json exists while status.json does not: "present", "absent" or
-// "pending". Answers the tagged value `derive` takes.
-function fileOf(status, legacy) {
-    if (status.kind !== "absent") return status;
-    switch (legacy) {
-    case "pending": return { kind: "pending" };
-    case "present": return { kind: "legacy" };
-    case "absent": return { kind: "absent" };
-    }
-    throw new Error("agent-warden: legacy=" + JSON.stringify(legacy) + " unknown");
-}
-
 function numberOrNull(limit) {
     return typeof limit === "number" ? limit : null;
 }
@@ -294,7 +278,7 @@ function blank(state, reason) {
     return { state: state, reason: reason, checkedAt: null, agents: null, issues: 0, items: [], memory: null };
 }
 
-// The consumer state of FILE, fileOf's answer, at NOW milliseconds since
+// The consumer state of FILE, the status read, at NOW milliseconds since
 // the epoch, or null while a read is pending. The answer is the `detail`
 // the service publishes:
 //   { state, reason, checkedAt, agents, issues, items, memory }
@@ -308,7 +292,6 @@ function derive(file, now) {
     switch (file.kind) {
     case "pending": return null;
     case "absent": return blank("not-set-up", null);
-    case "legacy": return blank("update-warden", null);
     case "unreadable": return blank("not-checking", "unreadable");
     case "schema": return blank("not-checking", "schema");
     case "read": break;
@@ -372,21 +355,19 @@ function wardenRow(detail) {
         }
         throw new Error("agent-warden: reason=" + JSON.stringify(detail.reason) + " unknown");
     case "not-set-up": return { tone: "info", text: "Not set up" };
-    case "update-warden": return { tone: "warning", text: "Update Agent Warden" };
     }
     throw new Error("agent-warden: state=" + JSON.stringify(detail.state) + " unknown");
 }
 
 // The one setup step DETAIL calls for, or null for a state that needs
 // none: `setup`, the setup TUI, which runs vsys warden install for a warden
-// not set up or too old; `start`, the warden timer started again after it
+// not set up; `start`, the warden timer started again after it
 // stopped checking; `get-vsys`, vsys offered through the core's notice,
 // first whenever VSYS_MISSING, since every other step needs vsys. The flyout
 // and the Settings page offer the same step.
 function setupStep(detail, vsysMissing) {
     switch (detail.state) {
     case "not-set-up":
-    case "update-warden":
         return vsysMissing ? "get-vsys" : "setup";
     case "not-checking":
         return detail.reason === "stale" ? "start" : null;

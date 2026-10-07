@@ -85,11 +85,6 @@ fi
 exit "${STUB_EXIT:-0}"
 EOF
 chmod +x "$tmp/qs"
-# The runner runs the repository's one-time migrations before it starts a
-# shell. The Slack photos migration asks secret-tool, which this stub
-# answers with nothing stored, so no row reaches a keyring.
-printf '#!/bin/sh\nexit 0\n' >"$tmp/secret-tool"
-chmod +x "$tmp/secret-tool"
 # The stub hyprctl answers the preflight's `-j version` and restart's
 # `-j status`, the Lua dialect. `-j monitors` appends a line to
 # STUB_HYPR_LOG and answers STUB_MONITORS, or fails as a Hyprland that is
@@ -504,7 +499,6 @@ tree_with() {
   mv -- "$copy" "$tree/bin/vgshell"
   chmod +x "$tree/bin/vgshell"
   ln -s -- "$repo/bin/lib" "$tree/bin/lib"
-  ln -s -- "$repo/bin/vgshell-migrate" "$tree/bin/vgshell-migrate"
   ln -s -- "${TREE_SHELL:-$repo/shell}" "$tree/shell"
   copy="$tree/bin/vgshell"
 }

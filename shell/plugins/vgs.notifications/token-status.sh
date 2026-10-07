@@ -3,8 +3,7 @@
 # without reading them. Usage: token-status.sh [TEAM_ID...]. Each TEAM_ID is
 # a Slack workspace's team id, as Slack's workspace list names it, at most 16
 # of them; the probe asks for account slack:<TEAM_ID> of service
-# vgs-notifications for each, in the order given, then for the
-# single-workspace account `slack`. It prints one line per account on
+# vgs-notifications for each, in the order given. It prints one line per account on
 # stdout, which SlackPhotos.qml parses through
 # NotificationLogic.slackTokenStates:
 #   slack-token: account=<account> present
@@ -26,8 +25,7 @@
 # found prints its `attribute.` lines; an item whose secret it could not
 # read because its collection is locked adds a `secret-tool: ` line naming
 # the lock, gnome-keyring's `Cannot get secret of a locked object`. The
-# search matches each attribute exactly, so account `slack` never finds an
-# item stored under `slack:<TEAM_ID>`.
+# search matches each attribute exactly.
 #
 # VGS_NOTIFICATIONS_SLACK_TEST_SECRET_TOOL_DIR, which tests alone set, as
 # for slack-photos.js: the secret-tool on PATH must resolve inside that
@@ -51,7 +49,7 @@ for team in "$@"; do
   fi
   accounts+=("slack:$team")
 done
-accounts+=(slack)
+[[ ${#accounts[@]} -gt 0 ]] || exit 0
 # A search that hangs on the bus is abandoned; a store answers in well
 # under a second.
 limit=10

@@ -137,18 +137,15 @@ home="$sandbox/home"; mkdir -p "$home/.config/hypr"
 # Add the observer to a copy; the live checkout never imports test code.
 # A caller may set source_tree to another export of the shell, bin, config
 # and themes, such as scripts/sandbox-shots.sh --rev; the scripts, the probe
-# and the fixtures come from this checkout, except the runtime helpers an
-# older revision's export carries under scripts/, which its bin/ loads.
+# and the fixtures come from this checkout.
 tree_harness_copy "$repo" "$sandbox/repo" "${source_tree:-$repo}"
 python3 - "$repo" "$sandbox/repo" <<'PY'
 import pathlib, shutil, sys
 source, target = map(pathlib.Path, sys.argv[1:])
 # The copy ships no target: each would detect the host's own application on
 # PATH, and its reload hook would signal that application in the live
-# session. The rows add the fixture targets they read. A tree older than the
-# targets has none to remove.
-if (target / "themes/targets").exists():
-    shutil.rmtree(target / "themes/targets")
+# session. The rows add the fixture targets they read.
+shutil.rmtree(target / "themes/targets")
 (target / "themes/targets").mkdir()
 # Qt caches a directory's file names when it first loads from it. Prepare
 # every layer mask copy before any host or earlier control reads Hosts.
@@ -176,7 +173,6 @@ assert changed != text
 (target / "shell/Ui/feedback/VoiceOrbFrameControl.qml").write_text(changed)
 PY
 tree_smoke_observer "$repo" "$sandbox/repo"
-[[ -z ${source_tree:-} ]] || tree_overlay_helpers "$source_tree" "$sandbox/repo"
 repo="$sandbox/repo"
 # The device fakes, their stand-ins and guards; the paths it names go in
 # every sandbox process's environment below.

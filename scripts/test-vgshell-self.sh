@@ -30,12 +30,6 @@ for tool in bash sh readlink dirname mkdir flock awk git mktemp mv rm head cat s
 done
 ln -s -- "$node_bin" "$tools/node"
 INST_PATH="$stubs:$tools"; export INST_PATH
-# probe_migration TREE NAME: a migration in TREE that appends its own name
-# and the tree it ran from to the fixture home's `migrated`.
-probe_migration() {
-  printf '%s\n' 'printf "%s %s\n" "$VGS_MIGRATION" "$VGS_ROOT" >>"$HOME/migrated"' >"$1/bin/migrations/$2"
-}
-
 version_text="0.1.0"
 release="0.2.0"
 cfg="$tmp/cfg-self"
@@ -78,7 +72,6 @@ port="$(cat -- "$ready" 2>/dev/null)" || port=""
 api="http://127.0.0.1:$port"
 archive="vgshell-$release.tar.gz"
 source_tree "$tmp/rel/vgshell-$release" "$release"
-probe_migration "$tmp/rel/vgshell-$release" 1000000001-release-probe.sh
 tar -C "$tmp/rel" -czf "$www/dl/$archive" "vgshell-$release"
 good_sum="$(sha256sum "$www/dl/$archive" | cut -d' ' -f1)"
 printf '%s  %s\n' "$good_sum" "$archive" >"$www/dl/SHA256SUMS"
@@ -112,9 +105,8 @@ here="$(describe "$co" HEAD)"
 rm -f -- "$marker"
 INST_BIN="$co/bin/vgshell" inst "a current checkout is not behind" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" checkout null "$here" "$here" false null)" "" self status --json
 check "status runs no git hook" test ! -e "$marker"
-# The upstream's next commit ships a migration, which the update runs
-# from the updated checkout.
-probe_migration "$seed" 1000000000-checkout-probe.sh
+# The upstream advances to a new commit.
+printf 'next\n' >"$seed/update-probe"
 g -C "$seed" add -A; g -C "$seed" commit -q -m two; g -C "$seed" push -q "$upstream" main; rm -f -- "$marker"
 there="$(describe "$seed" HEAD)"
 INST_BIN="$co/bin/vgshell" inst "a checkout behind its upstream names the upstream's describe form" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" checkout null "$here" "$there" true null)" "" self status --json
@@ -129,8 +121,6 @@ old="$(g -C "$co" rev-parse HEAD)" new="$(g -C "$upstream" rev-parse main)"
 INST_BIN="$co/bin/vgshell" inst "update fast-forwards the checkout and names no running shell" "$cfg" "$rt_empty" 0 "shell=not-running" "" self update
 check "update prints the commits it moved between" has_line "ok updated=vgshell from=${old:0:12} to=${new:0:12}"
 check "the checkout is at its upstream" test "$(g -C "$co" rev-parse HEAD)" == "$new"
-check "update runs the updated checkout's new migration" has_line "vgshell-migrate: ran=1000000000-checkout-probe.sh"
-check "the migration ran from the checkout" grep -qxF "1000000000-checkout-probe.sh $co" "$tmp/home/migrated"
 check "update runs no git hook" test ! -e "$marker"
 INST_BIN="$co/bin/vgshell" inst "a current checkout is up to date" "$cfg" "$rt_empty" 0 "ok up-to-date=vgshell" "" self update
 g -C "$co" remote set-url origin "$tmp/gone.git"
@@ -170,8 +160,6 @@ INST_BIN="$curl_bin" inst "a held self lock refuses the update busy" "$cfg" "$rt
 exec 7>&-
 INST_BIN="$curl_bin" inst "update installs the newest release and names no running shell" "$cfg" "$rt_empty" 0 "shell=not-running" "" self update
 check "update prints the versions and the new tree" has_line "ok updated=vgshell from=$version_text to=$release path=$data/vgshell/$release"
-check "update runs the new tree's migration" has_line "vgshell-migrate: ran=1000000001-release-probe.sh"
-check "the migration ran from the new tree" grep -qxF "1000000001-release-probe.sh $data/vgshell/$release" "$tmp/home/migrated"
 check "the current link names the new version" test "$(readlink -- "$data/vgshell/current")" == "$release"
 check "the new tree is the release's" test "$(<"$data/vgshell/$release/VERSION")" == "$release"
 check "the new tree's command runs" test -x "$data/vgshell/$release/bin/vgshell"
@@ -205,10 +193,8 @@ fake_shell=$!
 trap 'kill "$fake_shell" "$www_pid" 2>/dev/null || true; rm -rf -- "${tmp:?}"' EXIT
 printf '%s\n' "$fake_shell" >"$rt_running/vgshell.lock"
 inst_env=(VGS_RELEASE_API="$api" XDG_DATA_HOME="$running_data")
-# The release's migration ran in the curl rows above, so the update's run
-# finds none pending before the restart.
 INST_BIN="$running_data/vgshell/current/bin/vgshell" inst "an update beside a running shell restarts it, refused here below the floor" "$cfg" "$rt_running" 78 \
-  "vgshell-migrate: ok ran=0" "vgshell: refused: preflight=quickshell have=unknown need=0.3.1" self update
+  "" "vgshell: refused: preflight=quickshell have=unknown need=0.3.1" self update
 check "the update beside a running shell names the new tree" has_line "ok updated=vgshell from=$version_text to=$release path=$running_data/vgshell/$release"
 check "the running shell's tree stays" test -d "$running_data/vgshell/0.0.8/shell"
 check "the tree the update ran from stays" test -d "$running_data/vgshell/$version_text"
@@ -253,8 +239,8 @@ check "self status returns after the ls-remote TERM stopped has ended" test "$st
 INST_BIN="$tmp/bound-vgshell" inst "update refuses a package and names its manager" "$cfg" "$rt_empty" 1 "" "vgshell: refused: method=package package=vgshell-git manager=pacman" self update
 inst_env+=(STUB_PACKAGE=vgshell STUB_PKGVER="$version_text")
 INST_BIN="$tmp/bound-vgshell" inst "a vgshell package compares its version with the newest release" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" package vgshell "$version_text" "$release" true null)" "" self status --json
-inst_env+=(STUB_PACKAGE=vgs-shell)
-INST_BIN="$tmp/bound-vgshell" inst "a package that is not vgshell is the report's error" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" null null null null null "package=vgs-shell manager=pacman reason=not-vgs")" "" self status --json
+inst_env+=(STUB_PACKAGE=unrelated-package)
+INST_BIN="$tmp/bound-vgshell" inst "a package that is not vgshell is the report's error" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" null null null null null "package=unrelated-package manager=pacman reason=not-vgs")" "" self status --json
 inst_env+=(STUB_PACKAGE=)
 INST_BIN="$tmp/bound-vgshell" inst "a tree no method claims is method=unknown" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" null null null null null "method=unknown path=$pkg_root")" "$any_out" self status --json
 inst_env=("${saved_env[@]}")
@@ -315,19 +301,6 @@ inst_env=(VGS_RELEASE_API="$api" XDG_DATA_HOME="$blind_data")
 INST_BIN="$blind_data/vgshell/current/bin/vgshell" inst "the shell-blind mutant updates beside the running shell" "$cfg" "$rt_running" 78 "$any_out" "$any_out" self update
 check "and removes the running shell's tree, which the row above keeps" test ! -e "$blind_data/vgshell/0.0.8"
 kill "$blind_shell" 2>/dev/null || true
-inst_env=("${saved_env[@]}")
-
-# The migration control: a curl tree whose vgshell runs no migration after
-# the update, with a state directory of its own, installs the release and
-# runs none of its migrations, which the curl row above requires.
-nomig_data="$tmp/data-nomigrate"; mkdir -p "$nomig_data/vgshell"
-install_tree "$seed" "$nomig_data/vgshell/$version_text"
-ln -s -- "$version_text" "$nomig_data/vgshell/current"
-copy_with nomigrate "$nomig_data/vgshell/$version_text/bin/vgshell" '      self_migrate "$data_home/vgshell/current/bin/vgshell-migrate"' ''
-cp -- "$copy" "$nomig_data/vgshell/$version_text/bin/vgshell"
-inst_env=(VGS_RELEASE_API="$api" XDG_DATA_HOME="$nomig_data" XDG_STATE_HOME="$tmp/state-nomigrate")
-INST_BIN="$nomig_data/vgshell/current/bin/vgshell" inst "the migration-blind mutant updates the curl install" "$cfg" "$rt_empty" 0 "shell=not-running" "" self update
-check "and runs none of the release's migrations, which the curl row requires" test ! -e "$tmp/state-nomigrate/vgshell/migrations/1000000001-release-probe.sh"
 inst_env=("${saved_env[@]}")
 
 rows_done test-vgshell-self

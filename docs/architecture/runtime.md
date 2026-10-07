@@ -44,7 +44,7 @@ A lock descriptor the shell inherits is held by every child the shell starts, so
 
 ## The canonical example
 
-`bin/vgshell`'s `run` verb: the preflight, the lock, the migrations, the child started through `setpriv --pdeathsig`, and the supervision table. Copy its shape for any new process the shell depends on.
+`bin/vgshell`'s `run` verb: the preflight, the lock, the child started through `setpriv --pdeathsig`, and the supervision table. Copy its shape for any new process the shell depends on.
 
 ## Revisit when
 

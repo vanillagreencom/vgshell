@@ -3,11 +3,10 @@
 // slack-photos.js, with a stub secret-tool holding one token per account
 // and a stub Slack API on 127.0.0.1 that answers each token as its own
 // team. It proves each workspace's token fills its own team's cache, a
-// workspace without a token keeps none, the single-workspace token still
-// serves the team team.info names unless that team's own token does, a
+// workspace without a token keeps none, a
 // token for another team is refused, each team keeps its own freshness and
-// failure hold, the cache layout keeps users/ apart and sweeps an older
-// flat layout while leaving names it does not own, no token reaches argv,
+// failure hold, the cache keeps users/ apart and leaves names it does
+// not own, no token reaches argv,
 // a file or a log line, and without --photos, the Slack photos extra off,
 // no token is looked up, Slack is asked nothing and the photos are swept.
 "use strict";
@@ -30,13 +29,10 @@ const VERSIONED = /^file:\/\/\/[^\s?#]+\.png\?v=[0-9a-f]{16}$/;
 const TOKENS = {
     "xoxp-acme-4f2a": "T1",
     "xoxp-globex-7c1d": "T2",
-    "xoxp-legacy-9e3b": "T1",
-    "xoxp-initech-2b8c": "T9"
 };
 const TEAMS = {
     T1: { domain: "acme", name: "Acme Corp" },
-    T2: { domain: "globex", name: "Globex Inc" },
-    T9: { domain: "initech", name: "Initech" }
+    T2: { domain: "globex", name: "Globex Inc" }
 };
 let secretToolPath = "";
 
@@ -139,7 +135,7 @@ function teamIds(index) {
 
 // The API calls made since `since`, as [team of the token, method].
 function callsSince(since) {
-    return world.calls.slice(since).map(([token, method]) => [TOKENS[token] + (token === "xoxp-legacy-9e3b" ? "(legacy)" : ""), method]);
+    return world.calls.slice(since).map(([token, method]) => [TOKENS[token], method]);
 }
 
 // Moves a team's refresh time back, as a day passing does.
@@ -201,9 +197,8 @@ exit 1
     assert.equal(fs.existsSync(absentCache), false, "no token creates no cache directory");
     assert.deepEqual(fs.readFileSync(secretLog, "utf8").trim().split("\n"), [
         "lookup service vgs-notifications account slack:T1",
-        "lookup service vgs-notifications account slack:T2",
-        "lookup service vgs-notifications account slack"
-    ], "each workspace's account is looked up, then the single-workspace one");
+        "lookup service vgs-notifications account slack:T2"
+    ], "each workspace's account is looked up");
     store({ "slack:T1": "xoxp-acme-4f2a" });
     const missingTool = path.join(scratch, "missing-secret-tool-cache");
     assert.deepEqual(await runJson(missingTool, ["T1"], "absent"), { status: "absent" }, "missing secret-tool is the same as no token");
@@ -335,59 +330,34 @@ exit 1
     assert.deepEqual(teamIds(JSON.parse(mismatch.stdout)), [["T1", "slack:T1"]], "the mismatched team is refused");
     assert.equal(fs.existsSync(path.join(mismatchCache, "T2")), false, "nothing is cached for the mismatched team");
 
-    // The single-workspace token still serves the team team.info names,
-    // with no Slack workspace list at all.
-    const legacyCache = path.join(scratch, "legacy-cache");
-    store({ slack: "xoxp-initech-2b8c" });
-    const legacyOnly = await runJson(legacyCache, []);
-    assert.deepEqual(teamIds(legacyOnly), [["T9", "slack"]], "the legacy single token still works");
-    assert.equal(legacyOnly.teams[0].users.length, 3);
-    since = world.calls.length;
-    await runJson(legacyCache, []);
-    assert.deepEqual(callsSince(since), [], "the legacy team's fresh cache avoids another API call");
+    // A cache written for another account cannot supply stale photos.
+    const foreignCache = path.join(scratch, "foreign-cache");
+    store({ "slack:T1": "xoxp-acme-4f2a" });
+    await runJson(foreignCache, ["T1"]);
+    const foreignTeam = path.join(foreignCache, "T1", "team.json");
+    const foreignRecord = JSON.parse(fs.readFileSync(foreignTeam, "utf8"));
+    foreignRecord.account = "slack:T2";
+    fs.writeFileSync(foreignTeam, JSON.stringify(foreignRecord));
+    world.down = true;
+    assert.deepEqual(teamIds(await runJson(foreignCache, ["T1"])), [], "a foreign account supplies no stale photos");
+    world.down = false;
 
-    // Beside a workspace's own token for the same team, the workspace's
-    // token serves it and the single-workspace one is not fetched twice.
-    const sharedCache = path.join(scratch, "shared-cache");
-    store({ "slack:T1": "xoxp-acme-4f2a", slack: "xoxp-legacy-9e3b" });
-    since = world.calls.length;
-    const shared = await runJson(sharedCache, ["T1"]);
-    assert.deepEqual(teamIds(shared), [["T1", "slack:T1"]], "the workspace's own token wins");
-    assert.deepEqual(callsSince(since), [["T1", "team.info"], ["T1", "users.list"], ["T1(legacy)", "team.info"]], "the legacy token asks only which team it serves");
-    since = world.calls.length;
-    await runJson(sharedCache, ["T1"]);
-    assert.deepEqual(callsSince(since), [], "a served legacy team is not asked again within the day");
-    // The legacy token served the team first; a token stored for it later
-    // takes it over.
-    const takeoverCache = path.join(scratch, "takeover-cache");
-    store({ slack: "xoxp-legacy-9e3b" });
-    assert.deepEqual(teamIds(await runJson(takeoverCache, ["T1"])), [["T1", "slack"]], "the legacy token serves a workspace without its own");
-    store({ "slack:T1": "xoxp-acme-4f2a", slack: "xoxp-legacy-9e3b" });
-    since = world.calls.length;
-    assert.deepEqual(teamIds(await runJson(takeoverCache, ["T1"])), [["T1", "slack:T1"]], "a workspace's own token takes over from the legacy one");
-    assert.deepEqual(callsSince(since), [["T1", "team.info"], ["T1", "users.list"]], "the takeover asks the workspace's token alone");
-
-    // An older flat layout is swept on the next refresh: its photos beside
-    // team.json and the old root index go, names the helper does not own
-    // stay.
+    // Cache cleanup leaves artifacts owned by other helpers unchanged.
     const layoutCache = path.join(scratch, "layout-cache");
     store({ "slack:T1": "xoxp-acme-4f2a" });
-    write(path.join(layoutCache, "index.json"), "{}");
-    write(path.join(layoutCache, "failure.json"), "{}");
-    write(path.join(layoutCache, "T1", "team.json"), JSON.stringify({ id: "T1", names: ["acme"], icon: "" }));
-    write(path.join(layoutCache, "T1", "UT1A.png"), png);
+    write(path.join(layoutCache, "unexpected.json"), "{}");
     write(path.join(layoutCache, "T1", ".users.json.123.tmp"), "{");
     write(path.join(layoutCache, "T1", "notes.json"), "{}");
     write(path.join(layoutCache, "T1", "notes", "party.png"), png);
     await runJson(layoutCache, ["T1"]);
-    assert.deepEqual(fs.readdirSync(layoutCache).sort(), ["T1", "accounts.json"], "the old root index and failure file are gone");
-    assert.deepEqual(fs.readdirSync(path.join(layoutCache, "T1")).sort(), ["notes", "notes.json", "team.json", "users", "users.json", "workspace.png"], "the old flat photos go and names the helper does not own stay");
+    assert.deepEqual(fs.readdirSync(layoutCache).sort(), ["T1", "accounts.json"], "unowned root files are removed");
+    assert.deepEqual(fs.readdirSync(path.join(layoutCache, "T1")).sort(), ["notes", "notes.json", "team.json", "users", "users.json", "workspace.png"], "names the helper does not own stay");
     assert.deepEqual(fs.readdirSync(path.join(layoutCache, "T1", "notes")), ["party.png"]);
 
     // The Slack photos extra off: with every token stored, no token is
     // looked up and Slack is asked nothing, and the photos a run with the
     // extra on left are swept.
-    store({ "slack:T1": "xoxp-acme-4f2a", "slack:T2": "xoxp-globex-7c1d", slack: "xoxp-legacy-9e3b" });
+    store({ "slack:T1": "xoxp-acme-4f2a", "slack:T2": "xoxp-globex-7c1d" });
     const offCache = path.join(scratch, "off-cache");
     assert.equal((await runJson(offCache, ["T1", "T2"])).status, "loaded", "the extra on fetches the photos first");
     assert.deepEqual(fs.readdirSync(offCache).sort(), ["T1", "T2", "accounts.json"], "the extra on caches both teams");
@@ -413,11 +383,8 @@ function controls() {
         ["team id argv", "if (safeSegment(id) === \"\") usage(", "if (false) usage(", /refused argv exits 2: a team id with a slash/],
         ["team mismatch", "if (safeSegment(info && info.id) !== id) {", "if (false) {", /the mismatched team is refused|team=mismatch/],
         ["a team without a token is swept", "if (name === ACCOUNTS_FILE || photoTeams.has(name)) continue;", "if (name === ACCOUNTS_FILE || /^T/.test(name)) continue;", /a workspace with no token keeps no cache/],
-        ["the workspace's own token wins", "if (known !== \"\" && served.has(known)) {", "if (false) {", /the legacy token asks only which team it serves|a served legacy team is not asked again/],
-        ["the legacy token is not fetched twice", "if (!served.has(id)) settle(LEGACY,", "if (true) settle(LEGACY,", /the workspace's own token wins|the legacy token asks only which team it serves/],
-        ["the legacy token serves its team", "if (!served.has(id)) settle(LEGACY,", "if (false) settle(LEGACY,", /the legacy single token still works/],
-        ["the old flat photos go", "(/\\.png$/.test(name) || TEMP_NAME.test(name))", "TEMP_NAME.test(name)", /the old flat photos go/],
-        ["foreign names stay", "TEAM_FILES.indexOf(name) !== -1 ? !keep.has(name) : (", "TEAM_FILES.indexOf(name) !== -1 ? !keep.has(name) : true || (", /names the helper does not own stay/],
+        ["cached account matches its team", 'team.account !== "slack:" + id', 'typeof team.account !== "string"', /a foreign account supplies no stale photos/],
+        ["foreign names stay", "TEAM_FILES.indexOf(name) !== -1 ? !keep.has(name) : TEMP_NAME.test(name)", "true", /names the helper does not own stay/],
         ["the photos extra off reads no token", "const tokens = photos ? storedTokens(ids, lines) : [];", "const tokens = storedTokens(ids, lines);", /the photos extra off runs no secret-tool/],
         ["the photos extra off fetches no photo", "const photoRun = !photos ? { value: { status: \"off\" }, kept: new Set(), accounts: null }\n        : tokens.length", "const photoRun = false ? null\n        : tokens.length", /the photos extra off looks no token up|the photos extra off asks Slack nothing/],
         ["the photos option is read", "            photos = true;\n", "", /no token returns no cache/],

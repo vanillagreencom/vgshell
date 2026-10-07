@@ -20,9 +20,7 @@
 # after the last delay. A shell that exits 0, a Hyprland that no longer
 # answers (`vgshell: shell=exited status=<n> hyprland=gone`) and HUP, INT or
 # TERM to this process, which stops the shell, end this process with the
-# shell's status. Once it holds the lock it runs the pending one-time
-# migrations, bin/vgshell-migrate with its notice, and starts the shell
-# whether they pass or not: a failed one runs again at the next start.
+# shell's status.
 # Before anything else it checks Quickshell, a running
 # Hyprland, node, python3 and git against the floor its preflight table
 # holds, and refuses
@@ -393,7 +391,7 @@ Commands:
   hypr       Connect the VGS Hyprland settings to hyprland.lua
   tui        Run a command in a VGS floating terminal
 
-Other commands: pid, ipc, log, migrate, version, edit
+Other commands: pid, ipc, log, version, edit
 
 Run 'vgshell <command> --help' for the options of one command.
 EOF_HELP
@@ -554,7 +552,7 @@ Usage: vgshell self <subcommand> [arguments]
 
 Subcommands:
   status [--json]    Show install state and available update
-  update             Update VGS, run migrations and restart the shell
+  update             Update VGS and restart the shell
 EOF_HELP
       ;;
     reset) cat <<'EOF_HELP'
@@ -566,13 +564,6 @@ Options:
 
 Subcommands:
   restore    Restore a backup, or the newest backup when absent
-EOF_HELP
-      ;;
-    migrate) cat <<'EOF_HELP'
-Usage: vgshell migrate [--pending]
-
-Options:
-  --pending    List pending one-time migrations
 EOF_HELP
       ;;
     version) cat <<'EOF_HELP'
@@ -981,15 +972,13 @@ owners_of() { # ID
 # `pluginInstalled <id>`, which starts the same scan and then raises the
 # shell's requirement notice for the plugin when a command it needs is
 # missing. Both answer
-# `ok scan=<N>` or `busy scan=<N>`; a bare `ok` or `busy` is the same
-# answer from a shell started before the installed vgshell, which keeps
-# running its old core until `vgshell restart`. N goes unused here.
+# `ok scan=<N>` or `busy scan=<N>`. N goes unused here.
 rescan_if_running() { # [CALL...]
   local reply
   [[ $# -gt 0 ]] || set -- rescanPlugins
   if ! shell_pid >/dev/null 2>&1; then echo "shell=not-running"; return 0; fi
   reply="$(ipc shell "$@")" || exit $?
-  [[ $reply =~ ^(ok|busy)(\ scan=[0-9]+)?$ ]] || refuse 1 "rescan=$reply" "the plugin files changed; run vgshell ipc call shell rescanPlugins"
+  [[ $reply =~ ^(ok|busy)\ scan=[0-9]+$ ]] || refuse 1 "rescan=$reply" "the plugin files changed; run vgshell ipc call shell rescanPlugins"
   case "${BASH_REMATCH[1]}" in
     ok) echo "shell=rescan-started" ;;
     busy) echo "shell=rescan-queued" ;;
@@ -1986,14 +1975,6 @@ self_restart() { # VGSHELL
   exec "$1" restart
 }
 
-# After an update, run the updated tree's pending migrations through
-# MIGRATE, its bin/vgshell-migrate, before the restart. A failed one is
-# reported and left for the next `vgshell run`, which runs it again; the
-# update itself stands.
-self_migrate() { # MIGRATE
-  "$1" run || printf 'vgshell: migrate=failed status=%s\n' "$?" >&2
-}
-
 # Updates this tree as its install method allows, as the header states.
 self_update() {
   local version checkout=false line method package manager out running
@@ -2006,7 +1987,6 @@ self_update() {
       fast_forward "$root" vgshell trusted
       if [[ $ff_old == "$ff_new" ]]; then echo "ok up-to-date=vgshell"; return 0; fi
       echo "ok updated=vgshell from=${ff_old:0:12} to=${ff_new:0:12}"
-      self_migrate "$root/bin/vgshell-migrate"
       self_restart "$root/bin/vgshell"
       ;;
     curl)
@@ -2016,7 +1996,6 @@ self_update() {
       printf '%s\n' "$out"
       [[ $out == "ok updated="* ]] || return 0
       exec 8>&-
-      self_migrate "$data_home/vgshell/current/bin/vgshell-migrate"
       self_restart "$data_home/vgshell/current/bin/vgshell"
       ;;
     package)
@@ -2489,15 +2468,7 @@ case "$cmd" in
       printf 'vgshell: refused: lock=%s\nanother vgshell run holds the instance lock; one shell per session\n' "$lock" >&2
       exit 75
     fi
-    "$root/bin/vgshell-migrate" run --notice 9>&- || printf 'vgshell: migrate=failed status=%s\n' "$?" >&2
     shell_supervise
-    ;;
-  migrate)
-    case "${1:-}" in
-      "") exec "$root/bin/vgshell-migrate" run ;;
-      --pending) shift; exec "$root/bin/vgshell-migrate" pending "$@" ;;
-      *) printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2 ;;
-    esac
     ;;
   restart)
     if [[ $# -gt 0 ]]; then

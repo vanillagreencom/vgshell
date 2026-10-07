@@ -94,8 +94,7 @@ cp -R -- "$repo/scripts/smoke/fixtures/slack/." "$home/.config/Slack/"
 # helper's test API environment to that process without changing core. The
 # helper's own suite covers the HTTP refresh. seed_slack_photos writes the
 # helper's per-team cache, fresh, so the helper serves it without a call:
-# acme from its own workspace's token, and globex from the single-workspace
-# token, whose team accounts.json records. The row seeds it before the
+# each team from its own workspace token. The row seeds it before the
 # service starts, and again after the token rows, whose last states hold no
 # token and so leave no cache, so no run of the helper is due a network call.
 slack_photos="$home/.cache/vgshell/notifications/slack-photos"
@@ -140,10 +139,10 @@ team("T0ACME", ["acme", "Acme Corp"], "slack:T0ACME", (20, 80, 180), [
     ("UADA", ["ada", "Ada Lovelace"], (40, 160, 80)),
     ("UGRACE", ["grace", "Grace Hopper"], (150, 70, 180)),
 ])
-team("T0GLOBEX", ["globex", "Globex"], "slack", (200, 120, 20), [
+team("T0GLOBEX", ["globex", "Globex"], "slack:T0GLOBEX", (200, 120, 20), [
     ("UEDSGER", ["edsger"], (60, 60, 200)),
 ])
-(root / "accounts.json").write_text(json.dumps({"slack:T0ACME": {}, "slack": {"team": "T0GLOBEX", "resolvedAt": now}}) + "\n")
+(root / "accounts.json").write_text(json.dumps({"slack:T0ACME": {}, "slack:T0GLOBEX": {}}) + "\n")
 # A fresh emoji.list answer for each team, so the custom emoji come from the
 # synthetic disk cache alone and no run asks Slack for the list.
 for id in ("T0ACME", "T0GLOBEX"):
@@ -151,7 +150,7 @@ for id in ("T0ACME", "T0GLOBEX"):
 PY
 }
 seed_slack_photos
-secret_tool_stand_in "slack:T0ACME present;slack:T0GLOBEX absent;slack present"
+secret_tool_stand_in "slack:T0ACME present;slack:T0GLOBEX present"
 # The Slack photos and token rows below are the owner-only Slack photos
 # extra's (harness.sh, set_slack_photos).
 set_slack_photos on
@@ -1759,7 +1758,7 @@ expect_poll "the restored panel is built" True record_exists vgs.notifications
 # to three lines, and no line of its text runs under the pill. The control
 # is a NotificationCard.qml copy whose text keeps the whole column while
 # the pills show, which runs the body under the pill.
-pill_body="flagship: Since 2:52 pm: the old vgs-shell channels are gone, and kendex's check on other repos comes off its merge rules now."
+pill_body="flagship: Since 2:52 pm: the VGS package channels are ready, and kendex's check on other repos comes off its merge rules now."
 pill_inbox() { # SUMMARY NAME EXPECTED: one inbox opened on a new card SUMMARY
   notify smoke-app 0 "$1" "$pill_body" '[]' '{"urgency": <byte 1>}' 0 >/dev/null
   expect "the inbox opens on $1" ok notes inbox
@@ -1990,7 +1989,7 @@ expect "dismissing the last toast is allowed" ok notes dismiss-all
 expect_poll "the last toast's exit has played" 0 layer_count vgs:layer
 
 # The Slack token rows: the service publishes whether the stub libsecret
-# holds each listed workspace's token and the single-workspace one, never a
+# holds each listed workspace's token, never a
 # token, and the Settings page draws a line per account. The probe runs
 # when the service starts, so each set of states is read after a disable
 # and an enable. No state here makes the photo helper call Slack.
@@ -1998,29 +1997,24 @@ token_hint="Connect each workspace to show sender photos."
 token_row() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]["status"]; print(json.dumps([[s["label"], s["report"], s["tone"], s["value"]] for s in r]))'; }
 drawn_token_row() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
 # want_rows rows|drawn ITEMS: the manager row, or the texts the page draws,
-# for ITEMS, `;`-separated `<account>,<state>[,served]` items, `served`
-# naming a workspace the single-workspace token serves.
+# for ITEMS, `;`-separated `<account>,<state>` items.
 want_rows() {
   python3 - "$1" "$2" "$token_hint" <<'PY'
 import json, sys
 what, items, hint = sys.argv[1], sys.argv[2], sys.argv[3]
 # A name equal to its domain, case folded, is drawn once.
-labels = {"slack:T0ACME": "Acme Corp (acme)", "slack:T0GLOBEX": "Globex", "slack": "Single-workspace token"}
+labels = {"slack:T0ACME": "Acme Corp (acme)", "slack:T0GLOBEX": "Globex"}
 tones = {"present": "success", "absent": "warning", "locked": "info"}
 words = {"present": "Present", "absent": "Absent", "locked": "Locked"}
 # A line offers Connect while its token is absent, and Disconnect while one
-# is stored; a served line offers neither.
+# is stored.
 steps = {"present": "Disconnect", "absent": "Connect", "locked": "Disconnect"}
 accesses = {"present": "disconnect", "absent": "connect", "locked": "disconnect"}
 rows, drawn = [], ["Slack tokens", hint]
 for item in items.split(";"):
-    account, state, *served = item.split(",")
-    if served:
-        rows.append({"label": labels[account], "value": state, "hint": "Uses the single-workspace token", "tone": tones[state], "secret": "", "access": ""})
-        drawn += [labels[account], words[state], "Uses the single-workspace token"]
-    else:
-        rows.append({"label": labels[account], "value": state, "hint": "", "tone": tones[state], "secret": account, "access": accesses[state]})
-        drawn += [labels[account], words[state], steps[state]]
+    account, state = item.split(",")
+    rows.append({"label": labels[account], "value": state, "hint": "", "tone": tones[state], "secret": account, "access": accesses[state]})
+    drawn += [labels[account], words[state], steps[state]]
 print(json.dumps([["Slack tokens", "reported", "", rows]]) if what == "rows" else json.dumps([drawn]))
 PY
 }
@@ -2032,14 +2026,13 @@ restart_notes() {
 }
 expect "the notifications' Settings page opens" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
 settings_details
-first_items="slack:T0ACME,present;slack:T0GLOBEX,present,served;slack,present"
-expect_poll "the page reads each workspace's token, globex served by the single-workspace one" "$(want_rows rows "$first_items")" token_row
+first_items="slack:T0ACME,present;slack:T0GLOBEX,present"
+expect_poll "the page reads each workspace's token" "$(want_rows rows "$first_items")" token_row
 expect_poll "the page draws a line per account with its step, and no Show command" "$(want_rows drawn "$first_items")" drawn_token_row
 # Flips: label | the stub's states | the items the page reads.
 flips=(
-  "locked|slack:T0ACME locked;slack:T0GLOBEX locked;slack present|slack:T0ACME,locked;slack:T0GLOBEX,locked;slack,present"
-  "absent-served|slack:T0ACME absent;slack:T0GLOBEX absent;slack present|slack:T0ACME,absent;slack:T0GLOBEX,present,served;slack,present"
-  "all-absent|slack:T0ACME absent;slack:T0GLOBEX absent;slack absent|slack:T0ACME,absent;slack:T0GLOBEX,absent"
+  "locked|slack:T0ACME locked;slack:T0GLOBEX locked|slack:T0ACME,locked;slack:T0GLOBEX,locked"
+  "all-absent|slack:T0ACME absent;slack:T0GLOBEX absent|slack:T0ACME,absent;slack:T0GLOBEX,absent"
 )
 for flip in "${flips[@]}"; do
   IFS='|' read -r label states items <<<"$flip"
@@ -2142,7 +2135,7 @@ expect "the shell's log holds no token" 0 token_in_log
 expect "the Settings window closes after the token rows" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone after the token rows" 0 window_count Plugins
 seed_slack_photos
-slack_states "slack:T0ACME present;slack:T0GLOBEX absent;slack present"
+slack_states "slack:T0ACME present;slack:T0GLOBEX present"
 
 # The Slack photos extra off, as a fresh profile has it: the plugins row no
 # longer names it. The service then asks the keyring nothing and calls no

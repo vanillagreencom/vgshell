@@ -454,25 +454,25 @@ function verify(logic) {
                 { id: "U7", names: ["Grace Hopper"], photo: "file:///cache/T2/users/U7.png?v=7777777777777777" },
                 { id: "U8", names: ["Edsger"], photo: "file:///cache/T2/users/U8.png?v=8888888888888888" }
             ],
-            account: "slack"
+            account: "slack:T2"
         }]
     };
     same(logic.slackPhotos(JSON.stringify(photoCache)), { ok: true, status: "loaded", generatedAt: 0, downloadFailed: 0, stale: false, teams: photoCache.teams, emoji: null }, "a Slack photo cache is accepted");
     same(logic.slackPhotos(JSON.stringify({ status: "absent" })), { ok: true, status: "absent", generatedAt: 0, downloadFailed: 0, stale: false, teams: [], emoji: null }, "no token leaves no cache");
     same(logic.slackPhotos("{"), { ok: false, error: "not-json" });
     same(logic.slackPhotos(JSON.stringify({ status: "stale" })), { ok: false, error: "status want=loaded|absent|off" });
-    same(logic.slackPhotos(JSON.stringify({ status: "loaded", teams: [{ id: "../x", names: ["x"], users: [], account: "slack" }] })), { ok: false, error: "teams.0.id want=safe" });
-    same(logic.slackPhotos(JSON.stringify({ status: "loaded", teams: [{ id: "T1", names: ["x"], users: [] }] })), { ok: false, error: "teams.0.account want=slack|slack:<team id>" }, "a team names the account that served it");
-    same(logic.slackPhotos(JSON.stringify({ status: "loaded", teams: [{ id: "T1", names: ["x"], users: [], account: "slack:../x" }] })), { ok: false, error: "teams.0.account want=slack|slack:<team id>" });
-    same(logic.slackPhotos(JSON.stringify({ status: "loaded", generatedAt: 123, downloadFailed: 2, stale: true, teams: [{ id: "T1", names: ["acme"], users: [{ id: "U1", names: ["Ada"], photo: "https://example.test/a.png" }], account: "slack" }] })), { ok: true, status: "loaded", generatedAt: 123, downloadFailed: 2, stale: true, teams: [{ id: "T1", names: ["acme"], icon: "", users: [{ id: "U1", names: ["Ada"], photo: "" }], account: "slack" }], emoji: null }, "a non-file photo is ignored");
-    same(logic.slackPhotos(JSON.stringify({ status: "loaded", teams: [{ id: "T1", names: ["acme"], icon: "file:///cache/T1/workspace.png", users: [{ id: "U1", names: ["Ada"], photo: "file:///cache/T1/U1.png" }], account: "slack" }] })).teams, [{ id: "T1", names: ["acme"], icon: "", users: [{ id: "U1", names: ["Ada"], photo: "" }], account: "slack" }], "an unversioned file URL is ignored");
+    same(logic.slackPhotos(JSON.stringify({ status: "loaded", teams: [{ id: "../x", names: ["x"], users: [], account: "slack:T2" }] })), { ok: false, error: "teams.0.id want=safe" });
+    same(logic.slackPhotos(JSON.stringify({ status: "loaded", teams: [{ id: "T1", names: ["x"], users: [] }] })), { ok: false, error: "teams.0.account want=slack:<team id>" }, "a team names the account that served it");
+    same(logic.slackPhotos(JSON.stringify({ status: "loaded", teams: [{ id: "T1", names: ["x"], users: [], account: "slack:../x" }] })), { ok: false, error: "teams.0.account want=slack:<team id>" });
+    same(logic.slackPhotos(JSON.stringify({ status: "loaded", generatedAt: 123, downloadFailed: 2, stale: true, teams: [{ id: "T1", names: ["acme"], users: [{ id: "U1", names: ["Ada"], photo: "https://example.test/a.png" }], account: "slack:T1" }] })), { ok: true, status: "loaded", generatedAt: 123, downloadFailed: 2, stale: true, teams: [{ id: "T1", names: ["acme"], icon: "", users: [{ id: "U1", names: ["Ada"], photo: "" }], account: "slack:T1" }], emoji: null }, "a non-file photo is ignored");
+    same(logic.slackPhotos(JSON.stringify({ status: "loaded", teams: [{ id: "T1", names: ["acme"], icon: "file:///cache/T1/workspace.png", users: [{ id: "U1", names: ["Ada"], photo: "file:///cache/T1/U1.png" }], account: "slack:T1" }] })).teams, [{ id: "T1", names: ["acme"], icon: "", users: [{ id: "U1", names: ["Ada"], photo: "" }], account: "slack:T1" }], "an unversioned file URL is ignored");
     const teams = photoCache.teams;
     const group = logic.enrich("Slack", "slack", "", "[acme] in Ada Lovelace, Grace Hopper, No Photo", "Ada Lovelace: hi");
     same(logic.slackFaceImages(group, teams, "file:///sender.png", "acme"), ["file:///cache/T1/users/U1.png?v=abcdef0123456789", "file:///cache/T1/users/U2.png?v=1234567890abcdef", ""], "each Slack face takes its own photo from its workspace");
     same(logic.slackFaceImages(group, teams, "file:///sender.png", "unknown"), ["file:///sender.png", "", ""], "an unknown workspace has no photos");
     same(logic.slackFaceImages(group, teams, "", ""), ["file:///cache/T1/users/U1.png?v=abcdef0123456789", "", ""], "with no workspace a face takes the photo of the one team holding the name, and none when two do");
     const direct = logic.enrich("Slack", "slack", "", "New message from Ada", "hi");
-    same(logic.slackFaceImages(direct, [{ id: "T1", names: ["acme"], icon: "", users: [{ id: "U1", names: ["Ada"], photo: "file:///first.png?v=1111111111111111" }, { id: "U2", names: ["ADA"], photo: "file:///second.png?v=2222222222222222" }], account: "slack" }], "", "acme"), ["file:///first.png?v=1111111111111111"], "the first duplicate name owns the photo");
+    same(logic.slackFaceImages(direct, [{ id: "T1", names: ["acme"], icon: "", users: [{ id: "U1", names: ["Ada"], photo: "file:///first.png?v=1111111111111111" }, { id: "U2", names: ["ADA"], photo: "file:///second.png?v=2222222222222222" }], account: "slack:T1" }], "", "acme"), ["file:///first.png?v=1111111111111111"], "the first duplicate name owns the photo");
     assert.equal(logic.slackWorkspaceIcon(teams, "acme"), "file:///cache/T1/workspace.png?v=0123456789abcdef");
     assert.equal(logic.slackWorkspaceIcon(teams, ""), "", "no workspace has no icon");
 
@@ -492,41 +492,32 @@ function verify(logic) {
         ["no rule", null, acmeOnly, teams, ""]
     ])
         assert.equal(logic.slackWorkspaceFor(enrichment, list, cached), want, "workspace for " + label);
-    // The probe's stdout: one line per account, the single-workspace one
-    // among them, and anything else refused.
+    // The probe's stdout: one line per workspace account, and anything else refused.
     const TOKEN_OUTPUTS = [
-        ["slack-token: account=slack present\n", { ok: true, states: { slack: "present" } }],
-        ["slack-token: account=slack:T1 locked\nslack-token: account=slack:T2 absent\nslack-token: account=slack unavailable reason=secret-tool-missing\n", { ok: true, states: { "slack:T1": "locked", "slack:T2": "absent", slack: "unavailable" } }],
-        ["slack-token: account=slack unavailable reason=search-failed status=1", { ok: true, states: { slack: "unavailable" } }],
-        ["slack-token: account=slack unsafe\n", { ok: false, error: "line.0.state unknown" }],
-        ["slack-token: account=slack presently\n", { ok: false, error: "line.0.state unknown" }],
-        ["slack-token: account=slack:../x present\nslack-token: account=slack present\n", { ok: false, error: "line.0.account unknown" }],
-        ["slack-token: account=discord present\n", { ok: false, error: "line.0.account unknown" }],
-        ["slack-token: account=slack present\nslack-token: account=slack absent\n", { ok: false, error: "line.1.account duplicate" }],
-        ["slack-token: account=slack:T1 present\n", { ok: false, error: "account=slack missing" }],
-        ["secret = xoxp-1\nslack-token: account=slack present\n", { ok: false, error: "line.0 unknown" }],
+        ["slack-token: account=slack:T1 present\n", { ok: true, states: { "slack:T1": "present" } }],
+        ["slack-token: account=slack:T1 locked\nslack-token: account=slack:T2 absent\n", { ok: true, states: { "slack:T1": "locked", "slack:T2": "absent" } }],
+        ["slack-token: account=slack:T1 unavailable reason=search-failed status=1", { ok: true, states: { "slack:T1": "unavailable" } }],
+        ["slack-token: account=slack:T1 unsafe\n", { ok: false, error: "line.0.state unknown" }],
+        ["slack-token: account=slack:T1 presently\n", { ok: false, error: "line.0.state unknown" }],
+        ["slack-token: account=slack:../x present\n", { ok: false, error: "line.0.account unknown" }],
+        ["slack-token: account=other present\n", { ok: false, error: "line.0.account unknown" }],
+        ["slack-token: account=slack:T1 present\nslack-token: account=slack:T1 absent\n", { ok: false, error: "line.1.account duplicate" }],
+        ["secret = xoxp-1\nslack-token: account=slack:T1 present\n", { ok: false, error: "line.0 unknown" }],
         ["slack-token: present\n", { ok: false, error: "line.0 unknown" }],
-        ["slack-token: account=slack present!\n", { ok: false, error: "line.0 unknown" }],
-        ["> slack-token: account=slack present\n", { ok: false, error: "line.0 unknown" }],
-        ["", { ok: false, error: "line.0 unknown" }]
+        ["slack-token: account=slack:T1 present!\n", { ok: false, error: "line.0 unknown" }],
+        ["> slack-token: account=slack:T1 present\n", { ok: false, error: "line.0 unknown" }],
+        ["", { ok: true, states: {} }]
     ];
     for (const [text, want] of TOKEN_OUTPUTS) same(logic.slackTokenStates(text), want, "slackTokenStates " + JSON.stringify(text));
 
-    // The Settings rows: one per listed workspace, then the
-    // single-workspace token when nothing is listed or it is stored.
+    // The Settings rows: one per listed workspace.
     const listedTwo = [{ id: "T1", domain: "acme", name: "Acme Corp" }, { id: "T2", domain: "globex", name: "" }];
-    same(logic.slackTokenRows(listedTwo, { "slack:T1": "present", "slack:T2": "locked", slack: "absent" }, []), { ok: true, items: [
+    same(logic.slackTokenRows(listedTwo, { "slack:T1": "present", "slack:T2": "locked" }), { ok: true, items: [
         { label: "Acme Corp (acme)", value: "present", secret: "slack:T1" },
         { label: "globex", value: "locked", secret: "slack:T2" }
-    ] }, "each workspace carries its own account's state; an absent single-workspace token shows no row");
-    same(logic.slackTokenRows(listedTwo, { "slack:T1": "absent", "slack:T2": "absent", slack: "present" }, [{ id: "T1", account: "slack" }, { id: "T2", account: "slack:T2" }]), { ok: true, items: [
-        { label: "Acme Corp (acme)", value: "present", hint: "Uses the single-workspace token" },
-        { label: "globex", value: "absent", secret: "slack:T2" },
-        { label: "Single-workspace token", value: "present", secret: "slack" }
-    ] }, "a workspace the single-workspace token serves says so, with no account to connect, and a stored single-workspace token shows its row");
-    same(logic.slackTokenRows([], { slack: "absent" }, []), { ok: true, items: [{ label: "Single-workspace token", value: "absent", secret: "slack" }] }, "with no workspace listed the single-workspace row shows");
-    same(logic.slackTokenRows(listedTwo, { "slack:T1": "present", slack: "absent" }, []), { ok: false, missing: "slack:T2" }, "a workspace the probe has not answered for waits");
-    same(logic.slackTokenRows([], {}, []), { ok: false, missing: "slack" });
+    ] }, "each workspace carries its own account's state");
+    same(logic.slackTokenRows([], {}), { ok: true, items: [] }, "no workspace lists no token row");
+    same(logic.slackTokenRows(listedTwo, { "slack:T1": "present" }), { ok: false, missing: "slack:T2" }, "a workspace the probe has not answered for waits");
     for (const [label, workspace, want] of [
         ["a name equal to its domain", { id: "T1", domain: "acme", name: "ACME" }, "ACME"],
         ["a name with a control character", { id: "T1", domain: "acme", name: "Acme\nCorp" }, "Acme Corp (acme)"],
@@ -541,7 +532,7 @@ function verify(logic) {
         assert.equal(logic.slackWorkspaceLabel(workspace), want, "label of " + label);
     // A workspace with a long emoji name still yields token rows the core's
     // status judge takes.
-    const emojiRows = logic.slackTokenRows([{ id: "T1", domain: "rocket", name: "\u{1F680} launch ".repeat(12) }, { id: "T2", domain: "", name: "\u{1F680}".repeat(45) }], { "slack:T1": "present", "slack:T2": "absent", slack: "absent" }, []);
+    const emojiRows = logic.slackTokenRows([{ id: "T1", domain: "rocket", name: "\u{1F680} launch ".repeat(12) }, { id: "T2", domain: "", name: "\u{1F680}".repeat(45) }], { "slack:T1": "present", "slack:T2": "absent" });
     assert.equal(emojiRows.ok, true);
     assert.equal(emojiRows.items.every(item => item.label.length <= 60), true, "every label fits sixty code units");
     assert.equal(pluginLogic.statusValueFits("presenceList", JSON.parse(JSON.stringify(emojiRows.items))), true, "the core's judge takes the rows of long emoji names");
@@ -557,7 +548,7 @@ function verify(logic) {
     for (const [label, read, listed, want] of [
         ["every listed workspace loaded", loaded({}), listedTwo, DAY - 1000],
         ["a listed workspace without photos", loaded({ teams: [{ id: "T1" }] }), listedTwo, RETRY],
-        ["a team from the single-workspace token alone", loaded({ teams: [{ id: "T9" }] }), [], DAY - 1000],
+        ["a cached team without a listed workspace", loaded({ teams: [{ id: "T1" }] }), [], DAY - 1000],
         ["a stale answer", loaded({ stale: true }), listedTwo, RETRY],
         ["a failed download", loaded({ downloadFailed: 1 }), listedTwo, RETRY],
         ["no token", { ok: true, status: "absent", teams: [], generatedAt: 0, downloadFailed: 0, stale: false }, [], RETRY],
@@ -819,12 +810,9 @@ const CONTROLS = [
     ["the Slack token state is one of the probe's", "if (SLACK_TOKEN_STATES.indexOf(match[2]) === -1) return", "if (false) return"],
     ["the Slack token account is one of the plugin's", "if (!SLACK_ACCOUNT.test(match[1])) return", "if (false) return"],
     ["a Slack token account answers once", "if (hasOwn(states, match[1])) return { ok: false, error: \"line.\" + i + \".account duplicate\" };", ""],
-    ["the Slack token output names the single-workspace account", "if (!hasOwn(states, SLACK_LEGACY_ACCOUNT)) return { ok: false, error:", "if (false) return { ok: false, error:"],
     ["the Slack token line is the whole line", "var match = /^slack-token: account=(\\S+) ([a-z]+)(?: [^\\n]*)?$/.exec(lines[i]);", "var match = /slack-token: account=(\\S+) ([a-z]+)/.exec(lines[i]);"],
     ["a Slack photo team names its account", "if (typeof team.account !== \"string\" || !SLACK_ACCOUNT.test(team.account)) return", "if (false) return"],
     ["a workspace's row waits for its state", "if (!hasOwn(states, account)) return { ok: false, missing: account };", ""],
-    ["a workspace the single-workspace token serves", "if (states[account] === \"absent\" && served) {", "if (false) {"],
-    ["the single-workspace row shows when stored", "if (workspaces.length === 0 || legacy !== \"absent\")", "if (workspaces.length === 0)"],
     ["a workspace label is cut", "if (label.length <= SLACK_LABEL_MAX) return label;", "if (true) return label;"],
     ["a workspace label is cut by code units", "if (label.length <= SLACK_LABEL_MAX) return label;", "if (Array.from(label).length <= SLACK_LABEL_MAX) return label;"],
     ["a workspace label cut keeps a surrogate pair whole", "if (last >= 0xd800 && last <= 0xdbff) cut = cut.slice(0, -1);", ""],

@@ -42,7 +42,7 @@ Item {
         Field { id: labelField; label: "Text"; inline: true; width: parent.width; Label { id: inlineLabel; role: "item"; text: "Value"; width: parent.width } }
         Field { id: badgeField; label: "Badge"; inline: true; width: parent.width; Badge { id: inlineBadge; text: "Ready"; tone: "success" } }
         Field { id: textFieldRow; label: "Text field"; inline: true; width: parent.width; TextField { id: inlineText; width: parent.width; text: "abc" } }
-        Field { id: longLabel; label: "Single-workspace token state"; inline: true; width: parent.width; Label { role: "item"; text: "Present" } }
+        Field { id: longLabel; label: "Workspace token state"; inline: true; width: parent.width; Label { role: "item"; text: "Present" } }
         Field { id: buttonField; label: "Button"; inline: true; width: parent.width; Button { id: inlineButton; text: "Open"; size: "sm"; variant: "secondary" } }
         Field { id: selectField; label: "Select"; hint: "Shown below the value."; inline: true; width: parent.width; Select { id: inlineSelect; width: parent.width; model: ["Default", "Ocean"] } }
     }

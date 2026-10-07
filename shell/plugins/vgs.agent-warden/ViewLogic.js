@@ -18,8 +18,7 @@ var STATE_LOOKS = {
     "look": { icon: "shield-alert", tone: "warning" },
     "problem": { icon: "shield-x", tone: "danger" },
     "not-checking": { icon: "shield-off", tone: "neutral" },
-    "not-set-up": { icon: "shield-question-mark", tone: "neutral" },
-    "update-warden": { icon: "shield-alert", tone: "warning" }
+    "not-set-up": { icon: "shield-question-mark", tone: "neutral" }
 };
 // The look before the service has derived a state.
 var PENDING_LOOK = { icon: "shield", tone: "neutral" };
@@ -181,8 +180,6 @@ function sentence(detail, vsysMissing) {
         throw new Error("agent-warden: reason=" + JSON.stringify(detail.reason) + " unknown");
     case "not-set-up":
         return vsysMissing ? "Install vsys to set up Agent Warden." : "Agent Warden isn't set up.";
-    case "update-warden":
-        return vsysMissing ? "Install vsys to update Agent Warden." : "Agent Warden needs an update.";
     }
     throw new Error("agent-warden: state=" + JSON.stringify(detail.state) + " unknown");
 }
@@ -209,7 +206,6 @@ function tooltip(detail, now) {
         }
         throw new Error("agent-warden: reason=" + JSON.stringify(detail.reason) + " unknown");
     case "not-set-up": return "Agent Warden isn't set up";
-    case "update-warden": return "Agent Warden needs an update";
     }
     throw new Error("agent-warden: state=" + JSON.stringify(detail.state) + " unknown");
 }
@@ -258,7 +254,7 @@ function setup(detail, vsysMissing) {
     switch (step) {
     case null: return null;
     case "get-vsys": return { label: "Install vsys", action: "get-vsys" };
-    case "setup": return { label: detail.state === "update-warden" ? "Update" : "Set up", action: "setup" };
+    case "setup": return { label: "Set up", action: "setup" };
     case "start": return { label: "Start checks", action: "start" };
     }
     throw new Error("agent-warden: setup step " + JSON.stringify(step) + " unknown");

@@ -16,7 +16,7 @@ Item {
     CodeLine {
         id: line
         width: 360
-        text: "secret-tool store --label='VGS notifications Slack token' service vgs-notifications account slack"
+        text: "secret-tool store --label='VGS notifications Slack token' service vgs-notifications account slack:T0ACME"
         copyLabel: "Copy the command"
     }
     CodeLine { id: short; y: 120; width: 360; text: "vgshell plugin update acme.weather" }

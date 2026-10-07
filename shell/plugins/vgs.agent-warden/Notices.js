@@ -102,7 +102,7 @@ function latestByScope(doc, kindsRead, now) {
     return out;
 }
 
-// The episodes FILE, WardenLogic.fileOf's answer, holds at NOW, with
+// The episodes the status FILE holds at NOW, with
 // DETAIL, WardenLogic.derive's answer for them:
 //   { open, held }
 // `open` lists each open episode as { key, kind, ... } with the numbers
@@ -124,7 +124,6 @@ function conditionsOf(file, detail, now) {
     var all = { kinds: ALL_KINDS.slice(), keys: [] };
     switch (detail.state) {
     case "not-set-up":
-    case "update-warden":
         return { open: [], held: all };
     case "not-checking":
         if (detail.reason !== "stale") return { open: [], held: all };

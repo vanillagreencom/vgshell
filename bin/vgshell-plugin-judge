@@ -34,17 +34,6 @@
 //       `written` or `unchanged`. Either file that PluginLogic.configError
 //       refuses is refused as `malformed`; a user file an editor keeps
 //       saving during the write is refused as `changed` (editFile).
-//   vgshell-plugin-judge seed-setting <shipped-config> <user-config> <plugin-dir> <key> <json-value>
-//       for a one-time migration (bin/vgshell-migrate): when the plugins row
-//       of the plugin at <plugin-dir> under the configuration the two files
-//       make effective names no <key>, write <key> with the value into the
-//       user file's row, seeded from the effective row, where the file
-//       stands, a symlink kept; print `written`, or `unchanged` when the
-//       row already names the key, whatever its value. A key the manifest's
-//       `settings` do not declare, or a value of another JSON type than its
-//       default, is refused as `setting=<key> undeclared` or
-//       `setting=<key> want=<type>`; a schema key's value is judged as the
-//       plugin manager judges it.
 //   vgshell-plugin-judge requirements text|json <shipped-config> <user-config> <id>
 //       read `bin/vgshell-scan` JSON on stdin and print the requirements of
 //       plugin <id>, the one the shell's registry would hold under it, as
@@ -388,33 +377,6 @@ main(() => {
             return written ? logic.withEnabled(user, manifest, shown, effective) : null;
         });
         console.log(written ? "written" : "unchanged");
-        break;
-    }
-    case "seed-setting": {
-        const [shippedPath, userPath, dir, key, text] = args;
-        const manifest = validated(dir);
-        let value;
-        try {
-            value = JSON.parse(text);
-        } catch (e) {
-            refuse("setting=" + key + " value=unparseable");
-        }
-        if (!logic.hasOwn(manifest.settings, key)) refuse("setting=" + key + " undeclared");
-        if (logic.hasOwn(manifest.schema, key)) {
-            const refusal = logic.settingRefusal(manifest, key, value);
-            if (refusal !== "") refuse(refusal.replace(/^refused: /, ""));
-        } else if (value === null || typeof value !== typeof manifest.settings[key]) {
-            refuse("setting=" + key + " want=" + typeof manifest.settings[key]);
-        }
-        const shipped = readConfig(logic, shippedPath, "shipped-config");
-        let seeded = false;
-        editUserConfig(userPath, user => {
-            const effective = logic.effectiveConfig(shipped, user);
-            const row = logic.pluginRow(effective, manifest.id);
-            seeded = row === undefined || !logic.hasOwn(row, key);
-            return seeded ? logic.withSetting(user, manifest, key, value, effective, ["plugins"]) : null;
-        });
-        console.log(seeded ? "written" : "unchanged");
         break;
     }
     case "requirements": {

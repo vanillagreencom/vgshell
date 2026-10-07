@@ -14,7 +14,6 @@ The bar widget draws one shield in the tone of the service's state, with the Luc
 | `problem` | `shield-x` | danger | things that need attention | Agents are close to their memory limit |
 | `not-checking` | `shield-off` | neutral | none | Agent Warden hasn't checked in 3m |
 | `not-set-up` | `shield-question-mark` | neutral | none | Agent Warden isn't set up |
-| `update-warden` | `shield-alert` | warning | none | Agent Warden needs an update |
 
 ## Panel
 
@@ -27,9 +26,8 @@ A state that needs a setup step shows one button in place of the items:
 | State | Button | What it does |
 |---|---|---|
 | `not-set-up` | Set up | Opens the `setup` TUI, which runs the warden installer of vsys. |
-| `update-warden` | Update | The same: the installer rewrites an older warden's units. |
 | `not-checking`, stale | Start checks | Starts `agent-warden.timer` in the user's systemd through the `run` capability. |
-| `not-set-up` or `update-warden` without vsys | Install vsys | Raises the shell's requirement notice for vsys through `shell.requirements.offer`. |
+| `not-set-up` without vsys | Install vsys | Raises the shell's requirement notice for vsys through `shell.requirements.offer`. |
 
 A press that hands off closes the panel. A refusal stays in the panel as one sentence, such as "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it.", and is logged as `agent-warden: action=<action> <reply>`.
 

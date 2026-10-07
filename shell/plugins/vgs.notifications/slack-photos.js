@@ -8,10 +8,8 @@ const path = require("node:path");
 const emoji = require("./slack-emoji.js");
 
 // The libsecret item of an account: service vgs-notifications, account
-// `slack:<team id>` for one workspace's token and `slack` for the
-// single-workspace token, whose workspace team.info names.
+// `slack:<team id>` for one workspace's token.
 const SERVICE = ["service", "vgs-notifications", "account"];
-const LEGACY = "slack";
 // The most team ids one run takes, NotificationLogic.WORKSPACES_MAX.
 const TEAMS_MAX = 16;
 const DAILY_MS = 24 * 60 * 60 * 1000;
@@ -24,14 +22,12 @@ const API_DEFAULT = "https://slack.com/api";
 // helper's: team.json, the team's names, icon, the account that served it
 // and when; workspace.png; users.json, each cached user's id, names and
 // photo; and users/, one <user id>.png per photo. The team sweep deletes
-// only these names, its own temporary files and the flat <user id>.png
-// photos an older layout kept beside team.json, so another artifact of the
-// team, its custom emoji (slack-emoji.js), sits in the directory beside
-// them.
+// only these names and its own temporary files. Custom emoji
+// (slack-emoji.js) sit in the directory beside them.
 const TEAM_FILES = ["team.json", "users.json", "workspace.png"];
 const USERS_DIR = "users";
-// The root holds accounts.json, each account's resolved team and its last
-// failure, and one directory per team a stored token serves or whose custom
+// The root holds accounts.json, each account's last failure, and one
+// directory per team a stored token serves or whose custom
 // emoji are cached; the root sweep removes anything else.
 const ACCOUNTS_FILE = "accounts.json";
 const TEMP_NAME = /^\..+\.[0-9]+\.(?:tmp|download|resized)$/;
@@ -320,8 +316,8 @@ function remove(file) {
 }
 
 // A team directory's own names that this run did not keep: its files and
-// photos, its temporary files and an older layout's flat photos. Any other
-// name stays. `keepUsers` null drops users/ whole.
+// photos and its temporary files. Any other name stays.
+// `keepUsers` null drops users/ whole.
 function sweepTeam(dir, keep, keepUsers) {
     for (const name of fs.readdirSync(dir)) {
         if (name === USERS_DIR) {
@@ -332,7 +328,7 @@ function sweepTeam(dir, keep, keepUsers) {
             }
             for (const user of fs.readdirSync(usersDir))
                 if (!keepUsers.has(user)) remove(path.join(usersDir, user));
-        } else if (TEAM_FILES.indexOf(name) !== -1 ? !keep.has(name) : (/\.png$/.test(name) || TEMP_NAME.test(name))) {
+        } else if (TEAM_FILES.indexOf(name) !== -1 ? !keep.has(name) : TEMP_NAME.test(name)) {
             remove(path.join(dir, name));
         }
     }
@@ -361,7 +357,7 @@ function readTeam(root, id) {
     const dir = path.join(root, id);
     const team = readJson(path.join(dir, "team.json"));
     const users = readJson(path.join(dir, "users.json"));
-    if (!team || team.id !== id || typeof team.account !== "string" || !Array.isArray(team.names) || typeof team.icon !== "string") return null;
+    if (!team || team.id !== id || team.account !== "slack:" + id || !Array.isArray(team.names) || typeof team.icon !== "string") return null;
     if (!isNumber(team.generatedAt) || !isNumber(team.downloadFailed) || !users || !Array.isArray(users.users)) return null;
     return { id, names: team.names, icon: team.icon, users: users.users, account: team.account, generatedAt: team.generatedAt, downloadFailed: team.downloadFailed };
 }
@@ -484,25 +480,21 @@ function refreshPhotos(root, tokens, lines) {
     };
     let base = "";
     const api = () => base !== "" ? base : (base = apiBase());
-    // Each workspace's own token first: the team it serves is the one its
+    // Each workspace's token: the team it serves is the one its
     // account names, and a token for another team is refused.
-    const served = new Set();
-    for (const entry of tokens.filter(e => e.account !== LEGACY)) {
+    for (const entry of tokens) {
         const id = entry.account.slice("slack:".length);
         const record = readTeam(root, id);
         if (fresh(record, entry.account)) {
-            served.add(id);
             teams.push(record);
             continue;
         }
         if (held(accounts[entry.account])) {
-            // A token for another team caches nothing for this one, and
-            // leaves it to the single-workspace token.
+            // A token for another team caches nothing for this one.
             if (accounts[entry.account].reason === "team=mismatch") {
                 stale = true;
                 continue;
             }
-            served.add(id);
             keepStale(record);
             continue;
         }
@@ -514,45 +506,13 @@ function refreshPhotos(root, tokens, lines) {
                 refuse(entry.account, "team=mismatch");
                 continue;
             }
-            served.add(id);
             members = teamMembers(api(), entry.token);
         } catch (e) {
-            served.add(id);
             refuse(entry.account, e.message);
             keepStale(record);
             continue;
         }
         settle(entry.account, buildTeam(root, id, entry.account, info, members));
-    }
-    // The single-workspace token serves the team team.info names, unless
-    // that team's own token serves it.
-    const legacy = tokens.find(e => e.account === LEGACY);
-    if (legacy !== undefined) {
-        const state = accounts[LEGACY];
-        // The team team.info last named, which a day later is asked again,
-        // since the token may since serve another team.
-        const last = safeSegment(state.team);
-        const known = last !== "" && isNumber(state.resolvedAt) && Date.now() - state.resolvedAt <= DAILY_MS ? last : "";
-        const record = last === "" ? null : readTeam(root, last);
-        const own = record !== null && record.account === LEGACY ? record : null;
-        if (known !== "" && served.has(known)) {
-            // Its own token serves it.
-        } else if (fresh(own, LEGACY)) {
-            teams.push(own);
-        } else if (held(state)) {
-            keepStale(own);
-        } else {
-            try {
-                const info = teamInfo(api(), legacy.token);
-                const id = safeSegment(info && info.id);
-                if (id === "") throw new Error("api=team.info team-id=invalid");
-                accounts[LEGACY] = Object.assign({}, accounts[LEGACY], { team: id, resolvedAt: Date.now() });
-                if (!served.has(id)) settle(LEGACY, buildTeam(root, id, LEGACY, info, teamMembers(api(), legacy.token)));
-            } catch (e) {
-                refuse(LEGACY, e.message);
-                keepStale(own);
-            }
-        }
     }
     const downloadFailed = teams.reduce((sum, team) => sum + team.downloadFailed, 0);
     if (downloadFailed > 0) lines.push("notifications-slack-photos: downloads=failed count=" + downloadFailed);
@@ -569,22 +529,18 @@ function refreshPhotos(root, tokens, lines) {
     };
 }
 
-// The token that serves team `id`: its own, unless that token was refused
-// as another team's, else the single-workspace token when team.info last
-// named `id`; "" for none.
+// The token for team `id`, or "" when absent or refused for another team.
 function tokenFor(tokens, accounts, id) {
     const own = tokens.find(e => e.account === "slack:" + id);
-    if (own !== undefined && (accounts[own.account] || {}).reason !== "team=mismatch") return own.token;
-    const legacy = tokens.find(e => e.account === LEGACY);
-    return legacy !== undefined && (accounts[LEGACY] || {}).team === id ? legacy.token : "";
+    return own !== undefined && (accounts[own.account] || {}).reason !== "team=mismatch" ? own.token : "";
 }
 
-// The tokens stored for the listed teams and the single-workspace account:
+// The tokens stored for the listed teams:
 // { account, token } each, and a line for each lookup that failed.
 function storedTokens(ids, lines) {
     assertTestSecretToolPath();
     const tokens = [];
-    for (const account of ids.map(id => "slack:" + id).concat([LEGACY])) {
+    for (const account of ids.map(id => "slack:" + id)) {
         const found = lookupToken(account);
         if (found.state === "no-tool") break;
         if (found.state === "failed") lines.push(found.line);

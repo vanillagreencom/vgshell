@@ -121,19 +121,8 @@ const NO_NEXT = [
     ["a status stale in the past", fixture("calm"), MS + 90001],
     ["nothing read yet", { kind: "pending" }, MS],
     ["no warden", { kind: "absent" }, MS],
-    ["an older warden", { kind: "legacy" }, MS],
     ["an unreadable status", { kind: "unreadable", cause: "json" }, MS],
     ["a major not read", { kind: "schema", schema: "2.0" }, MS]
-];
-
-// The files that are not a status document: [label, status, legacy, file, detail].
-const FILES = [
-    ["nothing read yet", { kind: "pending" }, "pending", { kind: "pending" }, null],
-    ["no status, state.json not read yet", { kind: "absent" }, "pending", { kind: "pending" }, null],
-    ["no status and no state.json", { kind: "absent" }, "absent", { kind: "absent" }, { state: "not-set-up", reason: null, checkedAt: null, agents: null, issues: 0, items: [], memory: null }],
-    ["state.json alone is an older warden", { kind: "absent" }, "present", { kind: "legacy" }, { state: "update-warden", reason: null, checkedAt: null, agents: null, issues: 0, items: [], memory: null }],
-    ["an unreadable status", { kind: "unreadable", cause: "json" }, "present", { kind: "unreadable", cause: "json" }, { state: "not-checking", reason: "unreadable", checkedAt: null, agents: null, issues: 0, items: [], memory: null }],
-    ["a major not read", { kind: "schema", schema: "2.0" }, "absent", { kind: "schema", schema: "2.0" }, { state: "not-checking", reason: "schema", checkedAt: null, agents: null, issues: 0, items: [], memory: null }]
 ];
 
 // The warden's Settings row per state: [label, detail fields, row].
@@ -147,7 +136,6 @@ const ROWS = [
     ["an unreadable status", { state: "not-checking", reason: "unreadable", items: [] }, { tone: "danger", text: "Could not read status" }],
     ["a major not read", { state: "not-checking", reason: "schema", items: [] }, { tone: "warning", text: "Update VGS to read this status" }],
     ["no warden", { state: "not-set-up", reason: null, items: [] }, { tone: "info", text: "Not set up" }],
-    ["an older warden", { state: "update-warden", reason: null, items: [] }, { tone: "warning", text: "Update Agent Warden" }]
 ];
 
 // GB figures: [bytes, shown].
@@ -160,7 +148,7 @@ function read(logic, doc) {
 }
 
 function verify(logic) {
-    same(logic.STATES, ["calm", "working", "look", "problem", "not-checking", "not-set-up", "update-warden"]);
+    same(logic.STATES, ["calm", "working", "look", "problem", "not-checking", "not-set-up"]);
     for (const name of ["calm", "near-limit", "holding-off", "partial", "reaped"])
         assert.equal(logic.readStatus(fs.readFileSync(path.join(fixtures, "status-" + name + ".json"), "utf8")).kind, "read", "vsys fixture " + name + " reads");
     for (const [label, doc, want] of REFUSED)
@@ -172,14 +160,12 @@ function verify(logic) {
         same(got, want, label);
         reached.add(got.state);
     }
-    for (const [label, status, legacy, want, detail] of FILES) {
-        const got = logic.fileOf(status, legacy);
-        same(got, want, label);
-        same(logic.derive(got, MS), detail, label + ": derived");
-        if (detail !== null) reached.add(detail.state);
-    }
+    same(logic.derive({ kind: "pending" }, MS), null);
+    const absent = logic.derive({ kind: "absent" }, MS);
+    same(absent, { state: "not-set-up", reason: null, checkedAt: null, agents: null, issues: 0, items: [], memory: null });
+    reached.add(absent.state);
+    reached.add(logic.derive({ kind: "unreadable", cause: "json" }, MS).state);
     same([...reached].sort(), [...logic.STATES].sort(), "the tables reach every state");
-    assert.throws(() => logic.fileOf({ kind: "absent" }, "maybe"), /legacy="maybe" unknown/);
     assert.throws(() => logic.derive({ kind: "later" }, MS), /file kind="later" unknown/);
 
     for (const [label, doc, now, want] of NEXT) {
@@ -203,18 +189,16 @@ function verify(logic) {
     same(logic.published(calm, []), { warden: { tone: "ok", text: "Running" }, detail: JSON.parse(JSON.stringify(calm)), agents: 1, lastCheck: MS });
     same(logic.published(calm, ["vsys"]).warden, { tone: "ok", text: "Running" });
     // The warden row offers Set up exactly where the flyout's step is the
-    // setup TUI: a warden not set up or too old, with vsys present.
+    // setup TUI: a warden not set up, with vsys present.
     const stateOf = (state, reason) => Object.assign(logic.derive({ kind: "absent" }, MS), { state: state, reason: reason === undefined ? null : reason });
     for (const [label, detail, missing, want] of [
         ["not set up with vsys", stateOf("not-set-up"), [], { tone: "info", text: "Not set up", action: true }],
-        ["too old with vsys", stateOf("update-warden"), [], { tone: "warning", text: "Update Agent Warden", action: true }],
         ["not set up without vsys", stateOf("not-set-up"), ["vsys"], { tone: "info", text: "Not set up" }],
         ["stopped checking", stateOf("not-checking", "stale"), [], { tone: "warning", text: "Stopped checking" }],
     ]) same(logic.published(detail, missing).warden, want, "warden row, " + label);
     for (const [label, detail, missing, want] of [
         ["not set up with vsys", stateOf("not-set-up"), [], "setup"],
         ["not set up without vsys", stateOf("not-set-up"), ["vsys"], "get-vsys"],
-        ["too old without vsys", stateOf("update-warden"), ["vsys"], "get-vsys"],
         ["stopped checking", stateOf("not-checking", "stale"), [], "start"],
         ["unreadable", stateOf("not-checking", "unreadable"), [], null],
         ["checking", calm, [], null],
@@ -245,7 +229,6 @@ const CONTROLS = [
     ["leftover work counts as an agent", " && orphans.indexOf(lane.scope) === -1", ""],
     ["an unidentified lane counts as an agent", "lane.label.tool !== null && ", ""],
     ["unknown near ids count", "NEAR_IDS.indexOf(n) !== -1", "true"],
-    ["state.json reads as no warden", "case \"present\": return { kind: \"legacy\" };", "case \"present\": return { kind: \"absent\" };"],
     ["headroom ignored", "if ((slice !== null && slice.headroomOk === false) || waiting.length > 0)", "if (false)"],
     ["slowdown ignored", "slice.memory >= slice.high", "false"],
     ["a failed scan warns", 'detail.items.some(function (i) { return i.kind === "scan-failed"; })', "false"],
@@ -279,4 +262,4 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-agent-warden-logic: ok refused=${REFUSED.length} derived=${DERIVED.length} next=${NEXT.length + NO_NEXT.length} files=${FILES.length} controls=${CONTROLS.length}`);
+console.log(`test-agent-warden-logic: ok refused=${REFUSED.length} derived=${DERIVED.length} next=${NEXT.length + NO_NEXT.length} controls=${CONTROLS.length}`);

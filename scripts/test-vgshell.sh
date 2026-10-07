@@ -882,11 +882,6 @@ check "the rescan names the shell's pid from the lock file and the plugin add in
 # not know is a refusal that names it, after the landing line.
 cfg="$tmp/cfg-weird"
 INST_REPLY=weird inst "add refuses an unknown rescan reply after landing the plugin" "$cfg" "$rt_live" 1 "ok added=acme.probe path=$cfg/vgshell/plugins/acme.probe config=unchanged lands=disabled" "vgshell: refused: rescan=weird" plugin add --yes "$tmp/src/probe.git"
-# A shell started before the installed vgshell answers a bare `ok`, naming no
-# scan revision; it started the scan all the same.
-cfg="$tmp/cfg-noscan"
-INST_REPLY=ok inst "add reads a bare ok from an older running shell as a started rescan" "$cfg" "$rt_live" 0 "shell=rescan-started" "" plugin add --yes "$tmp/src/probe.git"
-
 cfg="$tmp/cfg-refused"
 inst "add refuses a manifest the judge refuses" "$cfg" "$rt_empty" 1 "" "vgshell: refused: manifest=$tmp/src/broken.git" plugin add --yes "$tmp/src/broken.git"
 check "a refused manifest leaves no plugin and no staging directory" no_residue "$cfg"

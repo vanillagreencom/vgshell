@@ -1,6 +1,6 @@
 # Every channel installs one shared tree
 
-Read before touching the licence, `VERSION`, `vgshell --version`, a package recipe, the installer, the flake, the autostart entry, `vgshell self`, `bin/lib/self.js`, a tree's `current` link, a one-time migration, `bin/vgshell-migrate`, or anything else that packages, installs or updates VGS.
+Read before touching the licence, `VERSION`, `vgshell --version`, a package recipe, the installer, the flake, the autostart entry, `vgshell self`, `bin/lib/self.js`, a tree's `current` link, or anything else that packages, installs or updates VGS.
 
 ## The approach
 
@@ -8,15 +8,11 @@ Every channel runs one installer, `packaging/install-system.sh`, into one tree, 
 
 The install method decides who owns the tree, and `bin/lib/self.js` is the one judge of that method, a checkout, a package, a curl install or a Nix tree, and of whether the tree is behind. VGS updates only an installation it laid out itself: `vgshell self update` fast-forwards a checkout or replaces a curl install, and refuses a package or Nix tree, naming the step that updates it. The curl installer and the self-update write only under a directory VGS owns, under one lock, `.self.lock`, and only a verified archive reaches it; the installer starts no shell, writes no unit and edits no `hyprland.lua`.
 
-A change to a user's own files ships as a one-time migration, which `bin/vgshell-migrate` runs once per user, from `vgshell run` before the shell starts and from `vgshell self update` before its restart. A migration applies once and never asks. A failed one stops the run, shows a notice and runs again at the next start, and the shell starts whatever it answered, so a migration never blocks startup. The choice is [D076](../decisions/D076-one-time-migrations.md).
-
 ## Why
 
 One installer gives every channel the same file set. The tree is scripts and data, not architecture-specific binaries, so it lives under `/usr/share`. A recipe that hand-lists its dependencies drifts from the declarations the scan probes. Publishing runs from the maintainer's machine, so no signing or AUR key sits in the repository.
 
 A package manager or Nix owns the tree it installed, and its next update would overwrite whatever VGS wrote there. A checkout fast-forwards with no diff and no question because VGS is the program the user runs, not third-party code. An AUR helper reports a `-git` package behind only when its recipe's version changes, so VGS reads `vgshell-git`'s commit itself. `Hyprland --version` aborts when `XDG_RUNTIME_DIR` is unset, so the installer probes under a private empty one.
-
-`vgshell run` is the only path every install method reaches, so a package hook or a unit would miss installs. A broken migration must never leave the user without a bar. `setpriv --no-new-privs` keeps a program a migration starts from gaining a privilege, and the per-migration timeout sits below the time `vgshell restart` waits for the new shell.
 
 ## Rules
 
@@ -52,7 +48,7 @@ A package manager or Nix owns the tree it installed, and its next update would o
 - Do make every git call in `bin/vgshell` and hand `bin/lib/self.js` the facts; `self.js` decides. Review holds it.
 - Never refuse `vgshell self` on a failed step; it becomes `error`, exit 0, and the fields read before it stay. `scripts/test-vgshell-self.sh` pins it.
 - Do keep three trees after an update: the new one, the one the command ran from, and the one the running shell started from. `scripts/test-vgshell-self.sh` pins it with a control that removes the running shell's tree.
-- Do fetch with no hook, no prompt, no askpass, no `FETCH_HEAD` and a timeout, and run `bin/vgshell-migrate` from the updated tree after an update. `scripts/test-vgshell-outdated.sh` and `scripts/test-vgshell-self.sh` pin each.
+- Do fetch with no hook, no prompt, no askpass, no `FETCH_HEAD` and a timeout. `scripts/test-vgshell-outdated.sh` and `scripts/test-vgshell-self.sh` pin each.
 - Do keep the whole installer one brace group, so a cut download runs nothing. `scripts/test-install-sh.sh` pins it.
 - Do refuse root, a non-Linux host, a system package and a foreign `~/.local/bin/vgshell` before writing. `scripts/test-install-sh.sh` pins each.
 - Do fetch with `curl --proto =https --tlsv1.2`, match the one `SHA256SUMS` line, replace `current` by rename only, and never remove a version directory from the installer. `scripts/test-install-sh.sh` pins each.
@@ -60,23 +56,14 @@ A package manager or Nix owns the tree it installed, and its next update would o
 - Do hold the installer's floor and package tables to `bin/vgshell` and `config/requirements.json`; the drift rows of `scripts/test-install-sh.sh` pin them.
 - Do accept `VGS_RELEASE_API` only in a test run: a `file://` base in the installer, a loopback base in `self.js`. `scripts/test-install-sh.sh` and `scripts/test-vgshell-self.sh` pin it.
 
-### Migrations
-
-- Do name a migration under `bin/migrations/` by the pattern `bin/vgshell-migrate` states; a name outside it refuses the whole run. `scripts/test-vgshell-migrate.sh` pins it.
-- Do make a migration idempotent: read the state, change nothing when there is nothing to change. Review holds it.
-- Never use the network, ask for a privilege, prompt, or edit `/etc` from a migration; the runner gives no new privileges, no stdin and a bounded time. `scripts/test-vgshell-migrate.sh` pins each.
-- Do write a setting through `vgshell-plugin-judge seed-setting`, which keeps a symlink a link and leaves a key the user set. `scripts/test-migration-slack-photos.sh` pins it.
-- Never read a secret from a credential store; read presence and unlock nothing. `scripts/test-migration-slack-photos.sh` pins it.
-- Do show a failure as a notice that names no command. `scripts/check-user-commands.py` refuses one ([D061](../decisions/D061-no-manual-commands.md)).
-
 ## The canonical example
 
-`packaging/arch/vgshell/PKGBUILD` for a new channel, `scripts/test-vgshell-self.sh` for a new install method or update outcome, and `bin/migrations/1790801764-slack-photos-extra.sh` for a migration. Copy them.
+`packaging/arch/vgshell/PKGBUILD` for a new channel, `scripts/test-vgshell-self.sh` for a new install method or update outcome. Copy them.
 
 ## Revisit when
 
-VGS ships architecture-specific binaries, a distribution's repositories reach the floor, the owner reinstates CI, autostart settles enough for a Home Manager module, the self-update gains the installer's signature check, VGS ships a systemd user unit or a package hook that could run migrations earlier, or a migration needs a privilege or a question.
+VGS ships architecture-specific binaries, a distribution's repositories reach the floor, the owner reinstates CI, autostart settles enough for a Home Manager module, the self-update gains the installer's signature check.
 
 ## Not governed
 
-The release flow, which is `DEVELOPMENT.md` § Release; the README's install section, which `scripts/check-readme.js` holds; the migration runner's own lifetime, which is [runtime.md](runtime.md).
+The release flow, which is `DEVELOPMENT.md` § Release; the README's install section, which `scripts/check-readme.js` holds.

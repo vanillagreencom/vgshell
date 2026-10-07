@@ -106,7 +106,7 @@ const SEQUENCES = [
         [edited("near-limit", d => { d.orphans = [{ scope: LANE, processes: 3, cores: null, since: T, harmful: false }]; }), 30, [], []],
         [edited("near-limit", d => { d.lanes[0].label.tool = null; }), 30, [], []]
     ]],
-    ["an unset or older warden opens nothing", [
+    ["an unset or unreadable warden opens nothing", [
         ["absent", 0, [], []],
         ["schema", 0, [], []]
     ]]

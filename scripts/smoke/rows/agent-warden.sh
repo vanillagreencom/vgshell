@@ -5,8 +5,7 @@
 # now, so it is fresh, or ten minutes back, so it is stale. It reads each
 # state back through the plugin's `status` IPC function, which answers the
 # record the core holds, and reads the plugin's Settings rows back from the
-# Settings window. An older warden's state.json alone reads as Update the
-# warden, and the empty directory as Not set up. The vsys requirement reads
+# Settings window. An empty directory reads as Not set up. The vsys requirement reads
 # missing or present from the scan as a stub on the sandbox PATH comes and
 # goes; the host's PATH sets its first answer. The Settings page draws a
 # step only while the step applies: none anywhere while the warden checks
@@ -213,10 +212,6 @@ expect "no agent count is published before a status" null warden_value agents
 expect "the lending record holds the published keys" '["detail", "warden"]' warden_lent
 expect "the vsys requirement reads as the scan finds it on the sandbox PATH" "$vsys_first" warden_requirement vsys
 
-cp -- "$warden_fixtures/state.json" "$warden_dir/state.json"
-expect_poll "an older warden's state.json alone reads as update the warden" '["update-warden", null, 0, []]' warden_state
-expect "the warden row asks for an update" "$(warden_setup_row '{"tone": "warning", "text": "Update Agent Warden"}')" warden_value warden
-
 calm_time="$(warden_put calm 0)"
 expect_poll "a fresh calm status reads as calm" '["calm", null, 0, []]' warden_state
 expect_poll "a status that reads starts the heartbeat" fresh warden_heartbeat
@@ -359,8 +354,6 @@ rescan "a rescan after vsys goes starts"
 expect_poll "vsys reads as the host PATH gives it again" "$vsys_first" warden_requirement vsys
 
 rm -f -- "$warden_dir/status.json"
-expect_poll "state.json left alone reads as update the warden again" '["update-warden", null, 0, []]' warden_state
-rm -f -- "$warden_dir/state.json"
 expect_poll "an empty directory reads as not set up again" '["not-set-up", null, 0, []]' warden_state
 
 # The shield and its panel, read back as drawn. Enabling placed the widget
@@ -534,13 +527,6 @@ settings_press "Set up" || fail "the click on the Settings page's Set up failed"
 expect_poll "the Settings page's Set up hands the terminal the setup TUI" "$(words vgs.agent-warden/setup tui/setup.sh)" recorded_tail
 expect_run_end "the Settings page's setup run ends" vgs.agent-warden/setup
 settings_page_close vgs.agent-warden
-
-cp -- "$warden_fixtures/state.json" "$warden_dir/state.json"
-expect_poll "the shield reads an older warden" '["shield-alert", "warning", "", "Agent Warden needs an update"]' warden_shield
-warden_open "an older warden"
-expect_poll "an older warden's panel offers Update" "$(words Agents "Agent Warden needs an update." "$warden_line" Update "Open vsys")" warden_panel
-expect "the older warden's panel is hidden" ok ipc shell hide panel vgs.agent-warden
-rm -f -- "$warden_dir/state.json"
 
 # Fresh states, the panel open throughout.
 warden_put calm 0 >/dev/null

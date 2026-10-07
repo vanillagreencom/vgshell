@@ -13,6 +13,8 @@ A desktop shell for Hyprland, built on Quickshell 0.3.1. A small fixed core star
 
 ## Conventions
 
+- No migration, shim, fallback, alias or compatibility path, ever. A format change rewrites the owner's files once, as a cutover step the master runs. No decision record may require an old form.
+
 - Work targets `main`.
 - No branch protection, merge queue or commit/push gates. One GitHub workflow exists, `.github/workflows/nightly.yml`, which runs `scripts/validate --full` on `main` on a schedule, while the repository variable `NIGHTLY` is `on`, for the areas a hosted runner can run and reports only; no workflow runs on a push or a pull request. PRs are optional and may merge immediately; direct pushes are welcome. Do not arm Kendex guards or wait for absent CI.
 - Review by risk. A change to code where a defect shows as a performance, stability, race, leak or lifetime problem (services, Quickshell or Hyprland IPC, processes and timers, file or socket watchers, object ownership and destruction, caches, concurrency, the plugin scan and publish path, the sandbox and smoke harness) runs one internal review round before the push to main. A change that is only layout, copy, styling, tokens, docs or a settings field runs none; the owner judges those by use. The lane's done line names which applied and why.
@@ -37,7 +39,7 @@ A desktop shell for Hyprland, built on Quickshell 0.3.1. A small fixed core star
 - Before touching the `tui` capability, a floating TUI, a package step, a system step, or any place text could become a command: `docs/architecture/commands-are-data.md`.
 - Before touching a password field, a stored token or any text that could carry a secret: `docs/architecture/secrets.md`.
 - Before touching a theme package, its judge, a theme target, apply, follow or reload, the theme catalog, a wallpaper download, the wallpaper state or the background, `ThemeRunner` or a theme view: `docs/architecture/themes.md`.
-- Before touching the licence, `VERSION`, a package recipe, the installer, `vgshell self` or a one-time migration: `docs/architecture/distribution.md`.
+- Before touching the licence, `VERSION`, a package recipe, the installer, `vgshell self` or an update: `docs/architecture/distribution.md`.
 - Before touching the Jarvis daemon, its wire, a brain or a tool executor: `docs/architecture/jarvis.md`; before any path by which content or a credential leaves it: `docs/architecture/jarvis-outbound.md`.
 - Before touching `scripts/validate`, a row, its inputs or its verdict, a test's environment, the nested sandbox and its harness, a fault the smoke excuses, a latency or resident-size budget, or a Jarvis test: `docs/architecture/validation.md`.
 - Before writing a plugin, running validation, regenerating the README's plugin table or images, or changing a licence: `DEVELOPMENT.md`.

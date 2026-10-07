@@ -545,119 +545,57 @@ else
   fail "control: a fixed Gallery title could not be planted"
 fi
 
-# The export of another revision, scripts/smoke/tree.sh, with no sandbox. A
-# scratch repository holds a revision whose bin/judge loads
-# scripts/qml-library.js and a later one that moved the helper to bin/lib,
-# as this checkout did. export_case exports REV as sandbox-shots.sh does,
-# copies the later checkout's scripts/ and then overlays the export's
-# helpers as the harness does, and runs the copied bin/judge under node,
-# which prints which helper it loaded.
+# A current revision exports its runtime helpers in bin/lib and its
+# installer files. The harness copies this revision's product files and
+# this checkout's smoke scripts, without starting a compositor.
 helper_repo="$tmp/helper-repo"
-mkdir -p "$helper_repo/bin" "$helper_repo/scripts" "$helper_repo/shell" "$helper_repo/config" "$helper_repo/themes"
-printf 'module.exports = { where: "scripts" };\n' >"$helper_repo/scripts/qml-library.js"
-printf 'process.stdout.write(require(require("path").join(__dirname, "..", "scripts", "qml-library.js")).where);\n' >"$helper_repo/bin/judge"
+mkdir -p "$helper_repo/bin/lib" "$helper_repo/shell" "$helper_repo/config" "$helper_repo/themes"
+printf 'module.exports = { where: "bin/lib" };\n' >"$helper_repo/bin/lib/qml-library.js"
+printf 'process.stdout.write(require(require("path").join(__dirname, "lib", "qml-library.js")).where);\n' >"$helper_repo/bin/judge"
 : >"$helper_repo/shell/shell.qml"; : >"$helper_repo/config/shell.json"; : >"$helper_repo/themes/.keep"
+for file in VERSION LICENSE README.md; do printf 'revision %s\n' "$file" >"$helper_repo/$file"; done
 helper_git() { git -C "$helper_repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@" >/dev/null; }
 helper_git init -q
 helper_git add -A
-helper_git commit -q -m before
-before_rev="$(git -C "$helper_repo" rev-parse HEAD)"
-mkdir -p "$helper_repo/bin/lib"
-helper_git mv scripts/qml-library.js bin/lib/qml-library.js
-printf 'module.exports = { where: "bin/lib" };\n' >"$helper_repo/bin/lib/qml-library.js"
-printf 'process.stdout.write(require(require("path").join(__dirname, "lib", "qml-library.js")).where);\n' >"$helper_repo/bin/judge"
-printf 'true\n' >"$helper_repo/scripts/validate"
-helper_git add -A
-helper_git commit -q -m after
-after_rev="$(git -C "$helper_repo" rev-parse HEAD)"
-# export_case LIB REV WANT: with tree.sh at LIB, REV's copied bin/judge
-# prints WANT.
-export_case() {
-  local lib="$1" rev="$2" want="$3" dir target out status=0
-  dir="$(mktemp -d "$tmp/export.XXXXXX")" && target="$(mktemp -d "$tmp/copy.XXXXXX")" || return 1
-  out="$(
-    source "$lib"
-    tree_export "$helper_repo" "$rev" "$dir" || { echo "tree_export failed"; exit 1; }
-    cp -R -- "$dir/bin" "$target/bin"
-    cp -R -- "$helper_repo/scripts" "$target/scripts"
-    tree_overlay_helpers "$dir" "$target"
-    node "$target/bin/judge" 2>&1
-  )" || status=$?
-  [[ $status -eq 0 && $out == "$want" ]] && return 0
-  echo "exit=$status out=$(head -n 1 <<<"$out")"
-  return 1
-}
-export_cases=(
-  "a revision before bin/lib runs its own helper from scripts/|$before_rev|scripts"
-  "a revision after bin/lib exports no helper and runs its own|$after_rev|bin/lib"
-)
-for spec in "${export_cases[@]}"; do
-  IFS='|' read -r label rev want <<<"$spec"
-  if export_case "$repo/scripts/smoke/tree.sh" "$rev" "$want"; then ok "$label"; else fail "$label"; fi
-done
-
-# The harness copy accepts a tree_export that contains only shell, bin,
-# config, themes and any legacy runtime helper. Installer-only files come
-# from this checkout. This is the real copy helper scripts/smoke/harness.sh
-# calls before it mutates the sandbox copy.
+helper_git commit -q -m product
+product_rev="$(git -C "$helper_repo" rev-parse HEAD)"
 harness_copy_case() { # LIB
   local lib="$1" dir target out status=0
   dir="$tmp/harness-export"; target="$tmp/harness-copy"
-  rm -rf -- "$dir" "$target"
+  rm -rf -- "${dir:?}" "${target:?}"
   mkdir -p -- "$dir" "$target"
   out="$({
     source "$lib"
-    tree_export "$helper_repo" "$before_rev" "$dir" || { echo "tree_export failed"; exit 1; }
+    tree_export "$helper_repo" "$product_rev" "$dir" || { echo "tree_export failed"; exit 1; }
     tree_harness_copy "$repo" "$target" "$dir"
     [[ -e "$target/packaging/install-system.sh" ]] || { echo "packaging missing"; exit 1; }
     [[ -e "$target/scripts/qml-smoke.sh" ]] || { echo "scripts missing"; exit 1; }
-    cmp -s -- "$repo/VERSION" "$target/VERSION" || { echo "VERSION fallback missing"; exit 1; }
-    cmp -s -- "$repo/LICENSE" "$target/LICENSE" || { echo "LICENSE fallback missing"; exit 1; }
-    cmp -s -- "$repo/README.md" "$target/README.md" || { echo "README fallback missing"; exit 1; }
+    [[ $(node "$target/bin/judge") == bin/lib ]] || { echo "runtime helper missing"; exit 1; }
+    for file in VERSION LICENSE README.md; do
+      cmp -s -- "$helper_repo/$file" "$target/$file" || { echo "revision file missing: $file"; exit 1; }
+    done
     echo ok
   } 2>&1)" || status=$?
   [[ $status -eq 0 && $out == ok ]] && return 0
   echo "exit=$status out=$(head -n 1 <<<"$out")"
   return 1
 }
-if harness_copy_case "$repo/scripts/smoke/tree.sh"; then ok "the harness copy accepts a tree_export without installer files"; else fail "the harness copy accepts a tree_export without installer files"; fi
+if harness_copy_case "$repo/scripts/smoke/tree.sh"; then ok "the harness copies the revision's product and current smoke scripts"; else fail "the harness copies the revision's product and current smoke scripts"; fi
+# A control copies the wrong revision's installer files.
 copy_mutant="$tmp/tree-copy-mutant.sh"
-if python3 - "$repo/scripts/smoke/tree.sh" "$copy_mutant" <<'PY'
+if python3 - "$repo/scripts/smoke/tree.sh" "$copy_mutant" <<'PYCONTROL'
 import sys
 src, dst = sys.argv[1:]
 text = open(src).read()
-needle = 'shutil.copytree(source / "packaging", target / "packaging")'
-assert text.count(needle) == 1, "the harness copy packaging fallback must match once"
-open(dst, "w").write(text.replace(needle, 'shutil.copytree(tree / "packaging", target / "packaging")'))
-PY
+needle = 'origin = tree / file_name'
+assert text.count(needle) == 1, "installer file source must match once"
+open(dst, "w").write(text.replace(needle, 'origin = source / file_name'))
+PYCONTROL
 then
-  if harness_copy_case "$copy_mutant" >/dev/null; then fail "control: the old unconditional harness copy stayed green"; else ok "control: the old unconditional harness copy fails on a tree_export"; fi
+  if harness_copy_case "$copy_mutant" >/dev/null; then fail "control: wrong revision installer files stayed green"; else ok "control: wrong revision installer files fail"; fi
 else
-  fail "control: the old unconditional harness copy could not be planted"
+  fail "control: wrong revision installer files could not be planted"
 fi
-
-# Controls, one per rule: a copy of tree.sh that exports no helper, and one
-# that overlays nothing, each leave the older revision without its helper.
-tree_controls=(
-  "the export carries no helper|tree_runtime_helpers=(scripts/qml-library.js scripts/check-manifests.js)|tree_runtime_helpers=(scripts/no-helper.js)"
-  "the copy takes no helper|  cp -R -- \"\$tree/scripts/.\" \"\$target/scripts/\"|  :"
-)
-for spec in "${tree_controls[@]}"; do
-  IFS='|' read -r label needle replacement <<<"$spec"
-  tree_mutant="$tmp/tree-mutant.sh"
-  if python3 - "$repo/scripts/smoke/tree.sh" "$tree_mutant" "$needle" "$replacement" <<'PY'
-import sys
-src, dst, needle, replacement = sys.argv[1:]
-text = open(src).read()
-assert text.count(needle) == 1, "the control's needle must match once"
-open(dst, "w").write(text.replace(needle, replacement))
-PY
-  then
-    if export_case "$tree_mutant" "$before_rev" scripts >/dev/null; then fail "control: $label left the older revision green"; else ok "control: $label"; fi
-  else
-    fail "control: $label could not be planted"
-  fi
-done
 
 # The same observer setup instruments a source copy and an installed copy.
 # Drive its actual file edits without starting QML or a compositor.

@@ -8,7 +8,7 @@
 # every class of path VGS writes: the user layer, an installed theme
 # package applied and then hand-edited, an installed plugin, the launcher,
 # automations and backgrounds folders, the state files a run leaves (the
-# applied theme, welcome-seen, migrations, the Hyprland layer, plugin
+# applied theme, welcome-seen, the Hyprland layer, plugin
 # state), data folders beside a curl install's own entries, and cache
 # files. No shell runs, so every reset ends with shell=not-running. The
 # PATH holds only the tools the verbs run and the stand-in command of one
@@ -63,9 +63,8 @@ fixture() { # NAME [unthemed]
   printf 'launcher\n' >"$cfg/launcher/pins.json"
   printf 'automation\n' >"$cfg/automations/night.json"
   printf 'image\n' >"$cfg/backgrounds/sea.png"
-  mkdir -p "$st/migrations" "$st/hypr" "$st/plugins/acme.probe" "$st/notifications"
+  mkdir -p "$st/hypr" "$st/plugins/acme.probe" "$st/notifications"
   : >"$st/welcome-seen"
-  : >"$st/migrations/0001-fixture"
   printf 'hl.config({})\n' >"$st/hypr/vgs.lua"
   printf 'state\n' >"$st/plugins/acme.probe/state.json"
   printf 'notifications\n' >"$st/notifications/history.json"

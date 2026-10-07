@@ -394,17 +394,17 @@ function workspaceReload(map, workspace, loadedAt, now) {
 // The states token-status.sh reports for each Slack account, each a value
 // of the core's `presence` status type.
 var SLACK_TOKEN_STATES = ["present", "absent", "locked", "unavailable"];
-// The single-workspace account, and a workspace's own: slack:<team id>.
-var SLACK_LEGACY_ACCOUNT = "slack";
-var SLACK_ACCOUNT = /^slack(?::[A-Za-z0-9]{1,32})?$/;
+// Each workspace account: slack:<team id>.
+var SLACK_ACCOUNT = /^slack:[A-Za-z0-9]{1,32}$/;
 
 // Each Slack account's token state from token-status.sh's stdout, one
 // `slack-token: account=<account> <state>` line per account, the
-// single-workspace account's among them: { ok: true, states } with
+// listed workspace accounts: { ok: true, states } with
 // account -> state, or { ok: false, error } for output the probe does not
 // print.
 function slackTokenStates(text) {
-    var lines = String(text).replace(/\n$/, "").split("\n");
+    var output = String(text).replace(/\n$/, "");
+    var lines = output === "" ? [] : output.split("\n");
     var states = {};
     for (var i = 0; i < lines.length; i++) {
         var match = /^slack-token: account=(\S+) ([a-z]+)(?: [^\n]*)?$/.exec(lines[i]);
@@ -414,7 +414,6 @@ function slackTokenStates(text) {
         if (hasOwn(states, match[1])) return { ok: false, error: "line." + i + ".account duplicate" };
         states[match[1]] = match[2];
     }
-    if (!hasOwn(states, SLACK_LEGACY_ACCOUNT)) return { ok: false, error: "account=" + SLACK_LEGACY_ACCOUNT + " missing" };
     return { ok: true, states: states };
 }
 
@@ -439,37 +438,15 @@ function slackWorkspaceLabel(workspace) {
     return cut + "\u2026";
 }
 
-// The Settings page's Slack token rows, a `presenceList`: one item per
-// workspace Slack's list names, in its order, carrying that workspace's own
-// account's state, and the account as its `secret`, whose Connect and
-// Disconnect the page offers. A workspace
-// whose own token is absent while the photo cache says the single-workspace
-// token serves it carries that token's state and says so, with no account
-// and no account: its photos load, and a Disconnect of the single-workspace
-// token leaves it absent, to connect its own. Then the single-workspace
-// token's own item, when no workspace is listed or it is stored.
-// `states` is slackTokenStates'; `teams` slackPhotos'. { ok: true,
-// items }, or { ok: false, missing } naming an account the states lack,
-// while the probe has not yet answered for the list as it now stands.
-function slackTokenRows(workspaces, states, teams) {
-    if (!hasOwn(states, SLACK_LEGACY_ACCOUNT)) return { ok: false, missing: SLACK_LEGACY_ACCOUNT };
-    var legacy = states[SLACK_LEGACY_ACCOUNT];
+// The Settings page's Slack token rows, one per listed workspace.
+// A missing probe result refuses publication until the next probe.
+function slackTokenRows(workspaces, states) {
     var items = [];
     for (var i = 0; i < workspaces.length; i++) {
         var account = "slack:" + workspaces[i].id;
         if (!hasOwn(states, account)) return { ok: false, missing: account };
-        var item = { label: slackWorkspaceLabel(workspaces[i]), value: states[account] };
-        var served = teams.some(function (t) { return t.id === workspaces[i].id && t.account === SLACK_LEGACY_ACCOUNT; });
-        if (states[account] === "absent" && served) {
-            item.value = legacy;
-            item.hint = "Uses the single-workspace token";
-        } else {
-            item.secret = account;
-        }
-        items.push(item);
+        items.push({ label: slackWorkspaceLabel(workspaces[i]), value: states[account], secret: account });
     }
-    if (workspaces.length === 0 || legacy !== "absent")
-        items.push({ label: "Single-workspace token", value: legacy, secret: SLACK_LEGACY_ACCOUNT });
     return { ok: true, items: items };
 }
 
@@ -546,7 +523,7 @@ function slackPhotos(text) {
         if (typeof team.id !== "string" || !/^[A-Za-z0-9]{1,32}$/.test(team.id)) return { ok: false, error: "teams." + t + ".id want=safe" };
         if (!Array.isArray(team.names)) return { ok: false, error: "teams." + t + ".names want=list" };
         if (!Array.isArray(team.users)) return { ok: false, error: "teams." + t + ".users want=list" };
-        if (typeof team.account !== "string" || !SLACK_ACCOUNT.test(team.account)) return { ok: false, error: "teams." + t + ".account want=slack|slack:<team id>" };
+        if (typeof team.account !== "string" || !SLACK_ACCOUNT.test(team.account)) return { ok: false, error: "teams." + t + ".account want=slack:<team id>" };
         var names = uniqueNames(team.names);
         if (names.length === 0) return { ok: false, error: "teams." + t + ".names want=non-empty" };
         var users = [];

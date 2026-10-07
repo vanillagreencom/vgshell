@@ -115,8 +115,6 @@ const HAND = [
         "Update VGS to read Agent Warden status.", "Update VGS to read Agent Warden status."],
     ["not set up", hand({ state: "not-set-up", checkedAt: null, agents: null }), T, { icon: "shield-question-mark", tone: "neutral", count: "", tooltip: "Agent Warden isn't set up" },
         "Agent Warden isn't set up.", "Install vsys to set up Agent Warden."],
-    ["older warden", hand({ state: "update-warden", checkedAt: null, agents: null }), T, { icon: "shield-alert", tone: "warning", count: "", tooltip: "Agent Warden needs an update" },
-        "Agent Warden needs an update.", "Install vsys to update Agent Warden."]
 ];
 
 // Buttons: [label, detail, vsys missing, setup button, footer link].
@@ -127,8 +125,6 @@ const BUTTONS = [
     ["a checking warden without vsys links to it", hand({ agents: 1 }), true, null, GET],
     ["not set up offers Set up", hand({ state: "not-set-up" }), false, { label: "Set up", action: "setup" }, OPEN],
     ["not set up without vsys offers vsys once", hand({ state: "not-set-up" }), true, GET, null],
-    ["an older warden offers Update", hand({ state: "update-warden" }), false, { label: "Update", action: "setup" }, OPEN],
-    ["an older warden without vsys offers vsys once", hand({ state: "update-warden" }), true, GET, null],
     ["a stale warden offers Start checks", hand({ state: "not-checking", reason: "stale" }), false, { label: "Start checks", action: "start" }, OPEN],
     ["an unreadable status offers no setup", hand({ state: "not-checking", reason: "unreadable" }), false, null, OPEN],
     ["a problem offers no setup", hand({ state: "problem", issues: 1, items: [{ kind: "scan-failed", level: "problem" }] }), false, null, OPEN]

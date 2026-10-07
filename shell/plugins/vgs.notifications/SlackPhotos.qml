@@ -5,7 +5,7 @@ import "NotificationLogic.js" as Logic
 
 // Optional Slack Web API photos, the owner-only Slack photos extra,
 // `photosEnabled`. With it on, the helper reads one Slack user token per
-// workspace, and the single-workspace token, from libsecret, then refreshes
+// workspace from libsecret, then refreshes
 // each team's part of this plugin's cache under XDG cache at most once per
 // day. A missing token leaves that team out and prints nothing.
 // token-status.sh reports whether each token is stored, never reading it;
@@ -211,7 +211,7 @@ Scope {
             else {
                 const line = String(tokenErr.text || "").split("\n")[0];
                 console.warn("notifications-token-status: probe=failed " + (done === null ? "start=failed" : done.code !== 0 ? "exit=" + done.code : "output refused: reason=" + read.error) + (line !== "" ? " stderr=" + line : ""));
-                const states = { slack: "unavailable" };
+                const states = {};
                 for (const id of photos.probed) states["slack:" + id] = "unavailable";
                 photos.tokenStates = states;
             }

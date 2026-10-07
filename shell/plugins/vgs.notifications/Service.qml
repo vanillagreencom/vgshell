@@ -126,21 +126,20 @@ Item {
         photosEnabled: root.shell !== null && root.shell.settings.slackPhotos === true
         secretRevision: root.shell === null ? 0 : root.shell.secrets.revision
         onTokenStatesChanged: root.publishTokens()
-        onTeamsChanged: root.publishTokens()
         onWorkspacesChanged: root.publishTokens()
     }
 
     // The Slack token rows of the plugin's status, a `presenceList`: each
     // listed workspace's token state, its libsecret account, which the
-    // Settings page's Connect and Disconnect write through the core, and the
-    // command that stores it, as the probe last found them
+    // Settings page's Connect and Disconnect write through the core,
+    // as the probe last found them
     // (NotificationLogic.slackTokenRows). No token enters status. While the
     // probe has not answered for the list as it now stands, and while the
     // Slack photos extra is off, the rows wait for its next answer; the
     // core shows no row of an extra that is off.
     function publishTokens() {
         if (shell === null || slackPhotos.tokenStates === null) return;
-        const rows = Logic.slackTokenRows(slackPhotos.workspaces, slackPhotos.tokenStates, slackPhotos.teams);
+        const rows = Logic.slackTokenRows(slackPhotos.workspaces, slackPhotos.tokenStates);
         if (!rows.ok || JSON.stringify(shell.status.values.slackTokens) === JSON.stringify(rows.items)) return;
         const reply = shell.status.set("slackTokens", rows.items);
         if (reply !== "ok") console.error("notifications: " + reply);

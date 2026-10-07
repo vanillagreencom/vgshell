@@ -1,38 +1,17 @@
 # Sourced by scripts/sandbox-shots.sh, scripts/smoke/harness.sh and
-# scripts/test-sandbox-shots.sh: how another revision's tree reaches the
-# sandbox copy.
-#
-# A revision from before bin/lib kept the runtime helpers its bin/ loads
-# under scripts/, which this checkout's scripts/ no longer holds. The
-# revision's export carries whichever of them it has, and the sandbox copy
-# takes them over this checkout's scripts/, so a before shot runs that
-# revision's own helpers.
-tree_runtime_helpers=(scripts/qml-library.js scripts/check-manifests.js)
+# scripts/test-sandbox-shots.sh: export a revision's product tree.
 
-# tree_export CHECKOUT REV DIR: extract REV's shell, bin, config and themes,
-# and those of its runtime helpers it has, into DIR. Non-zero when git or
-# tar fails; the caller runs under pipefail.
+# tree_export CHECKOUT REV DIR: extract the product tree and its
+# installer files into DIR. Non-zero when git or tar fails.
 tree_export() {
-  local checkout="$1" rev="$2" dir="$3" helpers paths=(shell bin config themes)
-  helpers="$(git -C "$checkout" ls-tree --name-only "$rev" -- "${tree_runtime_helpers[@]}")" || return 1
-  [[ -z $helpers ]] || mapfile -t -O "${#paths[@]}" paths <<<"$helpers"
-  git -C "$checkout" archive "$rev" "${paths[@]}" | tar -x -C "$dir"
-}
-
-# tree_overlay_helpers TREE TARGET: copy what TREE, an export tree_export
-# made, carries under scripts/ over the sandbox copy's scripts/ at TARGET.
-# An export with no helpers changes nothing.
-tree_overlay_helpers() {
-  local tree="$1" target="$2"
-  [[ -d $tree/scripts ]] || return 0
-  cp -R -- "$tree/scripts/." "$target/scripts/"
+  local checkout="$1" rev="$2" dir="$3"
+  git -C "$checkout" archive "$rev" shell bin config themes VERSION LICENSE README.md | tar -x -C "$dir"
 }
 
 # tree_harness_copy CHECKOUT TARGET TREE: make the sandbox copy the smoke
 # harness runs. TREE is the product tree under test. CHECKOUT supplies the
-# installer-only files and the smoke scripts. A revision export from before
-# packaging, VERSION, LICENSE or README.md existed still runs: the fallback
-# files come from CHECKOUT.
+# packaging and the smoke scripts. TREE supplies its own VERSION,
+# LICENSE and README.md.
 tree_harness_copy() {
   python3 - "$1" "$2" "$3" <<'PY'
 import pathlib, shutil, sys
@@ -43,8 +22,6 @@ shutil.copytree(source / "packaging", target / "packaging")
 shutil.copytree(source / "scripts", target / "scripts")
 for file_name in ("VERSION", "LICENSE", "README.md"):
     origin = tree / file_name
-    if not origin.exists():
-        origin = source / file_name
     shutil.copyfile(origin, target / file_name)
 PY
 }

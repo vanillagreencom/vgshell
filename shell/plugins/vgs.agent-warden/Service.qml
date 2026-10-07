@@ -42,9 +42,6 @@ Item {
     // The last read of status.json: WardenLogic.readStatus's answer, or
     // { kind: "absent" }, or { kind: "pending" } before the first read.
     property var status: ({ kind: "pending" })
-    // Whether state.json exists, read only while status.json is absent:
-    // "pending", "present" or "absent".
-    property string legacy: "pending"
     // The derived state, WardenLogic.derive's answer; null while a read is
     // pending. derive() alone sets it.
     property var detail: null
@@ -82,7 +79,6 @@ Item {
         return reply;
     }
     onStatusChanged: derive()
-    onLegacyChanged: derive()
     onMissingChanged: publish()
     // A value the manifest's schema does not offer reaches the service
     // only from a hand-edited file; the service then sends nothing.
@@ -91,11 +87,11 @@ Item {
             console.error("agent-warden: notify=" + JSON.stringify(mode) + " unknown\nThe notify setting takes " + Notices.MODES.join(", ") + "; no notice goes out until it does.");
     }
 
-    // Derive the state from both reads at this moment, publish it, and set
+    // Derive the state from the status at this moment, publish it, and set
     // the timer to the next moment the answer can change with the files
     // unchanged.
     function derive() {
-        const file = WardenLogic.fileOf(status, legacy);
+        const file = status;
         const now = Date.now();
         detail = WardenLogic.derive(file, now);
         const next = WardenLogic.nextChange(file, now);
@@ -241,7 +237,7 @@ Item {
     // warden's directory is made
     // before the watches start: a warden set up while the shell runs is
     // then seen. A directory that could not be made is logged and the
-    // watches start anyway, reading both files as absent.
+    // watches start anyway, reading the status as absent.
     Process {
         id: dirProc
         property var completion: null
@@ -268,17 +264,4 @@ Item {
         }
     }
 
-    // An older warden writes state.json and no status.json. Its content is
-    // never read, only whether it exists; a state.json that exists and
-    // cannot be read still exists.
-    LazyLoader {
-        active: dirProc.settled && root.status.kind === "absent"
-        onActiveChanged: root.legacy = "pending"
-        WatchedFile {
-            path: root.dir + "/state.json"
-            onChanged: read()
-            onLoaded: content => { root.legacy = "present"; }
-            onLoadFailed: error => { root.legacy = error === FileViewError.FileNotFound ? "absent" : "present"; }
-        }
-    }
 }

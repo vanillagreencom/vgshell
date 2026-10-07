@@ -20,13 +20,11 @@ f share/vgshell/bin/lib/theme-select.js
 f share/vgshell/bin/lib/tmpfiles.d/vgs-sudo-grant.conf
 f share/vgshell/bin/lib/tui.sh
 f share/vgshell/bin/lib/xkb-keys.py
-f share/vgshell/bin/migrations/1790801764-slack-photos-extra.sh
 f share/vgshell/bin/vgshell
 f share/vgshell/bin/vgshell-browser-policy
 f share/vgshell/bin/vgshell-display-guard
 f share/vgshell/bin/vgshell-hypr-judge
 f share/vgshell/bin/vgshell-lock
-f share/vgshell/bin/vgshell-migrate
 f share/vgshell/bin/vgshell-pkg
 f share/vgshell/bin/vgshell-plugin-judge
 f share/vgshell/bin/vgshell-scan

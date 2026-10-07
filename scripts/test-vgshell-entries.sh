@@ -83,11 +83,15 @@ check "the link reads the new render" test "$(cat "$cfg/lnk/themes/vgs.toml")" =
 check "a changed copy is replaced by rename" test "$(stamp "$cfg/cpy/themes/vgs.toml")" != "$copy_stamp"
 check "the copy holds the new render" regular_with "$cfg/cpy/themes/vgs.toml" $'accent = "#222222"\n'
 
-fresh migrated
+fresh symlink
 mkdir -p "$cfg/cpy/themes"
 ln -s -- "$live/cpy.toml" "$cfg/cpy/themes/vgs.toml"
-apply_json "a copy target with the old link form" 0 dusk
-check "the old link form is migrated to a copy" regular_with "$cfg/cpy/themes/vgs.toml" $'accent = "#111111"\n'
+apply_json "a symlink at a copy path" 0 dusk
+check "a symlink skips the copy target" test "$(target_state cpy)" == "skipped entry-occupied"
+check "the symlink at the copy path stays" links_to "$cfg/cpy/themes/vgs.toml" "$live/cpy.toml"
+
+fresh edited
+apply_json "a copy before editing" 0 dusk
 
 printf 'mine\n' >"$cfg/cpy/themes/vgs.toml"
 apply_json "an edited copy path" 0 nord
@@ -145,6 +149,14 @@ rm -- "$cfg/occ/themes/vgs.toml"; ln -s -- "$tmp/elsewhere.toml" "$cfg/occ/theme
 disable '"occ"'
 apply_json "the any-link mutant disables occ" 0 dusk
 check "the any-link mutant removes a link it never made" test ! -L "$cfg/occ/themes/vgs.toml"
+control symlink-managed '    case "copy":
+        if (!stat.isFile()) return "occupied";' '    case "copy":
+        if (stat.isSymbolicLink()) return "managed";
+        if (!stat.isFile()) return "occupied";'
+mkdir -p "$cfg/cpy/themes"
+ln -s -- "$live/cpy.toml" "$cfg/cpy/themes/vgs.toml"
+apply_json "the symlink-managed mutant applies" 0 dusk
+check "the symlink-managed mutant accepts the copy path" test "$(target_state cpy)" != "skipped entry-occupied"
 control any-copy-managed 'if ((item.oldBytes !== undefined && bytes.equals(item.oldBytes)) || (item.newBytes !== undefined && bytes.equals(item.newBytes))) return "managed";' 'return "managed";'
 mkdir -p "$cfg/cpy/themes"; printf 'mine\n' >"$cfg/cpy/themes/vgs.toml"
 apply_json "the any-copy mutant applies" 0 dusk

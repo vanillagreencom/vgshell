@@ -8,7 +8,7 @@
 # item, the error gnome-keyring returns, `Cannot get secret of a locked
 # object`. Each case pins the probe's stdout lines, one per account, and its
 # exit status, that the stub ran `search service vgs-notifications account
-# <account>` for each workspace's account in order and then for `slack`,
+# <account>` for each workspace's account in order,
 # and nothing else, that its stdout pointed at /dev/null, and that the
 # stub's secret appears in nothing the probe printed. A search that
 # outlasts the probe's ten seconds is not exercised: only a bus that never
@@ -94,46 +94,47 @@ check() { # LABEL WANT GOT
 }
 
 search() { printf 'search service vgs-notifications account %s|/dev/null' "$1"; }
-legacy="$(search slack)"
+first="$(search slack:T1)"
 suite() {
   local script="$1" before=$failures path="$stub:$bare"
-  # The single-workspace account alone: label | mode | its line.
+  # One workspace account: label | mode | its line.
   local cases=(
-    "a stored token in an unlocked collection is present|present|slack-token: account=slack present"
-    "no stored token is absent|absent|slack-token: account=slack absent"
-    "a stored token in a locked collection is locked|locked|slack-token: account=slack locked"
-    "a search the store refuses leaves the token unavailable|failed|slack-token: account=slack unavailable reason=search-failed status=1"
-    "an item whose secret fails otherwise is unavailable|unrecognised|slack-token: account=slack unavailable reason=unrecognised"
+    "a stored token in an unlocked collection is present|present|slack-token: account=slack:T1 present"
+    "no stored token is absent|absent|slack-token: account=slack:T1 absent"
+    "a stored token in a locked collection is locked|locked|slack-token: account=slack:T1 locked"
+    "a search the store refuses leaves the token unavailable|failed|slack-token: account=slack:T1 unavailable reason=search-failed status=1"
+    "an item whose secret fails otherwise is unavailable|unrecognised|slack-token: account=slack:T1 unavailable reason=unrecognised"
   )
   local row label mode line
   for row in "${cases[@]}"; do
     IFS='|' read -r label mode line <<<"$row"
-    check "$label" "$line"$'\nstderr=\nexit=0\ncalls='"$legacy" "$(run "$script" "slack $mode" "$path" "")"
+    check "$label" "$line"$'\nstderr=\nexit=0\ncalls='"$first" "$(run "$script" "slack:T1 $mode" "$path" "" T1)"
   done
-  check "each workspace's account is asked in order, then the single-workspace one" \
-    $'slack-token: account=slack:T1 present\nslack-token: account=slack:T2 locked\nslack-token: account=slack absent\nstderr=\nexit=0\ncalls='"$(search slack:T1);$(search slack:T2);$legacy" \
-    "$(run "$script" "slack:T1 present;slack:T2 locked;slack absent" "$path" "" T1 T2)"
+  check "each workspace's account is asked in order" \
+    $'slack-token: account=slack:T1 present\nslack-token: account=slack:T2 locked\nstderr=\nexit=0\ncalls='"$(search slack:T1);$(search slack:T2)" \
+    "$(run "$script" "slack:T1 present;slack:T2 locked" "$path" "" T1 T2)"
   check "a token stored for one account is not another's" \
-    $'slack-token: account=slack:T1 absent\nslack-token: account=slack present\nstderr=\nexit=0\ncalls='"$(search slack:T1);$legacy" \
-    "$(run "$script" "slack present" "$path" "" T1)"
+    $'slack-token: account=slack:T1 absent\nstderr=\nexit=0\ncalls='"$first" \
+    "$(run "$script" "slack:T2 present" "$path" "" T1)"
   check "a failed search leaves only its own account unavailable" \
-    $'slack-token: account=slack:T1 unavailable reason=search-failed status=1\nslack-token: account=slack present\nstderr=\nexit=0\ncalls='"$(search slack:T1);$legacy" \
-    "$(run "$script" "slack:T1 failed;slack present" "$path" "" T1)"
+    $'slack-token: account=slack:T1 unavailable reason=search-failed status=1\nslack-token: account=slack:T2 present\nstderr=\nexit=0\ncalls='"$first;$(search slack:T2)" \
+    "$(run "$script" "slack:T1 failed;slack:T2 present" "$path" "" T1 T2)"
   check "no secret-tool on PATH leaves every account unavailable" \
-    $'slack-token: account=slack:T1 unavailable reason=secret-tool-missing\nslack-token: account=slack unavailable reason=secret-tool-missing\nstderr=\nexit=0\ncalls=' \
-    "$(run "$script" "slack present" "$bare" "" T1)"
+    $'slack-token: account=slack:T1 unavailable reason=secret-tool-missing\nstderr=\nexit=0\ncalls=' \
+    "$(run "$script" "slack:T1 present" "$bare" "" T1)"
+  check "no workspace starts no search" $'\nstderr=\nexit=0\ncalls=' "$(run "$script" "slack:T1 present" "$path" "")"
   check "a team id that is not letters and digits is refused before any search" \
     $'\nstderr=notifications-token-status: refused: team-id want=[A-Za-z0-9]{1,32}\nexit=2\ncalls=' \
-    "$(run "$script" "slack present" "$path" "" T1 'T2;x')"
+    "$(run "$script" "slack:T1 present" "$path" "" T1 'T2;x')"
   check "a team id of 33 characters is refused" \
     $'\nstderr=notifications-token-status: refused: team-id want=[A-Za-z0-9]{1,32}\nexit=2\ncalls=' \
-    "$(run "$script" "slack present" "$path" "" "$(printf 'T%.0s' {1..33})")"
+    "$(run "$script" "slack:T1 present" "$path" "" "$(printf 'T%.0s' {1..33})")"
   check "more than 16 team ids are refused before any search" \
     $'\nstderr=notifications-token-status: refused: teams count=17 want<=16\nexit=2\ncalls=' \
-    "$(run "$script" "slack present" "$path" "" T{1..17})"
-  check "16 team ids are asked" 17 "$(run "$script" "slack present" "$path" "" T{1..16} | grep -c '^slack-token: ')"
-  check "under a test directory the stub inside it answers" $'slack-token: account=slack present\nstderr=\nexit=0\ncalls='"$legacy" "$(run "$script" "slack present" "$path" "$stub")"
-  check "under a test directory a secret-tool outside it is refused before it runs" $'\nstderr=notifications-token-status: secret-tool=test-stub-required\nexit=5\ncalls=' "$(run "$script" "slack present" "$path" "$other")"
+    "$(run "$script" "slack:T1 present" "$path" "" T{1..17})"
+  check "16 team ids are asked" 16 "$(run "$script" "slack:T1 present" "$path" "" T{1..16} | grep -c '^slack-token: ')"
+  check "under a test directory the stub inside it answers" $'slack-token: account=slack:T1 present\nstderr=\nexit=0\ncalls='"$first" "$(run "$script" "slack:T1 present" "$path" "$stub" T1)"
+  check "under a test directory a secret-tool outside it is refused before it runs" $'\nstderr=notifications-token-status: secret-tool=test-stub-required\nexit=5\ncalls=' "$(run "$script" "slack:T1 present" "$path" "$other" T1)"
   [[ $failures -eq $before ]]
 }
 
@@ -157,7 +158,6 @@ controls = [
     ("a copy that takes any team id", 'if [[ ! $team =~ ^[A-Za-z0-9]{1,32}$ ]]; then', 'if false; then'),
     ("a copy that takes any number of team ids", 'if [[ $# -gt $teams_max ]]; then', 'if false; then'),
     ("a copy that asks no workspace's account", 'accounts+=("slack:$team")', ':'),
-    ("a copy that asks no single-workspace account", 'accounts+=(slack)\n', '\n'),
 ]
 for n, (label, needle, replacement) in enumerate(controls):
     assert text.count(needle) == 1, "control needle must occur once: " + label
@@ -176,8 +176,8 @@ for copy in "$TMP_ROOT"/controls/*.sh; do
     echo "  ok    control: $label"
   fi
 done
-if [[ $passed -ne 11 ]]; then
-  echo "test-notifications-token-status: controls=$passed want 11; the control table is broken"
+if [[ $passed -ne 10 ]]; then
+  echo "test-notifications-token-status: controls=$passed want 10; the control table is broken"
   failures=$((failures + 1))
 fi
 
