@@ -12,6 +12,7 @@ set -euo pipefail
 
 jd_dir="$repo/shell/plugins/vgs.jarvis"
 jd_backend="$jd_dir/backend/jarvisd.js"
+jd_engine="$jd_dir/backend/ChainedEngine.js"
 jd_desktop="$jd_dir/backend/DesktopSession.js"
 jd_service="$jd_dir/Service.qml"
 jd_driver="$sandbox/jarvis-desktop-driver"
@@ -21,6 +22,7 @@ jd_entry="$home/.local/share/applications/smoke-jarvis-app.desktop"
 jd_audit="$home/.local/state/vgshell/jarvis/audit"
 mkdir -p -- "$jd_driver"
 cp -- "$jd_backend" "$sandbox/jarvis-desktop-backend-before"
+cp -- "$jd_engine" "$sandbox/jarvis-desktop-engine-before"
 cp -- "$jd_desktop" "$sandbox/jarvis-desktop-desktop-before"
 cp -- "$jd_service" "$sandbox/jarvis-desktop-service-before"
 jd_audit_before=false
@@ -285,6 +287,7 @@ expect "every routed call was proposed" none \
   "$jd_driver/results.jsonl"
 
 jarvis_disable
+cp -- "$sandbox/jarvis-desktop-engine-before" "$jd_engine"
 rm -- "$jd_standin" "$jd_entry" "$shim/hyprctl.jarvis-noop" "$jd_dir/backend/desktop-driver-fixture.js" "$jd_dir/backend/scripted-fixture.js"
 cp -- "$sandbox/jarvis-desktop-backend-before" "$jd_backend"
 rm -f -- "$home/.local/state/vgshell/jarvis/mute.json"

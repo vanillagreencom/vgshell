@@ -157,6 +157,12 @@ function ports(root, engine, state) {
 // Speakable and caption steps run unchanged.
 function plan() {
     chained = true;
+    return readyPlan();
+}
+
+// A local plan lets feedback use the real engine owner. The basic brain
+// remains scripted until the bubble row selects plan().
+function readyPlan() {
     return { kind: "ready",
         speech: { recipients: [{ kind: "local", provider: "scripted-speech", account: "" }],
             open: () => ({
@@ -216,15 +222,18 @@ function instrument(file, root, engine = "chained", mappedIndicator = false) {
         ['audio.playbackSource = engine.playbackSource;',
             'audio.playbackSource = engine.playbackSource;\n                    const scripted = require("./scripted-fixture.js").ports(' + JSON.stringify(root) + ', engine, () => runner.state);\n' +
             '                    runner.ports.speech = scripted.speech;\n' +
-            '                    Object.assign(runner.ports, { capture: scripted.capture, brain: scripted.brain, playback: scripted.playback });'],
-        ['configured: configuration.kind === "ready" || configuration.kind === "loading", settings: context.settings',
-            'configured: true, settings: context.settings']
+            '                    Object.assign(runner.ports, { capture: scripted.capture, brain: scripted.brain, playback: scripted.playback });']
     ];
     if (!mappedIndicator) changes.push(
         ['runner.dispatch({ type: "snapshot", locked: context.locked,',
             'runner.dispatch({ type: "indicator", shown: true });\n                runner.dispatch({ type: "snapshot", locked: context.locked,']);
     edit(file, changes);
     fs.copyFileSync(__filename, path.join(path.dirname(file), "scripted-fixture.js"));
+    edit(path.join(path.dirname(file), "ChainedEngine.js"), [
+        ["plan = select(settings, accounts, directories);", 'plan = require("./scripted-fixture.js").readyPlan();'],
+        ['const DRIVERS = Object.freeze({ "openai-chat": OpenAIChat,',
+            'const DRIVERS = Object.freeze({ scripted: require("./scripted-fixture.js").driver, "openai-chat": OpenAIChat,']
+    ]);
 }
 
 // Replace each needle once, asserting its single match, in a plain file.
@@ -245,9 +254,7 @@ function edit(file, changes) {
 function chainedEngine(file) {
     if (!fs.existsSync(path.join(path.dirname(file), "scripted-fixture.js"))) throw new Error("scripted: daemon-uninstrumented");
     edit(file, [
-        ["plan = select(settings, accounts, directories);", 'plan = require("./scripted-fixture.js").plan();'],
-        ['const DRIVERS = Object.freeze({ "openai-chat": OpenAIChat,',
-            'const DRIVERS = Object.freeze({ scripted: require("./scripted-fixture.js").driver, "openai-chat": OpenAIChat,']
+        ['plan = require("./scripted-fixture.js").readyPlan();', 'plan = require("./scripted-fixture.js").plan();']
     ]);
 }
 
@@ -261,7 +268,7 @@ function heldApprovals(file) {
     ]]);
 }
 
-module.exports = { ports, instrument, plan, driver, chainedEngine, heldApprovals };
+module.exports = { ports, instrument, readyPlan, plan, driver, chainedEngine, heldApprovals };
 if (require.main === module) {
     if (process.argv.length === 4 && process.argv[2] === "--chained-engine") chainedEngine(process.argv[3]);
     else if (process.argv.length === 4 && process.argv[2] === "--held-approvals") heldApprovals(process.argv[3]);

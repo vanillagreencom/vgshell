@@ -11,7 +11,7 @@ jarvis_widget_config="$home/.config/vgshell/shell.json"
 jarvis_widget_lua="$home/.config/hypr/hyprland.lua"
 jarvis_widget_dir="$repo/shell/plugins/vgs.jarvis"
 jarvis_widget_gates="$sandbox/jarvis-widget-gates"
-jarvis_widget_files=(Service.qml Widget.qml WidgetView.js backend/jarvisd.js)
+jarvis_widget_files=(Service.qml Widget.qml WidgetView.js backend/jarvisd.js backend/ChainedEngine.js)
 cp -- "$jarvis_widget_config" "$sandbox/jarvis-widget-config-before.json"
 cp -- "$jarvis_widget_lua" "$sandbox/jarvis-widget-lua-before"
 for jarvis_widget_file in "${jarvis_widget_files[@]}"; do

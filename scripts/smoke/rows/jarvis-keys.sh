@@ -9,11 +9,13 @@ jarvis_key_config="$home/.config/vgshell/shell.json"
 jarvis_key_lua="$home/.config/hypr/hyprland.lua"
 jarvis_key_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
 jarvis_key_backend="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
+jarvis_key_engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
 jarvis_key_gates="$sandbox/jarvis-key-gates"
 cp -- "$jarvis_key_config" "$sandbox/jarvis-key-config-before.json"
 cp -- "$jarvis_key_lua" "$sandbox/jarvis-key-lua-before"
 cp -- "$jarvis_key_service" "$sandbox/jarvis-key-service-before"
 cp -- "$jarvis_key_backend" "$sandbox/jarvis-key-backend-before"
+cp -- "$jarvis_key_engine" "$sandbox/jarvis-key-engine-before"
 expect "the key row starts with Jarvis disabled" absent ipc smoke jarvisProcess
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_key_backend" "$jarvis_key_gates" --mapped-indicator
 python3 - "$jarvis_key_backend" "$jarvis_key_gates/received-intents.jsonl" <<'PY'
@@ -286,6 +288,7 @@ expect "dropping pending delivery breaks the same startup Mute assertion" 1 jarv
 jarvis_disable
 cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
 cp -- "$sandbox/jarvis-key-backend-before" "$jarvis_key_backend"
+cp -- "$sandbox/jarvis-key-engine-before" "$jarvis_key_engine"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --floor-daemon "$jarvis_key_backend"
 jarvis_rescan
 expect "the permanent-problem key service enables" ok ipc shell setPluginEnabled vgs.jarvis true
@@ -442,6 +445,7 @@ hold_stop_keyboard
 expect "the observer releases its ordering marker" ok ipc smoke holdMarkerStop
 cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
 cp -- "$sandbox/jarvis-key-backend-before" "$jarvis_key_backend"
+cp -- "$sandbox/jarvis-key-engine-before" "$jarvis_key_engine"
 rm -- "$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
 rm -- "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_rescan
