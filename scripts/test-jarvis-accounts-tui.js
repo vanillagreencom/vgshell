@@ -171,7 +171,7 @@ world(async () => {
         'lines = judge.discover().map(account => choiceLine(account.id + ": "', choices);
     await control("AccountProviders.js", "speech-key-offered", 'if (kind === "key") return modelKeyProvider(row);',
         'if (kind === "key") return keyProvider(row);', keyProviders);
-    await control("AccountProviders.js", "model-less-offered", 'return row.kind === "key" && row.probe.model !== "";',
+    await control("AccountProviders.js", "model-less-offered", 'return row.kind === "key" && modelProvider(row);',
         'return row.kind === "key";', keyProviders);
     await control("AccountProviders.js", "choice-fit", "fitText(label, width - CHOICE_CURSOR)", "label", choices);
     queue(["verify", "first", "", "no", "close"]);

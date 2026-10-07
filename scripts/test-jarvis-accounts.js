@@ -425,12 +425,12 @@ world(async () => {
         for (const item of [key, claude, codex]) assert.equal(offered.has(item.id), true, "offered: " + item.provider);
     };
     modelList(Accounts);
-    for (const [name, needle, replacement] of [
-        ["model-rule", 'if (resolved.model === "" && resolved.source.kind !== "cli") return { kind: "refused", cause: "model-required" };', ""],
-        ["subscription-model", ' && resolved.source.kind !== "cli") return { kind: "refused", cause: "model-required" };',
-            ') return { kind: "refused", cause: "model-required" };'],
-        ["list-accepted", '\n            && accepted(resolve(item.id)).kind === "accepted");', ");"]]) {
-        await mutant("backend/Accounts.js", name, needle, replacement, folder => modelList(judgeIn(folder)));
+    for (const [file, name, needle, replacement] of [
+        ["backend/Accounts.js", "model-rule", 'if (!modelProvider(provider(resolved.provider))) return', "if (false) return"],
+        ["AccountProviders.js", "subscription-model", 'return row.kind === "cli" || (', "return ("],
+        ["AccountProviders.js", "probe-model", '(row.probe !== undefined && row.probe.model !== "")', "row.probe !== undefined"],
+        ["backend/Accounts.js", "list-accepted", '\n            && accepted(resolve(item.id)).kind === "accepted");', ");"]]) {
+        await mutant(file, name, needle, replacement, folder => modelList(judgeIn(folder)));
         controls++;
     }
     cases++;

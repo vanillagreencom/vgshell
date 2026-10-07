@@ -4,7 +4,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const cp = require("node:child_process");
 const { Secrets, childEnvironment } = require("./Secrets.js");
-const { PROVIDERS, keyPresence, keyProvider, runtimeDirectory } = require("../AccountProviders.js");
+const { PROVIDERS, keyPresence, keyProvider, modelProvider, runtimeDirectory } = require("../AccountProviders.js");
 const Core = require("./Core.js");
 const Anchored = Core.anchored();
 const { accountFolders } = Core.folders();
@@ -42,14 +42,14 @@ function provider(id) {
 // A brain choice is any account but a speech-only key.
 function brainRow(row) { return row.kind !== "speech-key"; }
 /**
- * The one rule for an account the chained engine runs, read by the engine
- * and by the AI model list: RESOLVED, resolve()'s answer, as { kind:
- * "accepted", account } or { kind: "refused", cause }. A key or a local
- * server needs a model; a subscription's program chooses its own default.
+ * Whether the chained engine runs an account, read by the engine and by the
+ * AI model list: RESOLVED, resolve()'s answer, as { kind: "accepted",
+ * account } or { kind: "refused", cause }; its provider row must be one
+ * AccountProviders.modelProvider takes.
  */
 function accepted(resolved) {
     if (resolved === null) return { kind: "refused", cause: "account-unavailable" };
-    if (resolved.model === "" && resolved.source.kind !== "cli") return { kind: "refused", cause: "model-required" };
+    if (!modelProvider(provider(resolved.provider))) return { kind: "refused", cause: "model-required" };
     return { kind: "accepted", account: resolved };
 }
 // The AI model list's word for an account whose harness record names no email.

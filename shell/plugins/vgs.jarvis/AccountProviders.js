@@ -52,12 +52,18 @@ function keyPresence(read) {
     return result;
 }
 
-// An API-key row the conversation engine can use as its AI model. The
-// account judge hands the engine the row's probe model and refuses an empty
-// one as model-required (Accounts.js choose), and a speech-only key is no
-// AI model, so Add key and Use keyring item offer no other key row.
+// The one rule for a row whose account the conversation engine can run as
+// its AI model: a sign-in program, which chooses its own model, or a row
+// whose probe names the model the account judge hands the engine. The
+// account judge refuses any other as model-required (Accounts.js accepted).
+function modelProvider(row) {
+    return row.kind === "cli" || (row.probe !== undefined && row.probe.model !== "");
+}
+
+// An API-key row the engine can use as its AI model; a speech-only key is
+// no AI model, so Add key and Use keyring item offer no other key row.
 function modelKeyProvider(row) {
-    return row.kind === "key" && row.probe.model !== "";
+    return row.kind === "key" && modelProvider(row);
 }
 
 // The setup terminal's choice lines, LABEL<TAB>VALUE for
@@ -156,6 +162,6 @@ function probeFailure(completion, diagnostic) {
 }
 
 if (typeof module !== "undefined") module.exports = { PROVIDERS: PROVIDERS, runtimeDirectory: runtimeDirectory,
-    keyPresence: keyPresence, keyProvider: keyProvider, modelKeyProvider: modelKeyProvider, parseWidth: parseWidth, fitText: fitText, choiceLine: choiceLine,
+    keyPresence: keyPresence, keyProvider: keyProvider, modelProvider: modelProvider, modelKeyProvider: modelKeyProvider, parseWidth: parseWidth, fitText: fitText, choiceLine: choiceLine,
     providerChoices: providerChoices, FAILURE_KEYS: FAILURE_KEYS, feedDiagnostic: feedDiagnostic,
     helperFailure: helperFailure, probeFailure: probeFailure };

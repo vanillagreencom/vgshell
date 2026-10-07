@@ -321,7 +321,7 @@ console.log(wanted);
         ["provider-origin", "backend/keys.js", "ownReference(row.id, account, row.origin)", 'ownReference(row.id, account, "https://api.openai.com")', chosen],
         ["key-providers", "AccountProviders.js", 'if (kind === "key") return modelKeyProvider(row);', 'if (kind === "key") return keyProvider(row);',
             keyProviders],
-        ["model-providers", "AccountProviders.js", 'return row.kind === "key" && row.probe.model !== "";', 'return row.kind === "key";', unknown]
+        ["model-providers", "AccountProviders.js", 'return row.kind === "key" && modelProvider(row);', 'return row.kind === "key";', unknown]
     ]) {
         const original = fs.readFileSync(path.join(plugin, file), "utf8");
         assert.equal(original.split(needle).length - 1, 1, name + " matches");
