@@ -899,6 +899,8 @@ function verifyAppStyles(render, changedTemplates = {}) {
             return [app, result.files[0].bytes.toString("utf8")];
         }));
         assert.equal(JSON.stringify({ values: pkg.values, slots: pkg.terminal }), original, "render leaves package data unchanged");
+        assert.equal(/^palette = 8=(#[0-9a-f]{6})$/m.exec(rendered.ghostty)[1],
+            pkg.terminal.color8.slice(0, 7), name + "/terminal preserves its original brightblack");
         const bg = /^background = (#[0-9a-f]{6})$/m.exec(rendered.ghostty)[1];
         assert.equal(/^vim.o.background = "(dark|light)"$/m.exec(rendered.neovim)[1], pkg.values.scheme.mode);
         for (const group of ["Normal", "NormalNC", "SignColumn"]) {
@@ -961,6 +963,7 @@ for (const [label, needle, replacement] of styleControls) {
 // Each control removes one rule's behaviour from a copy of the renderer and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["tmux derivation never changes terminal", 'if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };', 'if (target.name === "tmux" || target.name === "ghostty") input = { ...input, slots: tmuxSlots(logic, input) };', verifyAppStyles],
     ["tmux old inactive values", 'if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };', "", verifyAppStyles],
     ["tmux readability", 'const readable = color => color.a === 1 && logic.contrastRatio(color, background) >= logic.READABILITY_FLOOR;', 'const readable = color => true;', verifyAppStyles],
     ["tmux distinction", 'const distinct = color => separation(color) >= 55.65;', 'const distinct = color => true;', verifyAppStyles],
