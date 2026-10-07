@@ -1,6 +1,5 @@
 // Coding-agent profile rows: the program, its argv, the account variable and
-// the interrupt one agent takes. The Claude Code and Codex issues add rows,
-// with the hook wiring their own contract defines; production ships none.
+// the interrupt one agent takes. Each row owns its invocation-local hooks.
 // The goal brief and the scrubbed environment every agent receives are built
 // here once. TaskRunner.js consumes this module; nothing here starts a process.
 "use strict";
@@ -30,7 +29,7 @@ function absolute(value) {
 /**
  * A row is { program, argv(task) -> string[], account: { variable } | null,
  * interrupt: { signal }, interruptMs }. program is the bare command the
- * agent's argv starts with; argv receives { brief, cwd, account }.
+ * agent's argv starts with; argv receives { brief, cwd, account, engine, state, id }.
  */
 function row(id, value) {
     if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) fail("id value=" + id);
@@ -54,7 +53,20 @@ function table(rows) {
     return Object.freeze(out);
 }
 
-const TABLE = table({});
+const TABLE = table({
+    codex: {
+        program: "codex",
+        account: { variable: "CODEX_HOME" },
+        interrupt: { signal: "SIGINT" },
+        interruptMs: 3000,
+        // Codex's documented notify command receives one JSON argument. Its
+        // own hook trust and permissions remain in force; this overrides no
+        // account file. The producer copy survives a plugin rescan (D072).
+        argv: task => ["codex", "-c", "notify=" + JSON.stringify([
+            "node", task.engine, "--state", task.state, task.id, "--codex-notify"
+        ]), "--", task.brief]
+    }
+});
 
 /** Rows whose program lookup(program) finds, in table order, as { id, row }. */
 function available(lookup, profiles = TABLE) {

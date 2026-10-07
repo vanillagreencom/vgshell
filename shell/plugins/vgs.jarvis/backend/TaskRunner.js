@@ -324,7 +324,7 @@ function create({ directories, engine, backend, profiles = Profiles.TABLE, setti
         try {
             const brief = Profiles.brief({ goal: args.goal, engine, state, id });
             await writeSpec(file, { v: 1, id, state, engine, cwd: args.cwd,
-                argv: Profiles.command(entry.row, { brief, cwd: args.cwd, account }),
+                argv: Profiles.command(entry.row, { brief, cwd: args.cwd, account, engine, state, id }),
                 env: Profiles.environment(entry.row, account, environment) });
             refusal = await show(kind, id, args.cwd, file);
         } finally {

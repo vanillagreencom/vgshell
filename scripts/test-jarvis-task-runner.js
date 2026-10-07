@@ -15,6 +15,28 @@ const tree = path.resolve(__dirname, "..");
 const backend = path.join(tree, "shell/plugins/vgs.jarvis/backend");
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+// Synthetic Codex notify producer. Official contract read 2026-10-07:
+// https://learn.chatgpt.com/docs/config-file/config-advanced#notifications
+// -c is TOML; notify appends one JSON argv containing agent-turn-complete.
+// This fixture interprets the shipped profile; it runs no vendor program.
+const codexFixture = `#!/usr/bin/env python3
+import json, os, pathlib, subprocess, sys, time, tomllib
+assert len(sys.argv) == 5 and sys.argv[1] == "-c" and sys.argv[3] == "--"
+notify = tomllib.loads(sys.argv[2])["notify"]
+brief = sys.argv[4]
+if not brief.startswith("fixture-untrusted"):
+    payload = {"type": "agent-turn-complete", "thread-id": "fixture-thread",
+               "input-messages": ["PRIVATE_INPUT"], "last-assistant-message": "PRIVATE_REPLY"}
+    subprocess.run(notify + [json.dumps(payload)], check=True)
+pathlib.Path("codex-ready.json").write_text(json.dumps({"argv": sys.argv[1:], "env": dict(os.environ)}))
+while not pathlib.Path("codex-release").exists():
+    time.sleep(0.02)
+if brief.startswith("fixture-outcome"):
+    prefix = "- if the task succeeded: "
+    command = next(line[len(prefix):] for line in brief.splitlines() if line.startswith(prefix))
+    subprocess.run(["sh", "-c", command], check=True)
+`;
+
 function spawnFixture(file, args, { env, input }) {
     return new Promise((resolve, reject) => {
         const child = cp.spawn(file, args, { env, stdio: ["pipe", "pipe", "pipe"] });
@@ -635,8 +657,119 @@ const answer = spawnFixture("python3", ["-I", "-c", "import os; os._exit(23)"],
         assert.throws(() => current.Profiles.table({ [id]: { ...good, ...change } }), /jarvis: profiles=(row|id)/, name);
     const table = current.Profiles.table({ agent: { ...good, argv: () => ["other"] } });
     assert.throws(() => current.Profiles.command(table.agent, {}), { message: "jarvis: profiles=argv program=agent" });
-    assert.deepEqual(current.Profiles.TABLE, {}, "production ships no agent profile");
+    assert.equal(current.Profiles.TABLE.codex.program, "codex");
     cases += profileRows.length + 1;
+
+    // The production table, real launcher and published producer run together.
+    // A turn ends while its agent remains alive; only its explicit last step
+    // reports success. With native hook trust withheld, process facts survive.
+    async function codexProfile(modules) {
+        const row = modules.Profiles.TABLE.codex;
+        assert.ok(row, "the production Codex profile is present");
+        assert.deepEqual(row.account, { variable: "CODEX_HOME" });
+        assert.equal(row.interrupt.signal, "SIGINT");
+        for (const goal of ["fixture-turn", "fixture-outcome", "fixture-untrusted"]) {
+            const taskCwd = path.join(root, "codex 'quoted' " + (++marker));
+            fs.mkdirSync(taskCwd);
+            const account = path.join(root, "codex account");
+            const producerCopy = Tasks.publish(path.join(root, "codex-engine-" + marker), modules.copy ?? backend);
+            const faults = [];
+            let entry;
+            const runner = modules.Runner.create({ directories, engine: producerCopy, backend,
+                profiles: modules.Profiles.TABLE, settings: () => ({ taskTerminal: "floating" }),
+                environment: { ...env, CODEX_HOME: "/inherited-account", OPENAI_API_KEY: "PRIVATE_KEY",
+                    VGSHELL_RUNNER_PID: "1" },
+                display: { run(args) {
+                    const child = cp.spawn("python3", [path.join(backend, "task-run.py"), "--spec", args[0]],
+                        { env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+                    entry = { child, stderr: "", closed: once(child, "close") };
+                    child.stderr.on("data", chunk => { entry.stderr += chunk; });
+                    launchers.push(child);
+                    return Promise.resolve("ok");
+                } }, count() {}, failed: error => faults.push(error),
+                clock: { now: Date.now, set: setTimeout, clear: clearTimeout } });
+            runners.push(runner);
+            runner.tuiState(false);
+            const answer = await new Promise(resolve => runner.executor(() => "send").start({
+                args: { agent: "codex", account, cwd: taskCwd, goal }
+            }, resolve));
+            assert.equal(answer.outcome, "completed", answer.content);
+            const { task: id } = JSON.parse(answer.content);
+            const started = await until("Codex started", () => {
+                const task = readTask(id);
+                return task.process.kind === "alive" && task;
+            });
+            groups.add(started.identity.pgid);
+            await until("Codex notify acknowledged", () => fs.existsSync(path.join(taskCwd, "codex-ready.json")));
+            const observed = JSON.parse(fs.readFileSync(path.join(taskCwd, "codex-ready.json"), "utf8"));
+            assert.equal(observed.env.CODEX_HOME, account);
+            assert.equal(observed.env.OPENAI_API_KEY, undefined);
+            assert.equal(observed.env.VGSHELL_RUNNER_PID, undefined);
+            assert.equal(observed.argv[0], "-c");
+            assert.equal(observed.argv[2], "--");
+            assert.ok(observed.argv[3].startsWith(goal + "\n\n"));
+            const live = readTask(id);
+            assert.equal(live.process.kind, "alive");
+            assert.equal(live.turn.kind, goal === "fixture-untrusted" ? "working" : "turn-ended");
+            assert.equal(live.outcome.kind, "none");
+            assert.equal(live.state, goal === "fixture-untrusted" ? "working" : "waiting");
+            assert.equal(JSON.stringify(live).includes("PRIVATE_"), false, "notify retains no message content");
+            fs.writeFileSync(path.join(taskCwd, "codex-release"), "");
+            const [status, signal] = await entry.closed;
+            assert.equal(signal, null, entry.stderr);
+            assert.equal(status, 0, entry.stderr);
+            const ended = readTask(id);
+            assert.deepEqual(ended.process, { kind: "exited", code: 0 });
+            assert.equal(ended.outcome.kind, goal === "fixture-outcome" ? "reported-ok" : "none");
+            assert.equal(ended.state, goal === "fixture-outcome" ? "reported-ok" : "exited");
+            assert.deepEqual(faults, []);
+            runner.close();
+            cases++;
+        }
+    }
+    await codexProfile(current);
+    await control("codex-account", "AgentProfiles.js", 'account: { variable: "CODEX_HOME" }',
+        'account: { variable: "WRONG_HOME" }', codexProfile);
+    await control("codex-turn", "task-event", 'args.splice(3, 2, "turn-ended");',
+        'args.splice(3, 2, "working");', codexProfile);
+
+    // Invalid callback input never reaches the event writer. Unknown event
+    // types add no fact, even if the payload claims a successful outcome.
+    async function codexNotify(modules, rows) {
+        const producerCopy = Tasks.publish(path.join(root, "notify-engine-" + (++marker)), modules.copy ?? backend);
+        const id = "codex-notify-" + marker;
+        const created = cp.spawnSync("node", [producerCopy, "--state", directories.state, id, "create"],
+            { env, input: JSON.stringify({ goal: "Fixture", cwd, agent: "codex", account: "" }), encoding: "utf8" });
+        assert.equal(created.status, 0, created.stderr);
+        for (const [payload, expected] of rows) {
+            const result = cp.spawnSync("node", [producerCopy, "--state", directories.state, id, "--codex-notify", payload],
+                { env, encoding: "utf8", timeout: 10000 });
+            assert.equal(result.status, expected, result.stderr);
+            assert.deepEqual(readTask(id).events, [], "a refused or unrelated callback writes no event");
+            cases++;
+        }
+    }
+    const notifyRows = [
+        [JSON.stringify({ type: "other", outcome: "reported-ok" }), 0],
+        ["{", 65], ["null", 65], ["[]", 65], ["{}", 65], ['{"type":false}', 65]
+    ];
+    await codexNotify(current, notifyRows);
+    await control("codex-event-type", "task-event", 'if (event.type !== "agent-turn-complete") return 0;',
+        'if (false && event.type !== "agent-turn-complete") return 0;', modules => codexNotify(modules, [notifyRows[0]]));
+    await control("codex-payload-shape", "task-event", '|| typeof event.type !== "string")',
+        '|| false)', modules => codexNotify(modules, [['{"type":false}', 65]]));
+    {
+        const id = "codex-long-notify";
+        producer("create", id, { goal: "Fixture", cwd, agent: "codex", account: "" });
+        const result = cp.spawnSync("node", [engine, "--state", directories.state, id, "--codex-notify",
+            JSON.stringify({ type: "agent-turn-complete", "input-messages": ["PRIVATE_INPUT".repeat(2000)],
+                "last-assistant-message": "PRIVATE_REPLY".repeat(2000) })], { env, encoding: "utf8", timeout: 10000 });
+        assert.equal(result.status, 0, result.stderr);
+        assert.equal(readTask(id).turn.kind, "turn-ended");
+        assert.deepEqual(readTask(id).events.map(event => [event.kind, event.data]), [["turn-ended", {}]]);
+        assert.equal(readTask(id).outcome.kind, "none");
+        cases++;
+    }
 
     // task-run.py directly: the spec is one-shot and judged; started is
     // recorded before exec; exit codes follow a signal death.
@@ -729,6 +862,7 @@ function main() {
         fs.mkdirSync(standins);
         fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis/task-agent.py"), path.join(standins, "fixture-agent"));
         fs.chmodSync(path.join(standins, "fixture-agent"), 0o755);
+        fs.writeFileSync(path.join(standins, "codex"), codexFixture, { mode: 0o755 });
         const result = cp.spawnSync("/bin/bash", [path.join(tree, "scripts/lib/jarvis-env.sh"), standins,
             "--", "node", __filename, "--inside"], {
             env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: path.join(tree, "tmp") },

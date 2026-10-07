@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Producer contract: node DATA_ENGINE/task-event --state ABS ID KIND.
 // Startup recovery: node DATA_ENGINE/task-event --state ABS --prune.
+// Codex notify: node DATA_ENGINE/task-event --state ABS ID --codex-notify JSON.
+// Codex appends one JSON argument; only its event type enters the record.
 // KIND=create takes {goal,cwd,agent,account}; other kinds take Tasks.js data.
 // Stdin is one JSON object, at most 8192 bytes; empty stdin means {}.
 // Stdout: {accepted,id,seq?}, {accepted:false,id,noisy:true,reason} or, for a
@@ -17,6 +19,24 @@ async function main() {
     const args = process.argv.slice(2);
     const worker = args[0] === "--locked";
     if (worker) args.shift();
+    const notify = !worker && args.length === 5 && args[3] === "--codex-notify";
+    if (notify) {
+        let event;
+        try {
+            // Linux already bounds this single argv. The stored fact is {},
+            // so a long valid input or reply consumes no event-record space.
+            event = JSON.parse(args[4]);
+            if (event === null || typeof event !== "object" || Array.isArray(event)
+                    || typeof event.type !== "string") throw new Error("shape");
+        } catch {
+            process.stderr.write("jarvis: task-event=notify-input\n");
+            return 65;
+        }
+        // A completed turn is not an outcome. Codex emits no permission or
+        // question event through notify, so those remain with its terminal.
+        if (event.type !== "agent-turn-complete") return 0;
+        args.splice(3, 2, "turn-ended");
+    }
     const pruning = args.length === 3 && args[2] === "--prune";
     if ((!pruning && args.length !== 4) || args[0] !== "--state" || !path.isAbsolute(args[1])) {
         process.stderr.write("jarvis: task-event=arguments\n");
@@ -26,7 +46,7 @@ async function main() {
     const store = new Tasks.Store(state);
     // The launcher and its worker both bound input before retaining it.
     let input = Buffer.alloc(0), oversized = false;
-    for await (const chunk of process.stdin) {
+    if (!notify) for await (const chunk of process.stdin) {
         if (input.length + chunk.length > 8192) { oversized = true; input = Buffer.alloc(0); break; }
         input = Buffer.concat([input, chunk]);
     }
