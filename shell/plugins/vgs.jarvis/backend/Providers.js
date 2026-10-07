@@ -58,6 +58,13 @@ const ROWS = Object.freeze({
     // codex-cli 0.160.0; Jarvis opens no socket to it.
     codex: { driver: "codex-app-server", base: "https://chatgpt.com", key: "none", images: false,
         noStore: null, retention: { text: "Set by the OpenAI account Codex signs in with; Jarvis cannot read its data controls.", source: null } },
+    // The Claude Code harness: the vendor's program owns its login and
+    // sockets. base is the release recipient's origin, the API origin Claude
+    // Code's account Verify names; Jarvis opens no socket to it. No vendor
+    // documentation read here states the program hands MCP image content to
+    // its model, so a screen result travels as OCR text.
+    claude: { driver: "claude-code", base: "https://api.anthropic.com", key: "none", images: false,
+        noStore: null, retention: { text: "Set by the Anthropic account Claude Code signs in with; Jarvis cannot read its data controls.", source: null } },
     // A user's own server: no documentation states its image support or
     // retention, so images go to OCR text and the operator owns retention.
     custom: { driver: "openai-chat", base: null, key: "optional", images: false,

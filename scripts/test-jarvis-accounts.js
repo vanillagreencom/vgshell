@@ -258,10 +258,14 @@ world(async () => {
             source: local.source, model: "" });
         const speech = found.find(item => item.provider === "elevenlabs");
         assert.ok(speech, "a speech-only key reference exists");
-        for (const other of [found.find(item => item.source.kind === "cli").id, unknown.id, speech.id, "", "keyring:0"]) {
+        // A Claude Code folder's program is the brain, with its own default model.
+        const claude = found.find(item => item.source.kind === "cli" && item.provider === "claude");
+        assert.deepEqual(judge.resolve(claude.id), { id: claude.id, provider: "claude", label: claude.label,
+            source: { kind: "cli", directory: claude.source.directory }, model: "" });
+        for (const other of [unknown.id, speech.id, "", "keyring:0"]) {
             let value;
             assert.doesNotThrow(() => { value = judge.resolve(other); }, "resolution judges every saved reference");
-            assert.equal(value, null, "a subscription, speech-only, unsupported or unknown id selects nothing");
+            assert.equal(value, null, "a speech-only, unsupported or unknown id selects nothing");
         }
         assert.deepEqual([calls("cli-calls").length, calls("port-calls").length, calls("secret-calls").length], before,
             "resolution runs no vendor command, port read or key lookup");

@@ -41,10 +41,13 @@ function pinned(logic) {
         ["openai-live", "openai-live", "wss://api.openai.com/v1/live/sessions", "required", false, { store: false }]);
     assert.equal(live.retention.source, "https://developers.openai.com/api/docs/guides/your-data");
     assert.ok(Object.isFrozen(live) && Object.isFrozen(live.noStore));
-    // The harness row: the program owns its login; base names the release recipient.
+    // The harness rows: the program owns its login; base names the release recipient.
     const codex = logic.select("codex");
     assert.deepEqual([codex.id, codex.driver, codex.base, codex.key, codex.images, codex.noStore, codex.retention.source],
         ["codex", "codex-app-server", "https://chatgpt.com", "none", false, null, null]);
+    const claude = logic.select("claude");
+    assert.deepEqual([claude.id, claude.driver, claude.base, claude.key, claude.images, claude.noStore, claude.retention.source],
+        ["claude", "claude-code", "https://api.anthropic.com", "none", false, null, null]);
 }
 pinned(Providers);
 
@@ -62,6 +65,12 @@ function joined(logic) {
     }
     for (const id of [...Object.keys(documented), "anthropic"])
         assert.ok(declared.some(row => row.id === id), id + " has an account declaration");
+    // A harness declaration's origin is the one its Verify releases to, so
+    // the engine's recipient for the same program must name it too.
+    const harnesses = PROVIDERS.filter(row => row.kind === "cli" && row.origin !== undefined);
+    assert.ok(harnesses.some(row => row.id === "claude"), "the Claude Code declaration names its origin");
+    for (const row of harnesses)
+        assert.equal(new URL(logic.select(row.id).base).origin, row.origin, row.id + " shares its declared origin");
 }
 joined(Providers);
 
@@ -104,6 +113,8 @@ world("providers", root => {
         ["live-no-store", "images: false,\n        noStore: { store: false }", "images: false,\n        noStore: null", pinned],
         ["live-base", '"wss://api.openai.com/v1/live/sessions"', '"wss://api.openai.com/v1/realtime"', pinned],
         ["codex-key", 'base: "https://chatgpt.com", key: "none"', 'base: "https://chatgpt.com", key: "optional"', pinned],
+        ["claude-key", 'base: "https://api.anthropic.com", key: "none"', 'base: "https://api.anthropic.com", key: "optional"', pinned],
+        ["claude-origin", 'base: "https://api.anthropic.com", key: "none"', 'base: "https://claude.ai", key: "none"', joined],
         ["freeze", "Object.freeze(value);", "", logic => {
             const row = logic.select("openai");
             assert.throws(() => { row.noStore.store = true; }, TypeError);

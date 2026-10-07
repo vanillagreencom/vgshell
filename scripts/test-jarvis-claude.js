@@ -4,14 +4,17 @@
 // stream-json excerpt and starts the real mcp-shim from the adapter's MCP
 // configuration. Its tool calls reach the real ToolBridge, ToolRouter, Policy,
 // Session approval and Audit on scratch state, with stand-in executors. The
-// account Verify rows run the real Accounts judge through the same adapter.
+// engine row runs the real ChainedEngine with the adapter as its brain, and
+// the account Verify rows run the real Accounts judge through the same adapter.
 // Everything runs in J09: no login, model, network or host program.
 "use strict";
 const { assert, fs, path, tree, world, seed, mutant } = require("./fixtures/jarvis/policy.js");
 const { load } = require("../bin/lib/qml-library.js");
+const Fixture = require("./fixtures/jarvis/engine.js");
 const backend = path.join(tree, "shell/plugins/vgs.jarvis/backend");
 const harnessFile = path.join(backend, "ClaudeCode.js");
 const accountsFile = path.join(backend, "Accounts.js");
+const engineFile = path.join(backend, "ChainedEngine.js");
 const stub = path.join(tree, "scripts/fixtures/jarvis-claude/claude");
 
 // The argv contract, pinned here and not derived from the adapter: built-in
@@ -103,12 +106,15 @@ world(async () => {
             timers.push(timer);
             return timer;
         }, clear: timer => { timer.cleared = true; clearTimeout(timer.handle); } };
-        const harness = ClaudeCode.create({ directory: a.directory, model: options.model ?? "", recipients,
-            bridge: { open: async () => { opened = await bridge.open({ gen: runner.state.gen, recipients }); return opened; } },
-            parent: runtime, environment: { ...process.env, ...PLANTED }, clock });
+        // The bridge stand-in forwards what the adapter opens with, so the real
+        // bridge judges the session's generation and recipients.
+        const harness = ClaudeCode.create({ model: options.model ?? "", recipients,
+            account: { kind: "cli", directory: a.directory }, gen: runner.state.gen,
+            harness: { bridge: { open: async value => { opened = await bridge.open(value); return opened; } },
+                env: { ...process.env, ...PLANTED }, runtime: () => runtime }, clock });
         owners.push(async () => { await harness.close(); bridge.close(); audit.close(); for (const timer of timers) clearTimeout(timer.handle); });
         harness.start({ instructions: "Fixture guidance.", tools: options.tools ?? router.offer() });
-        const w = { runner, router, bridge, rows, starts, answers, brain, timers, harness, Policy, recipients, runtime, account: a,
+        const w = { runner, router, bridge, audit, rows, starts, answers, brain, timers, harness, Policy, recipients, runtime, account: a,
             opened: () => opened, lock: value => { locked = value; }, time: value => { at = value; },
             advance: () => { for (const timer of timers) if (!timer.cleared && !timer.fired) { timer.fired = true; timer.fn(); } },
             show: () => runner.dispatch({ type: "shown", gen: runner.state.gen, op: runner.state.approval.op, id: runner.state.approval.id }),
@@ -351,10 +357,15 @@ world(async () => {
             // Sixty-four offered tools are accepted; sixty-five refuse.
             const ClaudeCode = require(path.join(folder, "ClaudeCode.js"));
             const offer = count => Array.from({ length: count }, (_, index) => ({ id: "fixture.t" + index }));
-            const fresh = () => ClaudeCode.create({ directory: request.account.directory, recipients: request.recipients,
-                bridge: { open: async () => assert.fail("no session opens") }, parent: request.runtime, environment: process.env });
+            const account = { kind: "cli", directory: request.account.directory };
+            const fresh = (harness = { bridge: { open: async () => assert.fail("no session opens") }, env: process.env,
+                runtime: () => request.runtime }) => ClaudeCode.create({ recipients: request.recipients, account, gen: 0, harness });
             assert.doesNotThrow(() => fresh().start({ instructions: "", tools: offer(64) }));
             assert.throws(() => fresh().start({ instructions: "", tools: offer(65) }), /brain=tools/);
+            // An engine made without the daemon's harness facts runs no program.
+            assert.throws(() => fresh(null), { message: "jarvis: brain=harness-unwired" });
+            // The bridge answers each call, so the engine has no result to record.
+            assert.throws(() => fresh().record({ kind: "tool-results", results: [] }), { message: "jarvis: brain=record" });
         }],
         ["close", async folder => {
             const w = await make(folder, { turns: [[...say("one")]] });
@@ -368,9 +379,10 @@ world(async () => {
             assert.throws(() => w.say("after"), /brain=closed/);
             // A close while the bridge session opens closes that session.
             let opened, closedSessions = 0;
-            const late = require(path.join(folder, "ClaudeCode.js")).create({ directory: account({ turns: [[]] }).directory,
-                recipients: w.recipients, bridge: { open: () => new Promise(resolve => { opened = resolve; }) },
-                parent: w.runtime, environment: process.env });
+            const late = require(path.join(folder, "ClaudeCode.js")).create({ recipients: w.recipients,
+                account: { kind: "cli", directory: account({ turns: [[]] }).directory }, gen: w.runner.state.gen,
+                harness: { bridge: { open: () => new Promise(resolve => { opened = resolve; }) }, env: process.env,
+                    runtime: () => w.runtime } });
             late.start({ instructions: "", tools: w.router.offer() });
             const reply = late.send({ kind: "user", items: [w.Policy.item("hello", ["speech"])] });
             const outcome = reply.events.next().then(() => null, error => error.message);
@@ -380,6 +392,48 @@ world(async () => {
             assert.equal(await bounded(outcome, "the late turn"), "jarvis: brain=cancelled");
             await bounded(closing, "late close");
             assert.equal(closedSessions, 1, "the late session is closed");
+        }],
+        ["engine", async folder => {
+            // The engine copy is made from this backend folder, so a mutant
+            // applies; a mutant folder holds only the backend modules.
+            const outer = path.dirname(folder);
+            for (const name of ["Session.js", "JarvisProtocol.js"])
+                if (!fs.existsSync(path.join(outer, name))) fs.copyFileSync(path.join(backend, "..", name), path.join(outer, name));
+            if (!fs.existsSync(path.join(folder, "skills"))) fs.cpSync(path.join(backend, "skills"), path.join(folder, "skills"), { recursive: true });
+            const { folder: copied, Engine } = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], outer);
+            // The world's own harness stays unsent; the engine starts its brain
+            // from the world's account folder.
+            const w = await make(path.join(copied, "backend"), { turns: [[{ tool: "windows_list", arguments: {} }, ...say("Two windows.")]] });
+            const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
+                accounts: () => ({ secrets: null, resolve: id => ({ id, provider: "claude", label: "default",
+                    source: { kind: "cli", directory: w.account.directory }, model: "" }) }),
+                policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail("fault " + reason),
+                captionLimit: 4096,
+                // Built-in tools are off, so no approval request reaches the gate.
+                harness: { bridge: w.bridge, gate: Object.freeze({}), env: { ...process.env, ...PLANTED }, runtime: () => w.runtime } });
+            owners.push(async () => engine.close());
+            let answer;
+            assert.doesNotThrow(() => { answer = engine.configure({ brain: "claude-fixture" }); }, "the engine has a Claude Code driver");
+            assert.deepEqual(answer, { kind: "ready" });
+            const { gen, turn: { op } } = w.runner.state;
+            // The turn reports play when its speech starts, then its end.
+            const verdicts = [];
+            engine.brain.send({ gen, op, owner: 1, text: "what is open" }, (verdict, detail) => verdicts.push([verdict, detail]));
+            await w.until(() => w.starts.length === 1, "the executor start");
+            assert.equal(w.starts[0].call.id, "windows.list");
+            assert.deepEqual([w.starts[0].audit.kind, w.starts[0].audit.tool, w.starts[0].audit.decision, w.starts[0].audit.outcome],
+                ["action", "windows.list", "allow", "pending"], "the gate audited the decision before the start");
+            w.answers[0]({ outcome: "completed", content: "fixture windows" });
+            await w.until(() => verdicts.some(([verdict]) => verdict.startsWith("brain-")), "the turn's end");
+            assert.deepEqual(verdicts.find(([verdict]) => verdict.startsWith("brain-")), ["brain-done", undefined]);
+            const result = w.account.events().find(event => event.kind === "tool-result");
+            assert.deepEqual(result.answer.result, { content: [{ type: "text", text: "fixture windows" }], isError: false });
+            assert.deepEqual(w.brain, [], "the bridge, not the brain port, answers a harness call");
+            const [call] = w.account.calls();
+            assert.equal(call.env.CLAUDE_CONFIG_DIR, w.account.directory, "the program keeps the account folder's login");
+            assert.deepEqual(leaked(call), [], "no planted key, token or pid reaches the program");
+            const inputs = w.account.events().filter(event => event.kind === "input").map(event => event.value);
+            assert.equal(inputs.at(-1).message.content.at(-1).text, "what is open", "the spoken turn reached the program");
         }]
     ];
 
@@ -493,6 +547,10 @@ world(async () => {
             ["environment", "for (const name of ENVIRONMENT)", "for (const name of Object.keys(environment))", "replay"],
             ["environment-key", '"XDG_CACHE_HOME", "XDG_RUNTIME_DIR"];', '"XDG_CACHE_HOME", "XDG_RUNTIME_DIR", "ANTHROPIC_API_KEY"];', "replay"],
             ["one-process", 'record = process_.kind === "running" ? process_ : await spawn();', "record = await spawn();", "replay"],
+            ["bridge-gen", "launch = await bridge.open({ gen, recipients });", "launch = await bridge.open({ recipients });", "replay"],
+            ["bridge-recipients", "launch = await bridge.open({ gen, recipients });", "launch = await bridge.open({ gen });", "replay"],
+            ["harness-unwired", 'if (!plain(harness) || typeof harness.runtime !== "function") fail("harness-unwired");', "", "bounds"],
+            ["record", 'record() { fail("record"); }', "record() {}", "bounds"],
             ["init-tools", 'for (const name of init.tools) if (!allowed(name)) fail("harness-tool name=" + named(name));', "", "built-ins"],
             ["tool-use", 'if (block.kind === "tool" && !allowed(block.name)) fail("harness-tool name=" + named(block.name));', "", "built-ins"],
             ["mcp-server", 'servers.length !== 1 || servers[0].name !== SERVER || servers[0].status !== "connected"', "false", "built-ins"],
@@ -538,6 +596,7 @@ world(async () => {
             ["verify-reason", "harness ? harness[1] : ", ""],
             ["verify-model", "const model = modelOf(requestedModel); // Refused", "const model = requestedModel; // Refused"]
         ]) await control(accountsFile, name, needle, replacement, "verify");
+        await control(engineFile, "claude-driver", ', "claude-code": ClaudeCode });', " });", "engine");
         console.log("test-jarvis-claude: ok cases=" + cases.length + " controls=" + controls);
         // A control that removes close leaves its mutant child running; the
         // check above already proved the real owner's teardown.

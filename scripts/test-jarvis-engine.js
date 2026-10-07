@@ -612,8 +612,9 @@ function selection(Engine) {
         .configure({ brain: "a" }), TypeError, "a defect is not a configuration cause");
     assert.deepEqual(configure({}, () => resolved, true), { kind: "ready" });
     // A subscription's program chooses its own model; its account names its directory.
-    assert.deepEqual(configure({}, () => ({ id: "c", provider: "codex", label: "default",
-        source: { kind: "cli", directory: "/home/fixture/.codex" }, model: "" }), true), { kind: "ready" });
+    for (const [provider, directory] of [["codex", "/home/fixture/.codex"], ["claude", "/home/fixture/.claude"]])
+        assert.deepEqual(configure({}, () => ({ id: "c", provider, label: "default",
+            source: { kind: "cli", directory }, model: "" }), true), { kind: "ready" }, provider);
 }
 
 world(async () => {
@@ -638,7 +639,8 @@ world(async () => {
             ["model-required", 'if (account.model === "" && account.source.kind !== "cli") return unconfigured("brain=model-required");'],
             ["subscription-model", ' && account.source.kind !== "cli") return unconfigured("brain=model-required");',
                 ') return unconfigured("brain=model-required");'],
-            ["harness-driver", '    "codex-app-server": CodexHarness });', "    });"]]) {
+            ["harness-driver", '"codex-app-server": CodexHarness, '],
+            ["claude-driver", ', "claude-code": ClaudeCode });', " });"]]) {
             const { Engine } = Fixture.copy(root, [[needle, replacement]]);
             assert.throws(() => selection(Engine), assert.AssertionError, name + " must turn red");
             console.log("control=" + name + " detected");

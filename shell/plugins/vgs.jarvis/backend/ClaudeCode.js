@@ -34,6 +34,7 @@ const CANCEL_MS = 2000;
 const IMAGE_TYPES = ["image/png", "image/jpeg"];
 const RESULT_ERRORS = ["error_during_execution", "error_max_turns", "error_max_budget_usd",
     "error_max_structured_output_retries"];
+const CLOCK = Object.freeze({ set: setTimeout, clear: clearTimeout });
 // Only these reach the vendor program; no key variable, token or runner pid.
 const ENVIRONMENT = ["PATH", "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME",
     "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"];
@@ -145,15 +146,14 @@ function argvOf({ config, instructions, model }) {
 }
 
 /**
- * create({directory, model, recipients, bridge, parent, environment, clock?})
- * owns one harness conversation. directory is the Claude account directory
- * (CLAUDE_CONFIG_DIR); model is "" for the program's own default; recipients
- * is the conversation's frozen set; bridge is null or {open()} resolving the
- * tool bridge's launch contract; parent is the private runtime directory the
+ * The one owner of a harness conversation, shared by the engine's brain and
+ * Verify. directory is the Claude account directory (CLAUDE_CONFIG_DIR);
+ * model is "" for the program's own default; recipients is the
+ * conversation's frozen set; bridge is null or the tool bridge, whose session
+ * opens with {gen, recipients}; parent is the private runtime directory the
  * working directory is made in; environment is the daemon's environment.
  */
-function create({ directory, model = "", recipients, bridge = null, parent, environment,
-    clock = { set: setTimeout, clear: clearTimeout } }) {
+function conversation({ directory, model, recipients, bridge, gen, parent, environment, clock }) {
     if (typeof directory !== "string" || !path.isAbsolute(directory) || path.normalize(directory) !== directory)
         fail("harness-directory");
     if (!isModel(model)) fail("model");
@@ -227,7 +227,7 @@ function create({ directory, model = "", recipients, bridge = null, parent, envi
         fs.chmodSync(workdir, 0o700);
         const cwd = path.join(workdir, "cwd");
         fs.mkdirSync(cwd, { mode: 0o700 });
-        if (context.offered.size !== 0) launch = await bridge.open();
+        if (context.offered.size !== 0) launch = await bridge.open({ gen, recipients });
         // close() ran while the session opened; it could not close it then.
         if (closing !== null) { launch?.close(); fail("closed"); }
         // The token stays out of argv: the config is a private file.
@@ -522,6 +522,26 @@ function create({ directory, model = "", recipients, bridge = null, parent, envi
 }
 
 /**
+ * The conversation's brain behind the plan's interface, as CodexHarness's:
+ * start, send as a stream of text and done, cancel and close. options
+ * carries the engine's {model, recipients} and the harness facts: account
+ * ({kind: "cli", directory}, a Claude account directory), gen, and
+ * {bridge, env, runtime}, runtime answering the runtime directory. The gate
+ * goes unused: built-in tools are off, so no approval request reaches it. A
+ * harness turn yields no tool-call event: the program's calls reach the
+ * router through the bridge.
+ */
+function create({ model = "", recipients, account, gen, harness, clock = CLOCK }) {
+    // An engine made without the daemon's harness facts cannot run a program.
+    if (!plain(harness) || typeof harness.runtime !== "function") fail("harness-unwired");
+    const brain = conversation({ directory: account.directory, model, recipients, bridge: harness.bridge, gen,
+        parent: harness.runtime(), environment: harness.env, clock });
+    return Object.freeze({ ...brain,
+        /** A harness turn is never answered by tool results. */
+        record() { fail("record"); } });
+}
+
+/**
  * Account verification: one tool-less harness conversation sends the release
  * item the caller judged and audited, and resolves the reply text only after
  * a successful result. start(events) runs the first read inside the caller's
@@ -530,8 +550,8 @@ function create({ directory, model = "", recipients, bridge = null, parent, envi
  * Login status or a model list never reaches here.
  */
 async function verify({ directory, model, recipients, item, grants, parent, environment, instructions, deadline, start,
-    clock = { set: setTimeout, clear: clearTimeout } }) {
-    const brain = create({ directory, model, recipients, bridge: null, parent, environment, clock });
+    clock = CLOCK }) {
+    const brain = conversation({ directory, model, recipients, bridge: null, gen: null, parent, environment, clock });
     let expired = false;
     const timer = clock.set(() => { expired = true; void brain.close(); }, deadline);
     try {

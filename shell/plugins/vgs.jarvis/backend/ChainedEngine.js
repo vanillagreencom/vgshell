@@ -13,6 +13,7 @@ const Speakable = require("./Speakable.js");
 const OpenAIChat = require("./OpenAIChat.js");
 const AnthropicMessages = require("./AnthropicMessages.js");
 const CodexHarness = require("./CodexHarness.js");
+const ClaudeCode = require("./ClaudeCode.js");
 const LocalSpeech = require("./LocalSpeech.js");
 
 // Speech adapter rows in selection order. A row is {select({settings,
@@ -21,7 +22,7 @@ const LocalSpeech = require("./LocalSpeech.js");
 // adds its own.
 const SPEECH = Object.freeze({ local: LocalSpeech.row });
 const DRIVERS = Object.freeze({ "openai-chat": OpenAIChat, "anthropic-messages": AnthropicMessages,
-    "codex-app-server": CodexHarness });
+    "codex-app-server": CodexHarness, "claude-code": ClaudeCode });
 // The hello carries no language setting; empty selects English.
 const LANGUAGE = "";
 // Object-mode chunks queued toward Audio, below its playback allowance.

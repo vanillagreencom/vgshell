@@ -23,7 +23,7 @@ const PROBE_MS = 30000;
 // The harness probe's whole system prompt, so the probe stays one short turn.
 const HARNESS_INSTRUCTIONS = "Answer in one word.";
 // Subscriptions whose vendor program the chained engine can run as the brain.
-const HARNESS_BRAINS = Object.freeze(["codex"]);
+const HARNESS_BRAINS = Object.freeze(["claude", "codex"]);
 
 function fail(reason) { throw new Error("jarvis-accounts: " + reason); }
 function printable(value, max) {
