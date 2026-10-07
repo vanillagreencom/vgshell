@@ -171,7 +171,8 @@ function verify(view) {
         ["both steps done with gate down", up(down("unconfigured"), SetupGate.readiness({ kind: "answered", causes: [] })), ["off", "power-off", "neutral"]],
         ["loading while locked", up(down("locked"), loading), ["off", "power-off", "neutral"]]
     ]) {
-        const out = view.view(copy(values));
+        let out;
+        assert.doesNotThrow(() => { out = view.view(copy(values)); }, label);
         assert.deepEqual([out.state, out.icon, out.tone], want, label);
     }
     assert.equal(view.approvalPrompt(null), null);
