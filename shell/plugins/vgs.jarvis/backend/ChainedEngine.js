@@ -642,6 +642,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         release: {
             confirmed: e => decided(e, true),
             ended: e => decided(e, false),
+            refused(e) {
+                const c = conversation;
+                const pending = c?.releasePending;
+                if (pending === undefined || pending === null || c.gen !== e.gen) return;
+                const result = audit.record({ ...releaseEvent(c, pending.identity, pending.labels, "withhold", "cancelled"),
+                    refusal: e.reason });
+                if (result.kind !== "recorded") throw new Error("jarvis: audit=write cause=" + result.cause);
+            },
             async prepare(value, recipients) {
                 const c = conversation;
                 if (c === null || c.recipients !== recipients || c.gen !== value.gen) return null;

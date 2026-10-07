@@ -409,7 +409,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     runner.ports.approval = {
                         show: e => { if (e.purpose === "action") actionApproval.show(e); },
                         end: e => e.purpose === "release" ? engine.release.ended(e) : actionApproval.end(e),
-                        refused: e => { if (e.purpose === "action") actionApproval.refused(e); }
+                        refused: e => e.purpose === "release" ? engine.release.refused(e) : actionApproval.refused(e)
                     };
                     runner.ports.release = engine.release;
                     runner.ports.brain = engine.brain;

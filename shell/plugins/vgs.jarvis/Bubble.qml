@@ -20,6 +20,8 @@ Item {
         && card.width <= width && card.height + Theme.voiceBubble.margin <= height
     readonly property var hold: state !== null && state.approval.kind === "held" ? state.approval : null
     property var displayedHold: null
+    property var approvalFrames: []
+    property var synchronizedHold: null
     readonly property bool approvalPresented: presented && displayedHold !== null && hold !== null
         && displayedHold.id === hold.id && displayedHold.digest === hold.digest && displayedHold.gen === hold.gen
         && approvalText.text === hold.text && approvalText.height >= approvalText.implicitHeight
@@ -28,22 +30,35 @@ Item {
         if (hold === null || displayedHold === null || hold.id !== displayedHold.id
                 || hold.gen !== displayedHold.gen || hold.digest !== displayedHold.digest) displayedHold = null;
     }
-    // Qt's backing Window.frameSwapped is the same presented-frame observation
-    // LayerHost uses. A mapped old frame does not acknowledge new approval text.
+    // Qt 6.11 afterAnimating runs on the GUI thread after polish, before sync.
+    // afterSynchronizing and frameSwapped queue from the render thread in order.
+    // Pair each sync with its polish snapshot, including frames without a hold:
+    // a queued old swap must not consume a newer request's GUI state.
+    // https://doc.qt.io/qt-6/qquickwindow.html#afterSynchronizing
+    function approvalPolished() {
+        approvalFrames.push(shown && visible && approvalText.text === (hold === null ? "" : hold.text)
+            && approvalText.height >= approvalText.implicitHeight ? hold : null);
+    }
+    function approvalSynchronized() {
+        synchronizedHold = approvalFrames.length === 0 ? null : approvalFrames.shift();
+    }
+    function approvalSwapped() {
+        const drawn = synchronizedHold;
+        if (drawn === null || displayedHold !== null) return;
+        // LayerHost observes this swap too. Its presented value must settle
+        // before the service checks this frame's unchanged request identity.
+        Qt.callLater(() => {
+            if (!root.presented || root.hold === null || root.hold.id !== drawn.id
+                    || root.hold.gen !== drawn.gen || root.hold.digest !== drawn.digest) return;
+            root.displayedHold = drawn;
+            if (root.service !== null) root.service.shownApproval(root, drawn);
+        });
+    }
     Connections {
         target: root.Window.window
-        function onFrameSwapped() {
-            if (root.hold === null || root.displayedHold !== null) return;
-            const shown = root.hold;
-            // LayerHost sets presented from this same frame. Observe it after
-            // its handler, while retaining the identity this frame drew.
-            Qt.callLater(() => {
-                if (!root.presented || root.hold === null || root.hold.id !== shown.id
-                        || root.hold.gen !== shown.gen || root.hold.digest !== shown.digest) return;
-                root.displayedHold = shown;
-                if (root.service !== null) root.service.shownApproval(root, shown);
-            });
-        }
+        function onAfterAnimating() { root.approvalPolished(); }
+        function onAfterSynchronizing() { root.approvalSynchronized(); }
+        function onFrameSwapped() { root.approvalSwapped(); }
     }
     readonly property string tone: state !== null && state.mute.kind !== "off" ? "muted"
         : phase === "error" ? "danger"

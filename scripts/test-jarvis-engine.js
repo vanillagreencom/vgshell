@@ -6,6 +6,7 @@
 const { assert, fs, path, tree, world, until: wait } = require("./fixtures/jarvis/audio.js");
 const { clock, turn } = require("./fixtures/jarvis/playback.js");
 const Fixture = require("./fixtures/jarvis/engine.js");
+const vm = require("node:vm");
 const { load } = require("../bin/lib/qml-library.js");
 const { utterance, text, calls, control } = Fixture;
 // The ollama row's default port: free inside the private network namespace.
@@ -87,9 +88,10 @@ function rig(kit, server, options = {}) {
         captionLimit: options.captionLimit ?? Protocol.TRANSCRIPT_CHARS, dispatch: e => runner.dispatch(e), clock: runnerClock });
     ports.release = engine.release;
     const actionApproval = ports.approval;
-    ports.approval = { show: e => { if (e.purpose === "action") actionApproval.show(e); },
-        end: e => e.purpose === "release" ? engine.release.ended(e) : actionApproval.end(e),
-        refused: e => { if (e.purpose === "action") actionApproval.refused(e); } };
+    const daemonSource = fs.readFileSync(path.join(kit.folder, "backend/jarvisd.js"), "utf8");
+    const wiring = [...daemonSource.matchAll(/runner\.ports\.approval = (\{\n[\s\S]*?\n                    \});/g)];
+    assert.equal(wiring.length, 1, "one shipped daemon approval wiring");
+    ports.approval = vm.runInNewContext("(" + wiring[0][1] + ")", { engine, actionApproval });
     ports.brain = engine.brain;
     ports.capture.collect = engine.collect;
     ports.playback = engine.playback(audio.playbackPort);
@@ -107,7 +109,7 @@ function rig(kit, server, options = {}) {
         const file = path.join(state, "audit/2026-10-01.jsonl");
         return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
     };
-    return { runner, audio, audioClock, engine, faults, executions, held, partials, captions, rows, configure, state, server, advanceRunner,
+    return { runner, audio, audioClock, engine, audit, faults, executions, held, partials, captions, rows, configure, state, server, advanceRunner,
         s: () => runner.state,
         async close() {
             runner.close();
@@ -538,6 +540,98 @@ async function cases(kit, server, only = null) {
         assert.ok(w.rows().some(row => row.kind === "release" && row.confirmed === "voice" && row.decision === "send"));
     }, {fixture: {recipients: [{kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9"}]}});
 
+    // LocalSpeech finishes on EOF. Indicator loss can close Toggle capture,
+    // then a re-shown indicator opens an unbound capture while the brain waits.
+    await run("voice-toggle-reopened", async w => {
+        control.utterances.push(utterance("Read my clipboard."), utterance("Yes."), utterance("Yes."));
+        const blocked = gate();
+        const first = server.requests.length;
+        server.replies.push([...pause(blocked), ...calls({ id: "toggle_voice", name: "clipboard_read", arguments: {} }).slice(1)], text(""));
+        w.runner.dispatch({ type: "talk-down" });
+        await until(() => w.s().capture.kind === "open", "toggle capture opens");
+        w.runner.dispatch({ type: "indicator", shown: false });
+        await requested(w, first + 1, "EOF final starts the thinking turn");
+        await until(() => w.s().capture.kind === "closed", "indicator loss closes capture");
+        w.runner.dispatch({ type: "indicator", shown: true });
+        await until(() => w.s().capture.kind === "open", "indicator re-show opens thinking capture");
+        const prior = w.s().capture.op;
+        blocked.open();
+        await until(() => w.s().approval.kind === "held", "release arrives after the reopened capture");
+        const h = w.s().approval;
+        w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
+        w.advanceRunner(1100);
+        w.runner.dispatch({ type: "talk-down" });
+        await until(() => (w.s().capture.kind === "open" && w.s().capture.op !== prior)
+            || w.s().input.kind === "held" && w.s().capture.kind === "open", "Talk admits its answer capture");
+        assert.notEqual(w.s().capture.op, prior, "Talk replaces the capture that predates the hold");
+        assert.equal(w.s().approval.id, h.id, "earlier audio cannot release the hold");
+        assert.equal(server.requests.length, first + 1, "earlier Yes starts no brain turn or transfer");
+        w.runner.dispatch({ type: "talk-up" });
+        const body = await requested(w, first + 2, "fresh Toggle answer releases the result");
+        assert.equal(body.messages.find(m => m.role === "tool").content, "clipboard words");
+        assert.deepEqual(user(body), ["Read my clipboard."]);
+    }, { mode: "toggle", fixture: { recipients: [{ kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9" }] } });
+
+    for (const order of ["before-display", "after-playback"]) {
+        await run("voice-" + order, async w => {
+            if (order === "after-playback") {
+                const prior = await say(w, utterance("Say ready."));
+                server.replies.push(text("Ready."));
+                await requested(w, prior + 1, "prior reply starts");
+                await until(() => w.s().turn.kind === "none" && w.s().playback.kind === "playing", "prior reply plays");
+                w.advanceRunner(2000);
+                await playOut(w);
+            }
+            const first = await say(w, utterance("Read my clipboard."));
+            server.replies.push(calls({ id: "timing_voice", name: "clipboard_read", arguments: {} }), text(""));
+            await until(() => w.s().approval.kind === "held", "timing question is held");
+            const h = w.s().approval;
+            if (order === "after-playback") {
+                w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
+                w.advanceRunner(700);
+            } else w.advanceRunner(1100);
+            const finals = control.finals;
+            control.utterances.push(utterance("Yes."));
+            w.runner.dispatch({ type: "talk-down" });
+            await until(() => w.s().capture.kind === "open", "rejected answer uses real capture");
+            if (order === "before-display") {
+                w.advanceRunner(100);
+                w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
+            }
+            w.advanceRunner(1100); // The final is late enough; its start is not.
+            w.runner.dispatch({ type: "talk-up" });
+            await until(() => control.finals > finals && w.s().capture.kind === "closed", "the answer final arrives after capture closes");
+            await turn();
+            assert.equal(w.s().approval.kind, "held", "the real engine refuses an answer with unsafe start timing");
+            assert.equal(w.s().approval.id, h.id);
+            assert.equal(w.s().turn.kind, "thinking");
+            assert.equal(server.requests.length, first + 1, "rejected voice starts no brain turn or content transfer");
+            assert.equal(w.rows().filter(row => row.kind === "release" && row.confirmed === "voice").length, 0);
+            assert.equal(w.rows().at(-1).refusal, "voice-timing", "the release owner records the timing refusal");
+        }, { fixture: { recipients: [{ kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9" }] } });
+    }
+
+    await run("release-refusal", async w => {
+        const first = await say(w, utterance("Read my clipboard."));
+        server.replies.push(calls({ id: "refusal_release", name: "clipboard_read", arguments: {} }), text(""));
+        await until(() => w.s().approval.kind === "held", "refusal question is held");
+        const h = w.s().approval;
+        w.runner.dispatch({ type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "button" });
+        assert.equal(w.s().approval.id, h.id, "early button keeps its hold");
+        assert.equal(server.requests.length, first + 1, "early button releases no content");
+        const record = w.rows().at(-1);
+        assert.equal(record.kind, "release");
+        assert.equal(record.refusal, "early", "Session refusal reaches the conversation audit owner");
+        assert.equal(record.outcome, "cancelled");
+        assert.deepEqual(record.args, { labels: "[redacted]", recipients: "[redacted]" });
+        assert.equal(JSON.stringify(record).includes(h.id), false);
+        assert.equal(JSON.stringify(record).includes("clipboard words"), false);
+        const before = w.rows().length;
+        assert.deepEqual(w.audit.record({ ...record, refusal: "private planted transcript" }),
+            { kind: "refuse", reason: "audit-write", cause: "refusal" }, "unknown refusal text never reaches the audit file");
+        assert.equal(w.rows().length, before);
+    }, { fixture: { recipients: [{ kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9" }] } });
+
     await run("release-decisions", async w => {
         const blocked = gate();
         const first = await say(w, utterance("Keep thinking.")); server.replies.push(pause(blocked));
@@ -736,6 +830,11 @@ world(async () => {
             ["release-decline-once", "for (const label of pending.labels) c.decisions.add(label);", "void pending.labels;", "release-decisions"],
             ["voice-confirmation", 'dispatch({ type: "confirm", ...answer, source: "voice" });',
                 'dispatch({ type: "confirm", ...answer, source: "model" });', "voice-release"],
+            ["voice-final-time", 'dispatch({ type: "confirm", ...answer, source: "voice" });',
+                'dispatch({ type: "confirm", ...answer, beganAt: clock.now(), source: "voice" });', "voice-before-display"],
+            ["voice-idle-across-playback", 'if (s.playback.kind !== "idle") idleAt = null;',
+                'if (false) idleAt = null;', "voice-after-playback"],
+            ["release-refusal-record", 'refusal: e.reason });', 'refusal: undefined });', "release-refusal"],
             ["router-offers", "tools: router.offer()", "tools: []", "turn-loop"],
             ["heard-omitted", "if (c.heard !== null) items.push(heardItem(c.heard));", "", "barge-in"],
             ["heard-once", "            c.heard = null;\n", "", "barge-in"],
@@ -790,6 +889,37 @@ world(async () => {
             console.log("control=" + name + " detected: " + failure.message.split("\n")[0]);
             controls++;
         }
+        const toggleKit = Fixture.copy(root);
+        const sessionFile = path.join(toggleKit.folder, "Session.js");
+        const sessionSource = fs.readFileSync(sessionFile, "utf8");
+        const closeNeedle = '                closeCapture(s, effects);\n                start(s, effects, "held");';
+        assert.equal(sessionSource.split(closeNeedle).length, 2, "one held-answer capture control match");
+        fs.writeFileSync(sessionFile, sessionSource.replace(closeNeedle, '                start(s, effects, "held");'));
+        await assert.rejects(() => cases(toggleKit, server, "voice-toggle-reopened"), assert.AssertionError,
+            "retaining a prior Toggle capture must fail the fresh-answer assertion");
+        console.log("control=voice-toggle-reopened detected");
+        controls++;
+        const refusalKit = Fixture.copy(root);
+        const daemonFile = path.join(refusalKit.folder, "backend/jarvisd.js");
+        const daemonSource = fs.readFileSync(daemonFile, "utf8");
+        const refusalNeedle = 'e.purpose === "release" ? engine.release.refused(e) : actionApproval.refused(e)';
+        assert.equal(daemonSource.split(refusalNeedle).length, 2, "one release refusal wiring control match");
+        fs.writeFileSync(daemonFile, daemonSource.replace(refusalNeedle,
+            'e.purpose === "release" ? undefined : actionApproval.refused(e)'));
+        await assert.rejects(() => cases(refusalKit, server, "release-refusal"), assert.AssertionError,
+            "dropping daemon release refusal delivery must fail its audit assertion");
+        console.log("control=release-refusal-wiring detected");
+        controls++;
+        const auditKit = Fixture.copy(root);
+        const auditFile = path.join(auditKit.folder, "backend/Audit.js");
+        const auditSource = fs.readFileSync(auditFile, "utf8");
+        const auditNeedle = 'if (event.refusal !== undefined && (kind !== "release" || ![';
+        assert.equal(auditSource.split(auditNeedle).length, 2, "one refusal category control match");
+        fs.writeFileSync(auditFile, auditSource.replace(auditNeedle, 'if (false && (kind !== "release" || !['));
+        await assert.rejects(() => cases(auditKit, server, "release-refusal"), assert.AssertionError,
+            "copying arbitrary refusal text must fail its sanitization assertion");
+        console.log("control=release-refusal-category detected");
+        controls++;
         console.log("test-jarvis-engine: ok requests=" + server.requests.length + " controls=" + controls);
     } finally { await server.close(); }
 // Bounds a hung world: each control reruns a case with real children.

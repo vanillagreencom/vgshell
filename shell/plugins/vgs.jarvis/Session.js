@@ -304,7 +304,13 @@ function reduce(state, e) {
         break;
     case "talk-down":
         if (s.approval.kind === "held") {
-            if (s.input.kind !== "held") start(s, effects, "held");
+            if (s.input.kind !== "held") {
+                // Toggle can reopen capture before the brain proposes a hold.
+                // Its transcript owns no answer identity. Talk replaces it,
+                // then capture-closed admits an answer bound to this hold.
+                closeCapture(s, effects);
+                start(s, effects, "held");
+            }
             break;
         }
         if (s.settings.mode === "toggle") { toggle(s, effects, e.at); break; }

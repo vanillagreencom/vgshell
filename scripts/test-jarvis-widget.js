@@ -16,6 +16,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 const { load } = require("../bin/lib/qml-library.js");
 
 const dir = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis");
@@ -234,4 +235,78 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-jarvis-widget: ok cases=${CASES.length} refusals=${REFUSALS.length} controls=${CONTROLS.length}`);
+// Execute Bubble's shipped callbacks with controlled GUI/render ordering.
+// The nested bubble row proves rendering; this case proves which queued frame
+// may acknowledge a real Session hold, without a second frame owner.
+function approvalFrames(source) {
+    let state = detail({ conversation: { kind: "active" }, gen: 1, ...THINKING }).state;
+    let at = 0;
+    const dispatch = e => {
+        const result = Session.reduce(state, { ...e, at });
+        state = result.state;
+        return result.effects;
+    };
+    const later = [];
+    const root = { shown: true, visible: true, presented: true, displayedHold: null,
+        approvalFrames: [], synchronizedHold: null,
+        service: { shownApproval: (bubble, hold) => dispatch({ type: "shown", gen: hold.gen, op: hold.op, id: hold.id }) } };
+    Object.defineProperty(root, "hold", { get: () => state.approval.kind === "held" ? state.approval : null });
+    const approvalText = { height: 40, implicitHeight: 40 };
+    Object.defineProperty(approvalText, "text", { get: () => root.hold?.text ?? "" });
+    const ctx = vm.createContext({ root, approvalText, Qt: { callLater: fn => later.push(fn) } });
+    // QML's indentation bounds each actual function. Refuse a missing or
+    // duplicate extractor match before testing any callback.
+    for (const name of ["approvalPolished", "approvalSynchronized", "approvalSwapped"]) {
+        const matches = [...source.matchAll(new RegExp("^    function " + name + "\\(\\) \\{\\n[\\s\\S]*?^    \\}", "gm"))];
+        assert.equal(matches.length, 1, "one shipped Bubble callback: " + name);
+        // QML exposes root properties as local names in a handler.
+        const run = vm.runInContext("(function() { with(root) { return (" + matches[0][0] + ").call(root); } })", ctx);
+        root[name] = run;
+    }
+    const flush = () => { while (later.length) later.shift()(); };
+    const propose = id => dispatch({ type: "approval", gen: 1, op: 4, id, digest: id, purpose: "action",
+        text: "Fixture action", physical: false, tool: "fixture", timeoutMs: 1000, cancellable: false });
+    const confirm = h => dispatch({ type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "button" });
+
+    root.approvalPolished(); // Earlier frame contains no request.
+    propose("first");
+    const h = root.hold;
+    root.approvalPolished(); // Newer GUI state exists before old callbacks run.
+    root.approvalSynchronized();
+    root.approvalSwapped();
+    flush();
+    assert.equal(state.approval.shownAt, null, "an earlier frame cannot acknowledge a newer request");
+    at = 1000;
+    assert.equal(confirm(h).find(e => e.kind === "confirm-refused")?.reason, "early",
+        "confirmation stays refused until the request's frame completes");
+    root.approvalSynchronized();
+    root.approvalSwapped();
+    flush();
+    assert.equal(state.approval.shownAt, 1000, "the matching frame acknowledges its request");
+    at += Session.APPROVAL_DRAW_MS;
+    assert.ok(confirm(h).some(e => e.kind === "tool-start"), "the matching frame starts the full draw interval");
+
+    state.action = { kind: "none" };
+    propose("second");
+    root.displayedHold = null;
+    root.approvalPolished();
+    root.approvalSynchronized();
+    root.approvalSwapped();
+    dispatch({ type: "approval-cancel", gen: 1, id: "second" });
+    propose("third");
+    flush();
+    assert.equal(state.approval.shownAt, null, "a deferred acknowledgment cannot cross request replacement");
+    root.presented = false;
+    root.approvalPolished();
+    root.approvalSynchronized();
+    root.approvalSwapped();
+    flush();
+    assert.equal(state.approval.shownAt, null, "a hidden host cannot acknowledge");
+}
+const bubble = fs.readFileSync(path.join(dir, "Bubble.qml"), "utf8");
+approvalFrames(bubble);
+const frameNeedle = "const drawn = synchronizedHold;";
+assert.equal(bubble.split(frameNeedle).length, 2, "one frame identity control match");
+assert.throws(() => approvalFrames(bubble.replace(frameNeedle, "const drawn = root.hold;")), assert.AssertionError,
+    "delivery from the current hold must fail the earlier-frame assertion");
+console.log(`test-jarvis-widget: ok cases=${CASES.length} refusals=${REFUSALS.length} controls=${CONTROLS.length + 1} frame-control=detected`);

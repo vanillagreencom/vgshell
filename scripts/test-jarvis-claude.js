@@ -158,7 +158,7 @@ world(async () => {
             const action = router.ports.approval;
             ports.approval = { show: e => { if (e.purpose === "action") action.show(e); },
                 end: e => e.purpose === "release" ? engine.release.ended(e) : action.end(e),
-                refused: e => { if (e.purpose === "action") action.refused(e); } };
+                refused: e => e.purpose === "release" ? engine.release.refused(e) : action.refused(e) };
         };
         w.installEngine = installEngine; w.runnerClock = runnerClock;
         return w;

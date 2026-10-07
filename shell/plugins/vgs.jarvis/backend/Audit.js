@@ -65,9 +65,14 @@ function eventRecord(event, time) {
     if (effect !== null && !effects.includes(effect)) fail("effect");
     if (!["none", "physical", "voice"].includes(confirmed)) fail("confirmation");
     if (!["pending", "completed", "failed", "unknown", "cancelled"].includes(outcome)) fail("outcome");
+    // Session emits these categories. Never retain an id, transcript or caller
+    // text as the reason a release confirmation was refused.
+    if (event.refusal !== undefined && (kind !== "release" || !["expired", "no-hold", "identity", "source",
+        "early", "voice-physical", "voice-timing"].includes(event.refusal))) fail("refusal");
     return { time, kind, gen, op,
         tool: kind === "release" ? "release" : Object.hasOwn(Tools.TABLE, tool) ? tool : "unknown",
         args: Redact.argumentsFor(kind, tool, event.args), effect, decision, confirmed, outcome,
+        ...(event.refusal === undefined ? {} : { refusal: event.refusal }),
         ...(event.capture === undefined ? {} : { capture: captureRecord(kind, tool, event.capture) }) };
 }
 
