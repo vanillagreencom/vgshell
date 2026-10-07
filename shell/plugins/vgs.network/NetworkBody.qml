@@ -22,6 +22,7 @@ FocusScope {
     property string localProblem: ""
     property var shareTarget: null
     property var joinTarget: undefined
+    property string joinInterface: ""
     property string openDetails: ""
     property var readyDetails: ({})
     readonly property var values: shell === null ? ({}) : shell.status.values
@@ -58,7 +59,7 @@ FocusScope {
         if (shareTarget !== null && !rows.some(row => row.key === shareTarget.key && row.known)) closeShare();
     }
     onNetworkChanged: {
-        if (!network.wifiEnabled || !network.hasWifi || (joinLoader.item !== null && joinLoader.item.interfaceName !== network.wifiInterface)) closeJoin();
+        if (!network.wifiEnabled || !network.hasWifi || (joinTarget !== undefined && joinInterface !== network.wifiInterface)) closeJoin();
         if (!network.wifiEnabled) closeShare();
         const detail = network.detail || {};
         if (detail.interface !== undefined && detail.interface !== "" && detail.state === "ready") {
@@ -92,11 +93,14 @@ FocusScope {
         if (!network.writable || busy || shell === null) return;
         if (shell.requirements.missing.includes("nmcli")) { shell.requirements.offer(["nmcli"]); return; }
         closeShare();
+        // A later status update must not move an open form to another adapter.
+        joinInterface = row === null ? network.wifiInterface || "" : row.interface;
         joinTarget = row;
     }
     function closeJoin() {
         if (joinLoader.item !== null) joinLoader.item.clear();
         joinTarget = undefined;
+        joinInterface = "";
     }
     function cancelPassword() {
         password.text = "";
@@ -226,7 +230,7 @@ FocusScope {
             width: root.width
             shell: root.shell
             target: root.joinTarget === undefined ? null : root.joinTarget
-            interfaceName: root.network.wifiInterface || ""
+            interfaceName: root.joinInterface
             onDismissed: { root.closeJoin(); list.forceActiveFocus(Qt.ShortcutFocusReason); }
         }
     }

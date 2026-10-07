@@ -6,6 +6,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const assert = require("node:assert/strict");
+const vm = require("node:vm");
 const { load } = require("../bin/lib/qml-library.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.network/NetworkLogic.js");
 const nmcliFile = path.join(__dirname, "../shell/Commons/Nmcli.js");
@@ -31,6 +32,39 @@ activateSuite(body);
 assert.equal(body.split("!row.known && Logic.supportsEnterprise").length - 1, 1);
 assert.throws(() => activateSuite(body.replace("!row.known && Logic.supportsEnterprise", "Logic.supportsEnterprise")));
 console.log("network-logic: control=saved enterprise reconnect red");
+function joinAdapterSuite(source) {
+    const join = source.match(/function join\(row\) \{[\s\S]*?\n    \}/);
+    const close = source.match(/function closeJoin\(\) \{[\s\S]*?\n    \}/);
+    const changed = source.match(/onNetworkChanged: \{([\s\S]*?)\n    \}\n    function answered/);
+    assert.ok(join && close && changed);
+    // Execute the production handlers with the form's binding delivered
+    // before the network-change handler. Smoke owns the real device removal.
+    for (const [target, nextInterface, enabled, present, closed] of [
+        [null, "wlan1", true, true, true], [{ interface: "wlan0" }, "wlan1", true, true, true],
+        [null, "wlan0", false, true, true], [null, "wlan0", true, false, true],
+        [null, "wlan0", true, true, false]
+    ]) {
+        let clears = 0;
+        const state = { network: { writable: true, wifiInterface: "wlan0", wifiEnabled: true, hasWifi: true },
+            busy: false, shell: { requirements: { missing: [] } }, joinTarget: undefined, joinInterface: "",
+            joinLoader: { item: null }, closeShare() {}, promptKey: "", readyDetails: {} };
+        vm.createContext(state);
+        vm.runInContext(join[0] + "\n" + close[0] + "\nfunction changed() {" + changed[1] + "\n}", state);
+        state.join(target);
+        assert.equal(state.joinInterface, "wlan0");
+        state.joinLoader.item = { interfaceName: nextInterface, clear() { clears++; } };
+        state.network = { writable: true, wifiInterface: nextInterface, wifiEnabled: enabled, hasWifi: present };
+        state.changed();
+        assert.equal(clears, Number(closed));
+        assert.equal(state.joinInterface, closed ? "" : "wlan0");
+        assert.equal(state.joinTarget, closed ? undefined : target);
+    }
+}
+joinAdapterSuite(body);
+const adapterGuard = "joinTarget !== undefined && joinInterface !== network.wifiInterface";
+assert.equal(body.split(adapterGuard).length - 1, 1);
+assert.throws(() => joinAdapterSuite(body.replace(adapterGuard, "joinLoader.item !== null && joinLoader.item.interfaceName !== network.wifiInterface")));
+console.log("network-logic: control=adapter binding delivered before close red");
 function suite(logic) {
     // This exercises the shared endpoint itself. QML smoke owns proof that
     // the real service Process outlives the form during UUID cleanup.

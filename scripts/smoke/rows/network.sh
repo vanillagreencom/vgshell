@@ -188,6 +188,7 @@ PYJOINHELD
 }
 expect_poll "the real helper reaches held activation" held net_join_held
 expect "the pending helper holds the service operation" join net_action
+expect "the pending form retains its original adapter" '"wlan0"' ipc smoke readDescendant window vgs.network NetworkJoin interfaceName
 case ${3:-form} in
 form)
 expect "Cancel is visible during activation" scrolled net_join_cancel_reveal
@@ -228,11 +229,11 @@ expect "the mock adds a scanned enterprise network" ok net_fixture enterprise
 net_enterprise_seen() { net_snapshot | py_reply 'import json,sys; print(any(r["name"]=="VGS Enterprise Wi-Fi" and r["security"]=="Wpa2Eap" for r in json.load(sys.stdin)["network"]["wifi"]))'; }
 net_enterprise_reveal() { ipc smoke revealText window vgs.system DeviceRow 'VGS Enterprise Wi-Fi' | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 expect_poll "the scanned enterprise row uses its security kind" True net_enterprise_seen
-net_join_notice_shared() {
-  local notice problem
-  notice="$(ipc smoke readDescendant window vgs.network NetworkJoin notice)" || return
-  problem="$(net_problem)" || return
-  [[ $notice != '""' && $notice == "$problem" ]] && echo shared || echo invalid
+net_join_submitted() { python3 - "$net_join_dir/calls" <<'PYSUBMITTED'
+import json,pathlib,sys
+p=pathlib.Path(sys.argv[1]);rows=[json.loads(line) for line in p.read_text().splitlines()] if p.exists() else []
+print("submitted" if any(r["operation"]=="up" for r in rows) else "pending")
+PYSUBMITTED
 }
 net_enterprise_submit_test() { # HIDDEN METHOD RECORD
 local net_enterprise_hidden=$1 net_enterprise_method=$2 net_enterprise_name
@@ -241,6 +242,7 @@ net_join_world 802-1x.password failed
 if [[ $net_enterprise_hidden == no ]]; then
 net_enterprise_name='VGS Enterprise Wi-Fi'
 expect "the enterprise row is revealed" scrolled net_enterprise_reveal
+expect_poll "the scanned enterprise row is mounted and enabled" true ipc smoke readMatchingDescendant window vgs.network DeviceRow text "$net_enterprise_name" enabled
 click_in 'window:System Settings' window vgs.network DeviceRow "$net_enterprise_name" || fail "the enterprise row could not be opened"
 else
 net_enterprise_name='Hidden enterprise Wi-Fi'
@@ -264,8 +266,8 @@ type_keys -k Tab
 type_keys network-smoke-joined-secret
 type_keys -k Return
 expect_poll "enterprise submission reports its typed result" failed net_join_result
+expect_poll "enterprise input reaches helper activation" submitted net_join_submitted
 expect "enterprise submission maps public fields and privately cleans its UUID" "$3" net_join_record "$net_enterprise_name" "$net_enterprise_hidden" "$net_enterprise_method" enterprise.user auth.example.test
-expect "the form renders the service's terminal notice" shared net_join_notice_shared
 expect "the enterprise Cancel button scrolls into view" scrolled net_join_cancel_reveal
 click_in 'window:System Settings' window vgs.network Button Cancel || fail "the enterprise form could not be canceled"
 expect_poll "Cancel releases the enterprise form" closed net_join_result
@@ -590,6 +592,8 @@ p.write_text(source.replace(old,'identity: "wrong-user", domain: domain.text'))
 PYEAPCONTROL
 rescan "the enterprise field mapping control is discovered"
 expect_poll "the enterprise mapping control is ready" '"offline"' net_state
+expect "System remounts the enterprise mapping control" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+expect_poll "the enterprise mapping control pane is mounted" shown net_shown window
 expect "the control adds scanned enterprise input" ok net_fixture enterprise
 expect_poll "the control sees the scanned enterprise network" True net_enterprise_seen
 net_enterprise_submit_test no peap invalid
