@@ -32,8 +32,6 @@ Item {
         Label {
             width: parent.width
             role: "item"
-            lineHeight: 1
-            lineHeightMode: Text.ProportionalHeight
             textFormat: Text.PlainText
             text: root.modelData.name
             elide: Text.ElideRight
@@ -41,8 +39,6 @@ Item {
         Label {
             width: parent.width
             role: "itemHint"
-            lineHeight: 1
-            lineHeightMode: Text.ProportionalHeight
             textFormat: Text.PlainText
             text: root.modelData.type === "wireguard" ? "WireGuard" : "VPN"
             elide: Text.ElideRight
