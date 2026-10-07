@@ -120,7 +120,8 @@ Flickable {
     FocusRing {
         parent: root
         target: keyboardFocus
-        outside: true
+        // The Flickable clips its children. Keep the ring inside that clip.
+        anchors.margins: Theme.focusRing.offset
         visible: root.keyboardScroll && keyboardFocus.visualFocus
     }
 }

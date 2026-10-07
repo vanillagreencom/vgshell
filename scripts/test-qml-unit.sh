@@ -296,6 +296,7 @@ mutations=(
   "the scroll area's gutter comes and goes with the overflow|layout/ScrollArea.qml|contentWidth: width - (barOverContent ? 0 : rightInset)|contentWidth: overflowing ? width - rightInset : width|tst_scroll.qml"
   "the scroll area drops content height while its ancestor is hidden|layout/ScrollArea.qml|if (!child.visible && root.visible) continue;|if (!child.visible) continue;|tst_scroll.qml"
   "keyboard scroll ring ignores tab focus|layout/ScrollArea.qml|target: keyboardFocus|target: root|tst_scroll.qml"
+  "keyboard scroll ring is clipped at its old outside placement|layout/ScrollArea.qml|anchors.margins: Theme.focusRing.offset|outside: true|tst_scroll.qml"
   "keyboard scroll ring ignores shortcut focus|layout/ScrollArea.qml|visible: root.keyboardScroll && keyboardFocus.visualFocus|visible: false|tst_scroll.qml"
   "keyboard scroll ring shows for pointer focus|layout/ScrollArea.qml|visible: root.keyboardScroll && keyboardFocus.visualFocus|visible: root.keyboardScroll && keyboardFocus.activeFocus|tst_scroll.qml"
   "keyboard scroll area takes a second tab stop|layout/ScrollArea.qml|activeFocusOnTab: false|activeFocusOnTab: keyboardScroll|tst_scroll.qml"

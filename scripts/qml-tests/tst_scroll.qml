@@ -172,6 +172,32 @@ Item {
             compare(ring.visible, false);
         }
 
+        function test_keyboard_ring_stays_inside_the_viewport_clip_data() {
+            return [
+                { tag: "top", atEnd: false },
+                { tag: "end", atEnd: true }
+            ];
+        }
+
+        function test_keyboard_ring_stays_inside_the_viewport_clip(data) {
+            root.Window.window.requestActivate();
+            tryCompare(root.Window.window, "active", true);
+            wait(0);
+            keyboard.focusProxy.forceActiveFocus(Qt.TabFocusReason);
+            keyboard.contentY = data.atEnd ? keyboard.contentHeight - keyboard.height : 0;
+            const ring = keyboard.children.find(child => child.target === keyboard.focusProxy);
+            verify(ring !== undefined);
+            tryCompare(ring, "visible", true);
+            compare(keyboard.clip, true);
+            verify(ring.width > 0 && ring.height > 0);
+            const topLeft = ring.mapToItem(keyboard, 0, 0);
+            const bottomRight = ring.mapToItem(keyboard, ring.width, ring.height);
+            verify(topLeft.x >= 0, "the left edge stays inside the clip");
+            verify(topLeft.y >= 0, "the top edge stays inside the clip");
+            verify(bottomRight.x <= keyboard.width, "the right edge stays inside the clip");
+            verify(bottomRight.y <= keyboard.height, "the bottom edge stays inside the clip");
+        }
+
         function test_keyboard_scroll_keys_move_the_body() {
             root.Window.window.requestActivate();
             tryCompare(root.Window.window, "active", true);
