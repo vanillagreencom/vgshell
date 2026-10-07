@@ -27,7 +27,7 @@
     "vrr": 0
   },
   "schema": {
-    "vrr": { "type": "number", "label": "Variable refresh rate", "description": "Applies to all capable displays", "min": 0, "max": 3, "step": 1, "unit": "", "presets": [{ "value": 0, "label": "Off" }, { "value": 1, "label": "On" }, { "value": 2, "label": "Fullscreen only" }, { "value": 3, "label": "Fullscreen game or video" }], "group": "Displays" },
+    "vrr": { "type": "number", "label": "Variable refresh rate", "description": "Applies to all capable displays", "min": 0, "max": 3, "step": 1, "presets": [{ "value": 0, "label": "Off" }, { "value": 1, "label": "On" }, { "value": 2, "label": "Fullscreen only" }, { "value": 3, "label": "Fullscreen game or video" }], "group": "Displays" },
     "brightnessStep": { "type": "number", "label": "Key and scroll step", "description": "How much one brightness key press or bar scroll changes the level. Set the level itself in System Settings → Displays", "min": 1, "max": 25, "step": 1, "unit": "%", "group": "Brightness" },
     "keysTarget": { "type": "enum", "label": "Brightness keys change", "description": "The display the brightness keys change", "options": ["focused", "all"], "group": "Brightness" },
     "linked": { "type": "boolean", "label": "Link displays", "description": "Change every display by the same amount", "group": "Brightness" },

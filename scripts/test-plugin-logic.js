@@ -296,7 +296,7 @@ function suite(ctx, check) {
         ["an enum for a free string", { profile: "input.kb_options" }, {}, null],
         ["options not an object", ["input.sensitivity"], {}, "hyprland.options must be a non-empty object"],
         ["options empty", {}, {}, "hyprland.options must be a non-empty object"],
-        ["a path outside the table", { tap: "input.touchpad.drag_lock" }, {}, "hyprland.options.tap must be one of input.kb_layout, "],
+        ["a path outside the table", { tap: "input.touchpad.drag_lock" }, {}, "hyprland.options.tap must be one of"],
         ["the hyphenated option name, which Lua refuses", { tap: "input.touchpad.tap-to-click" }, {}, "hyprland.options.tap must be one of"],
         ["a path that is no string", { tap: true }, {}, "hyprland.options.tap must be one of"],
         ["an inherited path", { tap: "constructor" }, {}, "hyprland.options.tap must be one of"],

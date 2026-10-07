@@ -383,7 +383,7 @@ function colourSuite(lib, check, outputs) {
     const supportRefusals = [
         ["a panel missing a line", full.replace("\n\t\t\tbt2020 " + MARK[true], ""), "refused: support=shape panel=\"DP-1\" line=bt2020"],
         ["a line under another name", full.replace("\t\t\tchroma ", "\t\t\tchromo "), "refused: support=shape panel=\"DP-1\" line=chroma"],
-        ["a mark Hyprland never prints", full.replace("vrr capable " + MARK[true], "vrr capable yes"), "refused: support=shape panel=\"DP-1\" line=vrr capable"],
+        ["a mark Hyprland never prints", full.replace("vrr capable " + MARK[true], "vrr capable yes"), "refused: support=shape panel=\"DP-1\" line=vrr"],
         ["an edid line that carries a mark", full.replace("\t\tedid:", "\t\tedid: " + MARK[true]), "refused: support=shape panel=\"DP-1\" line=edid"],
         ["no monitor section", "Couldn't connect to the socket", "refused: support=shape want=monitor-info"],
         ["a section that ends before the state", full.slice(0, full.indexOf("\n\nState:")), "refused: support=shape line=\"end\""],

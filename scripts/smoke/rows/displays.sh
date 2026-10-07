@@ -200,7 +200,7 @@ expect_poll "with the dim off the service holds no idle watch" '[]' disp_watches
 expect_poll "the service lists the three Apple displays and places none" \
   '[["hidraw0", "ready", 40, [], false], ["hidraw1", "ready", 50, [], false], ["hidraw2", "ready", 70, [], false]]' disp_items
 expect_poll "the service registered both brightness keys" True disp_keys
-for disp_vrr_choice in 0 1 2 3; do
+for disp_vrr_choice in 1 2 3 0; do
   disp_setting vrr "$disp_vrr_choice"
   expect "the configuration reloads for the global VRR choice" ok ipc shell reloadConfig
   expect_poll "the layer writes global misc:vrr=$disp_vrr_choice" "$disp_vrr_choice" disp_vrr
