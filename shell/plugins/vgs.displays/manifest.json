@@ -9,7 +9,7 @@
   "icon": "sun",
   "kinds": ["service", "bar-widget", "panel", "pane"],
   "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml", "pane": "Pane.qml" },
-  "capabilities": ["configure", "idle", "ipc", "layers", "monitors", "requirements", "screens", "shortcut", "status", "surfaces", "system"],
+  "capabilities": ["configure", "hyprland", "idle", "ipc", "layers", "monitors", "requirements", "screens", "shortcut", "status", "surfaces", "system"],
   "defaultSection": "right",
   "pane": { "group": "Hardware", "order": 20 },
   "requirements": [
