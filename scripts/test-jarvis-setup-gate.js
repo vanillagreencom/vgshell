@@ -73,6 +73,13 @@ function verifyReadiness(gate) {
     assert.deepEqual([checking.setup.tone, checking.setup.action], ["info", undefined], "checking: setup");
     for (const key of ["setupVoice", "setupModel"])
         assert.deepEqual([checking[key].tone, checking[key].action], ["info", false], "checking: " + key);
+    for (const causes of [["speech=local-loading"], ["speech=local-loading", "brain=unselected"]]) {
+        const loading = plain(gate.readiness({ kind: "answered", causes }));
+        assert.deepEqual([loading.setupVoice.tone, loading.setupVoice.action], ["info", false]);
+        assert.equal(loading.setup.tone, causes.length === 1 ? "info" : "warning");
+        assert.equal(loading.setup.action, undefined);
+        assert.deepEqual([loading.setupModel.tone, loading.setupModel.action], causes.length === 1 ? ["ok", false] : ["warning", true]);
+    }
     // A stopped daemon runs no check: its steps claim none and offer none.
     const stopped = plain(gate.readiness({ kind: "stopped" }));
     assert.deepEqual(Object.keys(stopped).sort(), ["setup", "setupModel", "setupVoice"], "stopped");
@@ -128,6 +135,7 @@ verify(load(file));
 // Each control removes one rule from a copy and keeps the text around it:
 // [label, needle, replacement].
 const CONTROLS = [
+    ["loading offers setup", 'if (cause === "speech=local-loading") {', 'if (false) {'],
     ["a missing command does not withhold setup", "return missing.indexOf(command) !== -1; });", "return false; });"],
     ["the withheld step keeps its action", 'lacking.join(" and "), action: false', 'lacking.join(" and "), action: value.action'],
     ["any missing command withholds setup", "var lacking = requires.filter(", "var lacking = missing.filter("],

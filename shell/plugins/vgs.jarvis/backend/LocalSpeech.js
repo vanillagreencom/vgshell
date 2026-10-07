@@ -1,4 +1,4 @@
-// The local speech row of the chained engine: one sidecar per conversation,
+// The local speech row of the chained engine: one daemon-owned sidecar,
 // started from the runtime local setup published, in a private network
 // namespace and under the daemon's parent-death signal. Audio's PCM is
 // resampled to the models' 16 kHz and each voice's rate back to Audio's.
@@ -152,10 +152,10 @@ function reader(receive) {
 }
 
 /**
- * Start one conversation's sidecar. transcribe and speak follow the chained
+ * Start one sidecar attempt. transcribe and speak follow the chained
  * engine's adapter contract; every failure is a keyed speech=local-* error.
  */
-function open(state, data, clock = CLOCK) {
+function open(state, data, clock = CLOCK, changed = () => {}) {
     const environment = { LC_ALL: "C.UTF-8" };
     for (const key of ["PATH", "HOME"]) if (process.env[key] !== undefined) environment[key] = process.env[key];
     const child = cp.spawn("unshare", ["--map-current-user", "--net", "--", "setpriv", "--pdeathsig", "KILL", "--",
@@ -163,6 +163,8 @@ function open(state, data, clock = CLOCK) {
         "--parent", String(process.pid)], { env: environment, stdio: ["pipe", "pipe", "pipe"] });
     // starting: before the sidecar's ready; ended: every request fails with error.
     let life = { kind: "starting" };
+    let resolveClosed;
+    const closed = new Promise(resolve => { resolveClosed = resolve; });
     let next = 0;
     let stderr = "";
     const pending = new Map();
@@ -178,6 +180,7 @@ function open(state, data, clock = CLOCK) {
         child.kill("SIGKILL");
         if (abnormal && stderr.trim() !== "")
             process.stderr.write("jarvis: speech-sidecar=" + JSON.stringify(stderr.trim()) + "\n");
+        changed();
     }
     function write(header, payload) {
         if (life.kind === "ended") throw life.error;
@@ -201,6 +204,7 @@ function open(state, data, clock = CLOCK) {
             if (life.kind !== "starting") throw new Error("ready=repeated");
             life = { kind: "ready" };
             clock.clear(readyTimer);
+            changed();
             return;
         case "failed": {
             if (typeof header.cause !== "string" || !CAUSE.test(header.cause) || header.cause.length > 120)
@@ -241,8 +245,10 @@ function open(state, data, clock = CLOCK) {
     child.stderr.on("data", chunk => { stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_BYTES); });
     child.stdin.on("error", error => end(failure("write code=" + error.code), true));
     child.on("error", error => end(failure("spawn code=" + error.code), true));
-    child.on("close", (code, signal) => end(code === 77 ? failure("not-ready")
-        : failure("exit code=" + code + " signal=" + signal), true));
+    child.on("close", (code, signal) => {
+        end(code === 77 ? failure("not-ready") : failure("exit code=" + code + " signal=" + signal), true);
+        resolveClosed({ code, signal, error: life.error });
+    });
 
     // One pending request; settle runs once and removes it.
     function track(kind, settled) {
@@ -267,6 +273,8 @@ function open(state, data, clock = CLOCK) {
     }
 
     return {
+        status: () => life,
+        closed,
         transcribe(frames) {
             let resolve;
             const outcome = new Promise(done => { resolve = done; });
@@ -354,7 +362,7 @@ function open(state, data, clock = CLOCK) {
 /**
  * Ready when local setup published a marker naming a declared tier for this
  * data root. The sidecar asks setup's readiness judge before it loads, so a
- * stale marker fails the first request with speech=local-not-ready.
+ * stale marker refuses readiness with speech=local-not-ready.
  */
 function select({ directories }) {
     const state = directories.state;
@@ -371,7 +379,8 @@ function select({ directories }) {
     if (marker === null || typeof marker !== "object" || typeof marker.tier !== "string"
             || !Object.hasOwn(tiers, marker.tier) || marker.data !== root)
         return unconfigured("speech=local-not-ready", "marker-stale");
-    return { kind: "ready", recipients: RECIPIENTS, open: ({ clock = CLOCK } = {}) => open(state, data, clock) };
+    return { kind: "ready", lifetime: "daemon", recipients: RECIPIENTS,
+        open: ({ clock = CLOCK, changed } = {}) => open(state, data, clock, changed) };
 }
 
 module.exports = { row: Object.freeze({ select }) };

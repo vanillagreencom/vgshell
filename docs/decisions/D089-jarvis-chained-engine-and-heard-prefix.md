@@ -10,7 +10,7 @@
 
 **Refines**: [D079](D079-brains-wire-and-harness-adapters.md), [D070](D070-jarvis-action-policy.md)
 
-**Decision**: One engine object per conversation owns the speech adapter, the brain, the release grants and the heard prefix, and ends them all when Session's generation changes. After a barge-in, the next user turn carries a separate labelled item with the prefix Audio reports as heard, and a cancelled turn stays in history unanswered. A duplex conversation is the same owner over one GPT-Live session, opened before its first capture and closed with the conversation; any server error or refused frame ends the conversation and no other voice takes over.
+**Decision**: One engine object per conversation owns the brain, the release grants and the heard prefix, and ends them all when Session's generation changes. The daemon owns the local speech sidecar across conversations. After a barge-in, the next user turn carries a separate labelled item with the prefix Audio reports as heard, and a cancelled turn stays in history unanswered. A duplex conversation is the same owner over one GPT-Live session, opened before its first capture and closed with the conversation; any server error or refused frame ends the conversation and no other voice takes over.
 
 **Why**: One owner per conversation releases every resource together, so a provider or policy change cannot carry context or grants to a new recipient set. Audio's flush report is the only true heard account, and rewriting the reply would hide a cut reply from the brain. GPT-Live owns turn-taking and sends no output timing or truncate event, so the chained loop cannot host it. `scripts/test-jarvis-engine.js` and `scripts/test-jarvis-live.js` hold both engines.
 

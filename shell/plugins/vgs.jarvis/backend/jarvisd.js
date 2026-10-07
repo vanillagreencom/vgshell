@@ -71,6 +71,16 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     let bridge = null;
     let gate = null;
 
+    function configured(configuration) {
+        if (ending) return;
+        write({ v: 1, type: "status", gen: runner.state.gen, revision: context.revision,
+            daemon: context.locked ? "locked" : "ready",
+            causes: configuration.kind === "ready" ? [] : configuration.causes });
+        // A healthy child is not permission to capture or start a tool.
+        runner.dispatch({ type: "snapshot", locked: context.locked, engine: "chained",
+            configured: configuration.kind === "ready", settings: context.settings });
+    }
+
     function teardown() {
         // The bridge ends its connections while the router can still drop their results.
         if (bridge !== null) bridge.close();
@@ -402,7 +412,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     engine = ChainedEngine.create({ session: Session, state: () => runner.state, audit, router,
                         accounts: () => new Accounts(state, process.env),
                         policy: () => ({ profile: profile(), cloudVision: context.settings.cloudVision }), fault,
-                        captionLimit: Protocol.TRANSCRIPT_CHARS, dispatch: event => runner.dispatch(event), clock,
+                        captionLimit: Protocol.TRANSCRIPT_CHARS, dispatch: event => runner.dispatch(event), clock, configured,
                         harness: { bridge, gate, env: process.env, runtime: () => context.directories.runtime },
                         directories: context.directories });
                     const actionApproval = runner.ports.approval;
@@ -422,12 +432,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                 // Every hello judges the engine again; the status carries each
                 // failing setup step's cause for the shell's setup view.
                 const configuration = engine.configure(context.settings);
-                write({ v: 1, type: "status", gen: runner.state.gen, revision: context.revision,
-                    daemon: context.locked ? "locked" : "ready",
-                    causes: configuration.kind === "ready" ? [] : configuration.causes });
-                // A healthy child is not permission to capture or start a tool.
-                runner.dispatch({ type: "snapshot", locked: context.locked, engine: "chained",
-                    configured: configuration.kind === "ready", settings: context.settings });
+                configured(configuration);
                 if (first) void audio.discover().catch(error => {
                     if (!ending) audio.fault(error.message);
                 });

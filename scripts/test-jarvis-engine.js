@@ -83,9 +83,12 @@ function rig(kit, server, options = {}) {
     // Accounts.choose has its own suite; this stand-in names a loopback row.
     const accounts = () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "ollama", label: "local",
         source: { kind: "local", origin: "http://127.0.0.1:" + PORT }, model: "fixture-model" } }) });
+    const configured = answer => runner.dispatch({ type: "snapshot", locked: false, engine: "chained",
+        configured: answer.kind === "ready", settings: runner.state.settings });
     engine = kit.Engine.create({ session: Session, state: () => runner.state, audit, router, accounts,
         policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => faults.push(reason),
-        captionLimit: options.captionLimit ?? Protocol.TRANSCRIPT_CHARS, dispatch: e => runner.dispatch(e), clock: runnerClock });
+        captionLimit: options.captionLimit ?? Protocol.TRANSCRIPT_CHARS, dispatch: e => runner.dispatch(e), clock: runnerClock,
+        directories: options.directories, configured });
     ports.release = engine.release;
     const actionApproval = ports.approval;
     const daemonSource = fs.readFileSync(path.join(kit.folder, "backend/jarvisd.js"), "utf8");
@@ -103,7 +106,8 @@ function rig(kit, server, options = {}) {
             configured: answer.kind === "ready", settings });
         return answer;
     };
-    assert.deepEqual(configure({ mode: options.mode ?? "hold", microphone: "", speaker: "", brain: "fixture-account" }), { kind: "ready" });
+    const configuration = configure({ mode: options.mode ?? "hold", microphone: "", speaker: "", brain: "fixture-account" });
+    assert.equal(configuration.kind, options.directories ? "unconfigured" : "ready");
     runner.dispatch({ type: "indicator", shown: true });
     const rows = () => {
         const file = path.join(state, "audit/2026-10-01.jsonl");
@@ -165,6 +169,75 @@ async function playOut(w) {
     assert.equal(w.s().playback.kind, "idle", "playback completes");
 }
 const user = body => body.messages.filter(message => message.role === "user").map(message => message.content);
+
+// The real local row and sidecar wire with the interpreter stand-in. Session
+// and Audio still own conversation admission and faults in this rig.
+async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding = "stop") {
+    Fixture.reset();
+    server.replies.length = 0;
+    const kit = Fixture.copy(process.env.JARVIS_TEST_ROOT, edits);
+    const engineFile = path.join(kit.folder, "backend/ChainedEngine.js");
+    const source = fs.readFileSync(engineFile, "utf8");
+    const needle = 'const SPEECH = Object.freeze({ scripted: require(' + JSON.stringify(require.resolve("./fixtures/jarvis/engine.js")) + ').row });';
+    assert.equal(source.split(needle).length - 1, 1);
+    fs.writeFileSync(engineFile, source.replace(needle, "const SPEECH = Object.freeze({ local: LocalSpeech.row });"));
+    fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis/artifacts.json"), path.join(kit.folder, "artifacts.json"));
+    delete require.cache[engineFile];
+    kit.Engine = require(engineFile);
+    const root = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "daemon-speech-"));
+    const local = path.join(root, "local"), state = path.join(root, "state");
+    fs.mkdirSync(path.join(local, "venv/bin"), { recursive: true });
+    fs.mkdirSync(state);
+    fs.copyFileSync(path.join(__dirname, "fixtures/jarvis-local-speech/standin.py"), path.join(local, "venv/bin/python"));
+    fs.chmodSync(path.join(local, "venv/bin/python"), 0o700);
+    const scripts = { start: scenario, utterances: Array.from({ length: 6 }, () => ({ final: "Fixture request." })) };
+    fs.writeFileSync(path.join(local, "scenario.json"), JSON.stringify(scripts));
+    fs.writeFileSync(path.join(state, "local-ready.json"), JSON.stringify({ tier: "small", data: fs.realpathSync(local) }));
+    const logs = () => fs.existsSync(path.join(local, "log.jsonl")) ? fs.readFileSync(path.join(local, "log.jsonl"), "utf8")
+        .trim().split("\n").filter(Boolean).map(JSON.parse) : [];
+    const starts = () => logs().filter(row => row.start).map(row => row.start);
+    const alive = pid => { try { process.kill(pid, 0); return true; } catch (error) { if (error.code === "ESRCH") return false; throw error; } };
+    const w = rig(kit, server, { directories: { state, data: root, runtime: root } });
+    try {
+        assert.equal(w.s().gate.kind, "down");
+        await until(() => starts().length === 1, "sidecar starts before any conversation");
+        if (scenario === "not-ready") {
+            await until(() => !alive(starts()[0].pid), "admission refusal closes child");
+            assert.equal(w.configure(w.s().settings).cause, "speech=local-runtime-not-ready");
+            assert.equal(starts().length, 1);
+            return;
+        }
+        await until(() => w.s().gate.kind === "up", "model ready raises admission");
+        const pid = starts()[0].pid;
+        for (const ending of [firstEnding, "brain-failed", "stop"]) {
+            const before = await say(w, utterance("Fixture request."));
+            const body = await requested(w, before + 1, "first request in conversation");
+            assert.deepEqual(user(body), ["Fixture request."]);
+            assert.equal(starts().length, 1, "conversation starts no new sidecar");
+            if (ending === "brain-failed")
+                w.runner.dispatch({ type: "brain-failed", gen: w.s().gen, op: w.s().turn.op, reason: "brain=fixture-failed" });
+            else w.runner.dispatch({ type: "stop" });
+            await until(() => w.s().conversation.kind === "ended", "conversation ends");
+            assert.equal(alive(pid), true, "conversation end retains healthy sidecar");
+            assert.equal(starts().length, 1);
+        }
+        // A faulted child is reaped. Recovery loads on the next permitted
+        // request; a healthy conversation fault above never paid that load.
+        process.kill(pid, "SIGKILL");
+        await until(() => !alive(pid), "daemon reaps faulted child");
+        assert.equal(w.configure(w.s().settings).kind, "ready");
+        assert.equal(starts().length, 1, "hello does not restart a failed child");
+        const before = await say(w, utterance("Fixture request."));
+        await requested(w, before + 1, "request after sidecar fault");
+        assert.equal(starts().length, 2);
+        assert.notEqual(starts()[1].pid, pid);
+        w.runner.dispatch({ type: "stop" });
+    } finally {
+        await w.close();
+        await until(() => starts().every(row => !alive(row.pid)), "daemon teardown releases speech child");
+        server.closeAll();
+    }
+}
 
 async function cases(kit, server, only = null) {
     const Protocol = load(path.join(kit.folder, "JarvisProtocol.js"));
@@ -823,6 +896,25 @@ world(async () => {
             controls++;
         }
         await cases(Fixture.copy(root), server);
+        await daemonSpeech(server);
+        await daemonSpeech(server, [], "ready", "brain-failed");
+        await daemonSpeech(server, [], "not-ready");
+        for (const [name, edits] of [
+            ["ready before model load", [['speechState.kind === "new") startSpeech(plan.speech);', 'false) startSpeech(plan.speech);']]],
+            ["conversation unloads local speech", [['if (c.plan.speech.lifetime !== "daemon") c.speech.close();', 'c.speech.close();']]],
+            ["faulted child kept", [["daemonSpeech = null;\n            // A loaded", "// A loaded"]]],
+            ["admission refusal admitted", [['{ kind: "refused", error };', '{ kind: "unloaded" };']]]
+        ]) {
+            await assert.rejects(() => daemonSpeech(server, edits, name === "admission refusal admitted" ? "not-ready" : "ready"),
+                assert.AssertionError, name + " control must fail");
+            console.log("control=" + name + " detected");
+            controls++;
+        }
+        await assert.rejects(() => daemonSpeech(server,
+            [['if (c.plan.speech.lifetime !== "daemon") c.speech.close();', 'c.speech.close();']], "ready", "brain-failed"),
+            assert.AssertionError, "conversation fault unload control must fail");
+        console.log("control=conversation fault unloads local speech detected");
+        controls++;
         assert.deepEqual(server.faults, [], "every request matched the pinned schema");
         // Each control plants one defect in a disposable engine copy.
         const plants = [

@@ -64,6 +64,11 @@ function readiness(answer) {
         answer.causes.forEach(function (cause) {
             var step = cause.slice(0, cause.indexOf("="));
             if (!Object.prototype.hasOwnProperty.call(REQUIRED, step)) throw new Error("jarvis-setup: cause=" + cause + " names no step");
+            if (cause === "speech=local-loading") {
+                out.setupVoice = CHECKING;
+                if (answer.causes.length === 1) out.setup = CHECKING_SUMMARY;
+                return;
+            }
             var line = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];
             out[REQUIRED[step]] = { tone: "warning", text: "To do", lines: [line], action: true };
         });

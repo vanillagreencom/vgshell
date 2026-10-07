@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local speech sidecar: speech to text and text to speech for one conversation.
+"""Local speech sidecar: speech to text and text to speech for the daemon.
 
 LocalSpeech.js starts it as the selected runtime's interpreter, inside a
 private network namespace, as `python -I local-speech.py --state DIR --data DIR

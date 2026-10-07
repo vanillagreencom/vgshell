@@ -117,13 +117,43 @@ function selectBrain(settings, accounts) {
  * tool bridge, the HarnessGate, the environment its program is started from
  * and a function answering the runtime directory.
  */
-function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, directories, dispatch, clock }) {
+function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, directories, dispatch, clock, configured = () => {} }) {
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
     let plan = unconfigured("engine=starting");
     let conversation = null;
     let retired = null;
     let closed = false;
     let idleAt = null;
+    let daemonSpeech = null;
+    let speechState = { kind: "new" };
+
+    function configuration() {
+        if (plan.kind !== "ready") return plan;
+        if (["starting", "refused"].includes(speechState.kind)) {
+            const cause = speechState.kind === "refused" ? "speech=local-" + speechState.error.code.split(" ")[0] : "speech=local-loading";
+            return { kind: "unconfigured", cause, causes: [cause] };
+        }
+        return { kind: "ready" };
+    }
+
+    function startSpeech(row) {
+        speechState = { kind: "starting" };
+        const owner = row.open({ clock, changed: () => {
+            if (!closed && owner.status().kind === "ready") {
+                speechState = { kind: "ready" };
+                configured(configuration());
+            }
+        } });
+        daemonSpeech = owner;
+        void owner.closed.then(({ error }) => {
+            if (closed || daemonSpeech !== owner) return;
+            daemonSpeech = null;
+            // A loaded child's fault does not revoke setup admission. The
+            // next permitted capture reloads, after this child is reaped.
+            speechState = speechState.kind === "ready" ? { kind: "unloaded" } : { kind: "refused", error };
+            configured(configuration());
+        });
+    }
 
     function releaseEvent(c, identity, labels, decision, outcome) {
         return { kind: "release", gen: identity.gen, op: identity.op, tool: "release",
@@ -149,7 +179,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             cloudVision: facts.cloudVision, brain: plan.brain.recipient, speech: plan.speech.recipients });
         const net = Net.create(recipients);
         let speech;
-        try { speech = plan.speech.open({ net, recipients }); }
+        if (plan.speech.lifetime === "daemon" && daemonSpeech === null) startSpeech(plan.speech);
+        try { speech = plan.speech.lifetime === "daemon" ? daemonSpeech : plan.speech.open({ net, recipients }); }
         catch (error) { net.close(); throw error; }
         // late holds at most one call: the router runs one action at a time.
         return { gen, plan, recipients, net, speech, brain: null, owner: null, grants: [], heard: null,
@@ -160,6 +191,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         if (gen !== state().gen) fail("stale-conversation");
         if (conversation !== null && conversation.gen !== gen) fail("conversation-generation");
         if (conversation === null) conversation = open(gen);
+        else if (conversation.plan.speech.lifetime === "daemon" && daemonSpeech === null) {
+            startSpeech(conversation.plan.speech);
+            conversation.speech = daemonSpeech;
+        }
         return conversation;
     }
     // Drop the context, the recipient set and its transport before another
@@ -182,7 +217,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         c.brain = null;
         const quiet = brain === null ? Promise.resolve() : brain.cancel();
         brain?.close();
-        c.speech.close();
+        if (c.plan.speech.lifetime !== "daemon") c.speech.close();
         c.net.close();
         retired = { gen: c.gen, closed: quiet };
     }
@@ -632,7 +667,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         /** Select from snapshot settings; the daemon raises its gate only on ready. */
         configure(settings) {
             plan = select(settings, accounts, directories);
-            return plan.kind === "ready" ? { kind: "ready" } : plan;
+            if (plan.kind === "ready" && plan.speech.lifetime === "daemon" && speechState.kind === "new") startSpeech(plan.speech);
+            return configuration();
         },
         observe(s) {
             if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === "ended")) end();
@@ -703,6 +739,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         close() {
             end();
             closed = true;
+            daemonSpeech?.close();
         }
     });
 }
