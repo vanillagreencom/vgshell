@@ -50,6 +50,8 @@ Item {
         probe.running = true;
     }
     function publish() {
+        // A queued refresh invalidates this discovery before it can select a key.
+        if (pending) return;
         const code = completion.kind === "exited" ? completion.code : -1;
         try {
             if (code !== 0) throw new Error("probe");
@@ -60,6 +62,12 @@ Item {
                 || shell.status.set("voiceAccounts", value.voiceAccounts) !== "ok"
                 || shell.status.set("accountSearch", search) !== "ok"
                 || shell.status.set("setupSignIn", { tone: "info", text: "Optional", action: true }) !== "ok") throw new Error("status");
+            // voiceAccounts already contains only present OpenAI key references.
+            // configure.set uses the core writer for every entry the service reads.
+            if (shell.settings.voiceAccount === "" && value.voiceAccounts.length === 1) {
+                if (shell.configure.set("voiceAccount", value.voiceAccounts[0].value) !== "ok")
+                    console.warn("jarvis-accounts: voice-selection=refused");
+            }
         } catch (error) {
             const reason = Providers.probeFailure(completion, diagnostic);
             console.warn(reason);

@@ -63,6 +63,85 @@ world(async () => {
     store.add({ provider: "claude", directory: hand, label: "hand" });
     assert.equal(fs.statSync(store.file).mode & 0o777, 0o600);
     let cases = 0, controls = 0;
+    // Execute the shipped QML publication callback. Process timing and drawing
+    // remain the nested smoke's contract; these cases judge its write decision.
+    const publicationSource = fs.readFileSync(path.join(plugin, "Accounts.qml"), "utf8");
+    const publicationCases = [
+        { name: "sole", choices: ["key-a"], writes: ["key-a"] },
+        { name: "zero", choices: [], writes: [] },
+        { name: "multiple", choices: ["key-a", "key-b"], writes: [] },
+        { name: "explicit", choices: ["key-a"], selected: "key-b", writes: [] },
+        { name: "failed", choices: ["key-a"], code: 1, writes: [] },
+        { name: "invalid", choices: ["key-a"], invalid: true, writes: [] },
+        { name: "stale", choices: ["key-a"], pending: true, writes: [] },
+        { name: "refused", choices: ["key-a"], refuseWrite: true, writes: ["key-a"] },
+        ...["accounts", "brains", "voiceAccounts", "accountSearch"].map(key =>
+            ({ name: "status-" + key, choices: ["key-a"], refuseStatus: key, writes: [] }))
+    ];
+    function publication(source, row) {
+        const vm = require("node:vm");
+        const matches = [...source.matchAll(/^    function publish\(\) \{\n[\s\S]*?^    \}/gm)];
+        assert.equal(matches.length, 1);
+        const writes = [], reports = new Map(), warnings = [];
+        let refreshed = 0;
+        const initial = row.selected ?? "";
+        const root = { pending: row.pending ?? false, completion: { kind: "exited", code: row.code ?? 0 },
+            diagnostic: { kind: "collected", text: "" },
+            output: row.invalid ? "broken" : JSON.stringify({ accounts: [], brains: [],
+                voiceAccounts: row.choices.map(value => ({ value, label: "Fixture " + value })),
+                search: { found: row.choices.length, partial: "" } }),
+            refreshed: () => refreshed++, shell: { settings: { voiceAccount: initial },
+                status: { set: (key, value) => {
+                    if (row.refuseStatus === key && !reports.has(key)) { reports.set(key, null); return "refused"; }
+                    reports.set(key, value); return "ok";
+                } },
+                configure: { set: (key, value) => {
+                    assert.equal(key, "voiceAccount"); writes.push(value);
+                    if (row.refuseWrite) return "refused";
+                    root.shell.settings.voiceAccount = value; return "ok";
+                } } } };
+        const context = vm.createContext({ root, Providers: { probeFailure },
+            Words: require(path.join(plugin, "AccountStatus.js")), console: { warn: value => warnings.push(value) } });
+        vm.runInContext("(function() { with(root) { return (" + matches[0][0] + ").call(root); } })()", context);
+        assert.deepEqual(writes, row.writes);
+        assert.equal(root.shell.settings.voiceAccount, row.refuseWrite || row.writes.length === 0 ? initial : "key-a");
+        assert.equal(refreshed, row.pending ? 0 : 1);
+        if (row.pending) assert.equal(reports.size, 0);
+        else {
+            const failed = row.code === 1 || row.invalid || row.refuseStatus;
+            assert.equal(reports.get("accountSearch").tone, failed ? "danger" : row.choices.length ? "ok" : "info");
+            assert.deepEqual(Array.from(reports.get("voiceAccounts"), item => item.value), failed ? [] : row.choices);
+            assert.equal(warnings.length, failed || row.refuseWrite ? 1 : 0);
+        }
+    }
+    for (const row of publicationCases) { publication(publicationSource, row); cases++; }
+    const selectionControls = [
+        ["sole", 'shell.configure.set("voiceAccount", value.voiceAccounts[0].value)', 'shell.configure.set("voiceAccount", "key-b")'],
+        ["zero", "value.voiceAccounts.length === 1", "value.voiceAccounts.length <= 1"],
+        ["multiple", "value.voiceAccounts.length === 1", "value.voiceAccounts.length > 0"],
+        ["explicit", 'shell.settings.voiceAccount === ""', "true"],
+        ["failed", 'if (code !== 0) throw new Error("probe");', "void code;"],
+        ["invalid", "JSON.parse(output)", 'JSON.parse(output === "broken" ? JSON.stringify({accounts: [], brains: [], voiceAccounts: [{value: "key-a", label: "Fixture"}], search: {found: 1, partial: ""}}) : output)'],
+        ["stale", "if (pending) return;", "if (false) return;"],
+        ["refused", 'console.warn("jarvis-accounts: voice-selection=refused");', "void 0;"]
+    ];
+    for (const key of ["accounts", "brains", "voiceAccounts", "accountSearch"]) {
+        const argument = { accounts: "accounts", brains: "value.brains", voiceAccounts: "value.voiceAccounts", accountSearch: "search" }[key];
+        selectionControls.push(["status-" + key, 'shell.status.set("' + key + '", ' + argument + ') !== "ok"',
+            '(shell.status.set("' + key + '", ' + argument + '), false)']);
+    }
+    for (const [name, needle, replacement] of selectionControls) {
+        assert.equal(publicationSource.split(needle).length - 1, 1);
+        assert.throws(() => publication(publicationSource.replace(needle, replacement),
+            publicationCases.find(row => row.name === name)), assert.AssertionError, name);
+        controls++;
+    }
+    const manifest = JSON.parse(fs.readFileSync(path.join(plugin, "manifest.json"), "utf8"));
+    const configured = value => assert.equal(value.capabilities.includes("configure"), true);
+    configured(manifest);
+    assert.throws(() => configured({ ...manifest, capabilities: manifest.capabilities.filter(value => value !== "configure") }),
+        assert.AssertionError);
+    cases++; controls++;
     const diagnosticCases = [
         ["jarvis-accounts: directory=link\n", "jarvis-accounts: directory=link"],
         ["jarvis-accounts: added=json\n", "jarvis-accounts: added=json"],
