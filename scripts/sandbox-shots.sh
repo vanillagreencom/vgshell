@@ -2666,6 +2666,12 @@ PYKEYBOARD
     expect_poll "the Keyboard layout catalog is ready" '"ready"' keyboard_shot_catalog
     park_pointer
     take "system-$1-keyboard"
+    keyboard_shot_reveal "Key Repeat"
+    park_pointer
+    take "system-$1-keyboard-repeat"
+    keyboard_shot_reveal "Modifier Options"
+    park_pointer
+    take "system-$1-keyboard-modifiers"
     expect "System hides after the keyboard pane shot" ok ipc shell hide window vgs.system
     expect_poll "System is gone before the keyboard widget shot" hidden system_shown
     park_pointer
@@ -2679,6 +2685,11 @@ PYKEYBOARD
     rm -f -- "${home:?}/.local/state/vgshell/plugins/vgs.displays/assignments.json"
   fi
   expect "disabling vgs.system after its shot is allowed" ok ipc shell setPluginEnabled vgs.system false
+}
+keyboard_shot_reveal() {
+  local at
+  at="$(ipc smoke revealText window vgs.system SectionHeader "$1")" || { fail "the Keyboard section cannot be revealed"; return 1; }
+  [[ $at =~ ^[0-9]+([.][0-9]+)?$ ]] || { fail "the Keyboard section has no scroll position: $at"; return 1; }
 }
 keyboard_shot_layouts() { hypr -j getoption input:kb_layout | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("str")))'; }
 keyboard_shot_catalog() { ipc smoke statusValues vgs.keyboard | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("catalog", {}).get("state", "absent")))'; }
