@@ -81,7 +81,7 @@ world(async () => {
         const auditFile = path.join(root, "state/audit/2026-10-01.jsonl");
         const rows = () => fs.existsSync(auditFile)
             ? fs.readFileSync(auditFile, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
-        const ports = { ...unavailable(), mute: { store() {} },
+        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {} } };
         const runner = new SessionRunner(Session, ports, { now: () => at, set: (fn, ms) => {

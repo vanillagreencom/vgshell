@@ -99,6 +99,19 @@ s=json.load(sys.stdin)["status"]; t=s.get("transcript")
 print("none" if t is None else "current" if t["gen"]==s["detail"]["state"]["gen"] else "stale")
 '
 }
+jarvis_bubble_text() { # TEXT
+  ipc smoke layerItems vgs.jarvis Label text,visible | py_reply '
+import json,sys
+rows=json.load(sys.stdin)
+print("drawn" if any(v["visible"] and v["text"]==sys.argv[1] and box[2]>0 and box[3]>0 for _,box,v in rows) else "absent")
+' "$1"
+}
+# Re-publish a real caption from the ended conversation to test the generation
+# consumer after the next turn has supplied its own authoritative user text.
+jarvis_bubble_old_caption() {
+  expect "the service status writer is held for the old-caption control" held ipc smoke holdStatus service vgs.jarvis
+  expect "the earlier caption reaches the existing status input" ok ipc smoke heldStatusSet transcript "$jarvis_bubble_earlier"
+}
 # After jarvis_bubble_begin: one thinking turn; on request, the engine's
 # scripted reply releases its words.
 jarvis_bubble_think() { # [caption]
@@ -348,6 +361,18 @@ done
 
 jarvis_bubble_reply="$(python3 -c 'print(" ".join(["scripted reply"] * 24))')"
 jarvis_bubble_begin
+jarvis_key_gate partial
+expect_poll "the user's partial draws while capture stays open" drawn jarvis_bubble_text 'scripted draft'
+expect "a drawn partial leaves the utterance collecting" collecting jarvis_key_state turn
+jarvis_bubble_think
+expect_poll "the final replaces the user's draft while the brain thinks" drawn jarvis_bubble_text 'scripted utterance'
+expect "the replaced draft leaves the bubble" absent jarvis_bubble_text 'scripted draft'
+jarvis_key_gate reply
+expect_poll "the reply replaces the user's final" latest-lines jarvis_bubble_words
+jarvis_bubble_earlier="$(ipc smoke statusValues vgs.jarvis | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["transcript"]))')"
+jarvis_key_stop
+jarvis_key_stop_assertion
+jarvis_bubble_begin
 jarvis_bubble_think caption
 expect_poll "the bubble draws the latest three lines of Jarvis's words" latest-lines jarvis_bubble_words
 expect "the worded bubble keeps its presented indicator" presented jarvis_bubble_state
@@ -358,6 +383,7 @@ jarvis_key_stop
 jarvis_key_stop_assertion
 jarvis_bubble_begin
 jarvis_bubble_think
+jarvis_bubble_old_caption
 expect "the status still holds the ended conversation's caption" stale jarvis_bubble_caption
 expect "a new conversation draws none of the last one's words" absent jarvis_bubble_words
 jarvis_key_stop
@@ -435,7 +461,7 @@ p=Path(sys.argv[1]); assert not p.is_symlink()
 needle,replacement={
     "geometry": ("anchors.bottomMargin: Theme.voiceBubble.margin", "anchors.bottomMargin: Theme.voiceBubble.margin + Theme.voiceBubble.gap"),
     "focus": ("screen.name === service.focusedOutput", "true"),
-    "words": ('caption.role === "assistant"', "false"),
+    "words": ('caption !== null && caption.gen', "false && caption.gen"),
     "lines": ("Theme.voiceBubble.textLines * tail.lineBox", "(Theme.voiceBubble.textLines + 1) * tail.lineBox"),
     "head": ("y: parent.height - height", "y: 0"),
     "generation": ("caption.gen === state.gen", "true"),
@@ -520,10 +546,12 @@ PY
       expect_poll "control: the first three lines fail the same words reader" first-lines jarvis_bubble_words ;;
     generation)
       jarvis_bubble_think caption
+      jarvis_bubble_earlier="$(ipc smoke statusValues vgs.jarvis | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["transcript"]))')"
       jarvis_key_stop
       jarvis_key_stop_assertion
       jarvis_bubble_begin
       jarvis_bubble_think
+      jarvis_bubble_old_caption
       expect_poll "control: ignoring the conversation fails the same words reader" latest-lines jarvis_bubble_words ;;
   esac
   jarvis_key_stop

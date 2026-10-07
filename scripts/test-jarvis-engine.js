@@ -170,6 +170,7 @@ async function playOut(w) {
     assert.equal(w.s().playback.kind, "idle", "playback completes");
 }
 const user = body => body.messages.filter(message => message.role === "user").map(message => message.content);
+const assistantCaptions = w => w.captions.filter(row => row[1] === "assistant");
 
 // The real local row and sidecar wire with the interpreter stand-in. Session
 // and Audio still own conversation admission and faults in this rig.
@@ -471,7 +472,10 @@ async function cases(kit, server, only = null) {
         "a fully played reply adds no heard context");
         await until(() => w.s().turn.kind === "none", "the empty reply completes");
         const gen = w.s().gen;
-        assert.deepEqual(w.captions, [[gen, "assistant", "partial", 1, "It is noon."],
+        assert.deepEqual(w.captions.filter(row => row[1] === "user").map(row => [row[2], row[4]]),
+            [["final", "What time is it?"], ["final", "Thanks."]], "user finals replace the drafts and reach the shell");
+        assert.ok(control.detections.length > 0 && control.detections.every(value => value === false), "hold does not detect a turn end");
+        assert.deepEqual(assistantCaptions(w), [[gen, "assistant", "partial", 1, "It is noon."],
             [gen, "assistant", "partial", 2, "It is noon. Anything else?"], [gen, "assistant", "final", 3, "It is noon. Anything else?"]],
         "each released sentence grows the reply's caption, final at its end; an empty reply adds none");
         const releases = w.rows().filter(row => row.kind === "release");
@@ -563,7 +567,7 @@ async function cases(kit, server, only = null) {
         await until(() => w.s().playback.kind === "playing", "the final reply speaks");
         await playOut(w);
         assert.deepEqual(control.spoken, ["Focused it."]);
-        assert.deepEqual(w.captions.map(row => row.slice(2)), [["partial", 1, "Focused it."], ["final", 2, "Focused it."]],
+        assert.deepEqual(assistantCaptions(w).map(row => row.slice(2)), [["partial", 1, "Focused it."], ["final", 2, "Focused it."]],
             "a tool round's reply is captioned once, at its end");
         assert.deepEqual(w.faults, []);
     });
@@ -578,7 +582,7 @@ async function cases(kit, server, only = null) {
         await requested(w, second + 1, "second request");
         server.replies.push(text("Bye now. More").slice(0, 2));
         await until(() => w.s().fault.kind === "error", "the cut reply fails");
-        assert.deepEqual(w.captions.map(row => row.slice(2)), [
+        assert.deepEqual(assistantCaptions(w).map(row => row.slice(2)), [
             ["partial", 1, "It is noon."], ["final", 2, "It is noon."], ["partial", 3, "Anything els"],
             ["final", 4, "Anything els"], ["partial", 5, "e?"], ["final", 6, "e?"],
             ["partial", 7, "Bye now."], ["final", 8, "Bye now."]], "segments split at the bound");
@@ -677,6 +681,8 @@ async function cases(kit, server, only = null) {
         const next = await requested(w, before + 2, "the second toggle turn",
             () => control.finals === 3 && w.s().turn.kind === "collecting");
         assert.equal(user(next).at(-1), "Second turn.");
+        assert.ok(control.detections.length > 0 && control.detections.every(value => value === true),
+            "toggle sends local turn-detection admission to each utterance");
     }, { mode: "toggle" });
 
     // A transcription that fails after its capture closed ends its turn.
@@ -960,7 +966,7 @@ async function cases(kit, server, only = null) {
         await until(() => w.s().fault.kind === "error", "the turn fails");
         assert.equal(w.s().fault.reason, "engine=audit-write");
         assert.deepEqual(control.spoken, [], "no text reaches speech without its audit record");
-        assert.deepEqual(w.captions, [], "no text is captioned without its release");
+        assert.deepEqual(assistantCaptions(w), [], "no assistant text is captioned without its release");
     });
 
     // The plan's context bound: the fortieth turn is sent, the next fails.
@@ -1160,6 +1166,8 @@ world(async () => {
             ["history-taint", "router.observe(turn, reply.release.labels);", "void reply;", "history-taint"],
             ["toggle-adoption", 'c.unbound !== null && c.unbound.state === "running" ? c.unbound : null',
                 "c.unbound", "toggle-turns"],
+            ["toggle-detection", 'transcribe(frames, { detect: e.mode !== "hold" })',
+                'transcribe(frames, { detect: false })', "toggle-turns"],
             ["collect-failure", "else if (collecting(c, utterance.collection)) utterance.collection.failed(keyed(error));",
                 "else if (false) utterance.collection.failed(keyed(error));", "transcribe-failure"],
             ["speech-gates-brain", 'turn.speech?.end();\n                        concluded(c, turn);',

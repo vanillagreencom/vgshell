@@ -79,7 +79,7 @@ Item {
     readonly property string words: state === null || root.hold !== null ? ""
         : fault !== null ? fault.action
         : state.turn.kind === "collecting" ? state.turn.partial
-        : caption !== null && caption.role === "assistant" && caption.gen === state.gen ? caption.text : ""
+        : caption !== null && caption.gen === state.gen ? caption.text : ""
 
     visible: shown
     Component.onCompleted: if (service !== null) service.attachBubble(root)

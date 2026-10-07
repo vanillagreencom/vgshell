@@ -79,7 +79,7 @@ async function main() {
         const waiters = [];
         const directory = fs.mkdtempSync(path.join(world, "desktop-audit-"));
         const audit = Audit.create({ state: directory, now: () => Date.UTC(2026, 9, 1) });
-        const ports = { ...unavailable(), mute: { store() {} },
+        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {},
                 outcome: value => { waiters.splice(0).forEach(resolve => resolve(value)); } } };

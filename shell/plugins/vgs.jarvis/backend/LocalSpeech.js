@@ -33,7 +33,8 @@ const RECIPIENTS = Object.freeze([Object.freeze({ kind: "local", provider: "loca
 const CAUSE = /^[a-z-]+(?: [a-z]+=[0-9A-Za-z._-]+)*$/;
 // The keys of each sidecar message and whether it carries a payload.
 const SHAPES = Object.freeze({
-    ready: [["type"], false], final: [["id", "text", "type"], false], audio: [["id", "type"], true],
+    ready: [["type"], false], partial: [["id", "rev", "text", "type"], false],
+    final: [["id", "text", "type"], false], audio: [["id", "type"], true],
     spoken: [["id", "rate", "type"], false], failed: [["cause", "type"], false]
 });
 
@@ -213,6 +214,13 @@ function open(state, data, clock = CLOCK, changed = () => {}) {
             request(header, pending.get(header.id)?.kind)?.settle({ kind: "failed", error: failure(header.cause) });
             return;
         }
+        case "partial": {
+            if (typeof header.text !== "string" || !Number.isSafeInteger(header.rev) || header.rev < 1)
+                throw new Error("partial=invalid");
+            const utterance = request(header, "utterance");
+            if (utterance !== undefined) utterance.partial(header);
+            return;
+        }
         case "final":
             if (typeof header.text !== "string") throw new Error("final=invalid");
             request(header, "utterance")?.settle({ kind: "final", text: header.text });
@@ -275,10 +283,20 @@ function open(state, data, clock = CLOCK, changed = () => {}) {
     return {
         status: () => life,
         closed,
-        transcribe(frames) {
+        transcribe(frames, { detect = false } = {}) {
             let resolve;
             const outcome = new Promise(done => { resolve = done; });
             const { id, value } = track("utterance", resolve);
+            let rev = 0, partial = null, terminal = null, wake = null;
+            const notify = () => { wake?.(); wake = null; };
+            value.partial = header => {
+                if (header.rev <= rev) throw new Error("partial=revision");
+                rev = header.rev;
+                // Keep only the newest undrawn snapshot, never a growing queue.
+                partial = { kind: "partial", text: header.text, rev };
+                notify();
+            };
+            void outcome.then(result => { terminal = result; stop(); notify(); });
             const input = frames[Symbol.asyncIterator]();
             // running: sending capture; ended: this side stopped reading frames.
             let sending = { kind: "running" };
@@ -287,8 +305,8 @@ function open(state, data, clock = CLOCK, changed = () => {}) {
                 sending = { kind: "ended" };
                 void input.return?.();
             }
-            void outcome.then(stop);
             (async () => {
+                write({ type: "listen", id, detect });
                 const resampler = new Resampler(PCM_RATE, MODEL_RATE);
                 let carry = Buffer.alloc(0);
                 for (;;) {
@@ -311,7 +329,13 @@ function open(state, data, clock = CLOCK, changed = () => {}) {
                 [Symbol.asyncIterator]() { return this; },
                 async next() {
                     if (answered) return { value: undefined, done: true };
-                    const result = await outcome;
+                    while (terminal === null && partial === null) await new Promise(done => { wake = done; });
+                    if (terminal === null) {
+                        const event = partial;
+                        partial = null;
+                        return { value: event, done: false };
+                    }
+                    const result = terminal;
                     answered = true;
                     switch (result.kind) {
                     case "final": return { value: { kind: "final", text: result.text }, done: false };

@@ -25,6 +25,7 @@ function setup(Implementation = Audio, sink = null, source = null, clock = null)
         playbackSource: () => source || new PassThrough()
     });
     const ports = unavailable();
+    ports.transcript = () => {}; // Captions are outside this audio lifetime surface.
     ports.capture = { ...ports.capture, ...audio.capturePort,
         collect: () => {} }; // Speech is outside this audio lifetime surface.
     ports.playback = audio.playbackPort;

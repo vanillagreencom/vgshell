@@ -171,7 +171,7 @@ async function main() {
         const waiters = [];
         const auditRoot = fs.mkdtempSync(path.join(root, "vision-audit-"));
         const audit = Audit.create({ state: auditRoot, now: () => Date.UTC(2026, 9, 1) });
-        const ports = { ...unavailable(), mute: { store() {} },
+        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {},
                 outcome: value => { waiters.splice(0).forEach(resolve => resolve(value)); } } };

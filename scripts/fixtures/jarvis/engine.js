@@ -20,7 +20,7 @@ const CHUNK_FRAMES = 24000; // Below Audio's 64 KiB chunk bound.
 const control = {};
 function reset(options = {}) {
     Object.assign(control, { ready: true, recipients: [{ kind: "local", provider: "scripted-speech", account: "" }],
-        utterances: [], spoken: [], labels: new Set(), opened: [], closed: 0, aborted: 0, finals: 0, frames: 0, ...options });
+        utterances: [], detections: [], spoken: [], labels: new Set(), opened: [], closed: 0, aborted: 0, finals: 0, frames: 0, ...options });
 }
 reset();
 
@@ -59,7 +59,8 @@ function adapter(net, recipients) {
         // Partials follow successive frames; the final follows the last
         // frame. A yielded final is counted as delivered, a return() before
         // the final as abandoned.
-        transcribe(frames) {
+        transcribe(frames, options) {
+            control.detections.push(options.detect);
             const script = control.utterances.shift();
             assert.ok(script, "a scripted utterance exists for each capture");
             const events = script.events ?? [...script.partials.map((text, index) => ({ kind: "partial", text, rev: index + 1 })),

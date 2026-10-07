@@ -220,7 +220,7 @@ async function pointerAuthority(makeInput, refined) {
     const changes = ["lock", "stop", "generation", "expiry", "policy"];
     async function run(module, transport, hold, change, action = actions[0], finalOnly = false) {
         let at = 0, transcript, locked = false;
-        const ports = { ...unavailable(), mute: { store() {} },
+        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {}, outcome() {} } };
         const runner = new SessionRunner(Session, ports, { now: () => at, set: () => ({}), clear() {} }, () => {});
@@ -291,7 +291,7 @@ async function routerEvidence() {
     function make(module = Router, profile = "standard") {
         let at = 0, transcript, answer;
         const results = [], starts = [];
-        const ports = { ...unavailable(), mute: { store() {} }, capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
+        const ports = { ...unavailable(), mute: { store() {} }, transcript() {}, capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {}, outcome() {} } };
         const runner = new SessionRunner(Session, ports, { now: () => at, set: () => ({}), clear() {} }, () => {});
         const router = module.create({ session: Session, state: () => runner.state, dispatch: event => runner.dispatch(event),

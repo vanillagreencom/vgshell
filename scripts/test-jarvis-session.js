@@ -63,6 +63,23 @@ function duplexSpeaking(logic) {
     return step(logic, s, callback("speak", s.speech, 32)).state;
 }
 const table = [
+    ["final-caption", logic => {
+        let s = listening(logic);
+        const draft = step(logic, s, callback("partial", s.turn, 21, { text: "draft words" }));
+        assert.equal(kinds(draft).includes("brain-send"), false);
+        s = draft.state;
+        const r = step(logic, s, callback("final", s.turn, 22, { text: "final words" }));
+        const caption = r.effects.find(e => e.kind === "transcript");
+        assert.ok(caption, "the final reaches the caption consumer");
+        assert.deepEqual([caption.role, caption.stage, caption.text], ["user", "final", "final words"]);
+        assert.ok(Number.isSafeInteger(caption.rev) && caption.rev > 0);
+        assert.equal(r.effects.find(e => e.kind === "brain-send").text, "final words");
+        assert.ok(kinds(r).indexOf("transcript") < kinds(r).indexOf("brain-send"));
+        const late = step(logic, r.state, callback("final", s.turn, 23, { text: "late" }));
+        assert.equal(kinds(late).includes("transcript"), false);
+        assert.equal(kinds(step(logic, s, callback("final", s.turn, 23, { text: "" }))).includes("transcript"), false,
+            "silence sends no invalid empty caption");
+    }],
     ["collection-deadline", logic => {
         let s = listening(logic);
         assert.equal(s.turn.deadline, null);
@@ -1187,6 +1204,11 @@ try {
             'if (false && e.id !== s.approval.id) { stale(s); break; }', "shown-id"],
         ["cancel-id", 'if (e.id !== s.approval.id || e.gen !== s.approval.gen)',
             'if (false && (e.id !== s.approval.id || e.gen !== s.approval.gen))', "cancel-id"],
+        ["final-caption", 'effect(s, effects, "transcript", { role: "user", text: e.text, stage: "final", rev: e.op });',
+            'void e;', "final-caption"],
+        ["caption-final-text", 'role: "user", text: e.text, stage: "final"',
+            'role: "user", text: s.turn.partial, stage: "final"', "final-caption"],
+        ["caption-silence", 'if (e.text.length !== 0)', 'if (true)', "final-caption"],
         ["key-mode", 'if (s.settings.mode === "toggle") { toggle(s, effects, e.at); break; }',
             'if (false) { toggle(s, effects, e.at); break; }', "key-mode"],
         ["mute-key-store", 'effect(s, effects, "mute-store", { muted: true });',

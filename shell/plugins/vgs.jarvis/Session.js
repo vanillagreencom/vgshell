@@ -404,6 +404,8 @@ function reduce(state, e) {
         break;
     case "final":
         if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
+        if (e.text.length !== 0)
+            effect(s, effects, "transcript", { role: "user", text: e.text, stage: "final", rev: e.op });
         if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
         if (s.input.kind === "held") s.input = { kind: "released" };
         closeCapture(s, effects);

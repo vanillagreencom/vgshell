@@ -48,7 +48,7 @@ world(async () => {
         let at = 0, locked = false, transcript, waiting;
         const results = [], statuses = [], deadlines = new Map();
         const audit = Audit.create({ state: fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "shell-audit-")) });
-        const ports = { ...unavailable(), mute: { store() {} },
+        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
             capture: { open: (_e, done) => done(), close: (_e, done) => done(), collect: (_e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (_e, done) => done(), close() {}, outcome() {} } };
         const runner = new SessionRunner(Session, ports, { now: () => at,

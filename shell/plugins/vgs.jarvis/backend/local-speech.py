@@ -9,9 +9,11 @@ under it, and loads only after setup's readiness judge answers ready.
 Wire, both directions: frames of a u32be header length, a u32be payload length,
 a UTF-8 JSON object header and the payload bytes. Audio is float32 little-endian
 mono. Ids are positive integers; each new request takes a larger id.
-  in:  {type:"audio", id} + 16 kHz samples; {type:"end", id}; {type:"abort", id};
+  in:  {type:"listen", id, detect}; {type:"audio", id} + 16 kHz samples;
+       {type:"end", id}; {type:"abort", id};
        {type:"speak", id} + one sentence's UTF-8 text
-  out: {type:"ready"} once; {type:"final", id, text}; {type:"audio", id} + samples;
+  out: {type:"ready"} once; {type:"partial", id, text, rev}; {type:"final", id, text};
+       {type:"audio", id} + samples;
        {type:"spoken", id, rate}; {type:"failed", id?, cause}
 A failed frame without an id ends the sidecar. A message for an utterance the
 sidecar already answered crossed that answer and is dropped. Stdin EOF exits 0;
@@ -43,6 +45,8 @@ UTTERANCE_SAMPLES = 120 * RATE
 PAD_SAMPLES = 3200
 CUT_FRAME = 320
 VAD_WINDOW = 512
+# Retry semantic completion after more silence, without a wall-clock timer.
+TURN_INTERVAL = RATE // 2
 SPEECH_TO_TEXT = ("moonshine", "parakeet")
 TEXT_TO_SPEECH = ("piper", "kokoro")
 
@@ -131,13 +135,15 @@ def detect(vad, samples, waveform):
 class Speech:
     """The loaded models of one tier and the input bound of its recognizer."""
 
-    def __init__(self, recognizer, bound, vad, tts, rate, waveform):
+    def __init__(self, recognizer, bound, vad, tts, rate, waveform, captions, turn):
         self.recognizer = recognizer
         self.bound = bound
         self.vad = vad
         self.tts = tts
         self.rate = rate
         self.waveform = waveform
+        self.captions = captions
+        self.turn = turn
 
     def transcribe(self, samples):
         """Decode each chunk on a fresh stream, in order; join the texts once.
@@ -173,6 +179,62 @@ class Speech:
         if not samples or not all(math.isfinite(v) for v in samples) or not any(samples):
             raise Failed("synthesis-empty")
         return self.rate, samples
+
+
+class Utterance:
+    """One capture: cached CPU captions and a semantic end after VAD silence.
+
+    Only the offline recognizer supplies the final. Nemotron's partial result
+    can change any word and never becomes a final or a confirmation phrase.
+    """
+
+    def __init__(self, speech, detect_turn):
+        self.speech = speech
+        self.detect_turn = detect_turn
+        self.samples = array("f")
+        self.offset = 0
+        self.last_turn = 0
+        self.has_segment = False
+        self.text = ""
+        self.rev = 0
+        self.stream = speech.captions.create_stream()
+        self.stream.set_option("language", "en")
+        speech.vad.reset()
+
+    def push(self, received):
+        if len(self.samples) + len(received) > UTTERANCE_SAMPLES:
+            raise Failed("utterance-too-long")
+        self.samples.extend(received)
+        speech = self.speech
+        # The pinned sherpa-onnx API keeps model state on this stream.
+        # https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/sherpa-onnx/python/csrc/online-recognizer.cc
+        self.stream.accept_waveform(RATE, speech.waveform(received))
+        while speech.captions.is_ready(self.stream):
+            speech.captions.decode_stream(self.stream)
+        text = speech.captions.get_result(self.stream).strip()
+        partial = None
+        if text and text != self.text:
+            self.text = text
+            self.rev += 1
+            partial = {"type": "partial", "text": text, "rev": self.rev}
+        # is_speech_detected reports active speech, not a queued segment.
+        # A max-duration segment must not end a turn while speech continues.
+        # https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/sherpa-onnx/python/csrc/voice-activity-detector.cc
+        while self.offset + VAD_WINDOW <= len(self.samples):
+            speech.vad.accept_waveform(speech.waveform(self.samples[self.offset:self.offset + VAD_WINDOW]))
+            self.offset += VAD_WINDOW
+            while not speech.vad.empty():
+                self.has_segment = True
+                speech.vad.pop()
+        ended = False
+        if self.detect_turn and self.has_segment and not speech.vad.is_speech_detected() \
+                and len(self.samples) - self.last_turn >= TURN_INTERVAL:
+            self.last_turn = len(self.samples)
+            probability = speech.turn(self.samples)
+            if not math.isfinite(probability) or not 0 <= probability <= 1:
+                raise Failed("turn-probability")
+            ended = probability >= 0.5
+        return partial, ended
 
 
 def little(samples):
@@ -222,7 +284,8 @@ def send(writer, header, payload=b""):
 
 
 # The keys each inbound type carries, and whether it carries a payload.
-SHAPES = {"audio": ({"type", "id"}, True), "end": ({"type", "id"}, False),
+SHAPES = {"listen": ({"type", "id", "detect"}, False),
+          "audio": ({"type", "id"}, True), "end": ({"type", "id"}, False),
           "abort": ({"type", "id"}, False), "speak": ({"type", "id"}, True)}
 
 
@@ -239,6 +302,11 @@ def serve(reader, writer, speech):
             raise Protocol("id=invalid")
         fresh = ident > highest
         highest = max(highest, ident)
+        if kind == "listen":
+            if not fresh or type(header["detect"]) is not bool or utterances:
+                raise Protocol("listen=invalid")
+            utterances[ident] = Utterance(speech, header["detect"])
+            continue
         if kind == "speak":
             try:
                 text = payload.decode("utf-8")
@@ -257,7 +325,7 @@ def serve(reader, writer, speech):
             send(writer, {"type": "spoken", "id": ident, "rate": rate})
             continue
         if fresh:
-            utterances[ident] = array("f")
+            raise Protocol("utterance=unstarted")
         if ident not in utterances:
             continue
         if kind == "abort":
@@ -265,16 +333,20 @@ def serve(reader, writer, speech):
         elif kind == "audio":
             if len(payload) % 4:
                 raise Protocol("audio=partial-sample")
-            buffer = utterances[ident]
-            if len(buffer) + len(payload) // 4 > UTTERANCE_SAMPLES:
-                del utterances[ident]
-                send(writer, {"type": "failed", "id": ident, "cause": "utterance-too-long"})
-                continue
             received = array("f")
             received.frombytes(payload)
-            buffer.extend(little(received))
+            try:
+                partial, ended = utterances[ident].push(little(received))
+                if partial is not None:
+                    send(writer, {**partial, "id": ident})
+                if ended:
+                    samples = utterances.pop(ident).samples
+                    send(writer, {"type": "final", "id": ident, "text": speech.transcribe(samples)})
+            except Failed as failure:
+                utterances.pop(ident, None)
+                send(writer, {"type": "failed", "id": ident, "cause": str(failure)})
         else:
-            samples = utterances.pop(ident)
+            samples = utterances.pop(ident).samples
             try:
                 send(writer, {"type": "final", "id": ident, "text": speech.transcribe(samples)})
             except Failed as failure:
@@ -306,13 +378,14 @@ def roles(artifacts, tier):
     for artifact in artifacts:
         engine = artifact["engine"]
         role = ("stt" if engine in SPEECH_TO_TEXT else "tts" if engine in TEXT_TO_SPEECH
-                else "vad" if engine == "silero" else None)
+                else "vad" if engine == "silero" else "captions" if engine == "nemotron"
+                else "turn" if engine == "smart-turn" else None)
         if role is None:
             continue
         if role in found:
             raise RuntimeError(f"tier=duplicate-role role={role} tier={tier}")
         found[role] = artifact
-    if set(found) != {"stt", "tts", "vad"}:
+    if set(found) != {"stt", "tts", "vad", "captions", "turn"}:
         raise RuntimeError(f"tier=missing-role tier={tier}")
     return found
 
@@ -333,8 +406,11 @@ def load(setup, state, data):
     import numpy as np
     import sherpa_onnx as sherpa
     models = {role: judge.load(artifact, data / "models", provider, np, sherpa) for role, artifact in chosen.items()}
+    def turn(samples):
+        return judge.infer(chosen["turn"], models["turn"], np.frombuffer(samples, dtype=np.float32), "", value, np)["probability"]
     return Speech(models["stt"], chosen["stt"].get("maxInputSamples"), models["vad"], models["tts"],
-                  chosen["tts"]["outputSampleRate"], lambda samples: np.frombuffer(samples, dtype=np.float32))
+                  chosen["tts"]["outputSampleRate"], lambda samples: np.frombuffer(samples, dtype=np.float32),
+                  models["captions"], turn)
 
 
 def main():

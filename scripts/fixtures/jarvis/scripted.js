@@ -35,6 +35,11 @@ function ports(root, engine) {
             waiting.delete(gate);
             done();
         }
+        const partial = path.join(root, "partial");
+        if (collect !== null && fs.existsSync(partial)) {
+            fs.unlinkSync(partial);
+            collect("partial", "scripted draft");
+        }
         const final = path.join(root, "final");
         if (collect !== null && fs.existsSync(final)) {
             fs.unlinkSync(final);

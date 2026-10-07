@@ -255,7 +255,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     ports.mute = { store: storeMute };
     ports.transcript = e => {
         if (!ending && context !== null) write({ v: 1, type: "transcript", gen: e.gen,
-            revision: context.revision, role: e.role, text: e.text, stage: e.stage, rev: e.rev });
+            revision: context.revision, role: e.role,
+            text: e.text.replace(/[\x00-\x1f\x7f]/g, " ").slice(-Protocol.TRANSCRIPT_CHARS), stage: e.stage, rev: e.rev });
     };
     const runner = new SessionRunner(Session, ports, {
         now: () => performance.now(), set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer)

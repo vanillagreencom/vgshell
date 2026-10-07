@@ -95,7 +95,9 @@ try:
         recognizer = Recorded(loaded["stt"])
         bound = chosen["stt"].get("maxInputSamples")
         speech = sidecar.Speech(recognizer, bound, loaded["vad"], loaded["tts"], chosen["tts"]["outputSampleRate"],
-                                lambda samples: np.frombuffer(samples, dtype=np.float32))
+                                lambda samples: np.frombuffer(samples, dtype=np.float32), loaded["captions"],
+                                lambda samples: judge.infer(chosen["turn"], loaded["turn"], np.frombuffer(samples, dtype=np.float32),
+                                                            "", value, np)["probability"])
         heard(speech.transcribe(clip), words, tier + " clip")
         # 60 s of repeated speech, built as measure-local builds its long input.
         total = 60 * sidecar.RATE
@@ -105,7 +107,8 @@ try:
         if bound is not None and (not recognizer.sizes or max(recognizer.sizes) > bound):
             raise RuntimeError(f"bound-exceeded {tier}: {recognizer.sizes}")
         payload = sidecar.little(array("f", clip)).tobytes()
-        stream = b"".join(frame({"type": "audio", "id": 1}, payload[at:at + sidecar.PAYLOAD_BYTES])
+        stream = frame({"type": "listen", "id": 1, "detect": False})
+        stream += b"".join(frame({"type": "audio", "id": 1}, payload[at:at + sidecar.PAYLOAD_BYTES])
                           for at in range(0, len(payload), sidecar.PAYLOAD_BYTES))
         stream += frame({"type": "end", "id": 1}) + frame({"type": "speak", "id": 2}, text.encode())
         output = io.BytesIO()

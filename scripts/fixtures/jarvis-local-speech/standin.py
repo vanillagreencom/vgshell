@@ -5,7 +5,8 @@ The suite installs this file as DATA/venv/bin/python. It speaks the sidecar wire
 from shell/plugins/vgs.jarvis/backend/local-speech.py's header (2026-10-02),
 written independently of LocalSpeech.js. DATA/scenario.json scripts it:
   start: "ready" | "held" | "not-ready" | "exit" | "deaf" | "garbage" | "foreign-id"
-  utterances: per end, {final} | {failed} | {exit}
+  utterances: per end, {final} | {failed} | {exit}; optional streaming:
+    {partials:[{text,rev}], earlyFinal:text} answered on successive audio frames
   speech: per speak, {rate, samples, tone?, value?} | {failed} | {raw}
 DATA/log.jsonl records what it observed: its start facts, then one line per
 ended, aborted or spoken request. No model, device or network is touched.
@@ -82,6 +83,7 @@ if start == "foreign-id":
 utterances = list(scenario.get("utterances", []))
 speech = list(scenario.get("speech", []))
 received = {}
+listening = {}
 while True:
     prefix = read(8)
     if prefix is None:
@@ -91,11 +93,32 @@ while True:
     body = read(head + size)
     header, payload = json.loads(body[:head]), body[head:]
     kind, ident = header["type"], header["id"]
-    if kind == "audio":
+    if kind == "listen":
+        record({"listen": ident, "detect": header["detect"]})
+        listening[ident] = {"detect": header["detect"], "count": 0}
+    elif kind == "audio":
         received.setdefault(ident, []).extend(v for (v,) in struct.iter_unpack("<f", payload))
+        live = listening.get(ident)
+        if live is not None and utterances:
+            action = utterances[0]
+            partials = action.get("partials", [])
+            at = live["count"]
+            live["count"] += 1
+            if at < len(partials):
+                send({"type": "partial", "id": ident, **partials[at]})
+                record({"partial": ident, **partials[at]})
+            elif live["detect"] and "earlyFinal" in action:
+                send({"type": "final", "id": ident, "text": action["earlyFinal"]})
+                record({"final": ident})
+                del listening[ident]
+                utterances.pop(0)
     elif kind == "abort":
         record({"abort": ident, "samples": len(received.pop(ident, []))})
     elif kind == "end":
+        if ident not in listening:
+            record({"crossed-end": ident})
+            continue
+        del listening[ident]
         samples = received.pop(ident, [])
         crossings = sum(1 for a, b in zip(samples, samples[1:]) if (a < 0) != (b < 0))
         rms = math.sqrt(sum(v * v for v in samples) / len(samples)) if samples else 0.0

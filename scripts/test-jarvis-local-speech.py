@@ -143,8 +143,49 @@ class Voice:
         return type("Audio", (), {"sample_rate": self.rate, "samples": samples})()
 
 
-def speech(m, segments, bound, recognizer=None, voice=None, rate=22050):
-    return m.Speech(recognizer or Recognizer(), bound, Vad(segments), voice or Voice(rate), rate, lambda s: s)
+class Captions:
+    """Cached-stream API double. Each feed makes one scripted decode ready."""
+
+    def __init__(self, texts=()):
+        self.texts = iter(texts)
+        self.streams = []
+
+    def create_stream(self):
+        owner = self
+
+        class Stream:
+            ready = False
+            text = ""
+            samples = 0
+
+            def set_option(self, key, value):
+                if (key, value) != ("language", "en"):
+                    raise AssertionError("caption language")
+
+            def accept_waveform(self, rate, samples):
+                if rate != 16000:
+                    raise AssertionError("caption rate")
+                self.samples += len(samples)
+                self.ready = True
+
+        stream = Stream()
+        owner.streams.append(stream)
+        return stream
+
+    def is_ready(self, stream):
+        return stream.ready
+
+    def decode_stream(self, stream):
+        stream.ready = False
+        stream.text = next(self.texts, stream.text)
+
+    def get_result(self, stream):
+        return stream.text
+
+
+def speech(m, segments, bound, recognizer=None, voice=None, rate=22050, captions=None, turn=lambda s: 1.0):
+    return m.Speech(recognizer or Recognizer(), bound, Vad(segments), voice or Voice(rate), rate, lambda s: s,
+                    captions or Captions(), turn)
 
 
 def frame(header, payload=b""):
@@ -168,7 +209,15 @@ def answers(data):
 
 def serve(m, messages, model):
     output = io.BytesIO()
-    m.serve(io.BytesIO(b"".join(frame(*message) for message in messages)), output, model)
+    explicit = []
+    highest = 0
+    for message in messages:
+        header = message[0]
+        if header["id"] > highest and header["type"] not in ("listen", "speak"):
+            explicit.append(({"type": "listen", "id": header["id"], "detect": False},))
+        highest = max(highest, header["id"])
+        explicit.append(message)
+    m.serve(io.BytesIO(b"".join(frame(*message) for message in explicit)), output, model)
     return answers(output.getvalue())
 
 
@@ -270,6 +319,68 @@ def wire_cases(m):
             raise AssertionError(f"{name}: {out}")
 
 
+class LiveVad(Vad):
+    """Active speech, then a completed segment; also tests forced splits."""
+
+    def __init__(self, active_after_segment=False):
+        super().__init__([(0, 16000)])
+        self.active_after_segment = active_after_segment
+
+    def accept_waveform(self, window):
+        before = self.offered
+        super().accept_waveform(window)
+        if before < 16000 <= self.offered:
+            self.queue.append(type("Segment", (), {"start": 0, "samples": [0.0] * 16000})())
+
+    def is_speech_detected(self):
+        return self.active_after_segment or self.offered < 16000
+
+
+def streaming_cases(m):
+    for mode, active in [(False, False), (True, False), (True, True)]:
+        captions = Captions(["draft", "revised draft", "revised draft"])
+        turns = []
+
+        def completion(samples):
+            turns.append(len(samples))
+            return 0.2 if len(turns) == 1 else 0.8
+
+        model = speech(m, [], 80000, Recognizer(lambda i, s: "final words"),
+                       captions=captions, turn=completion)
+        model.vad = LiveVad(active)
+        output = io.BytesIO()
+        messages = [({"type": "listen", "id": 1, "detect": mode},)]
+        messages += [({"type": "audio", "id": 1}, floats(8000)) for _ in range(3)]
+        prefix = b"".join(frame(*message) for message in messages)
+        # The input yields its final end frame only after observing the output
+        # already drawn during capture. This proves partials precede key up.
+        class Reader(io.BytesIO):
+            def read(self, size=-1):
+                if self.tell() == len(prefix):
+                    observed = [h for h, _ in answers(output.getvalue())]
+                    expected = [{"type": "partial", "id": 1, "text": "draft", "rev": 1},
+                                {"type": "partial", "id": 1, "text": "revised draft", "rev": 2}]
+                    if mode and not active:
+                        expected.append({"type": "final", "id": 1, "text": "final words"})
+                    if observed != expected:
+                        raise AssertionError(f"before end {mode, active}: {observed}")
+                return super().read(size)
+
+        m.serve(Reader(prefix + frame({"type": "end", "id": 1})), output, model)
+        headers = [h for h, _ in answers(output.getvalue())]
+        if headers[-1] != {"type": "final", "id": 1, "text": "final words"}:
+            raise AssertionError(f"final authority: {headers}")
+        if len(captions.streams) != 1 or captions.streams[0].samples != 24000:
+            raise AssertionError("captions must use one cached stream with every sample once")
+        if turns != ([16000, 24000] if mode and not active else []):
+            raise AssertionError(f"semantic detector {mode, active}: {turns}")
+    model = speech(m, [], 80000)
+    output = serve(m, [({"type": "listen", "id": 1, "detect": True},),
+                       ({"type": "audio", "id": 1}, floats(8000)), ({"type": "end", "id": 1},)], model)
+    if [h for h, _ in output] != [{"type": "final", "id": 1, "text": ""}]:
+        raise AssertionError(f"silence {output}")
+
+
 def bound_case(m):
     m.UTTERANCE_SAMPLES = 10
     out = serve(m, [({"type": "audio", "id": 1}, floats(8)), ({"type": "audio", "id": 1}, floats(8)),
@@ -285,15 +396,20 @@ VIOLATIONS = [
     ("payload on end", [frame({"type": "end", "id": 1}, b"abcd")], "message=invalid type=end"),
     ("audio without payload", [frame({"type": "audio", "id": 1})], "message=invalid type=audio"),
     ("boolean id", [frame({"type": "end", "id": True})], "id=invalid"),
-    ("reused speak id", [frame({"type": "end", "id": 3}), frame({"type": "speak", "id": 3}, b"a")],
+    ("reused speak id", [frame({"type": "listen", "id": 3, "detect": False}), frame({"type": "end", "id": 3}), frame({"type": "speak", "id": 3}, b"a")],
      "speak=invalid"),
     ("blank sentence", [frame({"type": "speak", "id": 1}, b" ")], "speak=invalid"),
     ("sentence not UTF-8", [frame({"type": "speak", "id": 1}, b"\xff")], "speak=invalid"),
-    ("partial sample", [frame({"type": "audio", "id": 1}, b"abc")], "audio=partial-sample"),
+    ("partial sample", [frame({"type": "listen", "id": 1, "detect": False}),
+                        frame({"type": "audio", "id": 1}, b"abc")], "audio=partial-sample"),
     ("oversized header", [struct.pack(">II", 4097, 0) + b"{" * 4097], "frame=too-large"),
     ("oversized payload", [struct.pack(">II", 2, 65537) + b"{}" + bytes(65537)], "frame=too-large"),
     ("truncated", [frame({"type": "end", "id": 1})[:-1]], "frame=truncated"),
     ("non-object header", [struct.pack(">II", 2, 0) + b"[]"], "header=invalid"),
+    ("audio before listen", [frame({"type": "audio", "id": 1}, floats(2))], "utterance=unstarted"),
+    ("invalid detection", [frame({"type": "listen", "id": 1, "detect": "toggle"})], "listen=invalid"),
+    ("overlapping captures", [frame({"type": "listen", "id": 1, "detect": True}),
+                              frame({"type": "listen", "id": 2, "detect": True})], "listen=invalid"),
 ]
 
 
@@ -350,7 +466,7 @@ def roles_case(m):
         raise AssertionError("tier discovery is broken: no small tier")
     for tier, row in value["tiers"].items():
         chosen = m.roles([by_id[n] for n in row["artifacts"]], tier)
-        if set(chosen) != {"stt", "tts", "vad"}:
+        if set(chosen) != {"stt", "tts", "vad", "captions", "turn"}:
             raise AssertionError(f"{tier}: {chosen}")
     try:
         m.roles([by_id["moonshine"], by_id["parakeet"], by_id["piper"], by_id["silero"]], "x")
@@ -397,6 +513,14 @@ def guarded(check, *args):
 
 # Controls: name, needle, replacement, the case that must turn red.
 CONTROLS = [
+    ("captions during capture", 'if partial is not None:', 'if False:', streaming_cases),
+    ("cached captions", 'speech.captions.decode_stream(self.stream)',
+     'self.stream = speech.captions.create_stream(); speech.captions.decode_stream(self.stream)', streaming_cases),
+    ("semantic end", 'ended = probability >= 0.5', 'ended = True', streaming_cases),
+    ("hold mode", 'if self.detect_turn and self.has_segment', 'if self.has_segment', streaming_cases),
+    ("active speech", 'and not speech.vad.is_speech_detected()', '', streaming_cases),
+    ("final authority", '                    send(writer, {"type": "final", "id": ident, "text": speech.transcribe(samples)})',
+     '                    send(writer, {"type": "final", "id": ident, "text": "draft"})', streaming_cases),
     ("bound split", "while end - start > bound:", "while False:", guarded(plan_case, PLANS[0])),
     ("final chunk", "    if current is not None:\n        chunks.append(current)\n    return chunks",
      "    return chunks", guarded(plan_case, PLANS[2])),
@@ -416,7 +540,7 @@ CONTROLS = [
      wire_cases),
     ("synthesis empty", "if not samples or not all(math.isfinite(v) for v in samples) or not any(samples):",
      "if False:", wire_cases),
-    ("utterance bound", "if len(buffer) + len(payload) // 4 > UTTERANCE_SAMPLES:", "if False:", bound_case),
+    ("utterance bound", "if len(self.samples) + len(received) > UTTERANCE_SAMPLES:", "if False:", bound_case),
     ("message shape", "or set(header) != SHAPES[kind][0] ", "", violation_cases),
     ("frame bound", "if not 0 < head <= HEADER_BYTES or size > PAYLOAD_BYTES:", "if not 0 < head:",
      violation_cases),
@@ -475,6 +599,9 @@ class LocalSpeech(unittest.TestCase):
 
     def test_transcription(self):
         transcribe_cases(load())
+
+    def test_streaming(self):
+        streaming_cases(load())
 
     def test_wire(self):
         m = load()

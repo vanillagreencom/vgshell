@@ -149,6 +149,60 @@ async function antiAlias(folder) {
     cases++;
 }
 
+// File-free acknowledgments hold capture open until each partial has reached
+// the consumer. Toggle's final arrives before input EOF; hold needs EOF.
+async function streaming(folder) {
+    const next = async output => {
+        let timer;
+        try {
+            return await Promise.race([output.next(), new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new assert.AssertionError({ message: "stream event unavailable" })), OBSERVE_MS);
+            })]);
+        } finally { clearTimeout(timer); }
+    };
+    for (const detect of [true, false]) {
+        const w = runtime({ utterances: [{ partials: [{ text: "draft", rev: 1 }, { text: "corrected draft", rev: 2 }],
+            earlyFinal: "final words", final: "final words" }] });
+        const speech = adapter(folder, w);
+        let first, second, finish;
+        const gates = [new Promise(done => { first = done; }), new Promise(done => { second = done; }),
+            new Promise(done => { finish = done; })];
+        const input = (async function* () {
+            yield { content: tone(1000, 1, 0.5) };
+            await gates[0];
+            yield { content: tone(1000, 1, 0.5) };
+            await gates[1];
+            yield { content: tone(1000, 1, 0.5) };
+            await gates[2];
+        })();
+        const output = speech.transcribe(input, { detect });
+        try {
+            assert.deepEqual(await next(output), { value: { kind: "partial", text: "draft", rev: 1 }, done: false });
+            assert.equal(w.log().some(entry => entry.end), false, "a partial arrives while capture stays open");
+            first();
+            assert.deepEqual(await next(output), { value: { kind: "partial", text: "corrected draft", rev: 2 }, done: false });
+            second();
+            if (!detect) finish();
+            assert.deepEqual(await next(output), { value: { kind: "final", text: "final words" }, done: false });
+            assert.deepEqual(await next(output), { value: undefined, done: true });
+            assert.equal(w.log().find(entry => entry.listen).detect, detect, "capture mode reaches the sidecar");
+            assert.equal(w.log().some(entry => entry.end), !detect, "toggle final does not need key release");
+        } finally { first(); second(); finish(); await output.return(); speech.close(); }
+    }
+    cases++;
+}
+
+async function partialViolations(folder) {
+    for (const partials of [[{ text: "draft", rev: 0 }], [{ text: "draft", rev: 1 }, { text: "revised", rev: 1 }]]) {
+        const speech = adapter(folder, runtime({ utterances: [{ partials, final: "final" }] }));
+        try {
+            await assert.rejects(final(speech.transcribe(frames(tone(1000, 2, 0.5)))),
+                error => error.code === "protocol key=partial value=" + (partials.length === 1 ? "invalid" : "revision"));
+        } finally { speech.close(); }
+    }
+    cases++;
+}
+
 async function failures(folder) {
     for (const [name, scenario, cause] of [
         ["failed chunk", { utterances: [{ failed: "chunk-empty index=1" }] }, "jarvis: speech=local-chunk-empty index=1"],
@@ -301,9 +355,13 @@ async function longReply(folder) {
     } finally { speech.close(); }
     cases++;
 }
-const CASES = { selection, utterance, antiAlias, failures, abort, backlog, close, speaking, speechWaits, longReply };
+const CASES = { selection, utterance, antiAlias, streaming, partialViolations, failures, abort, backlog, close, speaking, speechWaits, longReply };
 // Controls: name, edits to LocalSpeech.js, the case that must turn red.
 const CONTROLS = [
+    ["partial delivery", [['if (utterance !== undefined) utterance.partial(header);', 'if (false) utterance.partial(header);']], "streaming"],
+    ["turn detection mode", [['write({ type: "listen", id, detect });', 'write({ type: "listen", id, detect: true });']], "streaming"],
+    ["partial revision positive", [[' || header.rev < 1)', ')']], "partialViolations"],
+    ["partial revision order", [['if (header.rev <= rev) throw new Error("partial=revision");', '']], "partialViolations"],
     ["ready deadline", [["let readyTimer = clock.set(() => end(failure(\"ready-timeout\"), false), READY_MS);", "let readyTimer = null;"]], "speechWaits"],
     ["transcription deadline", [["value.bound(TRANSCRIBE_MS, \"transcribe-timeout\");", ""]], "speechWaits"],
     ["synthesis deadline", [["value.bound(SYNTHESIS_MS, \"synthesis-timeout\");", ""]], "speechWaits"],

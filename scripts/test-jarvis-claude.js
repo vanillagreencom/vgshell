@@ -74,7 +74,7 @@ world(async () => {
         const starts = [], answers = [], brain = [], timers = [];
         const audit = Audit.create({ state: path.join(root, "state"), now: () => Date.UTC(2026, 9, 2) });
         const rows = () => lines(path.join(root, "state/audit/2026-10-02.jsonl"));
-        const ports = { ...unavailable(), mute: { store() {} },
+        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {} } };
         let engine = null;

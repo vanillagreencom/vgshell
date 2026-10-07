@@ -23,6 +23,7 @@ function world(implementation = Owner, synchronous = false, session = Session) {
     };
     const runner = new implementation.SessionRunner(session, {
         mute: { store: value => calls.push({ name: "mute-store", value }) },
+        transcript: port("transcript"),
         capture: { open: port("open"), close: port("close"), collect: port("collect") },
         brain: {
             send: (e, done) => {

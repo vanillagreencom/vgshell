@@ -27,7 +27,7 @@ world(async () => {
         const audit = Audit.create({ state: directory, now: () => Date.UTC(2026, 9, 1) });
         const rows = () => fs.existsSync(path.join(directory, "audit/2026-10-01.jsonl"))
             ? fs.readFileSync(path.join(directory, "audit/2026-10-01.jsonl"), "utf8").trim().split("\n").map(JSON.parse) : [];
-        const ports = { ...unavailable(), mute: { store() {} },
+        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => {
                 if (options.ackCancel !== false) done();

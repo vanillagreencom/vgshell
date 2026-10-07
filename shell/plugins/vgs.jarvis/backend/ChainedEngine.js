@@ -293,7 +293,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             let rev = 0;
             try {
                 transfer(c, e, Policy.item("", ["speech"]), () => {
-                    output = c.speech.transcribe(frames)[Symbol.asyncIterator]();
+                    output = c.speech.transcribe(frames, { detect: e.mode !== "hold" })[Symbol.asyncIterator]();
                 });
                 for (;;) {
                     const step = await output.next();
