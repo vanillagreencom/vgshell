@@ -31,6 +31,7 @@ Item {
     Kbd { id: key; text: "Ctrl"; x: 300; y: 340 }
     ListItem { id: twoLine; text: "Two lines"; secondary: "detail"; width: 300; y: 500 }
     CodeLine { id: code; text: "vgshell plugin enable acme.weather"; width: 300; y: 560 }
+    Card { id: card; x: 320; y: 560; width: 300; Item { width: 10; height: 100 } }
     Section {
         id: section
         title: "Section"
@@ -272,6 +273,25 @@ Item {
         // rows a group space apart.
         function test_a_group_space_comes_before_a_button_row() {
             same(() => topIn(buttonRow, blockSection) - stateText.mapToItem(blockSection, 0, stateText.height).y, Theme.stack.group, "the button row after text");
+        }
+
+        // The least whole inset from the pad whose content corner, `top`
+        // down, keeps `step` inside a corner circle of radius `corner`.
+        function leastClearing(pad, corner, top, step) {
+            for (let x = pad; x < corner + step; x++)
+                if (corner - Math.hypot(Math.max(0, corner - x), Math.max(0, corner - top)) >= step) return x;
+            return Math.ceil(corner + step);
+        }
+
+        // A card's content moves in from a rounded corner until its own
+        // corner, the pad down, stands the corner step inside the curve.
+        function test_card_content_clears_its_corner_by_the_step() {
+            compare(UnitTheme.override({ card: { radius: 48 } }), "ok");
+            const pad = Theme.card.padding;
+            tryVerify(() => card.contentInset > pad, 1000, "card rounded inset grew");
+            const inset = leastClearing(pad, Math.min(Theme.card.radius, card.width / 2, card.height / 2), pad, Theme.space.xs);
+            verify(inset > pad && inset < Theme.card.radius, "the card's content clears inside the curve, not past the whole corner: " + inset);
+            close(() => card.contentInset, inset, "card rounded inset");
         }
 
         function test_clearing_inset_settles_after_wrapped_height_grows() {
