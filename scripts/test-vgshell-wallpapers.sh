@@ -41,7 +41,7 @@ data = open(os.path.join(releases, archive), "rb").read()
 size = int(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] != "" else len(data)
 sha = sys.argv[5] if len(sys.argv) > 5 else hashlib.sha256(data).hexdigest()
 palette = {"background": "#101010", "foreground": "#eeeeee", "accent": "#3366ff", "success": "#22aa22", "warning": "#ddaa00", "danger": "#cc2222", "info": "#3399cc"}
-entry = lambda name, imagery: {"name": name, "mode": "dark", "thumbnail": None, "palette": palette, "imagery": imagery}
+entry = lambda name, imagery: {"name": name, "mode": "dark", "palette": palette, "imagery": imagery}
 pin = {"repo": "https://github.com/vanillagreencom/vgs-themes", "release": "themes", "archive": archive, "size": size, "sha256": sha}
 with open(out, "w") as f:
     json.dump({"schemaVersion": 1, "entries": [entry("moor", pin), entry("ivy", None)]}, f)

@@ -11,7 +11,7 @@
 # rebuild of the fixture to finish behind it. rows/themes.sh defines the
 # helpers used here and leaves vgs applied, no current wallpaper and the
 # fixture disabled; this file leaves them so.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/catalog/* scripts/smoke/rows/themes.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/catalog/* scripts/smoke/rows/themes.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 browse="$installed/browse"
 # What VERB's callback last received, as JSON: its call count, then the
@@ -50,8 +50,8 @@ expect_poll "the runner's refusal reaches the fixture as the result" '[2, "faile
 # images and set, on an installed package with two images.
 mkdir -p -- "$browse/backgrounds"
 printf '%s\n' '{ "schemaVersion": 1, "name": "browse", "tokens": {} }' >"$browse/theme.json"
-cp -- "$repo/themes/catalog/thumbnails/nord.jpg" "$browse/backgrounds/a.jpg"
-cp -- "$repo/themes/catalog/thumbnails/nord.jpg" "$browse/backgrounds/b.jpg"
+cp -- "$repo/scripts/smoke/fixtures/theme-image.jpg" "$browse/backgrounds/a.jpg"
+cp -- "$repo/scripts/smoke/fixtures/theme-image.jpg" "$browse/backgrounds/b.jpg"
 expect "a malformed scope is refused at once" 'refused: images="some" reason=malformed-scope' probe theme-images some
 expect "the fixture lists every source's images" ok probe theme-images all
 expect_poll "the full image list reaches the fixture" '[1, "ok", null]' answer images state reason

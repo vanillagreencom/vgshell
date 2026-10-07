@@ -28,8 +28,8 @@ mkdir -p "$shelf"
 palette='{ "background": "#101010", "foreground": "#eeeeee", "accent": "#3366ff", "success": "#22aa22", "warning": "#ddaa00", "danger": "#cc2222", "info": "#3399cc" }'
 pin() { printf '{ "repo": "https://github.com/vanillagreencom/vgs-themes", "release": "themes", "archive": "vgs-theme-%s.tar.gz", "size": 42, "sha256": "%s" }' "$1" "$2"; } # ARCHIVE SHA256
 sha_a="$(printf 'a%.0s' $(seq 64))"; sha_b="$(printf 'b%.0s' $(seq 64))"
-entry() { printf '{ "name": "%s", "mode": "dark", "thumbnail": %s, "palette": %s, "imagery": %s }' "$1" "${3:-null}" "$palette" "$2"; } # NAME IMAGERY [THUMBNAIL]
-printf '{ "schemaVersion": 1, "entries": [%s, %s, %s, %s] }\n' "$(entry moor "$(pin moor-r1 "$sha_a")")" "$(entry bad null)" "$(entry ivy null '"thumbnails/ivy.jpg"')" "$(entry dusk null)" >"$shelf/index.json"
+entry() { printf '{ "name": "%s", "mode": "dark", "palette": %s, "imagery": %s }' "$1" "$palette" "$2"; } # NAME IMAGERY
+printf '{ "schemaVersion": 1, "entries": [%s, %s, %s, %s] }\n' "$(entry moor "$(pin moor-r1 "$sha_a")")" "$(entry bad null)" "$(entry ivy null)" "$(entry dusk null)" >"$shelf/index.json"
 theme_pkg "$shelf/moor" "$(doc moor '{ "palette": { "accent": "#3366ff" } }')" "$(slots_json '#202020')"
 printf 'preview\n' >"$shelf/moor/preview.jpg"
 mkdir -p "$shelf/moor/targets"; printf 'curated\n' >"$shelf/moor/targets/foot.ini"
@@ -58,8 +58,7 @@ not_installed='installed=false definitionUpdate=false imageryInstalled=false ima
 # The list.
 catalog_json "$cfg"
 check "catalog --json lists every index entry in index order" json_is "$tmp/catalog.json" '[e["name"] for e in d["entries"]] == ["moor", "bad", "ivy", "dusk"]'
-check "catalog --json carries the index entry and its install state" json_is "$tmp/catalog.json" 'all(d["entries"][0][k] == v for k, v in {"name": "moor", "mode": "dark", "thumbnail": None, "thumbnailPath": None, "previewPath": "'"$shelf/moor/preview.jpg"'", "installed": False, "imageryInstalled": False, "imageryUpdate": False, "definitionUpdate": False}.items()) and d["entries"][0]["palette"]["accent"] == "#3366ffff" and d["entries"][0]["tokens"]["hyprland"]["border"]["size"] == 2 and d["entries"][0]["terminal"]["color0"] == "#202020ff" and len(d["entries"][0]["terminal"]) == 16 and d["entries"][0]["imagery"]["sha256"] == "'"$sha_a"'"'
-check "catalog --json resolves a thumbnail to its absolute path in the catalog" json_is "$tmp/catalog.json" 'd["entries"][2]["thumbnailPath"] == "'"$shelf/thumbnails/ivy.jpg"'"'
+check "catalog --json carries the index entry and its install state" json_is "$tmp/catalog.json" 'all(d["entries"][0][k] == v for k, v in {"name": "moor", "mode": "dark", "previewPath": "'"$shelf/moor/preview.jpg"'", "installed": False, "imageryInstalled": False, "imageryUpdate": False, "definitionUpdate": False}.items()) and d["entries"][0]["palette"]["accent"] == "#3366ffff" and d["entries"][0]["tokens"]["hyprland"]["border"]["size"] == 2 and d["entries"][0]["terminal"]["color0"] == "#202020ff" and len(d["entries"][0]["terminal"]) == 16 and d["entries"][0]["imagery"]["sha256"] == "'"$sha_a"'"'
 check "catalog ignores a symlinked package preview" json_is "$tmp/catalog.json" 'd["entries"][2]["previewPath"] is None'
 tinst "catalog prints one text line per entry" "$cfg" "$rt_empty" 0 "theme=dusk mode=dark installed=false definitionUpdate=false imageryInstalled=false imageryUpdate=false" "" theme catalog
 tinst "catalog with an argument is exit 2" "$cfg" "$rt_empty" 2 "" "vgshell: refused: argument=moor" theme catalog moor

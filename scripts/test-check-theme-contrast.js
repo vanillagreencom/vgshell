@@ -49,7 +49,6 @@ function writeCatalogTheme(dir, name, tokens) {
         entries: [{
             name,
             mode: "dark",
-            thumbnail: null,
             palette: DEFAULT_PALETTE,
             imagery: null
         }]

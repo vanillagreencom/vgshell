@@ -1636,7 +1636,7 @@ scene_theme-browser() { # MODE
   mkdir -p -- "$home/.config/vgshell/themes/$theme_card/backgrounds"
   cp -- "$repo/themes/catalog/$theme_card/theme.json" "$home/.config/vgshell/themes/$theme_card/theme.json"
   [[ ! -f $repo/themes/catalog/$theme_card/terminal.json ]] || cp -- "$repo/themes/catalog/$theme_card/terminal.json" "$home/.config/vgshell/themes/$theme_card/terminal.json"
-  "$imagemagick" "$repo/themes/catalog/thumbnails/$theme_card.jpg" -resize 2560x1440\! "$home/.config/vgshell/themes/$theme_card/backgrounds/preview.jpg"
+  "$imagemagick" "$repo/scripts/smoke/fixtures/theme-image.jpg" -resize 2560x1440\! "$home/.config/vgshell/themes/$theme_card/backgrounds/preview.jpg"
   expect "the theme browser opens for the installed shot" ok ipc shell summon overlay vgs.themes '{"view":"themes"}'
   expect_poll "the installed theme browser reads its cards" true ipc smoke readDescendant overlay vgs.themes ThemeView loaded
   type_keys "$theme_card" || fail "typing the installed theme-browser card failed"
@@ -1664,8 +1664,8 @@ scene_wallpaper-browser() { # MODE
   rm -rf -- "${theme_dir:?}"
   sandbox_vgshell theme install nord >/dev/null || fail "nord installs for the wallpaper browser shot"
   mkdir -p -- "$theme_dir/backgrounds"
-  cp -- "$checkout/themes/catalog/thumbnails/nord.jpg" "$theme_dir/backgrounds/a.jpg"
-  cp -- "$checkout/themes/catalog/thumbnails/akane.jpg" "$theme_dir/backgrounds/b.jpg"
+  cp -- "$checkout/scripts/smoke/fixtures/theme-image.jpg" "$theme_dir/backgrounds/a.jpg"
+  cp -- "$checkout/scripts/smoke/fixtures/theme-image.jpg" "$theme_dir/backgrounds/b.jpg"
   sandbox_vgshell theme apply nord >/dev/null || fail "nord applies for the wallpaper browser shot"
   expect_poll "nord is published for the wallpaper browser shot" nord ipc smoke themeName
   expect "the nested compositor adds a monitor for the wallpaper browser shot" ok hypr output create headless "$wallpaper_output"

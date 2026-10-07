@@ -1,10 +1,10 @@
 # Background attribution
 
-Provenance for every wallpaper source used by the VGS theme catalog. Wallpapers are downloaded on demand from the `vanillagreencom/vgs-themes` release archives pinned in `themes/catalog/index.json`. The catalog ships only one 480 px thumbnail from each theme's first wallpaper. File-name suffixes encode origin: `-wh-<id>` or `wallhaven-<id>` = Wallhaven, `-rpd-` = Rosé Pine dark upstream, `-bauhaus-` = Bauhaus upstream, `-aurora`/`-nightfall` = VGS-generated. Everything else comes from the repositories credited below.
+Provenance for every wallpaper source used by the VGS theme catalog. Wallpapers are downloaded on demand from the `vanillagreencom/vgs-themes` release archives pinned in `themes/catalog/index.json`. File-name suffixes encode origin: `-wh-<id>` or `wallhaven-<id>` = Wallhaven, `-rpd-` = Rosé Pine dark upstream, `-bauhaus-` = Bauhaus upstream, `-aurora`/`-nightfall` = VGS-generated. Everything else comes from the repositories credited below.
 
-## Thumbnails
+## First wallpapers
 
-The catalog ships one 480 px thumbnail per theme, made from the first wallpaper in its pinned archive. A `Wallhaven source` value of `yes` means the source file name contains `-wh-` or `wallhaven-`; Wallhaven licenses are unverified in the source attribution above.
+Each theme's pinned archive holds the first wallpaper named below. A `Wallhaven source` value of `yes` means the source file name contains `-wh-` or `wallhaven-`; Wallhaven licenses are unverified in the source attribution above.
 
 | Theme | Source image | Wallhaven source |
 |---|---|---|
@@ -218,7 +218,7 @@ User-uploaded, varying/unverified licenses — review before redistribution.
 
 ### Horizon
 
-Method: Lanczos via ImageMagick. Wallpapers are resized to 6016 pixels wide and saved as JPEG at quality 92. Sources wider than that are reduced; smaller sources are enlarged. Each catalog thumbnail is the package's first wallpaper resized to 480 px wide.
+Method: Lanczos via ImageMagick. Wallpapers are resized to 6016 pixels wide and saved as JPEG at quality 92. Sources wider than that are reduced; smaller sources are enlarged.
 
 | Theme | File | Source |
 |---|---|---|

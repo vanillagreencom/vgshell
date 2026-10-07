@@ -17,7 +17,7 @@
 # 89/108/132 ms. Six at load 8.6: 171, 93, 158, 116, 108, 121 ms,
 # CPU pressure 0.3 to 0.8%, compositor logs on.
 # Wallpaper keeps its 150 ms bound.
-# inputs: shell/plugins/vgs.themes/* shell/Core/ThemeRunner.qml shell/Commons/Theme* shell/Ui/layout/CardCarousel.qml themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/ThemeLatencyProbe.qml
+# inputs: shell/plugins/vgs.themes/* shell/Core/ThemeRunner.qml shell/Commons/Theme* shell/Ui/layout/CardCarousel.qml themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/ThemeLatencyProbe.qml scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 # Exercise the actual QML reader under Node with controlled presented frames.
 # These controls hold dismissal, wallpaper readiness and selected content.
@@ -228,8 +228,8 @@ expect "the theme service retires before the cold reading" ok ipc shell setPlugi
 expect "the existing theme reads settle" idle theme_idle
 mkdir -p -- "$home/.config/vgshell/themes/latency/backgrounds"
 printf '%s\n' '{"schemaVersion":1,"name":"latency","tokens":{"palette":{"accent":"#12ab34"}}}' >"$home/.config/vgshell/themes/latency/theme.json"
-cp -- "$repo/themes/catalog/thumbnails/nord.jpg" "$home/.config/vgshell/themes/latency/backgrounds/a.jpg"
-cp -- "$repo/themes/catalog/thumbnails/akane.jpg" "$home/.config/vgshell/themes/latency/backgrounds/b.jpg"
+cp -- "$repo/scripts/smoke/fixtures/theme-image.jpg" "$home/.config/vgshell/themes/latency/backgrounds/a.jpg"
+cp -- "$repo/scripts/smoke/fixtures/theme-image.jpg" "$home/.config/vgshell/themes/latency/backgrounds/b.jpg"
 mkdir -p -- "$home/.config/vgshell/themes/sample-peer/backgrounds"
 printf '%s\n' '{"schemaVersion":1,"name":"sample-peer","tokens":{"palette":{"accent":"#ab1234"}}}' >"$home/.config/vgshell/themes/sample-peer/theme.json"
 cp -- "$home/.config/vgshell/themes/latency/backgrounds/"*.jpg "$home/.config/vgshell/themes/sample-peer/backgrounds/"
@@ -252,11 +252,11 @@ EOF
 chmod +x "$repo/bin/vgshell"
 latency_catalog_held() { [[ -e $latency_started ]] && echo held || echo pending; }
 # The switch reading's catalog themes, the filter `ar` shows, draw the
-# package previews they ship; in the sandbox copy lunar's is the 480-pixel
-# catalog thumbnail instead, its control.
+# package previews they ship; in the sandbox copy lunar's is the small
+# test image instead, its control.
 latency_lunar="$repo/themes/catalog/lunar/preview.jpg"
 cp -p -- "$latency_lunar" "$sandbox/latency-lunar-preview.jpg"
-cp -- "$repo/themes/catalog/thumbnails/akane.jpg" "$latency_lunar"
+cp -- "$repo/scripts/smoke/fixtures/theme-image.jpg" "$latency_lunar"
 expect "the theme service enables for latency readings" ok ipc shell setPluginEnabled vgs.themes true
 expect_poll "the theme service builds" false ipc smoke readInstance service vgs.themes setupPending
 expect_poll "the catalog answer is held behind installed rows" held latency_catalog_held
@@ -345,7 +345,7 @@ for latency_switch in 1 2 3 4 5; do
 done
 expect "five catalog switches draw no picture smaller than its card" 0 latency_low
 printf 'theme-latency: switches=%s\n' "$(latency_read)"
-# Control: lunar's preview is the catalog thumbnail, which the card can
+# Control: lunar's preview is the small test image, which the card can
 # only draw stretched; the reader counts its frames.
 type_keys -k Right || fail "the control switch key failed"
 expect_poll "the control switch selects lunar" '"lunar"' latency_theme_value selectedName
@@ -442,7 +442,7 @@ rm -- "${home:?}/.config/vgshell/themes/latency-extra/theme.json"
 rmdir -- "${home:?}/.config/vgshell/themes/latency-extra"
 expect_poll "a removed package leaves the open list" absent latency_extra
 expect "removal keeps the selected theme" '"latency"' latency_theme_value selectedName
-expect "unrelated changes keep the installed thumbnail cache URL" "$latency_unchanged_stamp" latency_stamp
+expect "unrelated changes keep the installed image cache URL" "$latency_unchanged_stamp" latency_stamp
 expect "the package change reads settle before the timer check" idle theme_idle
 expect_poll "the service has no refresh pending before the timer check" false ipc smoke readInstance service vgs.themes readingData
 rm -- "${latency_started:?}"

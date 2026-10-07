@@ -5,7 +5,7 @@
 # through the probe, its state file, the compositor and the lending record.
 # No owner data reaches it: every notification here is made up. The row ends
 # with the plugin disabled and every registration released.
-# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* themes/catalog/thumbnails/akane.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 note_state="$home/.local/state/vgshell/notifications/state.json"
@@ -1133,7 +1133,7 @@ expect "the inbox closes after header geometry" ok notes close
 # reach the title measure the tier is judged from: a title that fits the
 # compact text width stays compact, and one that wraps there or holds a
 # line break is regular.
-tier_image="$repo/themes/catalog/thumbnails/akane.jpg"
+tier_image="$repo/scripts/smoke/fixtures/theme-image.jpg"
 tier_fits_person="[acme] from Edsger Dijkstra"
 tier_wraps_image="Tier wrapping title: a screenshot saved to the clipboard and to the pictures folder"
 tier_wraps_person="[acme] from Barbara Liskov, Frances Allen and Margaret Hamilton at the design review"

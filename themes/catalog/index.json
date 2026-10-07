@@ -4,7 +4,6 @@
     {
       "name": "akane",
       "mode": "dark",
-      "thumbnail": "thumbnails/akane.jpg",
       "palette": {
         "background": "#0e1e36",
         "foreground": "#f4b999",
@@ -25,7 +24,6 @@
     {
       "name": "amberbyte",
       "mode": "dark",
-      "thumbnail": "thumbnails/amberbyte.jpg",
       "palette": {
         "background": "#1b1112",
         "foreground": "#f2e8e8",
@@ -46,7 +44,6 @@
     {
       "name": "arc-blueberry",
       "mode": "dark",
-      "thumbnail": "thumbnails/arc-blueberry.jpg",
       "palette": {
         "background": "#111422",
         "foreground": "#bcc1dc",
@@ -67,7 +64,6 @@
     {
       "name": "arc-raiders",
       "mode": "dark",
-      "thumbnail": "thumbnails/arc-raiders.jpg",
       "palette": {
         "background": "#0c060d",
         "foreground": "#fafafa",
@@ -88,7 +84,6 @@
     {
       "name": "archwave",
       "mode": "dark",
-      "thumbnail": "thumbnails/archwave.jpg",
       "palette": {
         "background": "#1a0d2e",
         "foreground": "#d4a5ff",
@@ -109,7 +104,6 @@
     {
       "name": "artzen",
       "mode": "dark",
-      "thumbnail": "thumbnails/artzen.jpg",
       "palette": {
         "background": "#181c1f",
         "foreground": "#fdf9f8",
@@ -130,7 +124,6 @@
     {
       "name": "ayu",
       "mode": "dark",
-      "thumbnail": "thumbnails/ayu.jpg",
       "palette": {
         "background": "#0b0e14",
         "foreground": "#bfbdb6",
@@ -151,7 +144,6 @@
     {
       "name": "bauhaus",
       "mode": "dark",
-      "thumbnail": "thumbnails/bauhaus.jpg",
       "palette": {
         "background": "#101318",
         "foreground": "#eaeff5",
@@ -172,7 +164,6 @@
     {
       "name": "biscuit-de-mar",
       "mode": "dark",
-      "thumbnail": "thumbnails/biscuit-de-mar.jpg",
       "palette": {
         "background": "#1a1515",
         "foreground": "#dcc9bc",
@@ -193,7 +184,6 @@
     {
       "name": "brutalism",
       "mode": "dark",
-      "thumbnail": "thumbnails/brutalism.jpg",
       "palette": {
         "background": "#121212",
         "foreground": "#ded3d3",
@@ -214,7 +204,6 @@
     {
       "name": "catppuccin",
       "mode": "dark",
-      "thumbnail": "thumbnails/catppuccin.jpg",
       "palette": {
         "background": "#1e1e2e",
         "foreground": "#cdd6f4",
@@ -235,7 +224,6 @@
     {
       "name": "catppuccin-frappe",
       "mode": "dark",
-      "thumbnail": "thumbnails/catppuccin-frappe.jpg",
       "palette": {
         "background": "#303446",
         "foreground": "#c6d0f5",
@@ -256,7 +244,6 @@
     {
       "name": "catppuccin-latte",
       "mode": "light",
-      "thumbnail": "thumbnails/catppuccin-latte.jpg",
       "palette": {
         "background": "#eff1f5",
         "foreground": "#4c4f69",
@@ -277,7 +264,6 @@
     {
       "name": "catppuccin-macchiato",
       "mode": "dark",
-      "thumbnail": "thumbnails/catppuccin-macchiato.jpg",
       "palette": {
         "background": "#24273a",
         "foreground": "#cad3f5",
@@ -298,7 +284,6 @@
     {
       "name": "coppernight",
       "mode": "dark",
-      "thumbnail": "thumbnails/coppernight.jpg",
       "palette": {
         "background": "#11111b",
         "foreground": "#cdd6f4",
@@ -319,7 +304,6 @@
     {
       "name": "cpunk",
       "mode": "dark",
-      "thumbnail": "thumbnails/cpunk.jpg",
       "palette": {
         "background": "#040303",
         "foreground": "#ffffff",
@@ -340,7 +324,6 @@
     {
       "name": "delorean",
       "mode": "dark",
-      "thumbnail": "thumbnails/delorean.jpg",
       "palette": {
         "background": "#0d0221",
         "foreground": "#f9f9f9",
@@ -361,7 +344,6 @@
     {
       "name": "dracula",
       "mode": "dark",
-      "thumbnail": "thumbnails/dracula.jpg",
       "palette": {
         "background": "#282a36",
         "foreground": "#f8f8f2",
@@ -382,7 +364,6 @@
     {
       "name": "eldritch",
       "mode": "dark",
-      "thumbnail": "thumbnails/eldritch.jpg",
       "palette": {
         "background": "#212337",
         "foreground": "#ebfafa",
@@ -403,7 +384,6 @@
     {
       "name": "ember-n-ash",
       "mode": "dark",
-      "thumbnail": "thumbnails/ember-n-ash.jpg",
       "palette": {
         "background": "#1a1a1a",
         "foreground": "#e5d6c6",
@@ -424,7 +404,6 @@
     {
       "name": "ethereal",
       "mode": "dark",
-      "thumbnail": "thumbnails/ethereal.jpg",
       "palette": {
         "background": "#060b1e",
         "foreground": "#ffcead",
@@ -445,7 +424,6 @@
     {
       "name": "event-horizon",
       "mode": "dark",
-      "thumbnail": "thumbnails/event-horizon.jpg",
       "palette": {
         "background": "#1c1e26",
         "foreground": "#fadad1",
@@ -466,7 +444,6 @@
     {
       "name": "everforest",
       "mode": "dark",
-      "thumbnail": "thumbnails/everforest.jpg",
       "palette": {
         "background": "#2d353b",
         "foreground": "#d3c6aa",
@@ -487,7 +464,6 @@
     {
       "name": "fireside",
       "mode": "dark",
-      "thumbnail": "thumbnails/fireside.jpg",
       "palette": {
         "background": "#0a1220",
         "foreground": "#f0f2f5",
@@ -508,7 +484,6 @@
     {
       "name": "flexoki-light",
       "mode": "light",
-      "thumbnail": "thumbnails/flexoki-light.jpg",
       "palette": {
         "background": "#fffcf0",
         "foreground": "#100f0f",
@@ -529,7 +504,6 @@
     {
       "name": "frankenstein",
       "mode": "dark",
-      "thumbnail": "thumbnails/frankenstein.jpg",
       "palette": {
         "background": "#313132",
         "foreground": "#8dffd5",
@@ -550,7 +524,6 @@
     {
       "name": "ghost-pastel",
       "mode": "dark",
-      "thumbnail": "thumbnails/ghost-pastel.jpg",
       "palette": {
         "background": "#070506",
         "foreground": "#ffffff",
@@ -571,7 +544,6 @@
     {
       "name": "greek-noir",
       "mode": "dark",
-      "thumbnail": "thumbnails/greek-noir.jpg",
       "palette": {
         "background": "#171717",
         "foreground": "#ccd0cf",
@@ -592,7 +564,6 @@
     {
       "name": "gruvbox",
       "mode": "dark",
-      "thumbnail": "thumbnails/gruvbox.jpg",
       "palette": {
         "background": "#282828",
         "foreground": "#d4be98",
@@ -613,7 +584,6 @@
     {
       "name": "gruvy-glass",
       "mode": "dark",
-      "thumbnail": "thumbnails/gruvy-glass.jpg",
       "palette": {
         "background": "#282828",
         "foreground": "#d4be98",
@@ -634,7 +604,6 @@
     {
       "name": "hackerman",
       "mode": "dark",
-      "thumbnail": "thumbnails/hackerman.jpg",
       "palette": {
         "background": "#0b0c16",
         "foreground": "#ddf7ff",
@@ -655,7 +624,6 @@
     {
       "name": "harbordark",
       "mode": "dark",
-      "thumbnail": "thumbnails/harbordark.jpg",
       "palette": {
         "background": "#1b1b1b",
         "foreground": "#efebdc",
@@ -676,7 +644,6 @@
     {
       "name": "horizon",
       "mode": "dark",
-      "thumbnail": "thumbnails/horizon.jpg",
       "palette": {
         "background": "#1c1e26",
         "foreground": "#d5d8da",
@@ -697,7 +664,6 @@
     {
       "name": "horizon-light",
       "mode": "light",
-      "thumbnail": "thumbnails/horizon-light.jpg",
       "palette": {
         "background": "#fdf0ed",
         "foreground": "#06060c",
@@ -718,7 +684,6 @@
     {
       "name": "inkypinky",
       "mode": "dark",
-      "thumbnail": "thumbnails/inkypinky.jpg",
       "palette": {
         "background": "#13131d",
         "foreground": "#c8c8c8",
@@ -739,7 +704,6 @@
     {
       "name": "kanagawa",
       "mode": "dark",
-      "thumbnail": "thumbnails/kanagawa.jpg",
       "palette": {
         "background": "#1f1f28",
         "foreground": "#dcd7ba",
@@ -760,7 +724,6 @@
     {
       "name": "kanagawa-dragon",
       "mode": "dark",
-      "thumbnail": "thumbnails/kanagawa-dragon.jpg",
       "palette": {
         "background": "#181616",
         "foreground": "#c5c9c5",
@@ -781,7 +744,6 @@
     {
       "name": "kurayami",
       "mode": "dark",
-      "thumbnail": "thumbnails/kurayami.jpg",
       "palette": {
         "background": "#2c2e27",
         "foreground": "#fdfefd",
@@ -802,7 +764,6 @@
     {
       "name": "last-horizon",
       "mode": "dark",
-      "thumbnail": "thumbnails/last-horizon.jpg",
       "palette": {
         "background": "#0c0b0c",
         "foreground": "#fafcfb",
@@ -823,7 +784,6 @@
     {
       "name": "lowlight",
       "mode": "dark",
-      "thumbnail": "thumbnails/lowlight.jpg",
       "palette": {
         "background": "#292323",
         "foreground": "#dcd7d6",
@@ -844,7 +804,6 @@
     {
       "name": "lumon",
       "mode": "dark",
-      "thumbnail": "thumbnails/lumon.jpg",
       "palette": {
         "background": "#16242d",
         "foreground": "#d6e2ee",
@@ -865,7 +824,6 @@
     {
       "name": "lunar",
       "mode": "dark",
-      "thumbnail": "thumbnails/lunar.jpg",
       "palette": {
         "background": "#181c1f",
         "foreground": "#e1e4e8",
@@ -886,7 +844,6 @@
     {
       "name": "matte-black",
       "mode": "dark",
-      "thumbnail": "thumbnails/matte-black.jpg",
       "palette": {
         "background": "#121212",
         "foreground": "#bebebe",
@@ -907,7 +864,6 @@
     {
       "name": "mechanoonna",
       "mode": "dark",
-      "thumbnail": "thumbnails/mechanoonna.jpg",
       "palette": {
         "background": "#1c1b19",
         "foreground": "#f0e4c5",
@@ -928,7 +884,6 @@
     {
       "name": "miasma",
       "mode": "dark",
-      "thumbnail": "thumbnails/miasma.jpg",
       "palette": {
         "background": "#222222",
         "foreground": "#c2c2b0",
@@ -949,7 +904,6 @@
     {
       "name": "monokai",
       "mode": "dark",
-      "thumbnail": "thumbnails/monokai.jpg",
       "palette": {
         "background": "#0a1220",
         "foreground": "#f0f2f5",
@@ -970,7 +924,6 @@
     {
       "name": "moon-orbit",
       "mode": "dark",
-      "thumbnail": "thumbnails/moon-orbit.jpg",
       "palette": {
         "background": "#2d2940",
         "foreground": "#669afd",
@@ -991,7 +944,6 @@
     {
       "name": "nagai-twilight",
       "mode": "dark",
-      "thumbnail": "thumbnails/nagai-twilight.jpg",
       "palette": {
         "background": "#1f1a2e",
         "foreground": "#e9e4f5",
@@ -1012,7 +964,6 @@
     {
       "name": "nebulite",
       "mode": "dark",
-      "thumbnail": "thumbnails/nebulite.jpg",
       "palette": {
         "background": "#232529",
         "foreground": "#dcd6d6",
@@ -1033,7 +984,6 @@
     {
       "name": "noctalia",
       "mode": "dark",
-      "thumbnail": "thumbnails/noctalia.jpg",
       "palette": {
         "background": "#070722",
         "foreground": "#f3edf7",
@@ -1054,7 +1004,6 @@
     {
       "name": "nord",
       "mode": "dark",
-      "thumbnail": "thumbnails/nord.jpg",
       "palette": {
         "background": "#2e3440",
         "foreground": "#d8dee9",
@@ -1075,7 +1024,6 @@
     {
       "name": "osaka-jade",
       "mode": "dark",
-      "thumbnail": "thumbnails/osaka-jade.jpg",
       "palette": {
         "background": "#111c18",
         "foreground": "#c1c497",
@@ -1096,7 +1044,6 @@
     {
       "name": "oxford",
       "mode": "dark",
-      "thumbnail": "thumbnails/oxford.jpg",
       "palette": {
         "background": "#292b31",
         "foreground": "#d6d1c9",
@@ -1117,7 +1064,6 @@
     {
       "name": "pmndrs",
       "mode": "dark",
-      "thumbnail": "thumbnails/pmndrs.jpg",
       "palette": {
         "background": "#1b1e28",
         "foreground": "#a6accd",
@@ -1138,7 +1084,6 @@
     {
       "name": "reddcs",
       "mode": "dark",
-      "thumbnail": "thumbnails/reddcs.jpg",
       "palette": {
         "background": "#1c1213",
         "foreground": "#e3a68c",
@@ -1159,7 +1104,6 @@
     {
       "name": "retro-82",
       "mode": "dark",
-      "thumbnail": "thumbnails/retro-82.jpg",
       "palette": {
         "background": "#00172e",
         "foreground": "#f6dcac",
@@ -1180,7 +1124,6 @@
     {
       "name": "reverie",
       "mode": "dark",
-      "thumbnail": "thumbnails/reverie.jpg",
       "palette": {
         "background": "#101c38",
         "foreground": "#d8e0f2",
@@ -1201,7 +1144,6 @@
     {
       "name": "ristretto",
       "mode": "dark",
-      "thumbnail": "thumbnails/ristretto.jpg",
       "palette": {
         "background": "#2c2525",
         "foreground": "#e6d9db",
@@ -1222,7 +1164,6 @@
     {
       "name": "rose-pine",
       "mode": "light",
-      "thumbnail": "thumbnails/rose-pine.jpg",
       "palette": {
         "background": "#faf4ed",
         "foreground": "#575279",
@@ -1243,7 +1184,6 @@
     {
       "name": "rose-pine-main",
       "mode": "dark",
-      "thumbnail": "thumbnails/rose-pine-main.jpg",
       "palette": {
         "background": "#191724",
         "foreground": "#e0def4",
@@ -1264,7 +1204,6 @@
     {
       "name": "rose-pine-moon",
       "mode": "dark",
-      "thumbnail": "thumbnails/rose-pine-moon.jpg",
       "palette": {
         "background": "#232136",
         "foreground": "#e0def4",
@@ -1285,7 +1224,6 @@
     {
       "name": "roseofdune",
       "mode": "light",
-      "thumbnail": "thumbnails/roseofdune.jpg",
       "palette": {
         "background": "#f5e6d3",
         "foreground": "#35302a",
@@ -1306,7 +1244,6 @@
     {
       "name": "saga",
       "mode": "dark",
-      "thumbnail": "thumbnails/saga.jpg",
       "palette": {
         "background": "#05080a",
         "foreground": "#fff6ff",
@@ -1327,7 +1264,6 @@
     {
       "name": "sapphire",
       "mode": "dark",
-      "thumbnail": "thumbnails/sapphire.jpg",
       "palette": {
         "background": "#060d1f",
         "foreground": "#e0f7fa",
@@ -1348,7 +1284,6 @@
     {
       "name": "snow",
       "mode": "dark",
-      "thumbnail": "thumbnails/snow.jpg",
       "palette": {
         "background": "#1a1b1f",
         "foreground": "#eff2f5",
@@ -1369,7 +1304,6 @@
     {
       "name": "soho",
       "mode": "dark",
-      "thumbnail": "thumbnails/soho.jpg",
       "palette": {
         "background": "#1a1721",
         "foreground": "#d0cbd8",
@@ -1390,7 +1324,6 @@
     {
       "name": "solitude",
       "mode": "dark",
-      "thumbnail": "thumbnails/solitude.jpg",
       "palette": {
         "background": "#101315",
         "foreground": "#cacccc",
@@ -1411,7 +1344,6 @@
     {
       "name": "synthwave84",
       "mode": "dark",
-      "thumbnail": "thumbnails/synthwave84.jpg",
       "palette": {
         "background": "#240037",
         "foreground": "#ffffff",
@@ -1432,7 +1364,6 @@
     {
       "name": "thegreek",
       "mode": "light",
-      "thumbnail": "thumbnails/thegreek.jpg",
       "palette": {
         "background": "#d0d0c8",
         "foreground": "#242424",
@@ -1453,7 +1384,6 @@
     {
       "name": "tokyo-night",
       "mode": "dark",
-      "thumbnail": "thumbnails/tokyo-night.jpg",
       "palette": {
         "background": "#1a1b26",
         "foreground": "#a9b1d6",
@@ -1474,7 +1404,6 @@
     {
       "name": "tokyo-night-moon",
       "mode": "dark",
-      "thumbnail": "thumbnails/tokyo-night-moon.jpg",
       "palette": {
         "background": "#222436",
         "foreground": "#c8d3f5",
@@ -1495,7 +1424,6 @@
     {
       "name": "tokyo-night-storm",
       "mode": "dark",
-      "thumbnail": "thumbnails/tokyo-night-storm.jpg",
       "palette": {
         "background": "#24283b",
         "foreground": "#c0caf5",
@@ -1516,7 +1444,6 @@
     {
       "name": "tycho",
       "mode": "dark",
-      "thumbnail": "thumbnails/tycho.jpg",
       "palette": {
         "background": "#1e2125",
         "foreground": "#f0e9ec",
@@ -1537,7 +1464,6 @@
     {
       "name": "untitled",
       "mode": "dark",
-      "thumbnail": "thumbnails/untitled.jpg",
       "palette": {
         "background": "#241d22",
         "foreground": "#f0ecc5",
@@ -1558,7 +1484,6 @@
     {
       "name": "vantablack",
       "mode": "dark",
-      "thumbnail": "thumbnails/vantablack.jpg",
       "palette": {
         "background": "#000000",
         "foreground": "#ffffff",
@@ -1579,7 +1504,6 @@
     {
       "name": "vengeance",
       "mode": "dark",
-      "thumbnail": "thumbnails/vengeance.jpg",
       "palette": {
         "background": "#110e0e",
         "foreground": "#faf9f9",
@@ -1600,7 +1524,6 @@
     {
       "name": "vice-city",
       "mode": "dark",
-      "thumbnail": "thumbnails/vice-city.jpg",
       "palette": {
         "background": "#0a0a14",
         "foreground": "#f793d9",
@@ -1621,7 +1544,6 @@
     {
       "name": "void",
       "mode": "dark",
-      "thumbnail": "thumbnails/void.jpg",
       "palette": {
         "background": "#05010c",
         "foreground": "#ffffff",
@@ -1642,7 +1564,6 @@
     {
       "name": "vurple",
       "mode": "dark",
-      "thumbnail": "thumbnails/vurple.jpg",
       "palette": {
         "background": "#050111",
         "foreground": "#c9ffff",
@@ -1663,7 +1584,6 @@
     {
       "name": "white",
       "mode": "light",
-      "thumbnail": "thumbnails/white.jpg",
       "palette": {
         "background": "#ffffff",
         "foreground": "#000000",
@@ -1684,7 +1604,6 @@
     {
       "name": "x-1632",
       "mode": "dark",
-      "thumbnail": "thumbnails/x-1632.jpg",
       "palette": {
         "background": "#2f3138",
         "foreground": "#c7c6c1",

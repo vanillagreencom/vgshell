@@ -84,8 +84,7 @@ function label(name) {
 // card. Every other catalog entry is a card that is not installed.
 // A card's previewImage is the package preview the list or the catalog
 // names, or null. A card's image is its package's first image, else null
-// for a card drawn from its background: never the catalog thumbnail, which
-// the selected card would draw stretched far past its size.
+// for a card drawn from its background.
 //
 // A card is { name, label, source, state, reason, installed, palette,
 // tokens, terminal, previewImage, image, imagery, displayed }: `source`

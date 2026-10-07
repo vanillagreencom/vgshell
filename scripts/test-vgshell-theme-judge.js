@@ -7,8 +7,7 @@
 // target.json or placeholder, and fails closed on an unreadable template or
 // a missing vgs package. The catalog check judges the index and every
 // package it names, refuses a curated file on a target whose files run
-// code, one no target writes, one apply would not take and any symlink,
-// and requires the thumbnail;
+// code, one no target writes, one apply would not take and any symlink;
 // the package walk skips the catalog. Its controls at the end edit a copy
 // of the judge, one rule at a time, and require the catalog rows to fail on
 // each copy. Test directories live under repo tmp so the suite does not
@@ -50,13 +49,13 @@ function run(base) {
 
 // One palette the fixture packages set and their index entries state.
 const PALETTE = Object.fromEntries(["background", "foreground", "accent", "success", "warning", "danger", "info"].map(name => [name, "#101010"]));
-const catalogEntry = name => ({ name, mode: "dark", thumbnail: name + "/thumbnail.jpg", palette: PALETTE, imagery: null });
+const catalogEntry = name => ({ name, mode: "dark", palette: PALETTE, imagery: null });
 const catalogTheme = (name, palette = PALETTE) => JSON.stringify({ schemaVersion: 1, name, tokens: { scheme: { mode: "dark" }, palette } });
 
 // A themes directory at BASE holding a target that runs no code (`plain`),
 // one that does (`code`), one that takes a curated file only as a JSON
 // object with a `colors` key (`keyed`), and a catalog whose index lists
-// `probe`, a valid package with a thumbnail and a curated file for `plain`
+// `probe`, a valid package with a curated file for `plain`
 // and for `keyed`.
 function writeCatalog(base) {
     writeTarget(base, "plain", Object.assign({}, target, { app: "Plain", files: [{ template: "plain.conf", destination: "plain.conf" }] }), { "plain.conf": "" });
@@ -68,7 +67,6 @@ function writeCatalog(base) {
     fs.writeFileSync(path.join(dir, "theme.json"), catalogTheme("probe"));
     fs.writeFileSync(path.join(dir, "terminal.json"), JSON.stringify({ schemaVersion: 1, slots }));
     fs.writeFileSync(path.join(dir, "preview.jpg"), "preview");
-    fs.writeFileSync(path.join(dir, "thumbnail.jpg"), "jpeg");
     fs.writeFileSync(path.join(dir, "targets", "plain.conf"), "curated");
     fs.writeFileSync(path.join(dir, "targets", "keyed.json"), JSON.stringify({ colors: {} }));
     return dir;
@@ -96,8 +94,6 @@ function catalogRows(check, root) {
         ["curated directory", dir => fs.mkdirSync(path.join(dir, "targets", "plain.d")), "reason=curated-file file=targets/plain.d"],
         ["curated symlink", dir => { fs.rmSync(path.join(dir, "targets", "plain.conf")); fs.symlinkSync("../theme.json", path.join(dir, "targets", "plain.conf")); }, "reason=symlink file=targets/plain.conf"],
         ["targets symlink", dir => { fs.renameSync(path.join(dir, "targets"), path.join(dir, "real")); fs.symlinkSync("real", path.join(dir, "targets")); }, "reason=symlink file=targets"],
-        ["thumbnail absent", dir => fs.rmSync(path.join(dir, "thumbnail.jpg")), "reason=absent file=probe/thumbnail.jpg"],
-        ["thumbnail symlink", dir => { fs.rmSync(path.join(dir, "thumbnail.jpg")); fs.symlinkSync("theme.json", path.join(dir, "thumbnail.jpg")); }, "reason=symlink file=probe/thumbnail.jpg"],
         ["entry absent", dir => fs.rmSync(dir, { recursive: true }), "reason=absent file=probe"],
         ["entry symlink", dir => { fs.renameSync(dir, dir + ".real"); fs.symlinkSync("probe.real", dir); }, "reason=symlink file=probe"],
         ["theme absent", dir => fs.rmSync(path.join(dir, "theme.json")), "reason=absent file=probe/theme.json"],
@@ -178,8 +174,6 @@ const CATALOG_CONTROLS = [
     ["curated file kind", "if (!entry.isFile()) return", "if (false) return"],
     ["curated symlink", "if (entry.isSymbolicLink()) return", "if (false) return"],
     ["targets symlink", 'if (stat.isSymbolicLink()) return logic.refusal("symlink", "", "file=" + TARGETS);', ""],
-    ["thumbnail absent", 'if (thumbnail.state === "absent") return', "if (false) return"],
-    ["thumbnail symlink", 'if (thumbnail.state === "linked") return', "if (false) return"],
     ["entry absent", 'if (stat === undefined) return logic.refusal("absent", "", "file=" + entry.name);', ""],
     ["entry symlink", 'if (stat.isSymbolicLink()) return logic.refusal("symlink", "", "file=" + entry.name);', ""],
     ["theme absent", "if (read.files.theme === undefined) return logic.refusal(", "if (false) return logic.refusal("],

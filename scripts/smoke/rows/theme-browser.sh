@@ -4,7 +4,7 @@
 # cards draw through images, the texts it draws beside its rail and tabs
 # through descendantGeometry, and its Dialog's through itemTexts. The rows page, filter, install and apply a catalog
 # entry, and answer the wallpaper offer both ways. akane's card draws its
-# package preview and never the catalog thumbnail. The old keys, SUPER+T
+# package preview. The old keys, SUPER+T
 # and SUPER+W, open nothing, and each view's key moves an open browser to
 # that view; a manifest copy still bound to SUPER+T is their control. The sandbox copy's
 # catalog pins nord's wallpapers to an archive this row builds, served from
@@ -21,7 +21,7 @@
 # plugin disabled, and rows/theme-browse.sh leaves vgs applied, no current
 # wallpaper and nord not installed; this file enables the plugin and
 # leaves all four so.
-# inputs: shell/plugins/vgs.themes/* themes/catalog/* shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/feedback/Dialog.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.themes/* themes/catalog/* shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/feedback/Dialog.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 view_value() { ipc smoke readDescendant overlay vgs.themes ThemeView "$1"; }
 view_names() { view_value shownCards | py_reply 'import json,sys; print(json.dumps([c["name"] for c in json.load(sys.stdin)]))'; }
@@ -308,7 +308,7 @@ index="$repo/themes/catalog/index.json"
 cp -p -- "$index" "$sandbox/catalog-index.json"
 assets="$sandbox/theme-assets"
 mkdir -p -- "$assets/themes"
-python3 - "$assets/themes/vgs-theme-nord-smoke.tar.gz" "$repo/themes/catalog/thumbnails/nord.jpg" "$index" <<'PY'
+python3 - "$assets/themes/vgs-theme-nord-smoke.tar.gz" "$repo/scripts/smoke/fixtures/theme-image.jpg" "$index" <<'PY'
 import hashlib, io, json, os, sys, tarfile
 out, image, index = sys.argv[1:]
 with tarfile.open(out, "w:gz") as tar:
@@ -467,7 +467,6 @@ first_card=akane
 type_keys "$first_card" || fail "typing $first_card failed"
 expect_poll "the filter selects the catalog card" "\"$first_card\"" view_value selectedName
 expect_poll "the catalog card draws its package preview" ready card_image "$repo/themes/catalog/$first_card/preview.jpg"
-expect "the catalog card draws no thumbnail" none card_image "$repo/themes/catalog/thumbnails/$first_card.jpg"
 expect "the catalog card decodes at card size times screen scale" True card_source_size_matches "$repo/themes/catalog/$first_card/preview.jpg"
 expect_poll "the selected card draws its eight colours across the foot" '[]' expanded_foot
 python3 - "$repo/themes/catalog/$first_card/theme.json" "$index" "$first_card" <<'PY'
@@ -538,7 +537,7 @@ expect_poll "the filter leaves nord alone" '["nord"]' view_names
 expect "the selection moves to the one match" '"nord"' view_value selectedName
 # Control: scripts/test-qml-unit.sh deletes CardCarousel's modelData rebind and tst_carousel.qml fails.
 expect "the drawn centre theme card matches the selected name after filtering" '"nord"' ipc smoke currentThemeCardName overlay vgs.themes
-expect_poll "nord's package preview wins over its thumbnail" "$repo/themes/catalog/nord/preview.jpg" selected_preview
+expect_poll "nord's package preview wins over its installed wallpaper" "$repo/themes/catalog/nord/preview.jpg" selected_preview
 expect_poll "nord's selected card draws preview.jpg" ready card_image "$repo/themes/catalog/nord/preview.jpg"
 type_keys -M alt -k i -m alt || fail "sending Alt+I in the theme view failed"
 expect "Alt+I leaves the filter" '"nord"' view_value filterText
@@ -693,7 +692,9 @@ click_scope_all() {
   read -r x y <<<"$at" || return
   click "$x" "$y"
 }
-thumbs="$repo/themes/catalog/thumbnails"
+fixture_image="$repo/scripts/smoke/fixtures/theme-image.jpg"
+fixture_tall="$sandbox/theme-image-tall.jpg"
+"$imagemagick" "$fixture_image" -resize 160x120\! "$fixture_tall"
 # The width over the height of the file IMAGE, a JPEG, and of the ready card
 # image drawing PATH, `none` while none is ready, each to one decimal place.
 # A card decodes to cover its box, so its image keeps the file's ratio.
@@ -710,10 +711,10 @@ PY
 }
 card_ratio() { ipc smoke images overlay vgs.themes | py_reply 'import json,sys; r=[i[3] for i in json.load(sys.stdin) if i[0]==sys.argv[1] and i[1]=="ready"]; print("%.1f" % (r[0][0] / r[0][1]) if r else "none")' "$1"; }
 # pin_nord ARCHIVE B_IMAGE: an archive holding b.jpg from B_IMAGE and a.jpg
-# and c.jpg from nord's thumbnail, pinned for nord in the sandbox copy's
+# and c.jpg from the test image, pinned for nord in the sandbox copy's
 # catalog, which the update card then offers.
 pin_nord() {
-  python3 - "$assets/themes/$1" "$2" "$thumbs/nord.jpg" "$index" <<'PY'
+  python3 - "$assets/themes/$1" "$2" "$fixture_image" "$index" <<'PY'
 import hashlib, json, os, sys, tarfile
 out, second, image, index = sys.argv[1:]
 with tarfile.open(out, "w:gz") as tar:
@@ -1043,26 +1044,26 @@ done
 # Keep this control's decode at the native size so carousel movement cannot
 # replace the cached decode independently of the URL generation.
 plugin_control WallpaperCard.qml identity $'Files.stampedUrl(root.modelData.path, root.modelData.generation)\n        sourceSize: root.decodeSize' 'Files.fileUrl(root.modelData.path)'
-pin_nord vgs-theme-nord-smoke2.tar.gz "$thumbs/frankenstein.jpg"
+pin_nord vgs-theme-nord-smoke2.tar.gz "$fixture_tall"
 press_wallpapers || fail "typing SUPER+SHIFT+W for the identity control failed"
 expect_poll "SUPER+SHIFT+W opens the identity control's browser" 1 layer_count vgs:overlay
 expect_poll "the theme source ends with the update card" "[\"$nord_a\", \"$nord_b\", \"update\"]" wall_keys
-expect_poll "the identity control draws nord's b.jpg" "$(file_ratio "$thumbs/nord.jpg")" card_ratio "$nord_b"
+expect_poll "the identity control draws nord's b.jpg" "$(file_ratio "$fixture_image")" card_ratio "$nord_b"
 type_keys -k End || fail "sending End failed"
 expect_poll "End selects the update card" update wall_selected
 type_keys -k Return || fail "sending Return to the identity control's update card failed"
 expect_poll "the identity control's update, apply and lists end" none wall_job
 expect "the identity control's update left no problem" '""' wall_value problem
 expect_poll "the theme source lists the third image and no card" "[\"$nord_a\", \"$nord_b\", \"$nord_c\"]" wall_keys
-expect "the update replaced b.jpg on disk" True bash -c 'cmp -s -- "$1" "$2" && echo True' _ "$thumbs/frankenstein.jpg" "$nord_b"
-expect "control: an unstamped image URL keeps drawing the replaced b.jpg's old picture" "$(file_ratio "$thumbs/nord.jpg")" card_ratio "$nord_b"
+expect "the update replaced b.jpg on disk" True bash -c 'cmp -s -- "$1" "$2" && echo True' _ "$fixture_tall" "$nord_b"
+expect "control: an unstamped image URL keeps drawing the replaced b.jpg's old picture" "$(file_ratio "$fixture_image")" card_ratio "$nord_b"
 type_keys -k Escape || fail "sending Escape to the identity control failed"
 expect_poll "Escape closes the identity control's browser" 0 layer_count vgs:overlay
 plugin_restore WallpaperCard.qml identity
-pin_nord vgs-theme-nord-smoke3.tar.gz "$thumbs/biscuit-de-mar.jpg"
+pin_nord vgs-theme-nord-smoke3.tar.gz "$fixture_image"
 press_wallpapers || fail "typing SUPER+SHIFT+W for the update failed"
 expect_poll "SUPER+SHIFT+W opens the browser for the update" 1 layer_count vgs:overlay
-expect_poll "a new open draws the b.jpg the last update replaced" "$(file_ratio "$thumbs/frankenstein.jpg")" card_ratio "$nord_b"
+expect_poll "a new open draws the b.jpg the last update replaced" "$(file_ratio "$fixture_tall")" card_ratio "$nord_b"
 expect_poll "the theme source ends with the next update card" "[\"$nord_a\", \"$nord_b\", \"$nord_c\", \"update\"]" wall_keys
 type_keys -k End || fail "sending End for the update failed"
 expect_poll "End selects the next update card" update wall_selected
@@ -1070,7 +1071,7 @@ type_keys -k Return || fail "sending Return to the update card failed"
 expect_poll "the update, the apply after it and the lists end" none wall_job
 expect "the update left no problem" '""' wall_value problem
 expect "the update keeps the browser open" 1 layer_count vgs:overlay
-expect_poll "the rail draws the b.jpg the update replaced" "$(file_ratio "$thumbs/biscuit-de-mar.jpg")" card_ratio "$nord_b"
+expect_poll "the rail draws the b.jpg the update replaced" "$(file_ratio "$fixture_image")" card_ratio "$nord_b"
 expect "the update unpacks the third image" True bash -c '[[ -f $1 ]] && echo True' _ "$nord_c"
 type_keys -k Escape || fail "sending Escape after the update failed"
 expect_poll "Escape closes the browser after the update" 0 layer_count vgs:overlay

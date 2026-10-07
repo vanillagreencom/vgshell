@@ -76,8 +76,8 @@
 //       marker and no `.git`, else `git`: what `vgshell theme update` and
 //       `outdated` do with it.
 //   vgshell-theme-judge catalog <text|json> <config-dir>
-//       every entry of the shipped catalog's index with its thumbnail's
-//       absolute `thumbnailPath` and its install state under
+//       every entry of the shipped catalog's index with its package preview
+//       and its install state under
 //       <config-dir>/themes: `installed`, `definitionUpdate`,
 //       `imageryInstalled` and `imageryUpdate`.
 //   vgshell-theme-judge install <text|json> <config-dir> <stage> <held|busy|failed> <name>
@@ -477,9 +477,8 @@ function curatedRefusal(dir, destinations) {
 }
 
 // The judge's verdict on catalogued package ENTRY in CATALOG_DIR: its
-// package files through ThemeLogic.acceptCatalogEntry, its curated files,
-// and its thumbnail, which must be a file in the catalog reached through no
-// symlink. Any read failure throws the fs error.
+// package files through ThemeLogic.acceptCatalogEntry and its curated
+// files. Any read failure throws the fs error.
 function catalogVerdict(catalogDir, entry, destinations) {
     const dir = path.join(catalogDir, entry.name);
     const stat = fs.lstatSync(dir, { throwIfNoEntry: false });
@@ -492,11 +491,6 @@ function catalogVerdict(catalogDir, entry, destinations) {
     if (!verdict.ok) return verdict;
     const curated = curatedRefusal(dir, destinations);
     if (curated !== null) return curated;
-    if (entry.thumbnail !== null) {
-        const thumbnail = packageFile(catalogDir, entry.thumbnail);
-        if (thumbnail.state === "linked") return logic.refusal("symlink", "", "file=" + entry.thumbnail);
-        if (thumbnail.state === "absent") return logic.refusal("absent", "", "file=" + entry.thumbnail);
-    }
     return verdict;
 }
 
@@ -2437,10 +2431,8 @@ function catalogList(format, configDir) {
         const marker = realDirectory(dir, key) ? installOrigin(dir, key).marker : null;
         const source = catalogPackage(entry, key);
         const digest = marker === null ? null : packageDigest(source, key);
-        const thumbnailPath = entry.thumbnail === null ? null : path.join(SHIPPED, CATALOG, entry.thumbnail);
         const verdict = logic.acceptPackage(tokens, { directoryName: entry.name, themeJson: text(source.files.theme), terminalJson: text(source.files.terminal), shipped: false });
         return Object.assign({}, entry, {
-            thumbnailPath,
             previewPath: previewPath(source.path),
             tokens: verdict.ok ? previewTokens(verdict.values, false) : null,
             terminal: verdict.ok ? verdict.terminal : null

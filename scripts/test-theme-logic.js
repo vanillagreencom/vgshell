@@ -496,7 +496,7 @@ const BAD_TABLES = [
 // the table's palette group, written out here, not read from the table.
 const CATALOG_PALETTE = { background: "#000000", foreground: "#ffffff", accent: "#fff", success: "#00ff00", warning: "#ffff00", danger: "#ff0000", info: "#0000ff" };
 const CATALOG_IMAGERY = { repo: "https://github.com/vanillagreencom/vgs-themes", release: "themes", archive: "vgs-theme-probe-r1.tar.gz", size: 1, sha256: "0123456789abcdef".repeat(4) };
-const CATALOG_ENTRY = { name: "probe", mode: "dark", thumbnail: "probe/thumbnail.jpg", palette: CATALOG_PALETTE, imagery: CATALOG_IMAGERY };
+const CATALOG_ENTRY = { name: "probe", mode: "dark", palette: CATALOG_PALETTE, imagery: CATALOG_IMAGERY };
 const catalog = entries => JSON.stringify({ schemaVersion: 1, entries });
 // CATALOG_ENTRY with the value at dotted KEY set to VALUE, or removed when
 // VALUE is REMOVED.
@@ -526,13 +526,8 @@ const CATALOG_REFUSED = [
     ["reserved vgs", catalog([entryWith("name", "vgs")]), "reserved-name", "entries.0.name", "name=vgs"],
     ["reserved targets", catalog([entryWith("name", "targets")]), "reserved-name", "entries.0.name", "name=targets"],
     ["reserved catalog", catalog([entryWith("name", "catalog")]), "reserved-name", "entries.0.name", "name=catalog"],
-    ["reserved thumbnails", catalog([entryWith("name", "thumbnails")]), "reserved-name", "entries.0.name", "name=thumbnails"],
     ["duplicate name", catalog([CATALOG_ENTRY, entryWith("mode", "light")]), "duplicate-name", "entries.1.name", "name=probe"],
     ["unknown mode", catalog([entryWith("mode", "dim")]), "catalog-mode", "entries.0.mode"],
-    ["thumbnail leaving the catalog", catalog([entryWith("thumbnail", "../probe.jpg")]), "catalog-thumbnail", "entries.0.thumbnail"],
-    ["absolute thumbnail", catalog([entryWith("thumbnail", "/probe.jpg")]), "catalog-thumbnail", "entries.0.thumbnail"],
-    ["empty thumbnail segment", catalog([entryWith("thumbnail", "probe//thumbnail.jpg")]), "catalog-thumbnail", "entries.0.thumbnail"],
-    ["thumbnail not a string", catalog([entryWith("thumbnail", 7)]), "catalog-thumbnail", "entries.0.thumbnail"],
     ["palette not an object", catalog([entryWith("palette", null)]), "catalog-palette", "entries.0.palette", "got=null"],
     ["missing palette colour", catalog([entryWith("palette.info", REMOVED)]), "catalog-palette", "entries.0.palette", "key=info"],
     ["unknown palette colour", catalog([entryWith("palette.accent2", "#000000")]), "catalog-palette", "entries.0.palette", "key=accent2"],
@@ -705,19 +700,19 @@ function verify(judge) {
         assert.equal(result.token, token, JSON.stringify(files));
     }
 
-    for (const name of ["targets", "catalog", "thumbnails"]) {
+    for (const name of ["targets", "catalog"]) {
         const result = judge.acceptPackage(TOKENS, { directoryName: name, themeJson: JSON.stringify({ schemaVersion: 1, name, tokens: {} }), shipped: true });
         assert.equal(result.ok, false, name);
         assert.equal(result.reason, "reserved-name", name);
         assert.equal(result.detail, "name=" + name, name);
     }
 
-    const index = judge.acceptCatalogIndex(TOKENS, catalog([CATALOG_ENTRY, entryWith("name", "bare")].map((entry, i) => i === 0 ? entry : Object.assign(entry, { mode: "light", thumbnail: null, imagery: null }))));
+    const index = judge.acceptCatalogIndex(TOKENS, catalog([CATALOG_ENTRY, entryWith("name", "bare")].map((entry, i) => i === 0 ? entry : Object.assign(entry, { mode: "light", imagery: null }))));
     assert.equal(index.ok, true, index.ok ? "" : judge.refusalLine(index));
     // The judge runs in its own context, so its objects compare as JSON.
     assert.deepEqual(plain(index.entries), [
-        { name: "probe", mode: "dark", thumbnail: "probe/thumbnail.jpg", palette: { background: "#000000ff", foreground: "#ffffffff", accent: "#ffffffff", success: "#00ff00ff", warning: "#ffff00ff", danger: "#ff0000ff", info: "#0000ffff" }, imagery: CATALOG_IMAGERY },
-        { name: "bare", mode: "light", thumbnail: null, palette: { background: "#000000ff", foreground: "#ffffffff", accent: "#ffffffff", success: "#00ff00ff", warning: "#ffff00ff", danger: "#ff0000ff", info: "#0000ffff" }, imagery: null }
+        { name: "probe", mode: "dark", palette: { background: "#000000ff", foreground: "#ffffffff", accent: "#ffffffff", success: "#00ff00ff", warning: "#ffff00ff", danger: "#ff0000ff", info: "#0000ffff" }, imagery: CATALOG_IMAGERY },
+        { name: "bare", mode: "light", palette: { background: "#000000ff", foreground: "#ffffffff", accent: "#ffffffff", success: "#00ff00ff", warning: "#ffff00ff", danger: "#ff0000ff", info: "#0000ffff" }, imagery: null }
     ]);
     assert.deepEqual(plain(judge.acceptCatalogIndex(TOKENS, catalog([]))), { ok: true, entries: [] });
     for (const [label, text, reason, token, detail] of CATALOG_REFUSED) {
@@ -890,8 +885,6 @@ const CONTROLS = [
     ["catalog reserved directory", " || RESERVED_DIRECTORIES.indexOf(entry.name) !== -1", ""],
     ["catalog duplicate name", "if (hasOwn(seen, judged.entry.name))", "if (false)"],
     ["catalog mode", "if (nodeAt(tokens, SCHEME_MODE).options.indexOf(entry.mode) === -1)", "if (false)"],
-    ["catalog thumbnail", "if (entry.thumbnail !== null && !isCatalogPath(entry.thumbnail))", "if (false)"],
-    ["catalog thumbnail segments", "text.split(\"/\").every(isPackageName)", "true"],
     ["catalog palette object", "if (!isPlainObject(entry.palette))", "if (false)"],
     ["catalog palette keys", "if (defect !== \"\")\n        return refusal(\"catalog-palette\"", "if (false)\n        return refusal(\"catalog-palette\""],
     ["catalog palette colour", "if (colour === null)\n            return refusal(\"catalog-palette\"", "if (false)\n            return refusal(\"catalog-palette\""],

@@ -743,10 +743,10 @@ function isAbsolutePath(text) {
 }
 
 // The directories of a themes directory or the catalog that hold no
-// package: the targets, the catalog and generated thumbnails. A walk of a
+// package: the targets and the catalog. A walk of a
 // themes directory skips them, so no package of any source takes these
 // names.
-var RESERVED_DIRECTORIES = ["targets", "catalog", "thumbnails"];
+var RESERVED_DIRECTORIES = ["targets", "catalog"];
 
 var TERMINAL_SCHEMA_VERSION = 1;
 var TERMINAL_SLOT_PREFIX = "color";
@@ -836,7 +836,7 @@ function acceptPackage(tokens, files) {
 // theme without wallpapers, or the pin of its release archive.
 var CATALOG_SCHEMA_VERSION = 1;
 var CATALOG_KEYS = ["schemaVersion", "entries"];
-var CATALOG_ENTRY_KEYS = ["name", "mode", "thumbnail", "palette", "imagery"];
+var CATALOG_ENTRY_KEYS = ["name", "mode", "palette", "imagery"];
 var CATALOG_IMAGERY_KEYS = ["repo", "release", "archive", "size", "sha256"];
 
 // The repository an archive downloads from: an https URL of a host and one
@@ -858,13 +858,6 @@ function keyDefect(value, keys) {
     return "";
 }
 
-// A thumbnail path, relative to the catalog directory: `/`-separated
-// segments, each a package name, so no segment is empty, `.` or `..` and
-// the path cannot leave the catalog.
-function isCatalogPath(text) {
-    return typeof text === "string" && text.split("/").every(isPackageName);
-}
-
 // Judge one index entry at position I; answer the entry with its palette
 // colours in resolved form, or one refusal whose token is `entries.<i>`
 // and the key it names.
@@ -881,8 +874,6 @@ function catalogEntry(tokens, entry, i) {
         return refusal("reserved-name", at + ".name", "name=" + entry.name);
     if (nodeAt(tokens, SCHEME_MODE).options.indexOf(entry.mode) === -1)
         return refusal("catalog-mode", at + ".mode", "got=" + JSON.stringify(entry.mode));
-    if (entry.thumbnail !== null && !isCatalogPath(entry.thumbnail))
-        return refusal("catalog-thumbnail", at + ".thumbnail", "got=" + JSON.stringify(entry.thumbnail));
     if (!isPlainObject(entry.palette))
         return refusal("catalog-palette", at + ".palette", "got=" + JSON.stringify(entry.palette));
     var names = Object.keys(nodeAt(tokens, "palette"));
@@ -903,7 +894,7 @@ function catalogEntry(tokens, entry, i) {
             return pin;
         imagery = pin.imagery;
     }
-    return { ok: true, entry: { name: entry.name, mode: entry.mode, thumbnail: entry.thumbnail, palette: palette, imagery: imagery } };
+    return { ok: true, entry: { name: entry.name, mode: entry.mode, palette: palette, imagery: imagery } };
 }
 
 // Judge IMAGERY, the pin of a wallpaper archive, at token AT: an index

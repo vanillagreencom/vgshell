@@ -65,7 +65,7 @@ function publish(assets, archive, files) {
 }
 
 function pinCatalog(root, pin) {
-    fs.writeFileSync(path.join(root, "themes", "catalog", "index.json"), JSON.stringify({ schemaVersion: 1, entries: [{ name: "moor", mode: "dark", thumbnail: null, imagery: pin }] }));
+    fs.writeFileSync(path.join(root, "themes", "catalog", "index.json"), JSON.stringify({ schemaVersion: 1, entries: [{ name: "moor", mode: "dark", imagery: pin }] }));
 }
 
 function run(command, args, env) {
