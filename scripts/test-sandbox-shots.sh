@@ -308,6 +308,74 @@ window_controls=(
 )
 run_controls "$window_helper" window_cases window_controls
 
+# Drive the real screensaver missing-tool branch and the real scene loop
+# and verdict, without a compositor. Capture's scene stands for the frame
+# producer; the test proves the runner still reaches it after screensaver.
+scene_continuation_case() {
+  local script="$1" dir status=0 out
+  dir="$(mktemp -d "$tmp/scene-continuation.XXXXXX")" || return 1
+  mkdir -p "$dir/bin" "$dir/shots"
+  for tool in wc awk tr; do ln -s "$(command -v "$tool")" "$dir/bin/$tool"; done
+  python3 - "$script" "$dir/runner.sh" <<'PY'
+import sys
+text = open(sys.argv[1]).read()
+start = text.index('scene_screensaver() {')
+end = text.index('\n# The setup each scene needs', start)
+tail = text.index('# The first shot is the bare desktop;')
+open(sys.argv[2], 'w').write(text[start:end] + '\n' + text[tail:])
+PY
+  : >"$dir/auth.log"
+  env -i PATH="$dir/bin" "$BASH" -c '
+    set -euo pipefail
+    SHOT_DIR="$1/shots"
+    auth_log="$1/auth.log"
+    failures=0 undrawn=0 unmeasured=0
+    mode_list=(dark)
+    scenes=(screensaver capture)
+    park_pointer() { :; }
+    set_mode() { :; }
+    take() { printf "frame\n" >"$SHOT_DIR/$1.png"; printf "%s\ts\tp\tsettled\thidden\tclean\n" "$1" >>"$SHOT_DIR/shots.tsv"; }
+    scene_capture() { take "capture-$1-panel"; }
+    ok() { :; }
+    fail() { failures=$((failures + 1)); }
+    source "$1/runner.sh"
+  ' _ "$dir" >"$dir/out" 2>"$dir/err" || status=$?
+  out="$(cat -- "$dir/out")"
+  [[ $status -eq 77 && -e $dir/shots/capture-dark-panel.png && ! -e $dir/shots/screensaver-dark-cover.png \
+    && $out == *'scene=screensaver mode=dark status=not-measured missing=ttfx'* ]]
+}
+if scene_continuation_case "$repo/scripts/sandbox-shots.sh"; then
+  ok "without ttfx, Capture still runs after screensaver and the run exits 77"
+else
+  fail "without ttfx, Capture still runs after screensaver and the run exits 77"
+fi
+continuation_controls=(
+  'the old whole-run exit stops later Capture' '    return 0' '    exit 77'
+  'a missing scene becomes a passing run' '[[ $unmeasured -eq 0 ]] || exit 77' 'true'
+)
+for (( i = 0; i < ${#continuation_controls[@]}; i += 3 )); do
+  label="${continuation_controls[i]}"; needle="${continuation_controls[i + 1]}"; replacement="${continuation_controls[i + 2]}"
+  continuation_mutant="$tmp/continuation-mutant.sh"
+  # Limit the return mutation to the missing-tool branch, leaving other
+  # scenes and every statement after that branch unchanged.
+  python3 - "$repo/scripts/sandbox-shots.sh" "$continuation_mutant" "$needle" "$replacement" <<'PY'
+import sys
+source, destination, needle, replacement = sys.argv[1:]
+text = open(source).read()
+if needle == '    return 0':
+    start = text.index('scene_screensaver() {')
+    end = text.index('\n  python3', start)
+else:
+    start, end = 0, len(text)
+block = text[start:end]
+assert block.count(needle) == 1
+changed = block.replace(needle, replacement)
+assert changed != block
+open(destination, 'w').write(text[:start] + changed + text[end:])
+PY
+  if scene_continuation_case "$continuation_mutant"; then fail "control: $label stayed green"; else ok "control: $label"; fi
+done
+
 # The scene choice of scripts/sandbox-shots.sh, before any sandbox starts:
 # a tree ships either the Settings plugin or the bar's manager built-in, a
 # plugin scene needs its plugins' manifests, and a scene the tree does not

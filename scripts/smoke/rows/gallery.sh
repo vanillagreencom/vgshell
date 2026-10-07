@@ -202,6 +202,24 @@ if [[ -n $carousel_rest ]]; then
 fi
 
 expect_poll "the gallery draws every focus example" '[]' ipc smoke galleryFocusMissing window vgs.gallery
+mkdir -p "$repo/shell/Core/GalleryTileControl"
+python3 - "$repo/shell/plugins/vgs.gallery/Gallery.qml" "$repo/shell/Core/GalleryTileControl/Item.qml" <<'PY'
+from pathlib import Path
+import json, re, sys
+source, destination = map(Path, sys.argv[1:])
+text = source.read_text()
+pattern = r'\s*TileGroup \{\n\s*property string focusExample: "TileGroup"\n.*?\n\s*\}'
+changed, count = re.subn(pattern, '', text, flags=re.S)
+assert count == 1 and changed != text, 'the TileGroup focus control must match once'
+needle = 'Qt.resolvedUrl("sample-emoji.png")'
+assert changed.count(needle) == 1
+changed = changed.replace(needle, json.dumps((source.parent / 'sample-emoji.png').as_uri()))
+destination.write_text(changed)
+PY
+expect "the Gallery copy without TileGroup focus builds" ok ipc smoke popupLoad gallery-tile-control "$repo/shell/Core/GalleryTileControl/Item.qml" window vgs.gallery '{"width":800,"height":600}'
+expect "control: dropping TileGroup from Gallery focus is refused" '["TileGroup:absent"]' ipc smoke galleryFocusMissingCopy gallery-tile-control
+expect "the TileGroup focus control is released" ok ipc smoke popupDrop gallery-tile-control
+rm -r -- "${repo:?}/shell/Core/GalleryTileControl" || fail "removing the TileGroup focus control failed"
 gallery_tab_tour() {
   local required focus label seen_json
   required='["Button primary","Button secondary","Button tertiary","Button ghost","Button danger","ToggleButton","IconButton","BarItem","Switch","Checkbox","SegmentedControl","Select","TextField","Slider","TitleButton","Tabs","Disclosure","DeviceRow","CardCarousel","KeyNav list","Dialog accept action"]'

@@ -162,7 +162,9 @@
 # window's state is the one read this runner makes of the host compositor
 # (scripts/smoke/host-window.sh).
 #
-# Exit 0 when every shot was taken. Exit 77 when a prerequisite is missing
+# A scene with a missing tool names itself not measured and leaves the
+# other scenes running. Exit 0 when every shot was taken.
+# Exit 77 when a prerequisite is missing
 # or when every failure was a grim that got no frame from the nested
 # compositor (nested-window=not-drawn: the host sends a hidden window no
 # frame callbacks unless a host window rule gives class aquamarine
@@ -467,6 +469,7 @@ read -r mon_w mon_h bar_reserved < <(hypr -j monitors | python3 -c 'import json,
 run_w="$mon_w" run_h="$mon_h"
 
 undrawn=0
+unmeasured=0
 # hold_left: what the output reads in place of the held mode.
 hold_left() {
   echo "${mode_hold[0]} reads $(mode_scale_of "${mode_hold[0]}" || echo unreadable), not the held ${mode_hold[1]}; a host resize or refocus, or another writer, reset it"
@@ -2775,7 +2778,11 @@ scene_greeter() { # MODE
 }
 
 scene_screensaver() { # MODE
-  command -v ttfx >/dev/null 2>&1 || { printf 'sandbox-shots: status=not-measured missing=ttfx\n'; exit 77; }
+  if ! command -v ttfx >/dev/null 2>&1; then
+    printf 'sandbox-shots: scene=screensaver mode=%s status=not-measured missing=ttfx\n' "$1"
+    unmeasured=$((unmeasured + 1))
+    return 0
+  fi
   python3 - "$home/.config/vgshell/shell.json" <<'PY'
 import json, os, sys
 path = sys.argv[1]
@@ -3212,3 +3219,4 @@ if [[ $failures -gt 0 && $failures -eq $undrawn ]]; then
   exit 77
 fi
 [[ $failures -eq 0 ]] || exit 1
+[[ $unmeasured -eq 0 ]] || exit 77

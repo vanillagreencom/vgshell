@@ -11,8 +11,8 @@
 # or fails, and exits with the status its case sets. The --from cases pin
 # the exit status and the first stderr line; the pass case pins every
 # image's size and WebP magic. The cases without --from pin the stand-in's
-# arguments, the exit status passed through, and images written only on a
-# 0. The controls plant one defect per rule in a copy of the script and
+# arguments, the exit status passed through, and completed images written
+# on 0 or a partial 77. The controls plant one defect per rule in a copy of the script and
 # require the case that rule owns to go red.
 #
 # Exit 0 when every case and control holds, 1 otherwise, 77 without
@@ -185,6 +185,7 @@ done
 # with the status in stand_in_status.
 stand_in_argv="$TMP_ROOT/stand-in.argv"
 stand_in_status="$TMP_ROOT/stand-in.status"
+stand_in_empty="$TMP_ROOT/stand-in.empty"
 cat >"$checkout/scripts/sandbox-shots.sh" <<STAND_IN
 #!/usr/bin/env bash
 set -euo pipefail
@@ -195,7 +196,11 @@ while [[ \$# -gt 0 ]]; do
 done
 [[ -n \$out ]] || { echo "sandbox-shots stand-in: no --out" >&2; exit 3; }
 mkdir -p -- "\$out"
+[[ ! -e "$stand_in_empty" ]] || exit "\$(cat -- "$stand_in_status")"
 cp -- "$run_dir"/* "\$out"/
+if [[ \$(cat -- "$stand_in_status") == 77 ]]; then
+  printf 'sandbox-shots: scene=screensaver mode=dark status=not-measured missing=ttfx\n'
+fi
 exit "\$(cat -- "$stand_in_status")"
 STAND_IN
 chmod +x "$checkout/scripts/sandbox-shots.sh"
@@ -225,7 +230,7 @@ dark
 # stand-in that exits STATUS, hands the sandbox exactly its capture
 # arguments, an --out under tmp/readme-shots/ named for the UTC time and
 # each table scene once; exits STATUS; and writes the pass rows at their
-# sizes on 0 and no image otherwise.
+# sizes on 0 or a partial 77, and no image on 1.
 sandbox_case() {
   local script="$1" want="$2" out_dir="$checkout/tmp/out-$RANDOM$RANDOM" argv="" images=""
   printf '%s\n' "$want" >"$stand_in_status"
@@ -233,8 +238,8 @@ sandbox_case() {
   run_tool "$script" "$(table "${sandbox_rows[@]}")" --out "$out_dir"
   [[ ! -f $stand_in_argv ]] || argv="$(cat -- "$stand_in_argv")"
   [[ ! -d $out_dir ]] || images="$(find "$out_dir" -type f -name '*.webp')"
-  [[ $want -eq 0 || -z $images ]] || { echo "        sandbox $want: images written: $images"; return 1; }
-  [[ $want -ne 0 || $(sizes_in "$out_dir") == "$pass_sizes" ]] || { echo "        sandbox $want: sizes: $(sizes_in "$out_dir" | tr '\n' ' ')"; return 1; }
+  [[ $want -ne 1 || -z $images ]] || { echo "        sandbox $want: images written: $images"; return 1; }
+  [[ $want -eq 1 || $(sizes_in "$out_dir") == "$pass_sizes" ]] || { echo "        sandbox $want: sizes: $(sizes_in "$out_dir" | tr '\n' ' ')"; return 1; }
   if [[ $status -eq $want && $(head -n 7 <<<"$argv") == "$sandbox_head" \
     && $(sed -n '8p' <<<"$argv") =~ ^"$checkout"/tmp/readme-shots/[0-9]{8}T[0-9]{6}Z$ \
     && $(tail -n +9 <<<"$argv") == "$sandbox_scenes" ]]; then
@@ -246,11 +251,48 @@ sandbox_case() {
 declare -A sandbox_labels=(
   [0]="without --from, a sandbox run that passes is cut into every image"
   [1]="without --from, a sandbox run that fails ends with 1 and no image"
-  [77]="without --from, a sandbox run that could not run ends with 77 and no image"
+  [77]="without --from, a partial sandbox run crops completed shots and retains 77"
 )
 for want in 1 77 0; do
   if sandbox_case "$repo/scripts/readme-shots.sh" "$want"; then ok "${sandbox_labels[$want]}"; else fail "${sandbox_labels[$want]}"; fi
 done
+
+# The screensaver comes before Capture in the table. A missing screensaver
+# shot must not hide the completed Capture shot or turn the run green.
+partial_case() {
+  local out_dir="$checkout/tmp/partial-$RANDOM$RANDOM" got
+  printf '77\n' >"$stand_in_status"
+  run_tool "$1" "$(table 'vgs.screensaver.webp absent full screensaver' 'vgs.capture.webp centre content capture')" --out "$out_dir"
+  got="$(cat -- "$TMP_ROOT/out")"
+  [[ $status -eq 77 && ! -e $out_dir/vgs.screensaver.webp && -e $out_dir/vgs.capture.webp \
+    && $(sizes_in "$out_dir") == 'vgs.capture.webp 464x364' \
+    && $got == *'scene=screensaver mode=dark status=not-measured missing=ttfx'* \
+    && $got == *'scene=screensaver shot=absent status=not-measured'* ]]
+}
+if partial_case "$repo/scripts/readme-shots.sh"; then ok "missing ttfx leaves Capture cropped and the run not measured"; else fail "missing ttfx leaves Capture cropped and the run not measured"; fi
+
+selection_case() {
+  local out_dir="$checkout/tmp/selected-$RANDOM$RANDOM"
+  printf '0\n' >"$stand_in_status"
+  run_tool "$1" "$(table 'vgs.screensaver.webp absent full screensaver' 'vgs.capture.webp centre content capture')" --out "$out_dir" capture capture
+  [[ $status -eq 0 && $(sizes_in "$out_dir") == 'vgs.capture.webp 464x364' \
+    && $(tail -n +9 -- "$stand_in_argv") == capture ]]
+}
+if selection_case "$repo/scripts/readme-shots.sh"; then ok "a named scene crops only its images and runs once"; else fail "a named scene crops only its images and runs once"; fi
+unknown_case() {
+  run_tool "$1" "$(table 'vgs.capture.webp centre content capture')" --from "$run_dir" unknown
+  [[ $status -eq 2 && $err_line == 'readme-shots: refused: scene=unknown' ]]
+}
+if unknown_case "$repo/scripts/readme-shots.sh"; then ok "an unknown scene is refused"; else fail "an unknown scene is refused"; fi
+empty_case() {
+  local out_dir="$checkout/tmp/empty-$RANDOM$RANDOM"
+  : >"$stand_in_empty"
+  printf '77\n' >"$stand_in_status"
+  run_tool "$1" "$(table 'vgs.capture.webp centre content capture')" --out "$out_dir"
+  rm -- "$stand_in_empty"
+  [[ $status -eq 77 && ! -e $out_dir/vgs.capture.webp ]]
+}
+if empty_case "$repo/scripts/readme-shots.sh"; then ok "a sandbox with no desktop retains exit 77 without cropping"; else fail "a sandbox with no desktop retains exit 77 without cropping"; fi
 
 # Controls, four fields each: label, the text, which must match once, its
 # replacement, and the case that goes red: `pass` for the pass case,
@@ -291,8 +333,26 @@ controls=(
   '[[ $state == hidden || $state == absent ]] || stop shot-window "$1" "state=${state:-unlisted}"' 'true || stop shot-window "$1" "state=${state:-unlisted}"'
   "a shot taken with the window shown is refused"
   "a failed sandbox run does not end the command"
-  '[[ $status -eq 0 ]] || exit "$status"' '[[ $status -eq 0 ]] || true "$status"'
+  '[[ $status -eq 0 || $status -eq 77 ]] || exit "$status"' '[[ $status -eq 0 || $status -eq 77 ]] || true "$status"'
   sandbox-1
+  "the old whole-run exit hides completed Capture shots"
+  '[[ $status -eq 0 || $status -eq 77 ]] || exit "$status"' '[[ $status -eq 0 ]] || exit "$status"'
+  partial
+  "a partial run loses its not-measured status"
+  $'done\nexit "$status"' $'done\nexit 0'
+  partial
+  "a named scene does not limit the table"
+  'table_rows=("${selected_rows[@]}")' ':'
+  selection
+  "an unknown scene is accepted"
+  '"$found" || stop scene "$scene"' 'true'
+  unknown
+  "a sandbox with no desktop attempts cropping"
+  '[[ $status -ne 77 || -f $from/00-desktop.png ]] || exit 77' 'true'
+  empty
+  "a missing shot stops a partial run"
+  'if [[ $status -eq 77 && ! -f $from/$shot.png ]]; then' 'if false; then'
+  partial
   "a scene two rows share reaches the sandbox twice"
   '[[ " ${scenes[*]} " == *" $scene "* ]] || scenes+=("$scene")' '[[ " ${scenes[*]} " == *" $scene "* ]] || true; scenes+=("$scene")'
   sandbox-0
@@ -311,6 +371,10 @@ open(dst, "w").write(text.replace(needle, replacement))' "$repo/scripts/readme-s
   fi
   if [[ $target == sandbox-* ]]; then
     if sandbox_case "$mutant" "${target#sandbox-}" >/dev/null; then fail "control: $label still gave '$target'"; else ok "control: $label"; fi
+    continue
+  fi
+  if [[ $target == partial || $target == selection || $target == unknown || $target == empty ]]; then
+    if "${target}_case" "$mutant" >/dev/null; then fail "control: $label stayed green"; else ok "control: $label"; fi
     continue
   fi
   if [[ $target == pass ]]; then

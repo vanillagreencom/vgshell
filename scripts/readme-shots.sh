@@ -2,7 +2,7 @@
 # Make the screenshots the first-party plugin READMEs show, from the one
 # table docs/images/plugins/shots.tsv.
 #
-# Usage: scripts/readme-shots.sh [--from DIR] [--out DIR]
+# Usage: scripts/readme-shots.sh [--from DIR] [--out DIR] [SCENE...]
 #
 # Each table row names an image under docs/images/plugins/, the
 # scripts/sandbox-shots.sh scene and shot it is cut from, and its crop.
@@ -41,8 +41,9 @@
 #
 # Without --from it runs scripts/sandbox-shots.sh --scale 2 --modes
 # dark --size 1280x800 over the table's scenes into
-# tmp/readme-shots/<UTC time>, and exits with its status when that is not
-# 0, so a sandbox that could not run (77) never passes. --from DIR reads a
+# tmp/readme-shots/<UTC time>. SCENE limits the table to those scenes.
+# A partial run (77) crops completed shots and names missing shots not
+# measured, then exits 77. Other failures stop the command. --from DIR reads a
 # sandbox-shots directory instead. Every shot the table names, and
 # 00-desktop.png, must be in DIR, listed in its shots.tsv with clean shot
 # chrome and with host window state hidden or absent, and OUTPUT_SIZE.
@@ -86,7 +87,8 @@ images_dir="$repo/docs/images/plugins"
 stop() {
   local message status=1 class=refused
   case $1 in
-    argument) message="usage: scripts/readme-shots.sh [--from DIR] [--out DIR]"; status=2 ;;
+    argument) message="usage: scripts/readme-shots.sh [--from DIR] [--out DIR] [SCENE...]"; status=2 ;;
+    scene) message="the table has no image for this scene"; status=2 ;;
     out) message="--out must name a directory under this checkout's tmp/" ;;
     table) message="scripts/check-readme-images.py --table refused the table" ;;
     from) message="--from must name a scripts/sandbox-shots.sh directory holding shots.tsv and 00-desktop.png" ;;
@@ -110,13 +112,15 @@ stop() {
 
 from=""
 out=""
+requested_scenes=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --from|--out)
       [[ $# -ge 2 && -n $2 ]] || stop argument "$1"
       if [[ $1 == --from ]]; then from="$2"; else out="$2"; fi
       shift 2 ;;
-    *) stop argument "$1" ;;
+    -*) stop argument "$1" ;;
+    *) requested_scenes+=("$1"); shift ;;
   esac
 done
 
@@ -136,7 +140,26 @@ if ! rows="$(python3 "$repo/scripts/check-readme-images.py" --table 2>"$err_file
 fi
 mapfile -t table_rows <<<"$rows"
 [[ -n $rows ]] || table_rows=()
+if [[ ${#requested_scenes[@]} -gt 0 ]]; then
+  for scene in "${requested_scenes[@]}"; do
+    found=false
+    for row in "${table_rows[@]}"; do
+      IFS=$'\t' read -r _ row_scene _ _ <<<"$row"
+      [[ $row_scene != "$scene" ]] || found=true
+    done
+    "$found" || stop scene "$scene"
+  done
+  selected_rows=()
+  for row in "${table_rows[@]}"; do
+    IFS=$'\t' read -r _ scene _ _ <<<"$row"
+    for requested in "${requested_scenes[@]}"; do
+      if [[ $scene == "$requested" ]]; then selected_rows+=("$row"); break; fi
+    done
+  done
+  table_rows=("${selected_rows[@]}")
+fi
 
+status=0
 if [[ -z $from ]]; then
   scenes=()
   for row in "${table_rows[@]}"; do
@@ -144,9 +167,9 @@ if [[ -z $from ]]; then
     [[ " ${scenes[*]} " == *" $scene "* ]] || scenes+=("$scene")
   done
   from="$repo/tmp/readme-shots/$(date -u +%Y%m%dT%H%M%SZ)"
-  status=0
   "$repo/scripts/sandbox-shots.sh" "${SHOTS_ARGS[@]}" --out "$from" "${scenes[@]}" || status=$?
-  [[ $status -eq 0 ]] || exit "$status"
+  [[ $status -eq 0 || $status -eq 77 ]] || exit "$status"
+  [[ $status -ne 77 || -f $from/00-desktop.png ]] || exit 77
 fi
 [[ -d $from && -f $from/shots.tsv && -f $from/00-desktop.png ]] || stop from "$from"
 
@@ -244,7 +267,11 @@ fi
 read -r width height <<<"${OUTPUT_SIZE/x/ }"
 
 for row in "${table_rows[@]}"; do
-  IFS=$'\t' read -r image _ shot crop <<<"$row"
+  IFS=$'\t' read -r image scene shot crop <<<"$row"
+  if [[ $status -eq 77 && ! -f $from/$shot.png ]]; then
+    printf 'readme-shots: scene=%s shot=%s status=not-measured\n' "$scene" "$shot"
+    continue
+  fi
   if ! png="$(shot_png "$shot")"; then exit 1; fi
   if ! item="$(item_of "$shot")"; then exit 1; fi
   case $crop in
@@ -282,3 +309,4 @@ for row in "${table_rows[@]}"; do
   mv -f -- "$target.part.webp" "$target"
   printf 'readme-shots: wrote=%s bytes=%s size=%s\n' "${target#"$repo"/}" "$(stat -c %s -- "$target")" "$(magick identify -format '%wx%h' "$target")"
 done
+exit "$status"
