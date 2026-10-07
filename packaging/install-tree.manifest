@@ -357,6 +357,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/backend/SpeechLanguage.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Sse.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/TaskRunner.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Tasks.js
+f share/vgshell/shell/plugins/vgs.jarvis/backend/TerminalRows.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/ToolBridge.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/ToolRouter.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Tools.js
