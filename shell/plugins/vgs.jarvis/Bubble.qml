@@ -178,30 +178,35 @@ Item {
                 text: "Use the button or key to confirm."
                 wrapMode: Text.Wrap
             }
-            RowLayout {
+            Item {
                 width: pane.contentWidth
+                implicitHeight: answerButtons.implicitHeight
                 visible: root.hold !== null
-                spacing: Theme.stack.inline
-                // keyboard-path: the effective Confirm and Stop shortcuts.
-                Button {
-                    id: confirm
-                    size: "sm"
-                    text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"
-                    onClicked: if (root.service !== null) root.service.confirmApproval(root.displayedHold, "button")
-                }
-                Button {
-                    id: cancel
-                    size: "sm"
-                    variant: "secondary"
-                    text: root.hold !== null && root.hold.purpose === "release" ? "No" : "Cancel"
-                    onClicked: if (root.service !== null) root.service.cancelApproval(root.displayedHold)
+                Row {
+                    id: answerButtons
+                    anchors.right: parent.right
+                    spacing: Theme.dialog.actionGap
+                    // keyboard-path: the effective Confirm and Stop shortcuts.
+                    Button {
+                        id: cancel
+                        size: "sm"
+                        variant: "secondary"
+                        text: root.hold !== null && root.hold.purpose === "release" ? "No" : "Cancel"
+                        onClicked: if (root.service !== null) root.service.cancelApproval(root.displayedHold)
+                    }
+                    Button {
+                        id: confirm
+                        size: "sm"
+                        text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"
+                        onClicked: if (root.service !== null) root.service.confirmApproval(root.displayedHold, "button")
+                    }
                 }
             }
             KeyHints {
                 visible: root.hold !== null
                 hints: root.service === null || root.service.effectiveKeys === null ? [] : [
                     {key: root.service.effectiveKeys.confirm || "", text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"},
-                    {key: root.service.effectiveKeys.stop || "", text: "Cancel"}
+                    {key: root.service.effectiveKeys.stop || "", text: root.hold !== null && root.hold.purpose === "release" ? "No" : "Cancel"}
                 ]
             }
         }
