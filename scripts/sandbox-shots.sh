@@ -236,8 +236,8 @@ fi
 tree="${source_tree:-$checkout}"
 # What the tree draws decides how a scene reaches it, so a --rev tree from
 # before a control existed is still captured: the bar's gear and the
-# launcher's bar entry are BarItems or older items, the Settings list may
-# have no Clear search, and a Dev Tools row may have no Details.
+# launcher's bar entry are BarItems or older items, and the Settings list
+# may have no Clear search.
 tree_has() { grep -qF -- "$2" "$tree/$1" 2>/dev/null; }
 gear_type=IconButton
 [[ -f $tree/shell/Ui/controls/BarItem.qml ]] && gear_type=BarItem
@@ -245,7 +245,6 @@ launcher_entry_item=false
 tree_has shell/plugins/vgs.launcher/Widget.qml "BarItem {" && launcher_entry_item=true
 has_clear_search=false
 tree_has shell/plugins/vgs.settings/ListPage.qml '"Clear search"' && has_clear_search=true
-devtools_hover=Install
 # A tree whose plugin page has two pages draws Status and Requirements on
 # Details; page_details moves the open page there, and an older tree's one
 # page needs no move.
@@ -256,7 +255,6 @@ page_details() { ! "$has_tab_pages" || settings_details; }
 # saved and asks before a page with one is left.
 has_save_bar=false
 tree_has shell/plugins/vgs.settings/PluginPage.qml "SaveBar {" && has_save_bar=true
-tree_has shell/plugins/vgs.devtools/ToolRow.qml '"Details"' && devtools_hover=Details
 card_hover_state=false
 tree_has shell/Ui/layout/AngledCard.qml "property bool hovered" && card_hover_state=true
 # A tree whose rescanPlugins names the scan revision is read once the scan
@@ -2160,22 +2158,19 @@ scene_themes_panel() { # MODE
 devtools_shown() { [[ $(ipc smoke instanceGeometry window vgs.devtools) != absent ]] && echo shown || echo hidden; }
 devtools_sections() { ipc smoke itemTexts window vgs.devtools SectionHeader | py_reply 'import json,sys; print(len(json.load(sys.stdin)) > 1)'; }
 scene_devtools() { # MODE
-  local page=1 y=0 at cy ch h
+  local page=1 y=0 at cy ch h hover=Install
   expect "the Dev Tools window summons" ok ipc vgs.devtools invoke open ''
   expect_poll "the Dev Tools window is shown" shown devtools_shown
   expect_poll "the Dev Tools window draws its sections" True devtools_sections
-  park_pointer
+  expect "the Dev Tools window's root takes the focus for the top image" focused ipc smoke invokeInstance window vgs.devtools focusInstance ""
   take "devtools-$1-top"
-  # The VGS row's Details button, on the Info tab: the sandbox's install
-  # method is always unknown, so it shows whatever the other scenes set up.
-  # A summon puts the keyboard on the Catalog search, where Ctrl+Tab steps
-  # the tabs, and a summon again returns to Catalog for the pages.
-  expect "the Dev Tools window summons for the Info tab" ok ipc vgs.devtools invoke open ''
-  type_keys -M ctrl -k Tab -m ctrl || fail "stepping the Dev Tools window to Settings failed"
-  type_keys -M ctrl -k Tab -m ctrl || fail "stepping the Dev Tools window to Info failed"
-  hover_on "the pointer rests on the VGS row's $devtools_hover button" window vgs.devtools Button "$devtools_hover" "window:Dev Tools" && take_posed "devtools-$1-hover"
+  # The VGS row draws Details only where its problem line clips
+  # (ToolRow.qml), as in the narrow pass: the sandbox's install method is
+  # always unknown, so the line is there whatever the other scenes set up.
+  # Where the line fits, the first row's Install takes the hover.
+  [[ $(ipc smoke windowGeometry window vgs.devtools Button Details) != \[* ]] || hover=Details
+  hover_on "the pointer rests on the Dev Tools $hover button" window vgs.devtools Button "$hover" "window:Dev Tools" && take_posed "devtools-$1-hover"
   park_pointer
-  expect "the Dev Tools window summons back to Catalog" ok ipc vgs.devtools invoke open ''
   while (( page <= 4 )); do
     at="$(ipc smoke scrollTo window vgs.devtools "$y")" || at=""
     if [[ $at != "["* ]]; then fail "the Dev Tools window did not scroll: ${at:-no reply}"; break; fi
