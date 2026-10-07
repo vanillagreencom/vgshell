@@ -10,21 +10,35 @@
 //
 // The fixture lives in the account directory (CLAUDE_CONFIG_DIR): script.json
 // selects the behaviour, calls.jsonl records each invocation's argv,
-// environment and working directory, and events.jsonl records every input
-// line, tool result and refusal. No login, network or model is involved.
+// environment, working directory, pid, parent and parent-death signal, and
+// events.jsonl records every input line, tool result and refusal. No login,
+// network or model is involved.
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
 const cp = require("node:child_process");
 
-const account = process.env.CLAUDE_CONFIG_DIR;
 const args = process.argv.slice(2);
+// Only the process itself reads its parent-death signal, and node has no
+// prctl. The first start execs python3 under the same pid to read it, which
+// execs this script again with the value in DEATHSIG; exec keeps the signal.
+const DEATHSIG = "FIXTURE_CLAUDE_DEATHSIG";
+if (process.env[DEATHSIG] === undefined)
+    process.execve("/usr/bin/env", ["env", "python3", "-I", "-c", [
+        "import ctypes, os, sys",
+        "value = ctypes.c_int(-1)",
+        "if ctypes.CDLL(None, use_errno=True).prctl(2, ctypes.byref(value), 0, 0, 0) != 0: sys.exit(9)  # PR_GET_PDEATHSIG",
+        "os.environ['" + DEATHSIG + "'] = str(value.value)",
+        "os.execv(sys.argv[1], sys.argv[1:])"].join("\n"), process.execPath, __filename, ...args]);
+const deathsig = Number(process.env[DEATHSIG]);
+delete process.env[DEATHSIG];
+const account = process.env.CLAUDE_CONFIG_DIR;
 function record(file, value) { fs.appendFileSync(path.join(account, file), JSON.stringify(value) + "\n"); }
 // Built-ins the default tool set offers; --tools "" removes them all.
 const BUILT_INS = ["Bash", "Edit", "Read", "Skill", "WebFetch", "WebSearch"];
 
 if (!account) { process.stderr.write("fixture-claude: CLAUDE_CONFIG_DIR missing\n"); process.exit(9); }
-record("calls.jsonl", { args, env: process.env, cwd: process.cwd() });
+record("calls.jsonl", { args, env: process.env, cwd: process.cwd(), pid: process.pid, parent: process.ppid, deathsig });
 if (JSON.stringify(args) === JSON.stringify(["auth", "status"])) {
     process.stdout.write(JSON.stringify({ loggedIn: true, email: "team@example.invalid", subscriptionType: "pro" }) + "\n");
     process.exit(0);

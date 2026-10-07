@@ -235,7 +235,10 @@ function conversation({ directory, model, recipients, bridge, gen, parent, envir
             args: [...launch.args], env: { ...launch.env } } };
         const config = path.join(workdir, "mcp.json");
         fs.writeFileSync(config, JSON.stringify({ mcpServers: servers }), { mode: 0o600, flag: "wx" });
-        const child = cp.spawn(COMMAND, argvOf({ config, instructions: context.instructions, model }),
+        // setpriv execs the program under the spawned pid: the group signals
+        // still reach it, and a daemon that dies outright takes it along.
+        const child = cp.spawn("setpriv", ["--pdeathsig", "KILL", "--", COMMAND,
+            ...argvOf({ config, instructions: context.instructions, model })],
             { cwd, env: childEnvironment, stdio: ["pipe", "pipe", "pipe"], detached: true });
         const record = { kind: "running", child, initialized: false, consumer: null, cause: null,
             exited: null };

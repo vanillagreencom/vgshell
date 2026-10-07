@@ -171,6 +171,9 @@ world(async () => {
             assert.deepEqual(Object.keys(call.env).filter(name => !["PWD", "SHLVL", "_"].includes(name)).sort(), ENVIRONMENT);
             assert.equal(call.env.CLAUDE_CONFIG_DIR, w.account.directory);
             assert.equal(call.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, "1");
+            // The signal fires when the parent dies: the parent must be the daemon.
+            assert.equal(call.parent, process.pid, "the program's parent is the daemon");
+            assert.equal(call.deathsig, 9, "the program dies with the daemon");
             assert.deepEqual(leaked(call), [], "no planted key, token or pid reaches the program");
             const token = w.opened().env.VGS_JARVIS_TOOLS_TOKEN;
             assert.equal(call.args.some(arg => arg.includes(token)), false, "the session token stays out of argv");
@@ -546,6 +549,7 @@ world(async () => {
             ["token-file", '"--mcp-config", config,', '"--mcp-config", fs.readFileSync(config, "utf8"),', "replay"],
             ["environment", "for (const name of ENVIRONMENT)", "for (const name of Object.keys(environment))", "replay"],
             ["environment-key", '"XDG_CACHE_HOME", "XDG_RUNTIME_DIR"];', '"XDG_CACHE_HOME", "XDG_RUNTIME_DIR", "ANTHROPIC_API_KEY"];', "replay"],
+            ["parent-death", '"setpriv", ["--pdeathsig", "KILL", "--", COMMAND,', "COMMAND, [", "replay"],
             ["one-process", 'record = process_.kind === "running" ? process_ : await spawn();', "record = await spawn();", "replay"],
             ["bridge-gen", "launch = await bridge.open({ gen, recipients });", "launch = await bridge.open({ recipients });", "replay"],
             ["bridge-recipients", "launch = await bridge.open({ gen, recipients });", "launch = await bridge.open({ gen });", "replay"],
