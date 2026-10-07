@@ -588,8 +588,14 @@ world(() => {
             const existing = path.join(fixtures.project, "existing");
             assert.equal(w.call("harness.files", files([existing]), turn, "approval").kind, "held");
             assert.equal(w.runner.state.approval.physical, true, "an overwrite is destructive");
-            assert.ok(w.runner.state.approval.text.includes(existing), "the approval retains the full target path");
-            assert.ok(w.runner.state.approval.text.includes("+fixture\n"), "the approval retains the proposed diff");
+            const approval = w.runner.state.approval;
+            const args = { diff: "+fixture\n", move: [], remove: [], write: [existing] };
+            assert.equal(approval.purpose, "action");
+            assert.equal(approval.tool, "harness.files");
+            assert.equal(approval.digest, require("node:crypto").createHash("sha256")
+                .update("harness.files\n" + JSON.stringify(args)).digest("hex"));
+            w.show(); w.time(700); w.confirm();
+            assert.deepEqual(w.starts.at(-1), { id: "harness.files", args });
         }],
         ["harness-kind", implementation => {
             const w = make(implementation);
@@ -647,6 +653,8 @@ world(() => {
             ["grant-bound", "grants.size >= GRANT_SCOPES", "(false && grants.size >= GRANT_SCOPES)", "grant-bound"],
             ["target-rejudge", "fresh.scope === prior.scope", "(true || fresh.scope === prior.scope)", "target-rejudge"],
             ["digest", 'value.call.id + "\\n" + canonical(value.call.args)', 'value.call.id + "\\n" + "{}"', "immutable-digest"],
+            ["held-harness-kind", "id, tool: value.call.id,", 'id, tool: "harness.command",', "harness-approval"],
+            ["held-harness-path", 'value.call.id + "\\n" + canonical(value.call.args)', 'value.call.id + "\\n" + canonical({...value.call.args, write: []})', "harness-approval"],
             ["sentence", 'sentence(value.call, decision.scope)', '"model text"', "typed-sentence"],
             ["approval-size", "Buffer.byteLength(text) > RESULT_BYTES", "false", "approval-size"],
             ["result-size", "bytes.length <= RESULT_BYTES", "true", "result-size"],

@@ -171,17 +171,63 @@ a=json.load(sys.stdin)["status"]["detail"]["state"]["approval"]
 print("drawn" if a["kind"]=="held" and a["shownAt"] is not None else "pending")
 '
 }
-jarvis_bubble_request_text() {
-  local state labels
+jarvis_bubble_request() {
+  local state buttons clips fields
   state="$(ipc smoke jarvisProcess)" &&
-    labels="$(ipc smoke layerItems vgs.jarvis Label text,visible)" || return 1
-  python3 -c '
-import json,sys
-s=json.loads(sys.argv[1])["status"]["detail"]["state"]
-labels=json.loads(sys.argv[2]); a=s["approval"]
-texts=[v["text"] for screen,box,v in labels if v["visible"] and v["text"]!=""]
-print(sum("\n".join(texts[start:stop])==a["text"] for start in range(len(texts)) for stop in range(start+1,len(texts)+1)) if a["kind"]=="held" else 0)
-' "$state" "$labels"
+    buttons="$(ipc smoke layerItems vgs.jarvis Button variant,visible)" &&
+    clips="$(ipc smoke layerItems vgs.jarvis QQuickItem clip,visible)" &&
+    fields="$(ipc smoke layerItems vgs.jarvis Label role,visible)" || return 1
+  "$node_bin" - "$state" "$buttons" "$clips" "$fields" "$jarvis_key_gates/effects.jsonl" "$repo/shell/plugins/vgs.jarvis/backend/ToolRouter.js" <<'JS'
+const [rawState, rawButtons, rawClips, rawFields, effects, file] = process.argv.slice(2);
+const fs = require("node:fs"), assert = require("node:assert/strict"), crypto = require("node:crypto");
+const state = JSON.parse(rawState).status.detail.state, held = state.approval;
+const calls = fs.readFileSync(effects, "utf8").trim().split("\n").map(JSON.parse);
+const canonical = require("node:vm").runInNewContext(fs.readFileSync(file, "utf8") + "\ncanonical",
+    { require: require("node:module").createRequire(file), module: { exports: {} }, Buffer });
+try {
+    assert.equal(held.kind, "held");
+    assert.notEqual(held.shownAt, null);
+    const call = calls.find(row => row.kind === "approval-call" && row.id === held.id);
+    assert.ok(call);
+    assert.equal(call.gen, state.gen);
+    assert.equal(call.op, held.brain);
+    assert.equal(call.purpose, held.purpose);
+    if (held.purpose === "action") {
+        assert.deepEqual(call.call, { id: "files.delete", args: { path: "/home/fixture/draft.txt" } });
+        assert.equal(held.tool, "files.delete");
+        assert.equal(held.physical, true);
+        assert.equal(held.digest, crypto.createHash("sha256").update(call.call.id + "\n" + canonical(call.call.args)).digest("hex"));
+    } else {
+        assert.equal(held.purpose, "release");
+        assert.equal(call.call, null);
+        assert.equal(held.tool, "fixture");
+        assert.equal(held.physical, false);
+    }
+    const buttons = JSON.parse(rawButtons).filter(([, , value]) => value.visible).sort((a, b) => a[1][0] - b[1][0]);
+    assert.deepEqual(buttons.map(([, , value]) => value.variant), ["secondary", "primary"]);
+    const [left, right] = buttons.map(([, box]) => box);
+    assert.ok(left[2] > 0 && right[2] > 0 && left[0] + left[2] < right[0]);
+    assert.equal(left[1], right[1]);
+    const fields = JSON.parse(rawFields).filter(([, , value]) => value.visible);
+    const questions = fields.filter(([, box, value]) => value.role === "body" && box[1] < left[1]);
+    assert.equal(questions.length, 1);
+    assert.ok(questions[0][1][2] > 0 && questions[0][1][3] > 0);
+    if (held.purpose === "action") {
+        const paths = fields.filter(([, box, value]) => value.role === "hint" && box[1] >= questions[0][1][1] + questions[0][1][3] && box[1] < left[1]);
+        assert.ok(paths.length > 0);
+        paths.sort((a, b) => a[1][1] - b[1][1]);
+        assert.ok(paths[0][1][2] > 0 && paths[0][1][3] > 0);
+    }
+    const captions = JSON.parse(rawClips).filter(([, , value]) => value.clip === true);
+    assert.equal(captions.length, 1);
+    assert.equal(captions[0][2].visible, false);
+    console.log(1);
+} catch (error) {
+    if (!(error instanceof assert.AssertionError)) throw error;
+    console.error("jarvis-bubble: held-contract=" + error.message);
+    console.log(0);
+}
+JS
 }
 jarvis_bubble_confirm_key() {
   hold_send "down 133" "down 64" "down 29" "up 29" "up 64" "up 133"
@@ -189,7 +235,7 @@ jarvis_bubble_confirm_key() {
 }
 jarvis_bubble_answer_button() { # BUTTON
   local point x y
-  point="$(point_item vgs:layer vgs.jarvis Button text "$1")" || return 1
+  point="$(point_item vgs:layer vgs.jarvis Button variant "$([[ $1 == Cancel || $1 == No ]] && echo secondary || echo primary)")" || return 1
   read -r x y <<<"$point" || return 1
   click "$x" "$y" || return 1
   jarvis_key_state approval
@@ -283,7 +329,7 @@ for jarvis_bubble_answer in key Confirm Cancel Yes No; do
   jarvis_bubble_before="$(jarvis_key_effects "$jarvis_bubble_effect")"
   jarvis_bubble_approval "$jarvis_bubble_purpose"
   expect_poll "the held request receives a drawn-frame acknowledgment" drawn jarvis_bubble_acknowledged
-  expect "the drawn hold shows its complete request once" 1 jarvis_bubble_request_text
+  expect "the drawn hold binds its typed call and ordered button roles without a duplicate caption" 1 jarvis_bubble_request
   expect "drawing a hold starts no request" "$jarvis_bubble_before" jarvis_key_effects "$jarvis_bubble_effect"
   expect "approval keeps the application's keyboard focus" '["smoke.other", "Other window"]' active_window
   geometry expect_poll "the held request stays inside its surface" bottom-centre jarvis_bubble_geometry
@@ -362,10 +408,17 @@ jarvis_disable
 # words controls keep the caption on the wire and break one bubble rule each.
 jarvis_bubble_file="$repo/shell/plugins/vgs.jarvis/Bubble.qml"
 cp -- "$jarvis_bubble_file" "$sandbox/jarvis-bubble-before"
-for jarvis_bubble_mutant in geometry focus words lines head generation approval-key approval-button approval-cancel approval-shown approval-caption; do
+# Row.layoutDirection reverses rendered positions (Qt Quick Row reference).
+# The position reader must reject that reversal, regardless of button copy.
+jarvis_bubble_fixture="$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
+cp -- "$jarvis_bubble_fixture" "$sandbox/jarvis-bubble-fixture-before"
+for jarvis_bubble_mutant in geometry focus words lines head generation approval-key approval-button approval-cancel approval-shown approval-caption approval-kind approval-path approval-role approval-order; do
   jarvis_bubble_mutation_file="$jarvis_bubble_file"
   if [[ $jarvis_bubble_mutant == approval-key || $jarvis_bubble_mutant == approval-shown ]]; then
     jarvis_bubble_mutation_file="$jarvis_key_service"
+  fi
+  if [[ $jarvis_bubble_mutant == approval-kind || $jarvis_bubble_mutant == approval-path ]]; then
+    jarvis_bubble_mutation_file="$jarvis_bubble_fixture"
   fi
   python3 - "$jarvis_bubble_mutation_file" "$jarvis_bubble_mutant" <<'PY'
 from pathlib import Path
@@ -382,7 +435,11 @@ needle,replacement={
     "approval-button": ('root.service.confirmApproval(root.displayedHold, "button")', 'void root.displayedHold'),
     "approval-cancel": ('root.service.cancelApproval(root.displayedHold)', 'void root.displayedHold'),
     "approval-shown": ('send({ type: "shown", id: hold.id });', 'void hold;'),
-    "approval-caption": ('state === null || root.hold !== null ? ""', 'state === null ? ""')
+    "approval-caption": ('state === null || root.hold !== null ? ""', 'state === null ? ""'),
+    "approval-kind": ('id: "files.delete", args:', 'id: "files.read", args:'),
+    "approval-path": ('path: "/home/fixture/draft.txt"', 'path: "/home/fixture/other.txt"'),
+    "approval-role": ('variant: "secondary"', 'variant: "primary"'),
+    "approval-order": ('id: answerButtons', 'id: answerButtons\n                    layoutDirection: Qt.RightToLeft')
 }[sys.argv[2]]
 s=p.read_text(); assert s.count(needle)==1
 changed=s.replace(needle,replacement); assert changed!=s
@@ -394,14 +451,14 @@ PY
     approval-*)
       jarvis_bubble_approval action
       case "$jarvis_bubble_mutant" in
-        approval-caption)
+        approval-caption|approval-kind|approval-path|approval-role|approval-order)
           expect_poll "control: the held request frame is acknowledged" drawn jarvis_bubble_acknowledged
           jarvis_bubble_failures="$(
             failures=0 behaviour_failures=0
-            expect "the drawn hold shows its complete request once" 1 jarvis_bubble_request_text >"$sandbox/$jarvis_bubble_mutant.log"
+            expect "the drawn hold binds its typed call and ordered button roles without a duplicate caption" 1 jarvis_bubble_request >"$sandbox/$jarvis_bubble_mutant.log"
             echo "$failures"
           )"
-          expect "control: repeating the caption fails the same request-count assertion" 1 printf '%s\n' "$jarvis_bubble_failures" ;;
+          expect "control: $jarvis_bubble_mutant fails the same held contract" 1 printf '%s\n' "$jarvis_bubble_failures" ;;
         approval-shown)
           jarvis_bubble_failures="$(
             failures=0 behaviour_failures=0
@@ -431,6 +488,7 @@ PY
       jarvis_disable
       cp -- "$sandbox/jarvis-bubble-before" "$jarvis_bubble_file"
       cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
+      cp -- "$sandbox/jarvis-bubble-fixture-before" "$jarvis_bubble_fixture"
       continue ;;
   esac
   jarvis_bubble_begin

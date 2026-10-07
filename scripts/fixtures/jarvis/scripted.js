@@ -62,10 +62,19 @@ function ports(root, engine) {
             send: (e, done) => {
                 record("brain-send", e);
                 for (const purpose of ["action", "release"]) gates.wait("approve-" + purpose, () => {
-                    const text = purpose === "action" ? "Delete draft.txt?\n/home/fixture/draft.txt" : "Send file text to Claude Code?";
-                    done("transcript", { role: "assistant", text, stage: "final", rev: 1 });
-                    done("approval", { purpose, id: crypto.randomUUID(), digest: "a".repeat(64), physical: purpose === "action",
-                        text, tool: purpose === "action" ? "files.delete" : "fixture", timeoutMs: 30000, cancellable: false });
+                    const id = crypto.randomUUID();
+                    const call = purpose === "action" ? require("./Tools.js").refine({ id: "files.delete", args: { path: "/home/fixture/draft.txt" } }).call : null;
+                    // Execute the existing summary and canonical owners in this private fixture.
+                    const file = path.join(__dirname, "ToolRouter.js");
+                    const owner = require("node:vm").runInNewContext(fs.readFileSync(file, "utf8") + "\n({sentence, canonical})",
+                        { require: require("node:module").createRequire(file), module: { exports: {} }, Buffer });
+                    const text = call === null ? "Send file text to Claude Code?" : owner.sentence(call, undefined);
+                    const digest = call === null ? "a".repeat(64) : crypto.createHash("sha256").update(call.id + "\n" + owner.canonical(call.args)).digest("hex");
+                    record("approval-call", { gen: e.gen, op: e.op, id, purpose, call });
+                    // Transcript is a single-line wire value; the held summary keeps its detail lines.
+                    done("transcript", { role: "assistant", text: text.replaceAll("\n", " "), stage: "final", rev: 1 });
+                    done("approval", { purpose, id, digest, physical: purpose === "action",
+                        text, tool: call === null ? "fixture" : call.id, timeoutMs: 30000, cancellable: false });
                 });
                 if (chained) { engine.brain.send(e, done); return; }
                 wait("brain", () => {

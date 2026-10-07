@@ -83,7 +83,7 @@ world(async () => {
         const root = path.join(process.env.JARVIS_TEST_ROOT, "c" + ++serial);
         fs.mkdirSync(root);
         let at = 0, transcript;
-        const starts = [], brainResults = [];
+        const starts = [], brainResults = [], harnessRequests = [], harnessStarts = [];
         const audit = Audit.create({ state: path.join(root, "state"), now: () => Date.UTC(2026, 9, 2) });
         const rows = () => { const file = path.join(root, "state/audit/2026-10-02.jsonl");
             return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : []; };
@@ -100,8 +100,15 @@ world(async () => {
         Object.assign(ports, router.ports);
         router.register("windows", { commands: ["hyprctl"], timeoutMs: 1000, cancellable: false,
             start: (call, done) => starts.push({ call, done }) });
-        gate = Gate.create({ router, state: () => runner.state });
-        router.register("harness", gate.executor);
+        const owner = Gate.create({ router, state: () => runner.state });
+        gate = { ...owner, ask(gen, proposal, port) {
+            harnessRequests.push(proposal);
+            return owner.ask(gen, proposal, port);
+        } };
+        router.register("harness", { ...gate.executor, start(call, done) {
+            harnessStarts.push(call);
+            gate.executor.start(call, done);
+        } });
         const runtime = path.join(process.env.JARVIS_TEST_ROOT, "r" + serial.toString(36));
         bridge = Bridge.create({ router, state: () => runner.state, audit, release: { prepare: (value, recipients) => engine === null ? Promise.resolve([]) : engine.release.prepare(value, recipients) }, directory: runtime });
         runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
@@ -124,7 +131,7 @@ world(async () => {
                 end: e => e.purpose === "release" ? engine.release.ended(e) : action.end(e),
                 refused: e => e.purpose === "release" ? engine.release.refused(e) : action.refused(e) };
         };
-        return { installEngine, runnerClock, Policy, Harness, Gate, runner, router, gate, bridge, brain, rows, starts, runtime, recipients, root, audit,
+        return { installEngine, runnerClock, Policy, Harness, Gate, runner, router, gate, bridge, brain, rows, starts, harnessRequests, harnessStarts, runtime, recipients, root, audit,
             time: value => { at = value; },
             show: () => runner.dispatch({ type: "shown", gen: runner.state.gen, op: runner.state.approval.op, id: runner.state.approval.id }),
             confirm: () => runner.dispatch({ type: "confirm", gen: runner.state.gen, id: runner.state.approval.id,
@@ -216,7 +223,12 @@ world(async () => {
             done.catch(() => {});
             await until(() => w.runner.state.approval.kind === "held", "the approval is held");
             assert.equal(w.runner.state.approval.physical, true);
-            assert.match(w.runner.state.approval.text, new RegExp("Write \\[\"" + RegExp.escape(existing) + "\"\\]"));
+            const args = { diff: existing + "\n-a\n+b\n", move: [], remove: [], write: [existing] };
+            assert.deepEqual(w.harnessRequests, [{ tool: "harness.files", arguments: args }]);
+            assert.equal(w.runner.state.approval.purpose, "action");
+            assert.equal(w.runner.state.approval.tool, "harness.files");
+            assert.equal(w.runner.state.approval.digest, require("node:crypto").createHash("sha256")
+                .update("harness.files\n" + JSON.stringify(args)).digest("hex"));
             assert.deepEqual(answered("item/fileChange/requestApproval"), [], "no answer before the user confirms");
             // A second request while one is held is refused and leaves the held one startable.
             let declined = 0;
@@ -225,6 +237,7 @@ world(async () => {
             assert.deepEqual([second, declined], [{ kind: "refuse", reason: "busy" }, 1]);
             w.show(); w.time(700); w.confirm();
             await done;
+            assert.deepEqual(w.harnessStarts, [{ id: "harness.files", args }]);
             assert.deepEqual(answered("item/fileChange/requestApproval").map(m => m.result), [{ decision: "accept" }]);
             assert.deepEqual(w.rows().filter(row => row.kind === "action").map(row => [row.decision, row.confirmed, row.outcome]),
                 [["confirm", "none", "pending"], ["refuse", "none", "cancelled"], ["confirm", "physical", "pending"],
@@ -529,6 +542,9 @@ world(async () => {
             ["probe-status", "backend/CodexHarness.js", [['if (e.status === "completed") settle.resolve();', "if (true) settle.resolve();"]], "probe"],
             ["gate-decline", "backend/HarnessGate.js", [["            entry.port.decline();\n", "\n"]], "refused"],
             ["gate-stale", "backend/HarnessGate.js", [['if (closed || s.gen !== gen || s.turn.kind !== "thinking")', "if (closed)"]], "stale"],
+            ["held-kind", "backend/ToolRouter.js", [["id, tool: value.call.id,", 'id, tool: "harness.command",']], "held"],
+            ["held-path", "backend/CodexAppServer.js", [["else if (change.movePath === null) args.write.push(change.path);",
+                'else if (change.movePath === null) args.write.push(change.path, change.path + ".wrong");']], "held"],
             ["gate-requests", "backend/HarnessGate.js", [["pending.set(id, entry);", "pending.clear();\n        pending.set(id, entry);"]], "held"],
             ["gate-held", "backend/HarnessGate.js", [["return router.route(", "entry.port.accept();\n        return router.route("]], "held"],
             ["handoff-route", "backend/Accounts.js", [['case "codex":', 'case "codex-removed":']], "verify"],
