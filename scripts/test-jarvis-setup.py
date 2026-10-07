@@ -548,8 +548,8 @@ class Setup(unittest.TestCase):
         self.mutant('if provider == "cuda" else ""', 'if True or provider == "cuda" else ""')
         self.assertIn(fallback, self.install(1).stderr)
         (self.plugin / "setup-local").write_text(original)
-            self.mutant('"probe", tier], data, offline=True, stderr=output, stdout=reading)',
-                        '"probe", tier], data, offline=True, stdout=reading)')
+        self.mutant('"probe", tier], data, offline=True, stderr=output, stdout=reading)',
+                    '"probe", tier], data, offline=True, stdout=reading)')
         self.assertIn("Traceback", self.install(1).stderr)
         (self.plugin / "setup-local").write_text(original)
         self.mutant("except BaseException:\n            remove_runtime(data)",
