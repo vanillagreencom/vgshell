@@ -376,6 +376,112 @@ PY
   if scene_continuation_case "$continuation_mutant"; then fail "control: $label stayed green"; else ok "control: $label"; fi
 done
 
+# Run the System scene's geometry wait against a compositor fixture. Its
+# first refresh clears the eval rule, as the scale-triggered layer reload
+# does. A stale service or a rule that never applies must prevent capture.
+displays_geometry_case() { # SCRIPT
+  local script="$1" dir status=0
+  dir="$(mktemp -d "$tmp/displays-geometry.XXXXXX")" || return 1
+  python3 - "$script" "$repo/scripts/smoke/harness.sh" "$dir/scene.sh" <<'PY'
+import sys
+text = open(sys.argv[1]).read()
+harness = open(sys.argv[2]).read()
+blocks = [text[text.index('system_shown() {'):text.index('\nsound_lists_player() {')]]
+for start, end in [('py_reply() {', '\n# jarvis_ready'), ('expect() {', '\n# rescan LABEL'), ('hypr_lua_save() {', '\n# The key capture rows')]:
+    offset = harness.index(start)
+    blocks.append(harness[offset:harness.index(end, offset)])
+open(sys.argv[3], 'w').write('\n'.join(blocks))
+PY
+  env -i PATH="$PATH" D="$dir" bash -c '
+    set -euo pipefail
+    source "$D/scene.sh"
+    sandbox="$D" home="$D/home"
+    mkdir -p "$home/.local/state/vgshell/plugins/vgs.displays" "$home/.config/hypr"
+    printf "fixture configuration\n" >"$home/.config/hypr/hyprland.lua"
+    ok() { :; }
+    fail() { failures=$((failures + 1)); }
+    reader_stderr() { [[ ! -s $2 ]]; }
+    smoke_poll_tries() { smoke_poll_n=5; }
+    sleep() { :; }
+    ships_plugin() { [[ $1 == vgs.displays ]]; }
+    devices_up() { :; }
+    devices_system_tree() { echo fixture; }
+    park_pointer() { :; }
+    take() {
+      if [[ $1 == *-displays ]]; then
+        printf "%s %s\n" "$(cat "$D/compositor")" "$(cat "$D/service")" >"$D/captured"
+      fi
+    }
+    emit_output() {
+      case "$(cat "$1")" in
+        absent) echo "[]" ;;
+        applied) echo "[{\"name\":\"VGS-DISPLAYS\",\"identifier\":\"VGS-DISPLAYS\",\"width\":5120,\"height\":2880,\"x\":-1440,\"y\":-620,\"scale\":2,\"transform\":1}]" ;;
+        old) echo "[{\"name\":\"VGS-DISPLAYS\",\"identifier\":\"VGS-DISPLAYS\",\"width\":5120,\"height\":2880,\"x\":1755,\"y\":0,\"scale\":2,\"transform\":0}]" ;;
+      esac
+    }
+    ipc() {
+      if [[ $* == "smoke instanceGeometry window vgs.system" ]]; then cat "$D/window"
+      elif [[ $* == "smoke readInstance service vgs.displays outputs" ]]; then emit_output "$D/service"
+      elif [[ $* == "shell summon window vgs.system "* ]]; then echo shown >"$D/window"; echo ok
+      elif [[ $* == "shell hide window vgs.system" ]]; then echo absent >"$D/window"; echo ok
+      elif [[ $* == *"focusInstance"* ]]; then echo focused
+      else echo ok
+      fi
+    }
+    hypr() {
+      case "$*" in
+        eval*) [[ $scenario == blocked ]] || echo applied >"$D/compositor"; echo eval >>"$D/evals"; echo ok ;;
+        "-j monitors all") emit_output "$D/compositor" ;;
+        "output remove VGS-DISPLAYS-READ")
+          if [[ $scenario == reload && ! -e $D/reloaded ]]; then
+            : >"$D/reloaded"; echo old >"$D/compositor"
+          fi
+          [[ $scenario == stale ]] || cp "$D/compositor" "$D/service"
+          echo ok ;;
+        "output remove VGS-DISPLAYS") echo absent >"$D/service"; echo ok ;;
+        *) echo ok ;;
+      esac
+    }
+    displays_listed() { echo 3; }
+    window_panes() { echo "[\"vgs.displays\"]"; }
+    for scenario in reload stale blocked; do
+      failures=0
+      rm -f -- "${D:?}/captured" "${D:?}/reloaded" "${D:?}/evals"
+      echo old >"$D/compositor"; echo old >"$D/service"; echo absent >"$D/window"
+      scene_system dark
+      [[ $(cat "$home/.config/hypr/hyprland.lua") == "fixture configuration" ]] || exit 1
+      if [[ $scenario == reload ]]; then
+        [[ $failures == 0 && $(cat "$D/captured") == "applied applied" && -e $D/reloaded ]] || exit 1
+      else
+        [[ $failures -gt 0 && ! -e $D/captured && -s $D/evals ]] || exit 1
+      fi
+    done
+  ' >"$dir/out" 2>"$dir/err" || status=$?
+  [[ $status == 0 ]]
+}
+if displays_geometry_case "$repo/scripts/sandbox-shots.sh"; then
+  ok "Displays waits for both readers after a reset and refuses a capture without agreement"
+else
+  fail "Displays waits for both readers after a reset and refuses a capture without agreement"
+fi
+displays_mutant="$tmp/displays-without-wait.sh"
+python3 - "$repo/scripts/sandbox-shots.sh" "$displays_mutant" <<'PY'
+import sys
+text = open(sys.argv[1]).read()
+lines = text.splitlines(keepends=True)
+matches = [i for i, line in enumerate(lines) if 'expect_poll "displays-geometry-not-applied:' in line]
+assert len(matches) == 1
+lines[matches[0]] = '      :\n'
+changed = ''.join(lines)
+assert changed != text
+open(sys.argv[2], 'w').write(changed)
+PY
+if displays_geometry_case "$displays_mutant"; then
+  fail "control: Displays without its wait stayed green"
+else
+  ok "control: Displays without its wait fails geometry"
+fi
+
 # The scene choice of scripts/sandbox-shots.sh, before any sandbox starts:
 # a tree ships either the Settings plugin or the bar's manager built-in, a
 # plugin scene needs its plugins' manifests, and a scene the tree does not

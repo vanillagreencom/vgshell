@@ -2267,8 +2267,31 @@ displays_second_output() { ipc smoke readInstance service vgs.displays outputs |
 # and takes a rule's mode only once it exists, as take_mode in
 # scripts/smoke/mode-hold.sh applies it, so each poll applies the rule.
 displays_output_taken() {
-  [[ $(hypr eval "$displays_output_rule") == ok ]] || { echo eval-refused; return; }
+  local reply
+  reply="$(hypr eval "$displays_output_rule")" || { echo eval-failed; return; }
+  [[ $reply == ok ]] || { echo eval-refused; return; }
   hypr -j monitors all | py_reply 'import json,sys; m=[o for o in json.load(sys.stdin) if o["name"]==sys.argv[1]]; print("%dx%d@%d,%d scale=%g transform=%d" % (m[0]["width"], m[0]["height"], m[0]["x"], m[0]["y"], m[0]["scale"], m[0]["transform"]) if m else "absent")' "$displays_output"
+}
+# Adding the scaled output changes HyprlandLayer's highestMonitorScale;
+# its asynchronous reload clears eval-only rules (smoke/mode-hold.sh).
+# The scene's saved configuration keeps this rule through later reloads.
+# Reapply through the bounded poll until Hyprland and the service agree.
+# eval emits no monitor event, so a stale service needs another refresh.
+displays_outputs_applied() {
+  local taken listed reply
+  listed="$(displays_second_output)" || { echo service-unread; return; }
+  taken="$(displays_output_taken)" || { echo hyprland-unread; return; }
+  if [[ $taken != '5120x2880@-1440,-620 scale=2 transform=1' ]]; then
+    printf 'hyprland=[%s] service=[%s]\n' "$taken" "$listed"
+  elif [[ $listed != "$taken" ]]; then
+    reply="$(hypr output create headless "$displays_output-READ")" || { echo refresh-create-failed; return; }
+    [[ $reply == ok ]] || { echo refresh-create-refused; return; }
+    reply="$(hypr output remove "$displays_output-READ")" || { echo refresh-remove-failed; return; }
+    [[ $reply == ok ]] || { echo refresh-remove-refused; return; }
+    printf 'hyprland=[%s] service=[%s]\n' "$taken" "$listed"
+  else
+    printf '%s\n' "$taken"
+  fi
 }
 displays_listed() { ipc smoke readInstance service vgs.displays values | py_reply 'import json,sys; print(len(json.load(sys.stdin)["displays"]["items"]))'; }
 # How many shown actions of the Mouse section offer the user's own value.
@@ -2305,7 +2328,7 @@ PY
   expect "the configuration reloads as the Mouse shot found it" ok ipc shell reloadConfig
 }
 scene_system() { # MODE
-  local status=0 tree_state first_output displays_on=false
+  local status=0 tree_state first_output displays_on=false geometry_failures
   expect "enabling vgs.system for its shot is allowed" ok ipc shell setPluginEnabled vgs.system true
   expect "the System window summons" ok ipc shell summon window vgs.system '{}'
   expect_poll "the System window is shown" shown system_shown
@@ -2325,15 +2348,9 @@ scene_system() { # MODE
       expect_poll "the displays service lists the three fake displays" 3 displays_listed
       first_output="$(ipc smoke readInstance service vgs.displays outputs | py_reply 'import json,sys; print(json.load(sys.stdin)[0]["identifier"])')" || fail "the outputs the displays service reads are unreadable"
       expect "the pane's choice puts the XDR on the output" ok ipc vgs.displays invoke assign "{\"device\":\"usb:class/hidraw/hidraw0/device#VGSSMOKEXDR01\",\"output\":\"$first_output\"}"
+      hypr_lua_save displays-shot
+      printf '%s\n' "$displays_output_rule" >>"$home/.config/hypr/hyprland.lua"
       expect "the nested compositor adds the Displays shot's second monitor" ok hypr output create wayland "$displays_output"
-      expect_poll "the nested compositor holds the second monitor where the rule puts it" "5120x2880@-1440,-620 scale=2 transform=1" displays_output_taken
-      # The core reads the outputs again on `monitoradded` and
-      # `monitorremoved` (shell/Core/MonitorState.qml), and on no rule
-      # `hyprctl eval` applies, so an output that comes and goes makes it
-      # read the mode the rule gave the second monitor.
-      expect "the nested compositor adds an output for the outputs to be read again" ok hypr output create headless "$displays_output-READ"
-      expect "the nested compositor removes that output" ok hypr output remove "$displays_output-READ"
-      expect_poll "the displays service lists the second monitor where the rule puts it" "5120x2880@-1440,-620 scale=2 transform=1" displays_second_output
       # The nested Wayland panel has no VRR hardware. Only the shell's
       # systeminfo read gets the planted capability; its output name labels
       # the planted panel in the arrangement canvas.
@@ -2357,13 +2374,20 @@ EOF
       shim_hyprctl displays-shot
       expect "System → Displays summons" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
       expect_poll "System → Displays is shown" '["vgs.displays"]' window_panes
-      park_pointer
-      take "system-$1-displays"
+      geometry_failures=$failures
+      expect_poll "displays-geometry-not-applied: Hyprland and the displays service agree on the second monitor's rule" "5120x2880@-1440,-620 scale=2 transform=1" displays_outputs_applied
+      expect "the displays service lists the second monitor where the rule puts it" "5120x2880@-1440,-620 scale=2 transform=1" displays_second_output
+      if ((failures == geometry_failures)); then
+        park_pointer
+        take "system-$1-displays"
+      fi
       shim_hyprctl real
       expect "the System window hides after Displays" ok ipc shell hide window vgs.system
       expect_poll "the System window is gone after Displays" hidden system_shown
       expect "the Displays shot's second monitor is removed" ok hypr output remove "$displays_output"
       expect_poll "the displays service drops the second monitor" absent displays_second_output
+      hypr_lua_restore displays-shot || fail "hyprland.lua is put back after the Displays shot"
+      expect "the nested instance reloads without the Displays shot's rule" ok hypr reload config-only
       displays_on=true
     fi
   fi
