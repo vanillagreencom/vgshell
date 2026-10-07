@@ -43,6 +43,10 @@ FocusScope {
     // holds the panel reading while it is built.
     readonly property var selectedPanel: selected === null || shell === null ? null : Logic.panelOf(shell.monitors.support, selected)
     property var releaseSupport: null
+    readonly property bool vrrShown: shell !== null && Logic.hasVrrPanel(shell.monitors.support)
+    readonly property var vrrChoices: shell === null ? [] : shell.manifest.schema.vrr.presets
+    readonly property int vrr: shell === null ? 0 : shell.settings.vrr
+    property string vrrProblem: ""
     readonly property var selectedColour: selectedRule === null ? null : Logic.colourOf(selected, selectedRule)
     readonly property var colourRows: selectedColour === null ? ({ mode: false, depth: false, hdr: false }) : Logic.colourRows(selectedRule, selectedPanel, selectedColour)
     readonly property var displayChoices: Logic.outputChoices(outputs)
@@ -86,6 +90,13 @@ FocusScope {
         const reply = shell.configure.set(key, value);
         dimProblem = Logic.replyText(reply);
         if (reply !== "ok") console.warn("displays pane: " + key + " " + reply);
+        return reply;
+    }
+
+    function setVrr(value) {
+        const reply = shell.configure.set("vrr", value);
+        vrrProblem = Logic.replyText(reply);
+        if (reply !== "ok") console.warn("displays pane: vrr " + reply);
         return reply;
     }
 
@@ -170,6 +181,26 @@ FocusScope {
         id: content
         width: root.width
         spacing: Theme.stack.section
+
+        FormRow {
+            width: parent.width
+            visible: root.vrrShown
+            label: "Variable refresh rate"
+            warning: root.vrrProblem === "" ? "Applies to all capable displays." : root.vrrProblem
+            warningTone: root.vrrProblem === "" ? "muted" : "warning"
+
+            Select {
+                width: parent.width
+                model: root.vrrChoices
+                textRole: "label"
+                currentIndex: Logic.indexByValue(root.vrrChoices, root.vrr)
+                Accessible.name: "Variable refresh rate"
+                onActivated: index => {
+                    root.setVrr(root.vrrChoices[index].value);
+                    currentIndex = Qt.binding(() => Logic.indexByValue(root.vrrChoices, root.vrr));
+                }
+            }
+        }
 
         Column {
             width: parent.width

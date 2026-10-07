@@ -23,9 +23,11 @@
     "linked": false,
     "dimAfterSeconds": 120,
     "dimPercent": 30,
-    "outputs": {}
+    "outputs": {},
+    "vrr": 0
   },
   "schema": {
+    "vrr": { "type": "number", "label": "Variable refresh rate", "description": "Applies to all capable displays", "min": 0, "max": 3, "step": 1, "unit": "", "presets": [{ "value": 0, "label": "Off" }, { "value": 1, "label": "On" }, { "value": 2, "label": "Fullscreen only" }, { "value": 3, "label": "Fullscreen game or video" }], "group": "Displays" },
     "brightnessStep": { "type": "number", "label": "Key and scroll step", "description": "How much one brightness key press or bar scroll changes the level. Set the level itself in System Settings → Displays", "min": 1, "max": 25, "step": 1, "unit": "%", "group": "Brightness" },
     "keysTarget": { "type": "enum", "label": "Brightness keys change", "description": "The display the brightness keys change", "options": ["focused", "all"], "group": "Brightness" },
     "linked": { "type": "boolean", "label": "Link displays", "description": "Change every display by the same amount", "group": "Brightness" },
@@ -33,6 +35,7 @@
     "dimPercent": { "type": "number", "label": "Dimmed brightness", "description": "The level the displays dim to. A display already darker keeps its level", "min": 1, "max": 90, "step": 1, "unit": "%", "allowCustom": true, "presets": [{ "value": 10 }, { "value": 20 }, { "value": 30 }, { "value": 40 }, { "value": 50 }], "group": "Dimming" }
   },
   "hyprland": {
+    "options": { "vrr": "misc.vrr" },
     "monitors": "outputs",
     "binds": [
       { "shortcut": "brightness-up", "key": "XF86MonBrightnessUp", "info": "Makes the screen brighter by one step." },

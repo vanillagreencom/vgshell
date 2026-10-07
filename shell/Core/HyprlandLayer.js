@@ -79,7 +79,7 @@ function inputProtectedClass(value) {
 }
 
 // The Hyprland options a manifest's `hyprland.options` may map a setting
-// to: the input keys the Mouse and Keyboard settings set, each by its Lua
+// to: input settings and the global display options, each by its Lua
 // path, which `hyprctl getoption` reads too, with the type and range
 // Hyprland v0.56.2 declares for it (src/config/values/ConfigValues.cpp). A
 // string row with `choices` takes those values alone. The path is the Lua
@@ -88,6 +88,7 @@ function inputProtectedClass(value) {
 // option: Hyprland keeps `enabled` per device, so the layer writes it as one
 // `hl.device` per touchpad Hyprland lists.
 var OPTIONS = {
+    "misc.vrr": { type: "int", min: 0, max: 3 },
     "input.kb_layout": { type: "string" },
     "input.kb_variant": { type: "string" },
     "input.kb_options": { type: "string" },

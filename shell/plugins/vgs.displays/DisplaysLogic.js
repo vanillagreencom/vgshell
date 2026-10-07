@@ -409,6 +409,12 @@ function colourOf(output, rule) {
     return out;
 }
 
+// The global VRR choice applies when any panel reports the capability.
+// SUPPORT comes from the pane-held systeminfo read, not the active VRR state.
+function hasVrrPanel(support) {
+    return support !== null && Object.keys(support).some(function (name) { return support[name].vrr === true; });
+}
+
 // The `support` entry of OUTPUT's panel, which Hyprland keys by connector,
 // or null while SUPPORT, null until read, lists none.
 function panelOf(support, output) {

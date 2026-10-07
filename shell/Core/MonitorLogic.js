@@ -123,11 +123,11 @@ function colourModes(panel) {
 // 0.56.2 prints each mark as ✔️ or ❌ (SystemInfo::getSystemInfo).
 var PANEL_LINE = /^\tPanel (.+?): [0-9]+x[0-9]+, .* -> backend \S+$/;
 var PANEL_FIELDS = [["", "\t\texplicit "], ["", "\t\tedid:"], ["hdr", "\t\t\thdr "], ["chroma", "\t\t\tchroma "],
-    ["bt2020", "\t\t\tbt2020 "], ["", "\t\tvrr capable "], ["", "\t\tnon-desktop "]];
+    ["bt2020", "\t\t\tbt2020 "], ["vrr", "\t\tvrr capable "], ["", "\t\tnon-desktop "]];
 var MARKS = { "✔️": true, "❌": false };
 
 // The reply to SUPPORT_REQUEST as the capability's `support`: { ok: true,
-// support: { <output name>: { hdr, chroma, bt2020, colourModes } } },
+// support: { <output name>: { hdr, chroma, bt2020, vrr, colourModes } } },
 // `hdr` the EDID's HDR metadata, `chroma` its chromaticity, `bt2020` its
 // BT.2020 colorimetry, or { ok: false, error } with a keyed line. Hyprland
 // lists the outputs that are on and mirror nothing, the list

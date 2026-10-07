@@ -2254,7 +2254,7 @@ scene_devtools() { # MODE
 # other Hardware shots, so the sidebar shows the group as a user with
 # several sections sees it.
 system_shown() { [[ $(ipc smoke instanceGeometry window vgs.system) != absent ]] && echo shown || echo hidden; }
-displays_output="VGS-DISPLAYS"
+displays_output="VGS-PLANTED-VRR"
 # The rule of the Displays shot's second monitor: a 5120x2880 panel at
 # scale 2, turned to portrait, left of and above the shot's output.
 displays_output_rule="hl.monitor({ output = \"$displays_output\", mode = \"5120x2880@60\", position = \"-1440x-620\", scale = 2, transform = 1 })"
@@ -2334,10 +2334,32 @@ scene_system() { # MODE
       expect "the nested compositor adds an output for the outputs to be read again" ok hypr output create headless "$displays_output-READ"
       expect "the nested compositor removes that output" ok hypr output remove "$displays_output-READ"
       expect_poll "the displays service lists the second monitor where the rule puts it" "5120x2880@-1440,-620 scale=2 transform=1" displays_second_output
+      # The nested Wayland panel has no VRR hardware. Only the shell's
+      # systeminfo read gets the planted capability; its output name labels
+      # the planted panel in the arrangement canvas.
+      cat >"$sandbox/displays-systeminfo" <<EOF
+Monitor info:
+	Panel $displays_output: 5120x2880, 60 -> backend wayland
+		explicit ❌
+		edid:
+			hdr ❌
+			chroma ❌
+			bt2020 ❌
+		vrr capable ✔️
+		non-desktop ❌
+State:
+EOF
+      cat >"$shim/hyprctl.displays-shot" <<EOF
+#!/usr/bin/env bash
+if [[ \$* == *systeminfo ]]; then cat -- "$sandbox/displays-systeminfo"; else exec "$shim/hyprctl.real" "\$@"; fi
+EOF
+      chmod 755 "$shim/hyprctl.displays-shot"
+      shim_hyprctl displays-shot
       expect "System → Displays summons" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
       expect_poll "System → Displays is shown" '["vgs.displays"]' window_panes
       park_pointer
       take "system-$1-displays"
+      shim_hyprctl real
       expect "the System window hides after Displays" ok ipc shell hide window vgs.system
       expect_poll "the System window is gone after Displays" hidden system_shown
       expect "the Displays shot's second monitor is removed" ok hypr output remove "$displays_output"

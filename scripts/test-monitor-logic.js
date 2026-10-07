@@ -370,14 +370,14 @@ function colourSuite(lib, check, outputs) {
     check("support request", lib.SUPPORT_REQUEST, ["hyprctl", "systeminfo"]);
     // rows: [name, panels, support]
     const reads = [
-        ["a panel that takes everything", [["DP-1", ALL]], { "DP-1": { hdr: true, chroma: true, bt2020: true, colourModes: ["auto", "srgb", "wide", "edid", "hdr", "hdredid", "dcip3", "dp3", "adobe"] } }],
-        ["a panel that takes nothing", [["DP-1", NONE]], { "DP-1": { hdr: false, chroma: false, bt2020: false, colourModes: ["srgb"] } }],
+        ["a panel that takes everything", [["DP-1", ALL]], { "DP-1": { hdr: true, chroma: true, bt2020: true, vrr: true, colourModes: ["auto", "srgb", "wide", "edid", "hdr", "hdredid", "dcip3", "dp3", "adobe"] } }],
+        ["a panel that takes nothing", [["DP-1", NONE]], { "DP-1": { hdr: false, chroma: false, bt2020: false, vrr: false, colourModes: ["srgb"] } }],
         ["two panels, each its own", [["DP-1", Object.assign({}, NONE, { chroma: true })], ["eDP-1", Object.assign({}, NONE, { bt2020: true, vrr: true })]],
-            { "DP-1": { hdr: false, chroma: true, bt2020: false, colourModes: ["srgb", "edid"] }, "eDP-1": { hdr: false, chroma: false, bt2020: true, colourModes: ["auto", "srgb", "wide", "dcip3", "dp3", "adobe"] } }],
+            { "DP-1": { hdr: false, chroma: true, bt2020: false, vrr: false, colourModes: ["srgb", "edid"] }, "eDP-1": { hdr: false, chroma: false, bt2020: true, vrr: true, colourModes: ["auto", "srgb", "wide", "dcip3", "dp3", "adobe"] } }],
         ["no panel", [], {}]
     ];
     for (const [name, panels, want] of reads) check("parseSupport: " + name, lib.parseSupport(systeminfo(panels)), { ok: true, support: want });
-    check("parseSupport: the nested reply", lib.parseSupport(NESTED_SYSTEMINFO), { ok: true, support: { "WAYLAND-1": { hdr: false, chroma: false, bt2020: false, colourModes: ["srgb"] } } });
+    check("parseSupport: the nested reply", lib.parseSupport(NESTED_SYSTEMINFO), { ok: true, support: { "WAYLAND-1": { hdr: false, chroma: false, bt2020: false, vrr: false, colourModes: ["srgb"] } } });
     const full = systeminfo([["DP-1", ALL]]);
     // rows: [name, text, refusal]
     const supportRefusals = [
@@ -505,6 +505,7 @@ suite(load(LOGIC), report);
 // Each control removes one rule from a copy of the file and keeps the text
 // around it; the suite must fail on every copy.
 const CONTROLS = [
+    ["the VRR capability is discarded", '["vrr", "\\t\\tvrr capable "]', '["", "\\t\\tvrr capable "]'],
     ["a serial keys by description", 'if (output.serial === "") return output.name;', "return output.name;"],
     ["commas leave the identifier", '.trim().replace(/,/g, "");', ".trim();"],
     ["the description is trimmed", ' + output.serial).trim().replace', " + output.serial).replace"],

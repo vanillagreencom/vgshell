@@ -16,6 +16,26 @@ const { load } = require("../bin/lib/qml-library.js");
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.displays", "DisplaysLogic.js");
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), JSON.parse(JSON.stringify(want)), message || "");
 
+const pluginLogic = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
+const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.displays", "manifest.json"), "utf8"));
+
+function verifyVrrChoices(candidate) {
+  const judged = pluginLogic.validateManifest(candidate, "/plugins/vgs.displays");
+  assert.equal(judged.ok, true, JSON.stringify(judged));
+  for (const [index, value] of [0, 1, 2, 3].entries()) {
+    const choice = candidate.schema.vrr.presets[index];
+    same(pluginLogic.hyprlandSection({ plugins: [{ id: "vgs.displays", vrr: choice.value }] }, judged.manifest).options,
+      [{ kind: "set", setting: "vrr", path: "misc.vrr", value, lua: String(value) }], "VRR choice " + index + " writes misc:vrr");
+  }
+  same(pluginLogic.hyprlandSection({}, judged.manifest).options, [], "an untouched VRR setting writes no global default");
+}
+verifyVrrChoices(manifest);
+for (const edit of [m => { [m.schema.vrr.presets[1], m.schema.vrr.presets[2]] = [m.schema.vrr.presets[2], m.schema.vrr.presets[1]]; }, m => { m.hyprland.options.vrr = "input.repeat_rate"; }]) {
+  const mutant = structuredClone(manifest);
+  edit(mutant);
+  assert.throws(() => verifyVrrChoices(mutant), "control: a changed choice or option path must fail");
+}
+
 const XDR = "hidraw:devices/usb1/1-2";
 const STUDIO_A = "hidraw:class/hidraw/hidraw1/device";
 const STUDIO_B = "hidraw:class/hidraw/hidraw2/device";
@@ -46,6 +66,17 @@ const KEY_A = "usb:class/hidraw/hidraw1/device#S";
 const KEY_B = "usb:class/hidraw/hidraw2/device#S";
 
 function verify(logic) {
+  // The same pane-held support read supplies visibility on every display.
+  const monitorLogic = pluginLogic.HyprlandLayer.MonitorLogic;
+  const panel = mark => "Monitor info:\n\tPanel DP-1: 1920x1080, 60 -> backend wayland\n"
+    + "\t\texplicit ❌\n\t\tedid:\n\t\t\thdr ❌\n\t\t\tchroma ❌\n\t\t\tbt2020 ❌\n"
+    + "\t\tvrr capable " + mark + "\n\t\tnon-desktop ❌\nState:\n";
+  for (const [name, support, want] of [
+    ["not read", null, false], ["no panel", {}, false],
+    ["no capable panel", monitorLogic.parseSupport(panel("❌")).support, false],
+    ["a capable panel", monitorLogic.parseSupport(panel("✔️")).support, true],
+    ["another panel is capable", { "DP-1": { vrr: false }, "DP-2": { vrr: true } }, true]
+  ]) same(logic.hasVrrPanel(support), want, "global VRR visibility: " + name);
   // --- The helper's answers ------------------------------------------------
   const listed = logic.parseList(JSON.stringify(listAnswer()));
   assert.equal(listed.ok, true, JSON.stringify(listed));
@@ -482,6 +513,8 @@ function verify(logic) {
 verify(load(file));
 
 const CONTROLS = [
+  ["the global VRR field always shows", "return support !== null && Object.keys(support).some(function (name) { return support[name].vrr === true; });", "return true;"],
+  ["the global VRR field never shows", "return support !== null && Object.keys(support).some(function (name) { return support[name].vrr === true; });", "return false;"],
   ["no coalescing: each change waits as its own run", "            next.sets[i].percent = percent;\n            return next;", "            break;"],
   ["a waiting list goes before the changes", "    if (next.sets.length > 0) {", "    if (next.sets.length > 0 && !next.list) {"],
   ["a second run starts while one is in flight", "    if (runs.busy !== null) return { runs: runs, run: null };", ""],

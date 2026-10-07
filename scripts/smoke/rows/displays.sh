@@ -58,7 +58,7 @@
 # user file, so vgs.system and vgs.displays are as it found them, and
 # removes the output, the assignments file and the stub backlight and
 # gives hidraw2 its mode back. The dim settings live in the user file.
-# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprctlReader.qml shell/Hosts/PaneHost.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprctlReader.qml shell/Hosts/PaneHost.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
 set -euo pipefail
 devices_ready displays || return 0
 # The core probes the system steps once vgs.displays holds `system`, and
@@ -169,6 +169,8 @@ PY
 }
 # The timeouts of the plugin's idle watches, as the lending record lists
 # them.
+# The global VRR option read from the nested compositor after the layer reload.
+disp_vrr() { hypr -j getoption misc:vrr | py_reply 'import json,sys; print(json.load(sys.stdin)["int"])'; }
 disp_watches() { ipc shell lent | py_reply 'import json,sys; print(json.dumps([w["timeout"] for w in json.load(sys.stdin)["idle"] if w["id"] == "vgs.displays"]))'; }
 # The idle dim as the service holds it: its state, and while dimmed each
 # kept display as [node, level].
@@ -198,6 +200,14 @@ expect_poll "with the dim off the service holds no idle watch" '[]' disp_watches
 expect_poll "the service lists the three Apple displays and places none" \
   '[["hidraw0", "ready", 40, [], false], ["hidraw1", "ready", 50, [], false], ["hidraw2", "ready", 70, [], false]]' disp_items
 expect_poll "the service registered both brightness keys" True disp_keys
+for disp_vrr_choice in 0 1 2 3; do
+  disp_setting vrr "$disp_vrr_choice"
+  expect "the configuration reloads for the global VRR choice" ok ipc shell reloadConfig
+  expect_poll "the layer writes global misc:vrr=$disp_vrr_choice" "$disp_vrr_choice" disp_vrr
+done
+disp_setting vrr null
+expect "the configuration reloads with the VRR choice removed" ok ipc shell reloadConfig
+expect_poll "removing the choice restores Hyprland's VRR default" 0 disp_vrr
 expect "the widget hides while no display lights its screen" false disp_widget "$disp_main" visible
 expect "the two Studio Displays wait for a choice, and no choice is saved" '{"entries": [], "error": null}' disp_value assignments
 
