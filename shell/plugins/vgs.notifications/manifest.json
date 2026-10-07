@@ -34,6 +34,7 @@
     "placement": "top"
   },
   "schema": {
+    "slackPhotos": {"type": "boolean", "label": "Slack photos", "group": "Slack", "description": "Show sender photos from your Slack workspace.", "info": "Select Set up Slack photos to copy the ready app details and open Slack Apps. Create the app from the copied text, install it to your workspace, then copy its User OAuth Token. Sign in to the workspace in the Slack desktop app. Select Connect and paste the token into the masked field. This adds sender photos, workspace icons and custom emoji."},
     "duration": {
       "type": "number",
       "label": "Notification duration",
@@ -60,20 +61,16 @@
       "type": "presenceList",
       "label": "Slack tokens",
       "group": "Slack",
-      "hint": "Connect each workspace to show sender photos."
+      "hint": "Connect each workspace to show sender photos.",
+      "info": "Select Set up Slack photos for the ready app details and installation steps. Then connect each workspace with its User OAuth Token. VGS stores the token in your keyring. The token adds sender photos, workspace icons and custom emoji."
     }
   },
   "secrets": {
     "service": "vgs-notifications",
     "label": "VGS notifications Slack token"
   },
-  "extras": {
-    "slackPhotos": {
-      "status": ["slackTokens"],
-      "requirements": ["curl", "secret-tool"]
-    }
-  },
   "tui": {
+    "setup-slack": {"script": "tui/setup-slack.sh", "title": "Set up Slack photos", "requires": ["xdg-open", "wl-copy", "gum"], "entry": {"label": "Set up Slack photos", "icon": "external-link", "group": "Slack"}},
     "open": { "script": "tui/open.sh", "title": "Open notification file", "presentation": "plain" }
   },
   "requirements": [
@@ -81,7 +78,9 @@
     { "command": "node", "packages": { "pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "xbps": "nodejs", "emerge": "net-libs/nodejs", "nix": "nodejs" }, "optional": false, "purpose": "Shows Slack workspace icons, photos and custom emoji." },
     { "command": "curl", "packages": { "pacman": "curl", "apt": "curl", "dnf": "curl", "xbps": "curl", "emerge": "net-misc/curl", "nix": "curl" }, "optional": true, "purpose": "Downloads Slack photos and custom emoji." },
     { "command": "secret-tool", "packages": { "pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "xbps": "libsecret", "emerge": "app-crypt/libsecret", "nix": "libsecret" }, "optional": true, "purpose": "Reads saved Slack credentials for sender photos." },
-    { "command": "convert", "packages": { "pacman": "imagemagick", "apt": "imagemagick", "dnf": "ImageMagick", "xbps": "ImageMagick", "emerge": "media-gfx/imagemagick", "nix": "imagemagick" }, "optional": false, "purpose": "Prepares Slack emoji and photos for display." }
+    { "command": "convert", "packages": { "pacman": "imagemagick", "apt": "imagemagick", "dnf": "ImageMagick", "xbps": "ImageMagick", "emerge": "media-gfx/imagemagick", "nix": "imagemagick" }, "optional": false, "purpose": "Prepares Slack emoji and photos for display." },
+    {"command": "wl-copy", "packages": {"pacman": "wl-clipboard", "apt": "wl-clipboard", "dnf": "wl-clipboard", "nix": "wl-clipboard"}, "optional": true, "purpose": "Copies the ready Slack app details for setup."},
+    {"command": "gum", "packages": {"pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum"}, "optional": true, "purpose": "Shows the Slack photo setup steps."}
   ],
   "appearance": "Appearance.js",
   "hyprland": {

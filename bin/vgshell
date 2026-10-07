@@ -1231,7 +1231,7 @@ offer_requirements() { # ID
   local scan report line answer
   local -a installs=() words
   scan="$(plugin_scan)" || exit 1
-  report="$(node "$judge" unmet "$root/config/shell.json" "$config_home/vgshell/shell.json" "$1" <<<"$scan")" || exit 1
+  report="$(node "$judge" unmet "$1" <<<"$scan")" || exit 1
   while IFS= read -r line; do
     case "$line" in
       "install "*) installs+=("${line#install }") ;;
@@ -2517,7 +2517,7 @@ case "$cmd" in
         if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; try_help; exit 2; fi
         if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
         scan="$(plugin_scan)" || exit 1
-        node "$judge" requirements "$format" "$root/config/shell.json" "$config_home/vgshell/shell.json" "$id" <<<"$scan"
+        node "$judge" requirements "$format" "$id" <<<"$scan"
         ;;
       settings)
         id="${1:-}"

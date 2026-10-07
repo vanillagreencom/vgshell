@@ -568,19 +568,17 @@ expect_poll "a disabled plugin's rows all read not reported" '[["Check", "Not re
 expect "the window opens the notifications' page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.notifications
 settings_details
 slack_tokens_hint="Connect each workspace to show sender photos."
-# The Slack tokens row belongs to the owner-only Slack photos extra,
-# off on a fresh profile: the page lists no row of it
-# (docs/decisions/D075-consumer-features-need-no-developer-setup.md).
-expect_poll "with the Slack photos extra off the notifications list no Slack tokens row" '[]' status_of vgs.notifications
-expect_poll "the page draws no Status row with the extra off" '[]' drawn_status
-# The control: the same readers find the row once the plugins row turns
-# the extra on.
+# The Slack token connection remains available when photos are off.
+# A disabled plugin reports no account state and offers no token edit.
+expect_poll "with Slack photos off the disabled notifications list the Slack tokens row unreported" '[["Slack tokens", "unreported", null, ""]]' status_of vgs.notifications
+expect_poll "the page draws the Slack tokens row with its hint while photos are off" "$(python3 -c 'import json,sys; print(json.dumps([["Slack tokens", "Not reported", sys.argv[1]]]))' "$slack_tokens_hint")" drawn_status
+# Changing the photos setting keeps the same supported connection path.
 set_slack_photos on
 expect_poll "the disabled notifications list the Slack tokens row unreported" '[["Slack tokens", "unreported", null, ""]]' status_of vgs.notifications
 expect_poll "the page draws the Slack tokens row with its hint and no line per account" "$(python3 -c 'import json,sys; print(json.dumps([["Slack tokens", "Not reported", sys.argv[1]]]))' "$slack_tokens_hint")" drawn_status
 expect "no Slack tokens row takes an edit" '[[]]' ipc smoke statusRowInputs window vgs.settings
 set_slack_photos absent
-expect_poll "the extra off again takes the Slack tokens row away" '[]' status_of vgs.notifications
+expect_poll "turning photos off again keeps the Slack tokens row unreported" '[["Slack tokens", "unreported", null, ""]]' status_of vgs.notifications
 
 # Pointer scrolling (docs/architecture/design-system.md § Pointer): a mouse drag on the page
 # leaves it where it was, a wheel notch scrolls it, and Tab still scrolls

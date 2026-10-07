@@ -123,6 +123,7 @@ function shownProvider(provider, settings) {
     if (provider === "claude") return settings.showClaude !== false;
     if (provider === "codex") return settings.showCodex !== false;
     if (provider === "copilot") return settings.showCopilot !== false;
+    if (provider === "gateway") return settings.aiGateway !== false;
     return true;
 }
 

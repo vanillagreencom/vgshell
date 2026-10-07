@@ -569,7 +569,7 @@ function verify(logic) {
         assert.equal(logic.slackPhotoDelay(read, listedTwo, NOW, true, true), want, "next run with emoji on and " + label);
     assert.equal(logic.slackPhotoDelay(loaded({ emoji: [{ team: "T1", map: {}, pending: 3 }] }), listedTwo, NOW, false, true), DAY - 1000, "emoji off leave the photos' day");
 
-    // With the Slack photos extra off no photo schedule runs: the emoji keep
+    // With the Slack photos setting off no photo schedule runs: the emoji keep
     // theirs, and with emoji off too the sweeping run is the last.
     const offRead = extra => Object.assign({ ok: true, status: "off", teams: [], generatedAt: 0, downloadFailed: 0, stale: false, emoji: null }, extra);
     for (const [label, read, emojiOn, want] of [
@@ -580,18 +580,18 @@ function verify(logic) {
         ["a refused answer with emoji off", { ok: false, error: "not-json" }, false, null],
         ["a workspace without photos", offRead({ emoji: [] }), true, HOUR]
     ])
-        assert.equal(logic.slackPhotoDelay(read, listedTwo, NOW, emojiOn, false), want, "next run with the photos extra off and " + label);
+        assert.equal(logic.slackPhotoDelay(read, listedTwo, NOW, emojiOn, false), want, "next run with the photos setting off and " + label);
 
     // The helper's argv: --photos only with the extra on, --emoji with its
     // cache only with emoji on, the team ids last.
     for (const [label, photos, emoji, want] of [
         ["both off", false, false, ["node", "/p/slack-photos.js", "refresh", "/c", "T1", "T2"]],
-        ["the photos extra on", true, false, ["node", "/p/slack-photos.js", "refresh", "/c", "--photos", "T1", "T2"]],
+        ["the photos setting on", true, false, ["node", "/p/slack-photos.js", "refresh", "/c", "--photos", "T1", "T2"]],
         ["custom emoji on", false, true, ["node", "/p/slack-photos.js", "refresh", "/c", "--emoji", "/s/Cache_Data", "T1", "T2"]],
         ["both on", true, true, ["node", "/p/slack-photos.js", "refresh", "/c", "--photos", "--emoji", "/s/Cache_Data", "T1", "T2"]]
     ])
         same(logic.slackHelperCommand("/p/slack-photos.js", "/c", ["T1", "T2"], photos, emoji, "/s/Cache_Data"), want, "the helper's argv with " + label);
-    same(logic.slackPhotos(JSON.stringify({ status: "off" })), { ok: true, status: "off", teams: [], generatedAt: 0, downloadFailed: 0, stale: false, emoji: null }, "a run with the photos extra off is read");
+    same(logic.slackPhotos(JSON.stringify({ status: "off" })), { ok: true, status: "off", teams: [], generatedAt: 0, downloadFailed: 0, stale: false, emoji: null }, "a run with the photos setting off is read");
 
     // The helper's emoji list, and its refusals: [label, emoji, error].
     const HEX = "0123456789abcdef";
@@ -799,9 +799,9 @@ const CONTROLS = [
     ["tint by the folded name", 'var key = fold(name || "");', 'var key = String(name || "");'],
     ["tint by the hash", "return FACE_TINTS[hash % FACE_TINTS.length];", "return FACE_TINTS[0];"],
     ["Slack photo cache status", 'if (parsed.status !== "loaded") return { ok: false, error: "status want=loaded|absent|off" };', 'if (false) return { ok: false, error: "status want=loaded|absent|off" };'],
-    ["a run with the photos extra off is read", 'if (parsed.status === "absent" || parsed.status === "off")', 'if (parsed.status === "absent")'],
-    ["the helper reads tokens only with the photos extra on", 'photos ? ["--photos"] : []', '["--photos"]'],
-    ["the photos extra off runs no photo schedule", "var photos = photosOn ? slackPhotoOnlyDelay(read, workspaces, now) : Infinity;", "var photos = slackPhotoOnlyDelay(read, workspaces, now);"],
+    ["a run with the photos setting off is read", 'if (parsed.status === "absent" || parsed.status === "off")', 'if (parsed.status === "absent")'],
+    ["the helper reads tokens only with the photos setting on", 'photos ? ["--photos"] : []', '["--photos"]'],
+    ["the photos setting off runs no photo schedule", "var photos = photosOn ? slackPhotoOnlyDelay(read, workspaces, now) : Infinity;", "var photos = slackPhotoOnlyDelay(read, workspaces, now);"],
     ["with nothing on the sweeping run is the last", "return delay === Infinity ? null : delay;", "return delay === Infinity ? SLACK_PHOTO_RETRY : delay;"],
     ["Slack photo safe team id", 'if (typeof team.id !== "string" || !/^[A-Za-z0-9]{1,32}$/.test(team.id)) return { ok: false, error: "teams." + t + ".id want=safe" };', 'if (false) return { ok: false, error: "teams." + t + ".id want=safe" };'],
     ["Slack photo file URL only", 'return typeof value === "string" && /^file:\\/\\/\\/[^\\s?#]+\\.png\\?v=[0-9a-f]{16}$/.test(value) ? value : "";', 'return typeof value === "string" ? value : "";'],

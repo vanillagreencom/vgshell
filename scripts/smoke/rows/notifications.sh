@@ -151,8 +151,7 @@ PY
 }
 seed_slack_photos
 secret_tool_stand_in "slack:T0ACME present;slack:T0GLOBEX present"
-# The Slack photos and token rows below are the owner-only Slack photos
-# extra's (harness.sh, set_slack_photos).
+# Enable photos for the synthetic workspace and token rows below.
 set_slack_photos on
 cat >"$shim/curl" <<'SH'
 #!/usr/bin/env bash
@@ -2210,13 +2209,10 @@ expect_poll "the Settings window is gone after the token rows" 0 window_count Pl
 seed_slack_photos
 slack_states "slack:T0ACME present;slack:T0GLOBEX present"
 
-# The Slack photos extra off, as a fresh profile has it: the plugins row no
-# longer names it. The service then asks the keyring nothing and calls no
-# Slack API, its one helper run sweeps the photos, and the Settings page
-# lists no token row and none of the extra's commands. The stand-ins log
-# every call; the control turns the extra on again and reads the probe's
-# call in the same log and the rows back on the page.
-off_calls="$sandbox/slack-extra-off.calls"
+# Fresh defaults leave photos off. The presence probe still gives Settings
+# each workspace's Connect row, but the photo helper reads no token and
+# calls no Slack API. Turning photos on is the control for the same page.
+off_calls="$sandbox/slack-photos-off.calls"
 : >"$off_calls"
 sentinel_stand_over "$shim/secret-tool" <<SH
 #!/usr/bin/env bash
@@ -2231,32 +2227,40 @@ printf '%s\n' 'notifications-smoke: real Slack API refused' >&2
 exit 19
 SH
 chmod 755 "$shim/curl"
+off_token_calls() {
+  local text status=0
+  text="$(grep -E '^(curl |secret-tool (lookup|store|clear) )' -- "$off_calls")" || status=$?
+  [[ $status -le 1 ]] || return "$status"
+  printf '%s\n' "$text"
+}
 lent_has_tokens() { ipc shell lent | py_reply 'import json,sys; r=json.load(sys.stdin)["status"].get("vgs.notifications"); print(r is not None and "slackTokens" in r["keys"])'; }
 photo_teams() { python3 -c 'import json,os,sys; r=sys.argv[1]; print(json.dumps(sorted(n for n in os.listdir(r) if os.path.exists(os.path.join(r, n, "team.json"))) if os.path.isdir(r) else []))' "$slack_photos"; }
-expect "the seeded photos are there before the extra goes off" '["T0ACME", "T0GLOBEX"]' photo_teams
+expect "the seeded photos are there before photos turn off" '["T0ACME", "T0GLOBEX"]' photo_teams
 set_slack_photos absent
-restart_notes "with the Slack photos extra off"
-expect_poll "the service reads the Slack photos extra off" false note_status slack.photos
+restart_notes "with Slack photos off"
+expect_poll "the service reads Slack photos off" false note_status slack.photos
 ran_once() { [[ $(note_status slack.runs) -ge 1 && $(note_status slack.idle) == true ]] && echo True || echo False; }
-expect_poll "the helper ran once and is idle with the extra off" True ran_once
+expect_poll "the helper ran once and is idle with photos off" True ran_once
 expect_poll "the helper's run swept the photos" '[]' photo_teams
-expect "with the extra off nothing asked the keyring or Slack" "" cat -- "$off_calls"
-expect "with the extra off the service publishes no token rows" False lent_has_tokens
-expect "the notifications' Settings page opens with the extra off" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
+expect "photos off reads no token and calls no Slack API" "" off_token_calls
+expect_poll "photos off still publishes the workspace token rows" True lent_has_tokens
+expect "the notifications' Settings page opens with photos off" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
 settings_details
-settings_view() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]; print(json.dumps([[s["key"] for s in p["status"]], [r["name"] for r in p["requirements"]], sorted(p["schema"])]))'; }
-expect_poll "the page lists no token row and none of the extra's commands" '[[], ["xdg-open", "node", "convert"], ["customEmoji", "duration"]]' settings_view
-expect "the page draws no Status row with the extra off" '[]' drawn_token_row
-expect "the page's Connect reaches no account with the extra off" "refused: secret=slack:T0ACME reason=undeclared" ipc smoke invokeInstance window vgs.settings storeSecret '{"id":"vgs.notifications","key":"slackTokens","account":"slack:T0ACME","secret":"xoxp-smoke-refused"}'
-expect "still nothing asked the keyring or Slack" "" cat -- "$off_calls"
-# The control: the same readers with the extra on again.
+settings_photo_setup() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]; print("slackTokens" in [s["key"] for s in p["status"]] and {"curl", "secret-tool"}.issubset(r["name"] for r in p["requirements"]) and p["schema"].get("slackPhotos", {}).get("type") == "boolean")'; }
+expect_poll "photos off keeps Connect, its requirements and the switch in Settings" True settings_photo_setup
+expect_poll "photos off draws Connect for each workspace" "$(want_rows drawn "slack:T0ACME,absent;slack:T0GLOBEX,absent")" drawn_token_row
+settings_press "Connect" StatusLine "Acme Corp (acme)" || fail "Connect with photos off failed"
+expect_poll "Connect with photos off opens the masked field" '[["TextField"]]' row_inputs
+settings_press "Cancel" StatusLine "Acme Corp (acme)" || fail "Cancel with photos off failed"
+expect "the unused Connect field reads no token and calls no Slack API" "" off_token_calls
+# The control: the same Settings readers with photos on again.
 set_slack_photos on
-expect_poll "the page lists the token row and the extra's commands with the extra on" '[["slackTokens"], ["xdg-open", "node", "curl", "secret-tool", "convert"], ["customEmoji", "duration"]]' settings_view
+expect_poll "photos on keeps Connect, its requirements and the switch in Settings" True settings_photo_setup
 probe_logged() { if grep -q '^secret-tool search service vgs-notifications account ' -- "$off_calls"; then echo True; else echo False; fi; }
-expect_poll "the call log reads the probe once the extra is on" True probe_logged
-expect_poll "the service publishes its token rows with the extra on" True lent_has_tokens
-expect "the Settings window closes after the extra rows" ok ipc shell hide window vgs.settings
-expect_poll "the Settings window is gone after the extra rows" 0 window_count Plugins
+expect_poll "the call log reads the workspace presence probe" True probe_logged
+expect_poll "the service publishes its token rows with photos on" True lent_has_tokens
+expect "the Settings window closes after the photo setup rows" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone after the photo setup rows" 0 window_count Plugins
 
 # Disabling and enabling again, three times over, leaves nothing behind.
 for round in 1 2 3; do

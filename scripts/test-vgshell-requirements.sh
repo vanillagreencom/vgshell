@@ -142,9 +142,6 @@ $(need vgs-need-dup '{ "pacman": "need-one" }' "Same package"),
 $(need vgs-need-quote '{ "pacman": "need;one" }' Quoted)"
 source_repo needs "$(manifest acme.needs 0.1.0 ", \"requirements\": [ $requirements ]")"
 source_repo probe "$(manifest acme.probe 0.1.0)"
-# A plugin whose owner-only extra, off by default, alone runs an optional
-# command.
-source_repo extras "$(manifest acme.extras 0.1.0 ", \"settings\": { \"photos\": false }, \"requirements\": [ $(need vgs-need-extra '{ "pacman": "need-extra" }' Extra yes) ], \"extras\": { \"photos\": { \"requirements\": [ \"vgs-need-extra\" ] } }")"
 # On NixOS: a package for nix, which installs nothing through vgshell, beside
 # one for the Flatpak overlay.
 source_repo nixos "$(manifest acme.nixos 0.1.0 ", \"requirements\": [ $(need vgs-nix-one '{ "nix": "nix-one" }' Nix), $(need vgs-flat '{ "flatpak": "org.flat" }' Flat) ]")"
@@ -256,29 +253,6 @@ row_doctor_session() {
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" STUB_SESSION= -- doctor --json
   [[ $status == 0 ]] && json_is "$tmp/out" 'd["session"] == {"graphicalSession": "unknown"}'
 }
-# An extra that is off leaves its command out of add's offer, the plugin's
-# report and doctor; the user's plugins row turning it on brings it back.
-row_extra_off() {
-  req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/extras.git"
-  [[ $status == 0 ]] && err_is "" && out_is "$(lines "ok added=acme.extras path=$2/vgshell/plugins/acme.extras config=unchanged lands=disabled" "shell=not-running")" || return 1
-  req "$1" plain "" "$2" "$rt_empty" -- plugin requirements acme.extras
-  [[ $status == 0 ]] && err_is "" && out_is "" || return 1
-  printf '{ "version": 1, "plugins": [ { "id": "acme.extras" } ] }\n' >"$2/vgshell/shell.json"
-  REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor --json
-  [[ $status == 0 ]] && json_is "$tmp/out" 'd["plugins"]["acme.extras"] == []'
-}
-row_extra_on() {
-  req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/extras.git"
-  printf '{ "version": 1, "plugins": [ { "id": "acme.extras", "photos": true } ] }\n' >"$2/vgshell/shell.json"
-  req "$1" plain "" "$2" "$rt_empty" -- plugin requirements acme.extras
-  [[ $status == 0 ]] && err_is "" && out_is "missing vgs-need-extra (need-extra) optional: Extra" || return 1
-  REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor --json
-  [[ $status == 0 ]] && json_is "$tmp/out" '[r["name"] for r in d["plugins"]["acme.extras"]] == ["vgs-need-extra"]' || return 1
-  rm -rf -- "${2:?}/vgshell/plugins/acme.extras"
-  req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/extras.git"
-  [[ $status == 0 ]] && out_has "requires vgs-need-extra (need-extra) optional"
-}
-
 # rows: label | function. Each runs against the tree under test with a
 # configuration directory of its own.
 declare -a ROWS=(
@@ -295,8 +269,6 @@ declare -a ROWS=(
   "plugin requirements --json carries the package pick|row_requirements_json"
   "doctor reports the core and the enabled plugins only|row_doctor"
   "doctor says whether the session is uwsm-managed|row_doctor_session"
-  "an extra that is off leaves its commands out of every report|row_extra_off"
-  "an extra the user turns on reports its commands|row_extra_on"
 )
 config_count=0
 # run_row FN BIN: row FN through BIN with a configuration directory of its
@@ -338,15 +310,10 @@ declare -a CONTROLS=(
   "a row carries this system's package" vgshell-plugin-judge '{ package: logic.PackageManagers.packageFor(row.packages, found) }' '{ package: null }' row_requirements_json
   "nix gets no install command" vgshell-plugin-judge 'lines.push(group.installs ? ' 'lines.push(true ? ' row_nix_by_hand
   "add tells the shell which plugin it installed" vgshell '  rescan_if_running pluginInstalled "$id"' '  rescan_if_running rescanPlugins' row_offer_accepted
-  "plugin requirements skips an extra that is off" vgshell-plugin-judge 'const requirements = activeManifest(config, plugin.manifest).requirements;' 'const requirements = plugin.manifest.requirements;' row_extra_off
-  "add skips an extra that is off" vgshell-plugin-judge 'logic.requirementRows(activeManifest(config, plugin.manifest), plugin.missing)' 'logic.requirementRows(plugin.manifest, plugin.missing)' row_extra_off
   "doctor reads an inactive graphical session" vgshell '    inactive|failed) echo inactive ;;' '    inactive|failed) echo active ;;' row_doctor_session
   "the session line names the uwsm-managed entry" vgshell-plugin-judge 'log out and log in with \"Hyprland (uwsm-managed)\"' 'log out and log in again' row_doctor_session
   "the managed session reads as met" vgshell-plugin-judge 'active: "session present uwsm-managed:' 'active: "session unknown uwsm-managed:' row_doctor_session
   "doctor's JSON carries the session" vgshell-plugin-judge 'if (json) process.stdout.write(JSON.stringify(report) + "\n");' 'if (json) process.stdout.write(JSON.stringify({ ...report, session: { graphicalSession: "active" } }) + "\n");' row_doctor_session
-  "doctor skips an extra that is off" vgshell-plugin-judge 'report.plugins[id] = reportRows(activeManifest(effective, plugins.get(id).manifest).requirements' 'report.plugins[id] = reportRows(plugins.get(id).manifest.requirements' row_extra_off
-  "plugin requirements reads the user's settings" vgshell 'node "$judge" requirements "$format" "$root/config/shell.json" "$config_home/vgshell/shell.json"' 'node "$judge" requirements "$format" "$root/config/shell.json" "$config_home/vgshell/none.json"' row_extra_on
-  "add reads the user's settings" vgshell 'node "$judge" unmet "$root/config/shell.json" "$config_home/vgshell/shell.json"' 'node "$judge" unmet "$root/config/shell.json" "$config_home/vgshell/none.json"' row_extra_on
 )
 for ((i = 0; i < ${#CONTROLS[@]}; i += 5)); do
   label="${CONTROLS[i]}" file="${CONTROLS[i + 1]}" fn="${CONTROLS[i + 4]}"

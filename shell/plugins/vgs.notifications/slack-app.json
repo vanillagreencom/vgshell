@@ -1,0 +1,11 @@
+{
+  "display_information": {
+    "name": "VGS notification photos",
+    "description": "Show sender photos, workspace icons and custom emoji in VGS notifications."
+  },
+  "oauth_config": {
+    "scopes": {
+      "user": ["users:read", "team:read", "emoji:read"]
+    }
+  }
+}

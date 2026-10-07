@@ -203,8 +203,8 @@ Singleton {
         const names = due.map(id => resumes[id]);
         resumes = next;
         due.forEach((id, i) => {
-            const manifest = Registry.activeManifestOf(id);
-            if (manifest === null || !Logic.hasOwn(manifest.tui, names[i])) return;
+            const manifest = Registry.manifests[id];
+            if (manifest === undefined || !Logic.hasOwn(manifest.tui, names[i])) return;
             if (Logic.tuiMissingRequirements(manifest, names[i], missingOf(id)).length > 0) return;
             const answer = Capabilities.tuis.runFor(id, names[i]);
             if (answer !== "ok") console.warn("notices: resume=" + id + "/" + names[i] + " " + answer);

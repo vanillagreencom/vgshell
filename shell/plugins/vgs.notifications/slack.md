@@ -16,7 +16,7 @@ Open Notifications in Plugins to change Slack custom emoji. Switch it off to sho
 
 New images appear after VGS reads Slack's saved images again. A notification does not start this work itself. Animated emoji show their first frame.
 
-Sender photos need developer setup. See [Extras (not supported)](README.md#extras-not-supported).
+Set up sender photos from Notifications in Settings. See [Slack photos](README.md#slack-photos).
 
 ## Developer details
 

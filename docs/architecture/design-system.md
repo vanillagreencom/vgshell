@@ -85,7 +85,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 - Do keep a plugin description to one or two short sentences with no feature list, and a hint to one sentence; longer help goes behind an `InfoButton`. Review holds it.
 - Do keep diagnostic keys, reason codes and command errors in the log, and map a plugin's own messages to a plain sentence before the plugin shows them. A user's own commands and their output stay unchanged. Review holds it.
 - Never tell the user to run a command ([D061](../decisions/D061-no-manual-commands.md)). `scripts/check-user-commands.py` refuses the text.
-- Follow [D075](../decisions/D075-consumer-features-need-no-developer-setup.md) when a setup step needs the user. Review checks the Settings path and whether a feature qualifies as an unsupported extra. `scripts/test-plugin-extras.js` pins the filter for declared extras.
+- Follow [D075](../decisions/D075-consumer-features-need-no-developer-setup.md) when a setup step needs the user. Review checks the Settings path. Features without that path do not ship.
 
 ### Settings pages
 

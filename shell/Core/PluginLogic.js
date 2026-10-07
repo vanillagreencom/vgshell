@@ -73,11 +73,7 @@ var PANE_GROUP_MAX = 60;
 
 // Every key a manifest may carry. An unknown key is refused, so a misspelt
 // key fails loudly instead of being carried and ignored.
-var MANIFEST_KEYS = ["schemaVersion", "id", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "systemSteps", "settings", "schema", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "extras", "alwaysOn"];
-
-// What one entry of a manifest's `extras` may carry: the status entries and
-// the requirements that serve that extra alone (extrasError).
-var EXTRA_KEYS = ["status", "requirements"];
+var MANIFEST_KEYS = ["schemaVersion", "id", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "systemSteps", "settings", "schema", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "alwaysOn"];
 
 // What one entry of a manifest's `requirements`, and of the core's own
 // config/requirements.json, may carry: an external command the plugin runs
@@ -725,109 +721,6 @@ function systemStateOf(steps, declared) {
 // listed and named by: its command, or its D-Bus name.
 function requirementName(requirement) {
     return requirement.command !== undefined ? requirement.command : requirement.dbus.name;
-}
-
-// The first defect of a manifest's `extras` key, or "". An extra is a
-// feature that needs developer setup, such as a token from an app the user
-// must create, so it is no consumer feature: an owner-only switch the
-// Settings page never draws (D075). Each key names a setting whose default
-// in SETTINGS is false and which SCHEMA leaves out. Each entry is an object
-// of EXTRA_KEYS, each list non-empty: `status`, the status entries only the
-// extra uses, each one STATUS declares and the Settings page draws
-// (statusDisplayable); `requirements`, the requirements only the extra uses,
-// each an optional one of REQUIREMENTS, since the plugin works with the
-// extra off. No entry is named twice or serves two extras, and a status
-// action that installs an extra's requirement is an entry of that extra.
-function extrasError(extras, settings, schema, status, requirements) {
-    if (!isPlainObject(extras))
-        return "extras must be an object";
-    var extraNames = Object.keys(extras);
-    if (extraNames.length === 0)
-        return "extras must declare at least one extra";
-    var served = { status: {}, requirements: {} };
-    for (var i = 0; i < extraNames.length; i++) {
-        var name = extraNames[i];
-        var at = "extras." + name;
-        if (!hasOwn(settings, name) || settings[name] !== false)
-            return at + " must name a setting whose default is false";
-        if (hasOwn(schema, name))
-            return at + " must name a setting without a schema entry: an extra stays off the Settings page";
-        var entry = extras[name];
-        if (!isPlainObject(entry))
-            return at + " must be an object";
-        var keys = Object.keys(entry);
-        for (var k = 0; k < keys.length; k++) {
-            if (EXTRA_KEYS.indexOf(keys[k]) === -1)
-                return at + " has unknown key " + JSON.stringify(keys[k]);
-        }
-        for (var l = 0; l < EXTRA_KEYS.length; l++) {
-            var list = EXTRA_KEYS[l];
-            if (entry[list] === undefined)
-                continue;
-            if (!Array.isArray(entry[list]) || entry[list].length === 0)
-                return at + "." + list + " must be a non-empty list";
-            for (var j = 0; j < entry[list].length; j++) {
-                var item = entry[list][j];
-                var where = at + "." + list + "." + j;
-                if (list === "status") {
-                    if (typeof item !== "string" || !hasOwn(status, item) || !statusDisplayable(status[item]))
-                        return where + " must name a status entry the Settings page draws, got " + JSON.stringify(item);
-                } else {
-                    var requirement = requirements.filter(function (r) { return requirementName(r) === item; })[0];
-                    if (requirement === undefined)
-                        return where + " must name a requirement of the manifest's requirements, got " + JSON.stringify(item);
-                    if (requirement.optional !== true)
-                        return where + " must name an optional requirement: the plugin works with the extra off, got " + JSON.stringify(item);
-                }
-                if (hasOwn(served[list], item))
-                    return where + " " + JSON.stringify(item) + (served[list][item] === name ? " is named twice" : " already serves extra " + served[list][item]);
-                served[list][item] = name;
-            }
-        }
-    }
-    // A button that installs an extra's command belongs to that extra, or
-    // it would show while the extra is off and the view has no command.
-    var entries = Object.keys(status);
-    for (var e = 0; e < entries.length; e++) {
-        var actions = isPlainObject(status[entries[e]]) ? statusEntryActions(status[entries[e]]) : [];
-        for (var n = 0; n < actions.length; n++) {
-            var action = actions[n].action;
-            if (!isPlainObject(action) || !Array.isArray(action.install))
-                continue;
-            for (var c = 0; c < action.install.length; c++) {
-                var owner = hasOwn(served.requirements, action.install[c]) ? served.requirements[action.install[c]] : "";
-                if (owner !== "" && served.status[entries[e]] !== owner)
-                    return "status." + entries[e] + actions[n].at + ".install." + c + " " + JSON.stringify(action.install[c]) + " serves extra " + owner + ", so the entry must serve it too";
-            }
-        }
-    }
-    return "";
-}
-
-// MANIFEST as the settings the plugin receives, SETTINGS, apply it: the
-// status entries and requirements of each extra whose setting is
-// not true are left out, so the Settings page, the manager's steps on its
-// status and every requirement report skip them. MANIFEST itself when no
-// extra is off. A status write still judges the whole manifest.
-function activeManifest(manifest, settings) {
-    if (!isPlainObject(settings))
-        throw new Error("activeManifest: settings of " + manifest.id + " must be an object");
-    var off = Object.keys(manifest.extras).filter(function (name) { return settings[name] !== true; });
-    if (off.length === 0)
-        return manifest;
-    var statusOff = [];
-    var requirementsOff = [];
-    off.forEach(function (name) {
-        statusOff = statusOff.concat(manifest.extras[name].status);
-        requirementsOff = requirementsOff.concat(manifest.extras[name].requirements);
-    });
-    var out = Object.assign({}, manifest);
-    out.status = {};
-    Object.keys(manifest.status).forEach(function (key) {
-        if (statusOff.indexOf(key) === -1) out.status[key] = manifest.status[key];
-    });
-    out.requirements = manifest.requirements.filter(function (r) { return requirementsOff.indexOf(r.name) === -1; });
-    return out;
 }
 
 // The first defect of a manifest's `pane` key, or "": a plugin of kind
@@ -3307,8 +3200,7 @@ function menuActivation(rows, registered, key, item, valuesByPlugin) {
 // `sourceDir` is recorded on the manifest so entry points resolve later.
 // A normalized manifest always carries `capabilities` and `requirements`
 // (arrays, the latter's entries normalRequirements' shape), `settings`,
-// `schema`, `status`, `tui` and `extras` (objects, `tui` normalTui's
-// shape and each extra both of its lists, {} and [] when undeclared),
+// `schema`, `status` and `tui` (objects, `tui` normalTui's shape),
 // `menu` (an object, {} when undeclared),
 // `defaultSection` only when declared, and
 // `hyprland` only when declared, as { binds, layerRules, appearance,
@@ -3413,11 +3305,6 @@ function validateManifest(raw, sourceDir) {
         return { ok: false, error: badSchema };
     if (capabilities.indexOf("configure") !== -1 && Object.keys(schema).length === 0)
         return { ok: false, error: "capability configure needs a schema" };
-    if (raw.extras !== undefined) {
-        var badExtras = extrasError(raw.extras, settings, schema, raw.status === undefined ? {} : raw.status, requirements);
-        if (badExtras !== "")
-            return { ok: false, error: badExtras };
-    }
     if (raw.defaultSection !== undefined) {
         if (raw.kinds.indexOf("bar-widget") === -1)
             return { ok: false, error: "defaultSection needs kind bar-widget" };
@@ -3480,10 +3367,6 @@ function validateManifest(raw, sourceDir) {
     manifest.status = raw.status === undefined ? {} : clone(raw.status);
     if (raw.pane !== undefined) manifest.pane = clone(raw.pane);
     manifest.systemSteps = raw.systemSteps === undefined ? [] : raw.systemSteps.slice();
-    manifest.extras = {};
-    Object.keys(raw.extras === undefined ? {} : raw.extras).forEach(function (name) {
-        manifest.extras[name] = { status: clone(raw.extras[name].status || []), requirements: clone(raw.extras[name].requirements || []) };
-    });
     if (raw.hyprland !== undefined) {
         manifest.hyprland = {
             binds: (raw.hyprland.binds || []).map(function (bind) {

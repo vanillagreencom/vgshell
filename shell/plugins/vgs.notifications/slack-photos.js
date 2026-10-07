@@ -549,7 +549,7 @@ function storedTokens(ids, lines) {
     return tokens;
 }
 
-// One run: with `photos`, the Slack photos extra, each stored token's
+// One run: with `photos`, the Slack photos setting, each stored token's
 // photos; without it no token is looked up, no Slack API is called and the
 // photo cache is swept, `status: "off"`. Then the custom emoji when
 // `emojiCache`, Slack's Cache_Data, is given, from Slack's list only for a

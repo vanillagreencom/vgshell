@@ -134,9 +134,8 @@ Item {
     // Settings page's Connect and Disconnect write through the core,
     // as the probe last found them
     // (NotificationLogic.slackTokenRows). No token enters status. While the
-    // probe has not answered for the list as it now stands, and while the
-    // Slack photos extra is off, the rows wait for its next answer; the
-    // core shows no row of an extra that is off.
+    // probe has not answered for the list as it now stands, the rows wait
+    // for its next answer. Presence stays available with photos off.
     function publishTokens() {
         if (shell === null || slackPhotos.tokenStates === null) return;
         const rows = Logic.slackTokenRows(slackPhotos.workspaces, slackPhotos.tokenStates);

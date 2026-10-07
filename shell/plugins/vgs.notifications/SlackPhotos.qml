@@ -3,19 +3,20 @@ import Quickshell
 import Quickshell.Io
 import "NotificationLogic.js" as Logic
 
-// Optional Slack Web API photos, the owner-only Slack photos extra,
+// Optional Slack Web API photos, controlled by Settings,
 // `photosEnabled`. With it on, the helper reads one Slack user token per
 // workspace from libsecret, then refreshes
 // each team's part of this plugin's cache under XDG cache at most once per
 // day. A missing token leaves that team out and prints nothing.
 // token-status.sh reports whether each token is stored, never reading it;
 // `tokenStates` holds its answer, account -> a `presence` status value,
-// and null before the first and while the extra is off. Both run once
+// and null before the first probe. Both run once
 // `workspaces`, Slack's own list, has been read, again when the list names
-// other workspaces, when the extra changes and after each token write the
+// other workspaces, when the setting changes and after each token write the
 // core ends (`secretRevision`), the probe after each helper run, and the
-// helper at NotificationLogic.slackPhotoDelay. With the extra off the probe
-// never runs and the helper reads no token and calls no Slack API: it only
+// helper at NotificationLogic.slackPhotoDelay. The probe reads presence
+// with photos off, so Settings can connect a workspace. The helper then
+// reads no token and calls no Slack API: it only
 // sweeps the photo cache and builds the custom emoji.
 //
 // With `emojiEnabled`, the same run builds each listed team's custom emoji
@@ -78,11 +79,8 @@ Scope {
     onListedChanged: Qt.callLater(start)
     onTeamKeyChanged: Qt.callLater(start)
     onSecretRevisionChanged: Qt.callLater(start)
-    // Off forgets the token states at once; the run then sweeps the photos.
-    onPhotosEnabledChanged: {
-        if (!photosEnabled) tokenStates = null;
-        Qt.callLater(start);
-    }
+    // The token rows stay available for setup while photos are off.
+    onPhotosEnabledChanged: Qt.callLater(start)
     // Off clears the cards' emoji at once; the run then empties the index.
     onEmojiEnabledChanged: {
         if (!emojiEnabled) swapEmoji([]);
@@ -105,7 +103,6 @@ Scope {
     }
 
     function checkToken() {
-        if (!photosEnabled) return;
         if (tokenProbe.running) { tokenCheckPending = true; return; }
         probed = teamIds();
         tokenProbe.command = ["bash", tokenScript].concat(probed);
@@ -175,7 +172,7 @@ Scope {
                 if (done === null || done.code !== 0) photos.logProblem(lines !== "" ? lines : "notifications-slack-photos: " + (done === null ? "start=failed" : "exit=" + done.code));
                 else if (lines !== "") photos.logProblem(lines);
                 else photos.logRecovery(read);
-                // A run asked with the extra on may end after it went off.
+                // A run asked with photos on may end after they went off.
                 photos.teams = photos.photosEnabled ? read.teams : [];
                 if (read.emoji !== null && helper.generation === photos.generation) photos.swapEmoji(read.emoji);
             }
@@ -202,10 +199,6 @@ Scope {
             if (running) return;
             const done = completion;
             completion = null;
-            if (!photos.photosEnabled) {
-                photos.tokenCheckPending = false;
-                return;
-            }
             const read = done !== null && done.code === 0 ? Logic.slackTokenStates(tokenOut.text) : { ok: false, error: "" };
             if (read.ok) photos.tokenStates = read.states;
             else {

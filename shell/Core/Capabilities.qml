@@ -193,7 +193,7 @@ Singleton {
         status: ctx => ({
             set: (key, value) => PluginStatus.set(ctx, key, value),
             act: key => root.managerAct(ctx.id, key),
-            get rows() { return Logic.statusRows(Registry.activeManifestOf(ctx.id), PluginStatus.valuesOf(ctx.id), Notices.missingOf(ctx.id)); },
+            get rows() { return Logic.statusRows(Registry.manifests[ctx.id], PluginStatus.valuesOf(ctx.id), Notices.missingOf(ctx.id)); },
             get values() { return PluginStatus.valuesOf(ctx.id); },
             get revision() { return PluginStatus.revisionOf(ctx.id); }
         }),
@@ -298,12 +298,11 @@ Singleton {
     }
 
     // What the manager's steps judge plugin ID by: { manifest, enabled,
-    // values }, its manifest as its settings apply it
-    // (Registry.activeManifestOf) or null for an id no plugin has, whether
+    // values }, its judged manifest or null for an id no plugin has, whether
     // it is enabled and the status values it published.
     function managerSubject(id) {
         const known = typeof id === "string" && Registry.has(id);
-        return { manifest: known ? Registry.activeManifestOf(id) : null, enabled: known && Registry.isEnabled(id), values: known ? PluginStatus.valuesOf(id) : {} };
+        return { manifest: known ? Registry.manifests[id] : null, enabled: known && Registry.isEnabled(id), values: known ? PluginStatus.valuesOf(id) : {} };
     }
 
     // The manager's act on plugin ID's status entry KEY (D061), as

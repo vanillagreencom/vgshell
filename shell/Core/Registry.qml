@@ -72,13 +72,12 @@ Singleton {
     // judge, builds stay ungated and the listing reports why.
     property string coreWatchError: ""
     // Whose requirements a notice can list, by owner id: every plugin's
-    // manifest as its settings apply it (activeManifestOf) and the core's
+    // judged manifest and the core's
     // owner, PluginLogic.coreOwner; and each owner's missing commands.
     readonly property var requirementOwners: {
-        const config = Config.effective;
         const owners = Object.create(null);
         for (const id of Object.keys(manifests))
-            owners[id] = Logic.activeManifest(manifests[id], Logic.managerSettings(config, manifests[id]));
+            owners[id] = manifests[id];
         owners[Logic.CORE_OWNER] = Logic.coreOwner(coreRequirements);
         return owners;
     }
@@ -402,17 +401,10 @@ Singleton {
         return Logic.panesHolderId(Config.effective, manifests, defaultBarId);
     }
 
-    // Plugin `id`'s manifest as the settings it receives apply it: without
-    // the status entries and requirements of an extra that is off
-    // (PluginLogic.activeManifest). What the manager shows and acts on.
-    function activeManifestOf(id) {
-        return Logic.activeManifest(manifests[id], Logic.managerSettings(Config.effective, manifests[id]));
-    }
-
     // Plugin `id`'s requirement rows, each with its state from the last
-    // scan: PluginLogic.requirementRows over activeManifestOf.
+    // scan: PluginLogic.requirementRows over its judged manifest.
     function requirementsOf(id) {
-        return Logic.requirementRows(activeManifestOf(id), Logic.hasOwn(missingCommands, id) ? missingCommands[id] : []);
+        return Logic.requirementRows(manifests[id], Logic.hasOwn(missingCommands, id) ? missingCommands[id] : []);
     }
 
     // Where a plugin was found: `bundled` under the shell's own plugins
@@ -426,7 +418,7 @@ Singleton {
     // whether its widget is placed (PluginLogic.isPlaced), its settings
     // schema, the settings it currently receives (a bar widget's from its
     // first layout entry), its Keys rows, its Status rows
-    // (PluginLogic.statusRows of activeManifestOf over the values it
+    // (PluginLogic.statusRows over its manifest and the values it
     // published), the label of its `secrets`, "" without, its setup
     // screens (PluginLogic.listedTuis), its Open surface
     // (PluginLogic.openKind), the id of the enabled panes holder that
@@ -476,9 +468,9 @@ Singleton {
                 settings: settings,
                 settingChoices: Logic.settingChoices(m, values, settings),
                 binds: Logic.bindRows(config, m, descriptions),
-                status: Logic.statusRows(Logic.activeManifest(m, settings), values, Logic.hasOwn(missingCommands, id) ? missingCommands[id] : []),
+                status: Logic.statusRows(m, values, Logic.hasOwn(missingCommands, id) ? missingCommands[id] : []),
                 secretLabel: m.secrets === undefined ? "" : m.secrets.label,
-                tuis: Logic.listedTuiRows(Logic.activeManifest(m, settings), Logic.hasOwn(missingCommands, id) ? missingCommands[id] : []),
+                tuis: Logic.listedTuiRows(m, Logic.hasOwn(missingCommands, id) ? missingCommands[id] : []),
                 opens: Logic.openKind(m),
                 paneHolder: m.kinds.indexOf("pane") === -1 ? "" : holder,
                 requirements: requirementsOf(id),

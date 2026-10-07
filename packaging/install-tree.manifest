@@ -221,6 +221,7 @@ f share/vgshell/shell/plugins/vgs.ai-usage/UsageView.js
 f share/vgshell/shell/plugins/vgs.ai-usage/Widget.qml
 f share/vgshell/shell/plugins/vgs.ai-usage/backend/usage.js
 f share/vgshell/shell/plugins/vgs.ai-usage/manifest.json
+f share/vgshell/shell/plugins/vgs.ai-usage/tui/gateway-key.sh
 f share/vgshell/shell/plugins/vgs.ai-usage/tui/sign-in-claude.sh
 f share/vgshell/shell/plugins/vgs.ai-usage/tui/sign-in-codex.sh
 f share/vgshell/shell/plugins/vgs.automations/AutomationEditorPage.qml
@@ -488,11 +489,13 @@ f share/vgshell/shell/plugins/vgs.notifications/images.sh
 f share/vgshell/shell/plugins/vgs.notifications/manifest.json
 f share/vgshell/shell/plugins/vgs.notifications/shaders/edgelight.frag
 f share/vgshell/shell/plugins/vgs.notifications/shaders/edgelight.frag.qsb
+f share/vgshell/shell/plugins/vgs.notifications/slack-app.json
 f share/vgshell/shell/plugins/vgs.notifications/slack-cache.js
 f share/vgshell/shell/plugins/vgs.notifications/slack-emoji.js
 f share/vgshell/shell/plugins/vgs.notifications/slack-photos.js
 f share/vgshell/shell/plugins/vgs.notifications/token-status.sh
 f share/vgshell/shell/plugins/vgs.notifications/tui/open.sh
+f share/vgshell/shell/plugins/vgs.notifications/tui/setup-slack.sh
 f share/vgshell/shell/plugins/vgs.polkit/PolkitModel.js
 f share/vgshell/shell/plugins/vgs.polkit/Prompt.qml
 f share/vgshell/shell/plugins/vgs.polkit/Service.qml

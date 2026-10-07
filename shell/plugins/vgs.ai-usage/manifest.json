@@ -17,7 +17,8 @@
     { "command": "gum", "packages": { "pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum" }, "optional": false, "purpose": "Draws the header of the sign-in terminal" },
     { "command": "claude", "packages": {}, "optional": true, "purpose": "Signs in to Claude Code" },
     { "command": "codex", "packages": {}, "optional": true, "purpose": "Signs in to Codex and reports its plan limits" },
-    { "command": "secret-tool", "packages": { "pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "nix": "libsecret" }, "optional": true, "purpose": "Reads the Copilot sign-in from the keyring" }
+    { "command": "secret-tool", "packages": { "pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "nix": "libsecret" }, "optional": true, "purpose": "Reads the Copilot sign-in from the keyring" },
+    {"command": "xdg-open", "packages": {"pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils"}, "optional": true, "purpose": "Opens Vercel to create an AI Gateway key."}
   ],
   "settings": { "refreshMinutes": 15, "view": "full", "sort": "provider", "barNumber": "most-used", "barShows": "used", "colourByUsage": true, "showClaude": true, "showCodex": true, "showCopilot": true, "hidden": [], "aiGateway": false },
   "schema": {
@@ -32,6 +33,7 @@
     "showClaude": { "type": "boolean", "label": "Claude Code", "group": "Providers" },
     "showCodex": { "type": "boolean", "label": "Codex", "group": "Providers" },
     "showCopilot": { "type": "boolean", "label": "Copilot", "group": "Providers" },
+    "aiGateway": {"type": "boolean", "label": "AI Gateway credits", "group": "Providers", "description": "Show credit figures from your AI Gateway key.", "info": "Select Get AI Gateway key to open Vercel. In the dashboard, open AI Gateway, then API keys, then Create key. Select Connect under Sign-in and paste the key into the masked field. The key unlocks AI Gateway credit figures."},
     "hidden": {
       "type": "list",
       "label": "Hidden accounts",
@@ -41,15 +43,15 @@
   },
   "tui": {
     "sign-in-claude": { "script": "tui/sign-in-claude.sh", "title": "Sign in to Claude Code", "requires": ["claude", "gum"] },
-    "sign-in-codex": { "script": "tui/sign-in-codex.sh", "title": "Sign in to Codex", "requires": ["codex", "gum"] }
+    "sign-in-codex": { "script": "tui/sign-in-codex.sh", "title": "Sign in to Codex", "requires": ["codex", "gum"] },
+    "gateway-key": {"script": "tui/gateway-key.sh", "title": "Get AI Gateway key", "requires": ["xdg-open", "gum"], "entry": {"label": "Get AI Gateway key", "icon": "external-link", "group": "Sign-in"}}
   },
   "status": {
     "usage": { "type": "data", "label": "Usage" },
     "accounts": { "type": "choices", "label": "Accounts", "hidden": true },
     "claude": { "type": "state", "label": "Claude Code", "group": "Sign-in", "action": { "label": "Sign in", "tui": "sign-in-claude" } },
     "codex": { "type": "state", "label": "Codex", "group": "Sign-in", "action": { "label": "Sign in", "tui": "sign-in-codex" } },
-    "gatewayKey": { "type": "presenceList", "label": "AI Gateway key", "group": "Sign-in", "hint": "Connect an AI Gateway key to show its credits." }
+    "gatewayKey": { "type": "presenceList", "label": "AI Gateway key", "group": "Sign-in", "hint": "Connect an AI Gateway key to show its credits.", "info": "In Vercel, open AI Gateway, then API keys, then Create key. Connect the key here to show AI Gateway credit figures. VGS stores the key in your keyring." }
   },
-  "secrets": { "service": "vgs-ai-usage", "label": "VGS AI Usage AI Gateway key" },
-  "extras": { "aiGateway": { "status": ["gatewayKey"] } }
+  "secrets": { "service": "vgs-ai-usage", "label": "VGS AI Usage AI Gateway key" }
 }

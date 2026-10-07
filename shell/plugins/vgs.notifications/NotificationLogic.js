@@ -451,7 +451,7 @@ function slackTokenRows(workspaces, states) {
 }
 
 // How long the photo helper waits before its next run, in milliseconds,
-// or null for no further run. With PHOTOS, the Slack photos extra, on:
+// or null for no further run. With PHOTOS, the Slack photos setting, on:
 // SLACK_PHOTO_RETRY while a token is missing, an account failed, a download
 // failed, or a listed workspace has no photos, so a token stored for it is
 // read within that; otherwise until the oldest team's day is over. With
@@ -476,7 +476,7 @@ function slackPhotoDelay(read, workspaces, now, emojiOn, photosOn) {
 }
 
 // The photo helper's argv: slack-photos.js SCRIPT refreshing the cache DIR
-// for the team IDS, with `--photos` while the Slack photos extra, PHOTOS,
+// for the team IDS, with `--photos` while the Slack photos setting, PHOTOS,
 // is on, so the helper reads no token and calls no Slack API while it is
 // off, and `--emoji` with Slack's disk cache EMOJICACHE while custom emoji
 // are on, EMOJI.
@@ -496,7 +496,7 @@ function slackPhotoOnlyDelay(read, workspaces, now) {
 // to the fields the card needs. Names are matched case-folded the same way
 // initials and Slack sender parsing key them. `status` is `loaded`,
 // `absent` for a run that found no token, or `off` for a run with the
-// Slack photos extra off, which looked none up. `emoji` is
+// Slack photos setting off, which looked none up. `emoji` is
 // slackEmojiTeams' reading of the run's custom emoji, or null for a run
 // with emoji off.
 function slackPhotos(text) {

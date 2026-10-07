@@ -90,7 +90,7 @@ Scope {
     // PluginLogic.tuiShownAnswer decides. The plugin reads the run's end
     // from its `state`.
     function runFor(id, name) {
-        const request = Logic.tuiRunFor(Registry.activeManifestOf(id), Registry.isEnabled(id), Registry.sourceDir, runner(), name, Notices.missingOf(id));
+        const request = Logic.tuiRunFor(Registry.manifests[id], Registry.isEnabled(id), Registry.sourceDir, runner(), name, Notices.missingOf(id));
         if (request.kind === "install") return Notices.requested(id, name);
         const answer = start(request, null, undefined);
         return Logic.tuiShownAnswer(name, answer);

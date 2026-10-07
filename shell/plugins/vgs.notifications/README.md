@@ -28,30 +28,21 @@ Screenshots come from `scripts/readme-shots.sh` in the nested sandbox, with the 
 | Setting | What it changes |
 | --- | --- |
 | Notification duration | The minimum time a normal notification stays on screen. |
+| Slack photos | Whether sender photos load from connected Slack workspaces. |
 | Slack custom emoji | Whether custom emoji show in Slack notifications. |
 
 The key is under Keys on the plugin's Settings page. The Requirements section lists the tools that open notification files and prepare Slack icons and emoji, with Install all missing.
 
-## Extras (not supported)
+## Slack photos
 
-These features need developer setup. They are off by default and do not appear in Plugins. They are kept for the owner and are not supported. See [D075](../../../docs/decisions/D075-consumer-features-need-no-developer-setup.md).
+Turn on Slack photos in Settings to add sender photos, workspace icons and custom emoji. Each workspace needs its own Slack app user token.
 
-- **Slack photos**, `slackPhotos`: sender photos and cached workspace icons from a Slack app user token per workspace, and custom emoji from Slack's emoji list. `{ "id": "vgs.notifications", "slackPhotos": true }` in `plugins` in `~/.config/vgshell/shell.json` turns it on. The Settings page then lists a Slack tokens row with Connect for each workspace, and `curl` and `secret-tool` under Requirements. With it off, the plugin reads no token, calls no Slack API, removes the photos it cached and shows no token row.
+Select Set up Slack photos in Settings. VGS copies the ready app details and opens Slack Apps. Select Create New App, then From a manifest. Select your workspace and paste the copied text into the JSON field. Review the permissions, then select Create. Under OAuth & Permissions, install the app to the workspace. Copy the User OAuth Token.
 
-With no token, or with no `secret-tool` binary installed, Slack notifications keep the initials faces and the workspace icons above.
+Sign in to the workspace in the Slack desktop app. Return to Settings and select Connect beside the workspace. Paste the token into the masked field. VGS stores it in your keyring. Disconnect removes it. The photos load after each connection change. If your workspace requires app approval, ask its administrator to approve the app.
 
-Each workspace takes its own token, in libsecret under `service vgs-notifications` and `account slack:<team id>`, the team id Slack's workspace list gives it. The Settings page lists each workspace the list names, with its token's state: Present, Absent, Locked or Unavailable. **Connect** opens a masked field for the workspace's token. VGS stores it in your keyring through `secret-tool`, handing it over on stdin, never on a command line, and the photos load at once. **Disconnect** removes a stored token. The check runs at start, when the workspace list changes, after each Connect or Disconnect and after each photo refresh; it never reads a token or unlocks the keyring.
+Show details in the setup window displays the app text. The app requests only the permissions needed for photos, workspace icons and custom emoji. It does not read messages or channels.
 
-A token is a Slack app's user token (`xoxp-`) with the user token scopes `users:read` and `team:read`, and `emoji:read` for custom emoji, installed to the workspace.
-
-<details><summary>Show command</summary>
-
-```bash
-secret-tool store --label='VGS notifications Slack token T0ACME' service vgs-notifications account slack:T0ACME
-```
-
-</details>
-
-The helper calls `team.info` and `users.list`. It stores only the team id, team names, the team icon, each user id, each user's display name, real name, Slack name and `image_48` photo, under `$XDG_CACHE_HOME/vgshell/notifications/slack-photos/`. It does not read or store messages, channels, presence, email, profile text or tokens. [secrets.md](../../../docs/architecture/secrets.md) holds the cache, its refresh and its limits.
+With Slack photos off, VGS checks whether tokens are present but reads no token and calls no Slack API. Notifications keep sender initials, workspace icons and emoji that Slack has saved.
 
 Developer details: [Developer reference](developer.md).

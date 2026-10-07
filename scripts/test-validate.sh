@@ -522,7 +522,7 @@ recipe_plan=$'node scripts/check-packaging.js\nnode scripts/test-check-packaging
 # An Arch recipe is also the README's source for the AUR commands.
 # The release suite's parity rows build the Arch recipes' host side.
 arch_recipe_plan=$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-vgshell-requirements.sh\nscripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
-settings_core_prefix=$'node scripts/test-vpn-logic.js\nnode scripts/test-plugin-logic.js\nnode scripts/test-pads.js\nnode scripts/test-plugin-status.js\nnode scripts/test-plugin-extras.js\nnode scripts/test-plugin-menu.js\nnode scripts/test-key-capture.js\nnode scripts/test-tui-logic.js\nnode scripts/test-ipc-logic.js\nnode scripts/test-notice-logic.js\nnode scripts/test-hyprland-layer.js\nnode scripts/test-hyprland-state.js\nnode scripts/test-input-facts.js\n'
+settings_core_prefix=$'node scripts/test-vpn-logic.js\nnode scripts/test-plugin-logic.js\nnode scripts/test-pads.js\nnode scripts/test-plugin-status.js\nnode scripts/test-plugin-menu.js\nnode scripts/test-key-capture.js\nnode scripts/test-tui-logic.js\nnode scripts/test-ipc-logic.js\nnode scripts/test-notice-logic.js\nnode scripts/test-hyprland-layer.js\nnode scripts/test-hyprland-state.js\nnode scripts/test-input-facts.js\n'
 settings_theme_rows=$'bin/vgshell-theme-judge packages themes\n'
 settings_plugin_rows=$'node scripts/test-themes-setup.js\nnode scripts/test-notifications-logic.js\nnode scripts/test-greeter-logic.js\nnode scripts/test-polkit-model.js\nnode scripts/test-displays-logic.js\n'
 settings_values_plugin_rows="${settings_plugin_rows%$'node scripts/test-displays-logic.js\n'}"

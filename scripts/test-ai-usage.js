@@ -947,6 +947,8 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         assert.deepEqual(View.panel(copilot, NOW, { showCopilot: false }).map(r => r.provider), ["claude", "codex", "gateway"]);
         assert.deepEqual(View.panel(copilot, NOW, { hidden: [{ account: "" }] }).map(r => r.id), ["claude-enterprise", "codex-c", "copilot-b", "gateway-a"], "empty hidden account means the first offer");
         assert.deepEqual(View.accountChoices(copilot).map(r => r.value), ["copilot-a", "copilot-b", "claude-enterprise", "codex-c", "gateway-a"]);
+        assert.equal(View.panel(copilot, NOW, { aiGateway: false }).some(r => r.provider === "gateway"), false);
+        assert.equal(View.panel(copilot, NOW, { aiGateway: true }).some(r => r.provider === "gateway"), true);
         assert.deepEqual(plainOf(View.gatewayKey("present")), [{ label: "AI Gateway", value: "present", secret: "ai-gateway" }]);
         const failedCreditless = View.merge(copilot, { accounts: [{ id: "copilot-b", provider: "copilot", label: "zero",
             email: "", state: "failed", windows: [], credits: null }], partial: "" }, NOW + 1);
@@ -1064,6 +1066,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     await control("colour-ignored", "UsageView.js", "given.colourByUsage !== false && ", "", views);
     await control("always-shown", "UsageView.js", "shown: accounts.length > 0", "shown: true", views);
     await control("api-account-hidden", "UsageView.js", 'return row.state !== "signed-out";', 'return row.state !== "signed-out" && row.state !== "no-plan";', views);
+    await control("gateway-switch-ignored", "UsageView.js", 'if (provider === "gateway") return settings.aiGateway !== false;', 'if (provider === "gateway") return true;', views);
     await control("provider-filter-ignored", "UsageView.js", 'if (provider === "copilot") return settings.showCopilot !== false;', 'if (provider === "copilot") return true;', views);
     await control("hidden-first-ignored", "UsageView.js", 'if (id === "") id = first;', 'if (id === "") id = "";', views);
     await control("details-dropped", "UsageView.js", 'if (d.gateway !== undefined) {', 'if (false) {', views);
@@ -1084,7 +1087,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     // The sign-in TUIs run each tool's own login, through the presentation
     // library, with the stand-ins on PATH.
     const signIns = folder => {
-        for (const [script, tool, argv] of [["sign-in-claude.sh", "claude", "auth login"], ["sign-in-codex.sh", "codex", "login"]]) {
+        for (const [script, tool, argv] of [["sign-in-claude.sh", "claude", "auth login"], ["sign-in-codex.sh", "codex", "login"], ["gateway-key.sh", "xdg-open", "https://vercel.com/dashboard"]]) {
             const tuiHome = fs.mkdtempSync(path.join(root, "tui-"));
             const shim = path.join(tuiHome, "bin");
             write(path.join(shim, tool), '#!/bin/sh\nprintf "%s\\n" "$*" >>"$HOME/' + tool + '-calls"\n');
@@ -1098,6 +1101,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     };
     signIns(plugin);
     cases++;
+    await control("gateway-opener-skipped", "tui/gateway-key.sh", "\nxdg-open https://vercel.com/dashboard\n", "\ntrue\n", signIns);
     await control("sign-in-skipped", "tui/sign-in-claude.sh", "\nclaude auth login\n", "\ntrue\n", signIns);
 
     console.log("test-ai-usage: ok cases=" + cases + " controls=" + controls);

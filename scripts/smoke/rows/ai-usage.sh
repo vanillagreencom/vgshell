@@ -517,6 +517,11 @@ usage_mode relative
 usage_edit "$usage_helper" '    return { accounts, partial, gatewayKey };' '    accounts.push({ id: "gateway-planted", provider: "gateway", label: "AI Gateway", email: "", state: "ok", windows: [{ name: "credits", usedPercent: 25, resetsAt: null }], credits: null, details: { gateway: { balance: 75, totalUsed: 25 } } });
     return { accounts, partial, gatewayKey };' || fail "planting the gateway API reading failed"
 rescan "the gateway API reading is scanned"
+expect "Settings opens for the AI Gateway switch" ok ipc shell summon window vgs.settings '{"plugin":"vgs.ai-usage"}'
+usage_gateway_read_before="$(usage_read_at)"
+expect "AI Gateway credits enable through Settings" ok usage_apply_setting aiGateway true
+expect_poll "the Settings switch checks figures immediately" new usage_read_after "$usage_gateway_read_before"
+expect "Settings closes after the AI Gateway switch" ok ipc shell hide window vgs.settings
 usage_refresh "the gateway API reading"
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening the gateway API card failed"
 summon_drawn panel vgs.ai-usage || fail "the gateway API card never drew a frame"
