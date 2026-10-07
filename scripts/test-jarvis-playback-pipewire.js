@@ -7,6 +7,15 @@ const { assert, fs, path, cp, tree, world, until, Audio, setup, control } = requ
 const { Readable } = require("node:stream");
 const { once } = require("node:events");
 
+
+function discoveryOnly(w) {
+    const owners = [...w.audio.children.values()];
+    assert.deepEqual(owners.map(owner => owner.kind), ["discovery"], "playback ended; one discovery owner remains");
+    assert.equal(w.audio.discovery.kind, "monitoring");
+    assert.equal(owners[0].stopping, false);
+    assert.equal(owners[0].child.exitCode, null);
+}
+
 async function privateAudio(run) {
     const root = process.env.JARVIS_TEST_ROOT;
     const config = path.join(root, "pcm-config");
@@ -129,7 +138,7 @@ async function interrupt(Implementation = Audio) {
             await flushed;
             await running;
             assert.equal(source.destroyed, true);
-            assert.equal(w.audio.children.size, 0);
+            discoveryOnly(w);
             assert.deepEqual(w.failures, []);
             assert.ok(before >= 4800);
             assert.ok(after <= 1680);
@@ -137,7 +146,7 @@ async function interrupt(Implementation = Audio) {
                 + " after_ms=" + (after / 24).toFixed(3) + " last_audio_ms="
                 + (audibleAt === 0 ? 0 : audibleAt - cutAt).toFixed(3) + " period_ms=10 limit_frames=1680");
         } finally {
-            await w.audio.close("test-end");
+            await w.audio.close("test-end"); assert.equal(w.audio.children.size, 0, "Audio.close releases every child");
             if (recorder.exitCode === null && recorder.signalCode === null) recorder.kill("SIGTERM");
             await recorderClosed;
         }

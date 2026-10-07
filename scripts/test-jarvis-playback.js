@@ -7,6 +7,15 @@ const { load } = require("../bin/lib/qml-library.js");
 const Session = load(path.resolve(__dirname, "../shell/plugins/vgs.jarvis/Session.js"));
 const { SessionRunner, unavailable } = require("../shell/plugins/vgs.jarvis/backend/session-runner.js");
 
+
+function discoveryOnly(w) {
+    const owners = [...w.audio.children.values()];
+    assert.deepEqual(owners.map(owner => owner.kind), ["discovery"], "playback ended; one discovery owner remains");
+    assert.equal(w.audio.discovery.kind, "monitoring");
+    assert.equal(owners[0].stopping, false);
+    assert.equal(owners[0].child.exitCode, null);
+}
+
 async function ready(w) {
     await until(() => w.audio.playback !== null && w.audio.playback.kind === "feeding", "playback feeding");
     return w.spy();
@@ -41,7 +50,8 @@ async function pacing(Implementation = Audio) {
         assert.equal(source.destroyed, true);
         assert.deepEqual(w.failures, []);
         assert.deepEqual(w.completed, []);
-    } finally { await w.audio.close("test-end"); }
+        discoveryOnly(w);
+    } finally { await w.audio.close("test-end"); assert.equal(w.audio.children.size, 0, "Audio.close releases every child"); }
 }
 
 async function accounting(Implementation = Audio) {
@@ -66,7 +76,7 @@ async function accounting(Implementation = Audio) {
         w.time.advance(10000);
         assert.equal(result.heardText, "one", "the interruption report cannot grow during teardown");
         await finish(running);
-    } finally { await w.audio.close("test-end"); }
+    } finally { await w.audio.close("test-end"); assert.equal(w.audio.children.size, 0, "Audio.close releases every child"); }
 }
 
 async function completion(Implementation = Audio) {
@@ -90,7 +100,7 @@ async function completion(Implementation = Audio) {
             assert.deepEqual(w.failures, []);
             assert.equal(w.audio.playback, null);
         };
-        try { await run(); } finally { await w.audio.close("test-end"); }
+        try { await run(); } finally { await w.audio.close("test-end"); assert.equal(w.audio.children.size, 0, "Audio.close releases every child"); }
     }
 }
 
@@ -108,7 +118,7 @@ async function sentenceAccounting() {
         const result = await w.flush();
         assert.equal(result.heardText, "first sentence.", "only the completed sentence has known timing");
         await finish(running);
-    } finally { await w.audio.close("test-end"); }
+    } finally { await w.audio.close("test-end"); assert.equal(w.audio.children.size, 0, "Audio.close releases every child"); }
 }
 
 async function startup(Implementation = Audio) {
@@ -121,7 +131,7 @@ async function startup(Implementation = Audio) {
         assert.equal(w.audio.children.size, 0, "immediate interrupt retires pre-child startup");
         assert.deepEqual(w.failures, []);
         assert.deepEqual(w.completed, []);
-    } finally { await w.audio.close("test-end"); }
+    } finally { await w.audio.close("test-end"); assert.equal(w.audio.children.size, 0, "Audio.close releases every child"); }
 }
 
 async function awaitingInput() {
@@ -138,7 +148,7 @@ async function awaitingInput() {
         assert.equal(source.listenerCount("end"), 0);
         assert.equal(source.listenerCount("close"), 0);
         assert.equal(source.destroyed, true);
-    } finally { await w.audio.close("test-end"); }
+    } finally { await w.audio.close("test-end"); assert.equal(w.audio.children.size, 0, "Audio.close releases every child"); }
 }
 
 async function backpressure(Implementation = Audio) {
@@ -155,7 +165,7 @@ async function backpressure(Implementation = Audio) {
         await w.flush();
         await finish(running);
         assert.equal(source.destroyed, true);
-    } finally { await w.audio.close("test-end"); }
+    } finally { await w.audio.close("test-end"); assert.equal(w.audio.children.size, 0, "Audio.close releases every child"); }
 }
 
 async function drain() {
@@ -179,7 +189,7 @@ async function drain() {
         assert.equal(owner.child.stdin.listenerCount("drain"), 0);
         assert.equal(source.destroyed, true);
     } finally {
-        await w.audio.close("test-end");
+        await w.audio.close("test-end"); assert.equal(w.audio.children.size, 0, "Audio.close releases every child");
         fs.unlinkSync(marker);
     }
 }
@@ -239,7 +249,7 @@ async function stalledDeadline(Implementation = Audio) {
         assert.equal(runner.state.fault.retry, 0);
         assert.ok(faults.length > 0);
         assert.ok(faults.every(record => record.at === 300000 && record.fault.reason === "playback-timeout"));
-        assert.equal(w.audio.children.size, 0);
+        discoveryOnly(w);
         assert.equal(source.destroyed, true);
         assert.equal(w.time.timers.size, 0);
         const writes = w.writes.length;
@@ -255,7 +265,7 @@ async function stalledDeadline(Implementation = Audio) {
         console.log("stall-deadline: at=300000 reason=playback-timeout pending_bytes=" + pendingBytes);
     } finally {
         runner.close();
-        await w.audio.close("test-end");
+        await w.audio.close("test-end"); assert.equal(w.audio.children.size, 0, "Audio.close releases every child");
         fs.unlinkSync(marker);
         setDefaultHighWaterMark(false, highWaterMark);
     }
@@ -276,9 +286,9 @@ async function failureCase(value, reason, Implementation = Audio, options = {}) 
         await finish(running);
         assert.deepEqual(w.failures, [reason]);
         assert.equal(source.destroyed, true);
-        assert.equal(w.audio.children.size, 0);
+        discoveryOnly(w);
         assert.deepEqual(w.completed, []);
-    } finally { await w.audio.close("test-end"); }
+    } finally { await w.audio.close("test-end"); assert.equal(w.audio.children.size, 0, "Audio.close releases every child"); }
 }
 
 async function failures() {
@@ -309,14 +319,14 @@ async function failures() {
         const running = w.start();
         try {
             if (phase === "feeding") await ready(w);
-            else await until(() => w.audio.children.size !== 0, "source acquired during startup");
+            else await until(() => w.audio.playbackFeed === source, "source acquired during startup");
             source.destroy(new Error("provider disconnected"));
             await finish(running);
             await until(() => w.failures.length === 1, "provider failure acknowledgment");
             assert.deepEqual(w.failures, ["playback-source: provider disconnected"]);
-            assert.equal(w.audio.children.size, 0);
+            discoveryOnly(w);
             assert.deepEqual(w.completed, []);
-        } finally { await w.audio.close("test-end"); }
+        } finally { await w.audio.close("test-end"); assert.equal(w.audio.children.size, 0, "Audio.close releases every child"); }
     }
 }
 
@@ -340,7 +350,7 @@ async function successive() {
         assert.deepEqual(w.failures, []);
         await w.flush();
         await finish(second);
-    } finally { await w.audio.close("test-end"); }
+    } finally { await w.audio.close("test-end"); assert.equal(w.audio.children.size, 0, "Audio.close releases every child"); }
 }
 
 async function factoryInterruption() {
@@ -351,9 +361,9 @@ async function factoryInterruption() {
         await finish(w.start());
         await w.audio.release;
         assert.equal(source.destroyed, true, "a source acquired during a synchronous interruption is released");
-        assert.equal(w.audio.children.size, 0);
+        discoveryOnly(w);
         assert.equal(w.audio.playbackFeed, null);
-    } finally { await w.audio.close("test-end"); }
+    } finally { await w.audio.close("test-end"); assert.equal(w.audio.children.size, 0, "Audio.close releases every child"); }
 }
 
 async function inside() {
@@ -362,6 +372,8 @@ async function inside() {
         console.log("case=" + test.name);
         await test();
     }
+    await control("playback-owner-release", 'kinds.includes(owner.kind)',
+        'kinds.includes(owner.kind) && !(reason === "interrupt" && owner.kind === "playback")', pacing);
     await control("pace", "const PLAYBACK_LEAD_MS = 60;", "const PLAYBACK_LEAD_MS = 600;", pacing);
     await control("no-catch-up", "Math.max(playback.frontier === null ? now : playback.frontier, now)",
         "(playback.frontier === null ? now : playback.frontier)", pacing);
@@ -416,7 +428,7 @@ async function inside() {
         '            const flowing = owner.child.stdin.write(pcm);\n' +
         '            const written = flowing ? Promise.resolve() : this.waitPlayback(playback, owner.child.stdin, "drain");',
     stalledDeadline);
-    console.log("test-jarvis-playback: ok controls=20 lead_frames=1440 node_frames=480");
+    console.log("test-jarvis-playback: ok controls=21 lead_frames=1440 node_frames=480");
 }
 
 world(inside).catch(error => { console.error(error); process.exitCode = 1; });

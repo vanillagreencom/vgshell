@@ -52,7 +52,7 @@ function rig(kit, server, options = {}) {
     const audio = new Audio({ session: Session, environment: { PATH: process.env.PATH, HOME: process.env.HOME,
         XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR }, clock: audioClock, offers: () => {}, level: () => {},
     fault: reason => faults.push(reason), captureSink: null, playbackSource: null });
-    const writes = [], captureEnds = [];
+    const writes = [];
     const spawn = audio.spawn.bind(audio);
     audio.spawn = async (...args) => {
         const owner = await spawn(...args);
@@ -112,11 +112,7 @@ function rig(kit, server, options = {}) {
     ports.brain = engine.brain;
     ports.capture.collect = engine.collect;
     ports.playback = engine.playback(audio.playbackPort);
-    audio.captureSink = e => {
-        const sink = engine.captureSink(e);
-        sink.once("close", () => captureEnds.push(performance.now()));
-        return sink;
-    };
+    audio.captureSink = engine.captureSink;
     audio.playbackSource = engine.playbackSource;
     const configure = settings => {
         const answer = engine.configure(settings);
@@ -133,7 +129,7 @@ function rig(kit, server, options = {}) {
         return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
     };
     return { runner, audio, audioClock, engine, audit, faults, executions, held, partials, captions, rows, configure,
-        state, server, advanceRunner, writes, captureEnds, timers,
+        state, server, advanceRunner, writes, timers,
         s: () => runner.state,
         async close() {
             runner.close();
@@ -537,9 +533,11 @@ async function cases(kit, server, only = null) {
             const request = server.requests[first];
             const responseWrite = w.writes.find(write => write.at >= request.firstByteAt && write.pcm.every(byte => byte === 0x11));
             assert.ok(responseWrite, "the provider byte is followed by a real player write");
-            assert.equal(w.captureEnds.length, 1, "the utterance's capture input ended");
-            console.log("diagnostic=jarvis-overhead capture-input-close-to-loopback-request-ms=" +
-                (request.receivedAt - w.captureEnds[0]).toFixed(3) + " final-transcript-to-loopback-request-ms=" +
+            assert.equal(control.inputEnds.length, 1, "the utterance's capture input iterator ended");
+            assert.ok(control.inputEnds[0] <= control.finalTimes[0] && control.finalTimes[0] <= request.receivedAt,
+                "input end, final transcript, and request belong to this utterance in order");
+            console.log("diagnostic=jarvis-overhead capture-input-end-to-loopback-request-ms=" +
+                (request.receivedAt - control.inputEnds[0]).toFixed(3) + " final-transcript-to-loopback-request-ms=" +
                 (request.receivedAt - control.finalTimes[0]).toFixed(3) + " provider-byte-emitted-to-player-pipe-write-ms=" +
                 (responseWrite.at - request.firstByteAt).toFixed(3));
         }

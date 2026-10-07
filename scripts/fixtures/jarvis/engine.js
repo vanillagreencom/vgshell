@@ -21,7 +21,7 @@ const control = {};
 function reset(options = {}) {
     Object.assign(control, { ready: true, recipients: [{ kind: "local", provider: "scripted-speech", account: "" }],
         utterances: [], detections: [], spoken: [], labels: new Set(), opened: [], closed: 0, aborted: 0, finals: 0,
-        finalTimes: [], frames: 0, ...options });
+        finalTimes: [], inputEnds: [], frames: 0, ...options });
 }
 reset();
 
@@ -93,7 +93,7 @@ function adapter(net, recipients) {
                     }
                     while (script.afterFrames === null || counted < script.afterFrames) {
                         const frame = await input.next();
-                        if (frame.done) break;
+                        if (frame.done) { control.inputEnds.push(performance.now()); break; }
                         take(frame.value);
                     }
                     if (ended) return { value: undefined, done: true };

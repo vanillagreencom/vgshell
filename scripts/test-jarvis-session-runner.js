@@ -428,10 +428,10 @@ try {
     }
     const sessionFile = path.resolve(__dirname, "../shell/plugins/vgs.jarvis/Session.js");
     const sessionSource = fs.readFileSync(sessionFile, "utf8");
-    const needle = 's.turn = { kind: "none" };\n        if (e.type === "brain-done" && s.playback.kind === "playing")';
+    const needle = 's.turn = { kind: "none" };\n        if (e.type === "brain-done" && ["playing", "feedback"].indexOf(s.playback.kind) !== -1)';
     assert.equal(sessionSource.split(needle).length - 1, 1, "completed-owner mutation match");
     const changed = sessionSource.replace(needle,
-        's.turn = { kind: "none" };\n        s.brain = { kind: "closed" };\n        if (e.type === "brain-done" && s.playback.kind === "playing")');
+        's.turn = { kind: "none" };\n        s.brain = { kind: "closed" };\n        if (e.type === "brain-done" && ["playing", "feedback"].indexOf(s.playback.kind) !== -1)');
     assert.notEqual(changed, sessionSource);
     const mutant = path.join(root, "completed-owner.js");
     fs.writeFileSync(mutant, changed);

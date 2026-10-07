@@ -19,7 +19,7 @@ let gates = null;
 // Set once the engine copy selects the chained plan.
 let chained = false;
 
-function ports(root, engine) {
+function ports(root, engine, state) {
     fs.mkdirSync(root, { recursive: true });
     const waiting = new Map();
     let collect = null;
@@ -104,6 +104,13 @@ function ports(root, engine) {
         },
         playback: {
             start: (e, done) => {
+                // Key and bubble rows gate assistant playback. Their local
+                // start cue completes before that capture can begin.
+                if (state().playback.kind === "feedback" && state().playback.cue === "start") {
+                    record("feedback-start", e);
+                    done();
+                    return;
+                }
                 record("playback-start", e);
                 wait("played", () => { record("playback-callback", e); done(); });
             },
@@ -207,7 +214,7 @@ function instrument(file, root, engine = "chained", mappedIndicator = false) {
     const changes = [
         ['engine: "chained",', "engine: " + JSON.stringify(engine) + ","],
         ['audio.playbackSource = engine.playbackSource;',
-            'audio.playbackSource = engine.playbackSource;\n                    const scripted = require("./scripted-fixture.js").ports(' + JSON.stringify(root) + ', engine);\n' +
+            'audio.playbackSource = engine.playbackSource;\n                    const scripted = require("./scripted-fixture.js").ports(' + JSON.stringify(root) + ', engine, () => runner.state);\n' +
             '                    runner.ports.speech = scripted.speech;\n' +
             '                    Object.assign(runner.ports, { capture: scripted.capture, brain: scripted.brain, playback: scripted.playback });'],
         ['configured: configuration.kind === "ready" || configuration.kind === "loading", settings: context.settings',
