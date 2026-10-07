@@ -225,6 +225,13 @@ function suite(lib, check) {
     check("layoutError refuses a gap", lib.layoutError({ "DP-2": { position: { x: 5000, y: 0 } } }, outputs), "refused: monitors.layout=gap");
     check("layoutError ignores an unsized nested headless output", lib.layoutError({ "DP-2": { position: { x: 2560, y: 0 } } },
         outputs.concat(lib.parseOutputs(reply([monitor(3, "SMOKE-DISPLAYS-MODES", { width: 0, height: 0 })])).outputs)), "");
+    // A portrait display left of and above the origin, its right edge on
+    // the Dell's left edge, as vgs.displays drafts a drag there.
+    const leftAbove = { "DP-2": { mode: { width: 3840, height: 2160, refresh: 60 }, position: { x: -1080, y: -200 }, scale: 2, transform: 1 } };
+    check("layoutError accepts a display left of and above the origin", lib.layoutError(leftAbove, outputs), "");
+    check("rulesLines renders a negative position", lib.rulesLines(leftAbove), { ok: true, lines: [
+        'hl.monitor({ output = "DP-2", mode = "3840x2160@60", position = "-1080x-200", scale = 2, transform = 1 })'
+    ] });
     check("logicalRect swaps rotated sides", lib.logicalRect({ mode: { width: 100, height: 50, refresh: 60 }, position: { x: 0, y: 0 }, scale: 1, transform: 1 }), { x: 0, y: 0, width: 50, height: 100 });
     check("captureRules can capture tiled connectors separately", lib.captureRules(tiled, { "DP-1": {}, "DP-5": {} }), { "DP-1": { mode: { width: 3840, height: 2160, refresh: 59.997 }, position: { x: 0, y: 0 }, scale: 1.5, transform: 0 }, "DP-5": { mode: { width: 3840, height: 2160, refresh: 59.997 }, position: { x: 3840, y: 0 }, scale: 1.5, transform: 0 } });
     // Turning an output off and mirroring one, judged without outputs.
@@ -518,6 +525,8 @@ const CONTROLS = [
     ["tiled output groups accepted", 'if (matching.length > 1 && matching[0].identifier === id) return "refused: " + at + " output=tiled";', ""],
     ["Lua text injection through a field", "if (!OUTPUT_NAME.test(id)) return \"refused: \" + at + \" identifier refused\";", "if (false) return \"refused: \" + at + \" identifier refused\";"],
     ["restore missing a field", "scale: output.scale,", ""],
+    ["a negative position refused", 'if (!Number.isInteger(rule.position.x)) return at + ".position.x must be an integer";', 'if (!Number.isInteger(rule.position.x) || rule.position.x < 0) return at + ".position.x must be an integer";', "layoutError accepts a display left of and above the origin"],
+    ["a negative position rendered without its sign", 'return position.x + "x" + position.y;', 'return Math.abs(position.x) + "x" + Math.abs(position.y);', "rulesLines renders a negative position"],
     ["unsized restore keeps an invalid mode", "if (output.width <= 0 || output.height <= 0) delete rule.mode;", ""],
     ["overlap accepted", "if (overlap(rects[i].rect, rects[j].rect)) return \"refused: monitors.layout=overlap a=\" + rects[i].id + \" b=\" + rects[j].id;", ""],
     ["gap accepted", "if (seen.length !== rects.length) return \"refused: monitors.layout=gap\";", ""],
