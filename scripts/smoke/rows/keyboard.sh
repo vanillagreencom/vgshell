@@ -21,7 +21,7 @@ keyboard_right_click() {
 }
 keyboard_controls_activate() {
   local index keyboard_index
-  index="$(ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries | py_reply 'import json,sys; rows=json.load(sys.stdin); print(rows.index("Keyboard controls") if "Keyboard controls" in rows else -1)')" || return 1
+  index="$(ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries | py_reply 'import json,sys; rows=json.load(sys.stdin); print(rows.index("Keyboard Controls") if "Keyboard Controls" in rows else -1)')" || return 1
   [[ $index =~ ^[0-9]+$ ]] || return 1
   type_keys -k Home || return 1
   for ((keyboard_index=0; keyboard_index<index; keyboard_index++)); do type_keys -k Down || return 1; done
@@ -100,8 +100,8 @@ expect_poll "the widget click switches the real keymap" '["German (no dead keys)
 expect_poll "the widget follows the active code" '"DE"' keyboard_active_code
 keyboard_right_click || fail "right clicking Keyboard failed"
 expect_poll "the Keyboard widget menu opens" true ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuOpen
-expect "the widget keeps both Keyboard controls and System settings" '["Hide","Keyboard controls","Keyboard Settings"]' ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries
-keyboard_controls_activate || fail "activating Keyboard controls failed"
+expect "the widget keeps both Keyboard Controls and System settings" '["Hide","Keyboard Controls","Keyboard Settings"]' ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries
+keyboard_controls_activate || fail "activating Keyboard Controls failed"
 expect_poll "the menu action builds the typed Keyboard panel" '[["us", ""], ["de", "nodeadkeys"]]' keyboard_panel_sources
 expect "the opened panel has the Keyboard title" '"Keyboard"' ipc smoke readDescendant panel vgs.keyboard Pane title
 expect "the menu-opened Keyboard panel closes" ok ipc shell hide panel vgs.keyboard
@@ -163,7 +163,7 @@ python3 - "$keyboard_copy/Widget.qml" <<'PYNOPANEL'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text()
-needle = '        { label: "Keyboard controls", action: () => widget.toggleControls() },\n'
+needle = '        { label: "Keyboard Controls", action: () => widget.toggleControls() },\n'
 assert text.count(needle) == 1
 changed = text.replace(needle, '')
 assert changed != text
@@ -178,7 +178,7 @@ expect_poll "the absent-action widget still reads US" '"US"' keyboard_active_cod
 keyboard_right_click || fail "right clicking the absent-action control failed"
 expect_poll "the absent-action widget menu opens" true ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuOpen
 expect "the absent-action menu keeps System settings" '["Hide","Keyboard Settings"]' ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries
-if keyboard_controls_activate; then fail "control: an absent action still activates Keyboard controls"
+if keyboard_controls_activate; then fail "control: an absent action still activates Keyboard Controls"
 else ok "control: removing the action fails the same menu opener"; fi
 expect "control: the absent action builds no typed Keyboard panel" absent ipc smoke readDescendant panel vgs.keyboard KeyboardControls sources
 type_keys -k Escape || fail "closing the absent-action menu failed"

@@ -15,6 +15,10 @@ python3 - "$repo" "$TMP_ROOT" <<'PY'
 import pathlib, shutil, sys
 repo, root = map(pathlib.Path, sys.argv[1:])
 cases = [
+    ('first-source-move', 'KeyboardControls.qml', '(entry.key !== "up" || Number(row.key) > 0)', 'true', 'test_source_menu_offers_only_possible_actions'),
+    ('last-source-move', 'KeyboardControls.qml', '(entry.key !== "down" || Number(row.key) < root.sources.length - 1)', 'true', 'test_source_menu_offers_only_possible_actions'),
+    ('last-source-delete', 'KeyboardControls.qml', 'removable: root.sources.length > 1', 'removable: true', 'test_source_menu_offers_only_possible_actions'),
+    ('last-source-remove', 'KeyboardControls.qml', '(entry.key !== "remove" || root.sources.length > 1)', 'true', 'test_source_menu_offers_only_possible_actions'),
     ('add-variant', 'KeyboardControls.qml', 'variants[variantChoice].code', '""', 'test_add_keeps_selected_variant'),
     ('source-limit', 'KeyboardLogic.js', 'if (rows.length >= SOURCE_MAX) return { ok: false, reason: "source-limit" };', 'if (false) return { ok: false, reason: "source-limit" };', 'test_fifth_source_keeps_saved_sources'),
     ('reset-variants', 'KeyboardControls.qml', 'root.shell.configure.unset("variants")', '"ok"', 'test_system_layout_unsets_both_values'),

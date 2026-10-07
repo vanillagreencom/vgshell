@@ -91,6 +91,24 @@ Item {
         function setSources(layouts, variants) {
             root.fixtureShell = Object.assign({}, root.fixtureShell, { settings: Object.assign({}, root.fixtureShell.settings, { layouts, variants }) });
         }
+        function test_source_menu_offers_only_possible_actions() {
+            buildEditor();
+            const list = root.descendant(editor, "inputSources");
+            const cases = [
+                ["us", [[]]],
+                ["us,de", [["down", "remove"], ["up", "remove"]]],
+                ["us,de,it", [["down", "remove"], ["up", "down", "remove"], ["up", "remove"]]],
+                ["us,de,it,fr", [["down", "remove"], ["up", "down", "remove"], ["up", "down", "remove"], ["up", "remove"]]]
+            ];
+            for (const [layouts, offered] of cases) {
+                setSources(layouts, "");
+                compare(list.rows.length, offered.length);
+                compare(list.menuOf(list.rows[0]).map(entry => entry.key), offered[0]);
+                for (let index = 1; index < list.rows.length; index++)
+                    compare(list.menuOf(list.rows[index]).map(entry => entry.key), offered[index]);
+                compare(list.removable, list.rows.length > 1);
+            }
+        }
         function test_add_keeps_selected_variant() {
             buildEditor();
             root.descendant(editor, "layoutPicker").activated(1);

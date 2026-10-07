@@ -9,7 +9,7 @@ BarWidget {
     implicitWidth: visible ? button.implicitWidth : 0
     implicitHeight: barSize
     frameActions: [
-        { label: "Keyboard controls", action: () => widget.toggleControls() },
+        { label: "Keyboard Controls", action: () => widget.toggleControls() },
         { label: "Keyboard Settings", action: () => shell.surfaces.summon("pane", "{}") }
     ]
 

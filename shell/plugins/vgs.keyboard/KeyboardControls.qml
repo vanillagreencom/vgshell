@@ -83,12 +83,14 @@ Column {
             objectName: "inputSources"
             width: parent.width
             rows: Logic.sourceRows(root.sources, root.catalog)
-            removable: true
+            removable: root.sources.length > 1
             menuOf: row => [
                 { key: "up", text: "Move up", iconName: "arrow-up" },
                 { key: "down", text: "Move down", iconName: "arrow-down" },
                 { key: "remove", text: "Remove", iconName: "trash" }
-            ]
+            ].filter(entry => (entry.key !== "up" || Number(row.key) > 0)
+                && (entry.key !== "down" || Number(row.key) < root.sources.length - 1)
+                && (entry.key !== "remove" || root.sources.length > 1))
             onChose: (key, entry) => root.editSource(key, entry)
             onRemoved: key => root.editSource(key, "remove")
         }
@@ -100,33 +102,33 @@ Column {
             text: root.catalogStatus.state === "failed" ? "The system layout list could not be read." : "Reading the system layout list…"
             wrapMode: Text.Wrap
         }
-        FormRow {
-            width: parent.width
-            label: "Layout"
-            Select {
-                id: layoutPicker
-                objectName: "layoutPicker"
-                enabled: root.catalog.length > 0
-                model: root.catalog
-                textRole: "name"
-                currentIndex: root.layoutChoice
-                onActivated: index => { root.layoutChoice = index; root.variantChoice = 0; }
+        Card {
+            SectionHeader { width: parent.width; text: "Add input source" }
+            FormRow {
+                width: parent.width
+                label: "Layout"
+                Select {
+                    id: layoutPicker
+                    objectName: "layoutPicker"
+                    enabled: root.catalog.length > 0
+                    model: root.catalog
+                    textRole: "name"
+                    currentIndex: root.layoutChoice
+                    onActivated: index => { root.layoutChoice = index; root.variantChoice = 0; }
+                }
             }
-        }
-        FormRow {
-            width: parent.width
-            label: "Variant"
-            Select {
-                objectName: "variantPicker"
-                enabled: root.variants.length > 0
-                model: root.variants
-                textRole: "name"
-                currentIndex: root.variantChoice
-                onActivated: index => root.variantChoice = index
+            FormRow {
+                width: parent.width
+                label: "Variant"
+                Select {
+                    objectName: "variantPicker"
+                    enabled: root.variants.length > 0
+                    model: root.variants
+                    textRole: "name"
+                    currentIndex: root.variantChoice
+                    onActivated: index => root.variantChoice = index
+                }
             }
-        }
-        Row {
-            spacing: Theme.stack.row
             Button {
                 objectName: "addSource"
                 text: "Add input source"
@@ -134,21 +136,23 @@ Column {
                 enabled: root.catalog.length > 0
                 onClicked: root.addSource()
             }
-            Button {
-                objectName: "systemLayout"
-                text: "Use system layout"
-                variant: "secondary"
-                onClicked: {
-                    const reply = root.shell.configure.unset("variants");
-                    if (reply === "ok") root.shell.configure.unset("layouts");
-                    else root.problem = "VGS could not save this setting.";
-                }
+        }
+        Button {
+            objectName: "systemLayout"
+            text: "Use system layout"
+            variant: "secondary"
+            onClicked: {
+                const reply = root.shell.configure.unset("variants");
+                if (reply === "ok") root.shell.configure.unset("layouts");
+                else root.problem = "VGS could not save this setting.";
             }
         }
         Label { visible: root.warning("layouts") !== ""; width: parent.width; role: "hint"; text: root.warning("layouts"); wrapMode: Text.Wrap }
     }
 
     SectionHeader { width: parent.width; text: "Key Repeat"; description: "Set how a held key repeats." }
+    // Reserve the widest supported value so both slider tracks stay aligned.
+    Label { id: repeatColumn; visible: false; role: "value"; text: "2000 ms" }
     Column {
         width: parent.width
         spacing: Theme.stack.row
@@ -180,7 +184,7 @@ Column {
                         onMoved: if (!pressed) parent.commit()
                         onPressedChanged: if (!pressed) parent.commit()
                     }
-                    Label { id: repeatValue; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; role: "value"; text: Math.round(repeatSlider.value) + " " + repeatRow.modelData.unit }
+                    Label { id: repeatValue; width: repeatColumn.implicitWidth; horizontalAlignment: Text.AlignRight; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; role: "value"; text: Math.round(repeatSlider.value) + " " + repeatRow.modelData.unit }
                 }
             }
         }
@@ -224,7 +228,7 @@ Column {
         }
         FormRow {
             width: parent.width
-            label: "Num Lock on at startup"
+            label: "Startup Num Lock"
             warning: root.warning("numlockByDefault")
             Switch {
                 checked: root.shell !== null && root.shell.settings.numlockByDefault
