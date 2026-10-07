@@ -7,7 +7,7 @@ keyboard_file="$home/.config/vgshell/shell.json"
 keyboard_saved="$sandbox/shell-before-keyboard.json"
 keyboard_copy="$home/.config/vgshell/plugins/vgs.keyboard"
 cp -- "$keyboard_file" "$keyboard_saved"
-keyboard_option() { hypr -j getoption "$1" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get(sys.argv[1])))' "$2"; }
+keyboard_option() { hypr -j getoption "$1" | py_reply 'import json,sys; value=json.load(sys.stdin).get(sys.argv[1]); print(json.dumps("" if value == "[[EMPTY]]" else value))' "$2"; }
 keyboard_keymaps() { hypr -j devices | py_reply 'import json,sys; print(json.dumps(sorted({k["active_keymap"] for k in json.load(sys.stdin).get("keyboards", [])})))'; }
 keyboard_sources() { ipc smoke readDescendant window vgs.keyboard KeyboardControls sources | py_reply 'import json,sys; print(json.dumps([[r["code"], r["variant"]] for r in json.load(sys.stdin)]))'; }
 keyboard_active_code() { ipc smoke readInstance "$(bar_key)" vgs.keyboard active | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("code", "")))'; }
@@ -27,7 +27,6 @@ keyboard_focus() {
   done
   return 1
 }
-keyboard_reveal_button() { ipc smoke revealText window vgs.system Button "$1" | py_reply 'import json,sys; value=sys.stdin.read().strip(); print("scrolled" if value.replace(".", "", 1).isdigit() else value)'; }
 # Select through its real closed-list key path. The model identifies the
 # requested entry; Home and Down activate its normal user handlers.
 keyboard_pick() {
@@ -105,13 +104,14 @@ type_keys -k End || fail "changing repeat rate from the keyboard failed"
 expect_poll "repeat rate reaches Hyprland" 200 keyboard_option input:repeat_rate int
 keyboard_pick layoutPicker code de || fail "choosing German through the layout control failed"
 keyboard_pick variantPicker code nodeadkeys || fail "choosing the non-default variant failed"
-expect "the Add button is revealed" scrolled keyboard_reveal_button "Add input source"
-click_item window vgs.keyboard Button "Add input source" || fail "activating Add input source failed"
+keyboard_focus Button addSource || fail "the Add button cannot take keys"
+type_keys -k space || fail "activating Add input source failed"
 expect_poll "Add saves the selected layout in every settings entry" '["us,de", "us,de"]' keyboard_saved_value layouts
 expect_poll "Add saves the selected variant in every settings entry" '[",nodeadkeys", ",nodeadkeys"]' keyboard_saved_value variants
 expect_poll "Add applies the selected layout" '"us,de"' keyboard_option input:kb_layout str
 expect_poll "Add applies the selected variant" '",nodeadkeys"' keyboard_option input:kb_variant str
-click_item window vgs.keyboard Button "Use system layout" || fail "activating Use system layout failed"
+keyboard_focus Button systemLayout || fail "the system layout button cannot take keys"
+type_keys -k space || fail "activating Use system layout failed"
 expect_poll "reset removes both saved layout values" '["absent", "absent"]' keyboard_saved_value layouts
 expect_poll "reset removes both saved variant values" '["absent", "absent"]' keyboard_saved_value variants
 expect_poll "reset restores the compositor's system layout" "$keyboard_system_layout" keyboard_option input:kb_layout str

@@ -87,7 +87,7 @@ Column {
             menuOf: row => [
                 { key: "up", text: "Move up", iconName: "arrow-up" },
                 { key: "down", text: "Move down", iconName: "arrow-down" },
-                { key: "remove", text: "Remove", iconName: "trash-2" }
+                { key: "remove", text: "Remove", iconName: "trash" }
             ]
             onChose: (key, entry) => root.editSource(key, entry)
             onRemoved: key => root.editSource(key, "remove")

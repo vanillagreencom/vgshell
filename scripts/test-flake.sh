@@ -189,7 +189,7 @@ while IFS= read -r line; do
   fi
   printf '%s\n' "$line"
 done </src/flake.nix >/tmp/no-keyboard-catalog/flake.nix
-if ((removed != 1 || skip)) || cmp -s /src/flake.nix /tmp/no-keyboard-catalog/flake.nix; then
+if ((removed != 1 || skip)) || [[ $(</src/flake.nix) == $(</tmp/no-keyboard-catalog/flake.nix) ]]; then
   fail "control: the Keyboard catalog substitution is removed once"
 elif ! mutant="$(nix build "${flags[@]}" path:/tmp/no-keyboard-catalog 2>/tmp/no-keyboard-catalog.log)"; then
   cat /tmp/no-keyboard-catalog.log; fail "control: the package without a Keyboard catalog substitution builds"
