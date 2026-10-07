@@ -122,6 +122,9 @@ expect "the nested instance reloads with the Key Hints harness bind without conf
 kh_user_hint="\"Also used by your Hyprland config at ~/.config/hypr/hyprland.lua line $(grep -nF 'hl.bind("SUPER + SHIFT + T"' "$home/.config/hypr/hyprland.lua" | cut -d: -f1).\""
 
 kh_voice_before="$(plugin_enabled vgs.voice)" || kh_voice_before=unread
+kh_themes_before="$(plugin_enabled vgs.themes)" || kh_themes_before=unread
+expect "enabling Themes for its Key Hints row is allowed" ok ipc shell setPluginEnabled vgs.themes true
+expect_poll "the Themes shortcut reaches Hyprland before its row is read" True kh_bound_has vgs.themes:themes
 expect "enabling Voice is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "the Voice service is built" True record_exists vgs.voice
 expect "enabling Key Hints is allowed" ok ipc shell setPluginEnabled vgs.keyhints true
@@ -238,3 +241,11 @@ if copy_tree keyhints-unfiltered \
 fi
 expect "disabling Key Hints is allowed" ok ipc shell setPluginEnabled vgs.keyhints false
 expect_poll "the Key Hints service is gone" False record_exists vgs.keyhints
+case "$kh_themes_before" in
+  True) ;;
+  False)
+    expect "Themes is disabled again as the row found it" ok ipc shell setPluginEnabled vgs.themes false
+    expect_poll "the restored Themes state removes its shortcut" False kh_bound_has vgs.themes:themes
+    ;;
+  *) fail "Themes' enabled state before the row: got $kh_themes_before" ;;
+esac
