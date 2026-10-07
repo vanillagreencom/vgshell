@@ -4,6 +4,7 @@ f share/vgshell/VERSION
 f share/vgshell/bin/lib/account-folders.js
 f share/vgshell/bin/lib/anchored.js
 f share/vgshell/bin/lib/check-manifests.js
+f share/vgshell/bin/lib/codex-account.js
 f share/vgshell/bin/lib/first-start.sh
 f share/vgshell/bin/lib/ipc-reply.sh
 f share/vgshell/bin/lib/judge-files.js
