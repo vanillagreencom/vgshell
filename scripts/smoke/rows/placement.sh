@@ -198,16 +198,21 @@ placement_preview_slot() { ipc smoke barDragGeometry "$(bar_key)" | py_reply 'im
 # An unchanged drop still must return the held widget to its Row. The
 # configuration writer publishes no change for this exact same slot.
 placement_same_slot() {
-  local x y tx ty barrier out_fd in_fd hold_pid
+  local x y tx ty barrier out_fd in_fd hold_pid last original_box
+  last="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["bar"]["layout"]["right"])-1)' "$placement_file")" || return 1
+  expect "the unchanged-drop fixture moves after every right entry" ok ipc shell movePluginWidget acme.probe right "$last"
   read -r x y < <(placement_point acme.probe) || return 1
-  read -r tx ty < <(ipc smoke instanceGeometry "$(bar_key)" vgs.bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x+w*5/6,y+h/2))') || return 1
+  original_box="$(ipc smoke instanceGeometry "$(bar_key)" acme.probe)" || return 1
+  geometry expect "the unchanged-drop fixture starts at the right edge" True probe_at_right_edge
+  # Vertical motion activates the handler without selecting another x gap.
+  tx="$x" ty="$((y + 12))"
   cp -- "$placement_file" "$sandbox/shell-before-same-slot.json"
   hover "$((x + 1))" "$y" || return 1
   coproc placement_same { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$tx" "$ty" hold; }
   out_fd="${placement_same[0]}" in_fd="${placement_same[1]}" hold_pid="$placement_same_PID"
   read -r -t 10 barrier <&"$out_fd" || return 1
   [[ $barrier == "holding $tx $ty" ]] || return 1
-  expect "the unchanged drop has an active right-section preview" '["right", 0]' placement_preview_slot
+  expect "the unchanged drop has an active original-slot preview" "[\"right\", $last]" placement_preview_slot
   printf '\n' >&"$in_fd"
   exec {in_fd}>&-
   read -r -t 10 barrier <&"$out_fd" || return 1
@@ -216,6 +221,7 @@ placement_same_slot() {
   pointer_at="$tx $ty"
   expect_poll "the unchanged drop leaves rearrange mode" absent ipc smoke barDragGeometry "$(bar_key)"
   expect "the unchanged drop writes no configuration" unchanged placement_same_as "$sandbox/shell-before-same-slot.json"
+  geometry expect_poll "the unchanged drop restores the original widget geometry" "$original_box" ipc smoke instanceGeometry "$(bar_key)" acme.probe
   geometry expect_poll "the unchanged drop restores the widget to the right edge" True probe_at_right_edge
 }
 placement_same_slot || fail "the unchanged drop press completes"
