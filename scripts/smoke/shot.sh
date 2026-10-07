@@ -74,11 +74,12 @@ shot_grim() {
 }
 
 # shot_pixel SOCKET RUNTIME_DIR X Y: the colour at layout position (X, Y)
-# as rrggbb, one pixel grim captures as a binary PPM. A capture that fails,
+# as rrggbb, one layout pixel grim captures at scale 1 as a binary PPM.
+# The output scale must not enlarge that one-pixel sample. A capture that fails,
 # times out or is no 1 by 1 PPM prints `pixel=unreadable` and returns 1.
 shot_pixel() {
   local out
-  out="$(shot_grim "$1" "$2" -g "$3,$4 1x1" -t ppm - 2>/dev/null | python3 -c '
+  out="$(shot_grim "$1" "$2" -s 1 -g "$3,$4 1x1" -t ppm - 2>/dev/null | python3 -c '
 import sys
 data = sys.stdin.buffer.read()
 head = data.split(b"\n", 3)
