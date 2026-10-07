@@ -716,6 +716,23 @@ world(async () => {
         }
         const directories = Object.fromEntries(["state", "data", "runtime"].map(name => [name, path.join(root, name)]));
         for (const folder of Object.values(directories)) fs.mkdirSync(folder, { mode: 0o700 });
+        // Observe the audit inside the actual frame-send callback. Earlier
+        // connection or audio records cannot stand in for this frame's record.
+        const frameAudits = path.join(root, "frame-audits");
+        const liveFile = path.join(plugin, "backend/GptLive.js");
+        const liveSource = fs.readFileSync(liveFile, "utf8");
+        const sendNeedle = "const answer = session.transfer(frame, () => session.channel.send(frame, session.grants()));";
+        assert.equal(liveSource.split(sendNeedle).length - 1, 1);
+        fs.writeFileSync(liveFile, liveSource.replace(sendNeedle, `
+        const fs = require("node:fs"), path = require("node:path");
+        const auditRows = () => fs.readdirSync(${JSON.stringify(path.join(directories.state, "audit"))})
+            .flatMap(file => fs.readFileSync(path.join(${JSON.stringify(path.join(directories.state, "audit"))}, file), "utf8")
+                .trim().split("\\n").filter(Boolean).map(JSON.parse));
+        const before = auditRows().length;
+        const answer = session.transfer(frame, () => {
+            fs.appendFileSync(${JSON.stringify(frameAudits)}, JSON.stringify({ frame: value, records: auditRows().slice(before) }) + "\\n");
+            return session.channel.send(frame, session.grants());
+        });`));
         fs.writeFileSync(path.join(directories.state, "keys.json"), JSON.stringify([kit.Secrets.ownReference("openai", "fixture", main.origin)]));
         require(path.join(plugin, "backend/Core.js")).use(tree);
         const { Accounts } = require(path.join(plugin, "backend/Accounts.js"));
@@ -800,9 +817,12 @@ world(async () => {
                 const commentary = conn.events.filter(value => value.type === "session.commentary.append");
                 assert.ok(commentary.every(value => value.delegation_id === "del_fixture" && !value.content.includes("https://") && !value.content.includes("**")));
                 assert.ok(rows().some(row => row.kind === "action" && row.effect === "destructive" && row.confirmed === "physical"));
-                assert.ok(rows().some(row => row.kind === "release" && row.decision === "send" && row.op === last().speech.op
-                    && row.outcome === "pending" && row.args.labels === "[redacted]"),
-                    "outbound commentary has a prior audit for its live operation");
+                const observed = fs.readFileSync(frameAudits, "utf8").trim().split("\n").map(JSON.parse);
+                assert.deepEqual(observed.filter(value => value.frame.type === "session.commentary.append").map(value => value.frame), commentary);
+                assert.ok(observed.filter(value => value.frame.type === "session.commentary.append").every(value =>
+                    value.records.some(row => row.kind === "release" && row.decision === "send" && row.op === last().speech.op
+                        && row.outcome === "pending" && row.args.labels === "[redacted]")),
+                    "each outbound commentary frame has its own prior audit");
             } else if (only === "release") {
                 await wait(() => last()?.approval.kind === "held", "the whole recipient set asks for file release");
                 assert.equal(last().approval.purpose, "release");
@@ -962,16 +982,16 @@ world(async () => {
             ["daemon-recipient-provider", 'provider: account.provider, account: account.id, origin: Net.endpoint(provider.base).origin',
                 'provider: provider.id, account: account.id, origin: Net.endpoint(provider.base).origin', "release"],
             ["daemon-release-request", "if (needed.length === 0) return;", "return;", "release"],
-            ["daemon-audit-before-send", 'const result = audit.before(releaseEvent(c, identity, item.labels, "send", "pending"), start);\n        if (result.kind !== "started") fail("audit-write");\n        return result.value;',
-                'return start();', "action"]
+            ["daemon-audit-before-send", 'const result = audit.before(releaseEvent(c, identity, item.labels, "send", "pending"), start);',
+                `if (item.content.startsWith('{"type":"session.commentary.append"')) return start();\n        const result = audit.before(releaseEvent(c, identity, item.labels, "send", "pending"), start);`, "action"]
         ]) {
             const kit = kitFrom(backend, [["ChainedEngine.js", needle, replacement]]);
             // The audit plant must parse, send the real commentary frame, and
-            // fail at its missing operation record rather than at setup.
+            // fail at its missing frame record rather than at setup.
             new (require("node:vm").Script)(fs.readFileSync(path.join(kit.folder, "ChainedEngine.js"), "utf8"));
             const failed = name === "daemon-audit-before-send"
                 ? error => error instanceof assert.AssertionError
-                    && error.message === "outbound commentary has a prior audit for its live operation"
+                    && error.message === "each outbound commentary frame has its own prior audit"
                 : assert.AssertionError;
             await assert.rejects(() => daemonDelegation(kit, scenario), failed, name + " must turn red");
             controls++;

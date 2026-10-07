@@ -650,7 +650,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (c.turn !== null) fail("brain-busy");
             const turn = { gen: e.gen, op: e.op, done, labels: new Set(), speech: null, stopped: false, speaking: false, delegation: e.delegation,
                 feedbackTimer: null,
-                phase: "streaming", calls: [], answers: new Map(), routing: null, caption: "" };
+                phase: "queued", calls: [], answers: new Map(), routing: null, caption: "" };
             if (e.text.trim() === "") {
                 done("brain-done");
                 return;
@@ -666,7 +666,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             items.push(Policy.item(e.text, ["speech"]));
             // A replaced duplex delegation waits for the prior adapter's cancellation.
             void c.quiet.then(() => {
-                if (!turn.stopped && conversation === c) return respond(c, turn, { kind: "user", items });
+                if (!turn.stopped && conversation === c) {
+                    turn.phase = "streaming";
+                    return respond(c, turn, { kind: "user", items });
+                }
             });
         },
         cancel(e, done) {
@@ -681,7 +684,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             stop(turn);
             if (c.live === null) heard(c, turn, "");
             const routing = turn.phase === "routing";
-            c.quiet = c.brain.cancel().then(() => {
+            // A queued turn owns no adapter request. Its prior cancellation
+            // still blocks the next turn and this cancellation's acknowledgement.
+            c.quiet = (turn.phase === "queued" ? c.quiet : c.brain.cancel()).then(() => {
                 // Every call in history gets an answer, so the next request is
                 // valid. A running call's real outcome follows on a later turn.
                 if (routing && c.brain !== null) c.brain.record({ kind: "tool-results", results: turn.calls.map(call => {

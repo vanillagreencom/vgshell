@@ -30,9 +30,9 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 ## Setup
 
-The Setup section at the top of the Jarvis page says Ready when Jarvis has an AI model it can use and the selected voice provider, and Not ready when it does not. It offers Sign in, AI model, Voice, Browser and Input. The AI model and voice steps read Done or To do. Sign in is optional. The browser and input steps read Optional until they are done.
+The Setup section at the top of the Jarvis page says Ready when Jarvis has an AI model it can use and the selected voice provider, and Not ready when it does not. It offers Sign in, AI model, Voice, Browser and Input. The AI model and voice steps read Done or To do. Sign in is optional. A step with a setup action shows its action beside it. The browser and input steps read Optional until they are done.
 
-Each setup step is a button on the Jarvis page in Plugins or a row in the launcher's Jarvis group. Each opens a floating terminal.
+Setup actions are buttons on the Jarvis page in Plugins or rows in the launcher's Jarvis group. These actions open a floating terminal. For GPT-Live, open Details and use Add key under AI model to save an OpenAI key. Then select that key under Voice.
 
 - Add key stores a new API key from an AI provider in your keyring, with hidden key input. You choose the provider from a list that names the page where it makes keys, then give the key a name.
 - Sign in opens Claude Code or Codex's own sign-in. Give a new account a name, or select an existing account folder. Jarvis shows the folder before sign-in and creates it if needed. After sign-in, select the account as the AI model. The app keeps its login token.

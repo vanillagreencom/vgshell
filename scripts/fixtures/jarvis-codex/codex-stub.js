@@ -5,7 +5,8 @@
 // writes to $XDG_STATE_HOME/codex-scenario.json:
 //   { servers: {name: config}, thread: {overrides}, features: [extra feature rows],
 //     reply: "text" (Verify), turns: [[step, ...], ...], hang: bool, crash: "handshake",
-//     refuse: method (answered with a JSON-RPC error) }
+//     refuse: method (answered with a JSON-RPC error),
+//     interruptBarrier: path (completion waits for this fixture file) }
 // A step is {notify, params}, {request, params} (waits for the answer),
 // {mcp: {tool, arguments}} (a tools/call through the thread's bridge server,
 // with tools/list first), {interrupt: true} (waits for turn/interrupt) or
@@ -147,9 +148,15 @@ function handle(message) {
     }
     case "turn/interrupt":
         respond({});
-        write({ method: "turn/completed", params: { threadId: THREAD, turn: { id: message.params.turnId, items: [],
-            status: "interrupted", error: null } }, emittedAtMs: 1 });
-        interrupted?.();
+        void (async () => {
+            if (scenario.interruptBarrier) {
+                log("barrier", { turnId: message.params.turnId });
+                while (!fs.existsSync(scenario.interruptBarrier)) await new Promise(resolve => setTimeout(resolve, 5));
+            }
+            write({ method: "turn/completed", params: { threadId: THREAD, turn: { id: message.params.turnId, items: [],
+                status: "interrupted", error: null } }, emittedAtMs: 1 });
+            interrupted?.();
+        })();
         return;
     default:
         write({ id: message.id, error: { code: -32601, message: "fixture: unscripted method" } });

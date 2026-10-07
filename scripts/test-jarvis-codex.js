@@ -343,10 +343,67 @@ world(async () => {
             const reply = w.say("long");
             const iterator = reply.events[Symbol.asyncIterator]();
             assert.deepEqual((await iterator.next()).value, { kind: "text", text: "a" });
-            await w.brain.cancel();
+            const pending = assert.rejects(iterator.next(), { message: "jarvis: brain=cancelled" });
+            let cancelled = false;
+            const cancellation = w.brain.cancel().then(() => { cancelled = true; });
+            await pending;
+            await until(() => cancelled, "Codex completion settles cancellation after the reader rejects");
+            await cancellation;
             assert.equal(received("turn/interrupt").length, 1);
-            await assert.rejects(iterator.next(), { message: "jarvis: brain=cancelled" });
             validWrites();
+        },
+        // GPT-Live replaces streaming work, including a replacement cancelled
+        // before Codex acknowledges the original turn/interrupt.
+        async engineReplacement(folder) {
+            for (const cancelQueued of [false, true]) {
+                const barrier = path.join(process.env.JARVIS_TEST_ROOT, "interrupt-" + serial);
+                scenario({ interruptBarrier: barrier, turns: [[delta("unfinished"), { interrupt: true }], [{ complete: "completed" }]] });
+                Fixture.reset();
+                const { folder: copied, Engine } = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], folder);
+                const w = make(copied);
+                const Secrets = require(path.join(copied, "backend/Secrets.js"));
+                const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
+                    accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "codex", label: "default",
+                        source: { kind: "cli", directory: account }, model: "" } }),
+                        resolve: id => ({ id, provider: "openai", source: { kind: "keyring",
+                            reference: Secrets.ownReference("openai", "fixture", "https://api.openai.com") } }) }),
+                    policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail(reason),
+                    captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
+                    harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime } });
+                owners.unshift(() => engine.close());
+                assert.deepEqual(engine.configure({ brain: "codex-fixture", voiceProvider: "gpt-live", voiceAccount: "live-fixture" }), { kind: "ready" });
+                const { gen, turn: { op } } = w.runner.state;
+                const callbacks = [];
+                const send = (id, text) => engine.brain.send({ gen, op: id, owner: 1, text, delegation: "del_" + id },
+                    (kind, detail) => callbacks.push({ id, kind, detail }));
+                send(op, "first");
+                await until(() => read("codex-log").some(row => row.direction === "out" && row.message.method === "item/agentMessage/delta"), "Codex streams the original delegation");
+                let firstCancelled = false, queuedCancelled = false;
+                engine.brain.cancel({ gen, target: op }, () => { firstCancelled = true; });
+                send(op + 1, "queued replacement");
+                await until(() => read("codex-log").some(row => row.direction === "barrier"), "Codex holds the original completion");
+                if (cancelQueued) {
+                    engine.brain.cancel({ gen, target: op + 1 }, () => { queuedCancelled = true; });
+                    send(op + 2, "current replacement");
+                }
+                // These continuations run before the next event-loop turn.
+                // The fixture holds completion, so no cancellation may settle.
+                await new Promise(resolve => setImmediate(resolve));
+                assert.equal(firstCancelled, false, "the original cancellation waits for Codex completion");
+                assert.equal(queuedCancelled, false, "queued cancellation preserves the outstanding completion wait");
+                assert.equal(received("turn/start").length, 1, "replacement starts only after Codex completion");
+                fs.writeFileSync(barrier, "release");
+                const current = op + (cancelQueued ? 2 : 1);
+                await until(() => callbacks.some(value => value.id === current), "the current replacement finishes after Codex completion");
+                assert.deepEqual(callbacks, [{ id: current, kind: "brain-done", detail: undefined }]);
+                assert.equal(firstCancelled, true);
+                assert.equal(queuedCancelled, cancelQueued);
+                assert.deepEqual(received("turn/start").map(value => value.params.input[0].text),
+                    ["first", cancelQueued ? "current replacement" : "queued replacement"]);
+                validWrites();
+                await engine.close();
+                for (const owner of owners.splice(0)) owner();
+            }
         },
         // close ends the program, the bridge session and the private directory.
         async close(folder) {
@@ -555,6 +612,10 @@ world(async () => {
             ["elicitation-kind", "backend/CodexHarness.js", [["respond(value.toolCall && ", "respond(true || "]], "bridge"],
             ["interrupt", "backend/CodexHarness.js", [["session.program.call(id => Codex.turnInterrupt(id, session.thread, current.id)).catch(() => {});\n                return current.requested;",
                 "return false;"]], "cancel"],
+            ["cancel-owner", "backend/HarnessProgram.js", [['case "cancelled": case "cancelling":\n                    state = { kind: "ended" };',
+                'case "cancelled": case "cancelling":\n                    ended();']], "cancel"],
+            ["queued-cancel-wait", "backend/ChainedEngine.js", [['turn.phase === "queued" ? c.quiet : c.brain.cancel()',
+                'turn.phase === "queued" ? Promise.resolve() : c.brain.cancel()']], "engineReplacement"],
             ["bridge-close", "backend/CodexHarness.js", [["launch?.close();", ""]], "close"],
             ["directory-removal", "backend/CodexHarness.js", [["    await session.program.close();\n    fs.rmSync(session.cwd, { recursive: true, force: true });",
                 "    await session.program.close();"]], "close"],

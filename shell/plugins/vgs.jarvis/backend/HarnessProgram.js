@@ -188,7 +188,8 @@ function stream({ run, interrupt, settled, detach }) {
                     ended();
                     return { value: { kind: "done", reason: "stop" }, done: false };
                 case "cancelled": case "cancelling":
-                    ended();
+                    state = { kind: "ended" };
+                    // The completion still belongs to the cancellation owner.
                     throw new Error("jarvis: brain=cancelled");
                 case "failed": {
                     const error = state.error;
