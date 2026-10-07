@@ -273,9 +273,33 @@ EOF
       expect "the $focus_mode reveal starts from a live target" ok probe reveal "$focus_race_address"
       focus_request_seen() { [[ -s $focus_gate.request ]] && echo held || echo pending; }
       expect_poll "the $focus_mode focus waits after the clients snapshot" held focus_request_seen
+      # expect_poll records a failure without returning it. A state-read
+      # failure can end the reveal before it starts the focus child.
+      if [[ ! -s $focus_gate.request ]]; then
+        shim_hyprctl real
+        close_toplevel "$focus_race_pid" "the $focus_mode target closes after the missing request"
+        continue
+      fi
       close_toplevel "$focus_race_pid" "the $focus_mode target closes before focus"
       expect_poll "the $focus_mode address has left Hyprland's clients" absent in_view "$focus_race_address"
-      printf 'release\n' >"$focus_gate.release"
+      # The child's timed read can end before this release. Neither the
+      # FIFO open nor the write may wait when its reader has gone.
+      if ! python3 - "$focus_gate.release" <<'PY'
+import os, sys
+try:
+    fd = os.open(sys.argv[1], os.O_WRONLY | os.O_NONBLOCK)
+    try:
+        os.write(fd, b"release\n")
+    finally:
+        os.close(fd)
+except OSError:
+    sys.exit(1)
+PY
+      then
+        fail "the $focus_mode focus release has no waiting reader"
+        shim_hyprctl real
+        continue
+      fi
       shim_hyprctl real
       # The queue starts the next request only after it judged the held
       # focus's reply. A distinct workspace proves that completion.

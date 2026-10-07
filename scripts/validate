@@ -426,6 +426,7 @@ rows=(
   "tools|mode hold controls|scripts/test-mode-hold.sh|scripts/smoke/mode-hold.sh scripts/smoke/verdict.sh"
   "tools|smoke row readers|python3 scripts/check-smoke-readers.py|scripts/smoke/rows/* scripts/smoke/*.sh bin/lib/ipc-reply.sh scripts/validate scripts/smoke/rows.list"
   "tools|smoke row reader controls|python3 scripts/test-check-smoke-readers.py|scripts/check-smoke-readers.py scripts/smoke/rows/* scripts/smoke/*.sh bin/lib/ipc-reply.sh scripts/validate scripts/smoke/rows.list"
+  "tools|compositor reveal barrier controls|python3 scripts/test-compositor-reveal.py|scripts/test-compositor-reveal.py scripts/smoke/rows/compositor-reveal.sh scripts/smoke/harness.sh"
   "tools|smoke stand-in terminal writers|python3 scripts/check-smoke-terminal.py|scripts/smoke/rows/*"
   "tools|smoke stand-in terminal writer controls|python3 scripts/test-check-smoke-terminal.py|scripts/check-smoke-terminal.py scripts/smoke/rows/*"
   "tools|smoke rows name the rows they read|smoke_reads_named|scripts/smoke/* scripts/qml-smoke.sh"
