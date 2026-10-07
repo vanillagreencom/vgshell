@@ -256,6 +256,7 @@ Item {
         // A container inset narrower than the bar's gutter still leaves the
         // gutter, so the bar never covers the content.
         rightInset: Math.max(root.contentInset, Theme.scrollArea.gutter)
+        contentPadding: root.ringRoom
         height: root.ringRoom * 2 + Math.max(0, root.boxHeight - 2 * root.contentInset - root.headerHeight - root.headerGap - root.footerGap - root.footerHeight)
 
         Item {

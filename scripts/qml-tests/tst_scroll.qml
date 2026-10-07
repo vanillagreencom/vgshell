@@ -26,7 +26,23 @@ Item {
     ScrollArea { id: inset; y: 140; width: 120; height: 100; rightInset: Theme.inset.window; Column { width: parent.width; Repeater { model: 10; Rectangle { width: parent.width; height: 20; color: "transparent" } } } }
     ScrollArea { id: singleFixed; x: 140; y: 140; width: 120; height: 100; Item { y: Theme.space.sm; width: parent.width; implicitHeight: root.singleFixedHeight } }
     Button { id: beforeKeyboard; x: 260; y: 230; text: "Before" }
-    ScrollArea { id: keyboard; x: 260; y: 260; width: 100; height: 80; keyboardScroll: true; Column { width: parent.width; Repeater { model: 8; Rectangle { width: parent.width; height: 24; color: "transparent" } } } }
+    ScrollArea {
+        id: keyboard
+        x: 260; y: 260; width: 100; height: 80
+        keyboardScroll: true
+        contentPadding: Theme.focusRing.width + Theme.focusRing.offset
+        Item {
+            width: parent.width
+            height: keyboardBody.height + 2 * keyboard.contentPadding
+            Column {
+                id: keyboardBody
+                x: keyboard.contentPadding
+                y: keyboard.contentPadding
+                width: parent.width - 2 * keyboard.contentPadding
+                Repeater { model: 8; Rectangle { width: keyboard.width; height: 24; color: "#ff00ff" } }
+            }
+        }
+    }
     Button { id: afterKeyboard; y: 350; text: "After" }
     Item {
         id: hideParent
@@ -56,6 +72,7 @@ Item {
             area.contentY = 0;
             area.bar.hovered = false;
             keyboard.contentY = 0;
+            keyboard.contentPadding = Theme.focusRing.width + Theme.focusRing.offset;
             root.singleFixedHeight = Theme.size.control.lg;
             hideParent.visible = true;
             hiddenArea.contentY = 0;
@@ -173,10 +190,12 @@ Item {
         }
 
         function test_keyboard_ring_stays_inside_the_viewport_clip_data() {
-            return [
-                { tag: "top", atEnd: false },
-                { tag: "end", atEnd: true }
-            ];
+            const rows = [];
+            for (const position of ["top", "middle", "end"]) {
+                rows.push({ tag: position + "-plain", position, padding: 0 });
+                rows.push({ tag: position + "-padded", position, padding: Theme.focusRing.width + Theme.focusRing.offset });
+            }
+            return rows;
         }
 
         function test_keyboard_ring_stays_inside_the_viewport_clip(data) {
@@ -184,7 +203,9 @@ Item {
             tryCompare(root.Window.window, "active", true);
             wait(0);
             keyboard.focusProxy.forceActiveFocus(Qt.TabFocusReason);
-            keyboard.contentY = data.atEnd ? keyboard.contentHeight - keyboard.height : 0;
+            keyboard.contentPadding = data.padding;
+            const lastY = keyboard.contentHeight - keyboard.height;
+            keyboard.contentY = data.position === "end" ? lastY : data.position === "middle" ? lastY / 2 : 0;
             const ring = keyboard.children.find(child => child.target === keyboard.focusProxy);
             verify(ring !== undefined);
             tryCompare(ring, "visible", true);
@@ -197,23 +218,44 @@ Item {
             verify(bottomRight.x <= keyboard.width, "the right edge stays inside the clip");
             verify(bottomRight.y <= keyboard.height, "the bottom edge stays inside the clip");
 
-            const viewport = keyboard.contentItem.parent;
+            const viewport = keyboard.contentItem.parent.parent;
             compare(viewport.clip, true);
             const contentTopLeft = viewport.mapToItem(keyboard, 0, 0);
             const contentBottomRight = viewport.mapToItem(keyboard, viewport.width, viewport.height);
-            const clearance = ring.border.width + Theme.focusRing.offset;
+            const clearance = ring.border.width + Theme.focusRing.offset + keyboard.contentPadding;
             verify(contentTopLeft.x - topLeft.x >= clearance, "content clears the ring's inner left edge by its gap");
             verify(contentTopLeft.y - topLeft.y >= clearance, "content clears the ring's inner top edge by its gap");
             verify(bottomRight.x - contentBottomRight.x >= clearance, "content clears the ring's inner right edge by its gap");
             verify(bottomRight.y - contentBottomRight.y >= clearance, "content clears the ring's inner bottom edge by its gap");
 
-            const body = keyboard.contentItem.children.find(child => child instanceof Column);
-            verify(body !== undefined);
+            const body = keyboardBody;
             const bodyTop = body.mapToItem(viewport, 0, 0).y;
-            if (data.atEnd)
+            if (data.position === "end")
                 compare(bodyTop + body.height, viewport.height, "the end scroll reaches the last row above the ring");
-            else
+            else if (data.position === "top")
                 compare(bodyTop, 0, "the first row starts below the ring");
+        }
+
+        function test_scrolled_content_leaves_the_ring_gap_unpainted_data() {
+            return test_keyboard_ring_stays_inside_the_viewport_clip_data();
+        }
+
+        function test_scrolled_content_leaves_the_ring_gap_unpainted(data) {
+            root.Window.window.requestActivate();
+            tryCompare(root.Window.window, "active", true);
+            wait(0);
+            keyboard.focusProxy.forceActiveFocus(Qt.TabFocusReason);
+            keyboard.contentPadding = data.padding;
+            const lastY = keyboard.contentHeight - keyboard.height;
+            keyboard.contentY = data.position === "end" ? lastY : data.position === "middle" ? lastY / 2 : 0;
+            const clearance = Theme.focusRing.width + Theme.focusRing.offset + keyboard.contentPadding;
+            verify(waitForRendering(keyboard));
+            const painted = grabImage(keyboard);
+            verify(Qt.colorEqual(painted.pixel(keyboard.width / 2, keyboard.height / 2), "#ff00ff"), "the body paints inside the clip");
+            for (let gap = Theme.focusRing.width; gap < clearance; gap++) {
+                for (const point of [[gap, keyboard.height / 2], [keyboard.width - 1 - gap, keyboard.height / 2], [keyboard.width / 2, gap], [keyboard.width / 2, keyboard.height - 1 - gap]])
+                    verify(!Qt.colorEqual(painted.pixel(point[0], point[1]), "#ff00ff"), "painted content leaves the ring gap clear at " + point);
+            }
         }
 
         function test_keyboard_scroll_keys_move_the_body() {

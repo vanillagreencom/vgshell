@@ -28,6 +28,8 @@ Flickable {
     property real rightInset: Theme.scrollArea.gutter
     property bool barOverContent: false
     property bool keyboardScroll: false
+    property real contentPadding: 0
+    readonly property real clipPadding: keyboardScroll ? contentPadding : 0
     readonly property real focusInset: keyboardScroll ? Theme.focusRing.width + Theme.focusRing.offset : 0
     readonly property real measuredContentHeight: measureContentHeight()
     readonly property bool overflowing: scrollBar.needed
@@ -64,7 +66,7 @@ Flickable {
     function reveal(item) {
         if (item === null || item === undefined) return;
         const at = item.mapToItem(contentItem, 0, 0);
-        contentY = KeyNavLogic.revealY(at.y, item.height, contentY, contentClip.height, Theme.focusRing.offset + Theme.focusRing.width);
+        contentY = KeyNavLogic.revealY(at.y - clipPadding, item.height, contentY, contentClip.height, Theme.focusRing.offset + Theme.focusRing.width);
     }
     function scrollBy(delta) {
         contentY = Math.max(0, Math.min(contentHeight - height, contentY + delta));
@@ -75,7 +77,7 @@ Flickable {
     }
     // Reparent after Flickable has installed its declared children.
     function updateContentParent() {
-        contentItem.parent = keyboardScroll ? contentClip : root;
+        contentItem.parent = keyboardScroll ? contentOrigin : root;
     }
     onKeyboardScrollChanged: Qt.callLater(updateContentParent)
     onRightInsetChanged: checkInset()
@@ -114,8 +116,19 @@ Flickable {
         id: contentClip
         parent: root
         anchors.fill: parent
-        anchors.margins: root.focusInset
+        anchors.margins: root.focusInset + root.clipPadding
         clip: true
+    }
+
+    // Preserve the content coordinates while its existing padding becomes
+    // part of the stationary clip. Rows cannot paint into that padding.
+    Item {
+        id: contentOrigin
+        parent: contentClip
+        x: -root.clipPadding
+        y: -root.clipPadding
+        width: contentClip.width + 2 * root.clipPadding
+        height: contentClip.height + 2 * root.clipPadding
     }
 
     T.Control {

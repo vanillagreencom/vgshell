@@ -297,6 +297,7 @@ mutations=(
   "the scroll area drops content height while its ancestor is hidden|layout/ScrollArea.qml|if (!child.visible && root.visible) continue;|if (!child.visible) continue;|tst_scroll.qml"
   "keyboard scroll ring ignores tab focus|layout/ScrollArea.qml|target: keyboardFocus|target: root|tst_scroll.qml"
   "keyboard scroll ring touches content at its previous inset placement|layout/ScrollArea.qml|keyboardScroll ? Theme.focusRing.width + Theme.focusRing.offset : 0|0|tst_scroll.qml"
+  "keyboard scroll content paints into its existing padding|layout/ScrollArea.qml|anchors.margins: root.focusInset + root.clipPadding|anchors.margins: root.focusInset|tst_scroll.qml"
   "keyboard scroll ring is clipped at its old outside placement|layout/ScrollArea.qml|anchors.margins: 0|outside: true|tst_scroll.qml"
   "keyboard scroll ring ignores shortcut focus|layout/ScrollArea.qml|visible: root.keyboardScroll && keyboardFocus.visualFocus|visible: false|tst_scroll.qml"
   "keyboard scroll ring shows for pointer focus|layout/ScrollArea.qml|visible: root.keyboardScroll && keyboardFocus.visualFocus|visible: root.keyboardScroll && keyboardFocus.activeFocus|tst_scroll.qml"
