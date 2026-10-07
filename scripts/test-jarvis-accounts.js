@@ -105,14 +105,11 @@ world(async () => {
         vm.runInContext("(function() { with(root) { return (" + matches[0][0] + ").call(root); } })()", context);
         assert.deepEqual(writes, row.writes);
         assert.equal(root.shell.settings.voiceAccount, row.refuseWrite || row.writes.length === 0 ? initial : "key-a");
-        assert.equal(refreshed, row.pending ? 0 : 1);
-        if (row.pending) assert.equal(reports.size, 0);
-        else {
-            const failed = row.code === 1 || row.invalid || row.refuseStatus;
-            assert.equal(reports.get("accountSearch").tone, failed ? "danger" : row.choices.length ? "ok" : "info");
-            assert.deepEqual(Array.from(reports.get("voiceAccounts"), item => item.value), failed ? [] : row.choices);
-            assert.equal(warnings.length, failed || row.refuseWrite ? 1 : 0);
-        }
+        assert.equal(refreshed, 1);
+        const failed = row.code === 1 || row.invalid || row.refuseStatus;
+        assert.equal(reports.get("accountSearch").tone, failed ? "danger" : row.choices.length ? "ok" : "info");
+        assert.deepEqual(Array.from(reports.get("voiceAccounts"), item => item.value), failed ? [] : row.choices);
+        assert.equal(warnings.length, failed || row.refuseWrite ? 1 : 0);
     }
     for (const row of publicationCases) { publication(publicationSource, row); cases++; }
     const selectionControls = [
@@ -122,7 +119,8 @@ world(async () => {
         ["explicit", 'shell.settings.voiceAccount === ""', "true"],
         ["failed", 'if (code !== 0) throw new Error("probe");', "void code;"],
         ["invalid", "JSON.parse(output)", 'JSON.parse(output === "broken" ? JSON.stringify({accounts: [], brains: [], voiceAccounts: [{value: "key-a", label: "Fixture"}], search: {found: 1, partial: ""}}) : output)'],
-        ["stale", "if (pending) return;", "if (false) return;"],
+        ["stale", "!pending && shell.settings.voiceAccount", "true && shell.settings.voiceAccount"],
+        ["stale", 'const code = completion.kind === "exited" ? completion.code : -1;', 'if (pending) return; const code = completion.kind === "exited" ? completion.code : -1;'],
         ["refused", 'console.warn("jarvis-accounts: voice-selection=refused");', "void 0;"]
     ];
     for (const key of ["accounts", "brains", "voiceAccounts", "accountSearch"]) {
