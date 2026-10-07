@@ -216,5 +216,85 @@ world(async () => {
     const cancelled = run(plugin);
     assert.equal(cancelled.status, 0);
     assert.doesNotMatch(fs.readFileSync(log, "utf8"), /"kind":"unavailable"/);
+
+    // Synthetic vendor login. A successful process must also report a
+    // signed-in account before the folder is remembered or offered.
+    for (const [vendor, args] of [["claude", ["auth", "login"]], ["codex", ["login"]]]) {
+        const file = path.join(process.env.JARVIS_TEST_ROOT, "standins", vendor);
+        const source = fs.readFileSync(file, "utf8");
+        const needle = 'record("cli-calls");';
+        assert.equal(source.split(needle).length - 1, 1);
+        fs.writeFileSync(file, source.replace(needle, needle + `
+if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
+    const outcome=mode("sign-in-mode","success");
+    console.log("fixture-login-code-private");
+    if(outcome==="failure") process.exit(7);
+    if(outcome!=="no-account") fs.writeFileSync(path.join(state,"${vendor}-mode"),"signed-in");
+    if(outcome==="failure-signed-in") process.exit(7);
+    process.exit(0);
+}
+`));
+    }
+    const records = () => fs.readFileSync(path.join(env.XDG_STATE_HOME, "cli-calls"), "utf8")
+        .trim().split("\n").map(JSON.parse);
+    const accountFile = path.join(env.XDG_STATE_HOME, "vgshell/jarvis/accounts.json");
+    const signIn = (folder, vendor, target, outcome) => {
+        fs.rmSync(accountFile, { force: true });
+        fs.writeFileSync(path.join(env.XDG_STATE_HOME, vendor + "-mode"), "found");
+        fs.writeFileSync(path.join(env.XDG_STATE_HOME, "sign-in-mode"), outcome);
+        queue([vendor, target, "login-account"]);
+        return cp.spawnSync("python3", [path.join(tree, "scripts/fixtures/jarvis/accounts-tui.py"),
+            path.join(folder, "tui/sign-in.sh"), path.join(tree, "bin/lib/tui.sh"), folder], {
+            env, encoding: "utf8", timeout: 20000 });
+    };
+    const successfulSignIn = folder => {
+        for (const [vendor, argv, variable] of [["claude", ["auth", "login"], "CLAUDE_CONFIG_DIR"],
+            ["codex", ["login"], "CODEX_HOME"]]) {
+            const target = path.join(env.HOME, vendor + " login ; $literal", "config");
+            const before = records().length;
+            const result = signIn(folder, vendor, target, "success");
+            assert.equal(result.status, 0, result.stdout + result.stderr);
+            assert.equal(result.error, undefined);
+            assert.ok(result.stdout.includes("fixture-login-code-private"), "vendor output stays on the terminal");
+            assert.equal(fs.readFileSync(log, "utf8").includes("fixture-login-code-private"), false, "no vendor login output in log");
+            assert.deepEqual(JSON.parse(fs.readFileSync(accountFile)), [{ provider: vendor, directory: target, label: "login-account" }]);
+            const login = records().slice(before).find(item => JSON.stringify(item.args) === JSON.stringify(argv));
+            assert.ok(login, "the vendor login ran");
+            assert.equal(login.env[variable], target);
+            assert.equal(login.env.OPENAI_API_KEY, undefined);
+            assert.equal(login.env.VGSHELL_RUNNER_PID, undefined);
+            const accounts = JSON.parse(cli(folder, "list"));
+            const account = accounts.find(item => item.source.directory === target);
+            assert.equal(account.state.kind, "signed-in");
+            const presence = Object.fromEntries(PROVIDERS.filter(row => row.variable).map(row => [row.variable, false]));
+            const shown = JSON.parse(cli(folder, "presence", JSON.stringify(presence)));
+            assert.ok(shown.brains.some(item => item.value === account.id), "signed-in account offered as AI model");
+        }
+    };
+    const incompleteSignIn = folder => {
+        for (const outcome of ["failure", "failure-signed-in", "no-account"] ) {
+            const result = signIn(folder, "claude", hand, outcome);
+            assert.equal(result.status, 1);
+            assert.equal(fs.existsSync(accountFile), false, "failed or unconfirmed login is not remembered");
+        }
+    };
+    successfulSignIn(plugin);
+    incompleteSignIn(plugin);
+    const terminalRequired = folder => {
+        fs.writeFileSync(path.join(env.XDG_STATE_HOME, "sign-in-mode"), "success");
+        const result = cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), "--tree", tree,
+            "sign-in", "claude", hand, "login-account"], { env, encoding: "utf8", timeout: 15000 });
+        assert.equal(result.status, 1, "sign-in starts only from an interactive terminal");
+        assert.equal(result.stdout, "", "no vendor output without a terminal");
+    };
+    terminalRequired(plugin);
+    await control("backend/Accounts.js", "sign-in-terminal-required", 'if (process.stdin.isTTY !== true)',
+        'if (false)', terminalRequired);
+    await control("tui/sign-in.sh", "sign-in-picked-directory", 'sign-in "$selected" "$dir" "$label"',
+        'sign-in "$selected" "$HOME" "$label"', successfulSignIn);
+    await control("backend/Accounts.js", "sign-in-account-confirmed", 'if (account.state.kind !== "signed-in")',
+        'if (false)', incompleteSignIn);
+    await control("backend/Accounts.js", "sign-in-process-failed", 'result.error || result.signal || result.status !== 0',
+        'result.error || result.signal', incompleteSignIn);
     console.log("test-jarvis-accounts-tui: ok controls=" + controls);
 });

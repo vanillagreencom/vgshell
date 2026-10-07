@@ -16,6 +16,16 @@ cp -- "$jarvis_key_service" "$sandbox/jarvis-key-service-before"
 cp -- "$jarvis_key_backend" "$sandbox/jarvis-key-backend-before"
 expect "the key row starts with Jarvis disabled" absent ipc smoke jarvisProcess
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_key_backend" "$jarvis_key_gates" --mapped-indicator
+python3 - "$jarvis_key_backend" "$jarvis_key_gates/received-intents.jsonl" <<'PY'
+from pathlib import Path
+import json,sys
+p=Path(sys.argv[1])
+s=p.read_text()
+needle='if (message.type === "intent") {\n                    intentIdentity(message);'
+assert s.count(needle)==1
+record='\n                    fs.appendFileSync('+json.dumps(sys.argv[2])+', JSON.stringify(message.intent) + "\\n");'
+p.write_text(s.replace(needle,needle+record))
+PY
 cp -- "$jarvis_key_backend" "$sandbox/jarvis-key-scripted-before"
 jarvis_gate="$sandbox/jarvis-key-startup-gate"
 jarvis_seen="$sandbox/jarvis-key-startup-seen"
@@ -30,8 +40,8 @@ if d is None:
     print("pending")
 elif sys.argv[1] == "phase":
     print(d["phase"])
-elif sys.argv[1] in ("seq", "stale"):
-    print(d["seq"] if sys.argv[1] == "seq" else d["state"]["stale"])
+elif sys.argv[1] == "stale":
+    print(d["state"]["stale"])
 elif sys.argv[1] == "mode":
     print(d["state"]["settings"]["mode"])
 else:
@@ -45,6 +55,22 @@ from pathlib import Path
 p=Path(sys.argv[1])
 print(sum(json.loads(line)["kind"] == sys.argv[2] for line in p.read_text().splitlines()) if p.exists() else 0)
 PY
+}
+jarvis_key_intents="$jarvis_key_gates/received-intents.jsonl"
+jarvis_key_received() { # count|START_INDEX
+  python3 - "$jarvis_key_intents" "$1" <<'PY'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1])
+rows=[json.loads(line) for line in p.read_text().splitlines()] if p.exists() else []
+print(len(rows) if sys.argv[2]=='count' else json.dumps(rows[int(sys.argv[2]):]))
+PY
+}
+jarvis_key_received_control() { # FIXTURE_FILE
+  (failures=0 behaviour_failures=0
+   jarvis_key_intents="$1"
+   expect "the exact three muted key inputs must arrive in order" '["talk-down", "talk-up", "stop"]' jarvis_key_received 0 >"$sandbox/jarvis-key-received-control.log"
+   echo "$failures")
 }
 jarvis_key_gate() { : >"$jarvis_key_gates/$1"; }
 jarvis_key_mode() { # MODE
@@ -300,10 +326,10 @@ jarvis_key_initial_opens="$(jarvis_key_effects capture-open)"
 jarvis_key_talk_down
 expect_poll "the physical talk key starts listening" listening jarvis_key_state phase
 expect "one key press opens one scripted capture" "$((jarvis_key_initial_opens + 1))" jarvis_key_effects capture-open
-jarvis_key_seq="$(jarvis_key_state seq)"
+jarvis_key_received_before="$(jarvis_key_received count)"
 hold_send "down 108" "down 108"
 hold_barrier
-expect "physical repeat sends no extra intent" "$jarvis_key_seq" jarvis_key_state seq
+expect "physical repeat sends no extra intent" "$jarvis_key_received_before" jarvis_key_received count
 expect "physical repeat opens no second capture" "$((jarvis_key_initial_opens + 1))" jarvis_key_effects capture-open
 jarvis_key_talk_up
 jarvis_key_commit
@@ -348,12 +374,18 @@ rm -- "$jarvis_key_gates/hold-close"
 jarvis_disable
 jarvis_enable
 expect_poll "mute survives a service and daemon restart" on jarvis_key_state mute
-jarvis_key_seq="$(jarvis_key_state seq)"
+# State publications also include settings, presentation and completions.
+# The fixture observes validated intent delivery independently of them.
+jarvis_key_received_before="$(jarvis_key_received count)"
 jarvis_key_talk_down
 jarvis_key_talk_up
 jarvis_key_stop
 hold_barrier
-expect_poll "the muted daemon consumes talk down, up and stop" "$((jarvis_key_seq + 3))" jarvis_key_state seq
+expect_poll "the muted daemon receives exactly talk down, up and stop" '["talk-down", "talk-up", "stop"]' jarvis_key_received "$jarvis_key_received_before"
+printf '"talk-down"\n"stop"\n' >"$sandbox/jarvis-key-missing-intent.jsonl"
+expect "a missing muted key input fails the delivery assertion" 1 jarvis_key_received_control "$sandbox/jarvis-key-missing-intent.jsonl"
+printf '"talk-up"\n"talk-down"\n"stop"\n' >"$sandbox/jarvis-key-reordered-intents.jsonl"
+expect "reordered muted key inputs fail the delivery assertion" 1 jarvis_key_received_control "$sandbox/jarvis-key-reordered-intents.jsonl"
 expect "all implemented non-mute keys leave privacy mute on" on jarvis_key_state mute
 expect "muted keys after restart acquire no capture" "$jarvis_key_opens" jarvis_key_effects capture-open
 jarvis_key_mute

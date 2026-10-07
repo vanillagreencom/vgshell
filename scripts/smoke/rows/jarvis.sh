@@ -1181,7 +1181,7 @@ import sys
 p=Path(sys.argv[1])
 assert not p.is_symlink()
 s=p.read_text()
-needle="if (shell === null) return;"
+needle="function refresh() {\n        if (shell === null) return;"
 assert s.count(needle)==1
 changed=s.replace(needle, needle + '\n        if (output !== "") return;')
 assert changed != s

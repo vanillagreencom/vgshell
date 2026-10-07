@@ -5,8 +5,8 @@
 // row's keyPage is the vendor's page that creates an API key, which Add key
 // names beside a provider it offers.
 var PROVIDERS = [
-    { id: "claude", label: "Claude Code", kind: "cli", origin: "https://api.anthropic.com", command: ["claude", "auth", "status"] },
-    { id: "codex", label: "Codex", kind: "cli", command: ["codex", "login", "status"] },
+    { id: "claude", label: "Claude Code", kind: "cli", origin: "https://api.anthropic.com", command: ["claude", "auth", "status"], signIn: ["claude", "auth", "login"] },
+    { id: "codex", label: "Codex", kind: "cli", command: ["codex", "login", "status"], signIn: ["codex", "login"] },
     { id: "openai", label: "OpenAI", kind: "key", variable: "OPENAI_API_KEY", origin: "https://api.openai.com", keyPage: "https://platform.openai.com/api-keys",
         probe: { driver: "chat", path: "/v1/chat/completions", model: "gpt-4.1-nano", limit: "max_completion_tokens", header: "authorization", prefix: "Bearer " } },
     { id: "anthropic", label: "Anthropic", kind: "key", variable: "ANTHROPIC_API_KEY", origin: "https://api.anthropic.com", keyPage: "https://console.anthropic.com/settings/keys",
@@ -117,6 +117,7 @@ var FAILURE_KEYS = {
         ports: ["reply"],
         reference: ["provider", "item-unavailable", "vendor-login-or-provider"],
         arguments: ["tree", "presence", "list", "table", "accounts", "providers", "items", "add", "remember", "verb", "width"],
+        "sign-in": ["terminal-required", "directory-create-failed"],
         verify: ["explicit-user-required", "account-unavailable", "provider-unsupported", "busy", "keyring-locked"],
         state: ["unknown"],
         operation: ["failed"]

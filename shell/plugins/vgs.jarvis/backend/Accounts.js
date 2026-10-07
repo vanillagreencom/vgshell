@@ -198,6 +198,34 @@ class Accounts {
         return addedRows(this.file);
     }
 
+    // The vendor owns its login and token store. Its output and prompts stay
+    // on the terminal, never in our metadata, parser or setup log.
+    signIn(value) {
+        if (process.stdin.isTTY !== true) fail("sign-in=terminal-required");
+        const entry = added(value);
+        const row = provider(entry.provider);
+        const make = file => {
+            const opened = directory(file, true);
+            if (opened.kind === "directory") return opened;
+            const parent = make(path.dirname(file));
+            try { fs.mkdirSync(Anchored.child(parent.fd, path.basename(file)), { mode: 0o700 }); }
+            catch { fail("sign-in=directory-create-failed"); }
+            finally { fs.closeSync(parent.fd); }
+            return directory(file, true);
+        };
+        const opened = make(entry.directory);
+        fs.closeSync(opened.fd);
+        const result = cp.spawnSync(row.signIn[0], row.signIn.slice(1), {
+            env: { ...this.env, [harness(row.id).variable]: entry.directory }, cwd: this.home, stdio: "inherit"
+        });
+        if (result.error || result.signal || result.status !== 0)
+            return { kind: "refused", cause: result.error?.code === "ENOENT" ? "command-missing" : "login-failed" };
+        const account = this.cliAccount({ provider: entry.provider, directory: entry.directory, label: entry.label });
+        if (account.state.kind !== "signed-in") return { kind: "refused", cause: "not-signed-in" };
+        this.add(entry);
+        return { kind: "signed-in" };
+    }
+
     add(value) {
         const entry = added(value);
         if (directory(entry.directory).kind !== "directory") fail("added=directory-absent");

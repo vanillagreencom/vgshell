@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import "AccountProviders.js" as Providers
 import "AccountStatus.js" as Words
+import "SetupGate.js" as Gate
 
 // One metadata reader. An accounts TUI end invalidates its old discovery.
 // It publishes the accounts, the brain choices and the search's outcome in
@@ -16,17 +17,30 @@ Item {
     property string output: ""
     readonly property var tuiState: shell === null ? null : shell.tui.state["accounts"]
     readonly property var keyState: shell === null ? null : shell.tui.state["add-key"]
+    readonly property var signInState: shell === null ? null : shell.tui.state["sign-in"]
     readonly property var endedAt: tuiState === null || tuiState === undefined ? null : tuiState.endedAt
     readonly property var keyEndedAt: keyState === null || keyState === undefined ? null : keyState.endedAt
+    readonly property var signInEndedAt: signInState === null || signInState === undefined ? null : signInState.endedAt
+    readonly property var missing: shell === null ? [] : shell.requirements.missing
+    onMissingChanged: publishRequirements()
     readonly property string program: String(Qt.resolvedUrl("backend/accounts.js")).replace(/^file:\/\//, "")
     onShellChanged: refresh()
     onEndedAtChanged: if (endedAt !== null) refresh()
     onKeyEndedAtChanged: if (keyEndedAt !== null) refresh()
+    onSignInEndedAtChanged: if (signInEndedAt !== null) refresh()
     // Emitted once each check has published, whatever it read.
     signal refreshed()
 
+    function publishRequirements() {
+        if (shell === null) return;
+        for (const command of ["claude", "codex"])
+            if (shell.status.set(command, Gate.requirementValue(command, missing)) !== "ok")
+                throw new Error("jarvis-accounts: status=refused");
+    }
+
     function refresh() {
         if (shell === null) return;
+        publishRequirements();
         if (probe.running) { pending = true; return; }
         pending = false;
         completion = { kind: "starting" };
@@ -43,12 +57,14 @@ Item {
             const accounts = value.accounts.map(item => ({ label: item.label, value: item.value, hint: Words.accountHint(item) }));
             const search = Words.searchValue({ kind: "found", found: value.search.found, partial: value.search.partial });
             if (shell.status.set("accounts", accounts) !== "ok" || shell.status.set("brains", value.brains) !== "ok"
-                || shell.status.set("accountSearch", search) !== "ok") throw new Error("status");
+                || shell.status.set("accountSearch", search) !== "ok"
+                || shell.status.set("setupSignIn", { tone: "info", text: "Optional", action: true }) !== "ok") throw new Error("status");
         } catch (error) {
             const reason = Providers.probeFailure(completion, diagnostic);
             console.warn(reason);
             const replies = [shell.status.set("accounts", []), shell.status.set("brains", []),
-                shell.status.set("accountSearch", Words.searchValue({ kind: "failed", reason: reason }))];
+                shell.status.set("accountSearch", Words.searchValue({ kind: "failed", reason: reason })),
+                shell.status.set("setupSignIn", { tone: "info", text: "Optional", action: true })];
             if (replies.some(reply => reply !== "ok")) throw new Error("jarvis-accounts: status=refused");
         }
         refreshed();

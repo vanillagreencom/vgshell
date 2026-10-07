@@ -103,6 +103,13 @@ async function main() {
         judge.add({ provider: args[1], directory: args[2], label: args[3] });
         value = { kind: "stored" };
         break;
+    case "sign-in":
+        if (args.length !== 4) throw new Error("jarvis-accounts: arguments=add");
+        value = judge.signIn({ provider: args[1], directory: args[2], label: args[3] });
+        // Vendor output is inherited by the terminal. Only the exit code
+        // reaches the TUI: no credential-bearing stream is captured.
+        process.exitCode = value.kind === "signed-in" ? 0 : value.cause === "command-missing" ? 69 : 1;
+        return;
     case "remember":
         if (args.length !== 4) throw new Error("jarvis-accounts: arguments=remember");
         judge.remember(args[1], args[2], args[3]);
@@ -122,6 +129,6 @@ async function main() {
 
 main().catch(error => {
     const reason = helperFailure(error.message) || "jarvis-accounts: operation=failed";
-    process.stderr.write(reason + "\n");
+    if (process.argv[4] !== "sign-in") process.stderr.write(reason + "\n");
     process.exitCode = 1;
 });

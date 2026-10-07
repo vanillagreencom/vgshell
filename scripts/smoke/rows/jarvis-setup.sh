@@ -19,6 +19,9 @@ cp -- "$source_repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/setup-local.sh" "$
 accounts_tui="$repo/shell/plugins/vgs.jarvis/tui/accounts.sh"
 cp -- "$accounts_tui" "$sandbox/accounts-tui-original"
 cp -- "$source_repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/accounts.sh" "$accounts_tui"
+sign_in_tui="$repo/shell/plugins/vgs.jarvis/tui/sign-in.sh"
+cp -- "$sign_in_tui" "$sandbox/sign-in-tui-original"
+cp -- "$source_repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/sign-in.sh" "$sign_in_tui"
 jarvis_setup_requirements
 terminal_stand_in
 terminal_ready "Jarvis local setup"
@@ -60,6 +63,8 @@ import json,sys
 rows=json.load(sys.stdin)
 out=[]
 for r in rows:
+    if r["label"] == "Sign in":
+        continue
     if r["label"] in ("Browser", "Input"):
         out.append([r["label"], len(r["chips"]) == 1 and r["chips"][0][1] in ("success", "info")])
     else:
@@ -142,6 +147,20 @@ setup_accounts_end() {
   expect "the launcher opens the accounts screen" ok ipc shell openTui vgs.jarvis/accounts
   expect_run_end "the fixture accounts terminal ends" vgs.jarvis/accounts
 }
+setup_sign_in_value() {
+  status_row vgs.jarvis setupSignIn | py_reply '
+import json,sys
+r=json.load(sys.stdin)
+print(json.dumps([r["value"]["tone"], r["action"]["offered"], r["action"]["tui"]]))
+'
+}
+setup_sign_in_end() {
+  forget_record
+  expect "Settings starts the declared vendor sign-in terminal" ok settings_act vgs.jarvis setupSignIn
+  expect_poll "sign-in uses the core floating terminal and declared script" \
+    '["vgs.jarvis/sign-in", "tui/sign-in.sh"]' recorded_tail
+  expect_run_end "the fixture sign-in terminal ends without authentication" vgs.jarvis/sign-in
+}
 # A Service copy whose readers named by NEEDLES send no snapshot.
 setup_service_without() { # NEEDLE...
   python3 - "$setup_service" "$@" <<'PY'
@@ -182,6 +201,9 @@ rows=json.load(sys.stdin)
 assert any(row["key"]=="vgs.jarvis/setup-local" and row["group"]=="Jarvis" for row in rows)
 '
 expect_poll "a fresh profile's Setup section reads the AI model and local voice to do" "$setup_fresh" setup_rows
+expect_poll "Setup offers its declared Sign in action beside Add key" \
+  '["info", true, "sign-in"]' setup_sign_in_value
+setup_sign_in_end
 # An AI model the engine takes: a hand-added Codex folder, by the id the
 # account helper lists. Chosen while its account is not there, it stays
 # to do; an Accounts screen that ends with the account added sends the
@@ -196,7 +218,7 @@ expect_poll "the daemon holds the chosen AI model" "\"$setup_brain_id\"" setup_d
 expect_poll "an AI model whose account is not there stays to do" "$setup_fresh" setup_rows
 setup_readers_idle "before the account is added"
 setup_add_codex
-setup_accounts_end
+setup_sign_in_end
 expect_poll "the ended Accounts screen reaches the daemon: only local voice remains" "$setup_voice_left" setup_rows
 
 # Control: the key and account readers' ends send no snapshot, so the
@@ -306,6 +328,7 @@ expect "retaining ready after probe failure breaks its consumer read" 1 local_co
 cp -- "$sandbox/local-reader-original" "$local_reader"
 cp -- "$sandbox/local-tui-original" "$local_tui"
 cp -- "$sandbox/accounts-tui-original" "$accounts_tui"
+cp -- "$sandbox/sign-in-tui-original" "$sign_in_tui"
 printf 'absent\n' >"$sandbox/jarvis-world/local-mode"
 jarvis_rescan
 expect_poll "the restored setup action is offered" matched local_value absent

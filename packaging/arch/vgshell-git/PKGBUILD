@@ -70,6 +70,8 @@ depends=(
   'xdg-utils'
 )
 optdepends=(
+  'claude-code: sign in to Claude Code and use its account as the Jarvis AI model'
+  'openai-codex: sign in to Codex and use its account as the Jarvis AI model'
   'voxtype-bin: Voice dictation engine'
   'tmux: several Jarvis coding tasks at once'
   'ydotool: Jarvis pointer fallback with an already running input service'
