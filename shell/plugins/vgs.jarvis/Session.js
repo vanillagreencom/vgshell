@@ -12,10 +12,11 @@ var PLAYBACK_TIMEOUT_MS = 300000;
 var APPROVAL_TIMEOUT_MS = 60000;
 var APPROVAL_DRAW_MS = 700;
 var VOICE_QUIET_MS = 1000;
+var TRANSCRIPT_CHARS = 4096;
 var EVENTS = [
     "snapshot", "indicator", "talk-down", "talk-up", "toggle", "mute", "unmute", "mute-toggle",
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
-    "final", "collect-failed", "brain-done", "brain-failed", "brain-ended", "cancelled", "play", "played",
+    "final", "say", "collect-failed", "brain-done", "brain-failed", "brain-ended", "cancelled", "play", "played",
     "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "deadline", "lease-ended",
     "speak", "transcript", "speech-idle", "speech-failed", "feedback"
 ];
@@ -141,6 +142,41 @@ function canCapture(s) {
         && s.turn.kind !== "cancelling" && s.conversation.kind !== "ended" && s.input.kind !== "released";
 }
 
+function sayRefusal(s) {
+    if (s === null || s.gate.kind !== "up") return "down";
+    if (s.mute.kind !== "off") return "muted";
+    if (s.engine.kind !== "chained") return "duplex";
+    if (s.approval.kind === "held") return "held";
+    if (s.playback.kind !== "idle") return "speaking";
+    if (s.action.kind === "running" || s.turn.kind === "thinking" || s.turn.kind === "cancelling") return "busy";
+    return null;
+}
+
+function captionText(value) {
+    var text = String(value).replace(/[\x00-\x1f\x7f]/g, " ").slice(-TRANSCRIPT_CHARS);
+    return text.trim() === "" ? "" : text;
+}
+
+function userTranscript(s, effects, text, rev) {
+    var shown = captionText(text);
+    if (shown !== "") effect(s, effects, "transcript", { role: "user", text: shown, stage: "final", rev: rev });
+}
+
+function commitUserText(s, effects, text, at, releaseInput, rev) {
+    if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
+    if (s.conversation.kind === "ended") {
+        s.gen += 1;
+        s.conversation = { kind: "active" };
+    }
+    if (s.input.kind === "held") s.input = { kind: "released" };
+    closeCapture(s, effects);
+    userTranscript(s, effects, text, rev);
+    var brain = effect(s, effects, "brain-send", { text: text });
+    if (s.brain.kind === "closed") s.brain = { kind: "acquired", gen: brain.gen, op: brain.op };
+    brain.owner = s.brain.op;
+    s.turn = { kind: "thinking", gen: brain.gen, op: brain.op, deadline: at + RESPONSE_TIMEOUT_MS };
+}
+
 function canPlayback(s) {
     return s.gate.kind === "up" && s.fault.kind !== "error" && ["playing", "feedback"].indexOf(s.playback.kind) !== -1
         && s.capture.kind === "closed";
@@ -254,7 +290,7 @@ function toggle(s, effects, at) {
     recover(s, effects, at);
     if (!canEngage(s)) return;
     s.toggleAt = at;
-    if (s.conversation.kind === "ended") start(s, effects, "conversation", at);
+    if (s.conversation.kind === "ended" || s.input.kind === "released" && s.turn.kind === "none" && s.approval.kind === "none" && s.action.kind === "none") start(s, effects, "conversation", at);
     else end(s, effects, at, "toggle", false);
 }
 
@@ -415,15 +451,12 @@ function reduce(state, e) {
         break;
     case "final":
         if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
-        if (e.text.length !== 0)
-            effect(s, effects, "transcript", { role: "user", text: e.text, stage: "final", rev: e.op });
-        if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
-        if (s.input.kind === "held") s.input = { kind: "released" };
-        closeCapture(s, effects);
-        var brain = effect(s, effects, "brain-send", { text: e.text });
-        if (s.brain.kind === "closed") s.brain = { kind: "acquired", gen: brain.gen, op: brain.op };
-        brain.owner = s.brain.op;
-        s.turn = { kind: "thinking", gen: brain.gen, op: brain.op, deadline: e.at + RESPONSE_TIMEOUT_MS };
+        commitUserText(s, effects, e.text, e.at, false, e.op);
+        break;
+    case "say":
+        if (sayRefusal(s) !== null) break;
+        recover(s, effects, e.at);
+        commitUserText(s, effects, e.text, e.at, true, 1);
         break;
     // A transcription that fails after its capture closed still owns the turn.
     case "collect-failed":

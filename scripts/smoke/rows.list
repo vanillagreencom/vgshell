@@ -85,6 +85,7 @@ voice
 jarvis-keys
 jarvis-widget
 jarvis-desktop
+jarvis-console
 instance-guard
 diagnostics
 supervise

@@ -7,9 +7,9 @@
   "description": "Talk to a voice assistant.",
   "license": "MIT AND Apache-2.0",
   "icon": "mic",
-  "kinds": ["bar-widget", "service"],
-  "entryPoints": { "bar-widget": "Widget.qml", "service": "Service.qml" },
-  "capabilities": ["compositor", "ipc", "requirements", "run", "session", "status", "notify", "tui", "shortcut", "layers", "hyprland"],
+  "kinds": ["bar-widget", "service", "window"],
+  "entryPoints": { "bar-widget": "Widget.qml", "service": "Service.qml", "window": "Console.qml" },
+  "capabilities": ["compositor", "ipc", "requirements", "run", "session", "status", "notify", "tui", "shortcut", "layers", "hyprland", "surfaces"],
   "defaultSection": "right",
   "settings": { "mode": "hold", "sounds": true, "microphone": "", "speaker": "", "brain": "", "taskTerminal": "auto", "cloudVision": "ask",
     "privateWindows": "1password, bitwarden, keepass, proton pass, enpass, pinentry, seahorse, private browsing, incognito" },
@@ -40,7 +40,8 @@
       { "shortcut": "talk", "key": "SUPER+code:108", "hold": true, "info": "Hold the keys and speak to Jarvis. In Hold talk mode, Jarvis takes what you said when you let go; in Toggle mode the conversation stays open. Pressing it while Jarvis speaks interrupts it." },
       { "shortcut": "mute", "key": "SUPER+SHIFT+code:108", "info": "Turns the Jarvis microphone off, or on again. Mute stays on after a restart, and Talk does nothing while it is on." },
       { "shortcut": "stop", "key": "SUPER+ALT+PERIOD", "info": "Ends what Jarvis is doing now: listening, thinking or speaking." },
-      { "shortcut": "confirm", "key": "SUPER+ALT+Y", "info": "Confirms the Jarvis request shown on screen." }
+      { "shortcut": "confirm", "key": "SUPER+ALT+Y", "info": "Confirms the Jarvis request shown on screen." },
+      { "shortcut": "console", "key": "SUPER+ALT+T", "info": "Opens the Jarvis console window for typed messages." }
     ]
   },
   "requirements": [
@@ -93,6 +94,7 @@
     "speakers": { "type": "choices", "label": "Speakers" },
     "level": { "type": "data", "label": "Audio levels" },
     "transcript": { "type": "data", "label": "Transcript" },
+    "conversation": { "type": "data", "label": "Conversation" },
     "audio": { "type": "state", "label": "Audio", "hint": "Half duplex closes capture during speech. Echo cancellation is not supported." },
     "browserDriver": { "type": "state", "label": "Browser driver", "hint": "Jarvis drives its private browser with agent-browser.",
       "action": { "label": "Install", "install": ["agent-browser"] } },

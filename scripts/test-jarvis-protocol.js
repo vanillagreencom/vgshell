@@ -12,7 +12,7 @@ const hello = { v: 1, type: "hello", gen: 0, settings: { sounds: false, mode: "h
     cloudVision: "ask", privateWindows: "bitwarden, incognito" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
-keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y" } };
+keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+T" } };
 const intent = { v: 1, type: "intent", gen: 0, revision: hello.revision, intent: "talk-down" };
 const id = "11111111-1111-4111-8111-111111111111";
 const confirm = { ...intent, intent: "confirm", id, digest: "a".repeat(64), source: "key" };
@@ -36,9 +36,10 @@ assert.deepEqual(manifest.hyprland.binds.map(({ info, ...bind }) => bind), [
     { shortcut: "talk", key: "SUPER+code:108", hold: true },
     { shortcut: "mute", key: "SUPER+SHIFT+code:108" },
     { shortcut: "stop", key: "SUPER+ALT+PERIOD" },
-    { shortcut: "confirm", key: "SUPER+ALT+Y" }
+    { shortcut: "confirm", key: "SUPER+ALT+Y" },
+    { shortcut: "console", key: "SUPER+ALT+T" }
 ]);
-assert.equal(manifest.capabilities.includes("shortcut"), true);
+assert.equal(manifest.capabilities.includes("shortcut") && manifest.capabilities.includes("surfaces"), true);
 assert.equal(manifest.requirements.some(row => row.command === "pw-cli"), false);
 const devices = { v: 1, type: "devices", gen: 0, revision: hello.revision,
     microphones: [{ label: "Microphone", value: "fixture.mic" }], speakers: [] };
@@ -51,6 +52,7 @@ const listReply = { ...reply, kind: "desktop.list", data: { entries: [entry], co
 const entryReply = { ...reply, kind: "desktop.launch", data: { ...entry, terminal: false } };
 assert.equal(manifest.capabilities.includes("compositor") && manifest.capabilities.includes("run"), true);
 const taskStop = { ...intent, intent: "task-stop", task: "0f7c6a2e-5d1b-4c3a-9e8f-1a2b3c4d5e6f" };
+const say = { ...intent, intent: "say", text: "typed message" };
 const requirementsScan = { v: 1, type: "requirements-scan", gen: 0, revision: hello.revision, scan: 1 };
 const tuiState = { v: 1, type: "tui-state", gen: 0, revision: hello.revision, name: "task", running: true };
 const taskReply = { ...reply, kind: "tui.run", answer: "refused: tui=task reason=busy" };
@@ -144,6 +146,11 @@ const cases = [
     ["intent-direction", JSON.stringify(intent), "daemon", "direction-intent"],
     ["intent-shape", changed(intent, { extra: true }), "shell", "shape-intent"],
     ["intent-name", changed(intent, { intent: "approve" }), "shell", "intent"],
+    ["say-shape", changed(say, { extra: true }), "shell", "shape-say"],
+    ["say-empty", changed(say, { text: "" }), "shell", "say-text"],
+    ["say-blank", changed(say, { text: "   " }), "shell", "say-text"],
+    ["say-long", changed(say, { text: "a".repeat(4097) }), "shell", "say-text"],
+    ["say-control", changed(say, { text: "a\nb" }), "shell", "say-text"],
     ["confirm-shape", changed(confirm, { extra: true }), "shell", "shape-confirm"],
     ["confirm-id", changed(confirm, { id: "made-up" }), "shell", "approval-id"],
     ["confirm-digest", changed(confirm, { digest: "A".repeat(64) }), "shell", "approval-digest"],
@@ -253,12 +260,14 @@ for (const causes of [[], ["speech=local-not-set-up"], ["brain=unselected"], ["s
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(state), "daemon")), JSON.stringify(state));
 for (const name of ["talk-down", "talk-up", "mute", "stop"])
     assert.equal(Protocol.accept(changed(intent, { intent: name }), "shell").intent, name);
+assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(say), "shell")), JSON.stringify(say));
+assert.equal(Protocol.TRANSCRIPT_CHARS, Protocol.Session.TRANSCRIPT_CHARS);
 for (const message of [confirm, { ...confirm, source: "button" }, cancel, shown])
     assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), "shell")), JSON.stringify(message));
 for (const shown of [false, true])
     assert.equal(Protocol.accept(changed(indicator, { shown }), "shell").shown, shown);
 assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, mode: "toggle" },
-    keys: { talk: null, mute: null, stop: null, confirm: null } }), "shell").settings.mode, "toggle");
+    keys: { talk: null, mute: null, stop: null, confirm: null, console: null } }), "shell").settings.mode, "toggle");
 for (const message of [devices, level, audioFault, taskRequest, tasks, taskAnswer, taskPrompts, taskResponse, { ...tasks, count: 0 },
     transcript, { ...transcript, role: "assistant", stage: "final", text: "a".repeat(4096), rev: 2 },
     shellStatus, { ...shellStatus, availability: { kind: "checking" } },
@@ -393,6 +402,9 @@ try {
             'if (false) fail("direction-intent");', "intent-direction"],
         ["intent-name", 'if (["talk-down", "talk-up", "mute", "stop"].indexOf(message.intent) === -1) fail("intent");',
             'if (false) fail("intent");', "intent-name"],
+        ["say-shape", 'keys(message, fields.concat(["text"]), "say");', 'if (false) keys(message, fields.concat(["text"]), "say");', "say-shape"],
+        ["say-text", 'if (!printable(message.text, 1, TRANSCRIPT_CHARS) || message.text.trim() === "") fail("say-text");',
+            'if (false) fail("say-text");', "say-empty"],
         ["audio-fault-direction", 'if (direction !== "daemon") fail("direction-audio-fault");',
             'if (false) fail("direction-audio-fault");', "audio-fault-direction"],
         ["audio-fault", 'fail("audio-fault");', ';', "audio-fault"],

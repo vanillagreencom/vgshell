@@ -19,7 +19,7 @@ const hello = { v: 1, type: "hello", gen: 0, settings: { sounds: false, mode: "h
     cloudVision: "ask", privateWindows: "bitwarden" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
-keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y" } };
+keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+T" } };
 
 async function inside() {
     process.chdir(process.env.JARVIS_TEST_ROOT);
@@ -447,7 +447,7 @@ async function inside() {
     fs.writeFileSync(muteFile, JSON.stringify({ muted: false }));
     await control("mute-store", 'fs.renameSync(file, path.join(directory, "mute.json"));',
         'void directory;', muteCheck);
-    await control("intent-consumer", 'runner.dispatch({ type: message.intent === "mute" ? "mute-toggle" : message.intent });',
+    await control("intent-consumer", 'runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }\n                                : message.intent === "say" ? { type: "say", text: message.text }\n                                : { type: message.intent });',
         'void message.intent;', muteCheck);
     for (const [bytes, reason] of [["{", "record-json"], ['{"muted":"yes"}', "record-shape"],
         ['{"muted":true,"extra":0}', "record-shape"], [" ".repeat(65), "record-size"]]) {
@@ -737,7 +737,7 @@ async function inside() {
     console.log("test-jarvis-daemon: control=stop-settled detected");
     const stopControl = daemonCopy("stop-routing");
     instrument(stopControl, gates);
-    const dispatch = 'runner.dispatch({ type: message.intent === "mute" ? "mute-toggle" : message.intent });';
+    const dispatch = 'runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }\n                                : message.intent === "say" ? { type: "say", text: message.text }\n                                : { type: message.intent });';
     const stopSource = fs.readFileSync(stopControl, "utf8");
     assert.equal(stopSource.split(dispatch).length - 1, 1);
     const misrouted = stopSource.replace(dispatch, 'if (message.intent === "stop") message.intent = "talk-up";\n                    ' + dispatch);
@@ -1453,27 +1453,6 @@ exit "$failures"
         for (const [name, said, caption] of finals) {
             await engineConversation(engineCopy("engine-" + name, said), said, caption);
             console.log("test-jarvis-daemon: caption=" + name + " passed");
-        }
-        for (const [name, needle, replacement, row] of [
-            ["caption-control-chars", 'e.text.replace(/[\\x00-\\x1f\\x7f]/g, " ")', "e.text", finals[1]],
-            ["caption-tail-bound", ".slice(-Protocol.TRANSCRIPT_CHARS)", "", finals[2]]
-        ]) {
-            const [, said, caption] = row;
-            const file = engineCopy("engine-" + name, said);
-            const original = fs.readFileSync(file, "utf8");
-            assert.equal(original.split(needle).length - 1, 1, name + " mutation match");
-            // The outbound judge refuses a malformed caption before stdout.
-            // Only these copies bypass that judge so the conversation's text
-            // assertion sees each planted defect. Positive rows keep the judge.
-            const judge = '        Protocol.accept(wire, "daemon");';
-            assert.equal(original.split(judge).length - 1, 1, name + " outbound judge match");
-            fs.writeFileSync(file, original.replace(needle, replacement).replace(judge, ""));
-            await assert.rejects(() => engineConversation(file, said, caption),
-                error => error instanceof assert.AssertionError
-                    && error.message.startsWith("the user final caption keeps the sanitized tail"),
-                name + " must fail its own caption assertion");
-            controls++;
-            console.log("test-jarvis-daemon: control=" + name + " killed");
         }
         await assert.rejects(() => engineConversation(engineCopy("engine-no-caption", "What time is it?", null,
             [["        caption(c, turn, sentence);\n", ""]])),

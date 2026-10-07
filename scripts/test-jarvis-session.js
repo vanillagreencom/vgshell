@@ -11,7 +11,7 @@ const file = path.resolve(__dirname, "../shell/plugins/vgs.jarvis/Session.js");
 const Session = load(file);
 const copy = value => JSON.parse(JSON.stringify(value));
 const events = ["snapshot", "indicator", "talk-down", "talk-up", "toggle", "mute", "unmute", "mute-toggle", "stop",
-    "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial", "final", "collect-failed", "brain-done",
+    "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial", "final", "say", "collect-failed", "brain-done",
     "brain-failed", "brain-ended", "cancelled", "play", "played", "flushed", "tool", "tool-done", "approval",
     "shown", "confirm", "approval-cancel", "deadline", "lease-ended", "speak", "transcript", "speech-idle", "speech-failed", "feedback"];
 assert.deepEqual(copy(Session.EVENTS), events, "every supported event enters the pair matrix");
@@ -71,14 +71,91 @@ const table = [
         const r = step(logic, s, callback("final", s.turn, 22, { text: "final words" }));
         const caption = r.effects.find(e => e.kind === "transcript");
         assert.ok(caption, "the final reaches the caption consumer");
-        assert.deepEqual([caption.role, caption.stage, caption.text], ["user", "final", "final words"]);
-        assert.ok(Number.isSafeInteger(caption.rev) && caption.rev > 0);
+        assert.deepEqual([caption.role, caption.stage, caption.text, caption.rev], ["user", "final", "final words", s.turn.op]);
         assert.equal(r.effects.find(e => e.kind === "brain-send").text, "final words");
         assert.ok(kinds(r).indexOf("transcript") < kinds(r).indexOf("brain-send"));
         const late = step(logic, r.state, callback("final", s.turn, 23, { text: "late" }));
         assert.equal(kinds(late).includes("transcript"), false);
         assert.equal(kinds(step(logic, s, callback("final", s.turn, 23, { text: "" }))).includes("transcript"), false,
             "silence sends no invalid empty caption");
+    }],
+    ["say-idle", logic => {
+        const s = ready(logic);
+        const r = step(logic, s, event("say", 20, { text: "typed words" }));
+        assert.equal(r.state.conversation.kind, "active");
+        assert.equal(r.state.gen, s.gen + 1);
+        assert.equal(r.state.turn.kind, "thinking");
+        assert.equal(r.state.input.kind, "released");
+        const transcript = r.effects.find(e => e.kind === "transcript");
+        assert.ok(transcript);
+        assert.deepEqual([transcript.gen, transcript.role, transcript.text, transcript.rev], [r.state.gen, "user", "typed words", 1]);
+        const brain = r.effects.find(e => e.kind === "brain-send");
+        assert.deepEqual([brain.gen, brain.text], [r.state.gen, "typed words"]);
+    }],
+    ["say-refusals", logic => {
+        const unchanged = (label, s, key) => {
+            assert.equal(logic.sayRefusal(s), key, label);
+            assert.deepEqual(step(logic, s, event("say", 20, { text: "typed" })), { state: copy(s), effects: [] }, label);
+        };
+        unchanged("down", logic.initial(), "down");
+        unchanged("muted", step(logic, ready(logic), event("mute", 10)).state, "muted");
+        unchanged("duplex", duplexReady(logic), "duplex");
+        unchanged("held", held(logic), "held");
+        unchanged("speaking", speaking(logic), "speaking");
+        unchanged("busy-turn", thinking(logic), "busy");
+        unchanged("busy-action", acting(logic), "busy");
+        unchanged("busy-cancel", step(logic, thinking(logic), event("cancel", 50)).state, "busy");
+    }],
+    ["say-refuses-action-only", logic => {
+        const running = acting(logic, false);
+        const stopped = step(logic, running, event("stop", 50)).state;
+        const idleTurn = step(logic, stopped, callback("cancelled", stopped.turn, 51)).state;
+        assert.deepEqual([idleTurn.turn.kind, idleTurn.action.kind], ["none", "running"]);
+        assert.equal(logic.sayRefusal(idleTurn), "busy");
+        assert.deepEqual(step(logic, idleTurn, event("say", 52, { text: "typed" })), { state: copy(idleTurn), effects: [] });
+    }],
+    ["say-recovers", logic => {
+        let s = thinking(logic);
+        s = step(logic, s, callback("brain-failed", s.turn, 40, { reason: "fixture" })).state;
+        const r = step(logic, s, event("say", 50, { text: "after fault" }));
+        assert.equal(r.state.fault.kind, "none");
+        assert.equal(r.state.turn.kind, "thinking");
+        assert.equal(r.effects.find(e => e.kind === "brain-send").text, "after fault");
+    }],
+    ["say-refuses-speaking", logic => {
+        const s = step(logic, speaking(logic), callback("brain-done", speaking(logic).turn, 40)).state;
+        assert.equal(logic.sayRefusal(s), "speaking");
+        assert.deepEqual(step(logic, s, event("say", 50, { text: "barge in" })), { state: copy(s), effects: [] });
+    }],
+    ["say-replaces-collection", logic => {
+        const s = listening(logic, true);
+        const r = step(logic, s, event("say", 30, { text: "typed instead" }));
+        assert.equal(r.state.input.kind, "conversation");
+        assert.equal(r.state.capture.kind, "closing");
+        assert.equal(r.state.turn.kind, "thinking");
+        assert.ok(kinds(r).includes("capture-close"));
+        assert.equal(r.effects.find(e => e.kind === "brain-send").text, "typed instead");
+    }],
+    ["toggle-after-say-listens", logic => {
+        let s = step(logic, ready(logic), snapshot({ settings: { mode: "toggle" } })).state;
+        const said = step(logic, s, event("say", 20, { text: "typed" }));
+        const brain = said.state.turn;
+        s = step(logic, said.state, callback("brain-done", brain, 30)).state;
+        const talk = step(logic, s, event("talk-down", 300));
+        assert.equal(talk.state.conversation.kind, "active");
+        assert.equal(talk.state.capture.kind, "opening");
+        assert.deepEqual(talk.effects.map(e => e.kind), ["capture-open", "collect"]);
+        assert.equal(talk.effects.some(e => e.kind === "brain-close"), false);
+    }],
+    ["user-transcript-sanitized", logic => {
+        let s = listening(logic);
+        let r = step(logic, s, callback("final", s.turn, 30, { text: "line\nfeed" }));
+        assert.equal(r.effects.find(e => e.kind === "transcript").text, "line feed");
+        s = ready(logic);
+        r = step(logic, s, event("say", 20, { text: "   " }));
+        assert.equal(r.effects.some(e => e.kind === "transcript"), false);
+        r = step(logic, s, event("say", 21, { text: "x".repeat(logic.TRANSCRIPT_CHARS + 1) }));
+        assert.equal(r.effects.find(e => e.kind === "transcript").text.length, logic.TRANSCRIPT_CHARS);
     }],
     ["collection-deadline", logic => {
         let s = listening(logic);
@@ -1352,11 +1429,11 @@ try {
             'if (false && e.id !== s.approval.id) { stale(s); break; }', "shown-id"],
         ["cancel-id", 'if (e.id !== s.approval.id || e.gen !== s.approval.gen)',
             'if (false && (e.id !== s.approval.id || e.gen !== s.approval.gen))', "cancel-id"],
-        ["final-caption", 'effect(s, effects, "transcript", { role: "user", text: e.text, stage: "final", rev: e.op });',
+        ["final-caption", 'commitUserText(s, effects, e.text, e.at, false, e.op);',
             'void e;', "final-caption"],
-        ["caption-final-text", 'role: "user", text: e.text, stage: "final"',
-            'role: "user", text: s.turn.partial, stage: "final"', "final-caption"],
-        ["caption-silence", 'if (e.text.length !== 0)', 'if (true)', "final-caption"],
+        ["caption-final-text", 'userTranscript(s, effects, text, rev);',
+            'userTranscript(s, effects, s.turn.partial, rev);', "final-caption"],
+        ["caption-silence", 'if (shown !== "") effect', 'if (true) effect', "final-caption"],
         ["key-mode", 'if (s.settings.mode === "toggle") { toggle(s, effects, e.at); break; }',
             'if (false) { toggle(s, effects, e.at); break; }', "key-mode"],
         ["mute-key-store", 'effect(s, effects, "mute-store", { muted: true });',
@@ -1467,6 +1544,15 @@ try {
         ["engine-required", 'if (e.engine !== "chained" && e.engine !== "duplex") throw new Error("jarvis: session=engine");', "", "duplex-engine"]
     ];
     mutants.push(
+        ["say-judge", 'case "say":\n        if (sayRefusal(s) !== null) break;', 'case "say":', "say-refusals"],
+        ["say-recover", 'recover(s, effects, e.at);\n        commitUserText(s, effects, e.text, e.at, true, 1);', 'commitUserText(s, effects, e.text, e.at, true, 1);', "say-recovers"],
+        ["say-speaking", 'if (s.playback.kind !== "idle") return "speaking";', 'if (false) return "speaking";', "say-refuses-speaking"],
+        ["say-action", 's.action.kind === "running" || ', '', "say-refuses-action-only"],
+        ["user-transcript", 'userTranscript(s, effects, text, rev);', 'if (false) userTranscript(s, effects, text, rev);', "say-idle"],
+        ["caption-control", 'String(value).replace(/[\\x00-\\x1f\\x7f]/g, " ").slice(-TRANSCRIPT_CHARS)', 'String(value).slice(-TRANSCRIPT_CHARS)', "user-transcript-sanitized"],
+        ["caption-blank", 'return text.trim() === "" ? "" : text;', 'return text;', "user-transcript-sanitized"],
+        ["caption-bound", '.slice(-TRANSCRIPT_CHARS);', ';', "user-transcript-sanitized"],
+        ["say-gen", 's.gen += 1;\n        s.conversation = { kind: "active" };', 's.gen += 0;\n        s.conversation = { kind: "active" };', "say-idle"],
         ["unknown-event", 'if (EVENTS.indexOf(e.type) === -1) throw', 'if (false && EVENTS.indexOf(e.type) === -1) throw', "unknown-event"],
         ["event-clock", 'if (!Number.isFinite(e.at) || e.at < 0) throw', 'if (false && (!Number.isFinite(e.at) || e.at < 0)) throw', "event-clock"],
         ["tool-duration", 'if (!Number.isFinite(e.timeoutMs) || e.timeoutMs <= 0)', 'if (false && (!Number.isFinite(e.timeoutMs) || e.timeoutMs <= 0))', "invalid-tool-deadline"],

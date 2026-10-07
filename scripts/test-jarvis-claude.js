@@ -712,4 +712,4 @@ world(async () => {
 }, standins => {
     fs.copyFileSync(stub, path.join(standins, "claude"));
     fs.chmodSync(path.join(standins, "claude"), 0o700);
-})?.catch(error => { console.error(error); process.exitCode = 1; });
+})?.catch(error => { console.error(error); process.exitCode = 1; }, undefined, 120000);

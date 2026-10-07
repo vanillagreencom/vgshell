@@ -314,6 +314,8 @@ f share/vgshell/shell/plugins/vgs.jarvis/AccountStatus.js
 f share/vgshell/shell/plugins/vgs.jarvis/Accounts.qml
 f share/vgshell/shell/plugins/vgs.jarvis/BrowserRuntime.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Bubble.qml
+f share/vgshell/shell/plugins/vgs.jarvis/Console.qml
+f share/vgshell/shell/plugins/vgs.jarvis/Conversation.js
 f share/vgshell/shell/plugins/vgs.jarvis/JarvisProtocol.js
 f share/vgshell/shell/plugins/vgs.jarvis/Keys.qml
 f share/vgshell/shell/plugins/vgs.jarvis/LocalRuntime.qml

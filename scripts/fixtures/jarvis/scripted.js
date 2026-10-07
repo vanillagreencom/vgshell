@@ -84,6 +84,7 @@ function ports(root, engine, state) {
                 if (chained) { engine.brain.send(e, done); return; }
                 wait("brain", () => {
                     record("brain-callback", e);
+                    done("transcript", { role: "assistant", text: "scripted utterance", stage: "partial", rev: 1 });
                     done("play", { interruptible: true }); done("brain-done");
                 });
             },

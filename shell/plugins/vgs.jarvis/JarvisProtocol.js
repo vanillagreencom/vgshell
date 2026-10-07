@@ -10,7 +10,7 @@ var MAX_LINE_BYTES = 256 * 1024;
 var TASK_TERMINALS = ["auto", "tmux", "floating"];
 // The manifest's cloudVision options; Policy.recipients judges the same set.
 var CLOUD_VISION = ["ask", "allow", "never"];
-var TRANSCRIPT_CHARS = 4096;
+var TRANSCRIPT_CHARS = Session.TRANSCRIPT_CHARS;
 
 // Requests the daemon sends and the service answers, one reply each. `args`
 // lists each argument's type, or "argv" for a command; `data` names the
@@ -260,7 +260,7 @@ function accept(line, direction) {
         for (var setting of ["microphone", "speaker"])
             if (typeof message.settings[setting] !== "string"
                     || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings[setting])) fail("device-setting");
-        keys(message.keys, ["talk", "mute", "stop", "confirm"], "keys");
+        keys(message.keys, ["talk", "mute", "stop", "confirm", "console"], "keys");
         for (var shortcut of Object.keys(message.keys)) {
             var key = message.keys[shortcut];
             // The core shortcut provider owns normalization and conflicts.
@@ -304,6 +304,9 @@ function accept(line, direction) {
         } else if (message.intent === "task-stop") {
             keys(message, fields.concat(["task"]), "task-stop");
             if (!taskId(message.task)) fail("task-id");
+        } else if (message.intent === "say") {
+            keys(message, fields.concat(["text"]), "say");
+            if (!printable(message.text, 1, TRANSCRIPT_CHARS) || message.text.trim() === "") fail("say-text");
         } else {
             keys(message, fields, "intent");
             if (["talk-down", "talk-up", "mute", "stop"].indexOf(message.intent) === -1) fail("intent");

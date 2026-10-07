@@ -328,7 +328,9 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                             gen: message.gen, id: message.id, digest: message.digest, source: message.source });
                     } else {
                         const dispatch = () => {
-                            runner.dispatch({ type: message.intent === "mute" ? "mute-toggle" : message.intent });
+                            runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }
+                                : message.intent === "say" ? { type: "say", text: message.text }
+                                : { type: message.intent });
                         };
                         if (["mute", "stop"].includes(message.intent)) audit.cleanup(message.intent, dispatch);
                         else dispatch();

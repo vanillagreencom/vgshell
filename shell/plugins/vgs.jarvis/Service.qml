@@ -8,6 +8,7 @@ import "JarvisProtocol.js" as Protocol
 import "AccountProviders.js" as Providers
 import "Session.js" as Session
 import "SetupGate.js" as Gate
+import "Conversation.js" as Conversation
 
 Item {
     id: root
@@ -24,6 +25,7 @@ Item {
     property string lastDiagnostic: ""
     property var audioHealth: ({ kind: "reading" })
     property var sessionState: null
+    property var conversationLog: []
     // The request handlers, built on the first request; see requestHandlers().
     property var requests: null
     property var bubbles: []
@@ -53,9 +55,12 @@ Item {
             shell.shortcut.register("mute", "Mute Jarvis", () => intent("mute"));
             shell.shortcut.register("stop", "Stop Jarvis", () => intent("stop"));
             shell.shortcut.register("confirm", "Confirm Jarvis", () => confirmApproval(displayedApproval(), "key"));
+            shell.shortcut.register("console", "Open Jarvis console", () => summonConsole());
             // The bar widget's click and `vgshell ipc call vgs.jarvis invoke
             // mute` reach the Mute key's intent.
             shell.ipc.handle("mute", () => { intent("mute"); return "ok"; });
+            shell.ipc.handle("say", text => say(text));
+            shell.ipc.handle("stop", () => { intent("stop"); return "ok"; });
             // The console's Stop button and `vgshell ipc call vgs.jarvis
             // stop-task <id>` stop one coding task. The Stop key does not.
             shell.ipc.handle("stop-task", task => stopTask(task));
@@ -157,6 +162,9 @@ Item {
         if (idle !== "ok") throw new Error("jarvis: " + idle);
         const silent = shell.status.set("transcript", null);
         if (silent !== "ok") throw new Error("jarvis: " + silent);
+        conversationLog = Conversation.start();
+        const emptyConversation = shell.status.set("conversation", conversationLog);
+        if (emptyConversation !== "ok") throw new Error("jarvis: " + emptyConversation);
         publishInput({ tone: "warning", text: "Input tools unavailable", action: true });
         publishSetup({ kind: "checking" });
         shellStatus({ kind: "checking" });
@@ -247,6 +255,29 @@ Item {
 
     function sendIntent(name) {
         send({ type: "intent", intent: name });
+    }
+
+    function summonConsole() {
+        if (shell === null) return;
+        const reply = shell.surfaces.summon("window", "{}");
+        if (reply !== "ok") console.warn("jarvis: console " + reply);
+    }
+
+    function protocolKey(message) {
+        return String(message).replace(/^jarvis: protocol=/, "");
+    }
+
+    function say(text) {
+        if (shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running || sessionState === null)
+            return "refused: jarvis=not-ready";
+        const fields = { type: "intent", intent: "say", text: String(text) };
+        try {
+            Protocol.accept(JSON.stringify(Object.assign({ v: 1, gen: 0, revision: shell.manifest.__revision }, fields)), "shell");
+        } catch (error) { return "refused: say=" + protocolKey(error.message); }
+        const refusal = Session.sayRefusal(sessionState);
+        if (refusal !== null) return "refused: say=" + refusal;
+        send(fields);
+        return "ok";
     }
 
     function send(fields) {
@@ -492,9 +523,12 @@ Item {
                 if (message.type === "transcript") {
                     // A caption from an ended conversation never replaces the current one.
                     if (sessionState !== null && message.gen === sessionState.gen) {
-                        const reply = shell.status.set("transcript", { gen: message.gen, role: message.role,
-                            text: message.text, stage: message.stage, rev: message.rev });
+                        const segment = { gen: message.gen, role: message.role, text: message.text, stage: message.stage };
+                        const reply = shell.status.set("transcript", Object.assign({ rev: message.rev }, segment));
                         if (reply !== "ok") throw new Error("jarvis: " + reply);
+                        conversationLog = Conversation.update(conversationLog, segment);
+                        const history = shell.status.set("conversation", conversationLog);
+                        if (history !== "ok") throw new Error("jarvis: " + history);
                     }
                     continue;
                 }
