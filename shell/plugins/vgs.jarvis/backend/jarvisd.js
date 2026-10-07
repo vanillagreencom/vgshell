@@ -284,6 +284,15 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     });
                     continue;
                 }
+                if (message.type === "intent" && message.intent === "task-respond") {
+                    intentIdentity(message);
+                    const answer = context.locked ? "session-locked"
+                        : tasks.answer(message.task, message.prompt, message.answer);
+                    write({ v: 1, type: "task-response", gen: runner.state.gen,
+                        revision: context.revision, task: message.task, prompt: message.prompt, answer });
+                    void tasks.observe();
+                    continue;
+                }
                 if (message.type === "requirements-scan") {
                     intentIdentity(message);
                     if (message.scan > requirementsScan) {
@@ -400,10 +409,20 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         if (browser !== null) browser.sync(state);
                     };
                     // The task executor needs an agent profile and a release port
-                    // for the conversation's recipients. Neither exists yet, so
+                    // for the task's recipients. Task handoff orchestration owns
+                    // that separate release decision. Until it registers the executor,
                     // TaskRunner only observes and stops recorded tasks.
                     tasks = TaskRunner.create({ directories: context.directories, engine: taskEvent, backend: __dirname,
                         settings: () => context.settings,
+                        accounts: (agent, reference) => {
+                            const account = new Accounts(context.directories.state, process.env).resolve(reference);
+                            return account !== null && account.provider === agent && account.source.kind === "cli"
+                                ? account.source.directory : null;
+                        },
+                        promptsChanged: prompts => {
+                            if (!ending) write({ v: 1, type: "task-prompts", gen: runner.state.gen,
+                                revision: context.revision, prompts });
+                        },
                         display: { run: taskTui },
                         count: count => {
                             if (!ending) write({ v: 1, type: "tasks", gen: runner.state.gen,

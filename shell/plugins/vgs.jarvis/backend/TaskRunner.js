@@ -12,6 +12,7 @@ const crypto = require("node:crypto");
 const cp = require("node:child_process");
 const Tasks = require("./Tasks.js");
 const Profiles = require("./AgentProfiles.js");
+const Relay = require("./TaskRelay.js");
 
 const LAUNCH_MS = 20000;
 // A task with no started record after this is lost; its spec is stale.
@@ -94,16 +95,19 @@ const PROCESSES = {
  * backend: the directory holding task-run.py; profiles: AgentProfiles.table;
  * settings() -> {taskTerminal}; display.run(args) -> Promise<answer> asks the
  * service to open the `task` TUI; count(n) receives the live-task count;
- * failed(error) receives an observation failure. environment, lookup, tmux,
+ * failed(error) receives an observation failure; accounts resolves an account
+ * reference to its directory; promptsChanged publishes held hook prompts.
+ * environment, lookup, tmux,
  * clock {now,set,clear}, processes and spawn are injectable for tests.
  */
-function create({ directories, engine, backend, profiles = Profiles.TABLE, settings, display, count, failed,
+function create({ directories, engine, backend, profiles = Profiles.TABLE, settings, display, count, failed, accounts, promptsChanged,
     environment = process.env, lookup = command => onPath(command, environment.PATH),
     tmux = "tmux", clock, processes = PROCESSES, spawn = spawnProcess }) {
     const { state, runtime } = directories;
     const store = new Tasks.Store(state);
     const specs = path.join(runtime, "tasks");
     const socket = path.join(runtime, "tmux.sock");
+    const prompts = path.join(runtime, "prompts");
     const base = Profiles.base(environment);
     const stopping = new Set();
     // The `task` TUI as the service last reported it; unknown until it does.
@@ -114,6 +118,7 @@ function create({ directories, engine, backend, profiles = Profiles.TABLE, setti
     let again = false;
     let timer = null;
     let published = 0;
+    let publishedPrompts = "";
     let closed = false;
 
     const sleep = ms => new Promise(resolve => clock.set(resolve, ms));
@@ -242,11 +247,17 @@ function create({ directories, engine, backend, profiles = Profiles.TABLE, setti
             }
         }
         if (closed) return;
+        const pending = held();
+        const signature = JSON.stringify(pending);
+        if (signature !== publishedPrompts) {
+            publishedPrompts = signature;
+            if (promptsChanged !== undefined) promptsChanged(pending);
+        }
         if (live !== published) {
             published = live;
             count(live);
         }
-        if (live > 0 && timer === null) timer = clock.set(() => { timer = null; void observe(); }, OBSERVE_MS);
+        if ((live > 0 || pending.length > 0) && timer === null) timer = clock.set(() => { timer = null; void observe(); }, OBSERVE_MS);
     }
 
     /** Observe every task record: lost where due, then publish the live count. */
@@ -311,6 +322,8 @@ function create({ directories, engine, backend, profiles = Profiles.TABLE, setti
         if (entry === undefined) return { reason: "agent-unavailable" };
         const account = args.account ?? "";
         if (account !== "" && entry.row.account === null) return { reason: "account-unsupported" };
+        const value = account === "" ? "" : accounts === undefined ? null : accounts(agent, account);
+        if (value === null) return { reason: "account-unknown" };
         const kind = terminal();
         if (kind === null) return { reason: "tmux-missing" };
         // The router runs one action at a time, so no second start overlaps.
@@ -324,8 +337,8 @@ function create({ directories, engine, backend, profiles = Profiles.TABLE, setti
         try {
             const brief = Profiles.brief({ goal: args.goal, engine, state, id });
             await writeSpec(file, { v: 1, id, state, engine, cwd: args.cwd,
-                argv: Profiles.command(entry.row, { brief, cwd: args.cwd, account, engine, state, id }),
-                env: Profiles.environment(entry.row, account, environment) });
+                argv: Profiles.command(entry.row, { id, brief, cwd: args.cwd, account: value, engine, state, prompts, node: process.execPath }),
+                env: Profiles.environment(entry.row, value, environment) });
             refusal = await show(kind, id, args.cwd, file);
         } finally {
             if (refusal !== null) {
@@ -355,6 +368,14 @@ function create({ directories, engine, backend, profiles = Profiles.TABLE, setti
         };
     }
 
+    /** The unanswered hooks that hold a prompt for the user. */
+    function held() { return closed ? [] : Relay.pending(prompts, clock.now()); }
+
+    /** Only the user's IPC answer enters here. The brain has no answer tool. */
+    function answer(task, prompt, value) {
+        return closed ? "daemon-ending" : Relay.answer(prompts, task, prompt, value, clock.now());
+    }
+
     /** Teardown stops observation only. Tasks outlive the daemon. */
     function close() {
         closed = true;
@@ -362,7 +383,7 @@ function create({ directories, engine, backend, profiles = Profiles.TABLE, setti
         timer = null;
     }
 
-    return Object.freeze({ executor, stop, observe, tuiState, close });
+    return Object.freeze({ executor, stop, observe, tuiState, held, answer, close });
 }
 
 module.exports = { create, PROCESSES };

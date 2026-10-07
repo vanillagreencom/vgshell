@@ -16,6 +16,9 @@ task_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
 task_gates="$sandbox/jarvis-task-gates"
 task_state="$home/.local/state/vgshell/jarvis"
 task_round=0
+task_prompts="$rt_dir/vgshell/jarvis/prompts"
+task_permission=11111111-1111-4111-8111-111111111111
+task_question=22222222-2222-4222-8222-222222222222
 mkdir -p -- "$task_gates"
 cp -- "$task_daemon" "$sandbox/jarvis-task-daemon-original"
 cp -- "$task_service" "$sandbox/jarvis-task-service-original"
@@ -55,7 +58,50 @@ task_reset() {
   task_round=$((task_round + 1))
   task_id="smoke-task-$task_round"
   task_record "$task_id" create "{\"goal\":\"Smoke fixture\",\"cwd\":\"$home\",\"agent\":\"fixture\",\"account\":\"\"}"
+  python3 - "$task_prompts" "$task_id" "$task_permission" "$task_question" <<'PYSEED'
+import json, os, sys, time
+folder, task, permission, question = sys.argv[1:]
+os.makedirs(folder, mode=0o700, exist_ok=True)
+for name in os.listdir(folder):
+    if name.endswith((".prompt.json", ".answer.json")):
+        os.unlink(os.path.join(folder, name))
+now = int(time.time() * 1000)
+for ident, kind, tool, text in [(permission, "permission", "Bash", "Bash {}"), (question, "question", None, "Which branch?")]:
+    value = dict(v=1, id=ident, task=task, kind=kind, tool=tool, text=text, at=now, deadline=now+600000)
+    target = os.path.join(folder, task + "." + ident + ".prompt.json")
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        json.dump(value, handle)
+PYSEED
 }
+task_prompt_kind() {
+  ipc vgs.jarvis invoke task-prompt "{\"task\":\"$task_id\",\"id\":\"$1\"}" | py_reply '
+import json,sys
+value=json.load(sys.stdin).get("prompt")
+print(value["kind"] if value else "none")
+'
+}
+task_response() {
+  ipc vgs.jarvis invoke task-response | py_reply '
+import json,sys
+value=json.load(sys.stdin).get("response")
+print(value["answer"] if value else "none")
+'
+}
+task_relay_scenario() {
+  expect_poll "the service exposes the held permission" permission task_prompt_kind "$task_permission"
+  expect_poll "the service exposes the held question" question task_prompt_kind "$task_question"
+  expect "the task prompt reader refuses a null query" "refused: task-prompt=shape" ipc vgs.jarvis invoke task-prompt null
+  expect "the service accepts the user's permission answer" ok ipc vgs.jarvis invoke task-answer \
+    "{\"task\":\"$task_id\",\"prompt\":\"$task_permission\",\"answer\":{\"v\":1,\"kind\":\"allow\"}}"
+  expect_poll "the daemon records the permission answer" answered task_response
+  expect_poll "an answered permission leaves the pending index" none task_prompt_kind "$task_permission"
+  expect "the service accepts the user's question answer" ok ipc vgs.jarvis invoke task-answer \
+    "{\"task\":\"$task_id\",\"prompt\":\"$task_question\",\"answer\":{\"v\":1,\"kind\":\"reply\",\"text\":\"main\"}}"
+  expect_poll "the daemon records the question answer" answered task_response
+  expect_poll "an answered question leaves the pending index" none task_prompt_kind "$task_question"
+}
+
 task_scenario() {
   expect_poll "the service reports the idle task TUI once the daemon is ready" false task_last tui-states.jsonl
   expect_poll "the daemon's live task count reaches the status" 1 task_count
@@ -101,6 +147,11 @@ assert changed != s
 p.write_text(changed)
 PY
 }
+task_relay_control() {
+  (failures=0 behaviour_failures=0
+   task_relay_scenario >"$sandbox/jarvis-task-relay-control.log"
+   if grep -qF -- "  FAIL  the service exposes the held permission:" "$sandbox/jarvis-task-relay-control.log"; then echo killed; else echo missed; fi)
+}
 task_round_start() {
   task_reset
   jarvis_rescan
@@ -110,6 +161,7 @@ task_round_start() {
 notes_on "jarvis tasks"
 task_round_start
 task_scenario
+task_relay_scenario
 jarvis_disable
 
 task_controls=(
@@ -117,7 +169,13 @@ task_controls=(
   "argv|shell.tui.run(\"task\", args, () => {|shell.tui.run(\"task\", [], () => {|the core runs the task TUI with the spec path alone"
   "count|const reply = shell.status.set(\"tasks\", message.count);|const reply = \"ok\";|the daemon's live task count reaches the status"
   "intent|        send(fields);
-        return \"ok\";|        return \"ok\";|the daemon receives the task-stop intent"
+        return \"ok\";
+    }
+
+    function respondTask|        return \"ok\";
+    }
+
+    function respondTask|the daemon receives the task-stop intent"
   "notice|if (message.answer === \"stopped\") return;|return;|a failed stop sends its notification"
 )
 for task_row in "${task_controls[@]}"; do
@@ -131,6 +189,14 @@ for task_row in "${task_controls[@]}"; do
   release_runs
   jarvis_disable
 done
+# The relay read-back must fail when the service drops the published prompts.
+notes_clear "the relay control"
+task_plant 'taskPrompts = message.prompts;' 'taskPrompts = [];'
+task_round_start
+expect "the relay publication control fails at its permission read" killed \
+  task_relay_control
+jarvis_disable
+
 notes_off "jarvis tasks"
 
 cp -- "$sandbox/jarvis-task-service-original" "$task_service"
@@ -139,3 +205,5 @@ rm -f -- "${task_gates:?}"/request-* "${task_gates:?}/replies.jsonl" "${task_gat
   "${task_gates:?}/task-stops.jsonl"
 jarvis_rescan
 jarvis_notice_close
+
+rm -f -- "${task_prompts:?}"/*.prompt.json "${task_prompts:?}"/*.answer.json

@@ -126,6 +126,7 @@ async function inside() {
             engine: options.engine ?? engine, backend, profiles,
             settings: () => ({ taskTerminal: options.terminal ?? "floating" }), display,
             count: value => seen.counts.push(value), failed: error => seen.failures.push(error.message),
+            accounts: (_agent, reference) => reference,
             environment: { ...env, XDG_RUNTIME_DIR: path.join(root, "run"), VGSHELL_RUNNER_PID: "1", FIXTURE_SECRET: "x" },
             lookup: command => command === "fixture-agent" || (command === "tmux" && options.tmuxPresent !== false),
             tmux: options.tmux ?? path.join(root, "bootstrap/tmux"),
@@ -238,7 +239,7 @@ const answer = spawnFixture("python3", ["-I", "-c", "import os; os._exit(23)"],
         assert.notEqual(changed, source);
         const copy = path.join(root, "control-" + name);
         fs.mkdirSync(copy);
-        for (const entry of ["Tasks.js", "task-event", "TaskRunner.js", "AgentProfiles.js", "task-run.py"])
+        for (const entry of ["Tasks.js", "task-event", "TaskRelay.js", "claude-hook", "TaskRunner.js", "AgentProfiles.js", "task-run.py"])
             fs.copyFileSync(path.join(backend, entry), path.join(copy, entry));
         fs.writeFileSync(path.join(copy, file), changed);
         await assert.rejects(async () => check({ Runner: require(path.join(copy, "TaskRunner.js")),
@@ -678,6 +679,7 @@ const answer = spawnFixture("python3", ["-I", "-c", "import os; os._exit(23)"],
             let entry;
             const runner = modules.Runner.create({ directories, engine: producerCopy, backend,
                 profiles: modules.Profiles.TABLE, settings: () => ({ taskTerminal: "floating" }),
+                accounts: (agent, reference) => agent === "codex" && reference === "cli:work" ? account : null,
                 environment: { ...env, CODEX_HOME: "/inherited-account", OPENAI_API_KEY: "PRIVATE_KEY",
                     VGSHELL_RUNNER_PID: "1" },
                 display: { run(args) {
@@ -692,7 +694,7 @@ const answer = spawnFixture("python3", ["-I", "-c", "import os; os._exit(23)"],
             runners.push(runner);
             runner.tuiState(false);
             const answer = await new Promise(resolve => runner.executor(() => "send").start({
-                args: { agent: "codex", account, cwd: taskCwd, goal }
+                args: { agent: "codex", account: "cli:work", cwd: taskCwd, goal }
             }, resolve));
             assert.equal(answer.outcome, "completed", answer.content);
             const { task: id } = JSON.parse(answer.content);

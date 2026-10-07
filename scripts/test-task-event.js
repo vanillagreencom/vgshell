@@ -50,7 +50,7 @@ async function inside() {
     const store = new Tasks.Store(state);
     const snapshot = path.join(root, "snapshot");
     fs.mkdirSync(snapshot);
-    for (const name of ["Tasks.js", "task-event"]) {
+    for (const name of ["Tasks.js", "task-event", "TaskRelay.js", "claude-hook"]) {
         fs.copyFileSync(path.join(backend, name), path.join(snapshot, name));
         fs.chmodSync(path.join(snapshot, name), 0o400);
     }

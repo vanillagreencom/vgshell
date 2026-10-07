@@ -288,6 +288,19 @@ function accept(line, direction) {
         } else if (message.intent === "cancel") {
             keys(message, fields.concat(["id"]), "cancel");
             if (!approvalId(message.id)) fail("approval-id");
+        } else if (message.intent === "task-respond") {
+            keys(message, fields.concat(["task", "prompt", "answer"]), "task-respond");
+            if (!taskId(message.task) || !approvalId(message.prompt)) fail("task-prompt-id");
+            var response = message.answer;
+            if (!object(response) || response.v !== 1) fail("task-response");
+            if (response.kind === "reply") {
+                keys(response, ["v", "kind", "text"], "task-response");
+                if (typeof response.text !== "string" || response.text.trim() === "" || response.text.length > 4096
+                        || /[\x00-\x09\x0b-\x1f\x7f]/.test(response.text)) fail("task-response");
+            } else {
+                keys(response, ["v", "kind"], "task-response");
+                if (["allow", "deny"].indexOf(response.kind) === -1) fail("task-response");
+            }
         } else if (message.intent === "task-stop") {
             keys(message, fields.concat(["task"]), "task-stop");
             if (!taskId(message.task)) fail("task-id");
@@ -343,6 +356,28 @@ function accept(line, direction) {
         keys(availability, availability.kind === "unavailable" ? ["kind", "reason"] : ["kind"], "shell-availability");
         if (availability.kind === "unavailable" && !printable(availability.reason, 1, FIELD_MAX))
             fail("shell-reason");
+        break;
+    case "task-prompts":
+        if (direction !== "daemon") fail("direction-task-prompts");
+        keys(message, ["v", "type", "gen", "revision", "prompts"], "task-prompts");
+        if (!Array.isArray(message.prompts) || message.prompts.length > 32) fail("task-prompts");
+        for (var prompt of message.prompts) {
+            keys(prompt, ["v", "id", "task", "kind", "tool", "text", "at", "deadline"], "task-prompt");
+            if (prompt.v !== 1 || !taskId(prompt.task) || !approvalId(prompt.id)
+                    || ["permission", "question"].indexOf(prompt.kind) === -1
+                    || (prompt.kind === "permission" ? typeof prompt.tool !== "string"
+                        || !/^[A-Za-z0-9_.:-]{1,128}$/.test(prompt.tool) : prompt.tool !== null)
+                    || typeof prompt.text !== "string" || prompt.text.length > 4096
+                    || /[\x00-\x09\x0b-\x1f\x7f]/.test(prompt.text)
+                    || !Number.isSafeInteger(prompt.at) || !Number.isSafeInteger(prompt.deadline)
+                    || prompt.deadline <= prompt.at) fail("task-prompt");
+        }
+        break;
+    case "task-response":
+        if (direction !== "daemon") fail("direction-task-response");
+        keys(message, ["v", "type", "gen", "revision", "task", "prompt", "answer"], "task-response");
+        if (!taskId(message.task) || !approvalId(message.prompt)) fail("task-prompt-id");
+        if (typeof message.answer !== "string" || !/^[a-z][a-z-]{0,39}$/.test(message.answer)) fail("task-response");
         break;
     case "task-answer":
         if (direction !== "daemon") fail("direction-task-answer");

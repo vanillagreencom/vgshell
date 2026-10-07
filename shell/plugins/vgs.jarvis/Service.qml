@@ -37,6 +37,8 @@ Item {
     readonly property bool locked: lockObservation()
     readonly property var effectiveKeys: shell === null ? null : shell.shortcut.keys
     // The daemon judges one floating task at a time from this run state.
+    property var taskPrompts: []
+    property var taskResponse: null
     readonly property bool taskTuiRunning: shell !== null && shell.tui.state.task.running
     readonly property string daemon: String(Qt.resolvedUrl("backend/jarvisd.js")).replace(/^file:\/\//, "")
     // Quickshell builds its desktop entry index on first use and fills it
@@ -57,6 +59,19 @@ Item {
             // The console's Stop button and `vgshell ipc call vgs.jarvis
             // stop-task <id>` stop one coding task. The Stop key does not.
             shell.ipc.handle("stop-task", task => stopTask(task));
+            // Task voice and console clients read a bounded index, then one
+            // prompt. No model tool can call the answer entry.
+            shell.ipc.handle("task-prompts", () => JSON.stringify({ prompts: taskPrompts.map(prompt =>
+                ({ task: prompt.task, id: prompt.id, kind: prompt.kind })) }));
+            shell.ipc.handle("task-prompt", text => {
+                let query;
+                try { query = JSON.parse(text); } catch (error) { return "refused: task-prompt=json"; }
+                if (query === null || typeof query !== "object") return "refused: task-prompt=shape";
+                const prompt = taskPrompts.find(value => value.task === query.task && value.id === query.id);
+                return JSON.stringify({ prompt: prompt === undefined ? null : prompt });
+            });
+            shell.ipc.handle("task-answer", text => respondTask(text));
+            shell.ipc.handle("task-response", () => JSON.stringify({ response: taskResponse }));
             shell.layers.show(bubble);
             start();
         }
@@ -136,6 +151,8 @@ Item {
         if (audioReport !== "ok") throw new Error("jarvis: " + audioReport);
         const quiet = shell.status.set("level", { capture: 0, playback: 0 });
         if (quiet !== "ok") throw new Error("jarvis: " + quiet);
+        taskPrompts = [];
+        taskResponse = null;
         const idle = shell.status.set("tasks", 0);
         if (idle !== "ok") throw new Error("jarvis: " + idle);
         const silent = shell.status.set("transcript", null);
@@ -250,6 +267,23 @@ Item {
         try {
             Protocol.accept(JSON.stringify(Object.assign({ v: 1, gen: 0, revision: shell.manifest.__revision }, fields)), "shell");
         } catch (error) { return "refused: " + error.message; }
+        send(fields);
+        return "ok";
+    }
+
+    function respondTask(text) {
+        if (shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running)
+            return "refused: jarvis=not-ready";
+        if (locked) return "refused: task-answer=locked";
+        let response;
+        try { response = JSON.parse(text); } catch (error) { return "refused: task-answer=json"; }
+        if (response === null || typeof response !== "object") return "refused: task-answer=shape";
+        const fields = { type: "intent", intent: "task-respond", task: response.task,
+            prompt: response.prompt, answer: response.answer };
+        try {
+            Protocol.accept(JSON.stringify(Object.assign({ v: 1, gen: 0, revision: shell.manifest.__revision }, fields)), "shell");
+        } catch (error) { return "refused: " + error.message; }
+        taskResponse = null;
         send(fields);
         return "ok";
     }
@@ -434,6 +468,14 @@ Item {
                 if (message.type === "tasks") {
                     const reply = shell.status.set("tasks", message.count);
                     if (reply !== "ok") throw new Error("jarvis: " + reply);
+                    continue;
+                }
+                if (message.type === "task-prompts") {
+                    taskPrompts = message.prompts;
+                    continue;
+                }
+                if (message.type === "task-response") {
+                    taskResponse = { task: message.task, prompt: message.prompt, answer: message.answer };
                     continue;
                 }
                 if (message.type === "task-answer") {

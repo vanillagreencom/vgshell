@@ -58,6 +58,11 @@ const taskRequest = { v: 1, type: "request", gen: 0, revision: hello.revision, i
     args: ["/run/user/1000/vgshell/jarvis/tasks/" + taskStop.task + ".json"] };
 const tasks = { v: 1, type: "tasks", gen: 0, revision: hello.revision, count: 2 };
 const taskAnswer = { v: 1, type: "task-answer", gen: 0, revision: hello.revision, task: taskStop.task, answer: "stop-incomplete" };
+const taskRespond = { ...intent, intent: "task-respond", task: taskStop.task, prompt: id, answer: { v: 1, kind: "allow" } };
+const taskResponse = { ...taskAnswer, type: "task-response", prompt: id, answer: "answered" };
+const promptRecord = { v: 1, id, task: taskStop.task, kind: "permission", tool: "Bash", text: "Bash {}", at: 1000, deadline: 601000 };
+const taskPrompts = { ...tasks, type: "task-prompts", prompts: [promptRecord] };
+delete taskPrompts.count;
 const transcript = { v: 1, type: "transcript", gen: 0, revision: hello.revision, role: "user", text: " the time?", stage: "partial", rev: 1 };
 const changed = (message, extra) => JSON.stringify({ ...message, ...extra });
 const inputReply = { ...reply, kind: "input.observe", data: { ok: true, target: { kind: "application", id: "fixture", window: "0xa1" }, cursor: { x: 1, y: 2 } } };
@@ -66,6 +71,15 @@ const inputReady = { ...status, type: "input-ready", commands: ["wtype", "wlrctl
 delete inputReady.daemon;
 delete inputReady.causes;
 const cases = [
+    ["task-respond-direction", JSON.stringify(taskRespond), "daemon", "direction-intent"],
+    ["task-respond-id", changed(taskRespond, { prompt: "bad" }), "shell", "task-prompt-id"],
+    ["task-respond-shape", changed(taskRespond, { answer: { v: 1, kind: "allow", extra: true } }), "shell", "shape-task-response"],
+    ["task-respond-kind", changed(taskRespond, { answer: { v: 1, kind: "finish" } }), "shell", "task-response"],
+    ["task-respond-empty", changed(taskRespond, { answer: { v: 1, kind: "reply", text: " " } }), "shell", "task-response"],
+    ["task-response-direction", JSON.stringify(taskResponse), "shell", "direction-task-response"],
+    ["task-prompts-direction", JSON.stringify(taskPrompts), "shell", "direction-task-prompts"],
+    ["task-prompts-shape", changed(taskPrompts, { prompts: [{ ...promptRecord, extra: 1 }] }), "daemon", "shape-task-prompt"],
+    ["task-prompts-kind", changed(taskPrompts, { prompts: [{ ...promptRecord, kind: "finished", tool: null }] }), "daemon", "task-prompt"],
     ["transcript-direction", JSON.stringify(transcript), "shell", "direction-transcript"],
     ["transcript-shape", changed(transcript, { partial: true }), "daemon", "shape-transcript"],
     ["transcript-role", changed(transcript, { role: "system" }), "daemon", "transcript-role"],
@@ -245,12 +259,12 @@ for (const shown of [false, true])
     assert.equal(Protocol.accept(changed(indicator, { shown }), "shell").shown, shown);
 assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, mode: "toggle" },
     keys: { talk: null, mute: null, stop: null, confirm: null } }), "shell").settings.mode, "toggle");
-for (const message of [devices, level, audioFault, taskRequest, tasks, taskAnswer, { ...tasks, count: 0 },
+for (const message of [devices, level, audioFault, taskRequest, tasks, taskAnswer, taskPrompts, taskResponse, { ...tasks, count: 0 },
     transcript, { ...transcript, role: "assistant", stage: "final", text: "a".repeat(4096), rev: 2 },
     shellStatus, { ...shellStatus, availability: { kind: "checking" } },
     { ...shellStatus, availability: { kind: "unavailable", reason: "bwrap-missing" } }])
     assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), "daemon")), JSON.stringify(message));
-for (const message of [requirementsScan, { ...requirementsScan, scan: 0 }, { ...requirementsScan, scan: Number.MAX_SAFE_INTEGER }, taskStop, tuiState, { ...tuiState, running: false }, taskReply, { ...taskReply, answer: "ok" },
+for (const message of [taskRespond, { ...taskRespond, answer: { v: 1, kind: "reply", text: "main" } }, requirementsScan, { ...requirementsScan, scan: 0 }, { ...requirementsScan, scan: Number.MAX_SAFE_INTEGER }, taskStop, tuiState, { ...tuiState, running: false }, taskReply, { ...taskReply, answer: "ok" },
     { ...taskReply, answer: "x".repeat(300) }])
     assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), "shell")), JSON.stringify(message));
 for (const cloudVision of ["ask", "allow", "never"])
@@ -341,6 +355,9 @@ try {
         controls++;
     }
     const guards = [
+        ["task-response-direction", 'if (direction !== "daemon") fail("direction-task-response");', 'if (false) fail("direction-task-response");', "task-response-direction"],
+        ["task-prompt-kind", '["permission", "question"].indexOf(prompt.kind) === -1', 'false', "task-prompts-kind"],
+        ["task-answer-kind", '["allow", "deny"].indexOf(response.kind) === -1', 'false', "task-respond-kind"],
         ["input-symbol-type", '!Number.isSafeInteger(key.codepoint)', 'false', "input-codepoint-0.5"],
         ["input-symbol-floor", ' || key.codepoint < 0', '', "input-codepoint--1"],
         ["input-symbol-ceiling", ' || key.codepoint > 0x10ffff', '', "input-codepoint-1114112"],

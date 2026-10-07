@@ -496,10 +496,10 @@ jarvis_accounts_rows=$'node scripts/test-jarvis-accounts.js\nnode scripts/test-j
 jarvis_secrets_plan=$'node scripts/test-jarvis-net.js\nnode scripts/test-jarvis-secrets.js\n'"$jarvis_accounts_rows$repo_plan"
 # The world helper also selects the local speech adapter beside the audio rows.
 jarvis_world_audio_rows="${jarvis_audio_rows/test-jarvis-engine.js$'\n'/test-jarvis-engine.js$'\n'node scripts/test-jarvis-local-speech.js$'\n'}"
-jarvis_owner_plan="$jarvis_policy_rows"$'node scripts/test-jarvis-tasks.js\nnode scripts/test-jarvis-daemon.js\n'"$jarvis_world_audio_rows"$'node scripts/test-task-event.js\nnode scripts/test-jarvis-task-runner.js\nnode scripts/test-jarvis-secrets.js\n'"$jarvis_accounts_rows"$'scripts/test-install-tree.sh\n'"$jarvis_helper_plan"
+jarvis_owner_plan="$jarvis_policy_rows"$'node scripts/test-jarvis-tasks.js\nnode scripts/test-jarvis-daemon.js\n'"$jarvis_world_audio_rows"$'node scripts/test-task-event.js\nnode scripts/test-jarvis-task-runner.js\nnode scripts/test-jarvis-claude-task.js\nnode scripts/test-jarvis-secrets.js\n'"$jarvis_accounts_rows"$'scripts/test-install-tree.sh\n'"$jarvis_helper_plan"
 jarvis_daemon_plan=$'node scripts/test-jarvis-daemon.js\n'"$repo_plan"
 jarvis_live_plan=$'node scripts/test-jarvis-live.js\n'"$repo_plan"
-jarvis_fixture_plan=$'node scripts/test-jarvis-protocol.js\nnode scripts/test-jarvis-tasks.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-task-event.js\nnode scripts/test-jarvis-task-runner.js\n'"$repo_plan"
+jarvis_fixture_plan=$'node scripts/test-jarvis-protocol.js\nnode scripts/test-jarvis-tasks.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-task-event.js\nnode scripts/test-jarvis-task-runner.js\nnode scripts/test-jarvis-claude-task.js\n'"$repo_plan"
 jarvis_guidance_plan=$'node scripts/test-jarvis-guidance.js\n'"$repo_plan"
 jarvis_speakable_plan=$'node scripts/test-jarvis-speakable.js\n'"$repo_plan"
 jarvis_language_plan=$'node scripts/test-jarvis-guidance.js\nnode scripts/test-jarvis-speakable.js\nnode scripts/test-jarvis-speech-language.js\n'"$repo_plan"
@@ -605,7 +605,7 @@ cases=(
   "jarvis-key-tui-fixture|scripts/fixtures/jarvis/key-tui.py|offline|node scripts/test-jarvis-net.js"$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-secrets.js\n'"$repo_plan"
   "jarvis-key-fixture|scripts/fixtures/jarvis/keys-world.js|offline|node scripts/test-jarvis-net.js"$'\nnode scripts/test-jarvis-brain-openai.js\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-live.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-secrets.js\n'"$repo_plan"
   "jarvis-task-suite|scripts/test-jarvis-tasks.js|offline|node scripts/test-jarvis-tasks.js"$'\n'"$repo_plan"
-  "jarvis-audio-task-input|shell/plugins/vgs.jarvis/backend/Tasks.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-task-event.js\nnode scripts/test-jarvis-task-runner.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-audio-task-input|shell/plugins/vgs.jarvis/backend/Tasks.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-task-event.js\nnode scripts/test-jarvis-task-runner.js\nnode scripts/test-jarvis-claude-task.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
   "task-event-suite|scripts/test-task-event.js|offline|node scripts/test-task-event.js"$'\n'"$repo_plan"
   "task-event-prefix|scripts/test-task-event.js|all|node scripts/test-task-event.js"$'\n'"$repo_plan"$'\nscripts/qml-smoke.sh'
   "jarvis-audio-suite|scripts/test-jarvis-audio.js|offline|node scripts/test-jarvis-audio.js"$'\n'"$repo_plan"

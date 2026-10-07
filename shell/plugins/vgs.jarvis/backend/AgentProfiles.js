@@ -4,6 +4,7 @@
 // here once. TaskRunner.js consumes this module; nothing here starts a process.
 "use strict";
 const path = require("node:path");
+const Relay = require("./TaskRelay.js");
 
 const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"];
 // Spec env keys an agent receives from the daemon's own environment. The
@@ -29,7 +30,10 @@ function absolute(value) {
 /**
  * A row is { program, argv(task) -> string[], account: { variable } | null,
  * interrupt: { signal }, interruptMs }. program is the bare command the
- * agent's argv starts with; argv receives { brief, cwd, account, engine, state, id }.
+ * agent's argv starts with; argv receives { id, brief, cwd, account, engine,
+ * state, prompts, node }: account is the resolved value of the account
+ * variable or "", engine the task's recorded producer, prompts the relay
+ * directory and node the absolute Node a hook runs under.
  */
 function row(id, value) {
     if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) fail("id value=" + id);
@@ -53,6 +57,27 @@ function table(rows) {
     return Object.freeze(out);
 }
 
+// Claude Code hook events, each with its timeout in seconds. A held event's
+// timeout is the relay window plus a margin, so the hook, not Claude Code,
+// ends the hold; SessionEnd's raises its 1.5 s default budget for the record.
+const CLAUDE_HOOKS = [["UserPromptSubmit", 30], ["Notification", 30],
+    ["PermissionRequest", Relay.WINDOW_MS / 1000 + 60], ["Stop", Relay.WINDOW_MS / 1000 + 60],
+    ["StopFailure", 30], ["SessionEnd", 10]];
+
+/**
+ * The --settings value for one Claude Code task: one exec-form command hook
+ * per event (`args` set, so no shell reads a path), running the engine
+ * copy's claude-hook. --settings lasts one session and writes no file.
+ */
+function claudeSettings(task) {
+    const hook = path.join(path.dirname(task.engine), "claude-hook");
+    const hooks = {};
+    for (const [event, timeout] of CLAUDE_HOOKS)
+        hooks[event] = [{ hooks: [{ type: "command", command: task.node, timeout,
+            args: [hook, "--state", task.state, "--prompts", task.prompts, "--window", String(Relay.WINDOW_MS), task.id, event] }] }];
+    return JSON.stringify({ hooks });
+}
+
 const TABLE = table({
     codex: {
         program: "codex",
@@ -66,6 +91,17 @@ const TABLE = table({
         argv: task => ["codex", "--no-daemon", "-c", "notify=" + JSON.stringify([
             "node", task.engine, "--state", task.state, task.id, "--codex-notify"
         ]), "--", task.brief]
+    },
+    // Claude Code in its own interactive terminal, under its own permission
+    // mode and rules: Jarvis passes no permission flag. The brief is the
+    // session's first prompt, after "--" so a goal that starts with "-" is not
+    // read as a flag.
+    claude: {
+        program: "claude",
+        argv: task => ["claude", "--settings", claudeSettings(task), "--", task.brief],
+        account: { variable: "CLAUDE_CONFIG_DIR" },
+        interrupt: { signal: "SIGINT" },
+        interruptMs: 3000
     }
 });
 
