@@ -611,8 +611,11 @@ async function inside() {
         const lifecycleGates = path.join(path.dirname(file), "lifecycle-gates");
         instrument(file, lifecycleGates);
         const scriptedDaemon = fs.readFileSync(file);
-        const effects = kind => fs.readFileSync(path.join(lifecycleGates, "effects.jsonl"), "utf8")
-            .trim().split("\n").map(JSON.parse).filter(row => row.kind === kind).length;
+        const effects = kind => {
+            const log = path.join(lifecycleGates, "effects.jsonl");
+            return fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n").map(JSON.parse)
+                .filter(row => row.kind === kind).length : 0;
+        };
         const firstTalk = () => conversation(file, async w => {
             assert.equal(w.last().state.gate.kind, "up", "scripted first Talk requires its ready engine");
             const cues = effects("feedback-start"), opens = effects("capture-open");
