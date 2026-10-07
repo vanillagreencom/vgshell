@@ -126,6 +126,7 @@ expect "enabling Voice is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "the Voice service is built" True record_exists vgs.voice
 expect "enabling Key Hints is allowed" ok ipc shell setPluginEnabled vgs.keyhints true
 expect_poll "the Key Hints service is built" True record_exists vgs.keyhints
+expect_poll "the Key Hints shortcut reaches Hyprland before its first key" True kh_bound_has vgs.keyhints:toggle
 kh_toggle || fail "typing SUPER+SLASH failed"
 expect_poll "SUPER+SLASH opens the Key Hints window" 1 window_count "$kh_title"
 expect_poll "the Key Hints window has the keyboard" "[\"$shell_class\", \"$kh_title\"]" active_window
