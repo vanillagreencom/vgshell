@@ -55,7 +55,11 @@ Item {
     }
 
     function dragPoint() {
-        return dragHandler.centroid.scenePosition;
+        // HandlerPoint.scenePressPosition keeps the pickup offset when a
+        // drag activates after its threshold (Qt Quick HandlerPoint reference).
+        const centroid = dragHandler.centroid;
+        return { x: centroid.scenePosition.x, y: centroid.scenePosition.y,
+            pressX: centroid.scenePressPosition.x, pressY: centroid.scenePressPosition.y };
     }
 
     // Qt Quick still hands a press a child button accepted to this parent

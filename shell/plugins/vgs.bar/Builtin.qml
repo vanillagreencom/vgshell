@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Layouts
 
 // One built-in widget of the bar, chosen by name, and registered with the
 // core as `<section>-<name>` so the build records list it under the bar's
@@ -12,24 +11,24 @@ import QtQuick.Layouts
 Loader {
     id: root
 
-    required property string modelData
+    required property string name
     required property Item barItem
     required property string section
     property var release: null
 
-    Layout.alignment: Qt.AlignVCenter
-    sourceComponent: modelData === "clock" ? clock : modelData === "workspaces" ? workspaces : null
+    y: (parent.height - height) / 2
+    sourceComponent: name === "clock" ? clock : name === "workspaces" ? workspaces : null
 
     Component { id: clock; Clock { bar: root.barItem } }
     Component { id: workspaces; Workspaces { bar: root.barItem } }
 
     Component.onCompleted: {
         if (sourceComponent !== null) return;
-        if (modelData === "manager")
+        if (name === "manager")
             console.error("bar: no built-in widget named \"manager\": the plugin manager moved to the Plugins plugin, vgs.settings; `vgshell plugin enable vgs.settings` places its plug in the bar");
         else
-            console.error("bar: no built-in widget named " + JSON.stringify(modelData));
+            console.error("bar: no built-in widget named " + JSON.stringify(name));
     }
-    onLoaded: release = barItem.shell.builtins.register(section + "-" + modelData, item)
+    onLoaded: release = barItem.shell.builtins.register(section + "-" + name, item)
     Component.onDestruction: if (release !== null) release()
 }

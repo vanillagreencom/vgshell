@@ -1,5 +1,5 @@
 import QtQuick
-import QtQuick.Layouts
+import QtQml.Models
 import qs.Commons
 
 // The bar: three sections across the surface. Each section shows the bar's
@@ -48,22 +48,67 @@ Item {
     readonly property string centerKey: builtinsKey("center")
     readonly property string rightKey: builtinsKey("right")
 
-    RowLayout {
+    // ListModel.move keeps the Repeater's existing delegates (Qt ListModel
+    // and Repeater references); only an added or removed name changes lifetime.
+    function syncBuiltins(model, key) {
+        const names = JSON.parse(key);
+        for (let i = model.count - 1; i >= 0; --i)
+            if (names.indexOf(model.get(i).name) === -1) model.remove(i);
+        for (let i = 0; i < names.length; ++i) {
+            let at = i;
+            while (at < model.count && model.get(at).name !== names[i]) ++at;
+            if (at === model.count) model.insert(i, { name: names[i] });
+            else if (at !== i) model.move(at, i, 1);
+        }
+    }
+    ListModel { id: leftModel }
+    ListModel { id: centerModel }
+    ListModel { id: rightModel }
+    onLeftKeyChanged: syncBuiltins(leftModel, leftKey)
+    onCenterKeyChanged: syncBuiltins(centerModel, centerKey)
+    onRightKeyChanged: syncBuiltins(rightModel, rightKey)
+    Component.onCompleted: {
+        syncBuiltins(leftModel, leftKey);
+        syncBuiltins(centerModel, centerKey);
+        syncBuiltins(rightModel, rightKey);
+    }
+
+    // Row's move transition animates children displaced by a gap or a
+    // model move: https://doc.qt.io/qt-6/qml-qtquick-row.html#move-prop.
+    Row {
         id: left
+        move: Transition {
+            NumberAnimation { properties: "x"; duration: Theme.motion.duration.normal; easing.type: Theme.motion.easing.standard }
+        }
+        add: Transition {
+            NumberAnimation { properties: "x"; duration: Theme.motion.duration.normal; easing.type: Theme.motion.easing.standard }
+        }
         spacing: Theme.bar.gap
         anchors { left: parent.left; leftMargin: Theme.bar.padding; top: parent.top; bottom: parent.bottom }
-        Repeater { model: JSON.parse(bar.leftKey); Builtin { barItem: bar; section: "left" } }
+        Repeater { model: leftModel; Builtin { barItem: bar; section: "left" } }
     }
-    RowLayout {
+    Row {
         id: center
+        move: Transition {
+            NumberAnimation { properties: "x"; duration: Theme.motion.duration.normal; easing.type: Theme.motion.easing.standard }
+        }
+        add: Transition {
+            NumberAnimation { properties: "x"; duration: Theme.motion.duration.normal; easing.type: Theme.motion.easing.standard }
+        }
         spacing: Theme.bar.gap
         anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; bottom: parent.bottom }
-        Repeater { model: JSON.parse(bar.centerKey); Builtin { barItem: bar; section: "center" } }
+        Repeater { model: centerModel; Builtin { barItem: bar; section: "center" } }
     }
-    RowLayout {
+    Row {
         id: right
+        move: Transition {
+            NumberAnimation { properties: "x"; duration: Theme.motion.duration.normal; easing.type: Theme.motion.easing.standard }
+        }
+        add: Transition {
+            NumberAnimation { properties: "x"; duration: Theme.motion.duration.normal; easing.type: Theme.motion.easing.standard }
+        }
         spacing: Theme.bar.gap
         anchors { right: parent.right; rightMargin: Theme.bar.padding; top: parent.top; bottom: parent.bottom }
-        Repeater { model: JSON.parse(bar.rightKey); Builtin { barItem: bar; section: "right" } }
+        Repeater { model: rightModel; Builtin { barItem: bar; section: "right" } }
     }
 }

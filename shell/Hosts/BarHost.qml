@@ -59,18 +59,7 @@ Item {
                 onBuildFailed: key => host.brokenKey = key
             }
 
-            Rectangle {
-                id: dropMarker
-                readonly property var drag: Plugins.barDrag
-                visible: drag !== null && drag.hostKey === host.hostKey
-                x: visible ? drag.markerX - width / 2 : 0
-                y: Theme.bar.padding
-                width: Theme.border.thick
-                height: Math.max(Theme.border.thick, parent.height - 2 * Theme.bar.padding)
-                radius: Theme.radius.full
-                color: Theme.color.focus
-                z: 1
-            }
+
 
         }
     }

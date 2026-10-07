@@ -13,6 +13,8 @@ import "Commons/ThemeLogic.js" as ThemeLogic
 // owns test setup, so tests add no callable methods to the shipped shell.
 Scope {
     id: root
+    property var rememberedBarWidgets: []
+    property string rememberedBarHost: ""
     property var rememberedNetworkDevice: null
     property Item rememberedNetworkShare: null
     property var networkOriginalShell: null
@@ -1289,6 +1291,34 @@ Scope {
         }
         function configSettled(): bool { return !Config.smokeUserView.busy; }
         function readInstance(hostKey: string, id: string, property: string): string { return root.read(hostKey, id, property); }
+        function rememberBarWidgets(hostKey: string): string {
+            const rows = Plugins.built[hostKey];
+            if (!rows) return "absent";
+            root.rememberedBarHost = hostKey;
+            root.rememberedBarWidgets = rows.filter(row => row.origin === "plugin" || row.kind === "bar-widget")
+                .map(row => ({ id: row.id, item: row.instance }));
+            return root.json(root.rememberedBarWidgets.map(row => row.id).sort());
+        }
+        function barWidgetIdentities(): string {
+            const rows = Plugins.built[root.rememberedBarHost];
+            if (!rows || root.rememberedBarWidgets.length === 0) return "absent";
+            return root.json(root.rememberedBarWidgets.filter(saved => !rows.some(row => row.instance === saved.item))
+                .map(saved => saved.id).sort());
+        }
+        function forgetBarWidgets(): string {
+            root.rememberedBarWidgets = [];
+            root.rememberedBarHost = "";
+            return "ok";
+        }
+        function barDragGeometry(hostKey: string): string {
+            const drag = Plugins.barDrag;
+            if (drag === null || drag.hostKey !== hostKey) return "absent";
+            const bar = Plugins.mounts[hostKey].row.instance;
+            return root.json({ section: drag.section, index: drag.index,
+                item: root.windowBox(drag.item), gap: root.windowBox(drag.gap),
+                target: root.windowBox(bar[drag.section + "Section"]) });
+        }
+
         function shotChrome(clear: bool): string { return root.chromeWord(clear); }
         // The core's session lock, taken and released without a password,
         // for rows/lock.sh: a sandbox row never runs PAM against the real

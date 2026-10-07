@@ -31,7 +31,7 @@ Singleton {
     property var built: Object.create(null)
     // Per bar instance, the widgets the core mounted in each of its
     // sections, keyed by the bar's host key: { row, sections: { <section>:
-    // { idsKey, entries } } }, `entries` one { key, widget } per wanted
+    // { entries } } }, `entries` one { key, widget } per wanted
     // layout entry, in order, `widget` null where the build failed, so a
     // later entry keeps its own settings. Not a binding input; read and
     // replaced only by the reconciler.
@@ -86,7 +86,7 @@ Singleton {
             // Escape and compositor exits end the capture while the pointer
             // is still held, so the later release must not drop the widget.
             if (root.barDrag !== null && ended.item === root.barDrag.item && ended.reason !== "commit")
-                root.barDrag = null;
+                root.cancelBarDrag();
         }
     }
     // Place every widget that has no presence yet (PluginLogic.firstPresence)
@@ -271,10 +271,24 @@ Singleton {
     // A drag takes the keyboard through the window-free key capture and
     // leaves the bar's keyboard focus as it is: Hyprland v0.56.2 ends a held
     // press when a layer surface's keyboard interactivity changes.
+    Component { id: gapComponent; Item {} }
+
     function dragStart(hostKey, id, locator, item, point) {
+        cancelBarDrag();
         const row = rowFor(hostKey, item);
         const ctx = { onDispose: cleanup => row.lifetime.register(cleanup) };
-        barDrag = { hostKey: hostKey, id: id, item: item, from: Object.assign({ id: id }, locator), section: locator.section, before: null, index: 0, markerX: 0 };
+        const bar = mounts[hostKey].row.instance;
+        const origin = item.mapToItem(bar, 0, 0);
+        const gap = gapComponent.createObject(bar, { width: item.width, height: item.height });
+        barDrag = { hostKey: hostKey, id: id, item: item, gap: gap,
+            offset: { x: point.pressX - origin.x, y: point.pressY - origin.y },
+            from: Object.assign({ id: id }, locator), section: locator.section, before: null, index: 0 };
+        // Visual parenting keeps the QObject and its pointer grab alive;
+        // placement.sh reads that identity and holds the same press across it.
+        item.parent = bar;
+        item.z = 1;
+        item.x = origin.x;
+        item.y = origin.y;
         Capabilities.keyCapture.begin(ctx, item, { anyWindow: true });
         dragMove(hostKey, point);
     }
@@ -302,7 +316,13 @@ Singleton {
             sections[section] = barDragSectionGeometry(hostKey, section);
         const target = Logic.barDropTarget(mount.row.instance.width, point.x, sections);
         const index = Logic.barDropIndex(Config.effective, target.section, target.before, barDrag.from, barDrag.id);
-        barDrag = Object.assign({}, barDrag, { section: target.section, before: target.before, index: index, markerX: target.markerX });
+        const drag = barDrag;
+        drag.item.x = point.x - drag.offset.x;
+        drag.item.y = point.y - drag.offset.y;
+        if (drag.gap.parent === mount.row.instance || drag.section !== target.section || drag.index !== index) {
+            barDrag = Object.assign({}, drag, { section: target.section, before: target.before, index: index });
+            positionBar(hostKey, barDrag);
+        }
     }
 
     // A release outside the bar writes nothing. Hyprland ends the press at
@@ -312,17 +332,22 @@ Singleton {
     // waits one turn and barLeft cancels it.
     function dragEnd(hostKey, point) {
         const drag = barDrag;
-        barDrag = null;
         if (drag !== null && drag !== undefined) Capabilities.keyCapture.end(drag.item, "commit");
         if (drag === null || drag.hostKey !== hostKey || !Logic.hasOwn(mounts, hostKey)) return;
         const bar = mounts[hostKey].row.instance;
-        if (point.x < 0 || point.y < 0 || point.x >= bar.width || point.y >= bar.height) return;
+        if (point.x < 0 || point.y < 0 || point.x >= bar.width || point.y >= bar.height) { cancelBarDrag(); return; }
         const drop = drag;
         barDrop = drop;
         Qt.callLater(() => {
             if (barDrop !== drop) return;
             barDrop = null;
+            // Keep the gap until the synchronous write publishes its order.
+            // Reconcile then puts the held instance into that same place.
+            barDrag = null;
+            drop.gap.destroy();
+            drop.item.z = 0;
             const reply = moveWidget(drop.id, drop.section, drop.index, drop.from);
+            if (reply !== "ok") positionBar(hostKey, null);
             if (reply !== "ok") console.warn("plugins: move " + drop.id + " " + reply);
         });
     }
@@ -330,6 +355,7 @@ Singleton {
     // The pointer left bar `hostKey`: a drag released there is cancelled.
     function barLeft(hostKey) {
         if (barDrop !== null && barDrop.hostKey === hostKey) barDrop = null;
+        if (barDrag !== null && barDrag.hostKey === hostKey) cancelBarDrag();
     }
 
     // What the widget frame's Hide dialog says about plugin `id`, read when it
@@ -405,7 +431,7 @@ Singleton {
 
     function mountBar(hostKey, row) {
         const sections = {};
-        for (const section of Logic.SECTIONS) sections[section] = { idsKey: "", entries: [] };
+        for (const section of Logic.SECTIONS) sections[section] = { entries: [] };
         const next = Object.assign(Object.create(null), mounts);
         next[hostKey] = { row: row, sections: sections };
         mounts = next;
@@ -413,6 +439,7 @@ Singleton {
     }
 
     function unmountBar(hostKey) {
+        if (barDrag !== null && barDrag.hostKey === hostKey) cancelBarDrag();
         const mount = mounts[hostKey];
         for (const section of Logic.SECTIONS)
             for (const entry of mount.sections[section].entries)
@@ -422,65 +449,87 @@ Singleton {
         mounts = next;
     }
 
-    // Bring one bar's sections to `layout`, the effective layout: the
-    // widgets each section shows with enablement already applied. A section
-    // whose id sequence changed is rebuilt whole, in order; a section whose
-    // ids are unchanged keeps its widgets and only the entries that changed
-    // are handed their new settings, so an unrelated write builds nothing.
-    // The section's entries stay aligned with `wanted`, a failed build
-    // included, so an edit to one entry reaches that entry's widget alone.
+    // The section order changes visual parents, never widget lifetime. The
+    // exact entry key keeps each repeated widget's settings with its object.
     function reconcileBar(hostKey, layout) {
+        if (barDrag !== null && barDrag.hostKey === hostKey) cancelBarDrag();
         const mount = mounts[hostKey];
         const manifests = Registry.manifests;
         const holders = Capabilities.exclusiveHolders();
+        const pool = Logic.SECTIONS.flatMap(section => mount.sections[section].entries);
         for (const section of Logic.SECTIONS) {
             const wanted = layout[section].filter(e => Logic.lendRefusal(holders, manifests[e.id]) === "");
-            const state = mount.sections[section];
-            const idsKey = JSON.stringify(wanted.map(e => e.id));
-            const entryKeys = wanted.map(e => JSON.stringify(e));
-            if (idsKey !== state.idsKey) {
-                for (const entry of state.entries)
-                    if (entry.widget !== null) destroyBuilt(hostKey, entry.widget);
-                state.entries = [];
-                state.idsKey = "";
-                const container = sectionContainer(mount.row, section);
-                if (container === null) continue;
-                const entries = [];
-                for (let i = 0; i < wanted.length; i++) {
-                    const nth = wanted.slice(0, i).filter(e => e.id === wanted[i].id).length;
-                    const widget = createWidget(wanted[i].id, container, mount.row, wanted[i], hostKey, { section: section, nth: nth });
-                    entries.push({ key: entryKeys[i], revision: manifests[wanted[i].id].__revision, widget: widget, locator: { id: wanted[i].id, section: section, nth: nth } });
+            const container = sectionContainer(mount.row, section);
+            const entries = [];
+            for (let i = 0; container !== null && i < wanted.length; ++i) {
+                const spec = wanted[i];
+                const key = JSON.stringify(spec);
+                const revision = manifests[spec.id].__revision;
+                const nth = wanted.slice(0, i).filter(e => e.id === spec.id).length;
+                let at = pool.findIndex(entry => entry.locator.id === spec.id && entry.key === key && entry.revision === revision);
+                if (at === -1) at = pool.findIndex(entry => entry.locator.id === spec.id && entry.revision === revision);
+                let entry;
+                if (at !== -1) {
+                    entry = pool.splice(at, 1)[0];
+                    // The configure provider and frame both hold this locator.
+                    entry.locator.section = section;
+                    entry.locator.nth = nth;
+                    if (entry.widget !== null) refreshRow(rowFor(hostKey, entry.widget), spec);
+                    entry.key = key;
+                } else {
+                    const locator = { id: spec.id, section: section, nth: nth };
+                    entry = { key: key, revision: revision, locator: locator,
+                        widget: createWidget(spec.id, container, mount.row, spec, hostKey, locator) };
                 }
-                state.entries = entries;
-                state.idsKey = idsKey;
-                continue;
+                entries.push(entry);
             }
-            for (let i = 0; i < state.entries.length; i++) {
-                const entry = state.entries[i];
-                const revision = manifests[wanted[i].id].__revision;
-                if (revision !== entry.revision) {
-                    // This entry's source changed: rebuild it alone. A new
-                    // child lands last in its section, so the widgets that
-                    // follow it are re-parented behind it to keep the
-                    // layout's order; stackBefore is not callable from QML.
-                    if (entry.widget !== null) destroyBuilt(hostKey, entry.widget);
-                    const container = sectionContainer(mount.row, section);
-                    const nth = wanted.slice(0, i).filter(e => e.id === wanted[i].id).length;
-                    entry.widget = container === null ? null : createWidget(wanted[i].id, container, mount.row, wanted[i], hostKey, { section: section, nth: nth });
-                    entry.locator = { id: wanted[i].id, section: section, nth: nth };
-                    entry.revision = revision;
-                    if (entry.widget !== null)
-                        for (const later of state.entries.slice(i + 1))
-                            if (later.widget !== null) {
-                                later.widget.parent = null;
-                                later.widget.parent = container;
-                            }
+            mount.sections[section].entries = entries;
+        }
+        for (const entry of pool)
+            if (entry.widget !== null) destroyBuilt(hostKey, entry.widget);
+        positionBar(hostKey, null);
+    }
+
+    // Qt Row lays out child order; reparent only the suffix whose order
+    // changed. Existing children displaced by the gap use Row.move.
+    function positionBar(hostKey, drag) {
+        const mount = mounts[hostKey];
+        for (const section of Logic.SECTIONS) {
+            const container = sectionContainer(mount.row, section);
+            if (container === null) continue;
+            const entries = mount.sections[section].entries.filter(entry => entry.widget !== null && (drag === null || entry.widget !== drag.item));
+            const items = entries.map(entry => entry.widget);
+            if (drag !== null && drag.section === section) {
+                const at = drag.before === null ? items.length : entries.findIndex(entry => Logic.locatorEquals(drag.before, entry.locator.id, entry.locator.section, entry.locator.nth));
+                items.splice(at < 0 ? items.length : at, 0, drag.gap);
+            }
+            let changed = false;
+            const current = container.children.filter(item => items.indexOf(item) !== -1);
+            for (let i = 0; i < items.length; ++i) {
+                const item = items[i];
+                if (item.parent !== container || current[i] !== item) changed = true;
+                if (changed) {
+                    const point = item.mapToItem(container, 0, 0);
+                    item.parent = null;
+                    item.parent = container;
+                    item.x = point.x;
                 }
-                if (entryKeys[i] === entry.key) continue;
-                entry.key = entryKeys[i];
-                if (entry.widget !== null) refreshRow(rowFor(hostKey, entry.widget), wanted[i]);
+                item.width = Qt.binding(() => item.implicitWidth || (drag !== null && item === drag.gap ? drag.item.width : 0));
+                item.height = Qt.binding(() => item.implicitHeight || (drag !== null && item === drag.gap ? drag.item.height : 0));
+                item.y = Qt.binding(() => (container.height - item.height) / 2);
             }
         }
+    }
+
+    function cancelBarDrag() {
+        const drag = barDrag;
+        if (drag === null) return;
+        barDrag = null;
+        barDrop = null;
+        Capabilities.keyCapture.end(drag.item, "cancel");
+        drag.gap.destroy();
+        drag.item.z = 0;
+        if (Logic.hasOwn(mounts, drag.hostKey)) positionBar(drag.hostKey, null);
     }
 
     function rowFor(hostKey, instance) {
