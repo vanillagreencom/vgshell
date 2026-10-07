@@ -118,10 +118,15 @@ window_plugins() {
 import glob, json, os, sys
 for path in sorted(glob.glob(os.path.join(sys.argv[1], "*", "manifest.json"))):
     with open(path) as source: doc = json.load(source)
-    if "window" in doc["kinds"] and doc["id"] != "vgs.jarvis": print(doc["id"] + "\t" + doc["name"])' "$repo/shell/plugins"
+    if "window" in doc["kinds"]: print(doc["id"] + "\t" + doc["name"])' "$repo/shell/plugins"
 }
 window_listed() { local status=0; grep -c -x -F -- "$1" <<<"$window_list" || status=$?; [[ $status -le 1 ]]; }
-# Jarvis owns its console window smoke because enabling its service can raise a requirement notice.
+window_close_notice_if_shown() { # PLUGIN_ID
+  [[ $(notice_shown) == null ]] && return 0
+  expect_poll "the $1 requirement notice holds the keyboard" true ipc smoke noticeFocused
+  type_keys -k Escape || fail "typing Escape into the $1 requirement notice failed"
+  expect_poll "Escape closes the $1 requirement notice" null notice_shown
+}
 window_list="$(window_plugins)" || fail "the bundled manifests are unreadable"
 expect "the manifests list the Updates window" 1 window_listed $'vgs.updates\tUpdates'
 expect "control: the manifests list no window for the themes panel" 0 window_listed $'vgs.themes\tThemes'
@@ -132,7 +137,11 @@ updates_cache_fresh
 automations_stand_ins "$sandbox/windows-automations-stub"
 while IFS=$'\t' read -r -u 3 window_id window_title; do
   window_was="$(plugin_enabled "$window_id")" || window_was=unread
-  [[ $window_was == True ]] || expect "enabling $window_id for its window is allowed" ok ipc shell setPluginEnabled "$window_id" true
+  if [[ $window_was != True ]]; then
+    expect "enabling $window_id for its window is allowed" ok ipc shell setPluginEnabled "$window_id" true
+    window_close_notice_if_shown "$window_id"
+  fi
+  expect "no requirement notice covers the $window_title window" null notice_shown
   expect_poll "the IPC opens the $window_title window" ok ipc shell summon window "$window_id" '{}'
   expect_poll "$window_title opens as one client of the shell's class" 1 window_count "$window_title"
   expect_poll "the $window_title window takes the focus" "[\"$shell_class\", \"$window_title\"]" active_window
