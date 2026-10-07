@@ -64,6 +64,80 @@ Item {
             records.readers[runningPath].finishRead(JSON.stringify(record("running", null)));
         }
 
+        function failListedRead(error, removed) {
+            model.setFiles([runningPath], "reset");
+            const reader = records.readers[runningPath];
+            verify(reader !== undefined, "the listing started the record read");
+            compare(reader.live, "read");
+            // A removed file stays listed until the directory change arrives.
+            if (removed) model.setFiles([], "drop");
+            reader.failRead(error);
+            const probes = ProcessRegistry.runningWithVerb("-e");
+            compare(probes.length, 1);
+            compare(probes[0].command, ["test", "-e", runningPath]);
+            return probes[0];
+        }
+
+        function test_removed_record_read_failure_data() {
+            // FileView's existence, type, permission and open checks can
+            // each lose the path after the FolderListModel listed it.
+            return [
+                { tag: "not-found", error: 2 },
+                { tag: "permission", error: 3 },
+                { tag: "not-a-file", error: 4 },
+                { tag: "open", error: 1 }
+            ];
+        }
+
+        function test_removed_record_read_failure(data) {
+            const probe = failListedRead(data.error, true);
+            probe.finish(1, 0);
+            compare(records.readers[runningPath].readError, 0);
+            compare(Object.keys(records.fileRecords), []);
+            compare(waitProcesses().length, 0);
+        }
+
+        function test_existing_record_read_failure_data() {
+            return [
+                { tag: "unreadable", error: 3 },
+                { tag: "not-a-file", error: 4 },
+                { tag: "open", error: 1 },
+                { tag: "reappeared", error: 2 }
+            ];
+        }
+
+        // The smoke shell-log check parses the tui: record= error line.
+        // expected-log: tui: record=/unit/tui/acme.tui@hello@1-1.running.json unreadable: error= -- An existing record's failed read must remain an error.
+        function test_existing_record_read_failure(data) {
+            const probe = failListedRead(data.error);
+            probe.finish(0, 0);
+            compare(records.readers[runningPath].readError, 0);
+        }
+
+        function test_unconfirmed_existence_data() {
+            return [
+                { tag: "failed-start", startFailed: true, code: 0, status: 0 },
+                { tag: "crash", startFailed: false, code: 1, status: 1 },
+                { tag: "unexpected-exit", startFailed: false, code: 2, status: 0 }
+            ];
+        }
+
+        // expected-log: tui: record=/unit/tui/acme.tui@hello@1-1.running.json unreadable: error=3 -- A failed existence check cannot confirm a removal.
+        function test_unconfirmed_existence(data) {
+            const probe = failListedRead(3);
+            if (data.startFailed) probe.failStart();
+            else probe.finish(data.code, data.status);
+            compare(records.readers[runningPath].readError, 0);
+        }
+
+        function test_removal_destroys_an_outstanding_existence_check() {
+            failListedRead(3);
+            model.setFiles([], "remove");
+            wait(0);
+            compare(Object.keys(records.readers), []);
+            compare(ProcessRegistry.runningWithVerb("-e").length, 0);
+        }
+
         function addDone() {
             records.addWaiter("core", run, result => events.push(result));
             records.deliverKnown(run);

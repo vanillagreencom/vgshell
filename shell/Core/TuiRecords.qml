@@ -244,10 +244,32 @@ Scope {
         FileView {
             id: reader
             printErrors: false
+            property int readError: 0
+            property Process existenceCheck: Process {
+                property var completion: null
+                command: ["test", "-e", reader.path]
+                clearEnvironment: true
+                environment: ({ PATH: "/usr/bin:/bin" })
+                onExited: (code, status) => { completion = { code: code, status: status }; }
+                // Quickshell 0.3.1 reports a failed start only through
+                // runningChanged, without exited: preserve the read error.
+                // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
+                onRunningChanged: {
+                    if (running || reader.readError === 0) return;
+                    const done = completion;
+                    const gone = done !== null && done.status === 0 && done.code === 1;
+                    if (!gone) console.error("tui: record=" + reader.path + " unreadable: error=" + reader.readError);
+                    reader.readError = 0;
+                }
+            }
             onLoaded: root.recordLoaded(reader.path, text())
             onLoadFailed: error => {
-                // A record removed between the listing and the read.
-                if (error !== FileViewError.FileNotFound) console.error("tui: record=" + reader.path + " unreadable: error=" + error);
+                // FileView checks exists, isFile and isReadable separately;
+                // a removal can fail any check. Probe once, without rereading.
+                // https://github.com/quickshell-mirror/quickshell/blob/v0.3.1/src/io/fileview.cpp
+                reader.readError = error;
+                reader.existenceCheck.completion = null;
+                reader.existenceCheck.running = true;
             }
         }
     }

@@ -664,6 +664,8 @@ mutations=(
   "the pool shares no image|foundation/ImagePool.qml|let entry = entries[key];|let entry = undefined;|tst_imagetext.qml"
   "the pool keeps an image nobody holds|foundation/ImagePool.qml|if (entry.holders > 0) return;|return;|tst_imagetext.qml"
   "a TUI wait result never reaches the records|../Core/TuiRecords.qml|if (outcome.record !== null) {|if (false) {|tst_tui_records.qml"
+  "the old TUI read guard ignores only FileNotFound|../Core/TuiRecords.qml|reader.existenceCheck.running = true;|if (error !== 2) console.error(\"tui: record=\" + reader.path + \" unreadable: error=\" + error);|tst_tui_records.qml"
+  "an existing unreadable TUI record logs no error|../Core/TuiRecords.qml|if (!gone) console.error(|if (false) console.error(|tst_tui_records.qml"
   "a later run's wait record replaces an earlier run's of the key|../Core/TuiRecords.qml|waitRecords.filter(record => record.run !== outcome.record.run)|waitRecords.filter(record => record.key !== outcome.record.key)|tst_tui_records.qml"
   "the list cursor lands where it should travel|layout/ListCursor.qml|if (glide && root[property] !== value) {|if (false) {|tst_listcursor.qml"
   "the list cursor travels after a snap|layout/ListCursor.qml|        state.snapping = true;|        state.snapping = false;|tst_listcursor.qml"
