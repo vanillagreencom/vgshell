@@ -124,9 +124,10 @@ Item {
             id: layer
             width: 240
             height: 200
+            property int rowCount: 12
             container: "panel"
             header: [ Item { width: 10; height: 20 } ]
-            Repeater { model: 12; ListItem { required property int index; width: layer.contentWidth; text: "Row " + index } }
+            Repeater { model: layer.rowCount; ListItem { required property int index; width: layer.contentWidth; text: "Row " + index } }
             footer: [ Item { width: 10; height: 30 } ]
         }
     }
@@ -326,23 +327,42 @@ Item {
                 { tag: "pointer scrolling", keyboard: false, focused: false },
                 { tag: "keyboard scrolling without focus", keyboard: true, focused: false },
                 { tag: "focused keyboard scrolling", keyboard: true, focused: true },
+                { tag: "body fits", keyboard: true, focused: true, rows: 1 },
+                { tag: "narrow pane", keyboard: true, focused: true, width: 120 },
+                { tag: "small pointer padding", keyboard: false, focused: false, smallPadding: true },
+                { tag: "small keyboard padding", keyboard: true, focused: true, smallPadding: true },
+                { tag: "wider gutter", keyboard: true, focused: true, gutterScale: 2 },
+                { tag: "larger ring", keyboard: true, focused: true, ringScale: 2 },
             ];
         }
 
         function test_keyboard_scrolling_keeps_the_body_on_the_header_edges(data) {
+            if (data.gutterScale)
+                compare(UnitTheme.override({ scrollArea: { gutter: Theme.scrollArea.gutter * data.gutterScale } }), "ok");
+            if (data.ringScale)
+                compare(UnitTheme.override({ focusRing: { width: Theme.focusRing.width * data.ringScale, offset: Theme.focusRing.offset * data.ringScale } }), "ok");
             const made = scrolledPanel.createObject(root);
+            if (data.width) made.width = data.width;
+            if (data.rows) made.rowCount = data.rows;
+            if (data.smallPadding) made.padding = Theme.space.xs;
             const view = made.scrollArea;
             view.keyboardScroll = data.keyboard;
             if (data.focused) view.focusProxy.forceActiveFocus(Qt.TabFocusReason);
             waitForRendering(made);
             const column = body(made);
             const head = headerSlot(made);
-            tryCompare(column, "width", made.contentWidth);
-            compare(column.mapToItem(made, 0, 0).x, head.x);
-            compare(column.mapToItem(made, 0, 0).x + column.width, head.x + head.width);
+            tryCompare(column, "width", head.width);
+            const left = column.mapToItem(made, 0, 0).x;
+            compare(left, head.x);
+            compare(left + column.width, head.x + head.width);
+            compare(left, made.width - left - column.width, "both body insets are equal");
+            const viewportLeft = view.mapToItem(made, 0, 0).x;
+            verify(viewportLeft >= 0, "the viewport starts inside the pane");
+            verify(viewportLeft + view.width <= made.width, "the viewport ends inside the pane");
             const barLeft = view.bar.mapToItem(made, 0, 0).x;
-            verify(barLeft >= head.x + head.width, "the bar stays past the body's right edge");
+            verify(barLeft >= left + column.width, "the bar stays past the body's right edge");
             verify(barLeft + view.bar.width <= made.width, "the bar stays inside the pane");
+            compare(view.overflowing, data.rows !== 1);
             if (data.focused) verify(view.focusProxy.visualFocus, "the viewport shows keyboard focus");
             made.destroy();
         }
@@ -424,11 +444,12 @@ Item {
 
         // A plugin that owns its look hands its own padding and radius.
         function test_explicit_padding_and_radius_win() {
-            emptyBody.padding = 7;
-            compare(emptyBody.contentInset, 7);
-            compare(headerSlot(emptyBody).x, 7);
+            const padding = Theme.scrollArea.gutter + Theme.border.thin;
+            emptyBody.padding = padding;
+            compare(emptyBody.contentInset, padding);
+            compare(headerSlot(emptyBody).x, padding);
             emptyBody.cornerRadius = 40;
-            tryVerify(() => emptyBody.contentInset > 7, 1000, "a rounded explicit corner moves the content in");
+            tryVerify(() => emptyBody.contentInset > padding, 1000, "a rounded explicit corner moves the content in");
             emptyBody.padding = Qt.binding(() => emptyBody.paddingOf(emptyBody.container));
             emptyBody.cornerRadius = Qt.binding(() => emptyBody.radiusOf(emptyBody.container));
         }
@@ -477,16 +498,16 @@ Item {
         }
 
         // An overlay draws no container: its content sits inset.overlay,
-        // 32, in, and a 30 pixel corner, which would push content 4 in to
-        // 30, moves nothing, since there is no corner to clear.
+        // 32, in. With a requested 4 px pad, a 30 px corner moves nothing:
+        // there is no corner to clear, only the scrollbar gutter.
         function test_an_overlay_sits_its_inset_in_and_clears_no_corner() {
             const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 300; height: 200; container: "overlay"; header: [ Item { width: 10; height: 10 } ] }', root, "overlay");
             compare(made.cornerRadius, 0);
             tryCompare(made, "contentInset", 32);
             compare(UnitTheme.override({ radius: { md: 30 }, inset: { overlay: 4 } }), "ok");
             tryCompare(made, "cornerRadius", 0);
-            tryCompare(made, "contentInset", 4);
-            compare(made.contentInset, 4);
+            tryCompare(made, "contentInset", Theme.scrollArea.gutter);
+            compare(made.contentInset, Theme.scrollArea.gutter);
             made.destroy();
         }
 

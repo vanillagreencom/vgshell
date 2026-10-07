@@ -55,7 +55,9 @@ Item {
     signal switchToggled(bool checked)
     // The room a focus ring takes outside its row.
     readonly property real ringRoom: Theme.focusRing.width + Theme.focusRing.offset
-    readonly property real contentInset: clearingInset.inset
+    // The viewport's ring room and its scrollbar gutter must fit inside
+    // the container, including when its requested padding is smaller.
+    readonly property real contentInset: Math.max(clearingInset.inset, scroll.focusInset + Math.max(ringRoom, Theme.scrollArea.gutter))
     readonly property real contentWidth: Math.max(0, width - 2 * contentInset)
     // The nearest ancestor that declares `settingsPage`, the slot that hosts
     // this plugin, or null, as it is for a pane inside another pane, which
@@ -252,10 +254,10 @@ Item {
         id: scroll
         x: root.contentInset - root.ringRoom - focusInset
         y: root.contentInset + root.headerHeight + root.headerGap - root.ringRoom
-        width: Math.max(0, root.width - root.contentInset + root.ringRoom + 2 * focusInset)
+        width: Math.max(0, root.width - root.contentInset + root.ringRoom + focusInset)
         // A container inset narrower than the bar's gutter still leaves the
         // gutter, so the bar never covers the content.
-        rightInset: Math.max(root.contentInset, Theme.scrollArea.gutter)
+        rightInset: Math.max(root.contentInset - focusInset, Theme.scrollArea.gutter)
         contentPadding: root.ringRoom
         height: root.ringRoom * 2 + Math.max(0, root.boxHeight - 2 * root.contentInset - root.headerHeight - root.headerGap - root.footerGap - root.footerHeight)
 
