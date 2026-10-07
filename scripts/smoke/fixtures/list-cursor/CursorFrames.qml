@@ -16,6 +16,7 @@ Item {
     property var targets: []
     property int ceilingMs: 0
     property real elapsed: 0
+    property bool deadlineSeen: false
 
     function start() {
         plate = find();
@@ -24,6 +25,7 @@ Item {
         targets = [];
         tick.stop();
         elapsed = 0;
+        deadlineSeen = false;
     }
 
     function shown(item) {
@@ -63,6 +65,9 @@ Item {
         // frameSwapped is emitted on the render thread: its queued QML
         // handler can read y from a later animation tick.
         // https://doc.qt.io/qt-6/qquickwindow.html#afterAnimating
-        function onAfterAnimating() { frames.push([Date.now(), plate.y, targets.length, root.elapsed]); }
+        function onAfterAnimating() {
+            frames.push([Date.now(), plate.y, targets.length, root.elapsed]);
+            if (targets.length > 0 && root.ceilingMs > 0 && root.elapsed >= root.ceilingMs) root.deadlineSeen = true;
+        }
     }
 }

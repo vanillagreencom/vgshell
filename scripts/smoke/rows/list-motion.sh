@@ -145,7 +145,10 @@ hover_travel() {
   for i in $(seq 1 "$smoke_poll_n"); do
     reading="$(cursor_y window vgs.settings)" || return
     if [[ $reading == "$prev" ]]; then stable=$((stable + 1)); else stable=0; prev="$reading"; fi
-    [[ $stable -ge 1 ]] && break
+    if [[ $stable -ge 1 ]]; then
+      reading="$(ipc smoke popupRead cursor-frames deadlineSeen)" || return
+      [[ $reading == true ]] && break
+    fi
     sleep 0.1
   done
   targets="$(ipc smoke popupRead cursor-frames targets)" || return
@@ -169,8 +172,8 @@ if not after: print("undrawn"); sys.exit()
 if abs(after[0][1] - start) < 0.5: print("late"); sys.exit()
 deadline = [f for f in after if f[3] >= ceiling]
 if not deadline: print("unmeasured"); sys.exit()
-rest = [f for f in after if abs(f[1] - final) < 0.5]
-verdict = "fast" if abs(deadline[0][1] - final) < 0.5 else "slow"
+rest = [f for f in after if f[1] == final]
+verdict = "fast" if deadline[0][1] == final else "slow"
 print("%d %s %s" % (after[0][0] - t0, (rest[0][0] - t0) if rest else "unrested", verdict))
 PY
 }
@@ -179,7 +182,7 @@ PY
 # that keeps the origin must fail even when a later frame moves.
 expect "the hover reader uses the selection origin across a frame gap" "80 150 fast" hover_trace '[[1000,"row",4]]' '[[1060,30],[1150,60]]' '[[1001,4,1,0],[1080,30,1,80],[1150,60,1,150]]'
 expect "the hover reader refuses a stationary first advanced frame" late hover_trace '[[1000,"row",4]]' '[[1060,30],[1150,60]]' '[[1040,4,1,40],[1080,30,1,80],[1150,60,1,150]]'
-expect "the hover reader refuses travel on the ceiling frame" "40 200 slow" hover_trace '[[1000,"row",4]]' '[[1040,30],[1200,60]]' '[[1040,30,1,40],[1180,55,1,150],[1200,60,1,150]]'
+expect "the hover reader refuses travel on the ceiling frame" "40 200 slow" hover_trace '[[1000,"row",4]]' '[[1040,30],[1200,60]]' '[[1040,30,1,40],[1180,59.9,1,150],[1200,60,1,150]]'
 expect "the hover reader accepts rest on the first drawn ceiling frame after a host gap" "80 240 fast" hover_trace '[[1000,"row",4]]' '[[1080,30],[1240,60]]' '[[1080,30,1,80],[1240,60,1,150]]'
 expect "the hover reader refuses a missing ceiling frame" unmeasured hover_trace '[[1000,"row",4]]' '[[1080,30],[1240,60]]' '[[1080,30,1,80]]'
 
