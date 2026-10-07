@@ -485,10 +485,24 @@ usage_edit "$usage_helper" '    return { accounts, partial, gatewayKey };' '    
 rescan "the gateway API reading is scanned"
 usage_refresh "the gateway API reading"
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening the gateway API card failed"
-ipc smoke scrollTo panel vgs.ai-usage 99999 >/dev/null || fail "the gateway API card did not scroll into view"
 summon_drawn panel vgs.ai-usage || fail "the gateway API card never drew a frame"
+ipc smoke scrollTo panel vgs.ai-usage 99999 >/dev/null || fail "the gateway API card did not scroll into view"
 usage_gateway_api() { usage_panel | py_reply 'import json,sys; r=json.load(sys.stdin); print(any(a["provider"] == "gateway" and a["api"] is True for a in r))'; }
-usage_api_chip() { ipc smoke readMatchingDescendant panel vgs.ai-usage Badge text '[API]' visible; }
+usage_api_chip() {
+  ipc smoke descendantGeometry panel vgs.ai-usage | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+def card_of(index):
+    while index >= 0:
+        if rows[index]["type"] == "Card": return index
+        index=rows[index]["parent"]
+    return -1
+cards={card_of(i) for i,r in enumerate(rows) if r["type"] == "Label" and r.get("text") == "AI Gateway"}
+views=[r["box"] for r in rows if r["type"] == "ScrollArea" and r["visible"]]
+def drawn(r):
+    x,y,w,h=r["box"]
+    return r["visible"] and w>0 and h>0 and any(x>=vx and y>=vy and x+w<=vx+vw and y+h<=vy+vh for vx,vy,vw,vh in views)
+print(str(any(r["type"] == "Badge" and r.get("text") == "[API]" and card_of(i) in cards and drawn(r) for i,r in enumerate(rows))).lower())'
+}
 usage_gateway_logo() { ipc smoke images panel vgs.ai-usage | py_reply 'import json,re,sys; print(any("m12 1.608 12 20.784H0Z" in r[0] and r[1] == "ready" and re.search(r"fill=\"#[0-9a-fA-F]{6}\"", r[0]) is not None for r in json.load(sys.stdin)))'; }
 expect_poll "the gateway card carries API billing" True usage_gateway_api
 expect_poll "the gateway card draws its API chip" true usage_api_chip
