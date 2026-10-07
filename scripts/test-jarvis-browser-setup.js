@@ -36,8 +36,9 @@ world(async () => {
         encoding: "utf8", timeout: 15000 });
     const marker = path.join(process.env.XDG_DATA_HOME, "vgshell/jarvis/browser-ready.json");
     // INSTALLS counts browser downloads, DRIVER the driver installs through
-    // vgshell, KEY the keyed line the run must print.
-    function check(folder, name, fixture, expected, installs, driver = 0, key = null) {
+    // vgshell, KEY the keyed line the run must print, VENDOR the vendor text its
+    // browser-vendor line must carry for the shell log.
+    function check(folder, name, fixture, expected, installs, driver = 0, key = null, vendor = null) {
         mode(fixture);
         fs.rmSync(marker, { force: true });
         fs.rmSync(path.join(driverless, "agent-browser"), { force: true });
@@ -52,6 +53,12 @@ world(async () => {
         for (const row of vgshellCalls().filter(row => row[0] !== "pkg"))
             assert.deepEqual(row, ["plugin", "requirements", "--json", "vgs.jarvis"], name);
         if (key !== null) assert.ok(result.stdout.includes("jarvis: browser-setup=" + key + "\r\n"), name + " prints " + key);
+        if (vendor !== null) {
+            const line = /^jarvis: browser-vendor=(.*)\r$/m.exec(result.stdout);
+            assert.ok(line, name + " prints the vendor line");
+            assert.match(JSON.parse(line[1]), vendor, name);
+            assert.equal(calls().some(row => row.args.at(-1) === "close"), false, name + " closes no unopened session");
+        }
         assert.equal(fs.existsSync(marker), expected === 0, name + " verifies before ready");
         for (const row of calls()) {
             assert.equal(row.env.OPENAI_API_KEY, undefined);
@@ -72,7 +79,8 @@ world(async () => {
             "missing command=agent-browser"],
         ["driver-declined", { driverMissing: true, confirmExit: 1 }, 130, 0, 0, "missing command=agent-browser"],
         ["driver-no-package", { driverMissing: true, driverPackage: null }, 1, 0, 0, "no-package command=agent-browser"],
-        ["driver-unreachable", { driverMissing: true, driverReachable: false }, 1, 0, 1, "still-missing command=agent-browser"]
+        ["driver-unreachable", { driverMissing: true, driverReachable: false }, 1, 0, 1, "still-missing command=agent-browser"],
+        ["socket-refused", { socketRefused: true }, 1, 0, 0, null, /^Session name 'jarvis-[0-9a-f]{8}' is too long\./]
     ];
     for (const row of cases) check(plugin, ...row);
     // The installed stub is consumed by the real module, not merely inventoried.
@@ -82,11 +90,11 @@ world(async () => {
     assert.match(owner.guidance(), /fixture installed core guide/);
     owner.close();
     let controls = 0;
-    function scriptControl(name, needle, replacement, row) {
+    function scriptControl(name, needle, replacement, row, file = "tui/setup-browser.sh") {
         const copy = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "browser-tui-mutant-"));
         try {
             fs.cpSync(plugin, copy, { recursive: true });
-            const script = path.join(copy, "tui/setup-browser.sh");
+            const script = path.join(copy, file);
             const source = fs.readFileSync(script, "utf8");
             assert.equal(source.split(needle).length - 1, 1, name + " matches");
             const changed = source.replace(needle, replacement);
@@ -109,6 +117,8 @@ world(async () => {
         'true ||\n    refuse 1 "still-missing', cases.find(row => row[0] === "driver-unreachable"));
     scriptControl("continue-after-install", 'command -v agent-browser >/dev/null || install_driver',
         'command -v agent-browser >/dev/null || { install_driver; exit 0; }', cases.find(row => row[0] === "driver-installed"));
+    scriptControl("vendor-log", 'process.stderr.write("jarvis: browser-vendor="', 'void ("jarvis: browser-vendor="',
+        cases.find(row => row[0] === "socket-refused"), "backend/Browser.js");
     await mutant(path.join(plugin, "backend/Browser.js"), "skill-cache", 'if (guidanceCache === null || guidanceCache.version !== installed) {', 'if (true) {', (implementation, folder) => {
         fs.cpSync(path.join(plugin, "backend/skills"), path.join(folder, "skills"), { recursive: true });
         mode({}); const candidate = implementation.create({ environment: process.env });

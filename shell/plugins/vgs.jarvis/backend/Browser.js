@@ -11,6 +11,7 @@ const FLOOR = "0.38.1";
 const OUTPUT_BYTES = 16384;
 const VENDOR_BYTES = 65536;
 const COMMAND_MS = 10000;
+const VENDOR_LOG_BYTES = 2048;
 // One bounded guide persists across private sessions, keyed by the CLI version.
 let guidanceCache = null;
 const ACTION_POLICY = Object.freeze({ default: "deny", allow: ["navigate", "snapshot", "url", "getattribute", "click", "fill", "close"],
@@ -38,6 +39,15 @@ function version(environment) {
     if (found[0] < floor[0] || found[0] === floor[0] && (found[1] < floor[1] || found[1] === floor[1] && found[2] < floor[2]))
         throw new Error("jarvis: browser=version-floor need=" + FLOOR);
     return found.join(".");
+}
+
+// jarvisd's stderr reaches the shell log and browser-setup.js's the setup terminal.
+// Only the keyed error, never this vendor text, reaches the model and the wire.
+function vendorLog(text) {
+    const bytes = Buffer.from(text);
+    const kept = bytes.length <= VENDOR_LOG_BYTES ? text
+        : new TextDecoder().decode(bytes.subarray(0, VENDOR_LOG_BYTES), { stream: true });
+    process.stderr.write("jarvis: browser-vendor=" + JSON.stringify(kept) + "\n");
 }
 
 function roots(environment) {
@@ -83,35 +93,59 @@ function create({ environment, commandMs = COMMAND_MS }) {
     const configFile = path.join(directory, "config.json");
     fs.writeFileSync(policyFile, JSON.stringify(ACTION_POLICY), { mode: 0o600 });
     fs.writeFileSync(configFile, JSON.stringify({ noWebmcp: true, idleTimeout: "60s" }), { mode: 0o600 });
-    const session = "jarvis-" + crypto.randomUUID();
+    // The private XDG_RUNTIME_DIR already isolates this owner's daemon socket and the private
+    // HOME its restore state. A vendor namespace or a long name only lengthens the socket path,
+    // which agent-browser 0.38.2 refuses past 103 bytes.
+    const session = "jarvis-" + crypto.randomBytes(4).toString("hex");
     const env = { PATH: environment.PATH, HOME: privateHome, LANG: "C.UTF-8",
         XDG_RUNTIME_DIR: directory, XDG_CONFIG_HOME: path.join(directory, "config"),
         XDG_CACHE_HOME: path.join(directory, "cache"), XDG_DATA_HOME: path.join(directory, "data"),
-        AGENT_BROWSER_CONFIG: configFile, AGENT_BROWSER_NAMESPACE: session };
+        AGENT_BROWSER_CONFIG: configFile };
     const prefix = ["--session", session, "--action-policy", policyFile, "--content-boundaries", "--max-output", String(OUTPUT_BYTES), "--json"];
     let closed = false;
-    let touched = false;
+    // none: no session command ran, or the vendor answered the launch as failed;
+    // unknown: a launch ran but no vendor answer came back; open: the launch answered success.
+    let state = { kind: "none" };
     let active = null;
     let observation = null;
 
     function options() { return { env, cwd: directory, encoding: "utf8", timeout: commandMs, maxBuffer: VENDOR_BYTES }; }
-    function decode(result) {
-        if (result.error) throw new Error("jarvis: browser=command cause=" + result.error.code);
+    // silent: no vendor answer came back; refused: the vendor answered a failure.
+    function read(result) {
+        if (result.error) return { kind: "silent", key: "command cause=" + result.error.code, text: result.stderr ?? "" };
         let reply;
-        try { reply = JSON.parse(result.stdout); } catch { throw new Error("jarvis: browser=reply-json"); }
+        try { reply = JSON.parse(result.stdout); } catch { reply = null; }
+        if (reply === null || typeof reply !== "object")
+            return { kind: "silent", key: "reply-json", text: [result.stdout, result.stderr].filter(Boolean).join("\n") };
         if (result.status !== 0 || reply.success !== true) {
+            const error = typeof reply.error === "string" ? reply.error : null;
             // v0.38.1 browser launch reports this cause. No other failure installs.
-            if (typeof reply.error === "string" && reply.error.startsWith("Chrome not found."))
-                throw new Error("jarvis: browser=missing");
-            throw new Error("jarvis: browser=command-failed");
+            return { kind: "refused", key: error?.startsWith("Chrome not found.") ? "missing" : "command-failed",
+                text: error ?? result.stdout };
         }
+        return { kind: "reply", reply };
+    }
+    function accept(answer) {
+        if (answer.kind !== "reply") {
+            if (answer.text !== "") vendorLog(answer.text);
+            throw new Error("jarvis: browser=" + answer.key);
+        }
+        const reply = answer.reply;
         if (!reply.data || typeof reply.data !== "object" || !reply._boundary || typeof reply._boundary.nonce !== "string")
             throw new Error("jarvis: browser=reply-shape");
         return reply;
     }
+    function decode(result) { return accept(read(result)); }
+    // The first session command launches the browser; its answer decides whether close runs.
+    function launch() {
+        if (state.kind !== "none") return;
+        const answer = read(cp.spawnSync("agent-browser", [...prefix, "get", "url"], options()));
+        state = { kind: answer.kind === "reply" ? "open" : answer.kind === "refused" ? "none" : "unknown" };
+        accept(answer);
+    }
     function run(argv) {
         if (closed) throw new Error("jarvis: browser=closed");
-        touched = true;
+        launch();
         return decode(cp.spawnSync("agent-browser", [...prefix, ...argv], options()));
     }
     function page(reply) {
@@ -164,6 +198,7 @@ function create({ environment, commandMs = COMMAND_MS }) {
     async function execute(call) {
         const { command, args } = narrow(call);
         if (closed) throw new Error("jarvis: browser=closed");
+        launch();
         if (["click", "fill", "submit"].includes(command)) {
             const fresh = inspect(call);
             if (fresh.target.password) throw new Error("jarvis: browser=password");
@@ -174,7 +209,6 @@ function create({ environment, commandMs = COMMAND_MS }) {
             : command === "fill" ? ["fill", args.ref, args.text] : ["click", args.ref];
         if (argv !== null) {
             const result = await new Promise((resolve, reject) => {
-                touched = true;
                 const child = cp.execFile("agent-browser", [...prefix, ...argv], options(), (error, stdout, stderr) => {
                     active = null;
                     try { resolve(decode({ error: error && !Number.isInteger(error.code) ? error : null,
@@ -198,7 +232,9 @@ function create({ environment, commandMs = COMMAND_MS }) {
         closed = true;
         if (active !== null) active.kill("SIGKILL");
         try {
-            if (touched) {
+            // A session the vendor never opened is not closed: its close answers the same launch
+            // error, and a daemon a failed launch left holds no browser and exits on idleTimeout.
+            if (state.kind !== "none") {
                 const result = cp.spawnSync("agent-browser", [...prefix, "close"], options());
                 try { decode(result); } catch { throw new Error("jarvis: browser=close-failed"); }
             }

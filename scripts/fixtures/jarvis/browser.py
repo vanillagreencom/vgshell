@@ -3,6 +3,9 @@
 # cli/src/output.rs at vercel-labs/agent-browser v0.38.1, read 2026-10-02.
 # Literal action checks follow cli/src/native/policy.rs; CLI mappings follow
 # cli/src/commands.rs. A CLI command group is not a policy action.
+# The socketRefused and launchFailed replies, and their repeat on close, were
+# observed from agent-browser 0.38.2 on this host, 2026-10-06, by the VGS-1012
+# lane: a client-side socket-path refusal, then a daemon-side launch failure.
 # Logs argv, explicit environment and policy. Opens no browser or network.
 import json, os, pathlib, sys, time
 home = pathlib.Path(os.environ.get('HOME', '/nonexistent'))
@@ -28,6 +31,12 @@ if args == ['install']:
     sys.exit(mode.get('installExit', 0))
 # Remove only fixed global options. This pins the actual CLI call sequence.
 command = args[args.index('--json') + 1:]
+session = args[args.index('--session') + 1]
+if mode.get('socketRefused'):
+    print(json.dumps({'error': "Session name '{}' is too long. Socket path would be 166 bytes (max 103).\n"
+                      'Use a shorter session name or set AGENT_BROWSER_SOCKET_DIR to a shorter path.'.format(session),
+                      'success': False}, separators=(',', ':')))
+    sys.exit(1)
 action = {('open',): 'navigate', ('snapshot',): 'snapshot', ('get', 'url'): 'url',
           ('get', 'attr'): 'getattribute', ('click',): 'click', ('fill',): 'fill',
           ('close',): 'close'}.get(tuple(command[:2] if command[0] == 'get' else command[:1]))
@@ -41,11 +50,18 @@ elif allow is None:
 if denied:
     print(json.dumps({'success': False, 'error': "Action '{}' denied by policy".format(action)}))
     sys.exit(1)
-url_path = home / ('fixture-url-' + os.environ['AGENT_BROWSER_NAMESPACE'])
+url_path = home / ('fixture-url-' + session)
 url = url_path.read_text() if url_path.exists() else 'https://first.test/page'
-if mode.get('missing') and command[0] == 'open':
+# A launch failure answers every later command of the session, close included.
+if mode.get('missing'):
     print(json.dumps({'success': False, 'error': 'Chrome not found. Install Chrome or use --executable-path.'}))
     sys.exit(1)
+if mode.get('launchFailed'):
+    print(json.dumps({'error': 'Failed to launch Chrome at "/nonexistent/chrome": No such file or directory (os error 2)',
+                      'success': False}, separators=(',', ':')))
+    sys.exit(1)
+if command == ['get', 'url'] and mode.get('launchDelayMs'):
+    time.sleep(mode['launchDelayMs'] / 1000)
 if mode.get('malformed') and command != ['close']:
     print('not json')
     sys.exit(0)

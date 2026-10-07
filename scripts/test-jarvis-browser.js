@@ -12,6 +12,13 @@ world(async () => {
     const environment = { ...process.env, OPENAI_API_KEY: "fixture-secret", AGENT_BROWSER_CDP: "host-browser",
         AGENT_BROWSER_PROFILE: "/fixture/profile", AGENT_BROWSER_CONFIG: "/fixture/config", VGSHELL_RUNNER_PID: "fixture" };
     const marker = path.join(environment.XDG_DATA_HOME, "vgshell/jarvis/browser-ready.json");
+    // browser-vendor lines are the shell log's machine lines; each case reads its own.
+    const vendor = [];
+    const write = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (chunk, ...rest) => {
+        if (String(chunk).startsWith("jarvis: browser-vendor=")) { vendor.push(String(chunk)); return true; }
+        return write(chunk, ...rest);
+    };
     const call = (command, args = {}) => ({ id: "browser", args: { command, args } });
     const run = (owner, command, args = {}) => new Promise(resolve => owner.record.start(call(command, args), resolve));
     async function check(implementation, name, fixture, command, args, outcome, reason, changed) {
@@ -89,8 +96,8 @@ world(async () => {
             assert.equal(row.env.VGSHELL_RUNNER_PID, undefined);
             assert.notEqual(row.env.AGENT_BROWSER_CONFIG, environment.AGENT_BROWSER_CONFIG);
             const session = row.args[row.args.indexOf("--session") + 1];
-            assert.match(session, /^jarvis-[0-9a-f-]+$/);
-            assert.equal(row.env.AGENT_BROWSER_NAMESPACE, session);
+            assert.match(session, /^jarvis-[0-9a-f]{8}$/);
+            assert.equal(row.env.AGENT_BROWSER_NAMESPACE, undefined);
             assert.ok(row.args.includes("--content-boundaries"));
             assert.equal(row.args[row.args.indexOf("--max-output") + 1], "16384");
             assert.equal(row.policy.default, "deny");
@@ -127,7 +134,7 @@ world(async () => {
     }
     verification(Browser);
     assert.deepEqual(calls().filter(row => row.args.includes("--json")).map(row => row.args.slice(row.args.indexOf("--json") + 1)),
-        [["open", "about:blank"], ["get", "url"], ["close"]]);
+        [["get", "url"], ["open", "about:blank"], ["get", "url"], ["close"]]);
     readiness(Browser, { version: "0.38.2" }, "warning");
     mode({ verifyUrl: "https://wrong.test/" });
     const failed = Browser.create({ environment });
@@ -219,7 +226,8 @@ world(async () => {
             lease.sync({ gen: 2, conversation: { kind: "started" } });
             await new Promise(resolve => records.browser.start(call("read"), resolve));
             const second = calls().filter(row => row.args.includes("snapshot")).at(-1);
-            assert.notEqual(first.env.AGENT_BROWSER_NAMESPACE, second.env.AGENT_BROWSER_NAMESPACE);
+            const name = row => row.args[row.args.indexOf("--session") + 1];
+            assert.notEqual(name(first), name(second));
         }
         lease.close();
     }
@@ -282,7 +290,11 @@ world(async () => {
     await control("guidance-session-cache", 'if (guidanceCache === null || guidanceCache.version !== installed) {',
         'if (true) {', versionCache);
     await control("private-home", "HOME: privateHome, LANG:", "HOME: environment.HOME, LANG:", confinement);
-    await control("private-session", 'const session = "jarvis-" + crypto.randomUUID();', 'const session = "jarvis-fixed";', confinement);
+    await control("private-session", 'const session = "jarvis-" + crypto.randomBytes(4).toString("hex");',
+        'const session = "jarvis-00000000";', confinement);
+    await control("short-session", 'crypto.randomBytes(4).toString("hex")', "crypto.randomUUID()", confinement);
+    await control("no-namespace", "AGENT_BROWSER_CONFIG: configFile };",
+        "AGENT_BROWSER_CONFIG: configFile, AGENT_BROWSER_NAMESPACE: session };", confinement);
     await control("neutral-config", "AGENT_BROWSER_CONFIG: configFile", "AGENT_BROWSER_CONFIG: environment.AGENT_BROWSER_CONFIG", confinement);
     await control("scrub-env", "const env = { PATH:", "const env = { ...environment, PATH:", confinement);
     await control("boundaries", '"--content-boundaries", "--max-output"', '"--debug", "--max-output"', confinement);
@@ -322,6 +334,44 @@ world(async () => {
         assert.equal(fs.existsSync(marker), false, "failed close cannot leave ready");
     }
     failedClose(Browser);
+    // A vendor that answers the launch as failed opened no session: close sends it nothing.
+    const refusals = [
+        [{ socketRefused: true }, "command-failed", /^Session name 'jarvis-[0-9a-f]{8}' is too long\./],
+        [{ launchFailed: true }, "command-failed", /^Failed to launch Chrome/],
+        [{ missing: true }, "missing", /^Chrome not found\./]
+    ];
+    function refusedLaunch(implementation) {
+        for (const [fixture, key, said] of refusals) {
+            mode(fixture); fs.rmSync(marker, { force: true }); vendor.length = 0;
+            const owner = implementation.create({ environment });
+            assert.throws(() => owner.verify(), error => error.message === "jarvis: browser=" + key, key);
+            assert.doesNotThrow(() => owner.close());
+            const rows = calls().filter(row => row.args.includes("--json"));
+            assert.deepEqual(rows.map(row => row.args.slice(row.args.indexOf("--json") + 1)), [["get", "url"]], key + " sends no close");
+            assert.equal(fs.existsSync(rows[0].env.XDG_RUNTIME_DIR), false, key + " releases session files");
+            assert.equal(fs.existsSync(marker), false);
+            assert.equal(vendor.length, 1, key + " logs one vendor line");
+            const line = /^jarvis: browser-vendor=(.*)\n$/.exec(vendor[0]);
+            assert.ok(line, key + " vendor line shape");
+            assert.match(JSON.parse(line[1]), said);
+        }
+    }
+    refusedLaunch(Browser);
+    // A launch with no vendor answer may have left a browser: close still runs once.
+    const silences = [[{ malformed: true }, undefined, "reply-json"], [{ launchDelayMs: 2000 }, 300, "command cause=ETIMEDOUT"]];
+    function silentLaunch(implementation) {
+        for (const [fixture, commandMs, key] of silences) {
+            mode(fixture);
+            const owner = implementation.create({ environment, commandMs });
+            assert.throws(() => owner.verify(), error => error.message === "jarvis: browser=" + key, key);
+            owner.close();
+            assert.equal(calls().filter(row => row.args.at(-1) === "close").length, 1, JSON.stringify(fixture) + " closes once");
+        }
+    }
+    silentLaunch(Browser);
+    await control("vendor-log", 'process.stderr.write("jarvis: browser-vendor="', 'void ("jarvis: browser-vendor="', refusedLaunch);
+    await control("refused-close", 'if (state.kind !== "none") {', "if (true) {", refusedLaunch);
+    await control("silent-launch", 'answer.kind === "refused" ? "none" : "unknown"', 'answer.kind === "refused" ? "none" : "none"', silentLaunch);
     await control("verified-close", 'try { decode(result); } catch { throw new Error("jarvis: browser=close-failed"); }',
         'void result;', failedClose);
     await mutant(path.join(backend, "Policy.js"), "submit-effect", 'if (input.target.submit === true) effect = "external";',
@@ -339,5 +389,5 @@ world(async () => {
     await control("conversation-close", 'if (generation !== state.gen || state.conversation.kind === "ended") clear();',
         'if (generation !== state.gen) clear();', implementation => lifecycle(implementation, "end"));
     await control("lease-close", 'close() { closed = true; clear(); }', 'close() { closed = true; }', implementation => lifecycle(implementation, "lease"));
-    console.log("test-jarvis-browser: ok cases=" + (cases.length + 2) + " controls=" + controls);
+    console.log("test-jarvis-browser: ok cases=" + (cases.length + 2 + refusals.length + silences.length) + " controls=" + controls);
 }, daemonStandins);
