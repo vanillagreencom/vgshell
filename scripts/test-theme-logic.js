@@ -817,6 +817,53 @@ function verify(judge) {
 }
 verify(load(judgeFile));
 
+// Catalog packages lift status fills independently of their palette. Helix
+// mode labels consume onSuccess/success and onInfo/info from these tokens.
+function verifyStatusText(table) {
+    const judge = load(judgeFile);
+    const statuses = ["success", "warning", "danger", "info"];
+    const documents = [
+        document({ palette: Object.fromEntries(statuses.map(name => [name, "#000000"])),
+            color: Object.fromEntries(statuses.map(name => [name, "#ffffff"])) }),
+        document({ palette: Object.fromEntries(statuses.map(name => [name, "#ffffff"])),
+            color: Object.fromEntries(statuses.map(name => [name, "#000000"])) })
+    ];
+    const index = judge.acceptCatalogIndex(table, fs.readFileSync(path.join(repo, "themes/catalog/index.json"), "utf8"));
+    assert.equal(index.ok, true);
+    assert.ok(index.entries.some(entry => entry.name === "akane"));
+    assert.ok(index.entries.some(entry => entry.name === "catppuccin-latte"));
+    for (const entry of index.entries)
+        documents.push(fs.readFileSync(path.join(repo, "themes/catalog", entry.name, "theme.json"), "utf8"));
+    for (const text of documents) {
+        const result = judge.accept(table, text);
+        assert.equal(result.ok, true);
+        for (const name of statuses) {
+            const color = result.values.color;
+            const on = "on" + name[0].toUpperCase() + name.slice(1);
+            assert.equal(typeof color[on], "string");
+            const foreground = judge.parseColor(color[on]);
+            const background = judge.parseColor(color[name]);
+            assert.notEqual(foreground, null);
+            assert.notEqual(background, null);
+            const ratio = judge.contrastRatio(foreground, background);
+            assert.ok(ratio >= judge.READABILITY_FLOOR, `${result.name} ${on}/${name}: ${ratio}`);
+        }
+    }
+}
+verifyStatusText(TOKENS);
+const tokenFile = path.join(repo, "shell/Commons/Tokens.js");
+const tokenSource = fs.readFileSync(tokenFile, "utf8");
+const statusNeedle = 'color("contrast({color." + name + "})")';
+assert.equal(tokenSource.split(statusNeedle).length, 2);
+const tokenControlDir = fs.mkdtempSync(path.join(repo, "tmp/status-token-control-"));
+try {
+    const mutant = path.join(tokenControlDir, "Tokens.js");
+    fs.writeFileSync(mutant, tokenSource.replace(statusNeedle, 'color("contrast({palette." + name + "})")'));
+    assert.throws(() => verifyStatusText(load(mutant).TOKENS), { code: "ERR_ASSERTION" });
+} finally {
+    fs.rmSync(tokenControlDir, { recursive: true, force: true });
+}
+
 // Each control removes one rule's behaviour from a copy of the judge and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [

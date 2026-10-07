@@ -59,7 +59,7 @@ function role(face, sizeFactor, fontWeight, letterSpacing, lineHeight, uppercase
 function status(name) {
     var out = {};
     out[name] = color("{palette." + name + "}");
-    out["on" + name[0].toUpperCase() + name.slice(1)] = color("contrast({palette." + name + "})");
+    out["on" + name[0].toUpperCase() + name.slice(1)] = color("contrast({color." + name + "})");
     out[name + "Subtle"] = color("alpha({palette." + name + "}, 0.14)");
     return out;
 }
