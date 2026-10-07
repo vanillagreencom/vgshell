@@ -565,7 +565,9 @@ jarvis_key_stop
 expect_poll "control: clearing the two-binding hold ends approval" none jarvis_key_state approval
 jarvis_bubble_failures="$(
   failures=0 behaviour_failures=0
-  source "$repo/scripts/smoke/rows/diagnostics.sh" >"$sandbox/jarvis-bubble-bindings-diagnostics.log"
+  # The real row appends sampler output; keep this control's files private.
+  sandbox="$(mktemp -d "$sandbox/jarvis-bubble-bindings.XXXXXX")"
+  source "$repo/scripts/smoke/rows/diagnostics.sh" >"$sandbox/diagnostics.log"
   echo "$failures"
 )"
 expect "control: the two-binding read fails the diagnostics row" 1 printf '%s\n' "$jarvis_bubble_failures"
