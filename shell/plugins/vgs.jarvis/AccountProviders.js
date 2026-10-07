@@ -66,6 +66,47 @@ function modelKeyProvider(row) {
     return row.kind === "key" && modelProvider(row);
 }
 
+// The setup terminal's choice lines, LABEL<TAB>VALUE for
+// `gum choose --label-delimiter=$'\t'`, which prints VALUE alone: an id goes
+// back to its judge and never reaches the screen. Each label fits a terminal
+// width columns wide, cut with an ellipsis, after gum's two-column "> "
+// cursor. Labels come from judges that refuse control characters, so none
+// holds a tab. Width counts code points, so a wide character can overflow.
+var MIN_WIDTH = 20;
+var MAX_WIDTH = 1000;
+var CHOICE_CURSOR = 2;
+
+// The terminal width argument of the setup helpers, or null when it is no
+// integer from MIN_WIDTH to MAX_WIDTH.
+function parseWidth(text) {
+    if (typeof text !== "string" || !/^[0-9]{1,4}$/.test(text)) return null;
+    var value = Number(text);
+    return value >= MIN_WIDTH && value <= MAX_WIDTH ? value : null;
+}
+
+function fitText(text, width) {
+    var points = Array.from(text);
+    return points.length <= width ? text : points.slice(0, width - 1).join("") + "\u2026";
+}
+
+function choiceLine(label, value, width) {
+    return fitText(label, width - CHOICE_CURSOR) + "\t" + value;
+}
+
+// Add directory offers the sign-in programs, "cli"; Add key and Use keyring
+// item the AI model key providers, "key", Add key with the page that
+// creates a key.
+function providerChoices(kind, width, pages) {
+    var rows = PROVIDERS.filter(function (row) {
+        if (kind === "cli") return row.kind === "cli";
+        if (kind === "key") return modelKeyProvider(row);
+        throw new Error("jarvis-providers: kind=" + kind);
+    });
+    return rows.map(function (row) {
+        return choiceLine(pages ? row.label + ": get a key at " + row.keyPage.replace(/^https:\/\//, "") : row.label, row.id, width);
+    });
+}
+
 // The account CLI and its QML reader share this exact safe error protocol.
 // Only producer-owned keys can leave stderr; values and native errors cannot.
 var FAILURE_KEYS = {
@@ -121,6 +162,6 @@ function probeFailure(completion, diagnostic) {
 }
 
 if (typeof module !== "undefined") module.exports = { PROVIDERS: PROVIDERS, runtimeDirectory: runtimeDirectory,
-    keyPresence: keyPresence, keyProvider: keyProvider, modelProvider: modelProvider, modelKeyProvider: modelKeyProvider,
-    FAILURE_KEYS: FAILURE_KEYS, feedDiagnostic: feedDiagnostic,
+    keyPresence: keyPresence, keyProvider: keyProvider, modelProvider: modelProvider, modelKeyProvider: modelKeyProvider, parseWidth: parseWidth, fitText: fitText, choiceLine: choiceLine,
+    providerChoices: providerChoices, FAILURE_KEYS: FAILURE_KEYS, feedDiagnostic: feedDiagnostic,
     helperFailure: helperFailure, probeFailure: probeFailure };

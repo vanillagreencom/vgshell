@@ -2,11 +2,10 @@
 // Public verbs expose metadata only. Explicit Verify uses the outbound door.
 // table, accounts, providers and items print the setup terminal's rows for
 // a terminal WIDTH columns wide: table the CSV `gum table --print` draws,
-// the others TerminalRows.choiceLine lines.
+// the others AccountProviders.choiceLine lines.
 "use strict";
 const path = require("node:path");
-const { helperFailure } = require("../AccountProviders.js");
-const { parseWidth, fitText, choiceLine, providerChoices } = require("./TerminalRows.js");
+const { parseWidth, fitText, choiceLine, providerChoices, helperFailure } = require("../AccountProviders.js");
 const { stateLabel } = require("../AccountStatus.js");
 
 // gum 2.0.2 `table --print`, rounded border, draws one space on each side

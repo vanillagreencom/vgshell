@@ -306,7 +306,6 @@ console.log(wanted);
     fs.mkdirSync(path.join(mutant, "backend"), { recursive: true });
     fs.copyFileSync(path.join(backend, "keys.js"), path.join(mutant, "backend/keys.js"));
     fs.copyFileSync(path.join(plugin, "AccountProviders.js"), path.join(mutant, "AccountProviders.js"));
-    fs.copyFileSync(path.join(backend, "TerminalRows.js"), path.join(mutant, "backend/TerminalRows.js"));
     const precheck = "this.#referenceUpdate(own);";
     assert.equal(source.split(precheck).length - 1, 1);
     const unchecked = source.replace(precheck, "void own;");

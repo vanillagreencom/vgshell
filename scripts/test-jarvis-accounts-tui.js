@@ -186,17 +186,7 @@ world(async () => {
     };
     for (const rule of Object.keys(widthRows)) widths(plugin, rule);
     let controls = 0;
-    // The world's mutant copies a fixed list of plugin files; the setup
-    // rows module joins it here, unless it is the file the mutant changes.
-    const rows = path.join(plugin, "backend/TerminalRows.js");
-    const control = async (file, name, needle, replacement, assertion) => {
-        await mutant(file, name, needle, replacement, folder => {
-            const copy = path.join(folder, "backend/TerminalRows.js");
-            if (!fs.existsSync(copy)) fs.copyFileSync(rows, copy);
-            return assertion(folder);
-        });
-        controls++;
-    };
+    const control = async (file, name, needle, replacement, assertion) => { await mutant(file, name, needle, replacement, assertion); controls++; };
     await control("tui/accounts.sh", "tui-wrong-directory", 'accounts add "$selected" "$dir" "$label"',
         'accounts add "$selected" "$HOME" "$label"', check);
     await control("tui/accounts.sh", "tui-no-explicit-verify", 'accounts verify "$selected" user',
@@ -209,18 +199,18 @@ world(async () => {
     await control("AccountStatus.js", "table-state", 'case "signed-in": return "Signed in";', 'case "signed-in": return state;', wide);
     await control("tui/accounts.sh", "screen-no-table", 'gum table --print <<<"$table"', ':', check);
     await control("tui/accounts.sh", "screen-width", 'columns="$(vgs_tui_columns)"', 'columns=1000', check);
-    await control("backend/TerminalRows.js", "width-format", '!/^[0-9]{1,4}$/.test(text)', 'false', folder => widths(folder, "format"));
-    await control("backend/TerminalRows.js", "width-minimum", 'return value >= MIN_WIDTH && value <= MAX_WIDTH ? value : null;',
+    await control("AccountProviders.js", "width-format", '!/^[0-9]{1,4}$/.test(text)', 'false', folder => widths(folder, "format"));
+    await control("AccountProviders.js", "width-minimum", 'return value >= MIN_WIDTH && value <= MAX_WIDTH ? value : null;',
         'return value <= MAX_WIDTH ? value : null;', folder => widths(folder, "minimum"));
-    await control("backend/TerminalRows.js", "width-maximum", 'return value >= MIN_WIDTH && value <= MAX_WIDTH ? value : null;',
+    await control("AccountProviders.js", "width-maximum", 'return value >= MIN_WIDTH && value <= MAX_WIDTH ? value : null;',
         'return value >= MIN_WIDTH ? value : null;', folder => widths(folder, "maximum"));
     await control("backend/accounts.js", "choice-id", 'lines = judge.accounts.map(account => choiceLine(label(account.provider) + ": "',
         'lines = judge.accounts.map(account => choiceLine(account.id + ": "', choices);
-    await control("backend/TerminalRows.js", "speech-key-offered", 'if (kind === "key") return modelKeyProvider(row);',
-        'if (kind === "key") return row.kind === "key" || row.kind === "speech-key";', keyProviders);
+    await control("AccountProviders.js", "speech-key-offered", 'if (kind === "key") return modelKeyProvider(row);',
+        'if (kind === "key") return keyProvider(row);', keyProviders);
     await control("AccountProviders.js", "model-less-offered", 'return row.kind === "key" && modelProvider(row);',
         'return row.kind === "key";', keyProviders);
-    await control("backend/TerminalRows.js", "choice-fit", "fitText(label, width - CHOICE_CURSOR)", "label", choices);
+    await control("AccountProviders.js", "choice-fit", "fitText(label, width - CHOICE_CURSOR)", "label", choices);
     queue(["verify", "first", "", "no", "close"]);
     fs.rmSync(log, { force: true });
     const cancelled = run(plugin);

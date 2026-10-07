@@ -1,11 +1,10 @@
 // Only add-key, providers and presence are public CLI verbs. A key never
 // reaches stdout. providers WIDTH prints Add key's provider choices,
-// TerminalRows.choiceLine lines with each provider's key page.
+// AccountProviders.choiceLine lines with each provider's key page.
 "use strict";
 const path = require("node:path");
 const { Secrets, ownReference } = require("./Secrets.js");
-const { PROVIDERS, modelKeyProvider } = require("../AccountProviders.js");
-const { parseWidth, providerChoices } = require("./TerminalRows.js");
+const { PROVIDERS, modelKeyProvider, parseWidth, providerChoices } = require("../AccountProviders.js");
 
 function main() {
     const directory = path.join(process.env.XDG_STATE_HOME || path.join(process.env.HOME, ".local/state"), "vgshell/jarvis");
