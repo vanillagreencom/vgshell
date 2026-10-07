@@ -156,7 +156,8 @@ function verify(view) {
     const loading = SetupGate.readiness({ kind: "answered", causes: ["speech=local-loading"] });
     const checking = SetupGate.readiness({ kind: "checking" });
     for (const [label, values, want] of [
-        ["speech loading", up(down("unconfigured"), loading), ["working", "loader", "info"]],
+        ["speech loading", up(down("unconfigured"), loading), ["loading", "loader", "info"]],
+        ["loading admitted", up({}, loading), ["loading", "loader", "info"]],
         ["setup checking", up(down("unconfigured"), checking), ["working", "loader", "info"]],
         ["loading with open microphone", up({ ...down("unconfigured"), ...OPEN }, loading), ["live", "audio-lines", "accent"]],
         ["loading with daemon danger", up(down("unconfigured"), { ...loading, daemon: FLOOR }), ["problem", "circle-alert", "danger"]],
@@ -189,7 +190,7 @@ function verify(view) {
     const incomplete = view.approvalPrompt({ tool: "files.delete", purpose: "action", text: "A" });
     assert.equal(incomplete.detail, false);
     assert.deepEqual([incomplete.question, incomplete.path, incomplete.payload].map(value => Buffer.byteLength(value)), [1, 0, 0]);
-    assert.deepEqual(Object.keys(view.LOOKS).sort(), ["live", "muted", "off", "problem", "ready", "working"], "the six widget states");
+    assert.deepEqual(Object.keys(view.LOOKS).sort(), ["live", "loading", "muted", "off", "problem", "ready", "working"], "the widget states");
     for (const [state, look] of Object.entries(view.LOOKS))
         assert.ok(Object.prototype.hasOwnProperty.call(Lucide.ICONS, look.icon), state + ": icon " + look.icon + " ships");
     for (const [label, values, want] of CASES) {
@@ -234,7 +235,9 @@ const CONTROLS = [
     ["the daemon text is not shown before a state", '"Jarvis: " + daemon.text', 'GATE_TEXT.starting'],
     ["mute is not shown", "if (muteOn) return look(\"muted\"", "if (false) return look(\"muted\""],
     ["muting is not muted", 'case "muting": case "on": return true;', 'case "on": return true;'],
-    ["a lowered gate is not off", "if (gateDown(state.gate))", "if (false)"],
+    ["a lowered gate is not off", "if (down) {", "if (false) {"],
+    ["loading reads ready", 'return look("loading", "Jarvis is loading its voice", muteOn);', 'return look("ready", "Jarvis is ready", muteOn);'],
+    ["loading overrides a privacy gate", '(!down || state.gate.reason === "unconfigured") && voiceLoading(values)', 'voiceLoading(values)'],
     ["working phases read ready", 'return look("working", WORK_TEXT[detail.phase], muteOn);', 'return look("ready", "Jarvis is ready", muteOn);'],
     ["the click line follows the icon, not the mute region", 'muteOn ? "Click to unmute" : "Click to mute"', 'state === "muted" ? "Click to unmute" : "Click to mute"'],
     ["the click line never offers unmute", 'muteOn ? "Click to unmute" : "Click to mute"', '"Click to mute"'],

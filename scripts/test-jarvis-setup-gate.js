@@ -73,6 +73,10 @@ function verifyReadiness(gate) {
     assert.deepEqual([checking.setup.tone, checking.setup.action], ["info", undefined], "checking: setup");
     for (const key of ["setupVoice", "setupModel"])
         assert.deepEqual([checking[key].tone, checking[key].action], ["info", false], "checking: " + key);
+    assert.equal(gate.readiness({ kind: "checking" }).setupVoice, gate.CHECKING);
+    assert.equal(gate.readiness({ kind: "answered", causes: ["speech=local-loading"] }).setupVoice, gate.LOADING);
+    assert.equal(gate.readiness({ kind: "answered", causes: ["speech=local-loading"] }).setup, gate.LOADING_SUMMARY);
+    assert.notEqual(gate.LOADING, gate.CHECKING, "loading and initial checking have distinct values");
     for (const causes of [["speech=local-loading"], ["speech=local-loading", "brain=unselected"]]) {
         const loading = plain(gate.readiness({ kind: "answered", causes }));
         assert.deepEqual([loading.setupVoice.tone, loading.setupVoice.action], ["info", false]);
@@ -135,6 +139,7 @@ verify(load(file));
 // Each control removes one rule from a copy and keeps the text around it:
 // [label, needle, replacement].
 const CONTROLS = [
+    ["loading is initial checking", "out.setupVoice = LOADING;", "out.setupVoice = CHECKING;"],
     ["loading offers setup", 'if (cause === "speech=local-loading") {', 'if (false) {'],
     ["a missing command does not withhold setup", "return missing.indexOf(command) !== -1; });", "return false; });"],
     ["the withheld step keeps its action", 'lacking.join(" and "), action: false', 'lacking.join(" and "), action: value.action'],

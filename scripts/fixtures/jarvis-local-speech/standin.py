@@ -4,7 +4,7 @@
 The suite installs this file as DATA/venv/bin/python. It speaks the sidecar wire
 from shell/plugins/vgs.jarvis/backend/local-speech.py's header (2026-10-02),
 written independently of LocalSpeech.js. DATA/scenario.json scripts it:
-  start: "ready" | "not-ready" | "exit" | "deaf" | "garbage" | "foreign-id"
+  start: "ready" | "held" | "not-ready" | "exit" | "deaf" | "garbage" | "foreign-id"
   utterances: per end, {final} | {failed} | {exit}
   speech: per speak, {rate, samples, tone?, value?} | {failed} | {raw}
 DATA/log.jsonl records what it observed: its start facts, then one line per
@@ -51,6 +51,11 @@ ctypes.CDLL(None, use_errno=True).prctl(2, ctypes.byref(signal))  # PR_GET_PDEAT
 record({"start": {"argv": args, "pid": os.getpid(), "env": sorted(os.environ), "ppid": os.getppid(),
                   "net": os.readlink("/proc/self/ns/net"), "pdeathsig": signal.value}})
 start = scenario.get("start", "ready")
+if start == "held":
+    # A test-owned FIFO keeps the real loading order: read no PCM until
+    # the test permits ready. No host clock determines the transition.
+    with (data / "ready-gate").open("rb") as gate:
+        gate.read(1)
 if start == "not-ready":
     send({"type": "failed", "cause": "runtime-not-ready"})
     sys.exit(77)
@@ -70,6 +75,7 @@ if start == "garbage":
     sys.stdout.buffer.flush()
     time.sleep(60)
 send({"type": "ready"})
+record({"ready": True})
 if start == "foreign-id":
     send({"type": "final", "id": 99, "text": "never asked"})
 

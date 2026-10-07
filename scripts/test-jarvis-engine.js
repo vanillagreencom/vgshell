@@ -3,7 +3,8 @@
 // release gate and wire brain, with scripted speech adapters and a loopback
 // brain inside the J09 world. Every request body is read at the server.
 "use strict";
-const { assert, fs, path, tree, world, until: wait } = require("./fixtures/jarvis/audio.js");
+const { assert, fs, path, cp, tree, world, until: wait } = require("./fixtures/jarvis/audio.js");
+const { once } = require("node:events");
 const { clock, turn } = require("./fixtures/jarvis/playback.js");
 const Fixture = require("./fixtures/jarvis/engine.js");
 const vm = require("node:vm");
@@ -84,7 +85,7 @@ function rig(kit, server, options = {}) {
     const accounts = () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "ollama", label: "local",
         source: { kind: "local", origin: "http://127.0.0.1:" + PORT }, model: "fixture-model" } }) });
     const configured = answer => runner.dispatch({ type: "snapshot", locked: false, engine: "chained",
-        configured: answer.kind === "ready", settings: runner.state.settings });
+        configured: answer.kind === "ready" || answer.kind === "loading", settings: runner.state.settings });
     engine = kit.Engine.create({ session: Session, state: () => runner.state, audit, router, accounts,
         policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => faults.push(reason),
         captionLimit: options.captionLimit ?? Protocol.TRANSCRIPT_CHARS, dispatch: e => runner.dispatch(e), clock: runnerClock,
@@ -103,11 +104,11 @@ function rig(kit, server, options = {}) {
     const configure = settings => {
         const answer = engine.configure(settings);
         runner.dispatch({ type: "snapshot", locked: false, engine: "chained",
-            configured: answer.kind === "ready", settings });
+            configured: answer.kind === "ready" || answer.kind === "loading", settings });
         return answer;
     };
     const configuration = configure({ mode: options.mode ?? "hold", microphone: "", speaker: "", brain: "fixture-account" });
-    assert.equal(configuration.kind, options.directories ? "unconfigured" : "ready");
+    assert.equal(configuration.kind, options.directories ? "loading" : "ready");
     runner.dispatch({ type: "indicator", shown: true });
     const rows = () => {
         const file = path.join(state, "audit/2026-10-01.jsonl");
@@ -192,6 +193,8 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
     fs.chmodSync(path.join(local, "venv/bin/python"), 0o700);
     const scripts = { start: scenario, utterances: Array.from({ length: 6 }, () => ({ final: "Fixture request." })) };
     fs.writeFileSync(path.join(local, "scenario.json"), JSON.stringify(scripts));
+    if (scenario === "held")
+        assert.equal(cp.spawnSync("python3", ["-I", "-c", "import os,sys;os.mkfifo(sys.argv[1])", path.join(local, "ready-gate")]).status, 0);
     fs.writeFileSync(path.join(state, "local-ready.json"), JSON.stringify({ tier: "small", data: fs.realpathSync(local) }));
     const logs = () => fs.existsSync(path.join(local, "log.jsonl")) ? fs.readFileSync(path.join(local, "log.jsonl"), "utf8")
         .trim().split("\n").filter(Boolean).map(JSON.parse) : [];
@@ -199,8 +202,32 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
     const alive = pid => { try { process.kill(pid, 0); return true; } catch (error) { if (error.code === "ESRCH") return false; throw error; } };
     const w = rig(kit, server, { directories: { state, data: root, runtime: root } });
     try {
-        assert.equal(w.s().gate.kind, "down");
+        assert.equal(w.s().gate.kind, "up");
         await until(() => starts().length === 1, "sidecar starts before any conversation");
+        if (scenario === "held") {
+            w.runner.dispatch({ type: "snapshot", locked: null, engine: "chained", configured: true, settings: w.s().settings });
+            w.runner.dispatch({ type: "talk-down" });
+            assert.equal(w.s().gate.reason, "lock-unknown");
+            assert.equal(w.s().capture.kind, "closed");
+            assert.equal(w.s().conversation.kind, "ended");
+            w.runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: w.s().settings });
+            w.runner.dispatch({ type: "talk-down" });
+            await until(() => w.s().capture.kind === "open", "bounded loading capture opens");
+            w.runner.dispatch({ type: "talk-up" });
+            await until(() => w.s().capture.kind === "closed", "bounded loading capture releases");
+            assert.equal(w.s().turn.kind, "collecting");
+            const before = server.requests.length;
+            w.advanceRunner(60000);
+            await until(() => w.s().fault.kind === "error", "existing loading deadline is visible");
+            assert.equal(w.s().fault.reason, "speech=collect-timeout");
+            assert.equal(w.s().conversation.kind, "ended");
+            assert.equal(w.s().capture.kind, "closed");
+            await until(() => !alive(starts()[0].pid), "deadline reaps the failed starting child");
+            assert.equal(w.configure(w.s().settings).kind, "ready", "deadline does not become a setup refusal");
+            assert.equal(starts().length, 1, "deadline does not automatically restart");
+            assert.equal(server.requests.length, before, "deadline does not replay an utterance");
+            return;
+        }
         if (scenario === "not-ready") {
             await until(() => !alive(starts()[0].pid), "admission refusal closes child");
             assert.equal(w.configure(w.s().settings).cause, "speech=local-runtime-not-ready");
@@ -215,12 +242,12 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
             fs.copyFileSync(marker, replacement);
             fs.renameSync(replacement, marker);
             assert.equal(w.configure(w.s().settings).cause, "speech=local-loading");
-            await until(() => w.s().gate.kind === "up", "completed setup publication restores model readiness");
+            await until(() => w.configure(w.s().settings).kind === "ready", "completed setup publication restores model readiness");
             assert.equal(w.configure(w.s().settings).kind, "ready");
             assert.equal(starts().length, 2);
             return;
         }
-        await until(() => w.s().gate.kind === "up", "model ready raises admission");
+        await until(() => w.configure(w.s().settings).kind === "ready", "model ready ends the loading cause");
         const pid = starts()[0].pid;
         for (const ending of [firstEnding, "brain-failed", "stop"]) {
             const before = await say(w, utterance("Fixture request."));
@@ -250,6 +277,155 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
         await w.close();
         await until(() => starts().every(row => !alive(row.pid)), "daemon teardown releases speech child");
         server.closeAll();
+    }
+}
+
+// Run the shipped daemon, Session, Audio and local adapter. Only Accounts'
+// separately tested selection boundary is replaced by the loopback account.
+// The FIFO holds the child before its real ready frame and input read loop.
+async function loadingTalk(server, ending = "ready", edits = []) {
+    server.replies.length = 0;
+    const kit = Fixture.copy(process.env.JARVIS_TEST_ROOT);
+    const engineFile = path.join(kit.folder, "backend/ChainedEngine.js");
+    const speechNeedle = 'const SPEECH = Object.freeze({ scripted: require(' + JSON.stringify(require.resolve("./fixtures/jarvis/engine.js")) + ').row });';
+    let source = fs.readFileSync(engineFile, "utf8");
+    assert.equal(source.split(speechNeedle).length, 2);
+    fs.writeFileSync(engineFile, source.replace(speechNeedle, "const SPEECH = Object.freeze({ local: LocalSpeech.row });"));
+    fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis/artifacts.json"), path.join(kit.folder, "artifacts.json"));
+    for (const [file, needle, replacement] of edits) {
+        const name = path.join(kit.folder, file), original = fs.readFileSync(name, "utf8");
+        assert.equal(original.split(needle).length, 2, "one loading control match");
+        fs.writeFileSync(name, original.replace(needle, replacement));
+    }
+    const root = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "loading-"));
+    const local = path.join(root, "local"), state = path.join(root, "state");
+    fs.mkdirSync(path.join(local, "venv/bin"), { recursive: true });
+    fs.mkdirSync(state);
+    fs.copyFileSync(path.join(__dirname, "fixtures/jarvis-local-speech/standin.py"), path.join(local, "venv/bin/python"));
+    fs.chmodSync(path.join(local, "venv/bin/python"), 0o700);
+    fs.writeFileSync(path.join(local, "scenario.json"), JSON.stringify({ start: "held", utterances: [{ final: "Captured once." }] }));
+    assert.equal(cp.spawnSync("python3", ["-I", "-c", "import os,sys;os.mkfifo(sys.argv[1])", path.join(local, "ready-gate")]).status, 0);
+    if (ending !== "missing") fs.writeFileSync(path.join(state, "local-ready.json"), JSON.stringify({ tier: "small", data: fs.realpathSync(local) }));
+    if (ending === "muted") fs.writeFileSync(path.join(state, "mute.json"), JSON.stringify({ muted: true }));
+    if (ending === "device") fs.writeFileSync(path.join(process.env.HOME, "no-devices"), "");
+    const preload = path.join(root, "accounts.js");
+    fs.writeFileSync(preload, 'require(' + JSON.stringify(path.join(kit.folder, "backend/Accounts.js")) + ').Accounts.prototype.choose = id => ({ kind: "accepted", account: { id, provider: "ollama", label: "local", source: { kind: "local", origin: "http://127.0.0.1:11434" }, model: "fixture-model" } });');
+    const child = cp.spawn("node", ["--require", preload, path.join(kit.folder, "backend/jarvisd.js"), "--tree", tree], {
+        env: { PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR }, stdio: ["pipe", "pipe", "pipe"] });
+    const closed = once(child, "close");
+    const rows = [], logs = () => fs.existsSync(path.join(local, "log.jsonl"))
+        ? fs.readFileSync(path.join(local, "log.jsonl"), "utf8").trim().split("\n").filter(Boolean).map(JSON.parse) : [];
+    const starts = () => logs().filter(row => row.start);
+    const states = () => rows.filter(row => row.type === "state");
+    const s = () => states().at(-1)?.state;
+    const status = () => rows.filter(row => row.type === "status").at(-1);
+    let tail = "", error = "";
+    child.stdout.on("data", data => { tail += data; const lines = tail.split("\n"); tail = lines.pop(); rows.push(...lines.filter(Boolean).map(JSON.parse)); });
+    child.stderr.on("data", data => { error += data; });
+    child.stdin.on("error", e => { if (e.code !== "EPIPE") throw e; });
+    const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
+    const hello = (locked = false) => send({ type: "hello", locked,
+        settings: { mode: "hold", microphone: "", speaker: "", brain: ending === "brain" ? "" : "fixture-account", taskTerminal: "auto", cloudVision: "ask", privateWindows: "bitwarden" },
+        keys: { talk: null, mute: null, stop: null, confirm: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
+    const intent = name => send({ type: "intent", intent: name });
+    const before = server.requests.length;
+    try {
+        hello(ending === "locked");
+        await until(() => status() && s(), "shipped daemon publishes admission: " + error);
+        if (["missing", "brain", "locked", "muted"].includes(ending)) {
+            if (ending === "muted") assert.equal(s().mute.kind, "on");
+            else assert.equal(s().gate.kind, "down");
+            send({ type: "indicator", shown: true });
+            intent("talk-down");
+            // The hello is an ordered wire barrier after the refused intent.
+            const count = rows.filter(row => row.type === "status").length;
+            hello(ending === "locked");
+            await until(() => rows.filter(row => row.type === "status").length > count, "refused Talk settles");
+            assert.equal(s().capture.kind, "closed");
+            assert.equal(s().conversation.kind, "ended");
+            assert.equal(server.requests.length, before);
+            if (["missing", "brain"].includes(ending)) assert.equal(starts().length, 0);
+            return;
+        }
+        assert.equal(s().gate.kind, "up", "healthy loading admits Talk");
+        assert.deepEqual(status().causes, ["speech=local-loading"]);
+        await until(() => starts().length === 1, "one daemon-owned child starts");
+        intent("talk-down");
+        await until(() => s().conversation.kind === "active", "Talk starts one conversation");
+        send({ type: "indicator", shown: false });
+        await until(() => s().indicator.kind === "gone" && s().input.kind === "held", "unmapped indicator settles");
+        assert.equal(s().capture.kind, "closed", "capture waits for the presented indicator");
+        send({ type: "indicator", shown: true });
+        if (ending === "device") {
+            await until(() => s().fault.kind !== "none", "loading capture refuses a missing device");
+            assert.equal(s().fault.reason, "device-lost");
+            assert.equal(s().capture.kind, "closed");
+            assert.equal(server.requests.length, before);
+            return;
+        }
+        await until(() => s().capture.kind === "open", "real Audio captures before model ready");
+        assert.equal(logs().some(row => row.ready), false);
+        const identity = { gen: s().gen, op: s().turn.op };
+        assert.equal(s().turn.kind, "collecting");
+        assert.deepEqual(status().causes, ["speech=local-loading"]);
+        // At least one PCM period reaches the existing sink before release.
+        await until(() => fs.existsSync(path.join(process.env.HOME, "audio-argv")) &&
+            fs.readFileSync(path.join(process.env.HOME, "audio-argv"), "utf8").includes('"command": "pw-record"'), "fixture recorder starts");
+        intent("talk-up");
+        await until(() => s().capture.kind === "closed", "release closes the same capture before ready");
+        assert.equal(s().input.kind, "released");
+        assert.equal(s().turn.kind, "collecting");
+        assert.deepEqual({ gen: s().gen, op: s().turn.op }, identity);
+        assert.equal(server.requests.length, before, "no transcription or brain turn before real ready");
+        if (ending === "fault") {
+            process.kill(starts()[0].start.pid, "SIGKILL");
+            await until(() => s().fault.kind === "error", "own-child fault is visible during loading");
+            assert.match(s().fault.reason, /^speech=local-exit/);
+            assert.equal(s().capture.kind, "closed");
+            hello();
+            await until(() => status().causes.length === 0, "own-child fault is unloaded, not setup refusal");
+            assert.equal(starts().length, 1, "hello does not automatically retry the child");
+            assert.equal(server.requests.length, before);
+            intent("talk-down");
+            await until(() => starts().length === 2 && s().capture.kind === "open", "next permitted request reloads the reaped loading child");
+            assert.equal(s().fault.kind, "none");
+            assert.equal(s().turn.kind, "collecting");
+            assert.equal(server.requests.length, before, "faulted utterance is not replayed during recovery");
+            return;
+        }
+        if (ending === "lease") {
+            child.stdin.end();
+            const [code, signal] = await closed;
+            assert.equal(code, 0, error);
+            assert.equal(signal, null);
+            assert.equal(server.requests.length, before, "lease ends without replaying the held utterance");
+            return;
+        }
+        if (ending === "stop") intent("stop");
+        else if (ending === "mute") intent("mute");
+        else if (ending === "lock") hello(true);
+        if (ending !== "ready") await until(() => s().conversation.kind === "ended", "loading cancellation ends its utterance");
+        fs.writeFileSync(path.join(local, "ready-gate"), "R");
+        await until(() => status().causes.length === 0, "actual ready clears loading status");
+        if (ending === "ready") {
+            const body = await requested({ server }, before + 1, "one held utterance reaches the real wire brain");
+            assert.deepEqual(user(body), ["Captured once."]);
+            assert.deepEqual({ gen: s().gen, op: s().turn.op }, identity, "ready snapshot preserves collecting identity");
+            assert.equal(server.requests.length, before + 1);
+            const ends = logs().filter(row => row.end);
+            assert.equal(ends.length, 1);
+            assert.ok(ends[0].samples > 0, "queued utterance contains actual fixture PCM");
+        } else {
+            assert.equal(s().conversation.kind, "ended");
+            assert.equal(s().turn.kind, "none");
+            assert.equal(server.requests.length, before, "ready does not replay cancelled Talk");
+        }
+        assert.equal(starts().length, 1, "loading Talk starts no second child");
+    } finally {
+        child.stdin.end();
+        const timer = setTimeout(() => child.kill("SIGKILL"), OBSERVE_MS);
+        try { const [code, signal] = await closed; assert.equal(signal, null); assert.equal(code, 0, error); }
+        finally { clearTimeout(timer); server.closeAll(); fs.rmSync(path.join(process.env.HOME, "no-devices"), { force: true }); }
     }
 }
 
@@ -913,10 +1089,23 @@ world(async () => {
         await daemonSpeech(server);
         await daemonSpeech(server, [], "ready", "brain-failed");
         await daemonSpeech(server, [], "not-ready");
+        await daemonSpeech(server, [], "held");
+        for (const ending of ["ready", "stop", "mute", "lock", "lease", "fault", "locked", "muted", "missing", "brain", "device"])
+            await loadingTalk(server, ending);
+        for (const [name, file, needle, replacement] of [
+            ["loading admission removed", "backend/jarvisd.js", ' || configuration.kind === "loading"', ""],
+            ["loading ready too early", "backend/ChainedEngine.js", 'return { kind: "loading", cause: "speech=local-loading", causes: ["speech=local-loading"] };', 'return { kind: "ready" };'],
+            ["loading ignores presented indicator", "Session.js", 's.indicator.kind === "shown"', "true"],
+            ["loading cancellation replays", "backend/ChainedEngine.js", '            if (utterance) utterance.abort();', '            void utterance;']
+        ]) {
+            await assert.rejects(() => loadingTalk(server, name === "loading cancellation replays" ? "stop" : "ready", [[file, needle, replacement]]), assert.AssertionError, name);
+            console.log("control=" + name + " detected");
+            controls++;
+        }
         for (const [name, edits] of [
             ["ready before model load", [['speechState.kind === "new" || published) startSpeech(plan.speech);', 'false) startSpeech(plan.speech);']]],
             ["conversation unloads local speech", [['if (c.plan.speech.lifetime !== "daemon") c.speech.close();', 'c.speech.close();']]],
-            ["faulted child kept", [["daemonSpeech = null;\n            // A loaded", "// A loaded"]]],
+            ["faulted child kept", [["daemonSpeech = null;\n            // Only", "// Only"]]],
             ["admission refusal admitted", [['{ kind: "refused", error, publication: row.publication };', '{ kind: "unloaded" };']]],
             ["ordinary hello retries refusal", [['speechState.publication !== plan.speech.publication', 'true']]],
             ["setup publication ignored", [['speechState.publication !== plan.speech.publication', 'false']]]
