@@ -218,6 +218,7 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
                 w.runner.dispatch({ type: "brain-failed", gen: w.s().gen, op: w.s().turn.op, reason: "brain=fixture-failed" });
             else w.runner.dispatch({ type: "stop" });
             await until(() => w.s().conversation.kind === "ended", "conversation ends");
+            await until(() => w.s().brain.kind === "closed" && w.s().capture.kind === "closed", "conversation children acknowledge closure");
             assert.equal(alive(pid), true, "conversation end retains healthy sidecar");
             assert.equal(starts().length, 1);
         }
