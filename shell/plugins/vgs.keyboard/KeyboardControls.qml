@@ -161,7 +161,7 @@ Column {
             FormRow {
                 id: repeatRow
                 required property var modelData
-                width: parent.width
+                width: root.width
                 label: modelData.label
                 warning: root.warning(modelData.key)
                 Item {

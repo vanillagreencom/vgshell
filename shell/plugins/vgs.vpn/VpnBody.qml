@@ -179,7 +179,7 @@ FocusScope {
                 Field {
                     id: deviceRow
                     required property var modelData
-                    width: parent.width
+                    width: root.width
                     visible: modelData[1] !== ""
                     label: modelData[0]
                     inline: true
@@ -224,7 +224,7 @@ FocusScope {
                 Field {
                     id: peerRow
                     required property var modelData
-                    width: parent.width
+                    width: root.width
                     label: modelData.name
                     inline: true
 
@@ -248,7 +248,7 @@ FocusScope {
 
                 ProfileRow {
                     id: profileRow
-                    width: parent.width
+                    width: root.width
                     busy: root.profiles.action !== ""
                     onToggleRequested: wanted => {
                         root.answered(root.shell.ipc.call("action", JSON.stringify({
