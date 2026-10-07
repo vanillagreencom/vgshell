@@ -182,6 +182,13 @@ def validate_memory(need, provider):
         raise ValueError("memory-measurement=invalid")
 
 
+def gpu_query(query, environment):
+    """Keep each bounded GPU query owned by its Python caller, even on KILL."""
+    return subprocess.run(
+        ["setpriv", "--pdeathsig", "KILL", "--", "nvidia-smi", query, "--format=csv,noheader,nounits"],
+        env=environment, capture_output=True, text=True, timeout=10, check=True)
+
+
 def available(resource):
     """Read allocatable RAM or CUDA memory without opening an audio device."""
     try:
@@ -196,10 +203,8 @@ def available(resource):
         else:
             # NVIDIA documents --query-gpu memory.free in MiB. Take the
             # least free device: the runtime chooses its CUDA device, not VGS.
-            child = subprocess.run(
-                ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
-                env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LC_ALL": "C"},
-                capture_output=True, text=True, timeout=10, check=True)
+            child = gpu_query("--query-gpu=memory.free",
+                {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LC_ALL": "C"})
             readings = [int(line.strip()) * 1024 * 1024 for line in child.stdout.splitlines()]
             if not readings or any(value < 0 for value in readings):
                 raise ValueError("gpu-memory")
@@ -237,10 +242,7 @@ class GpuSamples:
         self.thread = None
 
     def read(self):
-        child = subprocess.run(
-            ["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"],
-            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
-            capture_output=True, text=True, timeout=10, check=True)
+        child = gpu_query("--query-compute-apps=pid,used_memory", {"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
         memory = 0
         for line in child.stdout.splitlines():
             pid, amount = [v.strip() for v in line.split(",")]

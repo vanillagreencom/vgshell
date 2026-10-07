@@ -448,7 +448,8 @@ class LocalContract(unittest.TestCase):
                 else:
                     self.assertEqual(module.available("gpu"), expected)
                 self.assertEqual(call.call_args.args[0],
-                    ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"])
+                    ["setpriv", "--pdeathsig", "KILL", "--", "nvidia-smi",
+                     "--query-gpu=memory.free", "--format=csv,noheader,nounits"])
                 self.assertEqual(set(call.call_args.kwargs["env"]), {"PATH", "LC_ALL"})
         for resource, source in [("ram", module.Path), ("gpu", module.subprocess)]:
             name = "read_text" if resource == "ram" else "run"
@@ -517,8 +518,8 @@ def observed(lock,flags):
         print("blocked",flush=True)
         original(lock,flags)
 m.fcntl.flock=observed
-with m.loading(Path(sys.argv[2])):
-    print("entered",flush=True)
+m.measure=lambda *args: print("entered",flush=True)
+m.run({},[],Path(sys.argv[2]),"cpu",None,"probe")
 '''
             with module.loading(self.models):
                 child = subprocess.Popen([sys.executable, "-I", "-c", program, str(self.program), str(self.models)],
@@ -542,11 +543,13 @@ with m.loading(Path(sys.argv[2])):
             self.assertTrue((self.models.parent / "local-load.lock").is_file())
         check()
         text = SOURCE.read_text()
-        needle = "fcntl.flock(lock, fcntl.LOCK_EX)"
-        self.assertEqual(text.count(needle), 1)
-        self.program.write_text(text.replace(needle, "False and " + needle))
-        with self.assertRaises(AssertionError):
-            check()
+        for needle, replacement in [
+                ("fcntl.flock(lock, fcntl.LOCK_EX)", "False and fcntl.flock(lock, fcntl.LOCK_EX)"),
+                ("with loading(root):", "with contextmanager(lambda: (yield))():")]:
+            self.assertEqual(text.count(needle), 1)
+            self.program.write_text(text.replace(needle, replacement))
+            with self.assertRaises(AssertionError):
+                check()
 
     def test_namespace_guard_control(self):
         from types import SimpleNamespace

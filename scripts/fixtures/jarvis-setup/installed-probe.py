@@ -40,7 +40,7 @@ def inference(value, artifacts, models, provider, seconds, scope):
         "gpu_peak_bytes": 2048 if provider == "cuda" else None}))
 
 
-judge.run = inference
+judge.measure = inference
 sys.argv = [program, "probe", tier]
 try:
     setup.main()

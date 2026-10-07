@@ -252,13 +252,45 @@ async function backlog(folder) {
     } finally { speech.close(); }
     cases++;
 }
-async function close(folder) {
+async function close(folder, queryEdits = []) {
     const w = runtime({ start: "deaf" });
     const speech = adapter(folder, w);
     await until(() => start(w.log()) !== undefined, "the stand-in started", OBSERVE_MS);
     const pid = start(w.log()).pid;
     speech.close();
     await until(() => !alive(pid), "close ends the sidecar", OBSERVE_MS);
+    // The real GPU admission query runs under the sidecar's owner. Its
+    // acknowledged child must end when close kills that owner during load.
+    const loading = runtime({ start: "memory-query" });
+    let source = fs.readFileSync(path.join(PLUGIN, "measure-local"), "utf8");
+    for (const [needle, replacement] of queryEdits) {
+        assert.equal(source.split(needle).length - 1, 1, "query control matches once");
+        source = source.replace(needle, replacement);
+    }
+    fs.writeFileSync(path.join(loading.local, "measure-local"), source);
+    fs.mkdirSync(path.join(loading.local, "query"));
+    const queryFile = path.join(loading.local, "query/nvidia-smi");
+    fs.copyFileSync(STANDIN, queryFile);
+    fs.chmodSync(queryFile, 0o700);
+    const owner = adapter(folder, loading);
+    let queryPid;
+    try {
+        await until(() => loading.log().some(entry => entry.query), "GPU query acknowledged startup", OBSERVE_MS);
+        queryPid = loading.log().find(entry => entry.query).query.pid;
+        assert.equal(loading.log().find(entry => entry.query).query.ppid, start(loading.log()).pid);
+        assert.equal(alive(queryPid), true, "query is held before shutdown");
+        owner.close();
+        await until(() => !alive(start(loading.log()).pid), "close ends loading owner", OBSERVE_MS);
+        await until(() => {
+            if (!alive(queryPid)) return true;
+            // A dead orphan can await the private namespace init's reap.
+            try { return /^State:\s+Z/m.test(fs.readFileSync(`/proc/${queryPid}/status`, "utf8")); }
+            catch (error) { if (error.code === "ENOENT") return true; throw error; }
+        }, "close ends admission query", OBSERVE_MS);
+    } finally {
+        owner.close();
+        if (alive(queryPid)) process.kill(queryPid, "SIGKILL");
+    }
     cases++;
 }
 
@@ -398,6 +430,13 @@ world(async () => {
         controls++;
         console.log("control=" + name + " detected: " + observed.message.split("\n")[0]);
     }
+    const before = cases;
+    await assert.rejects(() => close(PLUGIN,
+        [['"setpriv", "--pdeathsig", "KILL", "--", "nvidia-smi"', '"setpriv", "--", "nvidia-smi"']]),
+        /close ends admission query/, "must-fail control stayed green: query parent-death signal");
+    cases = before;
+    controls++;
+    console.log("control=query parent-death signal detected: close ends admission query");
     // A control's defect can leave its stand-in running; end them all.
     for (const w of worlds) if (alive(start(w.log())?.pid)) process.kill(start(w.log()).pid, "SIGKILL");
     console.log("test-jarvis-local-speech: ok cases=" + cases + " controls=" + controls);

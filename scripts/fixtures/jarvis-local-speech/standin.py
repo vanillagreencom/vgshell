@@ -12,15 +12,26 @@ DATA/log.jsonl records what it observed: its start facts, then one line per
 ended, aborted or spoken request. No model, device or network is touched.
 """
 import ctypes
+import importlib.machinery
+import importlib.util
 import json
 import math
 import os
 from pathlib import Path
 import struct
+import signal as signals
 import sys
 import time
 
 args = sys.argv[1:]
+if args == ["--query-gpu=memory.free", "--format=csv,noheader,nounits"]:
+    # This executable is copied to the private query PATH. Acknowledge that
+    # the real admission owner started it before cancellation is tested.
+    with (Path(__file__).resolve().parent.parent / "log.jsonl").open("a") as output:
+        output.write(json.dumps({"query": {"pid": os.getpid(), "ppid": os.getppid()}}) + "\n")
+        output.flush()
+    signals.pause()
+    sys.exit(0)
 data = Path(args[args.index("--data") + 1])
 scenario = json.loads((data / "scenario.json").read_text())
 log = (data / "log.jsonl").open("a")
@@ -52,6 +63,13 @@ ctypes.CDLL(None, use_errno=True).prctl(2, ctypes.byref(signal))  # PR_GET_PDEAT
 record({"start": {"argv": args, "pid": os.getpid(), "env": sorted(os.environ), "ppid": os.getppid(),
                   "net": os.readlink("/proc/self/ns/net"), "pdeathsig": signal.value}})
 start = scenario.get("start", "ready")
+if start == "memory-query":
+    loader = importlib.machinery.SourceFileLoader("query_owner", str(data / "measure-local"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    judge = importlib.util.module_from_spec(spec)
+    loader.exec_module(judge)
+    os.environ["PATH"] = str(data / "query") + ":" + os.environ["PATH"]
+    judge.available("gpu")
 if start == "held":
     # A test-owned FIFO keeps the real loading order: read no PCM until
     # the test permits ready. No host clock determines the transition.
