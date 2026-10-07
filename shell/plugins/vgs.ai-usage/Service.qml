@@ -5,7 +5,7 @@ import qs.Commons
 import "UsageView.js" as View
 
 // The one reader of AI plan usage. It runs backend/usage.js at start, on
-// its check interval, when the panel asks and after a sign-in TUI ends, and
+// its check interval, on the panel's Check now and after a sign-in TUI ends, and
 // publishes what it read as `usage` with the two sign-in rows. A read asked
 // for while one runs starts once it ends. The widget and the panel draw
 // status alone.

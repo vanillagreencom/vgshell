@@ -7,8 +7,10 @@ import "UsageView.js" as View
 // Each signed-in and visible account in a card of its own: the provider,
 // the account's email and one row per limit with its time to reset. Full
 // view adds a meter under each limit and the provider detail fields the
-// helper received. The pane is at most half its output's height. Opening
-// the panel asks the service for a new check; the panel draws status alone.
+// helper received, and each card says how long ago its figures were read.
+// The pane is at most half its output's height. Opening the panel reads
+// nothing: Check now asks the service for a new check, and the panel draws
+// status alone.
 Item {
     id: root
     property var shell: null
@@ -29,7 +31,7 @@ Item {
         if (reply !== "ok") console.warn("ai-usage: panel refresh " + reply);
         return reply;
     }
-    function open(payloadJson) { refresh(); }
+    function open(payloadJson) {}
     function close() {}
 
     implicitWidth: Theme.size.panel.md

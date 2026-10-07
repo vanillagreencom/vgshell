@@ -26,7 +26,7 @@ Images come from `scripts/readme-shots.sh` in the nested sandbox.
 
 | Setting | What it changes |
 | --- | --- |
-| Check interval | Time between usage checks. Opening the panel also checks. |
+| Check interval | Time between usage checks. Check now in the panel checks at once. |
 | View | Compact shows account identity and limit lines. Full adds meters and provider details. |
 | Bar number | How the bar figures one number from each account's highest limit: Average, Most left or Most used. An account with no limits is left out. |
 | Bar shows | Used shows the share used. Left shows the share that is left. |
