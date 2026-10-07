@@ -350,7 +350,8 @@ def streaming_cases(m):
         model.vad = LiveVad(active)
         output = io.BytesIO()
         messages = [({"type": "listen", "id": 1, "detect": mode},)]
-        messages += [({"type": "audio", "id": 1}, floats(8000)) for _ in range(3)]
+        # Complete VAD windows let the second block expose its ended segment.
+        messages += [({"type": "audio", "id": 1}, floats(8192)) for _ in range(3)]
         prefix = b"".join(frame(*message) for message in messages)
         # The input yields its final end frame only after observing the output
         # already drawn during capture. This proves partials precede key up.
@@ -370,9 +371,9 @@ def streaming_cases(m):
         headers = [h for h, _ in answers(output.getvalue())]
         if headers[-1] != {"type": "final", "id": 1, "text": "final words"}:
             raise AssertionError(f"final authority: {headers}")
-        if len(captions.streams) != 1 or captions.streams[0].samples != 24000:
+        if len(captions.streams) != 1 or captions.streams[0].samples != 24576:
             raise AssertionError("captions must use one cached stream with every sample once")
-        if turns != ([16000, 24000] if mode and not active else []):
+        if turns != ([16384, 24576] if mode and not active else []):
             raise AssertionError(f"semantic detector {mode, active}: {turns}")
     model = speech(m, [], 80000)
     output = serve(m, [({"type": "listen", "id": 1, "detect": True},),

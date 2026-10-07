@@ -359,7 +359,8 @@ async function loadingTalk(server, ending = "ready", edits = []) {
         assert.equal(s().capture.kind, "closed", "capture waits for the presented indicator");
         send({ type: "indicator", shown: true });
         if (ending === "device") {
-            await until(() => s().fault.kind !== "none", "loading capture refuses a missing device");
+            await until(() => s().fault.kind !== "none" && s().capture.kind === "closed",
+                "loading capture refuses a missing device and settles its capture");
             assert.equal(s().fault.reason, "device-lost");
             assert.equal(s().capture.kind, "closed");
             assert.equal(server.requests.length, before);

@@ -782,13 +782,14 @@ async function inside() {
     const scriptedReply = Array(24).fill("scripted reply").join(" ");
     const replyWords = file => conversation(file, async w => {
         w.send("talk-down");
-        await w.wait(m => m.phase === "listening");
+        const listening = await w.wait(m => m.phase === "listening");
         w.send("talk-up");
         const thinking = await w.wait(m => m.phase === "thinking");
         fs.writeFileSync(path.join(chainedGates, "reply"), "");
         await w.wait(m => m.phase === "speaking" && m.state.turn.kind === "none");
         assert.deepEqual(w.messages.filter(m => m.type === "transcript").map(m => [m.gen, m.role, m.stage, m.rev, m.text]),
-            [[thinking.gen, "assistant", "partial", 1, scriptedReply], [thinking.gen, "assistant", "final", 2, scriptedReply]],
+            [[thinking.gen, "user", "final", listening.state.turn.op, "scripted utterance"],
+                [thinking.gen, "assistant", "partial", 1, scriptedReply], [thinking.gen, "assistant", "final", 2, scriptedReply]],
             "the bubble fixture's words come from the chained engine");
         w.send("stop");
         await w.wait(m => m.state.conversation.kind === "ended" && m.state.brain.kind === "closed");
@@ -1328,6 +1329,7 @@ exit "$failures"
             assert.deepEqual(statuses.map(message => message.causes), [[]], "a ready engine publishes no setup cause");
             send(intent("talk-down"));
             await wait(m => m.phase === "listening", "listening");
+            const collectionOp = states.at(-1).state.turn.op;
             send(intent("talk-up"));
             await wait(m => m.phase === "idle" && m.state.conversation.kind !== "ended" && m.state.turn.kind === "none"
                 && states.some(state => state.phase === "speaking"), "speech completes");
@@ -1339,6 +1341,7 @@ exit "$failures"
                 .map(message => message.content), ["What time is it?"], "the final reaches the loopback brain");
             const gen = states.at(-1).state.gen;
             assert.deepEqual(captions.map(m => [m.gen, m.role, m.stage, m.rev, m.text]), [
+                [gen, "user", "final", collectionOp, "What time is it?"],
                 [gen, "assistant", "partial", 1, "It is noon."],
                 [gen, "assistant", "partial", 2, "It is noon. The sun is high."],
                 [gen, "assistant", "final", 3, "It is noon. The sun is high."]], "the chained reply's words reach the wire in order, final last");
