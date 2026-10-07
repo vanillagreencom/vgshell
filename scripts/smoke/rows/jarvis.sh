@@ -6,6 +6,7 @@ set -euo pipefail
 expected_errors+=('WARN qml: jarvis: stderr=.*Killed.*')
 expected_errors+=('WARN qml: jarvis: stderr=jarvis: node=21[.]0[.]0 need=22')
 expected_errors+=('WARN qml: jarvis: hello=timeout')
+expected_errors+=('WARN qml: jarvis: stderr=jarvis: fixture=warning')
 expected_errors+=('.*jarvis-account-missing-helper.*')
 # The readers log a failed check's safe cause; the page shows plain words.
 expected_errors+=('WARN qml: jarvis-accounts: (process|output|diagnostic|added|directory|discovery)=[a-z-]+')
@@ -268,9 +269,45 @@ print("fault" if status.get("audio")==expected else "pending")
 '
 }
 
-jarvis_audio_fault_assertion() {
+# The fixture's later list names one other microphone, so a service that
+# publishes it has handled the device message that follows the fault.
+jarvis_later_devices() {
+  ipc smoke jarvisProcess | py_reply '
+import json,sys
+status=json.load(sys.stdin)["status"]
+print("later" if status.get("microphones")==[{"label":"Later microphone","value":"fixture.later"}] else "pending")
+'
+}
+
+jarvis_audio_recovered_assertion() {
   (failures=0 behaviour_failures=0
-   expect_poll "device offers do not clear the capture fault" fault jarvis_audio_fault >"$sandbox/jarvis-audio-fault-control-assertions.log"
+   expect "a device list after an audio fault clears the audio problem" handled jarvis_devices_handled >"$sandbox/jarvis-audio-fault-control-assertions.log"
+   echo "$failures")
+}
+
+# The mute the service holds from the daemon's Session state.
+jarvis_mute_held() {
+  ipc smoke readInstance service vgs.jarvis sessionState | py_reply '
+import json,sys
+s=json.load(sys.stdin)
+print("pending" if s is None else s["mute"]["kind"])
+'
+}
+
+# A daemon that writes a warning to stderr and keeps running still takes
+# intents. The mute round trip ends unmuted, so later cases start unmuted.
+jarvis_stderr_case() {
+  expect_poll "the daemon's warning reaches the log" logged jarvis_logged "jarvis: fixture=warning" "$jarvis_warnings"
+  expect "mute reaches the daemon after its warning" ok ipc vgs.jarvis invoke mute ""
+  expect_poll "the daemon mutes after its warning" on jarvis_mute_held
+  expect "unmute reaches the daemon after its warning" ok ipc vgs.jarvis invoke mute ""
+  expect_poll "the daemon unmutes after its warning" off jarvis_mute_held
+  expect "the warning neither restarts nor ends the daemon" ready jarvis_ready 0
+}
+
+jarvis_stderr_assertion() {
+  (failures=0 behaviour_failures=0
+   jarvis_stderr_case >"$sandbox/jarvis-stderr-control-assertions.log"
    echo "$failures")
 }
 
@@ -548,28 +585,41 @@ jarvis_disable
 cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
 jarvis_rescan
 
-"$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --audio-fault-devices "$jarvis_backend"
+# The fixture holds its later device list until the row has seen the
+# service publish the fault, so the list provably follows the fault.
+jarvis_audio_gate="$sandbox/jarvis-audio-devices-gate"
+"$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --audio-fault-devices "$jarvis_backend" "$jarvis_audio_gate"
 jarvis_rescan
+rm -f -- "${jarvis_audio_gate:?}"
 jarvis_enable
 expect_poll "the fault fixture still publishes real device offers" devices jarvis_devices
-expect_poll "a later device message retains the owning audio fault" fault jarvis_audio_fault
+expect_poll "the service publishes the audio fault" fault jarvis_audio_fault
+: >"$jarvis_audio_gate"
+expect_poll "the service handles the later device list" later jarvis_later_devices
+expect "a device list after an audio fault clears the audio problem" handled jarvis_devices_handled
 jarvis_disable
+# Control: only the first device list reports ready, so the later list
+# leaves the fault shown.
 python3 - "$jarvis_service" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 s=p.read_text()
-needle='if (audioHealth.kind === "reading")'
+needle='if (audioHealth.kind !== "ready")'
 assert s.count(needle)==1
-changed=s.replace(needle, 'if (true)')
+changed=s.replace(needle, 'if (audioHealth.kind === "reading")')
 assert changed != s
 p.write_text(changed)
 PY
 jarvis_rescan
+rm -f -- "${jarvis_audio_gate:?}"
 jarvis_enable
-expect_poll "the status control still publishes real offers" devices jarvis_devices
-expect "offer-driven success breaks the actual fault-status assertion" 1 jarvis_audio_fault_assertion
+expect_poll "the status control publishes the audio fault" fault jarvis_audio_fault
+: >"$jarvis_audio_gate"
+expect_poll "the status control handles the later device list" later jarvis_later_devices
+expect "a reading-only ready rule breaks the cleared-fault assertion" 1 jarvis_audio_recovered_assertion
 jarvis_disable
+rm -f -- "${jarvis_audio_gate:?}"
 cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
 cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
 jarvis_rescan
@@ -709,6 +759,34 @@ jarvis_enable
 expect "the six-retry control breaks the five-retry assertion" not-problem jarvis_exhaust
 expect "the control disables" ok ipc shell setPluginEnabled vgs.jarvis false
 cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
+jarvis_rescan
+
+# A daemon diagnostic goes to the log and ends nothing.
+"$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --stderr-warning "$jarvis_backend"
+jarvis_rescan
+jarvis_warnings="$(jarvis_log_count "jarvis: fixture=warning")"
+jarvis_enable
+jarvis_stderr_case
+jarvis_disable
+# Control: the stderr handler takes each line as the end of communication.
+python3 - "$jarvis_service" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+s=p.read_text()
+needle='root.lastDiagnostic = line;'
+assert s.count(needle)==1
+changed=s.replace(needle, 'root.lastDiagnostic = line;\n                        root.cause = line;')
+assert changed != s
+p.write_text(changed)
+PY
+jarvis_rescan
+jarvis_warnings="$(jarvis_log_count "jarvis: fixture=warning")"
+jarvis_enable
+expect "a warning that sets the cause breaks the delivered-mute assertion" 1 jarvis_stderr_assertion
+jarvis_disable
+cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
+cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
 jarvis_rescan
 jarvis_enable
 

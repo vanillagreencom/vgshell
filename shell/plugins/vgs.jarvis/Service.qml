@@ -17,6 +17,9 @@ Item {
     property string outputTail: ""
     property string errorTail: ""
     property string cause: ""
+    // The daemon writes diagnostics to stderr and keeps running; its last
+    // complete line names the reason only when it then exits.
+    property string lastDiagnostic: ""
     property var audioHealth: ({ kind: "reading" })
     property var sessionState: null
     // The request handlers, built on the first request; see requestHandlers().
@@ -100,6 +103,7 @@ Item {
         outputTail = "";
         errorTail = "";
         cause = "";
+        lastDiagnostic = "";
         audioHealth = { kind: "reading" };
         sessionState = null;
         indicatorDelivery = { kind: "unknown" };
@@ -351,7 +355,9 @@ Item {
                         const reply = shell.status.set(key, message[key]);
                         if (reply !== "ok") throw new Error("jarvis: " + reply);
                     }
-                    if (audioHealth.kind === "reading") {
+                    // Audio sends a failure's empty list before its fault, so a
+                    // list after a fault is a later discovery.
+                    if (audioHealth.kind !== "ready") {
                         audioHealth = { kind: "ready" };
                         const report = shell.status.set("audio", { tone: "ok", text: "Device list ready" });
                         if (report !== "ok") throw new Error("jarvis: " + report);
@@ -496,7 +502,7 @@ Item {
                     const framed = Protocol.feed(root.errorTail, data);
                     root.errorTail = framed.tail;
                     for (const line of framed.lines) {
-                        root.cause = line;
+                        root.lastDiagnostic = line;
                         console.warn("jarvis: stderr=" + line);
                     }
                 } catch (error) { root.broken(error.message); }
@@ -508,7 +514,8 @@ Item {
         }
         onExited: (code, status) => {
             completion = { code: code, status: status };
-            if (root.cause === "") root.cause = "jarvis: daemon=exit code=" + code + " status=" + status;
+            if (root.cause === "") root.cause = root.lastDiagnostic !== "" ? root.lastDiagnostic
+                : "jarvis: daemon=exit code=" + code + " status=" + status;
         }
         onRunningChanged: {
             if (running) return;

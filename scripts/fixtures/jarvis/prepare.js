@@ -183,7 +183,9 @@ function fixtureWrite(wire) {
     fs.writeFileSync(file, source.replace(start, start + fixture).replace(write, "fixtureWrite(wire);"));
 }
 
-function audioFaultThenDevices(file) {
+// After the first device list, an audio fault; once the row creates GATE,
+// having seen the service publish that fault, a later list of other devices.
+function audioFaultThenDevices(file, gate) {
     const source = fs.readFileSync(file, "utf8");
     const start = '"use strict";';
     const offers = 'revision: context.revision, ...devices });';
@@ -193,11 +195,36 @@ function audioFaultThenDevices(file) {
             if (!ending && context !== null && fixtureAudioFault) {
                 fixtureAudioFault = false;
                 audio.fault("capture-overflow");
-                write({ v: 1, type: "devices", gen: runner.state.gen,
-                    revision: context.revision, ...devices });
+                const fixtureTimer = setInterval(() => {
+                    if (!require("node:fs").existsSync(${JSON.stringify(gate)})) return;
+                    clearInterval(fixtureTimer);
+                    if (!ending && context !== null) write({ v: 1, type: "devices", gen: runner.state.gen,
+                        revision: context.revision, microphones: [{ label: "Later microphone", value: "fixture.later" }],
+                        speakers: devices.speakers });
+                }, 10); // Wait for the row's explicit gate, not a delay.
+                fixtureTimer.unref();
             }`;
     const changed = source.replace(start, start + "\nlet fixtureAudioFault = true;")
         .replace(offers, offers + fixture);
+    assert.notEqual(changed, source);
+    fs.writeFileSync(file, changed);
+}
+
+// One keyed warning on stderr from a daemon that keeps running. It follows
+// the service's first message after hello, so the service is ready first.
+function stderrWarning(file) {
+    const source = fs.readFileSync(file, "utf8");
+    const start = '"use strict";';
+    const forward = "tasks.tuiState(message.running);";
+    assert.equal(source.split(start).length - 1, 1);
+    assert.equal(source.split(forward).length - 1, 1);
+    const fixture = `
+                    if (fixtureWarning) {
+                        fixtureWarning = false;
+                        process.stderr.write("jarvis: fixture=warning\\n");
+                    }`;
+    const changed = source.replace(start, start + "\nlet fixtureWarning = true;")
+        .replace(forward, forward + fixture);
     assert.notEqual(changed, source);
     fs.writeFileSync(file, changed);
 }
@@ -349,8 +376,11 @@ if (require.main === module) {
         assert.equal(process.argv.length, 4);
         transcripts(process.argv[3]);
     } else if (process.argv[2] === "--audio-fault-devices") {
+        assert.equal(process.argv.length, 5);
+        audioFaultThenDevices(process.argv[3], process.argv[4]);
+    } else if (process.argv[2] === "--stderr-warning") {
         assert.equal(process.argv.length, 4);
-        audioFaultThenDevices(process.argv[3]);
+        stderrWarning(process.argv[3]);
     } else {
         assert.equal(process.argv.length, 5);
         service(...process.argv.slice(2));

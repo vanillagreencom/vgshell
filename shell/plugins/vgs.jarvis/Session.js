@@ -224,8 +224,19 @@ function interrupt(s, effects, at) {
     dropApproval(s, effects, "interrupt");
 }
 
+// A failed turn's fault stays shown until the next Talk press, which ends
+// what is left of that conversation so the press starts a new one.
+function recover(s, effects, at) {
+    if (s.fault.kind !== "error" || s.gate.kind !== "up" || s.mute.kind !== "off") return;
+    end(s, effects, at, "recover", false);
+    s.fault = { kind: "none" };
+}
+
+// A debounced press is not a press: it leaves the fault shown.
 function toggle(s, effects, at) {
-    if (!canEngage(s) || (s.toggleAt !== null && at - s.toggleAt < 250)) return;
+    if (s.toggleAt !== null && at - s.toggleAt < 250) return;
+    recover(s, effects, at);
+    if (!canEngage(s)) return;
     s.toggleAt = at;
     if (s.conversation.kind === "ended") start(s, effects, "conversation");
     else end(s, effects, at, "toggle", false);
@@ -292,6 +303,7 @@ function reduce(state, e) {
     case "talk-down":
         if (s.settings.mode === "toggle") { toggle(s, effects, e.at); break; }
         if (s.input.kind === "held") break;
+        recover(s, effects, e.at);
         interrupt(s, effects, e.at);
         start(s, effects, "held");
         break;

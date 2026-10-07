@@ -332,10 +332,93 @@ const table = [
         }
     }],
     ["fault-gate", logic => {
-        let s = thinking(logic);
+        // A capture failure while the key is held leaves the conversation live:
+        // only the fault keeps the closed capture from reopening.
+        let s = listening(logic);
+        s = step(logic, s, callback("capture-failed", s.capture, 20, { reason: "provider-disconnected" })).state;
+        const reopened = step(logic, s, callback("capture-closed", s.capture, 21));
+        assert.equal(logic.phaseOf(reopened.state), "error");
+        assert.equal(kinds(reopened).includes("capture-open"), false, "a fault holds capture while the key is down");
+        s = thinking(logic);
         s = step(logic, s, callback("brain-failed", s.turn, 50, { reason: "fixture-failure" })).state;
-        assert.equal(logic.phaseOf(s), "error");
-        assert.deepEqual(step(logic, s, event("talk-down", 51)).effects, []);
+        const kept = (before, e, name) => {
+            const r = step(logic, before, e);
+            assert.deepEqual(r.state.fault, before.fault, name + " keeps the fault");
+            assert.equal(logic.phaseOf(r.state), "error", name + " keeps the error phase");
+            assert.equal(kinds(r).includes("capture-open"), false, name + " opens no capture");
+            return r.state;
+        };
+        for (const e of [event("indicator", 51, { shown: false }), event("indicator", 52, { shown: true }),
+            event("stop", 53), event("cancel", 54), event("interrupt", 55), event("talk-up", 56),
+            event("mute-toggle", 57), event("mute-toggle", 58), event("mute", 59), event("unmute", 60)])
+            s = kept(s, e, e.type);
+        assert.equal(s.mute.kind, "off", "the mute round trips end unmuted");
+        const muted = step(logic, s, event("mute-toggle", 61)).state;
+        assert.equal(muted.mute.kind, "on");
+        kept(muted, event("talk-down", 62), "a muted press");
+        kept(muted, event("toggle", 63), "a muted toggle");
+        const locked = step(logic, s, snapshot({ at: 64, locked: true })).state;
+        const lockedPress = step(logic, locked, event("talk-down", 65)).state;
+        kept(lockedPress, snapshot({ at: 66 }), "a press while the gate is down");
+        // A press inside the toggle debounce is not a press.
+        s = step(logic, ready(logic), snapshot({ at: 2, settings: { mode: "toggle" } })).state;
+        s = step(logic, s, event("toggle", 10)).state;
+        s = step(logic, s, callback("capture-opened", s.capture, 11)).state;
+        s = step(logic, s, callback("capture-failed", s.capture, 20, { reason: "provider-disconnected" })).state;
+        s = step(logic, s, callback("capture-closed", s.capture, 21)).state;
+        assert.equal(s.fault.kind, "error");
+        kept(s, event("toggle", 100), "a debounced toggle");
+        assert.equal(step(logic, s, event("toggle", 260)).state.fault.kind, "none", "a press after the debounce recovers");
+    }],
+    ["fault-recovery", logic => {
+        const toggleReady = () => step(logic, ready(logic), snapshot({ at: 2, settings: { mode: "toggle" } })).state;
+        const opened = (s, press) => {
+            s = step(logic, s, event(press, 10)).state;
+            return step(logic, s, callback("capture-opened", s.capture, 11)).state;
+        };
+        const asked = s => {
+            s = step(logic, s, callback("final", s.turn, 12, { text: "test" })).state;
+            return step(logic, s, callback("capture-closed", s.capture, 13)).state;
+        };
+        // Each producer of an error fault, ended conversation or still live.
+        const failures = {
+            "brain-failed": s => step(logic, asked(s), callback("brain-failed", asked(s).turn, 50,
+                { reason: "fixture" })).state,
+            "thinking-timeout": s => step(logic, asked(s), callback("deadline", asked(s).turn, 60012)).state,
+            "collect-failed": s => {
+                s = step(logic, s, callback("collect-failed", s.turn, 20, { reason: "fixture" })).state;
+                return step(logic, s, callback("capture-closed", s.capture, 21)).state;
+            },
+            "capture-failed": s => {
+                s = step(logic, s, callback("capture-failed", s.capture, 20, { reason: "provider-disconnected" })).state;
+                s = step(logic, s, callback("capture-closed", s.capture, 21)).state;
+                return step(logic, s, event("talk-up", 22)).state;
+            }
+        };
+        const paths = [["hold", () => ready(logic), "talk-down", "talk-down"], ["toggle", toggleReady, "toggle", "toggle"],
+            ["toggle-key", toggleReady, "toggle", "talk-down"]];
+        for (const [mode, base, starter, press] of paths) for (const [name, fail] of Object.entries(failures)) {
+            const label = mode + " " + name;
+            let s = fail(opened(base(), starter));
+            // A toggle conversation reopens capture while it thinks; the failure closes it.
+            if (s.capture.kind === "closing") s = step(logic, s, callback("capture-closed", s.capture, 60500)).state;
+            assert.equal(s.fault.kind, "error", label + " sets an error fault");
+            const timedOut = name === "thinking-timeout";
+            assert.equal(s.conversation.kind, timedOut || name === "capture-failed" ? "active" : "ended", label);
+            const r = step(logic, s, event(press, 61000));
+            assert.deepEqual(r.state.fault, { kind: "none" }, label + " press clears the fault");
+            assert.equal(r.state.conversation.kind, "active", label + " press starts a conversation");
+            assert.ok(r.state.gen > s.gen, label + " press starts a new conversation");
+            let started = r;
+            if (timedOut) {
+                assert.equal(r.state.turn.kind, "cancelling", label + " cancel still drains");
+                assert.equal(kinds(r).includes("capture-open"), false, label + " capture waits for the cancel");
+                started = step(logic, r.state, callback("cancelled", r.state.turn, 61001));
+            }
+            const capture = started.effects.find(e => e.kind === "capture-open");
+            assert.ok(capture, label + " press opens capture");
+            assert.equal(capture.gen, r.state.gen, label + " capture belongs to the new conversation");
+        }
     }],
     ["indicator-gate", logic => {
         const s = step(logic, logic.initial(), snapshot()).state;
@@ -1065,6 +1148,14 @@ try {
         ["gate", 's.gate.kind === "up" && s.mute', '(true || s.gate.kind === "up") && s.mute', "gate"],
         ["fault", 's.mute.kind === "off" && s.fault.kind !== "error";',
             's.mute.kind === "off" && (true || s.fault.kind !== "error");', "fault-gate"],
+        ["recover-hold", 'recover(s, effects, e.at);\n        interrupt(s, effects, e.at);',
+            'interrupt(s, effects, e.at);', "fault-recovery"],
+        ["recover-toggle", 'recover(s, effects, at);', 'if (false) recover(s, effects, at);', "fault-recovery"],
+        ["recover-debounce", 'if (s.toggleAt !== null && at - s.toggleAt < 250) return;\n    recover(s, effects, at);',
+            'recover(s, effects, at);\n    if (s.toggleAt !== null && at - s.toggleAt < 250) return;', "fault-gate"],
+        ["recover-mute", ' || s.mute.kind !== "off") return;', ') return;', "fault-gate"],
+        ["recover-gate", 's.fault.kind !== "error" || s.gate.kind !== "up" ||', 's.fault.kind !== "error" ||', "fault-gate"],
+        ["recover-fault", 's.fault = { kind: "none" };\n}', '}', "fault-recovery"],
         ["device-retry-limit", 'e.reason === "device-lost" && retry < 3',
             'e.reason === "device-lost" && retry < 4', "device-retries"],
         ["device-choice-recovery", 'if (devicesChanged && s.fault.kind === "error" && s.fault.reason === "device-lost")',
