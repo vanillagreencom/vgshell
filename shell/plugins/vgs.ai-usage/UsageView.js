@@ -374,17 +374,20 @@ function accountLine(row) {
 
 // How long ago an account's figures were read, from READAT and NOW in
 // epoch ms: "Checked just now" under a minute, "Checked 4m ago" after, ""
-// with no figures read.
-function checkedText(readAt, now) {
+// with no figures read. KEPT, for figures a later check kept without new
+// ones, names the figures' age rather than a check's: "Figures from 4m ago".
+function checkedText(readAt, now, kept) {
     if (readAt === null || readAt === undefined) return "";
     var seconds = Math.max(0, Math.floor((now - readAt) / 1000));
+    if (kept) return seconds < 60 ? "Figures from under a minute ago" : "Figures from " + Commons.Duration.format(seconds, 1) + " ago";
     return seconds < 60 ? "Checked just now" : "Checked " + Commons.Duration.format(seconds, 1) + " ago";
 }
 
 // The panel's rows: one per signed-in account after settings filters, with
 // title, the provider's name; email, the account's email or the login its
 // provider gives; account, the line drawn under the title; checked, the
-// age of its figures; detail line; note, in tone "warning" for a failed or
+// age of its figures, named as kept figures' age for a limited or stale
+// account; detail line; note, in tone "warning" for a failed or
 // old read, a limited read's kept figures past a window's reset among them,
 // else "normal"; every limit, none while unused; and full-view detail rows.
 function panel(usage, now, settings) {
@@ -399,7 +402,7 @@ function panel(usage, now, settings) {
             : row.state === "ok" && !hasFigures(row) ? "This plan reports no usage limits." : "";
         return { id: row.id, provider: row.provider, label: row.label, email: row.email, account: accountLine(row), state: row.state,
             title: NAMES[row.provider] || row.provider, detail: row.provider === "copilot" ? creditLine(row.credits) : "",
-            checked: checkedText(row.readAt, now),
+            checked: checkedText(row.readAt, now, row.state === "limited" || row.state === "stale"),
             note: note, noteTone: warning !== "" ? "warning" : "normal", details: detailRows(row),
             windows: idle ? [] : row.windows.map(function (item) { return windowRow(row, item, now); }) };
     });
