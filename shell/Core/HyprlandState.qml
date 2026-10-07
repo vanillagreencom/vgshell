@@ -229,6 +229,13 @@ Scope {
         }
     }
 
+    // Hyprland can omit activelayout after a keymap reload. Read after
+    // VGS's successful queued switch even when that event is absent.
+    Connections {
+        target: Compositor
+        function onKeyboardLayoutSwitched() { root.readDevices(); }
+    }
+
     FolderListModel {
         folder: "file:///dev/input"
         showDirs: false

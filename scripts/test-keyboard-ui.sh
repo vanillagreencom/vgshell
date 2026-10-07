@@ -29,6 +29,7 @@ cases = [
     ('editor-snapshot', 'KeyboardControls.qml', 'shell.status.revision', '(shell.status.values, shell.status.revision)', 'test_status_ignores_other_plugins_and_keeps_models'),
     ('catalog-model', 'KeyboardControls.qml', 'if (key === catalogKey) return;', 'if (false) return;', 'test_status_ignores_other_plugins_and_keeps_models'),
     ('catalog-publish', 'Service.qml', 'onActiveChanged: publishActive()', 'onActiveChanged: { publishCatalog(); publishActive(); }', 'test_catalog_publishes_only_from_its_state'),
+    ('layout-reload', 'Service.qml', 'if (event.name === "configreloaded") { root.layoutEvent = null; return; }', 'if (event.name === "configreloaded") { return; root.layoutEvent = null; return; }', 'test_reload_retires_a_pending_layout_event'),
 ]
 source = (repo / 'scripts/fixtures/keyboard-ui/tst_keyboard.qml').read_text()
 old = '../../../shell/plugins/vgs.keyboard/'

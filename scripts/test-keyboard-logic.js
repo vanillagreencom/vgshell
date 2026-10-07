@@ -9,7 +9,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const repo = path.join(__dirname, "..");
 const file = path.join(repo, "shell/plugins/vgs.keyboard/KeyboardLogic.js");
 const fixture = fs.readFileSync(path.join(__dirname, "fixtures/keyboard/evdev.xml"), "utf8");
-const same = (got, want) => assert.deepEqual(JSON.parse(JSON.stringify(got)), want);
+const same = (got, want) => assert.deepEqual(JSON.parse(JSON.stringify(got)), JSON.parse(JSON.stringify(want)));
 const devices = { keyboards: [{ name: "aux", layout: "fr", variant: "", main: false, activeLayoutIndex: 0, activeKeymap: "French" }, { name: "main", layout: "us,de", variant: ",nodeadkeys", main: true, activeLayoutIndex: 1, activeKeymap: "German" }] };
 function verify(logic) {
     const catalog = logic.parseCatalog(fixture);
@@ -32,8 +32,36 @@ function verify(logic) {
     same(logic.removeSource(rows, 0), [rows[1]]);
     same(logic.removeSource([rows[0]], 0), [rows[0]]);
     same(logic.activeValue(devices, null), { code: "DE", name: "German", count: 2 });
-    same(logic.activeValue(devices, { keyboard: "main", name: "English, alternate" }), { code: "DE", name: "English, alternate", count: 2 });
-    same(logic.activeValue(devices, { keyboard: "aux", name: "French" }), { code: "DE", name: "German", count: 2 });
+    const initial = { keyboards: devices.keyboards.map(row => row.main ? { ...row, activeLayoutIndex: 0, activeKeymap: "English (US)" } : row) };
+    let event = null;
+    for (const [keyboard, name, code] of [["main", "German (no dead keys)", "DE"], ["aux", "French", "DE"], ["main", "English (US)", "US"]]) {
+        event = logic.layoutValue(initial, catalog, keyboard, name, event);
+        same(logic.activeValue(initial, event), { code, name: code === "DE" ? "German (no dead keys)" : "English (US)", count: 2 });
+    }
+    const german = logic.layoutValue(initial, catalog, "main", "German (no dead keys)", null);
+    same(logic.reconcileEvent(initial, german), german);
+    same(logic.reconcileEvent({ keyboards: initial.keyboards.map(row => row.main ? { ...row, activeLayoutIndex: 1, activeKeymap: "German (no dead keys)" } : row) }, german), null);
+    same(logic.reconcileEvent(null, german), null);
+    for (const change of [{ layout: "fr,us", variant: ",", activeKeymap: "French" }, { variant: ",", activeKeymap: "English (US)" }, { name: "replacement", activeKeymap: "English (US)" }]) {
+        const changed = { keyboards: initial.keyboards.map(row => row.main ? { ...row, ...change } : row) };
+        same(logic.activeValue(changed, german), { code: change.layout ? "FR" : "US", name: change.activeKeymap, count: 2 });
+    }
+    same(logic.layoutValue(initial, catalog, "main", "unlisted keymap", german), null);
+    const variants = { keyboards: [{ ...initial.keyboards[1], layout: "us,us", variant: ",intl" }] };
+    const intl = logic.layoutValue(variants, catalog, "main", "English (US, intl., with dead keys)", null);
+    same(logic.activeValue(variants, intl), { code: "US", name: "English (US, intl., with dead keys)", count: 2 });
+    same(logic.layoutValue(null, catalog, "main", "German", german), german);
+    const ambiguousCatalog = [{ code: "mm", name: "Burmese", variants: [{ code: "mara", name: "Mara" }] }, { code: "in", name: "Indian", variants: [{ code: "mara", name: "Mara" }] }];
+    for (const [layout, variant, activeLayoutIndex, activeKeymap, eventName, sourceCatalog, updates] of [
+        ["us,us,de", ",,nodeadkeys", 1, "English (US)", "English (US)", catalog, [[2, "German (no dead keys)", "DE"]]],
+        ["mm,in,de", "mara,mara,", 2, "German", "Mara", ambiguousCatalog, [[0, "Mara", "MM"], [1, "Mara", "IN"]]]
+    ]) {
+        const keyboard = { ...initial.keyboards[1], layout, variant, activeLayoutIndex, activeKeymap };
+        const resolved = logic.layoutValue({ keyboards: [keyboard] }, sourceCatalog, "main", eventName, null);
+        same(resolved, null);
+        for (const [index, name, code] of updates)
+            same(logic.activeValue({ keyboards: [{ ...keyboard, activeLayoutIndex: index, activeKeymap: name }] }, resolved), { code, name, count: 3 });
+    }
     same(logic.activeValue(null, null), { code: "", name: "", count: 0 });
     same(logic.sourceRows(rows, catalog).map(row => [row.key, row.text, row.secondary]), [["0", "English (US)", "Default"], ["1", "German", "German (no dead keys)"]]);
 }
@@ -46,7 +74,12 @@ const controls = [
     ["source limit", 'if (rows.length >= SOURCE_MAX) return { ok: false, reason: "source-limit" };', 'if (false) return { ok: false, reason: "source-limit" };'],
     ["last source", "if (rows.length <= 1 || index < 0 || index >= rows.length) return rows;", "if (index < 0 || index >= rows.length) return rows;"],
     ["variant alignment", 'return { layouts: rows.map(function (row) { return row.code; }).join(","),', 'return { layouts: rows.map(function (row) { return row.variant; }).join(","),'],
-    ["main keyboard", "return rows.find(function (row) { return row.main; }) || rows[0];", "return rows[0];"]
+    ["main keyboard", "return rows.find(function (row) { return row.main; }) || rows[0];", "return rows[0];"],
+    ["event code", 'code: matches[0].code.toUpperCase(), name: name', 'code: rows[keyboard.activeLayoutIndex].code.toUpperCase(), name: name'],
+    ["ambiguous event source", 'matches.some(function (source) { return source.code !== matches[0].code; })', 'false'],
+    ["event keyboard", 'if (keyboard === null || keyboard.name !== keyboardName) return previous;', 'if (keyboard === null) return previous;'],
+    ["event source identity", '|| event.layouts !== keyboard.layout || event.variants !== keyboard.variant', ''],
+    ["event acknowledgement", 'if (code === event.code && keyboard.activeKeymap === event.name) return null;', 'if (false) return null;']
 ];
 const source = fs.readFileSync(file, "utf8");
 const temp = fs.mkdtempSync(path.join(repo, "tmp/keyboard-logic-"));

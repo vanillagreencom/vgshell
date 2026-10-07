@@ -6,6 +6,7 @@ import QtQml
 // by hand; `refuse`, when set, is the answer a pass-through request gets at
 // once, as a refused request does.
 QtObject {
+    signal keyboardLayoutSwitched()
     property var requests: []
     property var answers: []
     property string refuse: ""

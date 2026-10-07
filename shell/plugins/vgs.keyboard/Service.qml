@@ -14,6 +14,7 @@ Item {
 
     onShellChanged: { publishCatalog(); publishActive(); }
     onCatalogStateChanged: publishCatalog()
+    onDevicesChanged: layoutEvent = Logic.reconcileEvent(devices, layoutEvent)
     onActiveChanged: publishActive()
 
     function publishValue(key, value) {
@@ -51,9 +52,11 @@ Item {
     Connections {
         target: Hyprland
         function onRawEvent(event) {
+            // Reload resets XKB groups even when the source list is unchanged.
+            if (event.name === "configreloaded") { root.layoutEvent = null; return; }
             if (event.name !== "activelayout") return;
             const args = event.parse(2);
-            root.layoutEvent = { keyboard: args[0], name: args[1] };
+            root.layoutEvent = Logic.layoutValue(root.devices, root.catalog, args[0], args[1], root.layoutEvent);
         }
     }
 }

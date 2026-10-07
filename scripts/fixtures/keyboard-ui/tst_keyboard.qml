@@ -18,6 +18,7 @@ Item {
         { code: "it", name: "Italian", variants: [] }
     ]
     property var devices: ({ keyboards: [{ name: "main", main: true, layout: "us", variant: "", activeLayoutIndex: 0, activeKeymap: "English" }] })
+    property string serviceCatalogXml: '<layoutList><layout><configItem><name>us</name><description>English</description></configItem><variantList><variant><configItem><name>intl</name><description>International</description></configItem></variant></variantList></layout><layout><configItem><name>de</name><description>German</description></configItem></layout></layoutList>'
 
     function makeShell() {
         return {
@@ -181,21 +182,43 @@ Item {
         }
         function reader() { return Array.from(service.data).find(item => typeof item.finishRead === "function"); }
         function test_catalog_publishes_only_from_its_state() {
+            root.fixtureShell.hyprland.devices = { keyboards: [{ name: "main", main: true, layout: "us,us", variant: ",intl", activeLayoutIndex: 0, activeKeymap: "English" }] };
             service = root.component("Service").createObject(root, { shell: Qt.binding(() => root.fixtureShell) });
             verify(service !== null);
             const view = reader();
             compare(view.reads, 1);
             compare(view.watchers, 0);
             root.writes = [];
-            view.finishRead('<layoutList><layout><configItem><name>us</name><description>English</description></configItem></layout></layoutList>');
+            view.finishRead(root.serviceCatalogXml);
             compare(root.writes, ["catalog"]);
             compare(root.records.keyboard.values.catalog.state, "ready");
             const catalog = service.catalog;
             root.writes = [];
-            Hyprland.rawEvent({ name: "activelayout", parse: count => ["main", "English alternate"] });
+            Hyprland.rawEvent({ name: "activelayout", parse: count => ["main", "International"] });
             compare(root.writes, ["active"]);
-            compare(root.records.keyboard.values.active.name, "English alternate");
+            compare(root.records.keyboard.values.active.code, "US");
+            compare(root.records.keyboard.values.active.name, "International");
+            compare(root.records.keyboard.values.active.count, 2);
             verify(service.catalog === catalog);
+        }
+        function test_reload_retires_a_pending_layout_event() {
+            const keyboard = { name: "main", main: true, layout: "us,de", variant: ",", activeLayoutIndex: 0, activeKeymap: "English" };
+            root.fixtureShell.hyprland.devices = { keyboards: [keyboard] };
+            service = root.component("Service").createObject(root, { shell: Qt.binding(() => root.fixtureShell) });
+            reader().finishRead(root.serviceCatalogXml);
+            Hyprland.rawEvent({ name: "activelayout", parse: count => ["main", "German"] });
+            compare(root.records.keyboard.values.active.code, "DE");
+            compare(root.records.keyboard.values.active.name, "German");
+            verify(service.layoutEvent !== null);
+            Hyprland.rawEvent({ name: "configreloaded" });
+            root.fixtureShell = Object.assign({}, root.fixtureShell, { hyprland: { devices: { keyboards: [Object.assign({}, keyboard)] }, overridden: [] } });
+            wait(0);
+            compare(service.devices.keyboards[0].layout, "us,de");
+            compare(service.devices.keyboards[0].variant, ",");
+            compare(root.records.keyboard.values.active.code, "US");
+            compare(root.records.keyboard.values.active.name, "English");
+            compare(root.records.keyboard.values.active.count, 2);
+            compare(service.layoutEvent, null);
         }
         // expected-log: keyboard: catalog-read=2 -- the catalog read this case refuses
         function test_failed_catalog_is_published() {

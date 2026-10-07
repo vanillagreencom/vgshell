@@ -11,6 +11,9 @@ keyboard_option() { hypr -j getoption "$1" | py_reply 'import json,sys; value=js
 keyboard_keymaps() { hypr -j devices | py_reply 'import json,sys; print(json.dumps(sorted({k["active_keymap"] for k in json.load(sys.stdin).get("keyboards", [])})))'; }
 keyboard_sources() { ipc smoke readDescendant window vgs.keyboard KeyboardControls sources | py_reply 'import json,sys; print(json.dumps([[r["code"], r["variant"]] for r in json.load(sys.stdin)]))'; }
 keyboard_active_code() { ipc smoke readInstance "$(bar_key)" vgs.keyboard active | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("code", "")))'; }
+keyboard_active_fields() { ipc smoke statusValues vgs.keyboard | py_reply 'import json,sys; row=json.load(sys.stdin).get("active", {}); print(json.dumps([row.get("code"),row.get("name"),row.get("count")]))'; }
+keyboard_service_index() { ipc smoke readInstance service vgs.keyboard devices | py_reply 'import json,sys; value=json.load(sys.stdin); rows=[] if value is None else value.get("keyboards", []); print(next((r["activeLayoutIndex"] for r in rows if r["main"]), "absent"))'; }
+keyboard_event_fields() { ipc smoke readInstance service vgs.keyboard layoutEvent | py_reply 'import json,sys; row=json.load(sys.stdin); print(json.dumps(None if row is None else [row["code"],row["name"],row["layouts"],row["variants"]]))'; }
 keyboard_panels() { ipc shell built | py_reply 'import json,sys; print(sum(r["id"] == "vgs.keyboard" for r in json.load(sys.stdin).get("panel", [])))'; }
 keyboard_right_click() {
   local box x y
@@ -95,9 +98,30 @@ expect_poll "two sources show the widget" true ipc smoke readInstance "$(bar_key
 expect_poll "the initial keymap is English" '["English (US)"]' keyboard_keymaps
 expect_poll "the initial widget code is US" '"US"' keyboard_active_code
 expect "the shipped widget uses the core transport" ok keyboard_transport_contract "$repo/shell/plugins/vgs.keyboard"
+# A previous row can leave Hyprland's remembered group at 1 across reload.
+# Prime group 0 so this frozen-read fixture tests a received German event.
+expect "the event fixture primes the initial source" ok hypr switchxkblayout all 0
+expect_poll "the event fixture has no pending source" null keyboard_event_fields
+printf 'keyboard-event-state before=%s\n' "$(ipc smoke readInstance service vgs.keyboard layoutEvent)"
+hypr -j devices >"$sandbox/keyboard-event-devices.json"
+python3 - "$shim" "$sandbox/keyboard-event-devices.json" <<'PYSTALE'
+import pathlib, shlex, sys
+shim = pathlib.Path(sys.argv[1])
+snapshot = shlex.quote(sys.argv[2])
+real = shlex.quote(str(shim / "hyprctl.real"))
+(shim / "hyprctl.keyboard-stale").write_text('#!/usr/bin/env bash\nif [[ ${1-} == -j && ${2-} == devices ]]; then\n  cat -- ' + snapshot + '\nelse\n  exec ' + real + ' "$@"\nfi\n')
+(shim / "hyprctl.keyboard-stale").chmod(0o755)
+PYSTALE
+shim_hyprctl keyboard-stale
 click_item "$(bar_key)" vgs.keyboard BarItem US || fail "clicking the Keyboard widget failed"
 expect_poll "the widget click switches the real keymap" '["German (no dead keys)"]' keyboard_keymaps
 expect_poll "the widget follows the active code" '"DE"' keyboard_active_code
+expect "the event arrives before the devices read changes" 0 keyboard_service_index
+expect_poll "the event keeps the code and name together" '["DE", "German (no dead keys)", 2]' keyboard_active_fields
+expect "the event identifies the configured source" '["DE", "German (no dead keys)", "us,de", ",nodeadkeys"]' keyboard_event_fields
+printf 'keyboard-event-state after=%s devices=%s\n' "$(ipc smoke readInstance service vgs.keyboard layoutEvent)" "$(ipc smoke readInstance service vgs.keyboard devices)"
+shim_hyprctl real
+rm -- "${shim:?}/hyprctl.keyboard-stale"
 keyboard_right_click || fail "right clicking Keyboard failed"
 expect_poll "the Keyboard widget menu opens" true ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuOpen
 expect "the widget keeps both Keyboard Controls and System settings" '["Hide","Keyboard Controls","Keyboard Settings"]' ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries
@@ -208,3 +232,51 @@ rm -rf -- "${keyboard_copy:?}"
 rescan "rescan restores the shipped Keyboard plugin"
 cp -- "$keyboard_saved" "$keyboard_file.tmp" && mv -T -- "$keyboard_file.tmp" "$keyboard_file"
 expect "Keyboard restores the row's configuration" ok ipc shell reloadConfig
+
+
+# Remove the plugin's handler in fresh copies so only the post-switch core
+# read can publish the new source. Removing that completion read must turn
+# the same typed active-code assertion red.
+keyboard_completion_setup() {
+  expect "the completion fixture enables Keyboard" ok ipc shell setPluginEnabled vgs.keyboard true
+  expect "the completion fixture places Keyboard" ok ipc shell setPluginPlaced vgs.keyboard true
+  keyboard_set_sources us,de ',nodeadkeys'
+  expect "the completion fixture reloads its sources" ok ipc shell reloadConfig
+  expect_poll "the completion fixture starts on English" '["English (US)"]' keyboard_keymaps
+  expect_poll "the completion fixture reads the initial source" 0 keyboard_service_index
+  expect_poll "the completion fixture starts with US" '"US"' keyboard_active_code
+  click_item "$(bar_key)" vgs.keyboard BarItem US || fail "clicking the completion fixture failed"
+  expect_poll "the completion fixture switches the real keymap" '["German (no dead keys)"]' keyboard_keymaps
+}
+keyboard_completion_check() { expect_poll "the completion read publishes the switched source" '["DE", "German (no dead keys)", 2]' keyboard_active_fields; }
+keyboard_completion_control() { (failures=0 behaviour_failures=0; keyboard_completion_check >"$sandbox/keyboard-completion-control.log"; echo "$failures"); }
+for keyboard_fixture in keyboard-no-layout-event keyboard-no-completion; do
+  copy_tree "$keyboard_fixture"
+  edit_tree "$keyboard_fixture" shell/plugins/vgs.keyboard/Service.qml \
+    'root.layoutEvent = Logic.layoutValue(root.devices, root.catalog, args[0], args[1], root.layoutEvent);' \
+    $'return;\n            root.layoutEvent = Logic.layoutValue(root.devices, root.catalog, args[0], args[1], root.layoutEvent);'
+  edit_tree "$keyboard_fixture" shell/Core/HyprlandState.qml \
+    $'            } else if (event.name === "activelayout") {\n                root.readDevices();' \
+    $'            } else if (event.name === "activelayout") {\n                return;\n                root.readDevices();'
+  if [[ $keyboard_fixture == keyboard-no-completion ]]; then
+    edit_tree "$keyboard_fixture" shell/Core/Compositor.qml 'root.keyboardLayoutSwitched();' 'if (false) root.keyboardLayoutSwitched();'
+  fi
+  stop_shell
+  start_shell "$sandbox/tree-$keyboard_fixture" "$sandbox/$keyboard_fixture.log" || fail "the completion fixture starts"
+  keyboard_completion_setup
+  if [[ $keyboard_fixture == keyboard-no-layout-event ]]; then
+    keyboard_completion_check
+    expect "the completion read updates devices without a plugin event" 1 keyboard_service_index
+  else
+    expect "control: the omitted completion keeps the old device source" 0 keyboard_service_index
+    expect "control: removing the completion read fails the same active source check" 1 keyboard_completion_control
+  fi
+  expect "the completion fixture holds no plugin layout event" null ipc smoke readInstance service vgs.keyboard layoutEvent
+  cp -- "$keyboard_saved" "$keyboard_file.tmp" && mv -T -- "$keyboard_file.tmp" "$keyboard_file"
+  expect "the completion fixture restores the configuration" ok ipc shell reloadConfig
+done
+stop_shell
+start_shell "$repo" "$sandbox/keyboard-completion-restored.log" || fail "the completion fixtures restore the shipped shell"
+expect "the restored shell reloads the system sources" ok hypr reload config-only
+expect_poll "the restored shell keeps the system layout" "$keyboard_system_layout" keyboard_option input:kb_layout str
+expect_poll "the restored shell keeps the system variant" "$keyboard_system_variant" keyboard_option input:kb_variant str

@@ -19,6 +19,8 @@ import "Dispatch.js" as Dispatch
 Singleton {
     id: root
 
+    signal keyboardLayoutSwitched()
+
     // The argv running, or null, and the callback that takes its answer;
     // each waiting request as { argv, done }, in order.
     property var pending: null
@@ -154,7 +156,7 @@ Singleton {
             console.error("compositor: " + r.error);
             return r.error;
         }
-        return enqueue(r.argv, null);
+        return enqueue(r.argv, answer => { if (answer === "ok") root.keyboardLayoutSwitched(); });
     }
 
     function monitorEval(lua, done) {

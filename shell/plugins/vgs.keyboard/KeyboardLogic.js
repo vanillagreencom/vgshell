@@ -90,10 +90,41 @@ function sourceRows(rows, catalog) {
     });
 }
 
+function layoutValue(devices, catalog, keyboardName, name, previous) {
+    var keyboard = mainKeyboard(devices);
+    if (keyboard === null || keyboard.name !== keyboardName) return previous;
+    var rows = sources("", "", devices);
+    var matches = rows.filter(function (source) {
+        var layout = catalog.find(function (row) { return row.code === source.code; });
+        if (layout === undefined) return false;
+        var variant = layout.variants.find(function (row) { return row.code === source.variant; });
+        return (source.variant === "" ? layout.name : variant === undefined ? "" : variant.name) === name;
+    });
+    // XKB uses "Mara" for both mm:mara and in:mara. An event names no
+    // group index, so distinct matching codes must wait for devices.
+    if (matches.length === 0 || matches.some(function (source) { return source.code !== matches[0].code; })) return null;
+    return reconcileEvent(devices, { keyboard: keyboardName, layouts: keyboard.layout, variants: keyboard.variant,
+        code: matches[0].code.toUpperCase(), name: name });
+}
+
+function reconcileEvent(devices, event) {
+    if (event === null) return null;
+    var keyboard = mainKeyboard(devices);
+    if (keyboard === null || event.keyboard !== keyboard.name || event.layouts !== keyboard.layout || event.variants !== keyboard.variant)
+        return null;
+    var code = (keyboard.layout.split(",").slice(0, SOURCE_MAX)[keyboard.activeLayoutIndex] || "").toUpperCase();
+    if (code === event.code && keyboard.activeKeymap === event.name) return null;
+    return event;
+}
+
 function activeValue(devices, event) {
     var keyboard = mainKeyboard(devices);
     if (keyboard === null) return { code: "", name: "", count: 0 };
     var codes = keyboard.layout.split(",").slice(0, SOURCE_MAX);
-    var name = event !== null && event.keyboard === keyboard.name ? event.name : keyboard.activeKeymap;
-    return { code: (codes[keyboard.activeLayoutIndex] || "").toUpperCase(), name: name, count: codes.length };
+    // A layout event precedes the asynchronous devices read. Its code and
+    // name must stay together until that read catches up. A changed source
+    // list or main keyboard invalidates the event's source identity.
+    event = reconcileEvent(devices, event);
+    if (event !== null) return { code: event.code, name: event.name, count: codes.length };
+    return { code: (codes[keyboard.activeLayoutIndex] || "").toUpperCase(), name: keyboard.activeKeymap, count: codes.length };
 }
