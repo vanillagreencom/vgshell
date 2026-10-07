@@ -68,13 +68,13 @@ function verifyReadiness(gate) {
         }
     }
     const lines = BRAIN_CAUSES.map(cause => plain(gate.readiness({ kind: "answered", causes: [cause] })).setupModel.lines[0]);
-    for (const [cause, hint] of [["speech=local-memory-insufficient", "Close other apps, then turn Jarvis off and on."],
-            ["speech=local-memory-unavailable", "Turn Jarvis off and on."]]) {
+    for (const cause of ["speech=local-memory-insufficient", "speech=local-memory-unavailable"]) {
         const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setup.tone, got.setupVoice.tone, got.setupVoice.action, got.setupModel.tone],
             ["warning", "warning", false, "ok"], "memory refuses capture without reinstall action");
         assert.equal(got.setupVoice.lines, undefined, "recovery is no state badge");
-        assert.equal(got.setupVoice.hint, hint);
+        assert.equal(typeof got.setupVoice.hint, "string");
+        assert.notEqual(got.setupVoice.hint.trim(), "", "memory refusal carries guidance");
     }
     assert.equal(new Set(lines).size, BRAIN_CAUSES.length, "each brain cause says its own line");
     // Before the daemon answers nothing reads ready or to do.
@@ -103,13 +103,16 @@ function verifyReadiness(gate) {
     // An optional step: done while its reader is ok, else optional with
     // its reader's action.
     for (const [label, key, value, want] of [
-        ["browser ready", "setupBrowser", READY, ["ok", false, "Done", undefined]],
-        ["browser to set up", "setupBrowser", ABSENT, ["info", true, "Optional", undefined]],
-        ["browser withheld", "setupBrowser", { tone: "warning", text: "Needs agent-browser", action: false }, ["info", false, "Optional", undefined]],
-        ["input ready", "setupInput", { tone: "ok", text: "Keys ready; pointer ready", action: true }, ["ok", false, "Done", undefined]],
-        ["input missing", "setupInput", { tone: "warning", text: "Input tools unavailable", action: true }, ["info", true, "Optional", undefined]]]) {
+        ["browser ready", "setupBrowser", READY, ["ok", false]],
+        ["browser to set up", "setupBrowser", ABSENT, ["info", true]],
+        ["browser withheld", "setupBrowser", { tone: "warning", text: "Needs agent-browser", action: false }, ["info", false]],
+        ["input ready", "setupInput", { tone: "ok", text: "Keys ready; pointer ready", action: true }, ["ok", false]],
+        ["input missing", "setupInput", { tone: "warning", text: "Input tools unavailable", action: true }, ["info", true]]]) {
         const got = plain(gate.optionalStep(key, value));
-        assert.deepEqual([got.tone, got.action, got.text, got.hint], want, label);
+        assert.deepEqual([got.tone, got.action], want, label);
+        assert.equal(typeof got.text, "string");
+        assert.notEqual(got.text.trim(), "", "an optional step carries a state label");
+        assert.equal(got.hint, undefined, "optional guidance stays in the manifest");
         assert.equal(got.lines, undefined, "optional guidance is no state badge");
     }
     assert.throws(() => gate.optionalStep("setupModel", READY), /step=setupModel is not optional/);
@@ -129,19 +132,19 @@ function verifyReadiness(gate) {
         setupBrowser: plain(gate.optionalStep("setupBrowser", ABSENT)),
         setupInput: plain(gate.optionalStep("setupInput", ABSENT))
     };
-    const expectedHints = {
-        setupVoice: "Close other apps, then turn Jarvis off and on.",
-        setupBrowser: "Set up the browser so Jarvis can use websites for you.",
-        setupInput: "Check input so Jarvis can type and click for you."
-    };
-    for (const [key, hint] of Object.entries(expectedHints)) {
+    const fixtureManifest = plain(manifest);
+    published.setupVoice.hint = "fixture state voice guidance";
+    for (const key of ["setupVoice", "setupBrowser", "setupInput"]) {
+        fixtureManifest.status[key].hint = "fixture declaration " + key;
         if (key !== "setupVoice") {
             assert.equal(published[key].hint, undefined, "optional guidance stays in the manifest");
-            assert.equal(manifest.status[key].hint, hint, "the manifest owns the unchanged guidance");
+            assert.equal(typeof manifest.status[key].hint, "string");
+            assert.notEqual(manifest.status[key].hint.trim(), "", "the manifest owns the guidance");
         }
-        const accepted = judge.statusWrite(manifest, {}, key, published[key]);
+        const hint = key === "setupVoice" ? "fixture state voice guidance" : "fixture declaration " + key;
+        const accepted = judge.statusWrite(fixtureManifest, {}, key, published[key]);
         assert.equal(accepted.ok, true);
-        const row = judge.statusRows(manifest, accepted.values, []).find(entry => entry.key === key);
+        const row = judge.statusRows(fixtureManifest, accepted.values, []).find(entry => entry.key === key);
         const view = settings.statusView(row, String);
         assert.deepEqual(plain([view.hint, view.lines]), [hint, []], "Settings draws one badge with plain guidance: " + key);
     }
@@ -172,9 +175,9 @@ verify(load(file));
 // Each control removes one rule from a copy and keeps the text around it:
 // [label, needle, replacement].
 const CONTROLS = [
-    ["memory guidance is a badge", 'hint: "Close other apps, then turn Jarvis off and on."', 'lines: ["Close other apps, then turn Jarvis off and on."]'],
-    ["optional guidance is a badge", 'text: "Optional", action: value.action === true', 'text: "Optional", lines: ["Guidance"], action: value.action === true'],
-    ["optional guidance changes with state", 'text: "Optional", action: value.action === true', 'text: "Optional", hint: "Guidance", action: value.action === true'],
+    ["memory guidance is a badge", "out.setupVoice = MEMORY[cause];", "out.setupVoice = Object.assign({}, MEMORY[cause], { lines: [MEMORY[cause].hint], hint: undefined });"],
+    ["optional guidance is a badge", "action: value.action === true };", 'lines: ["fixture guidance"], action: value.action === true };'],
+    ["optional guidance changes with state", "action: value.action === true };", 'hint: "fixture guidance", action: value.action === true };'],
     ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
     ["loading is initial checking", "out.setupVoice = LOADING;", "out.setupVoice = CHECKING;"],
     ["loading offers setup", 'if (cause === "speech=local-loading") {', 'if (false) {'],

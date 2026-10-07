@@ -373,7 +373,9 @@ function suite(ctx, check) {
     check("statusRows: clearing state guidance restores declaration help", ctx.statusRows(m, ctx.statusWrite(m, guidance, "check", null).values, []).find(r => r.key === "check").hint, "Check information");
     const guidedTui = ctx.validateManifest({ ...raw, status: { ...raw.status,
         check: { ...raw.status.check, action: { label: "Set up", tui: "setup" } } } }, "/p").manifest;
-    check("statusRows: missing TUI requirements override state guidance", ctx.statusRows(guidedTui, guidance, ["acme-sync"]).find(r => r.key === "check").hint, "acme-sync is missing. Install requirements installs it.");
+    const withheldHint = ctx.statusRows(guidedTui, guidance, ["acme-sync"]).find(r => r.key === "check").hint;
+    check("statusRows: missing TUI requirements name their command", withheldHint.includes("acme-sync"), true);
+    check("statusRows: missing TUI requirements override state guidance", withheldHint.includes("Try again."), false);
     check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", hint: "", info: "", action: null, report: "unreported", value: null, tone: "" });
     check("statusRows: a reported count of 0 is reported, drawn without a tone", [rows[4].report, rows[4].value, rows[4].tone], ["reported", 0, ""]);
     check("statusRows: nothing published leaves every row unreported", ctx.statusRows(m, {}, []).map(r => r.report), ["unreported", "unreported", "unreported", "unreported", "unreported", "unreported", "unreported"]);

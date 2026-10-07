@@ -544,7 +544,7 @@ cases=(
   "settings-reply-page|shell/plugins/vgs.settings/PluginPage.qml|logic|node scripts/test-settings-reply.js"
   "settings-reply-input|shell/Commons/Reply.js|logic|node scripts/test-settings-reply.js"
   "settings-reply-suite|scripts/test-settings-reply.js|logic|node scripts/test-settings-reply.js"
-  "settings-steps-input|shell/plugins/vgs.settings/Steps.js|logic|$settings_steps_row"
+  "settings-steps-input|shell/plugins/vgs.settings/Steps.js|logic|node scripts/test-jarvis-setup-gate.js"$'\n'"$settings_steps_row"
   "settings-steps-suite|scripts/test-settings-steps.js|logic|$settings_steps_row"
   "settings-reply-key-label|shell/Ui/controls/BindField.qml|logic|$settings_reply_row"
   "settings-reply-launcher|shell/plugins/vgs.launcher/Service.qml|logic|$settings_reply_row"
@@ -771,6 +771,29 @@ plan_consumer_case() { # SPEC
   done
 }
 parallel_cases plan_consumer_case plan-case "${cases[@]}"
+
+# Settings' projection is also a consumer boundary for Jarvis recovery.
+d="$tmp/plan-jarvis-settings-steps-control"; fresh "$d"
+mkdir -p "$d/shell/plugins/vgs.settings"
+printf 'changed\n' >"$d/shell/plugins/vgs.settings/Steps.js"
+test_area=logic
+test_args=(--changed HEAD --list)
+row "Settings steps select the Jarvis recovery integration" "$d" 0 "" \
+  "node scripts/test-jarvis-setup-gate.js" "node scripts/test-settings-steps.js"
+python3 - "$d/scripts/validate" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+source = path.read_text()
+rows = [line for line in source.splitlines() if line.startswith('  "logic|Jarvis setup gate|')]
+edge = ' shell/plugins/vgs.settings/Steps.js '
+assert len(rows) == 1 and rows[0].count(edge) == 1
+path.write_text(source.replace(rows[0], rows[0].replace(edge, ' ', 1)))
+PY
+"${base_env[@]}" git -C "$d" add scripts/validate
+"${base_env[@]}" git -C "$d" commit -q -m control
+row "control: an omitted Settings input skips Jarvis integration while the Settings suite runs" "$d" 0 "" \
+  "!node scripts/test-jarvis-setup-gate.js" "node scripts/test-settings-steps.js"
 
 # The engine's daemon-speech case reads the catalog, independently of the
 # adapter's own selection tests. Other catalog consumers cannot cover it.
