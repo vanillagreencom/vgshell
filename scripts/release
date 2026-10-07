@@ -3,7 +3,7 @@
 #
 #   scripts/release [--dry-run] X.Y.Z
 #
-# Run it from a clean checkout whose HEAD is the tag vX.Y.Z; docs/RELEASING.md
+# Run it from a clean checkout whose HEAD is the tag vX.Y.Z; DEVELOPMENT.md § Release
 # holds the whole flow. Before it writes anything it refuses:
 #   - X.Y.Z that is not VERSION's line;
 #   - a tree with changes or untracked files git does not ignore;

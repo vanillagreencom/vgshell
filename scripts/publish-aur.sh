@@ -3,7 +3,7 @@
 #
 #   scripts/publish-aur.sh [--dry-run] PACKAGE...    PACKAGE: vgshell, vgshell-git
 #
-# Run it from the checkout whose recipes are published; docs/RELEASING.md
+# Run it from the checkout whose recipes are published; DEVELOPMENT.md § Release
 # holds the whole flow. Before any package it refuses:
 #   - recipes that fail `node scripts/check-packaging.js`, which holds each
 #     .SRCINFO to `makepkg --printsrcinfo` of the PKGBUILD beside it and

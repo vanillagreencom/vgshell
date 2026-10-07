@@ -79,4 +79,4 @@ VGS ships architecture-specific binaries, a distribution's repositories reach th
 
 ## Not governed
 
-The release flow, which is `docs/RELEASING.md`; the README's install section, which `scripts/check-readme.js` holds; the migration runner's own lifetime, which is [runtime.md](runtime.md).
+The release flow, which is `DEVELOPMENT.md` § Release; the README's install section, which `scripts/check-readme.js` holds; the migration runner's own lifetime, which is [runtime.md](runtime.md).
