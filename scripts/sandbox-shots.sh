@@ -2243,9 +2243,10 @@ scene_devtools() { # MODE
 # XDR, placed on the output by the pane's own choice, and two Studio
 # Displays the helper cannot place; the fakes' system tree keeps the
 # core's step probe off the host's /sys and /dev. The arrangement shows two
-# monitors: the shot's own output and a headless one placed as the owner's
-# portrait 5K is, left of and above it, which the scene removes after the
-# shot.
+# monitors: the shot's own output and a second nested Wayland output placed
+# as the owner's portrait 5K is, left of and above it, which the scene
+# removes after the shot. A headless output stays 0x0 in the sandbox
+# (scripts/smoke/mode-hold.sh); a nested Wayland output takes the mode.
 # A tree that ships vgs.sound then takes its Sound section,
 # system-<mode>-sound, over the sandbox's private PipeWire
 # (scripts/smoke/devices.sh), with a test stream that plays in the
@@ -2268,6 +2269,15 @@ displays_output_rule="hl.monitor({ output = \"$displays_output\", mode = \"5120x
 # The displays service's reading of the second monitor as WxH@X,Y
 # scale=S transform=T, or absent while it lists none.
 displays_second_output() { ipc smoke readInstance service vgs.displays outputs | py_reply 'import json,sys; m=[o for o in json.load(sys.stdin) if o["name"]==sys.argv[1]]; print("%dx%d@%d,%d scale=%g transform=%d" % (m[0]["width"], m[0]["height"], m[0]["x"], m[0]["y"], m[0]["scale"], m[0]["transform"]) if m else "absent")' "$displays_output"; }
+# displays_output_taken: the Displays shot's second monitor rule applied
+# again, then the compositor's reading of that monitor as WxH@X,Y scale=S
+# transform=T. A nested Wayland output comes up at the host window's size
+# and takes a rule's mode only once it exists, as take_mode in
+# scripts/smoke/mode-hold.sh applies it, so each poll applies the rule.
+displays_output_taken() {
+  [[ $(hypr eval "$displays_output_rule") == ok ]] || { echo eval-refused; return; }
+  hypr -j monitors all | py_reply 'import json,sys; m=[o for o in json.load(sys.stdin) if o["name"]==sys.argv[1]]; print("%dx%d@%d,%d scale=%g transform=%d" % (m[0]["width"], m[0]["height"], m[0]["x"], m[0]["y"], m[0]["scale"], m[0]["transform"]) if m else "absent")' "$displays_output"
+}
 displays_listed() { ipc smoke readInstance service vgs.displays values | py_reply 'import json,sys; print(len(json.load(sys.stdin)["displays"]["items"]))'; }
 # How many shown actions of the Mouse section offer the user's own value.
 mouse_offers() { ipc smoke descendantGeometry window vgs.mouse | py_reply 'import json,sys; print(sum(1 for i in json.load(sys.stdin) if i["name"] == "useHyprlandValue" and i["visible"]))'; }
@@ -2323,10 +2333,14 @@ scene_system() { # MODE
       expect_poll "the displays service lists the three fake displays" 3 displays_listed
       first_output="$(ipc smoke readInstance service vgs.displays outputs | py_reply 'import json,sys; print(json.load(sys.stdin)[0]["identifier"])')" || fail "the outputs the displays service reads are unreadable"
       expect "the pane's choice puts the XDR on the output" ok ipc vgs.displays invoke assign "{\"device\":\"usb:class/hidraw/hidraw0/device#VGSSMOKEXDR01\",\"output\":\"$first_output\"}"
-      # The rule goes in before the output comes: the core reads the
-      # outputs again on `monitoradded` and on no rule `hyprctl eval` adds.
-      expect "the nested compositor takes the Displays shot's second monitor rule" ok hypr eval "$displays_output_rule"
-      expect "the nested compositor adds the Displays shot's second monitor" ok hypr output create headless "$displays_output"
+      expect "the nested compositor adds the Displays shot's second monitor" ok hypr output create wayland "$displays_output"
+      expect_poll "the nested compositor holds the second monitor where the rule puts it" "5120x2880@-1440,-620 scale=2 transform=1" displays_output_taken
+      # The core reads the outputs again on `monitoradded` and
+      # `monitorremoved` (shell/Core/MonitorState.qml), and on no rule
+      # `hyprctl eval` applies, so an output that comes and goes makes it
+      # read the mode the rule gave the second monitor.
+      expect "the nested compositor adds an output for the outputs to be read again" ok hypr output create headless "$displays_output-READ"
+      expect "the nested compositor removes that output" ok hypr output remove "$displays_output-READ"
       expect_poll "the displays service lists the second monitor where the rule puts it" "5120x2880@-1440,-620 scale=2 transform=1" displays_second_output
       expect "System → Displays summons" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
       expect_poll "System → Displays is shown" '["vgs.displays"]' window_panes
