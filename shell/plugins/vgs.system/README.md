@@ -2,9 +2,9 @@
 
 System Settings is one window for every system section, such as sound, displays and network. A sidebar lists the enabled sections under their groups, and the chosen section fills the page beside it. Each section is a plugin you turn on or off in Plugins. A group with no enabled section is not shown.
 
-![The System Settings window with no section enabled: the sidebar holds Shell & Plugins, and the page its empty state](../../../docs/images/plugins/vgs.system-window.webp)
+![System Settings with the Sound section open](../../../docs/images/plugins/vgs.system-window.webp)
 
-Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2. The sandbox takes the shot with every section disabled, so the window shows its empty state. The [Displays](../vgs.displays/README.md) and [Sound](../vgs.sound/README.md) READMEs show the window with their section open.
+Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the default theme at scale 2. The [Displays](../vgs.displays/README.md) and [Sound](../vgs.sound/README.md) READMEs show their sections.
 
 ## Features
 
@@ -16,5 +16,6 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Escape in a section returns to the search field. There it clears the search, then closes the window.
 - A section you turn off while the window is open leaves the sidebar, and the window shows the first section left. A section you turn on joins the sidebar at once.
 - Show in bar on a section's page puts its bar widget in the bar or takes it out. The section stays on.
+- Fresh installs place Sound, Network, Bluetooth, Displays, Keyboard and VPN in the bar. Mouse stays off the bar. A widget can hide when it has nothing to show.
 - Shell & Plugins at the foot of the sidebar opens the Plugins window.
 - The window floats centred. Hyprland moves, resizes, tiles and closes it like any other window.

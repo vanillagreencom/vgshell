@@ -37,7 +37,7 @@
 # sidebar lists its fixtures alone, and leaves the user file, vgs.system's
 # and each shipped section's enablement, the plugins directory and the
 # shell's PATH directory as it found them.
-# inputs: shell/plugins/vgs.system/* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Core/PluginLogic.js shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/feedback/SaveBar.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js
+# inputs: shell/plugins/vgs.sound/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.network/* shell/plugins/vgs.vpn/* shell/plugins/vgs.displays/* shell/plugins/vgs.mouse/* shell/plugins/vgs.keyboard/* config/shell.json shell/plugins/vgs.system/* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Core/PluginLogic.js shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/feedback/SaveBar.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js
 set -euo pipefail
 
 sys_file="$home/.config/vgshell/shell.json"
@@ -615,3 +615,59 @@ rescan "rescan after removing the System fixtures answers ok"
 expect_poll "the System fixtures are gone after restore" absent plugin_enabled acme.pane
 expect_poll "vgs.system is enabled again as the row found it" "$sys_was" plugin_enabled vgs.system
 expect_poll "each shipped section the row set aside is enabled again" "$sys_aside" shipped_panes_enabled
+
+# Every shipped pane stays enabled while the holder visits each section.
+# The fixture checks above exercise the host contract; this reads the
+# assembled product. A disabled section and a closed window are the
+# controls of the listing and mounted-content readers respectively.
+if devices_ready system-window; then
+  sys_family="$(python3 - "$repo/shell/plugins" <<'PY'
+import glob, json, os, sys
+ids = sorted(doc["id"] for path in glob.glob(os.path.join(sys.argv[1], "*", "manifest.json")) for doc in [json.load(open(path))] if "pane" in doc["kinds"])
+required = {"vgs.sound", "vgs.displays", "vgs.bluetooth", "vgs.network", "vgs.vpn", "vgs.mouse", "vgs.keyboard"}
+assert required <= set(ids), "shipped System sections are missing"
+assert "vgs.system" not in ids, "the holder is not a section"
+print(json.dumps(ids))
+PY
+  )" || { fail "the shipped System section inventory is incomplete"; return 1; }
+  for id in $(python3 -c 'import json,sys; print(" ".join(json.loads(sys.argv[1])))' "$sys_family"); do
+    expect "enabling the shipped section $id for integration is allowed" ok ipc shell setPluginEnabled "$id" true
+  done
+  expect "enabling the assembled System holder is allowed" ok ipc shell setPluginEnabled vgs.system true
+  sys_family_list() {
+    sys_read panes | py_reply 'import json,sys; print(json.dumps(sorted(p["id"] for p in json.load(sys.stdin))))'
+  }
+  sys_family_complete() { local listed; listed="$(sys_family_list)" || return 1; [[ $listed == "$sys_family" ]] && echo True || echo False; }
+  sys_section_drawn() {
+    local panes rows
+    panes="$(window_panes)" && rows="$(ipc smoke descendantGeometry window "$1")" || return 1
+    [[ $rows == \[* ]] || { echo False; return; }
+    py_reply 'import json,sys
+rows=json.load(sys.stdin)
+panes=json.loads(sys.argv[1])
+def shown(i):
+    while i != -1:
+        if not rows[i]["visible"]: return False
+        i=rows[i]["parent"]
+    return True
+drawn=isinstance(rows,list) and len(rows)>1 and any(shown(i) and r["box"][2]>0 and r["box"][3]>0 for i,r in enumerate(rows) if i>0)
+print(panes == [sys.argv[2]] and drawn)' "$panes" "$1" <<<"$rows"
+  }
+  for id in $(python3 -c 'import json,sys; print(" ".join(json.loads(sys.argv[1])))' "$sys_family"); do
+    expect "the assembled System window opens $id" ok ipc shell summon window vgs.system "{\"pane\":\"$id\"}"
+    expect_poll "every shipped section is listed while $id is open" "$sys_family" sys_family_list
+    expect_poll "$id mounts alone and has visible content with every section enabled" True sys_section_drawn "$id"
+    expect "the assembled System window has no section notice for $id" '""' sys_read notice
+  done
+  expect "control: disabling Sound in the assembled System is allowed" ok ipc shell setPluginEnabled vgs.sound false
+  expect_poll "control: the inventory reader rejects a missing Sound section" False sys_family_complete
+  expect "Sound returns to the assembled System" ok ipc shell setPluginEnabled vgs.sound true
+  expect_poll "the full shipped section inventory returns" "$sys_family" sys_family_list
+  expect "closing the assembled System window is allowed" ok ipc shell hide window vgs.system
+  expect_poll "closing the assembled System drops every pane" '[]' window_panes
+  expect "control: the content reader rejects a closed System window" False sys_section_drawn vgs.vpn
+  check_unexpected_log "the assembled System window's instance log" "$instance_log"
+  cp -- "$sys_saved" "$sys_file.tmp" && mv -T -- "$sys_file.tmp" "$sys_file"
+  expect_poll "the shipped section enablement is restored after integration" "$sys_aside" shipped_panes_enabled
+  expect_poll "the System holder enablement is restored after integration" "$sys_was" plugin_enabled vgs.system
+fi
