@@ -575,6 +575,7 @@ mutations=(
   "the chosen segment draws no stroke|controls/SegmentedControl.qml|visible: segment.current|visible: false|tst_segmented.qml"
   "the spinner turns under reduced motion|feedback/Spinner.qml|running: root.running && Theme.spinner.duration > 0|running: root.running|tst_feedback.qml"
   "the progress fill ignores the value|feedback/ProgressBar.qml|width: root.indeterminate ? span : root.position * parent.width|width: parent.width|tst_feedback.qml"
+  "the progress fill ignores its tone|feedback/ProgressBar.qml|color: root.toneColor(root.tone)|color: Theme.progress.fill|tst_feedback.qml"
   "the mirrored progress fills from the left|feedback/ProgressBar.qml|x: root.mirrored && !root.indeterminate ? parent.width - width : 0|x: 0|tst_feedback.qml"
   "the key cap draws the code role|feedback/Kbd.qml|role: \"kbd\"|role: \"code\"|tst_feedback.qml"
   "the key cap takes its line box for its height|feedback/Kbd.qml|implicitHeight: Math.max(Theme.kbd.height, label.lineBox)|implicitHeight: label.lineBox|tst_feedback.qml"

@@ -104,7 +104,9 @@ Item {
                     Repeater {
                         model: modelData.windows
                         Column {
+                            id: usageLimit
                             required property var modelData
+                            readonly property color usageColor: modelData.started ? Theme.badge.tone[modelData.tone].foreground : Theme.text.hint.color
                             width: parent.width
                             spacing: Theme.row.lineGap
 
@@ -134,11 +136,11 @@ Item {
                                         anchors.verticalCenter: parent.verticalCenter
                                         role: "body"
                                         text: modelData.text
-                                        color: modelData.started ? Theme.badge.tone[modelData.tone].foreground : Theme.text.hint.color
+                                        color: usageLimit.usageColor
                                     }
                                 }
                             }
-                            ProgressBar { visible: root.fullView; width: parent.width; value: Math.min(modelData.percent, 100) / 100 }
+                            ProgressBar { visible: root.fullView; width: parent.width; value: Math.min(modelData.percent, 100) / 100; tone: modelData.tone }
                         }
                     }
                 }

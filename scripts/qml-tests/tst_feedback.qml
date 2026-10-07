@@ -83,6 +83,20 @@ Item {
             mirroredBar.value = 0.25;
         }
 
+        // expected-log: ProgressBar: no tone named "loud"; drawing accent -- the test names an unknown tone on purpose
+        function test_progress_draws_its_tone() {
+            const bar = Qt.createQmlObject("import qs.Ui\nProgressBar { value: 0.5 }", root);
+            compare(bar.tone, "accent");
+            compare(String(fill(bar).color), String(Qt.color(Theme.progress.fill)));
+            for (const tone of ["neutral", "info", "success", "warning", "danger"]) {
+                bar.tone = tone;
+                compare(String(fill(bar).color), String(Qt.color(Theme.badge.tone[tone].foreground)), tone);
+            }
+            bar.tone = "loud";
+            compare(String(fill(bar).color), String(Qt.color(Theme.progress.fill)));
+            bar.destroy();
+        }
+
         // expected-log: Badge: no tone named "loud" -- the test names an unknown tone on purpose
         function test_badge_draws_its_tone() {
             compare(String(badge.color), String(Qt.color(Theme.badge.tone.success.background)));

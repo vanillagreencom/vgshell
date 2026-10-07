@@ -277,7 +277,15 @@ Item {
                     width: parent.width
                     spacing: Theme.stack.inline
                     Spinner {}
-                    ProgressBar { value: 0.6 }
+                    Repeater {
+                        model: ["accent", "neutral", "info", "success", "warning", "danger"]
+                        Column {
+                            required property string modelData
+                            spacing: Theme.row.lineGap
+                            Label { role: "label"; text: modelData }
+                            ProgressBar { value: 0.6; tone: modelData }
+                        }
+                    }
                     ProgressBar { indeterminate: true }
                 }
                 Flow {

@@ -25,7 +25,7 @@
 # credential file, one that reads a failed request as 0 % and a panel host
 # copy whose slot opens Settings with no page each fail their own reading.
 # This row has no latency ceiling; every reading polls through expect_poll.
-# inputs: shell/plugins/vgs.ai-usage/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js scripts/fixtures/ai-usage/* scripts/smoke/fixtures/ai-usage/* shell/plugins/vgs.settings/* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/Pane.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/feedback/Badge.qml shell/Commons/Time.qml config/shell.json bin/vgshell-tui scripts/qml-smoke.sh shell/Commons/Duration.js shell/Commons/qmldir
+# inputs: shell/plugins/vgs.ai-usage/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js scripts/fixtures/ai-usage/* scripts/smoke/fixtures/ai-usage/* shell/plugins/vgs.settings/* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/Pane.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/feedback/Badge.qml shell/Ui/feedback/ProgressBar.qml shell/Commons/Time.qml config/shell.json bin/vgshell-tui scripts/qml-smoke.sh shell/Commons/Duration.js shell/Commons/qmldir
 set -euo pipefail
 usage_dir="$sandbox/ai-usage"
 mkdir -p -- "$usage_dir"
@@ -116,6 +116,26 @@ PY
 }
 usage_credentials_kept() { if [[ $(usage_credentials) == "$usage_credentials_before" ]]; then echo kept; else echo changed; fi; }
 usage_panel() { ipc smoke readInstance panel vgs.ai-usage rows; }
+usage_panel_colours() {
+  local windows labels success warning danger
+  windows="$(usage_panel)" || return
+  labels="$(ipc smoke itemValues panel vgs.ai-usage Label text,color)" || return
+  success="$(ipc smoke themeValue badge.tone.success.foreground)" || return
+  warning="$(ipc smoke themeValue badge.tone.warning.foreground)" || return
+  danger="$(ipc smoke themeValue badge.tone.danger.foreground)" || return
+  ipc smoke itemColours panel vgs.ai-usage ProgressBar QQuickRectangle | py_reply 'import json,sys
+bars=json.load(sys.stdin)
+windows=[w for a in json.loads(sys.argv[1]) for w in a["windows"]]
+labels=[r for r in json.loads(sys.argv[2]) if r.get("text", "").endswith("%")]
+def qt_colour(c):
+    return c + "ff" if len(c)==7 else "#" + c[3:] + c[1:3]
+tokens=dict(zip(["success","warning","danger"], [qt_colour(json.loads(c)) for c in sys.argv[3:]]))
+matched=len(bars)==len(windows)==len(labels)==5 and {w["tone"] for w in windows}==set(tokens)
+for w,bar in zip(windows,bars):
+    colour=tokens[w["tone"]]
+    matched=matched and len(bar)==2 and bar[-1]==colour and any(r["text"]==w["text"] and qt_colour(r["color"])==colour for r in labels)
+print("matched" if matched else "mismatch")' "$windows" "$labels" "$success" "$warning" "$danger"
+}
 # usage_click WHAT BOX: one real click on the centre of BOX, a control's
 # box, the pointer moved there a pixel off first, since a popup mapped
 # while the pointer rests on the bar takes no click until the pointer
@@ -271,6 +291,7 @@ expect_poll "the panel's reset times are the stand-ins'" matched usage_panel_res
 expect "the full panel is selected by default" true usage_panel_view
 expect "the full panel carries provider details" '[["claude", "default", [["Extra usage", "$123.45 of $500.00"]]], ["codex", "default", [["Codex credits", "12,345 available"]]]]' usage_panel_details
 summon_drawn panel vgs.ai-usage || fail "the panel never drew a frame"
+expect_poll "each usage value and progress fill share their theme tier" matched usage_panel_colours
 usage_panel_box() { ipc smoke instanceGeometry panel vgs.ai-usage | py_reply 'import json,sys; r=json.load(sys.stdin); print(r[2] > 0 and r[3] > 0)'; }
 expect "the panel has a size" True usage_panel_box
 expect_poll "the panel's height cap is half its output's height" matched usage_panel_cap
@@ -279,6 +300,19 @@ expect "opening the panel publishes no read" "readAt=$usage_before_panel" usage_
 expect "opening the panel sends the endpoint no request" none usage_requests_since "$usage_sent_before_panel"
 expect "AI Usage's panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the hidden panel is gone" absent usage_panel
+# The caller's tone binding is what gives the bar the value's tier. A
+# disposable panel without it still draws bars, in the accent colour.
+usage_edit "$usage_panel_qml" '; tone: modelData.tone' '' || fail "the accent progress control edit failed"
+rescan "the accent progress control is scanned"
+usage_refresh "the accent progress control"
+click_centre "$(bar_key)" vgs.ai-usage || fail "opening the accent progress control failed"
+summon_drawn panel vgs.ai-usage || fail "the accent progress control never drew a frame"
+expect "an accent progress fill fails the shared tier reading" 1 usage_control "$usage_dir/progress-tier-control.log" "usage fill must share the value tier" matched usage_panel_colours
+expect "the accent progress control hides" ok ipc shell hide panel vgs.ai-usage
+expect_poll "the accent progress control is gone" absent usage_panel
+cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
+rescan "the tier progress binding is restored"
+usage_refresh "the restored tier progress binding"
 # A panel copy capped at its output's whole height fails the cap reading
 # with its own figure.
 usage_edit "$usage_panel_qml" 'output.height * Theme.size.window.heightShare' 'output.height' || fail "the whole-height control's edit failed"

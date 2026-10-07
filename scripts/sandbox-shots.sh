@@ -3091,7 +3091,7 @@ for scene in "${setups[@]}"; do
       ln -sfn -- "$checkout/scripts/fixtures/ai-usage/codex" "$shim/codex"
       # A published gateway-shaped reading plants API billing without a
       # keyring or a live Vercel request, in this sandbox copy alone.
-      python3 "$checkout/scripts/smoke/fixtures/ai-usage/edit.py" "$repo/shell/plugins/vgs.ai-usage/backend/usage.js" '    return { accounts, partial, gatewayKey };' '    accounts.push({ id: "gateway-shots", provider: "gateway", label: "AI Gateway", email: "", state: "ok", windows: [{ name: "credits", usedPercent: 25, resetsAt: null }], credits: null, details: { gateway: { balance: 75, totalUsed: 25 } } });
+      python3 "$checkout/scripts/smoke/fixtures/ai-usage/edit.py" "$repo/shell/plugins/vgs.ai-usage/backend/usage.js" '    return { accounts, partial, gatewayKey };' '    accounts.push({ id: "gateway-shots", provider: "gateway", label: "AI Gateway", email: "", state: "ok", windows: [{ name: "credits", usedPercent: 64, resetsAt: null }], credits: null, details: { gateway: { balance: 36, totalUsed: 64 } } });
     return { accounts, partial, gatewayKey };' || fail "planting the API gateway reading failed"
       python3 - "$home" <<'PY' || fail "planting the AI Usage sign-ins failed"
 import json, os, sys, time
