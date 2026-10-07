@@ -203,7 +203,8 @@ FocusScope {
             id: page
             anchors.fill: parent
             container: "window"
-            footer: mountBox.mounted !== null && mountBox.mounted.footer !== null ? [mountBox.mounted.footer] : []
+            // Window destruction can clear mountBox before this binding stops.
+            footer: mountBox !== null && mountBox.mounted !== null && mountBox.mounted.footer !== null ? [mountBox.mounted.footer] : []
 
             header: [
                 Column {
