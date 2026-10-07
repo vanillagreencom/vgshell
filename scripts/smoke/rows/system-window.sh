@@ -100,6 +100,7 @@ print(json.dumps({"parent": parent, "height": slot["box"][3] if slot is not None
 }
 sys_footer_parent() { sys_footer_state | py_reply 'import json,sys; print(json.load(sys.stdin)["parent"])'; }
 sys_footer_hidden() { sys_footer_state | py_reply 'import json,sys; r=json.load(sys.stdin); print(r["height"] == 0 and not r["shown"])'; }
+sys_footer_shown() { sys_footer_state | py_reply 'import json,sys; r=json.load(sys.stdin); print(r["height"] > 0 and r["shown"])'; }
 sys_footer_bottom() { sys_footer_state | py_reply 'import json,sys; print(json.load(sys.stdin)["bottom"])'; }
 # Every argv the stand-in vgshell received, one JSON list per call.
 sys_calls_all() { [[ -s $sys_calls ]] && python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in open(sys.argv[1])]))' "$sys_calls" || echo '[]'; }
@@ -223,6 +224,7 @@ geometry expect_poll "a section shorter than the room fills the room" fits sys_p
 expect_poll "a mounted section's SaveBar has the holder's footer as its parent" footer sys_footer_parent
 expect_poll "the section's hidden footer takes no room" True sys_footer_hidden
 expect "the fixture stages a pending change" ok ipc smoke invokeInstance window acme.pane stageChange ''
+expect_poll "the pending footer is visible before keyboard input" True sys_footer_shown
 type_keys -k Tab || fail "typing Tab to the footer's Discard failed"
 expect_poll "Tab from the section's last control reaches Discard in the footer" Discard sys_focus
 type_keys -k Tab || fail "typing Tab to the footer's Save failed"
@@ -231,6 +233,7 @@ type_keys -k Return || fail "typing Return on Save failed"
 expect_poll "Save in the footer reaches the mounted section's handler" 1 ipc smoke readInstance window acme.pane saves
 expect_poll "saving hides the footer and releases its room" True sys_footer_hidden
 expect "the fixture stages a second pending change" ok ipc smoke invokeInstance window acme.pane stageChange ''
+expect_poll "the second pending footer is visible before keyboard input" True sys_footer_shown
 type_keys -k Tab -k Return || fail "typing Tab and Return on Discard failed"
 expect_poll "Discard in the footer reaches the mounted section's handler" 1 ipc smoke readInstance window acme.pane discards
 expect_poll "discarding hides the footer and releases its room" True sys_footer_hidden
@@ -239,6 +242,7 @@ expect_poll "discarding hides the footer and releases its room" True sys_footer_
 expect "the window opens the tall section for its footer" ok ipc smoke invokeInstance window vgs.system enterPane acme.pane-net
 expect "the tall section stages a pending change" ok ipc smoke invokeInstance window acme.pane-net stageChange ''
 expect_poll "the tall section exports its footer to the holder" footer sys_footer_parent
+expect_poll "the tall section's pending footer is visible before its geometry is read" True sys_footer_shown
 sys_pending_bottom="$(sys_footer_bottom)" || fail "reading the pending footer's bottom failed"
 expect "the tall section's holder scrolls its body" 100 ipc smoke invokeInstance window acme.pane-net scrollBody ''
 geometry expect_poll "the pending footer stays pinned while the body scrolls" "$sys_pending_bottom" sys_footer_bottom
