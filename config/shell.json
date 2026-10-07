@@ -5,11 +5,19 @@
     "layout": {
       "left": [],
       "center": [],
-      "right": [{ "id": "vgs.keyboard" }, { "id": "vgs.settings" }]
+      "right": [
+        { "id": "vgs.sound" },
+        { "id": "vgs.network" },
+        { "id": "vgs.bluetooth" },
+        { "id": "vgs.displays" },
+        { "id": "vgs.keyboard" },
+        { "id": "vgs.vpn" },
+        { "id": "vgs.settings" }
+      ]
     }
   },
   "manager": { "id": "vgs.settings" },
-  "plugins": [],
+  "plugins": [{ "id": "vgs.mouse" }],
   "disabledPlugins": [],
   "welcome": {
     "keys": [

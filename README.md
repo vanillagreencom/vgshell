@@ -7,6 +7,7 @@ A desktop shell for Hyprland, built on Quickshell. It draws the bar, panels and 
 ## Features
 
 - A Plugins window on SUPER+M holds every plugin's settings, shortcuts and on/off switch.
+- System Settings on SUPER+PERIOD holds Sound, Displays, Bluetooth, Network, VPN, Mouse and Keyboard.
 - Ships the [plugins](#plugins) listed below.
 - Themes change the colours, wallpaper and window borders in one click.
 - Updates installs system, VGS, plugin and theme updates, and an AI agent can review third-party packages before they install.

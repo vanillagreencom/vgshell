@@ -1,4 +1,4 @@
-# inputs: shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json
+# inputs: config/shell.json shell/Core/PluginLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json
 set -euo pipefail
 expect "instance guard accepts the runner's shell" true ipc shell guarded
 
@@ -186,4 +186,52 @@ PY
   expect "a rescan that adds a plugin rebuilds no other plugin" "$before" builds
 else
   fail "buildCount unreadable"
+fi
+
+# A profile without a user bar reads the shipped System placement. Mouse
+# remains enabled but unplaced. The control removes Sound through the
+# placement API and the same reader rejects the incomplete bar.
+fresh_bar_placement() {
+  local config records
+  config="$(ipc shell listShellConfig)" && records="$(ipc shell built)" || return 1
+  py_reply '
+import json, sys
+config, records = json.load(sys.stdin), json.loads(sys.argv[1])
+family = {"vgs.sound", "vgs.network", "vgs.bluetooth", "vgs.displays", "vgs.keyboard", "vgs.vpn", "vgs.mouse"}
+want = ["vgs.sound", "vgs.network", "vgs.bluetooth", "vgs.displays", "vgs.keyboard", "vgs.vpn"]
+layout = config["bar"]["layout"]
+placed = [e["id"] for e in layout["right"] if e["id"] in family]
+other = [e["id"] for section in ("left", "center") for e in layout[section] if e["id"] in family]
+bars = [[r["id"] for r in rows if r["kind"] == "bar-widget" and r["id"] in family] for key, rows in records.items() if key.startswith("bar:")]
+print("placed" if placed == want and not other and len(bars) == int(sys.argv[2]) and bars and all(ids == want for ids in bars) else json.dumps({"right": placed, "other": other, "bars": bars}))' "$records" "$monitors" <<<"$config"
+}
+fresh_bar_complete() { local state; state="$(fresh_bar_placement)" || return 1; [[ $state == placed ]] && echo True || echo False; }
+fresh_saved="$sandbox/bar-fresh-saved.json"
+cp -- "$home/.config/vgshell/shell.json" "$fresh_saved"
+if devices_ready bar; then
+  stop_shell
+  # Unrelated services stay off, as in the harness. No user layout or
+  # settings can supply the System placement this profile reads.
+  python3 - "$fresh_saved" "$home/.config/vgshell/shell.json" <<'PY'
+import json, os, sys
+saved, path = sys.argv[1:]
+family = {"vgs.system", "vgs.sound", "vgs.network", "vgs.bluetooth", "vgs.displays", "vgs.keyboard", "vgs.vpn", "vgs.mouse"}
+disabled = [i for i in json.load(open(saved))["disabledPlugins"] if i not in family]
+installed = os.path.join(os.path.dirname(path), "plugins")
+disabled = sorted(set(disabled) | set(os.listdir(installed)))
+with open(path + ".tmp", "w") as out:
+    json.dump({"version": 1, "disabledPlugins": disabled}, out)
+os.replace(path + ".tmp", path)
+PY
+  expect "the fresh profile has no user bar" False python3 -c 'import json,sys; print("bar" in json.load(open(sys.argv[1])))' "$home/.config/vgshell/shell.json"
+  start_shell "$repo" "$sandbox/qs-bar-fresh.log" || fail "the fresh profile shell starts"
+  expect_poll "the fresh bar mounts the System defaults in order and leaves Mouse unplaced" placed fresh_bar_placement
+  expect "Mouse stays enabled off the fresh bar" True plugin_enabled vgs.mouse
+  expect "control: Sound can leave the fresh bar" ok ipc shell setPluginPlaced vgs.sound false
+  expect_poll "control: the placement reader rejects a bar missing Sound" False fresh_bar_complete
+  stop_shell
+  cp -- "$fresh_saved" "$home/.config/vgshell/shell.json.tmp"
+  mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
+  start_shell "$repo" "$sandbox/qs-bar-restored.log" || fail "the smoke profile shell starts again"
+  expect_widgets "the original placed widget is restored after the fresh profile" '["acme.tick"]'
 fi
