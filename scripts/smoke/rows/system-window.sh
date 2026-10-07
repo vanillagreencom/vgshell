@@ -23,6 +23,9 @@
 # A hover in the sidebar moves its plate and not its selection, the shown
 # section's text alone keeps the accent, and the plate returns to the shown
 # section once the pointer leaves the list.
+# A mounted section's SaveBar belongs to the holder's footer, stays at the
+# bottom while the body scrolls, takes no room when hidden, and receives
+# Discard and Save through Tab. A copy that exports no footer draws no bar.
 #
 # Controls: a copy of the window that keeps the list it read when it opened
 # lists a section disabled while it is open and is titled with its own name,
@@ -34,7 +37,7 @@
 # sidebar lists its fixtures alone, and leaves the user file, vgs.system's
 # and each shipped section's enablement, the plugins directory and the
 # shell's PATH directory as it found them.
-# inputs: shell/plugins/vgs.system/* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Core/PluginLogic.js shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js
+# inputs: shell/plugins/vgs.system/* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Core/PluginLogic.js shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/feedback/SaveBar.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js
 set -euo pipefail
 
 sys_file="$home/.config/vgshell/shell.json"
@@ -80,6 +83,24 @@ sys_focus() { ipc smoke focused window vgs.system | py_reply 'import json,sys; r
 sys_switch() { ipc smoke itemTexts window vgs.system Switch | py_reply 'import json,sys; print(json.dumps([t != [] for t in json.load(sys.stdin)]))'; }
 sys_switch_checked() { ipc smoke readDescendant window vgs.system Switch checked; }
 sys_payload() { ipc smoke readInstance window "$1" payload; }
+# Real Item parent links from the mounted fixture through the holder's
+# footer slot to its Pane, with the slot's height and bottom alignment.
+sys_footer_state() {
+  ipc smoke descendantGeometry window vgs.system | py_reply '
+import json, sys
+rows = json.load(sys.stdin)
+bars = [r for r in rows if r["type"] == "SaveBar"]
+if len(bars) != 1: print("absent" if not bars else "multiple"); sys.exit()
+bar = bars[0]
+slot = rows[bar["parent"]] if bar["parent"] >= 0 else None
+pane = rows[slot["parent"]] if slot is not None and slot["parent"] >= 0 else None
+parent = "footer" if pane is not None and pane["type"] == "Pane" else "body"
+print(json.dumps({"parent": parent, "height": slot["box"][3] if slot is not None else -1,
+    "shown": bar["visible"], "bottom": bar["box"][1] + bar["box"][3]}))'
+}
+sys_footer_parent() { sys_footer_state | py_reply 'import json,sys; print(json.load(sys.stdin)["parent"])'; }
+sys_footer_hidden() { sys_footer_state | py_reply 'import json,sys; r=json.load(sys.stdin); print(r["height"] == 0 and not r["shown"])'; }
+sys_footer_bottom() { sys_footer_state | py_reply 'import json,sys; print(json.load(sys.stdin)["bottom"])'; }
 # Every argv the stand-in vgshell received, one JSON list per call.
 sys_calls_all() { [[ -s $sys_calls ]] && python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in open(sys.argv[1])]))' "$sys_calls" || echo '[]'; }
 widget_placed() { bar_widget_ids | py_reply 'import json,sys; print(any(sys.argv[1] in ids for ids in json.load(sys.stdin)))' "$1"; }
@@ -198,6 +219,31 @@ expect "showing Pane through the window is allowed" ok ipc smoke invokeInstance 
 expect_poll "switching to Pane destroys Pane Alt's build record" '["acme.pane"]' window_panes
 expect_poll "the shown section clears the notice" '""' sys_read notice
 geometry expect_poll "a section shorter than the room fills the room" fits sys_pane_fits acme.pane
+
+expect_poll "a mounted section's SaveBar has the holder's footer as its parent" footer sys_footer_parent
+expect_poll "the section's hidden footer takes no room" True sys_footer_hidden
+expect "the fixture stages a pending change" ok ipc smoke invokeInstance window acme.pane stageChange ''
+type_keys -k Tab || fail "typing Tab to the footer's Discard failed"
+expect_poll "Tab from the section's last control reaches Discard in the footer" Discard sys_focus
+type_keys -k Tab || fail "typing Tab to the footer's Save failed"
+expect_poll "the next Tab reaches Save in the footer" Save sys_focus
+type_keys -k Return || fail "typing Return on Save failed"
+expect_poll "Save in the footer reaches the mounted section's handler" 1 ipc smoke readInstance window acme.pane saves
+expect_poll "saving hides the footer and releases its room" True sys_footer_hidden
+expect "the fixture stages a second pending change" ok ipc smoke invokeInstance window acme.pane stageChange ''
+type_keys -k Tab -k Return || fail "typing Tab and Return on Discard failed"
+expect_poll "Discard in the footer reaches the mounted section's handler" 1 ipc smoke readInstance window acme.pane discards
+expect_poll "discarding hides the footer and releases its room" True sys_footer_hidden
+# Pane Net's body overflows. Its footer must keep the same bottom before
+# and after the shared ScrollArea moves that body.
+expect "the window opens the tall section for its footer" ok ipc smoke invokeInstance window vgs.system enterPane acme.pane-net
+expect "the tall section stages a pending change" ok ipc smoke invokeInstance window acme.pane-net stageChange ''
+expect_poll "the tall section exports its footer to the holder" footer sys_footer_parent
+sys_pending_bottom="$(sys_footer_bottom)" || fail "reading the pending footer's bottom failed"
+expect "the tall section's holder scrolls its body" 100 ipc smoke invokeInstance window acme.pane-net scrollBody ''
+geometry expect_poll "the pending footer stays pinned while the body scrolls" "$sys_pending_bottom" sys_footer_bottom
+expect "the window returns to the short section after the footer check" ok ipc smoke invokeInstance window vgs.system enterPane acme.pane
+expect_poll "switching sections removes the previous pending footer" True sys_footer_hidden
 
 # Hover in the sidebar, a navigation list: the plate follows the pointer to
 # a section that is not shown while the selection stays on the shown one,
@@ -537,6 +583,21 @@ if copy_tree system-pane-height && edit_tree system-pane-height shell/Hosts/Pane
   start_shell "$repo" "$sandbox/qs-restored-system.log" || fail "the shell starts again after the pane-height control"
 fi
 expect_poll "the restored shell knows vgs.system" True plugin_enabled vgs.system
+
+# Control: the same mounted fixture and reader, with the host's footer
+# export removed. The bar cannot reach the holder's footer.
+if copy_tree system-pane-footer && edit_tree system-pane-footer shell/Hosts/PaneHost.qml 'readonly property Item footer: slot.instance === null || slot.instance.footer === undefined ? null : slot.instance.footer' 'readonly property Item footer: null'; then
+  stop_shell
+  start_shell "$sandbox/tree-system-pane-footer" "$sandbox/qs-system-pane-footer.log" || fail "the footer control shell starts"
+  expect_poll "control: the footer shell knows vgs.system" True plugin_enabled vgs.system
+  expect "control: the footer shell opens Pane" ok ipc shell summon window vgs.system '{"pane":"acme.pane"}'
+  expect_poll "control: the footer shell mounts Pane" '["acme.pane"]' window_panes
+  expect "control: the mounted fixture stages a change" ok ipc smoke invokeInstance window acme.pane stageChange ''
+  expect_poll "control: removing the host export makes the parent reader see no bar" absent sys_footer_state
+  stop_shell
+  start_shell "$repo" "$sandbox/qs-restored-system-footer.log" || fail "the shell starts again after the footer control"
+fi
+expect_poll "the footer-restored shell knows vgs.system" True plugin_enabled vgs.system
 expect "the restored shell opens Pane Net" ok ipc shell summon window vgs.system '{"pane":"acme.pane-net"}'
 geometry expect_poll "the restored shell grows the page to the tall section" fits sys_pane_fits acme.pane-net
 expect "hiding the System window after the controls is allowed" ok ipc shell hide window vgs.system

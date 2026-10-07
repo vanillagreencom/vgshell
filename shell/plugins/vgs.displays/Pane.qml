@@ -63,6 +63,13 @@ FocusScope {
     // The refusal the last Dimming write was answered with, "" for none.
     property string dimProblem: ""
     readonly property Item initialFocus: arrangement
+    readonly property Item footer: SaveBar {
+        parent: null
+        width: parent === null ? 0 : parent.width
+        dirty: root.outputDirty && root.trialState.phase !== "holding"
+        onSave: root.applyOutputDraft()
+        onDiscard: root.outputDraft = ({})
+    }
 
     onShellChanged: if (shell !== null && releaseSupport === null) releaseSupport = shell.monitors.wantSupport()
     Component.onDestruction: if (releaseSupport !== null) releaseSupport()
@@ -495,13 +502,6 @@ FocusScope {
                 color: Theme.color.warning
                 text: "Your Hyprland file now sets this display differently."
                 wrapMode: Text.Wrap
-            }
-
-            SaveBar {
-                width: parent.width
-                dirty: root.outputDirty && root.trialState.phase !== "holding"
-                onSave: root.applyOutputDraft()
-                onDiscard: root.outputDraft = ({})
             }
 
             Timer {

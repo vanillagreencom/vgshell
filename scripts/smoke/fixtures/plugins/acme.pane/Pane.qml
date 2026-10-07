@@ -12,6 +12,16 @@ FocusScope {
     readonly property Item initialFocus: editButton
     property var idleDisposer: null
     property int closes: 0
+    property bool pending: false
+    property int saves: 0
+    property int discards: 0
+    readonly property Item footer: SaveBar {
+        parent: null
+        width: parent === null ? 0 : parent.width
+        dirty: root.pending
+        onSave: { root.saves += 1; root.pending = false; }
+        onDiscard: { root.discards += 1; root.pending = false; }
+    }
 
     function open(payloadJson) {
         payload = payloadJson || "";
@@ -23,6 +33,18 @@ FocusScope {
         closes += 1;
     }
     function setLabel(value) { return shell.configure.set("label", value); }
+    function stageChange() {
+        pending = true;
+        editButton.forceActiveFocus(Qt.TabFocusReason);
+    }
+    function scrollBody() {
+        for (let item = root.parent; item !== null; item = item.parent) {
+            if (typeof item.scrollBy !== "function") continue;
+            item.scrollBy(100);
+            return String(item.contentY);
+        }
+        return "no-scroll-area";
+    }
 
     implicitWidth: Theme.size.window.width
     implicitHeight: Theme.size.control.lg * 3

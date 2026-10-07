@@ -71,6 +71,8 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 
 ### Layout
 
+- Do put a pending-changes row in the shared `Pane` footer, pinned to the bottom of the System or Shell & Plugins panel. Never put it in the scrolling body; review holds it.
+- Do use a centred modal for a timed trial or a confirmation the user must see, such as Keep/Revert. Never use an inline card; review holds it.
 - Do compose `Pane` for every window, dialog, panel, popover and overlay, and never write a second inset. Align boxed children and unboxed text to its content edge. `scripts/qml-tests/tst_pane.qml` pins the box.
 - Do clear a rounded corner through `Inset.clearing` in `shell/Commons/Inset.js`, and never hand-pad for a curve. `scripts/test-inset.js` pins the rule.
 - Do keep a container's scroll bar inside its right inset strip. `scripts/qml-tests/tst_scroll.qml` pins the gutter with and without overflow.
@@ -87,6 +89,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 
 ### Settings pages
 
+- Do keep each setting in its settings group. If a setting applies to the whole group, say so in its help instead of placing it above the group; review holds it.
 - Do declare a plugin's settings in its manifest schema, and never ship page code for its Settings page. `scripts/test-plugin-logic.js` pins the schema.
 - Never make a user type a library's format syntax. Declare `presets` or `optionsFrom`, and judge a format string before writing it. `PluginLogic.validateManifest` refuses a string setting without either, and `scripts/test-setting-values.js` holds the format judge.
 - Do feed `optionsFrom` from a `choices` status entry of the same plugin, with stable ids and labels. Keep a configured id that leaves the offers and show it as unavailable. `scripts/test-plugin-logic.js` pins the schema and `settingChoices` model.

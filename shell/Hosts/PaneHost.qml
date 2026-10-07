@@ -26,6 +26,10 @@ Scope {
             anchors.fill: parent
             implicitWidth: slot.instance === null ? 0 : slot.instance.implicitWidth
             implicitHeight: slot.instance === null ? 0 : slot.instance.implicitHeight
+            // Qt's QQuickItemPrivate::data_append moves an Item's visual
+            // parent only, so the pane still owns the footer's lifetime:
+            // https://github.com/qt/qtdeclarative/blob/6.10/src/quick/items/qquickitem.cpp
+            readonly property Item footer: slot.instance === null || slot.instance.footer === undefined ? null : slot.instance.footer
 
             function focusInitial() {
                 const item = slot.instance;

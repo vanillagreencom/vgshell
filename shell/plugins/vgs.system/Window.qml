@@ -203,6 +203,7 @@ FocusScope {
             id: page
             anchors.fill: parent
             container: "window"
+            footer: mountBox.mounted !== null && mountBox.mounted.footer !== null ? [mountBox.mounted.footer] : []
 
             header: [
                 Column {

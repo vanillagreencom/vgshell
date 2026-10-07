@@ -190,6 +190,32 @@ Item {
         }
     }
 
+    Component {
+        id: mountedSection
+        Item {
+            id: parentSection
+            property bool dirty: false
+            readonly property Item footer: SaveBar {
+                parent: null
+                width: parent === null ? 0 : parent.width
+                dirty: parentSection.dirty
+            }
+        }
+    }
+
+    Component {
+        id: footerHolder
+        Pane {
+            width: 400
+            height: 300
+            container: "window"
+            property Item section: null
+            property Item rememberedFooter: section === null ? null : section.footer
+            footer: section === null ? [] : [section.footer]
+            Item { width: parent.width; height: 700 }
+        }
+    }
+
     TestCase {
         name: "pane"
         when: windowShown
@@ -206,6 +232,34 @@ Item {
         function footerDivider(of) { return of.children[6]; }
         // The scroll area's touchpad area is an item of its content too.
         function body(of) { return of.scrollArea.contentItem.children.find(child => !(child instanceof TouchpadScroll)).children[0]; }
+
+        function test_an_external_footer_stays_pinned_and_dies_with_its_section() {
+            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
+            const holder = createTemporaryObject(footerHolder, root);
+            const section = mountedSection.createObject(root);
+            holder.section = section;
+            const bar = section.footer;
+            holder.rememberedFooter = bar;
+            compare(bar.parent, footerSlot(holder));
+            verify(bar.parent !== body(holder));
+            compare(holder.footerHeight, 0);
+            compare(holder.footerGap, 0);
+            section.dirty = true;
+            tryCompare(bar, "drawn", true);
+            verify(holder.footerHeight > 0);
+            compare(bar.width, holder.contentWidth);
+            const bottom = bar.mapToItem(holder, 0, bar.height).y;
+            compare(bottom, holder.height - holder.contentInset);
+            scroll(holder).contentY = 100;
+            compare(bar.mapToItem(holder, 0, bar.height).y, bottom);
+            section.dirty = false;
+            tryCompare(holder, "footerHeight", 0);
+            compare(holder.footerGap, 0);
+            section.destroy();
+            tryCompare(holder, "section", null);
+            tryCompare(holder, "rememberedFooter", null);
+            compare(footerSlot(holder).children.length, 0);
+        }
 
         function test_header_body_and_footer_share_the_content_edge() {
             compare(pane.contentInset, Theme.inset.window);
