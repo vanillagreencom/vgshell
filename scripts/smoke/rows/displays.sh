@@ -342,21 +342,29 @@ print(json.dumps({"point":[int(sx),int(sy)],"page":page["box"],"card":[cx,cy,car
     expect_poll "control: $disp_layout fails the scrim and full input contract" False disp_scrim_matches "$disp_layout"
     if [[ $disp_layout == PaneMasked ]]; then
       expect "the masked copy hides its disposable body for real-page input" ok ipc smoke popupCall "displays-layout-$disp_layout" hideCopyBody
-      # Move across two points after mapping so native input-mask commits
-      # can update pointer focus before the same background action.
-      disp_masked_hover() { hover "$((disp_bg_x+1))" "$disp_bg_y" >/dev/null && hover "$disp_bg_x" "$disp_bg_y" >/dev/null && control_hovered window vgs.system ListItem 'Shell & Plugins'; }
-      expect_poll "control: a card-only input region lets the sidebar take hover" true disp_masked_hover
-      click "$disp_bg_x" "$disp_bg_y" || fail "clicking the masked sidebar control failed"
-      expect_poll "control: a card-only input region lets the sidebar open Plugins" 1 window_count Plugins
-      expect "the masked sidebar control closes Plugins" ok ipc shell hide window vgs.settings
-      expect_poll "the masked sidebar control leaves only System" 0 window_count Plugins
       disp_masked_before="$(ipc smoke viewHolding window vgs.system 'Dimmed brightness')"
       hover "$((disp_wheel_x+1))" "$disp_wheel_y" || fail "entering the masked wheel gutter failed"
       hover "$disp_wheel_x" "$disp_wheel_y" || fail "resting on the masked wheel gutter failed"
+      geometry expect_poll "control: the masked modal remains mapped before its wheel" True disp_modal_matches "$disp_layout"
       wheel "$disp_wheel_x" "$disp_wheel_y" -2 || fail "the masked modal wheel control failed"
       disp_masked_page_moved() { ipc smoke viewHolding window vgs.system 'Dimmed brightness' | py_reply 'import json,sys; before=json.loads(sys.argv[1]); after=json.load(sys.stdin); print(abs(before["contentY"]-after["contentY"])>=1)' "$disp_masked_before"; }
       expect_poll "control: a card-only input region lets the same wheel move the page" True disp_masked_page_moved
       ipc smoke revealText window vgs.system FormRow 'Dimmed brightness' >/dev/null
+      geometry expect_poll "control: the masked modal retains its real card after scrolling" True disp_modal_matches "$disp_layout"
+      printf '  modal-evidence expected-screen=%s copy=%s before-sidebar-action=' "$disp_main" "$disp_layout"
+      disp_modal_read "$disp_layout"
+      # The real sidebar action replaces the pane and destroys this copy.
+      # Check the native mutant before that action and its teardown after.
+      disp_masked_hover() { hover "$((disp_bg_x+1))" "$disp_bg_y" >/dev/null && hover "$disp_bg_x" "$disp_bg_y" >/dev/null && control_hovered window vgs.system ListItem 'Shell & Plugins'; }
+      expect_poll "control: a card-only input region lets the sidebar take hover" true disp_masked_hover
+      click "$disp_bg_x" "$disp_bg_y" || fail "clicking the masked sidebar control failed"
+      expect_poll "control: a card-only input region lets the sidebar open Plugins" 1 window_count Plugins
+      expect_poll "the unblocked sidebar action removes the copied modal" 0 layer_count vgs:dialog
+      expect_poll "the unblocked sidebar action releases the copied dialog hold" 0 disp_read trialDialogs
+      expect_poll "the unblocked sidebar action destroys its disposable pane" undefined ipc smoke popupRead "displays-layout-$disp_layout" modalEvidence
+      expect "the masked sidebar control closes Plugins" ok ipc shell hide window vgs.settings
+      expect_poll "the masked sidebar control closes its Plugins window" 0 window_count Plugins
+
     fi
   elif [[ $disp_layout == PaneVrrOutside ]]; then
     expect_poll "control: the VRR row outside the display group is rejected" false ipc smoke popupRead "displays-layout-$disp_layout" vrrGrouped
@@ -368,6 +376,11 @@ print(json.dumps({"point":[int(sx),int(sy)],"page":page["box"],"card":[cx,cy,car
     }
     geometry expect_poll "control: $disp_layout keeps a drawn card and breaks only its named property" True disp_modal_control
     geometry expect_poll "control: $disp_layout fails the modal and centering contract" False disp_modal_matches "$disp_layout"
+  fi
+  if [[ $disp_layout == PaneMasked ]]; then
+    # The owning pane was destroyed by the sidebar route. The probe's
+    # dead reference ends with its next shell, so do not call its methods.
+    continue
   fi
   printf '  modal-evidence expected-screen=%s copy=%s value=' "$disp_main" "$disp_layout"
   disp_modal_read "$disp_layout"
