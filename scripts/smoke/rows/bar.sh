@@ -210,6 +210,12 @@ fresh_saved="$sandbox/bar-fresh-saved.json"
 cp -- "$home/.config/vgshell/shell.json" "$fresh_saved"
 if devices_ready bar; then
   stop_shell
+  # Probes read the private stand-ins while all System services are on.
+  # Keep their call histories for the later device-fixture checks.
+  fresh_history="$sandbox/bar-fresh-history"
+  mkdir -p -- "$fresh_history"
+  cp -a -- "$devices_dir/calls" "$fresh_history/calls"
+  if [[ -f $devices_hid_log ]]; then cp -- "$devices_hid_log" "$fresh_history/hid.calls"; fi
   # Unrelated services stay off, as in the harness. No user layout or
   # settings can supply the System placement this profile reads.
   python3 - "$fresh_saved" "$home/.config/vgshell/shell.json" <<'PY'
@@ -230,6 +236,13 @@ PY
   expect "control: Sound can leave the fresh bar" ok ipc shell setPluginPlaced vgs.sound false
   expect_poll "control: the placement reader rejects a bar missing Sound" False fresh_bar_complete
   stop_shell
+  rm -rf -- "$devices_dir/calls"
+  cp -a -- "$fresh_history/calls" "$devices_dir/calls"
+  if [[ -f $fresh_history/hid.calls ]]; then
+    cp -- "$fresh_history/hid.calls" "$devices_hid_log"
+  else
+    rm -f -- "$devices_hid_log"
+  fi
   cp -- "$fresh_saved" "$home/.config/vgshell/shell.json.tmp"
   mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
   start_shell "$repo" "$sandbox/qs-bar-restored.log" || fail "the smoke profile shell starts again"
