@@ -21,6 +21,7 @@ const { load } = require("../bin/lib/qml-library.js");
 
 const dir = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis");
 const Session = load(path.join(dir, "Session.js"));
+const SetupGate = load(path.join(dir, "SetupGate.js"));
 const Lucide = load(path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js"));
 const copy = value => JSON.parse(JSON.stringify(value));
 
@@ -59,7 +60,6 @@ const WITH = (line, details) => v => line(v) + details;
 // The Setup steps as the service publishes them (SetupGate.readiness).
 const TODO = { tone: "warning", text: "To do", lines: ["fixture line"], action: true };
 const DONE = { tone: "ok", text: "Done", action: false };
-const CHECKING = { tone: "info", text: "Checking", action: false };
 // [label, status values, [state, icon, tone, tooltip title plus detail]].
 const CASES = [
     ["nothing published yet", {}, ["off", "power-off", "neutral", "Jarvis is starting" + MUTE]],
@@ -108,8 +108,6 @@ const CASES = [
         ["muted", "mic-off", "neutral", "Jarvis is muted" + UNMUTE]],
     ["muting with capture closed", up({ mute: { kind: "muting" } }), ["muted", "mic-off", "neutral", "Jarvis is muted" + UNMUTE]],
     ["gate starting", up(down("starting")), ["off", "power-off", "neutral", "Jarvis is starting" + MUTE]],
-    ["gate unconfigured before the daemon answered", up(down("unconfigured"), { setupVoice: CHECKING, setupModel: CHECKING }),
-        ["off", "power-off", "neutral", WITH(unconfigured, MUTE)]],
     ["gate unconfigured, nothing published", up(down("unconfigured")), ["off", "power-off", "neutral", WITH(unconfigured, MUTE)]],
     ["local voice to do", up(down("unconfigured"), { setupVoice: TODO, setupModel: TODO }),
         ["off", "power-off", "neutral", WITH(setupStep("setupVoice"), MUTE)]],
@@ -155,6 +153,27 @@ const REFUSALS = [
 ];
 
 function verify(view) {
+    const loading = SetupGate.readiness({ kind: "answered", causes: ["speech=local-loading"] });
+    const checking = SetupGate.readiness({ kind: "checking" });
+    for (const [label, values, want] of [
+        ["speech loading", up(down("unconfigured"), loading), ["working", "loader", "info"]],
+        ["setup checking", up(down("unconfigured"), checking), ["working", "loader", "info"]],
+        ["loading with open microphone", up({ ...down("unconfigured"), ...OPEN }, loading), ["live", "audio-lines", "accent"]],
+        ["loading with daemon danger", up(down("unconfigured"), { ...loading, daemon: FLOOR }), ["problem", "circle-alert", "danger"]],
+        ["loading with audio danger", up(down("unconfigured"), { ...loading, audio: OVERFLOW }), ["problem", "circle-alert", "danger"]],
+        ["loading with Session fault", up({ ...down("unconfigured"), fault: { kind: "error", reason: "brain=stream-error", retry: 0 } }, loading), ["problem", "circle-alert", "danger"]],
+        ["loading while muted", up({ ...down("unconfigured"), ...MUTED }, loading), ["muted", "mic-off", "neutral"]],
+        ["loading with missing model", up(down("unconfigured"), SetupGate.readiness({ kind: "answered", causes: ["speech=local-loading", "brain=unselected"] })), ["off", "power-off", "neutral"]],
+        ["missing command with no setup action", up(down("unconfigured"), { setupVoice: { tone: "warning", action: false }, setupModel: DONE }), ["off", "power-off", "neutral"]],
+        ["missing command while model checks", up(down("unconfigured"), { setupVoice: { tone: "warning", action: false }, setupModel: checking.setupModel }), ["off", "power-off", "neutral"]],
+        ["checking tone with setup action", up(down("unconfigured"), { setupVoice: { tone: "info", action: true }, setupModel: DONE }), ["off", "power-off", "neutral"]],
+        ["unpublished model while voice checks", up(down("unconfigured"), { setupVoice: loading.setupVoice }), ["off", "power-off", "neutral"]],
+        ["both steps done with gate down", up(down("unconfigured"), SetupGate.readiness({ kind: "answered", causes: [] })), ["off", "power-off", "neutral"]],
+        ["loading while locked", up(down("locked"), loading), ["off", "power-off", "neutral"]]
+    ]) {
+        const out = view.view(copy(values));
+        assert.deepEqual([out.state, out.icon, out.tone], want, label);
+    }
     assert.equal(view.approvalPrompt(null), null);
     for (const tool of ["files.delete", "apps.open", "harness.files", "filesOther", "fixture"]) {
         for (const purpose of ["action", "release"]) {
@@ -198,6 +217,10 @@ verify(load(path.join(dir, "WidgetView.js")));
 // Each control removes one rule from a copy of the view and keeps the text
 // around it: [label, needle, replacement].
 const CONTROLS = [
+    ["checking setup reads off", 'state.gate.reason === "unconfigured" && setupChecking(values)', 'state.gate.reason === "unconfigured" && false'],
+    ["checking hides an offered setup action", 'step.action !== false', 'false'],
+    ["missing requirements read checking", '(step.tone !== "info" && step.tone !== "ok")', 'false'],
+    ["done steps read checking", 'return checking;', 'return true;'],
     ["cleared prompt retains a record", "if (hold === null) return null;", "if (hold === null) return {};"],
     ["file prompt loses its path", 'path: filePrompt && lines.length > 1 ? lines[1] : ""', 'path: filePrompt && lines.length > 1 ? lines[0] : ""'],
     ["file prompt repeats its path as detail", 'lines.slice(2).join("\\n")', 'lines.slice(1).join("\\n")'],

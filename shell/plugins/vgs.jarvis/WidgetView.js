@@ -11,6 +11,7 @@
 //   problem  the daemon or audio report danger, or Session reads `error`
 //   off      no Session state yet: the daemon's own text
 //   muted    privacy mute is on, or turning on
+//   working  required Setup steps are checking, with no action to take
 //   off      the Session gate is down: one sentence per reason
 //   working  Jarvis thinks, speaks, waits for a confirmation or acts
 //   ready    Session is idle
@@ -159,6 +160,18 @@ function unconfiguredText(values) {
     return GATE_TEXT.unconfigured;
 }
 
+// Only the published Checking and Done steps can explain a closed gate
+// without asking the owner to change setup. Missing requirements stay off.
+function setupChecking(values) {
+    var checking = false;
+    for (var i = 0; i < SETUP_TEXT.length; i++) {
+        var step = values[SETUP_TEXT[i][0]];
+        if (!step || step.action !== false || (step.tone !== "info" && step.tone !== "ok")) return false;
+        if (step.tone === "info") checking = true;
+    }
+    return checking;
+}
+
 // The second tooltip line names what a click does to MUTEON, the mute
 // region the click toggles, whatever state the icon shows.
 function look(state, line, muteOn) {
@@ -188,8 +201,11 @@ function view(values) {
     if (audio !== null && audio.tone === "danger") return look("problem", AUDIO_TEXT, muteOn);
     if (state === null) return look("off", daemon === null ? GATE_TEXT.starting : "Jarvis: " + daemon.text, muteOn);
     if (muteOn) return look("muted", "Jarvis is muted", muteOn);
-    if (gateDown(state.gate))
+    if (gateDown(state.gate)) {
+        if (state.gate.reason === "unconfigured" && setupChecking(values))
+            return look("working", "Jarvis is checking setup", muteOn);
         return look("off", state.gate.reason === "unconfigured" ? unconfiguredText(values) : GATE_TEXT[state.gate.reason], muteOn);
+    }
     switch (detail.phase) {
     case "thinking": case "speaking": case "confirming": case "acting":
         return look("working", WORK_TEXT[detail.phase], muteOn);
