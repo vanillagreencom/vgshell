@@ -189,16 +189,16 @@ else
 fi
 
 # A profile without a user bar reads the shipped System placement. Mouse
-# remains enabled but unplaced. The control removes Sound through the
-# placement API and the same reader rejects the incomplete bar.
+# remains enabled but unplaced. The controls remove required buttons through
+# the placement API and the same reader rejects the incomplete bar.
 fresh_bar_placement() {
   local config records
   config="$(ipc shell listShellConfig)" && records="$(ipc shell built)" || return 1
   py_reply '
 import json, sys
 config, records = json.load(sys.stdin), json.loads(sys.argv[1])
-family = {"vgs.sound", "vgs.network", "vgs.bluetooth", "vgs.displays", "vgs.keyboard", "vgs.vpn", "vgs.mouse"}
-want = ["vgs.sound", "vgs.network", "vgs.bluetooth", "vgs.displays", "vgs.keyboard", "vgs.vpn"]
+family = {"vgs.sound", "vgs.network", "vgs.bluetooth", "vgs.displays", "vgs.keyboard", "vgs.vpn", "vgs.mouse", "vgs.settings"}
+want = ["vgs.sound", "vgs.network", "vgs.bluetooth", "vgs.displays", "vgs.keyboard", "vgs.vpn", "vgs.settings"]
 layout = config["bar"]["layout"]
 placed = [e["id"] for e in layout["right"] if e["id"] in family]
 other = [e["id"] for section in ("left", "center") for e in layout[section] if e["id"] in family]
@@ -231,8 +231,12 @@ os.replace(path + ".tmp", path)
 PY
   expect "the fresh profile has no user bar" False python3 -c 'import json,sys; print("bar" in json.load(open(sys.argv[1])))' "$home/.config/vgshell/shell.json"
   start_shell "$repo" "$sandbox/qs-bar-fresh.log" || fail "the fresh profile shell starts"
-  expect_poll "the fresh bar mounts the System defaults in order and leaves Mouse unplaced" placed fresh_bar_placement
+  expect_poll "the fresh bar mounts the System defaults before Settings and leaves Mouse unplaced" placed fresh_bar_placement
   expect "Mouse stays enabled off the fresh bar" True plugin_enabled vgs.mouse
+  expect "control: Settings can leave the fresh bar with the System family intact" ok ipc shell setPluginPlaced vgs.settings false
+  expect_poll "control: the placement reader rejects a bar missing only Settings" False fresh_bar_complete
+  expect "Settings returns to the fresh bar" ok ipc shell setPluginPlaced vgs.settings true
+  expect_poll "the complete fresh bar returns after the Settings control" placed fresh_bar_placement
   expect "control: Sound can leave the fresh bar" ok ipc shell setPluginPlaced vgs.sound false
   expect_poll "control: the placement reader rejects a bar missing Sound" False fresh_bar_complete
   stop_shell
