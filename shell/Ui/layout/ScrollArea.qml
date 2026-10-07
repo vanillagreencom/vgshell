@@ -7,12 +7,12 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 
 // A vertically scrolling area for content taller than it: children go in
 // the flickable's content item and the content height follows them. The
-// content is always `rightInset` narrower than the area, and the embedded
+// content is always `rightInset` narrower than its clip, and the embedded
 // bar, `bar`, sits inside that inset while the content overflows, so no
 // content lies under it and the content's width never depends on its own
 // height: wrapping text would otherwise move the layout a turn after it
 // settled, or feed a binding its own input. With `barOverContent` the
-// content spans the area and the bar draws over its right strip: for rows
+// content spans that clip and the bar draws over its right strip: for rows
 // whose fills reach the area's edge and whose own end padding keeps that
 // strip clear while the content overflows, as a menu's entries do. The area
 // scrolls by the wheel, a touchpad swipe, which TouchpadScroll moves it by,
@@ -28,6 +28,7 @@ Flickable {
     property real rightInset: Theme.scrollArea.gutter
     property bool barOverContent: false
     property bool keyboardScroll: false
+    readonly property real focusInset: keyboardScroll ? Theme.focusRing.width + 2 * Theme.focusRing.offset : 0
     readonly property real measuredContentHeight: measureContentHeight()
     readonly property bool overflowing: scrollBar.needed
     readonly property alias bar: scrollBar
@@ -35,8 +36,8 @@ Flickable {
 
     clip: true
     activeFocusOnTab: false
-    contentWidth: width - (barOverContent ? 0 : rightInset)
-    contentHeight: measuredContentHeight
+    contentWidth: width - 2 * focusInset - (barOverContent ? 0 : rightInset)
+    contentHeight: measuredContentHeight + 2 * focusInset
     boundsBehavior: Flickable.StopAtBounds
     interactive: overflowing
     // No mouse drag (Qt 6.9's Flickable.acceptedButtons): a press goes to
@@ -63,12 +64,20 @@ Flickable {
     function reveal(item) {
         if (item === null || item === undefined) return;
         const at = item.mapToItem(contentItem, 0, 0);
-        contentY = KeyNavLogic.revealY(at.y, item.height, contentY, height, Theme.focusRing.offset + Theme.focusRing.width);
+        contentY = KeyNavLogic.revealY(at.y, item.height, contentY, contentClip.height, Theme.focusRing.offset + Theme.focusRing.width);
     }
     function scrollBy(delta) {
         contentY = Math.max(0, Math.min(contentHeight - height, contentY + delta));
     }
-    Component.onCompleted: checkInset()
+    Component.onCompleted: {
+        updateContentParent();
+        checkInset();
+    }
+    // Reparent after Flickable has installed its declared children.
+    function updateContentParent() {
+        contentItem.parent = keyboardScroll ? contentClip : root;
+    }
+    onKeyboardScrollChanged: Qt.callLater(updateContentParent)
     onRightInsetChanged: checkInset()
     onBarOverContentChanged: checkInset()
 
@@ -76,8 +85,8 @@ Flickable {
         const action = KeyNavLogic.intent(event.key, event.modifiers, "vertical", false);
         if (action === "prev") root.scrollBy(-Theme.row.height);
         else if (action === "next") root.scrollBy(Theme.row.height);
-        else if (action === "pagePrev") root.scrollBy(-root.height);
-        else if (action === "pageNext") root.scrollBy(root.height);
+        else if (action === "pagePrev") root.scrollBy(-contentClip.height);
+        else if (action === "pageNext") root.scrollBy(contentClip.height);
         else if (action === "first") root.contentY = 0;
         else if (action === "last") root.contentY = Math.max(0, root.contentHeight - root.height);
         else return false;
@@ -99,6 +108,16 @@ Flickable {
     HoverHandler { id: hover }
     TouchpadScroll { id: touchpad; view: root }
 
+    // Clip scrolling content before it reaches the ring, including during
+    // a scroll. The added content height keeps the last row reachable.
+    Item {
+        id: contentClip
+        parent: root
+        anchors.fill: parent
+        anchors.margins: root.focusInset
+        clip: true
+    }
+
     T.Control {
         id: keyboardFocus
         parent: root
@@ -114,6 +133,9 @@ Flickable {
     ScrollBar {
         id: scrollBar
         flickable: root
+        x: root.width - root.focusInset - width - Theme.scrollArea.barInset
+        y: root.focusInset
+        height: contentClip.height
         hovered: hover.hovered
     }
 

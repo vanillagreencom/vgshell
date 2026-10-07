@@ -196,6 +196,24 @@ Item {
             verify(topLeft.y >= 0, "the top edge stays inside the clip");
             verify(bottomRight.x <= keyboard.width, "the right edge stays inside the clip");
             verify(bottomRight.y <= keyboard.height, "the bottom edge stays inside the clip");
+
+            const viewport = keyboard.contentItem.parent;
+            compare(viewport.clip, true);
+            const contentTopLeft = viewport.mapToItem(keyboard, 0, 0);
+            const contentBottomRight = viewport.mapToItem(keyboard, viewport.width, viewport.height);
+            const clearance = ring.border.width + Theme.focusRing.offset;
+            verify(contentTopLeft.x - topLeft.x >= clearance, "content clears the ring's inner left edge by its gap");
+            verify(contentTopLeft.y - topLeft.y >= clearance, "content clears the ring's inner top edge by its gap");
+            verify(bottomRight.x - contentBottomRight.x >= clearance, "content clears the ring's inner right edge by its gap");
+            verify(bottomRight.y - contentBottomRight.y >= clearance, "content clears the ring's inner bottom edge by its gap");
+
+            const body = keyboard.contentItem.children.find(child => child instanceof Column);
+            verify(body !== undefined);
+            const bodyTop = body.mapToItem(viewport, 0, 0).y;
+            if (data.atEnd)
+                compare(bodyTop + body.height, viewport.height, "the end scroll reaches the last row above the ring");
+            else
+                compare(bodyTop, 0, "the first row starts below the ring");
         }
 
         function test_keyboard_scroll_keys_move_the_body() {
@@ -210,7 +228,7 @@ Item {
             keyClick(Qt.Key_Down);
             compare(keyboard.contentY, Theme.row.height);
             keyClick(Qt.Key_PageDown);
-            compare(keyboard.contentY, Math.min(keyboard.contentHeight - keyboard.height, Theme.row.height + keyboard.height));
+            compare(keyboard.contentY, Math.min(keyboard.contentHeight - keyboard.height, Theme.row.height + keyboard.bar.height));
             keyClick(Qt.Key_Home);
             compare(keyboard.contentY, 0);
         }
