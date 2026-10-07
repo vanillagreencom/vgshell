@@ -10,6 +10,8 @@ var WARNING_PERCENT = 80;
 var NAMES = { claude: "Claude Code", codex: "Codex", copilot: "Copilot", gateway: "AI Gateway" };
 var EXPIRED = { claude: "Open Claude Code to refresh the sign-in", copilot: "Open Copilot to sign in again" };
 var NO_PLAN = "Signed in with an API key, which has no plan limits";
+var STALE_NOTE = "The last check failed. These figures may be old.";
+var LIMITED_NOTE = "Claude limits how often usage can be read. The next check tries again.";
 var GATEWAY_ACCOUNT = "ai-gateway";
 var LABEL_MAX = 60;
 // What the bar's number is under each Bar number setting, for its tooltip.
@@ -32,6 +34,10 @@ function hasDetails(details) {
     return details !== null && details !== undefined && Object.keys(details).length > 0;
 }
 
+function hasFigures(row) {
+    return row.windows.length > 0 || row.credits !== null || hasDetails(row.details);
+}
+
 function previousOf(previous, id) {
     if (previous === null || previous === undefined) return null;
     for (var i = 0; i < previous.accounts.length; i++)
@@ -47,25 +53,31 @@ function accountCopy(row, extra) {
 /**
  * The usage to publish after a read: { accounts, readAt, gatewayKey }. READING is the
  * helper's output, or null for a run that failed as a whole; PREVIOUS is
- * the usage published before, or null. A failed read of an account, or a
- * failed run, keeps the last windows and details read for it marked stale;
- * with none, the account holds no windows. readAt is when a run last answered.
+ * the usage published before, or null; NOW is the time in epoch ms. Each
+ * account's readAt is when its figures were read, null while it holds none.
+ * A limited read, the endpoint turning away a frequent read, keeps the last
+ * figures read for the account as ok with their readAt; with none, the
+ * account reads limited and holds no windows. A failed read of an account,
+ * or a failed run, keeps the last figures marked stale with their readAt;
+ * with none, the account holds no windows. The top-level readAt is when a
+ * run last answered.
  */
 function merge(previous, reading, now) {
     if (reading === null) {
         if (previous === null || previous === undefined) return { accounts: [], readAt: null, gatewayKey: null };
         return { accounts: previous.accounts.map(function (row) {
-            var copy = accountCopy(row);
+            var copy = accountCopy(row, { readAt: row.readAt });
             if (row.state === "ok") copy.state = "stale";
             return copy;
         }), readAt: previous.readAt, gatewayKey: previous.gatewayKey || null };
     }
     return { accounts: reading.accounts.map(function (row) {
         var last = previousOf(previous, row.id);
-        if (row.state === "failed" && last !== null && (last.windows.length > 0 || last.credits !== null || hasDetails(last.details)))
-            return accountCopy(row, { email: row.email || last.email, state: "stale",
-                windows: copyWindows(last.windows), credits: copyCredits(last.credits), details: copyDetails(last.details) });
-        return accountCopy(row);
+        if ((row.state === "failed" || row.state === "limited") && last !== null && hasFigures(last))
+            return accountCopy(row, { email: row.email || last.email, state: row.state === "limited" ? "ok" : "stale",
+                windows: copyWindows(last.windows), credits: copyCredits(last.credits), details: copyDetails(last.details),
+                readAt: last.readAt });
+        return accountCopy(row, { readAt: row.state === "ok" ? now : null });
     }), readAt: now, gatewayKey: reading.gatewayKey || null };
 }
 
@@ -167,7 +179,7 @@ function signIn(usage, provider) {
     var rows = (usage === null || usage === undefined ? [] : usage.accounts)
         .filter(function (row) { return row.provider === provider && row.state !== "signed-out"; });
     var plans = rows.filter(function (row) { return row.state !== "no-plan"; });
-    if (plans.some(function (row) { return row.state === "ok" || row.state === "stale"; }))
+    if (plans.some(function (row) { return row.state === "ok" || row.state === "stale" || row.state === "limited"; }))
         return { tone: "ok", text: plans.length === 1 ? "Signed in" : "Signed in to " + plans.length + " accounts" };
     if (plans.some(function (row) { return row.state === "expired"; }))
         return { tone: "warning", text: EXPIRED[provider] };
@@ -341,22 +353,34 @@ function accountLine(row) {
     return row.label === "default" || row.provider === "gateway" ? "" : row.label;
 }
 
+// How long ago an account's figures were read, from READAT and NOW in
+// epoch ms: "Checked just now" under a minute, "Checked 4m ago" after, ""
+// with no figures read.
+function checkedText(readAt, now) {
+    if (readAt === null || readAt === undefined) return "";
+    var seconds = Math.max(0, Math.floor((now - readAt) / 1000));
+    return seconds < 60 ? "Checked just now" : "Checked " + Commons.Duration.format(seconds, 1) + " ago";
+}
+
 // The panel's rows: one per signed-in account after settings filters, with
 // title, the provider's name; email, the account's email or the login its
-// provider gives; account, the line drawn under the title; detail line; note, in tone "warning" for a failed or old
-// read, else "normal"; every limit, none while unused; and full-view detail
-// rows.
+// provider gives; account, the line drawn under the title; checked, the
+// age of its figures; detail line; note, in tone "warning" for a failed or
+// old read, else "normal"; every limit, none while unused; and full-view
+// detail rows.
 function panel(usage, now, settings) {
     return visibleAccounts(usage, settings).map(function (row) {
         var idle = unused(row);
         var warning = row.state === "expired" ? EXPIRED[row.provider]
-            : row.state === "stale" ? "The last check failed. These figures may be old."
+            : row.state === "stale" ? STALE_NOTE
             : row.state === "failed" ? "Usage could not be read." : "";
         var note = warning !== "" ? warning
+            : row.state === "limited" ? LIMITED_NOTE
             : idle ? "No usage yet."
-            : row.state === "ok" && row.windows.length === 0 && row.credits === null && !hasDetails(row.details) ? "This plan reports no usage limits." : "";
+            : row.state === "ok" && !hasFigures(row) ? "This plan reports no usage limits." : "";
         return { id: row.id, provider: row.provider, label: row.label, email: row.email, account: accountLine(row), state: row.state,
             title: NAMES[row.provider] || row.provider, detail: row.provider === "copilot" ? creditLine(row.credits) : "",
+            checked: checkedText(row.readAt, now),
             note: note, noteTone: warning !== "" ? "warning" : "normal", details: detailRows(row),
             windows: idle ? [] : row.windows.map(function (item) { return windowRow(row, item, now); }) };
     });

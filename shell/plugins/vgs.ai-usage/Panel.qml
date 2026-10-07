@@ -63,6 +63,7 @@ Item {
 
                 Label { role: "label"; text: modelData.title }
                 Label { visible: text !== ""; role: "hint"; text: modelData.account }
+                Label { visible: text !== ""; role: "hint"; text: modelData.checked }
                 Label { visible: root.fullView && text !== ""; role: "hint"; text: modelData.detail }
                 Label {
                     width: parent.width

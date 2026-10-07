@@ -20,13 +20,14 @@ Images come from `scripts/readme-shots.sh` in the nested sandbox.
 - Filters for providers and hidden accounts.
 - The bar item stays hidden until you sign in to one of the visible tools. A click opens the panel.
 - When a check fails, the panel keeps the last figures and says that they may be old.
+- Each card shows how long ago its figures were read. When Claude limits how often usage can be read, the card keeps the last figures and the next check tries again.
 - AI Usage never changes a tool's sign-in.
 
 ## Settings
 
 | Setting | What it changes |
 | --- | --- |
-| Check interval | Time between usage checks. Check now in the panel checks at once. |
+| Check interval | Time between usage checks. Check now in the panel starts a check at once. |
 | View | Compact shows account identity and limit lines. Full adds meters and provider details. |
 | Bar number | How the bar figures one number from each account's highest limit: Average, Most left or Most used. An account with no limits is left out. |
 | Bar shows | Used shows the share used. Left shows the share that is left. |
