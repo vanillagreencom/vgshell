@@ -86,14 +86,14 @@ BackgroundAlternate=#@{color.accentHover}
 BackgroundNormal=#@{color.accent}
 DecorationFocus=#@{color.focus}
 DecorationHover=#@{color.accentHover}
-ForegroundActive=#@{color.accent}
-ForegroundInactive=#@{color.textMuted}
-ForegroundLink=#@{color.info}
-ForegroundNegative=#@{color.danger}
-ForegroundNeutral=#@{color.warning}
+ForegroundActive=#@{color.onAccent}
+ForegroundInactive=#@{color.onAccent}
+ForegroundLink=#@{color.onAccent}
+ForegroundNegative=#@{color.onAccent}
+ForegroundNeutral=#@{color.onAccent}
 ForegroundNormal=#@{color.onAccent}
-ForegroundPositive=#@{color.success}
-ForegroundVisited=#@{color.accent}
+ForegroundPositive=#@{color.onAccent}
+ForegroundVisited=#@{color.onAccent}
 
 [Colors:Tooltip]
 BackgroundAlternate=#@{color.surface}

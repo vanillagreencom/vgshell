@@ -5,6 +5,8 @@
 //
 // The controls at the end edit a copy of the renderer, one rule at a time,
 // and require this suite to fail on each copy.
+// Inputs also include themes/vgs/* and themes/catalog/*: KDE selection
+// foregrounds are rendered from every shipped and catalog package below.
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -732,6 +734,129 @@ for (const [mode, background, foreground, colors] of [
     }), error => error.code === "ERR_ASSERTION" && error.actual === false && error.expected === true);
 }
 console.log(`test-theme-render: status-pairs=${statusPairs} modes=dark,light controls=2`);
+
+// KDE reads every foreground role in Colors:Selection on either selection
+// fill. Status and link text must remain readable when its row is selected.
+const SELECTION_ROLES = [
+    ["ForegroundActive", "color.accent"],
+    ["ForegroundInactive", "color.textMuted"],
+    ["ForegroundLink", "color.info"],
+    ["ForegroundNegative", "color.danger"],
+    ["ForegroundNeutral", "color.warning"],
+    ["ForegroundNormal", null],
+    ["ForegroundPositive", "color.success"],
+    ["ForegroundVisited", "color.accent"]
+];
+const selectionRender = require(rendererFile);
+const themesDir = path.join(repo, "themes");
+const selectionDir = path.join(themesDir, "targets", "kcolorscheme");
+const selectionTemplate = fs.readFileSync(path.join(selectionDir, "kcolorscheme.colors"), "utf8");
+const selectionTarget = selectionRender.acceptTarget(logic, "kcolorscheme",
+    fs.readFileSync(path.join(selectionDir, "target.json"), "utf8"));
+assert.equal(selectionTarget.ok, true);
+const catalog = logic.acceptCatalogIndex(TOKENS,
+    fs.readFileSync(path.join(themesDir, "catalog", "index.json"), "utf8"));
+assert.equal(catalog.ok, true);
+const catalogNames = Array.from(catalog.entries, entry => entry.name).sort();
+const catalogDirs = fs.readdirSync(path.join(themesDir, "catalog"), { withFileTypes: true })
+    .filter(entry => entry.isDirectory()).map(entry => entry.name).sort();
+assert.deepEqual(catalogDirs, catalogNames);
+assert.ok(catalogNames.includes("dracula"));
+assert.ok(catalogNames.includes("flexoki-light"));
+assert.equal(catalogNames.includes("vgs"), false);
+const shippedNames = fs.readdirSync(themesDir, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && !logic.RESERVED_DIRECTORIES.includes(entry.name))
+    .map(entry => entry.name).sort();
+assert.ok(shippedNames.includes("vgs"));
+const selectionPackages = [
+    ...shippedNames.map(name => ({ name, directory: path.join(themesDir, name), shipped: true })),
+    ...catalogNames.map(name => ({ name, directory: path.join(themesDir, "catalog", name), shipped: false }))
+].map(({ name, directory, shipped }) => {
+    const terminalFile = path.join(directory, "terminal.json");
+    const pkg = logic.acceptPackage(TOKENS, {
+        directoryName: name,
+        themeJson: fs.readFileSync(path.join(directory, "theme.json"), "utf8"),
+        terminalJson: fs.existsSync(terminalFile) ? fs.readFileSync(terminalFile, "utf8") : undefined,
+        shipped
+    });
+    assert.equal(pkg.ok, true);
+    return { pkg, shipped };
+});
+const selectionDefaults = selectionPackages.find(entry => entry.shipped && entry.pkg.name === "vgs").pkg;
+
+function verifySelection(pkg, shipped, template) {
+    const rendered = selectionRender.renderTarget(logic, TOKENS, selectionTarget.target,
+        new Map([["kcolorscheme.colors", template]]), {
+            values: pkg.values,
+            slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal,
+            curated: new Map(),
+            installed: !shipped
+        });
+    assert.equal(rendered.ok, true);
+    const output = rendered.files.find(file => file.destination === "kcolorscheme.colors");
+    assert.notEqual(output, undefined);
+    const fields = new Map();
+    let selected = false;
+    let sections = 0;
+    for (const line of output.bytes.toString("utf8").split("\n")) {
+        if (selectionRender.opensSection(line)) {
+            selected = selectionRender.isSectionHeader(line, "Colors:Selection");
+            if (selected) sections++;
+        } else if (selected) {
+            const key = selectionRender.assignedKey(line);
+            if (key !== null) {
+                assert.equal(fields.has(key), false);
+                fields.set(key, line.slice(line.indexOf("=") + 1).trim());
+            }
+        }
+    }
+    assert.equal(sections, 1);
+    assert.deepEqual([...fields.keys()].filter(key => key.startsWith("Foreground")).sort(),
+        SELECTION_ROLES.map(([role]) => role).sort());
+    const shortfalls = [];
+    for (const [role] of SELECTION_ROLES) {
+        const foreground = logic.parseColor(fields.get(role));
+        assert.notEqual(foreground, null);
+        assert.equal(foreground.a, 1);
+        for (const surface of ["BackgroundNormal", "BackgroundAlternate"]) {
+            const background = logic.parseColor(fields.get(surface));
+            assert.notEqual(background, null);
+            assert.equal(background.a, 1);
+            const ratio = logic.contrastRatio(foreground, background);
+            if (ratio < 4.5) shortfalls.push({ kind: "selection-contrast", package: pkg.name, role, surface, ratio, floor: 4.5 });
+        }
+    }
+    assert.deepEqual(shortfalls, []);
+}
+
+for (const { pkg, shipped } of selectionPackages) verifySelection(pkg, shipped, selectionTemplate);
+const selectionScratch = fs.mkdtempSync(path.join(os.tmpdir(), "kcolorscheme-control-"));
+let selectionControls = 0;
+try {
+    const start = selectionTemplate.indexOf("[Colors:Selection]\n");
+    assert.notEqual(start, -1);
+    const end = selectionTemplate.indexOf("\n[", start + 1);
+    assert.notEqual(end, -1);
+    const section = selectionTemplate.slice(start, end);
+    for (const [role, oldToken] of SELECTION_ROLES) {
+        if (oldToken === null) continue;
+        const needle = `${role}=#@{color.onAccent}`;
+        assert.equal(section.split(needle).length, 2);
+        const mutant = selectionTemplate.slice(0, start) +
+            section.replace(needle, `${role}=#@{${oldToken}}`) + selectionTemplate.slice(end);
+        assert.notEqual(mutant, selectionTemplate);
+        const file = path.join(selectionScratch, `${role}.colors`);
+        fs.writeFileSync(file, mutant, { flag: "wx" });
+        assert.throws(() => verifySelection(selectionDefaults, true, fs.readFileSync(file, "utf8")),
+            error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
+                error.actual.some(shortfall => shortfall.kind === "selection-contrast" &&
+                    shortfall.role === role && shortfall.surface === "BackgroundNormal" && shortfall.ratio < shortfall.floor));
+        selectionControls++;
+    }
+} finally {
+    fs.rmSync(selectionScratch, { recursive: true, force: true });
+}
+console.log(`test-theme-render: selection packages=${selectionPackages.length} roles=${SELECTION_ROLES.length} controls=${selectionControls}`);
 
 // Each control removes one rule's behaviour from a copy of the renderer and
 // keeps the text around it. The suite must fail on every copy.

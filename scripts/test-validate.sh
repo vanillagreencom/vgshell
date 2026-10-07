@@ -558,7 +558,7 @@ cases=(
   "settings-reply-packages|shell/Core/PackageManagers.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_catalog_rows$settings_reply_row"$'\n'"$settings_steps_row"
   "settings-reply-icons|shell/Ui/icons/Lucide.js|logic|$settings_core_prefix"$'node scripts/test-icon-bounds.js\n'"$settings_theme_rows"$'node scripts/test-lucide-data.js\n'"$settings_plugin_rows"$'node scripts/test-jarvis-widget.js\nnode scripts/test-jarvis-setup-gate.js\n'"$settings_catalog_rows"$'node scripts/test-agent-warden-view.js\n'"$settings_reply_row"$'\n'"$settings_steps_row"
   "catalog-judge|themes/catalog/index.json|tools|node scripts/test-vgshell-theme-judge.js"
-  "catalog-contrast|themes/catalog/index.json|logic|node scripts/test-theme-logic.js"$'\n'"$settings_theme_rows"'node scripts/test-check-theme-contrast.js'
+  "catalog-contrast|themes/catalog/index.json|logic|node scripts/test-theme-logic.js"$'\n'"$settings_theme_rows"$'node scripts/test-check-theme-contrast.js\nnode scripts/test-theme-render.js'
   "orb-source|shell/Ui/feedback/shaders/voiceorb.frag|all|$orb_shader_plan"
   "orb-pack|shell/Ui/feedback/shaders/voiceorb.frag.qsb|all|$orb_shader_plan"
   "orb-compiler|scripts/check-voiceorb-shader.py|offline|$orb_check_plan"
