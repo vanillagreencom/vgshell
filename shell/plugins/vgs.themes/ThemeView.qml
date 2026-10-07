@@ -345,6 +345,7 @@ FocusScope {
 
             CardCarousel {
                 id: carousel
+                preloadFullImages: true
                 anchors.fill: parent
                 focus: true
                 devicePixelRatio: root.shell === null || root.shell.screens.current === null ? Screen.devicePixelRatio : root.shell.screens.current.devicePixelRatio

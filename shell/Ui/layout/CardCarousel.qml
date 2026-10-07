@@ -20,7 +20,9 @@ import "TouchpadScrollLogic.js" as Logic
 // pixels: the drawn size for the current card and its two neighbours, so a
 // step finds the next image decoded, the longer side no more than
 // `carousel.decodeCap`; the slice size for every other card. When the
-// delegate root declares a `current` property, the carousel binds it to
+// browser sets `preloadFullImages`, every retained card takes the full
+// decode size, which stays the same across a step.
+// When the delegate root declares a `current` property, the carousel binds it to
 // whether that card is selected, and when it declares a `foreground`
 // property, the carousel hands it the card's AngledCard foreground, the
 // layer over the side cards' dim wash. A built slot can survive a model change
@@ -63,6 +65,10 @@ Item {
     property bool tabSteps: true
     // Whether Space activates the current card.
     property bool spaceActivates: true
+    // Picture browsers preload every retained card at its expanded size.
+    // This keeps a held key from selecting a picture behind queued
+    // slice-to-full decodes. The retained band still bounds the images.
+    property bool preloadFullImages: false
     // Device pixels per pixel of the carousel, for the decode sizes.
     property real devicePixelRatio: Screen.devicePixelRatio
 
@@ -258,7 +264,7 @@ Item {
                 // two whole places stays while any of it can be in the rail.
                 readonly property bool shown: distance < internal.slicesPerSide + 1
                 readonly property bool retained: wrappedNeighbour || distance < internal.reach + 1
-                readonly property size decodeSize: neighbour ? internal.fullDecode : internal.sliceDecode
+                readonly property size decodeSize: root.preloadFullImages || neighbour ? internal.fullDecode : internal.sliceDecode
                 // Only a built card follows the rail, so a step places the
                 // band and not the whole model.
                 readonly property rect place: retained ? internal.place(index - internal.position) : Qt.rect(0, 0, 0, 0)

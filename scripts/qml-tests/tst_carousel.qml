@@ -100,6 +100,7 @@ Item {
             carousel.width = 1848;
             carousel.height = 476;
             carousel.devicePixelRatio = 1;
+            carousel.preloadFullImages = false;
             carousel.delegate = content;
             carousel.model = root.entries;
             carousel.currentIndex = 20;
@@ -246,6 +247,27 @@ Item {
             tryVerify(() => built().e0 !== undefined);
             compare(built().e0.decodeSize, Qt.size(768, 476));
             verify(!slot(0).visible);
+        }
+
+        function test_picture_browser_preloads_the_retained_band() {
+            carousel.preloadFullImages = true;
+            carousel.devicePixelRatio = 2;
+            compare(builtNames(), range(12, 28));
+            for (const name of builtNames())
+                compare(built()[name].decodeSize, Qt.size(1536, 952));
+            keyClick(Qt.Key_Right);
+            for (const name of builtNames())
+                compare(built()[name].decodeSize, Qt.size(1536, 952));
+            carousel.currentIndex = 0;
+            tryVerify(() => built().e59 !== undefined);
+            compare(built().e59.decodeSize, Qt.size(1536, 952));
+            verify(!slot(59).visible);
+            verify(!slot(30).children[0].active);
+            carousel.devicePixelRatio = 4;
+            compare(built().e59.decodeSize, Qt.size(2048, 1269));
+            carousel.model = root.entries.slice(0, 10);
+            tryVerify(() => built().e9 !== undefined && slot(59) === undefined);
+            compare(built().e9.decodeSize, Qt.size(2048, 1269));
         }
 
         function test_a_delegate_can_read_whether_it_is_current() {

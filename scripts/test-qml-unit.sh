@@ -476,6 +476,7 @@ mutations=(
   "a slice decodes in pixels, not device pixels|layout/CardCarousel.qml|Qt.size(Math.round(sliceWidth * root.devicePixelRatio), Math.round(sliceHeight * root.devicePixelRatio))|Qt.size(Math.round(sliceWidth), Math.round(sliceHeight))|tst_carousel.qml"
   "the full decode has no cap|layout/CardCarousel.qml|Math.min(1, tokens.decodeCap / (Math.max(expandedWidth, expandedHeight) * root.devicePixelRatio))|1|tst_carousel.qml"
   "the neighbours decode at the slice size|layout/CardCarousel.qml|neighbour ? internal.fullDecode|offset === 0 ? internal.fullDecode|tst_carousel.qml"
+  "the picture browser leaves retained cards at slice size|layout/CardCarousel.qml|root.preloadFullImages|false|tst_carousel.qml"
   "the wrap neighbour is not prepared|layout/CardCarousel.qml|cards.count > 1 &&|false &&|tst_carousel.qml"
   "a card's decode size stays as it was built|layout/CardCarousel.qml|content.decodeSize = Qt.binding(() => slot.decodeSize);||tst_carousel.qml"
   "a card's model data is not rebound to its slot|layout/CardCarousel.qml|content.modelData = Qt.binding(() => slot.modelData);||tst_carousel.qml"
