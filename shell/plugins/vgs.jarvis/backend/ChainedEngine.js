@@ -17,6 +17,7 @@ const AnthropicMessages = require("./AnthropicMessages.js");
 const CodexHarness = require("./CodexHarness.js");
 const ClaudeCode = require("./ClaudeCode.js");
 const LocalSpeech = require("./LocalSpeech.js");
+const { PCM_RATE } = require("./Audio.js");
 
 // Speech adapter rows in selection order. A row is {select({settings,
 // accounts, directories})} answering {kind:"ready", recipients, open({net,
@@ -36,6 +37,20 @@ const SENTENCE_TEXT = 8 * 1024 * 1024;
 const CAPTURE_BYTES = 16 * 1024;
 // Release records name the transfer leaving the machine.
 const RELEASE_EFFECT = "external";
+// One local working sound for a still-silent turn, without a speech request.
+const WORKING_AFTER_MS = 1200;
+
+function earcon(kind) {
+    const frames = PCM_RATE * (kind === "start" ? 80 : 120) / 1000;
+    const pcm = Buffer.alloc(frames * 2);
+    const edge = PCM_RATE * 5 / 1000;
+    const frequency = kind === "start" ? 880 : 440;
+    for (let frame = 0; frame < frames; frame++) {
+        const envelope = Math.min(1, frame / edge, (frames - frame - 1) / edge);
+        pcm.writeInt16LE(Math.round(3900 * envelope * Math.sin(2 * Math.PI * frequency * frame / PCM_RATE)), frame * 2);
+    }
+    return pcm;
+}
 
 function fail(code) { throw new Error("jarvis: engine=" + code); }
 function unconfigured(cause, detail) { return detail === undefined ? { kind: "unconfigured", cause } : { kind: "unconfigured", cause, detail }; }
@@ -188,7 +203,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         catch (error) { net.close(); throw error; }
         // late holds at most one call: the router runs one action at a time.
         return { gen, plan, recipients, net, speech, brain: null, owner: null, grants: [], heard: null,
-            decisions: new Set(), releasePending: null, late: new Map(), results: [], turn: null, last: null, collection: null, unbound: null, rev: 0 };
+            decisions: new Set(), releasePending: null, late: new Map(), results: [], turn: null, last: null,
+            feedback: null, collection: null, unbound: null, rev: 0 };
     }
     // observe() ends a conversation before any effect of a newer generation.
     function current(gen) {
@@ -215,6 +231,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         c.decisions.clear();
         if (c.turn !== null) stop(c.turn);
         if (c.last !== null) c.last.speech?.end();
+        c.feedback?.readable.destroy();
         for (const utterance of [c.collection?.utterance, c.unbound])
             if (utterance) utterance.abort();
         const brain = c.brain;
@@ -386,6 +403,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         transfer(c, turn, item, () => {
             if (turn.speech === null) {
                 turn.speech = speech(c);
+            }
+            if (!turn.speaking) {
+                turn.speaking = true;
                 turn.done("play", { interruptible: true });
             }
             turn.speech.queue(item);
@@ -424,7 +444,20 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
 
     function stop(turn) {
         turn.stopped = true;
+        quiet(turn);
         turn.speech?.end();
+    }
+    function quiet(turn) {
+        if (turn.feedbackTimer !== null) clock.clear(turn.feedbackTimer);
+        turn.feedbackTimer = null;
+    }
+    function working(c, turn) {
+        if (state().settings.sounds !== true || clock === undefined) return;
+        turn.feedbackTimer = clock.set(() => {
+            turn.feedbackTimer = null;
+            if (conversation !== c || turn.stopped || !session.live(state(), turn, "turn", ["thinking"])) return;
+            dispatch({ type: "feedback", gen: turn.gen, op: turn.op });
+        }, WORKING_AFTER_MS);
     }
     function failed(c, turn, error) {
         if (turn.stopped) return;
@@ -512,10 +545,12 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 const event = step.value;
                 switch (event.kind) {
                 case "text":
+                    if (event.text.trim() !== "") quiet(turn);
                     for (const sentence of text.push(event.text)) say(c, turn, sentence);
                     break;
                 case "tool-call": calls.push(event); break;
                 case "done":
+                    quiet(turn);
                     // History holds the calls once done is read: an interrupt
                     // from here on must answer them.
                     if (event.reason === "tool-calls") {
@@ -582,7 +617,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 c.owner = e.owner;
             } else if (c.owner !== e.owner) fail("brain-owner");
             if (c.turn !== null) fail("brain-busy");
-            const turn = { gen: e.gen, op: e.op, done, labels: new Set(), speech: null, stopped: false,
+            const turn = { gen: e.gen, op: e.op, done, labels: new Set(), speech: null, stopped: false, speaking: false,
+                feedbackTimer: null,
                 phase: "streaming", calls: [], answers: new Map(), routing: null, caption: "" };
             if (e.text.trim() === "") {
                 done("brain-done");
@@ -590,6 +626,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             }
             c.turn = turn;
             c.last = turn;
+            working(c, turn);
             const items = [];
             if (c.heard !== null) items.push(heardItem(c.heard));
             c.heard = null;
@@ -681,6 +718,30 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         },
         observe(s) {
             if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === "ended")) end();
+            if (s.playback.kind === "feedback") {
+                const c = current(s.gen);
+                if (s.playback.cue === "start" && c.feedback === null)
+                    c.feedback = { source: s.playback.source, readable: Readable.from([earcon("start")],
+                        { objectMode: true, highWaterMark: SPEECH_CHUNKS }) };
+                if (s.playback.cue === "working" && c.turn !== null && c.turn.op === s.playback.source
+                        && c.turn.speech === null) {
+                    c.turn.speech = speech(c);
+                    c.turn.speech.readable.push(earcon("working"));
+                }
+            } else if (conversation?.feedback !== null && conversation?.feedback !== undefined) {
+                conversation.feedback.readable.destroy();
+                conversation.feedback = null;
+            }
+            const turn = conversation?.turn;
+            if (turn && (s.settings.sounds !== true || !session.live(s, turn, "turn", ["thinking"])
+                    || s.approval.kind !== "none")) quiet(turn);
+            // Disabling sounds flushes a working cue before any reply began.
+            // Its pending synthesis stream must not consume the later reply.
+            if (turn && s.settings.sounds !== true && !turn.speaking && turn.speech !== null) {
+                turn.speech.end();
+                turn.speech.readable.destroy();
+                turn.speech = null;
+            }
             if (s.playback.kind !== "idle") idleAt = null;
             else if (idleAt === null && clock !== undefined) idleAt = clock.now();
         },
@@ -739,6 +800,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             c.unbound = null;
         },
         playbackSource(op) {
+            if (conversation?.feedback?.source === op) return conversation.feedback.readable;
             const turn = conversation?.last;
             if (!turn || turn.op !== op || turn.speech === null || turn.speech.handed) return null;
             turn.speech.handed = true;

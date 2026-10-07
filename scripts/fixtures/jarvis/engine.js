@@ -20,7 +20,8 @@ const CHUNK_FRAMES = 24000; // Below Audio's 64 KiB chunk bound.
 const control = {};
 function reset(options = {}) {
     Object.assign(control, { ready: true, recipients: [{ kind: "local", provider: "scripted-speech", account: "" }],
-        utterances: [], detections: [], spoken: [], labels: new Set(), opened: [], closed: 0, aborted: 0, finals: 0, frames: 0, ...options });
+        utterances: [], detections: [], spoken: [], labels: new Set(), opened: [], closed: 0, aborted: 0, finals: 0,
+        finalTimes: [], frames: 0, ...options });
 }
 reset();
 
@@ -76,7 +77,7 @@ function adapter(net, recipients) {
             };
             const emit = () => {
                 const event = events[index++];
-                if (event.kind === "final") control.finals++;
+                if (event.kind === "final") { control.finals++; control.finalTimes.push(performance.now()); }
                 return { value: event, done: false };
             };
             return { [Symbol.asyncIterator]() { return this; },
@@ -171,6 +172,7 @@ function brain(port) {
             const chunks = [];
             for await (const chunk of request) chunks.push(chunk);
             record.body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+            record.receivedAt = performance.now();
             const problems = Check.errors(excerpt, "CreateChatCompletionRequest", record.body);
             if (problems.length) throw new Error("request " + problems.join("; "));
             const frames = await reply(request.socket);
@@ -181,7 +183,10 @@ function brain(port) {
                     await frame.wait;
                     // A client that cancelled during the wait gets nothing more.
                     if (request.socket.destroyed) return;
-                } else response.write(encode(frame, "engine"));
+                } else {
+                    if (record.firstByteAt === undefined) record.firstByteAt = performance.now();
+                    response.write(encode(frame, "engine"));
+                }
             }
             response.end();
         } catch (error) {

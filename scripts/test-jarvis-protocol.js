@@ -8,7 +8,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const { freshSuite } = require("./fixtures/jarvis/prepare.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.jarvis/JarvisProtocol.js");
 const Protocol = load(file);
-const hello = { v: 1, type: "hello", gen: 0, settings: { mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto",
+const hello = { v: 1, type: "hello", gen: 0, settings: { sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto",
     cloudVision: "ask", privateWindows: "bitwarden, incognito" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
@@ -24,7 +24,7 @@ const shellStatus = { v: 1, type: "shell-status", gen: 0, revision: hello.revisi
 const state = { v: 1, type: "state", gen: 0, revision: hello.revision, seq: 1,
     state: JSON.parse(JSON.stringify(Protocol.Session.initial())), phase: "down" };
 const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
-assert.deepEqual(Object.keys(manifest.settings), ["mode", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"]);
+assert.deepEqual(Object.keys(manifest.settings), ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"]);
 assert.deepEqual([manifest.settings.cloudVision, manifest.schema.cloudVision.options], ["ask", ["ask", "allow", "never"]]);
 assert.equal(typeof manifest.settings.privateWindows, "string");
 assert.deepEqual(manifest.schema.mode.options, ["hold", "toggle"]);
@@ -122,7 +122,7 @@ const cases = [
         changed(hello, { settings: { ...hello.settings, echoCancel } }), "shell", "shape-settings"]),
     ["mode", changed(hello, { settings: { ...hello.settings, mode: "always" } }), "shell", "mode"],
     ["extra-setting", changed(hello, { settings: { ...hello.settings, extra: "" } }), "shell", "shape-settings"],
-    ["missing-brain", changed(hello, { settings: { mode: "hold", microphone: "", speaker: "" } }), "shell", "shape-settings"],
+    ["missing-brain", changed(hello, { settings: { sounds: false, mode: "hold", microphone: "", speaker: "" } }), "shell", "shape-settings"],
     ["brain-setting", changed(hello, { settings: { ...hello.settings, brain: 1 } }), "shell", "shape-settings"],
     ["keys", changed(hello, { keys: { talk: "SUPER+A" } }), "shell", "shape-keys"],
     ["key-type", changed(hello, { keys: { ...hello.keys, talk: false } }), "shell", "key-talk"],
@@ -196,12 +196,13 @@ const cases = [
     ["reply-entry-duplicate", changed(listReply, { data: { entries: [entry, entry], complete: true } }), "shell", "entry-duplicate"],
     ["reply-entry-terminal", changed(entryReply, { data: { ...entryReply.data, terminal: "no" } }), "shell", "entry"],
     ["task-terminal", changed(hello, { settings: { ...hello.settings, taskTerminal: "kitty" } }), "shell", "task-terminal"],
+    ["sounds-type", changed(hello, { settings: { ...hello.settings, sounds: "true" } }), "shell", "sounds"],
     ["cloud-vision", changed(hello, { settings: { ...hello.settings, cloudVision: "sometimes" } }), "shell", "cloud-vision"],
     ["missing-cloud-vision", changed(hello, { settings: { ...hello.settings, cloudVision: undefined } }), "shell", "shape-settings"],
     ["private-windows-type", changed(hello, { settings: { ...hello.settings, privateWindows: ["bitwarden"] } }), "shell", "private-windows"],
     ["private-windows-control", changed(hello, { settings: { ...hello.settings, privateWindows: "bitwarden\nvault" } }), "shell", "private-windows"],
     ["private-windows-size", changed(hello, { settings: { ...hello.settings, privateWindows: "a".repeat(1025) } }), "shell", "private-windows"],
-    ["missing-task-terminal", changed(hello, { settings: { mode: "hold", microphone: "", speaker: "", brain: "" } }), "shell", "shape-settings"],
+    ["missing-task-terminal", changed(hello, { settings: { sounds: false, mode: "hold", microphone: "", speaker: "", brain: "" } }), "shell", "shape-settings"],
     ["task-stop-shape", changed(taskStop, { task: undefined }), "shell", "shape-task-stop"],
     ["task-stop-id", changed(taskStop, { task: "../home" }), "shell", "task-id"],
     ["tui-state-direction", JSON.stringify(tuiState), "daemon", "direction-tui-state"],
@@ -402,9 +403,10 @@ try {
         ["hello-direction", 'if (direction !== "shell") fail("direction-hello");', 'if (false) fail("direction-hello");', "hello-direction"],
         ["status-direction", 'if (direction !== "daemon") fail("direction-status");', 'if (false) fail("direction-status");', "status-direction"],
         ["shape", 'fail("shape-" + name);', ';', "hello-shape"],
-        ["settings-name", 'keys(message.settings, ["mode", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"], "settings");',
-            'if (false) keys(message.settings, ["mode", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"], "settings");', "extra-setting"],
+        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"], "settings");',
+            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"], "settings");', "extra-setting"],
         ["brain-type", 'typeof message.settings.brain !== "string"', 'false', "brain-setting"],
+        ["sounds-type", 'if (typeof message.settings.sounds !== "boolean") fail("sounds");', 'void message;', "sounds-type"],
         ["directory", 'if (!directory(message.directories[name])) fail("directory-" + name);', 'if (false) fail("directory-" + name);', "directory"],
         ["lock", 'if (typeof message.locked !== "boolean") fail("lock");', 'if (false) fail("lock");', "lock"],
         ["revision", 'if (typeof message.revision !== "string" || !/^[0-9a-f]{64}$/.test(message.revision)) fail("revision");', 'if (false) fail("revision");', "revision"],
@@ -459,8 +461,8 @@ try {
     ];
     for (const [name, needle, replacement, example, matches] of guards)
         control(name, needle, replacement, logic => rejected(logic, cases.find(row => row[0] === example)), matches);
-    control("unsupported-echo", 'keys(message.settings, ["mode", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"], "settings");',
-        'if (false) keys(message.settings, ["mode", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"], "settings");',
+    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"], "settings");',
+        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"], "settings");',
         logic => {
             for (const row of cases.filter(row => row[0].startsWith("echo-setting-"))) rejected(logic, row);
         });

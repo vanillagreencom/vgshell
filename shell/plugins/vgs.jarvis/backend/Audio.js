@@ -550,6 +550,11 @@ class Audio {
             await this.release;
             if (this.playback !== playback) return;
             if (!this.allowed("playback")) throw new Error("playback-refused");
+            // A start earcon precedes the first capture, which otherwise
+            // starts device discovery. Both paths share that one owner.
+            await this.discover();
+            if (this.playback !== playback) return;
+            if (!this.allowed("playback")) throw new Error("playback-refused");
             if (this.playbackSource === null) throw new Error("playback-source-unavailable");
             const target = this.selected("speakers", "speaker");
             playback.target = target;

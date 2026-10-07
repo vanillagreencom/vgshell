@@ -11,9 +11,11 @@
   "entryPoints": { "bar-widget": "Widget.qml", "service": "Service.qml" },
   "capabilities": ["compositor", "ipc", "requirements", "run", "session", "status", "notify", "tui", "shortcut", "layers", "hyprland"],
   "defaultSection": "right",
-  "settings": { "mode": "hold", "microphone": "", "speaker": "", "brain": "", "taskTerminal": "auto", "cloudVision": "ask",
+  "settings": { "mode": "hold", "sounds": true, "microphone": "", "speaker": "", "brain": "", "taskTerminal": "auto", "cloudVision": "ask",
     "privateWindows": "1password, bitwarden, keepass, proton pass, enpass, pinentry, seahorse, private browsing, incognito" },
   "schema": {
+    "sounds": { "type": "boolean", "label": "Feedback sounds", "group": "Audio",
+      "description": "A short sound tells you when to speak. Another sound tells you when the AI is still working." },
     "mode": { "type": "enum", "label": "Talk mode", "group": "Listening",
       "options": ["hold", "toggle"],
       "description": "Hold: Jarvis takes what you said when you let go of the Talk key. Toggle: the conversation stays open until you press Talk again." },

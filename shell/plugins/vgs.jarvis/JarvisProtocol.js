@@ -249,7 +249,8 @@ function accept(line, direction) {
     case "hello":
         if (direction !== "shell") fail("direction-hello");
         keys(message, ["v", "type", "gen", "settings", "directories", "revision", "locked", "keys"], "hello");
-        keys(message.settings, ["mode", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"], "settings");
+        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows"], "settings");
+        if (typeof message.settings.sounds !== "boolean") fail("sounds");
         if (typeof message.settings.brain !== "string") fail("shape-settings");
         if (message.settings.mode !== "hold" && message.settings.mode !== "toggle") fail("mode");
         if (TASK_TERMINALS.indexOf(message.settings.taskTerminal) === -1) fail("task-terminal");

@@ -13,7 +13,7 @@ const copy = value => JSON.parse(JSON.stringify(value));
 const events = ["snapshot", "indicator", "talk-down", "talk-up", "toggle", "mute", "unmute", "mute-toggle", "stop",
     "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial", "final", "collect-failed", "brain-done",
     "brain-failed", "brain-ended", "cancelled", "play", "played", "flushed", "tool", "tool-done", "approval",
-    "shown", "confirm", "approval-cancel", "deadline", "lease-ended", "speak", "transcript", "speech-idle", "speech-failed"];
+    "shown", "confirm", "approval-cancel", "deadline", "lease-ended", "speak", "transcript", "speech-idle", "speech-failed", "feedback"];
 assert.deepEqual(copy(Session.EVENTS), events, "every supported event enters the pair matrix");
 const snapshot = extra => ({ type: "snapshot", at: 0, locked: false, engine: "chained", configured: true,
     settings: {}, ...extra });
@@ -889,6 +889,66 @@ table.push(["duplex-open", logic => {
         "an engine change ends the conversation");
     assert.throws(() => logic.reduce(s, { ...snapshot(), engine: undefined }), { message: "jarvis: session=engine" });
 }]);
+function startFeedback(logic) {
+    const s = step(logic, ready(logic), snapshot({ settings: { sounds: true } })).state;
+    return step(logic, s, event("talk-down", 10));
+}
+table.push(["feedback-start", logic => {
+    const started = startFeedback(logic);
+    const s = started.state;
+    assert.equal(logic.validate(s), true);
+    assert.equal(s.playback.kind, "feedback");
+    assert.equal(s.playback.cue, "start");
+    assert.equal(logic.phaseOf(s), "idle", "a cue is not assistant speech");
+    assert.equal(logic.indicatorWanted(s), true);
+    assert.deepEqual(kinds(started), ["playback-start"], "only playback starts before capture");
+    assert.equal(logic.canCapture(s), false);
+    const played = step(logic, s, callback("played", s.playback, 11));
+    assert.deepEqual(kinds(played), ["capture-open", "collect"]);
+    const released = step(logic, s, event("talk-up", 11)).state;
+    assert.equal(step(logic, released, callback("played", s.playback, 12)).state.capture.kind, "closed");
+    for (const value of [false, undefined]) {
+        const silent = step(logic, ready(logic), snapshot({ settings: { sounds: value } })).state;
+        assert.deepEqual(kinds(step(logic, silent, event("talk-down"))), ["capture-open", "collect"]);
+    }
+    for (const trigger of [event("mute", 11), event("stop", 11), event("lease-ended", 11),
+        snapshot({ at: 11, locked: true, settings: { sounds: true } }),
+        snapshot({ at: 11, settings: { sounds: true, brain: "changed" } })]) {
+        const stopped = step(logic, s, trigger);
+        assert.equal(stopped.state.playback.kind, "flushing", trigger.type);
+        assert.ok(kinds(stopped).includes("playback-flush"));
+        const late = step(logic, stopped.state, callback("played", s.playback, 12));
+        assert.equal(late.state.capture.kind, "closed", "a retired sound never opens capture");
+        assert.equal(late.state.stale, stopped.state.stale + 1);
+    }
+    const disabled = step(logic, s, snapshot({ at: 11, settings: { sounds: false } }));
+    assert.equal(disabled.state.playback.kind, "flushing");
+    const approval = { ...held(logic), settings: { sounds: true } };
+    assert.equal(step(logic, approval, event("talk-down", 50)).state.playback.kind, "idle", "approval answers skip the start cue");
+    const busy = { ...speaking(logic), settings: { sounds: true } };
+    assert.equal(step(logic, busy, event("talk-down", 50)).state.playback.kind, "flushing", "interrupt cannot replace an unfinished flush with a cue");
+    const duplex = step(logic, ready(logic), snapshot({ engine: "duplex", settings: { sounds: true } })).state;
+    assert.equal(step(logic, duplex, event("talk-down")).state.playback.kind, "idle");
+}], ["feedback-working", logic => {
+    let s = thinking(logic);
+    s = step(logic, s, snapshot({ at: 35, settings: { sounds: true } })).state;
+    const working = step(logic, s, callback("feedback", s.turn, 40));
+    assert.equal(working.state.playback.kind, "feedback");
+    assert.equal(working.state.playback.cue, "working");
+    assert.equal(logic.phaseOf(working.state), "thinking");
+    assert.equal(logic.validate(working.state), true);
+    const speaking = step(logic, working.state, callback("play", s.turn, 41, { interruptible: true }));
+    assert.equal(speaking.state.playback.kind, "playing");
+    assert.equal(speaking.state.playback.op, working.state.playback.op, "speech reuses the cue's player");
+    assert.equal(kinds(speaking).includes("playback-start"), false);
+    for (const [label, state, owner] of [
+        ["sounds off", { ...s, settings: { sounds: false } }, s.turn],
+        ["busy player", speaking.state, s.turn],
+        ["held approval", { ...held(logic), settings: { sounds: true } }, held(logic).turn],
+        ["stale operation", s, { ...s.turn, op: s.turn.op + 1 }],
+        ["ended turn", step(logic, s, callback("brain-done", s.turn, 41)).state, s.turn]
+    ]) assert.equal(kinds(step(logic, state, callback("feedback", owner, 42))).includes("playback-start"), false, label);
+}]);
 for (const [name, check] of table) { check(Session); }
 
 // Wire shape rules exercise the shared state judge without copying its table.
@@ -910,7 +970,8 @@ const shapes = [
     ["capture-mode", s => { s.capture.mode = "unknown"; }, listening],
     ["gate-reason", s => { s.gate.reason = "unknown"; }, logic => copy(logic.initial())],
     ["speech-reply-tag", s => { s.speech.reply = { kind: "unknown" }; }, duplexListening],
-    ["engine-tag", s => { s.engine = { kind: "unknown" }; }]
+    ["engine-tag", s => { s.engine = { kind: "unknown" }; }],
+    ["feedback-cue", s => { s.playback.cue = "unknown"; }, logic => startFeedback(logic).state]
 ];
 for (const [name, mutate, seed = logic => copy(logic.initial())] of shapes) {
     const check = logic => {
@@ -948,7 +1009,7 @@ function fixtureEvent(type, s, at) {
         "brain-done": "turn", "brain-failed": "turn", "brain-ended": "turn", cancelled: "turn", play: "turn",
         played: "playback", flushed: "playback", tool: "turn", "tool-done": "action",
         approval: "turn", shown: "approval", confirm: "approval", "approval-cancel": "approval", deadline: "turn",
-        speak: "speech", transcript: "speech", "speech-idle": "speech", "speech-failed": "speech"
+        speak: "speech", transcript: "speech", "speech-idle": "speech", "speech-failed": "speech", feedback: "turn"
     };
     const owner = s[regions[type]] || {};
     return { ...snapshot(), type, at, shown: true, text: "fixture", reason: "fixture", outcome: "completed",
@@ -1181,7 +1242,16 @@ try {
     // Each independent lifetime rule has its own planted defect.
     const mutants = [
         ["collect-limit", 's.turn.kind === "collecting" && s.turn.deadline !== null && at >= s.turn.deadline', 'false && s.turn.kind === "collecting" && s.turn.deadline !== null && at >= s.turn.deadline', "collection-deadline"],
-        ["playback-limit", 's.playback.kind === "playing" && s.playback.deadline !== null && at >= s.playback.deadline', 'false && s.playback.kind === "playing" && s.playback.deadline !== null && at >= s.playback.deadline', "playback-deadline"],
+        ["playback-limit", '["playing", "feedback"].indexOf(s.playback.kind) !== -1 && s.playback.deadline !== null && at >= s.playback.deadline', 'false && ["playing", "feedback"].indexOf(s.playback.kind) !== -1 && s.playback.deadline !== null && at >= s.playback.deadline', "playback-deadline"],
+        ["feedback-start-sounds", 's.settings.sounds === true && s.engine.kind === "chained"', 'true && s.engine.kind === "chained"', "feedback-start"],
+        ["feedback-start-engine", 's.settings.sounds === true && s.engine.kind === "chained"', 's.settings.sounds === true', "feedback-start"],
+        ["feedback-start-approval", '&& s.playback.kind === "idle" && s.approval.kind === "none") {', '&& s.playback.kind === "idle") {', "feedback-start"],
+        ["feedback-start-busy", '&& s.playback.kind === "idle" && s.approval.kind === "none") {', '&& s.approval.kind === "none") {', "feedback-start"],
+        ["feedback-cue-shape", 'if (region === "playback" && r.kind === "feedback" && ["start", "working"].indexOf(r.cue) === -1) return false;', 'void region;', "wire-feedback-cue"],
+        ["feedback-disable", 'if (s.settings.sounds !== true && s.playback.kind === "feedback") flushPlayback(s, effects);', 'void s;', "feedback-start"],
+        ["feedback-working-sounds", 's.settings.sounds !== true || s.playback.kind !== "idle" || !canEngage(s)', 's.playback.kind !== "idle" || !canEngage(s)', "feedback-working"],
+        ["feedback-working-busy", 's.settings.sounds !== true || s.playback.kind !== "idle" || !canEngage(s)', 's.settings.sounds !== true || !canEngage(s)', "feedback-working"],
+        ["feedback-working-held", '|| s.conversation.kind !== "active" || s.approval.kind !== "none") break;', '|| s.conversation.kind !== "active") break;', "feedback-working"],
         ["confirm-id", "e.id !== approval.id", "(false && e.id !== approval.id)", "confirm-id"],
         ["confirm-digest", "e.digest !== approval.digest", "(false && e.digest !== approval.digest)", "confirm-digest"],
         ["confirm-generation", "e.gen !== approval.gen", "(false && e.gen !== approval.gen)", "confirm-generation"],
@@ -1285,7 +1355,7 @@ try {
         ["lease-close", 'if (s.brain.kind === "closed") return;',
             'if (true || s.brain.kind === "closed") return;', "lease-close"],
         ["stale-count", 'function stale(s) { s.stale++; }', 'function stale(s) { if (false) s.stale++; }', "stale-op"],
-        ["flush", 'if (s.playback.kind !== "playing") return;', 'if (true || s.playback.kind !== "playing") return;', "interrupt"],
+        ["flush", 'if (["playing", "feedback"].indexOf(s.playback.kind) === -1) return;', 'if (true || ["playing", "feedback"].indexOf(s.playback.kind) === -1) return;', "interrupt"],
         ["cancel-capture", 's.turn.kind !== "cancelling"', '(true || s.turn.kind !== "cancelling")', "cancel-capture-gate"],
         ["tool-cancel", 's.action.kind !== "running" || s.action.cancellation.kind !== "available"',
             's.action.kind !== "running" || (false && s.action.cancellation.kind !== "available")', "tool-cancel"],

@@ -52,6 +52,19 @@ function rig(kit, server, options = {}) {
     const audio = new Audio({ session: Session, environment: { PATH: process.env.PATH, HOME: process.env.HOME,
         XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR }, clock: audioClock, offers: () => {}, level: () => {},
     fault: reason => faults.push(reason), captureSink: null, playbackSource: null });
+    const writes = [], captureEnds = [];
+    const spawn = audio.spawn.bind(audio);
+    audio.spawn = async (...args) => {
+        const owner = await spawn(...args);
+        if (args[0] === "playback") {
+            const write = owner.child.stdin.write.bind(owner.child.stdin);
+            owner.child.stdin.write = (pcm, ...rest) => {
+                writes.push({ at: performance.now(), source: audio.playback.e.source, pcm: Buffer.from(pcm) });
+                return write(pcm, ...rest);
+            };
+        }
+        return owner;
+    };
     const ports = { ...unavailable(), mute: { store() {} } };
     ports.capture = { ...ports.capture, ...audio.capturePort };
     ports.transcript = e => captions.push([e.gen, e.role, e.stage, e.rev, e.text]);
@@ -99,7 +112,11 @@ function rig(kit, server, options = {}) {
     ports.brain = engine.brain;
     ports.capture.collect = engine.collect;
     ports.playback = engine.playback(audio.playbackPort);
-    audio.captureSink = engine.captureSink;
+    audio.captureSink = e => {
+        const sink = engine.captureSink(e);
+        sink.once("close", () => captureEnds.push(performance.now()));
+        return sink;
+    };
     audio.playbackSource = engine.playbackSource;
     const configure = settings => {
         const answer = engine.configure(settings);
@@ -107,14 +124,16 @@ function rig(kit, server, options = {}) {
             configured: answer.kind === "ready" || answer.kind === "loading", settings });
         return answer;
     };
-    const configuration = configure({ mode: options.mode ?? "hold", microphone: "", speaker: "", brain: "fixture-account" });
+    const configuration = configure({ mode: options.mode ?? "hold", sounds: options.sounds === true,
+        microphone: "", speaker: "", brain: "fixture-account" });
     assert.equal(configuration.kind, options.directories ? "loading" : "ready");
     runner.dispatch({ type: "indicator", shown: true });
     const rows = () => {
         const file = path.join(state, "audit/2026-10-01.jsonl");
         return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
     };
-    return { runner, audio, audioClock, engine, audit, faults, executions, held, partials, captions, rows, configure, state, server, advanceRunner,
+    return { runner, audio, audioClock, engine, audit, faults, executions, held, partials, captions, rows, configure,
+        state, server, advanceRunner, writes, captureEnds, timers,
         s: () => runner.state,
         async close() {
             runner.close();
@@ -129,6 +148,7 @@ async function say(w, script, { waitPartial = true } = {}) {
     control.utterances.push(script);
     const before = w.server.requests.length;
     w.runner.dispatch({ type: "talk-down" });
+    if (w.s().playback.kind === "feedback") await playOut(w);
     // An early final leaves collection; the case's own assertions judge it.
     const collecting = () => w.s().turn.kind === "collecting";
     await until(() => w.s().capture.kind === "open" || (w.s().turn.kind !== "none" && !collecting()),
@@ -451,6 +471,138 @@ async function cases(kit, server, only = null) {
             server.closeAll();
         }
     };
+
+    await run("feedback-start", async w => {
+        w.runner.dispatch({ type: "talk-down" });
+        const owner = w.s().playback;
+        assert.equal(owner.kind, "feedback");
+        await until(() => w.writes.length !== 0, "the start sound reaches the stand-in player");
+        assert.equal(w.s().capture.kind, "closed", "no microphone overlaps the start sound");
+        assert.equal(control.frames, 0);
+        assert.equal(w.writes.some(write => write.pcm.some(byte => byte !== 0)), true, "the start sound is audible PCM");
+        w.runner.dispatch({ type: "talk-up" });
+        await playOut(w);
+        assert.equal(w.s().capture.kind, "closed", "an early release opens no microphone");
+        assert.equal(w.audio.lastPlayback.writtenFrames, 1920, "the whole start sound is played");
+        assert.equal(w.audio.lastPlayback.heardText, "", "a local sound is not assistant words");
+        assert.deepEqual(w.captions, []);
+        assert.deepEqual(control.spoken, [], "no cue text reaches the speech provider");
+        w.runner.dispatch({ type: "played", gen: owner.gen, op: owner.op });
+        assert.equal(w.s().capture.kind, "closed", "a repeated completion cannot open capture");
+    }, { sounds: true });
+
+    for (const trigger of ["mute", "stop", "lock", "settings"]) {
+        await run("feedback-stop-" + trigger, async w => {
+            w.runner.dispatch({ type: "talk-down" });
+            const owner = w.s().playback;
+            await until(() => w.writes.length !== 0, "the start cue begins");
+            if (trigger === "lock") w.runner.dispatch({ type: "snapshot", configured: true, locked: true,
+                engine: "chained", settings: w.s().settings });
+            else if (trigger === "settings") w.configure({ ...w.s().settings, brain: "changed" });
+            else w.runner.dispatch({ type: trigger });
+            await until(() => w.s().playback.kind === "idle", "cue teardown is acknowledged");
+            w.advanceRunner(1200);
+            w.runner.dispatch({ type: "played", gen: owner.gen, op: owner.op });
+            assert.equal(w.s().capture.kind, "closed");
+            assert.equal(w.audio.capture, null);
+            assert.equal(control.frames, 0);
+            assert.deepEqual(control.spoken, []);
+            assert.deepEqual(w.faults, []);
+        }, { sounds: true });
+    }
+
+    await run("feedback-working", async w => {
+        const first = await say(w, utterance("Are you there?"));
+        await requested(w, first + 1, "the request starts after the user finishes");
+        const startWrites = w.writes.length;
+        w.advanceRunner(1199);
+        assert.equal(w.s().playback.kind, "idle", "working feedback waits for its interval");
+        w.advanceRunner(1);
+        assert.equal(w.s().playback.kind, "feedback");
+        assert.equal(w.s().playback.cue, "working");
+        await until(() => w.writes.length > startWrites, "working PCM reaches the stand-in player");
+        assert.equal(w.writes.slice(startWrites).some(write => write.pcm.some(byte => byte !== 0)), true);
+        assert.deepEqual(control.spoken, [], "working feedback stays local");
+        w.advanceRunner(1200);
+        await advance(w, 6);
+        assert.equal(w.audio.playback.received, 2880, "only one working cue enters the stream");
+        server.replies.push(text("Yes I am here."));
+        await until(() => w.s().turn.kind === "none", "the brain finishes independently of playback");
+        await playOut(w);
+        assert.equal(w.audio.lastPlayback.writtenFrames, 2880 + 4 * Fixture.WORD_FRAMES);
+        assert.equal(w.audio.lastPlayback.heardText, "Yes I am", "only aligned assistant words enter heard accounting");
+        assert.deepEqual(control.spoken, ["Yes I am here."]);
+        assert.deepEqual(w.faults, []);
+        if (only === null) {
+            const request = server.requests[first];
+            const responseWrite = w.writes.find(write => write.at >= request.firstByteAt && write.pcm.every(byte => byte === 0x11));
+            assert.ok(responseWrite, "the provider byte is followed by a real player write");
+            assert.equal(w.captureEnds.length, 1, "the utterance's capture input ended");
+            console.log("diagnostic=jarvis-overhead capture-input-close-to-loopback-request-ms=" +
+                (request.receivedAt - w.captureEnds[0]).toFixed(3) + " final-transcript-to-loopback-request-ms=" +
+                (request.receivedAt - control.finalTimes[0]).toFixed(3) + " provider-byte-emitted-to-player-pipe-write-ms=" +
+                (responseWrite.at - request.firstByteAt).toFixed(3));
+        }
+    }, { sounds: true });
+
+    for (const [kind, reply] of [["text", held => text("Words without a full sentence", { wait: held.wait })],
+        ["tool", () => calls({ id: "focus", name: "windows_focus", arguments: { window: "0x1f" } })]]) {
+        await run("feedback-suppressed-" + kind, async w => {
+            const first = await say(w, utterance("Hello."));
+            await requested(w, first + 1, "the request reaches the server");
+            const held = gate();
+            // The injected clock advances only after the real stream adapter
+            // has consumed the substantive text or tool event.
+            server.replies.push(reply(held));
+            await until(() => ![...w.timers.values()].some(timer => timer.at === 1200),
+                "substantive provider output retires the feedback timer");
+            w.advanceRunner(1200);
+            assert.notEqual(w.s().playback.kind, "feedback", "substantive " + kind + " suppresses the working cue");
+            held.open();
+            w.runner.dispatch({ type: "stop" });
+        }, { sounds: true, holdTools: kind === "tool" });
+    }
+
+    await run("feedback-disable-working", async w => {
+        const first = await say(w, utterance("Hello."));
+        await requested(w, first + 1, "the request starts");
+        w.advanceRunner(1200);
+        await until(() => w.s().playback.kind === "feedback" && w.audio.playback?.kind === "feeding", "the working cue starts");
+        w.configure({ ...w.s().settings, sounds: false });
+        await until(() => w.s().playback.kind === "idle", "disabling feedback flushes the working cue");
+        server.replies.push(text("Hello there."));
+        await until(() => w.s().turn.kind === "none", "the live reply still completes");
+        await playOut(w);
+        assert.deepEqual(control.spoken, ["Hello there."]);
+        assert.equal(w.audio.lastPlayback.heardText, "Hello");
+        assert.deepEqual(w.faults, []);
+        assert.equal(w.s().fault.kind, "none");
+    }, { sounds: true });
+
+    await run("feedback-off", async w => {
+        const first = await say(w, utterance("Hello."));
+        await requested(w, first + 1, "a silent request reaches the brain");
+        w.advanceRunner(1200);
+        assert.deepEqual(w.writes, [], "sounds off starts no feedback playback");
+        server.replies.push(text(""));
+        await until(() => w.s().turn.kind === "none", "the silent reply finishes");
+    });
+
+    await run("feedback-interrupt-working", async w => {
+        const first = await say(w, utterance("Hello."));
+        await requested(w, first + 1, "the first request starts");
+        w.advanceRunner(1200);
+        await until(() => w.audio.playback?.received === 2880, "the working cue enters Audio");
+        control.utterances.push(utterance("Enough."));
+        w.runner.dispatch({ type: "talk-down" });
+        await until(() => w.s().capture.kind === "open", "interruption flushes cue playback before capture");
+        w.runner.dispatch({ type: "talk-up" });
+        server.replies.push(text(""));
+        const body = await requested(w, first + 2, "the interrupted cue's next request");
+        assert.deepEqual(user(body), ["Hello.", INTERRUPTED + "\n\nEnough."], "no cue becomes assistant heard context");
+        assert.deepEqual(control.spoken, []);
+        assert.deepEqual(w.faults, []);
+    }, { sounds: true });
 
     // Partials draw; the final alone reaches the brain. Brain text reaches
     // speech only through Speakable, and a played reply adds no context.
@@ -1148,6 +1300,15 @@ world(async () => {
         assert.deepEqual(server.faults, [], "every request matched the pinned schema");
         // Each control plants one defect in a disposable engine copy.
         const plants = [
+            ["start-earcon-silenced", 'pcm.writeInt16LE(Math.round(3900 * envelope * Math.sin(2 * Math.PI * frequency * frame / PCM_RATE)), frame * 2);',
+                'pcm.writeInt16LE(0, frame * 2);', "feedback-start"],
+            ["working-earcon-silenced", 'c.turn.speech.readable.push(earcon("working"));',
+                'c.turn.speech.readable.push(Buffer.alloc(5760));', "feedback-working"],
+            ["feedback-text-suppression", 'if (event.text.trim() !== "") quiet(turn);', 'void event;', "feedback-suppressed-text"],
+            ["feedback-tool-suppression", 'case "done":\n                    quiet(turn);',
+                'case "done":\n                    void turn;', "feedback-suppressed-tool"],
+            ["feedback-disable-stream", 'turn.speech = null;\n            }\n            if (s.playback.kind',
+                'void turn.speech;\n            }\n            if (s.playback.kind', "feedback-disable-working"],
             ["release-grant", "if (accepted) c.grants.push(grant);", "void grant;", "release-grants"],
             ["release-decline-once", "for (const label of pending.labels) c.decisions.add(label);", "void pending.labels;", "release-decisions"],
             ["voice-confirmation", 'dispatch({ type: "confirm", ...answer, source: "voice" });',

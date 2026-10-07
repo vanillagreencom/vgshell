@@ -2,7 +2,7 @@
 // Real Audio and reducer ports, synthetic PCM. J09 owns all processes.
 "use strict";
 const { assert, fs, path, cp, tree, world, until, unlocked, copyBackend } = require("./fixtures/jarvis/audio.js");
-const { Writable, PassThrough } = require("node:stream");
+const { Readable, Writable, PassThrough } = require("node:stream");
 const { load } = require("../bin/lib/qml-library.js");
 const Session = load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js"));
 const { SessionRunner, unavailable } = require("../shell/plugins/vgs.jarvis/backend/session-runner.js");
@@ -72,6 +72,20 @@ async function trigger(Implementation, type) {
 
 async function inside() {
     let controls = 0;
+    async function firstPlayback(Implementation = Audio) {
+        const source = Readable.from([Buffer.alloc(480)]);
+        const w = setup(Implementation, null, source);
+        try {
+            w.dispatch("snapshot", { configured: true, locked: false, engine: "chained", settings: { sounds: true } });
+            w.dispatch("talk-down");
+            await until(() => w.runner.state.playback.kind === "idle" || w.runner.state.fault.kind === "error",
+                "the first sound finishes without prior capture");
+            assert.equal(w.runner.state.fault.kind, "none", "playback discovers the selected speaker before capture");
+            assert.ok(w.offers.some(offers => offers.speakers.some(item => item.value === "fixture.speaker")));
+            await until(() => w.runner.state.capture.kind === "open", "capture starts after feedback drains");
+        } finally { w.runner.close(); await w.audio.close("test-end"); }
+    }
+    await firstPlayback();
     async function desktopDefaults(Implementation = Audio) {
         const w = setup(Implementation);
         const metadata = entries => ({ id: 4, type: "PipeWire:Interface:Metadata",
@@ -494,6 +508,8 @@ async function inside() {
     }
     await control("desktop-default", 'configured === "" ? this.defaults[group] : configured',
         'configured === "" ? (offers[0] && offers[0].value) : configured', desktopDefaults);
+    await control("first-playback-discovery", 'await this.discover();\n            if (this.playback !== playback) return;',
+        'if (this.playback !== playback) return;', firstPlayback);
     await control("early-muted", "return this.release;", "return Promise.resolve();", async impl => {
         let released;
         const sink = new Writable({ write(frame, encoding, done) { done(); },
