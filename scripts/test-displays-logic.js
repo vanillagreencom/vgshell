@@ -173,25 +173,23 @@ function verify(logic) {
   same(logic.refreshChoices(monitorOutput, { width: 3840, height: 2160, refresh: 144 }).map(c => c.label), ["144 Hz", "60 Hz"], "refresh choices follow the selected size");
   same(logic.scaleChoices({ width: 3840, height: 2160, refresh: 144 }, 2).map(c => c.value), [1, 1.25, 4 / 3, 1.5, 1.6, 5 / 3, 2, 2.5, 3], "scale choices keep whole logical pixels");
   const drafted = logic.withOutputDraft([monitorOutput], {}, {}, "DP-2", { mode: { width: 2560, height: 1440, refresh: 60 }, scale: 2.25 });
-  same(drafted, { "DP-2": { mode: { width: 2560, height: 1440, refresh: 60 }, position: { x: 0, y: 0 }, scale: 2.25, transform: 0 } }, "a draft carries position and normalises the layout");
+  same(drafted, { "DP-2": { mode: { width: 2560, height: 1440, refresh: 60 }, position: { x: 10, y: 20 }, scale: 2.25, transform: 0 } }, "a draft carries the display's own position");
   same(logic.dirtyRules(drafted, {}), drafted, "dirty rules are the pending monitor rules");
   assert.equal(logic.countdownText(12.4), "Keep these display settings? Reverting in 13 s");
   assert.equal(logic.countdownDetail(12.4), "Reverting in 13 s");
   const side = Object.assign({}, monitorOutput, { identifier: "DP-3", name: "DP-3", x: 1930, y: 20, scale: 2 });
   const shifted = logic.withOutputDraft([monitorOutput, side], {}, {}, "DP-2", { scale: 1 });
-  same(shifted["DP-3"].position, { x: 3840, y: 0 }, "a scale change shifts a neighbour at the right edge by the size delta and normalises");
-  same(logic.normaliseRules({ "DP-2": { position: { x: 10, y: 20 } }, "DP-3": { position: { x: 3850, y: 20 } } }),
-    { "DP-2": { position: { x: 0, y: 0 } }, "DP-3": { position: { x: 3840, y: 0 } } }, "draft rules are normalised to the top-left origin");
+  same(shifted["DP-3"].position, { x: 3850, y: 20 }, "a scale change shifts a neighbour at the right edge by the size delta");
   const snapped = logic.moveGroup([monitorOutput, side], {}, { "DP-2": logic.effectiveRule(monitorOutput, {}, {}) }, "DP-3", 1915, 20);
-  same([snapped["DP-2"].position, snapped["DP-3"].position], [{ x: 0, y: 0 }, { x: 1920, y: 0 }], "dragged outputs snap to a neighbour edge and normalise");
+  same([snapped["DP-2"].position, snapped["DP-3"].position], [{ x: 10, y: 20 }, { x: 1930, y: 20 }], "dragged outputs snap to a neighbour edge");
   const tiledOutputs = [Object.assign({}, monitorOutput, { name: "DP-1", identifier: "xdr", x: 0 }), Object.assign({}, monitorOutput, { name: "DP-5", identifier: "xdr", x: 3840 })];
   const tiledDraft = {
     "DP-1": Object.assign(logic.effectiveRule(tiledOutputs[0], {}, {}), { position: { x: 100, y: 0 } }),
     "DP-5": Object.assign(logic.effectiveRule(tiledOutputs[1], {}, {}), { position: { x: 3900, y: 0 } })
   };
   const tiledMove = logic.moveGroup(tiledOutputs, {}, tiledDraft, "xdr", 200, 0);
-  same([tiledMove["DP-1"].position, tiledMove["DP-5"].position], [{ x: 0, y: 0 }, { x: 3800, y: 0 }],
-    "a tiled group moves through connector rules and keeps tile offsets after normalisation");
+  same([tiledMove["DP-1"].position, tiledMove["DP-5"].position], [{ x: 200, y: 0 }, { x: 4000, y: 0 }],
+    "a tiled group moves through connector rules and keeps tile offsets");
 
   // --- The arrangement canvas ------------------------------------------------
   // rows: [name, items, bounds]
@@ -226,6 +224,8 @@ function verify(logic) {
     assert.ok(left >= 20 && top >= 20 && left + item.width * deskFit.scale <= 980 && top + item.height * deskFit.scale <= 280,
       `${item.label} draws inside the box's margin: ${[left, top, item.width * deskFit.scale, item.height * deskFit.scale]}`);
   }
+  same(logic.moveGroup(ownerDesk, {}, {}, "DP-2", -1430, -600), { "DP-2": Object.assign(logic.effectiveRule(ownerDesk[1], {}, {}), { position: { x: -1440, y: -600 } }) },
+    "a display dragged left of and above the origin keeps its place and moves no other");
 
   // --- Use this display and Mirror -------------------------------------------
   same(logic.outputChoices(tiledOutputs), [{ label: "DP-1 + DP-5: LG HDR 4K", value: "xdr" }], "the output chooser takes a tiled group once");
@@ -528,10 +528,10 @@ const CONTROLS = [
   ["scale choices allow fractional logical pixels", "if (!scaleFits(mode, scale)) return;", ""],
   ["a draft loses the current position", "merged.position = { x: current.position.x, y: current.position.y };", "merged.position = { x: 0, y: 0 };"],
   ["dirty rules ignore pending changes", "if (JSON.stringify(draft[id]) !== JSON.stringify((saved || {})[id] || {}))", "if (false)"],
+  ["a drag pulls a display back to the origin", "rule.position = { x: snapped.x + dx, y: snapped.y + dy };", "rule.position = { x: Math.max(0, snapped.x + dx), y: Math.max(0, snapped.y + dy) };"],
   ["the canvas measures from 0,0", "var left = Math.min.apply(null, items.map(function (item) { return item.x; }));", "var left = 0;"],
   ["the canvas measures from 0,0 down", "var top = Math.min.apply(null, items.map(function (item) { return item.y; }));", "var top = 0;"],
   ["the canvas names no model", "product: productOf(output),", "product: \"\","],
-  ["normalisation leaves a non-zero origin", "out[key].position = { x: out[key].position.x - left, y: out[key].position.y - top };", ""],
   ["snap ignores neighbour edges", "if (Math.abs(x - candidate) <= SNAP) x = candidate;", "if (false) x = candidate;"],
   ["mode resize leaves neighbours behind", "if (otherRule.position.x >= current.position.x + before.width) {", "if (false) {"],
   ["a tiled group loses its tile offsets", "var dx = rule.position.x - item.x;", "var dx = output.x - item.x;"],

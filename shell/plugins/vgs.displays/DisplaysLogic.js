@@ -303,20 +303,6 @@ function arrangementFit(bounds, width, maxHeight, margin) {
     };
 }
 
-function normaliseRules(rules) {
-    var keys = Object.keys(rules || {});
-    if (keys.length === 0) return {};
-    var positioned = keys.filter(function (key) { return rules[key].position !== undefined; });
-    if (positioned.length === 0) return clone(rules);
-    var left = Math.min.apply(null, positioned.map(function (key) { return rules[key].position.x; }));
-    var top = Math.min.apply(null, positioned.map(function (key) { return rules[key].position.y; }));
-    var out = clone(rules);
-    positioned.forEach(function (key) {
-        out[key].position = { x: out[key].position.x - left, y: out[key].position.y - top };
-    });
-    return out;
-}
-
 function snappedPosition(item, items, x, y) {
     var candidatesX = [0], candidatesY = [0];
     items.forEach(function (other) {
@@ -342,7 +328,7 @@ function moveGroup(outputs, saved, draft, identifier, x, y) {
         rule.position = { x: snapped.x + dx, y: snapped.y + dy };
         next[output.name] = rule;
     });
-    return normaliseRules(next);
+    return next;
 }
 
 function nudgeGroup(outputs, saved, draft, identifier, dx, dy) {
@@ -406,7 +392,7 @@ function withOutputDraft(outputs, saved, draft, identifier, patch) {
         }
         if (moved) next[key] = otherRule;
     });
-    return normaliseRules(next);
+    return next;
 }
 
 // The colour RULE sets on OUTPUT, each field Hyprland's reading where the
