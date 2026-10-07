@@ -198,6 +198,7 @@ function create({ directories, engine, backend, profiles = Profiles.TABLE, setti
         }
         // The group read empty. Before any signal that is an ended task, not a stop.
         if (!signalled) return alive ? ended("already-ended") : "not-alive";
+        Relay.withdrawTask(prompts, id);
         await write(task, "stopped");
         return "stopped";
     }

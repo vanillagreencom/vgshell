@@ -22,6 +22,7 @@ const hello = { v: 1, type: "hello", gen: 0, settings: { sounds: false, mode: "h
 keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y" } };
 
 async function inside() {
+    process.chdir(process.env.JARVIS_TEST_ROOT);
     hello.directories = {
         state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgshell/jarvis"),
         data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgshell/jarvis"),
@@ -1156,6 +1157,40 @@ exit "$failures"
             await new Promise(resolve => setTimeout(resolve, 10)); // Bounded: the daemon's own child writes.
         }
     };
+    const Relay = require(path.join(path.dirname(daemon), "TaskRelay.js"));
+    async function lockedTaskAnswer(file) {
+        const task = await taskGroup();
+        const directory = path.join(hello.directories.runtime, "prompts");
+        const prompt = Relay.ask(directory, task.id, { kind: "permission", tool: "Bash", text: "Bash {}" }, Date.now(), 600000);
+        const answerFile = path.join(directory, task.id + "." + prompt.id + ".answer.json");
+        try {
+            await conversation(file, async w => {
+                await until("the daemon publishes the held permission", () => w.messages.some(message =>
+                    message.type === "task-prompts" && message.prompts.some(item => item.id === prompt.id)));
+                w.raw({ ...hello, locked: true });
+                await w.wait(message => message.state.gate.reason === "locked");
+                w.raw({ v: 1, type: "intent", gen: w.last().gen, revision: hello.revision,
+                    intent: "task-respond", task: task.id, prompt: prompt.id, answer: { v: 1, kind: "allow" } });
+                await until("locked task response", () => w.messages.some(message => message.type === "task-response"));
+                assert.deepEqual(w.messages.filter(message => message.type === "task-response")
+                    .map(message => [message.task, message.prompt, message.answer]), [[task.id, prompt.id, "session-locked"]]);
+                assert.equal(fs.existsSync(answerFile), false, "a locked answer leaves no answer file");
+                assert.ok(Relay.pending(directory, Date.now()).some(item => item.id === prompt.id));
+            });
+            assert.doesNotThrow(() => process.kill(-task.pgid, 0), "daemon teardown preserves the live task");
+            assert.ok(Relay.pending(directory, Date.now()).some(item => item.id === prompt.id));
+            assert.equal(fs.existsSync(answerFile), false);
+        } finally {
+            if (task.launcher.exitCode === null) {
+                try { process.kill(-task.pgid, "SIGKILL"); } catch (error) { if (error.code !== "ESRCH") throw error; }
+            }
+            await task.closed;
+            Relay.withdrawTask(directory, task.id);
+        }
+    }
+    await lockedTaskAnswer(daemon);
+    await control("locked-task-answer", 'const answer = context.locked ? "session-locked"',
+        'const answer = false && context.locked ? "session-locked"', lockedTaskAnswer);
     async function goneGroup() {
         const id = "control-" + (++taskCount);
         const gone = cp.spawn("true", [], { detached: true, stdio: "ignore" });
@@ -1465,7 +1500,7 @@ exit "$failures"
 
 async function main() {
     if (process.argv[2] === "--inside") return inside();
-    const parent = path.join(tree, "tmp");
+    const parent = require("node:os").tmpdir();
     fs.mkdirSync(parent, { recursive: true });
     const root = fs.mkdtempSync(path.join(parent, "jd-"));
     try {
@@ -1484,7 +1519,7 @@ async function main() {
         fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis/desktop-tool.py"), path.join(root, "standins/playerctl"));
         fs.chmodSync(path.join(root, "standins/playerctl"), 0o700);
         const result = cp.spawnSync("/bin/bash", [launcher, path.join(root, "standins"), "--", "node", __filename, "--inside"],
-            { env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: path.join(tree, "tmp") },
+            { env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: root },
                 // Bounds a hung world, not a latency: the suite runs real children.
                 encoding: "utf8", timeout: 180000 });
         process.stdout.write(result.stdout || "");

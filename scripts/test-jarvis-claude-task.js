@@ -26,6 +26,7 @@ const TIMEOUTS = { UserPromptSubmit: 30, Notification: 30, PermissionRequest: 66
 
 async function inside() {
     const root = process.env.JARVIS_TEST_ROOT;
+    process.chdir(root);
     const env = { PATH: process.env.PATH, HOME: process.env.HOME, LANG: "C.UTF-8" };
     const Tasks = require(path.join(backend, "Tasks.js"));
     const groups = new Set();
@@ -97,8 +98,8 @@ async function inside() {
             const result = JSON.parse(answer.content);
             return { answer, result };
         }
-        async function started(script) {
-            const { answer, result } = await start(script);
+        async function started(script, args = {}) {
+            const { answer, result } = await start(script, args);
             assert.equal(answer.outcome, "completed", answer.content);
             const task = await until("started", () => {
                 const record = read(result.task);
@@ -174,8 +175,14 @@ async function inside() {
 
     // Permission and question relay end to end: the stand-in runs the wired
     // hooks; the user's answers reach them only through runner.answer.
-    async function relay(modules) {
+    async function relay(modules, readOnly = false) {
         const w = world(modules);
+        const project = path.join(w.account, "project");
+        fs.mkdirSync(project);
+        if (readOnly) {
+            fs.chmodSync(project, 0o555);
+            assert.throws(() => fs.accessSync(project, fs.constants.W_OK), { code: "EACCES" });
+        }
         const id = await w.started([
             { hook: "UserPromptSubmit", input: { prompt: "brief" } },
             { hook: "PermissionRequest", input: { tool_name: "Bash", tool_input: { command: "make test" } } },
@@ -184,7 +191,7 @@ async function inside() {
             { hook: "Stop", input: { stop_hook_active: true, last_assistant_message: "Done." } },
             { hook: "Notification", input: { notification_type: "idle_prompt", message: "waiting" } },
             { hook: "SessionEnd", input: { reason: "other" } }
-        ]);
+        ], { cwd: project });
         const asked = await w.prompt(id, "permission");
         assert.deepEqual([asked.tool, asked.text], ["Bash", 'Bash {"command":"make test"}']);
         assert.equal(w.read(id).wait.kind, "permission");
@@ -224,6 +231,8 @@ async function inside() {
             "wait question", "wait none", "working", "outcome", "turn-ended", "wait idle", "wait none", "exited"]);
         assert.deepEqual([record.outcome.kind, record.state], ["reported-ok", "reported-ok"]);
         assert.deepEqual(fs.readdirSync(w.prompts).filter(name => name !== ".relay.lock"), [], "every prompt leaves with its hook");
+        assert.deepEqual(fs.readdirSync(project), [], "relay delivery writes no project file");
+        if (readOnly) fs.chmodSync(project, 0o755);
         w.close();
         cases++;
     }
@@ -467,6 +476,7 @@ async function inside() {
     try {
         profile(current);
         await relay(current);
+        await relay(current, true);
         await deny(current);
         await expiry(current);
         await full(current);
@@ -530,6 +540,10 @@ async function inside() {
         await control("engine-copy", "Tasks.js", '"TaskRelay.js", "claude-hook"];', '"TaskRelay.js"];', relay);
         await control("answer-once", "TaskRelay.js", "fs.linkSync(temporary, answerFile(directory, task, id));",
             "fs.renameSync(temporary, answerFile(directory, task, id));", answers);
+        await control("relay-project-lock", "TaskRelay.js", '["-w", "5", "--", file, process.execPath',
+            '["-w", "5", "--", "3", process.execPath', relay);
+        await control("relay-read-only-lock", "TaskRelay.js", '["-w", "5", "--", file, process.execPath',
+            '["-w", "5", "--", "3", process.execPath', modules => relay(modules, true));
         await control("answer-kind", "TaskRelay.js", 'shape(value, ["v", "kind"]) && value.v === 1 && ["allow", "deny"].includes(value.kind)',
             "value !== null && typeof value === \"object\" && value.v === 1", answers);
         await control("answer-expired", "TaskRelay.js", 'if (prompt.deadline <= now) return "prompt-expired";',
@@ -555,7 +569,7 @@ async function inside() {
 function main() {
     // A failed case can leave held hooks and launchers alive; end at once.
     if (process.argv[2] === "--inside") return inside().catch(error => { console.error(error); process.exit(1); });
-    const parent = path.join(tree, "tmp");
+    const parent = require("node:os").tmpdir();
     fs.mkdirSync(parent, { recursive: true });
     const root = fs.realpathSync(fs.mkdtempSync(path.join(parent, "jct-")));
     try {
@@ -565,7 +579,7 @@ function main() {
         fs.chmodSync(path.join(standins, "claude"), 0o755);
         const result = cp.spawnSync("/bin/bash", [path.join(tree, "scripts/lib/jarvis-env.sh"), standins,
             "--", "node", __filename, "--inside"], {
-            env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: path.join(tree, "tmp") },
+            env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: root },
             encoding: "utf8", timeout: 600000
         });
         process.stdout.write(result.stdout || "");

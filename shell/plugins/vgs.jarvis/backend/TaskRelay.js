@@ -221,7 +221,7 @@ function locked(directory, operation, args) {
     const fd = io("lock-open", file, () => fs.openSync(file,
         fs.constants.O_CREAT | fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW, 0o600));
     try {
-        const result = cp.spawnSync("flock", ["-w", "5", "--", "3", process.execPath, __filename, "--locked", operation], {
+        const result = cp.spawnSync("flock", ["-w", "5", "--", file, process.execPath, __filename, "--locked", operation], {
             input: JSON.stringify([directory, ...args]), encoding: "utf8", maxBuffer: MAX_BYTES, timeout: 30000,
             env: { PATH: process.env.PATH || "/usr/bin:/bin", LANG: "C.UTF-8" },
             stdio: ["pipe", "pipe", "pipe", fd]

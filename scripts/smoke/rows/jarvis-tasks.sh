@@ -8,7 +8,7 @@
 # daemon fixture, and the one task record is a synthetic starting record.
 # No latency ceiling. Reads poll once per nested IPC round trip; the
 # fixture polls its gates every 10 ms.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/TuiRunner.qml shell/Core/PluginStatus.qml shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/TuiRunner.qml shell/Core/PluginStatus.qml shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/SessionLock.qml bin/vgshell-tui
 set -euo pipefail
 expected_errors+=('WARN qml: jarvis: task-stop=not-alive task=smoke-task-[0-9]+')
 task_daemon="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
@@ -88,10 +88,26 @@ value=json.load(sys.stdin).get("response")
 print(value["answer"] if value else "none")
 '
 }
+task_permission_unanswered() {
+  if [[ -f $task_prompts/$task_id.$task_permission.prompt.json && ! -e $task_prompts/$task_id.$task_permission.answer.json ]]; then
+    echo unanswered
+  else
+    echo changed
+  fi
+}
 task_relay_scenario() {
   expect_poll "the service exposes the held permission" permission task_prompt_kind "$task_permission"
   expect_poll "the service exposes the held question" question task_prompt_kind "$task_question"
   expect "the task prompt reader refuses a null query" "refused: task-prompt=shape" ipc vgs.jarvis invoke task-prompt null
+  expect "the test-only lock holder enables for task answers" ok ipc shell setPluginEnabled acme.probe true
+  expect "the fixture locks before a task answer" ok probe lock
+  expect_poll "the nested compositor confirms the task answer lock" true read_service lockSecure
+  expect "the service refuses the user's permission answer while locked" "refused: task-answer=locked" \
+    ipc vgs.jarvis invoke task-answer \
+    "{\"task\":\"$task_id\",\"prompt\":\"$task_permission\",\"answer\":{\"v\":1,\"kind\":\"allow\"}}"
+  expect "the locked permission remains unanswered" unanswered task_permission_unanswered
+  expect "the fixture unlocks task answers without authentication" ok probe unlock
+  expect_poll "the nested compositor releases the task answer lock" false read_service lockSecure
   expect "the service accepts the user's permission answer" ok ipc vgs.jarvis invoke task-answer \
     "{\"task\":\"$task_id\",\"prompt\":\"$task_permission\",\"answer\":{\"v\":1,\"kind\":\"allow\"}}"
   expect_poll "the daemon records the permission answer" answered task_response
@@ -150,7 +166,7 @@ PY
 task_relay_control() {
   (failures=0 behaviour_failures=0
    task_relay_scenario >"$sandbox/jarvis-task-relay-control.log"
-   if grep -qF -- "  FAIL  the service exposes the held permission:" "$sandbox/jarvis-task-relay-control.log"; then echo killed; else echo missed; fi)
+   if grep -qF -- "  FAIL  $1:" "$sandbox/jarvis-task-relay-control.log"; then echo killed; else echo missed; fi)
 }
 task_round_start() {
   task_reset
@@ -194,7 +210,14 @@ notes_clear "the relay control"
 task_plant 'taskPrompts = message.prompts;' 'taskPrompts = [];'
 task_round_start
 expect "the relay publication control fails at its permission read" killed \
-  task_relay_control
+  task_relay_control "the service exposes the held permission"
+jarvis_disable
+
+notes_clear "the locked task answer control"
+task_plant 'if (locked) return "refused: task-answer=locked";' 'if (false && locked) return "refused: task-answer=locked";'
+task_round_start
+expect "the locked task answer control fails at its refusal" killed \
+  task_relay_control "the service refuses the user's permission answer while locked"
 jarvis_disable
 
 notes_off "jarvis tasks"

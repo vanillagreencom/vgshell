@@ -53,6 +53,7 @@ function spawnFixture(file, args, { env, input }) {
 
 async function inside() {
     const root = process.env.JARVIS_TEST_ROOT;
+    process.chdir(root);
     const env = { PATH: process.env.PATH, HOME: process.env.HOME, LANG: "C.UTF-8" };
     const Tasks = require(path.join(backend, "Tasks.js"));
     const Router = require(path.join(backend, "ToolRouter.js"));
@@ -100,7 +101,7 @@ async function inside() {
     // what it did. mode/marker reach the fixture agent through its argv.
     function world(modules, options = {}) {
         const { Runner, Profiles } = modules;
-        const seen = { kills: [], counts: [], failures: [], writes: [], atStopped: [], display: [], launchers: [] };
+        const seen = { kills: [], counts: [], failures: [], writes: [], atStopped: [], display: [], launchers: [], prompts: [] };
         const launch = { mode: "children", marker: null };
         const row = account => ({ program: "fixture-agent", account, interrupt: { signal: "SIGINT" }, interruptMs: 300,
             argv: task => ["fixture-agent", launch.mode, launch.marker, task.brief] });
@@ -126,6 +127,7 @@ async function inside() {
             engine: options.engine ?? engine, backend, profiles,
             settings: () => ({ taskTerminal: options.terminal ?? "floating" }), display,
             count: value => seen.counts.push(value), failed: error => seen.failures.push(error.message),
+            promptsChanged: value => seen.prompts.push(value),
             accounts: (_agent, reference) => reference,
             environment: { ...env, XDG_RUNTIME_DIR: path.join(root, "run"), VGSHELL_RUNNER_PID: "1", FIXTURE_SECRET: "x" },
             lookup: command => command === "fixture-agent" || (command === "tmux" && options.tmuxPresent !== false),
@@ -346,6 +348,65 @@ const answer = spawnFixture("python3", ["-I", "-c", "import os; os._exit(23)"],
     await control("stopped-after-empty", "TaskRunner.js", "const probe = await settle(task.identity.pgid, window);",
         'const probe = signal === "SIGKILL" ? "empty" : await settle(task.identity.pgid, window);', stopAfterEmpty);
     await stopAfterEmpty(current, false);
+
+    // Held Claude hooks run as recorded group leaders. A stopped hook cannot
+    // remove its own prompt when only SIGKILL ends it; the controller owns it.
+    async function stoppedPrompts(modules) {
+        const Relay = require(path.join(modules.copy ?? backend, "TaskRelay.js"));
+        const hook = path.join(modules.copy ?? backend, "claude-hook");
+        const prompts = path.join(directories.runtime, "prompts");
+        for (const [kind, frozen] of [["permission", false], ["question", false], ["permission", true], ["question", true]]) {
+            const id = "held-stop-" + (++marker);
+            const event = kind === "permission" ? "PermissionRequest" : "Stop";
+            const input = { session_id: "fixture", transcript_path: "/fixture", cwd,
+                hook_event_name: event, ...(kind === "permission" ? { tool_name: "Bash", tool_input: {} }
+                    : { stop_hook_active: false, last_assistant_message: "Which branch?" }) };
+            const answer = kind === "permission" ? { v: 1, kind: "allow" } : { v: 1, kind: "reply", text: "main" };
+            producer("create", id, { goal: "Fixture goal", cwd, agent: "fixture", account: "" });
+            const child = cp.spawn(process.execPath, [hook, "--state", directories.state, "--prompts", prompts,
+                "--window", "600000", id, event], { env, detached: true });
+            const ended = once(child, "close");
+            child.stdout.resume();
+            child.stderr.resume();
+            const deadline = setTimeout(() => child.kill("SIGKILL"), 20000);
+            let w = world(modules);
+            try {
+                const stat = await modules.Runner.PROCESSES.stat(child.pid);
+                groups.add(stat.pgid);
+                producer("started", id, { pid: child.pid, ...stat });
+                child.stdin.end(JSON.stringify(input));
+                const prompt = await until("held " + kind, () => w.runner.held().find(item => item.task === id));
+                assert.equal(prompt.kind, kind);
+                await w.runner.observe();
+                assert.ok(w.seen.prompts.at(-1).some(item => item.id === prompt.id));
+                w.runner.close();
+                assert.equal(Relay.present(prompts, prompt), true, "daemon teardown preserves the live hook's prompt");
+                w = world(modules);
+                assert.ok(w.runner.held().some(item => item.id === prompt.id));
+                if (frozen) process.kill(child.pid, "SIGSTOP");
+                assert.equal(await w.runner.stop(id), "stopped");
+                assert.equal(groupState(stat.pgid), "ESRCH");
+                assert.equal(w.runner.answer(id, prompt.id, answer), "prompt-unknown", "a stopped hook cannot accept an answer");
+                assert.equal(Relay.present(prompts, prompt), false);
+                assert.equal(fs.existsSync(path.join(prompts, id + "." + prompt.id + ".answer.json")), false);
+                assert.equal(readTask(id).process.kind, "stopped");
+                await w.runner.observe();
+                assert.equal(w.runner.held().some(item => item.task === id), false);
+                assert.equal(w.seen.prompts.at(-1).some(item => item.task === id), false, "publication removes the stopped prompt");
+                assert.ok(w.seen.kills.some(([, signal]) => signal === (frozen ? "SIGKILL" : "SIGINT")));
+                cases++;
+            } finally {
+                clearTimeout(deadline);
+                w.runner.close();
+                if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+                await ended;
+                Relay.withdrawTask(prompts, id);
+            }
+        }
+    }
+    await stoppedPrompts(current);
+    await control("stopped-prompts", "TaskRunner.js", "        Relay.withdrawTask(prompts, id);",
+        "        if (false) Relay.withdrawTask(prompts, id);", stoppedPrompts);
 
     // The profile's interrupt, then SIGTERM once interruptMs passes.
     {
@@ -860,7 +921,7 @@ const answer = spawnFixture("python3", ["-I", "-c", "import os; os._exit(23)"],
 function main() {
     // A failed case can leave fixture groups and runners alive; end at once.
     if (process.argv[2] === "--inside") return inside().catch(error => { console.error(error); process.exit(1); });
-    const parent = path.join(tree, "tmp");
+    const parent = require("node:os").tmpdir();
     fs.mkdirSync(parent, { recursive: true });
     const root = fs.realpathSync(fs.mkdtempSync(path.join(parent, "jr-")));
     try {
@@ -871,7 +932,7 @@ function main() {
         fs.writeFileSync(path.join(standins, "codex"), codexFixture, { mode: 0o755 });
         const result = cp.spawnSync("/bin/bash", [path.join(tree, "scripts/lib/jarvis-env.sh"), standins,
             "--", "node", __filename, "--inside"], {
-            env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: path.join(tree, "tmp") },
+            env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: root },
             encoding: "utf8", timeout: 300000
         });
         process.stdout.write(result.stdout || "");
