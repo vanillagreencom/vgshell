@@ -775,6 +775,8 @@ async function cases(kit, server, only = null) {
         const last = await requested(w, third + 1, "the third request");
         assert.equal(user(last).at(-1), "[late result] Your interrupted call windows.focus ended completed: focused late\n\nThanks.",
             "the real outcome reaches the next user turn once");
+        await settled(() => w.s().turn.kind === "none", faulted,
+            "the third reply completes its turn before the fourth utterance");
         const fourth = await say(w, utterance("Bye."));
         server.replies.push(text(""));
         assert.equal(user(await requested(w, fourth + 1, "the fourth request")).at(-1), "Bye.");
