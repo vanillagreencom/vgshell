@@ -347,8 +347,8 @@ world(async () => {
             const { folder: copied, Engine } = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], folder);
             const w = make(copied);
             const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
-                accounts: () => ({ secrets: null, resolve: id => ({ id, provider: "codex", label: "default",
-                    source: { kind: "cli", directory: account }, model: "" }) }),
+                accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "codex", label: "default",
+                    source: { kind: "cli", directory: account }, model: "" } }) }),
                 policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail("fault " + reason),
                 captionLimit: 4096, harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime } });
             owners.unshift(() => engine.close());

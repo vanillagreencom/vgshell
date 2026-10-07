@@ -408,8 +408,8 @@ world(async () => {
             // from the world's account folder.
             const w = await make(path.join(copied, "backend"), { turns: [[{ tool: "windows_list", arguments: {} }, ...say("Two windows.")]] });
             const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
-                accounts: () => ({ secrets: null, resolve: id => ({ id, provider: "claude", label: "default",
-                    source: { kind: "cli", directory: w.account.directory }, model: "" }) }),
+                accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "claude", label: "default",
+                    source: { kind: "cli", directory: w.account.directory }, model: "" } }) }),
                 policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail("fault " + reason),
                 captionLimit: 4096,
                 // Built-in tools are off, so no approval request reaches the gate.

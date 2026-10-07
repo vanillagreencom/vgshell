@@ -35,7 +35,12 @@ if(selected==="late-link" && process.env.CLAUDE_CONFIG_DIR.endsWith("/late-accou
     fs.symlinkSync(path.join(process.env.HOME,".claude"),process.env.CLAUDE_CONFIG_DIR);
 if(selected==="failed"){console.error("fixture-secret-private");process.exit(7);}
 if(selected==="junk"){console.log("fixture-secret-private");process.exit(0);}
-if(selected==="signed-in"||selected==="late-link") console.log(JSON.stringify({loggedIn:true, email:"team@example.invalid",subscriptionType:"pro",
+// A folder's fixture-email file names its sign-in email; empty names none.
+function email() {
+    try { return fs.readFileSync(path.join(process.env.CLAUDE_CONFIG_DIR,"fixture-email"),"utf8").trim(); }
+    catch(e) { if(e.code!=="ENOENT") throw e; return "team@example.invalid"; }
+}
+if(selected==="signed-in"||selected==="late-link") console.log(JSON.stringify({loggedIn:true, email:email(),subscriptionType:"pro",
     ignoredSecret:"fixture-secret-private"}));
 else {console.log(JSON.stringify({loggedIn:false}));process.exit(1);}
 `, { mode: 0o700 });

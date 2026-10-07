@@ -412,10 +412,13 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     audio.playbackSource = engine.playbackSource;
                 }
                 if (first && readMute()) runner.dispatch({ type: "mute" });
-                write({ v: 1, type: "status", gen: runner.state.gen, revision: context.revision,
-                    daemon: context.locked ? "locked" : "ready" });
-                // A healthy child is not permission to capture or start a tool.
+                // Every hello judges the engine again; the status carries each
+                // failing setup step's cause for the shell's setup view.
                 const configuration = engine.configure(context.settings);
+                write({ v: 1, type: "status", gen: runner.state.gen, revision: context.revision,
+                    daemon: context.locked ? "locked" : "ready",
+                    causes: configuration.kind === "ready" ? [] : configuration.causes });
+                // A healthy child is not permission to capture or start a tool.
                 runner.dispatch({ type: "snapshot", locked: context.locked, engine: "chained",
                     configured: configuration.kind === "ready", settings: context.settings });
                 if (first) void audio.discover().catch(error => {

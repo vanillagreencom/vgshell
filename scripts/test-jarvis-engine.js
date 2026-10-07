@@ -79,9 +79,9 @@ function rig(kit, server, options = {}) {
         executions.push(call);
         done({ outcome: "completed", content: "screen text", image: { type: "image/png", bytes: PNG } });
     } });
-    // Accounts.resolve has its own suite; this stand-in names a loopback row.
-    const accounts = () => ({ secrets: null, resolve: id => ({ id, provider: "ollama", label: "local",
-        source: { kind: "local", origin: "http://127.0.0.1:" + PORT }, model: "fixture-model" }) });
+    // Accounts.choose has its own suite; this stand-in names a loopback row.
+    const accounts = () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "ollama", label: "local",
+        source: { kind: "local", origin: "http://127.0.0.1:" + PORT }, model: "fixture-model" } }) });
     engine = kit.Engine.create({ session: Session, state: () => runner.state, audit, router, accounts,
         policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => faults.push(reason),
         captionLimit: options.captionLimit ?? Protocol.TRANSCRIPT_CHARS });
@@ -585,35 +585,41 @@ async function cases(kit, server, only = null) {
     });
 }
 
-// Selection: the first ready speech row, then the saved brain account, its
-// declared model and provider row. Each refusal names its cause.
+// Selection: the first ready speech row, then the saved brain account as
+// Accounts.choose takes it and its provider row. The two steps are judged
+// apart: each refusal names its cause, the first failing step's leads, and
+// every failing step's cause follows in speech-then-brain order.
 function selection(Engine) {
     const resolved = { id: "a", provider: "ollama", label: "local",
         source: { kind: "local", origin: "http://127.0.0.1:" + PORT }, model: "fixture-model" };
-    const configure = (settings, resolve, ready) => {
+    const accepted = account => () => ({ kind: "accepted", account });
+    const refused = cause => () => ({ kind: "refused", cause });
+    const configure = (settings, choose, ready) => {
         Fixture.reset({ ready });
         let answer;
         assert.doesNotThrow(() => {
-            answer = Engine.create({ accounts: () => ({ secrets: null, resolve }), captionLimit: 1 }).configure({ brain: "a", ...settings });
+            answer = Engine.create({ accounts: () => ({ secrets: null, choose }), captionLimit: 1 }).configure({ brain: "a", ...settings });
         }, "selection answers with a cause");
         return answer;
     };
-    for (const [settings, resolve, ready, cause] of [
-        [{}, () => resolved, false, "speech=fixture-off"],
-        [{ brain: "" }, () => resolved, true, "brain=unselected"],
-        [{}, () => null, true, "brain=account-unavailable"],
-        [{}, () => ({ ...resolved, model: "" }), true, "brain=model-required"]])
-        assert.deepEqual(configure(settings, resolve, ready), { kind: "unconfigured", cause }, cause);
+    for (const [settings, choose, ready, causes] of [
+        [{}, accepted(resolved), false, ["speech=fixture-off"]],
+        [{ brain: "" }, accepted(resolved), false, ["speech=fixture-off", "brain=unselected"]],
+        [{}, refused("account-unavailable"), false, ["speech=fixture-off", "brain=account-unavailable"]],
+        [{ brain: "" }, accepted(resolved), true, ["brain=unselected"]],
+        [{}, refused("account-unavailable"), true, ["brain=account-unavailable"]],
+        [{}, refused("model-required"), true, ["brain=model-required"]]])
+        assert.deepEqual(configure(settings, choose, ready), { kind: "unconfigured", cause: causes[0], causes }, causes.join(" "));
     assert.deepEqual(configure({}, () => { throw new Error("jarvis-keys: references=json"); }, true),
-        { kind: "unconfigured", cause: "brain=accounts-unreadable", detail: "jarvis-keys: references=json" },
+        { kind: "unconfigured", cause: "brain=accounts-unreadable", detail: "jarvis-keys: references=json", causes: ["brain=accounts-unreadable"] },
         "a reader's keyed failure keeps its cause");
     Fixture.reset();
-    assert.throws(() => Engine.create({ accounts: () => ({ resolve: () => { throw new TypeError("defect"); } }), captionLimit: 1 })
+    assert.throws(() => Engine.create({ accounts: () => ({ choose: () => { throw new TypeError("defect"); } }), captionLimit: 1 })
         .configure({ brain: "a" }), TypeError, "a defect is not a configuration cause");
-    assert.deepEqual(configure({}, () => resolved, true), { kind: "ready" });
+    assert.deepEqual(configure({}, accepted(resolved), true), { kind: "ready" });
     // A subscription's program chooses its own model; its account names its directory.
     for (const [provider, directory] of [["codex", "/home/fixture/.codex"], ["claude", "/home/fixture/.claude"]])
-        assert.deepEqual(configure({}, () => ({ id: "c", provider, label: "default",
+        assert.deepEqual(configure({}, accepted({ id: "c", provider, label: "default",
             source: { kind: "cli", directory }, model: "" }), true), { kind: "ready" }, provider);
 }
 
@@ -622,23 +628,22 @@ world(async () => {
     // Without local setup's marker the stock table's local row is the cause.
     const stock = require(path.join(tree, "shell/plugins/vgs.jarvis/backend/ChainedEngine.js"));
     const bare = fs.mkdtempSync(path.join(root, "stock-"));
-    assert.deepEqual(stock.create({ accounts: () => assert.fail("no account is read without a speech row"),
+    assert.deepEqual(stock.create({ accounts: () => ({ secrets: null, choose: () => ({ kind: "refused", cause: "account-unavailable" }) }),
         captionLimit: 1, directories: { state: bare, data: bare, runtime: bare } }).configure({ brain: "a" }),
-    { kind: "unconfigured", cause: "speech=local-not-set-up" }, "the stock daemon stays unconfigured");
+    { kind: "unconfigured", cause: "speech=local-not-set-up", causes: ["speech=local-not-set-up", "brain=account-unavailable"] },
+    "the stock daemon stays unconfigured and judges the brain too");
     const server = Fixture.brain(PORT);
     await server.ready;
     let controls = 0;
     try {
         selection(Fixture.copy(root).Engine);
         for (const [name, needle, replacement = ""] of [
-            ["speech-not-ready", 'if (speech.kind !== "ready") return speech;'],
+            ["speech-first", "const failing = [speech, brain]", "const failing = [brain, speech]"],
+            ["every-cause", "causes: failing.map(step => step.cause)", "causes: [failing[0].cause]"],
             ["first-speech-cause", 'if (speech.cause === "speech=no-adapter") speech = answer;'],
             ["accounts-unreadable", 'return unconfigured("brain=accounts-unreadable", error.message);'],
             ["unselected", 'if (settings.brain === "") return unconfigured("brain=unselected");'],
-            ["account-unavailable", 'if (account === null) return unconfigured("brain=account-unavailable");'],
-            ["model-required", 'if (account.model === "" && account.source.kind !== "cli") return unconfigured("brain=model-required");'],
-            ["subscription-model", ' && account.source.kind !== "cli") return unconfigured("brain=model-required");',
-                ') return unconfigured("brain=model-required");'],
+            ["refused-cause", 'return unconfigured("brain=" + choice.cause);', 'return unconfigured("brain=account-unavailable");'],
             ["harness-driver", '"codex-app-server": CodexHarness, '],
             ["claude-driver", ', "claude-code": ClaudeCode });', " });"]]) {
             const { Engine } = Fixture.copy(root, [[needle, replacement]]);

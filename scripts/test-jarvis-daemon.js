@@ -58,7 +58,9 @@ async function inside() {
             cases++;
         } finally { clearTimeout(timeout); if (child.exitCode === null) child.kill("SIGKILL"); }
     }
-    const reply = (locked, gen) => ({ v: 1, type: "status", gen, revision: hello.revision, daemon: locked ? "locked" : "ready" });
+    // Without local setup or a saved AI model the engine names both steps.
+    const reply = (locked, gen) => ({ v: 1, type: "status", gen, revision: hello.revision, daemon: locked ? "locked" : "ready",
+        causes: ["speech=local-not-set-up", "brain=unselected"] });
     function states(locks) {
         let seq = 0;
         const lines = [];
@@ -1292,12 +1294,13 @@ exit "$failures"
         const child = cp.spawn("node", [file, "--tree", tree], { env: {
             PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR
         }, stdio: ["pipe", "pipe", "pipe"] });
-        const states = [], captions = [];
+        const states = [], captions = [], statuses = [];
         let tail = "", err = "";
         child.stdout.on("data", data => {
             const lines = (tail + data).split("\n");
             tail = lines.pop();
             for (const message of lines.map(line => JSON.parse(line))) {
+                if (message.type === "status") statuses.push(message);
                 if (message.type === "state") states.push(message);
                 if (message.type === "transcript") captions.push(message);
             }
@@ -1322,6 +1325,7 @@ exit "$failures"
             // has left starting down stays down for this conversation.
             await wait(m => m.state.gate.kind === "up" || m.state.gate.reason !== "starting", "the snapshot settles the gate");
             assert.equal(states.at(-1).state.gate.kind, "up", "the engine raises the gate: " + JSON.stringify(states.at(-1).state.gate));
+            assert.deepEqual(statuses.map(message => message.causes), [[]], "a ready engine publishes no setup cause");
             send(intent("talk-down"));
             await wait(m => m.phase === "listening", "listening");
             send(intent("talk-up"));

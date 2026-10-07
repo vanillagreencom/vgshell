@@ -397,6 +397,82 @@ world(async () => {
     // The core search the copy reads, and the folders it found by name.
     const foldersIn = folder => require(path.join(folder, "backend/Core.js")).folders().accountFolders;
     const byName = found => found.folders.filter(item => item.source === "folder");
+    // The AI model list offers only the accounts Accounts.choose takes: no
+    // key read from a variable, no local server or Cerebras key without a
+    // model, and every subscription a harness runs.
+    references.remember(ownReference("cerebras", "fast", "https://api.cerebras.ai"));
+    const modelList = Judge => {
+        const judge = new Judge(directory, { ...env, CODEX_HOME: explicit, OPENAI_API_KEY: privateValue });
+        const found = judge.discover();
+        const offered = new Set(judge.status().brains.map(choice => choice.value));
+        const one = test => { const item = found.find(test); assert.ok(item, "fixture account"); return item; };
+        const variable = one(row => row.source.kind === "variable" && row.provider === "openai");
+        const ollama = one(row => row.provider === "ollama");
+        const cerebras = one(row => row.provider === "cerebras");
+        const key = one(row => row.source.reference?.account === "chosen label");
+        const claude = one(row => row.source.directory === nestedClaude);
+        const codex = one(row => row.source.directory === nestedCodex);
+        assert.deepEqual(judge.choose(variable.id), { kind: "refused", cause: "account-unavailable" }, "a variable key");
+        assert.deepEqual(judge.choose(ollama.id), { kind: "refused", cause: "model-required" }, "a local server");
+        assert.deepEqual(judge.choose(cerebras.id), { kind: "refused", cause: "model-required" }, "Cerebras");
+        assert.deepEqual(judge.choose(key.id), { kind: "accepted", account: { id: key.id, provider: "anthropic",
+            label: "chosen label", source: key.source, model: "claude-haiku-4-5" } }, "a stored key");
+        for (const item of [claude, codex])
+            assert.deepEqual(judge.choose(item.id), { kind: "accepted", account: { id: item.id, provider: item.provider,
+                label: item.label, source: item.source, model: "" } }, item.provider);
+        for (const item of [variable, ollama, cerebras, ...found.filter(row => row.source.kind === "local")])
+            assert.equal(offered.has(item.id), false, "not offered: " + item.provider + " " + item.source.kind);
+        for (const item of [key, claude, codex]) assert.equal(offered.has(item.id), true, "offered: " + item.provider);
+    };
+    modelList(Accounts);
+    for (const [name, needle, replacement] of [
+        ["model-rule", 'if (resolved.model === "" && resolved.source.kind !== "cli") return { kind: "refused", cause: "model-required" };', ""],
+        ["subscription-model", ' && resolved.source.kind !== "cli") return { kind: "refused", cause: "model-required" };',
+            ') return { kind: "refused", cause: "model-required" };'],
+        ["list-accepted", '\n            && accepted(resolve(item.id)).kind === "accepted");', ");"]]) {
+        await mutant("backend/Accounts.js", name, needle, replacement, folder => modelList(judgeIn(folder)));
+        controls++;
+    }
+    cases++;
+    // Labels: one account of a harness reads as its name, more read as its
+    // sign-in emails, or say none was found, grouped by provider and sorted.
+    const labelWorld = (name, folders) => {
+        const own = worldOf(name);
+        const directories = folders.map(([folder, email]) => {
+            const made = seed(own.env.HOME, folder);
+            if (email !== null) fs.writeFileSync(path.join(made, "fixture-email"), email);
+            return made;
+        });
+        return { own, directories };
+    };
+    const several = labelWorld("labels", [[".claude", "bob@example.invalid"], [".claude-a", "zed@example.invalid"],
+        [".claude-b", "amy@example.invalid"], [".claude-c", ""], [".2codex", null]]);
+    const single = labelWorld("single", [[".claude", "bob@example.invalid"]]);
+    const labels = Judge => {
+        for (const [world, want] of [
+            [several, [["Claude Code (no email found)", ".claude-c"], ["Claude Code / amy@example.invalid", ".claude-b"],
+                ["Claude Code / bob@example.invalid", ".claude"], ["Claude Code / zed@example.invalid", ".claude-a"],
+                ["Codex (no email found)", ".2codex"], ["Codex (no email found)", ".codex"]]],
+            [single, [["Claude Code", ".claude"], ["Codex", ".codex"]]]]) {
+            const judge = new Judge(world.own.state, world.own.env);
+            const found = judge.discover();
+            const folderOf = value => path.basename(found.find(item => item.id === value).source.directory);
+            const got = judge.status().brains.map(choice => [choice.label, folderOf(choice.value)]);
+            // Two Codex folders read alike; their order is by id.
+            const codex = got.filter(([label]) => label.startsWith("Codex")).map(([, folder]) => folder).sort();
+            assert.deepEqual(got.map(([label, folder]) => label.startsWith("Codex") ? [label, codex.shift()] : [label, folder]), want);
+        }
+    };
+    labels(Accounts);
+    for (const [name, needle, replacement] of [
+        ["label-email", 'item.email ? row.label + " / " + item.email', 'item.email ? row.label + " / " + item.label'],
+        ["label-single", ".length === 1 ? row.label", ".length === 0 ? row.label"],
+        ["label-no-email", ": row.label + NO_EMAIL;", ': row.label + " / " + item.label;'],
+        ["label-order", ".sort((left, right) => order(left.label, right.label) || order(left.value, right.value));", ";"]]) {
+        await mutant("backend/Accounts.js", name, needle, replacement, folder => labels(judgeIn(folder)));
+        controls++;
+    }
+    cases++;
     const crowded = worldOf("crowded");
     const crowdedFolders = [seed(crowded.env.HOME, ".4claude"), seed(crowded.env.HOME, ".codex-work")];
     for (let i = 0; i < 4998; i++) fs.writeFileSync(path.join(crowded.env.HOME, String(i)), "");

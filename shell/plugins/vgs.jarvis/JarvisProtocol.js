@@ -219,6 +219,21 @@ function approvalId(value) {
     return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
 }
 
+// The engine's failing setup steps (ChainedEngine select): at most one keyed
+// cause per step, speech before brain; none while the engine is ready.
+var SETUP_STEPS = ["speech", "brain"];
+function setupCauses(value) {
+    if (!Array.isArray(value)) return false;
+    var last = -1;
+    for (var i = 0; i < value.length; i++) {
+        var match = typeof value[i] === "string" ? /^([a-z]+)=[a-z0-9-]{1,60}$/.exec(value[i]) : null;
+        var step = match === null ? -1 : SETUP_STEPS.indexOf(match[1]);
+        if (step <= last) return false;
+        last = step;
+    }
+    return true;
+}
+
 // Return the judged message, or throw a keyed protocol error.
 function accept(line, direction) {
     if (typeof line !== "string") fail("line-not-string");
@@ -341,8 +356,9 @@ function accept(line, direction) {
         break;
     case "status":
         if (direction !== "daemon") fail("direction-status");
-        keys(message, ["v", "type", "gen", "revision", "daemon"], "status");
+        keys(message, ["v", "type", "gen", "revision", "daemon", "causes"], "status");
         if (message.daemon !== "ready" && message.daemon !== "locked") fail("daemon");
+        if (!setupCauses(message.causes)) fail("causes");
         break;
     case "state":
         if (direction !== "daemon") fail("direction-state");

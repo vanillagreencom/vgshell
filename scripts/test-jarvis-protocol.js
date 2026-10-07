@@ -19,7 +19,7 @@ const confirm = { ...intent, intent: "confirm", id, digest: "a".repeat(64), sour
 const cancel = { ...intent, intent: "cancel", id };
 const shown = { v: 1, type: "shown", gen: 0, revision: hello.revision, id };
 const indicator = { v: 1, type: "indicator", gen: 0, revision: hello.revision, shown: true };
-const status = { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready" };
+const status = { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready", causes: [] };
 const shellStatus = { v: 1, type: "shell-status", gen: 0, revision: hello.revision, availability: { kind: "available" } };
 const state = { v: 1, type: "state", gen: 0, revision: hello.revision, seq: 1,
     state: JSON.parse(JSON.stringify(Protocol.Session.initial())), phase: "down" };
@@ -63,6 +63,7 @@ const inputReply = { ...reply, kind: "input.observe", data: { ok: true, target: 
 const keysReply = { ...reply, kind: "input.keys", data: { ok: true, keys: [{ modifiers: ["SUPER"], keycode: 38, keysym: "a", codepoint: 97 }], translation: [{ modifiers: ["SUPER"], keycode: 38, keysym: "a", codepoint: 97 }], effective: [] } };
 const inputReady = { ...status, type: "input-ready", commands: ["wtype", "wlrctl"] };
 delete inputReady.daemon;
+delete inputReady.causes;
 const cases = [
     ["transcript-direction", JSON.stringify(transcript), "shell", "direction-transcript"],
     ["transcript-shape", changed(transcript, { partial: true }), "daemon", "shape-transcript"],
@@ -143,6 +144,14 @@ const cases = [
     ["lock", changed(hello, { locked: null }), "shell", "lock"],
     ["revision", changed(hello, { revision: "" }), "shell", "revision"],
     ["daemon", changed(status, { daemon: "listening" }), "daemon", "daemon"],
+    // ChainedEngine select: one keyed cause per failing step, speech first.
+    ["status-causes-missing", changed(status, { causes: undefined }), "daemon", "shape-status"],
+    ["status-causes-list", changed(status, { causes: {} }), "daemon", "causes"],
+    ["status-causes-order", changed(status, { causes: ["brain=unselected", "speech=local-not-set-up"] }), "daemon", "causes"],
+    ["status-causes-twice", changed(status, { causes: ["brain=unselected", "brain=account-unavailable"] }), "daemon", "causes"],
+    ["status-causes-step", changed(status, { causes: ["voice=local-not-set-up"] }), "daemon", "causes"],
+    ["status-causes-key", changed(status, { causes: ["speech=Not set up"] }), "daemon", "causes"],
+    ["status-causes-text", changed(status, { causes: [7] }), "daemon", "causes"],
     ["state-direction", JSON.stringify(state), "shell", "direction-state"],
     ["state-shape", changed(state, { extra: 1 }), "daemon", "shape-state"],
     ["state-seq", changed(state, { seq: 0 }), "daemon", "sequence"],
@@ -223,6 +232,8 @@ for (const brain of ["", "cli:saved-unavailable-id"])
     assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, brain } }), "shell").settings.brain, brain);
 for (const daemon of ["ready", "locked"])
     assert.equal(Protocol.accept(changed(status, { daemon }), "daemon").daemon, daemon);
+for (const causes of [[], ["speech=local-not-set-up"], ["brain=unselected"], ["speech=local-not-ready", "brain=account-unavailable"]])
+    assert.equal(JSON.stringify(Protocol.accept(changed(status, { causes }), "daemon").causes), JSON.stringify(causes));
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(state), "daemon")), JSON.stringify(state));
 for (const name of ["talk-down", "talk-up", "mute", "stop"])
     assert.equal(Protocol.accept(changed(intent, { intent: name }), "shell").intent, name);
@@ -397,6 +408,12 @@ try {
         ["lock", 'if (typeof message.locked !== "boolean") fail("lock");', 'if (false) fail("lock");', "lock"],
         ["revision", 'if (typeof message.revision !== "string" || !/^[0-9a-f]{64}$/.test(message.revision)) fail("revision");', 'if (false) fail("revision");', "revision"],
         ["daemon", 'if (message.daemon !== "ready" && message.daemon !== "locked") fail("daemon");', 'if (false) fail("daemon");', "daemon"],
+        ["status-causes", 'if (!setupCauses(message.causes)) fail("causes");', 'if (false) fail("causes");', "status-causes-list"],
+        ["causes-list", "if (!Array.isArray(value)) return false;", "", "status-causes-list"],
+        ["causes-order", "if (step <= last) return false;", "if (step < 0) return false;", "status-causes-order"],
+        ["causes-twice", "if (step <= last) return false;", "if (step < last || step < 0) return false;", "status-causes-twice"],
+        ["causes-step", "if (step <= last) return false;", "if (step < last) return false;", "status-causes-step"],
+        ["causes-key", "/^([a-z]+)=[a-z0-9-]{1,60}$/", "/^([a-z]+)=.{1,60}$/", "status-causes-key"],
         ["type", 'fail("type");', 'break;', "type"],
         ["state-direction", 'if (direction !== "daemon") fail("direction-state");', 'if (false) fail("direction-state");', "state-direction"],
         ["state-seq", 'if (!Number.isSafeInteger(message.seq) || message.seq < 1) fail("sequence");', 'if (false) fail("sequence");', "state-seq"],

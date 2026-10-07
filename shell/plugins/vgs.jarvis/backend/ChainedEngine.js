@@ -55,35 +55,49 @@ function signal() {
 
 /**
  * Choose the conversation plan from snapshot settings. The first ready speech
- * row wins; the brain comes from the saved account through Accounts, its
- * declaration's Verify probe model, the provider table and the key reference.
+ * row wins; the brain comes from the saved account through Accounts.choose,
+ * the provider table and the key reference. The speech and brain steps are
+ * judged apart, so an unconfigured plan carries `cause`, the first failing
+ * step's, speech before brain, and `causes`, every failing step's in that
+ * order, which the daemon publishes for the setup view.
  */
 function select(settings, accounts, directories) {
+    const speech = selectSpeech(settings, accounts, directories);
+    const brain = selectBrain(settings, accounts);
+    const failing = [speech, brain].filter(step => step.kind !== "ready");
+    if (failing.length > 0) return { ...failing[0], causes: failing.map(step => step.cause) };
+    return { kind: "ready", speech, brain: brain.brain };
+}
+
+function selectSpeech(settings, accounts, directories) {
     let speech = unconfigured("speech=no-adapter");
     for (const [id, row] of Object.entries(SPEECH)) {
         const answer = row.select({ settings, accounts, directories });
-        if (answer.kind === "ready") { speech = { ...answer, id }; break; }
+        if (answer.kind === "ready") return { ...answer, id };
         if (answer.kind !== "unconfigured") fail("speech-row");
         if (speech.cause === "speech=no-adapter") speech = answer;
     }
-    if (speech.kind !== "ready") return speech;
+    return speech;
+}
+
+function selectBrain(settings, accounts) {
     if (settings.brain === "") return unconfigured("brain=unselected");
-    let judge, account;
+    let judge, choice;
     try {
         judge = accounts();
-        account = judge.resolve(settings.brain);
+        choice = judge.choose(settings.brain);
     } catch (error) {
         // Only the account and key readers' keyed failures are a cause here.
         if (!/^jarvis-(?:accounts|keys): /.test(error?.message ?? "")) throw error;
         return unconfigured("brain=accounts-unreadable", error.message);
     }
-    if (account === null) return unconfigured("brain=account-unavailable");
-    // A subscription's program chooses its own default model.
-    if (account.model === "" && account.source.kind !== "cli") return unconfigured("brain=model-required");
+    if (choice.kind === "refused") return unconfigured("brain=" + choice.cause);
+    if (choice.kind !== "accepted") fail("brain-choice");
+    const account = choice.account;
     const provider = Providers.select(account.provider);
     if (!Object.hasOwn(DRIVERS, provider.driver)) fail("driver");
     const target = Net.endpoint(provider.base);
-    return { kind: "ready", speech, brain: { provider, model: account.model, account: account.source,
+    return { kind: "ready", brain: { provider, model: account.model, account: account.source,
         key: account.source.kind === "keyring" ? { secrets: judge.secrets, reference: account.source.reference } : null,
         recipient: { kind: "network", provider: provider.id, account: account.id, origin: target.origin },
         guidance: Guidance.compose("chained", target.loopback ? "local" : "text", LANGUAGE) } };

@@ -41,6 +41,19 @@ function provider(id) {
 }
 // A brain choice is any account but a speech-only key.
 function brainRow(row) { return row.kind !== "speech-key"; }
+/**
+ * The one rule for an account the chained engine runs, read by the engine
+ * and by the AI model list: RESOLVED, resolve()'s answer, as { kind:
+ * "accepted", account } or { kind: "refused", cause }. A key or a local
+ * server needs a model; a subscription's program chooses its own default.
+ */
+function accepted(resolved) {
+    if (resolved === null) return { kind: "refused", cause: "account-unavailable" };
+    if (resolved.model === "" && resolved.source.kind !== "cli") return { kind: "refused", cause: "model-required" };
+    return { kind: "accepted", account: resolved };
+}
+// The AI model list's word for an account whose harness record names no email.
+const NO_EMAIL = " (no email found)";
 function identity(kind, values) {
     const canonical = JSON.stringify(values, (_key, value) => value && typeof value === "object" && !Array.isArray(value)
         ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)) : value);
@@ -376,18 +389,33 @@ class Accounts {
      * or an unknown id is null.
      */
     resolve(id) {
-        for (const { row, label, source } of [...this.keyringRows(), ...this.localRows()]) {
-            if (this.account(row, label, { kind: "found" }, source).id !== id) continue;
-            if ((source.kind === "keyring" && !keyProvider(row)) || !brainRow(row)) return null;
-            return { id, provider: row.id, label, source, model: row.probe.model };
-        }
-        for (const candidate of this.candidates().candidates) {
-            if (identity("cli", [candidate.provider, candidate.directory]) !== id) continue;
-            if (!HARNESS_BRAINS.includes(candidate.provider)) return null;
-            return { id, provider: candidate.provider, label: candidate.label.slice(0, 60),
-                source: { kind: "cli", directory: candidate.directory }, model: "" };
-        }
-        return null;
+        return this.resolver()(id);
+    }
+
+    // resolve() over one read of the saved references and the candidates,
+    // so the AI model list judges every account against the same read.
+    resolver() {
+        const rows = [...this.keyringRows(), ...this.localRows()];
+        const candidates = this.candidates().candidates;
+        return id => {
+            for (const { row, label, source } of rows) {
+                if (this.account(row, label, { kind: "found" }, source).id !== id) continue;
+                if ((source.kind === "keyring" && !keyProvider(row)) || !brainRow(row)) return null;
+                return { id, provider: row.id, label, source, model: row.probe.model };
+            }
+            for (const candidate of candidates) {
+                if (identity("cli", [candidate.provider, candidate.directory]) !== id) continue;
+                if (!HARNESS_BRAINS.includes(candidate.provider)) return null;
+                return { id, provider: candidate.provider, label: candidate.label.slice(0, 60),
+                    source: { kind: "cli", directory: candidate.directory }, model: "" };
+            }
+            return null;
+        };
+    }
+
+    /** The saved Brain account id as the engine takes it: accepted()'s answer. */
+    choose(id) {
+        return accepted(this.resolve(id));
     }
 
     /**
@@ -595,6 +623,10 @@ class Accounts {
      * The page's account facts: each account's label, presence and the
      * typed facts AccountStatus.js words its hint from, the brain choices,
      * and the search's found count and partial reason. No reason code leaves.
+     * The brain choices are the accounts accepted() takes, grouped by
+     * provider and sorted by email: a harness with one account reads as its
+     * name, one with more names each by the sign-in email its login status
+     * reports, or says that it reports none; a key reads as provider / label.
      */
     status() {
         const accounts = this.accounts.map(item => {
@@ -610,9 +642,20 @@ class Accounts {
                 source: item.source.kind, plan: item.plan || "", email: item.email || "",
                 mismatch: item.identity.kind === "mismatch" };
         });
-        const brains = this.accounts.filter(item => brainRow(provider(item.provider))
-            && ["found", "signed-in", "verified"].includes(item.state.kind))
-            .map(item => ({ value: item.id, label: (provider(item.provider).label + " / " + item.label).slice(0, 60) }));
+        const resolve = this.resolver();
+        const offered = this.accounts.filter(item => ["found", "signed-in", "verified"].includes(item.state.kind)
+            && accepted(resolve(item.id)).kind === "accepted");
+        const order = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+        // Every label starts with its provider's name, so label order groups
+        // the choices by provider and orders a harness's by email.
+        const brains = offered.map(item => {
+            const row = provider(item.provider);
+            let label = row.label + " / " + item.label;
+            if (item.source.kind === "cli")
+                label = offered.filter(other => other.provider === item.provider).length === 1 ? row.label
+                    : item.email ? row.label + " / " + item.email : row.label + NO_EMAIL;
+            return { value: item.id, label: label.slice(0, 60) };
+        }).sort((left, right) => order(left.label, right.label) || order(left.value, right.value));
         return { accounts, brains, search: { found: accounts.length, partial: this.partial } };
     }
 }
