@@ -14,9 +14,11 @@
 #
 # The stop cases send TERM, INT or HUP to a fence whose command has an exit
 # trap that takes a second. The command must get the signal once, and its
-# trap must have ended when the fence returns. The terminal case runs the
-# fence from a real terminal, where a command that changes the terminal's
-# mode or reads it must not stop. A SIGKILL of the fence must end every
+# trap must have ended when the fence returns. The carry case sends INT
+# while the command waits on a foreground command that exits 0, which bash
+# carries on from, then TERM, which must end the run. The terminal case
+# runs the fence from a real terminal, where a command that changes the
+# terminal's mode or reads it must not stop. A SIGKILL of the fence must end every
 # process its command started, one in another session and one stopped
 # included. The cases that can leave a process run in a PID namespace of
 # their own that util-linux unshare makes, whose end ends what a defect
@@ -175,6 +177,16 @@ sleep 10 &
 idle=$!
 echo started >>"$log"
 wait "$idle"
+SH
+# What bash does with an INT and no trap for it: the foreground command it
+# waits on exits 0, so bash carries on. The run then idles until a TERM.
+cat >"$TMP_ROOT/carry.sh" <<'SH'
+log="$1"
+sh -c 'echo started >>"$1"; sleep 1' sh "$log"
+echo carried-on >>"$log"
+sleep 10 &
+wait "$!"
+echo idle-end >>"$log"
 SH
 # A command that changes the terminal's mode and reads a line typed into it.
 # It first records its PID namespace beside its log.
@@ -369,6 +381,34 @@ stops_once() {
   [[ $status -eq $4 && "$(<"$log")" == "started"$'\n'"$signal"$'\n'"exit-start"$'\n'"exit-end" ]]
 # The shell reports on stderr a job a signal ended; the status says it.
 } 2>/dev/null
+# int_then_term FILE: the fence runs carry.sh under bash in the namespace
+# and gets INT while the foreground command runs, then TERM once bash has
+# carried on. The TERM ends the run with bash's status for it, long before
+# the idle command would end.
+int_then_term() {
+  local file="$1" log="$TMP_ROOT/carry.log" fenced i
+  roots amd
+  : >"$log"
+  status=0
+  set -m
+  (cd -- "$TMP_ROOT/cwd" && exec env -i PATH="$TMP_ROOT/bin-real" HOME="$TMP_ROOT" "$BASH" "$file" "${at[@]}" "$BASH" "$TMP_ROOT/carry.sh" "$log") \
+    >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" &
+  set +m
+  fenced=$!
+  for ((i = 0; i < 100; i++)); do
+    [[ "$(<"$log")" != started ]] || break
+    sleep 0.05
+  done
+  kill -s INT -- "$fenced"
+  for ((i = 0; i < 100; i++)); do
+    [[ "$(<"$log")" != started$'\n'carried-on ]] || break
+    sleep 0.05
+  done
+  kill -s TERM -- "$fenced"
+  wait "$fenced" || status=$?
+  [[ $status -eq 143 && "$(<"$log")" == "started"$'\n'"carried-on" ]]
+# The shell reports on stderr a job a signal ended; the status says it.
+} 2>/dev/null
 # on_terminal FILE: the fence runs tty.sh from a real terminal, and a line
 # is typed into it. In a background group of the terminal's own session the
 # command would stop on its mode change or its read.
@@ -428,6 +468,7 @@ cases=(
   "HUP to the fence reaches the command once and its exit trap ends before the fence returns|yes|stops_once pid HUP 29"
   "TERM to the fence's process group reaches the command once|yes|stops_once group TERM 43"
   "two TERMs at once to the fence reach the command once|yes|stops_once twice TERM 43"
+  "a TERM after an INT the command carried on from ends the run|yes|int_then_term"
   "a command run from a terminal changes its mode and reads it|yes|on_terminal"
   "a host with no bubblewrap starts nothing|no|no_bwrap"
   "a namespace bubblewrap cannot make starts nothing|no|no_namespace"
@@ -537,8 +578,11 @@ controls=(
   '[[ -z $init ]] || read -r child _ 2>/dev/null <"/proc/$init/task/$init/children" || true' 'child="$init"'
   "TERM to the fence reaches the command once and its exit trap ends before the fence returns"
   "a later signal is handed on too"
-  '((forwarded++ == 0)) || return 0' ':'
+  '((forwarded[$1]++ == 0)) || return 0' ':'
   "TERM to the fence reaches the command once and its exit trap ends before the fence returns"
+  "a later signal of another kind is dropped"
+  $'declare -A forwarded=()\nforward() {\n  ((forwarded[$1]++ == 0))' $'forwarded=0\nforward() {\n  ((forwarded++ == 0))'
+  "a TERM after an INT the command carried on from ends the run"
   "the fence returns when the signal arrives"
   'while ours "$monitor"; do' 'while false; do'
   "TERM to the fence reaches the command once and its exit trap ends before the fence returns"

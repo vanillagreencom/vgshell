@@ -40,9 +40,12 @@
 # The fence stays the parent of
 # bubblewrap's monitor, which forwards no signal. The monitor runs in a
 # process group of its own and CMD in a session of its own, with no
-# controlling terminal. The first TERM, INT or HUP the fence gets goes to
-# CMD once; the fence drops the later ones, waits for CMD's own exit
-# handling to end and returns its status. A signal to every process of a
+# controlling terminal. The first TERM, the first INT and the first HUP
+# the fence gets each go to CMD once; the fence drops a repeat of a kind
+# it has sent, waits for CMD's own exit handling to end and returns its
+# status. A command that carries on after an INT, as bash does when the
+# foreground command it waits on exits 0, still ends on a later TERM.
+# A signal to every process of a
 # unit reaches CMD directly as well. bubblewrap sets no_new_privs, so a
 # setuid program gains nothing inside.
 #
@@ -296,15 +299,15 @@ ours() {
   read -r -a stat 2>/dev/null <"/proc/$1/stat" && [[ ${stat[3]-} == "$$" ]]
 }
 
-# forward SIGNAL STATUS: hand the first TERM, INT or HUP to CMD, the one
+# forward SIGNAL STATUS: hand the first SIGNAL of its kind to CMD, the one
 # child of the namespace's init, which is the monitor's one child, and drop
-# every later one, so CMD's exit handling gets one signal. A signal can run
-# this again inside a run of it, so the count is read and raised in one
-# command. Before the monitor starts nothing has, and the fence exits with
+# a repeat of that kind, so CMD's exit handling gets each kind once. A
+# signal can run this again inside a run of it, so the count is read and
+# raised in one command. Before the monitor starts nothing has, and the fence exits with
 # STATUS. Before CMD has started, the monitor's group holds what has.
-forwarded=0
+declare -A forwarded=()
 forward() {
-  ((forwarded++ == 0)) || return 0
+  ((forwarded[$1]++ == 0)) || return 0
   local monitor="${!:-}" init="" child=""
   [[ -n $monitor ]] || exit "$2"
   ours "$monitor" || return 0

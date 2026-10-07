@@ -124,7 +124,7 @@ hover_prime_keys() {
     cursor_settled || return
   fi
 }
-hover_travel_once() {
+hover_travel() {
   local i reading point x y prev="" stable=0 targets moves frames other
   other=0; [[ $1 == 0 ]] && other=1
   hover_prime_keys "$other" || return
@@ -164,32 +164,15 @@ rest = [f for f in after if abs(f[1] - final) < 0.5]
 print("%d %s" % (moved[0][0] - t0, (rest[0][0] - t0) if rest else "unrested"))
 PY
 }
-hover_travel() {
-  local attempt reading="unread"
-  for attempt in 1 2 3 4; do
-    reading="$(hover_travel_once "$1")" || return
-    [[ $reading == unselected ]] || { echo "$reading"; return; }
-  done
-  echo "$reading"
-}
 # hover_readings N: N hover_travel readings, alternating the second row and
 # the first, one per line; hover_verdict: `fast` when every reading moved
 # on its first frame and rested within the ceiling, `slow` when every
 # reading was read and one rested past it, else `unread`.
 hover_readings() {
-  local n got=0 reading last="unread" limit
-  limit=$(("$1" * 4))
-  for n in $(seq 1 "$limit"); do
-    reading="$(hover_travel "$((n % 2))")" || reading="unread"
-    if [[ $reading =~ ^[0-9]+\ [0-9]+$ ]]; then
-      printf '%s\n' "$reading"
-      got=$((got + 1))
-      [[ $got -ge $1 ]] && return
-    else
-      last="$reading"
-    fi
+  local n
+  for n in $(seq 1 "$1"); do
+    hover_travel "$((n % 2))" || echo "unread"
   done
-  printf '%s\n' "$last"
 }
 hover_verdict() {
   local readings
@@ -211,10 +194,10 @@ expect_poll "the Settings list's cursor holds a row for the hover travel" true i
 expect "the probe builds the cursor frame trace" ok ipc smoke popupLoad cursor-frames "$hover_fixture" window vgs.settings '{"host":"@instance"}'
 hover_rows="$(ipc smoke itemTexts window vgs.settings ListItem)" || hover_rows='[]'
 for hover_row in 0 1; do
-  hover_name="$(py_reply 'import json,sys; r=json.load(sys.stdin); i=int(sys.argv[1]); print(r[i][0] if len(r) > i else "")' "$hover_row" <<<"$hover_rows")" || hover_name=""
-  hover_name[$hover_row]="$hover_name"
+  hover_row_name="$(py_reply 'import json,sys; r=json.load(sys.stdin); i=int(sys.argv[1]); print(r[i][0] if len(r) > i else "")' "$hover_row" <<<"$hover_rows")" || hover_row_name=""
+  hover_name[$hover_row]="$hover_row_name"
   hover_box="$(hover_row_box "$hover_row")" || hover_box=""
-  [[ -n $hover_name && $hover_box == \[* ]] || fail "the Settings list's row $hover_row is unplaced: ${hover_name:-unread}"
+  [[ -n $hover_row_name && $hover_box == \[* ]] || fail "the Settings list's row $hover_row is unplaced: ${hover_row_name:-unread}"
 done
 if [[ -n ${hover_name[0]:-} && -n ${hover_name[1]:-} ]]; then
   hover_point="$(hover_row_point 0 0)" || hover_point=""
