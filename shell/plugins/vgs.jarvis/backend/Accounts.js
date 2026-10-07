@@ -35,8 +35,8 @@ function modelOf(value) {
 }
 function provider(id) {
     const row = PROVIDERS.find(item => item.id === id);
-    // Add key permits custom provider labels. Keep their references visible
-    // but unavailable; an unknown label must never select another driver.
+    // A saved key reference names its provider by id. One this table does
+    // not list stays visible but unavailable; it never selects a driver.
     return row || { id, label: id, kind: "unsupported" };
 }
 // A brain choice is any account but a speech-only key.

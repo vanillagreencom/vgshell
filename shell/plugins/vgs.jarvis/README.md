@@ -32,7 +32,7 @@ The Setup section at the top of the Jarvis page says Ready when Jarvis has an AI
 
 Each setup step is a button on the Jarvis page in Plugins or a row in the launcher's Jarvis group. Each opens a floating terminal.
 
-- Add key stores a new provider key in your keyring, with hidden key input. It asks for the provider, an account label and the provider's origin, such as `https://api.openai.com`, without a path.
+- Add key stores a new API key from an AI provider in your keyring, with hidden key input. You choose the provider from a list that names the page where it makes keys, then give the key a name.
 - Set up local voice lists the tiers this computer can run, with the download size of each, and recommends the first. It checks free space, downloads the models and a private runtime, and reports Ready only after verification and a bundled test clip succeed.
 - Set up browser checks an installed browser on a blank page, or offers a private download. The Browser driver row offers Install while agent-browser is missing.
 - Accounts adds a directory, chooses an existing keyring item by label or inspects login hints.
