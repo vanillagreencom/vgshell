@@ -12,6 +12,11 @@ var EXPIRED = { claude: "Open Claude Code to refresh the sign-in", copilot: "Ope
 var NO_PLAN = "Signed in with an API key, which has no plan limits";
 var STALE_NOTE = "The last check failed. These figures may be old.";
 var LIMITED_NOTE = "Claude limits how often usage can be read. The next check tries again.";
+// What the bar's tooltip adds for old figures: a failed check's, or a
+// limited read's kept figures once a window has reset since; and a limited
+// read's kept figures before that.
+var STALE_TIP = "The last check failed; figures may be old";
+var LIMITED_TIP = "These figures are from the last check";
 var GATEWAY_ACCOUNT = "ai-gateway";
 var LABEL_MAX = 60;
 // What the bar's number is under each Bar number setting, for its tooltip.
@@ -38,6 +43,12 @@ function hasFigures(row) {
     return row.windows.length > 0 || row.credits !== null || hasDetails(row.details);
 }
 
+// Whether a window of ROW's figures has reset at or before NOW, so the
+// figures no longer tell its use.
+function pastReset(row, now) {
+    return row.windows.some(function (item) { return item.resetsAt !== null && item.resetsAt !== undefined && item.resetsAt <= now; });
+}
+
 function previousOf(previous, id) {
     if (previous === null || previous === undefined) return null;
     for (var i = 0; i < previous.accounts.length; i++)
@@ -55,12 +66,13 @@ function accountCopy(row, extra) {
  * helper's output, or null for a run that failed as a whole; PREVIOUS is
  * the usage published before, or null; NOW is the time in epoch ms. Each
  * account's readAt is when its figures were read, null while it holds none.
- * A limited read, the endpoint turning away a frequent read, keeps the last
- * figures read for the account as ok with their readAt; with none, the
- * account reads limited and holds no windows. A failed read of an account,
- * or a failed run, keeps the last figures marked stale with their readAt;
- * with none, the account holds no windows. The top-level readAt is when a
- * run last answered.
+ * A limited read, the endpoint turning away a frequent read, reads limited
+ * and keeps the last figures read for the account with their readAt; with
+ * none, it holds no windows and readAt is null. A failed read of an
+ * account keeps the last figures marked stale with their readAt; with
+ * none, the account holds no windows. A failed run turns each ok account
+ * stale and leaves every other as it was, readAt included. The top-level
+ * readAt is when a run last answered.
  */
 function merge(previous, reading, now) {
     if (reading === null) {
@@ -74,7 +86,7 @@ function merge(previous, reading, now) {
     return { accounts: reading.accounts.map(function (row) {
         var last = previousOf(previous, row.id);
         if ((row.state === "failed" || row.state === "limited") && last !== null && hasFigures(last))
-            return accountCopy(row, { email: row.email || last.email, state: row.state === "limited" ? "ok" : "stale",
+            return accountCopy(row, { email: row.email || last.email, state: row.state === "limited" ? "limited" : "stale",
                 windows: copyWindows(last.windows), credits: copyCredits(last.credits), details: copyDetails(last.details),
                 readAt: last.readAt });
         return accountCopy(row, { readAt: row.state === "ok" ? now : null });
@@ -146,9 +158,12 @@ function barNumber(peaks, mode) {
  * no window is left out, never counted as 0. percent is what the bar
  * draws: used, or what is left of it under Bar shows "left"; null while no
  * window holds a share. tone is "warning" from WARNING_PERCENT of used
- * while Colour by usage is on, else "normal".
+ * while Colour by usage is on, else "normal". A limited account's kept
+ * figures count; the tooltip says they are from the last check, or that
+ * they may be old once a window has reset since NOW, in epoch ms, as it
+ * does for a failed check.
  */
-function widget(usage, settings) {
+function widget(usage, settings, now) {
     var given = settings === null || settings === undefined ? {} : settings;
     var mode = BAR_MEANING[given.barNumber] === undefined ? "most-used" : given.barNumber;
     var left = given.barShows === "left";
@@ -156,10 +171,12 @@ function widget(usage, settings) {
     var peaks = [];
     var expired = "";
     var stale = false;
+    var limited = false;
     for (var i = 0; i < accounts.length; i++) {
         var row = accounts[i];
         if (row.state === "expired" && expired === "") expired = EXPIRED[row.provider];
-        if (row.state === "stale") stale = true;
+        if (row.state === "stale" || (row.state === "limited" && pastReset(row, now))) stale = true;
+        else if (row.state === "limited" && row.windows.length > 0) limited = true;
         if (row.windows.length > 0)
             peaks.push(Math.max.apply(null, row.windows.map(function (item) { return item.usedPercent; })));
     }
@@ -168,7 +185,8 @@ function widget(usage, settings) {
     var text = percent === null ? "" : Math.round(percent) + "%";
     var tooltip = percent === null ? "No usage figures yet" : BAR_MEANING[mode] + ": " + text + (left ? " left" : " used");
     if (expired !== "") tooltip += ". " + expired;
-    else if (stale) tooltip += ". The last check failed; figures may be old";
+    else if (stale) tooltip += ". " + STALE_TIP;
+    else if (limited) tooltip += ". " + LIMITED_TIP;
     return { shown: accounts.length > 0, used: used, percent: percent,
         tone: used !== null && given.colourByUsage !== false && used >= WARNING_PERCENT ? "warning" : "normal", text: text, tooltip: tooltip };
 }
@@ -338,10 +356,11 @@ function windowRow(row, item, now) {
         reset: resetText(item.resetsAt, now) };
 }
 
-// An account read whose every window is a time window at 0 %: it has had
-// no use yet. A credit pool at 0 used still shows its allowance.
+// An account read, or kept through a limited read, whose every window is
+// a time window at 0 %: it has had no use yet. A credit pool at 0 used
+// still shows its allowance.
 function unused(row) {
-    return row.state === "ok" && row.windows.length > 0
+    return (row.state === "ok" || row.state === "limited") && row.windows.length > 0
         && row.windows.every(function (item) { return item.name !== "credits" && item.usedPercent === 0; });
 }
 
@@ -366,13 +385,13 @@ function checkedText(readAt, now) {
 // title, the provider's name; email, the account's email or the login its
 // provider gives; account, the line drawn under the title; checked, the
 // age of its figures; detail line; note, in tone "warning" for a failed or
-// old read, else "normal"; every limit, none while unused; and full-view
-// detail rows.
+// old read, a limited read's kept figures past a window's reset among them,
+// else "normal"; every limit, none while unused; and full-view detail rows.
 function panel(usage, now, settings) {
     return visibleAccounts(usage, settings).map(function (row) {
         var idle = unused(row);
         var warning = row.state === "expired" ? EXPIRED[row.provider]
-            : row.state === "stale" ? STALE_NOTE
+            : row.state === "stale" || (row.state === "limited" && pastReset(row, now)) ? STALE_NOTE
             : row.state === "failed" ? "Usage could not be read." : "";
         var note = warning !== "" ? warning
             : row.state === "limited" ? LIMITED_NOTE

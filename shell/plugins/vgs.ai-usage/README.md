@@ -20,7 +20,7 @@ Images come from `scripts/readme-shots.sh` in the nested sandbox.
 - Filters for providers and hidden accounts.
 - The bar item stays hidden until you sign in to one of the visible tools. A click opens the panel.
 - When a check fails, the panel keeps the last figures and says that they may be old.
-- Each card shows how long ago its figures were read. When Claude limits how often usage can be read, the card keeps the last figures and the next check tries again.
+- Each card shows how long ago its figures were read. When Claude limits how often usage can be read, the card keeps the last figures and says so, and the next check tries again. After a limit resets, the card says that the kept figures may be old.
 - AI Usage never changes a tool's sign-in.
 
 ## Settings
