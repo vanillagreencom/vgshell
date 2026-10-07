@@ -1,6 +1,6 @@
 /**
  * @name vgs
- * @description The vgs theme, kept up to date by vgshell theme apply. Built on refact0r's midnight, which draws Discord from the colours below.
+ * @description The VGS theme uses the colours you select in Themes.
  * @author vgs
  * @version 1.0.0
  * @source https://github.com/refact0r/midnight-discord
@@ -37,12 +37,12 @@
     --accent-3: #@{palette.accent};
     --accent-4: #@{color.accentHover};
     --accent-5: #@{color.accentPressed};
-    --accent-new: #@{palette.danger};
+    --accent-new: #@{color.danger};
 
     /* status */
-    --online: #@{palette.success};
-    --dnd: #@{palette.danger};
-    --idle: #@{palette.warning};
+    --online: #@{color.success};
+    --dnd: #@{color.danger};
+    --idle: #@{color.warning};
     --streaming: #@{terminal.color5};
     --offline: #@{color.textFaint};
 
@@ -53,26 +53,26 @@
     --button-border: #@{color.border};
 
     /* the hues midnight derives the rest from */
-    --red-1: #@{terminal.color9};
-    --red-2: #@{palette.danger};
-    --red-3: #@{palette.danger};
-    --red-4: #@{palette.danger};
-    --red-5: #@{palette.danger};
-    --green-1: #@{terminal.color10};
-    --green-2: #@{palette.success};
-    --green-3: #@{palette.success};
-    --green-4: #@{palette.success};
-    --green-5: #@{palette.success};
-    --blue-1: #@{terminal.color12};
-    --blue-2: #@{palette.info};
-    --blue-3: #@{palette.info};
-    --blue-4: #@{palette.info};
-    --blue-5: #@{palette.info};
-    --yellow-1: #@{terminal.color11};
-    --yellow-2: #@{palette.warning};
-    --yellow-3: #@{palette.warning};
-    --yellow-4: #@{palette.warning};
-    --yellow-5: #@{palette.warning};
+    --red-1: #@{color.danger};
+    --red-2: #@{color.danger};
+    --red-3: #@{color.danger};
+    --red-4: #@{color.danger};
+    --red-5: #@{color.danger};
+    --green-1: #@{color.success};
+    --green-2: #@{color.success};
+    --green-3: #@{color.success};
+    --green-4: #@{color.success};
+    --green-5: #@{color.success};
+    --blue-1: #@{color.info};
+    --blue-2: #@{color.info};
+    --blue-3: #@{color.info};
+    --blue-4: #@{color.info};
+    --blue-5: #@{color.info};
+    --yellow-1: #@{color.warning};
+    --yellow-2: #@{color.warning};
+    --yellow-3: #@{color.warning};
+    --yellow-4: #@{color.warning};
+    --yellow-5: #@{color.warning};
     --purple-1: #@{terminal.color13};
     --purple-2: #@{terminal.color5};
     --purple-3: #@{terminal.color5};

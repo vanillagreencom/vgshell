@@ -635,6 +635,104 @@ function verify(render) {
 }
 verify(require(rendererFile));
 
+// Status text must use the judged roles even when a package's raw palette
+// and ANSI slots are unreadable. These are the fields shipped apps consume.
+const STATUS_RESTING_SURFACES = ["background", "surface", "surfaceRaised", "surfaceSunken"];
+const DISCORD_STATUS_FIELDS = [
+    ["--accent-new", "danger"],
+    ...[["red", "danger"], ["green", "success"], ["blue", "info"], ["yellow", "warning"]]
+        .flatMap(([hue, role]) => Array.from({ length: 5 }, (_, i) => [`--${hue}-${i + 1}`, role]))
+];
+const STATUS_TARGETS = [
+    { name: "obsidian", file: "obsidian.css", format: "css", surfaces: STATUS_RESTING_SURFACES, fields: [
+        ["--text-error", "danger"], ["--text-warning", "warning"], ["--text-success", "success"],
+        ["--link-external-color", "info"], ["--link-external-color-hover", "info"]
+    ] },
+    { name: "oh-my-posh", file: "oh-my-posh.json", format: "json", surfaces: ["background"], fields: [
+        ["danger", "danger"], ["success", "success"], ["warning", "warning"], ["info", "info"]
+    ] },
+    { name: "btop", file: "btop.theme", format: "btop", surfaces: ["background"], fields: [["proc_misc", "info"]] },
+    { name: "hermes", file: "hermes.yaml", format: "yaml", surfaces: ["surfaceRaised"], fields: [["status_bar_critical", "danger"]] },
+    ...["omp", "pi"].map(name => ({ name, file: `${name}.json`, format: "json", surfaces: ["surface"], fields: [["customMessageText", "warning"]] })),
+    ...["vencord", "vesktop", "equibop"].map(name => ({ name, file: `${name}.css`, format: "css", surfaces: STATUS_RESTING_SURFACES,
+        fields: DISCORD_STATUS_FIELDS, marks: [["--online", "success"], ["--dnd", "danger"], ["--idle", "warning"]] }))
+];
+
+function statusFields(text, format) {
+    if (format === "json") {
+        const doc = JSON.parse(text);
+        return new Map(Object.entries(doc.colors || doc.palette));
+    }
+    const pattern = {
+        css: /^\s*(--[\w-]+):\s*(#[\da-f]{6});\s*$/gm,
+        yaml: /^\s*(\w+):\s*"(#[\da-f]{6})"\s*$/gm,
+        btop: /^theme\[(\w+)\]="(#[\da-f]{6})"\s*$/gm
+    }[format];
+    assert.ok(pattern, format);
+    const fields = new Map();
+    for (const [, name, color] of text.matchAll(pattern)) {
+        assert.equal(fields.has(name), false, `duplicate status field ${name}`);
+        fields.set(name, color);
+    }
+    return fields;
+}
+
+function statusTemplatePairs(render, pkg, changeTemplate = text => text) {
+    const pairs = [];
+    for (const row of STATUS_TARGETS) {
+        const dir = path.join(repo, "themes", "targets", row.name);
+        const accepted = render.acceptTarget(logic, row.name, fs.readFileSync(path.join(dir, "target.json"), "utf8"));
+        assert.equal(accepted.ok, true);
+        const templates = new Map(accepted.target.files.map(file => [file.template,
+            changeTemplate(fs.readFileSync(path.join(dir, file.template), "utf8"), row.name, file.template)]));
+        const result = render.renderTarget(logic, TOKENS, accepted.target, templates,
+            { values: pkg.values, slots: render.terminalSource(pkg, defaults).terminal, curated: new Map(), installed: false });
+        assert.equal(result.ok, true);
+        const text = result.files.find(file => file.destination === row.file).bytes.toString("utf8");
+        const fields = statusFields(text, row.format);
+        for (const [rows, surfaces, floor] of [[row.fields, row.surfaces, 4.5], [row.marks || [], ["background"], 3]]) {
+            for (const [field, role] of rows) {
+                const color = logic.parseColor(fields.get(field));
+                assert.notEqual(color, null, `${row.name} ${field}`);
+                for (const surface of surfaces) {
+                    const background = pkg.values.color[surface];
+                    const ratio = logic.contrastRatio(color, logic.parseColor(background));
+                    assert.ok(ratio >= floor, `${row.name} ${field} on ${surface}: contrast ${ratio} < ${floor}`);
+                    pairs.push({ target: row.name, field, role, foreground: fields.get(field), surface, background, ratio, floor });
+                }
+                assert.deepEqual(color, logic.parseColor(pkg.values.color[role]), `${row.name} ${field} role`);
+            }
+        }
+    }
+    return pairs;
+}
+// End status template contract.
+
+let statusPairs = 0;
+for (const [mode, background, foreground, colors] of [
+    ["dark", "#000000", "#ffffff", { danger: "#f08080", success: "#90ee90", warning: "#ffff00", info: "#87cefa" }],
+    ["light", "#ffffff", "#000000", { danger: "#900000", success: "#004400", warning: "#665500", info: "#000099" }]
+]) {
+    const pkg = logic.acceptPackage(TOKENS, {
+        directoryName: "status",
+        themeJson: JSON.stringify({ schemaVersion: 1, name: "status", tokens: {
+            scheme: { mode }, palette: { background, foreground, danger: background, success: background, warning: background, info: background }, color: colors
+        } }),
+        terminalJson: slotsJson(() => background), shipped: false
+    });
+    assert.equal(pkg.ok, true);
+    statusPairs += statusTemplatePairs(require(rendererFile), pkg).length;
+    // Restore the old source mapping in an in-memory template copy. Only
+    // the contrast assertion can fail here: rendering still succeeds.
+    assert.throws(() => statusTemplatePairs(require(rendererFile), pkg, (text, target, file) => {
+        if (target !== "obsidian" || file !== "obsidian.css") return text;
+        const needle = "--text-error: #@{color.danger};";
+        assert.equal(text.split(needle).length, 2);
+        return text.replace(needle, "--text-error: #@{palette.danger};");
+    }), error => error.code === "ERR_ASSERTION" && error.actual === false && error.expected === true);
+}
+console.log(`test-theme-render: status-pairs=${statusPairs} modes=dark,light controls=2`);
+
 // Each control removes one rule's behaviour from a copy of the renderer and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [

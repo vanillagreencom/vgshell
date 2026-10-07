@@ -19,9 +19,9 @@
     --text-accent: #@{palette.accent};
     --text-accent-hover: #@{color.accentHover};
     --text-selection: #@{color.borderStrong};
-    --text-error: #@{palette.danger};
-    --text-warning: #@{palette.warning};
-    --text-success: #@{palette.success};
+    --text-error: #@{color.danger};
+    --text-warning: #@{color.warning};
+    --text-success: #@{color.success};
 
     --interactive-normal: #@{color.surfaceRaised};
     --interactive-hover: #@{color.surfaceHover};
@@ -37,8 +37,8 @@
 
     --link-color: #@{palette.accent};
     --link-color-hover: #@{color.accentHover};
-    --link-external-color: #@{palette.info};
-    --link-external-color-hover: #@{palette.info};
+    --link-external-color: #@{color.info};
+    --link-external-color-hover: #@{color.info};
 
     --code-normal: #@{terminal.color6};
     --code-comment: #@{color.textFaint};

@@ -16,7 +16,7 @@
     "userMessageBg": "#@{color.surfaceRaised}",
     "userMessageText": "#@{color.text}",
     "customMessageBg": "#@{color.surface}",
-    "customMessageText": "#@{terminal.color3}",
+    "customMessageText": "#@{color.warning}",
     "customMessageLabel": "#@{color.accent}",
     "toolPendingBg": "#@{color.surface}",
     "toolSuccessBg": "#@{color.surface}",

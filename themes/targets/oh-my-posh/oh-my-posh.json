@@ -8,10 +8,10 @@
     "accent": "#@{palette.accent}",
     "muted": "#@{color.textMuted}",
     "faint": "#@{color.textFaint}",
-    "success": "#@{palette.success}",
-    "warning": "#@{palette.warning}",
-    "danger": "#@{palette.danger}",
-    "info": "#@{palette.info}"
+    "success": "#@{color.success}",
+    "warning": "#@{color.warning}",
+    "danger": "#@{color.danger}",
+    "info": "#@{color.info}"
   },
   "blocks": [
     {

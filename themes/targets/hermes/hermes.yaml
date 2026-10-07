@@ -22,7 +22,7 @@ colors:
   status_bar_good: "#@{color.success}"
   status_bar_warn: "#@{color.warning}"
   status_bar_bad: "#@{color.danger}"
-  status_bar_critical: "#@{terminal.color9}"
+  status_bar_critical: "#@{color.danger}"
   session_label: "#@{color.textMuted}"
   session_border: "#@{color.borderSubtle}"
   voice_status_bg: "#@{color.surfaceRaised}"
