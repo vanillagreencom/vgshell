@@ -350,7 +350,7 @@ else:
     lines=p.read_text().split("\n")[:-1]
     seen=any(d.get("type")=="status" and d.get("daemon")=="ready" for d in map(json.loads, lines))
     print("seen" if seen else "pending")
-' "$jarvis_seen" </dev/null
+' "$jarvis_seen" <<<'{}'
 }
 
 jarvis_permanent() {
@@ -371,6 +371,11 @@ jarvis_lock_case() { # real | control
   rm -f -- "$jarvis_gate" "$jarvis_seen"
   expect "the test-only holder unlocks before startup" ok probe unlock
   expect "the gated Jarvis service enables" ok ipc shell setPluginEnabled vgs.jarvis true
+  # Each startup reader sends hello on completion. Finish those sends
+  # before locking, so none can repair the control with a locked snapshot.
+  expect_poll "the startup key reader is idle before locking" idle jarvis_setup_reader_idle Keys
+  expect_poll "the startup local voice reader is idle before locking" idle jarvis_setup_reader_idle LocalRuntime
+  expect_poll "the startup account reader is idle before locking" idle jarvis_accounts_reader_idle
   expect_poll "the daemon has queued its unlocked hello answer" seen jarvis_seen_hello
   expect "the real test-only holder locks during startup" ok probe lock
   expect_poll "the compositor confirms the fixture lock" true read_service lockSecure
