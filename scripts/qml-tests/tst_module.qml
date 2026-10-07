@@ -3,7 +3,7 @@ import QtTest
 import qs.Ui
 import qs.Unit
 
-// Every component qs.Ui lists loads and instantiates with its defaults, so
+// Every offscreen component qs.Ui lists loads and instantiates with its defaults, so
 // a component with a broken binding names itself here before any other
 // test reaches it. The list comes from the module's qmldir, read from the
 // module under test, never from a second list.
@@ -35,6 +35,10 @@ Item {
             for (const entry of listed) {
                 if (entry.file.endsWith(".js")) continue;
                 if (entry.name === "BarWidget") continue;
+                // ModalDialog needs real Wayland and qs.Hosts. The Displays
+                // smoke row builds it, checks modality, centering and focus,
+                // breaks modality and centering, and verifies destruction.
+                if (entry.name === "ModalDialog") continue;
                 const source = "import QtQuick\nimport qs.Ui\n" + entry.name + " { " + (bare[entry.name] || "") + " }";
                 let item = null;
                 try {
