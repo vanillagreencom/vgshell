@@ -196,6 +196,9 @@ while [[ \$# -gt 0 ]]; do
 done
 [[ -n \$out ]] || { echo "sandbox-shots stand-in: no --out" >&2; exit 3; }
 mkdir -p -- "\$out"
+# Each fixture call writes one run, even when its second-resolution path
+# was used by the preceding call.
+rm -f -- "\${out:?}"/*
 [[ ! -e "$stand_in_empty" ]] || exit "\$(cat -- "$stand_in_status")"
 cp -- "$run_dir"/* "\$out"/
 if [[ \$(cat -- "$stand_in_status") == 77 ]]; then
