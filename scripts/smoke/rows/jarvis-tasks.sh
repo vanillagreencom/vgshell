@@ -113,7 +113,7 @@ task_scenario
 jarvis_disable
 
 task_controls=(
-  "forward|onTaskTuiRunningChanged: sendTuiState()|onTaskTuiRunningChanged: {}|the service forwards the running task TUI"
+  "forward|send({ type: \"tui-state\", name: \"task\", running: taskTuiRunning });|if (!taskTuiRunning) send({ type: \"tui-state\", name: \"task\", running: taskTuiRunning });|the service forwards the running task TUI"
   "argv|shell.tui.run(\"task\", args, () => {|shell.tui.run(\"task\", [], () => {|the core runs the task TUI with the spec path alone"
   "count|const reply = shell.status.set(\"tasks\", message.count);|const reply = \"ok\";|the daemon's live task count reaches the status"
   "intent|        send(fields);

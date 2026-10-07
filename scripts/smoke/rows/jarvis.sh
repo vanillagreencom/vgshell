@@ -531,9 +531,10 @@ python3 - "$jarvis_service" <<'PYCONTROL'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]); source=p.read_text()
-needle='onRequirementsRevisionChanged: refreshShell()'
+# Keep the initial observation but block later scans from every caller.
+needle='|| requirementsRevision <= sentRequirementsRevision) return;'
 assert source.count(needle)==1
-changed=source.replace(needle, 'onRequirementsRevisionChanged: { if (false) refreshShell(); }')
+changed=source.replace(needle, '|| sentRequirementsRevision >= 0 || requirementsRevision <= sentRequirementsRevision) return;')
 assert changed != source
 p.write_text(changed)
 PYCONTROL
@@ -541,7 +542,7 @@ jarvis_shell_put '{"kind":"unavailable","reason":"bwrap-missing"}'
 jarvis_rescan
 jarvis_enable
 expect_poll "the control reaches initial missing readiness" matched jarvis_shell_offers unavailable
-expect "removing requirement rescan delivery breaks recovery" 2 jarvis_shell_rescan_assertion
+expect "removing later requirement scan delivery breaks recovery" 2 jarvis_shell_rescan_assertion
 jarvis_disable
 cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
 cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
