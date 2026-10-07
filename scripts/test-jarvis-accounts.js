@@ -533,8 +533,8 @@ world(async () => {
     await codexEmails(Accounts);
     for (const [file, name, needle, replacement] of [
         ["backend/Accounts.js", "email-kept", "            item.email = email;\n", ""],
-        ["backend/CodexAppServer.js", "refresh-token", "{ refreshToken: false }", "{ refreshToken: true }"],
-        ["backend/CodexHarness.js", "email-deadline", '"jarvis: brain=codex-email-deadline")), deadlineMs);', '"jarvis: brain=codex-email-deadline")), 60000);']]) {
+        ["bin/lib/codex-account.js", "refresh-token", "{ refreshToken: false }", "{ refreshToken: true }"],
+        ["backend/Accounts.js", "email-deadline", "deadlineMs: deadlineMs ?? EMAIL_MS,", "deadlineMs: 60000,"]]) {
         await mutant(file, name, needle, replacement, folder => codexEmails(judgeIn(folder)));
         mode("codex-app", "chatgpt");
         controls++;

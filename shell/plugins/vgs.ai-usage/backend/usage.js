@@ -37,7 +37,6 @@ const CODEX_MS = 20000;
 const SECRET_TOOL_MS = 5000;
 // The largest credential file and reply read; a larger one is refused.
 const MAX_BYTES = 64 * 1024;
-const MAX_LINE_BYTES = 1024 * 1024;
 // The largest Claude Code profile (.claude.json) read for the account's
 // email. Claude Code keeps per-project history in it, so it grows with use:
 // 147,884 bytes on the owner's ~/.nclaude/.claude.json (stat, 2026-10-06). A
@@ -284,14 +283,12 @@ async function readClaude(Anchored, directory, { origin = ORIGIN, now = Date.now
 
 /**
  * The Codex account in DIRECTORY: nothing runs unless its auth.json is
- * there; then `codex app-server` with CODEX_HOME set to it, asked over
- * JSON-RPC on stdio for `initialize`, the `initialized` notification,
- * `account/read` and `account/rateLimits/read` (codex-rs/app-server/README.md
- * and codex-rs/app-server-protocol/src/protocol/v2/account.rs). The program
- * is killed at the deadline and once both answers are in; setpriv kills it
- * when this process dies first.
+ * there; then the core's Codex account reader CODEX (bin/lib/codex-account.js)
+ * reads the account and, for a ChatGPT sign-in, `account/rateLimits/read`
+ * (codex-rs/app-server-protocol/src/protocol/v2/account.rs), killing the
+ * program at the deadline and once both answers are in.
  */
-async function readCodex(Anchored, directory, { command = "codex", deadlineMs = CODEX_MS, env = process.env } = {}) {
+async function readCodex(Anchored, Codex, directory, { command = "codex", deadlineMs = CODEX_MS, env = process.env } = {}) {
     const opened = Anchored.directory(directory);
     if (opened.kind === "absent") return { state: "signed-out" };
     if (opened.kind !== "directory") return failed("directory-" + opened.kind);
@@ -303,67 +300,26 @@ async function readCodex(Anchored, directory, { command = "codex", deadlineMs = 
     finally { fs.closeSync(opened.fd); }
     if (marker === "absent") return { state: "signed-out" };
     if (marker === "refused") return failed("marker");
-    const child = cp.spawn("setpriv", ["--pdeathsig", "KILL", "--", command, "app-server"], {
-        cwd: env.HOME, stdio: ["pipe", "pipe", "ignore"],
-        env: { PATH: env.PATH || "/usr/bin:/bin", HOME: env.HOME, LANG: "C.UTF-8", CODEX_HOME: directory }
-    });
-    children.add(child);
-    return new Promise(resolve => {
-        let done = false;
-        let account = null;
-        let tail = "";
+    try {
+        const { value } = await Codex.read({ directory, command, deadlineMs, cwd: env.HOME, children, clientInfo: { ...CLIENT },
+            env: { PATH: env.PATH || "/usr/bin:/bin", HOME: env.HOME, LANG: "C.UTF-8" } }, async (account, call) => {
+            if (account.kind === "signed-out") return { state: "signed-out" };
+            // Only a ChatGPT sign-in has plan limits; Codex refuses the
+            // rate-limit read for any other, an API key among them
+            // (codex-rs/app-server/src/request_processors/account_processor.rs).
+            if (account.kind !== "chatgpt") return { state: "no-plan" };
+            const read = codexWindows(await call("account/rateLimits/read"));
+            if (read === null) return { ...failed("codex-shape"), email: account.email };
+            return { state: "ok", email: account.email, windows: read.windows, details: read.details };
+        });
+        return value;
+    } catch (error) {
+        if (error.reason === undefined) throw error;
         // A read that fails once account/read named the account keeps its
         // email, so the card still says whose it is.
-        const finish = value => {
-            if (done) return;
-            done = true;
-            clearTimeout(timer);
-            child.stdin.destroy();
-            child.kill("SIGKILL");
-            resolve(account !== null && value.state === "failed" ? { ...value, email: account.email } : value);
-        };
-        const send = message => child.stdin.write(JSON.stringify(message) + "\n");
-        const timer = setTimeout(() => finish(failed("codex-deadline")), deadlineMs);
-        child.on("error", error => finish(failed(error.code === "ENOENT" ? "setpriv-missing" : "codex-start")));
-        child.on("exit", () => { children.delete(child); finish(failed("codex-exited")); });
-        child.stdin.on("error", () => finish(failed("codex-exited")));
-        const receive = line => {
-            let message;
-            try { message = JSON.parse(line); } catch { return finish(failed("codex-line")); }
-            if (!plain(message) || ![1, 2, 3].includes(message.id) || message.method !== undefined) return;
-            if (message.error !== undefined || !plain(message.result)) return finish(failed("codex-error"));
-            if (message.id === 1) {
-                send({ method: "initialized" });
-                send({ id: 2, method: "account/read", params: { refreshToken: false } });
-            } else if (message.id === 2) {
-                const value = message.result.account;
-                if (value === null || value === undefined) return finish({ state: "signed-out" });
-                if (!plain(value)) return finish(failed("codex-account"));
-                // account is { type: "chatgpt", email, planType } or
-                // { type: "apiKey" }. Only a ChatGPT sign-in has plan limits;
-                // Codex refuses the rate-limit read for any other
-                // (codex-rs/app-server/src/request_processors/account_processor.rs).
-                if (value.type !== "chatgpt") return finish({ state: "no-plan" });
-                account = { email: printable(value.email, 120) ? value.email : "" };
-                send({ id: 3, method: "account/rateLimits/read" });
-            } else {
-                const read = codexWindows(message.result);
-                if (read === null) return finish(failed("codex-shape"));
-                finish({ state: "ok", email: account.email, windows: read.windows, details: read.details });
-            }
-        };
-        child.stdout.on("data", chunk => {
-            tail += chunk.toString("utf8");
-            if (tail.length > MAX_LINE_BYTES) return finish(failed("codex-line-size"));
-            let at;
-            while (!done && (at = tail.indexOf("\n")) >= 0) {
-                const line = tail.slice(0, at);
-                tail = tail.slice(at + 1);
-                if (line.trim() !== "") receive(line);
-            }
-        });
-        send({ id: 1, method: "initialize", params: { clientInfo: { ...CLIENT } } });
-    });
+        const value = failed(error.reason);
+        return error.account !== null && error.account.kind === "chatgpt" ? { ...value, email: error.account.email } : value;
+    }
 }
 
 function uncommentJson(text) {
@@ -548,6 +504,7 @@ process.on("exit", () => { for (const child of children) child.kill("SIGKILL"); 
  */
 async function read(tree, env, { origin = ORIGIN, copilotOrigin = COPILOT_ORIGIN, gatewayOrigin = GATEWAY_ORIGIN, secretTool = "secret-tool", gateway = false } = {}) {
     const Anchored = require(path.join(tree, "bin/lib/anchored.js"));
+    const Codex = require(path.join(tree, "bin/lib/codex-account.js"));
     const { accountFolders } = require(path.join(tree, "bin/lib/account-folders.js"));
     const home = env.HOME;
     const found = accountFolders({ home, config: env.XDG_CONFIG_HOME || path.join(home, ".config"),
@@ -565,7 +522,7 @@ async function read(tree, env, { origin = ORIGIN, copilotOrigin = COPILOT_ORIGIN
         const result = folder.provider === "claude" ? await readClaude(Anchored, folder.directory,
             { origin, profile: folder.source === "default" ? home : folder.directory })
             : folder.provider === "copilot" ? await readCopilot(Anchored, folder.directory, { origin: copilotOrigin, secretTool, env })
-            : await readCodex(Anchored, folder.directory, { env });
+            : await readCodex(Anchored, Codex, folder.directory, { env });
         const id = folder.provider + "-" + crypto.createHash("sha256").update(folder.directory).digest("hex").slice(0, 12);
         if (result.state === "failed") process.stderr.write("ai-usage: account=" + id + " failed=" + result.reason + "\n");
         if (result.state === "limited") process.stderr.write("ai-usage: account=" + id + " limited=http-429\n");

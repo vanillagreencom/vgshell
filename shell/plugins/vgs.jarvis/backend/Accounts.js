@@ -20,6 +20,12 @@ const MAX_BYTES = 64 * 1024;
 const PROBE_TEXT = "Reply OK.";
 // Every Verify route's bound on a stalled provider or program, not a latency budget.
 const PROBE_MS = 30000;
+// One Codex account read: a bound on a stalled program, not a latency
+// budget. AI usage bounds its read, which adds a rate-limit request, at
+// 20000 ms.
+const EMAIL_MS = 10000;
+// Who asks in the account read's initialize.
+const CLIENT = Object.freeze({ name: "vgs-jarvis", title: "VGS Jarvis", version: "1" });
 // The harness probe's whole system prompt, so the probe stays one short turn.
 const HARNESS_INSTRUCTIONS = "Answer in one word.";
 
@@ -294,8 +300,8 @@ class Accounts {
 
     /**
      * The sign-in email of each signed-in Codex account, which its login
-     * status does not name, read from its own program as AI Usage reads it
-     * (CodexHarness.email): one program per account, all at once, each
+     * status does not name, read by the core's Codex account reader, which
+     * AI usage reads with too: one program per account, all at once, each
      * bounded. A failed or late read leaves "", which the list words as no
      * email found; its cause stays out of the helper's keyed diagnostics.
      */
@@ -303,8 +309,14 @@ class Accounts {
         await Promise.all(this.accounts.filter(item => item.provider === "codex" && item.source.kind === "cli"
             && item.state.kind === "signed-in").map(async item => {
             let email = "";
-            try { email = await CodexHarness.email({ directory: item.source.directory, env: this.env, cwd: this.home, deadlineMs }); }
-            catch { email = ""; }
+            try {
+                const { account } = await Core.codexAccount().read({ directory: item.source.directory, env: this.env, cwd: this.home,
+                    deadlineMs: deadlineMs ?? EMAIL_MS, clientInfo: { ...CLIENT } });
+                email = account.kind === "chatgpt" ? account.email : "";
+            } catch (error) {
+                if (error.reason === undefined) throw error;
+                email = "";
+            }
             item.email = email;
             item.identity = identityOf(item.label, email);
         }));

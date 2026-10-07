@@ -388,12 +388,14 @@ async function main() {
     const signed = codexAccount(path.join(codexHome, ".codex"));
     const noAuth = path.join(codexHome, ".codex-empty");
     fs.mkdirSync(noAuth, { recursive: true });
-    const codexCases = async folder => {
+    // CODEX_FILE is the core's Codex account reader, or a disposable copy.
+    const codexCases = async (folder, codexFile = path.join(tree, "bin/lib/codex-account.js")) => {
         const { readCodex } = usageIn(folder);
+        const Codex = require(codexFile);
         const env = { PATH, HOME: codexHome };
         const readOf = (word, options = {}) => {
             write(path.join(signed, "stand-in-mode"), word + "\n");
-            return readCodex(Anchored, signed, { command: codex, env, ...options });
+            return readCodex(Anchored, Codex, signed, { command: codex, env, ...options });
         };
         const started = calls(signed).length;
         assert.deepEqual(await readOf("ok"), { state: "ok", email: "person@example.invalid", windows: [
@@ -411,16 +413,16 @@ async function main() {
             "an API-key sign-in asks for no limits");
         assert.deepEqual(await readOf("hang", { deadlineMs: 1500 }), { state: "failed", reason: "codex-deadline", email: "person@example.invalid" });
         assert.equal(await ended(calls(signed).slice(started).map(call => call.pid)), true, "every program ended");
-        assert.deepEqual(await readCodex(Anchored, noAuth, { command: codex, env }), { state: "signed-out" });
+        assert.deepEqual(await readCodex(Anchored, Codex, noAuth, { command: codex, env }), { state: "signed-out" });
         assert.equal(calls(noAuth).length, 0, "nothing runs for a folder with no sign-in");
     };
     await codexCases(plugin);
     cases++;
-    await control("deadline-kept", "backend/usage.js", '            child.stdin.destroy();\n            child.kill("SIGKILL");\n',
-        '            child.stdin.destroy();\n', codexCases);
+    await fileControl("deadline-kept", path.join(tree, "bin/lib/codex-account.js"), '            child.stdin.destroy();\n            child.kill("SIGKILL");\n',
+        '            child.stdin.destroy();\n', copy => codexCases(plugin, copy));
     await control("codex-failure-unnamed", "backend/usage.js",
-        'resolve(account !== null && value.state === "failed" ? { ...value, email: account.email } : value);', "resolve(value);", codexCases);
-    await control("api-key-limits", "backend/usage.js", '                if (value.type !== "chatgpt") return finish({ state: "no-plan" });\n', "", codexCases);
+        'return error.account !== null && error.account.kind === "chatgpt" ? { ...value, email: error.account.email } : value;', "return value;", codexCases);
+    await control("api-key-limits", "backend/usage.js", '            if (account.kind !== "chatgpt") return { state: "no-plan" };\n', "", codexCases);
     for (const call of calls(signed)) if (alive(call.pid)) process.kill(call.pid, "SIGKILL");
 
     // Copilot through a fixture config, the stand-in keyring and the

@@ -48,7 +48,7 @@ else {console.log(JSON.stringify({loggedIn:false}));process.exit(1);}
 // app-server answers initialize and account/read without a token refresh,
 // as codex-rs/app-server-protocol v2 account.rs shapes them. The account's
 // email is CODEX_HOME's fixture-email file, else codex@example.invalid.
-if(JSON.stringify(args)===JSON.stringify(["app-server","--listen","stdio://"])){
+if(JSON.stringify(args)===JSON.stringify(["app-server"])){
     record("app-calls");
     const appMode=mode("codex-app-mode","chatgpt");
     if(appMode==="exit") process.exit(3);
