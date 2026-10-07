@@ -322,14 +322,15 @@ function unread() {
 }
 
 // The bar icon for the published `vpn` value, null before the first
-// write: hidden while Tailscale is not installed.
+// write. Saved profiles can keep the icon visible without Tailscale.
 function barView(vpn, profiles) {
-    if (isPlain(profiles) && profiles.state === "available" && (!isPlain(vpn) || vpn.state === "missing")) {
-        const active = profiles.rows.some(row => row.active);
-        return { shown: true, icon: active ? "shield-check" : "shield-off", tooltip: active ? "VPN connected" : "VPN" };
+    if (isPlain(vpn) && vpn.state === "running")
+        return { shown: true, icon: vpn.exit === null ? "shield-check" : "globe-lock", tooltip: vpn.text };
+    if (isPlain(profiles) && profiles.state === "available") {
+        if (profiles.activeCount > 0) return { shown: true, icon: "shield-check", tooltip: "VPN connected" };
+        if (!isPlain(vpn) || vpn.state === "missing") return { shown: true, icon: "shield-off", tooltip: "VPN" };
     }
     if (!isPlain(vpn) || vpn.state === "missing") return { shown: false, icon: "shield-off", tooltip: "VPN" };
-    if (vpn.state === "running") return { shown: true, icon: vpn.exit === null ? "shield-check" : "globe-lock", tooltip: vpn.text };
     return { shown: true, icon: vpn.tone === "warning" ? "shield-alert" : "shield-off", tooltip: vpn.text };
 }
 
@@ -355,22 +356,29 @@ function statusWrites(connectionLine, setupLine, vpnValue, profileValue) {
 }
 
 var PROFILE_MAX = 32;
-function emptyProfiles() { return { state: "unavailable", rows: [], count: 0 }; }
+function emptyProfiles() { return { state: "unavailable", rows: [], count: 0, activeCount: 0 }; }
 
 // nmcli's documented terse table is escaped, including the connection id.
 // https://networkmanager.dev/docs/api/latest/nmcli.html
 function profiles(code, text) {
     if (code !== 0) return emptyProfiles();
     const rows = [];
+    const names = Object.create(null);
     for (const raw of String(text).split(/\r?\n/)) {
         if (raw === "") continue;
         const fields = Commons.Nmcli.fields(raw);
         if (fields === null || fields.length !== 3) return emptyProfiles();
+        names[fields[0]] = (names[fields[0]] || 0) + 1;
         if (fields[1] !== "vpn" && fields[1] !== "wireguard") continue;
         if (fields[0] === "" || fields[0].length > TARGET_MAX) continue;
         rows.push({ id: fields[0], name: line(fields[0]), type: fields[1], active: fields[2] === "activated" });
     }
-    return { state: "available", rows: rows.slice(0, PROFILE_MAX), count: rows.length };
+    // nmcli resolves id against every connection type, including rows the
+    // view does not retain. The bar's active fact must survive both bounds.
+    const activeCount = rows.filter(row => row.active).length;
+    const retained = rows.slice(0, PROFILE_MAX);
+    for (const row of retained) row.ambiguous = names[row.id] > 1;
+    return { state: "available", rows: retained, count: rows.length, activeCount: activeCount };
 }
 
 function profileCommand(request, data) {
@@ -381,6 +389,7 @@ function profileCommand(request, data) {
     if (matches.length > 1) return { refusal: "refused: profile=ambiguous" };
     const row = matches[0];
     if (row === undefined) return { refusal: "refused: profile=absent" };
+    if (row.ambiguous) return { refusal: "refused: profile=ambiguous" };
     if ((request.kind === "profile-down") !== row.active) return { refusal: "refused: profile=state" };
     return { argv: ["nmcli", "connection", request.kind === "profile-up" ? "up" : "down", "id", row.id] };
 }

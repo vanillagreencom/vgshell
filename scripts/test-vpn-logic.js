@@ -187,9 +187,9 @@ function suite(logic, service = serviceSource) {
 
     const profiles = plain(logic.profiles(0, "Office\\:west\\\\desk:vpn:\nHome tunnel:wireguard:activated\nWifi:wifi:activated\n"));
     assert.deepEqual(profiles, { state: "available", rows: [
-        { id: "Office:west\\desk", name: "Office:west\\desk", type: "vpn", active: false },
-        { id: "Home tunnel", name: "Home tunnel", type: "wireguard", active: true }
-    ], count: 2 });
+        { id: "Office:west\\desk", name: "Office:west\\desk", type: "vpn", active: false, ambiguous: false },
+        { id: "Home tunnel", name: "Home tunnel", type: "wireguard", active: true, ambiguous: false }
+    ], count: 2, activeCount: 1 });
     for (const [code, output, state] of [[0, "", "available"], [10, "x:vpn:", "unavailable"],
         [0, "bad:vpn", "unavailable"], [0, "bad:vpn:ending\\", "unavailable"]])
         assert.equal(logic.profiles(code, output).state, state);
@@ -205,6 +205,53 @@ function suite(logic, service = serviceSource) {
     assert.equal(logic.barView({ state: "missing" }, profiles).icon, "shield-check");
     assert.equal(logic.barView({ state: "missing" }, logic.profiles(0, "")).icon, "shield-off");
     assert.equal(logic.barView({ state: "missing" }, logic.emptyProfiles()).shown, false);
+    // Names resolve across every type and across rows beyond the view bound.
+    for (const otherType of ["wifi", "vpn", "wireguard"]) {
+        for (const active of [false, true]) {
+            const inventory = "Shared:wireguard:" + (active ? "activated" : "deactivated") + "\n" +
+                Array.from({ length: logic.PROFILE_MAX }, (_, i) => "Other" + i + ":vpn:deactivated").join("\n") +
+                "\nShared:" + otherType + ":activated";
+            const listed = plain(logic.profiles(0, inventory));
+            assert.equal(listed.rows[0].ambiguous, true);
+            for (const kind of ["profile-up", "profile-down"])
+                assert.equal(logic.profileCommand({ kind, id: "Shared" }, listed).refusal, "refused: profile=ambiguous");
+        }
+    }
+    const hiddenActive = plain(logic.profiles(0, Array.from({ length: logic.PROFILE_MAX }, (_, i) => "Idle" + i + ":vpn:deactivated").join("\n") + "\nActive:wireguard:activated"));
+    assert.equal(hiddenActive.rows.some(row => row.active), false);
+    assert.equal(hiddenActive.activeCount, 1);
+    for (const state of states.filter(state => state !== "running")) {
+        assert.equal(logic.barView({ state }, hiddenActive).icon, "shield-check", state);
+        assert.equal(logic.barView({ state }, profiles).icon, "shield-check", state);
+    }
+    assert.equal(logic.barView(shown, profiles).icon, "globe-lock");
+    assert.equal(logic.barView(Object.assign({}, shown, { exit: null }), profiles).icon, "shield-check");
+    const trimmedProfiles = logic.statusWrites({ tone: "ok", text: "" }, ready, shown,
+        Object.assign({}, hiddenActive, { rows: hiddenActive.rows.map(row => Object.assign({}, row, { id: "界".repeat(logic.TARGET_MAX), name: "界".repeat(logic.TEXT_MAX) })), action: "", problem: "" }))[3][1];
+    assert.ok(trimmedProfiles.rows.length < hiddenActive.rows.length);
+    assert.equal(trimmedProfiles.activeCount, 1);
+    assert.equal(logic.barView({ state: "stopped" }, trimmedProfiles).icon, "shield-check");
+
+    // Execute the production Import callback with private capability doubles.
+    const importBody = /function importWireguard\(\) \{([\s\S]*?)\n    \}/.exec(service);
+    assert.ok(importBody);
+    const importRun = new Function("profiles", "shell", "root", importBody[1]);
+    for (const [state, missing, refusal, offered, launched] of [
+        ["available", [], undefined, [], 1],
+        ["available", ["gum"], "refused: import=missing-tool", [["gum"]], 0],
+        ["available", ["nmcli", "gum"], "refused: import=missing-tool", [["nmcli", "gum"]], 0],
+        ["unavailable", [], "refused: import=unavailable", [], 0]
+    ]) {
+        const offers = [], launches = [];
+        let refreshed = 0;
+        const answer = importRun({ state }, { requirements: { missing, offer(commands) { offers.push(plain(commands)); return "ok"; } },
+            tui: { run(name, args, done) { launches.push([name, args]); done(); return "ok"; } } }, { readProfiles() { refreshed++; } });
+        assert.equal(answer, refusal === undefined ? "ok" : refusal);
+        assert.deepEqual(offers, offered);
+        assert.equal(launches.length, launched);
+        assert.equal(refreshed, launched);
+        if (launched) assert.deepEqual(launches[0], ["import-wireguard", []]);
+    }
     const profileCrowd = Array.from({ length: 100 }, (_, i) => String(i).padStart(3, "0") + "\u0001".repeat(250) + ":vpn:").join("\n");
     const profileBound = plain(logic.profiles(0, profileCrowd));
     assert.equal(profileBound.rows.length, logic.PROFILE_MAX);
@@ -269,6 +316,7 @@ function suite(logic, service = serviceSource) {
         assert.equal(values.vpn.exitCount, vpn.exitCount);
         assert.equal(values.profiles.count, profileList.count);
         assert.equal(values.profiles.action, profileList.action);
+        assert.equal(values.profiles.activeCount, profileList.activeCount);
         assert.ok(values.profiles.rows.length > 0 || profileList.rows.length === 0);
         for (const row of values.profiles.rows) {
             assert.deepEqual(row, profileList.rows.find(input => input.id === row.id));
@@ -293,9 +341,14 @@ try {
     assert.throws(() => suite(load(file, { "qs.Commons 1.0": Object.assign({}, commons["qs.Commons 1.0"], { Nmcli: load(parserMutant) }) })));
     console.log("vpn-logic: control=nmcli escaping red");
     for (const [name, needle, replacement] of [
+        ["all types contribute to name ambiguity", 'names[fields[0]] = (names[fields[0]] || 0) + 1;', 'if (fields[1] === "vpn" || fields[1] === "wireguard") names[fields[0]] = (names[fields[0]] || 0) + 1;'],
+        ["duplicates beyond the bound remain ambiguous", 'row.ambiguous = names[row.id] > 1;', 'row.ambiguous = retained.filter(other => other.id === row.id).length > 1;'],
+        ["ambiguous profile commands refuse", 'if (row.ambiguous)', 'if (false)'],
+        ["active profiles survive list limits", 'const activeCount = rows.filter(row => row.active).length;', 'const activeCount = rows.slice(0, PROFILE_MAX).filter(row => row.active).length;'],
+        ["inactive Tailscale does not hide an active VPN", 'if (profiles.activeCount > 0)', 'if (vpn.state === "missing" && profiles.activeCount > 0)'],
         ["VPN profiles exclude other types", 'fields[1] !== "vpn" && fields[1] !== "wireguard"', 'false'],
         ["profile argv names id", '"down", "id", row.id]', '"down", row.id]'],
-        ["profile lists are bounded", 'rows: rows.slice(0, PROFILE_MAX)', 'rows: rows.slice(0)'],
+        ["profile lists are bounded", 'const retained = rows.slice(0, PROFILE_MAX);', 'const retained = rows.slice(0);'],
         ["the combined status record fits", 'var STATUS_DATA_BYTES = 32000;', 'var STATUS_DATA_BYTES = 65536;'],
         ["a target equal to the peer id", "{ id: peer.ID, target: target,", "{ id: peer.ID, target: peer.ID,"],
         ["a Mullvad node goes by its IPv4", "if (isMullvad(peer)) return address;", ""],
@@ -328,5 +381,14 @@ try {
         '[["connection", { tone: connection.tone, text: connection.text }], ["setup", { tone: setup.tone, text: setup.text }], ["vpn", published], ["profiles", profiles]]');
     assert.throws(() => suite(load(file, commons), unboundedService));
     console.log("vpn-logic: control=service uses combined bound red");
+    for (const [name, old, replacement] of [
+        ["missing import tools offer setup", "if (needed.length > 0)", "if (false)"],
+        ["import availability", 'if (profiles.state !== "available")', 'if (false)'],
+        ["import completion refreshes", '() => root.readProfiles()', '() => {}']
+    ]) {
+        assert.equal(serviceSource.split(old).length - 1, 1, name);
+        assert.throws(() => suite(load(file, commons), serviceSource.replace(old, replacement)));
+        console.log("vpn-logic: control=" + name + " red");
+    }
 } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
 console.log("vpn-logic: passed");

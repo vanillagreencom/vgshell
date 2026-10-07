@@ -19,6 +19,14 @@ if [[ $status != 0 ]]; then
   vgs_tui_error "NetworkManager could not import this file."
   exit "$status"
 fi
+# nmcli --get-values queries an existing profile, but import exposes no
+# documented identity field. Comparing inventories cannot identify this
+# import if another client adds a profile at the same time.
+# https://networkmanager.dev/docs/api/latest/nmcli.html
+# libnm's nm_conn_wireguard_import returns an NMConnection before it is
+# saved. This Bash TUI cannot receive the object from nmcli's process;
+# using it would replace nmcli with a compiled or binding-based importer.
+# https://networkmanager.dev/docs/libnm/latest/libnm-nm-conn-utils.html
 pattern="^Connection '(.*)' \\([[:xdigit:]-]+\\) successfully added\\.$"
 if [[ $reply =~ $pattern ]]; then
   name="${BASH_REMATCH[1]}"

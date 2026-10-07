@@ -12,7 +12,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - A flyout with the connection switch, Sign in while you are signed out, and the exit nodes. VPN settings opens the System Settings section.
 - A VPN section in System Settings, on `SUPER+PERIOD`, with the same controls, this device, your accounts and your other devices.
 - The switch turns Tailscale on and off and leaves your Tailscale settings as they are.
-- The exit node list holds None, your network's exit nodes by name, and one Mullvad node for each city. A long list shows the first 80 and the node in use.
+- The exit node list holds None, your network's exit nodes by name, and one Mullvad node for each city. A long list shows a limited number of nodes and the node in use.
 - Enter or a click routes your traffic through the selected exit node. None turns the exit node off.
 - Sign in and Add account open the Tailscale sign-in page in your browser. A click on an account switches to it.
 - Saved VPN and WireGuard profiles have a connection switch in the flyout and the VPN section. The list hides when NetworkManager is unavailable.

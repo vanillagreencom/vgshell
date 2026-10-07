@@ -47,6 +47,7 @@ Item {
     readonly property bool profilesMissing: shell === null || shell.requirements.missing.indexOf("nmcli") !== -1
     property var profileSnapshot: Logic.emptyProfiles()
     property string profileAction: ""
+    property string profileOperation: ""
     property string profileProblem: ""
     readonly property var profiles: Object.assign({}, profilesMissing ? Logic.emptyProfiles() : profileSnapshot,
         { action: profileAction, problem: profileProblem })
@@ -394,7 +395,10 @@ Item {
         onRunningChanged: {
             if (running) return;
             profilesDeadline.stop();
-            root.profileSnapshot = Logic.profiles(root.codeOf(completion), profilesText.text);
+            const code = root.codeOf(completion);
+            root.profileSnapshot = Logic.profiles(code, profilesText.text);
+            if (root.profileSnapshot.state === "unavailable")
+                console.warn("vpn: operation=profile-read completion=" + (code === -1 ? "interrupted" : code === 0 ? "invalid-reply" : "failed") + " code=" + code);
             if (again) { again = false; root.readProfiles(); }
         }
     }
@@ -404,6 +408,7 @@ Item {
         if (plan.refusal !== undefined) return plan.refusal;
         if (profileActor.running) return "busy";
         profileAction = request.id;
+        profileOperation = request.kind;
         profileProblem = "";
         profileActor.completion = null;
         profileActor.command = plan.argv;
@@ -428,13 +433,22 @@ Item {
             if (running) return;
             profileActionDeadline.stop();
             const code = root.codeOf(completion);
-            if (code !== 0) root.profileProblem = code === -1 ? "NetworkManager did not answer." : "NetworkManager could not change this connection.";
+            if (code !== 0) {
+                console.warn("vpn: operation=" + root.profileOperation + " completion=" + (code === -1 ? "interrupted" : "failed") + " code=" + code);
+                root.profileProblem = code === -1 ? "NetworkManager did not answer." : "NetworkManager could not change this connection.";
+            }
+            root.profileOperation = "";
             root.profileAction = "";
             root.readProfiles();
         }
     }
     function importWireguard() {
         if (profiles.state !== "available") return "refused: import=unavailable";
+        const needed = ["nmcli", "gum"].filter(command => shell.requirements.missing.indexOf(command) !== -1);
+        if (needed.length > 0) {
+            shell.requirements.offer(needed);
+            return "refused: import=missing-tool";
+        }
         return shell.tui.run("import-wireguard", [], () => root.readProfiles());
     }
 

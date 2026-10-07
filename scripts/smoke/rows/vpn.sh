@@ -32,7 +32,7 @@
 # wall clock with a refresh every second; the row accepts 9 s to 20 s,
 # since a refresh that moved the deadline would hold it past any bound.
 # Every other reading is expect_poll's: 25 reads 0.2 s apart.
-# inputs: shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* scripts/fixtures/vpn/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* shell/Commons/Nmcli.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh
+# inputs: shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* scripts/fixtures/vpn/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh
 set -euo pipefail
 devices_ready vpn || return 0
 vpn_saved="$sandbox/vpn-shell-before.json"
@@ -113,7 +113,29 @@ vpn_profiles() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=j
 vpn_nm_changes() { device_calls nmcli | py_reply 'import json,sys; print(json.dumps([c for c in json.load(sys.stdin)[int(sys.argv[1]):] if c[:2] == ["connection", "up"] or c[:2] == ["connection", "down"]]))' "$1"; }
 vpn_profile_press() {
   ipc smoke revealScopedText window vgs.system Field "$1" Switch "" | py_reply 'import json,sys; value=json.load(sys.stdin); sys.exit(0 if type(value) in (int,float) else 1)' || return 1
-  click_scoped_in window:System window vgs.vpn Field "$1" Switch ""
+  click_scoped_in "window:System Settings" window vgs.vpn Field "$1" Switch ""
+}
+vpn_import_press() {
+  ipc smoke revealText window vgs.system Button "Import WireGuard" | py_reply 'import json,sys; value=json.load(sys.stdin); sys.exit(0 if type(value) in (int,float) else 1)' || return 1
+  click_in "window:System Settings" window vgs.vpn Button "Import WireGuard"
+}
+vpn_profile_error() {
+  local problem visible drawn
+  problem="$(vpn_profiles problem)" || return 1
+  visible="$(ipc smoke readMatchingDescendant window vgs.vpn Label objectName vpn-problem visible)" || return 1
+  drawn="$(ipc smoke readMatchingDescendant window vgs.vpn Label objectName vpn-problem text)" || return 1
+  if [[ $problem != '""' && $drawn == "$problem" && $visible == true ]]; then echo shown; else echo absent; fi
+}
+# Actor and refresh both fail. Read completion state rather than error wording.
+vpn_profile_fail() {
+  device_reply nmcli 10 'PRIVATE-FIXTURE-PROFILE-ERROR' connection down id 'Home tunnel'
+  device_reply nmcli 10 '/private/fixture.conf' -t -f NAME,TYPE,STATE connection show
+  [[ $(vpn_act profile-down 'Home tunnel') == ok ]] || { echo refused; return; }
+  for _ in $(seq 1 50); do
+    if [[ $(vpn_profiles state) == '"unavailable"' && $(vpn_profiles action) == '""' ]]; then vpn_profile_error; return; fi
+    sleep 0.2
+  done
+  echo unended
 }
 vpn_refresh() { ipc vgs.vpn invoke refresh ""; }
 vpn_act() { ipc vgs.vpn invoke action "{\"kind\":\"$1\",\"id\":\"${2:-}\"}"; }
@@ -214,6 +236,7 @@ vpn_leave_pane() { # LABEL
 vpn_use mullvad.json
 device_reply tailscale 0 "$(<"$vpn_fixtures/accounts.txt")" switch --list
 device_reply tailscale 0 "" get operator
+device_reply nmcli 0 "" -t -f NAME,TYPE,STATE connection show
 device_reply tailscale 0 "" down
 device_reply tailscale 0 "" up
 device_reply tailscale 0 "" set --exit-node=gateway.tail-fixture.ts.net
@@ -224,7 +247,7 @@ expect "the core's system steps resolve in the fakes' tree" prefixed devices_sys
 ln -sfn -- "$shim/tailscale" "$vpn_system_link"
 expect "the shell resolves tailscale to the stand-in" "$shim/tailscale" shell_resolves tailscale
 expect "the shell resolves xdg-open to the stand-in" "$shim/xdg-open" shell_resolves xdg-open
-expected_errors+=('vpn: poll killed after 10000 ms' 'vpn: (exit-node|login) failed kind=(access-denied|other) ')
+expected_errors+=('vpn: refused: profile=state' 'vpn: operation=profile-(read|down) completion=failed code=10' 'vpn: poll killed after 10000 ms' 'vpn: (exit-node|login) failed kind=(access-denied|other) ')
 # The default set starts the plugin; the row counts one service's polls
 # from its first, so it starts from a disabled plugin.
 expect "VPN disables before its row" ok ipc shell setPluginEnabled vgs.vpn false
@@ -363,7 +386,7 @@ device_reply nmcli 0 "" connection down id 'Home tunnel'
 vpn_nm_before="$(vpn_call_count nmcli)" || { fail "vpn: nmcli calls are unreadable"; return 0; }
 expect "a refresh reads NetworkManager profiles" ok vpn_refresh
 expect_poll "both VPN types publish with their full identities" \
-  '[{"id": "Office:west\\desk", "name": "Office:west\\desk", "type": "vpn", "active": false}, {"id": "Home tunnel", "name": "Home tunnel", "type": "wireguard", "active": true}]' vpn_profiles rows
+  '[{"id": "Office:west\\desk", "name": "Office:west\\desk", "type": "vpn", "active": false, "ambiguous": false}, {"id": "Home tunnel", "name": "Home tunnel", "type": "wireguard", "active": true, "ambiguous": false}]' vpn_profiles rows
 expect "the profile section opens" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
 expect_poll "the pane reads both profiles" 2 vpn_profile_count
 vpn_profile_press 'Office:west\desk' || fail "the VPN profile switch could not be pressed"
@@ -372,6 +395,17 @@ expect_poll "the profile change ends" '""' vpn_profiles action
 vpn_profile_press 'Home tunnel' || fail "the WireGuard profile switch could not be pressed"
 expect_poll "the WireGuard switch runs down with id and its name" '[["connection", "up", "id", "Office:west\\desk"], ["connection", "down", "id", "Home tunnel"]]' vpn_nm_changes "$vpn_nm_before"
 expect_poll "the second profile change ends" '""' vpn_profiles action
+expect "a failed profile action stays visible after its failed refresh" shown vpn_profile_fail
+expect "profile failure releases the busy state" '""' vpn_profiles action
+expect_log "profile action logs only operation and completion" 1 '^.*vpn: operation=profile-down completion=failed code=10$'
+expect_log "profile output and private paths stay out of the log" 0 'PRIVATE-FIXTURE-PROFILE-ERROR|/private/fixture.conf'
+device_reply nmcli 0 $'Office\\:west\\\\desk:vpn:deactivated\nHome tunnel:wireguard:activated' -t -f NAME,TYPE,STATE connection show
+device_reply nmcli 0 "" connection down id 'Home tunnel'
+expect "a refresh recovers the profile list" ok vpn_refresh
+expect_poll "profiles return after recovery" '"available"' vpn_profiles state
+vpn_profile_press 'Home tunnel' || fail "the recovered profile switch could not be pressed"
+expect_poll "a later successful action clears the profile error" '""' vpn_profiles problem
+expect_poll "the recovered action releases the busy state" '""' vpn_profiles action
 expect "System closes after profile switches" ok ipc shell hide window vgs.system
 # Import runs a fixture copy. The terminal cannot execute the shipped TUI.
 expect "VPN disables before the import fixture" ok ipc shell setPluginEnabled vgs.vpn false
@@ -385,8 +419,7 @@ expect "the import fixture enables" ok ipc shell setPluginEnabled vgs.vpn true
 expect_poll "the import fixture reads profiles" '"available"' vpn_profiles state
 expect "the import fixture pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
 forget_record
-ipc smoke revealText window vgs.system Button "Import WireGuard" | py_reply 'import json,sys; value=json.load(sys.stdin); sys.exit(0 if type(value) in (int,float) else 1)' || fail "the Import button could not be revealed"
-click_in window:System window vgs.vpn Button "Import WireGuard" || fail "the Import button could not be pressed"
+vpn_import_press || fail "the Import button could not be pressed"
 expect_poll "Import hands the terminal the declared TUI" "$(words vgs.vpn/import-wireguard tui/import-wireguard.sh)" recorded_tail
 expect_run_end "the import fixture ends" vgs.vpn/import-wireguard
 expect "System closes after Import" ok ipc shell hide window vgs.system
@@ -394,7 +427,6 @@ device_reply nmcli 10 "" -t -f NAME,TYPE,STATE connection show
 expect "a refresh reads a missing NetworkManager" ok vpn_refresh
 expect_poll "profiles hide when NetworkManager cannot answer" '"unavailable"' vpn_profiles state
 expect "Import refuses without NetworkManager" 'refused: import=unavailable' ipc vgs.vpn invoke import-wireguard ""
-device_reply_clear nmcli
 
 # Controls, on a copy: a widget that polls on its own, a refresh that
 # restarts the watchdog, and a failure table without the access-denied text.
@@ -404,9 +436,10 @@ expect_poll "the disabled plugin holds no status record" absent vpn_record
 vpn_copy="$home/.config/vgshell/plugins/vgs.vpn"
 mkdir -p -- "$vpn_copy"
 cp -R -- "$repo/shell/plugins/vgs.vpn/." "$vpn_copy/"
-python3 - "$vpn_copy/Widget.qml" "$vpn_copy/Service.qml" "$vpn_copy/VpnLogic.js" <<'PYCONTROL'
+cp -- "$repo/scripts/smoke/fixtures/tui/vgs.vpn/tui/import-wireguard.sh" "$vpn_copy/tui/import-wireguard.sh"
+python3 - "$vpn_copy/Widget.qml" "$vpn_copy/Service.qml" "$vpn_copy/VpnLogic.js" "$vpn_copy/VpnBody.qml" <<'PYCONTROL'
 import pathlib, sys
-widget, service, logic = map(pathlib.Path, sys.argv[1:])
+widget, service, logic, body = map(pathlib.Path, sys.argv[1:])
 text = widget.read_text()
 for old, new in (("import QtQuick\n", "import QtQuick\nimport Quickshell.Io\n"),
                  ("    BarItem {\n", "    Process { command: [\"tailscale\", \"status\", \"--json\"]; running: true }\n\n    BarItem {\n")):
@@ -416,7 +449,22 @@ widget.write_text(text)
 text = service.read_text()
 old = "        runPoll(\"refresh\");\n        readAccounts();\n"
 assert text.count(old) == 1, old
-service.write_text(text.replace(old, "        if (watchdog.running) watchdog.restart();\n" + old))
+text = text.replace(old, "        if (watchdog.running) watchdog.restart();\n" + old)
+for old, new in (
+    ('if (profiles.state !== "available")', 'if (false)'),
+    ('root.profileProblem = code === -1 ? "NetworkManager did not answer." : "NetworkManager could not change this connection.";', 'root.profileProblem = "";'),
+):
+    assert text.count(old) == 1, old
+    text = text.replace(old, new)
+service.write_text(text)
+text = body.read_text()
+for old, new in (
+    ('kind: wanted ? "profile-up" : "profile-down",', 'kind: wanted ? "profile-down" : "profile-up",'),
+    ('root.shell.ipc.call("import-wireguard", "")', 'root.shell.ipc.call("refresh", "")'),
+):
+    assert text.count(old) == 1, old
+    text = text.replace(old, new)
+body.write_text(text)
 text = logic.read_text()
 old = "pattern: /access denied/i"
 assert text.count(old) == 1, old
@@ -430,6 +478,22 @@ expect_poll "the control's service reads the tailnet" '"running"' vpn_value stat
 expect_poll "control: a widget that polls on its own is a call the service did not start" extra vpn_surplus "$vpn_control_before"
 expect "control: a service that does not know the access-denied text leaves the plain failure's problem" same vpn_failures
 expect "control: a refresh that restarts the watchdog holds the poll past 20 s" postponed vpn_hang
+device_reply nmcli 0 $'Office\\:west\\\\desk:vpn:deactivated\nHome tunnel:wireguard:activated' -t -f NAME,TYPE,STATE connection show
+expect "control: refresh reads available profiles" ok vpn_refresh
+expect_poll "control: profiles publish" '"available"' vpn_profiles state
+expect "control: the pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
+vpn_nm_before="$(vpn_call_count nmcli)" || { fail "control: nmcli calls are unreadable"; return 0; }
+vpn_profile_press 'Office:west\desk' || fail "control: the profile switch could not be pressed"
+expect "control: the broken toggle route records no connection up" '[]' vpn_nm_changes "$vpn_nm_before"
+forget_record
+vpn_import_press || fail "control: Import could not be pressed"
+expect "control: the broken Import callback launches no TUI" absent recorded
+expect "control: the missing failure assignment leaves no visible error" absent vpn_profile_fail
+forget_record
+expect "control: missing availability guard starts Import on an unavailable backend" ok ipc vgs.vpn invoke import-wireguard ""
+expect_poll "control: the unavailable import reaches the fixture terminal" "$(words vgs.vpn/import-wireguard tui/import-wireguard.sh)" recorded_tail
+expect_run_end "control: unavailable import fixture ends" vgs.vpn/import-wireguard
+expect "control: System closes" ok ipc shell hide window vgs.system
 expect "the control copy disables" ok ipc shell setPluginEnabled vgs.vpn false
 expect_poll "the control's service is gone" False record_exists vgs.vpn
 rm -rf -- "${vpn_copy:?}"
@@ -437,6 +501,7 @@ rescan "the shipped plugin is restored"
 cp -- "$vpn_saved" "$home/.config/vgshell/shell.json"
 expect "the row restores the configuration" ok ipc shell reloadConfig
 rm -f -- "$vpn_system_link"
+device_reply_clear nmcli
 device_reply_clear tailscale
 device_reply_clear systemctl
 device_reply_clear xdg-open

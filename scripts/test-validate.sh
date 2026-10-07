@@ -919,6 +919,35 @@ smoke_fixture() { # DIR [VARIANT]
       printf '# Run by launcher.sh.\n' >"$dir/scripts/smoke/rows/launcher-part.sh" ;;&
     slow-malformed) printf 'stale sixty\n' >>"$dir/scripts/smoke/rows.secs" ;;
   esac
+  if [[ $variant == vpn-values || $variant == vpn-values-control ]]; then
+    python3 - "$repo" "$dir" "$variant" <<'PYVPNINPUT'
+import glob, pathlib, re, sys
+repo, target = map(pathlib.Path, sys.argv[1:3])
+variant = sys.argv[3]
+source = (repo / 'scripts/smoke/rows/vpn.sh').read_text()
+lines = re.findall(r'^# inputs: (.+)$', source, re.M)
+assert len(lines) == 1
+inputs = lines[0]
+for pattern in inputs.split():
+    for original in glob.glob(str(repo / pattern)):
+        original = pathlib.Path(original)
+        if original.is_file():
+            path = target / original.relative_to(repo)
+            if not path.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('# neutral input\n')
+if variant == 'vpn-values-control':
+    edge = 'shell/Commons/SettingValues.js '
+    assert inputs.count(edge) == 1
+    inputs = inputs.replace(edge, '')
+(target / 'scripts/smoke/rows/vpn.sh').write_text('# inputs: ' + inputs + '\n')
+(target / 'scripts/smoke/rows/device-fakes.sh').write_text('# inputs: scripts/smoke/fixtures/devices/*\n')
+row_list = target / 'scripts/smoke/rows.list'
+text = row_list.read_text()
+assert text.count('start-order\n') == 1
+row_list.write_text(text.replace('start-order\n', 'device-fakes\nvpn\nstart-order\n'))
+PYVPNINPUT
+  fi
   "${base_env[@]}" git -C "$dir" add -A
   "${base_env[@]}" git -C "$dir" commit -q -m smoke-rows
 }
@@ -930,6 +959,8 @@ smoke_notify="scripts/qml-smoke.sh --rows $smoke_core,notifications,notification
 smoke_none="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,$smoke_tail"
 # name|changed paths|scope|wanted plan|mutant|fixture variant
 smoke_cases=(
+  "the shared byte counter selects its VPN runtime consumer|shell/Commons/SettingValues.js|changed|scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,device-fakes,vpn,$smoke_tail||vpn-values"
+  "control: losing the VPN byte counter input skips its runtime consumer|shell/Commons/SettingValues.js|changed|$smoke_none||vpn-values-control"
   "one plugin selects the core rows, its own and the rows that always run|shell/plugins/acme.launcher/Panel.qml|changed|$smoke_launcher||rows"
   "control: a row with no input line no longer runs|shell/plugins/acme.launcher/Panel.qml|changed|scripts/qml-smoke.sh --rows $smoke_core,launcher,stale,twice,blank,lost,$smoke_tail|missing|rows"
   "control: a row whose glob matches nothing no longer runs|shell/plugins/acme.launcher/Panel.qml|changed|scripts/qml-smoke.sh --rows $smoke_core,launcher,bare,twice,blank,lost,$smoke_tail|matches-nothing|rows"

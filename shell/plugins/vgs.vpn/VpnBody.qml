@@ -98,7 +98,7 @@ FocusScope {
             visible: text !== ""
             role: "hint"
             color: Theme.color.danger
-            text: root.localProblem !== "" ? root.localProblem : root.vpn.problem
+            text: root.localProblem !== "" ? root.localProblem : root.profiles.problem !== "" ? root.profiles.problem : root.vpn.problem
             wrapMode: Text.Wrap
         }
         Button {
@@ -269,14 +269,6 @@ FocusScope {
                         }
                     }
                 }
-            }
-            Label {
-                width: parent.width
-                visible: text !== ""
-                role: "hint"
-                color: Theme.color.danger
-                text: root.profiles.problem
-                wrapMode: Text.Wrap
             }
             Button {
                 objectName: "vpn-import"
