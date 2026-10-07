@@ -6,12 +6,12 @@ set -euo pipefail
 source "$VGS_TUI_LIB"
 slack_manifest="$(dirname -- "${BASH_SOURCE[0]}")/../slack-app.json"
 vgs_tui_header "Set up Slack photos" "Add sender photos, workspace icons and custom emoji to Slack notifications."
-wl-copy --type text/plain <"$slack_manifest"
-xdg-open https://api.slack.com/apps
+# Slack's documented sharing link fills app creation from the public manifest.
+slack_url="$(node -p "'https://api.slack.com/apps?new_app=1&manifest_json=' + encodeURIComponent(require('node:fs').readFileSync(process.argv[1], 'utf8'))" "$slack_manifest")"
+xdg-open "$slack_url"
 printf '%s\n' \
-  'VGS copied the app details and opened Slack Apps.' \
-  'Select Create New App, then From a manifest.' \
-  'Select your workspace. Paste the copied text into the JSON field.' \
+  'VGS opened Slack app creation with the app details filled.' \
+  'Sign in to Slack if asked. Select your workspace.' \
   'Review the permissions, then select Create.' \
   'Under OAuth & Permissions, select Install to Workspace and allow access.' \
   'Copy the User OAuth Token.' \
@@ -20,10 +20,9 @@ printf '%s\n' \
   'Select Connect beside that workspace. Paste the token into the masked field.' \
   'If your workspace requires approval, ask its administrator to approve the app.'
 while :; do
-  slack_action="$(gum choose 'Close' 'Show details' 'Copy app details again')"
+  slack_action="$(gum choose 'Close' 'Show details')"
   case "$slack_action" in
     Close) break ;;
     'Show details') cat -- "$slack_manifest" ;;
-    'Copy app details again') wl-copy --type text/plain <"$slack_manifest" ;;
   esac
 done
