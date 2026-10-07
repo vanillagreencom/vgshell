@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import qs.Commons
 import qs.Ui
 import qs.Unit
 
@@ -12,8 +13,8 @@ import qs.Unit
 // keys that is the list with the one alternative set or removed, one key
 // once one is left and a key twice once; a caller's actions draw in the
 // field's tool row, and its hint actions on a line under the hint, taking
-// no room while none shows. A bind's explanation reaches the row's info
-// icon; a bind without one draws no icon. The capture here answers every conflict question with
+// no room while none shows. A bind's explanation is the label tooltip
+// on pointer hover and keyboard focus, with no info icon. The capture here answers every conflict question with
 // one hint and records each question as "KEY ID SHORTCUT".
 Item {
     id: root
@@ -110,12 +111,23 @@ Item {
             compare(unbound.label, "lock");
         }
 
-        function test_the_bind_explanation_reaches_the_info_icon() {
-            const icon = descendant(row, item => String(item).indexOf("InfoButton") === 0 && item.visible);
-            verify(icon !== null && icon.visible, "a bind with an explanation draws the info icon");
-            compare(icon.info, "Locks the screen at once.");
-            compare(icon.tooltip, "Locks the screen at once.");
-            compare(descendant(later, item => String(item).indexOf("InfoButton") === 0 && item.visible), null);
+        function test_the_bind_explanation_is_on_label_hover_and_focus() {
+            compare(UnitTheme.override({ tooltip: { delay: 20 } }), "ok");
+            const label = descendant(row, item => item.objectName === "fieldLabel");
+            const tip = descendant(label, item => String(item).indexOf("Tooltip") === 0);
+            compare(descendant(row, item => String(item).indexOf("InfoButton") === 0), null);
+            compare(tip.text, "Locks the screen at once.");
+            verify(label.activeFocusOnTab);
+            mouseMove(label, label.width / 2, label.height / 2);
+            tryCompare(tip, "opened", true);
+            mouseMove(root, root.width - 1, root.height - 1);
+            tryCompare(tip, "opened", false);
+            label.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(tip, "opened", true);
+            input(row).forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(tip, "opened", false);
+            const plain = descendant(later, item => item.objectName === "fieldLabel");
+            verify(!plain.activeFocusOnTab);
         }
 
         function test_the_field_holds_the_key_in_effect() {

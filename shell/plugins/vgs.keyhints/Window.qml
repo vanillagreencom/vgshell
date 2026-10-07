@@ -137,6 +137,7 @@ FocusScope {
                 required property var modelData
                 width: layout.contentWidth
                 title: modelData.name
+                rowSpacing: Theme.stack.group
 
                 Repeater {
                     model: ScriptModel {

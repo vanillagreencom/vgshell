@@ -419,7 +419,7 @@ FocusScope {
                                         }
                                         Label {
                                             id: prompt
-                                            role: "item"
+                                            role: root.capturing ? "item" : "kbd"
                                             width: Math.min(implicitWidth, Math.max(0, root.room - box.leftPadding - box.rightPadding))
                                             anchors.verticalCenter: parent.verticalCenter
                                             elide: Text.ElideRight
@@ -461,12 +461,17 @@ FocusScope {
                     iconName: "x"
                     label: root.keys.length > 1 ? "Remove " + KeyNavLogic.keyCaps(root.key).join("+") : "Unbind"
                     size: "sm"
-                    visible: root.editable && root.key !== ""
+                    visible: root.editable; enabled: root.editable && root.key !== ""
+                    opacity: root.key === "" ? 0 : 1
                     onClicked: root.cleared(root.editing)
                 }
                 Row {
                     id: actionRow
                     spacing: Theme.textField.gap
+                    // Reserve caller actions even when their current state
+                    // hides them, so all bind rows keep one input width.
+                    width: children.reduce((sum, child) => sum + child.width, 0)
+                        + Math.max(0, children.length - 1) * spacing
                 }
             }
         }

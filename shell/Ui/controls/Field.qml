@@ -22,6 +22,7 @@ Column {
     property string label: ""
     property string hint: ""
     property string info: ""
+    property string labelTooltip: ""
     property string error: ""
     property bool inline: Theme.field.inline
     default property alias control: controlRow.control
@@ -70,6 +71,7 @@ Column {
         width: root.bodyWidth
         label: root.label
         info: root.info
+        labelTooltip: root.labelTooltip
         labelColumn: root.inline
     }
 

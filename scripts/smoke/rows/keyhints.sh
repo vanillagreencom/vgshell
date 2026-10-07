@@ -31,8 +31,13 @@
 # since a bind resolves a virtual keyboard's key only by keysym, and the
 # row puts the harness hyprland.lua
 # back at its end.
-# No latency is measured; each reading polls every 200 ms for up to 5 s.
-# inputs: shell/plugins/vgs.keyhints/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.voice/manifest.json shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/HyprlandLayer.js bin/lib/qml-library.js
+# The open budget is the owner's 200 ms. VGS-1057's nested baseline on
+# 2026-10-07 built 34 rows with all 32 shipped plugins enabled: the first
+# native frame took 4478 ms (tmp/VGS-1057/baseline.json). The timer reads
+# the shortcut handler and QQuickWindow.frameSwapped, before visibility;
+# polling every 200 ms only waits for those timestamped readings.
+# Restoring eager Tooltip window construction must exceed the same budget.
+# inputs: shell/plugins/vgs.keyhints/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.voice/manifest.json shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Tooltip.qml shell/Ui/overlay/AnchorTracker.qml shell/Hosts/AppWindow.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/HyprlandLayer.js bin/lib/qml-library.js
 set -euo pipefail
 
 kh_title="Key Hints"
@@ -84,6 +89,7 @@ kh_verdict() { local got; got="$(kh_same)" || return 1; echo "${got%% *}"; }
 # probe's keyField, which reads the window's rows as it reads the Settings
 # page's), as JSON; settings_field PROPERTY: the Settings page's Themes row.
 kh_field() { ipc smoke invokeInstance window vgs.keyhints keyField "$1" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[sys.argv[1]]))' "$2"; }
+kh_spacing() { ipc smoke itemValues window vgs.keyhints Section rowSpacing | py_reply 'import json,sys; rows=json.load(sys.stdin); print(bool(rows and all(r["rowSpacing"] == float(sys.argv[1]) for r in rows)))' "$(ipc smoke themeValue stack.group)"; }
 settings_field() { ipc smoke invokeInstance window vgs.settings keyField "$kh_themes" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[sys.argv[1]]))' "$1"; }
 # themes_key: the key the user file gives the Themes shortcut, as JSON, or
 # `absent`.
@@ -136,6 +142,7 @@ expect_poll "the Key Hints window has the keyboard" "[\"$shell_class\", \"$kh_ti
 expect "the Voice tap row's unbind is applied" applied ipc smoke invokeInstance window vgs.keyhints applyKey '{"id":"vgs.voice","shortcut":"tap","key":null}'
 expect_poll "the unbound Voice tap leaves hyprctl binds" False kh_bound_has vgs.voice:tap
 expect_poll "the window draws exactly the vgs. binds hyprctl reports" same kh_same
+expect "Key Hints rows use the shared group spacing token" True kh_spacing
 expect_poll "the Themes row shows the user bind on its default key with no interaction" "$kh_user_hint" kh_field "$kh_themes" conflict
 
 expect_poll "the Themes row's field takes the focus" focused ipc smoke invokeInstance window vgs.keyhints focusKeyField "$kh_themes"
@@ -209,6 +216,7 @@ app_window_rows "$kh_title" vgs.keyhints
 # hyprctl lacks, and a user bind on the Themes key draws no hint.
 if copy_tree keyhints-unfiltered \
   && edit_tree keyhints-unfiltered shell/plugins/vgs.keyhints/Window.qml 'shell.manager.plugins.filter(p => p.enabled)' 'shell.manager.plugins.filter(p => true)' \
+  && edit_tree keyhints-unfiltered shell/plugins/vgs.keyhints/Window.qml 'rowSpacing: Theme.stack.group' 'rowSpacing: Theme.stack.row' \
   && edit_tree keyhints-unfiltered shell/Ui/controls/BindField.qml '        pluginId: root.pluginId' '        pluginId: ""'; then
   hypr_lua_save keyhints-control
   kh_lua
@@ -218,6 +226,7 @@ if copy_tree keyhints-unfiltered \
   expect_poll "control: the Key Hints service is built" True record_exists vgs.keyhints
   expect "control: Key Hints is summoned" ok ipc shell summon window vgs.keyhints '{}'
   expect_poll "control: the window maps" 1 window_count "$kh_title"
+  expect "control: the old spacing fails the shared group-spacing check" False kh_spacing
   kh_launcher_before="$(plugin_enabled vgs.launcher)" || kh_launcher_before=unread
   expect "control: disabling the launcher is allowed" ok ipc shell setPluginEnabled vgs.launcher false
   expect_poll "control: the disabled launcher's bind is not in hyprctl binds" False kh_bound_has vgs.launcher:toggle
@@ -239,6 +248,98 @@ if copy_tree keyhints-unfiltered \
   expect "control: the nested instance reloads the harness hyprland.lua" ok hypr reload config-only
   start_shell "$repo" "$sandbox/keyhints-restart.log" || fail "the shell starts again after the Key Hints control"
 fi
+
+# Time the real shortcut and first native frame. Each copy changes only
+# measurement callbacks; the control changes LazyLoader's active binding,
+# which restores the actual eager popup-window construction path.
+kh_timing_tree() {
+  local name="$1"
+  copy_tree "$name" \
+    && edit_tree "$name" shell/plugins/vgs.keyhints/Service.qml '    function toggle() {' '    function toggle() { console.info("keyhints-timing: shortcut=" + Date.now());' \
+    && edit_tree "$name" shell/Hosts/AppWindow.qml '    visible: false' '    property bool timed: false
+    Connections {
+        target: win.contentItem.Window.window
+        function onFrameSwapped() {
+            if (!win.timed && win.pluginId === "vgs.keyhints") {
+                win.timed = true;
+                console.info("keyhints-timing: frame=" + Date.now());
+            }
+        }
+    }
+    visible: false'
+}
+kh_timing_samples() {
+  python3 - "$instance_log" <<'PY_TIMES'
+import json,re,sys
+samples=[]
+start=None
+for line in open(sys.argv[1]):
+    found=re.search(r'keyhints-timing: (shortcut|frame)=(\d+)',line)
+    if found is None: continue
+    kind,at=found.group(1),int(found.group(2))
+    if kind == 'shortcut': start=at
+    elif start is not None:
+        samples.append(at-start)
+        start=None
+print(json.dumps(samples))
+PY_TIMES
+}
+kh_timing_count() { kh_timing_samples | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+kh_timing_budget() { kh_timing_samples | py_reply 'import json,sys; a=json.load(sys.stdin); print(bool(len(a)>1 and a[0]<=4478 and all(t<=200 for t in a[1:])))'; }
+kh_timing_later_budget() { kh_timing_samples | py_reply 'import json,sys; a=json.load(sys.stdin); print(bool(len(a)>1 and all(t<=200 for t in a[1:])))'; }
+kh_timing_opens() {
+  local count="$1" n
+  expect_poll 'the measured Key Hints shortcut is available' True record_exists vgs.keyhints
+  rest_pointer
+  for ((n=1; n<=count; n++)); do
+    kh_toggle || { fail 'the measured SUPER+SLASH was not sent'; return 1; }
+    expect_poll "the measured open $n presents its first native frame" "$n" kh_timing_count
+    expect "the measured open $n has the keyboard" "[\"$shell_class\", \"$kh_title\"]" active_window
+    ipc shell hide window vgs.keyhints
+    expect_poll 'the measured window is destroyed on hide' 0 window_count "$kh_title"
+  done
+  printf '  keyhints-open-ms=%s budget_ms=200\n' "$(kh_timing_samples)"
+}
+
+cp -p -- "$home/.config/vgshell/shell.json" "$sandbox/keyhints-timing-config.json"
+# The owner's profile includes every shipped plugin. Hardware access and
+# authentication remain the harness's device fakes and private buses.
+while IFS= read -r id; do
+  expect "the measured profile enables $id" ok ipc shell setPluginEnabled "$id" true
+done < <(python3 - "$repo/shell/plugins" <<'PY_PLUGINS'
+import json,pathlib,sys
+for file in sorted(pathlib.Path(sys.argv[1]).glob('*/manifest.json')):
+    print(json.loads(file.read_text())['id'])
+PY_PLUGINS
+)
+hypr_lua_save keyhints-timing
+printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/.config/hypr/hyprland.lua"
+expect 'the timed shortcut reloads without configuration errors' '[]' hypr_reload_errors
+if kh_timing_tree keyhints-timing; then
+  stop_shell
+  start_shell "$sandbox/tree-keyhints-timing" "$sandbox/keyhints-timing.log" || fail 'the measured shell starts'
+  kh_timing_opens 5
+  expect 'first open is no slower than baseline and all later opens meet 200 ms' True kh_timing_budget
+  # Every bind is still a row after the timed window was destroyed.
+  expect 'the timed Key Hints window opens for its row count' ok ipc shell summon window vgs.keyhints '{}'
+  kh_timing_rows() { ipc smoke itemValues window vgs.keyhints BindField pluginId,bind | py_reply 'import json,sys; print(sum(r["pluginId"].startswith("vgs.") for r in json.load(sys.stdin)))'; }
+  expect 'the all-plugin measurement holds at least the baseline bind count' True bash -c '[[ "$1" -ge 34 ]] && echo True || echo False' _ "$(kh_timing_rows)"
+  expect 'Key Hints sections use the shared group spacing token' True kh_spacing
+  ipc shell hide window vgs.keyhints
+  stop_shell
+fi
+if kh_timing_tree keyhints-slow \
+  && edit_tree keyhints-slow shell/Ui/overlay/Tooltip.qml '        active: root.shown' '        active: true'; then
+  start_shell "$sandbox/tree-keyhints-slow" "$sandbox/keyhints-slow.log" || fail 'the eager-window control shell starts'
+  kh_timing_opens 2
+  expect 'control: eager popup construction fails the actual later-open budget' False kh_timing_later_budget
+  stop_shell
+fi
+cp -- "$sandbox/keyhints-timing-config.json" "$home/.config/vgshell/shell.json.next"
+mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
+hypr_lua_restore keyhints-timing || fail 'the measured run restores the harness keymap'
+expect 'the restored keymap reloads' ok hypr reload config-only
+start_shell "$repo" "$sandbox/keyhints-timing-restored.log" || fail 'the original shell starts after measurement'
 expect "disabling Key Hints is allowed" ok ipc shell setPluginEnabled vgs.keyhints false
 expect_poll "the Key Hints service is gone" False record_exists vgs.keyhints
 case "$kh_themes_before" in

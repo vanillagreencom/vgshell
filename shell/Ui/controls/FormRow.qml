@@ -40,6 +40,7 @@ Item {
     property string warningLink: ""
     property string warningTone: "warning"
     property string info: ""
+    property string labelTooltip: ""
     property bool labelColumn: true
     default property alias control: slot.data
     property alias action: actionSlot.data
@@ -72,6 +73,11 @@ Item {
 
     Label {
         id: labelText
+        objectName: "fieldLabel"
+        activeFocusOnTab: root.labelTooltip !== "" && visible
+        readonly property bool visualFocus: activeFocus
+        Tooltip { text: root.labelTooltip }
+        FocusRing { target: labelText; outside: true }
         role: "label"
         text: root.label
         visible: root.labelColumn

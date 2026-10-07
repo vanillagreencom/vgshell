@@ -65,6 +65,24 @@ Scope {
     // Plain state a conflict question writes while a binding reads it, so
     // the write notifies no binding.
     property var bindsRetry: ({ asked: false })
+    readonly property string bindsState: {
+        const source = bindsSource;
+        return source === null || (source.foreignKeys === null && source.bindsFailure === "") ? "unread" : source.bindsFailure !== "" ? "failed" : "read";
+    }
+    // QML re-evaluates this binding when the configuration or binds read
+    // changes. Its entries belong to that snapshot, not to an opening.
+    // https://doc.qt.io/qt-6/qtqml-syntax-propertybinding.html
+    readonly property var conflictAnswers: {
+        const answers = Object.create(null);
+        for (const section of Registry.hyprlandSections)
+            for (const bind of section.binds)
+                answers[conflictId(bind.key, section.id, bind.shortcut)] = conflictAnswer(bind.key, section.id, bind.shortcut);
+        return answers;
+    }
+
+    function conflictId(key, id, shortcut) {
+        return JSON.stringify([Logic.hyprlandKey(key).key, id, shortcut]);
+    }
     // The lines removeUserBind took out, by the token it answered, each {
     // file, line, undo } with the undo the edit printed, so an undo puts
     // back only a line the core itself removed. A row goes when its undo
@@ -108,6 +126,7 @@ Scope {
     // CTX's instance asked who holds a key: the binds stay read until it is
     // torn down.
     function ask(ctx) {
+        if (!ctx.active) return;
         askers += 1;
         ctx.onDispose(() => { root.askers -= 1; });
     }
@@ -196,13 +215,22 @@ Scope {
     // named by its manifest, beside it.
     function conflicts(key, id, shortcut) {
         const source = bindsSource;
-        const state = source === null || (source.foreignKeys === null && source.bindsFailure === "") ? "unread" : source.bindsFailure !== "" ? "failed" : "read";
+        const state = bindsState;
         if (state === "failed" && !bindsRetry.asked) {
             bindsRetry.asked = true;
             Qt.callLater(() => source.readBinds());
         } else if (state === "read") {
             bindsRetry.asked = false;
         }
+        const identity = conflictId(key, id, shortcut);
+        // A newly typed key is not yet in the configuration snapshot.
+        const answer = Logic.hasOwn(conflictAnswers, identity) ? conflictAnswers[identity] : conflictAnswer(key, id, shortcut);
+        return answer;
+    }
+
+    function conflictAnswer(key, id, shortcut) {
+        const source = bindsSource;
+        const state = bindsState;
         const found = Logic.keyConflicts(key, Registry.hyprlandSections, state === "read" ? source.foreignKeys : [], id, shortcut);
         const names = {};
         for (const p of found.plugins)
@@ -210,7 +238,7 @@ Scope {
         const userBinds = found.user ? source.userBindsFor(Logic.hyprlandKey(key).key) : [];
         const answer = { plugins: found.plugins, user: found.user, binds: state, userBinds: userBinds };
         answer.hint = Logic.conflictHint(answer, names);
-        return answer;
+        return Object.freeze(answer);
     }
 
     // Take the one user line that binds KEY, a key a plugin's bind asks

@@ -263,6 +263,30 @@ Item {
             compare(JSON.stringify(root.capture.keyFor(Qt.Key_Space, Qt.MetaModifier)), '{"kind":"key","key":"SUPER+SPACE"}');
         }
 
+        function test_configured_conflicts_share_one_answer_until_the_snapshot_changes() {
+            const first = root.capture.conflicts("SUPER+SPACE", "acme.keys", "open");
+            compare(root.capture.conflicts("super+space", "acme.keys", "open"), first);
+            verify(root.capture.conflicts("SUPER+SPACE", "acme.keys", "open") === first);
+            source.foreignKeys = ["SUPER+SPACE"];
+            const changed = root.capture.conflicts("SUPER+SPACE", "acme.keys", "open");
+            verify(changed !== first);
+            compare(changed.user, true);
+            source.userRows = { "SUPER+SPACE": [userLine(true)] };
+            compare(root.capture.conflicts("SUPER+SPACE", "acme.keys", "open").userBinds.length, 1);
+            Registry.hyprlandSections = [];
+            compare(Object.keys(owner().conflictAnswers).length, 0);
+        }
+
+        function test_a_deferred_question_registers_no_disposed_instance() {
+            const ctx = root.context("acme.gone");
+            const cap = registry.provider(ctx).capture;
+            const count = owner().askers;
+            cap.conflicts("SUPER+SPACE", "acme.keys", "open");
+            ctx.active = false;
+            wait(0);
+            compare(owner().askers, count);
+        }
+
         function test_conflicts_read_the_user_binds() {
             source.foreignKeys = ["SUPER+SPACE"];
             compare(JSON.stringify(root.capture.conflicts("super+space", "acme.other", "x")), '{"plugins":[{"id":"acme.keys","shortcut":"open"}],"user":true,"binds":"read","userBinds":[],"hint":"Also used by acme.keys (open), your other shortcuts."}');

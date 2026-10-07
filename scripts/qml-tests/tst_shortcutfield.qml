@@ -155,6 +155,27 @@ Item {
             compare(buttonLabelled(readOnly, "Unbind"), null);
         }
 
+        function test_unbound_keeps_the_bound_box_width_and_clear_slot() {
+            const width = box(field).width;
+            field.keys = [];
+            waitForItemPolished(box(field).parent);
+            compare(box(field).width, width);
+            const clear = buttonLabelled(field, "Unbind");
+            verify(clear !== null && clear.visible);
+            compare(clear.enabled, false);
+            compare(clear.opacity, 0);
+            field.keys = ["SUPER+M"];
+        }
+
+        function test_unbound_uses_chip_text_size_and_placeholder_colour() {
+            field.keys = [];
+            const prompt = descendant(field, item => item.text === "Unbound" && item.visible);
+            verify(prompt !== null);
+            compare(prompt.font.pixelSize, Theme.text.kbd.size);
+            compare(prompt.color, Theme.textField.placeholder);
+            field.keys = ["SUPER+M"];
+        }
+
         function test_idle_caps_show_the_key() {
             compare(JSON.stringify(field.caps), '["SUPER","M"]');
         }

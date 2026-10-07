@@ -69,6 +69,7 @@ Item {
             }
         }
     }
+    Component { id: transientTooltip; Tooltip { text: "Transient" } }
     property int chosen: 4
     Select { id: select; y: 40; model: ["one", "two", "three"] }
     Select { id: roled; y: 80; textRole: "name"; model: [{ name: "alpha" }, { name: "beta" }] }
@@ -84,7 +85,7 @@ Item {
         name: "overlays"
         when: windowShown
 
-        function init() { UnitTheme.reset(); popover.close(); menu.close(); nested.close(); select.choose(0); root.triggered = -1; }
+        function init() { tip.shown = false; longTip.shown = false; detailsTip.shown = false; host.enabled = true; host.visible = true; UnitTheme.reset(); popover.close(); menu.close(); nested.close(); select.choose(0); root.triggered = -1; }
 
         function tooltipDelay(of) {
             return of.resources.find(child => child.running !== undefined && child.interval === Theme.tooltip.delay);
@@ -870,10 +871,11 @@ Item {
         }
 
         function tipWindow(owner) {
-            for (let i = 0; i < owner.resources.length; i++)
-                if (owner.resources[i].anchor !== undefined) return owner.resources[i];
-            return null;
+            owner.shown = true;
+            verify(owner.tracker !== null);
+            return owner.tracker.popup;
         }
+
         function descendants(node) {
             let out = [];
             for (const child of node.children) {
@@ -948,6 +950,41 @@ Item {
             compare(content.x, Theme.tooltip.paddingX);
             compare(content.y, Theme.tooltip.paddingY);
             compare(window.height, content.height + 2 * Theme.tooltip.paddingY);
+        }
+
+        function test_a_tooltip_removed_from_a_live_anchor_releases_its_handlers() {
+            const handlers = () => host.resources.filter(item => String(item).indexOf("QQuickHoverHandler") === 0 || String(item).indexOf("QQuickTapHandler") === 0).length;
+            const count = handlers();
+            const transient = transientTooltip.createObject(host);
+            verify(transient !== null);
+            compare(handlers(), count + 2);
+            transient.destroy();
+            tryVerify(() => handlers() === count);
+        }
+
+        function test_idle_tooltip_builds_no_popup_and_close_destroys_it() {
+            mouseMove(root, root.width - 1, root.height - 1);
+            compare(tip.tracker, null);
+            compare(UnitTheme.override({ tooltip: { delay: 20 } }), "ok");
+            mouseMove(host, host.width / 2, host.height / 2);
+            tryCompare(tip, "opened", true);
+            verify(tip.tracker !== null);
+            mouseMove(root, root.width - 1, root.height - 1);
+            tryCompare(tip, "opened", false);
+            compare(tip.tracker, null);
+        }
+
+        function test_hidden_or_disabled_anchor_closes_and_destroys_the_popup() {
+            compare(UnitTheme.override({ tooltip: { delay: 20 } }), "ok");
+            for (const property of ["visible", "enabled"]) {
+                mouseMove(host, host.width / 2, host.height / 2);
+                tryCompare(tip, "opened", true);
+                host[property] = false;
+                tryCompare(tip, "opened", false);
+                compare(tip.tracker, null);
+                mouseMove(root, root.width - 1, root.height - 1);
+                host[property] = true;
+            }
         }
 
         function test_tooltip_opens_after_the_delay_and_not_under_an_overlay() {

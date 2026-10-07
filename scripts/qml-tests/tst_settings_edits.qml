@@ -216,6 +216,39 @@ Item {
             return input;
         }
 
+        function test_settings_key_boxes_keep_width_across_bound_unbound_and_reset_states() {
+            const original = keyRow.bind;
+            keyRow.capture = pageCapture;
+            const box = () => descendants(keyRow).find(item => String(item).indexOf("QQuickAbstractButton") === 0);
+            const expected = box().width;
+            for (const key of [null, "SUPER+N", "SUPER+M"]) {
+                keyRow.bind = Object.assign({}, original, { key: key });
+                waitForItemPolished(box().parent);
+                compare(box().width, expected);
+            }
+            keyRow.bind = original;
+            keyRow.capture = null;
+        }
+
+        function test_settings_bind_explanation_uses_the_shared_label_tooltip() {
+            const original = keyRow.bind;
+            keyRow.bind = Object.assign({}, original, { info: "Open the window." });
+            compare(UnitTheme.override({ tooltip: { delay: 20 } }), "ok");
+            const label = descendants(keyRow).find(item => item.objectName === "fieldLabel");
+            const tip = descendants(label).find(item => String(item).indexOf("Tooltip") === 0);
+            verify(!descendants(keyRow).some(item => String(item).indexOf("InfoButton") === 0));
+            compare(tip.text, "Open the window.");
+            mouseMove(label, label.width / 2, label.height / 2);
+            tryCompare(tip, "opened", true);
+            mouseMove(root, root.width - 1, root.height - 1);
+            tryCompare(tip, "opened", false);
+            label.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(tip, "opened", true);
+            elsewhere.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(tip, "opened", false);
+            keyRow.bind = original;
+        }
+
         function test_a_typed_text_waits_and_joins_the_set() {
             const input = type(gap, "73");
             compare(input.text, "73");

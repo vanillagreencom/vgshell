@@ -89,6 +89,8 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 
 ### Settings pages
 
+- Do show a bind row with no info icon. Show its explanation in the shared tooltip on label hover and keyboard focus.
+
 - Do put a switch on its label's row in the value column, never below the label; review holds it.
 - Do keep each setting in its settings group. If a setting applies to the whole group, say so in its help instead of placing it above the group; review holds it.
 - Do declare a plugin's settings in its manifest schema, and never ship page code for its Settings page. `scripts/test-plugin-logic.js` pins the schema.
