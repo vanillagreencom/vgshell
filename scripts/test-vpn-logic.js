@@ -14,15 +14,18 @@ const assert = require("node:assert/strict");
 const { load } = require("../bin/lib/qml-library.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.vpn/VpnLogic.js");
 const nmcliFile = path.join(__dirname, "../shell/Commons/Nmcli.js");
-const commons = { "qs.Commons 1.0": { Nmcli: load(nmcliFile) } };
+const commons = { "qs.Commons 1.0": { Nmcli: load(nmcliFile), SettingValues: load(path.join(__dirname, "../shell/Commons/SettingValues.js")) } };
+const core = load(path.join(__dirname, "../shell/Core/PluginLogic.js"));
+const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/manifest.json"), "utf8"));
+const serviceSource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/Service.qml"), "utf8");
 const fixtures = path.join(__dirname, "fixtures/vpn");
 const text = name => fs.readFileSync(path.join(fixtures, name), "utf8");
 // The core's ceiling for one plugin's published status
 // (PluginLogic.STATUS_MAX_BYTES).
-const STATUS_MAX_BYTES = 64 * 1024;
+const STATUS_MAX_BYTES = core.STATUS_MAX_BYTES;
 const plain = value => JSON.parse(JSON.stringify(value));
 
-function suite(logic) {
+function suite(logic, service = serviceSource) {
     const read = name => plain(logic.snapshot(0, text(name), ""));
     const running = read("running.json");
     const mullvad = read("mullvad.json");
@@ -235,6 +238,47 @@ function suite(logic) {
     assert.equal(manyAccounts.length, logic.ACCOUNT_MAX);
     const bytes = Buffer.byteLength(JSON.stringify(logic.published(false, largest, ready, { accounts: manyAccounts, action: "exit-node", login: "opened", problem: wide.slice(0, 200) })));
     assert.ok(bytes < STATUS_MAX_BYTES, "the largest vpn value is " + bytes + " bytes, the ceiling " + STATUS_MAX_BYTES);
+
+    // Run the shipped publication body against the core judge. Large lists
+    // grow, shrink and change together, so intermediate writes must fit too.
+    const publishBody = /function publish\(\) \{([\s\S]*?)\n    \}\n    onPublishedChanged/.exec(service);
+    assert.ok(publishBody);
+    const publish = new Function("shell", "connection", "setup", "published", "profiles", "Logic", publishBody[1]);
+    const bigVpn = plain(logic.published(false, largest, ready, { accounts: manyAccounts, action: "exit-node", login: "opened", problem: wide.slice(0, 200) }));
+    const bigProfiles = Object.assign({}, profileBound, { action: profileBound.rows[0].id, problem: "NetworkManager could not change this connection." });
+    assert.ok(Buffer.byteLength(JSON.stringify({ vpn: bigVpn, profiles: bigProfiles })) > STATUS_MAX_BYTES, "the unbounded combined fixture must exceed the core ceiling");
+    const unicodeProfiles = plain(logic.profiles(0, Array.from({ length: 100 }, (_, i) => i + "界".repeat(250) + ":wireguard:activated").join("\n")));
+    let values = {};
+    const shell = { status: { set(key, value) {
+        const result = core.statusWrite(manifest, values, key, value);
+        assert.equal(result.ok, true, key + ": " + result.error);
+        values = plain(result.values);
+        assert.ok(Buffer.byteLength(JSON.stringify(values)) <= STATUS_MAX_BYTES);
+        return "ok";
+    } } };
+    for (const [vpn, profileList, setupLine] of [
+        [bigVpn, Object.assign({}, logic.emptyProfiles(), { action: "", problem: "" }), ready],
+        [shown, bigProfiles, denied], [bigVpn, bigProfiles, ready],
+        [bigVpn, Object.assign({}, unicodeProfiles, { action: unicodeProfiles.rows[0].id, problem: "" }), denied],
+        [shown, Object.assign({}, profiles, { action: "", problem: "" }), ready]
+    ]) {
+        const original = JSON.stringify([vpn, profileList]);
+        publish(shell, { tone: vpn.tone, text: vpn.text }, setupLine, vpn, profileList, logic);
+        assert.equal(JSON.stringify([vpn, profileList]), original, "publication does not change the service's source lists");
+        assert.equal(values.vpn.peerCount, vpn.peerCount);
+        assert.equal(values.vpn.exitCount, vpn.exitCount);
+        assert.equal(values.profiles.count, profileList.count);
+        assert.equal(values.profiles.action, profileList.action);
+        assert.ok(values.profiles.rows.length > 0 || profileList.rows.length === 0);
+        for (const row of values.profiles.rows) {
+            assert.deepEqual(row, profileList.rows.find(input => input.id === row.id));
+            assert.deepEqual(plain(logic.profileCommand({ kind: row.active ? "profile-down" : "profile-up", id: row.id }, values.profiles)).argv,
+                ["nmcli", "connection", row.active ? "down" : "up", "id", row.id]);
+        }
+        assert.deepEqual(values.vpn.exitNodes.filter(row => row.active), vpn.exitNodes.filter(row => row.active));
+        for (const row of values.vpn.exitNodes) assert.deepEqual(row, vpn.exitNodes.find(input => input.id === row.id));
+        assert.deepEqual(Object.keys(values), ["connection", "setup", "vpn", "profiles"]);
+    }
 }
 
 suite(load(file, commons));
@@ -246,12 +290,13 @@ try {
     assert.equal(parserSource.split(parserNeedle).length - 1, 1);
     const parserMutant = path.join(scratch, "Nmcli.js");
     fs.writeFileSync(parserMutant, parserSource.replace(parserNeedle, 'else if (c === "\\\\") out[out.length - 1] += c;'));
-    assert.throws(() => suite(load(file, { "qs.Commons 1.0": { Nmcli: load(parserMutant) } })));
+    assert.throws(() => suite(load(file, { "qs.Commons 1.0": Object.assign({}, commons["qs.Commons 1.0"], { Nmcli: load(parserMutant) }) })));
     console.log("vpn-logic: control=nmcli escaping red");
     for (const [name, needle, replacement] of [
         ["VPN profiles exclude other types", 'fields[1] !== "vpn" && fields[1] !== "wireguard"', 'false'],
         ["profile argv names id", '"down", "id", row.id]', '"down", row.id]'],
         ["profile lists are bounded", 'rows: rows.slice(0, PROFILE_MAX)', 'rows: rows.slice(0)'],
+        ["the combined status record fits", 'var STATUS_DATA_BYTES = 32000;', 'var STATUS_DATA_BYTES = 65536;'],
         ["a target equal to the peer id", "{ id: peer.ID, target: target,", "{ id: peer.ID, target: peer.ID,"],
         ["a Mullvad node goes by its IPv4", "if (isMullvad(peer)) return address;", ""],
         ["the DNS name comes before the host name", 'if (dns !== "") return dns;', ""],
@@ -277,5 +322,11 @@ try {
         assert.throws(() => suite(load(mutant, commons)), undefined, "control: " + name);
         console.log("vpn-logic: control=" + name + " red");
     }
+    const publicationNeedle = "Logic.statusWrites(connection, setup, published, profiles)";
+    assert.equal(serviceSource.split(publicationNeedle).length - 1, 1);
+    const unboundedService = serviceSource.replace(publicationNeedle,
+        '[["connection", { tone: connection.tone, text: connection.text }], ["setup", { tone: setup.tone, text: setup.text }], ["vpn", published], ["profiles", profiles]]');
+    assert.throws(() => suite(load(file, commons), unboundedService));
+    console.log("vpn-logic: control=service uses combined bound red");
 } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
 console.log("vpn-logic: passed");

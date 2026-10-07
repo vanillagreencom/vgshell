@@ -80,9 +80,7 @@ Item {
 
     function publish() {
         if (shell === null) return;
-        const setupValue = { tone: setup.tone, text: setup.text };
-        if (setup.action !== "") setupValue.action = setup.action;
-        const writes = [["connection", { tone: connection.tone, text: connection.text }], ["setup", setupValue], ["vpn", published], ["profiles", profiles]];
+        const writes = Logic.statusWrites(connection, setup, published, profiles);
         for (const write of writes) {
             const reply = shell.status.set(write[0], write[1]);
             if (reply !== "ok") console.warn("vpn: status " + write[0] + " " + reply);

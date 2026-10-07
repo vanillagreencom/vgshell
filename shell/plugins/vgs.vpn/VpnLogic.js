@@ -16,10 +16,8 @@ var ACTION_MS = 30000;
 var LOGIN_MS = 300000;
 // The most the service keeps of what a sign-in run prints, in characters.
 var LOGIN_SAID_MAX = 4096;
-// The ceilings of the published lists and of each drawn line, which keep
-// the `vpn` value under the core's 64 KiB status ceiling whatever a
-// tailnet holds (PluginLogic.STATUS_MAX_BYTES); scripts/test-vpn-logic.js builds the largest
-// value. Each list keeps its full count.
+// List ceilings bound retained rows. statusWrites also bounds their JSON
+// bytes together under the core's per-plugin ceiling (D037).
 var PEER_MAX = 64;
 var EXIT_MAX = 80;
 var ACCOUNT_MAX = 16;
@@ -335,8 +333,27 @@ function barView(vpn, profiles) {
     return { shown: true, icon: vpn.tone === "warning" ? "shield-alert" : "shield-off", tooltip: vpn.text };
 }
 
-// The profile list has its own status value. test-vpn-logic.js proves the
-// largest published list remains under PluginLogic.STATUS_MAX_BYTES.
+// Each data value leaves room for the other data value and the state lines.
+// Fixed allowances keep mixed old/new records within the ceiling during
+// sequential writes. test-vpn-logic.js checks these through the core judge.
+var STATUS_DATA_BYTES = 32000;
+
+function statusWrites(connectionLine, setupLine, vpnValue, profileValue) {
+    var setupValue = { tone: setupLine.tone, text: setupLine.text };
+    if (setupLine.action !== "") setupValue.action = setupLine.action;
+    var vpn = Object.assign({}, vpnValue, { exitNodes: vpnValue.exitNodes.slice(), peers: vpnValue.peers.slice(), accounts: vpnValue.accounts.slice() });
+    var profiles = Object.assign({}, profileValue, { rows: profileValue.rows.slice() });
+    while (Commons.SettingValues.utf8Bytes(JSON.stringify(vpn)) > STATUS_DATA_BYTES) {
+        var last = vpn.exitNodes.length - 1;
+        while (last >= 0 && vpn.exitNodes[last].active) last--;
+        if (last >= 0) vpn.exitNodes.splice(last, 1);
+        else if (vpn.peers.length > 0) vpn.peers.pop();
+        else vpn.accounts.pop();
+    }
+    while (Commons.SettingValues.utf8Bytes(JSON.stringify(profiles)) > STATUS_DATA_BYTES) profiles.rows.pop();
+    return [["connection", { tone: connectionLine.tone, text: connectionLine.text }], ["setup", setupValue], ["vpn", vpn], ["profiles", profiles]];
+}
+
 var PROFILE_MAX = 32;
 function emptyProfiles() { return { state: "unavailable", rows: [], count: 0 }; }
 

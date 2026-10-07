@@ -112,7 +112,7 @@ vpn_profile_count() { vpn_body window profileRows | py_reply 'import json,sys; p
 vpn_profiles() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles"); print("unpublished" if v is None else json.dumps(v[sys.argv[1]]))' "$1"; }
 vpn_nm_changes() { device_calls nmcli | py_reply 'import json,sys; print(json.dumps([c for c in json.load(sys.stdin)[int(sys.argv[1]):] if c[:2] == ["connection", "up"] or c[:2] == ["connection", "down"]]))' "$1"; }
 vpn_profile_press() {
-  ipc smoke revealScopedText window vgs.vpn Field "$1" Switch "" >/dev/null || return 1
+  ipc smoke revealScopedText window vgs.system Field "$1" Switch "" | py_reply 'import json,sys; value=json.load(sys.stdin); sys.exit(0 if type(value) in (int,float) else 1)' || return 1
   click_scoped_in window:System window vgs.vpn Field "$1" Switch ""
 }
 vpn_refresh() { ipc vgs.vpn invoke refresh ""; }
@@ -385,7 +385,7 @@ expect "the import fixture enables" ok ipc shell setPluginEnabled vgs.vpn true
 expect_poll "the import fixture reads profiles" '"available"' vpn_profiles state
 expect "the import fixture pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
 forget_record
-ipc smoke revealText window vgs.vpn Button "Import WireGuard" >/dev/null || fail "the Import button could not be revealed"
+ipc smoke revealText window vgs.system Button "Import WireGuard" | py_reply 'import json,sys; value=json.load(sys.stdin); sys.exit(0 if type(value) in (int,float) else 1)' || fail "the Import button could not be revealed"
 click_in window:System window vgs.vpn Button "Import WireGuard" || fail "the Import button could not be pressed"
 expect_poll "Import hands the terminal the declared TUI" "$(words vgs.vpn/import-wireguard tui/import-wireguard.sh)" recorded_tail
 expect_run_end "the import fixture ends" vgs.vpn/import-wireguard
