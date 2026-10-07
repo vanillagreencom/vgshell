@@ -146,7 +146,7 @@ python3 - "$jarvis_console_service" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]); s=p.read_text()
-needle='send(fields);\n        return "ok";'
+needle='send(fields); return "ok";'
 assert s.count(needle)==1
 p.write_text(s.replace(needle, 'return "ok";'))
 PY

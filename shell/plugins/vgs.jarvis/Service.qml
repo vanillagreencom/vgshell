@@ -276,8 +276,7 @@ Item {
         } catch (error) { return "refused: say=" + protocolKey(error.message); }
         const refusal = Session.sayRefusal(sessionState);
         if (refusal !== null) return "refused: say=" + refusal;
-        send(fields);
-        return "ok";
+        send(fields); return "ok";
     }
 
     function send(fields) {

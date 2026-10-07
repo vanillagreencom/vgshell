@@ -162,7 +162,7 @@ function userTranscript(s, effects, text, rev) {
     if (shown !== "") effect(s, effects, "transcript", { role: "user", text: shown, stage: "final", rev: rev });
 }
 
-function commitUserText(s, effects, text, at, releaseInput, rev) {
+function commitUserText(s, effects, text, at, rev) {
     if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
     if (s.conversation.kind === "ended") {
         s.gen += 1;
@@ -451,12 +451,12 @@ function reduce(state, e) {
         break;
     case "final":
         if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
-        commitUserText(s, effects, e.text, e.at, false, e.op);
+        commitUserText(s, effects, e.text, e.at, e.op);
         break;
     case "say":
         if (sayRefusal(s) !== null) break;
         recover(s, effects, e.at);
-        commitUserText(s, effects, e.text, e.at, true, 1);
+        commitUserText(s, effects, e.text, e.at, 1);
         break;
     // A transcription that fails after its capture closed still owns the turn.
     case "collect-failed":

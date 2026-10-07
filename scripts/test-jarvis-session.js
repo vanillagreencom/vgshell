@@ -1429,7 +1429,7 @@ try {
             'if (false && e.id !== s.approval.id) { stale(s); break; }', "shown-id"],
         ["cancel-id", 'if (e.id !== s.approval.id || e.gen !== s.approval.gen)',
             'if (false && (e.id !== s.approval.id || e.gen !== s.approval.gen))', "cancel-id"],
-        ["final-caption", 'commitUserText(s, effects, e.text, e.at, false, e.op);',
+        ["final-caption", 'commitUserText(s, effects, e.text, e.at, e.op);',
             'void e;', "final-caption"],
         ["caption-final-text", 'userTranscript(s, effects, text, rev);',
             'userTranscript(s, effects, s.turn.partial, rev);', "final-caption"],
@@ -1545,7 +1545,7 @@ try {
     ];
     mutants.push(
         ["say-judge", 'case "say":\n        if (sayRefusal(s) !== null) break;', 'case "say":', "say-refusals"],
-        ["say-recover", 'recover(s, effects, e.at);\n        commitUserText(s, effects, e.text, e.at, true, 1);', 'commitUserText(s, effects, e.text, e.at, true, 1);', "say-recovers"],
+        ["say-recover", 'recover(s, effects, e.at);\n        commitUserText(s, effects, e.text, e.at, 1);', 'commitUserText(s, effects, e.text, e.at, 1);', "say-recovers"],
         ["say-speaking", 'if (s.playback.kind !== "idle") return "speaking";', 'if (false) return "speaking";', "say-refuses-speaking"],
         ["say-action", 's.action.kind === "running" || ', '', "say-refuses-action-only"],
         ["user-transcript", 'userTranscript(s, effects, text, rev);', 'if (false) userTranscript(s, effects, text, rev);', "say-idle"],
