@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Create and activate one Wi-Fi profile. Only stdin carries its secret.
 
-The form consumes the typed result on stdout. Child output never leaves this
+The service consumes the typed result on stdout. Child output never leaves this
 owner, because NetworkManager diagnostics can contain supplied credentials.
 """
 import json

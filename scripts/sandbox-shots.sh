@@ -2819,15 +2819,23 @@ scene_network() { # MODE
   type_keys -k Tab
   type_keys 'network-shot-synthetic-password'
   park_pointer
-  take "network-$1-other-psk"
+  take_posed "network-$1-other-psk"
   # Click the existing shared Select; Down chooses Enterprise without a popup.
   click_in 'window:System Settings' window vgs.network Select 'WPA/WPA2 Personal' || fail "the security choice did not open"
   type_keys -k Down -k Return
   expect_poll "the enterprise form is selected" true ipc smoke readDescendant window vgs.network NetworkJoin enterprise
   click_in 'window:System Settings' window vgs.network Select 'PEAP / MSCHAPv2' || fail "the enterprise method choice did not open"
   type_keys -k Down -k Return
+  expect "the enterprise shot chooses TTLS" 1 ipc smoke readMatchingDescendant window vgs.network Select objectName network-join-method currentIndex
+  type_keys -k Tab
+  type_keys 'office.user'
+  type_keys -k Tab
+  type_keys 'auth.example.com'
+  type_keys -k Tab
+  type_keys 'network-shot-synthetic-password'
   park_pointer
-  take "network-$1-other-enterprise"
+  take_posed "network-$1-other-enterprise"
+  expect "Cancel is revealed after the enterprise shot" scrolled network_shot_cancel_reveal
   click_in 'window:System Settings' window vgs.network Button Cancel || fail "the form did not close after its shot"
   expect_poll "the Other Network shot releases its form" absent ipc smoke readDescendant window vgs.network NetworkJoin result
   expect "enp10s0 scrolls into view" scrolled network_shot_reveal
@@ -2841,6 +2849,8 @@ scene_network() { # MODE
   park_pointer
   take "network-$1-dropdown"
   expect "the network panel hides" ok ipc shell hide panel vgs.network
+  expect "the network shot forgets its saved fake profile" ok ipc vgs.network invoke action '{"kind":"forget","key":"[\"wlan0\",\"VGS Smoke Wi-Fi\"]"}'
+  expect_poll "the network shot releases its saved fake profile" False network_shot_known
   expect "the network shot removes its wired fake devices" ok python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" unwired
   expect "Network disables after its shot" ok ipc shell setPluginEnabled vgs.network false
   expect "System disables after the network shot" ok ipc shell setPluginEnabled vgs.system false
@@ -2884,10 +2894,12 @@ vpn_shot_profiles() { ipc smoke readDescendant "$1" vgs.vpn VpnBody profileRows 
 vpn_shot_reveal() { ipc smoke revealText "$1" "$2" SectionHeader "VPN profiles" | py_reply 'import sys; s=sys.stdin.read().strip(); print("scrolled" if s.replace(".", "", 1).isdigit() else s)'; }
 network_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.network) != absent ]] && echo shown || echo hidden; }
 network_shot_other_reveal() { ipc smoke revealText window vgs.system Button 'Other Network…' | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
+network_shot_cancel_reveal() { ipc smoke revealText window vgs.system Button Cancel | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 network_shot_reveal() { ipc smoke revealText window vgs.system ListItem enp10s0 | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 network_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.network) != absent ]] && echo shown || echo hidden; }
 network_shot_details() { ipc smoke networkDetails window | py_reply 'import json,sys; s=sys.stdin.read(); print(s.startswith("{") and len(json.loads(s)["rows"]) > 0)'; }
 network_shot_names() { ipc smoke readDescendant window vgs.network NetworkBody rows | py_reply 'import json,sys; print(json.dumps([[r["name"],r["security"],r["known"]] for r in json.load(sys.stdin)]))'; }
+network_shot_known() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(any(r["known"] for r in json.load(sys.stdin)["network"]["wifi"]))'; }
 
 scene_dialog() { # MODE
   expect "enabling acme.needs is allowed" ok ipc shell setPluginEnabled acme.needs true

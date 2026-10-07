@@ -1,5 +1,18 @@
 .pragma library
 .import qs.Commons 1.0 as Commons
+
+// Qt shares .pragma library state across this plugin's QML instances:
+// https://doc.qt.io/qt-6/qtqml-javascript-resources.html
+// The service clears its endpoint on destruction. Only the direct call
+// carries the one-use stdin closure; status and IPC hold public data alone.
+var joinOwner = null;
+function attachJoin(owner) { joinOwner = owner; }
+function releaseJoin(owner) { if (joinOwner === owner) joinOwner = null; }
+function submitJoin(request, feed, done) {
+    return joinOwner === null ? "unavailable" : joinOwner.startJoin(request, feed, done);
+}
+function closeJoin(owner) { if (joinOwner !== null) joinOwner.cancelJoin(owner); }
+
 // Pure decisions for Quickshell.Networking snapshots. Signal strength is
 // Quickshell's share from zero to one, not NetworkManager's percentage.
 // Enum toString() is localized display wording, not a stable identity.

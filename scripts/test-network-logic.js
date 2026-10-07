@@ -11,6 +11,25 @@ const file = path.join(__dirname, "../shell/plugins/vgs.network/NetworkLogic.js"
 const nmcliFile = path.join(__dirname, "../shell/Commons/Nmcli.js");
 const commons = { "qs.Commons 1.0": { Nmcli: load(nmcliFile) } };
 function suite(logic) {
+    // This exercises the shared endpoint itself. QML smoke owns proof that
+    // the real service Process outlives the form during UUID cleanup.
+    const calls = [];
+    const owner = { startJoin: (...args) => { calls.push(args); return "ok"; }, cancelJoin: id => calls.push(id) };
+    const request = { owner: "form", interface: "wlan0", name: "Hidden" };
+    const feed = () => {};
+    const done = () => {};
+    assert.equal(logic.submitJoin(request, feed, done), "unavailable");
+    logic.attachJoin(owner);
+    assert.equal(logic.submitJoin(request, feed, done), "ok");
+    assert.equal(calls[0][0], request);
+    assert.equal(calls[0][1], feed);
+    assert.equal(calls[0][2], done);
+    logic.closeJoin("form");
+    assert.equal(calls[1], "form");
+    logic.releaseJoin({});
+    assert.equal(logic.submitJoin(request, feed, done), "ok");
+    logic.releaseJoin(owner);
+    assert.equal(logic.submitJoin(request, feed, done), "unavailable");
     for (const [security, supported] of [["WpaEap", true], ["Wpa2Eap", true], ["Wpa3SuiteB192", false], ["Wpa2Psk", false], ["Unknown", false]]) assert.equal(logic.supportsEnterprise(security), supported);
     assert.equal(logic.enumName(7, { NoSecrets: 7, WifiAuthTimeout: 8 }), "NoSecrets");
     assert.equal(logic.enumName(99, { NoSecrets: 7 }), "Unknown");
@@ -99,6 +118,7 @@ const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "network-logic-"));
 try {
     const source = fs.readFileSync(file, "utf8");
     for (const [name, needle, replacement] of [
+        ["join endpoint release", 'if (joinOwner === owner) joinOwner = null;', 'joinOwner = owner;'],
         ["enterprise security routing", 'return security === "WpaEap" || security === "Wpa2Eap";', 'return false;'],
         ["strength uses the upstream share", " * 100)", ")"],
         ["connected ordering", "Number(b.connected) - Number(a.connected)", "0"],

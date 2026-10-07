@@ -1,11 +1,11 @@
 import QtQuick
 import Quickshell
-import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "NetworkLogic.js" as Logic
 
-// This view owns the helper and its one-use stdin closure. No secret enters
-// the service IPC or status. Closing the view cancels its profile activation.
+// The service owns the helper through cancellation and profile cleanup.
+// This form hands it a one-use stdin closure through a direct local call.
 FocusScope {
     id: root
     objectName: "network-join-form"
@@ -13,29 +13,25 @@ FocusScope {
     property string interfaceName: ""
     property var target: null
     property string owner: String(root)
-    property var feed: null
     property bool pending: false
     property var result: ({ kind: "idle" })
     readonly property bool enterprise: security.currentIndex === 1
     readonly property bool canSubmit: !pending && ssid.text !== "" && password.text !== "" && (!enterprise || (identity.text !== "" && domain.text !== ""))
     readonly property Item initialFocus: target === null ? ssid : identity
-    readonly property string helperPath: decodeURIComponent(String(Qt.resolvedUrl("bin/join-network")).replace(/^file:\/\//, ""))
     signal dismissed()
     implicitHeight: content.implicitHeight
     Keys.onEscapePressed: event => { root.dismissed(); event.accepted = true; }
 
     function finish(value) {
-        feed = null;
         if (!pending) return;
         pending = false;
         result = value;
-        if (shell !== null) shell.ipc.call("action", JSON.stringify({ kind: "join-result", owner: owner, result: value.kind, cleanup: value.cleanup }));
+        if (value.kind === "ok") dismissed();
     }
     function clear() {
         password.text = "";
-        feed = null;
-        helper.running = false;
-        finish({ kind: "canceled" });
+        Logic.closeJoin(owner);
+        pending = false;
     }
     Component.onDestruction: clear()
     Component.onCompleted: Qt.callLater(() => initialFocus.forceActiveFocus(Qt.ShortcutFocusReason))
@@ -44,37 +40,13 @@ FocusScope {
         if (!canSubmit || shell === null) return;
         const secret = password.text;
         password.text = "";
-        const reply = shell.ipc.call("action", JSON.stringify({ kind: "join", owner: owner, interface: interfaceName, name: ssid.text }));
-        if (reply !== "ok") { result = { kind: reply === "busy" ? "busy" : "refused" }; return; }
         pending = true;
         result = { kind: "joining" };
-        feed = () => { helper.write(secret); helper.stdinEnabled = false; };
-        helper.command = ["python3", helperPath, interfaceName, ssid.text, target === null ? "yes" : "no",
-                          enterprise ? (method.currentIndex === 0 ? "peap" : "ttls") : "psk", identity.text, domain.text];
-        helper.stdinEnabled = true;
-        helper.running = true;
-    }
-    Process {
-        id: helper
-        objectName: "network-join-helper"
-        clearEnvironment: true
-        environment: ({ PATH: null, HOME: null, XDG_RUNTIME_DIR: null, DBUS_SYSTEM_BUS_ADDRESS: null, DBUS_SESSION_BUS_ADDRESS: null })
-        stdout: StdioCollector { id: output; waitForEnd: true }
-        stderr: StdioCollector { waitForEnd: true }
-        // Process.write requires a started child. Closing stdin flushes its
-        // queued bytes (Quickshell 0.3.1 Process reference, same as SecretWriter).
-        onStarted: {
-            const once = root.feed;
-            root.feed = null;
-            if (once !== null) once();
-        }
-        onExited: code => {
-            let value = { kind: "failed", cleanup: "unknown" };
-            try { value = JSON.parse(output.text); } catch (_) {}
-            root.finish(value);
-            if (code === 0 && value.kind === "ok") root.dismissed();
-        }
-        onRunningChanged: if (!running) Qt.callLater(() => { if (root.pending) root.finish({ kind: "start-failed", cleanup: "not-needed" }); })
+        const reply = Logic.submitJoin({ owner: owner, interface: interfaceName, name: ssid.text,
+            hidden: target === null ? "yes" : "no", method: enterprise ? (method.currentIndex === 0 ? "peap" : "ttls") : "psk",
+            identity: identity.text, domain: domain.text },
+            helper => { helper.write(secret); helper.stdinEnabled = false; }, root.finish);
+        if (reply !== "ok") { pending = false; result = { kind: reply === "busy" ? "busy" : "refused" }; }
     }
     Column {
         id: content

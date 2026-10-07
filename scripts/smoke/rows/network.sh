@@ -28,7 +28,7 @@ mkdir -p -- "$net_join_dir"
 net_join_world() { python3 - "$net_join_dir/world.json" "$1" "$2" <<'PYJOINWORLD'
 import hashlib,json,pathlib,sys
 secret="network-smoke-joined-secret"
-pathlib.Path(sys.argv[1]).write_text(json.dumps({"secret_codes":list(map(ord,secret)), "stdin_digest":hashlib.sha256((sys.argv[2]+":"+secret+"\n").encode()).hexdigest(), "fail":{"up":"refused"} if sys.argv[3]=="refused" else {}}))
+pathlib.Path(sys.argv[1]).write_text(json.dumps({"secret_codes":list(map(ord,secret)), "stdin_digest":hashlib.sha256((sys.argv[2]+":"+secret+"\n").encode()).hexdigest(), "fail":{"up":"refused"} if sys.argv[3]=="refused" else {"up":"failed"}, "hold":"up" if sys.argv[3]=="hold" else None}))
 PYJOINWORLD
 }
 net_join_world 802-11-wireless-security.psk refused
@@ -106,9 +106,16 @@ expect "the network pane opens in System" ok ipc shell summon window vgs.system 
 expect_poll "Network's pane is mounted" shown net_shown window
 expect "the pane receives its payload" '{"source":"smoke"}' ipc smoke readInstance window vgs.network payload
 expect_poll "the pane owns one scan lease" '{"leases":1,"device":"wlan0","scanning":true}' ipc smoke networkScan
-net_join_result() { ipc smoke readDescendant window vgs.network NetworkJoin result | py_reply 'import json,sys; s=sys.stdin.read().strip(); print(json.loads(s)["kind"] if s.startswith("{") else "closed" if s=="absent" else s)'; }
+net_join_result() {
+  local reply
+  reply="$(ipc smoke readDescendant window vgs.network NetworkJoin result)" || return
+  if [[ $reply == absent ]]; then echo closed
+  else py_reply 'import json,sys; r=json.load(sys.stdin); print("closed" if r=="absent" else r["kind"])' <<<"$reply"
+  fi
+}
 net_other_reveal() { ipc smoke revealText window vgs.system Button 'Other Network…' | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
-net_join_record() { python3 - "$net_join_dir/calls" <<'PYJOINCALLS'
+net_join_cancel_reveal() { ipc smoke revealText window vgs.system Button Cancel | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
+net_join_record() { python3 - "$net_join_dir/calls" "$net_join_dir/world.json" <<'PYJOINCALLS'
 import json,pathlib,sys,uuid
 p=pathlib.Path(sys.argv[1]); rows=[json.loads(line) for line in p.read_text().splitlines()] if p.exists() else []
 up=next((r for r in rows if r["operation"]=="up"),None)
@@ -121,6 +128,7 @@ else:
     valid=valid and str(uuid.UUID(profile))==profile
     valid=valid and up["helper_argv"][2:]==["wlan0","Hidden smoke Wi-Fi","yes","psk","",""]
     valid=valid and rows[-1]["argv"]==["--wait","120","connection","delete","uuid",profile]
+    valid=valid and profile not in json.loads(pathlib.Path(sys.argv[2]).read_text()).get("profiles", [])
     print("private-cleaned" if valid else "invalid")
 PYJOINCALLS
 }
@@ -140,6 +148,37 @@ expect "the submitted hidden form needs a new password" false ipc smoke readDesc
 click_in 'window:System Settings' window vgs.network Button Cancel || fail "Other Network could not be canceled"
 expect_poll "Cancel releases the hidden form" closed net_join_result
 expect "the hidden operation releases its shared owner" idle net_action
+# Hold nmcli activation until the real form closes. The service must keep
+# its Process alive while SIGTERM lets the helper delete the created UUID.
+net_join_close_test() { # RECORD OPERATION
+rm -f -- "${net_join_dir:?}/calls" "${net_join_dir:?}/ready"
+net_join_world 802-11-wireless-security.psk hold
+expect "Other Network is revealed for its close test" scrolled net_other_reveal
+click_in 'window:System Settings' window vgs.network Button 'Other Network…' || fail "the close test form could not open"
+expect_poll "the close test takes focus" true ipc smoke activeFocusWithin window vgs.network NetworkJoin
+type_keys 'Hidden smoke Wi-Fi'
+type_keys -k Tab
+type_keys -k Tab
+type_keys network-smoke-joined-secret
+type_keys -k Return
+net_join_held() { python3 - "$net_join_dir/ready" "$net_join_dir/world.json" "$net_join_dir/calls" <<'PYJOINHELD'
+import json,pathlib,sys
+ready,world,calls=map(pathlib.Path,sys.argv[1:])
+rows=[json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+add=next((r for r in rows if r["operation"]=="add"),None)
+profile=add["argv"][add["argv"].index("connection.uuid")+1] if add else None
+print("held" if ready.exists() and profile in json.loads(world.read_text()).get("profiles", []) else "pending")
+PYJOINHELD
+}
+expect_poll "the real helper reaches held activation" held net_join_held
+expect "the pending helper holds the service operation" join net_action
+expect "Cancel is visible during activation" scrolled net_join_cancel_reveal
+click_in 'window:System Settings' window vgs.network Button Cancel || fail "the pending form could not close"
+expect_poll "closing during activation releases the form" closed net_join_result
+expect_poll "closing during activation reads cleanup ownership" "$1" net_join_record
+expect_poll "closing during activation reads the shared operation" "$2" net_action
+}
+net_join_close_test private-cleaned idle
 expect "the mock adds a scanned enterprise network" ok net_fixture enterprise
 net_enterprise_seen() { net_snapshot | py_reply 'import json,sys; print(any(r["name"]=="VGS Enterprise Wi-Fi" and r["security"]=="Wpa2Eap" for r in json.load(sys.stdin)["network"]["wifi"]))'; }
 expect_poll "the scanned enterprise row uses its security kind" True net_enterprise_seen
@@ -147,6 +186,7 @@ click_in 'window:System Settings' window vgs.network DeviceRow 'VGS Enterprise W
 expect_poll "a scanned enterprise opens the same form" idle net_join_result
 expect "the scanned enterprise form selects enterprise security" true ipc smoke readDescendant window vgs.network NetworkJoin enterprise
 expect "the enterprise password field is masked" true ipc smoke readMatchingDescendant window vgs.network TextField objectName network-join-password password
+expect "the enterprise Cancel button scrolls into view" scrolled net_join_cancel_reveal
 click_in 'window:System Settings' window vgs.network Button Cancel || fail "the enterprise form could not be canceled"
 expect_poll "Cancel releases the scanned enterprise form" closed net_join_result
 expect "the mock removes its scanned enterprise network" ok net_fixture unenterprise
@@ -451,6 +491,29 @@ expect_poll "Network is disconnected again" '"offline"' net_state
 net_copy="$home/.config/vgshell/plugins/vgs.network"
 mkdir -p -- "$net_copy"
 cp -R -- "$repo/shell/plugins/vgs.network/." "$net_copy/"
+python3 - "$net_copy/Service.qml" <<'PYCANCELCONTROL'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);s=p.read_text();old='joinHelper.running = false;'
+assert s.count(old)==1
+p.write_text(s.replace(old,'/* control: retain activation after form close */'))
+PYCANCELCONTROL
+rescan "the form cancellation control is discovered"
+expect_poll "the cancellation control finishes its backend probes" '"offline"' net_state
+expect "System opens the cancellation control" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+expect_poll "the cancellation control pane is mounted" shown net_shown window
+net_join_close_test invalid join
+# Releasing the fake's barrier lets its failed activation finish normally.
+python3 - "$net_join_dir/world.json" <<'PYJOINRELEASE'
+import json,pathlib,sys,tempfile
+p=pathlib.Path(sys.argv[1]);world=json.loads(p.read_text());world["hold"]=None
+with tempfile.NamedTemporaryFile("w",dir=p.parent,delete=False) as updated:
+    json.dump(world,updated)
+pathlib.Path(updated.name).replace(p)
+PYJOINRELEASE
+expect_poll "the released control cleans its UUID" private-cleaned net_join_record
+expect_poll "the released control ends its operation" idle net_action
+expect "System closes the cancellation control" ok ipc shell hide window vgs.system
+cp -- "$repo/shell/plugins/vgs.network/Service.qml" "$net_copy/Service.qml"
 python3 - "$net_copy/Service.qml" <<'PY'
 import sys
 p=sys.argv[1];s=open(p).read();old='if (Logic.shouldReprompt(Logic.enumName(reason, failureVariants), security, pending.known)) {'

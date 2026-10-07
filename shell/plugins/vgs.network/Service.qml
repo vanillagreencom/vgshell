@@ -15,6 +15,9 @@ Item {
     property string serviceState: "unavailable"
     property string access: "unavailable"
     property var operation: null
+    property var joinFeed: null
+    property var joinDone: null
+    readonly property string joinHelperPath: decodeURIComponent(String(Qt.resolvedUrl("bin/join-network")).replace(/^file:\/\//, ""))
     readonly property var action: operation === null ? ({ kind: "idle" }) : ({
         kind: operation.kind === "psk" ? "connect" : operation.kind, key: operation.key, known: operation.known
     })
@@ -87,7 +90,8 @@ Item {
     }
     onWifiDeviceChanged: {
         prompt = null;
-        finishOperation(operation === null ? "" : "The network device is no longer available.");
+        if (operation !== null && operation.kind === "join") cancelJoin(operation.owner);
+        else finishOperation(operation === null ? "" : "The network device is no longer available.");
         Qt.callLater(root.moveScanner);
     }
     onLeaseCountChanged: moveScanner()
@@ -108,7 +112,13 @@ Item {
         if (scannerDevice !== null) scannerDevice.scannerEnabled = true;
         else if (wifiDevice !== null) wifiDevice.scannerEnabled = false;
     }
-    Component.onDestruction: if (scannerDevice !== null) scannerDevice.scannerEnabled = false
+    Component.onCompleted: Logic.attachJoin(root)
+    Component.onDestruction: {
+        Logic.releaseJoin(root);
+        joinFeed = null;
+        joinDone = null;
+        if (scannerDevice !== null) scannerDevice.scannerEnabled = false;
+    }
 
     function lease(arg) {
         const request = JSON.parse(arg);
@@ -174,27 +184,69 @@ Item {
         onTriggered: root.expired()
     }
 
+    function startJoin(request, feed, done) {
+        if (!Logic.writable(state)) return "refused: network=" + state;
+        if (operation !== null || joinHelper.running) return "busy";
+        if (!nmcliPresent || wifiDevice === null || request.interface !== wifiDevice.name || !Networking.wifiEnabled) return "refused: device=unavailable";
+        prompt = null;
+        problem = "";
+        operation = { kind: "join", owner: request.owner, key: JSON.stringify([request.interface, request.name]), known: false, network: null };
+        joinFeed = feed;
+        joinDone = done;
+        joinHelper.command = ["python3", joinHelperPath, request.interface, request.name, request.hidden, request.method, request.identity, request.domain];
+        joinHelper.stdinEnabled = true;
+        joinHelper.running = true;
+        return "ok";
+    }
+    function cancelJoin(owner) {
+        if (operation === null || operation.kind !== "join" || operation.owner !== owner) return;
+        joinDone = null;
+        joinFeed = null;
+        joinHelper.stdinEnabled = false;
+        // running=false sends SIGTERM. Destroying Process sends SIGKILL, so
+        // this service keeps it until the helper's UUID cleanup has ended:
+        // Quickshell 0.3.1 src/io/process.cpp, setRunning and destructor.
+        joinHelper.running = false;
+    }
+    function finishJoin(value) {
+        joinFeed = null;
+        if (operation === null || operation.kind !== "join") return;
+        const done = joinDone;
+        joinDone = null;
+        finishOperation(value.cleanup === "failed" ? "The new network profile could not be removed."
+            : value.kind === "refused" ? "NetworkManager denied access to this network change."
+            : ["failed", "timeout", "start-failed", "invalid"].includes(value.kind) ? "The network could not connect. Check the network settings and try again." : "");
+        if (done !== null) done(value);
+    }
+    Process {
+        id: joinHelper
+        objectName: "network-join-helper"
+        clearEnvironment: true
+        environment: ({ PATH: null, HOME: null, XDG_RUNTIME_DIR: null, DBUS_SYSTEM_BUS_ADDRESS: null, DBUS_SESSION_BUS_ADDRESS: null })
+        stdout: StdioCollector { id: joinOutput; waitForEnd: true }
+        stderr: StdioCollector { waitForEnd: true }
+        // Quickshell 0.3.1 Process.write needs a started child. Closing stdin
+        // flushes queued bytes: https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
+        onStarted: {
+            const once = root.joinFeed;
+            root.joinFeed = null;
+            if (once !== null) once(joinHelper);
+        }
+        onExited: {
+            let value = { kind: "failed", cleanup: "unknown" };
+            try { value = JSON.parse(joinOutput.text); } catch (_) {}
+            root.finishJoin(value);
+        }
+        // Process emits exited before runningChanged on normal completion.
+        // FailedToStart emits runningChanged alone (0.3.1 process.cpp).
+        onRunningChanged: if (!running && root.operation !== null && root.operation.kind === "join") root.finishJoin({ kind: "start-failed", cleanup: "not-needed" })
+    }
+
     function act(arg) {
         const request = JSON.parse(arg);
-        if (request.kind === "join-result") {
-            if (operation === null || operation.kind !== "join" || operation.owner !== request.owner) return "refused: owner=absent";
-            finishOperation(request.cleanup === "failed" ? "The new network profile could not be removed."
-                : request.result === "refused" ? "NetworkManager denied access to this network change."
-                : ["failed", "timeout", "start-failed", "invalid"].includes(request.result) ? "The network could not connect. Check the network settings and try again." : "");
-            return "ok";
-        }
         if (request.kind === "cancel") { prompt = null; problem = ""; return "ok"; }
         if (!Logic.writable(state)) return "refused: network=" + state;
         if (operation !== null && operation.kind === "join") return "busy";
-        if (request.kind === "join") {
-            if (operation !== null) return "busy";
-            if (!nmcliPresent || wifiDevice === null || request.interface !== wifiDevice.name || !Networking.wifiEnabled) return "refused: device=unavailable";
-            if (typeof request.owner !== "string" || request.owner === "" || typeof request.name !== "string" || request.name === "") return "refused: join=value";
-            prompt = null;
-            problem = "";
-            operation = { kind: "join", owner: request.owner, key: JSON.stringify([request.interface, request.name]), known: false, network: null };
-            return "ok";
-        }
         if (request.kind === "radio") {
             if (Networking.wifiEnabled) {
                 prompt = null;

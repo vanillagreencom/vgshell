@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 import time
 
 world_path, calls_path, ready_path = map(Path, sys.argv[1:4])
@@ -26,8 +27,8 @@ with calls_path.open("a") as log:
     log.write(json.dumps(record) + "\n")
 if world.get("hold") == operation:
     ready_path.write_text(str(__import__("os").getpid()))
-    while True:
-        time.sleep(1)
+    while json.loads(world_path.read_text()).get("hold") == operation:
+        time.sleep(.05)
 failure = world.get("fail", {}).get(operation)
 if failure:
     # Deliberate upstream secret echo: the real helper must consume it privately.
@@ -35,3 +36,14 @@ if failure:
     sys.exit(4 if operation == "up" else 10)
 if leaked or (operation == "up" and not record["stdin_ok"]):
     sys.exit(2)
+world = json.loads(world_path.read_text())
+profiles = world.get("profiles", [])
+if operation == "add":
+    profiles.append(args[args.index("connection.uuid") + 1])
+elif operation == "delete":
+    profile = args[args.index("uuid") + 1]
+    profiles.remove(profile)
+world["profiles"] = profiles
+with tempfile.NamedTemporaryFile("w", dir=world_path.parent, delete=False) as updated:
+    json.dump(world, updated)
+Path(updated.name).replace(world_path)

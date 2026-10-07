@@ -47,6 +47,7 @@ def contract(p,result,rows,method,hidden,expect_kind):
     if expect_kind!='ok':
         assert rows[-1]['argv']==['--wait','120','connection','delete','uuid',profile]
         assert result['cleanup']=='deleted'
+        assert profile not in json.loads(fixture.read_text())['profiles']
     else:
         assert not any(r['operation']=='delete' for r in rows) and result['cleanup']=='not-needed'
     return profile
@@ -68,7 +69,7 @@ assert [r['operation'] for r in rows]==['add']
 world('802-1x.password',{'up':'failed','delete':'refused'})
 p,result,rows=run(helper,'peap','person','auth.example.test',False)
 assert result['kind']=='failed' and result['cleanup']=='failed'
-# The view's SIGTERM stops its nmcli child and cleans the same owned UUID.
+# Cancellation stops the nmcli child and cleans the same owned UUID.
 world('802-1x.password',hold='up')
 p=subprocess.Popen(['/usr/bin/python3',str(helper),'wlan0','Hidden','yes','peap','person','auth.example.test'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=env)
 p.stdin.write(secret);p.stdin.close();p.stdin=None
@@ -81,6 +82,7 @@ p.send_signal(signal.SIGTERM)
 out,err=p.communicate(timeout=5)
 result=json.loads(out); rows=records()
 assert result['kind']=='canceled' and result['cleanup']=='deleted'
+assert result['uuid'] not in json.loads(fixture.read_text())['profiles']
 assert rows[-1]['argv']==['--wait','120','connection','delete','uuid',result['uuid']]
 assert secret not in out+err
 try: os.kill(int(ready.read_text()),0)
