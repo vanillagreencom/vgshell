@@ -55,6 +55,35 @@ function writeCatalogTheme(dir, name, tokens) {
     }, null, 2) + "\n");
 }
 
+// Sixteen readable terminal slots on the default black background, with
+// OVERRIDES on top.
+function writeTerminal(dir, name, overrides) {
+    const slots = {};
+    for (let i = 0; i < 16; i++) slots[`color${i}`] = "#d7d7d9";
+    fs.writeFileSync(path.join(dir, name, "terminal.json"), JSON.stringify({ schemaVersion: 1, slots: Object.assign(slots, overrides) }, null, 2) + "\n");
+}
+
+// Each terminal slot set to the background's own colour: the slot's line
+// when the check judges it as text, null when the slot also fills or dims.
+const TERMINAL_SLOT_ROWS = [
+    ["color0", null],
+    ["color1", "terminal.color1"],
+    ["color2", "terminal.color2"],
+    ["color3", "terminal.color3"],
+    ["color4", "terminal.color4"],
+    ["color5", "terminal.color5"],
+    ["color6", "terminal.color6"],
+    ["color7", null],
+    ["color8", null],
+    ["color9", "terminal.color9"],
+    ["color10", "terminal.color10"],
+    ["color11", "terminal.color11"],
+    ["color12", "terminal.color12"],
+    ["color13", "terminal.color13"],
+    ["color14", "terminal.color14"],
+    ["color15", null]
+];
+
 function assertStatus(proc, status) {
     assert.equal(proc.status, status, proc.stdout + proc.stderr);
 }
@@ -137,6 +166,40 @@ try {
         const proc = run(dir, dir);
         assertStatus(proc, 0);
         assert.match(proc.stdout, /^ok       even$/m);
+    });
+
+    for (const [slot, text] of TERMINAL_SLOT_ROWS) {
+        row(`catalog terminal ${slot} on its background`, dir => {
+            fs.mkdirSync(dir, { recursive: true });
+            writeCatalogTheme(dir, "term", {});
+            writeTerminal(path.join(dir, "catalog"), "term", { [slot]: DEFAULT_PALETTE.background });
+            const proc = run(dir, dir);
+            if (text === null) {
+                assertStatus(proc, 0);
+                assert.match(proc.stdout, /^ok       catalog\/term$/m);
+            } else {
+                assertStatus(proc, 1);
+                assert.match(proc.stdout, new RegExp(`^short    catalog/term: ${text.replace(".", "\\.")} on palette\\.background ratio=1\\.00 floor=4\\.5$`, "m"));
+            }
+        });
+    }
+
+    row("a direct package's terminal slot below the floor is a shortfall", dir => {
+        fs.mkdirSync(dir, { recursive: true });
+        writeTheme(dir, "dim", {});
+        writeTerminal(dir, "dim", { color2: "#4c4c4c" });
+        const proc = run(dir, dir);
+        assertStatus(proc, 1);
+        assert.match(proc.stdout, /^short    dim: terminal\.color2 on palette\.background ratio=2\.\d\d floor=4\.5$/m);
+    });
+
+    row("a refused terminal.json exits one", dir => {
+        fs.mkdirSync(dir, { recursive: true });
+        writeTheme(dir, "bad", {});
+        writeTerminal(dir, "bad", { color3: "red" });
+        const proc = run(dir, dir);
+        assertStatus(proc, 1);
+        assert.match(proc.stdout, /^refused  bad: .*terminal-colour/m);
     });
 
     row("refused document exits one", dir => {

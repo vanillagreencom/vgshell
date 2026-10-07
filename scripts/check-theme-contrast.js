@@ -6,7 +6,8 @@
 //
 // THEMES_DIR defaults to this repository's themes/. The check judges every
 // direct package except ThemeLogic.RESERVED_DIRECTORIES, then every
-// themes/catalog/index.json entry. It prints:
+// themes/catalog/index.json entry, with its terminal.json when it has one.
+// It prints:
 //   ok       <name>
 //   ok       catalog/<name>
 //   short    catalog/<name>: <text> on <surface> ratio=<r> floor=4.5
@@ -16,6 +17,9 @@
 // at least as strong as color.text, and color.textMuted at least as strong
 // as color.textFaint. A readability override that lifts palette.foreground
 // past the heading, or fades muted text below faint text, breaks it.
+// The terminal's six colours and their bright forms are text, each against
+// palette.background, the terminal's background; color0, color7, color8 and
+// color15 also fill and dim, so they keep their source values.
 // Exit 0: every theme is readable. Exit 1: a shortfall, a hierarchy break
 // or a refusal was reported. Exit 2: bad invocation or a file cannot be read.
 "use strict";
@@ -80,6 +84,19 @@ function backgroundRatio(values, role) {
     return logic.contrastRatio(text, surface);
 }
 
+const TERMINAL_TEXT_SLOTS = [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14].map(index => `color${index}`);
+
+function terminalShortfalls(values, slots) {
+    const surface = logic.parseColor(logic.valueAt(values, "palette.background"));
+    const out = [];
+    for (const slot of TERMINAL_TEXT_SLOTS) {
+        const ratio = logic.contrastRatio(logic.parseColor(slots[slot]), surface);
+        if (ratio < logic.READABILITY_FLOOR)
+            out.push({ text: `terminal.${slot}`, surface: "palette.background", ratio, floor: logic.READABILITY_FLOOR });
+    }
+    return out;
+}
+
 function hierarchyBreaks(values) {
     const out = [];
     for (const [stronger, weaker] of HIERARCHY) {
@@ -90,13 +107,23 @@ function hierarchyBreaks(values) {
     return out;
 }
 
-function checkDocument(label, text) {
-    const accepted = logic.accept(tokens, text);
+// Judge the package in DIR: its theme.json, and its terminal.json when
+// present.
+function checkPackage(label, dir) {
+    const accepted = logic.accept(tokens, readFile(path.join(dir, "theme.json")));
     if (!accepted.ok) {
         console.log(`refused  ${label}: ${logic.refusalLine(accepted)}`);
         return 1;
     }
+    const terminalFile = path.join(dir, "terminal.json");
+    const terminal = logic.acceptTerminal(fs.existsSync(terminalFile) ? readFile(terminalFile) : undefined);
+    if (!terminal.ok) {
+        console.log(`refused  ${label}: ${logic.refusalLine(terminal)}`);
+        return 1;
+    }
     const shortfalls = logic.readabilityShortfalls(accepted.values);
+    if (terminal.slots !== null)
+        shortfalls.push(...terminalShortfalls(accepted.values, terminal.slots));
     const breaks = hierarchyBreaks(accepted.values);
     if (shortfalls.length === 0 && breaks.length === 0) {
         console.log(`ok       ${label}`);
@@ -122,7 +149,7 @@ function checkCatalog(themesDir) {
     }
     let findings = 0;
     for (const entry of judged.entries) {
-        findings += checkDocument(`catalog/${entry.name}`, readFile(path.join(catalogDir, entry.name, "theme.json")));
+        findings += checkPackage(`catalog/${entry.name}`, path.join(catalogDir, entry.name));
     }
     return findings;
 }
@@ -130,7 +157,7 @@ function checkCatalog(themesDir) {
 function main() {
     const args = process.argv.slice(2);
     if (args.includes("--help")) {
-        process.stdout.write(fs.readFileSync(__filename, "utf8").split("\n").slice(0, 20).join("\n") + "\n");
+        process.stdout.write(fs.readFileSync(__filename, "utf8").split("\n").slice(0, 24).join("\n") + "\n");
         return 0;
     }
     if (args.length > 1) usage("arguments=too-many");
@@ -138,7 +165,7 @@ function main() {
     const themesDir = path.resolve(args[0] || path.join(repo, "themes"));
     let findings = 0;
     for (const name of packageDirs(themesDir)) {
-        findings += checkDocument(name, readFile(path.join(themesDir, name, "theme.json")));
+        findings += checkPackage(name, path.join(themesDir, name));
     }
     findings += checkCatalog(themesDir);
     return findings === 0 ? 0 : 1;

@@ -72,7 +72,7 @@ A wallpaper another program draws must not be covered by a bare background colou
 - Do install a catalog package on demand as an ordinary installed package with a marker. `scripts/test-vgshell-catalog.sh` pins it. Shipping it as an applied package would grant curated code trust and remove install-on-demand.
 - Never let install or update delete a package or its edits. `scripts/test-vgshell-catalog.sh` pins it.
 - Do run `recover` under the theme lock before any install verb changes anything. `scripts/test-vgshell-catalog.sh` pins it.
-- Do keep every shipped and catalog package readable, with any fix in the package's own `theme.json`. `scripts/check-theme-contrast.js` refuses a shortfall, and `scripts/test-check-theme-contrast.js` runs it over `themes/`.
+- Do keep every shipped and catalog package readable, with any fix in the package's own `theme.json` or `terminal.json`. `scripts/check-theme-contrast.js` refuses a shortfall, and `scripts/test-check-theme-contrast.js` runs it over `themes/`.
 - Do fetch wallpapers on demand from the release archive pinned in the catalog index, over HTTPS. `scripts/test-theme-download.js` pins the accepted bytes.
 - Do hold the download lock for the fetch and the theme lock only for the land, and judge the package again at the land. `scripts/test-vgshell-wallpapers.sh` pins both.
 
