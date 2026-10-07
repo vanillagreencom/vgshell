@@ -286,7 +286,7 @@ scene_ships() {
   case $1 in
     settings|manager) [[ $1 == "$manager_scene" ]] ;;
     plugin-pages) [[ $manager_scene == settings ]] ;;
-    wide-settings) ships_plugin vgs.system vgs.displays vgs.mouse ;;
+    wide-settings) ships_plugin vgs.system vgs.displays vgs.mouse vgs.sound ;;
     gallery) ships_plugin vgs.gallery ;;
     focus) ships_plugin vgs.gallery vgs.settings ;;
     launcher|notifications) ships_plugin "vgs.$1" ;;
@@ -2329,11 +2329,12 @@ PY
   expect "the configuration reloads as the Mouse shot found it" ok ipc shell reloadConfig
 }
 scene_wide-settings() { # MODE
-  local first_output status=0
+  local first_output geometry status=0
   devices_up || status=$?
   if ((status != 0)); then fail "the wide Settings device fakes failed: $devices_state"; return; fi
   devices_system_tree >/dev/null || { fail "the wide Settings system tree failed"; return; }
-  for id in vgs.system vgs.displays vgs.mouse; do
+  devices_audio_play
+  for id in vgs.system vgs.displays vgs.mouse vgs.sound; do
     expect "enabling $id for wide Settings is allowed" ok ipc shell setPluginEnabled "$id" true
     expect_poll "$id is built for wide Settings" True record_exists "$id"
   done
@@ -2350,15 +2351,24 @@ with open(path + ".tmp", "w") as out:
 os.replace(path + ".tmp", path)
 PY
   expect_poll "the wide Settings window token is published" 2000 ipc smoke themeValue size.window.width
-  for id in vgs.displays vgs.mouse; do
+  for id in vgs.displays vgs.mouse vgs.sound; do
     expect "wide Settings opens $id" ok ipc shell summon window vgs.system "{\"pane\":\"$id\"}"
     expect_poll "wide Settings mounts $id" "[\"$id\"]" window_panes
+    if [[ $id == vgs.sound ]]; then
+      expect_poll "wide Settings Sound lists the test stream" true sound_lists_player
+    fi
     expect "wide Settings clears visual focus" focused ipc smoke invokeInstance window vgs.system focusInstance ""
     park_pointer
     take "wide-settings-$1-$id"
+    if geometry="$(ipc smoke instanceGeometry window vgs.system)"; then
+      record_item "wide-settings-$1-$id" "$geometry"
+    else
+      fail "the wide Settings window geometry is unreadable for $id"
+    fi
     expect "wide Settings closes $id" ok ipc shell hide window vgs.system
     expect_poll "wide Settings is gone after $id" hidden system_shown
   done
+  kill -- "-$devices_player_pid" 2>/dev/null || true
   set_mode "$1"
 }
 
