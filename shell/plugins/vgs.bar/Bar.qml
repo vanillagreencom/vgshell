@@ -27,6 +27,11 @@ Item {
     readonly property Item centerSection: center
     readonly property Item rightSection: right
 
+    // The held widget is parented directly to the bar. Use its existing
+    // pointer grab to animate the gap; intrinsic size changes, such as the
+    // tray drawer opening, must keep the right section's edge fixed.
+    readonly property bool rearranging: children.some(item => item.frameDragging === true)
+
     // The built-in names one section lists, as text: a settings change
     // that leaves the list alone produces the same string, so the section
     // keeps its built-ins instead of rebuilding them. A name listed twice
@@ -78,10 +83,10 @@ Item {
     Row {
         id: left
         move: Transition {
-            NumberAnimation { properties: "x"; duration: Theme.motion.duration.normal; easing.type: Theme.motion.easing.standard }
+            NumberAnimation { properties: "x"; duration: bar.rearranging ? Theme.motion.duration.normal : 0; easing.type: Theme.motion.easing.standard }
         }
         add: Transition {
-            NumberAnimation { properties: "x"; duration: Theme.motion.duration.normal; easing.type: Theme.motion.easing.standard }
+            NumberAnimation { properties: "x"; duration: bar.rearranging ? Theme.motion.duration.normal : 0; easing.type: Theme.motion.easing.standard }
         }
         spacing: Theme.bar.gap
         anchors { left: parent.left; leftMargin: Theme.bar.padding; top: parent.top; bottom: parent.bottom }
@@ -90,10 +95,10 @@ Item {
     Row {
         id: center
         move: Transition {
-            NumberAnimation { properties: "x"; duration: Theme.motion.duration.normal; easing.type: Theme.motion.easing.standard }
+            NumberAnimation { properties: "x"; duration: bar.rearranging ? Theme.motion.duration.normal : 0; easing.type: Theme.motion.easing.standard }
         }
         add: Transition {
-            NumberAnimation { properties: "x"; duration: Theme.motion.duration.normal; easing.type: Theme.motion.easing.standard }
+            NumberAnimation { properties: "x"; duration: bar.rearranging ? Theme.motion.duration.normal : 0; easing.type: Theme.motion.easing.standard }
         }
         spacing: Theme.bar.gap
         anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; bottom: parent.bottom }
@@ -102,10 +107,10 @@ Item {
     Row {
         id: right
         move: Transition {
-            NumberAnimation { properties: "x"; duration: Theme.motion.duration.normal; easing.type: Theme.motion.easing.standard }
+            NumberAnimation { properties: "x"; duration: bar.rearranging ? Theme.motion.duration.normal : 0; easing.type: Theme.motion.easing.standard }
         }
         add: Transition {
-            NumberAnimation { properties: "x"; duration: Theme.motion.duration.normal; easing.type: Theme.motion.easing.standard }
+            NumberAnimation { properties: "x"; duration: bar.rearranging ? Theme.motion.duration.normal : 0; easing.type: Theme.motion.easing.standard }
         }
         spacing: Theme.bar.gap
         anchors { right: parent.right; rightMargin: Theme.bar.padding; top: parent.top; bottom: parent.bottom }
