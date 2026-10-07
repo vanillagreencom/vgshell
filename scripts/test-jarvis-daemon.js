@@ -263,7 +263,8 @@ async function inside() {
         fs.cpSync(path.join(path.dirname(daemon), "skills/computer"), path.join(directory, "backend/skills/computer"), { recursive: true });
         return path.join(directory, "backend/jarvisd.js");
     }
-    async function conversation(file, check, mode = "hold", expectedCode = 0, expectedError = "", beforeState = null) {
+    async function conversation(file, check, mode = "hold", expectedCode = 0, expectedError = "", beforeState = null,
+        sounds = hello.settings.sounds) {
         const child = cp.spawn("node", [file, "--tree", tree], { env: {
             PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
             XDG_DATA_HOME: process.env.XDG_DATA_HOME
@@ -293,7 +294,7 @@ async function inside() {
             assert.fail("daemon state timeout: " + JSON.stringify(last()) + " stderr=" + err);
         };
         try {
-            send({ ...hello, settings: { ...hello.settings, mode } });
+            send({ ...hello, settings: { ...hello.settings, mode, sounds } });
             if (beforeState !== null) await beforeState({ messages });
             await wait(m => m.state.gate.kind !== "down" || m.state.gate.reason === "unconfigured");
             await check({ send: name => send(intent(name)), raw: send, reply: send,
@@ -600,6 +601,53 @@ async function inside() {
     const count = kind => fs.readFileSync(path.join(gates, "effects.jsonl"), "utf8").trim().split("\n")
         .filter(line => JSON.parse(line).kind === kind).length;
     const gate = name => fs.writeFileSync(path.join(gates, name), "");
+    // The physical-key row swaps the daemon for its Node-floor control, then
+    // restores the scripted daemon. Its ready engine must stay paired with
+    // that daemon until final teardown removes the scripted helper.
+    async function scriptedLifecycle(name, restoreOnlyEngine = false) {
+        const file = daemonCopy(name);
+        const engineFile = path.join(path.dirname(file), "ChainedEngine.js");
+        const originalEngine = fs.readFileSync(engineFile);
+        const lifecycleGates = path.join(path.dirname(file), "lifecycle-gates");
+        instrument(file, lifecycleGates);
+        const scriptedDaemon = fs.readFileSync(file);
+        const effects = kind => fs.readFileSync(path.join(lifecycleGates, "effects.jsonl"), "utf8")
+            .trim().split("\n").map(JSON.parse).filter(row => row.kind === kind).length;
+        const firstTalk = () => conversation(file, async w => {
+            assert.equal(w.last().state.gate.kind, "up", "scripted first Talk requires its ready engine");
+            const cues = effects("feedback-start"), opens = effects("capture-open");
+            w.send("talk-down");
+            await w.wait(m => m.phase === "listening");
+            assert.equal(effects("feedback-start"), cues + 1, "first Talk completes the scripted start cue");
+            assert.equal(effects("capture-open"), opens + 1, "first Talk opens one capture after its cue");
+            w.send("talk-up");
+            await w.wait(m => m.phase === "thinking");
+            assert.equal(effects("playback-start"), 0, "the basic fixture keeps its assistant reply gated");
+            w.send("stop");
+            await w.wait(m => m.state.conversation.kind === "ended" && m.state.playback.kind === "idle");
+        }, "hold", 0, "", null, true);
+        await firstTalk();
+        fs.writeFileSync(file, source);
+        const floor = cp.spawnSync(process.execPath, [path.join(tree, "scripts/fixtures/jarvis/prepare.js"),
+            "--floor-daemon", file], { env: { PATH: process.env.PATH, HOME: process.env.HOME }, encoding: "utf8" });
+        assert.equal(floor.status, 0, floor.stderr);
+        await run(file, [], 78, "jarvis: node=21.0.0 need=22");
+        fs.writeFileSync(file, scriptedDaemon);
+        if (restoreOnlyEngine) fs.writeFileSync(engineFile, originalEngine);
+        await firstTalk();
+        fs.writeFileSync(file, source);
+        fs.writeFileSync(engineFile, originalEngine);
+        fs.unlinkSync(path.join(path.dirname(file), "scripted-fixture.js"));
+        await run(file, [JSON.stringify(hello) + "\n"], 0, null, states([false]));
+    }
+    await scriptedLifecycle("scripted-feedback-lifecycle");
+    await assert.rejects(() => scriptedLifecycle("scripted-feedback-restore-control", true),
+        error => error instanceof assert.AssertionError
+            && error.message.startsWith("scripted first Talk requires its ready engine")
+            && error.actual === "down" && error.expected === "up",
+        "restoring only the product engine must fail first-Talk readiness");
+    controls++;
+    console.log("test-jarvis-daemon: control=scripted-feedback-engine-pair detected");
     const mapped = daemonCopy("mapped-indicator");
     instrument(mapped, gates, "chained", true);
     const mappedCheck = async file => conversation(file, async w => {

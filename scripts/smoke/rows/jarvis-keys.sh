@@ -288,7 +288,6 @@ expect "dropping pending delivery breaks the same startup Mute assertion" 1 jarv
 jarvis_disable
 cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
 cp -- "$sandbox/jarvis-key-backend-before" "$jarvis_key_backend"
-cp -- "$sandbox/jarvis-key-engine-before" "$jarvis_key_engine"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --floor-daemon "$jarvis_key_backend"
 jarvis_rescan
 expect "the permanent-problem key service enables" ok ipc shell setPluginEnabled vgs.jarvis true
