@@ -182,6 +182,21 @@ world(async () => {
                 assert.deepEqual(await w.read(reply), { texts: [], reason: "stop" });
             } finally { fs.writeFileSync(gate, ""); }
         }],
+        ["stream-blocks", async folder => {
+            for (const [blocks, bytes] of [
+                [[{ thinking: "fixture" }, { stream: ["AAAA", "BBBBB"] }], [4, 5]],
+                [[{ stream: ["A", "BB"] }, { stream: ["CCC", "DDDD"] }], [1, 2, 3, 4]],
+                [[{ stream: ["AB"] }, { thinking: "fixture" }, { stream: ["CDE"] }], [2, 3]],
+                [[{ stream: ["A"], suffix: "BB", duplicate: true }], [1, 2]]
+            ]) {
+                const w = await make(folder, { turns: [[{ streamBlocks: blocks }]] });
+                const result = await w.read(w.say("fixture")).then(value => ({ kind: "complete", ...value }),
+                    () => ({ kind: "failed" }));
+                assert.equal(result.kind, "complete");
+                assert.equal(result.reason, "stop");
+                assert.deepEqual(result.texts.map(text => Buffer.byteLength(text)), bytes);
+            }
+        }],
         ["frozen-tools", async folder => {
             const w = await make(folder, { turns: [[{ text: "Fixture." }]] });
             w.router.register("clipboard", { commands: ["wl-paste", "wl-copy"], timeoutMs: 1000, cancellable: true,
@@ -632,6 +647,8 @@ world(async () => {
             ["one-process", 'record = process_.kind === "running" ? process_ : await spawn();', "record = await spawn();", "replay"],
             ["partial-flag", '"--verbose", "--include-partial-messages",', '"--verbose",', "streaming"],
             ["partial-repeat", 'const remainder = block.text.slice(consumed);', 'const remainder = block.text;', "streaming"],
+            ["block-identity", 'if (streamed !== null) streamed.text = completed;', 'streaming = null;', "stream-blocks"],
+            ["completed-prefix", 'if (streamed !== null) streamed.text = completed;', '', "stream-blocks"],
             ["bridge-gen", "launch = await bridge.open({ gen, recipients, tools: context.tools });", "launch = await bridge.open({ recipients, tools: context.tools });", "replay"],
             ["bridge-recipients", "launch = await bridge.open({ gen, recipients, tools: context.tools });", "launch = await bridge.open({ gen, tools: context.tools });", "replay"],
             ["harness-unwired", 'if (!plain(harness) || typeof harness.runtime !== "function") fail("harness-unwired");', "", "bounds"],

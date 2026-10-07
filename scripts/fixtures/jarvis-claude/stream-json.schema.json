@@ -10,7 +10,8 @@
   "fetched": "2026-10-02",
   "pages": [
    "https://code.claude.com/docs/en/cli-reference",
-   "https://code.claude.com/docs/en/headless"
+   "https://code.claude.com/docs/en/headless",
+   "https://code.claude.com/docs/en/agent-sdk/streaming-output#message-flow"
   ]
  },
  "rule": [
@@ -19,7 +20,7 @@
   "UserInput is SDKUserMessage; InterruptRequest is SDKControlRequest with SDKControlInterruptRequest; SystemInit is SDKSystemMessage; Assistant is SDKAssistantMessage; ResultSuccess and ResultError are SDKResultSuccess and SDKResultError; ControlResponse is SDKControlResponse with ControlResponse; ApiRetry is SDKAPIRetryMessage.",
   "Message, the content blocks and MessageParam come from @anthropic-ai/sdk BetaMessage and MessageParam, which sdk.d.ts imports; only the block types the adapter reads or a fixture writes are kept.",
   "usage, modelUsage and a tool input stay open objects: the adapter reads none of their fields.",
-  "StreamEvent is SDKPartialAssistantMessage. Its event excerpts follow Anthropic MessageStreamEvent: message_start and text content_block_delta."
+  "StreamEvent is SDKPartialAssistantMessage. Its event excerpts follow Anthropic MessageStreamEvent: message and content-block boundaries, text/thinking/signature deltas, and stop usage."
  ],
  "omitted": [
   "SDKUserMessageReplay",
@@ -848,20 +849,58 @@
          "type": "integer"
         },
         "delta": {
-         "type": "object",
-         "properties": {
-          "type": {
-           "enum": [
-            "text_delta"
+         "oneOf": [
+          {
+           "type": "object",
+           "properties": {
+            "type": {
+             "enum": [
+              "text_delta"
+             ]
+            },
+            "text": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "type",
+            "text"
            ]
           },
-          "text": {
-           "type": "string"
+          {
+           "type": "object",
+           "properties": {
+            "type": {
+             "enum": [
+              "thinking_delta"
+             ]
+            },
+            "thinking": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "type",
+            "thinking"
+           ]
+          },
+          {
+           "type": "object",
+           "properties": {
+            "type": {
+             "enum": [
+              "signature_delta"
+             ]
+            },
+            "signature": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "type",
+            "signature"
+           ]
           }
-         },
-         "required": [
-          "type",
-          "text"
          ]
         }
        },
@@ -869,6 +908,109 @@
         "type",
         "index",
         "delta"
+       ]
+      },
+      {
+       "type": "object",
+       "properties": {
+        "type": {
+         "enum": [
+          "content_block_start"
+         ]
+        },
+        "index": {
+         "type": "integer"
+        },
+        "content_block": {
+         "oneOf": [
+          {
+           "$ref": "#/schemas/TextBlock"
+          },
+          {
+           "$ref": "#/schemas/ToolUseBlock"
+          },
+          {
+           "$ref": "#/schemas/ThinkingBlock"
+          }
+         ]
+        }
+       },
+       "required": [
+        "type",
+        "index",
+        "content_block"
+       ]
+      },
+      {
+       "type": "object",
+       "properties": {
+        "type": {
+         "enum": [
+          "content_block_stop"
+         ]
+        },
+        "index": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "type",
+        "index"
+       ]
+      },
+      {
+       "type": "object",
+       "properties": {
+        "type": {
+         "enum": [
+          "message_delta"
+         ]
+        },
+        "delta": {
+         "type": "object",
+         "properties": {
+          "stop_reason": {
+           "type": "string"
+          },
+          "stop_sequence": {
+           "type": "string",
+           "nullable": true
+          }
+         },
+         "required": [
+          "stop_reason",
+          "stop_sequence"
+         ]
+        },
+        "usage": {
+         "type": "object",
+         "properties": {
+          "output_tokens": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "output_tokens"
+         ]
+        }
+       },
+       "required": [
+        "type",
+        "delta",
+        "usage"
+       ]
+      },
+      {
+       "type": "object",
+       "properties": {
+        "type": {
+         "enum": [
+          "message_stop"
+         ]
+        }
+       },
+       "required": [
+        "type"
        ]
       }
      ]

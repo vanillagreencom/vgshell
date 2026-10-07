@@ -195,20 +195,35 @@ async function run(prompt) {
     let text = "";
     for (const step of steps) {
         if (current.interrupted) return;
-        if (step.stream !== undefined) {
-            const complete = message(step.stream.map(text => ({ type: "text", text })));
-            if (flags.has("--include-partial-messages")) {
-                const event = value => write("StreamEvent", { type: "stream_event", event: value,
-                    parent_tool_use_id: null, uuid: id(), session_id: session });
-                event({ type: "message_start", message: { ...complete.message, content: [] } });
-                for (const [index, text] of step.stream.entries()) {
-                    event({ type: "content_block_delta", index, delta: { type: "text_delta", text } });
-                }
-                record("events.jsonl", { kind: "partial", bytes: Buffer.byteLength(step.stream.join("")) });
+        if (step.stream !== undefined || step.streamBlocks !== undefined) {
+            const api = message([]);
+            const blocks = step.streamBlocks ?? [{ stream: step.stream, hold: step.hold }];
+            const partial = flags.has("--include-partial-messages");
+            const event = value => { if (partial) write("StreamEvent", { type: "stream_event", event: value,
+                parent_tool_use_id: null, uuid: id(), session_id: session }); };
+            event({ type: "message_start", message: api.message });
+            for (const [index, block] of blocks.entries()) {
+                const thinking = block.thinking !== undefined;
+                const value = thinking ? block.thinking : block.stream.join("") + (block.suffix ?? "");
+                const content = thinking ? { type: "thinking", thinking: value, signature: "fixture" }
+                    : { type: "text", text: value };
+                event({ type: "content_block_start", index, content_block: thinking
+                    ? { type: "thinking", thinking: "", signature: "" } : { type: "text", text: "" } });
+                for (const chunk of thinking ? [value] : block.stream)
+                    event({ type: "content_block_delta", index, delta: thinking
+                        ? { type: "thinking_delta", thinking: chunk } : { type: "text_delta", text: chunk } });
+                if (thinking) event({ type: "content_block_delta", index, delta: { type: "signature_delta", signature: "fixture" } });
+                if (partial && !thinking) record("events.jsonl", { kind: "partial", bytes: Buffer.byteLength(block.stream.join("")) });
+                while (block.hold && !fs.existsSync(block.hold)) await new Promise(resolve => setTimeout(resolve, 10));
+                // The SDK completes only this block before its stop event.
+                const complete = { ...api, uuid: id(), message: { ...api.message, content: [content] } };
+                write("Assistant", complete);
+                if (block.duplicate) write("Assistant", { ...complete, uuid: id() });
+                event({ type: "content_block_stop", index });
+                if (!thinking) text += value;
             }
-            while (step.hold && !fs.existsSync(step.hold)) await new Promise(resolve => setTimeout(resolve, 10));
-            write("Assistant", complete);
-            text += step.stream.join("");
+            event({ type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 1 } });
+            event({ type: "message_stop" });
         } else if (step.text !== undefined || step.echo) {
             const value = step.echo ? "heard: " + prompt : step.text;
             text += value;

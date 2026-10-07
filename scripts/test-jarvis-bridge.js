@@ -218,6 +218,21 @@ world(async () => {
             previous.send(initialize(1, "2025-06-18"));
             assert.equal(result(await previous.next(), "InitializeResult").protocolVersion, "2025-06-18");
         }],
+        ["frozen-admission", async folder => {
+            const w = await make(folder);
+            const c = await w.ready();
+            c.send({ jsonrpc: "2.0", id: 8, method: "tools/list" });
+            const before = result(await c.next(), "ListToolsResult").tools.map(tool => tool.name);
+            w.router.register("clipboard", { commands: ["wl-paste", "wl-copy"], timeoutMs: 1000, cancellable: false,
+                start(call, done) { w.starts.push({ call }); done({ outcome: "completed", content: "fixture" }); } });
+            assert.equal(w.router.offer().some(tool => tool.id === "clipboard.read"), true);
+            c.send({ jsonrpc: "2.0", id: 9, method: "tools/list" });
+            assert.deepEqual(result(await c.next(), "ListToolsResult").tools.map(tool => tool.name), before);
+            assert.equal(before.includes("clipboard_read"), false);
+            c.send(call(10, "clipboard_read", {}));
+            failure(await c.next(), 10, -32602);
+            assert.equal(w.starts.length, 0);
+        }],
         ["allow", async folder => {
             const w = await make(folder);
             const c = await w.ready();
@@ -569,6 +584,8 @@ world(async () => {
             console.log("control=" + name + " detected");
         };
         for (const [name, needle, replacement, row] of [
+            ["fresh-call-names", 'const { names } = current.offered;',
+                'const names = Tools.wireNames(router.offer().map(tool => tool.id));', "frozen-admission"],
             ["token", "!crypto.timingSafeEqual(digest(message.token), current.digest)", "false", "tokens"],
             ["hello-shape", 'Object.keys(message).sort().join(",") !== "token,type,v"', "false", "tokens"],
             ["router-gate", "router.route({ kind: \"tool-call\", id, tool: names.get(act.name), arguments: act.arguments },\n            { gen: s.turn.gen, op: s.turn.op });",

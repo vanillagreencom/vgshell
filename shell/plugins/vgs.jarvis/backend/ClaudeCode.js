@@ -73,14 +73,15 @@ function messageOf(line) {
             return { kind: "stream-start", id: event.message.id };
         case "content_block_start":
             if (!plain(event.content_block)) fail("harness-stream");
-            return event.content_block.type === "tool_use"
-                ? { kind: "stream-tool", name: event.content_block.name } : { kind: "other" };
+            return { kind: "stream-block", tool: event.content_block.type === "tool_use" ? event.content_block.name : null };
         case "content_block_delta":
             if (!plain(event.delta)) fail("harness-stream");
             if (event.delta.type !== "text_delta") return { kind: "other" };
             if (typeof event.delta.text !== "string") fail("harness-stream");
             return { kind: "stream-text", text: event.delta.text };
-        case "message_delta": case "message_stop": case "content_block_stop": return { kind: "other" };
+        case "content_block_stop": return { kind: "stream-block-stop" };
+        case "message_stop": return { kind: "stream-stop" };
+        case "message_delta": return { kind: "other" };
         default: return fail("harness-stream");
         }
     }
@@ -371,7 +372,6 @@ function conversation({ directory, model, recipients, bridge, gen, parent, envir
         let timer = null;
         let record = null;
         let streaming = null;
-        const emitted = new Map();
         let wake = () => {};
         let settle;
         const finished = new Promise(resolve => { settle = resolve; });
@@ -403,25 +403,37 @@ function conversation({ directory, model, recipients, bridge, gen, parent, envir
                 case "control-request": return fail("harness-control-request");
                 case "stream-start":
                     if (!record.initialized) fail("harness-order");
-                    streaming = message.id;
-                    emitted.set(streaming, "");
+                    streaming = { id: message.id, block: null };
                     return;
-                case "stream-tool":
+                case "stream-block":
                     if (!record.initialized || streaming === null) fail("harness-order");
-                    if (!allowed(message.name)) fail("harness-tool name=" + named(message.name));
+                    streaming.block = { text: "" };
+                    if (message.tool !== null && !allowed(message.tool)) fail("harness-tool name=" + named(message.tool));
+                    return;
+                case "stream-block-stop":
+                    if (streaming !== null) streaming.block = null;
+                    return;
+                case "stream-stop":
+                    streaming = null;
                     return;
                 case "stream-text":
-                    if (!record.initialized || streaming === null) fail("harness-order");
-                    emitted.set(streaming, emitted.get(streaming) + message.text);
+                    if (!record.initialized || streaming === null || streaming.block === null) fail("harness-order");
+                    streaming.block.text += message.text;
                     if (message.text !== "") queue.push({ kind: "text", text: message.text });
                     notify();
                     return;
                 case "assistant":
                     if (!record.initialized) fail("harness-order");
-                    let partial = emitted.get(message.id) ?? "";
+                    // Claude completes each block before content_block_stop;
+                    // thinking and later text blocks share the API message id.
+                    // https://code.claude.com/docs/en/agent-sdk/streaming-output#message-flow
+                    const streamed = streaming !== null && streaming.id === message.id ? streaming.block : null;
+                    let partial = streamed === null ? "" : streamed.text;
+                    let completed = "";
                     for (const block of message.blocks) {
                         if (block.kind === "tool" && !allowed(block.name)) fail("harness-tool name=" + named(block.name));
                         if (block.kind === "text" && block.text !== "") {
+                            completed += block.text;
                             const consumed = Math.min(partial.length, block.text.length);
                             if (block.text.slice(0, consumed) !== partial.slice(0, consumed)) fail("harness-stream-text");
                             const remainder = block.text.slice(consumed);
@@ -430,7 +442,7 @@ function conversation({ directory, model, recipients, bridge, gen, parent, envir
                         }
                     }
                     if (partial !== "") fail("harness-stream-text");
-                    emitted.delete(message.id);
+                    if (streamed !== null) streamed.text = completed;
                     notify();
                     return;
                 case "result":
