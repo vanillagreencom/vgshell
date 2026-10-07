@@ -46,6 +46,12 @@ function initialize(id) { return request(id, "initialize", { clientInfo: { ...CL
 /** The notification that ends initialization. */
 function initialized() { return { method: "initialized" }; }
 
+/**
+ * Read the signed-in account without refreshing its token, as AI Usage reads
+ * it (codex-rs/app-server-protocol/src/protocol/v2/account.rs).
+ */
+function accountRead(id) { return request(id, "account/read", { refreshToken: false }); }
+
 /** Read the effective configuration as the thread's working directory sees it. */
 function configRead(id, cwd) { return request(id, "config/read", { cwd, includeLayers: false }); }
 
@@ -93,6 +99,20 @@ function answer(id, value, admitted) {
     case "unsupported": return { id, error: { code: -32601, message: "Method not found" } };
     default: return fail("request-kind");
     }
+}
+
+/**
+ * The sign-in email of an account/read result: a ChatGPT sign-in's printable
+ * email, else "" for an API key, no account or a sign-in that names none.
+ */
+function accountEmail(result) {
+    if (!plain(result)) fail("account");
+    const account = result.account;
+    if (account === undefined || account === null) return "";
+    if (!plain(account) || !string(account.type)) fail("account");
+    if (account.type !== "chatgpt") return "";
+    return string(account.email) && account.email.length <= 120 && /^[^\x00-\x1f\x7f @]+@[^\x00-\x1f\x7f @]+$/.test(account.email)
+        ? account.email : "";
 }
 
 /** The user's MCP server names from a config/read result. Values are dropped. */
@@ -255,5 +275,5 @@ function proposal(value, announced) {
     }
 }
 
-module.exports = { LINE_BYTES, SERVER, FEATURES_OFF, FEATURES_ENABLED, initialize, initialized, configRead,
+module.exports = { LINE_BYTES, SERVER, FEATURES_OFF, FEATURES_ENABLED, initialize, initialized, accountRead, accountEmail, configRead,
     threadStart, featureList, turnStart, turnInterrupt, answer, servers, thread, features, turnId, accept, proposal };

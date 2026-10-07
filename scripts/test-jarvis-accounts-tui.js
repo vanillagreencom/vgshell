@@ -167,8 +167,8 @@ world(async () => {
         "const TABLE_FRAME = 2 * TABLE_COLUMNS.length;", narrow);
     await control("backend/accounts.js", "table-label", "if (account.email) return account.email;", "", wide);
     await control("backend/accounts.js", "table-state", 'case "signed-in": return "Signed in";', 'case "signed-in": return state.kind;', wide);
-    await control("backend/accounts.js", "choice-id", 'lines = judge.discover().map(account => choiceLine(providerLabel(account.provider) + ": "',
-        'lines = judge.discover().map(account => choiceLine(account.id + ": "', choices);
+    await control("backend/accounts.js", "choice-id", 'lines = judge.accounts.map(account => choiceLine(providerLabel(account.provider) + ": "',
+        'lines = judge.accounts.map(account => choiceLine(account.id + ": "', choices);
     await control("AccountProviders.js", "speech-key-offered", 'if (kind === "key") return modelKeyProvider(row);',
         'if (kind === "key") return keyProvider(row);', keyProviders);
     await control("AccountProviders.js", "model-less-offered", 'return row.kind === "key" && modelProvider(row);',

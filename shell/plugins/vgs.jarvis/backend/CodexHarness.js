@@ -23,6 +23,9 @@ const HANDSHAKE_MS = 30000;
 const CLOSE_MS = 2000;
 // One Verify turn: a bound on a stalled provider, not a latency budget.
 const PROBE_MS = 60000;
+// One account read: a bound on a stalled program, not a latency budget. AI
+// Usage bounds its read, which adds a rate-limit request, at 20000 ms.
+const EMAIL_MS = 10000;
 const PROBE_INSTRUCTIONS = "Answer in one word.";
 
 function fail(code) { throw new Error("jarvis: brain=codex-" + code); }
@@ -411,4 +414,34 @@ async function probe({ directory, env, runtime, model, text }) {
     }
 }
 
-module.exports = { create, probe };
+/**
+ * The sign-in email of the Codex account in DIRECTORY, read from its own
+ * program: initialize, initialized, then account/read without a token
+ * refresh, on one `codex app-server` that ends with this process and is
+ * ended at deadlineMs, EMAIL_MS unless a caller bounds it. Resolves "" when the account names none; a failed or
+ * late read throws a keyed error.
+ */
+async function email({ directory, env, cwd, deadlineMs = EMAIL_MS }) {
+    let settle;
+    const ended = new Promise((resolve, reject) => { settle = { resolve, reject }; });
+    ended.catch(() => {});
+    const server = program({ directory, env, cwd }, value => {
+        if (value.kind === "ended") settle.reject(value.error);
+        // No thread exists, so a server request is refused unread.
+        else if (value.kind === "request") server.write(Codex.answer(value.id, value.request, false));
+    });
+    const timer = setTimeout(() => settle.reject(new Error("jarvis: brain=codex-email-deadline")), deadlineMs);
+    try {
+        const read = (async () => {
+            await server.call(id => Codex.initialize(id));
+            server.write(Codex.initialized());
+            return Codex.accountEmail(await server.call(id => Codex.accountRead(id)));
+        })();
+        return await Promise.race([read, ended]);
+    } finally {
+        clearTimeout(timer);
+        await server.close();
+    }
+}
+
+module.exports = { create, probe, email };

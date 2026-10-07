@@ -473,6 +473,46 @@ world(async () => {
         controls++;
     }
     cases++;
+    // A signed-in Codex account's email comes from its own program's
+    // account/read, as AI Usage reads it: one bounded program per account,
+    // CODEX_HOME its folder. Any failed or late read names no email.
+    const codexWorld = labelWorld("codex-emails", [[".codex", "amy@example.invalid"], [".2codex", "zed@example.invalid"]]);
+    const codexFolders = [".codex", ".2codex"].map(name => path.join(codexWorld.own.env.HOME, name));
+    const noEmail = [["Codex (no email found)", ".2codex"], ["Codex (no email found)", ".codex"]];
+    const codexEmails = async Judge => {
+        for (const [appMode, want] of [
+            ["chatgpt", [["Codex / amy@example.invalid", ".codex"], ["Codex / zed@example.invalid", ".2codex"]]],
+            ["api", noEmail], ["exit", noEmail], ["silent", noEmail]]) {
+            mode("codex-app", appMode);
+            const judge = new Judge(codexWorld.own.state, codexWorld.own.env);
+            const found = judge.discover();
+            const before = calls("app-calls").length;
+            const started = Date.now();
+            await judge.readEmails({ deadlineMs: 300 });
+            // The bound, not the silent program's own exit at 3000 ms, ends its read.
+            assert.ok(Date.now() - started < 1500, appMode + ": the read ends at its bound");
+            const folderOf = value => path.basename(found.find(item => item.id === value).source.directory);
+            const got = judge.status().brains.filter(choice => choice.label.startsWith("Codex"))
+                .map(choice => [choice.label, folderOf(choice.value)]);
+            const sorted = want === noEmail ? got.map(([label]) => label).map((label, index) =>
+                [label, got.map(([, folder]) => folder).sort()[index]]) : got;
+            assert.deepEqual(sorted, want, appMode);
+            const reads = calls("app-calls").slice(before);
+            assert.deepEqual(reads.map(call => call.env.CODEX_HOME).sort(), [...codexFolders].sort(), appMode + ": one program per account");
+            for (const call of reads) assert.equal(call.env.VGSHELL_RUNNER_PID, undefined);
+        }
+        mode("codex-app", "chatgpt");
+    };
+    await codexEmails(Accounts);
+    for (const [file, name, needle, replacement] of [
+        ["backend/Accounts.js", "email-kept", "            item.email = email;\n", ""],
+        ["backend/CodexAppServer.js", "refresh-token", "{ refreshToken: false }", "{ refreshToken: true }"],
+        ["backend/CodexHarness.js", "email-deadline", '"jarvis: brain=codex-email-deadline")), deadlineMs);', '"jarvis: brain=codex-email-deadline")), 60000);']]) {
+        await mutant(file, name, needle, replacement, folder => codexEmails(judgeIn(folder)));
+        mode("codex-app", "chatgpt");
+        controls++;
+    }
+    cases++;
     const crowded = worldOf("crowded");
     const crowdedFolders = [seed(crowded.env.HOME, ".4claude"), seed(crowded.env.HOME, ".codex-work")];
     for (let i = 0; i < 4998; i++) fs.writeFileSync(path.join(crowded.env.HOME, String(i)), "");

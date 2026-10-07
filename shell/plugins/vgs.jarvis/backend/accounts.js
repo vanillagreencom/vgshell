@@ -78,6 +78,7 @@ async function main() {
     case "presence":
         if (args.length !== 2) throw new Error("jarvis-accounts: arguments=presence");
         judge.discover();
+        await judge.readEmails();
         value = judge.status();
         break;
     case "list":
@@ -86,12 +87,16 @@ async function main() {
         break;
     case "table":
         if (args.length !== 2) throw new Error("jarvis-accounts: arguments=table");
-        lines = accountTable(judge.discover(), width(args[1]));
+        judge.discover();
+        await judge.readEmails();
+        lines = accountTable(judge.accounts, width(args[1]));
         break;
     case "accounts": {
         if (args.length !== 2) throw new Error("jarvis-accounts: arguments=accounts");
         const columns = width(args[1]);
-        lines = judge.discover().map(account => choiceLine(providerLabel(account.provider) + ": " + accountName(account)
+        judge.discover();
+        await judge.readEmails();
+        lines = judge.accounts.map(account => choiceLine(providerLabel(account.provider) + ": " + accountName(account)
             + " (" + status(account) + ")", account.id, columns));
         break;
     }

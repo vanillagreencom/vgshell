@@ -45,6 +45,36 @@ if(selected==="signed-in"||selected==="late-link") console.log(JSON.stringify({l
 else {console.log(JSON.stringify({loggedIn:false}));process.exit(1);}
 `, { mode: 0o700 });
     fs.writeFileSync(path.join(directory, "codex"), prefix + `
+// app-server answers initialize and account/read without a token refresh,
+// as codex-rs/app-server-protocol v2 account.rs shapes them. The account's
+// email is CODEX_HOME's fixture-email file, else codex@example.invalid.
+if(JSON.stringify(args)===JSON.stringify(["app-server","--listen","stdio://"])){
+    record("app-calls");
+    const appMode=mode("codex-app-mode","chatgpt");
+    if(appMode==="exit") process.exit(3);
+    // A silent program answers no account/read and ends on its own later.
+    if(appMode==="silent") setTimeout(()=>process.exit(0),3000);
+    let email="codex@example.invalid";
+    try { email=fs.readFileSync(path.join(process.env.CODEX_HOME,"fixture-email"),"utf8").trim(); }
+    catch(e) { if(e.code!=="ENOENT") throw e; }
+    const reply=(id,result)=>process.stdout.write(JSON.stringify({id,result})+"\\n");
+    let tail="";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data",chunk=>{
+        tail+=chunk;
+        let at;
+        while((at=tail.indexOf("\\n"))>=0){
+            const message=JSON.parse(tail.slice(0,at));
+            tail=tail.slice(at+1);
+            if(message.method==="initialize") reply(message.id,{userAgent:"fixture"});
+            else if(message.method==="account/read"&&appMode!=="silent"){
+                if(JSON.stringify(message.params)!==JSON.stringify({refreshToken:false})) process.exit(8);
+                reply(message.id,{account:appMode==="api"?{type:"apiKey"}:{type:"chatgpt",email,planType:"plus"},requiresOpenaiAuth:true});
+            }
+        }
+    });
+    process.stdin.on("end",()=>process.exit(0));
+}else{
 record("cli-calls");
 if(JSON.stringify(args)!==JSON.stringify(["login","status"])) process.exit(9);
 const selected=mode("codex-mode","signed-in");
@@ -53,6 +83,7 @@ if(selected==="junk"){console.error("fixture-secret-private");process.exit(0);}
 if(selected==="signed-in") console.error("Logged in using ChatGPT");
 else if(selected==="api") console.error("Logged in using an API key - fixture-secret-private");
 else {console.error("Not logged in");process.exit(1);}
+}
 `, { mode: 0o700 });
     fs.writeFileSync(path.join(directory, "ss"), prefix + `
 record("port-calls");

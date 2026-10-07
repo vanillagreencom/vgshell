@@ -52,6 +52,10 @@ function accepted(resolved) {
     if (!modelProvider(provider(resolved.provider))) return { kind: "refused", cause: "model-required" };
     return { kind: "accepted", account: resolved };
 }
+// Only a label that is itself an email names an identity to compare.
+function identityOf(label, email) {
+    return { kind: email && label.includes("@") && email !== label ? "mismatch" : "match" };
+}
 // The AI model list's word for an account whose harness record names no email.
 const NO_EMAIL = " (no email found)";
 function identity(kind, values) {
@@ -289,9 +293,25 @@ class Accounts {
         const label = candidate.label.slice(0, 60);
         return { id: identity("cli", [row.id, candidate.directory]), provider: row.id, label,
             source: { kind: "cli", directory: candidate.directory }, state, marker,
-            email, plan,
-            // Only a label that is itself an email names an identity.
-            identity: { kind: email && label.includes("@") && email !== label ? "mismatch" : "match" } };
+            email, plan, identity: identityOf(label, email) };
+    }
+
+    /**
+     * The sign-in email of each signed-in Codex account, which its login
+     * status does not name, read from its own program as AI Usage reads it
+     * (CodexHarness.email): one program per account, all at once, each
+     * bounded. A failed or late read leaves "", which the list words as no
+     * email found; its cause stays out of the helper's keyed diagnostics.
+     */
+    async readEmails({ deadlineMs } = {}) {
+        await Promise.all(this.accounts.filter(item => item.provider === "codex" && item.source.kind === "cli"
+            && item.state.kind === "signed-in").map(async item => {
+            let email = "";
+            try { email = await CodexHarness.email({ directory: item.source.directory, env: this.env, cwd: this.home, deadlineMs }); }
+            catch { email = ""; }
+            item.email = email;
+            item.identity = identityOf(item.label, email);
+        }));
     }
 
     // Secret Service labels/attributes only. CLI login items are not API keys.
