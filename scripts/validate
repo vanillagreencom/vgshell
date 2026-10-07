@@ -271,7 +271,7 @@ rows=(
   "logic|Jarvis Session|node scripts/test-jarvis-session.js|shell/plugins/vgs.jarvis/Session.js bin/lib/qml-library.js"
   "logic|Jarvis Session effect owner|node scripts/test-jarvis-session-runner.js|shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/backend/session-runner.js bin/lib/qml-library.js"
   "logic|Jarvis bar widget view|node scripts/test-jarvis-widget.js|shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/Ui/icons/Lucide.js bin/lib/qml-library.js"
-  "logic|Jarvis setup gate|node scripts/test-jarvis-setup-gate.js|shell/plugins/vgs.jarvis/SetupGate.js bin/lib/qml-library.js"
+  "logic|Jarvis setup gate|node scripts/test-jarvis-setup-gate.js|shell/plugins/vgs.jarvis/SetupGate.js shell/plugins/vgs.jarvis/manifest.json shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
   "logic|Jarvis protocol|node scripts/test-jarvis-protocol.js|shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/manifest.json bin/lib/qml-library.js scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/scripted.js"
   "logic|Jarvis tool contracts|node scripts/test-jarvis-tools.js|shell/plugins/vgs.jarvis/backend/Tools.js scripts/fixtures/jarvis/policy.js scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/core.js"
   "logic|Jarvis request wire|node scripts/test-jarvis-requests.js|shell/plugins/vgs.jarvis/backend/ShellRequests.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.jarvis/Session.js bin/lib/qml-library.js"

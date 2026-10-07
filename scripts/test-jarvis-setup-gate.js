@@ -14,6 +14,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
+const judge = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "SetupGate.js");
 const ABSENT = { tone: "warning", text: "Browser needs setup", action: true };
@@ -69,7 +70,8 @@ function verifyReadiness(gate) {
     assert.equal(new Set(lines).size, BRAIN_CAUSES.length, "each brain cause says its own line");
     // Before the daemon answers nothing reads ready or to do.
     const checking = plain(gate.readiness({ kind: "checking" }));
-    for (const key of ["setup", "setupVoice", "setupModel"])
+    assert.deepEqual([checking.setup.tone, checking.setup.action], ["info", undefined], "checking: setup");
+    for (const key of ["setupVoice", "setupModel"])
         assert.deepEqual([checking[key].tone, checking[key].action], ["info", false], "checking: " + key);
     // A stopped daemon runs no check: its steps claim none and offer none.
     const stopped = plain(gate.readiness({ kind: "stopped" }));
@@ -90,6 +92,15 @@ function verifyReadiness(gate) {
         assert.deepEqual([got.tone, got.action, (got.lines || []).length], want, label);
     }
     assert.throws(() => gate.optionalStep("setupModel", READY), /step=setupModel is not optional/);
+    // Every value the service publishes is one the manifest judge accepts
+    // for its entry, so a refused write cannot stop the service's start.
+    const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
+    const answers = READINESS.map(row => row[1]).concat([{ kind: "checking" }, { kind: "stopped" }]);
+    for (const answer of answers)
+        for (const [key, value] of Object.entries(plain(gate.readiness(answer))))
+            assert.equal(judge.statusWrite(manifest, {}, key, value).ok, true, "the manifest judge accepts " + key + " for " + JSON.stringify(answer));
+    for (const [key, value] of [["setupBrowser", READY], ["setupBrowser", ABSENT], ["setupInput", ABSENT]])
+        assert.equal(judge.statusWrite(manifest, {}, key, plain(gate.optionalStep(key, value))).ok, true, "the manifest judge accepts " + key);
 }
 
 function verify(gate) {
@@ -128,9 +139,10 @@ const CONTROLS = [
     ["the brain causes share one line", "var line = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var line = STEP_TODO[step];"],
     ["an unknown cause has no line", "var line = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var line = TODO[cause];"],
     ["causes leave the summary ready", 'setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
-    ["checking reads done", 'return { setup: CHECKING, setupVoice: CHECKING, setupModel: CHECKING };', 'return { setup: CHECKING, setupVoice: DONE, setupModel: DONE };'],
+    ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupVoice: CHECKING, setupModel: CHECKING };', 'return { setup: CHECKING_SUMMARY, setupVoice: DONE, setupModel: DONE };'],
     ["an optional step reads done when not ok", 'if (value.tone === "ok") return DONE;', "if (true) return DONE;"],
     ["an optional step drops its action", "action: value.action === true };", "action: false };"],
+    ["the checking summary offers a step", "return { setup: CHECKING_SUMMARY,", "return { setup: CHECKING,"],
     ["a stopped daemon's steps read checking", "setupVoice: UNCHECKED, setupModel: UNCHECKED };", "setupVoice: CHECKING, setupModel: CHECKING };"],
     ["a cause naming no step is taken", 'if (!Object.prototype.hasOwnProperty.call(REQUIRED, step)) throw new Error("jarvis-setup: cause=" + cause + " names no step");', ""],
     ["a required step reads as optional", 'if (!Object.prototype.hasOwnProperty.call(OPTIONAL, key)) throw new Error("jarvis-setup: step=" + key + " is not optional");', ""]

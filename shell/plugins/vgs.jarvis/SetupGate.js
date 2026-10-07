@@ -41,6 +41,9 @@ var TODO = {
 var STEP_TODO = { speech: "Set up local voice.", brain: "The chosen AI model cannot be used. Add a key or sign in, then choose it below." };
 var DONE = { tone: "ok", text: "Done", action: false };
 var CHECKING = { tone: "info", text: "Checking", action: false };
+// The summary declares no action, so its value carries none: the manifest
+// judge refuses an action key on an entry without one.
+var CHECKING_SUMMARY = { tone: "info", text: "Checking" };
 // A required step once the daemon stopped: no check runs, none is offered.
 var UNCHECKED = { tone: "warning", text: "Not checked", action: false };
 
@@ -51,7 +54,7 @@ var UNCHECKED = { tone: "warning", text: "Not checked", action: false };
 function readiness(answer) {
     switch (answer.kind) {
     case "checking":
-        return { setup: CHECKING, setupVoice: CHECKING, setupModel: CHECKING };
+        return { setup: CHECKING_SUMMARY, setupVoice: CHECKING, setupModel: CHECKING };
     case "stopped":
         return { setup: { tone: "danger", text: "Not ready", lines: ["Jarvis stopped after a problem. Turn Jarvis off and on again."] },
             setupVoice: UNCHECKED, setupModel: UNCHECKED };
