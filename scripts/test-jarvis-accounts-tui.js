@@ -140,7 +140,10 @@ world(async () => {
     narrow(plugin);
     choices(plugin);
     assert.deepEqual(providerIds(plugin, "cli"), ["claude", "codex"]);
-    assert.deepEqual(providerIds(plugin, "key"), PROVIDERS.filter(row => row.kind === "key" || row.kind === "speech-key").map(row => row.id));
+    // Use keyring item offers the AI model key providers Add key does.
+    const keyIds = providerIds(plugin, "key");
+    assert.ok(keyIds.includes("openai") && !keyIds.includes("elevenlabs") && !keyIds.includes("cerebras"));
+    assert.ok(keyIds.every(id => PROVIDERS.find(row => row.id === id)?.kind === "key"));
     const refused = cp.spawnSync("node", [path.join(plugin, "backend/accounts.js"), "--tree", tree, "table", "0"], { env, encoding: "utf8" });
     assert.deepEqual([refused.status, refused.stderr], [1, "jarvis-accounts: arguments=width\n"]);
     let controls = 0;

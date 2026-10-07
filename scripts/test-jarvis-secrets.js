@@ -177,8 +177,18 @@ console.log(wanted);
         assert.equal(result.status, 0, result.stderr);
         return result.stdout.trimEnd().split("\n").map(line => line.split("\t")[1]);
     };
-    const keyProviders = folder => assert.deepEqual(offered(folder),
-        PROVIDERS.filter(row => row.kind === "key" || row.kind === "speech-key").map(row => row.id));
+    // Every offered row is an API key with a model the engine can use;
+    // openai is one, and the speech-only ElevenLabs key and Cerebras, whose
+    // row names no model, are not.
+    const keyProviders = folder => {
+        const ids = offered(folder);
+        for (const id of ids) {
+            const row = PROVIDERS.find(item => item.id === id);
+            assert.ok(row && row.kind === "key" && row.probe.model !== "", "offered [" + id + "]");
+        }
+        assert.ok(ids.includes("openai"));
+        for (const id of ["elevenlabs", "cerebras"]) assert.equal(ids.includes(id), false, "offered [" + id + "]");
+    };
     const chosen = folder => {
         provider("anthropic");
         try {
@@ -188,7 +198,7 @@ console.log(wanted);
         } finally { provider("openai"); }
     };
     const unknown = folder => {
-        for (const id of ["fixture", "custom", "ollama", ""]) {
+        for (const id of ["fixture", "custom", "ollama", "elevenlabs", "cerebras", ""]) {
             const before = calls("secret-calls");
             const metadata = fs.readFileSync(store.file);
             const result = cp.spawnSync("node", [path.join(folder, "backend/keys.js"), "add-key", id, "test"], { env, encoding: "utf8" });
@@ -309,8 +319,9 @@ console.log(wanted);
     for (const [name, file, needle, replacement, check] of [
         ["unknown-provider", "backend/keys.js", 'if (row === undefined) throw new Error("jarvis-keys: provider=unknown");', "", unknown],
         ["provider-origin", "backend/keys.js", "ownReference(row.id, account, row.origin)", 'ownReference(row.id, account, "https://api.openai.com")', chosen],
-        ["key-providers", "AccountProviders.js", 'if (kind === "key") return keyProvider(row);', 'if (kind === "key") return row.kind !== "cli";',
-            keyProviders]
+        ["key-providers", "AccountProviders.js", 'if (kind === "key") return modelKeyProvider(row);', 'if (kind === "key") return keyProvider(row);',
+            keyProviders],
+        ["model-providers", "AccountProviders.js", 'return row.kind === "key" && row.probe.model !== "";', 'return row.kind === "key";', unknown]
     ]) {
         const original = fs.readFileSync(path.join(plugin, file), "utf8");
         assert.equal(original.split(needle).length - 1, 1, name + " matches");

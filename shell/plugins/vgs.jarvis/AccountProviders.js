@@ -3,7 +3,7 @@
 // row's id names its harness in shell/Commons/AccountDirectories.js, the
 // core's account rule, which holds its folder, variable and marker. A key
 // row's keyPage is the vendor's page that creates an API key, which Add key
-// names beside the provider.
+// names beside a provider it offers.
 var PROVIDERS = [
     { id: "claude", label: "Claude Code", kind: "cli", origin: "https://api.anthropic.com", command: ["claude", "auth", "status"] },
     { id: "codex", label: "Codex", kind: "cli", command: ["codex", "login", "status"] },
@@ -15,13 +15,13 @@ var PROVIDERS = [
         probe: { driver: "chat", path: "/api/v1/chat/completions", model: "openai/gpt-4.1-nano", limit: "max_tokens", header: "authorization", prefix: "Bearer " } },
     { id: "groq", label: "Groq", kind: "key", variable: "GROQ_API_KEY", origin: "https://api.groq.com", keyPage: "https://console.groq.com/keys",
         probe: { driver: "chat", path: "/openai/v1/chat/completions", model: "llama-3.1-8b-instant", limit: "max_tokens", header: "authorization", prefix: "Bearer " } },
-    { id: "cerebras", label: "Cerebras", kind: "key", variable: "CEREBRAS_API_KEY", origin: "https://api.cerebras.ai", keyPage: "https://cloud.cerebras.ai",
+    { id: "cerebras", label: "Cerebras", kind: "key", variable: "CEREBRAS_API_KEY", origin: "https://api.cerebras.ai",
         probe: { driver: "chat", path: "/v1/chat/completions", model: "", limit: "max_completion_tokens", header: "authorization", prefix: "Bearer " } },
     { id: "mistral", label: "Mistral", kind: "key", variable: "MISTRAL_API_KEY", origin: "https://api.mistral.ai", keyPage: "https://console.mistral.ai/api-keys",
         probe: { driver: "chat", path: "/v1/chat/completions", model: "mistral-small-latest", limit: "max_tokens", header: "authorization", prefix: "Bearer " } },
     { id: "gemini", label: "Gemini", kind: "key", variable: "GEMINI_API_KEY", origin: "https://generativelanguage.googleapis.com", keyPage: "https://aistudio.google.com/apikey",
         probe: { driver: "chat", path: "/v1beta/openai/chat/completions", model: "gemini-2.5-flash-lite", limit: "max_tokens", header: "authorization", prefix: "Bearer " } },
-    { id: "elevenlabs", label: "ElevenLabs", kind: "speech-key", variable: "ELEVENLABS_API_KEY", origin: "https://api.elevenlabs.io", keyPage: "https://elevenlabs.io/app/settings/api-keys" },
+    { id: "elevenlabs", label: "ElevenLabs", kind: "speech-key", variable: "ELEVENLABS_API_KEY", origin: "https://api.elevenlabs.io" },
     { id: "ollama", label: "Ollama", kind: "local", port: 11434, origin: "http://127.0.0.1:11434",
         probe: { driver: "ollama", path: "/api/generate", model: "" } },
     { id: "llama-server", label: "llama-server", kind: "local", port: 8080, origin: "http://127.0.0.1:8080",
@@ -52,6 +52,14 @@ function keyPresence(read) {
     return result;
 }
 
+// An API-key row the conversation engine can use as its AI model. The
+// account judge hands the engine the row's probe model and refuses an empty
+// one as model-required (Accounts.js choose), and a speech-only key is no
+// AI model, so Add key and Use keyring item offer no other key row.
+function modelKeyProvider(row) {
+    return row.kind === "key" && row.probe.model !== "";
+}
+
 // The setup terminal's choice lines, LABEL<TAB>VALUE for
 // `gum choose --label-delimiter=$'\t'`, which prints VALUE alone: an id goes
 // back to its judge and never reaches the screen. Each label fits a terminal
@@ -80,11 +88,12 @@ function choiceLine(label, value, width) {
 }
 
 // Add directory offers the sign-in programs, "cli"; Add key and Use keyring
-// item the key providers, "key", Add key with the page that creates a key.
+// item the AI model key providers, "key", Add key with the page that
+// creates a key.
 function providerChoices(kind, width, pages) {
     var rows = PROVIDERS.filter(function (row) {
         if (kind === "cli") return row.kind === "cli";
-        if (kind === "key") return keyProvider(row);
+        if (kind === "key") return modelKeyProvider(row);
         throw new Error("jarvis-providers: kind=" + kind);
     });
     return rows.map(function (row) {
@@ -147,6 +156,6 @@ function probeFailure(completion, diagnostic) {
 }
 
 if (typeof module !== "undefined") module.exports = { PROVIDERS: PROVIDERS, runtimeDirectory: runtimeDirectory,
-    keyPresence: keyPresence, keyProvider: keyProvider, parseWidth: parseWidth, fitText: fitText, choiceLine: choiceLine,
+    keyPresence: keyPresence, keyProvider: keyProvider, modelKeyProvider: modelKeyProvider, parseWidth: parseWidth, fitText: fitText, choiceLine: choiceLine,
     providerChoices: providerChoices, FAILURE_KEYS: FAILURE_KEYS, feedDiagnostic: feedDiagnostic,
     helperFailure: helperFailure, probeFailure: probeFailure };
