@@ -339,7 +339,10 @@ exit 1
     foreignRecord.account = "slack:T2";
     fs.writeFileSync(foreignTeam, JSON.stringify(foreignRecord));
     world.down = true;
-    assert.deepEqual(teamIds(await runJson(foreignCache, ["T1"])), [], "a foreign account supplies no stale photos");
+    const foreign = await run(foreignCache, ["T1"]);
+    assert.equal(foreign.status, 0, foreign.stderr);
+    assert.equal(foreign.stderr, "notifications-slack-photos: account=slack:T1 api=team.info error=ratelimited\n");
+    assert.deepEqual(teamIds(JSON.parse(foreign.stdout)), [], "a foreign account supplies no stale photos");
     world.down = false;
 
     // Cache cleanup leaves artifacts owned by other helpers unchanged.
