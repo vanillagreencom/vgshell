@@ -14,7 +14,10 @@ const COMMAND_MS = 10000;
 const VENDOR_LOG_BYTES = 2048;
 // One bounded guide persists across private sessions, keyed by the CLI version.
 let guidanceCache = null;
-const ACTION_POLICY = Object.freeze({ default: "deny", allow: ["navigate", "snapshot", "url", "getattribute", "click", "fill", "close"],
+// agent-browser 0.38.2 checks a launch action before every session command, close included.
+// The launch's options come only from the private env and config; Tools.refine refuses the
+// launch-selecting flags.
+const ACTION_POLICY = Object.freeze({ default: "deny", allow: ["launch", "navigate", "snapshot", "url", "getattribute", "click", "fill", "close"],
     deny: ["eval", "upload", "download", "state", "network"] });
 
 /** Probe the installed CLI without opening a browser. */

@@ -103,7 +103,7 @@ world(async () => {
             assert.equal(row.policy.default, "deny");
             for (const denied of category ? [category] : ["eval", "upload", "download", "state", "network"])
                 assert.ok(row.policy.deny.includes(denied));
-            assert.deepEqual(row.policy.allow, ["navigate", "snapshot", "url", "getattribute", "click", "fill", "close"]);
+            assert.deepEqual(row.policy.allow, ["launch", "navigate", "snapshot", "url", "getattribute", "click", "fill", "close"]);
             const second = implementation.create({ environment });
             try {
                 await run(second, "read");
@@ -302,6 +302,7 @@ world(async () => {
     await control("policy-url", '"url", "getattribute"', '"get", "getattribute"', verification);
     await control("policy-attribute", '"getattribute", "click"', '"get", "click"', one("fill"));
     await control("policy-close", '"fill", "close"', '"fill"', verification);
+    await control("policy-launch", 'allow: ["launch", "navigate",', 'allow: ["navigate",', verification);
     for (const category of ["eval", "upload", "download", "state", "network"])
         await control("deny-" + category, '"' + category + '"', '"fixture-' + category + '"', implementation => confinement(implementation, category));
     await control("output-bound", "bytes.length <= OUTPUT_BYTES", "true", bounded);

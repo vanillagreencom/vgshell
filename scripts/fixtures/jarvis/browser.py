@@ -6,6 +6,8 @@
 # The socketRefused and launchFailed replies, and their repeat on close, were
 # observed from agent-browser 0.38.2 on this host, 2026-10-06, by the VGS-1012
 # lane: a client-side socket-path refusal, then a daemon-side launch failure.
+# So was the launch action check before every session command, close included,
+# and its denial reply; the socket-path refusal comes before any policy check.
 # Logs argv, explicit environment and policy. Opens no browser or network.
 import json, os, pathlib, sys, time
 home = pathlib.Path(os.environ.get('HOME', '/nonexistent'))
@@ -41,13 +43,19 @@ action = {('open',): 'navigate', ('snapshot',): 'snapshot', ('get', 'url'): 'url
           ('get', 'attr'): 'getattribute', ('click',): 'click', ('fill',): 'fill',
           ('close',): 'close'}.get(tuple(command[:2] if command[0] == 'get' else command[:1]))
 policy = row['policy']
-allow = policy.get('allow')
-denied = action in policy.get('deny', [])
-if allow:
-    denied |= action not in allow and policy.get('default', 'deny').lower() == 'deny'
-elif allow is None:
-    denied |= policy.get('default', '').lower() == 'deny'
-if denied:
+def denied(action):
+    allow = policy.get('allow')
+    refused = action in policy.get('deny', [])
+    if allow:
+        refused |= action not in allow and policy.get('default', 'deny').lower() == 'deny'
+    elif allow is None:
+        refused |= policy.get('default', '').lower() == 'deny'
+    return refused
+if denied('launch'):
+    print(json.dumps({'error': "Action 'launch' denied by policy: Action 'launch' is not in the allow list",
+                      'success': False}, separators=(',', ':')))
+    sys.exit(1)
+if denied(action):
     print(json.dumps({'success': False, 'error': "Action '{}' denied by policy".format(action)}))
     sys.exit(1)
 url_path = home / ('fixture-url-' + session)
