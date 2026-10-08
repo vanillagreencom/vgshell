@@ -11,7 +11,7 @@ function isOk(reply) {
 // HyprlandLayer keeps shortcut problems. Registry's saved-setting notice
 // is already user text; preserve its plugin, field names and fix.
 var MESSAGES = [
-    [/^Saved settings for \S+ are ignored: .+$/, function (match) { return match[0]; }],
+    [/^.+ has old settings it no longer uses: .+\.$/, function (match) { return match[0]; }],
     [/^unknown: /, "This plugin is no longer available. Close Plugins and open it again."],
     [/^refused: user-config=pending(?: |$)/, "VGS is loading your settings. Try again shortly."],
     [/^refused: user-config=(?:unparseable|malformed)(?: |$)/, "Your saved settings are invalid. VGS kept the last working settings."],

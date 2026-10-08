@@ -4205,8 +4205,8 @@ function withoutSetting(user, manifest, key, targets, locator) {
             });
         });
     }
-    var row = targets.indexOf("plugins") !== -1 ? pluginRow(out, manifest.id) : undefined;
-    if (row !== undefined) delete row[key];
+    if (targets.indexOf("plugins") !== -1 && Array.isArray(out.plugins))
+        out.plugins.forEach(function (entry) { if (entry.id === manifest.id) delete entry[key]; });
     return out;
 }
 

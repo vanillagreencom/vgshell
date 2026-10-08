@@ -227,10 +227,17 @@ FocusScope {
                     required property string modelData
                     role: "hint"
                     text: Reply.line(modelData)
-                    color: Theme.color.danger
+                    color: page.row.oldSettings !== null && modelData === page.row.oldSettings.error ? Theme.color.warning : Theme.color.danger
                     width: body.width
                     wrapMode: Text.Wrap
                 }
+            }
+
+            Button {
+                text: "Remove old settings"
+                variant: "secondary"
+                visible: page.row !== null && page.row.oldSettings !== null
+                onClicked: page.panel.clearOldSettings(page.row.id)
             }
 
             Label {

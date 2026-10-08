@@ -166,11 +166,14 @@ FocusScope {
                 onClicked: page.panel.openPlugin(modelData.id, Qt.MouseFocusReason)
                 trailing: [
                     Badge {
-                        tone: "danger"
+                        tone: entry.modelData.oldSettings !== null && entry.modelData.errors.length === 1 ? "warning" : "danger"
                         iconName: "circle-alert"
                         text: String(entry.modelData.errors.length)
                         visible: entry.modelData.errors.length > 0
                         anchors.verticalCenter: parent.verticalCenter
+                        Tooltip {
+                            text: entry.modelData.oldSettings === null ? "" : entry.modelData.oldSettings.error
+                        }
                     },
                     // keyboard-path: open the row and use the plugin page's Enabled switch
                     Switch {

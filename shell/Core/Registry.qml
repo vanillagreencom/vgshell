@@ -477,6 +477,7 @@ Singleton {
                 opens: Logic.openKind(m),
                 paneHolder: m.kinds.indexOf("pane") === -1 ? "" : holder,
                 requirements: requirementsOf(id),
+                oldSettings: settingNotices.find(notice => notice.id === id) || null,
                 errors: errors
             };
         });
@@ -491,7 +492,7 @@ Singleton {
     readonly property var unknownSettingErrors: scanned ? Logic.unknownSettings(Config.effective, manifests).map(row => ({
         kind: "unknown-settings", id: row.id, keys: row.keys,
         dir: manifests[row.id].__sourceDir,
-        error: "Saved settings for " + row.id + " are ignored: " + row.keys.map(key => JSON.stringify(key)).join(", ") + ". Remove these fields from this plugin's entries in shell.json."
+        error: manifests[row.id].name + " has old settings it no longer uses: " + row.keys.map(key => JSON.stringify(key)).join(", ") + "."
     })) : []
 
     function listJson() {

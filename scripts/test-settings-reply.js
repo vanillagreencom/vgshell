@@ -71,6 +71,7 @@ const producer = load(path.join(core, "PluginLogic.js"));
 // Registry is the real producer of the already prepared user notice.
 // Check the pass-through contract, not a second copy of its wording.
 const registrySource = fs.readFileSync(path.join(core, "Registry.qml"), "utf8");
+const pluginsSource = fs.readFileSync(path.join(core, "Plugins.qml"), "utf8");
 const noticeBindings = [...registrySource.matchAll(/readonly property var unknownSettingErrors: ([\s\S]*?)\n\n    function listJson/g)];
 assert.equal(noticeBindings.length, 1, "extractor: one actual Registry saved-setting notice binding");
 const retiredBar = JSON.parse(fs.readFileSync(path.join(dir, "..", "vgs.bar", "manifest.json"), "utf8"));
@@ -80,6 +81,56 @@ const noticeContext = { scanned: true, Logic: producer, Config: { effective: { p
 const settingNotices = vm.runInNewContext("(" + noticeBindings[0][1] + ")", noticeContext);
 same(settingNotices.map(({ kind, id, keys }) => ({ kind, id, keys })), [{ kind: "unknown-settings", id: "vgs.bar", keys: ["left"] }]);
 same(vm.runInNewContext("(" + noticeBindings[0][1] + ")", { ...noticeContext, scanned: false }), []);
+
+// Run the real removal caller and edit judge. The Config double owns the
+// saved file and either publishes the write or refuses it unchanged.
+function verifyRemoval(source) {
+    const functions = [...source.matchAll(/^    function clearOldSettings\([^\n]*\) \{\n[\s\S]*?^    \}/gm)];
+    assert.equal(functions.length, 1, "extractor: one actual Plugins.clearOldSettings");
+    const saved = {
+        version: 1, extra: "keep", disabledPlugins: [retiredBar.id],
+        plugins: [
+            { id: retiredBar.id, left: ["old"], clockFormat: "HH", keys: { toggle: null } },
+            { id: retiredBar.id, left: [], obsolete: false, clockFormat: "mm" },
+            { id: "acme.other", left: ["keep"], obsolete: true }
+        ],
+        bar: { id: retiredBar.id, layout: Object.fromEntries(["left", "center", "right"].map(section => [section, [
+            { id: retiredBar.id, left: [section], obsolete: 0, clockFormat: "HH", keys: {} },
+            { id: retiredBar.id, left: [], clockFormat: "mm" },
+            { id: "acme.other", left: [section], obsolete: 1 }
+        ]])) }
+    };
+    const expected = JSON.parse(JSON.stringify(saved));
+    for (const entries of [expected.plugins, ...Object.values(expected.bar.layout)])
+        for (const entry of entries) if (entry.id === retiredBar.id) { delete entry.left; delete entry.obsolete; }
+    for (const refused of [false, true]) {
+        let writes = 0;
+        const Config = { user: JSON.parse(JSON.stringify(saved)), writeUser(value) {
+            writes++;
+            if (refused) return "refused: user-config=unwritable path=/fixture";
+            this.user = value;
+            return "ok";
+        } };
+        const manifests = { [retiredBar.id]: retiredBar };
+        const ctx = { Logic: producer, Config, Registry: { manifests, has: id => Object.hasOwn(manifests, id) } };
+        vm.createContext(ctx);
+        vm.runInContext(functions[0][0], ctx);
+        same(ctx.clearOldSettings("acme.missing"), "unknown: acme.missing");
+        assert.equal(writes, 0, "an unknown plugin never writes");
+        const reported = producer.unknownSettings(Config.user, manifests);
+        same(reported, [{ id: retiredBar.id, keys: ["left", "obsolete"] }]);
+        assert.equal(ctx.clearOldSettings(retiredBar.id), refused ? "refused: user-config=unwritable path=/fixture" : "ok");
+        assert.equal(writes, 1, "all reported keys use one configuration write");
+        same(Config.user, refused ? saved : expected);
+        const notices = vm.runInNewContext("(" + noticeBindings[0][1] + ")", { scanned: true, Logic: producer, Config: { effective: Config.user }, manifests });
+        same(notices.map(({ kind, id, keys }) => ({ kind, id, keys })), refused ? [{ kind: "unknown-settings", id: retiredBar.id, keys: ["left", "obsolete"] }] : []);
+        if (!refused) {
+            assert.equal(ctx.clearOldSettings(retiredBar.id), "ok");
+            assert.equal(writes, 1, "an already clean plugin never writes");
+        }
+    }
+}
+verifyRemoval(pluginsSource);
 const layer = load(path.join(core, "HyprlandLayer.js"));
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "smoke", "fixtures", "plugins", "acme.hyprland", "manifest.json"), "utf8"));
 const problemsSource = fs.readFileSync(path.join(core, "HyprlandLayer.qml"), "utf8");
@@ -150,7 +201,7 @@ function verify(logic) {
 // Like the Dev Tools handler test, execute the QML source under Node with
 // capability doubles. No second implementation or QML parsing library.
 function windowContext(logic, source) {
-    const names = ["stepKey", "replyOf", "keep", "secretStep", "listStep", "addPlugin", "resetVgs", "storeSecret", "clearSecret", "tuiKey", "openTui"];
+    const names = ["stepKey", "replyOf", "keep", "secretStep", "listStep", "addPlugin", "resetVgs", "storeSecret", "clearSecret", "tuiKey", "openTui", "clearOldSettings"];
     const functions = names.map(name => {
         const found = [...source.matchAll(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{\\n[\\s\\S]*?^    \\}", "gm"))];
         assert.equal(found.length, 1, `extractor: one actual Window.${name}`);
@@ -168,6 +219,8 @@ function verifyCallers(logic, source, page) {
     const { ctx, logs } = windowContext(logic, source);
     for (const [raw] of CASES) {
         assert.equal(ctx.keep("plugin", raw), raw, "keep returns the unchanged machine reply");
+        ctx.shell.manager.clearOldSettings = id => { assert.equal(id, "plugin"); return raw; };
+        assert.equal(ctx.clearOldSettings("plugin"), raw, "old-setting removal returns the actual manager reply");
         assert.equal(ctx.replyOf("plugin"), logic.line(raw), "page reads the mapped manager reply");
         assert.equal(logs.at(-1), "settings: plugin " + raw, "logs retain the original diagnostic");
         ctx.shell.manager.add = () => raw;
@@ -278,6 +331,14 @@ const source = fs.readFileSync(file, "utf8");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "settings-reply-control-"));
 let controls = 0;
 try {
+    for (const [needle, replacement] of [
+        ['for (const key of notice.keys)', 'for (const key of notice.keys.concat("clockFormat"))'],
+        ['user = Logic.withoutSetting(user, m, key, ["plugins", "layout"], null);', 'user = user;']
+    ]) {
+        assert.equal(pluginsSource.split(needle).length, 2, "control: one removal statement");
+        assert.throws(() => verifyRemoval(pluginsSource.replace(needle, replacement)), undefined, "removing a declared key or retaining the notice must fail");
+        controls++;
+    }
     const patterns = source.match(/^    \[\/.*$/gm);
     assert.ok(patterns.length >= 30, "extractor: mapper pattern table incomplete");
     for (const row of patterns) {

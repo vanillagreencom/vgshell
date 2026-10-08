@@ -1,7 +1,7 @@
 # An unreadable user file settles, keeps the bar, and refuses every write
 # until it reads again. A user file the shell reads and the disk refuses to
 # write answers the write with the refusal and keeps its value.
-# inputs: shell/Core/Config.qml shell/Core/PluginLogic.js shell/Core/Registry.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml bin/vgshell shell/Commons/WatchedFile.qml bin/vgshell-plugin-judge scripts/smoke/rows/capability-release.sh
+# inputs: shell/Core/Config.qml shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml bin/vgshell shell/Commons/WatchedFile.qml bin/vgshell-plugin-judge scripts/smoke/rows/capability-release.sh
 set -euo pipefail
 config_user_state() { ipc shell listPlugins | py_reply 'import json,sys; print(json.load(sys.stdin)["config"]["user"])'; }
 expected_errors+=('config: user file unreadable at ')
@@ -132,6 +132,19 @@ PY
     expect "editing another plugin leaves the retired field in the file" ok ipc shell setPluginEnabled acme.tick false
     expect "the saved retired field stays after the edit" '["workspaces"]' configuration_saved_left
     expect "the other plugin is enabled again" ok ipc shell setPluginEnabled acme.tick true
+    expect "the Settings action removes old settings" ok ipc smoke invokeInstance window vgs.settings clearOldSettings vgs.bar
+    expect_poll "the Settings action clears the retired-setting notice" '[]' configuration_setting_notices
+    expect_poll "Settings no longer receives a retired-setting notice" '[]' configuration_manager_notices
+    expect "the Settings action removes the saved retired field" False python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(any("left" in e for e in d["plugins"] if e["id"]=="vgs.bar"))' "$home/.config/vgshell/shell.json"
+    python3 - "$home/.config/vgshell/shell.json" <<'PY'
+import json, os, sys
+p = sys.argv[1]
+d = json.load(open(p))
+next(e for e in d["plugins"] if e["id"] == "vgs.bar")["left"] = ["workspaces"]
+json.dump(d, open(p + ".tmp", "w"), indent=2)
+os.replace(p + ".tmp", p)
+PY
+    expect_poll "the caller control again holds the saved retired field" '[{"id": "vgs.bar", "keys": ["left"]}]' configuration_setting_notices
     stop_shell || :
     if edit_tree configuration-retired-setting shell/Core/Registry.qml \
         'errors.concat(extra, watchError, unknownSettingErrors)' 'errors.concat(extra, watchError)'; then
