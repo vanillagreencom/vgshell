@@ -65,7 +65,7 @@ Item {
         const back = 1 - t;
         const x = 3 * back * back * t * curve.x1 + 3 * back * t * t * curve.x2 + t * t * t;
         const y = 3 * back * back * t * curve.y1 + 3 * back * t * t * curve.y2 + t * t * t;
-        const span = Math.min(look.stack.fadeHeight, view.height) / Math.max(1, view.height);
+        const span = Math.min(look.stack.fadeHeight, view.height / 2) / Math.max(1, view.height);
         return { position: 1 - span + span * x, alpha: 1 - y };
     }
 
@@ -87,7 +87,7 @@ Item {
         // Qt's Item layer effect consumes a texture-backed mask's alpha
         // (doc.qt.io/qt-6/qml-qtquick-effects-multieffect.html). Hidden
         // ancestors disable both layers with their scroll frame.
-        layer.enabled: root.visible && height > 0 && !atYEnd
+        layer.enabled: root.visible && height > 0 && !(atYBeginning && atYEnd)
         layer.smooth: true
         layer.effect: MultiEffect {
             maskEnabled: true
@@ -121,12 +121,16 @@ Item {
         layer.enabled: view.layer.enabled
         layer.smooth: true
         gradient: Gradient {
-            GradientStop { position: 0; color: root.maskColor(1) }
+            GradientStop { position: 0; color: root.maskColor(view.atYBeginning ? 1 : 0) }
+            GradientStop { position: 1 - root.fadePoint(0.75).position; color: root.maskColor(view.atYBeginning ? 1 : root.fadePoint(0.75).alpha) }
+            GradientStop { position: 1 - root.fadePoint(0.5).position; color: root.maskColor(view.atYBeginning ? 1 : root.fadePoint(0.5).alpha) }
+            GradientStop { position: 1 - root.fadePoint(0.25).position; color: root.maskColor(view.atYBeginning ? 1 : root.fadePoint(0.25).alpha) }
+            GradientStop { position: 1 - root.fadePoint(0).position; color: root.maskColor(1) }
             GradientStop { position: root.fadePoint(0).position; color: root.maskColor(1) }
-            GradientStop { position: root.fadePoint(0.25).position; color: root.maskColor(root.fadePoint(0.25).alpha) }
-            GradientStop { position: root.fadePoint(0.5).position; color: root.maskColor(root.fadePoint(0.5).alpha) }
-            GradientStop { position: root.fadePoint(0.75).position; color: root.maskColor(root.fadePoint(0.75).alpha) }
-            GradientStop { position: 1; color: root.maskColor(0) }
+            GradientStop { position: root.fadePoint(0.25).position; color: root.maskColor(view.atYEnd ? 1 : root.fadePoint(0.25).alpha) }
+            GradientStop { position: root.fadePoint(0.5).position; color: root.maskColor(view.atYEnd ? 1 : root.fadePoint(0.5).alpha) }
+            GradientStop { position: root.fadePoint(0.75).position; color: root.maskColor(view.atYEnd ? 1 : root.fadePoint(0.75).alpha) }
+            GradientStop { position: 1; color: root.maskColor(view.atYEnd ? 1 : 0) }
         }
     }
 

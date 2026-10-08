@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import qs.Commons
 import qs.Ui
 
@@ -41,9 +42,29 @@ Row {
             }
 
             Label {
+                id: hintLabel
                 role: "hint"
                 y: topForCapCenter(Math.max(Theme.kbd.height, caps.implicitHeight))
                 text: pair.modelData.text
+                layer.enabled: visible
+                layer.smooth: true
+                // MultiEffect pads its text shadow in the label's layer.
+                // The token's contrast() uses the actual hint colour's
+                // luminance, so custom text colours keep the opposite tone.
+                // doc.qt.io/qt-6/qml-qtquick-effects-multieffect.html
+                layer.effect: MultiEffect {
+                    objectName: "keyHintShadow"
+                    readonly property real padding: Math.ceil(blurMax + Theme.keyHints.shadowOffset)
+                    shadowEnabled: true
+                    shadowColor: Theme.keyHints.shadow
+                    shadowOpacity: Theme.keyHints.shadowOpacity
+                    blurMax: Theme.keyHints.blur
+                    shadowBlur: 1
+                    shadowHorizontalOffset: Theme.keyHints.shadowOffset
+                    shadowVerticalOffset: Theme.keyHints.shadowOffset
+                    autoPaddingEnabled: false
+                    paddingRect: Qt.rect(padding, padding, padding, padding)
+                }
             }
         }
     }

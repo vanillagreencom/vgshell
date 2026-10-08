@@ -76,6 +76,7 @@ Singleton {
     readonly property var voiceBubble: published.voiceBubble
     readonly property var badge: published.badge
     readonly property var kbd: published.kbd
+    readonly property var keyHints: published.keyHints
     readonly property var codeLine: published.codeLine
     readonly property var avatarGroup: published.avatarGroup
     readonly property var qrMatrix: published.qrMatrix
