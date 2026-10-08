@@ -28,7 +28,8 @@ Item {
     // tray drawer opening, must keep the right section's edge fixed.
     readonly property bool rearranging: children.some(item => item.frameDragging === true)
 
-    readonly property var builtinNames: ["left-workspaces", "center-clock"]
+    readonly property var builtinLabels: ({ "left-workspaces": "Workspaces", "center-clock": "Clock" })
+    readonly property var builtinNames: Object.keys(builtinLabels)
     property var widgetLayout: ({ left: [], center: [], right: [] })
     readonly property string builtinKey: JSON.stringify(
         ["left", "center", "right"].flatMap(section => widgetLayout[section])

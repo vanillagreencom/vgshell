@@ -13,7 +13,7 @@
 # byte for byte, so rows after it find the fixture placed as before. The
 # disabled widget the refusals name is acme.tick, disabled for them and
 # enabled again.
-# inputs: shell/plugins/vgs.bar/* config/shell.json scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Hosts/BarHost.qml shell/shell.qml shell/Ui/BarWidget.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/overlay/DismissScope.qml scripts/smoke/pointer/click.c scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh scripts/smoke/rows/sources.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.bar/* config/shell.json scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Hosts/BarHost.qml shell/shell.qml shell/Ui/BarWidget.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/overlay/DismissScope.qml scripts/smoke/pointer/click.c scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh scripts/smoke/rows/sources.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 placement_file="$home/.config/vgshell/shell.json"
 placement_saved="$sandbox/shell-before-placement.json"
@@ -184,15 +184,32 @@ placement_clock_hidden() {
   ipc shell listShellConfig | py_reply 'import json,sys; effective=json.load(sys.stdin); records=json.loads(sys.argv[1]); before=json.loads(sys.argv[2]); user=json.load(open(sys.argv[3])); bars=[rows for host,rows in records.items() if host.startswith("bar:")]; layout=effective.get("bar",{}).get("layout",{}); placed=any(row.get("id")=="vgs.bar/center-clock" for rows in layout.values() for row in rows); built=any(row.get("id")=="vgs.bar/center-clock" for rows in bars for row in rows); unchanged=all(user.get(key)==before.get(key) for key in ("plugins","disabledPlugins")); print(json.dumps({"placed":placed,"built":built,"ownerEnabled":"vgs.bar" not in effective.get("disabledPlugins",[]),"settingsKept":unchanged}) if bars else "absent")' "$records" "$before" "$placement_file"
 }
 placement_clock_hide_menu() {
-  placement_right_click vgs.bar/center-clock || return 1
-  expect_poll "clock right click opens the shared menu" true ipc smoke readInstance "$(bar_key)" vgs.bar/center-clock frameMenuOpen
+  local id="${1:-vgs.bar/center-clock}"
+  placement_right_click "$id" || return 1
+  expect_poll "builtin right click opens the shared menu" true ipc smoke readInstance "$(bar_key)" "$id" frameMenuOpen
+  expect "builtin Hide keeps the owner's independent enablement" '[true, false]' placement_clock_hide_facts "$id"
   type_keys -k Return || return 1
-  expect_poll "clock Hide opens the shared confirmation" true ipc smoke readInstance "$(bar_key)" vgs.bar/center-clock frameDialogOpen
-  expect "clock Hide keeps the owner's independent enablement" '[true, false]' placement_clock_hide_facts
-  type_keys -k Tab -k Return
 }
 placement_clock_hide_facts() {
-  ipc smoke barWidgetFrameFacts "$(bar_key)" vgs.bar/center-clock | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d.get("builtin"),d.get("stops")]))'
+  ipc smoke barWidgetFrameFacts "$(bar_key)" "${1:-vgs.bar/center-clock}" | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d.get("builtin"),d.get("stops")]))'
+}
+placement_builtin_field() {
+  ipc smoke invokeInstance window vgs.settings fieldBoolean "{\"id\":\"$1\",\"key\":\"\"}"
+}
+placement_builtin_toggle() {
+  expect "the existing builtin switch takes keyboard focus" focused ipc smoke invokeInstance window vgs.settings focusBoolean "{\"id\":\"$1\",\"key\":\"\"}"
+  type_keys -k Space
+}
+placement_builtin_saved() {
+  python3 - "$placement_file" "$sandbox/shell-before-builtin-field.json" "$1" <<'PY'
+import json,sys
+after,before=[json.load(open(path)) for path in sys.argv[1:3]]; ident=sys.argv[3]
+def without_entry(d):
+    for rows in d.get("bar",{}).get("layout",{}).values(): rows[:]=[e for e in rows if e.get("id")!=ident]
+    return d
+sections=[section for section,rows in after.get("bar",{}).get("layout",{}).items() for row in rows if row.get("id")==ident]
+print(json.dumps({"sections":sections,"otherStateKept":without_entry(after)==without_entry(before)}))
+PY
 }
 placement_before_clock() {
   local clock tick bounds
@@ -226,6 +243,27 @@ expect_poll "the clock profile returns before Hide" '["center"]' placement_built
 placement_clock_hide_menu || fail "the clock shared Hide action completes"
 expect_poll "clock Hide removes only its ordinary placement" '{"placed": false, "built": false, "ownerEnabled": true, "settingsKept": true}' placement_clock_hidden
 expect_poll "clock Hide releases keyboard capture" default key_submap
+expect "Settings opens the bar's placement fields after clock Hide" ok ipc shell summon window vgs.settings '{"plugin":"vgs.bar"}'
+expect_poll "the hidden clock retains its existing boolean field" '{"type":"boolean","value":false,"checked":false,"enabled":true}' placement_builtin_field vgs.bar/center-clock
+cp -- "$sandbox/shell-placement-clock-contract.json" "$sandbox/shell-before-builtin-field.json"
+placement_builtin_toggle vgs.bar/center-clock || fail "the clock recovery switch executes"
+expect_poll "the clock switch restores the sole layout state" '{"sections": ["center"], "otherStateKept": true}' placement_builtin_saved vgs.bar/center-clock
+expect_poll "the restored clock field reads its ordinary membership" '{"type":"boolean","value":true,"checked":true,"enabled":true}' placement_builtin_field vgs.bar/center-clock
+expect_poll "the restored clock has no Hide confirmation" false ipc smoke readInstance "$(bar_key)" vgs.bar/center-clock frameDialogOpen
+cp -- "$placement_file" "$sandbox/shell-before-builtin-field.json"
+placement_builtin_toggle vgs.bar/center-clock || fail "the clock Hide switch executes"
+expect_poll "the clock switch hides without second state" '{"sections": [], "otherStateKept": true}' placement_builtin_saved vgs.bar/center-clock
+expect_poll "the clock field remains available when its wrapper is absent" '{"type":"boolean","value":false,"checked":false,"enabled":true}' placement_builtin_field vgs.bar/center-clock
+placement_builtin_toggle vgs.bar/center-clock || fail "the clock switch restores again"
+expect_poll "the clock switch recovers again" '{"sections": ["center"], "otherStateKept": true}' placement_builtin_saved vgs.bar/center-clock
+cp -- "$placement_file" "$sandbox/shell-before-builtin-field.json"
+placement_clock_hide_menu vgs.bar/left-workspaces || fail "the workspace Hide menu executes"
+expect_poll "workspace Hide removes the sole layout state" '{"sections": [], "otherStateKept": true}' placement_builtin_saved vgs.bar/left-workspaces
+expect_poll "the hidden workspace retains its field" '{"type":"boolean","value":false,"checked":false,"enabled":true}' placement_builtin_field vgs.bar/left-workspaces
+placement_builtin_toggle vgs.bar/left-workspaces || fail "the workspace switch restores"
+expect_poll "the workspace switch restores its declared left section" '{"sections": ["left"], "otherStateKept": true}' placement_builtin_saved vgs.bar/left-workspaces
+expect_poll "the workspace field reads restored membership" '{"type":"boolean","value":true,"checked":true,"enabled":true}' placement_builtin_field vgs.bar/left-workspaces
+expect "Settings closes after builtin recovery" ok ipc shell hide window vgs.settings
 cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
 expect_builtins "restoring the settled profile registers both builtins" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
 placement_bar_cleanups() {
@@ -578,12 +616,71 @@ if copy_tree placement-clock-hide-control \
   stop_shell
   cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$sandbox/tree-placement-clock-hide-control" "$sandbox/placement-clock-hide-control.log" || fail "the clock Hide control starts"
-  placement_clock_hide_menu || fail "control: the real clock menu and confirmation execute"
+  placement_clock_hide_menu || fail "control: the real clock menu executes"
   expect_poll "control: an inert shared Hide callback makes the same removal reader reject it" '{"placed": true, "built": true, "ownerEnabled": true, "settingsKept": true}' placement_clock_hidden
   expect_poll "control: clock Hide capture is released" default key_submap
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$repo" "$sandbox/placement-clock-hide-restored.log" || fail "the shell starts after the clock Hide control"
+fi
+
+# Each control invokes the drawn field's keyboard path, not a manager substitute.
+if copy_tree placement-builtin-field-control \
+  && edit_tree placement-builtin-field-control shell/plugins/vgs.settings/Window.qml 'return keep(pageId, shell.manager.setPlaced(id, placed));' 'return "ok";'; then
+  stop_shell
+  cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$sandbox/tree-placement-builtin-field-control" "$sandbox/placement-builtin-field-control.log" || fail "the builtin field control starts"
+  expect "control: the clock leaves its ordinary entry" ok ipc shell setPluginPlaced vgs.bar/center-clock false
+  cp -- "$placement_file" "$sandbox/shell-before-builtin-field.json"
+  expect "control: Settings opens the hidden builtin field" ok ipc shell summon window vgs.settings '{"plugin":"vgs.bar"}'
+  expect_poll "control: the hidden clock switch remains available" '{"type":"boolean","value":false,"checked":false,"enabled":true}' placement_builtin_field vgs.bar/center-clock
+  placement_builtin_toggle vgs.bar/center-clock || fail "control: the real field receives Space"
+  expect_poll "control: an inert field callback makes the restore reader reject it" '{"sections": [], "otherStateKept": true}' placement_builtin_saved vgs.bar/center-clock
+  expect "control: a refused restore keeps the checked value bound" '{"type":"boolean","value":false,"checked":false,"enabled":true}' placement_builtin_field vgs.bar/center-clock
+  stop_shell
+  cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$repo" "$sandbox/placement-builtin-field-restored.log" || fail "the shell starts after the field control"
+fi
+if copy_tree placement-builtin-catalogue-control \
+  && edit_tree placement-builtin-catalogue-control shell/Core/Plugins.qml 'return bar.builtinNames.map(name => ({' 'return bar.builtinNames.filter(name => Logic.layoutPositionOf(Config.effective, id + "/" + name, null) !== null).map(name => ({'; then
+  stop_shell
+  cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$sandbox/tree-placement-builtin-catalogue-control" "$sandbox/placement-builtin-catalogue-control.log" || fail "the catalogue control starts"
+  expect "control: the clock leaves its ordinary entry" ok ipc shell setPluginPlaced vgs.bar/center-clock false
+  expect "control: Settings opens the catalogue with the hidden clock" ok ipc shell summon window vgs.settings '{"plugin":"vgs.bar"}'
+  expect_poll "control: placement-dependent discovery loses the hidden clock field" absent placement_builtin_field vgs.bar/center-clock
+  stop_shell
+  cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$repo" "$sandbox/placement-builtin-catalogue-restored.log" || fail "the shell starts after the catalogue control"
+fi
+if copy_tree placement-builtin-default-control \
+  && edit_tree placement-builtin-default-control shell/Core/Plugins.qml 'Config.effective, id, Config.shipped));' 'Config.effective, id));'; then
+  stop_shell
+  cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$sandbox/tree-placement-builtin-default-control" "$sandbox/placement-builtin-default-control.log" || fail "the default placement control starts"
+  expect "control: workspaces leaves its ordinary entry" ok ipc shell setPluginPlaced vgs.bar/left-workspaces false
+  cp -- "$placement_file" "$sandbox/shell-before-builtin-field.json"
+  expect "control: Settings opens the workspace field" ok ipc shell summon window vgs.settings '{"plugin":"vgs.bar"}'
+  expect_poll "control: the workspace field starts unchecked" '{"type":"boolean","value":false,"checked":false,"enabled":true}' placement_builtin_field vgs.bar/left-workspaces
+  placement_builtin_toggle vgs.bar/left-workspaces || fail "control: the workspace switch executes"
+  expect_poll "control: missing shipped defaults makes the same section reader reject restore" '{"sections": ["center"], "otherStateKept": true}' placement_builtin_saved vgs.bar/left-workspaces
+  stop_shell
+  cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$repo" "$sandbox/placement-builtin-default-restored.log" || fail "the shell starts after the default placement control"
+fi
+if copy_tree placement-builtin-confirm-control \
+  && edit_tree placement-builtin-confirm-control shell/Ui/BarWidget.qml 'if (root.frame.describe().builtin) {' 'if (false) {'; then
+  stop_shell
+  cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$sandbox/tree-placement-builtin-confirm-control" "$sandbox/placement-builtin-confirm-control.log" || fail "the confirmation control starts"
+  placement_clock_hide_menu || fail "control: the actual Hide menu executes"
+  expect_poll "control: a confirmation leaves the clock placed" '{"placed": true, "built": true, "ownerEnabled": true, "settingsKept": true}' placement_clock_hidden
+  expect_poll "control: the confirmation reader rejects direct Hide" true ipc smoke readInstance "$(bar_key)" vgs.bar/center-clock frameDialogOpen
+  type_keys -k Escape
+  expect_poll "control: Escape releases confirmation capture" default key_submap
+  stop_shell
+  cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$repo" "$sandbox/placement-builtin-confirm-restored.log" || fail "the shell starts after the confirmation control"
 fi
 
 # A real ordinary plugin can share a catalogue suffix after the bar prefix's

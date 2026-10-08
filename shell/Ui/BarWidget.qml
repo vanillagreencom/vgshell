@@ -12,7 +12,8 @@ import qs.Ui
 //
 // Every widget gets the same right-click menu, with no code in the plugin:
 // Hide, then the entries the widget hands in `frameActions`, each
-// { label, action }, which a click or Enter runs. Hide asks first in a small dialog under the widget,
+// { label, action }, which a click or Enter runs. A builtin hides at once;
+// its Settings > Bar switch restores it. A plugin widget asks first in a small dialog under the widget,
 // which says how to bring the widget back, shows the shortcuts that keep
 // working, and says when hiding also turns the plugin off. Cancel holds the
 // focus, so Enter and Escape change nothing; a press outside closes it too.
@@ -45,7 +46,7 @@ Item {
     }
 
     // pointer-cursor-exempt: it adds the right click to the widget, whose own controls show the hand
-    // keyboard-path: Settings has Show in bar for plugin widgets and Reset VGS for builtins
+    // keyboard-path: Settings has placement switches for plugins and bar builtins
     TapHandler {
         acceptedButtons: Qt.RightButton
         enabled: root.frame !== null && typeof root.frame.hide === "function"
@@ -141,6 +142,11 @@ Item {
                     iconName: "eye-off"
                     // The menu's grab ends before the dialog takes its own.
                     onTriggered: {
+                        if (root.frame.describe().builtin) {
+                            const reply = root.frame.hide();
+                            if (reply !== "ok") console.warn("bar widget: hide " + root.moduleName + " " + reply);
+                            return;
+                        }
                         ui.asking = true;
                         Qt.callLater(ui.askHide);
                     }
@@ -181,9 +187,7 @@ Item {
                         id: dialog
                         anchors.fill: parent
                         title: "Hide " + ui.facts.name + "?"
-                        message: ui.facts.builtin
-                            ? ui.facts.name + " leaves the bar. To show it again, select Reset VGS in Shell & Plugins. This resets your settings, installed plugins and themes."
-                            : ui.facts.stops
+                        message: ui.facts.stops
                             ? ui.facts.name + " leaves the bar. To show it again, turn on Enabled on its page in Plugins. Hiding it also turns it off."
                             : ui.facts.name + " leaves the bar. To show it again, turn on Show in bar on its page in Plugins."
                         actions: [{ label: "Cancel", role: "cancel", focused: true }, { label: "Hide", role: "accept", variant: "danger" }]

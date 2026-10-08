@@ -3808,13 +3808,32 @@ function seedUserBar(out, effective) {
 // row: the manager writes a plugin-wide setting to both entries
 // (settingTargets), so a setting outlives an unplace and a place. The one
 // placement rule; enabling and placing both call it.
-function placeWidget(out, manifest, effective, id) {
+// Builtins restore their shipped section beside a remaining declared
+// neighbour, or at the declared index when those neighbours are absent.
+function placeWidget(out, manifest, effective, id, shipped) {
     id = id === undefined ? manifest.id : id;
     seedUserBar(out, effective);
     if (!isPlainObject(out.bar.layout)) out.bar.layout = { left: [], center: [], right: [] };
-    var section = typeof manifest.defaultSection === "string" ? manifest.defaultSection : "center";
+    var declared = id === manifest.id || shipped === undefined ? null : layoutPositionOf(shipped, id, null);
+    var section = declared !== null ? declared.section : typeof manifest.defaultSection === "string" ? manifest.defaultSection : "center";
     if (!Array.isArray(out.bar.layout[section])) out.bar.layout[section] = [];
-    out.bar.layout[section].push(id === manifest.id ? copyEntrySettings({ id: id }, pluginRow(effective, id)) : { id: id });
+    var entries = out.bar.layout[section];
+    var at = entries.length;
+    if (declared !== null) {
+        var defaults = sectionEntries(shipped, section);
+        at = Math.min(declared.index, entries.length);
+        for (var next = declared.index + 1; next < defaults.length; ++next) {
+            var following = entries.findIndex(function (entry) { return entry.id === defaults[next].id; });
+            if (following !== -1) { at = following; break; }
+        }
+        if (next === defaults.length) {
+            for (var previous = declared.index - 1; previous >= 0; --previous) {
+                var preceding = entries.findIndex(function (entry) { return entry.id === defaults[previous].id; });
+                if (preceding !== -1) { at = preceding + 1; break; }
+            }
+        }
+    }
+    entries.splice(at, 0, id === manifest.id ? copyEntrySettings({ id: id }, pluginRow(effective, id)) : { id: id });
 }
 
 // Why MANIFEST's ordinary widget ID may not be placed or unplaced under CONFIG,
@@ -3873,14 +3892,14 @@ function enabledRefusal(manifest, enabled) {
 // disabled until enabling places it again. A widget already as asked
 // changes nothing but the version stamp. A builtin ID differs from its
 // owner's manifest ID and creates no independent plugins row or settings.
-function withPlaced(user, manifest, placed, effective, id) {
+function withPlaced(user, manifest, placed, effective, id, shipped) {
     id = id === undefined ? manifest.id : id;
     var out = isPlainObject(user) ? clone(user) : {};
     if (out.version === undefined) out.version = CONFIG_VERSION;
     if (placed === (layoutPositionOf(effective, id, null) !== null))
         return out;
     if (placed) {
-        placeWidget(out, manifest, effective, id);
+        placeWidget(out, manifest, effective, id, shipped);
         return out;
     }
     seedUserBar(out, effective);

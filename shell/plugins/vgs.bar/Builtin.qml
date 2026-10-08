@@ -13,7 +13,7 @@ Loader {
         property var release: null
 
         bar: root.barItem
-        Accessible.name: root.name === "center-clock" ? "Clock" : "Workspaces"
+        Accessible.name: root.barItem.builtinLabels[root.name]
         implicitWidth: content.implicitWidth
         implicitHeight: content.implicitHeight
 
