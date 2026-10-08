@@ -133,15 +133,44 @@ JS
 cp -- "$repo/scripts/smoke/ThemeLatencyProbe.qml" "$repo/shell/ThemeLatencyProbe.qml"
 expect "the latency observer loads" ok ipc smoke runnerLoad "$repo/shell/ThemeLatencyProbe.qml"
 
+# Host memory and I/O pressure are advisory measurements, not budget exceptions.
+# Unavailable PSI stays unmeasured; an observed zero is a different result.
+latency_memory_io_us() {
+  local resource kind rest total
+  for resource in memory io; do
+    total=""
+    { while read -r kind rest; do
+        if [[ $kind == some && $rest =~ total=([0-9]+) ]]; then total="${BASH_REMATCH[1]}"; break; fi
+      done <"/proc/pressure/$resource"; } 2>/dev/null || true
+    printf '%s\n' "$total"
+  done
+}
+# The overseer's timing comparison reads this object beside the drawn result.
+# The window includes the IPC wait through the read, not only the frame latency.
+latency_contention() {
+  printf '{}\n' | py_reply 'import json,re,sys
+values=[float(x) if re.fullmatch(r"[0-9]+\.[0-9]",x) else None for x in sys.argv[1:4]]
+load=float(sys.argv[5]) if re.fullmatch(r"[0-9]+(?:\.[0-9]+)?",sys.argv[5]) else None
+print(json.dumps(dict(zip(["cpu_some_pct","memory_some_pct","io_some_pct"],values)) | {"window_ms":int(sys.argv[4]),"load_average":load,"scope":"host"}))' "$@"
+}
+expect "contention keeps measured zero and nonzero pressure" '{"cpu_some_pct": 0.0, "memory_some_pct": 1.2, "io_some_pct": 2.3, "window_ms": 100, "load_average": 6.25, "scope": "host"}' latency_contention 0.0 1.2 2.3 100 6.25
+expect "contention keeps unavailable pressure distinct from zero" '{"cpu_some_pct": null, "memory_some_pct": null, "io_some_pct": 0.0, "window_ms": 100, "load_average": null, "scope": "host"}' latency_contention unmeasured unmeasured 0.0 100 unmeasured
+
 latency_read() { ipc theme-latency themeLatencyRead; }
 latency_done() { latency_read | py_reply 'import json,sys; print("drawn" if "drawn" in json.load(sys.stdin) else "pending")'; }
 latency_report() {
-  local value end_ms pressure
+  local value end_ms pressure resources memory_pressure io_pressure contention cpu_end
   value="$(latency_read)" || return 1
+  mapfile -t resources < <(latency_memory_io_us)
+  cpu_end="$(cpu_some_us)"
   # The window closes at the reading, before the checks, since the warm
   # verdict reads its pressure.
   end_ms="$(now_ms)"
-  pressure="$(cpu_some_pct "$latency_cpu_start" "$(cpu_some_us)" "$((end_ms - latency_window_start))")"
+  pressure="$(cpu_some_pct "$latency_cpu_start" "$cpu_end" "$((end_ms - latency_window_start))")"
+  memory_pressure="$(cpu_some_pct "$latency_memory_start" "${resources[0]}" "$((end_ms - latency_window_start))")"
+  io_pressure="$(cpu_some_pct "$latency_io_start" "${resources[1]}" "$((end_ms - latency_window_start))")"
+  contention="$(latency_contention "$pressure" "$memory_pressure" "$io_pressure" "$((end_ms - latency_window_start))" "$latency_load")" || return 1
+  value="$(printf '%s' "$value" | py_reply 'import json,sys; value=json.load(sys.stdin); value["contention"]=json.loads(sys.argv[1]); print(json.dumps(value))' "$contention")" || return 1
   if [[ $1 != open-cold ]]; then
     local bound=150 planted warm drawn
     [[ $1 == open-warm ]] && bound=240
@@ -173,9 +202,13 @@ latency_report() {
   printf 'theme-latency: load=%s cpu_some_pct=%s pressure_window_ms=%s\n' "$latency_load" "$pressure" "$((end_ms - latency_window_start))"
 }
 latency_pressure_start() {
+  local resources
   latency_load="$(cut -d ' ' -f 1 /proc/loadavg)"
   latency_window_start="$(now_ms)"
   latency_cpu_start="$(cpu_some_us)"
+  mapfile -t resources < <(latency_memory_io_us)
+  latency_memory_start="${resources[0]}"
+  latency_io_start="${resources[1]}"
 }
 latency_bound() { printf '%s' "$1" | py_reply 'import json,sys; value=json.load(sys.stdin).get("drawn"); print("within" if isinstance(value,int) and 0 <= value <= int(sys.argv[1]) else "over")' "$2"; }
 latency_warm_pressure=2.8
@@ -260,29 +293,6 @@ cp -- "$repo/scripts/smoke/fixtures/theme-image.jpg" "$latency_lunar"
 expect "the theme service enables for latency readings" ok ipc shell setPluginEnabled vgs.themes true
 expect_poll "the theme service builds" false ipc smoke readInstance service vgs.themes setupPending
 expect_poll "the catalog answer is held behind installed rows" held latency_catalog_held
-
-# Instrument only the sandbox plugin copies to separate view work and image
-# readiness from the window's presented frame. The row instruments no core
-# file because editing a live core file owes a restart
-# (Plugins.restartRefusal in shell/Core/Plugins.qml).
-python3 - "$repo" "$sandbox" <<'PY'
-from pathlib import Path
-import shutil, sys
-repo, saved = map(Path, sys.argv[1:])
-changes = {
-    'shell/plugins/vgs.themes/Browser.qml': [('onLoaded: {', 'onLoaded: { console.log("theme-latency-stage page-loaded " + Date.now());')],
-    'shell/plugins/vgs.themes/ThemeView.qml': [('started = true;', 'console.log("theme-latency-stage view-start " + Date.now()); started = true;'), ('        focusRail();\n    }\n\n    Component.onCompleted: start()', '        focusRail();\n        console.log("theme-latency-stage view-ready " + Date.now());\n    }\n\n    Component.onCompleted: start()')],
-    'shell/plugins/vgs.themes/ThemeCard.qml': [('onStatusChanged: if (status === Image.Error)', 'onStatusChanged: { if (status === Image.Ready) console.log("theme-latency-stage image-ready " + Date.now() + " " + root.modelData.name); if (status === Image.Error)'), ('console.warn("themes: card image unreadable path=" + root.image)', 'console.warn("themes: card image unreadable path=" + root.image); }')],
-}
-for name, replacements in changes.items():
-    target = repo / name
-    shutil.copy2(target, saved / (target.name + '.latency-original'))
-    source = target.read_text()
-    for before, after in replacements:
-        assert source.count(before) == 1, (name, before)
-        source = source.replace(before, after)
-    target.write_text(source)
-PY
 
 printf 'theme-latency: host=%s date=%s warm_samples=6 ipc_poll=back-to-back compositor_logs=on\n' "$(hostname)" "$(date -u +%Y-%m-%d)"
 for temperature in cold warm warm warm warm warm warm; do
@@ -369,8 +379,8 @@ expect "a read-only queue change starts behind the held catalog" ok ipc theme-la
 expect "a read-only queue change leaves apply state unchanged" "$latency_read_last" latency_service_value themeLastText
 expect "a read-only queue change leaves the browser revision unchanged" "$latency_read_revision" latency_service_value dataRevision
 expect "a read-only queue change leaves precomputed cards unchanged" "$latency_read_cards" latency_service_value cards
-expect "the theme change reader arms" ok ipc theme-latency themeLatencyBegin theme latency "file://$home/.config/vgshell/themes/latency/backgrounds/a.jpg"
 latency_pressure_start
+expect "the theme change reader arms" ok ipc theme-latency themeLatencyBegin theme latency "file://$home/.config/vgshell/themes/latency/backgrounds/a.jpg"
 type_keys -k Return || fail "the apply key failed"
 expect_poll "the desktop presents the applied theme" drawn latency_done
 latency_report theme
@@ -387,8 +397,8 @@ for latency_package in sample-peer latency sample-peer latency sample-peer; do
   type_keys "$latency_package" || fail "the repeated apply filter failed"
   expect_poll "the repeated apply card is selected" "\"$latency_package\"" latency_theme_value selectedName
   expect "the next sample starts from a different published theme" "$latency_previous" ipc smoke themeName
-  expect "the repeated theme reader arms" ok ipc theme-latency themeLatencyBegin theme "$latency_package" "file://$home/.config/vgshell/themes/$latency_package/backgrounds/a.jpg"
   latency_pressure_start
+  expect "the repeated theme reader arms" ok ipc theme-latency themeLatencyBegin theme "$latency_package" "file://$home/.config/vgshell/themes/$latency_package/backgrounds/a.jpg"
   type_keys -k Return || fail "the repeated theme apply key failed"
   expect_poll "the repeated desktop presents the changed theme" drawn latency_done
   latency_report theme
@@ -406,8 +416,8 @@ type_keys -M logo -M shift -k w -m shift -m logo || fail "the wallpaper browser 
 expect_poll "the wallpaper browser reads cards" true latency_wall_value loaded
 expect_poll "the wallpaper browser holds the keyboard" true latency_wall_value activeFocus
 type_keys -k Right || fail "the wallpaper selection key failed"
-expect "the wallpaper change reader arms" ok ipc theme-latency themeLatencyBegin wallpaper "file://$home/.config/vgshell/themes/$latency_previous/backgrounds/b.jpg" ''
 latency_pressure_start
+expect "the wallpaper change reader arms" ok ipc theme-latency themeLatencyBegin wallpaper "file://$home/.config/vgshell/themes/$latency_previous/backgrounds/b.jpg" ''
 type_keys -k Return || fail "the wallpaper apply key failed"
 expect_poll "the desktop presents the selected wallpaper" drawn latency_done
 latency_report wallpaper
@@ -465,11 +475,3 @@ mv -T -- "$sandbox/latency-lunar-preview.jpg" "$latency_lunar"
 
 expect "the latency observer drops" ok ipc smoke runnerDrop
 rm -- "$repo/shell/ThemeLatencyProbe.qml"
-python3 - "$repo" "$sandbox" <<'PY'
-from pathlib import Path
-import shutil, sys
-repo, saved = map(Path, sys.argv[1:])
-for name in ('shell/plugins/vgs.themes/Browser.qml', 'shell/plugins/vgs.themes/ThemeView.qml', 'shell/plugins/vgs.themes/ThemeCard.qml'):
-    target = repo / name
-    shutil.copy2(saved / (target.name + '.latency-original'), target)
-PY
