@@ -1076,7 +1076,7 @@ const alacrittyTemplate = fs.readFileSync(path.join(alacrittyDir, "alacritty.tom
 const alacrittyTarget = selectionRender.acceptTarget(logic, "alacritty",
     fs.readFileSync(path.join(alacrittyDir, "target.json"), "utf8"));
 assert.equal(alacrittyTarget.ok, true);
-const ALACRITTY_ROLES = ["search.matches", "search.focused_match", "hints.start", "hints.end", "footer_bar"];
+const ALACRITTY_ROLES = ["search.matches", "search.focused_match", "hints.start", "hints.end", "footer_bar", "line_indicator"];
 
 function verifyAlacrittyColors(template, packages = selectionPackages) {
     const texts = packages.map(({ pkg, shipped }) => {
@@ -1121,7 +1121,7 @@ function verifyAlacrittyColors(template, packages = selectionPackages) {
             if (boundaryRatio < 3) shortfalls.push({ kind: "alacritty-boundary", package: pkg.name, role, ratio: boundaryRatio, floor: 3 });
             metrics.push({ package: pkg.name, mode: pkg.values.scheme.mode, role,
                 foreground: pair.foreground, background: pair.background, textRatio, boundaryRatio });
-            if (role === "search.matches" || role === "footer_bar" || role === "hints.end") {
+            if (["search.matches", "footer_bar", "hints.end", "line_indicator"].includes(role)) {
                 const surface = logic.parseColor(pkg.values.color.surface);
                 const opposite = logic.contrastColor(base);
                 const distance = endpoint => Math.hypot(background.r - endpoint.r,
@@ -1183,7 +1183,7 @@ try {
     ]) {
         const packages = selectionPackages.filter(({ pkg }) => pkg.name === name);
         assert.equal(packages.length, 1);
-        for (const role of ["search.matches", "footer_bar", "hints.end"]) {
+        for (const role of ["search.matches", "footer_bar", "hints.end", "line_indicator"]) {
             controls.push({ kind: "alacritty-surface-direction", role, packages,
                 template: sectionPair(alacrittyTemplate, role, foreground, background) });
             controls.push({ kind: "alacritty-boundary", role, packages,

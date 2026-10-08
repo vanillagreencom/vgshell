@@ -32,6 +32,10 @@ background = "#@{mix({color.background}, contrast({color.background}), 0.45)}"
 foreground = "#@{contrast(mix({color.background}, contrast({color.background}), 0.45))}"
 background = "#@{mix({color.background}, contrast({color.background}), 0.45)}"
 
+[colors.line_indicator]
+foreground = "#@{contrast(mix({color.background}, contrast({color.background}), 0.45))}"
+background = "#@{mix({color.background}, contrast({color.background}), 0.45)}"
+
 [colors.normal]
 black = "#@{terminal.color0}"
 red = "#@{terminal.color1}"
