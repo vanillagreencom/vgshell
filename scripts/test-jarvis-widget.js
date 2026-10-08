@@ -60,6 +60,11 @@ const WITH = (line, details) => v => line(v) + details;
 // The Setup steps as the service publishes them (SetupGate.readiness).
 const TODO = { tone: "warning", text: "To do", lines: ["fixture line"], action: true };
 const DONE = { tone: "ok", text: "Done", action: false };
+// The AI model step names the one of its declared actions that applies,
+// and carries none once done.
+const MODEL_TODO = { tone: "warning", text: "To do", hint: "fixture hint", action: "key" };
+const MODEL_SIGN_IN = { tone: "warning", text: "To do", hint: "fixture hint", action: "signIn" };
+const MODEL_DONE = { tone: "ok", text: "Done" };
 // [label, status values, [state, icon, tone, tooltip title plus detail]].
 const CASES = [
     ["nothing published yet", {}, ["off", "power-off", "neutral", "Jarvis is starting" + MUTE]],
@@ -109,9 +114,11 @@ const CASES = [
     ["muting with capture closed", up({ mute: { kind: "muting" } }), ["muted", "mic-off", "neutral", "Jarvis is muted" + UNMUTE]],
     ["gate starting", up(down("starting")), ["off", "power-off", "neutral", "Jarvis is starting" + MUTE]],
     ["gate unconfigured, nothing published", up(down("unconfigured")), ["off", "power-off", "neutral", WITH(unconfigured, MUTE)]],
-    ["local voice to do", up(down("unconfigured"), { setupVoice: TODO, setupModel: TODO }),
+    ["local voice to do", up(down("unconfigured"), { setupVoice: TODO, setupModel: MODEL_TODO }),
         ["off", "power-off", "neutral", WITH(setupStep("setupVoice"), MUTE)]],
-    ["the AI model to do", up(down("unconfigured"), { setupVoice: DONE, setupModel: TODO }),
+    ["the AI model to do", up(down("unconfigured"), { setupVoice: DONE, setupModel: MODEL_TODO }),
+        ["off", "power-off", "neutral", WITH(setupStep("setupModel"), MUTE)]],
+    ["the AI model to sign in", up(down("unconfigured"), { setupVoice: DONE, setupModel: MODEL_SIGN_IN }),
         ["off", "power-off", "neutral", WITH(setupStep("setupModel"), MUTE)]],
     ["gate node", up(down("node")), ["off", "power-off", "neutral", "Jarvis needs Node 22 or later" + MUTE]],
     ["gate lock unknown", up(down("lock-unknown")), ["off", "power-off", "neutral", "Jarvis is off until the screen lock is known" + MUTE]],
@@ -165,9 +172,9 @@ function verify(view) {
         ["checking setup with Session fault", up({ fault: { kind: "error", reason: "brain=stream-error", retry: 0 } }, loading), ["problem", "circle-alert", "danger"]],
         ["loading while muted", up({ ...down("unconfigured"), ...MUTED }, loading), ["muted", "mic-off", "neutral"]],
         ["loading with missing model", up(down("unconfigured"), SetupGate.readiness({ kind: "answered", causes: ["speech=local-loading", "brain=unselected"] })), ["off", "power-off", "neutral"]],
-        ["missing command with no setup action", up(down("unconfigured"), { setupVoice: { tone: "warning", action: false }, setupModel: DONE }), ["off", "power-off", "neutral"]],
+        ["missing command with no setup action", up(down("unconfigured"), { setupVoice: { tone: "warning", action: false }, setupModel: MODEL_DONE }), ["off", "power-off", "neutral"]],
         ["missing command while model checks", up(down("unconfigured"), { setupVoice: { tone: "warning", action: false }, setupModel: checking.setupModel }), ["off", "power-off", "neutral"]],
-        ["checking tone with setup action", up(down("unconfigured"), { setupVoice: { tone: "info", action: true }, setupModel: DONE }), ["off", "power-off", "neutral"]],
+        ["checking tone with setup action", up(down("unconfigured"), { setupVoice: { tone: "info", action: true }, setupModel: MODEL_DONE }), ["off", "power-off", "neutral"]],
         ["unpublished model while voice checks", up(down("unconfigured"), { setupVoice: loading.setupVoice }), ["off", "power-off", "neutral"]],
         ["both steps done with gate down", up(down("unconfigured"), SetupGate.readiness({ kind: "answered", causes: [] })), ["off", "power-off", "neutral"]],
         ["loading while locked", up(down("locked"), loading), ["off", "power-off", "neutral"]]
@@ -228,7 +235,7 @@ verify(load(path.join(dir, "WidgetView.js")));
 const CONTROLS = [
     ["memory explanation discarded", 'return step.text + ". Open Settings > Jarvis. " + step.hint;', 'return GATE_TEXT.unconfigured;'],
     ["checking setup reads off", 'state.gate.reason === "unconfigured" && setupChecking(values)', 'state.gate.reason === "unconfigured" && false'],
-    ["checking hides an offered setup action", 'step.action !== false', 'false'],
+    ["checking hides an offered setup action", '!step || offered(step) ||', '!step ||'],
     ["missing requirements read checking", '(step.tone !== "info" && step.tone !== "ok")', 'false'],
     ["done steps read checking", 'return checking;', 'return true;'],
     ["cleared prompt retains a record", "if (hold === null) return null;", "if (hold === null) return {};"],
@@ -261,7 +268,8 @@ const CONTROLS = [
     ["an audio problem shows its text", 'look("problem", AUDIO_TEXT, muteOn)', 'look("problem", "Audio problem: " + audio.text, muteOn)'],
     ["an unconfigured gate names no step", 'state.gate.reason === "unconfigured" ? unconfiguredText(values) : GATE_TEXT[state.gate.reason]',
         "GATE_TEXT[state.gate.reason]"],
-    ["a step done reads as to do", "step.action === true", "step.action !== undefined"],
+    ["a step done reads as to do", 'return step.action === true || typeof step.action === "string";', "return step.action !== undefined;"],
+    ["a named action reads as none", ' || typeof step.action === "string";', ";"],
     ["the AI model reads before local voice", "function unconfiguredText(values) {\n    for (var i = 0; i < SETUP_TEXT.length; i++) {", "function unconfiguredText(values) {\n    for (var i = SETUP_TEXT.length - 1; i >= 0; i--) {"]
 ];
 

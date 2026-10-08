@@ -110,7 +110,7 @@ world(async () => {
     const check = folder => {
         fs.rmSync(log, { force: true });
         queue(["add", "claude", hand, "my-account", "item", "first", "openai", "my-key",
-            "show", "verify", "first", "", "yes", "close"]);
+            "show", "verify", "first", "-fixture", "yes", "close"]);
         const from = nodeCalls().length - 1;
         const result = run(folder);
         assert.equal(result.error, undefined);
@@ -122,11 +122,11 @@ world(async () => {
         assert.deepEqual(JSON.parse(fs.readFileSync(accountFile)), [{ provider: "claude", directory: hand, label: "my-account" }]);
         assert.deepEqual(JSON.parse(fs.readFileSync(keyFile)), [{ provider: "openai", account: "my-key", origin: "https://api.openai.com",
             attributes: { application: "other-tool", id: "api-key" } }]);
-        // The first account is the absent default Claude directory: its
-        // harness Verify refuses before any vendor program starts. The
-        // result goes to the log, and no id or keyed line reaches the screen.
+        // Verify of the first account with a model name no program takes
+        // refuses before any vendor program or request starts. The result
+        // goes to the log, and no id or keyed line reaches the screen.
         const logged = fs.readFileSync(log, "utf8");
-        assert.match(logged, /"kind":"unavailable","reason":"account-directory"/);
+        assert.match(logged, /"kind":"unavailable","reason":"model-invalid"/);
         assert.doesNotMatch(result.stdout, /"kind"|jarvis-accounts:/);
         assert.doesNotMatch(result.stdout, HASH);
         assert.equal((result.stdout + result.stderr + logged).includes("fixture-secret-private"), false);

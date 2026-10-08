@@ -37,6 +37,7 @@ var TODO = {
     "brain=unselected": "Choose an AI model in Settings > AI model.",
     "brain=account-unavailable": "The chosen AI model cannot be used. Add a key or sign in, then choose it below.",
     "brain=model-required": "The chosen AI model cannot be used. Choose another AI model below.",
+    "brain=signed-out": "The chosen AI model is not signed in. Sign in, then choose it below.",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Open Accounts to check them.",
     "speech=live-account-unselected": "Add an OpenAI key under Setup at the top of this page.",
     "speech=live-account-unreadable": "Jarvis could not read your GPT-Live key. Use Accounts in Setup to check it.",
@@ -60,22 +61,37 @@ var MEMORY = {
 };
 // A required step once the daemon stopped: no check runs, none is offered.
 var UNCHECKED = { tone: "warning", text: "Not checked", action: false };
+// The AI model step declares named actions, Add key ("key") and Sign in
+// ("signIn"), so its value names the one that applies or carries no
+// action: the manifest judge refuses a boolean on it.
+function noAction(value) {
+    var out = Object.assign({}, value);
+    delete out.action;
+    return out;
+}
+var SIGNED_OUT_HINT = "Your Claude Code or Codex account is not signed in. Sign in, then choose it below.";
 
-// Account discovery supplies typed states even before it offers a model.
-// A found CLI folder alone does not establish that its app is signed in.
+// Account discovery supplies typed states even before it offers a model:
+// present while an app is signed in, signed-out while an app Sign in serves
+// is found signed out (the account list's signIn), else absent. A found CLI
+// folder alone does not establish that its app is signed in.
 function accountAccess(accounts) {
-    return { kind: accounts.some(function (account) {
+    if (accounts.some(function (account) {
         return account.source === "cli" && ["signed-in", "verified", "verifying"].indexOf(account.state) !== -1;
-    }) ? "present" : "absent" };
+    })) return { kind: "present" };
+    return { kind: accounts.some(function (account) { return account.signIn === true; }) ? "signed-out" : "absent" };
 }
 
-// The model row offers Add key only after both readers find no key or
-// signed-in app. Missing reader output stays checking, without an action.
+// The model row keeps Sign in for a signed-out cause. Otherwise it offers
+// a step only after both readers find no key or signed-in app: Sign in
+// while an app is found signed out, else Add key. Missing reader output
+// stays checking, without an action.
 function modelStep(value, keys, access) {
-    if (value.action !== true) return value;
+    if (value.action !== "key") return value;
     var absent = keys !== undefined && keys.every(function (key) { return key.value === "absent"; });
     if (absent && access.kind === "absent") return value;
-    return Object.assign({}, value, { action: false });
+    if (absent && access.kind === "signed-out") return Object.assign({}, value, { hint: SIGNED_OUT_HINT, action: "signIn" });
+    return noAction(value);
 }
 
 // The summary and required step values for ANSWER: { kind: "checking" }
@@ -85,13 +101,13 @@ function modelStep(value, keys, access) {
 function readiness(answer) {
     switch (answer.kind) {
     case "checking":
-        return { setup: CHECKING_SUMMARY, setupVoice: CHECKING, setupModel: CHECKING };
+        return { setup: CHECKING_SUMMARY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };
     case "stopped":
         return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },
-            setupVoice: UNCHECKED, setupModel: UNCHECKED };
+            setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };
     case "answered":
         var out = { setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" } : { tone: "warning", text: "Not ready" },
-            setupVoice: DONE, setupModel: DONE };
+            setupVoice: DONE, setupModel: noAction(DONE) };
         answer.causes.forEach(function (cause) {
             var step = cause.slice(0, cause.indexOf("="));
             if (!Object.prototype.hasOwnProperty.call(REQUIRED, step)) throw new Error("jarvis-setup: cause=" + cause + " names no step");
@@ -105,8 +121,9 @@ function readiness(answer) {
                 return;
             }
             var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];
-            out[REQUIRED[step]] = hint === undefined ? { tone: "warning", text: "To do", action: true }
-                : { tone: "warning", text: "To do", hint: hint, action: cause.indexOf("speech=live-") !== 0 };
+            var action = step === "brain" ? (cause === "brain=signed-out" ? "signIn" : "key") : cause.indexOf("speech=live-") !== 0;
+            out[REQUIRED[step]] = hint === undefined ? { tone: "warning", text: "To do", action: action }
+                : { tone: "warning", text: "To do", hint: hint, action: action };
         });
         return out;
     }

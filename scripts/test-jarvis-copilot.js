@@ -635,7 +635,7 @@ world(async () => {
             ["handoff-route", "backend/Accounts.js", [['case "copilot":', 'case "copilot-removed":']], "verify"],
             ["handoff-audit", "backend/Accounts.js", [["release.start(() => CopilotHarness.probe(", "(send => send())(() => CopilotHarness.probe("]], "verify"],
             ["status-command", "AccountProviders.js", [['{ id: "copilot", label: "GitHub Copilot", kind: "cli", command: null,', '{ id: "copilot", label: "GitHub Copilot", kind: "cli", command: ["copilot", "--version"],']], "verify"],
-            ["unchecked-state", "backend/Accounts.js", [['row.command === null ? { kind: "unchecked" } : { kind: "found" }', '{ kind: "found" }']], "verify"],
+            ["unchecked-state", "backend/Accounts.js", [['let state = { kind: "unchecked" };', 'let state = { kind: "found" };']], "verify"],
             ["folder-label", "backend/Accounts.js", [[': item.email ? row.label + " / " + item.email : row.label + " / " + item.label;', ': item.email ? row.label + " / " + item.email : row.label + " / same";']], "verify"],
             ["harness-reason", "backend/Accounts.js", [["(?:harness|codex|copilot|pi)-", "(?:harness|codex|pi)-"]], "verify"],
             ["account-row", "AccountProviders.js", [['{ id: "copilot", label: "GitHub Copilot", kind: "cli", command: null,', '{ id: "copilot-removed", label: "GitHub Copilot", kind: "cli", command: null,']], "verify"],

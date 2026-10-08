@@ -80,10 +80,10 @@ s=p.read_text()
 manifest=json.loads(s)
 changed_keys=[]
 for key,row in manifest["status"].items():
-    action=row.get("action", {})
-    if action.get("tui") == "add-key":
-        action["label"]="Add an API key"
-        changed_keys.append(key)
+    for action in [row.get("action", {})] + list(row.get("actions", {}).values()):
+        if action.get("tui") == "add-key":
+            action["label"]="Add an API key"
+            changed_keys.append(key)
 assert "keyStore" in changed_keys
 changed=json.dumps(manifest, indent=2)+"\n"
 assert changed != s

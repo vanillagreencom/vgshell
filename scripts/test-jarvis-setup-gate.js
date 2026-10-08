@@ -42,9 +42,10 @@ const REQUIREMENT = [
 
 // The Setup section from the daemon's answer: [label, answer, the summary's
 // tone, the steps still to do, the steps to do that keep their declared
-// hint]. A step to do is a warning with its action and, unless its action
-// already says what it asks, a hint of its own; a done step is ok with
-// neither. No step draws lines: what it asks is description, its hint.
+// hint, the AI model's named action while to do, "key" when left out]. A
+// step to do is a warning with its action and, unless its action already
+// says what it asks, a hint of its own; a done step is ok with neither. No
+// step draws lines: what it asks is description, its hint.
 const READINESS = [
     ["ready", { kind: "answered", causes: [] }, "ok", [], []],
     ["nothing set up", { kind: "answered", causes: ["speech=local-not-set-up", "brain=unselected"] }, "warning", ["setupVoice", "setupModel"], ["setupVoice"]],
@@ -53,10 +54,16 @@ const READINESS = [
     // ChainedEngine's cause while no speech row exists has no hint of its own.
     ["a cause with no hint of its own", { kind: "answered", causes: ["speech=no-adapter"] }, "warning", ["setupVoice"], ["setupVoice"]],
     // A brain cause with no hint of its own takes the step's.
-    ["a brain cause with no hint of its own", { kind: "answered", causes: ["brain=unnamed"] }, "warning", ["setupModel"], []]
+    ["a brain cause with no hint of its own", { kind: "answered", causes: ["brain=unnamed"] }, "warning", ["setupModel"], []],
+    ["a signed-out AI model", { kind: "answered", causes: ["brain=signed-out"] }, "warning", ["setupModel"], [], "signIn"]
 ];
+// Each step's action once done: the voice step's boolean; the AI model's
+// manifest entry declares named actions, so its value carries none.
+const DONE_ACTION = { setupVoice: false, setupModel: undefined };
 // Each brain cause asks for its own action.
-const BRAIN_CAUSES = ["brain=unselected", "brain=account-unavailable", "brain=model-required", "brain=accounts-unreadable"];
+const BRAIN_CAUSES = ["brain=unselected", "brain=account-unavailable", "brain=model-required", "brain=accounts-unreadable", "brain=signed-out"];
+// The TUI each of the AI model's named actions opens, from the manifest.
+const MODEL_TUI = { key: "add-key", signIn: "sign-in" };
 const plain = value => JSON.parse(JSON.stringify(value));
 
 // Execute the shipped Details row accessor and the shipped Settings row
@@ -67,20 +74,29 @@ const serviceFile = path.join(path.dirname(file), "Service.qml");
 const accountsFile = path.join(path.dirname(file), "Accounts.qml");
 const words = require(path.join(path.dirname(file), "AccountStatus.js"));
 const UNSELECTED = { kind: "answered", causes: ["brain=unselected"] };
+const SIGNED_OUT = { kind: "answered", causes: ["brain=signed-out"] };
+// want: the AI model step's tone and the named action it offers, undefined
+// for none. An app is an account row of the helper's status: signIn is
+// whether Sign in serves its signed-out account.
 const MODEL = [
-    { name: "key only before model discovery", keys: [{ value: "present" }], apps: [], answer: UNSELECTED, want: ["warning", false] },
-    { name: "signed-in app before model discovery", keys: [], apps: [{ source: "cli", state: "signed-in" }], answer: UNSELECTED, want: ["warning", false] },
-    { name: "verified app", keys: [], apps: [{ source: "cli", state: "verified" }], answer: UNSELECTED, want: ["warning", false] },
-    { name: "app verification pending", keys: [], apps: [{ source: "cli", state: "verifying" }], answer: UNSELECTED, want: ["warning", false] },
-    { name: "neither key nor app", keys: [], apps: [], answer: UNSELECTED, want: ["warning", true] },
-    { name: "found app folder", keys: [], apps: [{ source: "cli", state: "found" }], answer: UNSELECTED, want: ["warning", true] },
-    { name: "unchecked app folder", keys: [], apps: [{ source: "cli", state: "unchecked" }], answer: UNSELECTED, want: ["warning", true] },
-    { name: "locked key", keys: [{ value: "locked" }], apps: [], answer: UNSELECTED, want: ["warning", false] },
-    { name: "unavailable key reader", keys: [{ value: "unavailable" }], apps: [], answer: UNSELECTED, want: ["warning", false] },
-    { name: "key reader has not answered", keys: undefined, apps: [], answer: UNSELECTED, want: ["warning", false] },
-    { name: "app reader failed", keys: [], apps: [], code: 1, answer: UNSELECTED, want: ["warning", false] },
-    { name: "selected model", keys: [{ value: "present" }], apps: [], answer: { kind: "answered", causes: [] }, want: ["ok", false] },
-    { name: "checking", keys: [], apps: [], answer: { kind: "checking" }, want: ["info", false] }
+    { name: "key only before model discovery", keys: [{ value: "present" }], apps: [], answer: UNSELECTED, want: ["warning", undefined] },
+    { name: "signed-in app before model discovery", keys: [], apps: [{ source: "cli", state: "signed-in" }], answer: UNSELECTED, want: ["warning", undefined] },
+    { name: "verified app", keys: [], apps: [{ source: "cli", state: "verified" }], answer: UNSELECTED, want: ["warning", undefined] },
+    { name: "app verification pending", keys: [], apps: [{ source: "cli", state: "verifying" }], answer: UNSELECTED, want: ["warning", undefined] },
+    { name: "neither key nor app", keys: [], apps: [], answer: UNSELECTED, want: ["warning", "key"] },
+    { name: "found app folder Sign in does not serve", keys: [], apps: [{ source: "cli", state: "found" }], answer: UNSELECTED, want: ["warning", "key"] },
+    { name: "signed-out app folder", keys: [], apps: [{ source: "cli", state: "found", signIn: true }], answer: UNSELECTED, want: ["warning", "signIn"] },
+    { name: "signed-out app beside a signed-in one", keys: [], apps: [{ source: "cli", state: "found", signIn: true }, { source: "cli", state: "signed-in" }],
+        answer: UNSELECTED, want: ["warning", undefined] },
+    { name: "signed-out app beside a key", keys: [{ value: "present" }], apps: [{ source: "cli", state: "found", signIn: true }], answer: UNSELECTED, want: ["warning", undefined] },
+    { name: "signed-out AI model chosen", keys: [{ value: "present" }], apps: [{ source: "cli", state: "signed-in" }], answer: SIGNED_OUT, want: ["warning", "signIn"] },
+    { name: "unchecked app folder", keys: [], apps: [{ source: "cli", state: "unchecked" }], answer: UNSELECTED, want: ["warning", "key"] },
+    { name: "locked key", keys: [{ value: "locked" }], apps: [], answer: UNSELECTED, want: ["warning", undefined] },
+    { name: "unavailable key reader", keys: [{ value: "unavailable" }], apps: [], answer: UNSELECTED, want: ["warning", undefined] },
+    { name: "key reader has not answered", keys: undefined, apps: [], answer: UNSELECTED, want: ["warning", undefined] },
+    { name: "app reader failed", keys: [], apps: [], code: 1, answer: UNSELECTED, want: ["warning", undefined] },
+    { name: "selected model", keys: [{ value: "present" }], apps: [], answer: { kind: "answered", causes: [] }, want: ["ok", undefined] },
+    { name: "checking", keys: [], apps: [], answer: { kind: "checking" }, want: ["info", undefined] }
 ];
 
 // Run both shipped publication functions. Accounts supplies typed sign-in
@@ -103,19 +119,20 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
         } } };
         const root = { shell, modelAccess: { kind: "checking" }, pending: false,
             completion: { kind: "exited", code: row.code ?? 0 }, diagnostic: { kind: "collected", text: "" },
-            output: JSON.stringify({ accounts: row.apps.map(app => ({ label: "Fixture app", value: "present", plan: "", email: "", mismatch: false, ...app })),
+            output: JSON.stringify({ accounts: row.apps.map(app => ({ label: "Fixture app", value: "present", plan: "", email: "", mismatch: false, signIn: false, ...app })),
                 brains: [], voiceAccounts: [], search: { found: row.apps.length, partial: "" } }), refreshed: () => {} };
         vm.runInNewContext("(function() { with(root) { return (" + publishAccounts[0] + ").call(root); } })()",
             { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
         vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: root })(row.answer);
         try {
-            assert.deepEqual(plain([values.setupModel.tone, values.setupModel.action]), row.want, row.name);
+            assert.deepEqual([values.setupModel.tone, values.setupModel.action], row.want, row.name);
             const entry = judge.statusRows(manifest, values, []).find(item => item.key === "setupModel");
-            assert.equal(entry.action.offered, row.want[1], row.name + ": the actual row action");
-            const setupRow = settings.setupRows([{ name: "add-key" }], judge.statusRows(manifest, values, []))
+            assert.equal(entry.action.offered, row.want[1] !== undefined, row.name + ": the actual row action");
+            const setupRow = settings.setupRows([{ name: "add-key" }, { name: "sign-in" }], judge.statusRows(manifest, values, []))
                 .find(item => item.entry.key === "setupModel");
-            assert.equal(setupRow.button !== null, row.want[1], row.name + ": Settings link");
-            if (row.answer === UNSELECTED) {
+            assert.equal(setupRow.button === null ? undefined : setupRow.button.name, MODEL_TUI[row.want[1]], row.name + ": Settings link");
+            // A signed-out app replaces the cause's hint with its own.
+            if (row.answer === UNSELECTED && row.want[1] !== "signIn") {
                 const detailsEntry = vm.runInNewContext("(" + accessor[0] + ")", { row: { status: judge.statusRows(manifest, values, []) } })("setupModel");
                 for (const [consumer, actual] of [["Settings", setupRow.entry], ["Details", detailsEntry]])
                     assert.equal(settings.statusView(actual, String).hint, "Choose an AI model in Settings > AI model.",
@@ -154,7 +171,7 @@ function verifyVoiceConsumers(gate, pageSource) {
 }
 
 function verifyReadiness(gate) {
-    for (const [label, answer, tone, todo, declared] of READINESS) {
+    for (const [label, answer, tone, todo, declared, model] of READINESS) {
         const got = plain(gate.readiness(answer));
         assert.deepEqual(Object.keys(got).sort(), ["setup", "setupModel", "setupVoice"], label);
         assert.equal(got.setup.tone, tone, label + ": the summary");
@@ -162,7 +179,8 @@ function verifyReadiness(gate) {
         for (const key of ["setupVoice", "setupModel"]) {
             const step = got[key];
             const open = todo.includes(key);
-            assert.deepEqual([step.tone, step.action, step.lines], open ? ["warning", true, undefined] : ["ok", false, undefined], label + ": " + key);
+            const action = key === "setupModel" ? model ?? "key" : true;
+            assert.deepEqual([step.tone, step.action, step.lines], open ? ["warning", action, undefined] : ["ok", DONE_ACTION[key], undefined], label + ": " + key);
             if (!open || declared.includes(key)) assert.equal(step.hint, undefined, label + ": " + key + " keeps its declared hint");
             else assert.equal(typeof step.hint === "string" && step.hint !== "" && !/=/.test(step.hint), true,
                 label + ": a plain hint, no keyed cause on screen");
@@ -182,13 +200,13 @@ function verifyReadiness(gate) {
         const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setupVoice.tone, got.setupVoice.action, typeof got.setupVoice.hint], ["warning", false, "string"],
             "GPT-Live setup never starts local model installation");
-        assert.deepEqual(got.setupModel, { tone: "ok", text: "Done", action: false });
+        assert.deepEqual(got.setupModel, { tone: "ok", text: "Done" });
     }
     // Before the daemon answers nothing reads ready or to do.
     const checking = plain(gate.readiness({ kind: "checking" }));
     assert.deepEqual([checking.setup.tone, checking.setup.action], ["info", undefined], "checking: setup");
     for (const key of ["setupVoice", "setupModel"])
-        assert.deepEqual([checking[key].tone, checking[key].action], ["info", false], "checking: " + key);
+        assert.deepEqual([checking[key].tone, checking[key].action], ["info", DONE_ACTION[key]], "checking: " + key);
     assert.equal(gate.readiness({ kind: "checking" }).setupVoice, gate.CHECKING);
     assert.equal(gate.readiness({ kind: "answered", causes: ["speech=local-loading"] }).setupVoice, gate.LOADING);
     assert.equal(gate.readiness({ kind: "answered", causes: ["speech=local-loading"] }).setup, gate.LOADING_SUMMARY);
@@ -198,7 +216,7 @@ function verifyReadiness(gate) {
         assert.deepEqual([loading.setupVoice.tone, loading.setupVoice.action], ["info", false]);
         assert.equal(loading.setup.tone, causes.length === 1 ? "info" : "warning");
         assert.equal(loading.setup.action, undefined);
-        assert.deepEqual([loading.setupModel.tone, loading.setupModel.action], causes.length === 1 ? ["ok", false] : ["warning", true]);
+        assert.deepEqual([loading.setupModel.tone, loading.setupModel.action], causes.length === 1 ? ["ok", undefined] : ["warning", "key"]);
     }
     // A stopped daemon runs no check: its steps claim none and offer none.
     const stopped = plain(gate.readiness({ kind: "stopped" }));
@@ -206,7 +224,7 @@ function verifyReadiness(gate) {
     assert.equal(stopped.setup.tone, "danger", "stopped: the summary");
     assert.deepEqual([stopped.setup.lines, typeof stopped.setup.hint], [undefined, "string"], "stopped: the summary says why as its hint");
     for (const key of ["setupVoice", "setupModel"])
-        assert.deepEqual([stopped[key].tone === checking[key].tone, stopped[key].action], [false, false], "stopped: " + key);
+        assert.deepEqual([stopped[key].tone === checking[key].tone, stopped[key].action], [false, DONE_ACTION[key]], "stopped: " + key);
     assert.throws(() => gate.readiness({ kind: "answered", causes: ["voice=missing"] }), /^Error: jarvis-setup: cause=voice=missing/);
     // An optional step: done while its reader is ok, else optional with
     // its reader's action.
@@ -290,6 +308,10 @@ const CONTROLS = [
     ["the AI model hint names the Settings field", '"brain=unselected": "Choose an AI model in Settings > AI model."', '"brain=unselected": "Choose an AI model in Settings."', "Settings AI model hint"],
     ["present keys still offer Add key", 'var absent = keys !== undefined && keys.every(function (key) { return key.value === "absent"; });', 'var absent = keys !== undefined;'],
     ["a signed-in app still offers Add key", 'access.kind === "absent"', 'access.kind !== "checking"'],
+    ["a signed-out cause offers Add key", '(cause === "brain=signed-out" ? "signIn" : "key")', '"key"', "a signed-out AI model: setupModel"],
+    ["a signed-out cause loses Sign in beside a key", 'if (value.action !== "key") return value;', "if (value.action === undefined) return value;"],
+    ["a signed-out app offers Add key", 'if (absent && access.kind === "signed-out") return', "if (false) return"],
+    ["a signed-out app reads as none", 'account.signIn === true; }) ? "signed-out"', 'false; }) ? "signed-out"'],
     ["a merely found app suppresses Add key", '["signed-in", "verified", "verifying"].indexOf(account.state) !== -1', '["found", "unchecked", "signed-in", "verified", "verifying"].indexOf(account.state) !== -1'],
     ["checking account discovery offers Add key", 'access.kind === "absent"', 'access.kind !== "present"'],
     ["memory guidance is a badge", "out.setupVoice = MEMORY[cause];", "out.setupVoice = Object.assign({}, MEMORY[cause], { lines: [MEMORY[cause].hint], hint: undefined });"],
@@ -304,20 +326,20 @@ const CONTROLS = [
     ["the withheld text names every required command", 'lacking.join(" and ")', 'requires.join(" and ")'],
     ["a missing requirement offers no install", 'if (missing.indexOf(command) === -1) return { tone: "ok"', 'if (true) return { tone: "ok"'],
     ["a found requirement offers its install", 'if (missing.indexOf(command) === -1) return { tone: "ok"', 'if (false) return { tone: "ok"'],
-    ["GPT-Live offers the local install action", 'action: cause.indexOf("speech=live-") !== 0', 'action: true'],
+    ["GPT-Live offers the local install action", ': cause.indexOf("speech=live-") !== 0;', ": true;"],
     ["a cause marks no step", "out[REQUIRED[step]] = hint === undefined", "void (hint === undefined)"],
     ["a cause marks the other step", 'var REQUIRED = { speech: "setupVoice", brain: "setupModel" };', 'var REQUIRED = { speech: "setupModel", brain: "setupVoice" };'],
     ["the brain causes share one hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = STEP_TODO[step];"],
     ["an unknown cause has no hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = TODO[cause];"],
     ["local voice repeats its action as its hint", "var STEP_TODO = { brain:", 'var STEP_TODO = { speech: "fixture repeat", brain:'],
-    ["a step to do draws its hint as a line", ': { tone: "warning", text: "To do", hint: hint, action: cause.indexOf("speech=live-") !== 0 };', ': { tone: "warning", text: "To do", lines: [hint], action: cause.indexOf("speech=live-") !== 0 };', "nothing set up: setupModel"],
+    ["a step to do draws its hint as a line", ': { tone: "warning", text: "To do", hint: hint, action: action };', ': { tone: "warning", text: "To do", lines: [hint], action: action };', "nothing set up: setupModel"],
     ["a stopped summary draws its reason as a line", 'hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." }', 'lines: ["Jarvis stopped after a problem. Turn Jarvis off and on again."] }'],
     ["causes leave the summary ready", 'setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
-    ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupVoice: CHECKING, setupModel: CHECKING };', 'return { setup: CHECKING_SUMMARY, setupVoice: DONE, setupModel: DONE };'],
+    ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };', 'return { setup: CHECKING_SUMMARY, setupVoice: DONE, setupModel: noAction(DONE) };'],
     ["an optional step reads done when not ok", 'if (value.tone === "ok") return DONE;', "if (true) return DONE;"],
     ["an optional step drops its action", "action: value.action === true };", "action: false };"],
     ["the checking summary offers a step", "return { setup: CHECKING_SUMMARY,", "return { setup: CHECKING,"],
-    ["a stopped daemon's steps read checking", "setupVoice: UNCHECKED, setupModel: UNCHECKED };", "setupVoice: CHECKING, setupModel: CHECKING };"],
+    ["a stopped daemon's steps read checking", "setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };", "setupVoice: CHECKING, setupModel: noAction(CHECKING) };"],
     ["a cause naming no step is taken", 'if (!Object.prototype.hasOwnProperty.call(REQUIRED, step)) throw new Error("jarvis-setup: cause=" + cause + " names no step");', ""],
     ["a required step reads as optional", 'if (!Object.prototype.hasOwnProperty.call(OPTIONAL, key)) throw new Error("jarvis-setup: step=" + key + " is not optional");', ""]
 ];

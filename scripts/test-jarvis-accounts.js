@@ -469,27 +469,6 @@ world(async () => {
     fs.renameSync(store.file + ".saved", store.file);
     cases++;
 
-    const late = path.join(env.HOME, "late-account");
-    const lateLink = Judge => {
-        mode("claude", "late-link");
-        const before = markerChecks.length;
-        try {
-            const judge = new Judge(directory, { ...env, CLAUDE_CONFIG_DIR: late });
-            const item = judge.discover().find(row => row.source.directory === late);
-            assert.equal(item.marker, "absent", "an absent directory has no held marker parent");
-            assert.equal(markerChecks.slice(before).some(file => file.startsWith(late + "/")), false,
-                "a new link cannot become a marker's parent");
-        } finally {
-            mode("claude", "signed-in");
-            if (fs.existsSync(late)) fs.unlinkSync(late);
-        }
-    };
-    lateLink(Accounts);
-    await mutant("backend/Accounts.js", "late-marker-link", 'if (opened.kind === "directory") {\n                const markerPath',
-        'if (opened.kind !== "directory") fs.lstatSync(path.join(candidate.directory, harness(row.id).marker));\n            if (opened.kind === "directory") {\n                const markerPath',
-        folder => lateLink(require(path.join(folder, "backend/Accounts.js")).Accounts));
-    controls++;
-    cases++;
     // A home of its own: only its direct entries are read, whatever their number.
     const worldOf = name => {
         const root = path.join(process.env.JARVIS_TEST_ROOT, name);
@@ -502,6 +481,94 @@ world(async () => {
     // The core search the copy reads, and the folders it found by name.
     const foldersIn = folder => require(path.join(folder, "backend/Core.js")).folders().accountFolders;
     const byName = found => found.folders.filter(item => item.source === "folder");
+    // An absent folder is never probed, so the check creates nothing: in
+    // late-link mode the stand-in, as Claude Code makes the folder its
+    // status command names, puts a link where CLAUDE_CONFIG_DIR names none.
+    // The folder is neither listed, offered nor chosen.
+    const late = path.join(env.HOME, "late-account");
+    const present = file => {
+        try { fs.lstatSync(file); return true; }
+        catch (error) { if (error.code === "ENOENT") return false; throw error; }
+    };
+    const absentFolder = Judge => {
+        const lateEnv = { ...env, CLAUDE_CONFIG_DIR: late };
+        fs.mkdirSync(late);
+        let id;
+        try { id = new Judge(directory, lateEnv).discover().find(row => row.source.directory === late).id; }
+        finally { fs.rmdirSync(late); }
+        mode("claude", "late-link");
+        const before = calls("cli-calls").length;
+        try {
+            const judge = new Judge(directory, lateEnv);
+            const rows = judge.discover();
+            assert.equal(calls("cli-calls").slice(before).some(call => call.env.CLAUDE_CONFIG_DIR === late), false,
+                "discovery runs no vendor command for an absent folder");
+            assert.equal(present(late), false, "discovery creates no folder");
+            assert.equal(rows.some(row => row.id === id), false, "an absent folder is not listed");
+            assert.equal(judge.status().brains.some(choice => choice.value === id), false, "an absent folder is not offered");
+            const count = calls("cli-calls").length;
+            assert.deepEqual(judge.choose(id), { kind: "refused", cause: "account-unavailable" }, "an absent folder is not chosen");
+            assert.equal(calls("cli-calls").slice(count).some(call => call.env.CLAUDE_CONFIG_DIR === late), false,
+                "the engine's choice runs no vendor command for an absent folder");
+            assert.equal(present(late), false, "the engine's choice creates no folder");
+        } finally {
+            mode("claude", "signed-in");
+            if (present(late)) fs.unlinkSync(late);
+        }
+    };
+    absentFolder(Accounts);
+    await mutant("backend/Accounts.js", "absent-folder-probed", 'if (opened.kind === "absent") return null;',
+        'if (opened.kind === "absent") { if (row.command !== null) this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory }); return null; }',
+        folder => absentFolder(judgeIn(folder)));
+    controls++;
+    cases++;
+    // A signed-out folder, the vendor's own not logged in answer, is listed
+    // absent, with Sign in for a provider that has one, and is neither
+    // offered nor chosen; signed in, it is offered and chosen. A Copilot
+    // folder, which no status command checks, stays offered.
+    const copilotWorld = worldOf("copilot");
+    const copilotFolder = seed(copilotWorld.env.HOME, ".copilot");
+    const signedOutRule = Judge => {
+        for (const [name, folder] of [["claude", nestedClaude], ["codex", nestedCodex]]) {
+            for (const state of ["found", "signed-in"]) {
+                const out = state === "found";
+                const label = name + " " + state + ": ";
+                mode(name, state);
+                try {
+                    const judge = new Judge(directory, env);
+                    const rows = judge.discover();
+                    const status = judge.status();
+                    const at = rows.findIndex(row => row.source.directory === folder);
+                    assert.ok(at >= 0, label + "fixture folder");
+                    assert.deepEqual([rows[at].state.kind, status.accounts[at].state, status.accounts[at].value, status.accounts[at].signIn],
+                        [state, state, out ? "absent" : "present", out], label + "listed");
+                    assert.equal(status.brains.some(choice => choice.value === rows[at].id), !out, label + "offered");
+                    assert.deepEqual(judge.choose(rows[at].id), out ? { kind: "refused", cause: "signed-out" }
+                        : { kind: "accepted", account: { id: rows[at].id, provider: name, label: rows[at].label, source: rows[at].source, model: "" } },
+                    label + "chosen");
+                } finally { mode(name, "signed-in"); }
+            }
+        }
+        const judge = new Judge(copilotWorld.state, copilotWorld.env);
+        const rows = judge.discover();
+        const status = judge.status();
+        const at = rows.findIndex(row => row.source.directory === copilotFolder);
+        assert.ok(at >= 0, "copilot fixture folder");
+        assert.deepEqual([status.accounts[at].state, status.accounts[at].value, status.accounts[at].signIn], ["unchecked", "present", false], "copilot: listed");
+        assert.equal(status.brains.some(choice => choice.value === rows[at].id), true, "copilot: offered");
+        assert.equal(judge.choose(rows[at].id).kind, "accepted", "copilot: chosen");
+    };
+    signedOutRule(Accounts);
+    for (const [name, needle, replacement] of [
+        ["signed-out-accepted", 'if (signedOut(resolved.source, state)) return { kind: "refused", cause: "signed-out" };', ""],
+        ["signed-out-choice-unchecked", "accepted(resolved, account.state.kind);", "accepted(resolved, null);"],
+        ["signed-out-reads-present", 'value = out ? "absent" : "present";', 'value = "present";'],
+        ["signed-out-no-sign-in", "signIn: out && Array.isArray(row.signIn) };", "signIn: false };"],
+        ["copilot-signed-out", 'return source.kind === "cli" && state === "found";', 'return source.kind === "cli" && ["found", "unchecked"].includes(state);']]) {
+        await mutant("backend/Accounts.js", name, needle, replacement, folder => signedOutRule(judgeIn(folder)));
+        controls++;
+    }
+    cases++;
     // The AI model list offers only the accounts Accounts.choose takes: no
     // key read from a variable, no local server or Cerebras key without a
     // model, and every subscription a harness runs.
@@ -534,7 +601,7 @@ world(async () => {
         ["backend/Accounts.js", "model-rule", 'if (!modelProvider(provider(resolved.provider))) return', "if (false) return"],
         ["AccountProviders.js", "subscription-model", 'return row.kind === "cli" || (', "return ("],
         ["AccountProviders.js", "probe-model", '(row.probe !== undefined && row.probe.model !== "")', "row.probe !== undefined"],
-        ["backend/Accounts.js", "list-accepted", '\n            && accepted(resolve(item.id)).kind === "accepted");', ");"]]) {
+        ["backend/Accounts.js", "list-accepted", '\n            && accepted(resolve(item.id), item.state.kind).kind === "accepted");', ");"]]) {
         await mutant(file, name, needle, replacement, folder => modelList(judgeIn(folder)));
         controls++;
     }
@@ -582,8 +649,8 @@ world(async () => {
         }
     };
     const several = labelWorld("labels", [[".claude", "bob@example.invalid"], [".claude-a", "zed@example.invalid"],
-        [".claude-b", "amy@example.invalid"], [".claude-q", ""], [".2codex", null]]);
-    const single = labelWorld("single", [[".claude", "bob@example.invalid"]]);
+        [".claude-b", "amy@example.invalid"], [".claude-q", ""], [".2codex", null], [".codex", null]]);
+    const single = labelWorld("single", [[".claude", "bob@example.invalid"], [".codex", null]]);
     const labels = Judge => {
         for (const [world, want, name] of [
             [several, [["claude", null, ".claude-q"], ["claude", "amy@example.invalid", ".claude-b"],
@@ -612,10 +679,10 @@ world(async () => {
     // production bound, far above a loaded host's start.
     const codexWorld = labelWorld("codex-emails", [[".codex", "amy@example.invalid"], [".2codex", "zed@example.invalid"]]);
     const codexFolders = [".codex", ".2codex"].map(name => path.join(codexWorld.own.env.HOME, name));
-    const noEmail = [["claude", "alone", ".claude"], ["codex", null, ".codex"], ["codex", null, ".2codex"]];
+    const noEmail = [["codex", null, ".codex"], ["codex", null, ".2codex"]];
     const codexEmails = async Judge => {
         for (const [appMode, want] of [
-            ["chatgpt", [["claude", "alone", ".claude"], ["codex", "amy@example.invalid", ".codex"], ["codex", "zed@example.invalid", ".2codex"]]],
+            ["chatgpt", [["codex", "amy@example.invalid", ".codex"], ["codex", "zed@example.invalid", ".2codex"]]],
             ["api", noEmail], ["exit", noEmail], ["silent", noEmail]]) {
             mode("codex-app", appMode);
             const judge = new Judge(codexWorld.own.state, codexWorld.own.env);

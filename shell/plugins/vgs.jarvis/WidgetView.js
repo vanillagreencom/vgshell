@@ -152,14 +152,21 @@ function approvalPrompt(hold) {
         payload: filePrompt ? lines.slice(2).join("\n") : "", detail: filePrompt && lines.length > 2 };
 }
 
+// Whether required step STEP offers its action: true for the voice step,
+// the name of the one that applies for the AI model step, whose manifest
+// entry declares named actions (SetupGate.readiness).
+function offered(step) {
+    return step.action === true || typeof step.action === "string";
+}
+
 // What the bar says while the gate is down unconfigured: the first
 // required step VALUES still holds to do, as SetupGate offers its action.
 function unconfiguredText(values) {
     for (var i = 0; i < SETUP_TEXT.length; i++) {
         var step = values[SETUP_TEXT[i][0]];
-        if (step && step.tone === "warning" && step.action === false && step.hint)
+        if (step && step.tone === "warning" && !offered(step) && step.hint)
             return step.text + ". Open Settings > Jarvis. " + step.hint;
-        if (step !== undefined && step !== null && step.action === true) return SETUP_TEXT[i][1];
+        if (step !== undefined && step !== null && offered(step)) return SETUP_TEXT[i][1];
     }
     return GATE_TEXT.unconfigured;
 }
@@ -170,7 +177,7 @@ function setupChecking(values) {
     var checking = false;
     for (var i = 0; i < SETUP_TEXT.length; i++) {
         var step = values[SETUP_TEXT[i][0]];
-        if (!step || step.action !== false || (step.tone !== "info" && step.tone !== "ok")) return false;
+        if (!step || offered(step) || (step.tone !== "info" && step.tone !== "ok")) return false;
         if (step.tone === "info") checking = true;
     }
     return checking;
@@ -181,8 +188,8 @@ function setupChecking(values) {
 function voiceLoading(values) {
     var voice = values.setupVoice;
     var model = values.setupModel;
-    return !!voice && voice.tone === "info" && voice.action === false
-        && !!model && model.tone === "ok" && model.action === false;
+    return !!voice && voice.tone === "info" && !offered(voice)
+        && !!model && model.tone === "ok" && !offered(model);
 }
 
 // The second tooltip line names what a click does to MUTEON, the mute

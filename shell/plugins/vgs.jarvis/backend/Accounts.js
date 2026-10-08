@@ -51,14 +51,24 @@ function signInProvider(id) {
     if (row.kind !== "cli" || !Array.isArray(row.signIn)) fail("sign-in=provider");
     return row;
 }
+// Whether a CLI account in STATE, its state kind, is signed out: its
+// vendor's status command answered not logged in, or Pi listed no model.
+// Copilot has no status command, so its folders read unchecked and stay
+// offered.
+function signedOut(source, state) {
+    return source.kind === "cli" && state === "found";
+}
 /**
  * Whether the chained engine runs an account, read by the engine and by the
- * AI model list: RESOLVED, resolve()'s answer, as { kind: "accepted",
- * account } or { kind: "refused", cause }; its provider row must be one
- * AccountProviders.modelProvider takes.
+ * AI model list: RESOLVED, resolve()'s answer, and STATE, the account's
+ * state kind, null where none was read, as { kind: "accepted", account } or
+ * { kind: "refused", cause }.
+ * A signed-out CLI account is refused signed-out; its provider row must be
+ * one AccountProviders.modelProvider takes.
  */
-function accepted(resolved) {
+function accepted(resolved, state) {
     if (resolved === null) return { kind: "refused", cause: "account-unavailable" };
+    if (signedOut(resolved.source, state)) return { kind: "refused", cause: "signed-out" };
     if (!modelProvider(provider(resolved.provider))) return { kind: "refused", cause: "model-required" };
     return { kind: "accepted", account: resolved };
 }
@@ -331,31 +341,33 @@ class Accounts {
             timeout: 5000, maxBuffer: MAX_BYTES, stdio: ["ignore", "pipe", "pipe"] });
     }
 
+    // A candidate's account, or null for an absent folder, which is neither
+    // probed nor listed: Claude Code creates the folder its status command
+    // names. The held folder's marker is read after the command.
     cliAccount(candidate) {
         const row = provider(candidate.provider);
         const opened = directory(candidate.directory, true);
-        let state = row.command === null ? { kind: "unchecked" } : { kind: "found" };
-        if (row.command !== null) {
-            const result = this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory });
-            try { state = login(row, result); }
-            finally { result.stdout?.fill(0); result.stderr?.fill(0); }
-        }
-        // Fallback metadata only. No marker is opened, even when mode 000.
+        if (opened.kind === "absent") return null;
+        let state = { kind: "unchecked" };
         let marker = "absent";
         try {
-            if (opened.kind === "directory") {
+            if (row.command !== null) {
+                const result = this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory });
+                try { state = login(row, result); }
+                finally { result.stdout?.fill(0); result.stderr?.fill(0); }
+            }
+            // Fallback metadata only. No marker is opened, even when mode 000.
+            try {
                 const markerPath = "/proc/self/fd/" + opened.fd + "/" + harness(row.id).marker;
                 const stat = fs.lstatSync(markerPath);
                 if (stat.isSymbolicLink()) fail("marker=link");
                 marker = stat.isFile() ? "present" : "absent";
+            } catch (error) {
+                if (error.code !== "ENOENT") {
+                    state = { kind: "unavailable", reason: error.message.startsWith("jarvis-accounts:") ? "marker-link" : "marker-unreadable" };
+                }
             }
-        } catch (error) {
-            if (error.code !== "ENOENT") {
-                state = { kind: "unavailable", reason: error.message.startsWith("jarvis-accounts:") ? "marker-link" : "marker-unreadable" };
-            }
-        } finally { if (opened.kind === "directory") fs.closeSync(opened.fd); }
-        if (["found", "unchecked"].includes(state.kind) && directory(candidate.directory).kind === "absent" && marker === "absent")
-            return null;
+        } finally { fs.closeSync(opened.fd); }
         const email = state.email || "";
         const plan = state.plan || "";
         if (state.kind === "signed-in") state = { kind: "signed-in" };
@@ -503,8 +515,9 @@ class Accounts {
      * model, "" for a row without one; a subscription's model is "", its
      * program's own default. Whether the engine runs it is accepted()'s. It
      * runs no vendor command and reads no port, so it proves neither login
-     * nor a listening server. A reference to an unsupported provider and an
-     * unknown id are null.
+     * nor a listening server; choose() runs a subscription's status
+     * command. A reference to an unsupported provider and an unknown id are
+     * null.
      */
     resolve(id) {
         return this.resolver()(id);
@@ -533,9 +546,19 @@ class Accounts {
         };
     }
 
-    /** The saved Brain account id as the engine takes it: accepted()'s answer. */
+    /**
+     * The saved Brain account id as the engine takes it: accepted()'s
+     * answer. A subscription's login is its vendor status command's answer
+     * through cliAccount, bounded by run()'s timeout, once per engine
+     * configure, each hello; an absent folder is account-unavailable. Pi
+     * has no status command. No other account runs a command or reads a
+     * port here.
+     */
     choose(id) {
-        return accepted(this.resolve(id));
+        const resolved = this.resolve(id);
+        if (resolved === null || resolved.source.kind !== "cli") return accepted(resolved, null);
+        const account = this.cliAccount({ provider: resolved.provider, directory: resolved.source.directory, label: resolved.label });
+        return account === null ? accepted(null, null) : accepted(resolved, account.state.kind);
     }
 
     /**
@@ -749,9 +772,11 @@ class Accounts {
 
     /**
      * The page's account facts: each account's label, presence and the
-     * typed facts AccountStatus.js words its hint from, the brain choices,
-     * and the search's found count and partial reason. No reason code leaves.
-     * The brain choices are the accounts accepted() takes, grouped by
+     * typed facts AccountStatus.js words its hint from, whether Sign in
+     * serves it (a signed-out account of a provider with a sign-in), the
+     * brain choices, and the search's found count and partial reason. No
+     * reason code leaves. A signed-out account reads absent. The brain
+     * choices are the accounts accepted() takes, grouped by
      * provider and sorted by email: a harness with one account reads as its
      * name; with more accounts it reads each by the sign-in email, or by the
      * folder label when it has no email; a key reads as provider / label.
@@ -759,20 +784,21 @@ class Accounts {
     status() {
         const accounts = this.accounts.map(item => {
             const row = provider(item.provider);
+            const out = signedOut(item.source, item.state.kind);
             let value;
             switch (item.state.kind) {
-            case "found": case "unchecked": case "signed-in": case "verifying": case "verified": value = "present"; break;
+            case "found": case "unchecked": case "signed-in": case "verifying": case "verified": value = out ? "absent" : "present"; break;
             case "locked": value = "locked"; break;
             case "unavailable": value = "unavailable"; break;
             default: fail("state=unknown");
             }
             return { label: (row.label + " / " + item.label).slice(0, 60), value, state: item.state.kind,
                 source: item.source.kind, plan: item.plan || "", email: item.email || "",
-                mismatch: item.identity.kind === "mismatch" };
+                mismatch: item.identity.kind === "mismatch", signIn: out && Array.isArray(row.signIn) };
         });
         const resolve = this.resolver();
         const offered = this.accounts.filter(item => ["found", "unchecked", "signed-in", "verified"].includes(item.state.kind)
-            && accepted(resolve(item.id)).kind === "accepted");
+            && accepted(resolve(item.id), item.state.kind).kind === "accepted");
         const order = (left, right) => left < right ? -1 : left > right ? 1 : 0;
         // Every label starts with its provider's name, so label order groups
         // the choices by provider and orders a harness's by email.
