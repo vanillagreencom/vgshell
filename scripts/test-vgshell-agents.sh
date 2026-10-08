@@ -424,8 +424,8 @@ unset THEME_BIN
 
 # Agent templates render as opaque hex6 colours. Each template is rendered
 # against the shipped vgs package with the hex6 encoder; the count of colours
-# each writes must equal the `#@{` placeholders its template holds, and each
-# must be opaque.
+# the template writes must equal its `#@{` placeholders. Claude's two
+# derived word fields are pinned separately above. Every colour is opaque.
 hex6_agent_check() { # ROOT: the tree whose agent targets are judged
   "$node_bin" - "$1" $agents <<'EOF'
 "use strict";
@@ -445,9 +445,17 @@ for (const name of names) {
     const templates = new Map(target.files.map(file => [file.template, fs.readFileSync(path.join(dir, file.template), "utf8")]));
     const out = render.renderTarget(logic, tokens, target, templates, { values: pkg.values, slots: pkg.terminal, curated: new Map(), installed: false });
     const written = out.files.map(file => file.bytes.toString("utf8")).join("").match(/#[0-9a-f]{6,8}/g) || [];
+    const templateWritten = out.files.map(file => {
+        const text = file.bytes.toString("utf8");
+        if (name !== "claude") return text;
+        const document = JSON.parse(text);
+        delete document.overrides.diffAddedWord;
+        delete document.overrides.diffRemovedWord;
+        return JSON.stringify(document);
+    }).join("").match(/#[0-9a-f]{6,8}/g) || [];
     const placeholders = [...templates.values()].join("").split("#@{").length - 1;
-    if (placeholders < 10 || written.length !== placeholders) {
-        console.log("hex6-agent-check: broken extractor target=" + name + " placeholders=" + placeholders + " colours=" + written.length);
+    if (placeholders < 10 || templateWritten.length !== placeholders) {
+        console.log("hex6-agent-check: broken extractor target=" + name + " placeholders=" + placeholders + " colours=" + templateWritten.length);
         bad++;
     }
     for (const colour of written.filter(hex => !/^#[0-9a-f]{6}$/.test(hex))) {
