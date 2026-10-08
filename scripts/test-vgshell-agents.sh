@@ -119,31 +119,21 @@ let bad = 0;
 const note = message => { console.log(message); bad++; };
 const equals = (label, got, want) => { if (got !== want) note(label + " got=" + got + " want=" + want); };
 const claude = JSON.parse(fs.readFileSync(path.join(live, "claude.json"), "utf8")).overrides;
-// Independent half-byte threshold enumeration pins the first feasible
-// RGB line tint after an actual apply, without the renderer's bisection.
-const claudeLine = (original, word) => {
-    const start = [1, 3, 5].map(at => channel(original, at));
-    const endpoint = values.scheme.mode === "dark" ? 0 : 255;
-    const colour = mix => "#" + start.map(byte => byteHex(Math.round(byte + (endpoint - byte) * mix))).join("");
-    const meets = tint => logic.contrastRatio(logic.parseColor(word), logic.parseColor(tint)) >= 3;
-    if (meets(original)) return original;
-    const thresholds = new Set([0, 1]);
-    for (const byte of start) {
-        const distance = Math.abs(endpoint - byte);
-        for (let step = 0; step < distance; step++) thresholds.add((step + 0.5) / distance);
-    }
-    const ordered = [...thresholds].sort((a, b) => a - b);
-    for (let index = 1; index < ordered.length; index++) {
-        const tint = colour((ordered[index - 1] + ordered[index]) / 2);
-        if (meets(tint)) return tint;
-    }
-    return colour(1);
-};
+const mix = (first, second, amount) => "#" + [1, 3, 5].map(index =>
+    byteHex(Math.round(channel(first, index) + (channel(second, index) - channel(first, index)) * amount))).join("");
+const word = semantic => "#" + [1, 3, 5].map(index => {
+    const page = channel(values.color.background, index) / 255;
+    const normalTone = page + (channel(values.palette[semantic], index) / 255 - page) * 0.14;
+    return byteHex(Math.round(255 * (normalTone + (channel(values.color[semantic], index) / 255 - normalTone) * 0.22121734137238014)));
+}).join("");
+const dimmed = semantic => mix(values.color.background, values.palette[semantic], Math.round(255 * 0.07) / 255);
 const claudeWant = {
-    diffAdded: claudeLine(token("color.successSubtle"), claude.diffAddedWord),
-    diffRemoved: claudeLine(token("color.dangerSubtle"), claude.diffRemovedWord),
-    diffAddedDimmed: claudeLine(token("color.surfaceHover"), claude.diffAddedWord),
-    diffRemovedDimmed: claudeLine(token("color.surfaceHover"), claude.diffRemovedWord),
+    diffAdded: token("color.successSubtle"),
+    diffRemoved: token("color.dangerSubtle"),
+    diffAddedWord: word("success"),
+    diffRemovedWord: word("danger"),
+    diffAddedDimmed: dimmed("success"),
+    diffRemovedDimmed: dimmed("danger"),
     background: slot("color6"),
     clawd_body: token("color.accent"),
     clawd_background: token("color.onAccent"),
@@ -156,22 +146,6 @@ const claudeWant = {
     composerSidebarBackground: token("color.surfaceSunken")
 };
 for (const [key, want] of Object.entries(claudeWant)) equals("claude." + key, claude[key], want);
-// Independently pin the two Claude dual-use fields after an actual apply.
-const syntax = logic.parseColor(values.scheme.mode === "dark" ? "#f8f8f2" : "#333333");
-const countBackground = logic.parseColor(values.color.background);
-for (const [key, primary] of [["diffAddedWord", 1], ["diffRemovedWord", 0]]) {
-    const fill = logic.parseColor(claude[key]);
-    if (fill === null) { note("claude." + key + " absent colour"); continue; }
-    const rgb = [fill.r, fill.g, fill.b], other = rgb.filter((_, index) => index !== primary);
-    if (!(rgb[primary] > other[0] && other[0] === other[1])) note("claude." + key + " wrong role hue");
-    const score = Math.min(logic.contrastRatio(syntax, fill), logic.contrastRatio(fill, countBackground));
-    for (let lightnessStep = 0; lightnessStep <= 510; lightnessStep++) {
-        const lightness = lightnessStep / 510, chroma = 1 - Math.abs(2 * lightness - 1), base = lightness - chroma / 2;
-        const tint = logic.parseColor("#" + [0, 1, 2].map(index => byteHex(Math.round(255 * (base + (index === primary ? chroma : 0))))).join(""));
-        const candidate = Math.min(logic.contrastRatio(syntax, tint), logic.contrastRatio(tint, countBackground));
-        if (candidate > score + Number.EPSILON * 16) { note("claude." + key + " misses joint contrast optimum"); break; }
-    }
-}
 const gemini = JSON.parse(fs.readFileSync(path.join(live, "gemini.json"), "utf8"));
 for (const role of ["added", "removed"]) {
     const fill = gemini.background.diff[role];
@@ -306,7 +280,7 @@ unset THEME_BIN
 # is #111111, the table's background #000000 and the shipped slot color5
 # #a855f7.
 hex6='^#[0-9a-f]{6}$'
-check "Claude's theme is dark-based JSON whose overrides are all hex6" python3 -c 'import json,re,sys; t = json.load(open(sys.argv[1])); o = t["overrides"]; sys.exit(0 if t["name"] == "vgs" and t["base"] == "dark" and o["claude"] == "#111111" and o["inverseText"] == "#000000" and len(o) == 72 and all(re.match(sys.argv[2], v) for v in o.values()) else 1)' "$live/claude.json" "$hex6"
+check "Claude's theme is dark-based JSON whose overrides are all hex6" python3 -c 'import json,re,sys; t = json.load(open(sys.argv[1])); o = t["overrides"]; sys.exit(0 if t["name"] == "vgs" and t["base"] == "dark" and o["claude"] == "#111111" and o["inverseText"] == "#000000" and all(re.match(sys.argv[2], v) for v in o.values()) else 1)' "$live/claude.json" "$hex6"
 check "Codex's theme is a TextMate plist whose colours are all hex6" python3 -c 'import plistlib,re,sys; t = plistlib.load(open(sys.argv[1], "rb")); colours = [v for s in t["settings"] for v in s["settings"].values()]; h = [s["settings"]["foreground"] for s in t["settings"] if s.get("scope") == "markup.heading, entity.name.section"]; sys.exit(0 if t["name"] == "vgs" and h == ["#111111"] and all(re.match(sys.argv[2], v) for v in colours) else 1)' "$live/codex.tmTheme" "$hex6"
 check "Gemini's theme is a custom JSON theme with the accent" python3 -c 'import json,sys; t = json.load(open(sys.argv[1])); sys.exit(0 if t["type"] == "custom" and t["text"]["accent"] == "#111111" and t["background"]["primary"] == "#000000" and isinstance(t["ui"]["focus"], str) and isinstance(t["DarkGray"], str) and "border" not in t else 1)' "$live/gemini.json"
 check "Hermes's skin names itself vgs" grep -qxF -- 'name: vgs' "$live/hermes.yaml"
@@ -444,8 +418,7 @@ unset THEME_BIN
 
 # Agent templates render as opaque hex6 colours. Each template is rendered
 # against the shipped vgs package with the hex6 encoder; the count of colours
-# the template writes must equal its `#@{` placeholders. Claude's two
-# derived word fields are pinned separately above. Every colour is opaque.
+# the template writes must equal its `#@{` placeholders. Every colour is opaque.
 hex6_agent_check() { # ROOT: the tree whose agent targets are judged
   "$node_bin" - "$1" $agents <<'EOF'
 "use strict";
@@ -465,17 +438,9 @@ for (const name of names) {
     const templates = new Map(target.files.map(file => [file.template, fs.readFileSync(path.join(dir, file.template), "utf8")]));
     const out = render.renderTarget(logic, tokens, target, templates, { values: pkg.values, slots: pkg.terminal, curated: new Map(), installed: false });
     const written = out.files.map(file => file.bytes.toString("utf8")).join("").match(/#[0-9a-f]{6,8}/g) || [];
-    const templateWritten = out.files.map(file => {
-        const text = file.bytes.toString("utf8");
-        if (name !== "claude") return text;
-        const document = JSON.parse(text);
-        delete document.overrides.diffAddedWord;
-        delete document.overrides.diffRemovedWord;
-        return JSON.stringify(document);
-    }).join("").match(/#[0-9a-f]{6,8}/g) || [];
     const placeholders = [...templates.values()].join("").split("#@{").length - 1;
-    if (placeholders < 10 || templateWritten.length !== placeholders) {
-        console.log("hex6-agent-check: broken extractor target=" + name + " placeholders=" + placeholders + " colours=" + templateWritten.length);
+    if (placeholders < 10 || written.length !== placeholders) {
+        console.log("hex6-agent-check: broken extractor target=" + name + " placeholders=" + placeholders + " colours=" + written.length);
         bad++;
     }
     for (const colour of written.filter(hex => !/^#[0-9a-f]{6}$/.test(hex))) {

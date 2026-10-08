@@ -762,37 +762,7 @@ function editorHighlightTemplate(logic, input, text) {
         if (document.colors[key] === desired)
             document.colors[key] = "#@{alpha({color." + role + "}, " + alpha * scale + ")}";
     }
-    claudeLines(logic, input, document);
     return JSON.stringify(document, null, 2) + "\n";
-}
-
-// The native adapter uses both normal and dimmed line backgrounds around
-// these word fills. Keep the dual-use word/count colours fixed and move
-// each line toward its mode endpoint until the final byte colour meets 3.
-function claudeLines(logic, input, document) {
-    const endpoint = input.values.scheme.mode === "dark" ? 0 : 1;
-    for (const role of ["Added", "Removed"]) {
-        const word = logic.parseColor(document.overrides["diff" + role + "Word"]);
-        for (const suffix of ["", "Dimmed"]) {
-            const key = "diff" + role + suffix;
-            const start = logic.parseColor(document.overrides[key]);
-            if (logic.contrastRatio(word, start) >= 3) continue;
-            const at = mix => logic.parseColor("#" + ["r", "g", "b"].map(channel =>
-                byteHex(Math.round(255 * (start[channel] + (endpoint - start[channel]) * mix)))).join(""));
-            let lower = 0, upper = 1, chosen = at(upper);
-            if (logic.contrastRatio(word, chosen) < 3)
-                throw new Error("theme-render: claude line has no contrast-3 endpoint: " + key);
-            // 32 bisections resolve every distinct rounding interval of
-            // three byte channels. Retain only candidates that meet 3.
-            for (let step = 0; step < 32; step++) {
-                const middle = (lower + upper) / 2;
-                const colour = at(middle);
-                if (logic.contrastRatio(word, colour) >= 3) { upper = middle; chosen = colour; }
-                else lower = middle;
-            }
-            document.overrides[key] = "#" + logic.formatColor(chosen).slice(1, 7);
-        }
-    }
 }
 
 // Render every file of an accepted TARGET. TEMPLATES maps each template name
