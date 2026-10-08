@@ -473,6 +473,7 @@ has_setup_steps=false
 has_voice=false
 has_ai_usage=false
 has_tray=false
+has_sudo=false
 [[ -f $tree/shell/plugins/vgs.settings/Steps.js ]] && has_setup_steps=true
 [[ -f $tree/shell/plugins/vgs.agent-warden/manifest.json ]] && has_agent_warden=true
 [[ -f $tree/shell/plugins/vgs.automations/manifest.json ]] && has_automations=true
@@ -483,6 +484,7 @@ has_tray=false
 [[ -f $tree/shell/plugins/vgs.voice/manifest.json ]] && has_voice=true
 [[ -f $tree/shell/plugins/vgs.ai-usage/manifest.json ]] && has_ai_usage=true
 [[ -f $tree/shell/plugins/vgs.tray/manifest.json ]] && has_tray=true
+[[ -f $tree/shell/plugins/vgs.sudo/manifest.json ]] && has_sudo=true
 settings_count() { surface_count "$settings_surface"; }
 
 SHOT_RUNTIME_DIR="$rt_dir"
@@ -1135,6 +1137,32 @@ EOF
     if [[ $tray_found == False ]]; then
       expect "disabling vgs.tray is allowed" ok ipc shell setPluginEnabled vgs.tray false
       expect_poll "vgs.tray is gone" False record_exists vgs.tray
+    fi
+  fi
+  # The Passwordless Sudo page at its top, its default duration field
+  # shown. Its status read reaches the harness's tree, whose sudo is the
+  # sentinel and which holds no root half. The enablement is put back after
+  # the shot.
+  local sudo_found=unread
+  if "$has_sudo"; then
+    sudo_found="$(plugin_enabled vgs.sudo)" || sudo_found=unread
+    [[ $sudo_found == True || $sudo_found == False ]] || fail "vgs.sudo's enablement is unreadable: $sudo_found"
+  fi
+  if [[ $sudo_found != unread ]]; then
+    if [[ $sudo_found == False ]]; then
+      expect "enabling vgs.sudo is allowed" ok ipc shell setPluginEnabled vgs.sudo true
+      expect_poll "vgs.sudo is built" True record_exists vgs.sudo
+    fi
+    expect "the window opens the Passwordless Sudo page as a click does" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPluginByPointer vgs.sudo
+    expect_poll "the Passwordless Sudo page is shown" '"vgs.sudo"' settings_page
+    settings_scroll_to 0 >/dev/null || fail "the Passwordless Sudo page did not scroll to the top"
+    expect_poll "the Passwordless Sudo page is at its top" True settings_at_top
+    park_pointer
+    expect "the Settings window's root takes the focus for the Passwordless Sudo page" focused ipc smoke invokeInstance "$settings_kind" vgs.settings focusInstance ""
+    take "settings-$1-sudo"
+    if [[ $sudo_found == False ]]; then
+      expect "disabling vgs.sudo is allowed" ok ipc shell setPluginEnabled vgs.sudo false
+      expect_poll "vgs.sudo is gone" False record_exists vgs.sudo
     fi
   fi
   if "$has_bar_plugin"; then
