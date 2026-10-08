@@ -277,7 +277,8 @@ def portal_state(config, stopped):
     # xdph reads its config once, in CPortalManager's constructor. systemd's
     # ExecMainStartTimestamp is a uint64 CLOCK_REALTIME microsecond value:
     # https://www.freedesktop.org/software/systemd/man/org.freedesktop.systemd1.html
-    # A running backend older than the file cannot have accepted that write.
+    # A backend older than the file cannot have accepted that write, even
+    # when a refused restart leaves it inactive.
     reply = run_child(
         ["systemctl", "--user", "show",
          "--property=LoadState", "--property=ActiveState",
@@ -293,11 +294,9 @@ def portal_state(config, stopped):
     if properties.get("LoadState") != "loaded":
         raise PickerError("portal-probe=unit-not-loaded")
     active = properties.get("ActiveState")
-    if active in ("inactive", "failed"):
-        return "ready"
-    if active in ("activating", "deactivating", "reloading"):
+    if active in ("failed", "activating", "deactivating", "reloading"):
         return "needed"
-    if active != "active":
+    if active not in ("active", "inactive"):
         raise PickerError("portal-probe=invalid-active-state")
     # The object is systemd's escaped form of the fixed backend unit name.
     # Query the service manager, so a probe never activates the portal backend.
@@ -377,17 +376,17 @@ def configure(stopped=None):
             installed = replace_config(directory, rewritten, original, mode)
         same_config(directory, installed)
         try:
-            # xdph v1.4.1 reads its config in CPortalManager's constructor.
-            # try-restart activates the write for a running backend and leaves
-            # an inactive backend stopped until a portal request starts it.
-            run_child(["systemctl", "--user", "try-restart", "xdg-desktop-portal-hyprland.service"],
+            # This is the explicit Settings action. systemctl restart starts a
+            # failed backend; try-restart is a no-op when it is not running:
+            # https://www.freedesktop.org/software/systemd/man/systemctl.html
+            run_child(["systemctl", "--user", "restart", "xdg-desktop-portal-hyprland.service"],
                       stopped, PORTAL_RESTART_TIMEOUT, "portal-restart")
             same_config(directory, installed)
             if portal_state(installed, stopped) != "ready":
                 raise PickerError("portal-restart=not-active-for-config")
         except (OSError, PickerError) as error:
             # Keep the configured picker for the next backend start. Probe
-            # reports Needed while a running backend predates this file.
+            # reports Needed until a backend start accepts this file.
             raise ActivationNeeded("activation=needed cause=" + str(error)) from error
     finally:
         os.close(directory)

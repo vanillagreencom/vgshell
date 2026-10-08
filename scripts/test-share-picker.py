@@ -81,13 +81,20 @@ if "show" in sys.argv:
         print(world["probe_reply"])
         sys.exit(0)
     restarted = (root / "backend-started").exists()
-    active = world.get("backend_state", "active" if restarted else "inactive")
+    active = world.get("backend_state", "failed" if (root / "backend-failed").exists() else "active" if restarted else "inactive")
     print("LoadState=" + world.get("load_state", "loaded"))
     print("ActiveState=" + active)
     sys.exit(0)
 if world.get("restart_mutate"):
     (root / "config/hypr/xdph.conf").write_text("# Concurrent owner edit\n")
-if not world.get("restart_fail"):
+assert sys.argv[1:] in (["--user", "restart", "xdg-desktop-portal-hyprland.service"],
+                       ["--user", "try-restart", "xdg-desktop-portal-hyprland.service"])
+if world.get("restart_fail"):
+    if not world.get("restart_denied"):
+        (root / "backend-failed").write_text("failed")
+        (root / "backend-started").unlink(missing_ok=True)
+elif "try-restart" not in sys.argv or world.get("backend_state") == "active":
+    (root / "backend-failed").unlink(missing_ok=True)
     (root / "backend-started").write_text(str(time.time_ns()))
 sys.exit(1 if world.get("restart_fail") else 0)
 '''
@@ -164,7 +171,7 @@ class PickerTests(unittest.TestCase):
         return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
     def restarts(self):
-        return [row for row in self.systemctl_calls() if "try-restart" in row["args"]]
+        return [row for row in self.systemctl_calls() if set(row["args"]) & {"restart", "try-restart"}]
 
     def systemctl_calls(self):
         path = self.home / "systemctl.jsonl"
@@ -283,6 +290,74 @@ class PickerTests(unittest.TestCase):
         self.assertEqual(result.stdout, "")
         self.assertEqual((self.home / "cancelled").read_text(), (self.home / "began").read_text())
 
+    def blocked_ipc_deadline(self, executable):
+        self.world(hang_begin=True)
+        for name in ("child-ready", "began", "cancelled"):
+            (self.home / name).unlink(missing_ok=True)
+        child = subprocess.Popen([str(executable)], env=self.environment, stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        blocked_pid = None
+        timed_out = False
+        try:
+            ready = self.wait_marker("child-ready", child)
+            try:
+                blocked_pid = os.pidfd_open(int(ready))
+            except ProcessLookupError:
+                pass
+            try:
+                stdout, stderr = child.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+            self.assertFalse(timed_out, "deadline-control=parent-expired")
+            self.assertNotEqual(child.returncode, 0)
+            self.assertEqual(stdout, "")
+            self.assertIn("ipc-share-begin=timeout", stderr)
+            request_id = (self.home / "began").read_text()
+            cancellations = [row for row in self.calls() if row["command"] == "share-cancel"]
+            self.assertEqual(cancellations[-1]["payload"], {"id": request_id})
+            self.assertEqual((self.home / "cancelled").read_text(), request_id)
+            state = Path("/proc") / ready / "stat"
+            self.assertTrue(not state.exists() or state.read_text().split()[2] == "Z")
+        finally:
+            # The mutant lacks only the deadline. Its signal path still owns
+            # IPC cleanup. A pidfd also bounds cleanup if that path regresses.
+            if child.poll() is None:
+                child.send_signal(signal.SIGTERM)
+            try:
+                child.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                if blocked_pid is not None:
+                    try:
+                        signal.pidfd_send_signal(blocked_pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                child.communicate(timeout=5)
+            finally:
+                if blocked_pid is not None:
+                    os.close(blocked_pid)
+
+    def test_unsignalled_blocked_ipc_deadline_and_must_fail_control(self):
+        source = PICKER.read_text()
+        self.assertEqual(source.count("IPC_TIMEOUT = 3.0"), 1)
+        source = source.replace("IPC_TIMEOUT = 3.0", "IPC_TIMEOUT = 0.2")
+        copy = self.home / "vgshell-share-picker"
+        copy.write_text(source)
+        copy.chmod(0o755)
+        (self.home / "vgshell").symlink_to(REPO / "bin/vgshell")
+        self.blocked_ipc_deadline(copy)
+        guard = "if remaining <= 0:"
+        self.assertEqual(source.count(guard), 2)
+        # Only run_child's guard is disabled; the picker deadline and signal
+        # cancellation still run. The same contract must reject this program.
+        copy.write_text(source.replace(guard, "if False and remaining <= 0:", 1))
+        control = unittest.FunctionTestCase(lambda: self.blocked_ipc_deadline(copy))
+        verdict = unittest.TestResult()
+        control.run(verdict)
+        self.assertEqual(verdict.errors, [])
+        self.assertEqual(len(verdict.failures), 1)
+        self.assertIn("deadline-control=parent-expired", verdict.failures[0][1])
+
     def test_signal_cancels_request_and_reaps_blocked_ipc_child(self):
         for blocked in (False, True):
             with self.subTest(blocked=blocked):
@@ -324,7 +399,7 @@ class PickerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(config.stat().st_ino, original.st_ino)
         self.assertEqual(config.stat().st_mtime_ns, original.st_mtime_ns)
-        self.assertEqual(self.restarts(), [{"args": ["--user", "try-restart", "xdg-desktop-portal-hyprland.service"], "leaked": False}])
+        self.assertEqual(self.restarts(), [{"args": ["--user", "restart", "xdg-desktop-portal-hyprland.service"], "leaked": False}])
 
     def test_configure_adds_only_picker_and_supports_qualified_assignment(self):
         for before in ("", "# Existing\nscreencopy {\n allow_token_by_default = 0\n}\n",
@@ -364,14 +439,17 @@ class PickerTests(unittest.TestCase):
 
     def test_failed_restart_keeps_picker_needed_and_retries_activation(self):
         config = self.home / "config/hypr/xdph.conf"
-        for before in (None, "# Original settings\nscreencopy {\n allow_token_by_default = 1\n}\n"):
-            with self.subTest(before=before):
+        cases = [(before, denied) for before in (None, "# Original settings\nscreencopy {\n allow_token_by_default = 1\n}\n")
+                 for denied in (False, True)]
+        for before, denied in cases:
+            with self.subTest(before=before, denied=denied):
                 config.parent.mkdir(parents=True, exist_ok=True)
                 config.unlink(missing_ok=True)
                 if before is not None:
                     config.write_text(before)
                 (self.home / "backend-started").unlink(missing_ok=True)
-                self.world(restart_fail=True, backend_state="active", backend_started_ns=0)
+                (self.home / "backend-failed").unlink(missing_ok=True)
+                self.world(restart_fail=True, restart_denied=denied)
                 result = self.run_picker("--configure")
                 self.assertEqual(result.returncode, 75)
                 self.assertEqual(result.stdout, "")
@@ -381,23 +459,44 @@ class PickerTests(unittest.TestCase):
                 status = self.run_picker("--probe")
                 self.assertEqual(status.returncode, 0, status.stderr)
                 self.assertEqual(json.loads(status.stdout)["state"], "needed")
-                self.world(backend_state="active", backend_started_ns=0)
+                written = config.stat()
+                calls = len(self.restarts())
+                status = self.run_picker("--probe")
+                self.assertEqual(json.loads(status.stdout), {"state": "needed"})
+                self.assertEqual(config.stat().st_ino, written.st_ino)
+                self.assertEqual(config.stat().st_mtime_ns, written.st_mtime_ns)
+                self.assertEqual(len(self.restarts()), calls)
+                self.world()
                 count = len(self.restarts())
                 result = self.run_picker("--configure")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(len(self.restarts()), count + 1)
+                self.assertEqual(self.restarts()[-1]["args"], ["--user", "restart", "xdg-desktop-portal-hyprland.service"])
                 self.assertIn(str(PICKER), config.read_text())
+                status = self.run_picker("--probe")
+                self.assertEqual(json.loads(status.stdout), {"state": "ready"})
 
     def test_failed_activation_becomes_ready_on_next_backend_start(self):
-        self.world(restart_fail=True, backend_state="active", backend_started_ns=0)
-        self.assertEqual(self.run_picker("--configure").returncode, 75)
-        calls = len(self.restarts())
-        (self.home / "backend-started").write_text(str(time.time_ns()))
-        self.world()
-        result = self.run_picker("--probe")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout), {"state": "ready"})
-        self.assertEqual(len(self.restarts()), calls)
+        for denied in (False, True):
+            with self.subTest(denied=denied):
+                config = self.home / "config/hypr/xdph.conf"
+                config.unlink(missing_ok=True)
+                (self.home / "backend-started").unlink(missing_ok=True)
+                (self.home / "backend-failed").unlink(missing_ok=True)
+                self.world(restart_fail=True, restart_denied=denied)
+                self.assertEqual(self.run_picker("--configure").returncode, 75)
+                calls = len(self.restarts())
+                written = config.stat()
+                self.assertEqual(json.loads(self.run_picker("--probe").stdout), {"state": "needed"})
+                (self.home / "backend-started").write_text(str(time.time_ns()))
+                (self.home / "backend-failed").unlink(missing_ok=True)
+                self.world()
+                result = self.run_picker("--probe")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {"state": "ready"})
+                self.assertEqual(len(self.restarts()), calls)
+                self.assertEqual(config.stat().st_ino, written.st_ino)
+                self.assertEqual(config.stat().st_mtime_ns, written.st_mtime_ns)
 
     def test_probe_is_read_only_for_missing_wrong_and_configured_picker(self):
         result = self.run_picker("--probe")
@@ -414,7 +513,8 @@ class PickerTests(unittest.TestCase):
         self.assertEqual(self.systemctl_calls(), [])
         config.write_text("screencopy {\n custom_picker_binary = " + str(PICKER) + "\n}\n")
         before = config.stat()
-        for world, expected in (({"backend_state": "inactive"}, "ready"),
+        for world, expected in (({"backend_state": "inactive"}, "needed"),
+                                ({"backend_state": "failed"}, "needed"),
                                 ({"backend_state": "active", "backend_started_ns": 0}, "needed"),
                                 ({"backend_state": "activating"}, "needed"),
                                 ({"probe_fail": True}, "needed"),
@@ -435,9 +535,11 @@ class PickerTests(unittest.TestCase):
         config.write_text("screencopy {\n custom_picker_binary = " + str(PICKER) + "\n}\n")
         timestamp = 1791395939000000000
         os.utime(config, ns=(timestamp, timestamp))
-        for started, state in ((timestamp - 1000, "needed"), (timestamp, "ready"), (timestamp + 1000, "ready")):
-            with self.subTest(started=started):
-                self.world(backend_state="active", backend_started_ns=started)
+        cases = [(active, started, state) for active in ("active", "inactive")
+                 for started, state in ((timestamp - 1000, "needed"), (timestamp, "ready"), (timestamp + 1000, "ready"))]
+        for active, started, state in cases:
+            with self.subTest(active=active, started=started):
+                self.world(backend_state=active, backend_started_ns=started)
                 result = self.run_picker("--probe")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout), {"state": state})

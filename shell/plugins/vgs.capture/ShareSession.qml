@@ -85,7 +85,7 @@ Item {
                 try { ready = JSON.parse(setupResult.text).state === "ready"; }
                 catch (error) { console.error("capture: share-probe invalid-result"); }
             }
-            root.shell.status.set("sharing", { tone: ready ? "info" : "warning", text: ready ? "Ready" : "Setup needed. The picker takes effect at the next portal start.", action: !ready });
+            root.shell.status.set("sharing", { tone: ready ? "info" : "warning", text: ready ? "Ready" : "Setup needed. Select Set up screen sharing in Capture settings.", action: !ready });
             if (code !== 0 || status !== 0) console.error("capture: share-probe " + setupError.text.trim());
         }
     }

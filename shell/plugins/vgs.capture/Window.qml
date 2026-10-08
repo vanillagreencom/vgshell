@@ -175,8 +175,8 @@ FocusScope {
                             required property int index
                             required property var modelData
                             width: sourceColumn.width
-                            text: root.tab === 1 ? modelData.title : modelData.description || modelData.name
-                            secondary: root.tab === 1 ? modelData.class : modelData.name + " · " + modelData.width + " × " + modelData.height
+                            text: root.tab === 1 ? modelData.title : modelData.name
+                            secondary: root.tab === 1 ? modelData.class : modelData.width + " × " + modelData.height + (modelData.model && modelData.model !== modelData.name ? " · " + modelData.model : "")
                             iconName: root.tab === 1 ? "app-window" : "monitor"
                             cursor: sourceCursor
                             highlighted: index === root.selected
@@ -218,7 +218,7 @@ FocusScope {
             Checkbox { text: "Remember this choice"; checked: root.remember; onToggled: root.remember = checked }
             Row {
                 spacing: Theme.stack.inline
-                Button { text: "Cancel"; onClicked: root.shell.surfaces.hide("window") }
+                Button { text: "Cancel"; variant: "tertiary"; onClicked: root.shell.surfaces.hide("window") }
                 Button { text: "Share"; iconName: "screen-share"; variant: "primary"; enabled: root.current !== null; onClicked: root.share() }
             }
         }

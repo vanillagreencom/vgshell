@@ -1,7 +1,7 @@
 # xdph selections, live previews and public ScreenCast application requests
 # run in the nested compositor with an isolated bus and device-free PipeWire.
 # No latency ceiling. State readbacks poll every 200 ms through expect_poll.
-# inputs: shell/plugins/vgs.capture/* shell/plugins/vgs.settings/* shell/Core/qmldir shell/Core/ScreencopyPreview.qml shell/Core/Capabilities.qml shell/Core/IpcRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Hosts/PluginSlot.qml shell/Commons/* shell/Ui/* bin/vgshell-share-picker bin/vgshell bin/lib/ipc-reply.sh scripts/smoke/fixtures/share-picker/* scripts/smoke/fixtures/plugins/acme.screencopy/* themes/catalog/flexoki-light/theme.json
+# inputs: shell/plugins/vgs.capture/* shell/plugins/vgs.settings/* shell/Core/qmldir shell/Core/ScreencopyPreview.qml shell/Core/Capabilities.qml shell/Core/IpcRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Hosts/PluginSlot.qml shell/Commons/* shell/Ui/* bin/vgshell-share-picker bin/vgshell bin/lib/ipc-reply.sh scripts/smoke/fixtures/share-picker/* scripts/smoke/fixtures/plugins/acme.screencopy/* scripts/smoke/toplevel/* themes/catalog/flexoki-light/theme.json
 set -euo pipefail
 for share_required in /usr/lib/xdg-desktop-portal /usr/lib/xdg-desktop-portal-hyprland /usr/lib/xdg-permission-store /usr/bin/hyprland-share-picker /usr/bin/bwrap; do
   if [[ ! -x $share_required ]]; then not_measured share-picker missing="$share_required"; return 0; fi
@@ -73,6 +73,73 @@ share_target_geometry() { hypr -j clients | py_reply 'import json,sys; d=next(c 
 expect_poll "the target frame is distinct from the whole output" True share_target_geometry
 share_target_decimal="$(python3 -c 'import sys; print(int(sys.argv[1],16))' "$share_target_address")"
 share_window_list="73[HC>]smoke.share-target[HT>]Share target[HE>]${share_target_decimal}[HA>]"
+# Keep the shared toplevel fixture neutral; this second source has its own
+# independently known colour and dimensions in the disposable sandbox.
+python3 - "$repo/scripts/smoke/toplevel/toplevel.c" "$share_world/other.c" <<'PY'
+import pathlib,sys
+text=pathlib.Path(sys.argv[1]).read_text(); old='pixels[i] = 0xff336699;'
+assert text.count(old)==1
+pathlib.Path(sys.argv[2]).write_text(text.replace(old,'pixels[i] = 0xff993366;',1))
+PY
+cc -Wall -Wextra -Werror "$share_world/other.c" "$sandbox/xdg-shell-protocol.c" -I"$sandbox" -o "$share_world/other" $(pkg-config --cflags --libs wayland-client)
+spawn "$share_world/other.log" "${shell_env[@]}" "$share_world/other" smoke.share-other "Other share target"
+share_other_pid="$spawn_pid"
+share_other_mapped() { hypr -j clients | py_reply 'import json,sys; print(any(c["class"]=="smoke.share-other" and c["mapped"] for c in json.load(sys.stdin)))'; }
+expect_poll "the other preview source is live at the same time" True share_other_mapped
+share_other_address="$(toplevel_address "$share_other_pid")"
+expect "the other preview source floats" ok hypr dispatch "hl.dsp.window.float({ action = \"enable\", window = \"address:$share_other_address\" })"
+expect "the other preview source has an independent size" ok hypr dispatch "hl.dsp.window.resize({ x = 240, y = 180, relative = false, window = \"address:$share_other_address\" })"
+expect "the other preview source stays beside the target" ok hypr dispatch "hl.dsp.window.move({ x = 680, y = 100, relative = false, window = \"address:$share_other_address\" })"
+share_other_geometry() { hypr -j clients | py_reply 'import json,sys; d=next(c for c in json.load(sys.stdin) if c["class"]=="smoke.share-other"); print(d["floating"] and d["size"]==[240,180] and d["at"]==[680,100])'; }
+expect_poll "the second live source has the known frame" True share_other_geometry
+expect "the first live source has the known pixels" 336699 pixel 120 140
+expect "the second live source has different pixels" 993366 pixel 720 140
+share_other_decimal="$(python3 -c 'import sys; print(int(sys.argv[1],16))' "$share_other_address")"
+share_window_list+="74[HC>]smoke.share-other[HT>]Other share target[HE>]${share_other_decimal}[HA>]"
+share_preview_size() { ipc smoke readDescendant window vgs.capture ScreencopyPreview sourceSize | py_reply 'import json,sys; s=sys.stdin.read().strip(); d=json.loads(s) if s.startswith("{") else {}; print([d.get("width"),d.get("height")])'; }
+share_preview_identity() { expect "the selected window preview has its independent dimensions" '[480, 320]' share_preview_size; }
+share_dismiss_notice() {
+  if [[ $(notice_shown) != null ]]; then
+    expect_poll "the restarted shell's requirement notice has focus" true ipc smoke noticeFocused
+    type_keys -k Escape || fail "share-picker: declining restarted tool setup failed"
+    expect_poll "the restarted shell's requirement notice closes" null notice_shown
+  fi
+}
+share_control_start() { stop_shell || :; start_shell "$sandbox/tree-$1" "$share_world/$1-shell.log"; expect_poll "the $1 Capture service builds" True record_exists vgs.capture; share_dismiss_notice; }
+share_control_restore() { stop_shell || :; start_shell "$repo" "$share_world/$1-restored.log"; expect_poll "the restored Capture service builds" True record_exists vgs.capture; share_dismiss_notice; }
+share_drag_plan() {
+  local rows box current
+  rows="$(ipc smoke descendantGeometry window vgs.capture)" || return
+  box="$(surface_box window:Capture)" || return
+  current="$(share_read current)" || return
+  python3 - "$rows" "$box" "$current" "$share_world/drag-plan.json" <<'PY'
+import json,math,pathlib,sys
+rows,window,screen=map(json.loads,sys.argv[1:4])
+preview=next(r for r in rows if r['type']=='ScreencopyPreview')
+image=rows[rows[preview['parent']]['parent']]['box']; origin=rows[0]['box']
+ox=window[0]+image[0]-origin[0]; oy=window[1]+image[1]-origin[1]
+w,h=screen['width'],screen['height']; scale=min(image[2]/w,image[3]/h)
+left=ox+(image[2]-w*scale)/2; top=oy+(image[3]-h*scale)/2
+assert (image[2]-w*scale)/2>1 or (image[3]-h*scale)/2>1, 'preview must have fitted margins'
+# This rectangle crosses the independently placed target's left/top edges.
+# Integer virtual-pointer positions quantize it to the nearest output pixels.
+points=[round(left+48*scale),round(top+68*scale),round(left+192*scale),round(top+220*scale)]
+x,y,x2,y2=points
+region=dict(x=math.floor((x-left)/scale),y=math.floor((y-top)/scale),width=math.floor((x2-x)/scale),height=math.floor((y2-y)/scale))
+assert region['x']>0 and region['y']>0 and region['x']<80<region['x']+region['width'] and region['y']<100<region['y']+region['height']
+pathlib.Path(sys.argv[4]).write_text(json.dumps(dict(points=points,expected=region,image=image,fitted=[left,top,w*scale,h*scale],screen=[w,h])))
+print(*points)
+PY
+}
+share_drag() {
+  local plan x y x2 y2
+  expect_poll "the fitted Area preview has content before pointer input" true share_read previewReady
+  plan="$(share_drag_plan)" || { fail "share-picker: independent pointer plan failed"; return 1; }
+  read -r x y x2 y2 <<<"$plan"
+  drag "$x" "$y" "$x2" "$y2" || { fail "share-picker: the Area pointer drag failed"; return 1; }
+}
+share_drag_matches() { share_read region | py_reply 'import json,pathlib,sys; s=sys.stdin.read().strip(); d=json.loads(s) if s.startswith("{") else {}; print(d==json.loads(pathlib.Path(sys.argv[1]).read_text())["expected"])' "$share_world/drag-plan.json"; }
+share_drag_check() { expect "the pointer drag selects the independent output rectangle" True share_drag_matches; }
 share_output="$(hypr -j monitors | py_reply 'import json,sys; print(next(m["name"] for m in json.load(sys.stdin) if m["width"]>0 and m["height"]>0))')"
 share_preview_dir="$home/.config/vgshell/plugins/acme.screencopy"
 mkdir -p -- "$share_preview_dir"
@@ -85,6 +152,60 @@ expect "the preview fixture hides" ok ipc shell hide window acme.screencopy
 expect "the preview fixture disables" ok ipc shell setPluginEnabled acme.screencopy false
 rm -rf -- "${share_preview_dir:?}"
 rescan "the preview fixture leaves the registry"
+copy_tree share-preview-control
+edit_tree share-preview-control shell/Core/ScreencopyPreview.qml \
+  'item.address === root.address.replace(/^0x/, "")' "item.address === \"${share_other_address#0x}\""
+share_control_start share-preview-control
+share_launch control-preview
+share_arg switchTab 1
+expect_poll "the wrong-window control maps a live preview" true share_read previewReady
+expect_poll "the wrong-window control captures the other live fixture" '[240, 180]' share_preview_size
+expect "the wrong-window control picker maps" True share_mapped
+share_preview_control() { (failures=0 behaviour_failures=0; share_preview_identity >"$share_world/preview-control.log"; echo "$failures"); }
+expect "control: the wrong live window fails the same preview identity assertion" 1 share_preview_control
+cat -- "$share_world/preview-control.log"
+share_click Button Cancel
+expect_poll "the preview control caller cancels" True share_cancelled control-preview
+share_control_restore share-preview-control
+share_launch preview-identity
+share_arg switchTab 1
+expect_poll "the primary window preview has its independent dimensions" '[480, 320]' share_preview_size
+share_preview_identity
+share_arg select 1
+expect_poll "selection changes to the other live window's dimensions" '[240, 180]' share_preview_size
+share_arg select 0
+expect_poll "selection returns to the primary window's dimensions" '[480, 320]' share_preview_size
+share_preview_identity
+share_click Button Cancel
+expect_poll "the preview identity request cancels" True share_cancelled preview-identity
+copy_tree share-drag-control
+edit_tree share-drag-control shell/plugins/vgs.capture/Window.qml 'if (!pressed) return;' 'if (true || !pressed) return;'
+share_control_start share-drag-control
+share_launch control-drag
+share_arg switchTab 2
+expect_poll "the disabled-drag control picker maps" True share_mapped
+share_drag
+share_drag_control() { (failures=0 behaviour_failures=0; share_drag_check >"$share_world/drag-control.log"; echo "$failures"); }
+expect "control: disabling drag mapping fails the same output rectangle assertion" 1 share_drag_control
+cat -- "$share_world/drag-control.log"
+share_click Button Cancel
+expect_poll "the drag control caller cancels" True share_cancelled control-drag
+share_control_restore share-drag-control
+share_launch pointer-drag
+share_arg switchTab 2
+share_drag
+expect_poll "the real pointer drag reaches the independent output rectangle" True share_drag_matches
+share_drag_check
+share_click Button Share
+expect_poll "the pointer-selected executable succeeds" 0 share_exit pointer-drag
+share_drag_stdout() { python3 - "$share_world/drag-plan.json" "$share_output" <<'PY'
+import json,sys
+r=json.load(open(sys.argv[1]))['expected']
+print('[SELECTION]/region:'+sys.argv[2]+'@'+','.join(str(r[k]) for k in ('x','y','width','height')))
+PY
+}
+share_pointer_expected="$(share_drag_stdout)"
+expect "xdph receives the rectangle selected by pointer input" "$share_pointer_expected" share_stdout pointer-drag
 # The control keeps the mapped request but prevents its replacement from
 # notifying the request owner. It must build before the cancellation check.
 cp -- "$repo/shell/plugins/vgs.capture/Window.qml" "$share_world/window.saved"
@@ -302,16 +423,16 @@ for share_app in screen window area cancel; do
       share_index="$(share_read rows | py_reply 'import json,sys; print(next((i for i,w in enumerate(json.load(sys.stdin)) if w["class"]=="smoke.share-target"),"absent"))')"
       [[ $share_index != absent ]] || { fail "share-picker: target absent from xdph list"; continue; }
       share_arg select "$share_index"
-      share_app_size="$(hypr -j clients | py_reply 'import json,sys; d=next(c for c in json.load(sys.stdin) if c["class"]=="smoke.share-target"); print(*d["size"])')"
-      read -r share_app_w share_app_h <<<"$share_app_size"; share_app_type=2;;
+      expect_poll "the application-selected window has the matching preview" '[480, 320]' share_preview_size
+      share_preview_identity
+      share_app_w=480; share_app_h=320; share_app_type=2;;
     area)
       share_arg switchTab 2
-      read -r share_area_x share_area_y <<<"$(share_target_local)"
-      share_args setRegion "{\"args\":[\"x\",$share_area_x]}"
-      share_args setRegion "{\"args\":[\"y\",$share_area_y]}"
-      share_args setRegion '{"args":["width",160]}'
-      share_args setRegion '{"args":["height",120]}'
-      share_app_w=160; share_app_h=120; share_app_type=4;;
+      share_drag
+      expect_poll "the application's pointer drag selects the independent output rectangle" True share_drag_matches
+      share_drag_check
+      share_app_size="$(python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["expected"]; print(r["width"],r["height"])' "$share_world/drag-plan.json")"
+      read -r share_app_w share_app_h <<<"$share_app_size"; share_app_type=4;;
     cancel) share_click Button Cancel;;
   esac
   if [[ $share_app == cancel ]]; then expect_poll "the app receives cancellation" cancelled share_app_phase "$share_app"; else
@@ -319,7 +440,10 @@ for share_app in screen window area cancel; do
     expect_poll "the app consumes the $share_app frame" complete share_app_phase "$share_app"
     expect "the app receives $share_app type and dimensions" True share_app_source "$share_app" "$share_app_type" "$share_app_w" "$share_app_h"
     if [[ $share_app == window ]]; then expect "the window stream contains the target frame" True share_app_pixels "$share_app"; fi
-    if [[ $share_app == area ]]; then expect "the area stream contains the selected target pixels" True share_app_pixels "$share_app"; fi
+    if [[ $share_app == area ]]; then
+      expect "the dragged area contains target pixels beyond its edge" True share_app_pixels "$share_app"
+      expect "the dragged area contains output pixels before the target edge" False share_app_pixels "$share_app" 8 8
+    fi
     if [[ $share_app == screen ]]; then
       expect "the screen stream names the selected output" True share_mapping
       read -r share_screen_x share_screen_y <<<"$(share_target_local)"
@@ -339,6 +463,7 @@ fi
 cp -R -- "$share_world/." "$share_evidence/runtime"
 for share_process in "$share_frontend_pid" "$share_backend_pid" "$share_permissions_pid" "$share_pipewire_pid"; do kill -TERM -- -"$share_process" 2>/dev/null || true; wait "$share_process" 2>/dev/null || true; done
 close_toplevel "$share_target_pid" "the share target closes"
+close_toplevel "$share_other_pid" "the other share target closes"
 rm -rf -- "${home:?}/.config/qt6ct" "${home:?}/.config/xdg-desktop-portal"
 rm -f -- "${home:?}/.config/hypr/xdph.conf"
 if [[ -f $share_world/theme.saved ]]; then cp -- "$share_world/theme.saved" "$share_theme.next"; mv -T -- "$share_theme.next" "$share_theme"; else rm -f -- "${share_theme:?}"; fi
