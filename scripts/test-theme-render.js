@@ -956,6 +956,109 @@ try {
 }
 console.log(`test-theme-render: gemini packages=${selectionPackages.length} controls=${geminiControls.length}`);
 
+// Kitty consumes these colour options as text/fill pairs and window borders.
+// Judge rendered values so readable text cannot hide an unmarked state.
+const kittyDir = path.join(themesDir, "targets", "kitty");
+const kittyTemplate = fs.readFileSync(path.join(kittyDir, "kitty.conf"), "utf8");
+const kittyTarget = selectionRender.acceptTarget(logic, "kitty",
+    fs.readFileSync(path.join(kittyDir, "target.json"), "utf8"));
+assert.equal(kittyTarget.ok, true);
+const KITTY_TEXT = [
+    ["active_tab_foreground", "active_tab_background"],
+    ["inactive_tab_foreground", "inactive_tab_background"],
+    ["mark1_foreground", "mark1_background"],
+    ["mark2_foreground", "mark2_background"],
+    ["mark3_foreground", "mark3_background"]
+];
+const KITTY_BOUNDARIES = ["active_border_color", "inactive_border_color", "bell_border_color"];
+const KITTY_CANVAS = ["inactive_tab_background", "tab_bar_background", "tab_bar_margin_color"];
+const KITTY_STATES = [
+    ["active_tab_background", "inactive_tab_background"],
+    ["mark1_background", "background"],
+    ["mark2_background", "background"],
+    ["mark3_background", "background"]
+];
+const KITTY_FIELDS = [...new Set([
+    ...KITTY_TEXT.flat(), ...KITTY_BOUNDARIES, ...KITTY_CANVAS
+])];
+
+function verifyKittyStyles(template) {
+    const shortfalls = [];
+    const metrics = selectionPackages.map(({ pkg, shipped }) => {
+        const rendered = selectionRender.renderTarget(logic, TOKENS, kittyTarget.target,
+            new Map([["kitty.conf", template]]), {
+                values: pkg.values,
+                slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal,
+                curated: new Map(), installed: !shipped
+            });
+        assert.equal(rendered.ok, true);
+        const output = rendered.files.find(file => file.destination === "kitty.conf");
+        assert.notEqual(output, undefined);
+        const fields = new Map(output.bytes.toString("utf8").split("\n")
+            .filter(line => line.trim() !== "" && !line.trimStart().startsWith("#"))
+            .map(line => line.trim().split(/\s+/)));
+        const colors = new Map();
+        for (const field of ["background", ...KITTY_FIELDS]) {
+            const color = logic.parseColor(fields.get(field));
+            if (color === null) shortfalls.push({ kind: "kitty-field", theme: pkg.name, role: field });
+            else colors.set(field, color);
+        }
+        const ratios = [];
+        const contrast = (kind, role, peer, floor) => {
+            if (!colors.has(role) || !colors.has(peer)) return;
+            const ratio = logic.contrastRatio(colors.get(role), colors.get(peer));
+            const metric = { kind, theme: pkg.name, role, peer, ratio, floor };
+            ratios.push(metric);
+            if (ratio < floor) shortfalls.push(metric);
+        };
+        KITTY_TEXT.forEach(([role, peer]) => contrast("kitty-text", role, peer, 4.5));
+        KITTY_BOUNDARIES.forEach(role => contrast("kitty-boundary", role, "background", 3));
+        KITTY_STATES.forEach(([role, peer]) => contrast("kitty-state", role, peer, 3));
+        for (const role of KITTY_CANVAS) {
+            if (colors.has(role) && fields.get(role) !== fields.get("background"))
+                shortfalls.push({ kind: "kitty-canvas", theme: pkg.name, role });
+        }
+        if (colors.has("active_border_color") && colors.has("inactive_border_color") &&
+            fields.get("active_border_color") === fields.get("inactive_border_color"))
+            shortfalls.push({ kind: "kitty-focus", theme: pkg.name, role: "active_border_color" });
+        return { theme: pkg.name, mode: pkg.values.scheme.mode, fields: Object.fromEntries(fields), ratios };
+    });
+    assert.deepEqual(shortfalls, []);
+    assert.ok(metrics.some(metric => metric.mode === "dark"));
+    assert.ok(metrics.some(metric => metric.mode === "light"));
+    return metrics;
+}
+
+const kittyMetrics = verifyKittyStyles(kittyTemplate);
+const kittyControls = [
+    ...KITTY_FIELDS.map(role => ({ kind: "kitty-field", role, remove: true })),
+    ...KITTY_TEXT.map(([role, peer]) => ({ kind: "kitty-text", role, peer })),
+    ...KITTY_BOUNDARIES.map(role => ({ kind: "kitty-boundary", role, peer: "background" })),
+    ...KITTY_STATES.map(([role, peer]) => ({ kind: "kitty-state", role, peer })),
+    ...KITTY_CANVAS.map(role => ({ kind: "kitty-canvas", role, peer: "active_tab_background" })),
+    { kind: "kitty-focus", role: "active_border_color", peer: "inactive_border_color" }
+];
+const kittyScratch = fs.mkdtempSync(path.join(os.tmpdir(), "kitty-style-control-"));
+try {
+    for (const [index, control] of kittyControls.entries()) {
+        const lines = kittyTemplate.split("\n");
+        const matches = lines.filter(line => line.startsWith(control.role + " "));
+        assert.equal(matches.length, 1, control.role);
+        const replacement = control.remove ? "" : control.role + " " +
+            lines.find(line => line.startsWith(control.peer + " ")).slice(control.peer.length + 1);
+        const mutant = lines.map(line => line === matches[0] ? replacement : line).join("\n");
+        assert.notEqual(mutant, kittyTemplate);
+        const file = path.join(kittyScratch, `${index}.conf`);
+        fs.writeFileSync(file, mutant, { flag: "wx" });
+        assert.throws(() => verifyKittyStyles(fs.readFileSync(file, "utf8")),
+            error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
+                error.actual.some(shortfall => shortfall.kind === control.kind && shortfall.role === control.role));
+    }
+} finally {
+    fs.rmSync(kittyScratch, { recursive: true, force: true });
+}
+console.log(`test-theme-render: kitty packages=${kittyMetrics.length} fields=${KITTY_FIELDS.length} text-floor=4.5 boundary-floor=3 state-floor=3 controls=${kittyControls.length}`);
+
 // Helix reads jump labels as a dedicated style. Parse rendered TOML with
 // Python's standard parser, as the editor-entry suite does for this target.
 const helixDir = path.join(themesDir, "targets", "helix");
