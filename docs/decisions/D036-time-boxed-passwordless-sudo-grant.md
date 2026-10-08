@@ -3,7 +3,7 @@
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-09-28
-**Status**: Active
+**Status**: Superseded by [D103](D103-passwordless-sudo-timed-or-indefinite.md)
 **Research**: the platform roadmap attached to [VGS-511](https://linear.app/vanillagreen/issue/VGS-511) § 4
 
 **Decision**: The grant is a core feature, `bin/vgshell-sudo-grant`: an owner-installed root half writes a `NOTAFTER` sudoers rule for 1 to 1440 minutes, a transient timer and a boot cleanup remove it, and the user half asks one confirmation in a floating TUI.
