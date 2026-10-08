@@ -649,6 +649,10 @@ git_quiet add shell
 git_quiet commit -q -m settings
 # The harness loads bin/lib/ipc-reply.sh from the checkout it runs in.
 ln -s "$repo/bin/lib" "$shots_repo/bin/lib"
+# Only the checkout's working tree holds the demo catalog package, so a
+# catalog mode reads it with no --rev and finds it absent from a revision.
+mkdir -p "$shots_repo/themes/catalog/demo"
+printf '{ "schemaVersion": 1, "name": "demo", "tokens": {} }\n' >"$shots_repo/themes/catalog/demo/theme.json"
 # scene_case SCRIPT LABEL STATUS LINE ARG...: SCRIPT run from the scratch
 # repository gives STATUS and LINE on stderr, or with STATUS 77 a stdout
 # line starting LINE. On a host with an amdgpu node the run enters
@@ -689,10 +693,12 @@ scene_cases=(
   "a checkout with the Capture plugin takes the capture scene" 77 "qml-smoke: status=not-measured" capture
   "a revision without the Capture plugin refuses the capture scene" 2 "sandbox-shots: refused: scene=capture tree=$old_rev" --rev "$old_rev" capture
   "a checkout without the AI Usage plugin refuses the ai-usage scene" 2 "sandbox-shots: refused: scene=ai-usage tree=checkout" ai-usage
+  "a checkout with a catalog package takes its mode" 77 "qml-smoke: status=not-measured" --modes catalog-demo settings
+  "a revision without a catalog package refuses its mode" 2 "sandbox-shots: refused: mode=catalog-demo" --rev "$old_rev" --modes catalog-demo manager
 )
 # Each case is label, status, line, then its arguments up to the next case,
 # counted by the arguments each row above carries.
-scene_arity=(1 3 3 1 1 3 3 3 3 3 1 1 3 1 1 3 1)
+scene_arity=(1 3 3 1 1 3 3 3 3 3 1 1 3 1 1 3 1 3 5)
 # Where each case starts in scene_cases and how many arguments it takes, by
 # label, for the controls below.
 declare -A scene_at scene_argc
@@ -731,6 +737,9 @@ shots_controls=(
   "a theme card the catalog lacks goes on to the harness"
   "if [[ \$scene == theme-browser && ! -f \$tree/themes/catalog/\$theme_card/theme.json ]]; then" "if false; then"
   "a theme card the catalog lacks is refused"
+  "a catalog mode is looked for in the checkout"
+  "-f \$tree/themes/catalog/\${mode#catalog-}/theme.json" "-f \$checkout/themes/catalog/\${mode#catalog-}/theme.json"
+  "a revision without a catalog package refuses its mode"
 )
 shots_mutant="$tmp/sandbox-shots-mutant.sh"
 for (( i = 0; i < ${#shots_controls[@]}; i += 4 )); do
@@ -839,6 +848,120 @@ then
 else
   fail "control: wrong revision installer files could not be planted"
 fi
+
+# With --rev, a shot's catalog package is the revision's: preview_package
+# and set_mode read the sandbox copy the harness made, which outlives the
+# export it came from. A scratch repository commits REV's package values
+# and its working tree, the checkout, holds others; the real functions run
+# against the sandbox copy after the export is removed, without a harness.
+catalog_repo="$tmp/catalog-repo"
+mkdir -p "$catalog_repo/shell" "$catalog_repo/bin" "$catalog_repo/config" \
+  "$catalog_repo/themes/catalog/demo/targets/ghostty" "$catalog_repo/themes/catalog/flexoki-light"
+: >"$catalog_repo/shell/shell.qml"; : >"$catalog_repo/bin/vgshell"; : >"$catalog_repo/config/shell.json"
+for file in VERSION LICENSE README.md; do printf '%s\n' "$file" >"$catalog_repo/$file"; done
+# catalog_plant VALUE: every catalog file the shot reads holds VALUE.
+catalog_plant() {
+  printf '{"name": "demo", "value": "%s"}\n' "$1" >"$catalog_repo/themes/catalog/demo/theme.json"
+  printf '{"background": "%s"}\n' "$1" >"$catalog_repo/themes/catalog/demo/terminal.json"
+  printf '%s\n' "$1" >"$catalog_repo/themes/catalog/demo/targets/ghostty/theme"
+  printf '{"name": "flexoki-light", "value": "%s"}\n' "$1" >"$catalog_repo/themes/catalog/flexoki-light/theme.json"
+}
+catalog_plant rev
+catalog_git() { git -C "$catalog_repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@" >/dev/null; }
+catalog_git init -q
+catalog_git add -A
+catalog_git commit -q -m rev
+catalog_rev="$(git -C "$catalog_repo" rev-parse HEAD)"
+catalog_plant checkout
+catalog_export="$tmp/catalog-export"; catalog_sandbox="$tmp/catalog-sandbox"
+mkdir -p -- "$catalog_export" "$catalog_sandbox"
+(
+  source "$repo/scripts/smoke/tree.sh"
+  tree_export "$catalog_repo" "$catalog_rev" "$catalog_export" &&
+  tree_harness_copy "$repo" "$catalog_sandbox" "$catalog_export"
+) || fail "the catalog revision could not be exported and copied"
+rm -rf -- "${catalog_export:?}"
+printf 'wallpaper\n' >"$tmp/catalog-wallpaper.png"
+# catalog_extract NAME FILE: the body of the function NAME in sandbox-shots.sh.
+catalog_extract() {
+  python3 - "$repo/scripts/sandbox-shots.sh" "$1" "$2" <<'PY'
+import sys
+src, name, dst = sys.argv[1:]
+text = open(src).read()
+start_marker = name + "() {"
+assert text.count(start_marker) == 1, name + " must be defined once"
+start = text.index(start_marker)
+end = text.index("\n}\n", start) + 3
+open(dst, "w").write(text[start:end])
+PY
+}
+# catalog_mutant SRC DST COUNT NEEDLE: SRC with its COUNT reads of NEEDLE
+# pointed back at the checkout's catalog.
+catalog_mutant() {
+  python3 - "$@" <<'PY'
+import sys
+src, dst, count, needle = sys.argv[1:]
+text = open(src).read()
+assert text.count(needle) == int(count), "catalog reads must match %s times" % count
+changed = text.replace(needle, needle.replace("$repo/", "$checkout/"))
+assert changed != text
+open(dst, "w").write(changed)
+PY
+}
+# catalog_run FUNCTIONS SCRIPT: SCRIPT in a clean bash with the extracted
+# FUNCTIONS, repo the sandbox copy and checkout the scratch working tree.
+catalog_run() {
+  local home
+  home="$(mktemp -d "$tmp/catalog-home.XXXXXX")" || return 1
+  env -i PATH="$PATH" "$BASH" -c '
+    set -euo pipefail
+    repo="$1" checkout="$2" home="$3"
+    declare -A preview_wallpaper=([demo]="$4")
+    theme_file="$home/.config/vgshell/theme.json"
+    mkdir -p -- "$home/.config/vgshell"
+    expect_poll() { :; }
+    source "$5"
+    eval "$6"
+  ' _ "$catalog_sandbox" "$catalog_repo" "$home" "$tmp/catalog-wallpaper.png" "$1" "$2"
+}
+# preview_case FUNCTIONS: the installed demo package holds REV's values.
+preview_case() {
+  catalog_run "$1" '
+    preview_package demo
+    dest="$home/.config/vgshell/themes/demo"
+    [[ $(<"$dest/terminal.json") == "{\"background\": \"rev\"}" ]]
+    [[ $(<"$dest/theme.json") == "{\"name\": \"demo\", \"value\": \"rev\"}" ]]
+    [[ $(<"$dest/targets/ghostty/theme") == rev ]]
+  '
+}
+# mode_case FUNCTIONS MODE NAME: MODE publishes REV's theme.json of NAME.
+mode_case() {
+  catalog_run "$1" "set_mode $2; [[ \$(<\"\$theme_file\") == '{\"name\": \"$3\", \"value\": \"rev\"}' ]]"
+}
+preview_reader="$tmp/preview-package.sh"
+mode_reader="$tmp/set-mode.sh"
+catalog_extract preview_package "$preview_reader"
+catalog_extract set_mode "$mode_reader"
+if preview_case "$preview_reader"; then ok "a revision's preview package holds its catalog values"; else fail "a revision's preview package holds its catalog values"; fi
+if mode_case "$mode_reader" catalog-demo demo; then ok "a revision's catalog mode holds its catalog values"; else fail "a revision's catalog mode holds its catalog values"; fi
+if mode_case "$mode_reader" light flexoki-light; then ok "a revision's light mode holds its catalog values"; else fail "a revision's light mode holds its catalog values"; fi
+catalog_controls=(
+  "preview package reads the checkout's catalog|$preview_reader|5|\$repo/themes/catalog|preview_case|"
+  "catalog mode reads the checkout's catalog|$mode_reader|1|\"\$repo/themes/catalog/\${1#catalog-}/theme.json\"|mode_case|catalog-demo demo"
+  "light mode reads the checkout's catalog|$mode_reader|1|\"\$repo/themes/catalog/flexoki-light/theme.json\"|mode_case|light flexoki-light"
+)
+for spec in "${catalog_controls[@]}"; do
+  IFS='|' read -r label reader count needle check check_args <<<"$spec"
+  catalog_mutant_file="$tmp/catalog-mutant.sh"
+  read -r -a check_args <<<"$check_args"
+  if ! catalog_mutant "$reader" "$catalog_mutant_file" "$count" "$needle"; then
+    fail "control: $label could not be planted"
+  elif "$check" "$catalog_mutant_file" "${check_args[@]}"; then
+    fail "control: $label stayed green"
+  else
+    ok "control: $label"
+  fi
+done
 
 # The same observer setup instruments a source copy and an installed copy.
 # Drive its actual file edits without starting QML or a compositor.

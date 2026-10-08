@@ -92,11 +92,11 @@
 # the bar's manager built-in. A scene the tree does not ship is refused as
 # `sandbox-shots: refused: scene=<scene> tree=<rev or checkout>`. --modes is a comma list of dark,
 # light and rounded, dark by default with --rev and dark and light
-# otherwise: dark is the defaults (theme `vgs`), light is this checkout's
+# otherwise: dark is the defaults (theme `vgs`), light is the tree's
 # catalog package themes/catalog/flexoki-light, and rounded is the
 # defaults with `radius.sm`, `radius.md` and `radius.lg` at 6, 12 and 16,
 # so every theme-rounded component shows whether its content clears its
-# corners. catalog-NAME is this checkout's catalog package
+# corners. catalog-NAME is the tree's catalog package
 # themes/catalog/NAME, so a shot shows a component under any catalog theme;
 # a NAME the catalog lacks is refused as `sandbox-shots: refused: mode=`.
 # --rev REV runs that revision's shell, bin, config and themes (git archive),
@@ -238,9 +238,6 @@ done
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 checkout="$repo"
-for mode in "${mode_list[@]}"; do
-  [[ $mode != catalog-* || -f $checkout/themes/catalog/${mode#catalog-}/theme.json ]] || { printf 'sandbox-shots: refused: mode=%s\n' "$mode" >&2; exit 2; }
-done
 # No process this run starts may open an amdgpu node, so the run goes on
 # only where none is visible: scripts/smoke/gpu-fence.sh.
 "$checkout/scripts/smoke/gpu-fence.sh" --check || exec "$checkout/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
@@ -379,6 +376,9 @@ for scene in "${scenes[@]}"; do
     printf 'sandbox-shots: refused: theme-card=%s tree=%s\n' "$theme_card" "${rev:-checkout}" >&2
     exit 2
   fi
+done
+for mode in "${mode_list[@]}"; do
+  [[ $mode != catalog-* || -f $tree/themes/catalog/${mode#catalog-}/theme.json ]] || { printf 'sandbox-shots: refused: mode=%s\n' "$mode" >&2; exit 2; }
 done
 
 # shellcheck disable=SC2034 # the harness sourced below reads it
@@ -689,10 +689,10 @@ theme_file="$home/.config/vgshell/theme.json"
 set_mode() { # dark|light|rounded|catalog-NAME
   local name
   case $1 in
-    catalog-*) cp -- "$checkout/themes/catalog/${1#catalog-}/theme.json" "$theme_file.tmp"; name="${1#catalog-}" ;;
+    catalog-*) cp -- "$repo/themes/catalog/${1#catalog-}/theme.json" "$theme_file.tmp"; name="${1#catalog-}" ;;
     dark) printf '{ "schemaVersion": 1, "name": "vgs", "tokens": {} }\n' >"$theme_file.tmp"; name=vgs ;;
     rounded) printf '{ "schemaVersion": 1, "name": "rounded", "tokens": { "radius": { "sm": 6, "md": 12, "lg": 16 } } }\n' >"$theme_file.tmp"; name=rounded ;;
-    light) cp -- "$checkout/themes/catalog/flexoki-light/theme.json" "$theme_file.tmp"; name=flexoki-light ;;
+    light) cp -- "$repo/themes/catalog/flexoki-light/theme.json" "$theme_file.tmp"; name=flexoki-light ;;
   esac
   mv -T -- "$theme_file.tmp" "$theme_file"
   expect_poll "the $1 theme ($name) is published" "$name" ipc smoke themeName
@@ -1527,9 +1527,9 @@ preview_package() {
   dest="$home/.config/vgshell/themes/$name"
   rm -rf -- "${dest:?}"
   mkdir -p -- "$dest/backgrounds"
-  cp -- "$checkout/themes/catalog/$name/theme.json" "$dest/theme.json"
-  [[ ! -f $checkout/themes/catalog/$name/terminal.json ]] || cp -- "$checkout/themes/catalog/$name/terminal.json" "$dest/terminal.json"
-  [[ ! -d $checkout/themes/catalog/$name/targets ]] || cp -R -- "$checkout/themes/catalog/$name/targets" "$dest/targets"
+  cp -- "$repo/themes/catalog/$name/theme.json" "$dest/theme.json"
+  [[ ! -f $repo/themes/catalog/$name/terminal.json ]] || cp -- "$repo/themes/catalog/$name/terminal.json" "$dest/terminal.json"
+  [[ ! -d $repo/themes/catalog/$name/targets ]] || cp -R -- "$repo/themes/catalog/$name/targets" "$dest/targets"
   cp -- "${preview_wallpaper[$name]}" "$dest/backgrounds/"
 }
 scene_theme-previews() { # MODE
