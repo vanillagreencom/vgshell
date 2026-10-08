@@ -523,7 +523,7 @@ expect_poll "a failed request keeps the last figures, marked stale" "$usage_stal
 expect_poll "the widget keeps the stale share" '[true, true, 83, "warning"]' usage_widget_state
 expect "the failed read changed no credential file" kept usage_credentials_kept
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage on stale figures failed"
-expect_poll "the stale card warns that its figures may be old" '[["claude", "stale", false, "warning", true], ["codex", "ok", true, "normal"]]' usage_panel_notes
+expect_poll "the stale card warns that its figures may be old" '[["claude", "stale", false, "warning"], ["codex", "ok", true, "normal"]]' usage_panel_notes
 expect "the stale panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the stale panel is gone" absent usage_panel
 # A refused token reads expired, with the expired warning.
@@ -531,7 +531,7 @@ usage_mode refused
 usage_refresh "a refused Claude token"
 expect "a refused token reads expired with no figures" '[["expired", []]]' usage_windows claude
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage on an expired sign-in failed"
-expect_poll "the expired card warns" '[["claude", "expired", false, "warning", false], ["codex", "ok", true, "normal"]]' usage_panel_notes
+expect_poll "the expired card warns" '[["claude", "expired", false, "warning"], ["codex", "ok", true, "normal"]]' usage_panel_notes
 expect "the expired panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the expired panel is gone" absent usage_panel
 # A helper copy that reads a failed request as 0 % fails that reading: its
