@@ -2671,10 +2671,24 @@ fade_paint_wait() { # METHOD HIDDEN
   return 1
 }
 fade_capture_geometry_same() { # BEFORE AFTER
-  py_reply 'import json,sys;print(json.load(open(sys.argv[1]))==json.load(open(sys.argv[2])))' "$1" "$2"
+  local same
+  if [[ ! -r $1 ]] || ! same="$(py_reply 'import json,sys
+try:
+    before=json.load(sys.stdin)
+    with open(sys.argv[1]) as source: after=json.load(source)
+    print(before==after if isinstance(before,list) and isinstance(after,list) else "unreadable")
+except (OSError,ValueError): print("unreadable")
+' "$2" <"$1")"; then
+    echo 'notification-capture: geometry-reader=unreadable' >&2
+    return 1
+  fi
+  case "$same" in
+    True|False) printf '%s\n' "$same" ;;
+    *) echo 'notification-capture: geometry-reader=unreadable' >&2; return 1 ;;
+  esac
 }
 fade_hint_sample() { # PNG [REFERENCE_JSON]
-  local items="${1%.png}-items.json" surface background captured=0 restored_sample restore_geometry="${1%.png}-restored-items.json"
+  local items="${1%.png}-items.json" surface background captured=0 restored_sample geometry_same restore_geometry="${1%.png}-restored-items.json"
   ipc smoke descendantGeometry panel vgs.notifications >"$items" || return
   surface="$(surface_box vgs:panel)" || return
   fade_output "$1" || return
@@ -2685,7 +2699,8 @@ fade_hint_sample() { # PNG [REFERENCE_JSON]
   [[ $captured == 0 ]] || return "$captured"
   fade_output "${1%.png}-restored.png" || return
   ipc smoke descendantGeometry panel vgs.notifications >"$restore_geometry" || return
-  [[ $(fade_capture_geometry_same "$items" "$restore_geometry") == True ]] || { echo 'notification-capture: hints-geometry-changed' >&2; return 1; }
+  geometry_same="$(fade_capture_geometry_same "$items" "$restore_geometry")" || return
+  [[ $geometry_same == True ]] || { echo 'notification-capture: hints-geometry-changed' >&2; return 1; }
   restored_sample="$(fade_hint_sample_value "${1%.png}-restored.png" "$background" "$items" "$surface" "$mon_w" "$mon_h" "${2:-}")" || return
   [[ $(fade_hint_contrast_value "$restored_sample" coverage) == True ]] || { echo 'notification-capture: restored-hints-undrawn' >&2; return 1; }
   printf '%s\n' "$restored_sample" >"${1%.png}-restored.json"
@@ -2832,7 +2847,7 @@ fade_output() { # PNG
   shot_grim "$socket" "$rt_dir" -o "$output" -t png "$1"
 }
 fade_gap_sample() {
-  local items="$sandbox/fade-gap-current-items.json" view surface restored_sample restored_ink restore_geometry="$sandbox/fade-gap-restored-items.json"
+  local items="$sandbox/fade-gap-current-items.json" view surface restored_sample restored_ink geometry_same restore_geometry="$sandbox/fade-gap-restored-items.json"
   view="$(view_at_rest panel vgs.notifications "Fade probe 12")" || return
   ipc smoke descendantGeometry panel vgs.notifications >"$items" || return
   surface="$(surface_box vgs:panel)" || return
@@ -2844,7 +2859,8 @@ fade_gap_sample() {
   (( capture_rc == 0 )) || return "$capture_rc"
   fade_output "$sandbox/fade-gap-restored.png" || return
   ipc smoke descendantGeometry panel vgs.notifications >"$restore_geometry" || return
-  [[ $(fade_capture_geometry_same "$items" "$restore_geometry") == True ]] || { echo 'notification-capture: gap-geometry-changed' >&2; return 1; }
+  geometry_same="$(fade_capture_geometry_same "$items" "$restore_geometry")" || return
+  [[ $geometry_same == True ]] || { echo 'notification-capture: gap-geometry-changed' >&2; return 1; }
   restored_sample="$(fade_gap_value "$sandbox/fade-gap-restored.png" "$background" "$items" "$view" "$surface" "$mon_w" "$mon_h")" || return
   [[ $restored_sample == \{* ]] || { printf 'notification-capture: restored-gap=%s\n' "$restored_sample" >&2; return 1; }
   restored_ink="$(fade_card_sample "$sandbox/fade-gap-restored-ink.png")" || return
