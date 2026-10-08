@@ -32,10 +32,9 @@ vgshell theme browser-policy install
 | Setting | What it changes |
 | --- | --- |
 | Panel position | Where the panel opens when you use its shortcut. |
-| Apply theme borders | The theme's window borders and shadows, unless your Hyprland settings override them. |
-| Apply theme corners | The theme's rounded window corners, unless your Hyprland settings override them. |
-| Apply theme animations | The theme's window animations, unless your Hyprland settings override them. Off by default. |
 | No window gaps | Removes the space around and between tiled windows on every workspace. |
+
+Window corners, borders and animations are on the Windows and Motion pages under Settings > Appearance.
 
 ## Browser keys
 

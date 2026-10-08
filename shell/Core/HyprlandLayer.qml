@@ -7,7 +7,8 @@ import "PluginLogic.js" as Logic
 import "HyprlandLayer.js" as Layer
 
 // The one writer of the Hyprland layer: HyprlandLayer.js renders the theme's
-// Hyprland appearance groups, the floating TUIs' window rules, clamped by
+// Hyprland appearance groups, each written while the user's Appearance
+// values leave it to the theme or set it (Theme.appearanceState), the floating TUIs' window rules, clamped by
 // the bar's height and the window gutter, and every
 // enabled plugin's `hyprland` manifest data, the input options with the
 // touchpads Capabilities.hyprland reads, and this writes the text to
@@ -49,7 +50,10 @@ Scope {
     // PluginLogic.hyprlandSection for every enabled plugin.
     readonly property var sections: Registry.hyprlandSections
     readonly property bool touchpadsNeeded: Layer.wantsTouchpads(root.sections)
+    // Theme resolves the user's Appearance values from Config's text; a
+    // render waits until it has resolved the text Config now holds.
     readonly property bool inputsReady: Registry.scanned && Config.ready && Theme.fileState !== "pending"
+        && Theme.appearanceState.input === Config.appearanceText
         && (!touchpadsNeeded || Capabilities.hyprland.touchpads !== null || Capabilities.hyprland.devicesFailure !== "")
     readonly property real highestMonitorScale: {
         let highest = 1;
@@ -73,6 +77,7 @@ Scope {
             onWarning: Theme.color.onWarning
         },
         hyprland: Theme.hyprland,
+        groups: Theme.appearanceState.hyprland,
         motionScale: Theme.motion.scale,
         tuiMargins: { bar: Theme.bar.height, gutter: Theme.size.window.gutter }
     })
@@ -123,6 +128,7 @@ Scope {
     Binding { target: Registry; property: "hyprlandProblems"; value: root.problems }
     // What the `hyprland` capability's reads compare against.
     Binding { target: Capabilities.hyprland; property: "written"; value: root.rendered === null ? [] : root.rendered.options }
+    Binding { target: Capabilities.hyprland; property: "appearanceWritten"; value: root.rendered === null ? [] : root.rendered.appearance }
     Binding { target: Capabilities.hyprland; property: "optionConflicts"; value: root.rendered === null ? [] : root.rendered.optionConflicts }
     Binding { target: Capabilities.hyprland; property: "layerBinds"; value: root.rendered === null ? [] : root.rendered.binds }
     Binding { target: Capabilities.monitors; property: "ownerId"; value: Registry.monitorRuleOwnerId }

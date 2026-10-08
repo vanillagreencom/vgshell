@@ -26,8 +26,10 @@ Scope {
     // key capture asked who else holds a key (KeyCapture.qml).
     property bool active: false
     // HyprlandLayer.qml binds these from its render: the options written,
+    // the applied groups' options written for the core, under id "",
     // option conflicts, and the descriptions of the binds written.
     property var written: []
+    property var appearanceWritten: []
     property var optionConflicts: []
     property var layerBinds: []
 
@@ -86,7 +88,7 @@ Scope {
         return Object.freeze({
             get overridden() { return root.overriddenFor(ctx.id); },
             get userValues() { return root.userValuesFor(ctx.id); },
-            get values() { return root.optionValues === null ? null : Logic.frozenJson(State.unwrittenValues(ctx.manifest.hyprland.options, root.written, ctx.id, root.optionValues)); },
+            get values() { return root.optionValues === null ? null : Logic.frozenJson(State.unwrittenValues(ctx.manifest.hyprland === undefined ? undefined : ctx.manifest.hyprland.options, root.written, ctx.id, root.optionValues, root.appearanceWritten)); },
             get devices() { return root.devices === null ? null : Logic.frozenJson(root.devices); },
             get foreignBinds() { return root.foreignKeys === null ? null : Logic.frozenJson(root.foreignKeys); },
             resolveKeys: (keys, done) => {
@@ -155,12 +157,12 @@ Scope {
 
     function readOptions() {
         if (!active) return;
-        optionsReader.read(State.OPTIONS_REQUEST, written);
+        optionsReader.read(State.OPTIONS_REQUEST, written.concat(appearanceWritten));
     }
 
     function readUserValues() {
         if (!active) return;
-        userValuesReader.read(State.USER_VALUES_REQUEST, written);
+        userValuesReader.read(State.USER_VALUES_REQUEST, written.concat(appearanceWritten));
     }
 
     function readBinds() {
@@ -203,16 +205,18 @@ Scope {
         return JSON.stringify(a) === JSON.stringify(b);
     }
 
+    // A plugin's own rows and the core's, id "": the Appearance options
+    // every holder may show.
     function overriddenFor(id) {
         if (root.overriddenRows === null && root.optionConflicts.length === 0) return null;
         const rows = (root.overriddenRows === null ? [] : root.overriddenRows).concat(root.optionConflicts);
-        const paths = rows.filter(row => row.id === id).map(row => row.path);
+        const paths = rows.filter(row => row.id === id || row.id === "").map(row => row.path);
         return Logic.frozenJson(paths.filter((path, i, all) => all.indexOf(path) === i));
     }
 
     function userValuesFor(id) {
         if (root.userValueRows === null) return null;
-        return Logic.frozenJson(root.userValueRows.filter(row => row.id === id).map(row => ({ path: row.path, value: row.value })));
+        return Logic.frozenJson(root.userValueRows.filter(row => row.id === id || row.id === "").map(row => ({ path: row.path, value: row.value })));
     }
 
     Connections {

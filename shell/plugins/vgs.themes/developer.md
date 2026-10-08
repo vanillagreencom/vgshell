@@ -32,11 +32,7 @@ vgshell ipc call shell summon panel vgs.themes '{}'
 vgshell ipc call vgs.themes invoke gaps ''
 ```
 
-`setWindowBorders`: whether themes set Hyprland border colours, border thickness and shadow colour over the user's own Hyprland lines. Default `true`.
-
-`setCornerRadius`: whether themes set Hyprland window radius, rounding power and grouped-window tab radius over the user's own Hyprland lines. Default `true`.
-
-`setWindowAnimations`: whether themes set Hyprland window, layer, workspace and fade animation presets over the user's own Hyprland lines. Default `false`.
+Whether the theme's window borders, corner radius and animations reach Hyprland is the user's Appearance values, shell.json `appearance`, which the `vgs.windows` and `vgs.motion` pages set: [D103](../../../docs/decisions/D103-appearance-values-over-the-theme.md).
 
 ## Apply
 

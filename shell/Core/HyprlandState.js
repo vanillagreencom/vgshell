@@ -158,14 +158,16 @@ function touchpads(devices) {
     return devices.mice.filter(function (mouse) { return mouse.touchpad; }).map(function (mouse) { return mouse.name; });
 }
 
-// The options of WRITTEN, the layer's `options` result, that `getoption`
-// reads: every one but the per-device row.
+// The rows of WRITTEN, the layer's `options` and `appearance` results,
+// that `getoption` reads: every one but the per-device row.
 function readable(written) {
-    return written.filter(function (option) { return Layer.OPTIONS[option.path].device === undefined; });
+    return written.filter(function (option) { return Layer.readType(option.path) !== null; });
 }
 
-// The OPTIONS paths `getoption` reads: every one but the per-device row.
-var READABLE = Object.keys(Layer.OPTIONS).filter(function (path) { return Layer.OPTIONS[path].device === undefined; });
+// The paths `getoption` reads: every OPTIONS path but the per-device row,
+// and each applied group's Appearance path.
+var READABLE = Object.keys(Layer.OPTIONS).concat(Object.keys(Layer.APPEARANCE_PATHS).map(function (group) { return Layer.APPEARANCE_PATHS[group].path; }))
+    .filter(function (path) { return Layer.readType(path) !== null; });
 
 // The one `hyprctl --batch` argv that reads every READABLE option: the
 // layer's written ones back, and the rest for a plugin that sets none.
@@ -195,7 +197,7 @@ function optionValues(text) {
     for (var i = 0; i < READABLE.length; i++) {
         var path = READABLE[i];
         var read = parsed(replies.parts[i]);
-        var field = REPLY_FIELD[Layer.OPTIONS[path].type];
+        var field = REPLY_FIELD[Layer.readType(path)];
         if (!read.ok || read.value === null || typeof read.value !== "object" || read.value.option !== path || !Object.prototype.hasOwnProperty.call(read.value, field)) {
             errors.push("refused: options=unread path=" + path + " reply=" + JSON.stringify(replies.parts[i].slice(0, 120)));
             continue;
@@ -209,21 +211,24 @@ function optionValues(text) {
 // VALUES, optionValues' `values`: [{ id, path }] in WRITTEN's order. An
 // option VALUES does not hold differs, since no written value is undefined.
 function overridden(written, values) {
-    return readable(written).filter(function (row) { return differs(Layer.OPTIONS[row.path].type, row.value, values[row.path]); })
+    return readable(written).filter(function (row) { return differs(Layer.readType(row.path), row.value, values[row.path]); })
         .map(function (row) { return { id: row.id, path: row.path }; });
 }
 
 // Hyprland's value, from VALUES, optionValues' `values`, of each option
-// OPTIONS, a manifest's `hyprland.options`, maps a setting to that WRITTEN
-// holds for no row of plugin ID: what applies while the plugin sets none.
-// { path: value }.
-function unwrittenValues(options, written, id, values) {
+// OPTIONS, a manifest's `hyprland.options` or undefined for none, maps a
+// setting to that WRITTEN holds for no row of plugin ID, and of each
+// Appearance path APPEARANCE, the layer's `appearance` result, holds no
+// row for: what applies while VGS sets none. { path: value }.
+function unwrittenValues(options, written, id, values, appearance) {
     var mine = written.filter(function (row) { return row.id === id; }).map(function (row) { return row.path; });
+    var core = appearance.map(function (row) { return row.path; });
     var out = {};
-    Object.keys(options).forEach(function (setting) {
-        var path = options[setting];
-        if (mine.indexOf(path) === -1 && Object.prototype.hasOwnProperty.call(values, path)) out[path] = values[path];
-    });
+    var take = function (path, held) {
+        if (held.indexOf(path) === -1 && Object.prototype.hasOwnProperty.call(values, path)) out[path] = values[path];
+    };
+    Object.keys(options || {}).forEach(function (setting) { take(options[setting], mine); });
+    Object.keys(Layer.APPEARANCE_PATHS).forEach(function (group) { take(Layer.APPEARANCE_PATHS[group].path, core); });
     return out;
 }
 
@@ -260,8 +265,8 @@ function userValues(written, text) {
     for (var r = 0; r < rows.length; r++) {
         var path = rows[r].path;
         if (named[path] === undefined) continue;
-        if (typeof named[path].value !== VALUE_TYPE[Layer.OPTIONS[path].type])
-            return { ok: false, error: "refused: user-values=shape path=" + path + " want=" + Layer.OPTIONS[path].type };
+        if (typeof named[path].value !== VALUE_TYPE[Layer.readType(path)])
+            return { ok: false, error: "refused: user-values=shape path=" + path + " want=" + Layer.readType(path) };
         out.push({ id: rows[r].id, path: path, value: named[path].value });
     }
     return { ok: true, values: out };

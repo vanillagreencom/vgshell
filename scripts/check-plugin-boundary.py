@@ -9,6 +9,9 @@ Plugin rules, one per QML or JS file under a plugin directory:
   core-type          no object the core lends through a capability is instantiated
                      (IpcHandler, GlobalShortcut, NotificationServer, PolkitAgent) and
                      Hyprland.dispatch is never called
+  theme-input        no write to Theme's input: `appearanceInput`, the user's
+                     Appearance values, which Config alone binds; a plugin
+                     writes them through capability `appearance`
 Core rules, one per QML or JS file under shell/ outside shell/plugins/:
   core-plugin-name   no first-party plugin id literal (the `vgs.` prefix alone is fine)
   core-plugin-import no import of a plugin directory
@@ -52,6 +55,7 @@ MODULE_IMPORT = re.compile(r"^\s*\.?import\s+([A-Za-z][\w.]*)")
 PATH_IMPORT = re.compile(r"^\s*\.?import\s+\"([^\"]+)\"")
 SURFACE = re.compile(r"\b(" + "|".join(SURFACE_TYPES) + r")\s*\{")
 LENT = re.compile(r"\b(" + "|".join(LENT_TYPES) + r")\s*\{|\b(Hyprland\.dispatch)\s*\(")
+THEME_INPUT = re.compile(r"\bappearanceInput\b")
 PLUGIN_ID_LITERAL = re.compile(r"[\"'`]vgs\.[a-z]")
 PLUGIN_DIR_IMPORT = re.compile(r"^\s*\.?import\s+\"[^\"]*plugins/")
 
@@ -86,6 +90,8 @@ def check_plugin(plugin_dir, findings):
         m = LENT.search(line)
         if m:
             findings.append(f"core-type {path}:{number} {m.group(1) or m.group(2)}")
+        if THEME_INPUT.search(line):
+            findings.append(f"theme-input {path}:{number} appearanceInput")
 
 def check_core(shell_dir, findings):
     plugins_root = os.path.join(shell_dir, "plugins")

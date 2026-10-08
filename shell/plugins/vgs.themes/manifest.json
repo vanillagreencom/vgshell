@@ -33,9 +33,6 @@
   ],
   "settings": {
     "placement": "top-right",
-    "setWindowBorders": true,
-    "setCornerRadius": true,
-    "setWindowAnimations": false,
     "noWindowGaps": false
   },
   "schema": {
@@ -44,24 +41,6 @@
       "label": "Panel position",
       "description": "Where the panel opens when you use its shortcut",
       "options": ["top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"]
-    },
-    "setWindowBorders": {
-      "type": "boolean",
-      "label": "Apply theme borders",
-      "description": "Use the theme's window borders and shadows unless your Hyprland settings override them",
-      "group": "Hyprland"
-    },
-    "setCornerRadius": {
-      "type": "boolean",
-      "label": "Apply theme corners",
-      "description": "Use the theme's rounded window corners unless your Hyprland settings override them",
-      "group": "Hyprland"
-    },
-    "setWindowAnimations": {
-      "type": "boolean",
-      "label": "Apply theme animations",
-      "description": "Use the theme's window animations unless your Hyprland settings override them",
-      "group": "Hyprland"
     },
     "noWindowGaps": {
       "type": "boolean",
@@ -97,9 +76,6 @@
   },
   "hyprland": {
     "appearance": {
-      "borders": "setWindowBorders",
-      "radius": "setCornerRadius",
-      "motion": "setWindowAnimations",
       "noGaps": "noWindowGaps"
     },
     "binds": [

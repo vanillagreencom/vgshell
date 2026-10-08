@@ -134,12 +134,36 @@ var USER_VALUES = { table: "__vgs_options", verb: "report", key: "vgs-user-value
 // which HyprlandState.js asks for and judges.
 var USER_BINDS = { table: "__vgs_binds", verb: "report", key: "vgs-user-binds" };
 
-var APPEARANCE_GROUPS = ["borders", "radius", "motion", "noGaps"];
-// The groups whose values a user's own line would replace: they are applied
-// after the configuration. `noGaps` is a workspace rule, which holds where
-// it stands.
+// The switch a plugin's manifest may map to a boolean setting: a workspace
+// rule, which holds where it stands.
+var APPEARANCE_GROUPS = ["noGaps"];
+var APPEARANCE_DEFAULTS = { noGaps: false };
+// The theme's groups, which a user's own line would replace: they are
+// applied after the configuration, each while the theme's `groups` says
+// so, which the user's Appearance values decide (ThemeLogic.APPEARANCE).
 var APPLIED_GROUPS = ["borders", "radius", "motion"];
-var APPEARANCE_DEFAULTS = { borders: true, radius: true, motion: false, noGaps: false };
+// The option of each applied group a user's Appearance row shows, by the
+// path `hyprctl getoption` and `hl.get_config` read and its type, as for
+// OPTIONS, and `member`, the shell.json `appearance` member that decides
+// the group (ThemeLogic.APPEARANCE, whose `hyprland` names the same group;
+// scripts/test-hyprland-layer.js holds the two equal). Kept out of
+// OPTIONS, which a manifest may map a setting to.
+var APPEARANCE_PATHS = {
+    borders: { path: "general.border_size", type: "int", member: "borderWidth" },
+    radius: { path: "decoration.rounding", type: "int", member: "windowRadius" },
+    motion: { path: "animations.enabled", type: "bool", member: "windowAnimations" }
+};
+
+// The getoption type of PATH, an OPTIONS or APPEARANCE_PATHS path, or null
+// for one getoption cannot read: the per-device row and any other path.
+function readType(path) {
+    if (Object.prototype.hasOwnProperty.call(OPTIONS, path))
+        return OPTIONS[path].device === undefined ? OPTIONS[path].type : null;
+    var groups = Object.keys(APPEARANCE_PATHS);
+    for (var i = 0; i < groups.length; i++)
+        if (APPEARANCE_PATHS[groups[i]].path === path) return APPEARANCE_PATHS[groups[i]].type;
+    return null;
+}
 
 // Hyprland animation presets VGS owns. `smooth` sets window, layer and fade
 // timings and gives workspaces a leaf too, so the preset is complete for
@@ -326,11 +350,12 @@ function borderLines(theme, themeName) {
 
 function radiusLines(theme, highestScale) {
     var radius = theme.hyprland.window.radius;
+    var groupRadius = theme.hyprland.window.groupRadius;
     var scale = typeof highestScale === "number" && isFinite(highestScale) && highestScale > 0 ? highestScale : 1;
-    var groupbar = boundedWhole(radius * scale, 0, 20);
+    var groupbar = boundedWhole(groupRadius * scale, 0, 20);
     return [
         "-- Theme appearance: corner radius.",
-        "-- Group tabs use the window radius times the highest monitor scale (" + luaNumber(scale) + "), bounded to 20.",
+        "-- Group tabs use " + (groupRadius === radius ? "the window radius" : "the group tab radius (" + luaNumber(groupRadius) + ")") + " times the highest monitor scale (" + luaNumber(scale) + "), bounded to 20.",
         "hl.config({",
         "    decoration = {",
         "        rounding = " + luaNumber(radius) + ",",
@@ -401,6 +426,21 @@ function groupSwitches(sections) {
 
 function disabledGroupLine(group, setting) {
     return "-- Theme appearance: " + group + " left to the user's config; " + commentText(setting) + " is off.";
+}
+
+function unwrittenGroupLine(group) {
+    return "-- Theme appearance: " + group + " left to the user's config by shell.json appearance." + APPEARANCE_PATHS[group].member + ".";
+}
+
+// The value the layer writes at applied group GROUP's APPEARANCE_PATHS
+// path under THEME.
+function appearanceValue(group, theme) {
+    switch (group) {
+    case "borders": return theme.hyprland.border.size;
+    case "radius": return theme.hyprland.window.radius;
+    case "motion": return !(theme.motionScale === 0 || theme.hyprland.motion.preset === "none");
+    }
+    throw new Error("HyprlandLayer: applied group " + JSON.stringify(group) + " is not one of " + APPLIED_GROUPS.join(", "));
 }
 
 // The Lua string literal of the class pattern that matches APP_ID alone: the
@@ -1132,12 +1172,14 @@ function appliedLines(values, paths) {
 // { id, shortcut, key, heldBy }. A bind whose key the user set to null
 // becomes an `unbound` comment. A layer rule an earlier section already
 // wrote, the same namespace and effects, is written once. THEME gives the
-// theme's colours and Hyprland tokens, and `tuiMargins`, the margins
+// theme's colours and Hyprland tokens, `groups`, whether each of
+// APPLIED_GROUPS is written, and `tuiMargins`, the margins
 // tuiWindowLines keeps the floating TUIs from the output's edges. After
-// the header comes appliedLines: the APPLIED_GROUPS whose switch is on, in
+// the header comes appliedLines: the APPLIED_GROUPS the theme writes, in
 // order, then each section's `hl.config` options line under its heading.
-// A group whose switch is off is a comment after it, and `noGaps` follows
-// them, written where it stands. The floating
+// A group the theme leaves to the user is a comment after it, naming the
+// Appearance member that decides it, and `noGaps` follows them, written
+// where it stands, as its switch says. The floating
 // TUIs' window rules follow them, then the shell's application window
 // rule, the user binds' recorder (userBindLines), the overlay capture, the
 // key capture pass-through and the session lock's restore, before any
@@ -1151,7 +1193,9 @@ function appliedLines(values, paths) {
 // as { id, setting, path, value }, each one skipped as a conflict, { id,
 // setting, path, heldBy }, or refused, { id, setting, path, error },
 // `padConflicts`, each section whose pads a section before it by id
-// defines, { id, heldBy }, and `binds`, the description of every bind
+// defines, { id, heldBy }, `appearance`, each applied group's option
+// written, { id: "", setting, the Appearance member, path, value }, and
+// `binds`, the description of every bind
 // written in the default submap.
 function render(sections, theme, themeName, highestScale, touchpads, touchpadFailure, monitorOwnerId) {
     var plan = resolveBinds(sections);
@@ -1159,9 +1203,16 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     var applied = [];
     var groups = [];
     var groupLines = { borders: function () { return borderLines(theme, themeName); }, radius: function () { return radiusLines(theme, highestScale); }, motion: function () { return motionLines(theme); } };
+    var appearance = [];
     APPLIED_GROUPS.forEach(function (group) {
-        if (switches.groups[group].enabled) applied = applied.concat(groupLines[group]());
-        else groups.push(disabledGroupLine(group, switches.groups[group].setting), "");
+        if (theme.groups === null || typeof theme.groups !== "object" || typeof theme.groups[group] !== "boolean")
+            throw new Error("HyprlandLayer: theme.groups." + group + " must be a boolean, got " + JSON.stringify(theme.groups && theme.groups[group]));
+        if (!theme.groups[group]) {
+            groups.push(unwrittenGroupLine(group), "");
+            return;
+        }
+        applied = applied.concat(groupLines[group]());
+        appearance.push({ id: "", setting: APPEARANCE_PATHS[group].member, path: APPEARANCE_PATHS[group].path, value: appearanceValue(group, theme) });
     });
     if (switches.groups.noGaps.enabled) groups = groups.concat(noGapsLines());
     else groups.push(disabledGroupLine("noGaps", switches.groups.noGaps.setting));
@@ -1222,7 +1273,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
         padsOwner = section.id;
         lines = lines.concat([""], padLines(section, padMotion(theme)));
     });
-    var paths = options.written.filter(function (option) { return OPTIONS[option.path].device === undefined; }).map(function (option) { return option.path; });
+    var paths = options.written.concat(appearance).filter(function (option) { return readType(option.path) !== null; }).map(function (option) { return option.path; });
     lines = [
         "-- Generated by the vgs shell; an edit here is lost. The shell writes this",
         "-- file again when a plugin, shell.json or the theme changes, and",
@@ -1244,6 +1295,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
         options: options.written,
         optionConflicts: options.conflicts,
         optionRefusals: options.refusals,
+        appearance: appearance,
         binds: boundDescriptions(plan)
     };
 }

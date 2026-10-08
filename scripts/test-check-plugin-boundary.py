@@ -45,6 +45,9 @@ ROWS = [
     ("plugin instantiates a notification server", CLEAN_WIDGET.replace("BarWidget { }", "NotificationServer { }"), CLEAN_CORE, "core-type"),
     ("plugin instantiates a polkit agent", CLEAN_WIDGET.replace("BarWidget { }", "PolkitAgent { }"), CLEAN_CORE, "core-type"),
     ("plugin dispatches to Hyprland directly", CLEAN_WIDGET.replace("BarWidget { }", 'BarWidget { Component.onCompleted: Hyprland.dispatch("workspace 1") }'), CLEAN_CORE, "core-type"),
+    ("plugin writes the theme's input", CLEAN_WIDGET.replace("BarWidget { }", 'BarWidget { Component.onCompleted: Theme.appearanceInput = "{}" }'), CLEAN_CORE, "theme-input"),
+    ("plugin binds the theme's input", CLEAN_WIDGET.replace("BarWidget { }", 'BarWidget { Binding { target: Theme; property: "appearanceInput"; value: "{}" } }'), CLEAN_CORE, "theme-input"),
+    ("the core binds the theme's input", CLEAN_WIDGET, CLEAN_CORE.replace("QtObject {", 'QtObject { property string input: "appearanceInput";'), None),
     ("a window type as a word is not a finding", CLEAN_WIDGET.replace("BarWidget { }", 'BarWidget { property string note: "Window" }'), CLEAN_CORE, None),
     ("core names a plugin id", CLEAN_CORE.replace('"vgs."', '"vgs.bar"'), None, "core-plugin-name"),
     ("core names a plugin id in a template literal", CLEAN_CORE.replace('"vgs."', '`vgs.bar`'), None, "core-plugin-name"),
@@ -65,6 +68,7 @@ JS_ROWS = [
     ("a regular expression after return hides no code", CLEAN_JS + 'function f(s) { return /^\\/*x/.test(s); }\nvar w = Qt.createQmlObject("PanelWindow { }", null);\n/* end */\n', "surface-type"),
     ("a // inside a regular expression opens no comment", CLEAN_JS + 'var re = /\\/\\//; var w = Qt.createQmlObject("PanelWindow { }", null);\n', "surface-type"),
     ("plugin JS dispatches to Hyprland directly", CLEAN_JS + 'function go() { Hyprland.dispatch("workspace 1"); }\n', "core-type"),
+    ("plugin JS writes the theme's input", CLEAN_JS + 'function set(theme) { theme.appearanceInput = "{}"; }\n', "theme-input"),
 ]
 
 # unreadable rows: name, path under the shell tree whose permission bits are removed; the check exits 2 and names that path

@@ -30,7 +30,9 @@ const overlayRule = { namespace: "^vgs:overlay$", blur: true, ignoreAlpha: 0.6 }
 const toggle = { shortcut: "toggle", key: "SUPER+SPACE" };
 // The border colours as Theme publishes them, `#aarrggbb`.
 const colours = { accent: "#ff5a3659", border: "#80112233", borderSubtle: "#ff222222", warning: "#ffffaa00", surfaceRaised: "#ff333333", onAccent: "#ff000000", text: "#ffeeeeee", onWarning: "#ff010101" };
-const theme = { colours, hyprland: { border: { size: 4 }, window: { radius: 8, roundingPower: 3 }, motion: { preset: "snappy" }, shadow: { color: "#99000088" } }, motionScale: 2, tuiMargins: { bar: 30, gutter: 10 } };
+// `groups` as Theme.appearanceState.hyprland gives it with no Appearance
+// value: borders and radius written, motion left to the user.
+const theme = { colours, hyprland: { border: { size: 4 }, window: { radius: 8, roundingPower: 3, groupRadius: 8 }, motion: { preset: "snappy" }, shadow: { color: "#99000088" } }, groups: { borders: true, radius: true, motion: false }, motionScale: 2, tuiMargins: { bar: 30, gutter: 10 } };
 // The floating TUIs' window rules as the layer writes them, byte for byte:
 // in the Lua literal `\\.` is the regex `\.`, a literal dot. Each size is
 // the class's preferred size, at most the output less the fixture's 10 px
@@ -45,6 +47,13 @@ const NO_GAPS_SECTION = [
     "hl.workspace_rule({ workspace = \"\", gaps_in = 0, gaps_out = 0 })"
 ];
 const NO_GAPS_OFF = "-- Theme appearance: noGaps left to the user's config; core default is off.";
+// An applied group the user's Appearance values leave to the user's own
+// Hyprland configuration, by the shell.json member that decides it.
+const UNWRITTEN = {
+    borders: "-- Theme appearance: borders left to the user's config by shell.json appearance.borderWidth.",
+    radius: "-- Theme appearance: radius left to the user's config by shell.json appearance.windowRadius.",
+    motion: "-- Theme appearance: motion left to the user's config by shell.json appearance.windowAnimations."
+};
 const TUI_SECTION = [
     "-- Floating TUIs: each size class's app-id floats, centred, at its size, clamped to its output.",
     "hl.window_rule({ name = \"vgs:tui\", match = { class = \"^org\\\\.vgs\\\\.tui$\" }, float = true, center = true, size = { \"min(875,monitor_w-20)\", \"min(600,monitor_h-50)\" } })",
@@ -356,12 +365,14 @@ const MANIFESTS = [
     ["binds not a list", { hyprland: { binds: toggle } }, "hyprland.binds must be a list"],
     ["layerRules not a list", { hyprland: { layerRules: overlayRule } }, "hyprland.layerRules must be a list"],
     ["no binds, rules, appearance, options, pads or monitors", { hyprland: { binds: [], layerRules: [] } }, "hyprland declares no binds, layer rules, appearance, options, pads or monitors"],
-    ["appearance alone", { capabilities: ["theme"], settings: { setBorders: true }, schema: { setBorders: { type: "boolean", label: "Set borders" } }, hyprland: { appearance: { borders: "setBorders" } } }, null],
-    ["appearance unknown group", { capabilities: ["theme"], settings: { setBorders: true }, schema: { setBorders: { type: "boolean", label: "Set borders" } }, hyprland: { appearance: { gaps: "setBorders" } } }, "hyprland.appearance.gaps must be one of borders, radius, motion, noGaps"],
+    ["appearance unknown group", { capabilities: ["theme"], settings: { noGaps: true }, schema: { noGaps: { type: "boolean", label: "No gaps" } }, hyprland: { appearance: { gaps: "noGaps" } } }, "hyprland.appearance.gaps must be one of noGaps"],
+    // The theme's groups follow the user's Appearance values, which no
+    // manifest switch decides.
+    ["a theme group is no manifest switch", { capabilities: ["theme"], settings: { setBorders: true }, schema: { setBorders: { type: "boolean", label: "Set borders" } }, hyprland: { appearance: { borders: "setBorders" } } }, "hyprland.appearance.borders must be one of noGaps"],
     ["appearance noGaps", { capabilities: ["theme"], settings: { noGaps: false }, schema: { noGaps: { type: "boolean", label: "No gaps" } }, hyprland: { appearance: { noGaps: "noGaps" } } }, null],
-    ["appearance missing schema key", { capabilities: ["theme"], settings: { setBorders: true }, schema: { setBorders: { type: "boolean", label: "Set borders" } }, hyprland: { appearance: { borders: "missing" } } }, "hyprland.appearance.borders names no schema entry \"missing\""],
-    ["appearance non-boolean schema key", { capabilities: ["theme"], settings: { setBorders: "yes" }, schema: { setBorders: { type: "string", label: "Set borders", presets: [{ value: "yes" }] } }, hyprland: { appearance: { borders: "setBorders" } } }, "hyprland.appearance.borders must name a boolean schema entry"],
-    ["appearance without theme capability", { settings: { setBorders: true }, schema: { setBorders: { type: "boolean", label: "Set borders" } }, hyprland: { appearance: { borders: "setBorders" } } }, "hyprland.appearance needs capability theme"],
+    ["appearance missing schema key", { capabilities: ["theme"], settings: { noGaps: true }, schema: { noGaps: { type: "boolean", label: "No gaps" } }, hyprland: { appearance: { noGaps: "missing" } } }, "hyprland.appearance.noGaps names no schema entry \"missing\""],
+    ["appearance non-boolean schema key", { capabilities: ["theme"], settings: { noGaps: "yes" }, schema: { noGaps: { type: "string", label: "No gaps", presets: [{ value: "yes" }] } }, hyprland: { appearance: { noGaps: "noGaps" } } }, "hyprland.appearance.noGaps must name a boolean schema entry"],
+    ["appearance without theme capability", { settings: { noGaps: true }, schema: { noGaps: { type: "boolean", label: "No gaps" } }, hyprland: { appearance: { noGaps: "noGaps" } } }, "hyprland.appearance needs capability theme"],
     ["appearance empty", { capabilities: ["theme"], hyprland: { appearance: {} } }, "hyprland.appearance must be a non-empty object"],
     ["binds without capability shortcut", { capabilities: [], hyprland: { binds: [toggle] } }, "hyprland.binds needs capability shortcut"],
     ["a bind that is no object", { hyprland: { binds: ["toggle"] } }, "hyprland.binds.0 must be an object"],
@@ -684,14 +695,9 @@ function verify(logic, layer, shellText) {
     }, "hyprlandSection takes the row's keys over the manifest's and names the unknown ones");
     same(logic.hyprlandSection({}, declared).binds, declared.hyprland.binds, "hyprlandSection keeps the manifest's keys without a row");
     same(logic.hyprlandSection(config, manifestOf(logic, {})), { id: "acme.keys", version: "1.0.0", binds: [], layerRules: [], appearance: {}, options: [], monitors: null, pads: null, padRefusals: [], unknownKeys: ["early", "inbox", "later", "toggle"] }, "a manifest asking nothing leaves every row name unknown");
-    const appearanceManifest = manifestOf(logic, { capabilities: ["theme"], settings: { setBorders: true, setMotion: false }, schema: { setBorders: { type: "boolean", label: "Set borders" }, setMotion: { type: "boolean", label: "Set motion" } }, hyprland: { appearance: { borders: "setBorders", motion: "setMotion" } } });
     const gapsManifest = manifestOf(logic, { capabilities: ["theme"], settings: { noGaps: false }, schema: { noGaps: { type: "boolean", label: "No gaps" } }, hyprland: { appearance: { noGaps: "noGaps" } } });
     same(logic.hyprlandSection({ plugins: [{ id: "acme.keys", noGaps: true }] }, gapsManifest).appearance, { noGaps: { setting: "noGaps", enabled: true } }, "hyprlandSection resolves the gaps switch from the plugins row");
     same(logic.hyprlandSection({}, gapsManifest).appearance, { noGaps: { setting: "noGaps", enabled: false } }, "the gaps switch defaults to the manifest's off");
-    same(logic.hyprlandSection({ plugins: [{ id: "acme.keys", setBorders: false, setMotion: true }] }, appearanceManifest).appearance, {
-        borders: { setting: "setBorders", enabled: false },
-        motion: { setting: "setMotion", enabled: true }
-    }, "hyprlandSection resolves appearance switches from effective plugin settings");
 
     const section = (id, binds, layerRules, version, appearance) => ({ id: id, version: version || "1.0.0", binds: binds, layerRules: layerRules, appearance: appearance || {}, options: [], monitors: null, unknownKeys: [] });
     // The values a layer applies once the configuration has loaded: the
@@ -714,25 +720,36 @@ function verify(logic, layer, shellText) {
     const bare = layer.render([], theme, "vgs", 2);
     const bareLines = lines(bare);
     assert.ok(bareLines.includes('hl.on("hyprland.start", function () hl.exec_cmd("vgshell start") end)'), "the layer starts VGS by its command name when Hyprland starts");
-    const allOff = { borders: { setting: "b", enabled: false }, radius: { setting: "r", enabled: false }, motion: { setting: "m", enabled: false } };
-    const quiet = lines(layer.render([section("vgs.themes", [], [], "1.0.0", allOff)], theme, "vgs", 1));
+    const groupsOf = (borders, radius, motion) => Object.assign({}, theme, { groups: { borders: borders, radius: radius, motion: motion } });
+    const quietOut = layer.render([], groupsOf(false, false, false), "vgs", 1);
+    const quiet = lines(quietOut);
     same(quiet.slice(APPLIED_AT, quiet.indexOf(TUI_SECTION[0])), [
         ...appliedSection([], []),
         "",
-        "-- Theme appearance: borders left to the user's config; b is off.",
+        UNWRITTEN.borders,
         "",
-        "-- Theme appearance: radius left to the user's config; r is off.",
+        UNWRITTEN.radius,
         "",
-        "-- Theme appearance: motion left to the user's config; m is off.",
+        UNWRITTEN.motion,
         "",
         NO_GAPS_OFF,
         ""
-    ], "with every group off the applied section sets nothing, byte for byte, and each group is a comment after it");
+    ], "with every group left to the user the applied section sets nothing, byte for byte, and each group is a comment after it naming its member");
+    same(quietOut.appearance, [], "a group the layer leaves to the user reports no option written");
+    same(bare.appearance, [{ id: "", setting: "borderWidth", path: "general.border_size", value: 4 }, { id: "", setting: "windowRadius", path: "decoration.rounding", value: 8 }], "each written group reports its option, its member and the value written");
+    same(bareLines[APPLIED_AT + 4], "    for _, path in ipairs({ \"general.border_size\", \"decoration.rounding\" }) do options.start[path] = hl.get_config(path) end", "the recorder reads each written group's option");
+    same(lines(layer.render([], groupsOf(true, false, true), "vgs", 1))[APPLIED_AT + 4], "    for _, path in ipairs({ \"general.border_size\", \"animations.enabled\" }) do options.start[path] = hl.get_config(path) end", "the recorder reads only the groups written");
+    same(layer.render([], groupsOf(true, false, true), "vgs", 1).appearance.map(row => row.value), [4, true], "a written motion group reports animations on");
+    same(layer.render([], Object.assign(groupsOf(false, false, true), { motionScale: 0 }), "vgs", 1).appearance, [{ id: "", setting: "windowAnimations", path: "animations.enabled", value: false }], "a still theme's motion group reports animations off");
+    ["borders", "radius", "motion"].forEach(group => {
+        const broken = Object.assign({}, theme, { groups: Object.assign({}, theme.groups, { [group]: undefined }) });
+        assert.throws(() => layer.render([], broken, "vgs", 1), new RegExp("theme\\.groups\\." + group + " must be a boolean"), "a group the theme does not state is refused: " + group);
+    });
     same(applied(bare).filter(line => line.startsWith("-- ")), ["-- Theme vgs: window, group and group bar borders.", "-- Theme appearance: corner radius.", "-- Group tabs use the window radius times the highest monitor scale (2), bounded to 20."], "the groups that are on are applied in order");
     same(placed(bare).filter(line => /hl\.config\(\{$|border_size|rounding|hl\.animation|hl\.curve|animations = /.test(line)), [], "a group that is on writes none of its values where a user's line would replace them");
     assert.ok(applied(bare).indexOf("-- Theme vgs: window, group and group bar borders.") < applied(bare).indexOf("-- Theme appearance: corner radius."), "borders are before radius");
-    assert.ok(lines(bare).indexOf("end", APPLIED_AT) < lines(bare).indexOf("-- Theme appearance: motion left to the user's config; core default is off."), "the applied groups are before the motion comment");
-    assert.ok(bareLines.indexOf("-- Theme appearance: motion left to the user's config; core default is off.") < bareLines.indexOf(NO_GAPS_OFF), "motion is before the gaps switch");
+    assert.ok(lines(bare).indexOf("end", APPLIED_AT) < lines(bare).indexOf(UNWRITTEN.motion), "the applied groups are before the motion comment");
+    assert.ok(bareLines.indexOf(UNWRITTEN.motion) < bareLines.indexOf(NO_GAPS_OFF), "motion is before the gaps switch");
     assert.ok(bareLines.indexOf(NO_GAPS_OFF) !== -1 && bareLines.indexOf(NO_GAPS_OFF) < bareLines.indexOf(TUI_SECTION[0]), "theme appearance, gaps last, is before floating TUIs");
     assert.ok(!bareLines.some(line => line.indexOf("hl.workspace_rule(") !== -1), "with no owner the layer writes no gap rule");
     // No window gaps: on, the two lines after motion and before the
@@ -741,7 +758,7 @@ function verify(logic, layer, shellText) {
     const gapsOn = lines(layer.render([gapsSection(true)], theme, "vgs", 1));
     const gapsAt = gapsOn.indexOf(NO_GAPS_SECTION[0]);
     same(gapsOn.slice(gapsAt, gapsAt + NO_GAPS_SECTION.length + 2), [...NO_GAPS_SECTION, "", TUI_SECTION[0]], "no window gaps writes its workspace rule just before the floating TUIs");
-    assert.ok(gapsAt > gapsOn.indexOf("-- Theme appearance: motion left to the user's config; core default is off."), "no window gaps follows motion");
+    assert.ok(gapsAt > gapsOn.indexOf(UNWRITTEN.motion), "no window gaps follows motion");
     const gapsOff = lines(layer.render([gapsSection(false)], theme, "vgs", 1));
     assert.ok(gapsOff.includes("-- Theme appearance: noGaps left to the user's config; noWindowGaps is off."), "the gaps switch off names its setting");
     assert.ok(!gapsOff.some(line => line.indexOf("hl.workspace_rule(") !== -1 || line.indexOf("gaps_") !== -1), "the gaps switch off writes no gaps");
@@ -829,17 +846,12 @@ function verify(logic, layer, shellText) {
     });
     assert.ok(lines(layer.render([], Object.assign({}, theme, { tuiMargins: { bar: 0, gutter: 0 } }), "vgs", 1)).includes("hl.window_rule({ name = \"vgs:tui-tall\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.tall$\" }, float = true, center = true, size = { \"min(875,monitor_w-0)\", \"min(900,monitor_h-0)\" } })"), "zero margins clamp to the whole output");
 
-    const motionSection = section("vgs.themes", [], [], "1.0.0", {
-        borders: { setting: "setWindowBorders", enabled: false },
-        radius: { setting: "setCornerRadius", enabled: false },
-        motion: { setting: "setWindowAnimations", enabled: true }
-    });
-    const switched = layer.render([motionSection], theme, "vgs", 1.5);
+    const switched = layer.render([], groupsOf(false, false, true), "vgs", 1.5);
     const switchedLines = lines(switched);
     same(applied(switched)[0], "-- Theme appearance: window animations.", "with borders and radius off the motion group is the first value applied");
     assert.ok(!switchedLines.some(line => line.indexOf("border_size = 4") !== -1), "a disabled border group writes no border size");
     assert.ok(!switchedLines.some(line => line.indexOf("rounding = 8") !== -1), "a disabled radius group writes no radius");
-    assert.ok(switchedLines.includes("-- Theme appearance: borders left to the user's config; setWindowBorders is off."), "a disabled border group names its switch");
+    assert.ok(switchedLines.includes(UNWRITTEN.borders), "an unwritten border group names its member");
     const motionRows = [
         {
             name: "snappy",
@@ -872,28 +884,40 @@ function verify(logic, layer, shellText) {
         }
     ];
     for (const row of motionRows) {
-        const motionTheme = JSON.parse(JSON.stringify(theme));
+        const motionTheme = JSON.parse(JSON.stringify(groupsOf(false, false, true)));
         motionTheme.hyprland.motion.preset = row.name;
         motionTheme.motionScale = row.scale;
-        const motionLines = applied(layer.render([motionSection], motionTheme, "vgs", 1));
+        const motionLines = applied(layer.render([], motionTheme, "vgs", 1));
         for (const want of row.present)
             assert.ok(motionLines.includes(want), `motion preset ${row.name} writes ${want}`);
         for (const forbidden of row.absent)
             assert.ok(!motionLines.some(line => line.indexOf(forbidden) !== -1), `motion preset ${row.name} omits ${forbidden}`);
     }
-    const switchOn = layer.render([section("vgs.themes", [], [], "1.0.0", { borders: { setting: "setWindowBorders", enabled: true }, radius: { setting: "setCornerRadius", enabled: false }, motion: { setting: "setWindowAnimations", enabled: false } })], theme, "vgs", 1);
-    const switchOff = layer.render([section("vgs.themes", [], [], "1.0.0", { borders: { setting: "setWindowBorders", enabled: false }, radius: { setting: "setCornerRadius", enabled: false }, motion: { setting: "setWindowAnimations", enabled: false } })], theme, "vgs", 1);
-    assert.notStrictEqual(switchOn.text, switchOff.text, "a switch change changes the rendered layer text");
-    assert.ok(applied(switchOn).includes("        border_size = 4,"), "the on switch applies the theme border value");
-    assert.ok(!switchOff.text.includes("border_size"), "the off switch writes no border value");
-    const still = layer.render([section("vgs.themes", [], [], "1.0.0", { motion: { setting: "setWindowAnimations", enabled: true } })], Object.assign({}, theme, { motionScale: 0 }), "vgs", 1);
+    const switchOn = layer.render([], groupsOf(true, false, false), "vgs", 1);
+    const switchOff = layer.render([], groupsOf(false, false, false), "vgs", 1);
+    assert.notStrictEqual(switchOn.text, switchOff.text, "a group change changes the rendered layer text");
+    assert.ok(applied(switchOn).includes("        border_size = 4,"), "a written border group applies the theme border value");
+    assert.ok(!switchOff.text.includes("border_size ="), "an unwritten border group writes no border value");
+    const still = layer.render([], Object.assign(groupsOf(true, true, true), { motionScale: 0 }), "vgs", 1);
     assert.ok(applied(still).includes("hl.config({ animations = { enabled = false } })"), "motion scale 0 disables animations");
     const firstOwner = layer.render([
-        section("vgs.themes", [], [], "1.0.0", { borders: { setting: "b", enabled: false }, radius: { setting: "r", enabled: false } }),
-        section("acme.theme", [], [], "1.0.0", { borders: { setting: "a", enabled: true } })
+        section("vgs.themes", [], [], "1.0.0", { noGaps: { setting: "b", enabled: false } }),
+        section("acme.theme", [], [], "1.0.0", { noGaps: { setting: "a", enabled: true } })
     ], theme, "vgs", 1);
     same(firstOwner.appearanceConflicts, [{ id: "vgs.themes", heldBy: "acme.theme" }], "the first appearance owner by id wins");
-    assert.ok(!lines(firstOwner).includes("-- Theme appearance: radius left to the user's config; r is off."), "a later appearance owner is ignored");
+    assert.ok(!lines(firstOwner).includes("-- Theme appearance: noGaps left to the user's config; b is off."), "a later appearance owner is ignored");
+    // Group tabs take their own radius, which a user's corner radius sets
+    // to half the window's.
+    const halfTabs = JSON.parse(JSON.stringify(theme));
+    halfTabs.hyprland.window.radius = 12;
+    halfTabs.hyprland.window.groupRadius = 6;
+    const halfLines = applied(layer.render([], halfTabs, "vgs", 1.5));
+    same(halfLines.filter(line => /rounding = |Group tabs/.test(line)), [
+        "-- Group tabs use the group tab radius (6) times the highest monitor scale (1.5), bounded to 20.",
+        "        rounding = 12,",
+        "            rounding = 9,",
+        "            gradient_rounding = 9,"
+    ], "group tabs use their own radius times the highest scale");
 
     const out = layer.render([
         section("vgs.notes", [{ shortcut: "inbox", key: "SUPER+N" }, { shortcut: "open", key: "SUPER+SPACE" }], [{ namespace: "^vgs:layer$", blur: true, ignoreAlpha: 0.6 }, overlayRule]),
@@ -976,9 +1000,9 @@ function verify(logic, layer, shellText) {
         "-- acme.keys 1.0.0: input options its settings set",
         "hl.config({ input = { sensitivity = 0.35, touchpad = { tap_to_click = false }, kb_layout = \"us,de\" } })"
     ], "the set options are one hl.config, in the manifest's order, applied after the theme's groups");
-    same(lines(optionsOut)[APPLIED_AT + 4], "    for _, path in ipairs({ \"input.sensitivity\", \"input.touchpad.tap_to_click\", \"input.kb_layout\" }) do options.start[path] = hl.get_config(path) end", "the layer reads each written option as it loads");
-    const quietOptions = lines(layer.render([Object.assign({}, optionSection({ sensitivity: 0.35, touchpad: false }), { appearance: allOff })], theme, "vgs", 1, ["elan-touchpad"]));
-    same(quietOptions.slice(APPLIED_AT, quietOptions.indexOf("-- Theme appearance: borders left to the user's config; b is off.") - 1),
+    same(lines(optionsOut)[APPLIED_AT + 4], "    for _, path in ipairs({ \"input.sensitivity\", \"input.touchpad.tap_to_click\", \"input.kb_layout\", \"general.border_size\", \"decoration.rounding\" }) do options.start[path] = hl.get_config(path) end", "the layer reads each written option and written group's option as it loads");
+    const quietOptions = lines(layer.render([optionSection({ sensitivity: 0.35, touchpad: false })], Object.assign({}, theme, { groups: { borders: false, radius: false, motion: false } }), "vgs", 1, ["elan-touchpad"]));
+    same(quietOptions.slice(APPLIED_AT, quietOptions.indexOf(UNWRITTEN.borders) - 1),
         appliedSection(["input.sensitivity"], ["-- acme.keys 1.0.0: input options its settings set", "hl.config({ input = { sensitivity = 0.35 } })"]),
         "the applied section holds the options line, byte for byte, and reads no per-device option");
     same(quietOptions.slice(coreEnd(quietOptions) + 1, coreEnd(quietOptions) + 4), ["", "-- acme.keys 1.0.0: input options its settings set", "hl.device({ name = \"elan-touchpad\", enabled = false })"], "a touchpad's line stays with its plugin's section");
@@ -1207,6 +1231,7 @@ function verifyStatusAppearance(source, layer = load(layerFile)) {
         published.hyprland = Object.assign({}, result.values.hyprland, {
             shadow: Object.assign({}, result.values.hyprland.shadow, { color: toColor(result.values.hyprland.shadow.color) })
         });
+        published.appearanceState = themeJudge.published(tokens, result, "").appearance;
         const appearance = vm.runInNewContext(bindings[0][1], { Theme: published });
         const lines = layer.borderLines(appearance, entry.name).join("\n");
         assert.match(lines, /^\s+gradients = true,$/m);
@@ -1224,6 +1249,117 @@ function verifyStatusAppearance(source, layer = load(layerFile)) {
 }
 const appearanceSource = fs.readFileSync(path.join(__dirname, "..", "shell", "Core", "HyprlandLayer.qml"), "utf8");
 verifyStatusAppearance(appearanceSource);
+
+// The applied block the layer wrote for the shipped theme before
+// Appearance values existed, byte for byte (main at 6210e945, vgs.themes'
+// default switches: borders and radius on, motion off, highest scale 1.5).
+// With no `appearance` key the layer writes it unchanged.
+const VGS_APPLIED = [
+    "-- Theme vgs: window, group and group bar borders.",
+    "hl.config({",
+    "    general = {",
+    "        col = {",
+    "            active_border = \"rgba(ff5a36ff)\",",
+    "            inactive_border = \"rgba(292929ff)\",",
+    "            nogroup_border_active = \"rgba(ff5a36ff)\",",
+    "            nogroup_border = \"rgba(1c1c1cff)\",",
+    "        },",
+    "        border_size = 2,",
+    "    },",
+    "    group = {",
+    "        col = {",
+    "            border_active = \"rgba(ff5a36ff)\",",
+    "            border_inactive = \"rgba(292929ff)\",",
+    "            border_locked_active = \"rgba(ffb000ff)\",",
+    "            border_locked_inactive = \"rgba(292929ff)\",",
+    "        },",
+    "        groupbar = {",
+    "            col = {",
+    "                active = \"rgba(ff5a36ff)\",",
+    "                inactive = \"rgba(101010ff)\",",
+    "                locked_active = \"rgba(ffb000ff)\",",
+    "                locked_inactive = \"rgba(101010ff)\",",
+    "            },",
+    "            text_color = \"rgba(000000ff)\",",
+    "            text_color_inactive = \"rgba(d7d7d9ff)\",",
+    "            text_color_locked_active = \"rgba(000000ff)\",",
+    "            text_color_locked_inactive = \"rgba(d7d7d9ff)\",",
+    "            gradients = true,",
+    "        },",
+    "    },",
+    "    decoration = {",
+    "        shadow = {",
+    "            color = \"rgba(0000008c)\",",
+    "        },",
+    "    },",
+    "})",
+    "-- Theme appearance: corner radius.",
+    "-- Group tabs use the window radius times the highest monitor scale (1.5), bounded to 20.",
+    "hl.config({",
+    "    decoration = {",
+    "        rounding = 0,",
+    "        rounding_power = 2,",
+    "    },",
+    "    group = {",
+    "        groupbar = {",
+    "            rounding = 0,",
+    "            gradient_rounding = 0,",
+    "        },",
+    "    },",
+    "})"
+];
+
+// The user's Appearance values from shell.json to the layer: Theme's
+// publication (ThemeLogic.published), HyprlandLayer.qml's themeAppearance
+// binding over it, and the render, for the shipped theme.
+function verifyAppearanceLayer(layer) {
+    const binding = [...appearanceSource.matchAll(/^    readonly property var themeAppearance: (\(\{[\s\S]*?^    \}\))/gm)][0][1];
+    const shipped = themeJudge.defaults(tokens);
+    const render = (user, scale) => {
+        const result = themeJudge.published(tokens, shipped, user === undefined ? "" : JSON.stringify(user));
+        const published = Object.assign({}, result.values, { appearanceState: result.appearance });
+        for (const group of ["color", "palette"])
+            published[group] = Object.fromEntries(Object.entries(result.values[group]).map(([key, value]) => [key, toColor(value)]));
+        published.hyprland = Object.assign({}, result.values.hyprland, { shadow: { color: toColor(result.values.hyprland.shadow.color) } });
+        const gaps = { id: "vgs.themes", version: "0.1.0", binds: [], layerRules: [], appearance: { noGaps: { setting: "noWindowGaps", enabled: false } }, options: [], monitors: null, pads: null, padRefusals: [], unknownKeys: [] };
+        return layer.render([gaps], vm.runInNewContext(binding, { Theme: published }), "vgs", scale === undefined ? 1.5 : scale, null, "", "");
+    };
+    const block = out => {
+        const all = out.text.split("\n");
+        return all.slice(all.indexOf("        -- Theme vgs: window, group and group bar borders."), all.indexOf("        for path, start in pairs(options.start) do")).map(line => line.slice(8));
+    };
+    const recorder = out => out.text.split("\n")[APPLIED_AT + 4];
+    const shippedOut = render();
+    same(block(shippedOut), VGS_APPLIED, "with no Appearance value the applied block is today's, byte for byte");
+    same(recorder(shippedOut), "    for _, path in ipairs({ \"general.border_size\", \"decoration.rounding\" }) do options.start[path] = hl.get_config(path) end", "the recorder reads exactly the two written groups' options");
+    assert.ok(shippedOut.text.split("\n").includes(UNWRITTEN.motion), "with no Appearance value the user's own animations stay");
+    same(render({}).text, shippedOut.text, "an empty appearance key renders as none");
+    // A user's corner radius: windows the base, group tabs half of it times
+    // the highest scale, round(6 * 1.5) = 9.
+    const rounded = block(render({ windowRadius: 12 }));
+    same(rounded.filter(line => /rounding = |Group tabs/.test(line)), [
+        "-- Group tabs use the group tab radius (6) times the highest monitor scale (1.5), bounded to 20.",
+        "        rounding = 12,",
+        "            rounding = 9,",
+        "            gradient_rounding = 9,"
+    ], "a user's corner radius reaches the windows and half of it the group tabs");
+    same(render({ windowRadius: 12 }).appearance, [{ id: "", setting: "borderWidth", path: "general.border_size", value: 2 }, { id: "", setting: "windowRadius", path: "decoration.rounding", value: 12 }], "the layer reports the user's radius as written");
+    same(block(render({ borderWidth: 5 })).filter(line => /border_size/.test(line)), ["        border_size = 5,"], "a user's border width reaches the border group");
+    const ownRadius = render({ windowRadius: "hyprland" });
+    same([block(ownRadius).some(line => /rounding/.test(line)), ownRadius.text.split("\n").includes(UNWRITTEN.radius), ownRadius.appearance.map(row => row.path), recorder(ownRadius)],
+        [false, true, ["general.border_size"], "    for _, path in ipairs({ \"general.border_size\" }) do options.start[path] = hl.get_config(path) end"],
+        "Use my Hyprland value for the radius writes no radius, names the member and records no radius");
+    const ownBorders = render({ borderWidth: "hyprland" });
+    same([block(ownBorders).some(line => /border_size|active_border|shadow/.test(line)), ownBorders.text.split("\n").includes(UNWRITTEN.borders)], [false, true], "Use my Hyprland value for the border writes no border, colour or shadow");
+    const moving = block(render({ windowAnimations: true }));
+    same(moving.filter(line => /animations = |leaf = "windows"/.test(line)), ["hl.config({ animations = { enabled = true } })", "hl.animation({ leaf = \"windows\", enabled = true, speed = 3.79, bezier = \"vgsEaseOutQuint\" })"], "window animations move with the theme's preset and scale");
+    const snappy = block(render({ windowAnimations: true, motionStyle: "snappy", motionSpeed: 2 }));
+    same(snappy.filter(line => /leaf = "windows"/.test(line)), ["hl.animation({ leaf = \"windows\", enabled = true, speed = 0.9, bezier = \"vgsSnappy\" })"], "Snappy at twice the speed: the snappy preset at half its time, 1.8 * 0.5");
+    same(block(render({ windowAnimations: true, motion: false })).filter(line => /animations = /.test(line)), ["hl.config({ animations = { enabled = false } })"], "Motion off stills the windows the user moves with the shell");
+}
+verifyAppearanceLayer(load(layerFile));
+for (const [member, row] of Object.entries(themeJudge.APPEARANCE).filter(([, row]) => row.hyprland !== undefined))
+    same(load(layerFile).APPEARANCE_PATHS[row.hyprland].member, member, "the layer names the member ThemeLogic gives group " + row.hyprland);
 const statusNeedle = "warning: Theme.color.warning,";
 assert.equal(appearanceSource.split(statusNeedle).length, 2);
 assert.throws(() => verifyStatusAppearance(appearanceSource.replace(statusNeedle, "warning: Theme.palette.warning,")), { code: "ERR_ASSERTION" });
@@ -1319,13 +1455,19 @@ const CONTROLS = [
     [layerFile, "bind keys spaced", "return key.split(\"+\").join(\" + \");", "return key;"],
     [layerFile, "border size written", "tree.general.border_size = theme.hyprland.border.size;", "tree.general.border_size = 2;"],
     [layerFile, "shadow colour written", "tree.decoration = { shadow: { color: hyprColour(\"hyprland.shadow.color\", theme.hyprland.shadow.color) } };", "tree.decoration = { shadow: { color: hyprColour(\"hyprland.shadow.color\", theme.colours.border) } };"],
-    [layerFile, "groupbar radius scaled", "var groupbar = boundedWhole(radius * scale, 0, 20);", "var groupbar = radius;"],
+    [layerFile, "groupbar radius scaled", "var groupbar = boundedWhole(groupRadius * scale, 0, 20);", "var groupbar = groupRadius;"],
+    [layerFile, "group tabs read their own radius", "var groupRadius = theme.hyprland.window.groupRadius;", "var groupRadius = radius;"],
+    [layerFile, "the theme's groups gate the applied groups", "if (!theme.groups[group]) {", "if (false) {"],
+    [layerFile, "an unwritten group is a comment", "groups.push(unwrittenGroupLine(group), \"\");", "groups.push(\"\");"],
+    [layerFile, "the recorder reads the written groups' options", "var paths = options.written.concat(appearance).filter(", "var paths = options.written.filter("],
+    [layerFile, "a written group reports its option", "appearance.push({ id: \"\", setting: APPEARANCE_PATHS[group].member, path: APPEARANCE_PATHS[group].path, value: appearanceValue(group, theme) });", ""],
+    [layerFile, "a written motion group reports whether it moves", "case \"motion\": return !(theme.motionScale === 0 || theme.hyprland.motion.preset === \"none\");", "case \"motion\": return true;"],
+    [layerFile, "a group names the member that decides it", "radius: { path: \"decoration.rounding\", type: \"int\", member: \"windowRadius\" },", "radius: { path: \"decoration.rounding\", type: \"int\", member: \"cornerRadius\" },"],
     [layerFile, "motion scale zero disables", "if (scale === 0 || preset === \"none\")", "if (preset === \"none\")"],
     [layerFile, "motion speed scales", "var speed = Math.max(0.01, animation.speed * scale);", "var speed = Math.max(0.01, animation.speed);"],
     [layerFile, "smooth motion preset", "    smooth: {\n        curves: {", "    silky: {\n        curves: {"],
-    [layerFile, "appearance defaults", "var APPEARANCE_DEFAULTS = { borders: true, radius: true, motion: false, noGaps: false };", "var APPEARANCE_DEFAULTS = { borders: true, radius: true, motion: true, noGaps: false };"],
-    [layerFile, "no window gaps defaults off", "var APPEARANCE_DEFAULTS = { borders: true, radius: true, motion: false, noGaps: false };", "var APPEARANCE_DEFAULTS = { borders: true, radius: true, motion: false, noGaps: true };"],
-    [layerFile, "no window gaps is an appearance group", "var APPEARANCE_GROUPS = [\"borders\", \"radius\", \"motion\", \"noGaps\"];", "var APPEARANCE_GROUPS = [\"borders\", \"radius\", \"motion\"];"],
+    [layerFile, "no window gaps defaults off", "var APPEARANCE_DEFAULTS = { noGaps: false };", "var APPEARANCE_DEFAULTS = { noGaps: true };"],
+    [layerFile, "no window gaps is an appearance group", "var APPEARANCE_GROUPS = [\"noGaps\"];", "var APPEARANCE_GROUPS = [];"],
     [layerFile, "no window gaps is written while on", "if (switches.groups.noGaps.enabled) groups = groups.concat(noGapsLines());", "if (false) groups = groups.concat(noGapsLines());"],
     [layerFile, "zero gaps are a workspace rule", "\"hl.workspace_rule({ workspace = \\\"\\\", gaps_in = 0, gaps_out = 0 })\"", "\"hl.config({ general = { gaps_in = 0, gaps_out = 0 } })\""],
     [layerFile, "the gap rule matches every workspace", "workspace = \\\"\\\", gaps_in", "workspace = \\\"s[false]\\\", gaps_in"],
@@ -1407,9 +1549,10 @@ const CONTROLS = [
     [layerFile, "the layer starts VGS when Hyprland starts", "        START_LINE,\n", ""],
     [layerFile, "the login start uses the start verb", 'hl.exec_cmd(\\"vgshell start\\")', 'hl.exec_cmd(\\"vgshell run\\")'],
     [layerFile, "the values sit inside the callback", "].concat(values.map(function (line) { return \"        \" + line; }), [", "].concat(["],
-    [layerFile, "a group that is on is applied", "if (switches.groups[group].enabled) applied = applied.concat(groupLines[group]());", "if (switches.groups[group].enabled) groups = groups.concat(groupLines[group](), [\"\"]);"],
+    [layerFile, "a written group is applied", "        applied = applied.concat(groupLines[group]());", "        groups = groups.concat(groupLines[group](), [\"\"]);"],
     [layerFile, "an options line is applied", "if (optionText.applied.length > 0) applied = applied.concat([heading], optionText.applied);", "if (optionText.applied.length > 0) lines = lines.concat([\"\", heading], optionText.applied);"],
-    [layerFile, "a per-device option is not read as a user value", "var paths = options.written.filter(function (option) { return OPTIONS[option.path].device === undefined; })", "var paths = options.written.filter(function (option) { return true; })"],
+    [layerFile, "a per-device option is not read as a user value", ".filter(function (option) { return readType(option.path) !== null; })", ".filter(function (option) { return true; })"],
+    [layerFile, "getoption reads no per-device option", "return OPTIONS[path].device === undefined ? OPTIONS[path].type : null;", "return OPTIONS[path].type;"],
     [layerFile, "the user's value is read before the layer's", ",\n        \"        for path in pairs(options.start) do theirs[path] = hl.get_config(path) end\"\n    ].concat(", "\n    ].concat("],
     [layerFile, "a value the user's configuration left alone is no user value", "if theirs[path] ~= start and theirs[path] ~= hl.get_config(path) then", "if theirs[path] ~= hl.get_config(path) then"],
     [layerFile, "the options section precedes the binds", "    plan.sections.forEach(function (row) {\n        var section = row.section;\n        if (section.options.length > 0) {", "    plan.sections.slice().reverse().forEach(function (row) {\n        var section = row.section;\n        if (section.options.length > 0) {"],
@@ -1488,6 +1631,7 @@ try {
         let failed = false;
         try {
             verify(logic, layer, file === shellFile ? fs.readFileSync(mutant, "utf8") : shellText);
+            verifyAppearanceLayer(layer);
         } catch (e) {
             failed = true;
         }

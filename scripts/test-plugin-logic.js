@@ -368,6 +368,8 @@ function suite(ctx, check) {
     check("hyprland.monitors default is judged", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["monitors"], settings: { outputs: { "DP-1\"": { disabled: false } } }, hyprland: { monitors: "outputs" } }), "/p").error, "hyprland.monitors default.DP-1\" identifier refused");
     check("hyprland is a known capability", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["hyprland"] }), "/p").ok, true);
     check("monitors is a known capability", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["monitors"] }), "/p").ok, true);
+    check("appearance is a known capability", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["appearance"] }), "/p").ok, true);
+    check("appearance is not exclusive", ctx.EXCLUSIVE_CAPABILITIES.indexOf("appearance"), -1);
     check("panes is a known capability on a window", ctx.validateManifest(Object.assign({}, svc, { kinds: ["window"], entryPoints: { window: "Window.qml" }, capabilities: ["panes"] }), "/p").ok, true);
     check("panes needs kind window", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["panes"] }), "/p").error, "capability panes needs kind window");
     check("a normalised manifest carries its options", (() => {
@@ -441,6 +443,12 @@ function suite(ctx, check) {
         ["an empty shortcut key list is refused", { plugins: [{ id: "a.b", keys: { tap: [] } }] }, "plugins.0.keys.tap must not be an empty list"],
         ["a bad shortcut key list entry names its index", { plugins: [{ id: "a.b", keys: { tap: ["code:108", "SUPER+"] } }] }, "plugins.0.keys.tap.1 has an empty part"],
         ["a repeated shortcut key list entry is refused", { plugins: [{ id: "a.b", keys: { tap: ["CODE:00108", "code:108"] } }] }, "plugins.0.keys.tap.1 repeats code:108"],
+        // Members are judged where the theme resolves them, so a bad one
+        // blocks no other key of the file.
+        ["appearance values pass", { appearance: { windowRadius: 12, motion: false } }, ""],
+        ["an appearance member the theme refuses passes the file", { appearance: { windowRadius: 99 } }, ""],
+        ["appearance not an object", { appearance: [12] }, "appearance must be an object"],
+        ["appearance null", { appearance: null }, "appearance must be an object"],
     ];
     for (const [name, config, want] of configRows) {
         const got = ctx.configError(config);
@@ -1233,6 +1241,20 @@ function suite(ctx, check) {
     for (const [name, user, effective, shortcut, key, p, want] of keyRows) {
         check("withKey: " + name, dig(ctx.withKey(user, keyed, shortcut, key, effective), p), want);
     }
+    // withAppearance rows: [name, user, effective, key, value, want file]
+    const appearanceRows = [
+        ["a value is written into a new file", null, {}, "windowRadius", 12, { version: 1, appearance: { windowRadius: 12 } }],
+        ["a value joins the user's others and leaves other keys", { version: 1, plugins: [{ id: "a.b" }], appearance: { motion: false } }, {}, "windowRadius", "hyprland", { version: 1, plugins: [{ id: "a.b" }], appearance: { motion: false, windowRadius: "hyprland" } }],
+        ["a value replaces the user's", { appearance: { windowRadius: 4 } }, {}, "windowRadius", 8, { appearance: { windowRadius: 8 }, version: 1 }],
+        ["the user key is seeded from the effective one", null, { appearance: { motion: false } }, "windowRadius", 6, { version: 1, appearance: { motion: false, windowRadius: 6 } }],
+        ["an unset removes the member alone", { appearance: { windowRadius: 4, motion: true } }, {}, "windowRadius", undefined, { appearance: { motion: true }, version: 1 }],
+        ["an unset of the last member removes the key", { version: 1, appearance: { windowRadius: 4 } }, {}, "windowRadius", undefined, { version: 1 }],
+    ];
+    for (const [name, user, effective, key, value, want] of appearanceRows) {
+        check("withAppearance: " + name, ctx.withAppearance(user, effective, key, value), want);
+    }
+    check("withAppearance does not alias the user file", (() => { const u = { appearance: { motion: true } }; ctx.withAppearance(u, {}, "motion", false); return u; })(), { appearance: { motion: true } });
+
     check("withKey does not alias the user file", (() => { const u = { plugins: [{ id: "acme.keys", keys: { toggle: "SUPER+K" } }] }; ctx.withKey(u, keyed, "toggle", null, {}); return u.plugins[0]; })(), { id: "acme.keys", keys: { toggle: "SUPER+K" } });
 
     // bindRows: the key in effect, the manifest's key, the registered description and the manifest's explanation.
@@ -1403,7 +1425,7 @@ suite(load(LOGIC), report);
 // judge's own place in a temporary tree, beside the icon set, the
 // package-manager table and the Hyprland layer's table it imports.
 const CONTROLS = [
-    ["sudo is a capability", '"monitors", "sudo"];', '"monitors"];'],
+    ["sudo is a capability", '"monitors", "sudo", ', '"monitors", '],
     ["a grant longer than a day is refused", "Number(duration) <= SUDO_MINUTES_MAX", "true"],
     ["a sudo read that fails is unknown", 'completion.code !== 0)\n        return failed("sudo: read=failed', 'completion.code !== 0 && false)\n        return failed("sudo: read=failed'],
     ["a sudo deadline is an ISO time", "(indefinite|[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)", "(indefinite|[^ ]+)"],
@@ -1441,6 +1463,12 @@ const CONTROLS = [
     ["monitors is not exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "monitors", "panes"];'],
     ["panes is exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent"];'],
     ["monitors is a capability", "\"hyprland\", \"bluetoothAgent\", \"monitors\", ", "\"hyprland\", \"bluetoothAgent\", "],
+    ["appearance is a capability", "\"sudo\", \"appearance\"];", "\"sudo\"];"],
+    ["appearance is an object", "if (config.appearance !== undefined && !isPlainObject(config.appearance))", "if (false)"],
+    ["an appearance value is set", "else appearance[key] = clone(value);", "else appearance[key] = undefined;"],
+    ["an appearance unset removes the member", "if (value === undefined) delete appearance[key];", "if (false) delete appearance[key];"],
+    ["an empty appearance is removed", "if (Object.keys(appearance).length > 0) out.appearance = appearance;\n    else delete out.appearance;", "out.appearance = appearance;"],
+    ["the appearance key is seeded from the effective one", ": isPlainObject(effective) && isPlainObject(effective.appearance) ? clone(effective.appearance) : {};", ": {};"],
     ["hyprland monitors is a key", 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors"];', 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads"];'],
     ["optionsFrom needs a string", "if (entry.type !== \"string\")\n                return at + \".optionsFrom needs type string\";", "if (false)\n                return at + \".optionsFrom needs type string\";"],
     ["hyprland monitors need the capability", "if (monitors !== undefined && capabilities.indexOf(\"monitors\") === -1)\n        return \"hyprland.monitors needs capability monitors\";", "if (false)\n        return \"hyprland.monitors needs capability monitors\";"],

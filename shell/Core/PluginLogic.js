@@ -20,7 +20,7 @@ var KINDS = ["bar-widget", "bar", "panel", "overlay", "menu", "window", "pane", 
 
 // Capabilities the core can hand a plugin. A manifest naming another one is
 // refused. Capabilities.qml maps each name to its provider.
-var CAPABILITIES = ["compositor", "configure", "idle", "ipc", "lock", "session", "notifications", "polkit", "run", "screens", "screencopy", "shortcut", "surfaces", "builtins", "manager", "panes", "notify", "theme", "layers", "status", "tui", "system", "requirements", "doctor", "secrets", "hyprland", "bluetoothAgent", "monitors", "sudo"];
+var CAPABILITIES = ["compositor", "configure", "idle", "ipc", "lock", "session", "notifications", "polkit", "run", "screens", "screencopy", "shortcut", "surfaces", "builtins", "manager", "panes", "notify", "theme", "layers", "status", "tui", "system", "requirements", "doctor", "secrets", "hyprland", "bluetoothAgent", "monitors", "sudo", "appearance"];
 
 // A plugin's system notification, shell.notify.send. The tones and the
 // icon grammar are the ones the `x-vgs-tone` and `x-vgs-icon` hints take
@@ -247,8 +247,8 @@ function clone(value) {
 }
 
 // The version a configuration file declares. Each user-file edit here
-// (`withEnabled`, `withPlaced`, `withSetting`, `withKey`) writes it into a
-// user file that has none.
+// (`withEnabled`, `withPlaced`, `withSetting`, `withKey`, `withAppearance`)
+// writes it into a user file that has none.
 var CONFIG_VERSION = 1;
 
 // The first defect of a configuration file (shipped or user), or "". The
@@ -262,8 +262,10 @@ var CONFIG_VERSION = 1;
 // `vgshell pkg run` elevates through; `welcome` is an object whose `keys` is
 // a list of objects each with a string `id`, a string `shortcut` and a
 // non-empty string `text`, the welcome's key lines (consentSlotView);
-// `manager` is an object whose `id` is a string (managerId).
-// A key outside that set is carried untouched. Config.qml runs this judge
+// `manager` is an object whose `id` is a string (managerId); `appearance`
+// is an object, whose members ThemeLogic.appearanceRefusal judges where
+// the theme resolves them, so one bad member shows as Set by theme and
+// blocks no other key. A key outside that set is carried untouched. Config.qml runs this judge
 // on every parsed file and reports a defect as the file's state, so no
 // malformed row is dropped on the way to the screen.
 function configError(config) {
@@ -329,6 +331,8 @@ function configError(config) {
         if (typeof config.manager.id !== "string")
             return "manager.id must be a string";
     }
+    if (config.appearance !== undefined && !isPlainObject(config.appearance))
+        return "appearance must be an object";
     if (config.welcome !== undefined) {
         if (!isPlainObject(config.welcome))
             return "welcome must be an object";
@@ -4382,6 +4386,23 @@ function withSetting(user, manifest, key, value, effective, targets, locator) {
         plugins[index] = row;
         out.plugins = plugins;
     }
+    return out;
+}
+
+// The user-file change that sets the user's Appearance value KEY to VALUE,
+// or removes it when VALUE is undefined, so the theme's applies again. The
+// user `appearance` key replaces the shipped one whole, so it is seeded
+// from EFFECTIVE's; an object left empty is removed. The caller judges KEY
+// and VALUE with ThemeLogic.appearanceRefusal first.
+function withAppearance(user, effective, key, value) {
+    var out = isPlainObject(user) ? clone(user) : {};
+    if (out.version === undefined) out.version = CONFIG_VERSION;
+    var appearance = isPlainObject(out.appearance) ? out.appearance
+        : isPlainObject(effective) && isPlainObject(effective.appearance) ? clone(effective.appearance) : {};
+    if (value === undefined) delete appearance[key];
+    else appearance[key] = clone(value);
+    if (Object.keys(appearance).length > 0) out.appearance = appearance;
+    else delete out.appearance;
     return out;
 }
 

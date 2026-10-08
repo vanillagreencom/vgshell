@@ -2,8 +2,11 @@ pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Services.Polkit
+import qs.Commons
 import "PluginLogic.js" as Logic
 import "Dispatch.js" as Dispatch
+import "HyprlandLayer.js" as Layer
+import "../Commons/ThemeLogic.js" as ThemeLogic
 
 // Maps declared capabilities to per-instance providers and accounts for
 // their holds. Resource owners implement registration and teardown.
@@ -214,6 +217,19 @@ Singleton {
         secrets: secrets.provider,
         hyprland: hyprlandState.provider,
         monitors: monitorState.provider,
+        // The user's Appearance values over the theme (D103): what each
+        // member holds, shows while the user sets none and comes from, as
+        // Theme resolved them, and the one write of shell.json
+        // `appearance`. `set` and `unset` answer `ok` once the file holds
+        // the edit, or the keyed refusal.
+        appearance: ctx => ({
+            get values() { return Theme.appearanceState.values; },
+            get theme() { return Theme.appearanceState.theme; },
+            get sources() { return Theme.appearanceState.sources; },
+            keys: root.appearanceKeys,
+            set: (key, value) => root.appearanceWrite(key, value, ThemeLogic.appearanceRefusal(key, value)),
+            unset: key => root.appearanceWrite(key, undefined, Logic.hasOwn(ThemeLogic.APPEARANCE, key) ? "" : ThemeLogic.appearanceRefusal(key, undefined))
+        }),
         // `missing`: the plugin's own requirement commands the last scan did
         // not find, in declaration order, a copy per read; bindable.
         requirements: ctx => ({
@@ -227,6 +243,24 @@ Singleton {
         })
     })
 
+
+    // Each Appearance member a page may draw: its type, bounds or options,
+    // and `hyprland`, the option path `getoption` reads for the layer group
+    // it decides, or "".
+    readonly property var appearanceKeys: {
+        const out = {};
+        for (const key of Object.keys(ThemeLogic.APPEARANCE)) {
+            const member = ThemeLogic.APPEARANCE[key];
+            out[key] = { type: member.type, min: member.min, max: member.max, options: member.options,
+                hyprland: member.hyprland === undefined ? "" : Layer.APPEARANCE_PATHS[member.hyprland].path };
+        }
+        return Logic.frozenJson(out);
+    }
+
+    function appearanceWrite(key, value, refusal) {
+        if (refusal !== "") return refusal;
+        return Config.writeUser(Logic.withAppearance(Config.user, Config.effective, key, value));
+    }
 
     function panesProvider(ctx) {
         let disposer = null;

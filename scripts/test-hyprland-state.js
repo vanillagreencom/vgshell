@@ -64,15 +64,21 @@ function suite(lib, check) {
         { id: "acme.keys", setting: "layouts", path: "input.kb_layout", value: "us,de" },
         { id: "acme.mouse", setting: "tap", path: "input.touchpad.tap_to_click", value: false }
     ];
+    // The applied groups' options the layer wrote for the core, under id "".
+    const core = [
+        { id: "", setting: "borderWidth", path: "general.border_size", value: 2 },
+        { id: "", setting: "windowRadius", path: "decoration.rounding", value: 12 }
+    ];
     const asked = lib.OPTIONS_REQUEST[2].split(";");
     check("options request: one hyprctl batch", lib.OPTIONS_REQUEST.slice(0, 2), ["hyprctl", "--batch"]);
     check("options request: every part a getoption", asked.every(part => /^j\/getoption [a-z_]+(\.[a-z_]+)+$/.test(part)), true);
     check("options request: the written options and an unwritten one among them", ["input.sensitivity", "input.repeat_rate", "input.kb_layout", "input.touchpad.tap_to_click", "input.natural_scroll"].every(path => asked.indexOf("j/getoption " + path) !== -1), true);
     check("options request: not the device row", asked.indexOf("j/getoption device.touchpad.enabled") === -1, true);
+    check("options request: each Appearance path among them", ["general.border_size", "decoration.rounding", "animations.enabled"].every(path => asked.indexOf("j/getoption " + path) !== -1), true);
     // Hyprland's reply to the request: VALUES by path, Hyprland's default
     // for the rest, each part as getoption prints it, an empty string as
     // `[[EMPTY]]`.
-    const FIELD = { "input.sensitivity": "float", "input.scroll_factor": "float", "input.touchpad.scroll_factor": "float", "input.repeat_rate": "int", "input.repeat_delay": "int", "misc.vrr": "int",
+    const FIELD = { "general.border_size": "int", "decoration.rounding": "int", "input.sensitivity": "float", "input.scroll_factor": "float", "input.touchpad.scroll_factor": "float", "input.repeat_rate": "int", "input.repeat_delay": "int", "misc.vrr": "int",
         "input.kb_layout": "str", "input.kb_variant": "str", "input.kb_options": "str", "input.accel_profile": "str" };
     const replies = values => asked.map(part => part.slice("j/getoption ".length)).map(path => {
         const field = FIELD[path] || "bool";
@@ -86,6 +92,9 @@ function suite(lib, check) {
         ["an option Hyprland does not know", replies(typed).replace(getoption("input.kb_layout", "str", "us,de"), "no such option"), Object.keys(typed),
             { ok: true, values: { "input.sensitivity": 0.35, "input.repeat_rate": 40, "input.touchpad.tap_to_click": true, "input.natural_scroll": true }, unread: ["refused: options=unread path=input.kb_layout reply=\"no such option\""] }],
         ["an empty string option reads empty", replies(typed), ["input.kb_variant"], { ok: true, values: { "input.kb_variant": "" }, unread: [] }],
+        ["each Appearance option by its type", replies({ "decoration.rounding": 10, "general.border_size": 3, "animations.enabled": true }), ["decoration.rounding", "general.border_size", "animations.enabled"],
+            { ok: true, values: { "decoration.rounding": 10, "general.border_size": 3, "animations.enabled": true }, unread: [] }],
+        ["an Appearance reply of another type", replies(typed).replace(getoption("decoration.rounding", "int", 0), getoption("decoration.rounding", "bool", false)), ["decoration.rounding"], { ok: true, values: {}, unread: ["refused: options=unread path=decoration.rounding "] }],
         ["a reply of another type", replies(typed).replace(getoption("input.repeat_rate", "int", 40), getoption("input.repeat_rate", "float", 40)), ["input.repeat_rate"], { ok: true, values: {}, unread: ["refused: options=unread path=input.repeat_rate "] }],
         ["a reply for another option", replies(typed).replace(getoption("input.sensitivity", "float", 0.35), getoption("input.scroll_factor", "float", 0.35)), ["input.sensitivity"], { ok: true, values: {}, unread: ["refused: options=unread path=input.sensitivity "] }],
         ["a reply missing", replies(typed).split("\n\n\n").slice(1).join("\n\n\n"), [], { ok: false, error: "refused: options=parts count=" + (asked.length - 1) + " want=" + asked.length }]
@@ -110,6 +119,7 @@ function suite(lib, check) {
         ["an option Hyprland did not read", { "input.sensitivity": 0.35, "input.repeat_rate": 40, "input.touchpad.tap_to_click": false }, [{ id: "acme.keys", path: "input.kb_layout" }]]
     ];
     for (const [name, values, want] of overrides) check("overridden: " + name, lib.overridden(written, values), want);
+    check("overridden: a core Appearance option read back otherwise", lib.overridden(written.concat(core), Object.assign({}, asWritten, { "general.border_size": 2, "decoration.rounding": 10 })), [{ id: "", path: "decoration.rounding" }]);
 
     // What a plugin's row shows while it sets none: the keys and values,
     // so a key read as undefined stays visible.
@@ -122,9 +132,15 @@ function suite(lib, check) {
         ["an option Hyprland did not read is left out", "acme.other", { "input.sensitivity": 0.2 }, [["input.sensitivity"], { "input.sensitivity": 0.2 }]]
     ];
     for (const [name, id, values, want] of unwritten) {
-        const got = lib.unwrittenValues(mouseOptions, written, id, values);
+        const got = lib.unwrittenValues(mouseOptions, written, id, values, []);
         check("unwritten values: " + name, [Object.keys(got).sort(), got], want);
     }
+    // The core's Appearance paths reach every holder, with or without
+    // options of its own, while the layer writes none of them.
+    const appearanceLive = { "general.border_size": 3, "decoration.rounding": 10, "animations.enabled": true, "input.natural_scroll": true };
+    check("unwritten values: an Appearance path the layer leaves to the user", lib.unwrittenValues(undefined, written, "acme.pane", appearanceLive, core), { "animations.enabled": true });
+    check("unwritten values: every Appearance path while the layer writes none", lib.unwrittenValues({ flow: "input.natural_scroll" }, written, "acme.pane", appearanceLive, []),
+        { "input.natural_scroll": true, "general.border_size": 3, "decoration.rounding": 10, "animations.enabled": true });
 
     // The layer's record of the user's values, as `hyprctl eval` prints the
     // error the request raises with it.
@@ -143,10 +159,12 @@ function suite(lib, check) {
         ["no JSON", "error: vgs-user-values=[{", { ok: false, error: "refused: user-values=unparsed " }],
         ["no list", "error: vgs-user-values={}", { ok: false, error: "refused: user-values=shape want=list" }],
         ["a row with no path", answer([{ value: 1 }]), { ok: false, error: "refused: user-values=shape row=0" }],
-        ["a value of another type", answer([{ path: "input.sensitivity", value: "fast" }]), { ok: false, error: "refused: user-values=shape path=input.sensitivity want=float" }]
+        ["a value of another type", answer([{ path: "input.sensitivity", value: "fast" }]), { ok: false, error: "refused: user-values=shape path=input.sensitivity want=float" }],
+        ["a core Appearance value under the core's id", answer([{ path: "decoration.rounding", value: 10 }]), { ok: true, values: [{ id: "", path: "decoration.rounding", value: 10 }] }],
+        ["a core Appearance value of another type", answer([{ path: "decoration.rounding", value: true }]), { ok: false, error: "refused: user-values=shape path=decoration.rounding want=int" }]
     ];
     for (const [name, text, want] of userRows) {
-        const got = lib.userValues(written, text);
+        const got = lib.userValues(written.concat(core), text);
         check("user values: " + name, got.ok ? got : { ok: false, error: got.error.slice(0, want.ok ? 0 : want.error.length) }, want);
     }
 
@@ -281,23 +299,26 @@ const CONTROLS = [
     ["a touchpad is named so", "var TOUCHPAD = /touchpad|trackpad/i;", "var TOUCHPAD = /touchpad/;"],
     ["touchpads are the pointers named so", "return devices.mice.filter(function (mouse) { return mouse.touchpad; })", "return devices.mice.filter(function (mouse) { return true; })"],
     ["unread devices have no touchpads", "if (devices === null) return null;", "if (devices === null) return [];"],
-    ["the device row is not read back", "return Layer.OPTIONS[option.path].device === undefined; });", "return true; });"],
-    ["the request reads no device row", "return Layer.OPTIONS[path].device === undefined; });", "return true; });"],
+    ["the device row is not read back", "return Layer.readType(option.path) !== null; });", "return true; });"],
+    ["the request reads no device row", ".filter(function (path) { return Layer.readType(path) !== null; });", ";"],
+    ["the request reads the Appearance paths", ".concat(Object.keys(Layer.APPEARANCE_PATHS).map(function (group) { return Layer.APPEARANCE_PATHS[group].path; }))", ""],
     ["one reply per option", 'var replies = Dispatch.batchReplies(text, READABLE.length, "options");', 'var replies = { ok: true, parts: String(text).split("\\n\\n\\n").map(function (part) { return part.trim(); }).filter(function (part) { return part !== ""; }) };'],
     ["each reply names its option", "read.value.option !== path || ", ""],
     ["an empty string option reads empty", 'values[path] = field === "str" ? optionString(read.value.str) : read.value[field];', "values[path] = read.value[field];"],
     ["an unread option has no value", "replies.parts[i].slice(0, 120)));\n            continue;", "replies.parts[i].slice(0, 120)));"],
     ["each reply holds its type's field", " || !Object.prototype.hasOwnProperty.call(read.value, field))", ")"],
     ["a float within a millionth is the same", "Math.abs(read - want) > 0.000001", "read !== want"],
-    ["a differing value is overridden", "return differs(Layer.OPTIONS[row.path].type, row.value, values[row.path]);", "return false;"],
-    ["a plugin's written option has no unwritten value", "if (mine.indexOf(path) === -1 && ", "if ("],
+    ["a differing value is overridden", "return differs(Layer.readType(row.path), row.value, values[row.path]);", "return false;"],
+    ["a written option has no unwritten value", "if (held.indexOf(path) === -1 && ", "if ("],
+    ["a plugin's options are its own", "take(options[setting], mine);", "take(options[setting], core);"],
+    ["the Appearance paths reach every holder", "Object.keys(Layer.APPEARANCE_PATHS).forEach(function (group) { take(Layer.APPEARANCE_PATHS[group].path, core); });", ""],
     ["only the plugin's own rows are its written ones", "return row.id === id; })", "return true; })"],
     ["an option Hyprland did not read has no unwritten value", " && Object.prototype.hasOwnProperty.call(values, path)) out[path]", ") out[path]"],
     ["a session without the layer has no user value", 'hl." + Layer.USER_VALUES.table + " == nil and \\"" + Layer.USER_VALUES.key + "=[]\\" or ', ""],
     ["the answer is read by its key", 'if (line === undefined) return { ok: false, error: "refused: user-values=unread', 'if (false) return { ok: false, error: "refused: user-values=unread'],
     ["the answer is a list", 'if (!Array.isArray(read.value)) return { ok: false, error: "refused: user-values=shape want=list" };', ""],
     ["a user value row names a path", '|| typeof row.path !== "string")', ")"],
-    ["a user value has its option's type", "if (typeof named[path].value !== VALUE_TYPE[Layer.OPTIONS[path].type])", "if (false)"],
+    ["a user value has its option's type", "if (typeof named[path].value !== VALUE_TYPE[Layer.readType(path)])", "if (false)"],
     ["a user value carries its plugin", "out.push({ id: rows[r].id, path: path, value: named[path].value });", "out.push({ path: path, value: named[path].value });"],
     ["only the default submap", '(bind.submap !== "" && bind.submap !== "default") || ', ""],
     ["the submap named default counts", ' && bind.submap !== "default")', ")"],
