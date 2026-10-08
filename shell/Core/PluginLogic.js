@@ -3808,22 +3808,25 @@ function seedUserBar(out, effective) {
 // row: the manager writes a plugin-wide setting to both entries
 // (settingTargets), so a setting outlives an unplace and a place. The one
 // placement rule; enabling and placing both call it.
-function placeWidget(out, manifest, effective) {
+function placeWidget(out, manifest, effective, id) {
+    id = id === undefined ? manifest.id : id;
     seedUserBar(out, effective);
     if (!isPlainObject(out.bar.layout)) out.bar.layout = { left: [], center: [], right: [] };
     var section = typeof manifest.defaultSection === "string" ? manifest.defaultSection : "center";
     if (!Array.isArray(out.bar.layout[section])) out.bar.layout[section] = [];
-    out.bar.layout[section].push(copyEntrySettings({ id: manifest.id }, pluginRow(effective, manifest.id)));
+    out.bar.layout[section].push(id === manifest.id ? copyEntrySettings({ id: id }, pluginRow(effective, id)) : { id: id });
 }
 
-// Why plugin MANIFEST's widget may not be placed or unplaced under CONFIG,
+// Why MANIFEST's ordinary widget ID may not be placed or unplaced under CONFIG,
 // or "": a plugin without kind bar-widget has no widget, and a disabled
 // plugin is refused, as its setting is. The reply is one keyed line.
-function placedRefusal(config, manifest, defaultBarId) {
-    if (manifest.kinds.indexOf("bar-widget") === -1)
-        return "refused: placed=" + manifest.id + " reason=no-bar-widget";
+function placedRefusal(config, manifest, defaultBarId, builtinNames, id) {
+    id = id === undefined ? manifest.id : id;
+    var builtin = builtinOwner(config, { [manifest.id]: manifest }, defaultBarId, builtinNames, id) !== null;
+    if (!builtin && manifest.kinds.indexOf("bar-widget") === -1)
+        return "refused: placed=" + id + " reason=no-bar-widget";
     if (!isEnabled(config, manifest, defaultBarId))
-        return "refused: placed=" + manifest.id + " reason=disabled";
+        return "refused: placed=" + id + " reason=disabled";
     return "";
 }
 
@@ -3856,7 +3859,7 @@ function enabledRefusal(manifest, enabled) {
     return "";
 }
 
-// The user-file change that shows or hides plugin MANIFEST's widget in the
+// The user-file change that shows or hides an ordinary widget ID in the
 // bar. disabledPlugins is never read or written. Returns the new user
 // object; the caller checks placedRefusal first and writes it.
 //
@@ -3868,25 +3871,27 @@ function enabledRefusal(manifest, enabled) {
 // (enablementRule), enabled only by its placement, stays enabled through
 // it. A "widget" plugin has nothing left once unplaced: it reads as
 // disabled until enabling places it again. A widget already as asked
-// changes nothing but the version stamp.
-function withPlaced(user, manifest, placed, effective) {
+// changes nothing but the version stamp. A builtin ID differs from its
+// owner's manifest ID and creates no independent plugins row or settings.
+function withPlaced(user, manifest, placed, effective, id) {
+    id = id === undefined ? manifest.id : id;
     var out = isPlainObject(user) ? clone(user) : {};
     if (out.version === undefined) out.version = CONFIG_VERSION;
-    if (placed === isPlaced(effective, manifest))
+    if (placed === (layoutPositionOf(effective, id, null) !== null))
         return out;
     if (placed) {
-        placeWidget(out, manifest, effective);
+        placeWidget(out, manifest, effective, id);
         return out;
     }
     seedUserBar(out, effective);
-    if (pluginRow(effective, manifest.id) === undefined) {
-        var row = copyEntrySettings({ id: manifest.id }, layoutEntryOf(out, manifest.id));
+    if (id === manifest.id && pluginRow(effective, id) === undefined) {
+        var row = copyEntrySettings({ id: id }, layoutEntryOf(out, id));
         out.plugins = (Array.isArray(out.plugins) ? out.plugins : []).concat([row]);
     }
     SECTIONS.forEach(function (section) {
         var entries = out.bar.layout[section];
         if (Array.isArray(entries))
-            out.bar.layout[section] = entries.filter(function (entry) { return entry.id !== manifest.id; });
+            out.bar.layout[section] = entries.filter(function (entry) { return entry.id !== id; });
     });
     return out;
 }

@@ -1452,6 +1452,10 @@ Scope {
             const content = item === null ? undefined : root.descendants(item).find(child => root.typeName(child) === "Clock");
             return content === undefined || content[key] === undefined ? "absent" : root.json(content[key]);
         }
+        function barWidgetFrameFacts(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            return item === null || item.frame === null ? "absent" : root.json(item.frame.describe());
+        }
         // `drawn` once the window of plugin ID's HOST_KEY instance has
         // presented a frame at its current size, else `pending`. The first
         // read starts listening, and each pending read asks the window for
