@@ -1,11 +1,11 @@
 import QtQuick
-import QtQuick.Layouts
 import qs.Commons
 
 // __NAME__: a replacement bar. The core assigns `shell` and `screen` after
 // creation, mounts every plugin widget into the three section containers
-// declared below and keeps them current. This file owns their geometry:
-// where each section sits, its spacing, the bar's colours and font. Each
+// declared below and keeps them current. The core owns each child's
+// position and size and each section's width. This file owns section
+// placement and spacing, the bar's colours and font. Each
 // container spans the bar's height so a widget is centred in it.
 Item {
     id: bar
@@ -22,7 +22,7 @@ Item {
     readonly property Item centerSection: center
     readonly property Item rightSection: right
 
-    RowLayout { id: left; spacing: Theme.bar.gap; anchors { left: parent.left; leftMargin: Theme.bar.padding; top: parent.top; bottom: parent.bottom } }
-    RowLayout { id: center; spacing: Theme.bar.gap; anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; bottom: parent.bottom } }
-    RowLayout { id: right; spacing: Theme.bar.gap; anchors { right: parent.right; rightMargin: Theme.bar.padding; top: parent.top; bottom: parent.bottom } }
+    Item { id: left; readonly property real spacing: Theme.bar.gap; anchors { left: parent.left; leftMargin: Theme.bar.padding; top: parent.top; bottom: parent.bottom } }
+    Item { id: center; readonly property real spacing: Theme.bar.gap; anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; bottom: parent.bottom } }
+    Item { id: right; readonly property real spacing: Theme.bar.gap; anchors { right: parent.right; rightMargin: Theme.bar.padding; top: parent.top; bottom: parent.bottom } }
 }

@@ -13,7 +13,7 @@
 # byte for byte, so rows after it find the fixture placed as before. The
 # disabled widget the refusals name is acme.tick, disabled for them and
 # enabled again.
-# inputs: shell/plugins/vgs.bar/* config/shell.json scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Hosts/BarHost.qml shell/shell.qml shell/Ui/BarWidget.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/overlay/DismissScope.qml scripts/smoke/pointer/click.c scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh scripts/smoke/rows/sources.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.bar/* config/shell.json scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Hosts/BarHost.qml shell/shell.qml shell/Ui/BarWidget.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/overlay/DismissScope.qml scripts/smoke/pointer/click.c scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh scripts/smoke/rows/sources.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/capabilities.sh shell/Commons/Tokens.js
 set -euo pipefail
 placement_file="$home/.config/vgshell/shell.json"
 placement_saved="$sandbox/shell-before-placement.json"
@@ -46,8 +46,9 @@ placement_drawn_start='{"left": ["vgs.bar/left-workspaces"], "center": ["acme.pr
 placement_drawn_before='{"left": ["vgs.bar/left-workspaces"], "center": ["vgs.bar/center-clock", "acme.probe", "acme.tick"], "right": []}'
 placement_drawn_after='{"left": ["vgs.bar/left-workspaces"], "center": ["vgs.bar/center-clock", "acme.tick", "acme.probe"], "right": []}'
 placement_drawn_left='{"left": ["acme.probe", "vgs.bar/left-workspaces"], "center": ["vgs.bar/center-clock", "acme.tick"], "right": []}'
+placement_drawn_pointer_left='{"left": ["vgs.bar/left-workspaces", "acme.probe"], "center": ["vgs.bar/center-clock", "acme.tick"], "right": []}'
 placement_drawn_right='{"left": ["vgs.bar/left-workspaces"], "center": ["vgs.bar/center-clock", "acme.tick"], "right": ["acme.probe"]}'
-for placement_expected in start before after left right; do
+for placement_expected in start before after left pointer_left right; do
   placement_drawn_name="placement_drawn_$placement_expected"
   placement_full="$(placement_expected_order "${!placement_drawn_name}")" || fail "the complete placement expectation is unreadable"
   printf -v "placement_want_$placement_expected" '%s' "$placement_full"
@@ -198,7 +199,8 @@ placement_left_builtin_order() {
 geometry expect_poll "the ordinary API reorders the existing builtins" True placement_left_builtin_order
 expect "builtin section transfer and reorder keep all objects" '[]' ipc smoke barWidgetIdentities
 expect "the builtin snapshot is released" ok ipc smoke forgetBarWidgets
-cp -- "$placement_file" "$placement_saved"
+expect "the clock returns to center after its ordinary reorder" ok ipc shell movePluginWidget vgs.bar/center-clock center 0
+expect_poll "the ordinary reorder restores the complete saved profile" "$placement_want_right" placement_order
 
 placement_builtin_section() {
   ipc shell listShellConfig | py_reply 'import json,sys; layout=json.load(sys.stdin)["bar"]["layout"]; print(json.dumps([s for s in ("left","center","right") for e in layout[s] if e["id"]==sys.argv[1]]))' "$1"
@@ -365,7 +367,7 @@ read -r workspace_x workspace_y <<<"$workspace_point"
 hover "$((workspace_x + 1))" "$workspace_y" && click "$workspace_x" "$workspace_y" || fail "the still workspace click completes"
 placement_focused_workspace() { hypr -j activeworkspace | py_reply 'import json,sys; print(json.load(sys.stdin)["id"])'; }
 expect_poll "a still click on the builtin keeps its workspace action" "$workspace_target" placement_focused_workspace
-expect "the original workspace returns after the builtin click" ok hypr dispatch "hl.dsp.workspace($workspace_before)"
+expect "the original workspace returns after the builtin click" ok probe dispatch "focusWorkspace $workspace_before"
 expect_poll "the original workspace is focused again" "$workspace_before" placement_focused_workspace
 
 expect "disabling acme.tick for the refusals is allowed" ok ipc shell setPluginEnabled acme.tick false
@@ -443,7 +445,7 @@ print(json.dumps({"section":state["section"], "index":state["index"], "slid":abs
  "gap":state["gap"][2]>0 and state["gap"][0]>=state["target"][0]-1}))' "$tick_box" "$before_x" "$target_x" <<<"$drag_json"
 }
 placement_held_preview() {
-  local x y tx ty before_x barrier out_fd in_fd hold_pid
+  local motion="$1" x y tx ty before_x barrier out_fd in_fd hold_pid reading motion_seen samples=()
   read -r x y < <(placement_point acme.probe) || return 1
   read -r tx ty < <(placement_before acme.tick acme.probe) || return 1
   before_x="$(ipc smoke instanceGeometry "$(bar_key)" acme.tick | py_reply 'import json,sys; print(json.load(sys.stdin)[0])')" || return 1
@@ -453,6 +455,13 @@ placement_held_preview() {
   out_fd="${placement_preview[0]}" in_fd="${placement_preview[1]}" hold_pid="$placement_preview_PID"
   read -r -t 10 barrier <&"$out_fd" || return 1
   [[ $barrier == "holding $tx $ty" ]] || return 1
+  # With the pointer held at its target, distinct successive local x
+  # readings prove the neighbor glides rather than jumping into place.
+  for reading in 1 2 3 4 5 6; do
+    samples+=("$(ipc smoke readInstance "$(bar_key)" acme.tick x)") || return 1
+  done
+  motion_seen="$(py_reply 'import json,sys; values=[json.loads(v) for v in sys.argv[1:]]; print("unreadable" if not all(isinstance(v,(int,float)) for v in values) else "moving" if any(a!=b for a,b in zip(values,values[1:])) else "still")' "${samples[@]}" </dev/null)" || return 1
+  geometry expect "the held neighbor's successive positions show $motion motion" "$motion" printf '%s\n' "$motion_seen"
   printf '  held_operation source=%s,%s target=%s,%s drag=%s frame=%s submap=%s pointer=%s profile=%s\n' "$x" "$y" "$tx" "$ty" "$(ipc smoke barDragGeometry "$(bar_key)")" "$(ipc smoke readInstance "$(bar_key)" acme.probe frameDragging)" "$(key_submap)" "$(hypr cursorpos)" "$(ipc shell listShellConfig)"
   for placement_held_id in acme.probe acme.tick vgs.bar/center-clock; do
     printf '  held_geometry id=%s value=%s\n' "$placement_held_id" "$(ipc smoke descendantGeometry "$(bar_key)" "$placement_held_id")"
@@ -473,9 +482,37 @@ placement_held_preview() {
   expect "the identity snapshot is released" ok ipc smoke forgetBarWidgets
 }
 cp -- "$placement_file" "$sandbox/shell-before-live-drop.json"
-placement_held_preview || fail "the held preview press completes"
+placement_motion_theme="$home/.config/vgshell/theme.json"
+placement_motion_original_duration="$(ipc smoke themeValue motion.duration.normal)" || fail "the original motion duration is unreadable"
+placement_motion_had_theme=false
+if [[ -f $placement_motion_theme ]]; then
+  cp -- "$placement_motion_theme" "$sandbox/placement-motion-theme.json"
+  placement_motion_had_theme=true
+fi
+printf '%s\n' '{"schemaVersion":1,"name":"bar-motion","tokens":{"motion":{"scale":4}}}' >"$placement_motion_theme.tmp"
+mv -T -- "$placement_motion_theme.tmp" "$placement_motion_theme"
+expect_poll "the slowed motion reaches the held widget check" 600 ipc smoke themeValue motion.duration.normal
+placement_held_preview moving || fail "the held preview press completes"
 expect "the fixture returns to right before the other pointer checks" ok ipc shell movePluginWidget acme.probe right 0
 expect_poll "the fixture is back in right" "$placement_want_right" placement_order
+if copy_tree placement-motion-control \
+  && edit_tree placement-motion-control shell/Ui/BarWidget.qml 'enabled: !root.frameDragging && root.bar !== null' 'enabled: false && !root.frameDragging && root.bar !== null'; then
+  stop_shell
+  cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$sandbox/tree-placement-motion-control" "$sandbox/placement-motion-control.log" || fail "the horizontal motion control shell starts"
+  cp -- "$placement_file" "$sandbox/shell-before-live-drop.json"
+  placement_held_preview still || fail "control: the same held preview press completes without horizontal animation"
+  stop_shell
+  cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$repo" "$sandbox/placement-motion-restored.log" || fail "the shell starts after the horizontal motion control"
+fi
+if [[ $placement_motion_had_theme == true ]]; then
+  cp -- "$sandbox/placement-motion-theme.json" "$placement_motion_theme.tmp"
+  mv -T -- "$placement_motion_theme.tmp" "$placement_motion_theme"
+else
+  rm -- "$placement_motion_theme"
+fi
+expect_poll "the original motion returns after the held checks" "$placement_motion_original_duration" ipc smoke themeValue motion.duration.normal
 
 read -r tick_x tick_y < <(placement_before acme.tick acme.probe) || fail "the tick widget point is unreadable"
 placement_drag_widget acme.probe "$tick_x" "$tick_y" || fail "dragging the fixture into center failed"
@@ -486,8 +523,9 @@ placement_drag_widget acme.probe "$((tick_x + 40))" "$tick_y" || fail "dragging 
 expect_poll "a pointer drag reorders within center in the file" "$placement_want_after" placement_order
 expect_poll "a pointer drag reorders within center on the bar" "$placement_drawn_after" placement_visual_order
 read -r left_x left_y < <(placement_bar_left_inside) || fail "the point in the bar's left third is unreadable"
-placement_drag_widget acme.probe "$left_x" "$left_y" || fail "dragging the fixture into the empty left section failed"
-expect_poll "a pointer drag moves the fixture into the empty left section" "$placement_want_left" placement_order
+placement_drag_widget acme.probe "$left_x" "$left_y" || fail "dragging the fixture past workspaces in the left section failed"
+expect_poll "a pointer drag moves the fixture after workspaces in the left section" "$placement_want_pointer_left" placement_order
+geometry expect_poll "the pointer drop draws the fixture after workspaces" "$placement_drawn_pointer_left" placement_visual_order
 expect "moving the fixture back into center is allowed" ok ipc shell movePluginWidget acme.probe center 2
 expect_poll "the fixture is back after the center widget" "$placement_want_after" placement_order
 cp -- "$placement_file" "$sandbox/shell-before-outside-drop.json"
@@ -569,7 +607,7 @@ if copy_tree placement-move-control \
         if (barDrag !== null && barDrag.hostKey === hostKey) cancelBarDrag();' ';'; then
   stop_shell
   start_shell "$sandbox/tree-placement-move-control" "$sandbox/placement-move-control.log" || fail "the placement move control shell starts"
-  expect "control: moving the fixture to center answers ok" ok ipc shell movePluginWidget acme.probe center 0
+  expect "control: moving the fixture before tick answers ok" ok ipc shell movePluginWidget acme.probe center 1
   control_order="$(placement_order)" || fail "control: the moved order is unreadable"
   if [[ $control_order == "$placement_want_after" ]]; then
     ok "control: withMoved ignoring the index reads red"

@@ -45,7 +45,7 @@ Declare it as `property var shell: null`, or inherit it from `BarWidget`.
 | Property | Direction | Type | Meaning |
 |---|---|---|---|
 | `screen` | received | ShellScreen | the screen this bar draws on |
-| `leftSection`, `centerSection`, `rightSection` | declared | Item | the containers the core parents widgets into, in layout order; a `RowLayout` in the template |
+| `leftSection`, `centerSection`, `rightSection` | declared | Item | passive containers with a `spacing` property from the bar's gap token; the core binds their implicit width and each child's position and size |
 | `builtinNames` | declared | list of strings | registration names the bar can draw, accepted only under the active bar's ID |
 | `builtinLabels` | declared | object of labels keyed by registration name | labels for the builtin placement fields on the bar's Settings page, including hidden builtins |
 | `widgetLayout` | received | object | the effective `left`, `center` and `right` entry lists; the bar uses the registered IDs to keep its builtin model current |
