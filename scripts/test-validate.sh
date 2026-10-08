@@ -542,7 +542,7 @@ cases=(
   "devtools-window|shell/plugins/vgs.devtools/Window.qml|logic|node scripts/test-devtools-view.js"
   "devtools-service|shell/plugins/vgs.devtools/Service.qml|logic|node scripts/test-devtools-view.js"
   "settings-reply-window|shell/plugins/vgs.settings/Window.qml|logic|node scripts/test-settings-reply.js"
-  "settings-reply-page|shell/plugins/vgs.settings/PluginPage.qml|logic|node scripts/test-settings-reply.js"
+  "settings-reply-page|shell/plugins/vgs.settings/PluginPage.qml|logic|"$'node scripts/test-jarvis-setup-gate.js\nnode scripts/test-settings-reply.js'
   "settings-reply-input|shell/Commons/Reply.js|logic|node scripts/test-settings-reply.js"
   "settings-reply-suite|scripts/test-settings-reply.js|logic|node scripts/test-settings-reply.js"
   "settings-steps-input|shell/plugins/vgs.settings/Steps.js|logic|node scripts/test-jarvis-setup-gate.js"$'\n'"$settings_steps_row"

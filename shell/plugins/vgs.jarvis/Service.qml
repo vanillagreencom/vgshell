@@ -123,6 +123,7 @@ Item {
     // (SetupGate.readiness), and the input step from its reader's VALUE.
     function publishSetup(answer) {
         const values = Gate.readiness(answer);
+        values.setupModel = Gate.modelStep(values.setupModel, shell.status.values["keys"], accountReader.modelAccess);
         for (const key of Object.keys(values)) {
             const reply = shell.status.set(key, values[key]);
             if (reply !== "ok") throw new Error("jarvis: " + reply);
@@ -660,5 +661,5 @@ Item {
     Jarvis.Keys { shell: root.shell; onRefreshed: root.hello() }
     Jarvis.LocalRuntime { shell: root.shell; onRefreshed: root.hello() }
     Jarvis.BrowserRuntime { shell: root.shell; stepKey: "setupBrowser" }
-    Jarvis.Accounts { shell: root.shell; onRefreshed: root.hello() }
+    Jarvis.Accounts { id: accountReader; shell: root.shell; onRefreshed: root.hello() }
 }

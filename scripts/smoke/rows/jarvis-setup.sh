@@ -187,7 +187,7 @@ p.write_text(s)
 PY
 }
 setup_keys_hook="Jarvis.Keys { shell: root.shell; onRefreshed: root.hello() }"
-setup_accounts_hook="Jarvis.Accounts { shell: root.shell; onRefreshed: root.hello() }"
+setup_accounts_hook="Jarvis.Accounts { id: accountReader; shell: root.shell; onRefreshed: root.hello() }"
 setup_local_hook="Jarvis.LocalRuntime { shell: root.shell; onRefreshed: root.hello() }"
 local_open() { # manager action or listed launcher entry
   local revision snapshot

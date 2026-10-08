@@ -15,6 +15,7 @@ Item {
     property var completion: ({ kind: "starting" })
     property var diagnostic: ({ kind: "collected", text: "" })
     property string output: ""
+    property var modelAccess: ({ kind: "checking" })
     readonly property var tuiState: shell === null ? null : shell.tui.state["accounts"]
     readonly property var keyState: shell === null ? null : shell.tui.state["add-key"]
     readonly property var signInState: shell === null ? null : shell.tui.state["sign-in"]
@@ -54,6 +55,7 @@ Item {
         try {
             if (code !== 0) throw new Error("probe");
             const value = JSON.parse(output);
+            modelAccess = Gate.accountAccess(value.accounts);
             const accounts = value.accounts.map(item => ({ label: item.label, value: item.value, hint: Words.accountHint(item) }));
             const search = Words.searchValue({ kind: "found", found: value.search.found, partial: value.search.partial });
             if (shell.status.set("accounts", accounts) !== "ok" || shell.status.set("brains", value.brains) !== "ok"
@@ -68,6 +70,7 @@ Item {
                     console.warn("jarvis-accounts: voice-selection=refused");
             }
         } catch (error) {
+            modelAccess = { kind: "checking" };
             const reason = Providers.probeFailure(completion, diagnostic);
             console.warn(reason);
             const replies = [shell.status.set("accounts", []), shell.status.set("brains", []), shell.status.set("voiceAccounts", []),

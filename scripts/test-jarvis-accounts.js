@@ -101,6 +101,7 @@ world(async () => {
                     root.shell.settings.voiceAccount = value; return "ok";
                 } } } };
         const context = vm.createContext({ root, Providers: { probeFailure },
+            Gate: require("../bin/lib/qml-library.js").load(path.join(plugin, "SetupGate.js")),
             Words: require(path.join(plugin, "AccountStatus.js")), console: { warn: value => warnings.push(value) } });
         vm.runInContext("(function() { with(root) { return (" + matches[0][0] + ").call(root); } })()", context);
         assert.deepEqual(writes, row.writes);

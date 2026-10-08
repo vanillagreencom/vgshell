@@ -4,8 +4,8 @@
 // publishes for its probe's value and the requirements capability's missing
 // list, the value of a requirement's own Install row, and the Setup
 // section's summary and steps from the daemon's answer, read by their tone,
-// action and line count. Every expected value is written out by hand. No
-// process, file or network is used.
+// action and line count. The shipped account and service callbacks also
+// determine the model action. No shell process, network or audio is used.
 //
 // The controls at the end edit a copy of the library, one rule at a time,
 // and require this suite to fail an assertion on each copy.
@@ -13,6 +13,8 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
+const vm = require("node:vm");
 const { load } = require("../bin/lib/qml-library.js");
 const judge = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
 const settings = load(path.join(__dirname, "..", "shell", "plugins", "vgs.settings", "Steps.js"));
@@ -56,6 +58,92 @@ const READINESS = [
 // Each brain cause asks for its own action.
 const BRAIN_CAUSES = ["brain=unselected", "brain=account-unavailable", "brain=model-required", "brain=accounts-unreadable"];
 const plain = value => JSON.parse(JSON.stringify(value));
+
+// Execute the shipped Details row accessor and the shipped Settings row
+// projection against the same published status. This checks their source
+// selection; the nested smoke and pictures check the rendered consumers.
+const pageFile = path.join(path.dirname(file), "..", "vgs.settings", "PluginPage.qml");
+const serviceFile = path.join(path.dirname(file), "Service.qml");
+const accountsFile = path.join(path.dirname(file), "Accounts.qml");
+const words = load(path.join(path.dirname(file), "AccountStatus.js"));
+const UNSELECTED = { kind: "answered", causes: ["brain=unselected"] };
+const MODEL = [
+    { name: "key only before model discovery", keys: [{ value: "present" }], apps: [], answer: UNSELECTED, want: ["warning", false] },
+    { name: "signed-in app before model discovery", keys: [], apps: [{ source: "cli", state: "signed-in" }], answer: UNSELECTED, want: ["warning", false] },
+    { name: "verified app", keys: [], apps: [{ source: "cli", state: "verified" }], answer: UNSELECTED, want: ["warning", false] },
+    { name: "app verification pending", keys: [], apps: [{ source: "cli", state: "verifying" }], answer: UNSELECTED, want: ["warning", false] },
+    { name: "neither key nor app", keys: [], apps: [], answer: UNSELECTED, want: ["warning", true] },
+    { name: "found app folder", keys: [], apps: [{ source: "cli", state: "found" }], answer: UNSELECTED, want: ["warning", true] },
+    { name: "unchecked app folder", keys: [], apps: [{ source: "cli", state: "unchecked" }], answer: UNSELECTED, want: ["warning", true] },
+    { name: "locked key", keys: [{ value: "locked" }], apps: [], answer: UNSELECTED, want: ["warning", false] },
+    { name: "unavailable key reader", keys: [{ value: "unavailable" }], apps: [], answer: UNSELECTED, want: ["warning", false] },
+    { name: "key reader has not answered", keys: undefined, apps: [], answer: UNSELECTED, want: ["warning", false] },
+    { name: "app reader failed", keys: [], apps: [], code: 1, answer: UNSELECTED, want: ["warning", false] },
+    { name: "selected model", keys: [{ value: "present" }], apps: [], answer: { kind: "answered", causes: [] }, want: ["ok", false] },
+    { name: "checking", keys: [], apps: [], answer: { kind: "checking" }, want: ["info", false] }
+];
+
+// Run both shipped publication functions. Accounts supplies typed sign-in
+// facts; Service publishes the model row without relying on offered models.
+function verifyModelConsumers(gate, serviceSource, accountsSource) {
+    const publishAccounts = accountsSource.match(/^    function publish\(\) \{\n[\s\S]*?^    \}/m);
+    const publishSetup = serviceSource.match(/^    function publishSetup\(answer\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(publishAccounts && publishSetup);
+    const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
+    for (const row of MODEL) {
+        const values = row.keys === undefined ? {} : { keys: row.keys.map(key => ({ label: "Fixture key", ...key })) };
+        if (row.keys !== undefined) assert.equal(judge.statusWrite(manifest, {}, "keys", values.keys).ok, true);
+        const shell = { settings: { voiceAccount: "" }, status: { values, set: (key, value) => {
+            const accepted = judge.statusWrite(manifest, values, key, value);
+            assert.equal(accepted.ok, true, row.name + ": accepted status " + key);
+            values[key] = value;
+            return "ok";
+        } } };
+        const root = { shell, modelAccess: { kind: "checking" }, pending: false,
+            completion: { kind: "exited", code: row.code ?? 0 }, diagnostic: { kind: "collected", text: "" },
+            output: JSON.stringify({ accounts: row.apps.map(app => ({ label: "Fixture app", value: "present", plan: "", email: "", mismatch: false, ...app })),
+                brains: [], voiceAccounts: [], search: { found: row.apps.length, partial: "" } }), refreshed: () => {} };
+        vm.runInNewContext("(function() { with(root) { return (" + publishAccounts[0] + ").call(root); } })()",
+            { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
+        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, accountReader: root })(row.answer);
+        try {
+            assert.deepEqual(plain([values.setupModel.tone, values.setupModel.action]), row.want, row.name);
+            const entry = judge.statusRows(manifest, values, []).find(item => item.key === "setupModel");
+            assert.equal(entry.action.offered, row.want[1], row.name + ": the actual row action");
+            const setupRow = settings.setupRows([{ name: "add-key" }], judge.statusRows(manifest, values, []))
+                .find(item => item.entry.key === "setupModel");
+            assert.equal(setupRow.button !== null, row.want[1], row.name + ": Settings link");
+        } catch (error) {
+            error.check = "setup-model-action";
+            error.case = row.name;
+            throw error;
+        }
+    }
+}
+function verifyVoiceConsumers(gate, pageSource) {
+    const accessor = pageSource.match(/function statusEntry\(key\) \{[\s\S]*?\n    \}/);
+    assert.ok(accessor, "the Details accessor is present");
+    const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
+    for (const [provider, causes, expected] of [
+        ["gpt-live", ["brain=unselected"], ["success", false]],
+        ["local", ["brain=unselected", "speech=local-not-set-up"], ["warning", true]]
+    ]) {
+        const values = { ...plain(gate.readiness({ kind: "answered", causes })),
+            localRuntime: { tone: "warning", text: "Not set up", action: true } };
+        const row = { status: judge.statusRows(manifest, values, []) };
+        const detailsEntry = vm.runInNewContext("(" + accessor[0] + ")", { row })("setupVoice");
+        const settingsEntry = settings.setupRows([], row.status).find(item => item.entry.key === "setupVoice").entry;
+        try {
+            assert.equal(detailsEntry, settingsEntry);
+            assert.deepEqual(plain([detailsEntry.tone, detailsEntry.action.offered]), expected);
+            assert.deepEqual(plain(settings.statusView(detailsEntry, String)), plain(settings.statusView(settingsEntry, String)));
+        } catch (error) {
+            error.check = "setup-voice-consumer-source";
+            error.provider = provider;
+            throw error;
+        }
+    }
+}
 
 function verifyReadiness(gate) {
     for (const [label, answer, tone, todo, declared] of READINESS) {
@@ -164,6 +252,7 @@ function verifyReadiness(gate) {
 
 function verify(gate) {
     verifyReadiness(gate);
+    verifyModelConsumers(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
     for (const [label, value, requires, missing, names] of SETUP) {
         const got = gate.setupValue(value, requires, missing);
         if (names === null) {
@@ -183,10 +272,16 @@ function verify(gate) {
 }
 
 verify(load(file));
+const pageSource = fs.readFileSync(pageFile, "utf8");
+verifyVoiceConsumers(load(file), pageSource);
 
 // Each control removes one rule from a copy and keeps the text around it:
 // [label, needle, replacement].
 const CONTROLS = [
+    ["present keys still offer Add key", 'var absent = keys !== undefined && keys.every(function (key) { return key.value === "absent"; });', 'var absent = keys !== undefined;'],
+    ["a signed-in app still offers Add key", 'access.kind === "absent"', 'access.kind !== "checking"'],
+    ["a merely found app suppresses Add key", '["signed-in", "verified", "verifying"].indexOf(account.state) !== -1', '["found", "unchecked", "signed-in", "verified", "verifying"].indexOf(account.state) !== -1'],
+    ["checking account discovery offers Add key", 'access.kind === "absent"', 'access.kind !== "present"'],
     ["memory guidance is a badge", "out.setupVoice = MEMORY[cause];", "out.setupVoice = Object.assign({}, MEMORY[cause], { lines: [MEMORY[cause].hint], hint: undefined });"],
     ["optional guidance is a badge", "action: value.action === true };", 'lines: ["fixture guidance"], action: value.action === true };'],
     ["optional guidance changes with state", "action: value.action === true };", 'hint: "fixture guidance", action: value.action === true };'],
@@ -218,10 +313,40 @@ const CONTROLS = [
 ];
 
 const source = fs.readFileSync(file, "utf8");
-const scratchRoot = path.join(__dirname, "..", "tmp");
-fs.mkdirSync(scratchRoot, { recursive: true });
-const temp = fs.mkdtempSync(path.join(scratchRoot, "jarvis-setup-gate-control-"));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-setup-gate-control-"));
 try {
+    const serviceSource = fs.readFileSync(serviceFile, "utf8");
+    const accountsSource = fs.readFileSync(accountsFile, "utf8");
+    for (const [target, original, needle, replacement] of [
+        ["Service.qml", serviceSource, 'values.setupModel = Gate.modelStep(values.setupModel, shell.status.values["keys"], accountReader.modelAccess);', 'values.setupModel = values.setupModel;'],
+        ["Accounts.qml", accountsSource, 'modelAccess = Gate.accountAccess(value.accounts);', 'modelAccess = { kind: "absent" };']
+    ]) {
+        assert.equal(original.split(needle).length, 2);
+        const changed = original.replace(needle, replacement);
+        assert.notEqual(changed, original);
+        const copy = path.join(temp, target);
+        fs.writeFileSync(copy, changed);
+        let failure = null;
+        try { verifyModelConsumers(load(file), target === "Service.qml" ? fs.readFileSync(copy, "utf8") : serviceSource,
+            target === "Accounts.qml" ? fs.readFileSync(copy, "utf8") : accountsSource); }
+        catch (error) { failure = error; }
+        assert.ok(failure instanceof assert.AssertionError);
+        assert.equal(failure.check, "setup-model-action");
+        console.log("test-jarvis-setup-gate: control=" + target + " check=setup-model-action rejected=true");
+    }
+    const needle = "row.status.find(entry => entry.key === key)";
+    assert.equal(pageSource.split(needle).length, 2);
+    const secondSource = pageSource.replace(needle, 'row.status.find(entry => entry.key === (key === "setupVoice" ? "localRuntime" : key))');
+    assert.notEqual(secondSource, pageSource);
+    const pageCopy = path.join(temp, "PluginPage.qml");
+    fs.writeFileSync(pageCopy, secondSource);
+    let failure = null;
+    try { verifyVoiceConsumers(load(file), fs.readFileSync(pageCopy, "utf8")); }
+    catch (error) { failure = error; }
+    assert.ok(failure instanceof assert.AssertionError);
+    assert.equal(failure.check, "setup-voice-consumer-source");
+    assert.equal(failure.provider, "gpt-live");
+    console.log("test-jarvis-setup-gate: control=second-voice-source check=setup-voice-consumer-source provider=gpt-live rejected=true");
     for (const [label, needle, replacement, assertion] of CONTROLS) {
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);
         const changed = source.replace(needle, () => replacement);
@@ -241,4 +366,4 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length} controls=${CONTROLS.length}`);
+console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length} controls=${CONTROLS.length + 3}`);

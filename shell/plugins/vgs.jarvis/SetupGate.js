@@ -34,7 +34,7 @@ var REQUIRED = { speech: "setupVoice", brain: "setupModel" };
 // such as local voice not set up, keeps the declared hint, which says what
 // the step gives, since its action already says to set it up.
 var TODO = {
-    "brain=unselected": "Choose an AI model below.",
+    "brain=unselected": "Choose an AI model in Settings.",
     "brain=account-unavailable": "The chosen AI model cannot be used. Add a key or sign in, then choose it below.",
     "brain=model-required": "The chosen AI model cannot be used. Choose another AI model below.",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Open Accounts to check them.",
@@ -60,6 +60,23 @@ var MEMORY = {
 };
 // A required step once the daemon stopped: no check runs, none is offered.
 var UNCHECKED = { tone: "warning", text: "Not checked", action: false };
+
+// Account discovery supplies typed states even before it offers a model.
+// A found CLI folder alone does not establish that its app is signed in.
+function accountAccess(accounts) {
+    return { kind: accounts.some(function (account) {
+        return account.source === "cli" && ["signed-in", "verified", "verifying"].indexOf(account.state) !== -1;
+    }) ? "present" : "absent" };
+}
+
+// The model row offers Add key only after both readers find no key or
+// signed-in app. Missing reader output stays checking, without an action.
+function modelStep(value, keys, access) {
+    if (value.action !== true) return value;
+    var absent = keys !== undefined && keys.every(function (key) { return key.value === "absent"; });
+    if (absent && access.kind === "absent") return value;
+    return Object.assign({}, value, { action: false });
+}
 
 // The summary and required step values for ANSWER: { kind: "checking" }
 // while the daemon has not answered, { kind: "stopped" } once it stopped
