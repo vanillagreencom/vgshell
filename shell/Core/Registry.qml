@@ -427,14 +427,13 @@ Singleton {
     // choices (PluginLogic.settingChoices over those same values), its
     // requirements with their state and its errors: each failed build of
     // one of its kinds, once per cause, then each problem the Hyprland
-    // layer reports for it, then its saved undeclared settings, then each of its launcher rows another
+    // layer reports for it, then each of its launcher rows another
     // plugin listed first.
     readonly property var managerRows: {
         const config = Config.effective;
         const descriptions = Capabilities.shortcutDescriptions;
         const failures = Plugins.failedBuilds;
         const problems = hyprlandProblems;
-        const settingNotices = unknownSettingErrors;
         const menuConflicts = menu.conflicts;
         const holder = panesHolderId();
         return Object.keys(manifests).sort().map(id => {
@@ -447,8 +446,6 @@ Singleton {
             }
             for (const problem of problems)
                 if (problem.id === id) errors.push(problem.error);
-            for (const notice of settingNotices)
-                if (notice.id === id) errors.push(notice.error);
             for (const conflict of menuConflicts)
                 if (conflict.plugin === id) errors.push(menuConflictText(conflict));
             const settings = Logic.managerSettings(config, m);
@@ -477,7 +474,6 @@ Singleton {
                 opens: Logic.openKind(m),
                 paneHolder: m.kinds.indexOf("pane") === -1 ? "" : holder,
                 requirements: requirementsOf(id),
-                oldSettings: settingNotices.find(notice => notice.id === id) || null,
                 errors: errors
             };
         });
@@ -486,14 +482,6 @@ Singleton {
     function menuConflictText(conflict) {
         return "menu: " + conflict.id + " for " + conflict.plugin + " skipped: already listed by " + conflict.heldBy;
     }
-
-    // Before the first scan no manifest is known. Both reports consume
-    // this list so Settings and the command show the same notice once.
-    readonly property var unknownSettingErrors: scanned ? Logic.unknownSettings(Config.user === null ? {} : Config.user, manifests).map(row => ({
-        kind: "unknown-settings", id: row.id, keys: row.keys,
-        dir: manifests[row.id].__sourceDir,
-        error: manifests[row.id].name + " has old settings it no longer uses: " + row.keys.map(key => JSON.stringify(key)).join(", ") + "."
-    })) : []
 
     function listJson() {
         const rows = Object.keys(manifests).sort().map(id => ({
@@ -511,7 +499,7 @@ Singleton {
         const watchError = coreWatchError === "" ? [] : [{ dir: Quickshell.shellDir, error: coreWatchError }];
         const extra = hyprlandProblems.map(p => ({ dir: p.dir, error: p.error }))
             .concat(menu.conflicts.map(c => ({ dir: manifests[c.plugin].__sourceDir, error: menuConflictText(c) })));
-        return JSON.stringify({ plugins: rows, errors: errors.concat(extra, watchError, unknownSettingErrors), collisions: collisions, unknown: unknown, scanError: scanError, scanned: scanned, config: { ready: Config.ready, shipped: Config.shippedState, user: Config.userState } });
+        return JSON.stringify({ plugins: rows, errors: errors.concat(extra, watchError), collisions: collisions, unknown: unknown, scanError: scanError, scanned: scanned, config: { ready: Config.ready, shipped: Config.shippedState, user: Config.userState } });
     }
 
     Component.onCompleted: {

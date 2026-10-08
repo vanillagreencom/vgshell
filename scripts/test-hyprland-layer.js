@@ -1285,7 +1285,7 @@ const CONTROLS = [
     [logicFile, "keys null unbinds", "if (keys[names[i]] === null)\n            continue;", "if (false)\n            continue;"],
     [logicFile, "keys values", "if (!key.ok)\n            return itemAt + \" \" + key.error;", "if (false)\n            return itemAt + \" \" + key.error;"],
     [logicFile, "keys empty lists", "if (Array.isArray(value) && value.length === 0)\n        return at + \" must not be an empty list\";", "if (false)\n        return at + \" must not be an empty list\";"],
-    [logicFile, "keys no setting", "Object.keys(manifest.settings).forEach(function (k) { if (hasOwn(entry, k)) out[k] = entry[k]; });", "Object.keys(manifest.settings).concat('keys').forEach(function (k) { if (hasOwn(entry, k)) out[k] = entry[k]; });"],
+    [logicFile, "keys no setting", "return copyEntrySettings(clone(out), entry, manifest, false);", "return copyEntrySettings(clone(out), entry, manifest, true);"],
     [logicFile, "row key wins", "var given = hasOwn(keys, bind.shortcut) ? keys[bind.shortcut] : bind.key;", "var given = bind.key;"],
     [logicFile, "null unbinds", "var given = hasOwn(keys, bind.shortcut) ? keys[bind.shortcut] : bind.key;", "var given = hasOwn(keys, bind.shortcut) && keys[bind.shortcut] !== null ? keys[bind.shortcut] : bind.key;"],
     [logicFile, "key lists expand to binds", "keyValues(given).forEach(function (value) {", "[keyValues(given)[0]].forEach(function (value) {"],

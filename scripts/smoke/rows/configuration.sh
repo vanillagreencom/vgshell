@@ -1,7 +1,7 @@
 # An unreadable user file settles, keeps the bar, and refuses every write
 # until it reads again. A user file the shell reads and the disk refuses to
 # write answers the write with the refusal and keeps its value.
-# inputs: shell/Core/Config.qml shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml bin/vgshell shell/Commons/WatchedFile.qml bin/vgshell-plugin-judge scripts/smoke/rows/capability-release.sh
+# inputs: shell/Core/Config.qml shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml shell/plugins/vgs.bar/Service.qml bin/vgshell shell/Commons/WatchedFile.qml bin/vgshell-plugin-judge scripts/smoke/rows/capability-release.sh
 set -euo pipefail
 config_user_state() { ipc shell listPlugins | py_reply 'import json,sys; print(json.load(sys.stdin)["config"]["user"])'; }
 expected_errors+=('config: user file unreadable at ')
@@ -94,84 +94,66 @@ if copy_tree configuration-overwrites-malformed && edit_tree configuration-overw
   configuration_control_restore
 fi
 
-# Model the pending bar cutover in a disposable tree. Its manifest and bar
-# both retire left; the saved field stays in the file and gets one notice.
+# Model the pending bar cutover in a disposable tree. The manifest and bar
+# retire left; ordinary manager and configure writes discard its saved key.
 configuration_retire_bar() {
   local name="$1"
   copy_tree "$name" && edit_tree "$name" shell/plugins/vgs.bar/manifest.json \
     $'    "left": ["workspaces"],\n' '' && edit_tree "$name" shell/plugins/vgs.bar/Bar.qml \
-    'const names = shell.settings[section];' 'const names = section === "left" ? [] : shell.settings[section];'
-}
-configuration_setting_notices() {
-  ipc shell listPlugins | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([{"id":e["id"],"keys":e["keys"]} for e in d["errors"] if e.get("kind")=="unknown-settings" and e.get("id")=="vgs.bar"], sort_keys=True))'
-}
-configuration_manager_notices() {
-  ipc shell listPlugins >"$sandbox/configuration-notices.json" || return
-  ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys
-rows=json.load(sys.stdin)
-notices=[e for e in json.load(open(sys.argv[1]))["errors"] if e.get("kind")=="unknown-settings" and e.get("id")=="vgs.bar"]
-print(json.dumps([{"id":e["id"],"keys":e["keys"],"reported":any(r["id"]==e["id"] and r["errors"].count(e["error"])==1 for r in rows)} for e in notices],sort_keys=True))' "$sandbox/configuration-notices.json"
+    'const names = shell.settings[section];' 'const names = section === "left" ? [] : shell.settings[section];' && \
+    edit_tree "$name" shell/plugins/vgs.bar/Bar.qml \
+    'property var shell: null' 'property var shell: null; readonly property bool retiredDelivered: shell !== null && Object.prototype.hasOwnProperty.call(shell.settings, "left")'
 }
 configuration_saved_left() {
-  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps(next(e["left"] for e in d["plugins"] if e["id"]=="vgs.bar")))' "$home/.config/vgshell/shell.json"
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(any("left" in e for e in d.get("plugins", []) if e["id"]=="vgs.bar"))' "$home/.config/vgshell/shell.json"
+}
+configuration_plant_left() {
+  python3 - "$home/.config/vgshell/shell.json" <<'PYDATA'
+import json, os, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["plugins"] = [e for e in d.get("plugins", []) if e["id"] != "vgs.bar"] + [{"id":"vgs.bar", "left":["workspaces"], "keys":{"toggle":"SUPER+SHIFT+SPACE"}}]
+json.dump(d, open(p + ".tmp", "w"), indent=2)
+os.replace(p + ".tmp", p)
+PYDATA
+}
+configuration_runtime_left() {
+  local key
+  key="$(bar_key)" || return
+  ipc smoke readInstance "$key" vgs.bar retiredDelivered
 }
 if configuration_retire_bar configuration-retired-setting; then
   stop_shell || :
-  python3 - "$home/.config/vgshell/shell.json" <<'PY'
-import json, os, sys
-p = sys.argv[1]
-d = json.load(open(p))
-d["plugins"] = [e for e in d.get("plugins", []) if e["id"] != "vgs.bar"] + [{"id":"vgs.bar", "left":["workspaces"]}]
-json.dump(d, open(p + ".tmp", "w"), indent=2)
-os.replace(p + ".tmp", p)
-PY
+  configuration_plant_left
   if start_shell "$sandbox/tree-configuration-retired-setting" "$sandbox/configuration-retired-setting-qs.log"; then
-    expect_poll "the retired bar field gets one typed notice" '[{"id": "vgs.bar", "keys": ["left"]}]' configuration_setting_notices
-    expect "Settings opens with the retired field saved" ok ipc shell summon window vgs.settings '{}'
-    expect_poll "Settings receives the same retired-setting notice once" '[{"id": "vgs.bar", "keys": ["left"], "reported": true}]' configuration_manager_notices
-    expect "editing another plugin leaves the retired field in the file" ok ipc shell setPluginEnabled acme.tick false
-    expect "the saved retired field stays after the edit" '["workspaces"]' configuration_saved_left
-    expect "the other plugin is enabled again" ok ipc shell setPluginEnabled acme.tick true
-    expect "the Settings action removes old settings" ok ipc smoke invokeInstance window vgs.settings clearOldSettings vgs.bar
-    expect_poll "the Settings action clears the retired-setting notice" '[]' configuration_setting_notices
-    expect_poll "Settings no longer receives a retired-setting notice" '[]' configuration_manager_notices
-    expect "the Settings action removes the saved retired field" False python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(any("left" in e for e in d["plugins"] if e["id"]=="vgs.bar"))' "$home/.config/vgshell/shell.json"
-    python3 - "$home/.config/vgshell/shell.json" <<'PY'
-import json, os, sys
-p = sys.argv[1]
-d = json.load(open(p))
-next(e for e in d["plugins"] if e["id"] == "vgs.bar")["left"] = ["workspaces"]
-json.dump(d, open(p + ".tmp", "w"), indent=2)
-os.replace(p + ".tmp", p)
-PY
-    expect_poll "the caller control again holds the saved retired field" '[{"id": "vgs.bar", "keys": ["left"]}]' configuration_setting_notices
+    expect_poll "the retired bar field never enters runtime settings" false configuration_runtime_left
+    expect "loading the saved field makes no cleanup write" True configuration_saved_left
+    expect "Settings opens for an ordinary setting write" ok ipc shell summon window vgs.settings '{}'
+    expect "the ordinary Settings write accepts a declared bar field" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.bar","key":"clockFormat","value":"HH:mm"}'
+    expect "the ordinary Settings write removes the saved retired field" False configuration_saved_left
+    expect "the ordinary Settings write keeps the declared value and shortcuts" '["HH:mm", {"toggle": "SUPER+SHIFT+SPACE"}]' python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); e=next(e for e in d["plugins"] if e["id"]=="vgs.bar"); print(json.dumps([e["clockFormat"],e["keys"]],sort_keys=True))' "$home/.config/vgshell/shell.json"
     stop_shell || :
-    if edit_tree configuration-retired-setting shell/Core/Registry.qml \
-        'errors.concat(extra, watchError, unknownSettingErrors)' 'errors.concat(extra, watchError)'; then
-      if start_shell "$sandbox/tree-configuration-retired-setting" "$sandbox/configuration-hidden-setting-qs.log"; then
-        expect_poll "control: removing the notice makes the positive typed check fail" '[]' configuration_setting_notices
-        expect "control: the retired field still reaches the shell's saved file" '["workspaces"]' configuration_saved_left
-      fi
+    configuration_plant_left
+    if start_shell "$sandbox/tree-configuration-retired-setting" "$sandbox/configuration-retired-configure-qs.log"; then
+      expect_poll "the configure write starts with no retired runtime setting" false configuration_runtime_left
+      expect "the bar service accepts an ordinary configure write" ok ipc vgs.bar invoke toggle ''
+      expect "the ordinary configure write removes the saved retired field" False configuration_saved_left
+      expect "the bar service restores its visibility" ok ipc vgs.bar invoke toggle ''
     fi
   fi
   configuration_control_restore
 fi
 
-if configuration_retire_bar configuration-hidden-manager-setting && edit_tree configuration-hidden-manager-setting shell/Core/Registry.qml \
-    'const settingNotices = unknownSettingErrors;' 'const settingNotices = false ? unknownSettingErrors : [];'; then
+if configuration_retire_bar configuration-copy-all-settings && edit_tree configuration-copy-all-settings shell/Core/PluginLogic.js \
+    'if (hasOwn(manifest.settings, k) || (stored && ENTRY_RESERVED_KEYS.indexOf(k) !== -1))' \
+    'if (stored || ENTRY_RESERVED_KEYS.indexOf(k) === -1)'; then
   stop_shell || :
-  python3 - "$home/.config/vgshell/shell.json" <<'PY'
-import json, os, sys
-p = sys.argv[1]
-d = json.load(open(p))
-d["plugins"] = [e for e in d.get("plugins", []) if e["id"] != "vgs.bar"] + [{"id":"vgs.bar", "left":["workspaces"]}]
-json.dump(d, open(p + ".tmp", "w"), indent=2)
-os.replace(p + ".tmp", p)
-PY
-  if start_shell "$sandbox/tree-configuration-hidden-manager-setting" "$sandbox/configuration-hidden-manager-setting-qs.log"; then
-    expect "control: Settings opens with the same retired field saved" ok ipc shell summon window vgs.settings '{}'
-    expect_poll "control: removing the Settings route makes its typed check fail" '[{"id": "vgs.bar", "keys": ["left"], "reported": false}]' configuration_manager_notices
-    expect "control: the retired field still reaches the Settings copy" '["workspaces"]' configuration_saved_left
+  configuration_plant_left
+  if start_shell "$sandbox/tree-configuration-copy-all-settings" "$sandbox/configuration-copy-all-settings-qs.log"; then
+    expect_poll "control: copy-everything delivers the retired runtime field" true configuration_runtime_left
+    expect "control: the bar service makes the same ordinary setting write" ok ipc vgs.bar invoke toggle ''
+    expect "control: copy-everything leaves the retired field after the write" True configuration_saved_left
+    expect "control: the bar service restores its visibility" ok ipc vgs.bar invoke toggle ''
   fi
   configuration_control_restore
 fi

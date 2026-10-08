@@ -713,19 +713,6 @@ Singleton {
         return Config.writeUser(Logic.withoutSetting(Config.user, m, key, targets, locator || null));
     }
 
-    // An explicit manager action removes only this plugin's reported old
-    // keys from saved entries. Loading configuration never removes them.
-    function clearOldSettings(id) {
-        if (!Registry.has(id)) return "unknown: " + id;
-        const notice = Logic.unknownSettings(Config.user === null ? {} : Config.user, Registry.manifests).find(row => row.id === id);
-        if (notice === undefined) return "ok";
-        const m = Registry.manifests[id];
-        let user = Config.user;
-        for (const key of notice.keys)
-            user = Logic.withoutSetting(user, m, key, ["plugins", "layout"], null);
-        return Config.writeUser(user);
-    }
-
     // Write one setting of plugin `id` into every configuration entry its
     // instances read, for the plugin manager. A disabled plugin is refused:
     // listing a third-party plugin's row would enable it.

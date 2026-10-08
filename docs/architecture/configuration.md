@@ -24,13 +24,13 @@ One file stops delivering shipped defaults the moment a user edits it, and a dee
 - Never build anything before the configuration is ready: the shipped file has loaded once and the user file has settled, so a bar never draws from the user file alone. Gap: no row starts the shell with the user file unsettled.
 - Never write the user file unless it is `loaded` or `absent`, so an unparseable, unreadable or malformed file is never overwritten unread. After the disk refuses a write, refuse every write until the file is read again.
 - Do answer `ok` only once the file holds the edit. `scripts/smoke/rows/style.sh` stops the shell as a toggle answers and reads the file.
-- Remove a key the shell does not read only when the user requests its removal; a write carries every unrelated key untouched. `scripts/test-plugin-logic.js` pins it for the `PluginLogic` edit functions; gap: nothing checks a write outside them.
+- Keep unrelated keys untouched in each write. `scripts/test-plugin-logic.js` pins it for the `PluginLogic` edit functions; gap: nothing checks a write outside them.
 - Do read a file again when an edit lands during a read, through `WatchedFile`, so the last edit is the one the configuration holds. `scripts/qml-tests/tst_watched_file.qml` pins it.
 
 ### Unknown ids
 
+- Silently omit saved settings the plugin manifest does not declare from runtime settings and from each entry the next normal setting write updates, while keeping reserved entry keys in the file.
 - Do keep an id that `plugins` or `disabledPlugins` lists and no discovered plugin has, as a removed plugin leaves behind, in the file, and report it through `PluginLogic.unknownIds`. `scripts/test-plugin-logic.js`, `scripts/test-vgshell-plugin-list.sh` and `scripts/smoke/rows/configuration.sh` pin it.
-- Do keep saved setting keys a discovered plugin's manifest no longer declares in the file until the user removes them, but read no value from them. Report every such key except entry reserved keys through `PluginLogic.unknownSettings`, in one warning per plugin named by its manifest display name. Settings offers an action that removes only the reported keys from that plugin's saved entries. `scripts/test-plugin-logic.js` and `scripts/smoke/rows/configuration.sh` pin it.
 
 ### Theme file
 

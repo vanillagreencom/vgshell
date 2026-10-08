@@ -5,7 +5,6 @@
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const vm = require("node:vm");
 const { load } = require("../bin/lib/qml-library.js");
@@ -68,79 +67,6 @@ const CASES = [
 // Already parsed device facts only. No device or compositor command runs.
 const core = path.join(__dirname, "..", "shell", "Core");
 const producer = load(path.join(core, "PluginLogic.js"));
-// Registry is the real producer of the already prepared user notice.
-// Check the pass-through contract, not a second copy of its wording.
-const registrySource = fs.readFileSync(path.join(core, "Registry.qml"), "utf8");
-const pluginsSource = fs.readFileSync(path.join(core, "Plugins.qml"), "utf8");
-const noticeBindings = [...registrySource.matchAll(/readonly property var unknownSettingErrors: ([\s\S]*?)\n\n    function listJson/g)];
-assert.equal(noticeBindings.length, 1, "extractor: one actual Registry saved-setting notice binding");
-const retiredBar = JSON.parse(fs.readFileSync(path.join(dir, "..", "vgs.bar", "manifest.json"), "utf8"));
-delete retiredBar.settings.left;
-retiredBar.__sourceDir = "/fixture/vgs.bar";
-const noticeUser = { plugins: [{ id: retiredBar.id, left: ["workspaces"] }] };
-const noticeContext = { scanned: true, Logic: producer, Config: { user: noticeUser, effective: producer.effectiveConfig({}, noticeUser) }, manifests: { [retiredBar.id]: retiredBar } };
-const settingNotices = vm.runInNewContext("(" + noticeBindings[0][1] + ")", noticeContext);
-same(settingNotices.map(({ kind, id, keys }) => ({ kind, id, keys })), [{ kind: "unknown-settings", id: "vgs.bar", keys: ["left"] }]);
-same(vm.runInNewContext("(" + noticeBindings[0][1] + ")", { ...noticeContext, scanned: false }), []);
-
-// Run the real removal caller and edit judge. The Config double owns the
-// saved file and either publishes the write or refuses it unchanged.
-function verifyRemoval(source, noticeBinding = noticeBindings[0][1]) {
-    const functions = [...source.matchAll(/^    function clearOldSettings\([^\n]*\) \{\n[\s\S]*?^    \}/gm)];
-    assert.equal(functions.length, 1, "extractor: one actual Plugins.clearOldSettings");
-    const absent = { Logic: producer, Config: { user: null, writeUser() { throw new Error("an absent user file has no old settings to remove"); } }, Registry: { manifests: { [retiredBar.id]: retiredBar }, has: id => id === retiredBar.id } };
-    vm.createContext(absent);
-    vm.runInContext(functions[0][0], absent);
-    assert.equal(absent.clearOldSettings(retiredBar.id), "ok", "an absent user file needs no removal or write");
-    same(vm.runInNewContext("(" + noticeBinding + ")", { scanned: true, Logic: producer, Config: { user: null, effective: {}, savedBeforeRemoval: null }, manifests: absent.Registry.manifests }), []);
-    const saved = {
-        version: 1, extra: "keep", disabledPlugins: [retiredBar.id],
-        plugins: [
-            { id: retiredBar.id, left: ["old"], onlyFirst: "old", clockFormat: "HH", keys: { toggle: null } },
-            { id: retiredBar.id, left: [], obsolete: false, clockFormat: "mm" },
-            { id: "acme.other", left: ["keep"], obsolete: true }
-        ],
-        bar: { id: retiredBar.id, layout: Object.fromEntries(["left", "center", "right"].map(section => [section, [
-            { id: retiredBar.id, left: [section], obsolete: 0, clockFormat: "HH", keys: {} },
-            { id: retiredBar.id, left: [], clockFormat: "mm" },
-            { id: "acme.other", left: [section], obsolete: 1 }
-        ]])) }
-    };
-    const expected = JSON.parse(JSON.stringify(saved));
-    for (const entries of [expected.plugins, ...Object.values(expected.bar.layout)])
-        for (const entry of entries) if (entry.id === retiredBar.id) { delete entry.left; delete entry.obsolete; delete entry.onlyFirst; }
-    for (const refused of [false, true]) {
-        let writes = 0;
-        const Config = { user: JSON.parse(JSON.stringify(saved)), writeUser(value) {
-            writes++;
-            if (refused) return "refused: user-config=unwritable path=/fixture";
-            this.user = value;
-            return "ok";
-        } };
-        const manifests = { [retiredBar.id]: retiredBar };
-        const ctx = { Logic: producer, Config, Registry: { manifests, has: id => Object.hasOwn(manifests, id) } };
-        vm.createContext(ctx);
-        vm.runInContext(functions[0][0], ctx);
-        same(ctx.clearOldSettings("acme.missing"), "unknown: acme.missing");
-        assert.equal(writes, 0, "an unknown plugin never writes");
-        const reported = producer.unknownSettings(Config.user, manifests);
-        same(reported, [{ id: retiredBar.id, keys: ["left", "obsolete", "onlyFirst"] }]);
-        function notices() {
-            return vm.runInNewContext("(" + noticeBinding + ")", { scanned: true, Logic: producer, Config: { user: Config.user, effective: producer.effectiveConfig({}, Config.user), savedBeforeRemoval: saved }, manifests })
-                .map(({ kind, id, keys }) => ({ kind, id, keys }));
-        }
-        same(notices(), [{ kind: "unknown-settings", id: retiredBar.id, keys: ["left", "obsolete", "onlyFirst"] }]);
-        assert.equal(ctx.clearOldSettings(retiredBar.id), refused ? "refused: user-config=unwritable path=/fixture" : "ok");
-        assert.equal(writes, 1, "all reported keys use one configuration write");
-        same(Config.user, refused ? saved : expected);
-        same(notices(), refused ? [{ kind: "unknown-settings", id: retiredBar.id, keys: ["left", "obsolete", "onlyFirst"] }] : []);
-        if (!refused) {
-            assert.equal(ctx.clearOldSettings(retiredBar.id), "ok");
-            assert.equal(writes, 1, "an already clean plugin never writes");
-        }
-    }
-}
-verifyRemoval(pluginsSource);
 const layer = load(path.join(core, "HyprlandLayer.js"));
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "smoke", "fixtures", "plugins", "acme.hyprland", "manifest.json"), "utf8"));
 const problemsSource = fs.readFileSync(path.join(core, "HyprlandLayer.qml"), "utf8");
@@ -204,14 +130,12 @@ function verify(logic) {
         assert.doesNotMatch(text, /(?:hyprland:|refused:|\b[a-z][a-z-]*=)/, raw);
     }
     assert.match(logic.line(UNKNOWN.at(-1)), /plugin could not start/, "embedded unrelated codes must not change the failure cause");
-    const embeddedNotice = "build failed: service: " + settingNotices[0].error;
-    assert.equal(logic.line(embeddedNotice), logic.line("build failed: service: fixture"), "a build error containing notice words keeps its failure category");
 }
 
 // Like the Dev Tools handler test, execute the QML source under Node with
 // capability doubles. No second implementation or QML parsing library.
 function windowContext(logic, source) {
-    const names = ["stepKey", "replyOf", "keep", "secretStep", "listStep", "addPlugin", "resetVgs", "storeSecret", "clearSecret", "tuiKey", "openTui", "clearOldSettings"];
+    const names = ["stepKey", "replyOf", "keep", "secretStep", "listStep", "addPlugin", "resetVgs", "storeSecret", "clearSecret", "tuiKey", "openTui"];
     const functions = names.map(name => {
         const found = [...source.matchAll(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{\\n[\\s\\S]*?^    \\}", "gm"))];
         assert.equal(found.length, 1, `extractor: one actual Window.${name}`);
@@ -229,8 +153,6 @@ function verifyCallers(logic, source, page) {
     const { ctx, logs } = windowContext(logic, source);
     for (const [raw] of CASES) {
         assert.equal(ctx.keep("plugin", raw), raw, "keep returns the unchanged machine reply");
-        ctx.shell.manager.clearOldSettings = id => { assert.equal(id, "plugin"); return raw; };
-        assert.equal(ctx.clearOldSettings("plugin"), raw, "old-setting removal returns the actual manager reply");
         assert.equal(ctx.replyOf("plugin"), logic.line(raw), "page reads the mapped manager reply");
         assert.equal(logs.at(-1), "settings: plugin " + raw, "logs retain the original diagnostic");
         ctx.shell.manager.add = () => raw;
@@ -288,20 +210,11 @@ function verifyCallers(logic, source, page) {
     assert.equal(ctx.openTui("plugin", "accounts"), "ok");
     assert.equal(ctx.replyOf("plugin", ctx.tuiKey("accounts")), "", "an opened screen clears its refusal");
 
-    const bindings = [...page.matchAll(/required property string modelData\n\s+readonly property bool oldSetting: ([^\n]+)\n\s+role: "hint"\n\s+text: ([^\n]+)\n\s+color: ([^\n]+)/g)];
+    const bindings = [...page.matchAll(/required property string modelData\n\s+role: "hint"\n\s+text: ([^\n]+)/g)];
     assert.equal(bindings.length, 1, "extractor: the Registry error delegate has one display binding");
-    const rows = [
-        ...CASES.filter(([raw]) => raw.startsWith("build failed:") || raw.startsWith("hyprland:")).map(([raw]) => [raw, { oldSettings: null }, false, logic.line(raw), "danger"]),
-        ["build failed: service: fixture", null, false, logic.line("build failed: service: fixture"), "danger"],
-        ...settingNotices.map(notice => [notice.error, { oldSettings: notice }, true, notice.error, "warning"]),
-        ...settingNotices.map(notice => ["build failed: service: " + notice.error, { oldSettings: notice }, false, logic.line("build failed: service: fixture"), "danger"])
-    ];
-    for (const [modelData, row, warning, text, color] of rows) {
-        const ctx = { Reply: logic, modelData, page: { row }, Theme: { color: { warning: "warning", danger: "danger" } } };
-        ctx.oldSetting = vm.runInNewContext(bindings[0][1], ctx);
-        assert.equal(ctx.oldSetting, warning, "the delegate classifies the typed warning once, including a removed row");
-        assert.equal(vm.runInNewContext(bindings[0][2], ctx), text, "prepared warnings keep their text; other errors use the reply judge");
-        assert.equal(vm.runInNewContext(bindings[0][3], ctx), color, "only the prepared warning uses warning tone");
+    for (const [modelData] of CASES.filter(([raw]) => raw.startsWith("build failed:") || raw.startsWith("hyprland:"))) {
+        const drawn = vm.runInNewContext(bindings[0][1], { Reply: logic, modelData });
+        assert.equal(drawn, logic.line(modelData), "the actual delegate maps its current error");
     }
 }
 
@@ -350,20 +263,6 @@ const source = fs.readFileSync(file, "utf8");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "settings-reply-control-"));
 let controls = 0;
 try {
-    for (const [needle, replacement] of [
-        ['for (const key of notice.keys)', 'for (const key of notice.keys.concat("clockFormat"))'],
-        ['user = Logic.withoutSetting(user, m, key, ["plugins", "layout"], null);', 'user = user;']
-    ]) {
-        assert.equal(pluginsSource.split(needle).length, 2, "control: one removal statement");
-        assert.throws(() => verifyRemoval(pluginsSource.replace(needle, replacement)), undefined, "removing a declared key or retaining old keys must fail");
-        controls++;
-    }
-    const savedInput = "Config.user === null ? {} : Config.user";
-    assert.equal(noticeBindings[0][1].split(savedInput).length, 2, "control: one live saved-entry input");
-    assert.throws(() => verifyRemoval(pluginsSource, noticeBindings[0][1].replace(savedInput, "(Config.savedBeforeRemoval === null ? {} : Config.savedBeforeRemoval)")), undefined, "a notice left after successful removal must fail its clearing check");
-    assert.throws(() => verifyRemoval(pluginsSource, noticeBindings[0][1].replace(savedInput, "Config.effective")), undefined, "merged entries hide an earlier duplicate's saved key and must fail");
-    controls++;
-    controls++;
     const patterns = source.match(/^    \[\/.*$/gm);
     assert.ok(patterns.length >= 30, "extractor: mapper pattern table incomplete");
     for (const row of patterns) {
@@ -406,20 +305,11 @@ try {
         assert.throws(() => verifyCallers(logic, windowSource.replace(needle, replacement), pageSource));
         controls++;
     }
-    const needle = "text: oldSetting ? modelData : Reply.line(modelData)";
+    const needle = "text: Reply.line(modelData)";
     assert.equal(pageSource.split(needle).length, 2);
     assert.throws(() => verifyCallers(logic, windowSource, pageSource.replace(needle, "text: modelData")));
     controls++;
-    for (const [needle, replacement] of [
-        ["readonly property bool oldSetting: page.row !== null &&", "readonly property bool oldSetting:"],
-        ["text: oldSetting ? modelData : Reply.line(modelData)", "text: Reply.line(modelData)"],
-        ["color: oldSetting ? Theme.color.warning : Theme.color.danger", "color: Theme.color.danger"]
-    ]) {
-        assert.equal(pageSource.split(needle).length, 2, "control: one typed warning display binding");
-        assert.throws(() => verifyCallers(logic, windowSource, pageSource.replace(needle, replacement)), undefined, "the warning display contract must reject a missing guard, mapper bypass or error tone");
-        controls++;
-    }
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-settings-reply: ok causes=${CASES.length} unknown=${UNKNOWN.length} hyprland=${HYPRLAND.length} controls=${controls} saved-notices=${settingNotices.length} keys=actual-Probe-windowGeometry actual-callers=keep,add,secret,tui,errors`);
+console.log(`test-settings-reply: ok causes=${CASES.length} unknown=${UNKNOWN.length} hyprland=${HYPRLAND.length} controls=${controls} keys=actual-Probe-windowGeometry actual-callers=keep,add,secret,tui,errors`);

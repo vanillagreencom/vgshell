@@ -154,7 +154,6 @@ Singleton {
             setPlaced: (id, placed) => typeof placed === "boolean" ? Plugins.setPlaced(id, placed) : "refused: placed=" + JSON.stringify(placed) + " want=boolean",
             moveWidget: (id, section, index) => typeof section !== "string" ? "refused: section=" + JSON.stringify(section) + " want=string" : typeof index === "number" && Number.isInteger(index) && index >= 0 ? Plugins.moveWidget(id, section, index, null) : "refused: index=" + JSON.stringify(index) + " want=integer>=0",
             setSetting: (id, key, value) => Plugins.setSetting(id, key, value),
-            clearOldSettings: id => Plugins.clearOldSettings(id),
             setKey: (id, shortcut, key) => Plugins.setKey(id, shortcut, key),
             update: id => root.managerTui("update", id),
             remove: id => root.managerTui("remove", id),

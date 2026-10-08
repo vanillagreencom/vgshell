@@ -511,6 +511,18 @@ function suite(ctx, check) {
         const entry = { id: "acme.widget", size: 0, retired: "unused", keys: { toggle: "SUPER+A" } };
         check("settingsFor ignores undeclared and reserved keys in " + target, ctx.settingsFor({ plugins: [entry] }, manifests["acme.widget"], target, entry), { size: 0, tags: ["a"] });
     }
+    const unreadValue = { id: "acme.widget", size: 0, keys: { toggle: "SUPER+A" } };
+    Object.defineProperty(unreadValue, "retired", { enumerable: true, get() { throw new Error("undeclared value read"); } });
+    for (const target of ["plugins", "layout"])
+        check("settingsFor never reads an undeclared value in " + target, ctx.settingsFor({ plugins: [unreadValue] }, manifests["acme.widget"], target, unreadValue), { size: 0, tags: ["a"] });
+    for (const stored of [false, true]) {
+        const copied = ctx.copyEntrySettings({}, unreadValue, manifests["acme.widget"], stored);
+        check("copyEntrySettings reads only declared and retained reserved values: stored=" + stored, copied, stored ? { id: "acme.widget", size: 0, keys: { toggle: "SUPER+A" } } : { size: 0 });
+        if (stored) copied.keys.toggle = "SUPER+B";
+        check("copyEntrySettings does not alias retained reserved values: stored=" + stored, unreadValue.keys, { toggle: "SUPER+A" });
+    }
+    const prototypeEntry = JSON.parse('{"id":"vgs.bar","constructor":1,"__proto__":2}');
+    check("copyEntrySettings excludes inherited declaration names", ctx.copyEntrySettings({}, prototypeEntry, manifests["vgs.bar"], true), { id: "vgs.bar" });
     check("managerSettings shows a placed widget its first layout entry", ctx.managerSettings(ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "acme.both", label: "entry" }], right: [] } }, plugins: [{ id: "acme.both", label: "row" }] }), manifests["acme.both"]), { label: "entry" });
     check("managerSettings shows an unplaced widget-plus-service its plugins row", ctx.managerSettings(ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.both", label: "row" }] }), manifests["acme.both"]), { label: "row" });
     check("managerSettings shows a service its plugins row", ctx.managerSettings(ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.svc", x: 2 }] }), manifests["acme.svc"]), { x: 2 });
@@ -951,6 +963,37 @@ function suite(ctx, check) {
     for (const [name, user, targets, p, want, locator] of unsetRows) {
         check("withoutSetting: " + name, dig(ctx.withoutSetting(user, tunable, "label", targets, locator || null), p), want);
     }
+    // Both ordinary writers must filter the entries they update. A locator
+    // keeps every other entry intact, as does an edit to another plugin.
+    const savedTune = { version: 1, extra: "kept", plugins: [
+        { id: "acme.tune", label: "p", size: 0, on: false, retired: "old", keys: { toggle: "SUPER+A" } },
+        { id: "acme.gone", retired: "unrelated" }
+    ], bar: { layout: { left: [
+        { id: "acme.tune", label: "first", retired: "first-old" },
+        { id: "acme.tune", label: "second", size: 0, retired: "second-old" }
+    ], center: [], right: [] } } };
+    const savedBefore = JSON.stringify(savedTune);
+    const writeRows = [
+        ["set plugins", "set", ["plugins"], null, "plugins.0", { id: "acme.tune", label: "new", size: 0, on: false, keys: { toggle: "SUPER+A" } }],
+        ["reset plugins", "reset", ["plugins"], null, "plugins.0", { id: "acme.tune", size: 0, on: false, keys: { toggle: "SUPER+A" } }],
+        ["set layout", "set", ["layout"], null, "bar.layout.left", [{ id: "acme.tune", label: "new" }, { id: "acme.tune", label: "new", size: 0 }]],
+        ["reset layout", "reset", ["layout"], null, "bar.layout.left", [{ id: "acme.tune" }, { id: "acme.tune", size: 0 }]],
+        ["set located entry", "set", ["layout"], { section: "left", nth: 1 }, "bar.layout.left", [{ id: "acme.tune", label: "first", retired: "first-old" }, { id: "acme.tune", label: "new", size: 0 }]],
+        ["reset located entry", "reset", ["layout"], { section: "left", nth: 1 }, "bar.layout.left", [{ id: "acme.tune", label: "first", retired: "first-old" }, { id: "acme.tune", size: 0 }]],
+        ["set inherited plugins", "seed", ["plugins"], null, "plugins.0", { id: "acme.tune", label: "new", size: 0, on: false, keys: { toggle: "SUPER+A" } }],
+    ];
+    for (const [name, operation, targets, locator, at, want] of writeRows) {
+        const out = operation === "reset" ? ctx.withoutSetting(savedTune, tunable, "label", targets, locator)
+            : ctx.withSetting(operation === "seed" ? null : savedTune, tunable, "label", "new", savedTune, targets, locator);
+        check("ordinary setting write silently drops retired keys: " + name, dig(out, at), want);
+        check("ordinary setting write leaves caller data intact: " + name, JSON.stringify(savedTune), savedBefore);
+        if (operation !== "seed") {
+            check("ordinary setting write keeps unknown ids: " + name, out.plugins[1], { id: "acme.gone", retired: "unrelated" });
+            check("ordinary setting write keeps unrelated top-level keys: " + name, out.extra, "kept");
+            const untouched = targets.indexOf("plugins") === -1 ? "plugins" : "bar";
+            check("ordinary setting write leaves untargeted entries intact: " + name, out[untouched], savedTune[untouched]);
+        }
+    }
     check("withoutSetting does not alias the user file", (() => { const u = { plugins: [{ id: "acme.tune", label: "p" }] }; ctx.withoutSetting(u, tunable, "label", ["plugins"]); return u.plugins[0]; })(), { id: "acme.tune", label: "p" });
 
     // lendRefusal rows: [name, held, capabilities, want]
@@ -981,25 +1024,6 @@ function suite(ctx, check) {
     for (const [name, config, want] of unknownRows) {
         check("unknownIds: " + name, ctx.unknownIds(config, manifests), want);
     }
-
-    const unknownSettingRows = [
-        ["reserved keys and declared defaults need no notice", { plugins: [{ id: "acme.widget", size: 0, tags: [], keys: {} }] }, []],
-        ["a retired bar field is named", { plugins: [{ id: "vgs.bar", left: ["workspaces"] }] }, [{ id: "vgs.bar", keys: ["left"] }]],
-        ["all entries share one notice per plugin", { plugins: [{ id: "acme.widget", old: 1 }, { id: "vgs.bar", right: [] }], bar: { layout: { left: [{ id: "acme.widget", old: 2 }], center: [{ id: "acme.widget", retired: 3 }], right: [{ id: "acme.widget", last: 4 }] } } }, [{ id: "acme.widget", keys: ["last", "old", "retired"] }, { id: "vgs.bar", keys: ["right"] }]],
-        ["disabled plugins still name retired keys", { disabledPlugins: ["vgs.bar"], plugins: [{ id: "vgs.bar", center: [] }] }, [{ id: "vgs.bar", keys: ["center"] }]],
-        ["unknown ids use their separate report", { plugins: [{ id: "acme.gone", retired: 1 }] }, []],
-        ["prototype names are undeclared", { plugins: [JSON.parse('{"id":"vgs.bar","constructor":1,"__proto__":2}')] }, [{ id: "vgs.bar", keys: ["__proto__", "constructor"] }]],
-        ["an empty file names nothing", {}, []],
-    ];
-    for (const [name, config, want] of unknownSettingRows) {
-        const before = JSON.stringify(config);
-        check("unknownSettings: " + name, ctx.unknownSettings(config, manifests), want);
-        check("unknownSettings keeps the saved file: " + name, JSON.stringify(config), before);
-    }
-    const unreadValue = { id: "vgs.bar" };
-    Object.defineProperty(unreadValue, "retired", { enumerable: true, get() { throw new Error("undeclared value read"); } });
-    check("unknownSettings never reads an undeclared value", ctx.unknownSettings({ plugins: [unreadValue] }, manifests), [{ id: "vgs.bar", keys: ["retired"] }]);
-    check("settingsFor never reads an undeclared value", ctx.settingsFor({ plugins: [unreadValue] }, manifests["vgs.bar"], "plugins", null), {});
 
     // surfacePlacement rows: [name, kind, settings, want subset]
     const placementRows = [
@@ -1209,8 +1233,7 @@ suite(load(LOGIC), report);
 // judge's own place in a temporary tree, beside the icon set, the
 // package-manager table and the Hyprland layer's table it imports.
 const CONTROLS = [
-    ["saved undeclared settings are reported", "(Array.isArray(config.plugins) ? config.plugins : []).forEach(report);", "[].forEach(report);"],
-    ["saved undeclared settings never reach an instance", "Object.keys(manifest.settings).forEach(function (k) { if (hasOwn(entry, k)) out[k] = entry[k]; });", "Object.keys(entry).forEach(function (k) { if (ENTRY_RESERVED_KEYS.indexOf(k) === -1) out[k] = entry[k]; });"],
+    ["undeclared settings never reach runtime or ordinary writes", "if (hasOwn(manifest.settings, k) || (stored && ENTRY_RESERVED_KEYS.indexOf(k) !== -1))", "if (stored || ENTRY_RESERVED_KEYS.indexOf(k) === -1)"],
     ["session is a known capability", '"lock", "session",', '"lock", ("session" && "planted"),'],
     ["session is not exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"].concat(["session"]);'],
     ["the Bluetooth agent is exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "panes"];'],
@@ -1270,11 +1293,11 @@ const CONTROLS = [
     ["a tap key from settings is lone", "if (tap === true && keyHasModifiers(key.key))", "if (false)"],
     ["a written key is normalised", "row.keys[shortcut] = keyRowValue(key);", "row.keys[shortcut] = key;"],
     ["null unbinds", "return value === null ? null : keyWriteValue(value);", "return keyWriteValue(value);"],
-    ["an unset removes the key from the plugins row", "        out.plugins.forEach(function (entry) { if (entry.id === manifest.id) delete entry[key]; });", ""],
-    ["an unset removes the key from the layout entries", "if (!isPlainObject(locator) || seen === locator.nth) delete entry[key];", ""],
+    ["an unset removes the key from the plugins row", "        delete row[key];", ""],
+    ["an unset removes the key from the layout entries", "                    delete entry[key];", ""],
     ["an unset of the plugins row leaves the layout", "if (targets.indexOf(\"layout\") !== -1 && isPlainObject(out.bar) && isPlainObject(out.bar.layout)) {", "if (isPlainObject(out.bar) && isPlainObject(out.bar.layout)) {"],
-    ["an unset of the layout leaves the plugins row", "if (targets.indexOf(\"plugins\") !== -1 && Array.isArray(out.plugins))", "if (Array.isArray(out.plugins))"],
-    ["an unset with a locator counts the entries of its id", "if (!isPlainObject(locator) || seen === locator.nth) delete entry[key];\n                seen += 1;", "if (!isPlainObject(locator) || seen === locator.nth) delete entry[key];\n                seen += 0;"],
+    ["an unset of the layout leaves the plugins row", "var row = targets.indexOf(\"plugins\") !== -1 ? pluginRow(out, manifest.id) : undefined;", "var row = pluginRow(out, manifest.id);"],
+    ["an unset with a locator counts the entries of its id", "out.bar.layout[section][index] = entry;\n                }\n                seen += 1;", "out.bar.layout[section][index] = entry;\n                }\n                seen += 0;"],
     ["an unset with a locator keeps the other entries", "if (isPlainObject(locator) && locator.section !== section) return;\n            var seen = 0;\n            (Array.isArray(out.bar.layout[section])", "var seen = 0;\n            (Array.isArray(out.bar.layout[section])"],
     ["a reset removes the entry", "            delete row.keys[shortcut];\n", ""],
     ["an empty keys is removed", "if (Object.keys(row.keys).length === 0) delete row.keys;", ""],

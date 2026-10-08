@@ -225,20 +225,12 @@ FocusScope {
                 model: page.row === null ? [] : page.row.errors
                 Label {
                     required property string modelData
-                    readonly property bool oldSetting: page.row !== null && page.row.oldSettings !== null && modelData === page.row.oldSettings.error
                     role: "hint"
-                    text: oldSetting ? modelData : Reply.line(modelData)
-                    color: oldSetting ? Theme.color.warning : Theme.color.danger
+                    text: Reply.line(modelData)
+                    color: Theme.color.danger
                     width: body.width
                     wrapMode: Text.Wrap
                 }
-            }
-
-            Button {
-                text: "Remove old settings"
-                variant: "secondary"
-                visible: page.row !== null && page.row.oldSettings !== null
-                onClicked: page.panel.clearOldSettings(page.row.id)
             }
 
             Label {

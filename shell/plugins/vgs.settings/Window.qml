@@ -273,10 +273,6 @@ FocusScope {
         return keep(id, shell.manager.setSetting(id, key, value));
     }
 
-    function clearOldSettings(id) {
-        return keep(id, shell.manager.clearOldSettings(id));
-    }
-
     // Open the update of installed plugin `id` or its removal in a floating
     // terminal, or the requirement notice for its missing commands, through
     // the manager; each answers the manager's reply. The terminal is a newer

@@ -3505,8 +3505,8 @@ function settingTargetOf(kind) {
 // caller passes; for "plugins" it is the plugins[] row with the plugin's
 // id, and `layoutEntry` is not read. A caller holding an instance's kind
 // passes settingTargetOf(kind). Keys the entry sets win, but for the keys
-// ENTRY_RESERVED_KEYS names, which are no setting. An undeclared key is
-// ignored and unknownSettings reports it. The result is a fresh object.
+// ENTRY_RESERVED_KEYS names, which are no setting. The result holds only
+// declared settings and is a fresh object.
 function settingsFor(config, manifest, target, layoutEntry) {
     var out = {};
     Object.keys(manifest.settings).forEach(function (k) { out[k] = manifest.settings[k]; });
@@ -3514,18 +3514,18 @@ function settingsFor(config, manifest, target, layoutEntry) {
     if (target === "layout") entry = layoutEntry;
     else if (target === "plugins") entry = pluginRow(config, manifest.id);
     else throw new Error("settingsFor: target " + JSON.stringify(target) + " is not one of " + SETTING_TARGETS.join(", "));
-    if (isPlainObject(entry))
-        Object.keys(manifest.settings).forEach(function (k) { if (hasOwn(entry, k)) out[k] = entry[k]; });
-    return clone(out);
+    return copyEntrySettings(clone(out), entry, manifest, false);
 }
 
-// Copy each key of configuration entry ENTRY into TARGET, but for the keys
-// ENTRY_RESERVED_KEYS names, which are no setting; nothing for an entry
-// that is no object. Values are copied, so TARGET and ENTRY share nothing.
-// Returns TARGET.
-function copyEntrySettings(target, entry) {
+// Copy declared settings without reading undeclared values. Stored entries
+// also keep their reserved keys; runtime settings and placement transfers
+// exclude them. Values are copied so TARGET and ENTRY share nothing.
+function copyEntrySettings(target, entry, manifest, stored) {
     if (isPlainObject(entry))
-        Object.keys(entry).forEach(function (k) { if (ENTRY_RESERVED_KEYS.indexOf(k) === -1) target[k] = clone(entry[k]); });
+        Object.keys(entry).forEach(function (k) {
+            if (hasOwn(manifest.settings, k) || (stored && ENTRY_RESERVED_KEYS.indexOf(k) !== -1))
+                target[k] = clone(entry[k]);
+        });
     return target;
 }
 
@@ -3712,25 +3712,6 @@ function unknownIds(config, manifests) {
     return out;
 }
 
-// Saved settings no discovered manifest declares, grouped by plugin across
-// plugins[] and every layout entry. Reserved keys are not settings. Unknown
-// ids have their own report; disabled plugins still report their saved keys.
-// No value is read and no configuration entry is changed.
-function unknownSettings(config, manifests) {
-    var byId = Object.create(null);
-    function report(entry) {
-        if (!hasOwn(manifests, entry.id)) return;
-        Object.keys(entry).forEach(function (key) {
-            if (ENTRY_RESERVED_KEYS.indexOf(key) !== -1 || hasOwn(manifests[entry.id].settings, key)) return;
-            if (!hasOwn(byId, entry.id)) byId[entry.id] = [];
-            if (byId[entry.id].indexOf(key) === -1) byId[entry.id].push(key);
-        });
-    }
-    (Array.isArray(config.plugins) ? config.plugins : []).forEach(report);
-    SECTIONS.forEach(function (section) { sectionEntries(config, section).forEach(report); });
-    return Object.keys(byId).sort().map(function (id) { return { id: id, keys: byId[id].sort() }; });
-}
-
 // The widgets each bar section shows: the layout entries whose plugin is
 // known, declares kind bar-widget and is enabled. This is the one place
 // enablement meets placement; a bar receives the result and interprets
@@ -3819,7 +3800,7 @@ function placeWidget(out, manifest, effective) {
     if (!isPlainObject(out.bar.layout)) out.bar.layout = { left: [], center: [], right: [] };
     var section = typeof manifest.defaultSection === "string" ? manifest.defaultSection : "center";
     if (!Array.isArray(out.bar.layout[section])) out.bar.layout[section] = [];
-    out.bar.layout[section].push(copyEntrySettings({ id: manifest.id }, pluginRow(effective, manifest.id)));
+    out.bar.layout[section].push(copyEntrySettings({ id: manifest.id }, pluginRow(effective, manifest.id), manifest, false));
 }
 
 // Why plugin MANIFEST's widget may not be placed or unplaced under CONFIG,
@@ -3883,7 +3864,7 @@ function withPlaced(user, manifest, placed, effective) {
     }
     seedUserBar(out, effective);
     if (pluginRow(effective, manifest.id) === undefined) {
-        var row = copyEntrySettings({ id: manifest.id }, layoutEntryOf(out, manifest.id));
+        var row = copyEntrySettings({ id: manifest.id }, layoutEntryOf(out, manifest.id), manifest, false);
         out.plugins = (Array.isArray(out.plugins) ? out.plugins : []).concat([row]);
     }
     SECTIONS.forEach(function (section) {
@@ -4163,9 +4144,13 @@ function withSetting(user, manifest, key, value, effective, targets, locator) {
         SECTIONS.forEach(function (section) {
             if (isPlainObject(locator) && locator.section !== section) return;
             var seen = 0;
-            (Array.isArray(layout[section]) ? layout[section] : []).forEach(function (entry) {
+            (Array.isArray(layout[section]) ? layout[section] : []).forEach(function (entry, index) {
                 if (entry.id !== manifest.id) return;
-                if (!isPlainObject(locator) || seen === locator.nth) entry[key] = clone(value);
+                if (!isPlainObject(locator) || seen === locator.nth) {
+                    entry = copyEntrySettings({}, entry, manifest, true);
+                    entry[key] = clone(value);
+                    layout[section][index] = entry;
+                }
                 seen += 1;
             });
         });
@@ -4175,10 +4160,13 @@ function withSetting(user, manifest, key, value, effective, targets, locator) {
         var row = pluginRow(out, manifest.id);
         if (row === undefined) {
             var shippedRow = pluginRow(effective, manifest.id);
-            row = shippedRow !== undefined ? clone(shippedRow) : { id: manifest.id };
+            row = shippedRow !== undefined ? shippedRow : { id: manifest.id };
             plugins.push(row);
         }
+        var index = plugins.indexOf(row);
+        row = copyEntrySettings({}, row, manifest, true);
         row[key] = clone(value);
+        plugins[index] = row;
         out.plugins = plugins;
     }
     return out;
@@ -4198,15 +4186,24 @@ function withoutSetting(user, manifest, key, targets, locator) {
         SECTIONS.forEach(function (section) {
             if (isPlainObject(locator) && locator.section !== section) return;
             var seen = 0;
-            (Array.isArray(out.bar.layout[section]) ? out.bar.layout[section] : []).forEach(function (entry) {
+            (Array.isArray(out.bar.layout[section]) ? out.bar.layout[section] : []).forEach(function (entry, index) {
                 if (entry.id !== manifest.id) return;
-                if (!isPlainObject(locator) || seen === locator.nth) delete entry[key];
+                if (!isPlainObject(locator) || seen === locator.nth) {
+                    entry = copyEntrySettings({}, entry, manifest, true);
+                    delete entry[key];
+                    out.bar.layout[section][index] = entry;
+                }
                 seen += 1;
             });
         });
     }
-    if (targets.indexOf("plugins") !== -1 && Array.isArray(out.plugins))
-        out.plugins.forEach(function (entry) { if (entry.id === manifest.id) delete entry[key]; });
+    var row = targets.indexOf("plugins") !== -1 ? pluginRow(out, manifest.id) : undefined;
+    if (row !== undefined) {
+        var index = out.plugins.indexOf(row);
+        row = copyEntrySettings({}, row, manifest, true);
+        delete row[key];
+        out.plugins[index] = row;
+    }
     return out;
 }
 
