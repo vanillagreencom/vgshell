@@ -509,7 +509,8 @@ async function read(tree, env, { origin = ORIGIN, copilotOrigin = COPILOT_ORIGIN
     const home = env.HOME;
     const found = accountFolders({ home, config: env.XDG_CONFIG_HOME || path.join(home, ".config"),
         data: env.XDG_DATA_HOME || path.join(home, ".local/share"), env });
-    const folders = found.folders.filter(folder => {
+    // Only these harnesses report plan limits; another, such as Pi, has none to read.
+    const folders = found.folders.filter(folder => ["claude", "codex", "copilot"].includes(folder.provider)).filter(folder => {
         const opened = Anchored.directory(folder.directory);
         if (opened.kind === "directory") fs.closeSync(opened.fd);
         return opened.kind !== "absent";

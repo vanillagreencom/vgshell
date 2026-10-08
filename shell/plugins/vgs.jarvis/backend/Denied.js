@@ -105,7 +105,7 @@ function create({ home, config, data, state, runtime, install, accountRoots }) {
     });
     const credential = [
         [home, ".ssh"], [home, ".gnupg"], [home, ".claude"], [home, ".codex"],
-        [home, ".gemini"], [home, ".copilot"], [home, ".agent-browser"],
+        [home, ".gemini"], [home, ".copilot"], [home, ".pi"], [home, ".agent-browser"],
         [home, ".mozilla"], [home, ".pki"], [home, ".netrc"], [home, ".git-credentials"],
         [home, ".aws"], [home, ".azure"], [home, ".kube"], [home, ".docker/config.json"],
         [home, ".npmrc"], [home, ".pypirc"], [home, ".cargo/credentials.toml"], [home, ".cargo/credentials"],

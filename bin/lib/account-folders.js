@@ -56,7 +56,7 @@ function accountFolders({ home, config, data, env, followLinks = false }) {
     for (const row of Rule.HARNESSES) {
         const explicit = env[row.variable];
         if (typeof explicit === "string" && explicit !== "") add(row, explicit, path.basename(explicit), "explicit");
-        const fallback = path.join(home, "." + row.folder);
+        const fallback = path.join(home, row.home);
         // A linked default or home is followed only with followLinks.
         const opened = open(fallback);
         if (opened.kind === "directory") opened.close();

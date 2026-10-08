@@ -15,7 +15,7 @@ world(() => {
     const allowed = (judge, file, role, canonical = file, exists = true, execution = false) =>
         assert.deepEqual(judge.inspect(file, role), { kind: "path", path: canonical, exists, execution });
     const protectedPaths = [
-        ...[".ssh", ".gnupg", ".claude", ".codex", ".gemini", ".copilot", ".agent-browser", ".mozilla", ".pki", ".netrc", ".git-credentials",
+        ...[".ssh", ".gnupg", ".claude", ".codex", ".gemini", ".copilot", ".pi", ".agent-browser", ".mozilla", ".pki", ".netrc", ".git-credentials",
             ".aws", ".azure", ".kube", ".docker/config.json", ".npmrc", ".pypirc", ".cargo/credentials.toml", ".cargo/credentials"].map(name => path.join(home, name)),
         ...["gh", "git/credentials", "claude", "codex", "gemini", "copilot", "opencode", "kwalletd", "chromium", "google-chrome", "BraveSoftware", "microsoft-edge", "vivaldi", "mozilla", "vgshell",
             "gcloud", "rclone"].map(name => path.join(roots.config, name)),
@@ -384,7 +384,7 @@ world(() => {
     // proves the built-in credential/VGS table, not only dynamic account roots.
     const inventory = [
         [home, ".ssh"], [home, ".gnupg"], [home, ".claude"], [home, ".codex"],
-        [home, ".gemini"], [home, ".copilot"], [home, ".agent-browser"], [home, ".mozilla"],
+        [home, ".gemini"], [home, ".copilot"], [home, ".pi"], [home, ".agent-browser"], [home, ".mozilla"],
         [home, ".pki"], [home, ".netrc"], [home, ".git-credentials"],
         ...[".aws", ".azure", ".kube", ".docker/config.json", ".npmrc", ".pypirc", ".cargo/credentials.toml", ".cargo/credentials"].map(name => [home, name]),
         ...["gh", "git/credentials", "claude", "codex", "gemini", "copilot", "opencode", "kwalletd", "chromium", "google-chrome", "BraveSoftware", "microsoft-edge", "vivaldi", "mozilla",

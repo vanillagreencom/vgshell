@@ -9,11 +9,16 @@
 // (`copilot help environment`: "COPILOT_HOME: override the directory where
 // configuration and state files are stored; defaults to $HOME/.copilot").
 // A second account is a sibling such as `~/.claude-work`, `~/.2codex` or
-// `~/.1copilot`. `marker` is the file each harness writes once it is signed in.
+// `~/.1copilot`. Pi keeps `~/.pi/agent`, overridden by PI_CODING_AGENT_DIR
+// (Pi's environment-variables page: "Override the config directory;
+// default is ~/.pi/agent"), and names no sibling, so its `folder` is null and
+// the name rule finds none. `home` is each default folder under HOME.
+// `marker` is the file each harness writes once it is signed in.
 var HARNESSES = [
-    { id: "claude", folder: "claude", variable: "CLAUDE_CONFIG_DIR", marker: ".credentials.json" },
-    { id: "codex", folder: "codex", variable: "CODEX_HOME", marker: "auth.json" },
-    { id: "copilot", folder: "copilot", variable: "COPILOT_HOME", marker: "config.json" }
+    { id: "claude", folder: "claude", home: ".claude", variable: "CLAUDE_CONFIG_DIR", marker: ".credentials.json" },
+    { id: "codex", folder: "codex", home: ".codex", variable: "CODEX_HOME", marker: "auth.json" },
+    { id: "copilot", folder: "copilot", home: ".copilot", variable: "COPILOT_HOME", marker: "config.json" },
+    { id: "pi", folder: null, home: ".pi/agent", variable: "PI_CODING_AGENT_DIR", marker: "auth.json" }
 ];
 
 // harness(ID): the row of harness ID, else null.
@@ -39,6 +44,7 @@ function accountDirectory(name, depth) {
     if (depth < 1 || depth > ACCOUNT_DEPTH) return null;
     for (var i = 0; i < HARNESSES.length; i++) {
         var row = HARNESSES[i];
+        if (row.folder === null) continue;
         if (new RegExp("^\\.[a-z0-9]{0,8}" + row.folder).test(name)) return row;
     }
     return null;

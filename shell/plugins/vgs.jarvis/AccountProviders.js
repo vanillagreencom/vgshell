@@ -9,6 +9,8 @@ var PROVIDERS = [
     { id: "codex", label: "Codex", kind: "cli", command: ["codex", "login", "status"], signIn: ["codex", "login"] },
     // Copilot documents no status command; Verify proves the account answers.
     { id: "copilot", label: "GitHub Copilot", kind: "cli", command: null },
+    // Pi's sign-in check needs a provider name; its own model list proves a setup.
+    { id: "pi", label: "Pi", kind: "cli", command: null },
     { id: "openai", label: "OpenAI", kind: "key", variable: "OPENAI_API_KEY", origin: "https://api.openai.com", keyPage: "https://platform.openai.com/api-keys",
         probe: { driver: "chat", path: "/v1/chat/completions", model: "gpt-4.1-nano", limit: "max_completion_tokens", header: "authorization", prefix: "Bearer " } },
     { id: "anthropic", label: "Anthropic", kind: "key", variable: "ANTHROPIC_API_KEY", origin: "https://api.anthropic.com", keyPage: "https://console.anthropic.com/settings/keys",

@@ -639,7 +639,7 @@ world(async () => {
             ["folder-label", "backend/Accounts.js", [[': item.email ? row.label + " / " + item.email : row.label + " / " + item.label;', ': item.email ? row.label + " / " + item.email : row.label + " / same";']], "verify"],
             ["harness-reason", "backend/Accounts.js", [["(?:harness|codex|copilot)-", "(?:harness|codex)-"]], "verify"],
             ["account-row", "AccountProviders.js", [['{ id: "copilot", label: "GitHub Copilot", kind: "cli", command: null },', '{ id: "copilot-removed", label: "GitHub Copilot", kind: "cli", command: null },']], "verify"],
-            ["engine-driver", "backend/ChainedEngine.js", [["    \"codex-app-server\": CodexHarness, \"copilot-acp\": CopilotHarness, \"claude-code\": ClaudeCode });", "    \"codex-app-server\": CodexHarness, \"claude-code\": ClaudeCode });"]], "limit"]
+            ["engine-driver", "backend/ChainedEngine.js", [["\"copilot-acp\": CopilotHarness, ", ""]], "limit"]
         ]) {
             await variant(relative, edits, folder => CASES[row](folder));
             controls++;

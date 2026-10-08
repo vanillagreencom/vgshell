@@ -63,6 +63,12 @@ const ROWS = Object.freeze({
     // socket to it.
     copilot: { driver: "copilot-acp", base: "https://api.githubcopilot.com", key: "none", images: false,
         noStore: null, retention: { text: "Set by the GitHub account Copilot signs in with; Copilot keeps each Jarvis conversation in its own session history in the account folder.", source: null } },
+    // The Pi harness: the user's own Pi setup owns its providers and their
+    // sockets, and Jarvis cannot see which one a turn reaches, so base is a
+    // non-loopback origin naming Pi: release always judges Pi as a cloud
+    // recipient. Jarvis opens no socket to it.
+    pi: { driver: "pi-rpc", base: "https://pi.dev", key: "none", images: false,
+        noStore: null, retention: { text: "Set by the providers your own Pi setup uses; Jarvis keeps Pi from saving the conversation.", source: null } },
     // The Claude Code harness: the vendor's program owns its login and
     // sockets. base is the release recipient's origin, the API origin Claude
     // Code's account Verify names; Jarvis opens no socket to it. No vendor

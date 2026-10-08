@@ -16,6 +16,8 @@ const ClaudeCode = require("./ClaudeCode.js");
 const Providers = require("./Providers.js");
 const CodexHarness = require("./CodexHarness.js");
 const CopilotHarness = require("./CopilotHarness.js");
+const PiHarness = require("./PiHarness.js");
+const PiRpc = require("./PiRpc.js");
 const MAX_ROWS = 32; // The core's presenceList and choices ceiling.
 const MAX_BYTES = 64 * 1024;
 const PROBE_TEXT = "Reply OK.";
@@ -61,6 +63,10 @@ function accepted(resolved) {
     return { kind: "accepted", account: resolved };
 }
 // Only a label that is itself an email names an identity to compare.
+// A Pi choice's model reference, or "" for none it can name.
+function piModel(reference) {
+    try { return PiRpc.reference(PiRpc.model(reference)); } catch { return ""; }
+}
 function identityOf(label, email) {
     return { kind: email && label.includes("@") && email !== label ? "mismatch" : "match" };
 }
@@ -380,6 +386,29 @@ class Accounts {
         }));
     }
 
+    /**
+     * The models each found Pi setup offers, read by the user's own Pi from
+     * its own list, all at once, each bounded, with no prompt sent: a setup
+     * that lists one is signed in, one that lists none is found, and a failed
+     * read leaves it unavailable with its keyed cause.
+     */
+    async readModels() {
+        await Promise.all(this.accounts.filter(item => item.provider === "pi" && item.source.kind === "cli")
+            .map(async item => {
+                if (this.runtime === "") { item.state = { kind: "unavailable", reason: "runtime-directory" }; return; }
+                try {
+                    item.models = await PiHarness.models({ directory: item.source.directory, env: this.env, runtime: this.runtime });
+                    item.state = { kind: item.models.length === 0 ? "found" : "signed-in" };
+                } catch (error) {
+                    const key = /^jarvis: brain=(pi-[a-z0-9-]+)(?: |$)/.exec(error.message);
+                    if (key === null) throw error;
+                    // setpriv exits 127 when it finds no pi to run.
+                    item.state = { kind: "unavailable", reason: /^jarvis: brain=pi-exited code=127 /.test(error.message)
+                        ? "command-missing" : key[1] };
+                }
+            }));
+    }
+
     // Secret Service labels/attributes only. CLI login items are not API keys.
     keyItems() {
         return this.secrets.items().filter(item => !this.vendorLogin(item));
@@ -490,9 +519,12 @@ class Accounts {
                 return { id, provider: row.id, label, source, model: row.probe === undefined ? "" : row.probe.model };
             }
             for (const candidate of candidates) {
-                if (identity("cli", [candidate.provider, candidate.directory]) !== id) continue;
-                return { id, provider: candidate.provider, label: candidate.label.slice(0, 60),
-                    source: { kind: "cli", directory: candidate.directory }, model: "" };
+                const account = identity("cli", [candidate.provider, candidate.directory]);
+                // A Pi choice is its account's id and the model it names.
+                const model = candidate.provider === "pi" && id.startsWith(account + "/") ? piModel(id.slice(account.length + 1)) : "";
+                if (id !== account && model === "") continue;
+                return { id: account, provider: candidate.provider, label: candidate.label.slice(0, 60),
+                    source: { kind: "cli", directory: candidate.directory }, model };
             }
             return null;
         };
@@ -531,7 +563,7 @@ class Accounts {
             const keyed = /^jarvis-accounts: verify=([a-z0-9-]+)$/.exec(error.message);
             const network = /^jarvis: net=([a-z0-9-]+)$/.exec(error.message);
             const secret = /^jarvis-keys: secret-tool=([a-z-]+)$/.exec(error.message);
-            const harness = /^jarvis: brain=((?:harness|codex|copilot)-[a-z0-9-]+)(?: |$)/.exec(error.message);
+            const harness = /^jarvis: brain=((?:harness|codex|copilot|pi)-[a-z0-9-]+)(?: |$)/.exec(error.message);
             state = { kind: "unavailable", reason: keyed ? keyed[1] : network ? "network-" + network[1] : secret ? "key-" + secret[1]
                 : harness ? harness[1] : typeof request === "function" ? "verification-failed" : "verification-request-unavailable" };
         }
@@ -572,6 +604,10 @@ class Accounts {
                 return this.released(account, row.id, Providers.select(row.id).base, PROBE_TEXT, release =>
                     release.start(() => CopilotHarness.probe({ provider: row.id, directory: account.source.directory,
                         env: this.env, runtime: this.runtime, model, text: release.item.content })).then(() => true));
+            case "pi":
+                return this.released(account, row.id, Providers.select(row.id).base, PROBE_TEXT, release =>
+                    release.start(() => PiHarness.probe({ directory: account.source.directory, env: this.env,
+                        runtime: this.runtime, model, text: release.item.content })).then(() => true));
             default:
                 fail("verify=subscription-handoff-unavailable");
             }
@@ -737,14 +773,17 @@ class Accounts {
         const order = (left, right) => left < right ? -1 : left > right ? 1 : 0;
         // Every label starts with its provider's name, so label order groups
         // the choices by provider and orders a harness's by email.
-        const brains = offered.map(item => {
+        const brains = offered.flatMap(item => {
             const row = provider(item.provider);
             let label = row.label + " / " + item.label;
+            const one = offered.filter(other => other.provider === item.provider).length === 1;
+            // Pi offers each model of its own list; it runs none it does not list.
+            if (item.provider === "pi") return (item.models ?? []).map(model => ({ value: item.id + "/" + PiRpc.reference(model),
+                label: ((one ? row.label : row.label + " / " + item.label) + " / " + PiRpc.reference(model)).slice(0, 60) }));
             if (item.source.kind === "cli")
-                label = offered.filter(other => other.provider === item.provider).length === 1 ? row.label
-                    : item.email ? row.label + " / " + item.email : row.label + " / " + item.label;
-            return { value: item.id, label: label.slice(0, 60) };
-        }).sort((left, right) => order(left.label, right.label) || order(left.value, right.value));
+                label = one ? row.label : item.email ? row.label + " / " + item.email : row.label + " / " + item.label;
+            return [{ value: item.id, label: label.slice(0, 60) }];
+        }).sort((left, right) => order(left.label, right.label) || order(left.value, right.value)).slice(0, MAX_ROWS);
         return { accounts, brains, search: { found: accounts.length, partial: this.partial } };
     }
 }
