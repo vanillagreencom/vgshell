@@ -336,6 +336,38 @@ if [[ -e $repo/bin/vgshell-system ]] && ! devices_tree_state="$(devices_system_t
   printf 'qml-smoke: system-tree=failed %s\n' "$devices_tree_state"
   exit 1
 fi
+# The sandbox copy of bin/vgshell-sudo-grant resolves every path and
+# command in $sudo_grant_root, its `prefix=` line rewritten to it, since it
+# pins its PATH to the system directories and no PATH sentinel can stand
+# before its sudo. The tree's sudo is a copy of the sudo sentinel and the
+# tree holds no root half, so the status read every holder of `sudo` starts,
+# whichever plugins the set starts with, prints root-half=absent and runs no
+# sudo; usr/bin links the tools that read runs. rows/sudo.sh plants a root
+# half and stands its own sudo over the sentinel.
+sudo_grant_root="$sandbox/sudo-root"
+if [[ -e $repo/bin/vgshell-sudo-grant ]]; then
+  mkdir -p -- "$sudo_grant_root/usr/bin" "$sudo_grant_root/usr/local/bin" "$sudo_grant_root/etc/sudoers.d"
+  for tool in awk cmp date env grep id readlink; do
+    if ! found="$(command -v "$tool")"; then
+      printf 'qml-smoke: sudo-grant-tree=failed missing=%s\n' "$tool"
+      exit 1
+    fi
+    ln -sfn -- "$found" "$sudo_grant_root/usr/bin/$tool"
+  done
+  cp -- "$shim/sudo" "$sudo_grant_root/usr/bin/sudo"
+  if ! sudo_grant_state="$(python3 - "$repo/bin/vgshell-sudo-grant" "$sudo_grant_root" <<'PY'
+import sys
+path, root = sys.argv[1:]
+text = open(path).read()
+if text.count("\nprefix=\n") != 1:
+    print("prefix-line-count=%d" % text.count("\nprefix=\n")); sys.exit(1)
+open(path, "w").write(text.replace("\nprefix=\n", "\nprefix=" + root + "\n"))
+PY
+)"; then
+    printf 'qml-smoke: sudo-grant-tree=failed %s\n' "$sudo_grant_state"
+    exit 1
+  fi
+fi
 # A row that needs one of the sentinels to answer its own way stands over
 # it with sentinel_stand_over FILE, the script on stdin, and puts it back
 # with sentinel_restore FILE. The first stand-over keeps the sentinel; a
@@ -633,7 +665,9 @@ fi
 # launcher's reason; rows/keyhints.sh enables it and disables it again.
 # vgs.scratchpads starts disabled for the launcher's reason;
 # rows/scratchpads.sh enables it and disables it again. The screensaver
-# row enables vgs.screensaver for the smoke set.
+# row enables vgs.screensaver for the smoke set. vgs.sudo starts disabled,
+# so no earlier row counts its widget in the bar or its hold of `sudo`;
+# rows/sudo.sh enables it and disables it again.
 # The System family's ids, vgs.system, vgs.sound, vgs.bluetooth,
 # vgs.network, vgs.vpn, vgs.displays, vgs.mouse and vgs.keyboard, start
 # disabled before any of them ships, so a section that lands enables its
@@ -871,7 +905,7 @@ case "$plugin_set" in
     mkdir -p "$tick"
     cp -R "$repo/scripts/smoke/fixtures/plugins/acme.tick/." "$tick/"
     cat >"$home/.config/vgshell/shell.json" <<'JSON'
-{ "version": 1, "bar": { "id": "vgs.bar", "layout": { "left": [{ "id": "vgs.bar/left-workspaces" }], "center": [{ "id": "vgs.bar/center-clock" }, { "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.devtools", "vgs.automations", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.screensaver", "vgs.ai-usage", "vgs.traffic", "vgs.tray", "vgs.voice", "vgs.webapps", "vgs.clipboard", "vgs.sysmon"] }
+{ "version": 1, "bar": { "id": "vgs.bar", "layout": { "left": [{ "id": "vgs.bar/left-workspaces" }], "center": [{ "id": "vgs.bar/center-clock" }, { "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.devtools", "vgs.automations", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.screensaver", "vgs.ai-usage", "vgs.traffic", "vgs.tray", "vgs.voice", "vgs.webapps", "vgs.clipboard", "vgs.sysmon", "vgs.sudo"] }
 JSON
     ;;
   default) default_set_prepare '[]' ;;

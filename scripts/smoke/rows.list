@@ -42,6 +42,9 @@ notify
 layers
 shader-frames
 tui
+# With the TUI rows, through the same stand-in terminal; it enables
+# vgs.sudo and gives it back disabled, its tree's sudo the sentinel again.
+sudo
 notices
 overlays
 gallery

@@ -1678,6 +1678,14 @@ Scope {
             root.heldStatus = item.shell.status;
             return "held";
         }
+        // The `sudo` capability of an instance: a grant of DURATION with no
+        // `done`, answering its reply, or `absent` while the instance holds
+        // no `sudo`.
+        function sudoGrant(hostKey: string, id: string, duration: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null || item.shell === null || item.shell.sudo === undefined) return "absent";
+            return IpcPages.answer(item.shell.sudo.grant(duration));
+        }
         // The `doctor` capability of an instance: an offer for OWNER's
         // COMMANDS, comma-separated since qs reads a bracketed argument as a
         // list, and its `missing` as JSON.
