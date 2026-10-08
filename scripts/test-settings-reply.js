@@ -5,6 +5,7 @@
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const vm = require("node:vm");
 const { load } = require("../bin/lib/qml-library.js");
@@ -67,6 +68,18 @@ const CASES = [
 // Already parsed device facts only. No device or compositor command runs.
 const core = path.join(__dirname, "..", "shell", "Core");
 const producer = load(path.join(core, "PluginLogic.js"));
+// Registry is the real producer of the already prepared user notice.
+// Check the pass-through contract, not a second copy of its wording.
+const registrySource = fs.readFileSync(path.join(core, "Registry.qml"), "utf8");
+const noticeBindings = [...registrySource.matchAll(/readonly property var unknownSettingErrors: ([\s\S]*?)\n\n    function listJson/g)];
+assert.equal(noticeBindings.length, 1, "extractor: one actual Registry saved-setting notice binding");
+const retiredBar = JSON.parse(fs.readFileSync(path.join(dir, "..", "vgs.bar", "manifest.json"), "utf8"));
+delete retiredBar.settings.left;
+retiredBar.__sourceDir = "/fixture/vgs.bar";
+const noticeContext = { scanned: true, Logic: producer, Config: { effective: { plugins: [{ id: retiredBar.id, left: ["workspaces"] }] } }, manifests: { [retiredBar.id]: retiredBar } };
+const settingNotices = vm.runInNewContext("(" + noticeBindings[0][1] + ")", noticeContext);
+same(settingNotices.map(({ kind, id, keys }) => ({ kind, id, keys })), [{ kind: "unknown-settings", id: "vgs.bar", keys: ["left"] }]);
+same(vm.runInNewContext("(" + noticeBindings[0][1] + ")", { ...noticeContext, scanned: false }), []);
 const layer = load(path.join(core, "HyprlandLayer.js"));
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "smoke", "fixtures", "plugins", "acme.hyprland", "manifest.json"), "utf8"));
 const problemsSource = fs.readFileSync(path.join(core, "HyprlandLayer.qml"), "utf8");
@@ -130,6 +143,8 @@ function verify(logic) {
         assert.doesNotMatch(text, /(?:hyprland:|refused:|\b[a-z][a-z-]*=)/, raw);
     }
     assert.match(logic.line(UNKNOWN.at(-1)), /plugin could not start/, "embedded unrelated codes must not change the failure cause");
+    for (const notice of settingNotices)
+        assert.equal(logic.line(notice.error), notice.error, "prepared saved-setting notices reach the page unchanged");
 }
 
 // Like the Dev Tools handler test, execute the QML source under Node with
@@ -212,7 +227,7 @@ function verifyCallers(logic, source, page) {
 
     const bindings = [...page.matchAll(/required property string modelData\n\s+role: "hint"\n\s+text: ([^\n]+)/g)];
     assert.equal(bindings.length, 1, "extractor: the Registry error delegate has one display binding");
-    for (const [modelData] of CASES.filter(([raw]) => raw.startsWith("build failed:") || raw.startsWith("hyprland:"))) {
+    for (const [modelData] of CASES.filter(([raw]) => raw.startsWith("build failed:") || raw.startsWith("hyprland:")).concat(settingNotices.map(notice => [notice.error]))) {
         const drawn = vm.runInNewContext(bindings[0][1], { Reply: logic, modelData });
         assert.equal(drawn, logic.line(modelData), "the actual delegate maps its current error");
     }
@@ -260,7 +275,7 @@ const logic = load(file);
 verify(logic);
 verifyCallers(logic, windowSource, pageSource);
 const source = fs.readFileSync(file, "utf8");
-const temp = fs.mkdtempSync(path.join(__dirname, "..", "tmp", "settings-reply-control-"));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "settings-reply-control-"));
 let controls = 0;
 try {
     const patterns = source.match(/^    \[\/.*$/gm);
@@ -312,4 +327,4 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-settings-reply: ok causes=${CASES.length} unknown=${UNKNOWN.length} hyprland=${HYPRLAND.length} controls=${controls} keys=actual-Probe-windowGeometry actual-callers=keep,add,secret,tui,errors`);
+console.log(`test-settings-reply: ok causes=${CASES.length} unknown=${UNKNOWN.length} hyprland=${HYPRLAND.length} controls=${controls} saved-notices=${settingNotices.length} keys=actual-Probe-windowGeometry actual-callers=keep,add,secret,tui,errors`);
