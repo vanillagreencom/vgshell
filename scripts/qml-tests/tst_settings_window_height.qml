@@ -45,6 +45,7 @@ Item {
             status: [],
             secretLabel: "",
             tuis: [],
+            builtins: [],
             opens: "",
             paneHolder: "",
             binds: [],
