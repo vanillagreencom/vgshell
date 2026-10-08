@@ -60,8 +60,10 @@ _vgs_tui_lower='[abcdefghijklmnopqrstuvwxyz0123456789]'
 _vgs_tui_upper='[ABCDEFGHIJKLMNOPQRSTUVWXYZ]'
 # The colour variables gum reads, an unanchored alternation: the one rule
 # for what bin/vgshell-tui present accepts from gum.env, beside its own
-# VGS_TUI_ names, and for what vgs_tui_gum_env hands gum.
-_vgs_tui_gum_names="GUM_($_vgs_tui_upper|_)+|FOREGROUND|BACKGROUND|BORDER_FOREGROUND"
+# VGS_TUI_ names, and for what vgs_tui_gum_env hands gum. Only colours: a
+# GUM_ behaviour option from the session, such as GUM_CONFIRM_TIMEOUT,
+# could answer a prompt for the user.
+_vgs_tui_gum_names="GUM_($_vgs_tui_upper|_)+_(FOREGROUND|BACKGROUND)|FOREGROUND|BACKGROUND|BORDER_FOREGROUND"
 
 # The SGR escape that selects colour HEX (#rrggbb) as the foreground, or the
 # ANSI colour FALLBACK (30-37) when HEX is not one.

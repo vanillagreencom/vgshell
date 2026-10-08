@@ -52,8 +52,17 @@ if (value === undefined) process.exit(9);
 console.log(value);
 `;
 
+// node, first on the world's PATH: records the program and the
+// environment of each start in XDG_STATE_HOME/node-calls, then runs the
+// real node.
+const NODE = `#!/bin/sh
+if [ -n "\${XDG_STATE_HOME:-}" ]; then { printf -- '--- %s\\n' "$1"; env; } >>"$XDG_STATE_HOME/node-calls"; fi
+exec '${process.execPath.replace(/'/g, "'\\''")}' "$@"
+`;
+
 world(async () => {
     fs.writeFileSync(path.join(process.env.JARVIS_TEST_ROOT, "standins/gum"), GUM, { mode: 0o700 });
+    fs.writeFileSync(path.join(process.env.JARVIS_TEST_ROOT, "standins/node"), NODE, { mode: 0o700 });
     // The world's PATH holds no stty, which vgs_tui_columns reads the
     // terminal's width with.
     const stty = ["/usr/bin/stty", "/bin/stty"].find(file => fs.existsSync(file));
@@ -69,6 +78,25 @@ world(async () => {
         BORDER_FOREGROUND: "#aabbcc", TERM: "xterm-256color", COLORTERM: "truecolor" };
     Object.assign(env, gumWords);
     env.ANTHROPIC_API_KEY = "fixture-secret-private";
+    // The names in the environment of each accounts helper the scripts
+    // started, from node-calls line FROM on; the helper is the only node
+    // program the scripts start.
+    const nodeCalls = () => {
+        let text = "";
+        try { text = fs.readFileSync(path.join(env.XDG_STATE_HOME, "node-calls"), "utf8"); }
+        catch (e) { if (e.code !== "ENOENT") throw e; }
+        return text.split("\n");
+    };
+    const helperNames = from => {
+        const calls = [];
+        for (const line of nodeCalls().slice(from)) {
+            if (line.startsWith("--- ")) calls.push({ program: line.slice(4), names: new Set() });
+            else if (calls.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(line)) calls.at(-1).names.add(line.slice(0, line.indexOf("=")));
+        }
+        const helpers = calls.filter(call => call.program.endsWith("/backend/accounts.js"));
+        assert.ok(helpers.length > 0, "the script started its node helper");
+        return helpers.map(call => call.names);
+    };
     const queue = choices => fs.writeFileSync(path.join(env.XDG_STATE_HOME, "gum-queue"), JSON.stringify(choices));
     const run = (folder, columns = 64) => cp.spawnSync("python3", [path.join(tree, "scripts/fixtures/jarvis/accounts-tui.py"),
         path.join(folder, "tui/accounts.sh"), path.join(tree, "bin/lib/tui.sh"), folder, String(columns)], {
@@ -83,9 +111,12 @@ world(async () => {
         fs.rmSync(log, { force: true });
         queue(["add", "claude", hand, "my-account", "item", "first", "openai", "my-key",
             "show", "verify", "first", "", "yes", "close"]);
+        const from = nodeCalls().length - 1;
         const result = run(folder);
         assert.equal(result.error, undefined);
         assert.equal(result.status, 0, result.stdout + result.stderr);
+        for (const names of helperNames(from))
+            for (const name of Object.keys(gumWords)) assert.equal(names.has(name), false, "the node helper got " + name);
         const accountFile = path.join(env.XDG_STATE_HOME, "vgshell/jarvis/accounts.json");
         const keyFile = path.join(env.XDG_STATE_HOME, "vgshell/jarvis/keys.json");
         assert.deepEqual(JSON.parse(fs.readFileSync(accountFile)), [{ provider: "claude", directory: hand, label: "my-account" }]);
@@ -224,6 +255,8 @@ world(async () => {
     await control("tui/accounts.sh", "gum-words", 'gum() { "${child_env[@]}" "${gum_env[@]}" gum "$@"; }',
         'gum() { "${child_env[@]}" gum "$@"; }', check);
     await control("tui/accounts.sh", "gum-own-list", 'vgs_tui_gum_env gum_env', OWN_GUM_LIST, check);
+    await control("tui/accounts.sh", "gum-words-to-node", '"${child_env[@]}" node "$program"',
+        '"${child_env[@]}" "${gum_env[@]}" node "$program"', check);
     await control("AccountProviders.js", "width-format", '!/^[0-9]{1,4}$/.test(text)', 'false', folder => widths(folder, "format"));
     await control("AccountProviders.js", "width-minimum", 'return value >= MIN_WIDTH && value <= MAX_WIDTH ? value : null;',
         'return value <= MAX_WIDTH ? value : null;', folder => widths(folder, "minimum"));
@@ -318,8 +351,12 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
         const terminal = { TERM: "xterm-kitty", COLORTERM: "truecolor" };
         const gumBefore = fs.readFileSync(path.join(env.XDG_STATE_HOME, "gum-calls"), "utf8").trim().split("\n").length;
         const vendorBefore = records().length;
+        const from = nodeCalls().length - 1;
         const result = signIn(folder, "claude", "new", "themed", "success", "yes", { ...colors, ...terminal });
         assert.equal(result.status, 0, result.stdout + result.stderr);
+        for (const names of helperNames(from))
+            for (const name of [...Object.keys(colors), ...Object.keys(terminal)])
+                assert.equal(names.has(name), false, "the node helper got " + name);
         const calls = fs.readFileSync(path.join(env.XDG_STATE_HOME, "gum-calls"), "utf8").trim().split("\n")
             .slice(gumBefore).map(JSON.parse);
         for (const kind of ["choose", "input", "confirm"]) {
@@ -472,6 +509,8 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
     await control("tui/sign-in.sh", "sign-in-gum-words", 'gum() { "${child_env[@]}" "${gum_env[@]}" gum "$@"; }',
         'gum() { "${child_env[@]}" gum "$@"; }', themedSignIn);
     await control("tui/sign-in.sh", "sign-in-gum-own-list", 'vgs_tui_gum_env gum_env', OWN_GUM_LIST, themedSignIn);
+    await control("tui/sign-in.sh", "sign-in-gum-words-to-node", '"${child_env[@]}" node "$program" --tree "$tree" sign-in "$selected"',
+        '"${child_env[@]}" "${gum_env[@]}" node "$program" --tree "$tree" sign-in "$selected"', themedSignIn);
     await control("tui/sign-in.sh", "sign-in-picked-directory", 'sign-in "$selected" "$dir" "$label"',
         'sign-in "$selected" "$HOME" "$label"', successfulSignIn);
     await control("backend/Accounts.js", "sign-in-default-folder", 'folders.length === 0 ? "" : "-" + label',

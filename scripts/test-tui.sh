@@ -322,13 +322,14 @@ columns_row() {
 }
 check "the width is the terminal's, 80 when it reports none" columns_row
 # gum's words: each exported colour variable gum reads and TERM and
-# COLORTERM, value for value; never a VGS_TUI_ colour, an unrelated or a
-# lowercase name, or a variable the script did not export.
+# COLORTERM, value for value; never a gum behaviour option, a VGS_TUI_
+# colour, an unrelated, a lowercase or a longer name, or a variable the
+# script did not export.
 gum_env_row() {
-  run 'GUM_LOCAL_ONLY="#131313"; vgs_tui_gum_env words; printf "%s\n" "${words[@]}"' \
+  run 'GUM_LOCAL_ONLY_FOREGROUND="#131313"; vgs_tui_gum_env words; printf "%s\n" "${words[@]}"' \
     GUM_CHOOSE_CURSOR_FOREGROUND='#010203' FOREGROUND='#040506' BACKGROUND='#070809' BORDER_FOREGROUND='#0a0b0c' \
     TERM=xterm-256color COLORTERM=truecolor VGS_TUI_ACCENT='#0d0e0f' SECRET_TOKEN=fixture-secret \
-    gum_choose_cursor_foreground='#101112'
+    gum_choose_cursor_foreground='#101112' GUM_CONFIRM_TIMEOUT=3s TERM_PROGRAM=kitty X_FOREGROUND='#141414'
   [[ $status == 0 && $(cat "$tmp/out") == "$(printf '%s\n' BACKGROUND='#070809' BORDER_FOREGROUND='#0a0b0c' \
     COLORTERM=truecolor FOREGROUND='#040506' GUM_CHOOSE_CURSOR_FOREGROUND='#010203' TERM=xterm-256color)" ]]
 }
@@ -448,6 +449,10 @@ control gum-any-name '$_vgs_tui_gum_names|TERM|COLORTERM)$' '$_vgs_tui_gum_names
 check "the gum-any-name mutant fails the gum words row" test "$(gum_env_row && echo green || echo red)" == red
 control gum-unexported 'done < <(compgen -e)' 'done < <(compgen -v)'
 check "the gum-unexported mutant fails the gum words row" test "$(gum_env_row && echo green || echo red)" == red
+control gum-behaviour-option 'GUM_($_vgs_tui_upper|_)+_(FOREGROUND|BACKGROUND)|' 'GUM_($_vgs_tui_upper|_)+|'
+check "the gum-behaviour-option mutant fails the gum words row" test "$(gum_env_row && echo green || echo red)" == red
+control gum-unanchored '[[ $name =~ ^($_vgs_tui_gum_names|TERM|COLORTERM)$ ]]' '[[ $name =~ ($_vgs_tui_gum_names|TERM|COLORTERM) ]]'
+check "the gum-unanchored mutant fails the gum words row" test "$(gum_env_row && echo green || echo red)" == red
 LIB="$lib"
 
 # The template's control: a copy that turns every confirm status into success.
