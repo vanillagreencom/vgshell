@@ -1688,6 +1688,10 @@ function verifyAppStyles(render, changedTemplates = {}) {
 const EDITOR_PAIRS = [
     ["editor.foreground", "editor.background"],
     ["sideBar.foreground", "sideBar.background"],
+    ["textLink.foreground", "editor.background"],
+    ["textLink.foreground", "sideBar.background"],
+    ["textLink.activeForeground", "editor.background"],
+    ["textLink.activeForeground", "sideBar.background"],
     ["statusBar.foreground", "statusBar.background"],
     ["statusBar.noFolderForeground", "statusBar.noFolderBackground"],
     ["statusBar.debuggingForeground", "statusBar.debuggingBackground"],
@@ -1745,6 +1749,12 @@ function verifyEditorStyles(render, template) {
 const editorPackages = verifyEditorStyles(require(rendererFile));
 const vscodeTemplate = fs.readFileSync(path.join(repo, "themes/targets/vscode/vscode.json"), "utf8");
 const editorControls = [
+    ["link without its rest colour", '    "textLink.foreground": "#@{color.textMuted}",\n', "", "coverage", "textLink.foreground"],
+    ["link rest text on the editor fill", '"textLink.foreground": "#@{color.textMuted}"', '"textLink.foreground": "#@{color.background}"', "contrast", "textLink.foreground", "editor.background"],
+    ["link rest text on the sidebar fill", '"textLink.foreground": "#@{color.textMuted}"', '"textLink.foreground": "#@{color.surface}"', "contrast", "textLink.foreground", "sideBar.background"],
+    ["link without its active colour", '    "textLink.activeForeground": "#@{color.text}",\n', "", "coverage", "textLink.activeForeground"],
+    ["active link text on the editor fill", '"textLink.activeForeground": "#@{color.text}"', '"textLink.activeForeground": "#@{color.background}"', "contrast", "textLink.activeForeground", "editor.background"],
+    ["active link text on the sidebar fill", '"textLink.activeForeground": "#@{color.text}"', '"textLink.activeForeground": "#@{color.surface}"', "contrast", "textLink.activeForeground", "sideBar.background"],
     ["diff without its insertion fill", '    "diffEditor.insertedTextBackground": "#@{color.successSubtle}",\n', "", "coverage", "diffEditor.insertedTextBackground"],
     ["status bar text on its own fill", '"statusBar.foreground": "#@{color.text}"', '"statusBar.foreground": "#@{color.surface}"', "contrast", "statusBar.foreground"],
     ["empty workspace without its status bar fill", '    "statusBar.noFolderBackground": "#@{color.surface}",\n', "", "coverage", "statusBar.noFolderBackground"],
@@ -1754,11 +1764,12 @@ const editorControls = [
     ["terminal red as the background", '"terminal.ansiRed": "#@{terminal.color1}"', '"terminal.ansiRed": "#@{color.background}"', "contrast", "terminal.ansiRed"],
     ["a dark theme for every package", '"type": "@{scheme.mode}"', '"type": "dark"', "mode", "type"]
 ];
-for (const [label, needle, replacement, kind, key] of editorControls) {
+for (const [label, needle, replacement, kind, key, surface] of editorControls) {
     assert.equal(vscodeTemplate.split(needle).length, 2, label);
     assert.throws(() => verifyEditorStyles(require(rendererFile), vscodeTemplate.replace(needle, replacement)),
         error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
-            error.actual.some(shortfall => shortfall.kind === kind && shortfall.key === key), label);
+            error.actual.some(shortfall => shortfall.kind === kind && shortfall.key === key &&
+                (surface === undefined || shortfall.surface === surface)), label);
 }
 console.log(`test-theme-render: editor packages=${editorPackages} pairs=${EDITOR_PAIRS.length} controls=${editorControls.length}`);
 
