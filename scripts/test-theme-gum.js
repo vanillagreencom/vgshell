@@ -69,6 +69,23 @@ const rendered = (pkg, text) => {
     return result.files[0].bytes.toString("utf8");
 };
 
+// The active write line uses the accent fill. Its text must meet the
+// theme judge's text floor in both modes, after rendering and export.
+const writeLine = seen => {
+    const value = key => {
+        const entries = [...seen].filter(line => line.startsWith(key + "="));
+        assert.equal(entries.length, 1, key);
+        const color = logic.parseColor(entries[0].slice(key.length + 1));
+        assert.notEqual(color, null, key);
+        return color;
+    };
+    const ratio = logic.contrastRatio(value("GUM_WRITE_CURSOR_LINE_FOREGROUND"),
+        value("GUM_WRITE_CURSOR_LINE_BACKGROUND"));
+    assert.deepEqual(ratio < logic.READABILITY_FLOOR
+        ? [{ kind: "gum-write-line-contrast", ratio, floor: logic.READABILITY_FLOOR }] : [], []);
+    return ratio;
+};
+
 // node first on PATH: a version-manager shim there may read the
 // developer's own configuration, and present runs node for the judge.
 const childPath = path.dirname(process.execPath) + path.delimiter + process.env.PATH;
@@ -131,6 +148,19 @@ try {
         const text = rendered(themePackage(dir, shipped), template);
         const seen = presented(path.join(root, name), text);
         for (const line of expected) assert.ok(seen.has(line), `${name}: present did not export ${line}`);
+        const ratio = writeLine(seen);
+        console.log(`test-theme-gum: write-line package=${name} contrast=${ratio} floor=${logic.READABILITY_FLOOR}`);
+        const needle = "GUM_WRITE_CURSOR_LINE_FOREGROUND=#@{color.onAccent}";
+        assert.equal(template.split(needle).length, 2);
+        const mutant = template.replace(needle, "GUM_WRITE_CURSOR_LINE_FOREGROUND=#@{color.text}");
+        assert.notEqual(mutant, template);
+        fs.writeFileSync(path.join(root, `${name}-cursor-line.env`), mutant, { flag: "wx" });
+        const old = presented(path.join(root, `${name}-cursor-line-control`),
+            rendered(themePackage(dir, shipped), fs.readFileSync(path.join(root, `${name}-cursor-line.env`), "utf8")));
+        assert.throws(() => writeLine(old), error => error.code === "ERR_ASSERTION"
+            && error.actual?.[0]?.kind === "gum-write-line-contrast",
+        "control: unreadable write cursor-line text passed");
+        console.log(`test-theme-gum: write-line control=${name} rejected=true`);
         lines = text.split("\n").length - 1;
     }
 
