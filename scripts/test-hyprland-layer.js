@@ -12,6 +12,7 @@
 "use strict";
 const assert = require("assert");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const vm = require("vm");
 const { load } = require("../bin/lib/qml-library.js");
@@ -561,7 +562,7 @@ function verify(logic, layer, shellText) {
         if (want === null) assert.ok(r.ok, "manifest " + name + " accepted, got " + r.error);
         else assert.ok(!r.ok && r.error.startsWith(want), "manifest " + name + " refused with " + JSON.stringify(want) + ", got " + JSON.stringify(r.ok ? "accepted" : r.error));
     }
-    const declared = manifestOf(logic, { hyprland: { binds: [{ shortcut: "toggle", key: "super + space" }, { shortcut: "inbox", key: "SUPER+N" }], layerRules: [overlayRule] } });
+    const declared = manifestOf(logic, { settings: { size: 0 }, hyprland: { binds: [{ shortcut: "toggle", key: "super + space" }, { shortcut: "inbox", key: "SUPER+N" }], layerRules: [overlayRule] } });
     const keycode = manifestOf(logic, { hyprland: { binds: [{ shortcut: "talk", key: "super+CODE:00108" }] } });
     same(keycode.hyprland.binds, [{ shortcut: "talk", key: "SUPER+code:108" }], "manifest keycode normalized");
     const other = Object.assign({}, keycode, { id: "acme.other" });
@@ -1284,7 +1285,7 @@ const CONTROLS = [
     [logicFile, "keys null unbinds", "if (keys[names[i]] === null)\n            continue;", "if (false)\n            continue;"],
     [logicFile, "keys values", "if (!key.ok)\n            return itemAt + \" \" + key.error;", "if (false)\n            return itemAt + \" \" + key.error;"],
     [logicFile, "keys empty lists", "if (Array.isArray(value) && value.length === 0)\n        return at + \" must not be an empty list\";", "if (false)\n        return at + \" must not be an empty list\";"],
-    [logicFile, "keys no setting", "var ENTRY_RESERVED_KEYS = [\"id\", \"keys\"];", "var ENTRY_RESERVED_KEYS = [\"id\"];"],
+    [logicFile, "keys no setting", "Object.keys(manifest.settings).forEach(function (k) { if (hasOwn(entry, k)) out[k] = entry[k]; });", "Object.keys(manifest.settings).concat('keys').forEach(function (k) { if (hasOwn(entry, k)) out[k] = entry[k]; });"],
     [logicFile, "row key wins", "var given = hasOwn(keys, bind.shortcut) ? keys[bind.shortcut] : bind.key;", "var given = bind.key;"],
     [logicFile, "null unbinds", "var given = hasOwn(keys, bind.shortcut) ? keys[bind.shortcut] : bind.key;", "var given = hasOwn(keys, bind.shortcut) && keys[bind.shortcut] !== null ? keys[bind.shortcut] : bind.key;"],
     [logicFile, "key lists expand to binds", "keyValues(given).forEach(function (value) {", "[keyValues(given)[0]].forEach(function (value) {"],
@@ -1457,8 +1458,7 @@ const CONTROLS = [
 
 // A copy sits at its file's own place in a temporary tree, beside the icon
 // set, the package-manager table and the layer PluginLogic.js imports.
-fs.mkdirSync(path.join(__dirname, "..", "tmp"), { recursive: true });
-const temp = fs.mkdtempSync(path.join(__dirname, "..", "tmp", "hyprland-layer-control-"));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "hyprland-layer-control-"));
 try {
     fs.mkdirSync(path.join(temp, "shell", "Core"), { recursive: true });
     fs.mkdirSync(path.join(temp, "shell", "Commons"), { recursive: true });
