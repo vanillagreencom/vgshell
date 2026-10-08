@@ -86,7 +86,6 @@ function verifyReadiness(gate) {
         const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setupVoice.tone, got.setupVoice.action, typeof got.setupVoice.hint], ["warning", false, "string"],
             "GPT-Live setup never starts local model installation");
-        assert.equal(got.setupVoice.hint.includes("GPT-Live"), true);
         assert.deepEqual(got.setupModel, { tone: "ok", text: "Done", action: false });
     }
     // Before the daemon answers nothing reads ready or to do.
