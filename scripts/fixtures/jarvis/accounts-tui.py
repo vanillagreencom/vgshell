@@ -29,7 +29,7 @@ env["VGS_TUI_LIB"] = sys.argv[2]
 env["VGS_PLUGIN_DIR"] = sys.argv[3]
 env["VGS_PLUGIN_ID"] = "vgs.jarvis"
 for name, value in os.environ.items():
-    if name.startswith("GUM_") or name in ("TERM", "COLORTERM"):
+    if name.startswith("GUM_") or name in ("TERM", "COLORTERM", "FOREGROUND", "BACKGROUND", "BORDER_FOREGROUND"):
         env[name] = value
 env["OPENAI_API_KEY"] = "fixture-secret-private"
 env["VGSHELL_RUNNER_PID"] = "999"

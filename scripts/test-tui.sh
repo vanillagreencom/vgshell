@@ -321,6 +321,18 @@ columns_row() {
   [[ $(cat "$tmp/captured") == $'80\n132' ]]
 }
 check "the width is the terminal's, 80 when it reports none" columns_row
+# gum's words: each exported colour variable gum reads and TERM and
+# COLORTERM, value for value; never a VGS_TUI_ colour, an unrelated or a
+# lowercase name, or a variable the script did not export.
+gum_env_row() {
+  run 'GUM_LOCAL_ONLY="#131313"; vgs_tui_gum_env words; printf "%s\n" "${words[@]}"' \
+    GUM_CHOOSE_CURSOR_FOREGROUND='#010203' FOREGROUND='#040506' BACKGROUND='#070809' BORDER_FOREGROUND='#0a0b0c' \
+    TERM=xterm-256color COLORTERM=truecolor VGS_TUI_ACCENT='#0d0e0f' SECRET_TOKEN=fixture-secret \
+    gum_choose_cursor_foreground='#101112'
+  [[ $status == 0 && $(cat "$tmp/out") == "$(printf '%s\n' BACKGROUND='#070809' BORDER_FOREGROUND='#0a0b0c' \
+    COLORTERM=truecolor FOREGROUND='#040506' GUM_CHOOSE_CURSOR_FOREGROUND='#010203' TERM=xterm-256color)" ]]
+}
+check "gum's words are its exported colours, TERM and COLORTERM" gum_env_row
 
 # The reboot check: the running kernel's modules and a replaced Hyprland.
 kernel=""
@@ -428,6 +440,14 @@ control no-home '"The details are in ${file/#"$HOME"/\~}."' '"The details are in
 check "the no-home mutant fails the failure row" test "$(failed_row && echo green || echo red)" == red
 control zero-width '[[ $size =~ ^[123456789][0123456789]*$ ]] || size=80' '[[ $size =~ ^[0123456789]+$ ]] || size=80'
 check "the zero-width mutant fails the width row" test "$(columns_row && echo green || echo red)" == red
+control gum-base-colours '|FOREGROUND|BACKGROUND|BORDER_FOREGROUND"' '"'
+check "the gum-base-colours mutant fails the gum words row" test "$(gum_env_row && echo green || echo red)" == red
+control gum-no-terminal-profile '|TERM|COLORTERM)$' ')$'
+check "the gum-no-terminal-profile mutant fails the gum words row" test "$(gum_env_row && echo green || echo red)" == red
+control gum-any-name '$_vgs_tui_gum_names|TERM|COLORTERM)$' '$_vgs_tui_gum_names|TERM|COLORTERM|.*)$'
+check "the gum-any-name mutant fails the gum words row" test "$(gum_env_row && echo green || echo red)" == red
+control gum-unexported 'done < <(compgen -e)' 'done < <(compgen -v)'
+check "the gum-unexported mutant fails the gum words row" test "$(gum_env_row && echo green || echo red)" == red
 LIB="$lib"
 
 # The template's control: a copy that turns every confirm status into success.

@@ -174,7 +174,7 @@ for rel in shell/plugins/vgs.notifications/tui/setup-slack.sh shell/plugins/vgs.
     *) fail "tui-gum=required-unreached script=$rel verdict=${verdict_of[$rel]:-absent}" ;;
   esac
 done
-# The floor: 14 of the 33 scripts reached gum in this check's run on
+# The floor: 15 of the 34 scripts reached gum in this check's run on
 # 2026-10-07, each through a header or a question asked before any tool
 # outside `allowed`. A stub gum off PATH, a presenter that runs no script
 # or a discovery that lists the wrong files reaches none or a few; 10

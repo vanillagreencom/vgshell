@@ -8,6 +8,10 @@ const { PROVIDERS } = require(path.join(plugin, "AccountProviders.js"));
 // cell plus the closing rule.
 const frame = columns => 3 * columns + 1;
 const HASH = /[0-9a-f]{32}/;
+// A script's own list of gum's words in place of the library's: GUM_*,
+// TERM and COLORTERM, without the base colours gum style reads.
+const OWN_GUM_LIST = 'gum_env=(TERM="${TERM:-}" COLORTERM="${COLORTERM:-}"); ' +
+    'while IFS= read -r name; do gum_env+=("$name=${!name}"); done < <(compgen -e GUM_)';
 
 // RFC 4180 lines, as gum table reads them.
 function parseCsv(line) {
@@ -59,9 +63,11 @@ world(async () => {
     const hand = path.join(env.HOME, "manual-account");
     fs.mkdirSync(hand);
     const log = path.join(env.XDG_STATE_HOME, "vgshell/jarvis/setup.log");
-    env.GUM_CHOOSE_CURSOR_FOREGROUND = "#112233";
-    env.TERM = "xterm-256color";
-    env.COLORTERM = "truecolor";
+    // The words gum is handed: a gum.env colour of each kind the presenter
+    // exports, and the terminal's colour support.
+    const gumWords = { GUM_CHOOSE_CURSOR_FOREGROUND: "#112233", FOREGROUND: "#445566", BACKGROUND: "#778899",
+        BORDER_FOREGROUND: "#aabbcc", TERM: "xterm-256color", COLORTERM: "truecolor" };
+    Object.assign(env, gumWords);
     env.ANTHROPIC_API_KEY = "fixture-secret-private";
     const queue = choices => fs.writeFileSync(path.join(env.XDG_STATE_HOME, "gum-queue"), JSON.stringify(choices));
     const run = (folder, columns = 64) => cp.spawnSync("python3", [path.join(tree, "scripts/fixtures/jarvis/accounts-tui.py"),
@@ -109,15 +115,8 @@ world(async () => {
                 assert.equal(record.env.OPENAI_API_KEY, undefined);
                 assert.equal(record.env.ANTHROPIC_API_KEY, undefined);
                 assert.equal(record.env.VGSHELL_RUNNER_PID, undefined);
-                if (file === "gum-calls") {
-                    assert.equal(record.env.GUM_CHOOSE_CURSOR_FOREGROUND, "#112233");
-                    assert.equal(record.env.TERM, "xterm-256color");
-                    assert.equal(record.env.COLORTERM, "truecolor");
-                } else {
-                    assert.equal(record.env.GUM_CHOOSE_CURSOR_FOREGROUND, undefined);
-                    assert.equal(record.env.TERM, undefined);
-                    assert.equal(record.env.COLORTERM, undefined);
-                }
+                for (const [name, value] of Object.entries(gumWords))
+                    assert.equal(record.env[name], file === "gum-calls" ? value : undefined, file + " " + name);
                 assert.ok(record.args.every(arg => arg !== "-p" && arg !== "exec"), "no inference during discovery or unavailable Verify");
             }
         }
@@ -222,9 +221,9 @@ world(async () => {
     await control("AccountStatus.js", "table-state", 'case "signed-in": return "Signed in";', 'case "signed-in": return state;', wide);
     await control("tui/accounts.sh", "screen-no-table", 'gum table --print <<<"$table"', ':', check);
     await control("tui/accounts.sh", "screen-width", 'columns="$(vgs_tui_columns)"', 'columns=1000', check);
-    await control("tui/accounts.sh", "gum-theme", 'GUM_[A-Z_]+$ || ', "", check);
-    await control("tui/accounts.sh", "gum-term", ' || $name == TERM', "", check);
-    await control("tui/accounts.sh", "gum-colorterm", ' || $name == COLORTERM', "", check);
+    await control("tui/accounts.sh", "gum-words", 'gum() { "${child_env[@]}" "${gum_env[@]}" gum "$@"; }',
+        'gum() { "${child_env[@]}" gum "$@"; }', check);
+    await control("tui/accounts.sh", "gum-own-list", 'vgs_tui_gum_env gum_env', OWN_GUM_LIST, check);
     await control("AccountProviders.js", "width-format", '!/^[0-9]{1,4}$/.test(text)', 'false', folder => widths(folder, "format"));
     await control("AccountProviders.js", "width-minimum", 'return value >= MIN_WIDTH && value <= MAX_WIDTH ? value : null;',
         'return value <= MAX_WIDTH ? value : null;', folder => widths(folder, "minimum"));
@@ -314,7 +313,8 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
     const themedSignIn = folder => {
         clearSignIns();
         const colors = { GUM_CHOOSE_SELECTED_BACKGROUND: "#124578",
-            GUM_INPUT_PROMPT_FOREGROUND: "#2468ab", GUM_CONFIRM_SELECTED_BACKGROUND: "#3579bc" };
+            GUM_INPUT_PROMPT_FOREGROUND: "#2468ab", GUM_CONFIRM_SELECTED_BACKGROUND: "#3579bc",
+            FOREGROUND: "#13579b", BACKGROUND: "#2468ac", BORDER_FOREGROUND: "#369cf0" };
         const terminal = { TERM: "xterm-kitty", COLORTERM: "truecolor" };
         const gumBefore = fs.readFileSync(path.join(env.XDG_STATE_HOME, "gum-calls"), "utf8").trim().split("\n").length;
         const vendorBefore = records().length;
@@ -469,10 +469,9 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
         'if (kind === "sign-in") return row.kind === "cli";', signInProviders);
     await control("backend/Accounts.js", "sign-in-provider-refusal", 'if (row.kind !== "cli" || !Array.isArray(row.signIn)) fail("sign-in=provider");',
         'if (row.kind !== "cli") fail("sign-in=provider");', copilotRefused);
-    await control("tui/sign-in.sh", "sign-in-prompt-colors", '"${gum_env[@]}" gum "$@"',
-        'gum "$@"', themedSignIn);
-    await control("tui/sign-in.sh", "sign-in-terminal-profile", 'gum_env=(TERM="${TERM:-}" COLORTERM="${COLORTERM:-}")',
-        'gum_env=()', themedSignIn);
+    await control("tui/sign-in.sh", "sign-in-gum-words", 'gum() { "${child_env[@]}" "${gum_env[@]}" gum "$@"; }',
+        'gum() { "${child_env[@]}" gum "$@"; }', themedSignIn);
+    await control("tui/sign-in.sh", "sign-in-gum-own-list", 'vgs_tui_gum_env gum_env', OWN_GUM_LIST, themedSignIn);
     await control("tui/sign-in.sh", "sign-in-picked-directory", 'sign-in "$selected" "$dir" "$label"',
         'sign-in "$selected" "$HOME" "$label"', successfulSignIn);
     await control("backend/Accounts.js", "sign-in-default-folder", 'folders.length === 0 ? "" : "-" + label',

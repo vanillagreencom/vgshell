@@ -17,11 +17,8 @@ child_env=(env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8
   DISPLAY="${DISPLAY:-}" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}"
   VGS_TUI_ACCENT="${VGS_TUI_ACCENT:-}" VGS_TUI_SUCCESS="${VGS_TUI_SUCCESS:-}"
   VGS_TUI_WARNING="${VGS_TUI_WARNING:-}" VGS_TUI_DANGER="${VGS_TUI_DANGER:-}")
-# The presenter validates the theme. Gum also needs the terminal's color profile.
-gum_env=(TERM="${TERM:-}" COLORTERM="${COLORTERM:-}")
-while IFS= read -r name; do
-  gum_env+=("$name=${!name}")
-done < <(compgen -e GUM_)
+vgs_tui_gum_env gum_env
+# shellcheck disable=SC2154 # vgs_tui_gum_env sets gum_env by its name
 gum() { "${child_env[@]}" "${gum_env[@]}" gum "$@"; }
 program="$VGS_PLUGIN_DIR/backend/accounts.js"
 vgs_tui_header "Sign in to an AI account" "Use your Claude Code or Codex account as the Jarvis AI model." \

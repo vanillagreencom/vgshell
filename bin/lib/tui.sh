@@ -20,6 +20,12 @@
 #                                    gum confirm; yes under VGS_TUI_UNATTENDED=1
 #   vgs_tui_choose|input|filter [GUM_ARG...]
 #                                    gum choose, input or filter
+#   vgs_tui_gum_env ARRAY            set ARRAY to NAME=VALUE for each exported
+#                                    colour variable gum reads, and TERM and
+#                                    COLORTERM: the words a script that runs gum
+#                                    under `env -i` hands gum, so it keeps the
+#                                    presenter's colours and the terminal's
+#                                    colour support
 #   vgs_tui_sudo_session start|guard|end
 #                                    one sudo authorization kept alive for this script,
 #                                    joined by a nested run's session; guard only drops
@@ -51,6 +57,11 @@
 # of the user's locale, which the script under the presentation keeps.
 _vgs_tui_hex='[0123456789abcdefABCDEF]'
 _vgs_tui_lower='[abcdefghijklmnopqrstuvwxyz0123456789]'
+_vgs_tui_upper='[ABCDEFGHIJKLMNOPQRSTUVWXYZ]'
+# The colour variables gum reads, an unanchored alternation: the one rule
+# for what bin/vgshell-tui present accepts from gum.env, beside its own
+# VGS_TUI_ names, and for what vgs_tui_gum_env hands gum.
+_vgs_tui_gum_names="GUM_($_vgs_tui_upper|_)+|FOREGROUND|BACKGROUND|BORDER_FOREGROUND"
 
 # The SGR escape that selects colour HEX (#rrggbb) as the foreground, or the
 # ANSI colour FALLBACK (30-37) when HEX is not one.
@@ -120,6 +131,15 @@ vgs_tui_confirm() { # QUESTION [GUM_FLAG...]
 vgs_tui_choose() { _vgs_tui_terminal choose || return; _vgs_tui_prompt_gap; gum choose "$@"; }
 vgs_tui_input() { _vgs_tui_terminal input || return; _vgs_tui_prompt_gap; gum input "$@"; }
 vgs_tui_filter() { _vgs_tui_terminal filter || return; _vgs_tui_prompt_gap; gum filter "$@"; }
+
+vgs_tui_gum_env() { # ARRAY
+  local -n _vgs_tui_words="$1"
+  local name
+  _vgs_tui_words=()
+  while IFS= read -r name; do
+    if [[ $name =~ ^($_vgs_tui_gum_names|TERM|COLORTERM)$ ]]; then _vgs_tui_words+=("$name=${!name}"); fi
+  done < <(compgen -e)
+}
 
 _vgs_tui_keepalive_pid=""
 _vgs_tui_lock_fd=""

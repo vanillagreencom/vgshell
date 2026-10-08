@@ -136,16 +136,16 @@ gum_env="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/theme/gum.env"
 # shellcheck source=lib/tui.sh
 source "$lib"
 
-# The one rule a gum.env line passes. Classes are spelled out, since a range
-# follows the user's locale.
-upper='[ABCDEFGHIJKLMNOPQRSTUVWXYZ]'
-gum_key="^(GUM_($upper|_)+|FOREGROUND|BACKGROUND|BORDER_FOREGROUND|VGS_TUI_$upper+)\$"
+# The one rule a gum.env line passes: a colour name gum reads, the
+# library's rule, or one of the library's own VGS_TUI_ colours. Classes are
+# spelled out, since a range follows the user's locale.
+gum_key="^($_vgs_tui_gum_names|VGS_TUI_$_vgs_tui_upper+)\$"
 gum_line="^([^=]+)=(#$_vgs_tui_hex{6})\$"
 # The names an exit record's file is made from, and the app-id and title it
 # carries: the header states each rule.
 record_key_rule="^$_vgs_tui_lower($_vgs_tui_lower|[.-])*/$_vgs_tui_lower($_vgs_tui_lower|[.-])*\$"
 record_run_rule="^$_vgs_tui_lower($_vgs_tui_lower|-)*\$"
-record_app_id_rule="^($_vgs_tui_lower|$upper|[._-])+\$"
+record_app_id_rule="^($_vgs_tui_lower|$_vgs_tui_upper|[._-])+\$"
 record_dir="$rt_dir/vgshell/tui"
 # How long launch waits for the presenter to write its record: a ceiling
 # on a terminal's start, not a measurement of one. A terminal slower than
