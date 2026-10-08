@@ -4,7 +4,7 @@
 # sources it for its own colours. It defines functions and sets no shell
 # option. Colours are the #rrggbb values `vgshell-tui present` exports from
 # gum.env (VGS_TUI_ACCENT, VGS_TUI_SUCCESS, VGS_TUI_WARNING, VGS_TUI_DANGER),
-# each with an ANSI fallback when absent.
+# each with an ANSI fallback when absent or empty.
 #
 # Every refusal prints one keyed line on stderr first:
 # `vgs-tui: refused: <key>=<value>`. A function that refuses returns 2 for a
@@ -21,7 +21,8 @@
 #   vgs_tui_choose|input|filter [GUM_ARG...]
 #                                    gum choose, input or filter
 #   vgs_tui_gum_env ARRAY            set ARRAY to NAME=VALUE for each exported
-#                                    colour variable gum reads, and TERM and
+#                                    colour variable gum reads, an empty value,
+#                                    gum's no colour, included, and TERM and
 #                                    COLORTERM: the words a script that runs gum
 #                                    under `env -i` hands gum, so it keeps the
 #                                    presenter's colours and the terminal's

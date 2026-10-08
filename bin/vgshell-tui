@@ -45,13 +45,15 @@
 # does not end in .json, so the shell's record listing skips it. Before the
 # command runs it exports:
 #   - each line of ${XDG_STATE_HOME:-~/.local/state}/vgshell/theme/gum.env, which
-#     is parsed and never sourced: every line must be KEY=#rrggbb, KEY
+#     is parsed and never sourced: every line must be KEY=#rrggbb, or
+#     KEY= for no colour, which drops gum's own default for that key, KEY
 #     matching gum_key below, or no line is exported and a warning names
 #     the first bad line. With no gum.env, as before any theme apply, the
-#     lines are the gum target rendered from the shipped vgs package, the
-#     theme the shell draws then, which `vgshell-theme-judge default-file
-#     gum` prints under the same rule; when the judge fails, present warns
-#     `vgshell-tui: gum-env=default-unavailable exit=<n>` and exports none;
+#     lines are `vgshell-theme-judge gum-default`'s, under the same rule:
+#     the shipped vgs accent on the selection and no colour elsewhere, so
+#     gum keeps the terminal's own background and text; when the judge
+#     fails, present warns `vgshell-tui: gum-env=default-unavailable
+#     exit=<n>` and exports none;
 #   - VGS_TUI_LIB, this checkout's bin/lib/tui.sh, and VGS_TUI_LOGO, its
 #     bin/lib/logo.txt;
 #   - with --plugin, VGS_PLUGIN_ID and VGS_PLUGIN_DIR, a private copy of the
@@ -140,7 +142,7 @@ source "$lib"
 # library's rule, or one of the library's own VGS_TUI_ colours. Classes are
 # spelled out, since a range follows the user's locale.
 gum_key="^($_vgs_tui_gum_names|VGS_TUI_$_vgs_tui_upper+)\$"
-gum_line="^([^=]+)=(#$_vgs_tui_hex{6})\$"
+gum_line="^([^=]+)=(#$_vgs_tui_hex{6})?\$"
 # The names an exit record's file is made from, and the app-id and title it
 # carries: the header states each rule.
 record_key_rule="^$_vgs_tui_lower($_vgs_tui_lower|[.-])*/$_vgs_tui_lower($_vgs_tui_lower|[.-])*\$"
@@ -318,16 +320,16 @@ export_gum_lines() { # SOURCE
   for i in "${!keys[@]}"; do export "${keys[i]}=${values[i]}"; done
 }
 
-# Exports gum.env's colours, or with no gum.env the shipped vgs package's,
-# which the shell draws while no theme is applied. A judge that cannot
-# render them warns and exports none, so the command still runs.
+# Exports gum.env's colours, or with no gum.env the judge's no-theme
+# environment: the shipped vgs accent on the selection only. A judge that
+# cannot render it warns and exports none, so the command still runs.
 export_gum_env() {
   local text status=0
   if [[ -e $gum_env ]]; then
     export_gum_lines "path=$gum_env" <"$gum_env" || printf 'vgshell-tui: gum-env=unreadable path=%s\n' "$gum_env" >&2
     return 0
   fi
-  text="$(node "$root/bin/vgshell-theme-judge" default-file gum 2>/dev/null)" || status=$?
+  text="$(node "$root/bin/vgshell-theme-judge" gum-default 2>/dev/null)" || status=$?
   if [[ $status != 0 ]]; then
     printf 'vgshell-tui: gum-env=default-unavailable exit=%d\nno colour of the vgs theme is used\n' "$status" >&2
     return 0

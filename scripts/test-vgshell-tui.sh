@@ -142,6 +142,14 @@ plain_run "$subject" present --presentation plain -- envdump
 check "a valid gum.env exports a gum colour" grep -qxF "CONFIRM=#aabbcc" "$tmp/out"
 check "a valid gum.env exports the accent" grep -qxF "ACCENT=#FF5A36" "$tmp/out"
 check "a valid gum.env warns nothing" test ! -s "$tmp/err"
+# KEY= is no colour: exported empty, which drops gum's own default.
+empty_value_row() { # BIN
+  printf '%s\n' "GUM_CONFIRM_SELECTED_BACKGROUND=" "VGS_TUI_ACCENT=#FF5A36" >"$gum_env"
+  plain_run "$1" present --presentation plain -- envdump
+  rm -f -- "$gum_env"
+  grep -qxF "CONFIRM=" "$tmp/out" && grep -qxF "ACCENT=#FF5A36" "$tmp/out" && test ! -s "$tmp/err"
+}
+check "an empty gum.env value is exported empty beside the others, with no warning" empty_value_row "$subject"
 on_tty "$subject" present -- exits 0
 # The accent wraps the logo: the clear, the accent's truecolor escape and the
 # first line run together, and the reset follows the last line.
@@ -870,6 +878,9 @@ later_run "$control_bin" acme.other ok
 check "the any-plugin-marker mutant closes the failed window on another plugin's run" test "$(failed_gone)" == closed
 wait "$failed_pid" || :
 rm -f -- "${rdir:?}"/acme.*@*.json
+
+control colour-only-line vgshell-tui 'gum_line="^([^=]+)=(#$_vgs_tui_hex{6})?\$"' 'gum_line="^([^=]+)=(#$_vgs_tui_hex{6})\$"'
+check "the colour-only-line mutant fails the empty value row" test "$(empty_value_row "$control_bin" && echo green || echo red)" == red
 
 control shell-string vgshell-tui 'else "${argv[@]}"; fi' 'else bash -c "${argv[*]}"; fi'
 rm -f -- "$tmp/argv"
