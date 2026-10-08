@@ -2595,25 +2595,22 @@ expect_poll "the Settings window is gone after the Position checks" 0 window_cou
 notes dismiss-all >/dev/null
 expect_poll "the Place toasts are gone" 0 layer_count vgs:layer
 
-# ThemeLogic judges resolved ink against the halo at its drawn opacity
-# over bare wallpaper pixels at the floating words. Capture core readings
-# remain diagnostic; antialiasing is not a resolved-colour contrast rule.
-fade_hint_sample_value() { # PNG BACKGROUND ITEMS SURFACE COLOURS SHADOW OPACITY OUTPUT_WIDTH OUTPUT_HEIGHT [REFERENCE_JSON]
+# Paired frames use the same real state. The probe hides only hint ink;
+# the opaque backing stays drawn. Ratios use both captured RGB values.
+fade_hint_sample_value() { # PNG BACKGROUND ITEMS SURFACE OUTPUT_WIDTH OUTPUT_HEIGHT [REFERENCE_JSON]
   python3 -c "$png_rgba_py"'
 image, background = png_rgba(sys.argv[1]), png_rgba(sys.argv[2])
 if isinstance(image,str) or isinstance(background,str): print("png-unreadable"); sys.exit()
 iw,ih,rows=image
 bw,bh,back=background
 if (iw,ih)!=(bw,bh): print("background-size-mismatch"); sys.exit()
-items,surface,colours=map(json.loads,sys.argv[3:6])
-shadow=bytes.fromhex(json.loads(sys.argv[6])[-6:])
-opacity=float(sys.argv[7])
-sx,sy=iw/float(sys.argv[8]),ih/float(sys.argv[9])
+items,surface=map(json.loads,sys.argv[3:5])
+sx,sy=iw/float(sys.argv[5]),ih/float(sys.argv[6])
 labels=[i for i in items if i.get("role")=="hint" and i.get("text") in ("dismiss","actions") and i["visible"]]
-if len(labels)!=2 or len(colours)!=2: print("hint-labels-unreadable"); sys.exit()
-reference=json.loads(sys.argv[10]) if len(sys.argv)>10 and sys.argv[10] else None
+if len(labels)!=2: print("hint-labels-unreadable"); sys.exit()
+reference=json.loads(sys.argv[7]) if len(sys.argv)>7 and sys.argv[7] else None
 samples=[]
-for label,ink in zip(labels,colours):
+for label in labels:
     x,y,w,h=label["box"]
     left,top=math.ceil((surface[0]+x)*sx),math.ceil((surface[1]+y)*sy)
     right,bottom=math.floor((surface[0]+x+w)*sx),math.floor((surface[1]+y+h)*sy)
@@ -2621,24 +2618,22 @@ for label,ink in zip(labels,colours):
     pixels=[]
     for y in range(top,bottom):
         for x in range(left,right):
-            pixel=list(rows[y][4*x:4*x+3]);bare=list(back[y][4*x:4*x+3])
-            if max(abs(pixel[c]-bare[c]) for c in range(3))<3: continue
-            distance=sum((pixel[c]-shadow[c])**2 for c in range(3))
-            pixels.append((distance,x,y,pixel,bare))
-    pixels.sort(reverse=True)
-    count=math.ceil((right-left)*(bottom-top)*0.1)
-    cores=[{"at":[x,y],"RGB":pixel,"wallpaperRGB":bare} for _,x,y,pixel,bare in pixels[:count]]
+            pixel=list(rows[y][4*x:4*x+3]);under=list(back[y][4*x:4*x+3])
+            distance=sum((pixel[c]-under[c])**2 for c in range(3))
+            if max(abs(pixel[c]-under[c]) for c in range(3))>=3:
+                pixels.append((distance,x,y,pixel,under))
+    maximum=max((p[0] for p in pixels),default=0)
+    cores=[{"at":[x,y],"RGB":pixel,"backgroundRGB":under} for d,x,y,pixel,under in pixels if d>=maximum*0.95]
     if reference is not None:
         kept=next((v for v in reference["samples"] if v["text"]==label["text"]),None)
         if kept is None: print("reference-word-absent"); sys.exit()
-        # The colour-only mutant keeps glyph shape and relative geometry.
         cores=[]
         for core in kept["cores"]:
             x=left+core["at"][0]-kept["box"][0];y=top+core["at"][1]-kept["box"][1]
             if not (left<=x<right and top<=y<bottom): print("reference-core-outside-word"); sys.exit()
-            cores.append({"at":[x,y],"RGB":list(rows[y][4*x:4*x+3]),"wallpaperRGB":list(back[y][4*x:4*x+3])})
-    samples.append({"text":label["text"],"ink":ink,"box":[left,top,right-left,bottom-top],"cores":cores})
-print(json.dumps({"samples":samples,"shadowRGB":list(shadow),"shadowOpacity":opacity,"coreShare":0.1}))
+            cores.append({"at":[x,y],"RGB":list(rows[y][4*x:4*x+3]),"backgroundRGB":list(back[y][4*x:4*x+3])})
+    samples.append({"text":label["text"],"box":[left,top,right-left,bottom-top],"cores":cores})
+print(json.dumps({"samples":samples,"sampleRule":"captured glyph delta within 95 percent of maximum; controls retain positive coordinates"}))
 ' "$@"
 }
 fade_hint_contrast_value() { # SAMPLE_JSON [coverage]
@@ -2648,34 +2643,29 @@ const logic=load(process.argv[2]+"/shell/Commons/ThemeLogic.js");
 const sample=JSON.parse(process.argv[3]);
 const rgb=values=>({r:values[0]/255,g:values[1]/255,b:values[2]/255,a:1});
 const readings=sample.samples.map(s=>{
-  const ink=logic.parseColor(s.ink);
-  const coreRGB=[0,1,2].map(c=>s.cores.map(p=>p.RGB[c]).sort((a,b)=>a-b)[Math.floor(s.cores.length/2)]);
-  const expected=[ink.r,ink.g,ink.b].map(v=>Math.round(v*255));
-  const error=Math.max(...coreRGB.map((v,c)=>Math.abs(v-expected[c])));
+  const ratios=s.cores.map(p=>logic.contrastRatio(rgb(p.RGB),rgb(p.backgroundRGB)));
   const columns=s.cores.map(p=>p.at[0]);
-  const ratios=s.cores.map(p=>{
-    const halo=sample.shadowRGB.map((v,c)=>v*sample.shadowOpacity+p.wallpaperRGB[c]*(1-sample.shadowOpacity));
-    return logic.contrastRatio(ink,rgb(halo));
-  });
-  return {text:s.text,ink:s.ink,box:s.box,corePixels:s.cores.length,coreRGB,coreError:error,
+  return {text:s.text,box:s.box,glyphPixels:s.cores.length,backgroundPixels:s.cores.length,
     columnSpan:columns.length?Math.max(...columns)-Math.min(...columns)+1:0,
-    shadowRGB:sample.shadowRGB,shadowOpacity:sample.shadowOpacity,minimum:ratios.length?Math.min(...ratios):null};
+    changedPixels:s.cores.filter(p=>p.RGB.some((v,c)=>Math.abs(v-p.backgroundRGB[c])>=3)).length,
+    minimum:ratios.length?Math.min(...ratios):null};
 });
 console.error("notification-hint-contrast: "+JSON.stringify(readings));
-const covered=readings.length===2 && readings.every(s=>s.corePixels>0);
+const covered=readings.length===2 && readings.every(s=>s.glyphPixels>0 && s.backgroundPixels>0 && s.changedPixels>0 && s.columnSpan>=s.box[2]/2);
 console.log(covered && (process.argv[4]==="coverage" || readings.every(s=>s.minimum>=4.5))?"True":"False");
 JS_HINT
 }
 fade_hint_sample() { # PNG [REFERENCE_JSON]
-  local items surface colours shadow opacity
+  local items surface background captured=0
   items="$(ipc smoke descendantGeometry panel vgs.notifications)" || return
   surface="$(surface_box vgs:panel)" || return
-  # Breadth-first descendants list the floating words before chip labels.
-  colours="$(ipc smoke itemColours panel vgs.notifications KeyHints Label | py_reply 'import json,sys; rows=json.load(sys.stdin); print(json.dumps(rows[0][:2]) if len(rows)==1 else "unread")')" || return
-  shadow="$(ipc smoke themeValue keyHints.shadow)" || return
-  opacity="$(ipc smoke themeValue keyHints.shadowOpacity)" || return
   fade_output "$1" || return
-  fade_hint_sample_value "$1" "$fade_background" "$items" "$surface" "$colours" "$shadow" "$opacity" "$mon_w" "$mon_h" "${2:-}"
+  background="${1%.png}-background.png"
+  [[ $(ipc smoke hintInk panel vgs.notifications true) == 2 ]] || return 1
+  fade_output "$background" || captured=$?
+  [[ $(ipc smoke hintInk panel vgs.notifications false) == 2 ]] || return 1
+  [[ $captured == 0 ]] || return "$captured"
+  fade_hint_sample_value "$1" "$background" "$items" "$surface" "$mon_w" "$mon_h" "${2:-}"
 }
 fade_hint_drawn() { # PNG
   local sample
@@ -2826,6 +2816,61 @@ fade_gap_drawn() {
   sample="$(fade_gap_sample)" || return
   fade_gap_one_step "$sample"
 }
+fade_state_hovered() { ipc smoke itemValues panel vgs.notifications NotificationCard hovered | py_reply 'import json,sys;print(any(v["hovered"] for v in json.load(sys.stdin)))'; }
+fade_state_pressed() { ipc smoke itemValues panel vgs.notifications QQuickMouseArea pressed | py_reply 'import json,sys;print(any(v["pressed"] for v in json.load(sys.stdin)))'; }
+fade_state_point() {
+  local items view rect
+  items="$(ipc smoke descendantGeometry panel vgs.notifications)" || return
+  view="$(view_at_rest panel vgs.notifications "Fade probe 12")" || return
+  rect="$(py_reply 'import json,sys;items=json.load(sys.stdin);v=json.loads(sys.argv[1])["box"];cards=[i for i in items if i["type"]=="NotificationCard" and i["visible"] and i["box"][1]>=v[1] and i["box"][1]+i["box"][3]<=v[1]+v[3]];print(json.dumps(cards[-1]["box"]) if cards else "absent")' "$view" <<<"$items")" || return
+  at_centre vgs:panel "$rect"
+}
+# A held native press reaches the real card mouse area. Its process owns
+# the virtual pointer until the captured pair is complete, then releases.
+fade_pressed_hint_pair() { # PNG
+  local x y line out_fd in_fd pid sample status=0
+  read -r x y < <(fade_state_point) || return 1
+  coproc fade_press { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$x" "$y" hold; }
+  out_fd="${fade_press[0]}"; in_fd="${fade_press[1]}"; pid="$fade_press_PID"
+  if ! read -r -t 10 line <&"$out_fd" || [[ $line != "holding $x $y" ]]; then
+    status=1
+  else
+    expect_poll "the captured real card is pressed" True fade_state_pressed
+    sample="$(fade_hint_sample "$1")" || status=1
+  fi
+  printf '\n' >&"$in_fd" || status=1
+  wait "$pid" || status=1
+  [[ $status == 0 ]] || return "$status"
+  printf '%s\n' "$sample"
+}
+fade_hint_states() { # MODE
+  local state sample x y
+  for state in top-end mid-scroll bottom-end hover pressed keyboard-focus notification-colours; do
+    type_keys -k Home || return
+    if [[ $state != top-end ]]; then
+      for _ in $(seq 1 8); do type_keys -k Down || return; done
+      geometry expect_poll "the $1 $state card passes beside the hints" mid fade_scroll_state
+    fi
+    case "$state" in
+      bottom-end) geometry expect_poll "the $1 state reaches its end" end fade_wheel_end ;;
+      hover|pressed)
+        read -r x y < <(fade_state_point) || return
+        hover "$x" "$y" || return
+        expect_poll "the $1 state has a hovered real card" True fade_state_hovered ;;
+      keyboard-focus|notification-colours)
+        type_keys -k Right || return
+        expect_poll "the $1 state focuses a real card action" 0 ipc smoke readInstance panel vgs.notifications actionIndex ;;
+    esac
+    if [[ $state == pressed ]]; then
+      sample="$(fade_pressed_hint_pair "$sandbox/fade-hints-$1-$state.png")" || return
+    else
+      sample="$(fade_hint_sample "$sandbox/fade-hints-$1-$state.png")" || return
+    fi
+    printf '%s\n' "$sample" >"$sandbox/fade-hints-$1-$state.json"
+    render expect "the $1 $state words reach captured contrast 4.5" True fade_hint_contrast_value "$sample"
+    hover 1 1 || return
+  done
+}
 # The synthetic wallpaper makes both tones of card glow measurable.
 fade_theme_dir="$home/.config/vgshell/themes/fade-probe"
 mkdir -p "$fade_theme_dir/backgrounds"
@@ -2837,7 +2882,7 @@ expect "the pixel probe enables its wallpaper host" ok ipc shell setPluginEnable
 expect_poll "the pixel probe wallpaper is drawn" 1 layer_count vgs:background
 note_fade_height="$(look_at stack.fadeHeight)" || fail "the fade height is unreadable"
 for at in $(seq 1 12); do
-  notify smoke-fade 0 "Fade probe $at" "The release notes are ready for your review. The build finished and the report is attached." '[]' '{"urgency": <byte 2>}' 0 >/dev/null
+  notify smoke-fade 0 "Fade probe $at" "The release notes are ready for your review. The build finished and the report is attached." '["default", "Open", "reply", "Reply"]' '{"urgency": <byte 2>, "x-vgs-icon": <"circle-x">, "x-vgs-tone": <"danger">}' 0 >/dev/null
 done
 expect_poll "the pixel probe has its long list" True has_row live "Fade probe 12"
 for fade_mode in dark light; do
@@ -2849,14 +2894,25 @@ for fade_mode in dark light; do
     write_theme '{"schemaVersion":1,"name":"vgs","tokens":{}}'
     expect_poll "the pixel probe uses dark ink" '"#ffe8e8e8"' look_at text.foreground
   fi
+  fade_mode_dir="$home/.config/vgshell/themes/fade-probe-$fade_mode"
+  mkdir -p "$fade_mode_dir/backgrounds"
+  python3 - "$home/.config/vgshell/theme.json" "$fade_mode_dir/theme.json" "$fade_mode" <<'PY_WALL_THEME'
+import json,sys
+v=json.load(open(sys.argv[1]));v["name"]="fade-probe-"+sys.argv[3];json.dump(v,open(sys.argv[2],"w"))
+PY_WALL_THEME
+  fade_brightness=-35
+  [[ $fade_mode != light ]] || fade_brightness=35
+  "$imagemagick" "$repo/scripts/smoke/fixtures/theme-image.jpg" -brightness-contrast "${fade_brightness}x0" "$fade_mode_dir/backgrounds/busy.jpg" || fail "the busy wallpaper variant failed"
+  "${shell_env[@]}" "$repo/bin/vgshell" theme apply "fade-probe-$fade_mode" >/dev/null || fail "the busy wallpaper variant applies"
   expect_poll "the pixel probe panel is absent for its background" 0 layer_count vgs:panel
   fade_background="$sandbox/fade-background-$fade_mode.png"
   fade_output "$fade_background" || fail "the pixel probe background is unreadable"
   fade_open_mid
   render expect_poll "the $fade_mode mid-scroll cards draw known ink above the fade" True fade_card_drawn "$sandbox/fade-$fade_mode-mid.png"
-  render expect_poll "the $fade_mode floating words contrast with their painted halo" True fade_hint_drawn "$sandbox/fade-hints-$fade_mode.png"
+  render expect_poll "the $fade_mode floating words contrast with their captured background" True fade_hint_drawn "$sandbox/fade-hints-$fade_mode.png"
   fade_positive_sample="$(fade_hint_sample "$sandbox/fade-hints-reference-$fade_mode.png")" || fail "the positive hint core sample is unreadable"
   printf "%s\n" "$fade_positive_sample" >"$sandbox/fade-hints-reference-$fade_mode.json"
+  fade_hint_states "$fade_mode"
   geometry expect_poll "the $fade_mode pixel probe reaches its end" end fade_wheel_end
   render expect_poll "the $fade_mode end cards draw known ink above the fade" True fade_card_drawn "$sandbox/fade-$fade_mode-end.png"
   geometry expect_poll "the $fade_mode drawn card glow is one spacing step above the chips" True fade_gap_drawn
@@ -2869,7 +2925,7 @@ python3 - "$fade_hints_qml" <<'PY_HINT_MUTANT'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1]);text=p.read_text();needle="color: Theme.keyHints.foreground"
 assert text.count(needle)==1
-changed=text.replace(needle,"color: Theme.text.hint.color")
+changed=text.replace(needle,"color: Qt.tint(Theme.keyHints.background, Qt.rgba(0.5, 0.5, 0.5, 0.7))")
 assert changed!=text
 p.write_text(changed)
 PY_HINT_MUTANT
@@ -2892,7 +2948,7 @@ for fade_mode in dark light; do
   printf "%s\n" "$fade_muted_sample" >"$sandbox/fade-muted-hints-$fade_mode.json"
   render expect "the muted $fade_mode control keeps a real wallpaper sample" True fade_hint_contrast_value "$fade_muted_sample" coverage
   fade_muted_control() {
-    (failures=0; behaviour_failures=0; render expect "the floating words contrast with their painted halo" True fade_hint_contrast_value "$fade_muted_sample" >"$sandbox/fade-muted-hints-$fade_mode-control.log"; echo "$failures")
+    (failures=0; behaviour_failures=0; render expect "the floating words contrast with their captured background" True fade_hint_contrast_value "$fade_muted_sample" >"$sandbox/fade-muted-hints-$fade_mode-control.log"; echo "$failures")
   }
   expect "control: muted $fade_mode words fail the same typed contrast assertion" 1 fade_muted_control
   expect "the muted $fade_mode probe closes" ok notes close
@@ -2958,7 +3014,7 @@ expect "the restored gap probe closes" ok notes close
 "${shell_env[@]}" "$repo/bin/vgshell" theme apply vgs >/dev/null || fail "the pixel probe restores the theme"
 expect_poll "the pixel probe wallpaper leaves" 0 layer_count vgs:background
 expect "the pixel probe restores its wallpaper host enablement" ok ipc shell setPluginEnabled vgs.themes "$fade_themes_enabled"
-rm -rf -- "${fade_theme_dir:?}"
+rm -rf -- "${fade_theme_dir:?}" "${home:?}/.config/vgshell/themes/fade-probe-dark" "${home:?}/.config/vgshell/themes/fade-probe-light"
 write_theme '{"schemaVersion":1,"name":"vgs","tokens":{}}'
 expect_poll "the pixel probe restores the dark look" '"#ffe8e8e8"' look_at text.foreground
 expect "the pixel probe notifications dismiss" ok notes dismiss-all

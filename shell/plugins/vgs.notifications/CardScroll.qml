@@ -34,6 +34,9 @@ Item {
     readonly property real textColumn: Math.ceil(Inset.clearing(look.card.pad, look.radius.full, look.card.width, look.card.maxHeight, look.radius.clearance, look.card.pad))
     readonly property alias flickable: view
     readonly property alias cards: cards
+    readonly property real fadeExtent: Math.min(look.stack.fadeHeight, view.height / 2)
+    readonly property real topStrength: fadeStrength(view.contentY)
+    readonly property real bottomStrength: fadeStrength(view.contentHeight - view.height - view.contentY)
 
     implicitWidth: cards.implicitWidth + look.stack.pad * 2
     implicitHeight: Math.min(cards.implicitHeight + look.stack.tail, maxHeight)
@@ -61,12 +64,23 @@ Item {
     // Sample the look's cubic curve in space, rather than time. The mask
     // changes only content alpha, so the wallpaper receives no colour band.
     function fadePoint(t) {
-        const curve = look.motion.curve.standard;
+        const curve = look.stack.fadeCurve;
         const back = 1 - t;
         const x = 3 * back * back * t * curve.x1 + 3 * back * t * t * curve.x2 + t * t * t;
         const y = 3 * back * back * t * curve.y1 + 3 * back * t * t * curve.y2 + t * t * t;
-        const span = Math.min(look.stack.fadeHeight, view.height / 2) / Math.max(1, view.height);
+        const span = fadeExtent / Math.max(1, view.height);
         return { position: 1 - span + span * x, alpha: 1 - y };
+    }
+
+    function fadeStrength(distance) {
+        const t = Math.max(0, Math.min(1, distance / Math.max(1, fadeExtent)));
+        const curve = look.stack.fadeCurve;
+        const back = 1 - t;
+        return 3 * back * back * t * curve.y1 + 3 * back * t * t * curve.y2 + t * t * t;
+    }
+
+    function edgeAlpha(alpha, strength) {
+        return 1 - strength * (1 - alpha);
     }
 
     function maskColor(alpha) {
@@ -121,16 +135,16 @@ Item {
         layer.enabled: view.layer.enabled
         layer.smooth: true
         gradient: Gradient {
-            GradientStop { position: 0; color: root.maskColor(view.atYBeginning ? 1 : 0) }
-            GradientStop { position: 1 - root.fadePoint(0.75).position; color: root.maskColor(view.atYBeginning ? 1 : root.fadePoint(0.75).alpha) }
-            GradientStop { position: 1 - root.fadePoint(0.5).position; color: root.maskColor(view.atYBeginning ? 1 : root.fadePoint(0.5).alpha) }
-            GradientStop { position: 1 - root.fadePoint(0.25).position; color: root.maskColor(view.atYBeginning ? 1 : root.fadePoint(0.25).alpha) }
+            GradientStop { position: 0; color: root.maskColor(root.edgeAlpha(0, root.topStrength)) }
+            GradientStop { position: 1 - root.fadePoint(0.75).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.75).alpha, root.topStrength)) }
+            GradientStop { position: 1 - root.fadePoint(0.5).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.5).alpha, root.topStrength)) }
+            GradientStop { position: 1 - root.fadePoint(0.25).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.25).alpha, root.topStrength)) }
             GradientStop { position: 1 - root.fadePoint(0).position; color: root.maskColor(1) }
             GradientStop { position: root.fadePoint(0).position; color: root.maskColor(1) }
-            GradientStop { position: root.fadePoint(0.25).position; color: root.maskColor(view.atYEnd ? 1 : root.fadePoint(0.25).alpha) }
-            GradientStop { position: root.fadePoint(0.5).position; color: root.maskColor(view.atYEnd ? 1 : root.fadePoint(0.5).alpha) }
-            GradientStop { position: root.fadePoint(0.75).position; color: root.maskColor(view.atYEnd ? 1 : root.fadePoint(0.75).alpha) }
-            GradientStop { position: 1; color: root.maskColor(view.atYEnd ? 1 : 0) }
+            GradientStop { position: root.fadePoint(0.25).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.25).alpha, root.bottomStrength)) }
+            GradientStop { position: root.fadePoint(0.5).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.5).alpha, root.bottomStrength)) }
+            GradientStop { position: root.fadePoint(0.75).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.75).alpha, root.bottomStrength)) }
+            GradientStop { position: 1; color: root.maskColor(root.edgeAlpha(0, root.bottomStrength)) }
         }
     }
 

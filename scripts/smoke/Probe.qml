@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Window
 import QtQuick.Layouts
+import QtQml
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
@@ -24,6 +25,15 @@ Scope {
     property int frames: 0
     property int holdMarkers: 0
     property var holdMarker: null
+    Component {
+        id: hintInkBinding
+        Binding {
+            objectName: "captureHintInk"
+            property: "color"
+            value: "transparent"
+            when: false
+        }
+    }
     Component {
         id: holdMarkerComponent
         GlobalShortcut {
@@ -1706,6 +1716,27 @@ Scope {
             if (item === null) return "absent";
             return root.json(root.descendants(item).filter(child => root.typeName(child) === type).map(found =>
                 root.descendants(found).filter(child => child !== found && child.visible && root.typeName(child) === childType).map(child => ThemeLogic.formatColor(child.color))));
+        }
+        // A paired capture removes only word ink. The live backing, card
+        // states and wallpaper remain painted at the same coordinates.
+        // Binding restores the original ink expression when disabled:
+        // doc.qt.io/qt-6/qml-qtqml-binding.html#conditional-bindings.
+        function hintInk(hostKey: string, id: string, hidden: bool): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const hints = root.descendants(item).filter(child => root.typeName(child) === "KeyHints" && child.visible);
+            const labels = hints.reduce((all, hint) => all.concat(root.descendants(hint).filter(child => root.typeName(child) === "Label" && child.role === "hint" && child.visible)), []);
+            if (labels.length === 0) return "ink-absent";
+            for (const label of labels) {
+                const previous = Array.from(label.data).find(child => child.objectName === "captureHintInk");
+                if (hidden && previous === undefined) {
+                    if (hintInkBinding.createObject(label, { target: label, when: true }) === null) return "ink-binding-failed";
+                } else if (!hidden && previous !== undefined) {
+                    previous.when = false;
+                    previous.destroy();
+                }
+            }
+            return String(labels.length);
         }
         // The box of the first visible, enabled item named `type` whose
         // `text` is `text`, in screen coordinates, so a row can click it.

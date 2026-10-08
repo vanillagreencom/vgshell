@@ -131,6 +131,9 @@ Item {
             compare(UnitTheme.override({ scheme: { mode: row.mode }, color: { text: row.ink } }), "ok");
             const label = hints.children[0].children[1];
             tryCompare(label, "color", Qt.color(row.ink));
+            const backing = label.children.find(child => child.objectName === "keyHintBacking");
+            verify(backing !== undefined, "the actual word has a backing");
+            compare(backing.color, Qt.color(row.shadow));
             compare(label.font.weight, 600);
             compare(label.font.variableAxes.wght, 600);
             verify(label.layer.effect !== null, "the actual hint label carries its effect");

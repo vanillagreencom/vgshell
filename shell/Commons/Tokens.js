@@ -679,6 +679,8 @@ var TOKENS = {
 
     keyHints: {
         foreground: color("alpha({color.text}, 1)"),
+        background: color("contrast({keyHints.foreground})"),
+        radius: length("{radius.sm}"),
         weight: weight(600),
         shadow: color("contrast({keyHints.foreground})"),
         shadowOpacity: share(0.7),

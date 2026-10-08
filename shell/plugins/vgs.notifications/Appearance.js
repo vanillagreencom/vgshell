@@ -137,7 +137,8 @@ var TOKENS = {
         pad: length(40),
         tail: length(24),
         // The mask band reserves no layout space.
-        fadeHeight: length(60),
+        fadeHeight: length(96),
+        fadeCurve: curve(0.4, 0, 0.6, 1),
         far: length(12)
     },
 

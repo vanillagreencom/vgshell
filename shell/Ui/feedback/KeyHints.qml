@@ -49,6 +49,16 @@ Row {
                 font.variableAxes: ({ wght: Theme.keyHints.weight })
                 y: topForCapCenter(Math.max(Theme.kbd.height, caps.implicitHeight))
                 text: pair.modelData.text
+                // A negative-z child paints behind its parent's text.
+                // An opaque backing keeps moving cards and wallpaper from
+                // changing the colour behind a word (Qt Quick Item.z).
+                Rectangle {
+                    objectName: "keyHintBacking"
+                    z: -1
+                    anchors.fill: parent
+                    radius: Theme.keyHints.radius
+                    color: Theme.keyHints.background
+                }
                 layer.enabled: visible
                 layer.smooth: true
                 // MultiEffect pads its text shadow in the label's layer.

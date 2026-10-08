@@ -17,8 +17,8 @@ Item {
         id: frame
         look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
         width: implicitWidth
-        height: 180
-        maxHeight: 180
+        height: 240
+        maxHeight: 240
 
         Item {
             id: content
@@ -52,12 +52,47 @@ Item {
 
         function test_edge_fades(row) {
             compare(frame.look.stack.tail, 24, "the scroll tail keeps its original size");
-            compare(frame.look.stack.fadeHeight, 60, "both edges use the named fade size");
+            verify(frame.look.stack.fadeHeight > 60, "the fade extends beyond the old cutoff");
             content.Layout.preferredHeight = row.contentHeight;
             tryCompare(frame.flickable, "contentHeight", row.contentHeight + frame.look.stack.tail);
             frame.flickable.contentY = Math.max(0, frame.flickable.contentHeight - frame.flickable.height) * row.progress;
             tryCompare(frame.flickable.layer, "enabled", row.top || row.bottom);
             checkPaint(row.top, row.bottom);
+        }
+
+        function test_endpoint_continuity_data() {
+            const distances = [
+                { fraction: 0, minimum: 255, maximum: 255 },
+                { fraction: 0.001, minimum: 254, maximum: 255 },
+                { fraction: 0.25, minimum: 212, maximum: 222 },
+                { fraction: 0.5, minimum: 125, maximum: 138 },
+                { fraction: 0.75, minimum: 38, maximum: 52 },
+                { fraction: 1, minimum: 0, maximum: 8 }
+            ];
+            return [true, false].flatMap(top => distances.map(distance => ({
+                tag: (top ? "top " : "bottom ") + distance.fraction,
+                top: top, fraction: distance.fraction,
+                minimum: distance.minimum, maximum: distance.maximum
+            })));
+        }
+
+        function test_endpoint_continuity(row) {
+            content.Layout.preferredHeight = 700;
+            tryCompare(frame.flickable, "contentHeight", 700 + frame.look.stack.tail);
+            const travel = frame.flickable.contentHeight - frame.flickable.height;
+            const distance = frame.look.stack.fadeHeight * row.fraction;
+            frame.flickable.contentY = row.top ? distance : travel - distance;
+            frame.Window.window.update();
+            verify(waitForRendering(frame));
+            const painted = grabImage(frame);
+            const x = Math.floor(painted.width / 2);
+            const y = row.top ? 1 : painted.height - 2;
+            const ink = painted.red(x, y);
+            verify(ink >= row.minimum && ink <= row.maximum,
+                   "the painted edge approaches its endpoint continuously: " + ink);
+            compare(painted.green(x, y), 0, "the mask adds no surface colour");
+            compare(painted.blue(x, y), ink, "the mask changes alpha only");
+            compare(painted.red(x, Math.floor(painted.height / 2)), 255, "the card centre keeps its ink");
         }
 
         function checkPaint(topFade, bottomFade) {
@@ -81,6 +116,9 @@ Item {
                 if (edge.fade) {
                     verify(near < 64, "content fades at the overflowing edge");
                     verify(middle > near && middle < centre, "alpha rises toward the opaque centre");
+                    verify(middle >= 95 && middle <= 160, "the symmetric easing keeps the middle of the band soft");
+                    const beyondOldBand = at(edge.top ? 72 : frame.height - 72);
+                    verify(painted.red(x, beyondOldBand) < 255, "the painted fade extends beyond the old band");
                 } else {
                     compare(middle, 255, "the band stays opaque at its own end");
                     compare(near, 255, "the edge stays opaque at its own end");
@@ -89,9 +127,9 @@ Item {
         }
 
         function test_hiding_releases_the_layers() {
-            content.Layout.preferredHeight = 300;
-            tryCompare(frame.flickable, "contentHeight", 300 + frame.look.stack.tail);
-            frame.flickable.contentY = 100;
+            content.Layout.preferredHeight = 700;
+            tryCompare(frame.flickable, "contentHeight", 700 + frame.look.stack.tail);
+            frame.flickable.contentY = 150;
             tryCompare(frame.flickable.layer, "enabled", true);
             frame.visible = false;
             compare(frame.flickable.layer.enabled, false);

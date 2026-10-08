@@ -186,6 +186,8 @@ const DEFAULTS = [
     ["keyHints.shadow", "#000000ff"],
     ["keyHints.shadowOpacity", 0.7],
     ["keyHints.foreground", "#d7d7d9ff"],
+    ["keyHints.background", "#000000ff"],
+    ["keyHints.radius", 0],
     ["keyHints.weight", 600],
     ["keyHints.blur", 4],
     ["keyHints.shadowOffset", 0],
@@ -339,8 +341,8 @@ const DEFAULTS = [
 
 // A document that is accepted, and the values it must resolve to.
 const ACCEPTED = [
-    { tokens: { scheme: { mode: "dark" }, color: { text: "#101010" } }, want: [["keyHints.foreground", "#101010ff"], ["keyHints.shadow", "#ffffffff"]] },
-    { tokens: { scheme: { mode: "light" }, color: { text: "#f0f0f0" } }, want: [["keyHints.foreground", "#f0f0f0ff"], ["keyHints.shadow", "#000000ff"]] },
+    { tokens: { scheme: { mode: "dark" }, color: { text: "#101010" } }, want: [["keyHints.foreground", "#101010ff"], ["keyHints.shadow", "#ffffffff"], ["keyHints.background", "#ffffffff"]] },
+    { tokens: { scheme: { mode: "light" }, color: { text: "#f0f0f0" } }, want: [["keyHints.foreground", "#f0f0f0ff"], ["keyHints.shadow", "#000000ff"], ["keyHints.background", "#000000ff"]] },
     { tokens: { palette: { accent: "#123456", info: "#234567", success: "#345678", warning: "#456789", danger: "#56789a" }, color: { textMuted: "#6789ab" } }, want: [["voiceOrb.tone.accent", "#123456ff"], ["voiceOrb.tone.info", "#234567ff"], ["voiceOrb.tone.success", "#345678ff"], ["voiceOrb.tone.warning", "#456789ff"], ["voiceOrb.tone.danger", "#56789aff"], ["voiceOrb.tone.muted", "#6789abff"]] },
     { tokens: { motion: { scale: 0 }, voiceOrb: { attack: 90, release: 300, period: 4000 } }, want: [["voiceOrb.attack", 0], ["voiceOrb.release", 0], ["voiceOrb.period", 0]] },
     { tokens: { motion: { scale: 2 } }, want: [["voiceOrb.attack", 140], ["voiceOrb.release", 500], ["voiceOrb.period", 12000]] },
