@@ -7,8 +7,10 @@ import qs.Ui
 // Hyprland window titled Plugins, which Hyprland floats, centres, frames
 // and focuses like any other window. It asks to be `size.window.width`
 // wide, or the monitor's width less `size.window.gutter` a side when that
-// is less, and `size.window.heightShare` of the monitor's height tall, read
-// from the screen its `screens` capability gives; the pages fill whatever
+// is less, and `size.window.tallHeightShare` of the monitor's height tall,
+// or its height less the gutter a side when that is less, read from the
+// screen its `screens` capability gives; the size holds while pages change,
+// since Hyprland would move a resized window. The pages fill whatever
 // size the window has after that. The list page and the plugin page
 // sit side by side and slide on `motion.duration.normal`, so a
 // `motion.scale` of 0 makes a push or a pop instant; the page not shown is
@@ -90,7 +92,7 @@ FocusScope {
     property Item initialFocus: pending !== null || removal !== null ? prompt : page === "" ? list.initialFocus : detail.initialFocus
 
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
-    implicitHeight: screen === null ? Theme.size.panel.maxHeight : Math.floor(Theme.size.window.heightShare * screen.height)
+    implicitHeight: screen === null ? Theme.size.panel.maxHeight : Math.floor(Math.min(Theme.size.window.tallHeightShare * screen.height, OverlayState.room(screen).height))
     focus: true
 
     function rowOf(id) { return plugins.find(p => p.id === id) || null; }

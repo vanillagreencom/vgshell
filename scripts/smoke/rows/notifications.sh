@@ -5,7 +5,7 @@
 # through the probe, its state file, the compositor and the lending record.
 # No owner data reaches it: every notification here is made up. The row ends
 # with the plugin disabled and every registration released.
-# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/controls/Select.qml shell/Core/Plugins.qml
+# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 note_state="$home/.local/state/vgshell/notifications/state.json"
@@ -2441,55 +2441,59 @@ hover 1 1 || fail "resting the pointer on the bar failed"
 expect "the notifications' Settings page opens for Position" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
 expect_poll "the page draws Position as a list of the six edges" '["top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right"]' position_read model
 expect "Position starts at the top center" '"top-center"' position_read value
-# The page keeps the Slack section in view under the Settings group that
-# holds Position, at the harness's screen size: slack_heading_verdict reads
-# the page's items, as descendantGeometry gives them, and answers whether
-# the Slack group's heading lies inside the scroll view that clips it,
-# `in-view`, `above` or `below`, or `absent` without a shown heading.
-slack_heading_verdict() { # ITEMS
+# The page keeps the whole Slack section in view under the Settings group
+# that holds Position, at the harness's screen size: slack_group_verdict
+# reads the page's items, as descendantGeometry gives them, and answers
+# whether the Slack group, its heading through its last row and that row's
+# description, lies inside the scroll view that clips it: `in-view`,
+# `above` or `below`, or `absent` without a shown Slack heading. The group
+# is the heading's Section, a Column whose box ends at its last row.
+slack_group_verdict() { # ITEMS
   python3 - "$1" <<'PY'
 import json, sys
 
 items = json.loads(sys.argv[1])
 head = next((i for i in items if i["type"] == "SectionHeader" and i["text"] == "Slack" and i["visible"]), None)
-if head is None:
+if head is None or head["parent"] < 0 or items[head["parent"]]["type"] != "Section":
     print("absent")
     sys.exit()
-at = head["parent"]
+group = items[head["parent"]]
+at = group["parent"]
 while at >= 0 and items[at]["type"] not in ("ScrollArea", "QQuickFlickable"):
     at = items[at]["parent"]
 if at < 0:
     print("absent")
     sys.exit()
 view_y, view_h = items[at]["box"][1], items[at]["box"][3]
-y, h = head["box"][1], head["box"][3]
+y, h = group["box"][1], group["box"][3]
 print("above" if y < view_y - 0.5 else "below" if y + h > view_y + view_h + 0.5 else "in-view")
 PY
 }
-slack_heading() {
+slack_group() {
   local items
   items="$(ipc smoke descendantGeometry window vgs.settings)" || return
-  slack_heading_verdict "$items"
+  slack_group_verdict "$items"
 }
-geometry expect_poll "the Notifications page shows the Slack heading in view below Position" in-view slack_heading
-# The control: the same reading with the heading one pixel past the view's
-# lower edge.
-slack_heading_below() { # ITEMS
+geometry expect_poll "the Notifications page shows the whole Slack section in view below Position" in-view slack_group
+# The control: the same reading with the Slack group's last row one pixel
+# past the view's lower edge.
+slack_group_below() { # ITEMS
   python3 - "$1" <<'PY'
 import json, sys
 
 items = json.loads(sys.argv[1])
 head = next(i for i in items if i["type"] == "SectionHeader" and i["text"] == "Slack" and i["visible"])
-at = head["parent"]
+group = items[head["parent"]]
+at = group["parent"]
 while items[at]["type"] not in ("ScrollArea", "QQuickFlickable"):
     at = items[at]["parent"]
-head["box"][1] = items[at]["box"][1] + items[at]["box"][3] - head["box"][3] + 1
+group["box"][1] = items[at]["box"][1] + items[at]["box"][3] - group["box"][3] + 1
 print(json.dumps(items))
 PY
 }
 slack_items="$(ipc smoke descendantGeometry window vgs.settings)" || fail "the Notifications page's items are unreadable"
-slack_items_below="$(slack_heading_below "$slack_items")" || fail "planting the Slack heading below the view failed"
-expect "control: a Slack heading one pixel past the view's lower edge reads below" below slack_heading_verdict "$slack_items_below"
+slack_items_below="$(slack_group_below "$slack_items")" || fail "planting the Slack group below the view failed"
+expect "control: a Slack group whose last row ends one pixel past the view reads below" below slack_group_verdict "$slack_items_below"
 geometry expect_poll "the default stack sits at the top center, $place_gap px under the bar, the newest card first" placed placed_at top-center "${place_last[@]}"
 # The control: the default stack, fixed at the top centre, fails every
 # other position's verdict for the rule that position changes.

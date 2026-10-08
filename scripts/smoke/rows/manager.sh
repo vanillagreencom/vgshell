@@ -73,7 +73,8 @@ user_key() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.ar
 settings_binds() { hypr -j binds | py_reply 'import json,sys; print(json.dumps(sorted([b["modmask"], b["key"]] for b in json.load(sys.stdin) if b["description"] == "vgs.settings:toggle" and b.get("submap", "") in ("", "default"))))'; }
 # window_fits MONITOR [MODE]: [] when the Settings window on MONITOR is
 # min(size.window.width, width - 2 * size.window.gutter) wide,
-# size.window.heightShare of the height tall and centred on the monitor's
+# size.window.tallHeightShare of the height tall, or the height less two
+# gutters when that is less, and centred on the monitor's
 # work area, its box less the space the bar reserves and general:float_gaps,
 # where Hyprland centres a floating window, within one pixel; else the
 # misfits. The monitor, the clients and the gaps come from one batched
@@ -83,7 +84,7 @@ settings_binds() { hypr -j binds | py_reply 'import json,sys; print(json.dumps(s
 window_fits() {
   local width share gutter
   width="$(ipc smoke themeValue size.window.width)" || return
-  share="$(ipc smoke themeValue size.window.heightShare)" || return
+  share="$(ipc smoke themeValue size.window.tallHeightShare)" || return
   gutter="$(ipc smoke themeValue size.window.gutter)" || return
   hypr --batch 'j/monitors; j/clients; j/getoption general:float_gaps' | py_reply '
 import json, math, sys
@@ -111,7 +112,7 @@ top, right, bottom, left = (int(v) for v in gaps["css"].split())
 rl, rt, rr, rb = m["reserved"]
 area_x, area_y = m["x"] + rl + left, m["y"] + rt + top
 area_w, area_h = mw - rl - rr - left - right, mh - rt - rb - top - bottom
-want_w, want_h = math.floor(min(width, mw - 2 * gutter)), math.floor(share * mh)
+want_w, want_h = math.floor(min(width, mw - 2 * gutter)), math.floor(min(share * mh, mh - 2 * gutter))
 out = []
 for key, got, want in (("w", w, want_w), ("h", h, want_h), ("x", x, area_x + (area_w - want_w) / 2), ("y", y, area_y + (area_h - want_h) / 2)):
     if abs(got - want) > 1: out.append("%s=%s want=%s" % (key, got, want))
@@ -174,7 +175,7 @@ click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
 expect_poll "the gear opens the Settings window" open settings_open
 expect_poll "the Settings window is one window" 1 window_count Plugins
 main_monitor="$(first_monitor)" || fail "the first monitor's name is unreadable"
-geometry expect_poll "the window is the token width, half the monitor tall and centred on the work area within one pixel" '[]' window_fits "$main_monitor"
+geometry expect_poll "the window is the token width, the tall share of the monitor and centred on the work area within one pixel" '[]' window_fits "$main_monitor"
 expect_poll "the window takes the keyboard when it opens" true ipc smoke activeFocusIn window vgs.settings
 listed_names() { ipc smoke itemTexts window vgs.settings ListItem | py_reply 'import json,sys; print(json.dumps([t[0] for t in json.load(sys.stdin)]))'; }
 type_keys probe || fail "typing into the Settings search failed"
@@ -1023,7 +1024,7 @@ expect_poll "the window is gone after the shortcut" 0 window_count Plugins
 # A monitor narrower than the window's width token: the nested output
 # holds a mode derived from the current logical output size and the window
 # width token, and the window keeps `size.window.gutter` a side
-# and half the monitor's height, centred on it; the mode it had is then
+# and the tall share of the monitor's height, centred on it; the mode it had is then
 # restored, so later rows meet the monitor they read at the start. The host
 # can reset a held mode under the rows (held_mode_state in mode-hold.sh): the
 # window check reads the mode with the window and names a reset rather than
@@ -1052,7 +1053,7 @@ bar_width() { one_layer vgs:bar | py_reply 'import json,sys; print(json.load(sys
 expect_poll "the bar follows the narrow monitor" "$narrow_width" bar_width
 expect "the gear opens the window on the narrow monitor" ok ipc smoke invokeInstance "$(bar_key)" vgs.settings toggle ''
 expect_poll "the window maps on the narrow monitor" 1 window_count Plugins
-geometry expect_poll "a monitor narrower than the width token keeps the gutters, half its height, centred" '[]' window_fits "$main_monitor" "$narrow_mode"
+geometry expect_poll "a monitor narrower than the width token keeps the gutters, the tall share of its height, centred" '[]' window_fits "$main_monitor" "$narrow_mode"
 clamped_width() { settings_layer | py_reply 'import json,sys; print(json.load(sys.stdin)[2])'; }
 geometry expect "the clamped window is the monitor's width less two gutters" "$((narrow_width - 2 * gutter))" clamped_width
 # Control: the monitor's own mode comes back under the held row, as a host
