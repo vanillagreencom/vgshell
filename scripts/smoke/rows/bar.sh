@@ -1,4 +1,4 @@
-# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* config/shell.json shell/Core/PluginLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json
+# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* config/shell.json shell/Core/PluginLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json
 set -euo pipefail
 expect "instance guard accepts the runner's shell" true ipc shell guarded
 
@@ -109,15 +109,21 @@ expect "the core built the bar, its placed widget and the vgs.themes background 
 # read back for the entry, the user file for what the manager wrote.
 # Latency from a setPluginEnabled reply to `built` reflecting it, polled
 # with qs ipc against the shell's pid; the reading carries one IPC round trip.
+# Use the runner's EPOCHREALTIME clock conversion in this shell so date,
+# seq and tail processes add no caller work to that interval.
 reconcile_ms=""
 if disable_reply="$(ipc shell setPluginEnabled acme.tick false)"; then
-  replied_ms="$(now_ms)"
+  replied_ms=$(( ${EPOCHREALTIME//[!0-9]/} / 1000 ))
   reconcile_poll_count=0
-  for _ in $(seq 1 500); do
+  for ((reconcile_poll = 0; reconcile_poll < 500; ++reconcile_poll)); do
     reconcile_poll_count=$((reconcile_poll_count + 1))
-    if built_now="$("${shell_env[@]}" qs ipc --pid "$shell_qs_pid" call shell built 2>>"$sandbox/ipc.log" | tail -n 1)" && [[ -n $built_now && $built_now != *'"id":"acme.tick"'* ]]; then
-      reconcile_ms=$(( $(now_ms) - replied_ms ))
-      break
+    if built_output="$("${shell_env[@]}" qs ipc --pid "$shell_qs_pid" call shell built 2>>"$sandbox/ipc.log")"; then
+      vgs_ipc_last_line_into "$built_output"
+      built_now="$vgs_ipc_last_line"
+      if [[ $built_now == \{*\} && $built_now != *'"id":"acme.tick"'* ]]; then
+        reconcile_ms=$(( ${EPOCHREALTIME//[!0-9]/} / 1000 - replied_ms ))
+        break
+      fi
     fi
     sleep 0.005
   done
@@ -363,18 +369,38 @@ PY
   expect_widgets "the original placed widget returns after the fresh profile" '["acme.tick"]'
 fi
 
-# Reproduce the cold zero-height mount in a disposable bar. The same
-# descendant reader must reject it while both registrations still exist.
+# Restore Row's transition writes in a disposable bar. The same cold
+# descendant reader must reject the removed vertical-centering binding.
 bar_alignment_misplaced() {
   bar_alignment | py_reply 'import json,sys; rows=json.load(sys.stdin); print(any(s.startswith("clock.label.y=") for s in rows) and any(s.startswith("pill0.y=") for s in rows))'
 }
-if copy_tree bar-height-control \
-  && edit_tree bar-height-control shell/plugins/vgs.bar/Bar.qml 'implicitHeight: barSize' 'implicitHeight: 0'; then
+if copy_tree bar-motion-control \
+  && edit_tree bar-motion-control shell/plugins/vgs.bar/Bar.qml '    Item {
+        id: left
+        readonly property real spacing: Theme.bar.gap' '    Row {
+        move: Transition { NumberAnimation { properties: "x"; duration: 0 } }
+        add: Transition { NumberAnimation { properties: "x"; duration: 0 } }
+        id: left
+        spacing: Theme.bar.gap' \
+  && edit_tree bar-motion-control shell/plugins/vgs.bar/Bar.qml '    Item {
+        id: center
+        readonly property real spacing: Theme.bar.gap' '    Row {
+        move: Transition { NumberAnimation { properties: "x"; duration: 0 } }
+        add: Transition { NumberAnimation { properties: "x"; duration: 0 } }
+        id: center
+        spacing: Theme.bar.gap' \
+  && edit_tree bar-motion-control shell/plugins/vgs.bar/Bar.qml '    Item {
+        id: right
+        readonly property real spacing: Theme.bar.gap' '    Row {
+        move: Transition { NumberAnimation { properties: "x"; duration: 0 } }
+        add: Transition { NumberAnimation { properties: "x"; duration: 0 } }
+        id: right
+        spacing: Theme.bar.gap'; then
   stop_shell
-  start_shell "$sandbox/tree-bar-height-control" "$sandbox/bar-height-control.log" || fail "the cold-height control shell starts"
-  expect_builtins "control: the cold-height bar still registers both builtins" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
-  geometry expect "control: the alignment reader rejects a cold mount with no intrinsic bar height" True bar_alignment_misplaced
+  start_shell "$sandbox/tree-bar-motion-control" "$sandbox/bar-motion-control.log" || fail "the Row motion control shell starts"
+  expect_builtins "control: the Row motion bar still registers both builtins" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
+  geometry expect "control: the alignment reader rejects Row's cold transition writes" True bar_alignment_misplaced
   stop_shell
-  start_shell "$repo" "$sandbox/bar-height-restored.log" || fail "the shell starts after the cold-height control"
+  start_shell "$repo" "$sandbox/bar-motion-restored.log" || fail "the shell starts after the Row motion control"
   geometry expect_poll "the restored cold bar centers both builtin contents" '[]' bar_alignment
 fi

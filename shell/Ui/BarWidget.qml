@@ -39,6 +39,15 @@ Item {
 
     opacity: frameDragging ? Theme.opacity.disabled : 1
 
+    // Behavior intercepts this x binding alone (Qt Quick Behavior reference).
+    // The grabbed widget follows the pointer directly. At rest, intrinsic
+    // size changes keep the right section's edge fixed without animation.
+    Behavior on x {
+        enabled: !root.frameDragging && root.bar !== null
+            && root.bar.children.some(item => item.frameDragging === true)
+        NumberAnimation { duration: Theme.motion.duration.normal; easing.type: Theme.motion.easing.standard }
+    }
+
     // One setting with a fallback for a missing or null value.
     function setting(name, fallback) {
         const value = settings ? settings[name] : undefined;

@@ -15,10 +15,6 @@ Item {
     readonly property string fontFamily: Theme.text.bar.family
     readonly property int barSize: Theme.bar.height
 
-    // Widgets mount before PluginSlot fills the bar. Give Row its height
-    // before its first transition records the widgets' vertical position.
-    implicitHeight: barSize
-
     // The host maps this screen's bar only while it is shown; the `hidden`
     // setting, which the service's toggle writes, hides it everywhere.
     readonly property bool shown: shell === null || shell.settings.hidden !== true
@@ -26,11 +22,6 @@ Item {
     readonly property Item leftSection: left
     readonly property Item centerSection: center
     readonly property Item rightSection: right
-
-    // The held widget is parented directly to the bar. Use its existing
-    // pointer grab to animate the gap; intrinsic size changes, such as the
-    // tray drawer opening, must keep the right section's edge fixed.
-    readonly property bool rearranging: children.some(item => item.frameDragging === true)
 
     readonly property var builtinLabels: ({ "left-workspaces": "Workspaces", "center-clock": "Clock" })
     readonly property var builtinNames: Object.keys(builtinLabels)
@@ -59,39 +50,22 @@ Item {
     Component.onCompleted: syncBuiltins(builtinModel, builtinKey)
     Repeater { model: builtinModel; Builtin { barItem: bar } }
 
-    // Row's move transition animates children displaced by a gap or a
-    // model move: https://doc.qt.io/qt-6/qml-qtquick-row.html#move-prop.
-    Row {
+    // The core positions children and sizes these passive containers.
+    // Qt 6.11 Row transitions write y even when their animation names x;
+    // that write removes the core's vertical-centering binding.
+    Item {
         id: left
-        move: Transition {
-            NumberAnimation { properties: "x"; duration: bar.rearranging ? Theme.motion.duration.normal : 0; easing.type: Theme.motion.easing.standard }
-        }
-        add: Transition {
-            NumberAnimation { properties: "x"; duration: bar.rearranging ? Theme.motion.duration.normal : 0; easing.type: Theme.motion.easing.standard }
-        }
-        spacing: Theme.bar.gap
+        readonly property real spacing: Theme.bar.gap
         anchors { left: parent.left; leftMargin: Theme.bar.padding; top: parent.top; bottom: parent.bottom }
     }
-    Row {
+    Item {
         id: center
-        move: Transition {
-            NumberAnimation { properties: "x"; duration: bar.rearranging ? Theme.motion.duration.normal : 0; easing.type: Theme.motion.easing.standard }
-        }
-        add: Transition {
-            NumberAnimation { properties: "x"; duration: bar.rearranging ? Theme.motion.duration.normal : 0; easing.type: Theme.motion.easing.standard }
-        }
-        spacing: Theme.bar.gap
+        readonly property real spacing: Theme.bar.gap
         anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; bottom: parent.bottom }
     }
-    Row {
+    Item {
         id: right
-        move: Transition {
-            NumberAnimation { properties: "x"; duration: bar.rearranging ? Theme.motion.duration.normal : 0; easing.type: Theme.motion.easing.standard }
-        }
-        add: Transition {
-            NumberAnimation { properties: "x"; duration: bar.rearranging ? Theme.motion.duration.normal : 0; easing.type: Theme.motion.easing.standard }
-        }
-        spacing: Theme.bar.gap
+        readonly property real spacing: Theme.bar.gap
         anchors { right: parent.right; rightMargin: Theme.bar.padding; top: parent.top; bottom: parent.bottom }
     }
 }
