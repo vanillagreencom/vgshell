@@ -115,6 +115,7 @@ Item {
             pair.width = column.width;
             pair.current = 0;
             pair.stopTyping();
+            mouseMove(before);
             before.forceActiveFocus(Qt.TabFocusReason);
         }
 
@@ -128,12 +129,14 @@ Item {
             return null;
         }
         function box(f) { return descendant(f, item => String(item).indexOf("QQuickAbstractButton") === 0); }
-        function buttonLabelled(f, label) { return descendant(f, item => item.label === label && item.visible); }
+        function buttonLabelled(f, label) { return descendant(f, item => item.button !== undefined && item.label === label && item.visible); }
         // The tool row places a button it shows again at its next polish.
         function press(f, label) {
-            const button = buttonLabelled(f, label);
-            waitForItemPolished(button.parent);
-            mouseClick(button);
+            const slot = buttonLabelled(f, label);
+            waitForItemPolished(slot.parent);
+            mouseMove(slot);
+            tryVerify(() => slot.button !== null);
+            mouseClick(slot.button);
         }
         function arm() {
             box(field).forceActiveFocus(Qt.TabFocusReason);
@@ -146,6 +149,51 @@ Item {
             verify(box(field).activeFocus);
             keyClick(Qt.Key_Tab);
             verify(!box(field).activeFocus);
+        }
+
+        function test_idle_tools_build_on_hover_and_release_on_hide() {
+            const keyboard = buttonLabelled(field, "Type the keys");
+            const clear = buttonLabelled(field, "Unbind");
+            compare(keyboard.button, null);
+            compare(clear.button, null);
+            const width = box(field).width;
+            mouseMove(keyboard);
+            tryVerify(() => keyboard.button !== null && clear.button !== null);
+            compare(keyboard.button.tooltip, "Type the keys");
+            compare(clear.button.tooltip, "Unbind");
+            compare(box(field).width, width);
+            mouseClick(keyboard.button);
+            compare(field.typing, true);
+            column.visible = false;
+            tryCompare(keyboard, "button", null);
+            tryCompare(clear, "button", null);
+            compare(field.typing, true);
+        }
+
+        function test_forward_tab_activates_the_real_keyboard_button() {
+            const keyboard = buttonLabelled(field, "Type the keys");
+            keyClick(Qt.Key_Tab);
+            verify(box(field).activeFocus);
+            keyClick(Qt.Key_Tab);
+            verify(keyboard.button !== null && keyboard.button.activeFocus);
+            keyClick(Qt.Key_Return);
+            compare(field.typing, true);
+            verify(descendant(field, item => item.escapeReverts === true).activeFocus);
+        }
+
+        function test_reverse_tab_builds_clear_then_reaches_typed_editing() {
+            const clear = buttonLabelled(pair, "Remove Right Alt");
+            const keyboard = buttonLabelled(pair, "Type the keys");
+            after.forceActiveFocus(Qt.TabFocusReason);
+            compare(clear.button, null);
+            keyClick(Qt.Key_Backtab, Qt.ShiftModifier);
+            verify(clear.button !== null && clear.button.activeFocus);
+            keyClick(Qt.Key_Return);
+            compare(JSON.stringify(root.events), '["cleared 0"]');
+            keyClick(Qt.Key_Backtab, Qt.ShiftModifier);
+            verify(keyboard.button !== null && keyboard.button.activeFocus);
+            keyClick(Qt.Key_Return);
+            compare(pair.typing, true);
         }
 
         function test_a_read_only_field_takes_no_focus_and_asks_nothing() {

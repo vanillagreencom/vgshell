@@ -42,6 +42,8 @@
 # inputs: shell/plugins/vgs.keyhints/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.voice/manifest.json shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Tooltip.qml shell/Ui/overlay/AnchorTracker.qml shell/Hosts/AppWindow.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/HyprlandLayer.js bin/lib/qml-library.js
 set -euo pipefail
 
+cp -p -- "$home/.config/vgshell/shell.json" "$sandbox/keyhints-initial-config.json"
+ipc shell listPlugins >"$sandbox/keyhints-initial-plugins.json"
 kh_title="Key Hints"
 kh_themes='{"id":"vgs.themes","shortcut":"themes"}'
 kh_own='{"id":"vgs.keyhints","shortcut":"toggle"}'
@@ -343,7 +345,8 @@ print(len(shipped))' "$repo/shell/plugins")" || { fail 'the measured all-shipped
   printf '  keyhints-open-ms=%s budget_ms=200\n' "$(kh_timing_samples)"
 }
 
-cp -p -- "$home/.config/vgshell/shell.json" "$sandbox/keyhints-timing-config.json"
+expect "disabling Key Hints is allowed" ok ipc shell setPluginEnabled vgs.keyhints false
+expect_poll "the Key Hints service is gone" False record_exists vgs.keyhints
 # The owner's profile includes every shipped plugin. Hardware access and
 # authentication remain the harness's device fakes and private buses.
 while IFS= read -r id; do
@@ -391,17 +394,22 @@ if kh_timing_tree keyhints-slow \
   fi
   stop_shell
 fi
-cp -- "$sandbox/keyhints-timing-config.json" "$home/.config/vgshell/shell.json.next"
+cp -- "$sandbox/keyhints-initial-config.json" "$home/.config/vgshell/shell.json.next"
 mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
 hypr_lua_restore keyhints-timing || fail 'the measured run restores the harness keymap'
 expect 'the restored keymap reloads' ok hypr reload config-only
 start_shell "$repo" "$sandbox/keyhints-timing-restored.log" || fail 'the original shell starts after measurement'
-expect "disabling Key Hints is allowed" ok ipc shell setPluginEnabled vgs.keyhints false
-expect_poll "the Key Hints service is gone" False record_exists vgs.keyhints
+expect 'Key Hints leaves the received configuration unchanged' same bash -c 'cmp -s -- "$1" "$2" && printf "same\n"' _ "$sandbox/keyhints-initial-config.json" "$home/.config/vgshell/shell.json"
+kh_initial_plugins() {
+  ipc shell listPlugins | py_reply 'import json,sys
+saved={p["id"]:p["enabled"] for p in json.load(open(sys.argv[1]))["plugins"]}
+live={p["id"]:p["enabled"] for p in json.load(sys.stdin)["plugins"]}
+print(all(live.get(id) is enabled for id,enabled in saved.items()))' "$sandbox/keyhints-initial-plugins.json"
+}
+expect_poll 'the restored plugin enablement matches the received configuration' True kh_initial_plugins
 case "$kh_themes_before" in
   True) ;;
   False)
-    expect "Themes is disabled again as the row found it" ok ipc shell setPluginEnabled vgs.themes false
     expect_poll "the restored Themes state removes its shortcut" False kh_bound_has vgs.themes:themes
     ;;
   *) fail "Themes' enabled state before the row: got $kh_themes_before" ;;

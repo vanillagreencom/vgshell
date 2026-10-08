@@ -292,6 +292,49 @@ FocusScope {
             notice = "Listening stopped after " + Math.round(capture.timeoutMs / 1000) + " s. Press Return or click the field to listen again.";
     }
 
+    // Idle rows need the glyph and its reserved space, not a button's
+    // focus ring, pointer handlers and tooltip. A pointer over the tools
+    // or keyboard focus in the field builds the real IconButtons before
+    // use. The slot itself enters the Tab chain while unloaded, so reverse
+    // Tab can reach its button too; the Loader then owns its destruction.
+    // https://doc.qt.io/qt-6.8/qml-qtquick-loader.html
+    component ToolSlot: FocusScope {
+        id: tool
+        required property string iconName
+        required property string label
+        property bool inUse: false
+        readonly property alias button: control.item
+        signal clicked()
+
+        width: Math.max(Theme.control.minWidth, Math.min(Theme.control.maxWidth, Theme.size.control.sm))
+        height: Theme.size.control.sm
+        activeFocusOnTab: !control.active
+        onActiveFocusChanged: if (activeFocus && control.item) control.item.forceActiveFocus(Qt.TabFocusReason)
+
+        Icon {
+            name: tool.iconName
+            size: Theme.button.size.sm.icon
+            color: Theme.color.textMuted
+            x: Math.floor((tool.width - size) / 2)
+            y: Math.floor((tool.height - size) / 2)
+            visible: !control.active
+        }
+        Loader {
+            id: control
+            anchors.fill: parent
+            active: tool.visible && tool.enabled && (tool.inUse || tool.activeFocus)
+            focus: true
+            onLoaded: if (tool.activeFocus) item.forceActiveFocus(Qt.TabFocusReason)
+            sourceComponent: IconButton {
+                iconName: tool.iconName
+                label: tool.label
+                size: "sm"
+                focus: true
+                onClicked: tool.clicked()
+            }
+        }
+    }
+
     Column {
         id: column
         width: parent.width
@@ -450,17 +493,18 @@ FocusScope {
                 id: tools
                 spacing: Theme.textField.gap
                 anchors.verticalCenter: parent.verticalCenter
-                IconButton {
+                HoverHandler { id: toolsHover }
+                ToolSlot {
                     iconName: "keyboard"
                     label: "Type the keys"
-                    size: "sm"
+                    inUse: root.visible && (root.activeFocus || toolsHover.hovered)
                     visible: root.editable && !root.typing
                     onClicked: root.startTyping()
                 }
-                IconButton {
+                ToolSlot {
                     iconName: "x"
                     label: root.keys.length > 1 ? "Remove " + KeyNavLogic.keyCaps(root.key).join("+") : "Unbind"
-                    size: "sm"
+                    inUse: root.visible && (root.activeFocus || toolsHover.hovered)
                     visible: root.editable; enabled: root.editable && root.key !== ""
                     opacity: root.key === "" ? 0 : 1
                     onClicked: root.cleared(root.editing)
