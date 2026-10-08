@@ -240,6 +240,7 @@ expect "account reader ends that send no snapshot break the AI model read" 1 loc
 cp -- "$sandbox/setup-service-original" "$setup_service"
 jarvis_rescan
 expect_poll "the restored service reads only local voice left" "$setup_voice_left" setup_rows
+expect_poll "the restored local voice reader is idle" idle jarvis_setup_reader_idle LocalRuntime
 
 setup_write_marker || fail "local setup's marker is not written"
 printf 'ready\n' >"$sandbox/jarvis-world/local-mode"
