@@ -18,6 +18,7 @@ Item {
 
     required property var modelData
     readonly property var screen: modelData
+    readonly property bool screenPresent: Quickshell.screens.indexOf(screen) !== -1
     // The screen is null while its Variants entry is torn down.
     readonly property string hostKey: "bar:" + (screen ? screen.name : "")
 
@@ -31,7 +32,7 @@ Item {
         // Quickshell.screens drops a removed screen before Qt moves its
         // windows to another screen, and a window still built then gets a
         // layer surface there, reserving space twice until it goes.
-        active: Quickshell.screens.indexOf(host.screen) !== -1 && host.wantedKey !== "" && host.wantedKey !== host.brokenKey
+        active: host.screenPresent && host.wantedKey !== "" && host.wantedKey !== host.brokenKey
         sourceComponent: PanelWindow {
             screen: host.screen
 
@@ -41,7 +42,10 @@ Item {
             color: Theme.bar.background
             WlrLayershell.namespace: "vgs:bar"
             WlrLayershell.layer: WlrLayer.Top
-            visible: PluginLogic.barShown(slot.instance)
+            // Quickshell 0.3.1 defers native window deletion after the Loader
+            // drops its item. Hide first, or Qt can remap it as a toplevel
+            // while a removed output migrates its windows (VGS-1104 smoke).
+            visible: host.screenPresent && PluginLogic.barShown(slot.instance)
 
             // pointer-cursor-exempt: it reads the pointer leaving the bar and sets no cursor
             HoverHandler {

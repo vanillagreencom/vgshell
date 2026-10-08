@@ -58,7 +58,7 @@
 # user file, so vgs.system and vgs.displays are as it found them, and
 # removes the output, the assignments file and the stub backlight and
 # gives hidraw2 its mode back. The dim settings live in the user file.
-# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprctlReader.qml shell/Hosts/PaneHost.qml shell/Hosts/OverlaySurface.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/foundation/Scrim.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprctlReader.qml shell/Hosts/BarHost.qml shell/Hosts/PaneHost.qml shell/Hosts/OverlaySurface.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/foundation/Scrim.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
 set -euo pipefail
 devices_ready displays || return 0
 # The core probes the system steps once vgs.displays holds `system`, and
@@ -776,5 +776,64 @@ expect "disabling vgs.displays at the end is allowed" ok ipc shell setPluginEnab
 expect_poll "no displays layer is left" '[]' ipc smoke layerWindows vgs.displays
 rm -f -- "${disp_file:?}"
 cp -- "$disp_user_saved" "$disp_user.tmp" && mv -T -- "$disp_user.tmp" "$disp_user"
+# Native deletion can run after the bar's layer is already gone. Observe
+# clients and focus for 5 s, every 0.2 s, so a later Qt remap cannot pass
+# the immediate surface-count check and leak into Power's start snapshot.
+disp_window_state() {
+  hypr --batch 'j/clients; j/activewindow' | py_reply 'import json,sys
+text=sys.stdin.read(); decoder=json.JSONDecoder(); at=0; parts=[]
+while len(parts)<2:
+    while text[at].isspace(): at+=1
+    part,at=decoder.raw_decode(text,at); parts.append(part)
+clients,active=parts
+print(json.dumps([sorted([c["address"],c["class"],c["title"]] for c in clients),active.get("address", "")]))'
+}
+disp_windows_preserved() { # BEFORE
+  local reading
+  for _ in $(seq 1 25); do
+    sleep 0.2
+    reading="$(disp_window_state)" || return 1
+    if [[ $reading != "$1" ]]; then
+      printf '  display-removal before=%s after=%s\n' "$1" "$reading" >&2
+      echo False
+      return
+    fi
+  done
+  echo True
+}
+disp_windows_before="$(disp_window_state)"
 expect "the nested compositor removes the displays monitor" ok hypr output remove "$disp_output"
 expect_poll "the removed monitor's bar surface is gone" "$monitors" bar_count
+disp_removal_check() { expect "removing the display preserves clients and focus through later turns" True disp_windows_preserved "$disp_windows_before"; }
+disp_removal_control() {
+  (failures=0 behaviour_failures=0
+   disp_removal_check >"$sandbox/displays-removal-control.log" 2>&1
+   echo "$failures")
+}
+if [[ ${disp_lifetime_control:-no} == yes ]]; then
+  expect "control: a bar visible during removal fails the same client and focus check" 1 disp_removal_control
+  expect_poll "control: the old bar becomes one generic shell window" 1 window_count quickshell
+  expect_poll "control: the generic shell window takes focus" '["org.vgs.shell", "quickshell"]' active_window
+else
+  disp_removal_check
+  # The control runs this same row through the real host, with only its
+  # screen-loss visibility guard removed. Its owned shell is stopped
+  # before the original tree returns, so the deliberate ghost is removed.
+  if copy_tree bar-visible-removed && edit_tree bar-visible-removed shell/Hosts/BarHost.qml \
+      'visible: host.screenPresent && PluginLogic.barShown(slot.instance)' \
+      'visible: PluginLogic.barShown(slot.instance)' \
+    && stop_shell && start_shell "$sandbox/tree-bar-visible-removed" "$sandbox/displays-bar-visible-removed.log"; then
+    disp_control_row() {
+      (failures=0 behaviour_failures=0 disp_lifetime_control=yes
+       source "$repo/scripts/smoke/rows/displays.sh" >"$sandbox/displays-lifetime-control.log" 2>&1
+       echo "$failures")
+    }
+    expect "the mutant Displays row passes only its expected failure control" 0 disp_control_row
+    sed 's/^/  CONTROL  /' "$sandbox/displays-lifetime-control.log"
+    sed 's/^/  CONTROL  /' "$sandbox/displays-removal-control.log"
+  else
+    fail "the removed-screen bar control could not start its mutant shell"
+  fi
+  stop_shell && start_shell "$repo" "$sandbox/displays-restored.log"
+  rm -rf -- "${sandbox:?}/tree-bar-visible-removed"
+fi
