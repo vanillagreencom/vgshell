@@ -158,13 +158,12 @@ function readable(written) {
     return written.filter(function (option) { return Layer.OPTIONS[option.path].device === undefined; });
 }
 
-// The one `hyprctl --batch` argv that reads back every readable option of
-// WRITTEN, or null when none is readable.
-function optionsRequest(written) {
-    var rows = readable(written);
-    if (rows.length === 0) return null;
-    return ["hyprctl", "--batch", rows.map(function (option) { return "j/getoption " + option.path; }).join(";")];
-}
+// The OPTIONS paths `getoption` reads: every one but the per-device row.
+var READABLE = Object.keys(Layer.OPTIONS).filter(function (path) { return Layer.OPTIONS[path].device === undefined; });
+
+// The one `hyprctl --batch` argv that reads every READABLE option: the
+// layer's written ones back, and the rest for a plugin that sets none.
+var OPTIONS_REQUEST = ["hyprctl", "--batch", READABLE.map(function (path) { return "j/getoption " + path; }).join(";")];
 
 // The reply field getoption prints a value of each OPTIONS type under.
 var REPLY_FIELD = { bool: "bool", int: "int", float: "float", string: "str" };
@@ -177,29 +176,49 @@ function differs(type, want, read) {
     return read !== want;
 }
 
-// The options of WRITTEN whose value Hyprland reads back otherwise, from
-// the reply to optionsRequest(WRITTEN): { ok: true, overridden: [{ id,
-// path }], errors: [...] } in WRITTEN's order, or { ok: false, error } with
-// a keyed line for a whole-batch failure.
-function overridden(written, text) {
-    var rows = readable(written);
-    var replies = Dispatch.batchReplies(text, rows.length, "options");
+// Hyprland's value of each READABLE option, from the reply to
+// OPTIONS_REQUEST: { ok: true, values: { path: value }, errors: [...] },
+// an option it could not read left out of `values` with a keyed line in
+// `errors`, or { ok: false, error } with a keyed line for a whole-batch
+// failure.
+function optionValues(text) {
+    var replies = Dispatch.batchReplies(text, READABLE.length, "options");
     if (!replies.ok) return { ok: false, error: replies.error };
-    var parts = replies.parts;
-    var out = [];
+    var values = {};
     var errors = [];
-    for (var i = 0; i < rows.length; i++) {
-        var read = parsed(parts[i]);
-        var field = REPLY_FIELD[Layer.OPTIONS[rows[i].path].type];
-        if (!read.ok || read.value === null || typeof read.value !== "object" || read.value.option !== rows[i].path || !Object.prototype.hasOwnProperty.call(read.value, field)) {
-            errors.push("refused: options=unread path=" + rows[i].path + " reply=" + JSON.stringify(parts[i].slice(0, 120)));
-            out.push({ id: rows[i].id, path: rows[i].path });
+    for (var i = 0; i < READABLE.length; i++) {
+        var path = READABLE[i];
+        var read = parsed(replies.parts[i]);
+        var field = REPLY_FIELD[Layer.OPTIONS[path].type];
+        if (!read.ok || read.value === null || typeof read.value !== "object" || read.value.option !== path || !Object.prototype.hasOwnProperty.call(read.value, field)) {
+            errors.push("refused: options=unread path=" + path + " reply=" + JSON.stringify(replies.parts[i].slice(0, 120)));
             continue;
         }
-        if (differs(Layer.OPTIONS[rows[i].path].type, rows[i].value, read.value[field]))
-            out.push({ id: rows[i].id, path: rows[i].path });
+        values[path] = read.value[field];
     }
-    return { ok: true, overridden: out, errors: errors };
+    return { ok: true, values: values, errors: errors };
+}
+
+// The options of WRITTEN whose value Hyprland reads back otherwise, from
+// VALUES, optionValues' `values`: [{ id, path }] in WRITTEN's order. An
+// option VALUES does not hold differs, since no written value is undefined.
+function overridden(written, values) {
+    return readable(written).filter(function (row) { return differs(Layer.OPTIONS[row.path].type, row.value, values[row.path]); })
+        .map(function (row) { return { id: row.id, path: row.path }; });
+}
+
+// Hyprland's value, from VALUES, optionValues' `values`, of each option
+// OPTIONS, a manifest's `hyprland.options`, maps a setting to that WRITTEN
+// holds for no row of plugin ID: what applies while the plugin sets none.
+// { path: value }.
+function unwrittenValues(options, written, id, values) {
+    var mine = written.filter(function (row) { return row.id === id; }).map(function (row) { return row.path; });
+    var out = {};
+    Object.keys(options).forEach(function (setting) {
+        var path = options[setting];
+        if (mine.indexOf(path) === -1 && Object.prototype.hasOwnProperty.call(values, path)) out[path] = values[path];
+    });
+    return out;
 }
 
 // The one `hyprctl eval` argv that asks the layer for the user's values

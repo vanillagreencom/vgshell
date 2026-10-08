@@ -64,30 +64,64 @@ function suite(lib, check) {
         { id: "acme.keys", setting: "layouts", path: "input.kb_layout", value: "us,de" },
         { id: "acme.mouse", setting: "tap", path: "input.touchpad.tap_to_click", value: false }
     ];
-    check("options request: one batch of every option getoption reads", lib.optionsRequest(written), ["hyprctl", "--batch", "j/getoption input.sensitivity;j/getoption input.repeat_rate;j/getoption input.kb_layout;j/getoption input.touchpad.tap_to_click"]);
-    check("options request: none when only the device row was written", lib.optionsRequest([written[1]]), null);
-    check("options request: none when nothing was written", lib.optionsRequest([]), null);
-    const replies = values => [
-        getoption("input.sensitivity", "float", values[0]),
-        getoption("input.repeat_rate", "int", values[1]),
-        getoption("input.kb_layout", "str", values[2]),
-        getoption("input.touchpad.tap_to_click", "bool", values[3])
-    ].join("\n\n\n") + "\n";
-    // rows: [name, reply, want]
-    const overrides = [
-        ["each option as written", replies([0.350000, 40, "us,de", false]), { ok: true, overridden: [] }],
-        ["a float within getoption's six places", replies([0.3500004, 40, "us,de", false]), { ok: true, overridden: [] }],
-        ["a later user line for each", replies([-0.5, 30, "us", true]), { ok: true, overridden: [
-            { id: "acme.mouse", path: "input.sensitivity" }, { id: "acme.keys", path: "input.repeat_rate" },
-            { id: "acme.keys", path: "input.kb_layout" }, { id: "acme.mouse", path: "input.touchpad.tap_to_click" }] }],
-        ["a reply missing", replies([0.35, 40, "us,de", false]).split("\n\n\n").slice(0, 3).join("\n\n\n"), { ok: false, error: "refused: options=parts count=3 want=4" }],
-        ["an option Hyprland does not know", replies([0.35, 40, "us,de", false]).replace(getoption("input.kb_layout", "str", "us,de"), "no such option"), { ok: true, overridden: [{ id: "acme.keys", path: "input.kb_layout" }], errors: ["refused: options=unread path=input.kb_layout reply=\"no such option\""] }],
-        ["a reply of another type", replies([0.35, 40, "us,de", false]).replace(getoption("input.repeat_rate", "int", 40), getoption("input.repeat_rate", "float", 40)), { ok: true, overridden: [{ id: "acme.keys", path: "input.repeat_rate" }], errors: ["refused: options=unread path=input.repeat_rate "] }],
-        ["a reply for another option", replies([0.35, 40, "us,de", false]).replace(getoption("input.sensitivity", "float", 0.35), getoption("input.scroll_factor", "float", 0.35)), { ok: true, overridden: [{ id: "acme.mouse", path: "input.sensitivity" }], errors: ["refused: options=unread path=input.sensitivity "] }]
+    const asked = lib.OPTIONS_REQUEST[2].split(";");
+    check("options request: one hyprctl batch", lib.OPTIONS_REQUEST.slice(0, 2), ["hyprctl", "--batch"]);
+    check("options request: every part a getoption", asked.every(part => /^j\/getoption [a-z_]+(\.[a-z_]+)+$/.test(part)), true);
+    check("options request: the written options and an unwritten one among them", ["input.sensitivity", "input.repeat_rate", "input.kb_layout", "input.touchpad.tap_to_click", "input.natural_scroll"].every(path => asked.indexOf("j/getoption " + path) !== -1), true);
+    check("options request: not the device row", asked.indexOf("j/getoption device.touchpad.enabled") === -1, true);
+    // Hyprland's reply to the request: VALUES by path, Hyprland's default
+    // for the rest, each part as getoption prints it.
+    const FIELD = { "input.sensitivity": "float", "input.scroll_factor": "float", "input.touchpad.scroll_factor": "float", "input.repeat_rate": "int", "input.repeat_delay": "int", "misc.vrr": "int",
+        "input.kb_layout": "str", "input.kb_variant": "str", "input.kb_options": "str", "input.accel_profile": "str" };
+    const replies = values => asked.map(part => part.slice("j/getoption ".length)).map(path => {
+        const field = FIELD[path] || "bool";
+        const value = Object.prototype.hasOwnProperty.call(values, path) ? values[path] : field === "str" ? "" : field === "bool" ? false : 0;
+        return getoption(path, field, value);
+    }).join("\n\n\n") + "\n";
+    const typed = { "input.sensitivity": 0.35, "input.repeat_rate": 40, "input.kb_layout": "us,de", "input.touchpad.tap_to_click": true, "input.natural_scroll": true };
+    // rows: [name, reply, the paths whose value is read, want]
+    const reads = [
+        ["each option by its type", replies(typed), Object.keys(typed), { ok: true, values: typed, unread: [] }],
+        ["an option Hyprland does not know", replies(typed).replace(getoption("input.kb_layout", "str", "us,de"), "no such option"), Object.keys(typed),
+            { ok: true, values: { "input.sensitivity": 0.35, "input.repeat_rate": 40, "input.touchpad.tap_to_click": true, "input.natural_scroll": true }, unread: ["refused: options=unread path=input.kb_layout reply=\"no such option\""] }],
+        ["a reply of another type", replies(typed).replace(getoption("input.repeat_rate", "int", 40), getoption("input.repeat_rate", "float", 40)), ["input.repeat_rate"], { ok: true, values: {}, unread: ["refused: options=unread path=input.repeat_rate "] }],
+        ["a reply for another option", replies(typed).replace(getoption("input.sensitivity", "float", 0.35), getoption("input.scroll_factor", "float", 0.35)), ["input.sensitivity"], { ok: true, values: {}, unread: ["refused: options=unread path=input.sensitivity "] }],
+        ["a reply missing", replies(typed).split("\n\n\n").slice(1).join("\n\n\n"), [], { ok: false, error: "refused: options=parts count=" + (asked.length - 1) + " want=" + asked.length }]
     ];
-    for (const [name, text, want] of overrides) {
-        const got = lib.overridden(written, text);
-        check("overridden: " + name, got.ok ? Object.assign({ ok: true, overridden: got.overridden }, want.errors === undefined ? {} : { errors: got.errors.map((e, i) => e.slice(0, want.errors[i].length)) }) : { ok: false, error: got.error.slice(0, want.ok ? 0 : want.error.length) }, want);
+    for (const [name, text, paths, want] of reads) {
+        const got = lib.optionValues(text);
+        check("option values: " + name, got.ok ? {
+            ok: true,
+            values: Object.fromEntries(paths.filter(p => Object.prototype.hasOwnProperty.call(got.values, p)).map(p => [p, got.values[p]])),
+            unread: got.errors.map((e, i) => e.slice(0, want.unread[i] === undefined ? e.length : want.unread[i].length))
+        } : { ok: false, error: got.error.slice(0, want.ok ? 0 : want.error.length) }, want);
+    }
+
+    // rows: [name, values, want]
+    const asWritten = { "input.sensitivity": 0.35, "input.repeat_rate": 40, "input.kb_layout": "us,de", "input.touchpad.tap_to_click": false };
+    const overrides = [
+        ["each option as written", asWritten, []],
+        ["a float within getoption's six places", Object.assign({}, asWritten, { "input.sensitivity": 0.3500004 }), []],
+        ["a later user line for each", { "input.sensitivity": -0.5, "input.repeat_rate": 30, "input.kb_layout": "us", "input.touchpad.tap_to_click": true }, [
+            { id: "acme.mouse", path: "input.sensitivity" }, { id: "acme.keys", path: "input.repeat_rate" },
+            { id: "acme.keys", path: "input.kb_layout" }, { id: "acme.mouse", path: "input.touchpad.tap_to_click" }]],
+        ["an option Hyprland did not read", { "input.sensitivity": 0.35, "input.repeat_rate": 40, "input.touchpad.tap_to_click": false }, [{ id: "acme.keys", path: "input.kb_layout" }]]
+    ];
+    for (const [name, values, want] of overrides) check("overridden: " + name, lib.overridden(written, values), want);
+
+    // What a plugin's row shows while it sets none: the keys and values,
+    // so a key read as undefined stays visible.
+    const mouseOptions = { speed: "input.sensitivity", tap: "input.touchpad.tap_to_click", flow: "input.natural_scroll", pad: "device.touchpad.enabled" };
+    const live = { "input.sensitivity": 0.2, "input.touchpad.tap_to_click": false, "input.natural_scroll": true, "input.repeat_rate": 40 };
+    // rows: [name, id, values, want]
+    const unwritten = [
+        ["the options the plugin writes are left out", "acme.mouse", live, [["input.natural_scroll"], { "input.natural_scroll": true }]],
+        ["another plugin's written option reads as Hyprland holds it", "acme.other", live, [["input.natural_scroll", "input.sensitivity", "input.touchpad.tap_to_click"], { "input.sensitivity": 0.2, "input.touchpad.tap_to_click": false, "input.natural_scroll": true }]],
+        ["an option Hyprland did not read is left out", "acme.other", { "input.sensitivity": 0.2 }, [["input.sensitivity"], { "input.sensitivity": 0.2 }]]
+    ];
+    for (const [name, id, values, want] of unwritten) {
+        const got = lib.unwrittenValues(mouseOptions, written, id, values);
+        check("unwritten values: " + name, [Object.keys(got).sort(), got], want);
     }
 
     // The layer's record of the user's values, as `hyprctl eval` prints the
@@ -246,12 +280,16 @@ const CONTROLS = [
     ["touchpads are the pointers named so", "return devices.mice.filter(function (mouse) { return mouse.touchpad; })", "return devices.mice.filter(function (mouse) { return true; })"],
     ["unread devices have no touchpads", "if (devices === null) return null;", "if (devices === null) return [];"],
     ["the device row is not read back", "return Layer.OPTIONS[option.path].device === undefined; });", "return true; });"],
-    ["no request reads nothing", "if (rows.length === 0) return null;", ""],
-    ["one reply per option", 'var replies = Dispatch.batchReplies(text, rows.length, "options");', 'var replies = { ok: true, parts: String(text).split("\\n\\n\\n").map(function (part) { return part.trim(); }).filter(function (part) { return part !== ""; }) };'],
-    ["each reply names its option", "read.value.option !== rows[i].path || ", ""],
+    ["the request reads no device row", "return Layer.OPTIONS[path].device === undefined; });", "return true; });"],
+    ["one reply per option", 'var replies = Dispatch.batchReplies(text, READABLE.length, "options");', 'var replies = { ok: true, parts: String(text).split("\\n\\n\\n").map(function (part) { return part.trim(); }).filter(function (part) { return part !== ""; }) };'],
+    ["each reply names its option", "read.value.option !== path || ", ""],
+    ["an unread option has no value", "replies.parts[i].slice(0, 120)));\n            continue;", "replies.parts[i].slice(0, 120)));"],
     ["each reply holds its type's field", " || !Object.prototype.hasOwnProperty.call(read.value, field))", ")"],
     ["a float within a millionth is the same", "Math.abs(read - want) > 0.000001", "read !== want"],
-    ["a differing value is overridden", "if (differs(Layer.OPTIONS[rows[i].path].type, rows[i].value, read.value[field]))", "if (false)"],
+    ["a differing value is overridden", "return differs(Layer.OPTIONS[row.path].type, row.value, values[row.path]);", "return false;"],
+    ["a plugin's written option has no unwritten value", "if (mine.indexOf(path) === -1 && ", "if ("],
+    ["only the plugin's own rows are its written ones", "return row.id === id; })", "return true; })"],
+    ["an option Hyprland did not read has no unwritten value", " && Object.prototype.hasOwnProperty.call(values, path)) out[path]", ") out[path]"],
     ["a session without the layer has no user value", 'hl." + Layer.USER_VALUES.table + " == nil and \\"" + Layer.USER_VALUES.key + "=[]\\" or ', ""],
     ["the answer is read by its key", 'if (line === undefined) return { ok: false, error: "refused: user-values=unread', 'if (false) return { ok: false, error: "refused: user-values=unread'],
     ["the answer is a list", 'if (!Array.isArray(read.value)) return { ok: false, error: "refused: user-values=shape want=list" };', ""],

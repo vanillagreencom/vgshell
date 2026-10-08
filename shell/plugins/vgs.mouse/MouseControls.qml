@@ -13,12 +13,19 @@ Column {
     readonly property var devices: shell === null ? null : shell.hyprland.devices
     readonly property var overridden: shell === null ? [] : shell.hyprland.overridden
     readonly property var userValues: shell === null ? [] : shell.hyprland.userValues
+    readonly property var hyprlandValues: shell === null ? null : shell.hyprland.values
     readonly property var optionPaths: shell === null ? ({}) : shell.manifest.hyprland.options
     readonly property bool hasTouchpad: Logic.hasTouchpad(devices)
     readonly property Item firstFocus: pointerSpeed
 
     width: parent ? parent.width : implicitWidth
     spacing: Theme.stack.group
+
+    // What the row of KEY shows: Hyprland's value while VGS sets none, so
+    // the row reads the user's own after Use my Hyprland value.
+    function shown(key) {
+        return Logic.shownValue(hyprlandValues, shell.settings, optionPaths, key);
+    }
 
     function setValue(key, value) {
         const reply = shell.configure.set(key, value);
@@ -82,8 +89,8 @@ Column {
 
                 function commit() {
                     const wanted = pointerSpeed.value;
-                    pointerSpeed.value = Qt.binding(() => root.shell === null ? 0 : root.shell.settings.sensitivity);
-                    if (wanted !== (root.shell === null ? 0 : root.shell.settings.sensitivity)) root.setValue("sensitivity", wanted);
+                    pointerSpeed.value = Qt.binding(() => root.shell === null ? 0 : root.shown("sensitivity"));
+                    if (wanted !== (root.shell === null ? 0 : root.shown("sensitivity"))) root.setValue("sensitivity", wanted);
                 }
 
                 Slider {
@@ -94,7 +101,7 @@ Column {
                     to: 1
                     stepSize: 0.05
                     snapMode: T.Slider.SnapAlways
-                    value: root.shell === null ? 0 : root.shell.settings.sensitivity
+                    value: root.shell === null ? 0 : root.shown("sensitivity")
                     onPressedChanged: if (!pressed) pointerSpeedRow.commit()
                     onMoved: if (!pressed) pointerSpeedRow.commit()
                 }
@@ -118,7 +125,7 @@ Column {
             action: UserValueAction { setting: "accelProfile" }
             SegmentedControl {
                 model: ["Adaptive", "Flat"]
-                currentIndex: root.shell === null ? 0 : Logic.profileIndex(root.shell.settings.accelProfile)
+                currentIndex: root.shell === null ? 0 : Logic.profileIndex(root.shown("accelProfile"))
                 onActivated: index => root.setValue("accelProfile", Logic.profileAt(index))
             }
         }
@@ -131,10 +138,10 @@ Column {
             Switch {
                 size: "sm"
                 Accessible.name: "Natural scroll"
-                checked: root.shell !== null && root.shell.settings.naturalScroll === true
+                checked: root.shell !== null && root.shown("naturalScroll") === true
                 onToggled: {
                     const wanted = checked;
-                    checked = Qt.binding(() => root.shell !== null && root.shell.settings.naturalScroll === true);
+                    checked = Qt.binding(() => root.shell !== null && root.shown("naturalScroll") === true);
                     root.setValue("naturalScroll", wanted);
                 }
             }
@@ -149,10 +156,10 @@ Column {
             Switch {
                 size: "sm"
                 Accessible.name: "Left-handed"
-                checked: root.shell !== null && root.shell.settings.leftHanded === true
+                checked: root.shell !== null && root.shown("leftHanded") === true
                 onToggled: {
                     const wanted = checked;
-                    checked = Qt.binding(() => root.shell !== null && root.shell.settings.leftHanded === true);
+                    checked = Qt.binding(() => root.shell !== null && root.shown("leftHanded") === true);
                     root.setValue("leftHanded", wanted);
                 }
             }
@@ -171,8 +178,8 @@ Column {
 
                 function commit() {
                     const wanted = scrollSpeed.value;
-                    scrollSpeed.value = Qt.binding(() => root.shell === null ? 1 : root.shell.settings.scrollFactor);
-                    if (wanted !== (root.shell === null ? 1 : root.shell.settings.scrollFactor)) root.setValue("scrollFactor", wanted);
+                    scrollSpeed.value = Qt.binding(() => root.shell === null ? 1 : root.shown("scrollFactor"));
+                    if (wanted !== (root.shell === null ? 1 : root.shown("scrollFactor"))) root.setValue("scrollFactor", wanted);
                 }
 
                 Slider {
@@ -183,7 +190,7 @@ Column {
                     to: 2
                     stepSize: 0.05
                     snapMode: T.Slider.SnapAlways
-                    value: root.shell === null ? 1 : root.shell.settings.scrollFactor
+                    value: root.shell === null ? 1 : root.shown("scrollFactor")
                     onPressedChanged: if (!pressed) scrollSpeedRow.commit()
                     onMoved: if (!pressed) scrollSpeedRow.commit()
                 }
@@ -256,10 +263,10 @@ Column {
             Switch {
                 size: "sm"
                 Accessible.name: "Tap to click"
-                checked: root.shell !== null && root.shell.settings.tapToClick === true
+                checked: root.shell !== null && root.shown("tapToClick") === true
                 onToggled: {
                     const wanted = checked;
-                    checked = Qt.binding(() => root.shell !== null && root.shell.settings.tapToClick === true);
+                    checked = Qt.binding(() => root.shell !== null && root.shown("tapToClick") === true);
                     root.setValue("tapToClick", wanted);
                 }
             }
@@ -274,10 +281,10 @@ Column {
             Switch {
                 size: "sm"
                 Accessible.name: "Touchpad natural scroll"
-                checked: root.shell !== null && root.shell.settings.touchpadNaturalScroll === true
+                checked: root.shell !== null && root.shown("touchpadNaturalScroll") === true
                 onToggled: {
                     const wanted = checked;
-                    checked = Qt.binding(() => root.shell !== null && root.shell.settings.touchpadNaturalScroll === true);
+                    checked = Qt.binding(() => root.shell !== null && root.shown("touchpadNaturalScroll") === true);
                     root.setValue("touchpadNaturalScroll", wanted);
                 }
             }
@@ -292,10 +299,10 @@ Column {
             Switch {
                 size: "sm"
                 Accessible.name: "Disable while typing"
-                checked: root.shell !== null && root.shell.settings.disableWhileTyping === true
+                checked: root.shell !== null && root.shown("disableWhileTyping") === true
                 onToggled: {
                     const wanted = checked;
-                    checked = Qt.binding(() => root.shell !== null && root.shell.settings.disableWhileTyping === true);
+                    checked = Qt.binding(() => root.shell !== null && root.shown("disableWhileTyping") === true);
                     root.setValue("disableWhileTyping", wanted);
                 }
             }
@@ -310,10 +317,10 @@ Column {
             Switch {
                 size: "sm"
                 Accessible.name: "Two-finger right-click"
-                checked: root.shell !== null && root.shell.settings.clickMethod === true
+                checked: root.shell !== null && root.shown("clickMethod") === true
                 onToggled: {
                     const wanted = checked;
-                    checked = Qt.binding(() => root.shell !== null && root.shell.settings.clickMethod === true);
+                    checked = Qt.binding(() => root.shell !== null && root.shown("clickMethod") === true);
                     root.setValue("clickMethod", wanted);
                 }
             }
@@ -332,8 +339,8 @@ Column {
 
                 function commit() {
                     const wanted = touchpadScrollSpeed.value;
-                    touchpadScrollSpeed.value = Qt.binding(() => root.shell === null ? 1 : root.shell.settings.touchpadScrollFactor);
-                    if (wanted !== (root.shell === null ? 1 : root.shell.settings.touchpadScrollFactor)) root.setValue("touchpadScrollFactor", wanted);
+                    touchpadScrollSpeed.value = Qt.binding(() => root.shell === null ? 1 : root.shown("touchpadScrollFactor"));
+                    if (wanted !== (root.shell === null ? 1 : root.shown("touchpadScrollFactor"))) root.setValue("touchpadScrollFactor", wanted);
                 }
 
                 Slider {
@@ -344,7 +351,7 @@ Column {
                     to: 2
                     stepSize: 0.05
                     snapMode: T.Slider.SnapAlways
-                    value: root.shell === null ? 1 : root.shell.settings.touchpadScrollFactor
+                    value: root.shell === null ? 1 : root.shown("touchpadScrollFactor")
                     onPressedChanged: if (!pressed) touchpadScrollSpeedRow.commit()
                     onMoved: if (!pressed) touchpadScrollSpeedRow.commit()
                 }

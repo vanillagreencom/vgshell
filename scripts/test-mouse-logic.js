@@ -70,6 +70,19 @@ function verify(logic) {
     assert.ok(line("leftHanded").endsWith("off"), "warningText: a false user value has a line");
     assert.equal(line("tapToClick"), logic.overriddenText(["input.touchpad.tap_to_click"], manifestOptions, "tapToClick"), "warningText: an overridden row with no user value keeps the overridden line");
     assert.equal(line("disableWhileTyping"), "", "warningText: a row with neither has no line");
+    // After Use my Hyprland value VGS sets none, the capability names the
+    // user's +0.20 and the setting reads its manifest default, 0.
+    const SETTINGS = { sensitivity: 0, naturalScroll: true, scrollFactor: 1 };
+    const LIVE = { "input.sensitivity": 0.2, "input.natural_scroll": false };
+    // rows: [name, values, key, want]
+    const shown = [
+        ["Hyprland's value while VGS sets none", LIVE, "sensitivity", 0.2],
+        ["a false Hyprland value is a value", LIVE, "naturalScroll", false],
+        ["the setting where the capability names no value", LIVE, "scrollFactor", 1],
+        ["the setting while unread", null, "sensitivity", 0]
+    ];
+    for (const [name, values, key, want] of shown) assert.equal(logic.shownValue(values, SETTINGS, manifestOptions, key), want, "shownValue: " + name);
+    assert.equal(logic.pointerSpeedText(logic.shownValue(LIVE, SETTINGS, manifestOptions, "sensitivity")), "+0.20×", "shownValue: the pointer speed row reads the user's value");
     assert.equal(logic.pointerSpeedText(0.25), "+0.25×", "pointerSpeedText: positive");
     assert.equal(logic.pointerSpeedText(-0.5), "-0.50×", "pointerSpeedText: negative");
     assert.equal(logic.pointerSpeedText("x"), "0.00×", "pointerSpeedText: bad");
@@ -96,6 +109,8 @@ const CONTROLS = [
     ["pointer speed reads as its row does", `return key === "sensitivity" ? pointerSpeedText(value) : factorText(value);`, `return factorText(value);`],
     ["the user's value takes the line", `if (value !== undefined) return "Your Hyprland config sets this to " + valueText(key, value);`, `if (value) return "Your Hyprland config sets this to " + valueText(key, value);`],
     ["a row with no user value keeps the overridden line", `    return overriddenText(paths, options, key);\n}\n\nfunction pointerSpeedText`, `    return "";\n}\n\nfunction pointerSpeedText`],
+    ["the row reads Hyprland's value while VGS sets none", `if (values !== null && values !== undefined && path !== undefined && Object.prototype.hasOwnProperty.call(values, path)) return values[path];`, ``],
+    ["the value is found by the setting's option path", `Object.prototype.hasOwnProperty.call(values, path)) return values[path];`, `Object.prototype.hasOwnProperty.call(values, key)) return values[key];`],
     ["pointer speed sign", `return (n > 0 ? "+" : "") + n.toFixed(2) + "×";`, `return n.toFixed(2) + "×";`],
     ["factor default", `if (!isFinite(n)) n = 1;`, `if (!isFinite(n)) n = 0;`],
     ["profile index", `return value === "flat" ? 1 : 0;`, `return 0;`],

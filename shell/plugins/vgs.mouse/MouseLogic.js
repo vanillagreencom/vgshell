@@ -63,6 +63,15 @@ function hasUserValue(values, options, key) {
     return userValue(values, options, key) !== undefined;
 }
 
+// The value the row of setting KEY shows: Hyprland's own from VALUES, the
+// capability's `values`, which names only an option VGS sets none of, else
+// SETTINGS' value.
+function shownValue(values, settings, options, key) {
+    var path = optionPath(options, key);
+    if (values !== null && values !== undefined && path !== undefined && Object.prototype.hasOwnProperty.call(values, path)) return values[path];
+    return settings[key];
+}
+
 // VALUE as the row of setting KEY shows it.
 function valueText(key, value) {
     if (typeof value === "boolean") return value ? "on" : "off";

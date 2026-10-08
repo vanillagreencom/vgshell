@@ -7,8 +7,9 @@
 # alone shows a message under it, that the slider keeps its width and that
 # the action stands beside the message in the pane and under it in the
 # narrower flyout, clicks
-# the row's one action and reads the setting gone, the user's value back and
-# the keys on the row's slider, waits
+# the row's one action and reads the setting gone, the user's value back, the
+# pointer-speed label at the user's value and the keys on the row's slider,
+# waits
 # for Hyprland devices before checking the no-touchpad view and published
 # status, clicks the bar widget to open the flyout through surfaces, changes
 # the same slider from the keyboard, and installs a disposable vgs.mouse copy
@@ -63,6 +64,12 @@ rows = [i["parent"] for i in items if i["type"] in ("Label", "LinkText") and i.g
 print(json.dumps([sorted({c["type"] for n, c in enumerate(items) if c["type"] in ("Slider", "Switch", "SegmentedControl") and under(n, row)}) for row in rows]))'; }
 # The user's values the pane's controls hold from the `hyprland` capability.
 mouse_user_values() { ipc smoke readDescendant window vgs.mouse MouseControls userValues; }
+# The text of the label beside the first drawn slider, the pointer speed's.
+mouse_speed_label() { ipc smoke descendantGeometry window vgs.mouse | py_reply '
+import json, sys
+items = json.load(sys.stdin)
+slider = next(i for i in items if i["type"] == "Slider" and i["visible"])
+print(next(i["text"] for i in items if i["type"] == "Label" and i["parent"] == slider["parent"]))'; }
 mouse_slider_width() { ipc smoke descendantGeometry window vgs.mouse | py_reply 'import json,sys; r=[i["box"][2] for i in json.load(sys.stdin) if i["type"] == "Slider" and i["visible"]]; print(r[0] if r else "absent")'; }
 # The boxes of the drawn "use my Hyprland value" actions, as a JSON list.
 mouse_actions() { ipc smoke descendantGeometry window vgs.mouse | py_reply 'import json,sys; print(json.dumps([i["box"] for i in json.load(sys.stdin) if i["name"] == "useHyprlandValue" and i["visible"]]))'; }
@@ -236,6 +243,7 @@ click "$ax" "$ay" || fail "clicking the Mouse action failed"
 expect_poll "the action removes the setting from the bar entry and the plugins row" '["absent", "absent"]' mouse_saved_sensitivity
 expect_poll "the action leaves the keys on the row's slider" '["Slider",null]' mouse_focus
 expect_poll "with the setting gone getoption reads the user's value again" '[-0.5, true]' mouse_option input:sensitivity float
+expect_poll "with the setting gone the pointer speed row reads the user's value" '-0.50×' mouse_speed_label
 expect_poll "the layer writes no Mouse option once the setting is gone" no mouse_layer_mentions 'vgs.mouse 0.1.0: input options its settings set'
 expect_poll "no row offers the user's Hyprland value once VGS sets none" 0 mouse_action_count
 expect_poll "no row shows a message once VGS sets none" '[]' mouse_messages

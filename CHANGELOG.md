@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Mouse settings show the value Hyprland applies for a setting VGS does not set. After Use my Hyprland value, Pointer speed reads your config's value, not 0.00×. The `hyprland` capability adds `values`, Hyprland's own value of each of a plugin's options the layer does not write.
 - The theme browser opens on `SUPER+SHIFT+T` and the wallpaper browser on `SUPER+SHIFT+W`. `SUPER+CTRL+T` and `SUPER+CTRL+W` no longer open them.
 - The theme browser's selected card shows a screenshot of the theme on a desktop, which every bundled and catalog theme ships as `preview.jpg`, in place of the desktop it drew from the theme's colours. An installed catalog theme keeps its catalog screenshot. A theme without one shows its first wallpaper, else its background and name. `vgshell theme preview` is removed.
 - A dropdown's title switch that controls less than the title names shows what it controls in a small dim label at its left: "Wi-Fi" in Network, "Tailscale" in VPN. Bluetooth's switch shows no label.

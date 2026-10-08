@@ -7,8 +7,9 @@ import "HyprlandState.js" as State
 import "PluginLogic.js" as Logic
 
 // Owns the reads behind the `hyprland` capability: Hyprland's input
-// devices, the options the layer wrote that read back otherwise, the values
-// the user's configuration gave them, the keys something other than the
+// devices, its value of each option a manifest may map a setting to, the
+// options the layer wrote that read back otherwise, the values the user's
+// configuration gave them, the keys something other than the
 // layer binds and where the user's configuration binds each. It also runs
 // the edit that takes such a bind line out of the user's file or puts it
 // back, then reloads Hyprland. HyprlandState.js judges every
@@ -40,6 +41,8 @@ Scope {
     // and the keys bound by something other than the layer; null while
     // unread or after a failed read.
     property var overriddenRows: null
+    // State.optionValues' values, read with overriddenRows; null alike.
+    property var optionValues: null
     property var foreignKeys: null
     // [{ id, path, value }] for each written option the user's
     // configuration gave another value, which the layer then replaced; null
@@ -71,6 +74,7 @@ Scope {
         devices = null;
         devicesFailure = "";
         overriddenRows = null;
+        optionValues = null;
         userValueRows = null;
         foreignKeys = null;
         bindsFailure = "";
@@ -82,6 +86,7 @@ Scope {
         return Object.freeze({
             get overridden() { return root.overriddenFor(ctx.id); },
             get userValues() { return root.userValuesFor(ctx.id); },
+            get values() { return root.optionValues === null ? null : Logic.frozenJson(State.unwrittenValues(ctx.manifest.hyprland.options, root.written, ctx.id, root.optionValues)); },
             get devices() { return root.devices === null ? null : Logic.frozenJson(root.devices); },
             get foreignBinds() { return root.foreignKeys === null ? null : Logic.frozenJson(root.foreignKeys); },
             resolveKeys: (keys, done) => {
@@ -150,12 +155,7 @@ Scope {
 
     function readOptions() {
         if (!active) return;
-        const argv = State.optionsRequest(written);
-        if (argv === null) {
-            overriddenRows = [];
-            return;
-        }
-        optionsReader.read(argv, written);
+        optionsReader.read(State.OPTIONS_REQUEST, written);
     }
 
     function readUserValues() {
@@ -287,13 +287,16 @@ Scope {
         label: "options"
         onReadDone: (asked, text, failure) => {
             if (!root.active) return;
-            const read = failure === "" ? State.overridden(asked, text) : { ok: false, error: failure };
+            const read = failure === "" ? State.optionValues(text) : { ok: false, error: failure };
             if (!read.ok) {
                 root.overriddenRows = null;
+                root.optionValues = null;
                 console.error("hyprland: " + read.error);
             } else {
                 for (const error of read.errors) console.error("hyprland: " + error);
-                if (!root.same(read.overridden, root.overriddenRows)) root.overriddenRows = read.overridden;
+                const overridden = State.overridden(asked, read.values);
+                if (!root.same(overridden, root.overriddenRows)) root.overriddenRows = overridden;
+                if (!root.same(read.values, root.optionValues)) root.optionValues = read.values;
             }
         }
     }
