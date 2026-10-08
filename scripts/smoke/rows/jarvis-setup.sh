@@ -83,7 +83,7 @@ for index, r in enumerate(rows):
 print(json.dumps(out))
 ' "$repo/shell/plugins/vgs.jarvis/manifest.json"
 }
-setup_fresh='[["setup", ["warning"], [], 1], ["setupModel", ["warning"], ["add-key"], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true]]'
+setup_fresh='[["setup", ["warning"], [], 1], ["setupModel", ["warning"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true]]'
 setup_voice_left='[["setup", ["warning"], [], 1], ["setupModel", ["success"], [], 1], ["setupVoice", ["warning"], ["setup-local"], 1], ["setupBrowser", true], ["setupInput", true]]'
 setup_ready='[["setup", ["success"], [], 1], ["setupModel", ["success"], [], 1], ["setupVoice", ["success"], [], 1], ["setupBrowser", true], ["setupInput", true]]'
 # BRAIN as the Jarvis AI model setting, "" for none, delivered by a reload.
@@ -211,6 +211,8 @@ import json,sys
 rows=json.load(sys.stdin)
 assert any(row["key"]=="vgs.jarvis/setup-local" and row["group"]=="Jarvis" for row in rows)
 '
+expect_poll "the Setup fixture retains its present key" matched jarvis_key_value present
+expect_poll "the Setup fixture retains its signed-in app" matched jarvis_account_hint signed-in
 expect_poll "a fresh profile's Setup section reads the AI model and local voice to do" "$setup_fresh" setup_rows
 expect_poll "Setup offers its declared Sign in action beside Add key" \
   '["info", true, "sign-in"]' setup_sign_in_value
