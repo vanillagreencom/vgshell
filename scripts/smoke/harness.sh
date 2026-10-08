@@ -1295,8 +1295,8 @@ jarvis_devices() {
   ipc smoke jarvisProcess | py_reply '
 import json,sys
 status=json.load(sys.stdin)["status"]
-expected={"microphones":[{"label":"Fixture microphone","value":"fixture.mic"}],
-          "speakers":[{"label":"Fixture speaker","value":"fixture.speaker"}]}
+expected={"microphones":[{"label":"System default","value":"@DEFAULT_AUDIO_SOURCE@"},{"label":"Fixture microphone","value":"fixture.mic"}],
+          "speakers":[{"label":"System default","value":"@DEFAULT_AUDIO_SINK@"},{"label":"Fixture speaker","value":"fixture.speaker"}]}
 print("devices" if all(status.get(k)==v for k,v in expected.items()) else "pending")
 '
 }

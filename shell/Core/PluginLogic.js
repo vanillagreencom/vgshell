@@ -977,13 +977,16 @@ function statusDisplayable(entry) {
 
 // Select models keyed by string setting name. Only accepted status enters
 // here. Neither a new list nor an absent configured id writes settings.
+// The first offer stands for the unset value: its entry carries "" unless
+// its own id is configured, so each offer is listed once.
 // Settings choices: docs/architecture/design-system.md § Settings pages.
 function settingChoices(manifest, values, settings) {
     var out = {};
     var choices = function (from, configured) {
         var offered = hasOwn(values, from) ? values[from] : [];
-        var model = offered.length === 0 ? [] : [{ label: "First offered: " + offered[0].label, value: "" }];
-        offered.forEach(function (choice) { model.push({ label: choice.label, value: choice.value }); });
+        var model = offered.map(function (choice, index) {
+            return { label: choice.label, value: index === 0 && configured !== choice.value ? "" : choice.value };
+        });
         if (configured !== "" && !offered.some(function (choice) { return choice.value === configured; }))
             model.push({ label: configured + " (unavailable)", value: configured });
         return model;

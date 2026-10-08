@@ -497,28 +497,30 @@ choose_device() { ipc smoke invokeInstance window vgs.settings chooseField "{\"i
 user_device() { python3 -c 'import json,sys; print(json.dumps(next(r["device"] for r in json.load(open(sys.argv[1]))["plugins"] if r["id"]=="acme.status")))' "$home/.config/vgshell/shell.json"; }
 expect_poll "unreported choices draw an empty Select" '[-1, "", "", true]' device_state
 expect "the fixture offers labeled device ids" ok ipc acme.status invoke set 'devices=[{"label":"Alpha","value":"a"},{"label":"Beta","value":"b"}]'
-expect_poll "the Select draws the status labels and keeps automatic empty string" '[0, "First offered: Alpha", "", true]' device_state
-expect "the Select contains the offered ids" '[{"label": "First offered: Alpha", "value": ""}, {"label": "Alpha", "value": "a"}, {"label": "Beta", "value": "b"}]' device_model
-expect "choosing the second offered device is allowed" chosen choose_device 2
+expect_poll "the Select reads the unset value as the first offer and keeps it empty" '[0, "Alpha", "", true]' device_state
+expect "the Select lists each offer once, the first standing for the unset value" '[{"label": "Alpha", "value": ""}, {"label": "Beta", "value": "b"}]' device_model
+expect "choosing the second offered device is allowed" chosen choose_device 1
 expect_poll "the file stores the stable id, not its label" '"b"' user_device
 expect_poll "the service receives the chosen id" '"b"' ipc smoke readInstance service acme.status configuredDevice
 choices_changes="$(config_changes)" || fail "configuration counter unreadable before choices refresh"
 expect "the fixture removes the chosen id" ok ipc acme.status invoke set 'devices=[{"label":"Alpha","value":"a"}]'
-expect_poll "the removed id remains selected and marked unavailable" '[2, "b (unavailable)", "b", true]' device_state
+expect_poll "the removed id remains selected and marked unavailable" '[1, "b (unavailable)", "b", true]' device_state
 expect "the removed id stays in the user file" '"b"' user_device
 expect "removing a choice writes no configuration" "$choices_changes" config_changes
 expect "the fixture offers the configured id again, with a new label and order" ok ipc acme.status invoke set 'devices=[{"label":"Beta renamed","value":"b"},{"label":"Alpha","value":"a"}]'
-expect_poll "the existing value follows its id rather than its old index" '[1, "Beta renamed", "b", true]' device_state
+expect_poll "the existing value follows its id rather than its old index" '[0, "Beta renamed", "b", true]' device_state
+expect "a pinned first offer keeps its id" '[{"label": "Beta renamed", "value": "b"}, {"label": "Alpha", "value": "a"}]' device_model
 expect "a label and order refresh writes no configuration" "$choices_changes" config_changes
 expect "the fixture publishes an empty choices list" ok ipc acme.status invoke set 'devices=[]'
 expect_poll "an empty list keeps the configured id alone" '[0, "b (unavailable)", "b", true]' device_state
 expect "an empty list writes no configuration" "$choices_changes" config_changes
-expect "the fixture offers a device again" ok ipc acme.status invoke set 'devices=[{"label":"Beta renamed","value":"b"}]'
-expect_poll "an offered device brings back the automatic entry" '[1, "Beta renamed", "b", true]' device_state
+expect "the fixture offers devices again, the pinned one second" ok ipc acme.status invoke set 'devices=[{"label":"Alpha","value":"a"},{"label":"Beta renamed","value":"b"}]'
+expect_poll "the pinned device stays chosen" '[1, "Beta renamed", "b", true]' device_state
+expect "the first offer stands for the unset value again" '[{"label": "Alpha", "value": ""}, {"label": "Beta renamed", "value": "b"}]' device_model
 expect "the user can return to automatic selection" chosen choose_device 0
 expect_poll "automatic selection stores empty string, not the first id" '""' user_device
-expect "the fixture offers a new first device" ok ipc acme.status invoke set 'devices=[{"label":"Alpha","value":"a"}]'
-expect_poll "automatic selection displays the new first offer without storing it" '[0, "First offered: Alpha", "", true]' device_state
+expect "the fixture offers a new first device" ok ipc acme.status invoke set 'devices=[{"label":"Beta renamed","value":"b"},{"label":"Alpha","value":"a"}]'
+expect_poll "automatic selection displays the new first offer without storing it" '[0, "Beta renamed", "", true]' device_state
 expect "the empty string stays in the file" '""' user_device
 
 # Preset fields: the Bar clock format is a datetime preset Select with a
@@ -592,17 +594,17 @@ for name, needle, replacement in controls:
 """)
     (root / (name + ".qml")).write_text(text)
 PYEDIT
-choice_props='{"spec":{"type":"string","label":"Device","optionsFrom":"devices"},"value":"","choices":[{"label":"First offered: Alpha","value":""},{"label":"Alpha","value":"a"}]}'
+choice_props='{"spec":{"type":"string","label":"Device","optionsFrom":"devices"},"value":"","choices":[{"label":"Alpha","value":""},{"label":"Beta","value":"b"}]}'
 for control in ChoicesGood ChoicesNoModel ChoicesWriteLabel ChoicesNoBinding; do
   expect "the probe builds $control" ok ipc smoke popupLoad "$control" "$choice_controls/$control.qml" window vgs.settings "$choice_props"
 done
 expect "the unchanged field copy draws the model" 2 ipc smoke popupRead ChoicesGood smokeCount
 expect "the control without the status model draws no choices" 0 ipc smoke popupRead ChoicesNoModel smokeCount
 expect "the unchanged copy chooses an offered item" ok ipc smoke popupCall ChoicesGood smokeChoose
-expect "the unchanged copy applies the stable value" '"a"' ipc smoke popupRead ChoicesGood smokeApplied
+expect "the unchanged copy applies the stable value" '"b"' ipc smoke popupRead ChoicesGood smokeApplied
 expect "the unchanged copy restores the configured index after an unsaved choice" 0 ipc smoke popupRead ChoicesGood smokeIndex
 expect "the label-writing control chooses the same item" ok ipc smoke popupCall ChoicesWriteLabel smokeChoose
-expect "the label-writing control breaks stable-value readback" '"Alpha"' ipc smoke popupRead ChoicesWriteLabel smokeApplied
+expect "the label-writing control breaks stable-value readback" '"Beta"' ipc smoke popupRead ChoicesWriteLabel smokeApplied
 expect "the no-binding control chooses the same item" ok ipc smoke popupCall ChoicesNoBinding smokeChoose
 expect "the no-binding control leaves an unsaved index selected" 1 ipc smoke popupRead ChoicesNoBinding smokeIndex
 choice_revision_with_controls="$(choice_source_revision)" || fail "the Settings source revision is unreadable with the controls"

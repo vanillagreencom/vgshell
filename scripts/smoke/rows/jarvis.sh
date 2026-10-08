@@ -277,7 +277,7 @@ jarvis_later_devices() {
   ipc smoke jarvisProcess | py_reply '
 import json,sys
 status=json.load(sys.stdin)["status"]
-print("later" if status.get("microphones")==[{"label":"Later microphone","value":"fixture.later"}] else "pending")
+print("later" if status.get("microphones")==[{"label":"System default","value":"@DEFAULT_AUDIO_SOURCE@"},{"label":"Later microphone","value":"fixture.later"}] else "pending")
 '
 }
 
@@ -596,9 +596,9 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 s=p.read_text()
-needle='const reply = shell.status.set(key, message[key]);'
+needle='const reply = shell.status.set(key, deviceOffers(key, message[key]));'
 assert s.count(needle)==1
-changed=s.replace(needle, 'const reply = false ? shell.status.set(key, message[key]) : "ok";')
+changed=s.replace(needle, 'const reply = false ? shell.status.set(key, deviceOffers(key, message[key])) : "ok";')
 assert changed != s
 p.write_text(changed)
 PY
@@ -606,6 +606,27 @@ jarvis_rescan
 jarvis_enable
 expect_poll "the control's service handles the device message it does not publish" handled jarvis_devices_handled
 expect "removing offer publication breaks the real consumer assertion" 1 jarvis_devices_assertion
+jarvis_disable
+cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
+jarvis_rescan
+
+# Control: the device lists go out without the system default offer, so
+# the unset value would read as the first device.
+python3 - "$jarvis_service" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+s=p.read_text()
+needle='return [{ label: "System default", value: systemDefault }].concat(devices);'
+assert s.count(needle)==1
+changed=s.replace(needle, 'return devices;')
+assert changed != s
+p.write_text(changed)
+PY
+jarvis_rescan
+jarvis_enable
+expect_poll "the control's service handles the device message without a default offer" handled jarvis_devices_handled
+expect "dropping the system default offer breaks the real consumer assertion" 1 jarvis_devices_assertion
 jarvis_disable
 cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
 jarvis_rescan

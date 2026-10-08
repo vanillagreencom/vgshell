@@ -442,6 +442,16 @@ Item {
             terminal: entry.runInTerminal };
     }
 
+    // The first offer stands for the unset value (design-system.md
+    // § Settings pages), and Jarvis's unset device follows the system
+    // default, so a device list leads with that default under PipeWire's own
+    // name for it. Settings stores "" for that entry, never the name.
+    function deviceOffers(key, devices) {
+        if (devices.length === 0) return devices;
+        const systemDefault = key === "microphones" ? "@DEFAULT_AUDIO_SOURCE@" : "@DEFAULT_AUDIO_SINK@";
+        return [{ label: "System default", value: systemDefault }].concat(devices);
+    }
+
     function broken(reason) {
         cause = reason;
         console.warn(reason);
@@ -460,7 +470,7 @@ Item {
                     throw new Error("jarvis: protocol=identity");
                 if (message.type === "devices") {
                     for (const key of ["microphones", "speakers"]) {
-                        const reply = shell.status.set(key, message[key]);
+                        const reply = shell.status.set(key, deviceOffers(key, message[key]));
                         if (reply !== "ok") throw new Error("jarvis: " + reply);
                     }
                     // Audio sends a failure's empty list before its fault, so a
