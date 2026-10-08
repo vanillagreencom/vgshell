@@ -9,4 +9,3 @@ ESTAB 0 0 127.0.0.1:4003 127.0.0.2:9000 users:(("Local",pid=45,fd=10)) ino:13
 ESTAB 0 0 [::1]:4004 [::1]:9001 users:(("Local",pid=45,fd=11)) ino:14
 	bytes_acked:40000 bytes_received:40000
 TIME-WAIT 0 0 192.168.1.2:4999 93.184.216.34:443 ino:0
-	

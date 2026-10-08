@@ -20,6 +20,8 @@ A package update can remove capture access. Allow appears again when this happen
 <details>
 <summary>Show command</summary>
 
+The image comes from `scripts/readme-shots.sh` in the nested sandbox.
+
 The core system step grants capture access to the trusted installed binary:
 
 ```sh
