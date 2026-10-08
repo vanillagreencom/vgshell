@@ -33,16 +33,6 @@ if [[ $bars == "$monitors" && $monitors != 0 && $monitors != -1 ]]; then ok "one
 expect_widgets "every bar mounted the placed plugin widget" '["acme.tick"]'
 expect_builtins "every bar registered its built-in workspaces and clock" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
 
-# Preserve cold geometry before disable, placement or bar reconstruction.
-bar_initial_key="$(bar_key)"
-for bar_initial_id in vgs.bar vgs.bar/left-workspaces vgs.bar/center-clock; do
-  printf '  cold_geometry id=%s value=%s\n' "$bar_initial_id" "$(ipc smoke descendantGeometry "$bar_initial_key" "$bar_initial_id")"
-done
-for bar_initial_section in left center right; do
-  printf '  cold_section section=%s value=%s\n' "$bar_initial_section" "$(ipc smoke barSectionGeometry "$bar_initial_key" "$bar_initial_section")"
-done
-printf '  cold_profile value=%s\n' "$(ipc shell listShellConfig)"
-
 # The built-ins share one vertical centre, the bar's, and draw in the
 # `text.bar` role alone. A workspace pill is a BarItem: its label plus
 # `bar.item.paddingX` a side, never narrower than it is tall, and
@@ -335,7 +325,15 @@ if devices_ready bar; then
   fresh_restore
   fresh_snapshot="$(ipc smoke rememberBarWidgets "$(bar_key)")" || fail "the fresh identity snapshot is unreadable"
   expect "the fresh snapshot includes builtin identities" True py_reply 'import json,sys; ids=json.load(sys.stdin); print({"vgs.bar/left-workspaces","vgs.bar/center-clock"} <= set(ids))' <<<"$fresh_snapshot"
-  expect "control: workspaces moves to right with the same ID" ok ipc shell movePluginWidget vgs.bar/left-workspaces right 0
+  python3 - "$home/.config/vgshell/shell.json" <<'PYREAD'
+import json,os,sys
+path=sys.argv[1]; config=json.load(open(path)); layout=config["bar"]["layout"]
+entry=next(e for e in layout["left"] if e["id"]=="vgs.bar/left-workspaces")
+layout["left"]=[e for e in layout["left"] if e["id"]!="vgs.bar/left-workspaces"]
+layout["right"].insert(0,entry)
+with open(path+".tmp","w") as out: json.dump(config,out)
+os.replace(path+".tmp",path)
+PYREAD
   expect_poll "control: placement rejects workspaces in another section" False fresh_bar_complete
   expect "builtin section transfer keeps every object" '[]' ipc smoke barWidgetIdentities
   expect "the fresh identity snapshot is released" ok ipc smoke forgetBarWidgets
@@ -470,44 +468,19 @@ for bar_participation_case in hidden zero-width zero-height; do
     stop_shell
   fi
 done
+# The real Hide route must unmap its window. Retained Item boxes are not
+# evidence of a mapped surface; the same typed reader checks both states.
+if copy_tree bar-participation-window \
+  && edit_tree bar-participation-window shell/Hosts/BarHost.qml 'visible: PluginLogic.barShown(slot.instance)' 'visible: true'; then
+  bar_participation_state shown
+  start_shell "$sandbox/tree-bar-participation-window" "$sandbox/bar-participation-window.log" || fail "the hidden-window control starts"
+  geometry expect_poll "control: the mapped window starts with shown geometry" '[]' bar_participation shown
+  expect "control: Hide reaches the shipped bar toggle" ok ipc vgs.bar invoke toggle ''
+  expect_poll "control: the hidden-state reader rejects a window that stays visible" '["window"]' bar_participation shown hidden
+  stop_shell
+fi
 cp -- "$sandbox/bar-participation-tick.qml" "$bar_participation_tick"
 cp -- "$bar_participation_saved" "$home/.config/vgshell/shell.json.tmp"
 mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
 start_shell "$repo" "$sandbox/bar-participation-restored.log" || fail "the shell returns after participation controls"
 expect_widgets "participation restores the original mounted fixture" '["acme.tick"]'
-
-# Restore Row's transition writes in a disposable bar. The same cold
-# descendant reader must reject the removed vertical-centering binding.
-bar_alignment_misplaced() {
-  bar_alignment | py_reply 'import json,sys; rows=json.load(sys.stdin); print(any(s.startswith("clock.label.y=") for s in rows) and any(s.startswith("pill0.y=") for s in rows))'
-}
-if copy_tree bar-motion-control \
-  && edit_tree bar-motion-control shell/plugins/vgs.bar/Bar.qml '    Item {
-        id: left
-        readonly property real spacing: Theme.bar.gap' '    Row {
-        move: Transition { NumberAnimation { properties: "x"; duration: 0 } }
-        add: Transition { NumberAnimation { properties: "x"; duration: 0 } }
-        id: left
-        spacing: Theme.bar.gap' \
-  && edit_tree bar-motion-control shell/plugins/vgs.bar/Bar.qml '    Item {
-        id: center
-        readonly property real spacing: Theme.bar.gap' '    Row {
-        move: Transition { NumberAnimation { properties: "x"; duration: 0 } }
-        add: Transition { NumberAnimation { properties: "x"; duration: 0 } }
-        id: center
-        spacing: Theme.bar.gap' \
-  && edit_tree bar-motion-control shell/plugins/vgs.bar/Bar.qml '    Item {
-        id: right
-        readonly property real spacing: Theme.bar.gap' '    Row {
-        move: Transition { NumberAnimation { properties: "x"; duration: 0 } }
-        add: Transition { NumberAnimation { properties: "x"; duration: 0 } }
-        id: right
-        spacing: Theme.bar.gap'; then
-  stop_shell
-  start_shell "$sandbox/tree-bar-motion-control" "$sandbox/bar-motion-control.log" || fail "the Row motion control shell starts"
-  expect_builtins "control: the Row motion bar still registers both builtins" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
-  geometry expect "control: the alignment reader rejects Row's cold transition writes" True bar_alignment_misplaced
-  stop_shell
-  start_shell "$repo" "$sandbox/bar-motion-restored.log" || fail "the shell starts after the Row motion control"
-  geometry expect_poll "the restored cold bar centers both builtin contents" '[]' bar_alignment
-fi

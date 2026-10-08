@@ -23,8 +23,7 @@ Item {
     readonly property Item centerSection: center
     readonly property Item rightSection: right
 
-    readonly property var builtinLabels: ({ "left-workspaces": "Workspaces", "center-clock": "Clock" })
-    readonly property var builtinNames: Object.keys(builtinLabels)
+    readonly property var builtinNames: ["left-workspaces", "center-clock"]
     property var widgetLayout: ({ left: [], center: [], right: [] })
     readonly property string builtinKey: JSON.stringify(
         ["left", "center", "right"].reduce((entries, section) => entries.concat(widgetLayout[section]), [])
@@ -51,8 +50,6 @@ Item {
     Repeater { model: builtinModel; Builtin { barItem: bar } }
 
     // The core positions children and sizes these passive containers.
-    // Qt 6.11 Row transitions write y even when their animation names x;
-    // that write removes the core's vertical-centering binding.
     Item {
         id: left
         readonly property real spacing: Theme.bar.gap

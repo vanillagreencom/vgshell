@@ -464,7 +464,6 @@ Singleton {
                 enabled: isEnabled(id),
                 alwaysOn: m.alwaysOn === true,
                 placed: Logic.isPlaced(config, m),
-                builtins: Plugins.widgetBuiltinRows(id),
                 schema: m.schema,
                 settings: settings,
                 settingChoices: Logic.settingChoices(m, values, settings),

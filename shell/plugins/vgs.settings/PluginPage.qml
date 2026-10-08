@@ -76,7 +76,7 @@ FocusScope {
     // or null.
     readonly property var paneHolder: row === null || row.paneHolder === "" ? null : panel.plugins.find(p => p.id === row.paneHolder) || null
     // Whether the Settings page holds nothing below its switches.
-    readonly property bool bare: row !== null && row.builtins.length === 0 && row.tuis.length === 0 && setupEntries.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0 && paneHolder === null
+    readonly property bool bare: row !== null && row.tuis.length === 0 && setupEntries.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0 && paneHolder === null
     // Whether a field of the page holds an unsaved edit.
     readonly property bool dirty: unsaved.edited
 
@@ -310,26 +310,6 @@ FocusScope {
                         visible: page.bare
                         width: parent.width
                         wrapMode: Text.Wrap
-                    }
-
-                    Repeater {
-                        model: ScriptModel {
-                            values: page.row === null ? [] : page.row.builtins
-                            objectProp: "id"
-                        }
-                        Section {
-                            id: builtinSection
-                            required property var modelData
-                            width: body.width
-                            title: modelData.name
-                            SettingField {
-                                pluginId: builtinSection.modelData.id
-                                spec: ({ type: "boolean", label: "Show on the bar" })
-                                value: builtinSection.modelData.placed
-                                editable: page.editable
-                                onApply: v => { if (page !== null && page.row !== null) page.panel.writePlacement(pluginId, v, page.row.id); }
-                            }
-                        }
                     }
 
                     // The plugin's own setup screens, each a TUI its

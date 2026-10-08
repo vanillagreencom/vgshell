@@ -264,11 +264,7 @@ FocusScope {
     function togglePlaced(id) {
         const row = rowOf(id);
         if (row === null) return "unknown: " + id;
-        return writePlacement(id, !row.placed, id);
-    }
-
-    function writePlacement(id, placed, pageId) {
-        return keep(pageId, shell.manager.setPlaced(id, placed));
+        return keep(id, shell.manager.setPlaced(id, !row.placed));
     }
 
     // Write one setting of plugin `id` through the manager; answers its
