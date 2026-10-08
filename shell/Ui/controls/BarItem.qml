@@ -28,6 +28,12 @@ T.AbstractButton {
 
     property string iconName: ""
     property string count: ""
+    // TextMetrics.advanceWidth keeps these slots independent of the current
+    // reading. Empty reservations retain the label's natural width.
+    property string reservedText: ""
+    property string reservedCount: ""
+    property color textTone: foreground
+    property color countTone: foreground
     property bool spinning: false
     property bool active: false
     property color tone: Theme.bar.foreground
@@ -81,18 +87,26 @@ T.AbstractButton {
                     size: Theme.bar.item.icon
                 }
             }
+            TextMetrics { id: textWidth; font: textLabel.font; text: root.reservedText }
+            TextMetrics { id: countWidth; font: countLabel.font; text: root.reservedCount }
             Label {
+                id: textLabel
                 role: "bar"
                 visible: root.text !== ""
+                width: root.reservedText === "" ? implicitWidth : Math.ceil(textWidth.advanceWidth)
+                horizontalAlignment: Text.AlignRight
                 text: root.text
-                color: root.foreground
+                color: root.textTone
                 y: topForCapCenter(row.height)
             }
             Label {
+                id: countLabel
                 role: "bar"
                 visible: root.count !== ""
+                width: root.reservedCount === "" ? implicitWidth : Math.ceil(countWidth.advanceWidth)
+                horizontalAlignment: Text.AlignRight
                 text: root.count
-                color: root.foreground
+                color: root.countTone
                 y: topForCapCenter(row.height)
             }
         }

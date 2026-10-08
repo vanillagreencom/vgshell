@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.sysmon",
+  "name": "System Monitor",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "See CPU, memory and graphics card use.",
+  "license": "MIT",
+  "icon": "activity",
+  "kinds": [
+    "bar-widget",
+    "panel"
+  ],
+  "entryPoints": {
+    "bar-widget": "Widget.qml",
+    "panel": "Panel.qml"
+  },
+  "capabilities": [
+    "status",
+    "surfaces",
+    "requirements",
+    "tui"
+  ],
+  "defaultSection": "right",
+  "requirements": [
+    {
+      "command": "btop",
+      "packages": {
+        "pacman": "btop",
+        "apt": "btop",
+        "dnf": "btop",
+        "xbps": "btop",
+        "emerge": "sys-process/btop",
+        "nix": "btop"
+      },
+      "optional": true,
+      "purpose": "Shows all processes and system readings"
+    }
+  ],
+  "settings": {
+    "showCpu": true,
+    "showMemory": true,
+    "showGpu": true,
+    "cpuTemperature": false,
+    "gpuTemperature": false,
+    "memoryUnit": "percent",
+    "showSwap": false,
+    "gpu": "",
+    "refreshSeconds": 2
+  },
+  "status": {
+    "readings": {
+      "type": "data",
+      "label": "Readings"
+    },
+    "gpus": {
+      "type": "choices",
+      "label": "Graphics cards"
+    }
+  },
+  "schema": {
+    "showCpu": {
+      "type": "boolean",
+      "label": "CPU",
+      "group": "Readings"
+    },
+    "showMemory": {
+      "type": "boolean",
+      "label": "Memory",
+      "group": "Readings"
+    },
+    "showGpu": {
+      "type": "boolean",
+      "label": "GPU",
+      "group": "Readings"
+    },
+    "cpuTemperature": {
+      "type": "boolean",
+      "label": "CPU temperature",
+      "group": "Readings"
+    },
+    "gpuTemperature": {
+      "type": "boolean",
+      "label": "GPU temperature",
+      "group": "Readings"
+    },
+    "showSwap": {
+      "type": "boolean",
+      "label": "Swap use",
+      "group": "Readings"
+    },
+    "memoryUnit": {
+      "type": "enum",
+      "label": "Memory unit",
+      "group": "Readings",
+      "options": [
+        "percent",
+        "used"
+      ]
+    },
+    "gpu": {
+      "type": "string",
+      "label": "Graphics card",
+      "optionsFrom": "gpus",
+      "group": "Readings"
+    },
+    "refreshSeconds": {
+      "type": "number",
+      "label": "Refresh interval",
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "unit": "seconds",
+      "group": "Readings"
+    }
+  }
+}

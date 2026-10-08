@@ -151,6 +151,7 @@ Item {
                         BarItem { iconName: "settings"; label: "Settings" }
                         BarItem { iconName: "shield-alert"; count: "2"; tone: Theme.color.warning; label: "Agent Warden" }
                         BarItem { iconName: "refresh-cw"; spinning: true; label: "Updates" }
+                        BarItem { iconName: "cpu"; text: "5%"; reservedText: "100%"; count: "54°"; reservedCount: "100°"; textTone: Theme.bar.foreground; countTone: Theme.color.warning; label: "Fixed CPU reading" }
                     }
                 }
                 Column {
