@@ -540,6 +540,7 @@ cases=(
   "network-share|shell/plugins/vgs.network/bin/share-qr|logic|python3 scripts/test-network-share.py"
   "network-join|shell/plugins/vgs.network/bin/join-network|logic|scripts/test-network-enterprise.sh"
   "devtools-window|shell/plugins/vgs.devtools/Window.qml|logic|node scripts/test-devtools-view.js"
+  "devtools-service|shell/plugins/vgs.devtools/Service.qml|logic|node scripts/test-devtools-view.js"
   "settings-reply-window|shell/plugins/vgs.settings/Window.qml|logic|node scripts/test-settings-reply.js"
   "settings-reply-page|shell/plugins/vgs.settings/PluginPage.qml|logic|node scripts/test-settings-reply.js"
   "settings-reply-input|shell/Commons/Reply.js|logic|node scripts/test-settings-reply.js"
