@@ -2423,6 +2423,7 @@ const neovimTarget = selectionRender.acceptTarget(logic, "neovim",
 assert.equal(neovimTarget.ok, true);
 
 function neovimStyles(text) {
+    text = text.replace(/\r\n/g, "\n");
     const styles = new Map();
     for (const [, group, body] of text.matchAll(/hl\("([^"]+)", \{([^\n]*?)\}\)/g)) {
         const spec = {};
@@ -2451,6 +2452,10 @@ function verifyNeovim(template) {
     const faults = [];
     const metrics = [];
     const sourceStyles = neovimStyles(template);
+    for (const [group, style] of sourceStyles)
+        for (const field of ["fg", "bg", "sp"])
+            if (style[field] !== undefined && !style[field].startsWith("#@{"))
+                faults.push({ kind: "neovim-token-color", group, field });
     const resolved = (styles, group, seen = new Set()) => {
         if (seen.has(group) || !styles.has(group)) return null;
         seen.add(group);
@@ -2461,10 +2466,13 @@ function verifyNeovim(template) {
         if (resolved(sourceStyles, group) === null) faults.push({ kind: "neovim-coverage", group });
     // Role provenance is checked on the source. These fixed expressions use
     // each package's palette; no catalogue-specific value enters the target.
-    for (const [group, role, amount] of [["DiffAdd", "success", 0.18], ["DiffDelete", "danger", 0.18],
-        ["DiffChange", "warning", 0.22], ["DiffText", "warning", 0.35]]) {
-        if (sourceStyles.get(group)?.bg !== `#@{mix({color.background}, {palette.${role}}, ${amount})}`)
+    for (const [group, role, floor] of [["DiffAdd", "success", 0.08], ["DiffDelete", "danger", 0.08],
+        ["DiffChange", "warning", 0.08], ["DiffText", "warning", 0.16]]) {
+        const fill = /^#@\{mix\(\{color.background\}, \{palette\.(\w+)\}, ([\d.]+)\)\}$/.exec(sourceStyles.get(group)?.bg);
+        if (fill === null || fill[1] !== role)
             faults.push({ kind: "neovim-diff-palette", group, role });
+        else if (Number(fill[2]) < floor)
+            faults.push({ kind: "neovim-diff-fill", group, amount: Number(fill[2]), floor });
     }
     for (const { pkg, shipped } of selectionPackages) {
         const rendered = selectionRender.renderTarget(logic, TOKENS, neovimTarget.target,
@@ -2504,6 +2512,14 @@ function verifyNeovim(template) {
             if (logic.contrastRatio(fill, logic.parseColor(pageEnd)) > logic.contrastRatio(fill, logic.parseColor(otherEnd)))
                 faults.push({ kind: "neovim-neutral-direction", package: pkg.name, group });
         }
+        const directory = styles.get("Directory");
+        const title = styles.get("Title");
+        if (directory !== undefined && title !== undefined) {
+            if (directory.fg === title.fg)
+                faults.push({ kind: "neovim-title-directory-color", package: pkg.name });
+            if (directory.bold === true || title.bold !== true)
+                faults.push({ kind: "neovim-title-directory-weight", package: pkg.name });
+        }
         const current = styles.get("CurSearch");
         const search = styles.get("Search");
         if (current.bg === search.bg || current.bold !== true || current.underline !== true)
@@ -2524,11 +2540,19 @@ function verifyNeovim(template) {
     assert.deepEqual(faults, []);
     return metrics;
 }
+assert.deepEqual(neovimStyles(neovimTemplate.replace(/\n/g, "\r\n")), neovimStyles(neovimTemplate));
 const neovimMetrics = verifyNeovim(neovimTemplate);
 const neovimControls = [
+    ["neovim-diff-fill", 'hl("DiffAdd", { fg = "#@{contrast(mix({color.background}, {palette.success}, 0.18))}", bg = "#@{mix({color.background}, {palette.success}, 0.18)}" })',
+        'hl("DiffAdd", { fg = "#@{contrast(mix({color.background}, {palette.success}, 0.04))}", bg = "#@{mix({color.background}, {palette.success}, 0.04)}" })', "DiffAdd"],
+    ["neovim-diff-fill", 'hl("DiffText", { fg = "#@{contrast(mix({color.background}, {palette.warning}, 0.35))}", bg = "#@{mix({color.background}, {palette.warning}, 0.35)}", bold = true, underline = true })',
+        'hl("DiffText", { fg = "#@{contrast(mix({color.background}, {palette.warning}, 0.08))}", bg = "#@{mix({color.background}, {palette.warning}, 0.08)}", bold = true, underline = true })', "DiffText"],
+    ["neovim-title-directory-color", 'hl("Title", { fg = "#@{color.success}", bold = true })', 'hl("Title", { fg = "#@{color.info}", bold = true })'],
+    ["neovim-title-directory-weight", 'hl("Directory", { fg = "#@{color.info}" })', 'hl("Directory", { fg = "#@{color.info}", bold = true })'],
+    ["neovim-token-color", 'hl("Title", { fg = "#@{color.success}", bold = true })', 'hl("Title", { fg = "#99ff99", bold = true })'],
     ["neovim-diff-role-state", 'bg = "#@{mix({color.background}, {palette.danger}, 0.18)}", bold = true', 'bg = "#@{mix({color.background}, {palette.danger}, 0.18)}"', "DiffDelete"],
     ["neovim-diff-role-state", 'bg = "#@{mix({color.background}, {palette.warning}, 0.22)}", italic = true', 'bg = "#@{mix({color.background}, {palette.warning}, 0.22)}"'],
-    ["neovim-coverage", 'hl("Directory", { fg = "#@{color.info}", bold = true })', ""],
+    ["neovim-coverage", 'hl("Directory", { fg = "#@{color.info}" })', ""],
     ["neovim-contrast", 'hl("Folded", { fg = "#@{color.textMuted}"', 'hl("Folded", { fg = "#@{color.surface}"'],
     ["neovim-contrast", 'hl("PmenuThumb", { bg = "#@{color.textMuted}" })', 'hl("PmenuThumb", { bg = "#@{color.surface}" })', "PmenuThumb"],
     ["neovim-neutral-direction", 'hl("FloatShadow", { bg = "#@{color.surfaceSunken}"', 'hl("FloatShadow", { bg = "#@{color.text}"'],
