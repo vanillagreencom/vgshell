@@ -2411,6 +2411,155 @@ const strictKitty = render => {
     for (const [theme, expected] of KITTY_ORDERED_SETS)
         assert.deepEqual(KITTY_MARKS.map(({ role }) => result.metrics.find(metric => metric.theme === theme).fields[role]), expected);
 };
+// VGS-1051: source coverage and rendered colour contracts for Neovim.
+// The real-app screenshot set verifies Lua execution. This parser checks
+// the target's direct definitions and link table without requiring an editor
+// binary in the offline renderer suite.
+const NEOVIM_AUDITED_UNSET = ["@attribute", "@attribute.builtin", "@boolean", "@character", "@character.special", "@comment", "@comment.documentation", "@comment.error", "@comment.note", "@comment.todo", "@comment.warning", "@constant", "@constant.builtin", "@constant.macro", "@constructor", "@diff.delta", "@diff.minus", "@diff.plus", "@function", "@function.builtin", "@function.call", "@function.macro", "@function.method", "@function.method.call", "@keyword", "@keyword.conditional", "@keyword.conditional.ternary", "@keyword.coroutine", "@keyword.debug", "@keyword.directive", "@keyword.directive.define", "@keyword.exception", "@keyword.function", "@keyword.import", "@keyword.modifier", "@keyword.operator", "@keyword.repeat", "@keyword.return", "@keyword.type", "@label", "@markup.heading", "@markup.heading.1", "@markup.heading.2", "@markup.heading.3", "@markup.heading.4", "@markup.heading.5", "@markup.heading.6", "@markup.italic", "@markup.link", "@markup.link.label", "@markup.link.url", "@markup.list", "@markup.list.checked", "@markup.list.unchecked", "@markup.math", "@markup.quote", "@markup.raw", "@markup.raw.block", "@markup.strikethrough", "@markup.strong", "@markup.underline", "@module", "@module.builtin", "@number", "@number.float", "@operator", "@property", "@punctuation.bracket", "@punctuation.delimiter", "@punctuation.special", "@string", "@string.documentation", "@string.escape", "@string.regexp", "@string.special", "@string.special.path", "@string.special.symbol", "@string.special.url", "@tag", "@tag.attribute", "@tag.builtin", "@tag.delimiter", "@type", "@type.builtin", "@type.definition", "@variable", "@variable.builtin", "@variable.member", "@variable.parameter", "@variable.parameter.builtin", "Bold", "BoldItalic", "Boolean", "Character", "ComplHint", "ComplHintMore", "ComplMatchIns", "Conceal", "Conditional", "CurSearch", "CursorColumn", "CursorIM", "CursorLineFold", "CursorLineSign", "Debug", "Define", "Delimiter", "DiagnosticDeprecated", "DiagnosticFloatingError", "DiagnosticFloatingHint", "DiagnosticFloatingInfo", "DiagnosticFloatingOk", "DiagnosticFloatingWarn", "DiagnosticOk", "DiagnosticSignError", "DiagnosticSignHint", "DiagnosticSignInfo", "DiagnosticSignOk", "DiagnosticSignWarn", "DiagnosticUnderlineError", "DiagnosticUnderlineHint", "DiagnosticUnderlineInfo", "DiagnosticUnderlineOk", "DiagnosticUnderlineWarn", "DiagnosticUnnecessary", "DiagnosticVirtualLinesError", "DiagnosticVirtualLinesHint", "DiagnosticVirtualLinesInfo", "DiagnosticVirtualLinesOk", "DiagnosticVirtualLinesWarn", "DiagnosticVirtualTextError", "DiagnosticVirtualTextHint", "DiagnosticVirtualTextInfo", "DiagnosticVirtualTextOk", "DiagnosticVirtualTextWarn", "DiffText", "DiffTextAdd", "Dimmed", "Directory", "EndOfBuffer", "Exception", "Float", "FloatFooter", "FloatShadow", "FloatShadowThrough", "FloatTitle", "FoldColumn", "Folded", "Ignore", "Include", "Italic", "Keyword", "Label", "LineNrAbove", "LineNrBelow", "MCursor", "MCursorVisual", "Macro", "Menu", "ModeMsg", "MoreMsg", "MsgArea", "MsgSeparator", "Number", "OkMsg", "Operator", "PmenuBorder", "PmenuExtra", "PmenuExtraSel", "PmenuKind", "PmenuKindSel", "PmenuMatch", "PmenuMatchSel", "PmenuSbar", "PmenuShadow", "PmenuShadowThrough", "PmenuThumb", "PreCondit", "PreInsert", "Question", "QuickFixLine", "Regexp", "Repeat", "Scrollbar", "SnippetTabstop", "SnippetTabstopActive", "SpecialChar", "SpecialComment", "SpecialKey", "SpellBad", "SpellCap", "SpellLocal", "SpellRare", "StatusLineTerm", "StatusLineTermNC", "StderrMsg", "StdoutMsg", "StorageClass", "Structure", "Substitute", "Tag", "TermCursor", "Title", "Todo", "Tooltip", "Typedef", "Underlined", "User1", "User9", "VisualNOS", "Whitespace", "WildMenu", "WinBar", "WinBarNC", "conceal", "lCursor"];
+const neovimDir = path.join(themesDir, "targets", "neovim");
+const neovimTemplate = fs.readFileSync(path.join(neovimDir, "neovim.lua"), "utf8");
+const neovimTarget = selectionRender.acceptTarget(logic, "neovim",
+    fs.readFileSync(path.join(neovimDir, "target.json"), "utf8"));
+assert.equal(neovimTarget.ok, true);
+
+function neovimStyles(text) {
+    const styles = new Map();
+    for (const [, group, body] of text.matchAll(/hl\("([^"]+)", \{([^\n]*?)\}\)/g)) {
+        const spec = {};
+        for (const [, key, value, flag, number] of body.matchAll(/(\w+) = (?:("[^"\n]*")|(true|false)|(\d+))/g))
+            spec[key] = value === undefined ? (flag === undefined ? Number(number) : flag === "true") : JSON.parse(value);
+        styles.set(group, spec);
+    }
+    const links = /local links = \{([\s\S]*?)\n  \}/.exec(text);
+    assert.notEqual(links, null);
+    for (const [, target, names] of links[1].matchAll(/(\w+) = \{([^}]+)\}/g))
+        for (const [, group] of names.matchAll(/"([^"]+)"/g)) styles.set(group, { link: target });
+    const underlineRoles = /for _, role in ipairs\(\{([\s\S]*?)\}\) do\n    hl\("DiagnosticUnderline"/.exec(text);
+    assert.notEqual(underlineRoles, null);
+    for (const [, role, sp] of underlineRoles[1].matchAll(/\{ "(\w+)", "([^"\n]+)" \}/g))
+        styles.set(`DiagnosticUnderline${role}`, { sp, underline: true });
+    const diagnosticLinks = /for _, role in ipairs\(\{([^}]+)\}\) do\n    for _, family in ipairs\(\{([^}]+)\}\) do\n      hl\("Diagnostic" \.\. family \.\. role, \{ link = "Diagnostic" \.\. role \}\)/.exec(text);
+    if (diagnosticLinks !== null) {
+        for (const [, role] of diagnosticLinks[1].matchAll(/"(\w+)"/g))
+            for (const [, family] of diagnosticLinks[2].matchAll(/"(\w+)"/g))
+                styles.set(`Diagnostic${family}${role}`, { link: `Diagnostic${role}` });
+    }
+    return styles;
+}
+
+function verifyNeovim(template) {
+    const faults = [];
+    const metrics = [];
+    const sourceStyles = neovimStyles(template);
+    const resolved = (styles, group, seen = new Set()) => {
+        if (seen.has(group) || !styles.has(group)) return null;
+        seen.add(group);
+        const style = styles.get(group);
+        return style.link === undefined ? style : resolved(styles, style.link, seen);
+    };
+    for (const group of NEOVIM_AUDITED_UNSET)
+        if (resolved(sourceStyles, group) === null) faults.push({ kind: "neovim-coverage", group });
+    // Role provenance is checked on the source. These fixed expressions use
+    // each package's palette; no catalogue-specific value enters the target.
+    for (const [group, role, amount] of [["DiffAdd", "success", 0.18], ["DiffDelete", "danger", 0.18],
+        ["DiffChange", "warning", 0.22], ["DiffText", "warning", 0.35]]) {
+        if (sourceStyles.get(group)?.bg !== `#@{mix({color.background}, {palette.${role}}, ${amount})}`)
+            faults.push({ kind: "neovim-diff-palette", group, role });
+    }
+    for (const { pkg, shipped } of selectionPackages) {
+        const rendered = selectionRender.renderTarget(logic, TOKENS, neovimTarget.target,
+            new Map([["neovim.lua", template]]), { values: pkg.values,
+                slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal,
+                curated: new Map(), installed: !shipped });
+        assert.equal(rendered.ok, true);
+        const styles = neovimStyles(rendered.files[0].bytes.toString("utf8"));
+        const page = logic.parseColor(pkg.values.color.background);
+        const pair = (group, field, background, floor) => {
+            const style = resolved(styles, group);
+            const fg = logic.parseColor(style?.[field]);
+            const bg = logic.parseColor(background);
+            assert.notEqual(fg, null, `${pkg.name}/${group}/${field}`);
+            assert.notEqual(bg, null, `${pkg.name}/${group}/background`);
+            const ratio = logic.contrastRatio(fg, bg);
+            metrics.push({ package: pkg.name, group, field, foreground: style[field], background, ratio, floor });
+            if (ratio < floor) faults.push({ kind: "neovim-contrast", package: pkg.name, group, field, ratio, floor });
+        };
+        for (const group of ["Search", "CurSearch", "DiffAdd", "DiffChange", "DiffDelete", "DiffText", "Directory", "Title",
+            "Folded", "FoldColumn", "Todo", "MoreMsg", "Question", "ModeMsg", "OkMsg", "QuickFixLine", "WinBar", "WinBarNC",
+            "Conceal", "Operator", "Delimiter", "Underlined", "Bold", "Italic", "BoldItalic", "Strikethrough",
+            "PmenuMatch", "PmenuMatchSel", "DiagnosticOk", "DiagnosticDeprecated"]) {
+            const style = resolved(styles, group);
+            if (style === null) continue; // The typed coverage fault above names a removed definition.
+            pair(group, "fg", style.bg || pkg.values.color.background, 4.5);
+        }
+        pair("PmenuThumb", "bg", styles.get("PmenuSbar").bg, 3);
+        for (const group of ["SpellBad", "SpellCap", "SpellLocal", "SpellRare",
+            "DiagnosticUnderlineError", "DiagnosticUnderlineWarn", "DiagnosticUnderlineInfo", "DiagnosticUnderlineHint", "DiagnosticUnderlineOk"])
+            pair(group, "sp", pkg.values.color.background, 3);
+        for (const group of ["Folded", "WinBar", "WinBarNC", "PmenuSbar", "FloatShadow", "FloatShadowThrough"]) {
+            const fill = logic.parseColor(styles.get(group)?.bg);
+            if (fill === null) continue;
+            const pageEnd = pkg.values.scheme.mode === "dark" ? "#000000" : "#ffffff";
+            const otherEnd = pkg.values.scheme.mode === "dark" ? "#ffffff" : "#000000";
+            if (logic.contrastRatio(fill, logic.parseColor(pageEnd)) > logic.contrastRatio(fill, logic.parseColor(otherEnd)))
+                faults.push({ kind: "neovim-neutral-direction", package: pkg.name, group });
+        }
+        const current = styles.get("CurSearch");
+        const search = styles.get("Search");
+        if (current.bg === search.bg || current.bold !== true || current.underline !== true)
+            faults.push({ kind: "neovim-search-state", package: pkg.name });
+        for (const [first, second] of [["DiffAdd", "DiffDelete"], ["DiffAdd", "DiffChange"], ["DiffDelete", "DiffChange"]]) {
+            if (styles.get(first).bg === styles.get(second).bg)
+                faults.push({ kind: "neovim-diff-distinct", package: pkg.name, first, second });
+        }
+        // Typography keeps roles distinct even when a theme assigns the
+        // same hue to success and warning. Lightness alone is insufficient.
+        for (const [group, attribute] of [["DiffDelete", "bold"], ["DiffChange", "italic"]])
+            if (styles.get(group)[attribute] !== true)
+                faults.push({ kind: "neovim-diff-role-state", package: pkg.name, group, attribute });
+        if (styles.get("DiffText").bg === styles.get("DiffChange").bg ||
+            styles.get("DiffText").bold !== true || styles.get("DiffText").underline !== true)
+            faults.push({ kind: "neovim-diff-text-state", package: pkg.name });
+    }
+    assert.deepEqual(faults, []);
+    return metrics;
+}
+const neovimMetrics = verifyNeovim(neovimTemplate);
+const neovimControls = [
+    ["neovim-diff-role-state", 'bg = "#@{mix({color.background}, {palette.danger}, 0.18)}", bold = true', 'bg = "#@{mix({color.background}, {palette.danger}, 0.18)}"', "DiffDelete"],
+    ["neovim-diff-role-state", 'bg = "#@{mix({color.background}, {palette.warning}, 0.22)}", italic = true', 'bg = "#@{mix({color.background}, {palette.warning}, 0.22)}"'],
+    ["neovim-coverage", 'hl("Directory", { fg = "#@{color.info}", bold = true })', ""],
+    ["neovim-contrast", 'hl("Folded", { fg = "#@{color.textMuted}"', 'hl("Folded", { fg = "#@{color.surface}"'],
+    ["neovim-contrast", 'hl("PmenuThumb", { bg = "#@{color.textMuted}" })', 'hl("PmenuThumb", { bg = "#@{color.surface}" })', "PmenuThumb"],
+    ["neovim-neutral-direction", 'hl("FloatShadow", { bg = "#@{color.surfaceSunken}"', 'hl("FloatShadow", { bg = "#@{color.text}"'],
+    ["neovim-diff-palette", 'hl("DiffAdd", { fg = "#@{contrast(mix({color.background}, {palette.success}, 0.18))}", bg = "#@{mix({color.background}, {palette.success}, 0.18)}" })',
+        'hl("DiffAdd", { fg = "#@{contrast(mix({color.background}, {palette.danger}, 0.18))}", bg = "#@{mix({color.background}, {palette.danger}, 0.18)}" })'],
+    ["neovim-search-state", 'bg = "#@{color.info}", bold = true, underline = true', 'bg = "#@{color.info}", bold = true'],
+    ["neovim-diff-distinct", 'bg = "#@{mix({color.background}, {palette.danger}, 0.18)}", bold = true', 'bg = "#@{mix({color.background}, {palette.success}, 0.18)}", bold = true'],
+    ["neovim-diff-text-state", 'bg = "#@{mix({color.background}, {palette.warning}, 0.35)}", bold = true, underline = true', 'bg = "#@{mix({color.background}, {palette.warning}, 0.35)}", bold = true']
+];
+const neovimScratch = fs.mkdtempSync(path.join(os.tmpdir(), "neovim-theme-control-"));
+try {
+    for (const [index, [kind, needle, replacement, group]] of neovimControls.entries()) {
+        assert.equal(neovimTemplate.split(needle).length, 2);
+        const mutant = neovimTemplate.replace(needle, replacement);
+        assert.notEqual(mutant, neovimTemplate);
+        const file = path.join(neovimScratch, `${index}.lua`);
+        fs.writeFileSync(file, mutant, { flag: "wx" });
+        assert.throws(() => verifyNeovim(fs.readFileSync(file, "utf8")),
+            error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
+                error.actual.some(fault => fault.kind === kind && (group === undefined || fault.group === group)));
+    }
+} finally {
+    fs.rmSync(neovimScratch, { recursive: true, force: true });
+}
+console.log(`test-theme-render: neovim packages=${selectionPackages.length} audited-groups=${NEOVIM_AUDITED_UNSET.length} pairs=${neovimMetrics.length} controls=${neovimControls.length} floors=text:4.5,boundary:3`);
+for (const floor of [4.5, 3]) {
+    const minimum = neovimMetrics.filter(metric => metric.floor === floor).reduce((a, b) => a.ratio < b.ratio ? a : b);
+    console.log(`test-theme-render: neovim-min ${JSON.stringify(minimum)}`);
+}
+// End VGS-1051 Neovim contract.
+
 const CONTROLS = [
     ["editor cap applies before rendering", "text = editorHighlightTemplate(logic, input, text);", "text = text;", verifyEditorStyles],
     ["editor cap includes the underlying line", "fill = over(tint, fill);", "fill = over(tint, page);", verifyEditorStyles],
