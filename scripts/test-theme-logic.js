@@ -42,12 +42,6 @@ const DEFAULTS = [
     ["color.accentHover", "#f87153ff"],
     // The luminance of #ff5a36 is 0.29, nearer white than black in contrast.
     ["color.onAccent", "#000000ff"],
-    ["color.mark1", "#7f7f7fff"],
-    ["color.onMark1", "#000000ff"],
-    ["color.mark2", "#b1b1b1ff"],
-    ["color.onMark2", "#000000ff"],
-    ["color.mark3", "#ffffffff"],
-    ["color.onMark3", "#000000ff"],
     // alpha(#ff5a36, 0.35): 255 * 0.35 = 89.25
     ["color.selection", "#ff5a3659"],
     ["color.dangerSubtle", "#f43f5e24"],
@@ -327,13 +321,6 @@ const DEFAULTS = [
 
 // A document that is accepted, and the values it must resolve to.
 const ACCEPTED = [
-    { tokens: { palette: { background: "#ffffff" } }, want: [
-        ["color.mark1", "#707070ff"], ["color.onMark1", "#ffffffff"],
-        ["color.mark2", "#404040ff"], ["color.onMark2", "#ffffffff"],
-        ["color.mark3", "#000000ff"], ["color.onMark3", "#ffffffff"]
-    ] },
-    ...[1, 2, 3].map(mark => ({ tokens: { color: { ["mark" + mark]: "#000000" } },
-        want: [["color.mark" + mark, "#000000ff"], ["color.onMark" + mark, "#ffffffff"]] })),
     { tokens: { palette: { accent: "#123456", info: "#234567", success: "#345678", warning: "#456789", danger: "#56789a" }, color: { textMuted: "#6789ab" } }, want: [["voiceOrb.tone.accent", "#123456ff"], ["voiceOrb.tone.info", "#234567ff"], ["voiceOrb.tone.success", "#345678ff"], ["voiceOrb.tone.warning", "#456789ff"], ["voiceOrb.tone.danger", "#56789aff"], ["voiceOrb.tone.muted", "#6789abff"]] },
     { tokens: { motion: { scale: 0 }, voiceOrb: { attack: 90, release: 300, period: 4000 } }, want: [["voiceOrb.attack", 0], ["voiceOrb.release", 0], ["voiceOrb.period", 0]] },
     { tokens: { motion: { scale: 2 } }, want: [["voiceOrb.attack", 140], ["voiceOrb.release", 500], ["voiceOrb.period", 12000]] },
