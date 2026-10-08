@@ -995,7 +995,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         const cards = View.panel(usage, NOW, { sort: "provider" });
         assert.deepEqual(cards.map(r => [r.id, r.api]), [["claude-a", false], ["codex-b", false], ["codex-api", true], ["copilot-z", false], ["gateway-api", true]]);
         assert.equal(cards.find(r => r.id === "codex-api").note, View.NO_PLAN);
-        for (const provider of ["claude", "copilot", "gateway"]) {
+        for (const provider of new Set(cards.map(card => card.provider))) {
             const source = View.logo(provider, "#ffabcdef");
             assert.ok(source.startsWith("data:image/svg+xml,"));
             assert.ok(decodeURIComponent(source).includes('fill="#abcdef"'));
@@ -1003,10 +1003,11 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
             assert.ok(decodeURIComponent(View.logo(provider, "#80123456")).includes('fill="#123456" fill-opacity="' + 128 / 255 + '"'));
             assert.ok(decodeURIComponent(source).includes('<path '));
         }
-        for (const provider of ["codex", "unknown"]) assert.equal(View.logo(provider, "#ffabcdef"), "");
+        assert.equal(View.logo("unknown", "#ffabcdef"), "");
     };
     cardChanges(plugin);
     cases++;
+    await control("codex-mark-removed", "UsageView.js", '    "codex": ', '    "absent-codex": ', cardChanges);
     await control("provider-sort-ignored", "UsageView.js", "return a.provider.localeCompare(b.provider);", "return 0;", cardChanges);
     await control("email-sort-ignored", "UsageView.js", 'if (mode === "email") {', 'if (false) {', cardChanges);
     await control("room-sort-ignored", "UsageView.js", 'if (mode === "most-left") {', 'if (false) {', cardChanges);

@@ -163,6 +163,28 @@ usage_panel_rows() { usage_panel | py_reply 'import json,sys; print(json.dumps([
 
 usage_panel_details() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["label"], [[d["label"], d["value"]] for d in r["details"]]] for r in json.load(sys.stdin)]))'; }
 usage_panel_view() { ipc smoke readInstance panel vgs.ai-usage fullView; }
+# The mounted card Images, in card order, must load the mark for each
+# listed provider with the shared text colour and icon size.
+usage_panel_marks() {
+  local cards images colour size
+  cards="$(usage_panel)" && images="$(ipc smoke images panel vgs.ai-usage)" \
+    && colour="$(ipc smoke themeValue color.text)" && size="$(ipc smoke themeValue icon.size.md)" || return
+  "$node_bin" - "$repo/bin/lib/qml-library.js" "$usage_plugin/UsageView.js" "$cards" "$images" "$colour" "$size" "$repo/shell/Commons/Duration.js" <<'JS'
+const { load } = require(process.argv[2]);
+const View = load(process.argv[3], { "qs.Commons 1.0": { Duration: load(process.argv[8]) } });
+const cards = JSON.parse(process.argv[4]);
+const images = JSON.parse(process.argv[5]);
+const colour = JSON.parse(process.argv[6]);
+const size = JSON.parse(process.argv[7]);
+const matched = cards.length > 0 && cards.length === images.length && cards.every((card, index) => {
+    const source = View.logo(card.provider, colour);
+    const image = images[index];
+    return source !== "" && image[0] === decodeURIComponent(source) && image[1] === "ready"
+        && image[2][0] === size && image[2][1] === size;
+});
+console.log(matched ? "matched" : "missing");
+JS
+}
 # usage_panel_cap: `matched` while the open panel's height cap is half the
 # logical height of the output its bar is on, else both figures.
 usage_panel_cap() {
@@ -291,6 +313,7 @@ expect_poll "the panel's reset times are the stand-ins'" matched usage_panel_res
 expect "the full panel is selected by default" true usage_panel_view
 expect "the full panel carries provider details" '[["claude", "default", [["Extra usage", "$123.45 of $500.00"]]], ["codex", "default", [["Codex credits", "12,345 available"]]]]' usage_panel_details
 summon_drawn panel vgs.ai-usage || fail "the panel never drew a frame"
+expect_poll "every listed provider card loads its theme-colour mark" matched usage_panel_marks
 expect_poll "each usage value and progress fill share their theme tier" matched usage_panel_colours
 usage_panel_box() { ipc smoke instanceGeometry panel vgs.ai-usage | py_reply 'import json,sys; r=json.load(sys.stdin); print(r[2] > 0 and r[3] > 0)'; }
 expect "the panel has a size" True usage_panel_box
@@ -546,6 +569,7 @@ usage_gateway_logo() { ipc smoke images panel vgs.ai-usage | py_reply 'import js
 expect_poll "the gateway card carries API billing" True usage_gateway_api
 expect_poll "the gateway card draws its API chip" true usage_api_chip
 expect_poll "the gateway card draws its published Vercel mark" True usage_gateway_logo
+expect_poll "every listed provider keeps its theme-colour mark with the API card" matched usage_panel_marks
 expect "the API card panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the API card panel is gone" absent usage_panel
 usage_edit "$usage_panel_qml" 'visible: modelData.api;' 'visible: false;' || fail "the hidden API chip control edit failed"
@@ -557,12 +581,12 @@ expect "a hidden API chip fails the drawn chip reading" 1 usage_control "$usage_
 expect "the hidden API chip panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the hidden API chip panel is gone" absent usage_panel
 cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
-usage_edit "$usage_panel_qml" 'source: View.logo(modelData.provider, Theme.color.text)' 'source: ""' || fail "the absent logo control edit failed"
+usage_edit "$usage_panel_qml" 'source: View.logo(modelData.provider, Theme.color.text)' 'source: modelData.provider === "codex" ? "" : View.logo(modelData.provider, Theme.color.text)' || fail "the absent Codex logo control edit failed"
 rescan "the absent logo control is scanned"
 usage_refresh "the absent logo control"
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening the absent logo control failed"
 summon_drawn panel vgs.ai-usage || fail "the absent logo control never drew a frame"
-expect "an absent logo fails the ready mark reading" 1 usage_control "$usage_dir/logo-control.log" "Vercel mark must draw" True usage_gateway_logo
+expect "an absent Codex logo fails the ready mark reading" 1 usage_control "$usage_dir/logo-control.log" "every provider mark must draw" matched usage_panel_marks
 expect "the absent logo panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the absent logo panel is gone" absent usage_panel
 cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
