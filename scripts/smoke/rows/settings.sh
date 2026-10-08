@@ -130,6 +130,7 @@ expect_poll "control: the disabled Jarvis page, with settings to change, draws t
 # as setup rather than report a product failure or accept a clamped zero.
 expect "the window opens the short page control" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.bare
 expect_poll "the short page control opens on Settings" 0 settings_tab
+expect_poll "the short page control has insufficient scroll range" False page_scroll_ready 300
 expect "control: insufficient page content is a setup error" short-page page_scroll_short_control
 
 # Both pages get their length from this row's own manifest content. The
