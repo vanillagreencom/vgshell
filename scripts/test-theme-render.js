@@ -950,6 +950,96 @@ try {
 }
 console.log(`test-theme-render: helix-jump-label packages=${helixMetrics.length} modes=dark,light floor=${logic.READABILITY_FLOOR} control=disabled-grey-rejected`);
 
+const weztermDir = path.join(themesDir, "targets", "wezterm");
+const weztermTemplate = fs.readFileSync(path.join(weztermDir, "wezterm.lua"), "utf8");
+const weztermTarget = selectionRender.acceptTarget(logic, "wezterm",
+    fs.readFileSync(path.join(weztermDir, "target.json"), "utf8"));
+assert.equal(weztermTarget.ok, true);
+
+function verifyWeztermModes(template) {
+    const metrics = [];
+    const shortfalls = [];
+    for (const { pkg, shipped } of selectionPackages) {
+        const rendered = selectionRender.renderTarget(logic, TOKENS, weztermTarget.target,
+            new Map([["wezterm.lua", template]]), { values: pkg.values,
+                slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal,
+                curated: new Map(), installed: !shipped });
+        assert.equal(rendered.ok, true);
+        const text = rendered.files[0].bytes.toString("utf8");
+        const tabBar = /tab_bar = \{([\s\S]*?)\n        \},/.exec(text);
+        const frame = /config\.window_frame = \{([\s\S]*?)\n    \}/.exec(text);
+        assert.notEqual(tabBar, null, pkg.name);
+        assert.notEqual(frame, null, pkg.name);
+        const color = (source, key, wrapped = false) => {
+            const pattern = wrapped ? `${key} = \\{ Color = '(#[0-9a-f]{6})' \\}` : `${key} = '(#[0-9a-f]{6})'`;
+            const matches = [...source.matchAll(new RegExp(`\\b${pattern}`, "gi"))];
+            assert.equal(matches.length, 1, `${pkg.name}/${key}`);
+            return matches[0][1];
+        };
+        const pairs = [];
+        for (const [role, fgRole, bgRole] of [
+            ["active_tab", "onAccent", "accent"], ["inactive_tab", "textMuted", "background"],
+            ["inactive_tab_hover", "text", "surfaceRaised"], ["new_tab", "textMuted", "background"],
+            ["new_tab_hover", "text", "surfaceRaised"]
+        ]) {
+            const style = new RegExp(`\\b${role} = \\{([^}]+)\\}`).exec(tabBar[1]);
+            assert.notEqual(style, null, `${pkg.name}/${role}`);
+            pairs.push({ role, fg: color(style[1], "fg_color"), bg: color(style[1], "bg_color"), fgRole, bgRole });
+        }
+        for (const [role, fgRole, bgRole] of [
+            ["copy_mode_active_highlight", "onAccent", "accent"], ["copy_mode_inactive_highlight", "onInfo", "info"],
+            ["quick_select_label", "onAccent", "accent"], ["quick_select_match", "onInfo", "info"]
+        ]) pairs.push({ role, fg: color(text, `${role}_fg`, true), bg: color(text, `${role}_bg`, true), fgRole, bgRole });
+        for (const [role, fgRole] of [["active_titlebar", "text"], ["inactive_titlebar", "textMuted"]]) {
+            pairs.push({ role, fg: color(frame[1], `${role}_fg`), bg: color(frame[1], `${role}_bg`), fgRole, bgRole: "background" });
+        }
+        const background = color(tabBar[1], "background");
+        assert.deepEqual(logic.parseColor(background), logic.parseColor(pkg.values.color.background));
+        const boundaries = [
+            ...pairs.filter(pair => ["accent", "info"].includes(pair.bgRole)).map(pair => ({ role: pair.role, fg: pair.bg, bg: background })),
+            { role: "inactive_tab_edge", fg: color(tabBar[1], "inactive_tab_edge"), bg: background },
+            { role: "inactive_tab_edge_hover", fg: color(tabBar[1], "inactive_tab_edge_hover"), bg: pairs.find(pair => pair.role === "inactive_tab_hover").bg }
+        ];
+        for (const [kind, rows, floor] of [["wezterm-text", pairs, 4.5], ["wezterm-boundary", boundaries, 3]]) {
+            for (const pair of rows) {
+                const ratio = logic.contrastRatio(logic.parseColor(pair.fg), logic.parseColor(pair.bg));
+                const metric = { kind, package: pkg.name, mode: pkg.values.scheme.mode, role: pair.role, ratio, floor };
+                metrics.push(metric);
+                if (ratio < floor) shortfalls.push(metric);
+            }
+        }
+        // Colour assignments must follow the package, even when a literal would pass contrast.
+        assert.deepEqual(shortfalls, []);
+        for (const pair of pairs) {
+            assert.deepEqual(logic.parseColor(pair.fg), logic.parseColor(pkg.values.color[pair.fgRole]), `${pkg.name}/${pair.role}/fg`);
+            assert.deepEqual(logic.parseColor(pair.bg), logic.parseColor(pkg.values.color[pair.bgRole]), `${pkg.name}/${pair.role}/bg`);
+        }
+    }
+    assert.ok(metrics.some(metric => metric.mode === "dark"));
+    assert.ok(metrics.some(metric => metric.mode === "light"));
+    return metrics;
+}
+const weztermMetrics = verifyWeztermModes(weztermTemplate);
+const weztermScratch = fs.mkdtempSync(path.join(os.tmpdir(), "wezterm-modes-control-"));
+try {
+    for (const [kind, needle, replacement] of [
+        ["wezterm-text", "quick_select_label_fg = { Color = '#@{color.onAccent}' }", "quick_select_label_fg = { Color = '#@{color.accent}' }"],
+        ["wezterm-boundary", "inactive_tab_edge = '#@{color.textMuted}'", "inactive_tab_edge = '#@{color.background}'"]
+    ]) {
+        assert.equal(weztermTemplate.split(needle).length, 2);
+        const mutant = weztermTemplate.replace(needle, replacement);
+        assert.notEqual(mutant, weztermTemplate);
+        const file = path.join(weztermScratch, `${kind}.lua`);
+        fs.writeFileSync(file, mutant, { flag: "wx" });
+        assert.throws(() => verifyWeztermModes(fs.readFileSync(file, "utf8")),
+            error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
+                error.actual.some(shortfall => shortfall.kind === kind && shortfall.ratio < shortfall.floor));
+    }
+} finally {
+    fs.rmSync(weztermScratch, { recursive: true, force: true });
+}
+console.log(`test-theme-render: wezterm packages=${selectionPackages.length} pairs=${weztermMetrics.length} modes=dark,light text-floor=4.5 boundary-floor=3 controls=text,boundary`);
+
 // RGB channel separation is a numerical distinction check. The owner judges
 // appearance in real terminal pictures. Rose Pine's main ANSI blue/brightblack
 // pair measured 55.650696 channels in the VGS-1043 role probe on 2026-10-07.
