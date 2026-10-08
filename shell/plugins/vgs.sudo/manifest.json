@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.sudo",
+  "name": "Passwordless Sudo",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Turn passwordless sudo on and off from the bar.",
+  "license": "MIT",
+  "icon": "lock",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "bar-widget": "Widget.qml"
+  },
+  "capabilities": [
+    "sudo",
+    "notify"
+  ],
+  "settings": {
+    "defaultDuration": "15"
+  },
+  "defaultSection": "right",
+  "schema": {
+    "defaultDuration": {
+      "type": "string",
+      "label": "Default duration",
+      "description": "The time the question starts on when you turn passwordless sudo on",
+      "info": "You choose the time again each time you turn it on. Indefinitely keeps passwordless sudo on, also after a restart, until you turn it off.",
+      "group": "Turning it on",
+      "presets": [
+        {
+          "value": "15",
+          "label": "15 minutes"
+        },
+        {
+          "value": "60",
+          "label": "1 hour"
+        },
+        {
+          "value": "1440",
+          "label": "1 day"
+        },
+        {
+          "value": "indefinite",
+          "label": "Indefinitely"
+        }
+      ]
+    }
+  }
+}
