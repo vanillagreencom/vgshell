@@ -33,6 +33,16 @@ if [[ $bars == "$monitors" && $monitors != 0 && $monitors != -1 ]]; then ok "one
 expect_widgets "every bar mounted the placed plugin widget" '["acme.tick"]'
 expect_builtins "every bar registered its built-in workspaces and clock" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
 
+# Preserve cold geometry before disable, placement or bar reconstruction.
+bar_initial_key="$(bar_key)"
+for bar_initial_id in vgs.bar vgs.bar/left-workspaces vgs.bar/center-clock; do
+  printf '  cold_geometry id=%s value=%s\n' "$bar_initial_id" "$(ipc smoke descendantGeometry "$bar_initial_key" "$bar_initial_id")"
+done
+for bar_initial_section in left center right; do
+  printf '  cold_section section=%s value=%s\n' "$bar_initial_section" "$(ipc smoke barSectionGeometry "$bar_initial_key" "$bar_initial_section")"
+done
+printf '  cold_profile value=%s\n' "$(ipc shell listShellConfig)"
+
 # The built-ins share one vertical centre, the bar's, and draw in the
 # `text.bar` role alone. A workspace pill is a BarItem: its label plus
 # `bar.item.paddingX` a side, never narrower than it is tall, and
@@ -102,7 +112,9 @@ expect "the core built the bar, its placed widget and the vgs.themes background 
 reconcile_ms=""
 if disable_reply="$(ipc shell setPluginEnabled acme.tick false)"; then
   replied_ms="$(now_ms)"
+  reconcile_poll_count=0
   for _ in $(seq 1 500); do
+    reconcile_poll_count=$((reconcile_poll_count + 1))
     if built_now="$("${shell_env[@]}" qs ipc --pid "$shell_qs_pid" call shell built 2>>"$sandbox/ipc.log" | tail -n 1)" && [[ -n $built_now && $built_now != *'"id":"acme.tick"'* ]]; then
       reconcile_ms=$(( $(now_ms) - replied_ms ))
       break
@@ -110,6 +122,7 @@ if disable_reply="$(ipc shell setPluginEnabled acme.tick false)"; then
     sleep 0.005
   done
 fi
+printf '  reconcile_observation polls=%s latency_ms=%s cpu=%s\n' "${reconcile_poll_count:-0}" "$reconcile_ms" "$(cat /proc/pressure/cpu)"
 if [[ $disable_reply == ok ]]; then ok "disabling a widget is allowed"; else fail "disabling a widget is allowed: got $disable_reply"; fi
 tick_entry() { ipc shell listShellConfig | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([e for e in d["bar"]["layout"]["center"] if e["id"]=="acme.tick"]))'; }
 user_keys() { python3 -c 'import json,sys; print(",".join(sorted(json.load(open(sys.argv[1])).keys())))' "$home/.config/vgshell/shell.json"; }
@@ -348,4 +361,20 @@ PY
   mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
   start_shell "$repo" "$sandbox/qs-bar-restored.log" || fail "the smoke profile shell starts again"
   expect_widgets "the original placed widget returns after the fresh profile" '["acme.tick"]'
+fi
+
+# Reproduce the cold zero-height mount in a disposable bar. The same
+# descendant reader must reject it while both registrations still exist.
+bar_alignment_misplaced() {
+  bar_alignment | py_reply 'import json,sys; rows=json.load(sys.stdin); print(any(s.startswith("clock.label.y=") for s in rows) and any(s.startswith("pill0.y=") for s in rows))'
+}
+if copy_tree bar-height-control \
+  && edit_tree bar-height-control shell/plugins/vgs.bar/Bar.qml 'implicitHeight: barSize' 'implicitHeight: 0'; then
+  stop_shell
+  start_shell "$sandbox/tree-bar-height-control" "$sandbox/bar-height-control.log" || fail "the cold-height control shell starts"
+  expect_builtins "control: the cold-height bar still registers both builtins" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
+  geometry expect "control: the alignment reader rejects a cold mount with no intrinsic bar height" True bar_alignment_misplaced
+  stop_shell
+  start_shell "$repo" "$sandbox/bar-height-restored.log" || fail "the shell starts after the cold-height control"
+  geometry expect_poll "the restored cold bar centers both builtin contents" '[]' bar_alignment
 fi

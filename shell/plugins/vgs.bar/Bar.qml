@@ -15,6 +15,10 @@ Item {
     readonly property string fontFamily: Theme.text.bar.family
     readonly property int barSize: Theme.bar.height
 
+    // Widgets mount before PluginSlot fills the bar. Give Row its height
+    // before its first transition records the widgets' vertical position.
+    implicitHeight: barSize
+
     // The host maps this screen's bar only while it is shown; the `hidden`
     // setting, which the service's toggle writes, hides it everywhere.
     readonly property bool shown: shell === null || shell.settings.hidden !== true
