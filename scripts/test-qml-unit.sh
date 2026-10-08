@@ -702,6 +702,8 @@ mutations=(
   "the pool keeps an image nobody holds|foundation/ImagePool.qml|if (entry.holders > 0) return;|return;|tst_imagetext.qml"
   "a TUI wait result never reaches the records|../Core/TuiRecords.qml|if (outcome.record !== null) {|if (false) {|tst_tui_records.qml"
   "a TUI record read judges cat's message instead of the probe|../Core/TuiRecords.qml|reader.existenceCheck.running = true;|if (readErrors.text.indexOf(\"No such file\") === -1) console.error(\"tui: record=\" + reader.path + \" unreadable: code=1 status=0\");|tst_tui_records.qml"
+  "a successful TUI record read starts the probe|../Core/TuiRecords.qml|root.recordLoaded(reader.path, content.text);|root.recordLoaded(reader.path, content.text); if (false)|tst_tui_records.qml"
+  "a dropped TUI reader's late end reinstates its record|../Core/TuiRecords.qml|readers[path].dropped = true;|readers[path].dropped = false;|tst_tui_records.qml"
   "a removed TUI record's failed read logs|../Core/TuiRecords.qml|const gone = done !== null && done.status === 0 && done.code === 1;|const gone = false;|tst_tui_records.qml"
   "an existing unreadable TUI record logs no error|../Core/TuiRecords.qml|if (!gone) console.error(|if (false) console.error(|tst_tui_records.qml"
   "a later run's wait record replaces an earlier run's of the key|../Core/TuiRecords.qml|waitRecords.filter(record => record.run !== outcome.record.run)|waitRecords.filter(record => record.key !== outcome.record.key)|tst_tui_records.qml"

@@ -182,6 +182,7 @@ Scope {
                 next[path] = readers[path];
                 continue;
             }
+            readers[path].dropped = true;
             readers[path].destroy();
             recordGone(path);
         }
@@ -247,6 +248,10 @@ Scope {
         Process {
             id: reader
             property string path: ""
+            // Set when the listing drops the path: destroy() only defers the
+            // delete, so a read or probe that ends meanwhile still runs its
+            // handler, which must not reinstate the record.
+            property bool dropped: false
             // The read's { code, status }; a failed start leaves it null.
             property var completion: null
             command: ["cat", "--", reader.path]
@@ -261,7 +266,7 @@ Scope {
                 environment: ({ PATH: Quickshell.env("PATH") })
                 onExited: (code, status) => { completion = { code: code, status: status }; }
                 onRunningChanged: {
-                    if (running) return;
+                    if (running || reader.dropped) return;
                     const done = completion;
                     const gone = done !== null && done.status === 0 && done.code === 1;
                     const read = reader.completion;
@@ -275,7 +280,7 @@ Scope {
             // each judge their end there.
             // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
             onRunningChanged: {
-                if (running) return;
+                if (running || reader.dropped) return;
                 const done = reader.completion;
                 if (done !== null && done.status === 0 && done.code === 0) {
                     root.recordLoaded(reader.path, content.text);

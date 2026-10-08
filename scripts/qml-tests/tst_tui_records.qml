@@ -71,11 +71,14 @@ Item {
             compare(reader.command, ["cat", "--", path]);
             compare(reader.clearEnvironment, true);
             compare(reader.environment, { PATH: "env:PATH" });
+            compare(ProcessRegistry.runningWithVerb("-e").length, 0);
             return reader;
         }
 
+        // A read that succeeds starts no existence probe.
         function finishRead(path, text) {
             readerOf(path).finish(0, 0, text, "");
+            compare(ProcessRegistry.runningWithVerb("-e").length, 0);
         }
 
         function listRunning() {
@@ -110,7 +113,6 @@ Item {
         function test_removed_record_read_failure_data() {
             // A removal can also end the read without cat's not-found exit.
             return [
-                { tag: "failed-start", end: { startFailed: true } },
                 { tag: "crash", end: { code: 9, status: 1, err: "" } }
             ];
         }
@@ -132,8 +134,28 @@ Item {
             model.setFiles([], "remove");
             compare(Object.keys(records.readers), []);
             compare(Object.keys(records.fileRecords), []);
-            compare(reads().length, 0);
+        }
+
+        function test_a_dropped_reader_ending_late_changes_nothing_data() {
+            return [
+                { tag: "read", ok: true },
+                { tag: "failed-read", ok: false }
+            ];
+        }
+
+        // destroy() defers the delete, so a reader the listing dropped can
+        // still end before it goes: its record stays out and nothing logs.
+        function test_a_dropped_reader_ending_late_changes_nothing(data) {
+            model.setFiles([runningPath], "reset");
+            const reader = readerOf(runningPath);
+            model.setFiles([], "remove");
+            if (data.ok) reader.finish(0, 0, JSON.stringify(record("running", null)), "");
+            else reader.finish(1, 0, "", denied.err);
+            compare(Object.keys(records.fileRecords), []);
             compare(ProcessRegistry.runningWithVerb("-e").length, 0);
+            wait(0);
+            compare(Object.keys(records.readers), []);
+            compare(Object.keys(records.fileRecords), []);
         }
 
         function test_existing_record_read_failure_data() {
@@ -146,7 +168,9 @@ Item {
         }
 
         // The smoke shell-log check parses the tui: record= error line.
-        // expected-log: tui: record=/unit/tui/acme.tui@hello@1-1.running.json unreadable: -- An existing record's failed read must remain an error.
+        // expected-log: tui: record=/unit/tui/acme.tui@hello@1-1.running.json unreadable: start=failed -- An existing record whose read failed to start must remain an error.
+        // expected-log: tui: record=/unit/tui/acme.tui@hello@1-1.running.json unreadable: code=9 status=1 -- An existing record whose read crashed must remain an error.
+        // expected-log: tui: record=/unit/tui/acme.tui@hello@1-1.running.json unreadable: code=1 status=0 -- An existing record whose read exited 1 must remain an error.
         function test_existing_record_read_failure(data) {
             const probe = failListedRead(data.end);
             probe.finish(0, 0);
