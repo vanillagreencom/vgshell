@@ -461,6 +461,26 @@ function suite(ctx, check) {
         ctx.settingChoices(outputsJudged.manifest, { devices: offered }, { device: "", plain: "text", outputs: [{ name: "1", device: "b" }, { name: "2", device: "gone" }, { name: "3", device: "a" }] })
             .outputs.map(item => ({ device: shape(item.device, offered) })),
         [{ device: [alphaUnset, beta] }, { device: [alphaUnset, beta, unavailable] }, { device: [alpha, beta] }]);
+    // An entry that declares `placeholder` lists every offer with its own
+    // id: "" means nothing is chosen, so no offer stands for it.
+    const placeholderJudged = ctx.validateManifest(Object.assign({}, raw, {
+        settings: { device: "", plain: "text", model: "", outputs: [] },
+        schema: Object.assign({
+            model: { type: "string", label: "Model", optionsFrom: "devices", placeholder: "Pick one" },
+            outputs: { type: "list", label: "Outputs", items: { device: { type: "string", label: "Device", optionsFrom: "devices", placeholder: "Pick one" } }, defaults: { device: "" } }
+        }, raw.schema)
+    }), "/p");
+    if (!placeholderJudged.ok) throw new Error("the placeholder fixture manifest is refused: " + placeholderJudged.error);
+    for (const [name, publishedChoices, configured, want] of [
+        ["unset lists the offers with their ids", { devices: offered }, "", [alpha, beta]],
+        ["a pinned first offer", { devices: offered }, "a", [alpha, beta]],
+        ["a pinned other offer", { devices: offered }, "b", [alpha, beta]],
+        ["a removed configured value stays", { devices: offered }, "gone", [alpha, beta, unavailable]],
+        ["an empty list offers nothing", { devices: [] }, "", []]
+    ]) {
+        const models = ctx.settingChoices(placeholderJudged.manifest, publishedChoices, { device: "", plain: "text", model: configured, outputs: [{ name: "1", device: configured }] });
+        check("settingChoices with a placeholder: " + name, [shape(models.model, publishedChoices.devices), models.outputs.map(item => shape(item.device, publishedChoices.devices))], [want, [want]]);
+    }
     check("settingRefusal keeps an unavailable id", ctx.settingRefusal(m, "device", "gone"), "");
     check("settingRefusal keeps automatic empty string", ctx.settingRefusal(m, "device", ""), "");
     check("settingRefusal still requires a string", ctx.settingRefusal(m, "device", 1), "refused: setting=device want=string");
@@ -619,10 +639,11 @@ const CONTROLS = [
     ["launcher row has only its keys", "if (LAUNCHER_ROW_KEYS.indexOf(keys[i]) === -1) return false;", "if (false) return false;"],
     ["launcher row icon is shipped", "&& typeof item.icon === \"string\" && hasOwn(Lucide.ICONS, item.icon)", "&& typeof item.icon === \"string\""],
     ["choices preserves an unavailable id", "model.push({ label: configured + \" (unavailable)\", value: configured });", "model.push({ label: configured + \" (unavailable)\", value: \"\" });"],
-    ["the first offer stands for the unset value", "value: index === 0 && configured !== choice.value ? \"\" : choice.value", "value: choice.value"],
-    ["a pinned first offer keeps its id", "value: index === 0 && configured !== choice.value ? \"\" : choice.value", "value: index === 0 ? \"\" : choice.value"],
-    ["each offer is listed once", "            return { label: choice.label, value: index === 0 && configured !== choice.value ? \"\" : choice.value };\n        });\n", "            return { label: choice.label, value: index === 0 && configured !== choice.value ? \"\" : choice.value };\n        });\n        if (offered.length > 0) model.unshift({ label: offered[0].label, value: \"\" });\n"],
-    ["choices copies offered labels", "return { label: choice.label, value: index === 0", "return { label: choice.value, value: index === 0"],
+    ["the first offer stands for the unset value", "var unset = entry.placeholder === undefined && index === 0 && configured !== choice.value;", "var unset = false;"],
+    ["a pinned first offer keeps its id", "index === 0 && configured !== choice.value;", "index === 0;"],
+    ["each offer is listed once", "            return { label: choice.label, value: unset ? \"\" : choice.value };\n        });\n", "            return { label: choice.label, value: unset ? \"\" : choice.value };\n        });\n        if (offered.length > 0) model.unshift({ label: offered[0].label, value: \"\" });\n"],
+    ["choices copies offered labels", "return { label: choice.label, value: unset", "return { label: choice.value, value: unset"],
+    ["a placeholder entry has no unset offer", "var unset = entry.placeholder === undefined && index === 0", "var unset = index === 0"],
     ["a write needs a declared key", "if (typeof key !== \"string\" || !hasOwn(manifest.status, key))\n        return refused(\"undeclared\");", "if (false)\n        return refused(\"undeclared\");"],
     ["a write needs a value of its type", "if (!statusValueFits(manifest.status[key].type, value) ||", "if ("],
     ["a write fits the size ceiling", "if (bytes > STATUS_MAX_BYTES)", "if (false)"],

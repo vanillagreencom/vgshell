@@ -243,6 +243,7 @@ Column {
             model: dynamic ? root.choices : root.spec.options
             textRole: dynamic ? "label" : ""
             emptyText: dynamic ? "None found yet" : ""
+            placeholderText: dynamic && root.spec.placeholder !== undefined ? root.spec.placeholder : ""
             currentIndex: configuredIndex
             enabled: root.editable
             onActivated: index => {

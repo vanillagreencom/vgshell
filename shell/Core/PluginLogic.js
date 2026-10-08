@@ -45,9 +45,11 @@ var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];
 // The types a settings schema entry may declare, and the keys an entry may
 // carry. `presets`, `allowCustom`, `format` and `unit` choose the Settings
 // editor; `min`, `max` and `step` bound a number's control; `group` names
-// the section heading the entry is drawn under. Pads.js judges a `list`.
+// the section heading the entry is drawn under; `placeholder` is what an
+// `optionsFrom` select reads while its value is "", which then means
+// nothing is chosen. Pads.js judges a `list`.
 var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];
-var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "hintFrom", "info", "options", "optionsFrom", "presets", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults"];
+var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "hintFrom", "info", "options", "optionsFrom", "presets", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults", "placeholder"];
 var NUMBER_BOUND_KEYS = ["min", "max", "step"];
 var PRESET_KEYS = ["value", "label"];
 var PRESET_LABEL_MAX = 40;
@@ -429,6 +431,12 @@ function schemaError(schema, settings, status) {
                 return at + ".optionsFrom must name a status key";
             if (!hasOwn(status, entry.optionsFrom) || status[entry.optionsFrom].type !== "choices")
                 return at + ".optionsFrom must name a choices status entry";
+        }
+        if (entry.placeholder !== undefined) {
+            if (entry.optionsFrom === undefined)
+                return at + ".placeholder needs optionsFrom";
+            if (!isPrintableLine(entry.placeholder, STATUS_LABEL_MAX))
+                return at + ".placeholder must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters";
         }
         if (entry.presets !== undefined && entry.optionsFrom !== undefined)
             return at + " must not declare both presets and optionsFrom";
@@ -977,15 +985,17 @@ function statusDisplayable(entry) {
 
 // Select models keyed by string setting name. Only accepted status enters
 // here. Neither a new list nor an absent configured id writes settings.
-// The first offer stands for the unset value: its entry carries "" unless
-// its own id is configured, so each offer is listed once.
+// Each offer is listed once. The first offer stands for the unset value:
+// its entry carries "" unless its own id is configured. An entry that
+// declares `placeholder` has no unset offer: "" means nothing is chosen.
 // Settings choices: docs/architecture/design-system.md § Settings pages.
 function settingChoices(manifest, values, settings) {
     var out = {};
-    var choices = function (from, configured) {
-        var offered = hasOwn(values, from) ? values[from] : [];
+    var choices = function (entry, configured) {
+        var offered = hasOwn(values, entry.optionsFrom) ? values[entry.optionsFrom] : [];
         var model = offered.map(function (choice, index) {
-            return { label: choice.label, value: index === 0 && configured !== choice.value ? "" : choice.value };
+            var unset = entry.placeholder === undefined && index === 0 && configured !== choice.value;
+            return { label: choice.label, value: unset ? "" : choice.value };
         });
         if (configured !== "" && !offered.some(function (choice) { return choice.value === configured; }))
             model.push({ label: configured + " (unavailable)", value: configured });
@@ -994,7 +1004,7 @@ function settingChoices(manifest, values, settings) {
     Object.keys(manifest.schema).forEach(function (key) {
         var entry = manifest.schema[key];
         if (entry.type === "list") out[key] = Pads.listChoices(entry, settings[key], choices);
-        else if (entry.optionsFrom !== undefined) out[key] = choices(entry.optionsFrom, settings[key]);
+        else if (entry.optionsFrom !== undefined) out[key] = choices(entry, settings[key]);
     });
     return frozenJson(out);
 }

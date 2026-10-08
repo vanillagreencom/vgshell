@@ -83,8 +83,8 @@ function suite(pads, check) {
         check("listValueError: " + name, pads.listValueError(entry, value, logic.settingError, logic.NAME_PATTERN), want);
 
     // listChoices: one model per item for each optionsFrom field.
-    const model = (from, configured) => [from, configured];
-    check("listChoices: one model per item for each optionsFrom field", plain(pads.listChoices(entry, [pad("1", { screen: "DP-1" }), pad("2")], model)), [{ screen: ["screens", "DP-1"] }, { screen: ["screens", ""] }]);
+    const model = (field, configured) => [field === entry.items.screen, configured];
+    check("listChoices: one model per item for each optionsFrom field, from its item entry", plain(pads.listChoices(entry, [pad("1", { screen: "DP-1" }), pad("2")], model)), [{ screen: [true, "DP-1"] }, { screen: [true, ""] }]);
     check("listChoices: a value that is no list has no models", plain(pads.listChoices(entry, "x", model)), []);
 
     // manifestError: one row per rule, the defect planted in the schema.
@@ -170,6 +170,7 @@ const CONTROLS = [
     ["a list needs items", "if (!isPlainObject(entry.items) || Object.keys(entry.items).length === 0)", "if (!isPlainObject(entry.items))"],
     ["a list needs defaults", "if (!isPlainObject(entry.defaults))\n        return at + \".defaults must be an object\";", "if (entry.defaults === undefined)\n        entry.defaults = {};"],
     ["no item field is named name", "if (fields[i] === \"name\")", "if (false)"],
+    ["a list field's model takes its item entry", "model(entry.items[key], isPlainObject(item)", "model(entry.items[key].optionsFrom, isPlainObject(item)"],
     ["no list inside a list", "&& entry.items[fields[i]].type === \"list\")", "&& false)"],
     ["defaults name item fields", "return !hasOwn(entry.items, key); });", "return false; });"],
     ["items are judged as a flat schema", "var bad = schemaError(entry.items, entry.defaults, status);", "var bad = \"\";"],

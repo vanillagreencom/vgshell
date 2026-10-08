@@ -77,14 +77,14 @@ function listValueError(entry, value, settingError, namePattern) {
 }
 
 // The Select models of list entry ENTRY's `optionsFrom` fields for VALUE,
-// one { field: model } per item in order, MODEL(statusKey, configured)
+// one { field: model } per item in order, MODEL(itemEntry, configured)
 // being PluginLogic's model of one string setting; none for a value that
 // is no list.
 function listChoices(entry, value, model) {
     var fields = Object.keys(entry.items).filter(function (key) { return entry.items[key].optionsFrom !== undefined; });
     return (Array.isArray(value) ? value : []).map(function (item) {
         var out = {};
-        fields.forEach(function (key) { out[key] = model(entry.items[key].optionsFrom, isPlainObject(item) ? item[key] : undefined); });
+        fields.forEach(function (key) { out[key] = model(entry.items[key], isPlainObject(item) ? item[key] : undefined); });
         return out;
     });
 }

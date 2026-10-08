@@ -26,7 +26,10 @@ import qs.Ui
 // click, hover and focus. With nothing to choose and `emptyText` set, the
 // control reads that text dimmed, and a click, Space or Enter opens one
 // dimmed line reading it, which takes no highlight and chooses nothing;
-// without `emptyText` an empty list does not open.
+// without `emptyText` an empty list does not open. With entries to choose,
+// none chosen (`currentIndex` outside the model) and `placeholderText` set,
+// the control reads that text dimmed, and the list opens with no entry
+// highlighted; Down then moves to the first entry.
 T.AbstractButton {
     id: root
 
@@ -47,6 +50,8 @@ T.AbstractButton {
     readonly property string typed: closedNav.typed
     property string emptyText: ""
     readonly property bool showsEmpty: count === 0 && emptyText !== ""
+    property string placeholderText: ""
+    readonly property bool showsPlaceholder: count > 0 && !(currentIndex >= 0 && currentIndex < count) && placeholderText !== ""
     // A user choice only. Model and binding updates never emit this.
     signal activated(int index)
 
@@ -105,7 +110,7 @@ T.AbstractButton {
     PointerCursor {}
     focusPolicy: Qt.StrongFocus
     opacity: enabled ? 1 : Theme.opacity.disabled
-    Accessible.name: showsEmpty ? emptyText : currentText
+    Accessible.name: showsEmpty ? emptyText : showsPlaceholder ? placeholderText : currentText
     onClicked: if (list.visible) list.visible = false; else openList()
     Keys.onPressed: event => { event.accepted = closedNav.handle(event); }
 
@@ -124,8 +129,8 @@ T.AbstractButton {
     contentItem: Label {
         id: shown
         role: "item"
-        text: root.showsEmpty ? root.emptyText : root.currentText
-        color: root.showsEmpty ? Theme.textField.placeholder : shown.typography.color
+        text: root.showsEmpty ? root.emptyText : root.showsPlaceholder ? root.placeholderText : root.currentText
+        color: root.showsEmpty || root.showsPlaceholder ? Theme.textField.placeholder : shown.typography.color
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
     }

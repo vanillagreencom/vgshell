@@ -32,6 +32,19 @@ Item {
         onApply: value => root.applied.push(value)
     }
 
+    // A choice whose unset value means nothing is chosen declares a
+    // placeholder, which its Select reads while no offer is chosen.
+    SettingField {
+        id: picked
+        y: 120
+        width: 420
+        pluginId: "vgs.jarvis"
+        key: "brain"
+        spec: ({ type: "string", label: "Model", optionsFrom: "brains", placeholder: "Pick a model" })
+        choices: [{ label: "Alpha", value: "a" }, { label: "Beta", value: "b" }]
+        value: ""
+    }
+
     // A field whose description or custom field's description sits under
     // it is followed by a group space, `stack.group`; the last ends at its
     // line.
@@ -54,6 +67,7 @@ Item {
             UnitTheme.reset();
             root.applied = [];
             field.value = "HH:mm";
+            picked.value = "";
             Time.now = new Date(2026, 8, 30, 20, 34, 0);
         }
 
@@ -86,6 +100,35 @@ Item {
                 if (owner.resources[i].anchor !== undefined) window = owner.resources[i];
             const scope = window.contentItem.children.find(child => child.popup !== undefined);
             return scope.children.find(child => child.currentIndex !== undefined);
+        }
+
+        function test_unset_choice_reads_its_placeholder() {
+            const select = selectOf(picked);
+            verify(select !== undefined, "the choice Select exists");
+            compare(select.contentItem.text, picked.spec.placeholder, "unset, the Select reads the placeholder");
+            compare(select.Accessible.name, picked.spec.placeholder, "unset, the Select is named by the placeholder");
+            verify(Qt.colorEqual(select.contentItem.color, Theme.textField.placeholder), "the placeholder draws dimmed");
+            picked.value = picked.choices[1].value;
+            tryCompare(select.contentItem, "text", picked.choices[1].label, 1000, "a chosen value reads its offer");
+            compare(select.Accessible.name, picked.choices[1].label, "a chosen value names its offer");
+            verify(!Qt.colorEqual(select.contentItem.color, Theme.textField.placeholder), "a chosen value draws undimmed");
+        }
+
+        function test_unset_choice_opens_with_nothing_highlighted() {
+            const select = selectOf(picked);
+            select.openList();
+            const list = selectList(select);
+            tryVerify(() => list.itemAtIndex(0) !== null, 1000, "the choice list builds entries");
+            compare(list.currentIndex, -1, "an unset choice opens with no entry highlighted");
+            list.Window.window.requestActivate();
+            list.forceActiveFocus();
+            tryCompare(list.Window, "active", true);
+            tryCompare(list, "activeFocus", true);
+            keyClick(Qt.Key_Down);
+            compare(list.currentIndex, 0, "Down moves to the first entry");
+            keyClick(Qt.Key_Escape);
+            tryCompare(select, "listOpen", false);
+            compare(picked.value, "", "moving the highlight chooses nothing");
         }
 
         function test_open_datetime_list_keeps_highlight_across_clock_tick() {
