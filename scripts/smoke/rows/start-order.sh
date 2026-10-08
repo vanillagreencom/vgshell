@@ -5,7 +5,8 @@
 # acme.locker, a service. The compiled QML cache is cleared first, so the
 # start compiles as the first start of the run did. It reads:
 # - the first bar within the default set's budget, printed as
-#   latency_first_bar_ms with plugin_set=default;
+#   latency_first_bar_ms with first_bar_plugin_set=default; readings above
+#   harness.sh's shared CPU pressure limit are unmeasured;
 # - ServiceGate's release, reason first-frame, and in the probe's start
 #   order every bar window's first frame before the first service the core
 #   built;
@@ -130,8 +131,10 @@ release_reason() { gate_release_state; }
 
 if restart_over "$repo" "$sandbox/start-order-qs.log"; then
   expect "default-set Jarvis starts without spending recovery allowance" ready jarvis_wait_ready
-  echo "  latency_first_bar_ms=${first_bar_ms:-unmeasured} budget_ms=$default_first_bar_budget_ms cpu_some_pct=$first_bar_cpu_some_pct plugin_set=default"
-  if [[ -n $first_bar_ms && $first_bar_ms -le $default_first_bar_budget_ms ]]; then ok "the first bar of the default set maps within its budget"; else fail "default-set first bar latency ${first_bar_ms:-unmeasured} ms over budget $default_first_bar_budget_ms ms"; fi
+  echo "  first_bar_plugin_set=default"
+  latency_pressure_check start-order first_bar "${first_bar_ms:-}" "$first_bar_cpu_some_pct" "$default_first_bar_budget_ms"
+  expect "control: default first-bar rejects a low-pressure budget miss" over latency_pressure_verdict "$((default_first_bar_budget_ms + 1))" 0.0 "$default_first_bar_budget_ms"
+  expect "control: default first-bar excludes a fast busy sample" unmeasured latency_pressure_verdict "$default_first_bar_budget_ms" 2.9 "$default_first_bar_budget_ms"
   expect_poll "the gate released the services on the first bar frame" first-frame release_reason
   expect "every bar presented its first frame before the core built a service" bars-first services_order
   # The service's build, if the gate's lending snapshot let one through,

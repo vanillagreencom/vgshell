@@ -908,6 +908,37 @@ cpu_some_pct() {
     echo unmeasured
   fi
 }
+# The pressure ceiling comes from the owner-approved cachy measurement:
+# Ryzen 9 9950X, 2026-10-08, VGS-1100 note 1791448368, highest 1.4%.
+# VGS-1064 directive 1791486985 excludes every reading above twice that
+# pressure, including fast readings. This restates the smoke policy; it
+# changes no product or architecture boundary.
+latency_pressure_limit=2.8
+latency_pressure_verdict() { # MS CPU_SOME_PCT BUDGET_MS
+  local ms="$1" pressure="$2" budget="$3" pressure_tenths limit_tenths
+  if [[ ! $ms =~ ^[0-9]+$ || ! $pressure =~ ^[0-9]+\.[0-9]$ || ! $budget =~ ^[0-9]+$ ]]; then
+    echo unread
+    return
+  fi
+  pressure_tenths=$((10#${pressure%.*} * 10 + 10#${pressure#*.}))
+  limit_tenths=$((10#${latency_pressure_limit%.*} * 10 + 10#${latency_pressure_limit#*.}))
+  if ((pressure_tenths > limit_tenths)); then echo unmeasured
+  elif ((10#$ms <= 10#$budget)); then echo within
+  else echo over
+  fi
+}
+latency_pressure_check() { # ROW READING MS CPU_SOME_PCT BUDGET_MS
+  local row="$1" reading="$2" ms="$3" pressure="$4" budget="$5" result
+  result="$(latency_pressure_verdict "$ms" "$pressure" "$budget")"
+  printf '  latency_%s_ms=%s budget_ms=%s cpu_some_pct=%s result=%s\n' "$reading" "${ms:-unmeasured}" "$budget" "$pressure" "$result"
+  case "$result" in
+    within) ok "$reading meets its latency budget" ;;
+    unmeasured) not_measured "$row" "$reading-cpu_some_pct=$pressure-above-$latency_pressure_limit" ;;
+    over) fail "$reading latency $ms ms over budget $budget ms" ;;
+    unread) fail "$reading reading unavailable: latency_ms=${ms:-unmeasured} cpu_some_pct=$pressure" ;;
+    *) fail "$reading verdict invalid: $result" ;;
+  esac
+}
 # click X Y: one left click at that layout position on the nested seat.
 # click_centre HOST_KEY ID: the same on the centre of a built instance.
 # hover X Y: the pointer moved there with no press. right_click X Y and

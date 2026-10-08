@@ -628,6 +628,7 @@ jarvis_bubble_binding_dir="$(mktemp -d "$sandbox/jarvis-bubble-bindings.XXXXXX")
   failures=0 behaviour_failures=0
   # Force an unrelated failure too. It must not change the binding verdict.
   first_bar_ms=$((first_bar_budget_ms + 1))
+  first_bar_cpu_some_pct=0.0
   # The real row appends sampler output; keep this control's files private.
   sandbox="$jarvis_bubble_binding_dir"
   source "$repo/scripts/smoke/rows/diagnostics.sh"

@@ -37,7 +37,8 @@
 # the shortcut handler and QQuickWindow.frameSwapped, before visibility;
 # polling every 200 ms only waits for those timestamped readings. CPU
 # pressure spans shortcut send through native-frame readback; each open
-# prints its actual pressure sampling interval. The ceiling holds at any pressure.
+# prints its actual pressure sampling interval. Readings above harness.sh's
+# shared CPU pressure limit are unmeasured, including fast readings.
 # Restoring eager Tooltip window construction must exceed the same budget.
 # inputs: shell/plugins/vgs.keyhints/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.voice/manifest.json shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Tooltip.qml shell/Ui/overlay/AnchorTracker.qml shell/Hosts/AppWindow.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/HyprlandLayer.js bin/lib/qml-library.js
 set -euo pipefail
@@ -317,11 +318,44 @@ print(json.dumps(samples))
 PY_TIMES
 }
 kh_timing_count() { kh_timing_samples | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
-kh_timing_budget() { kh_timing_samples | py_reply 'import json,sys; a=json.load(sys.stdin); print(bool(len(a)>1 and a[0]<=4478 and all(t<=200 for t in a[1:])))'; }
-kh_timing_later_budget() { kh_timing_samples | py_reply 'import json,sys; a=json.load(sys.stdin); print(bool(len(a)>1 and all(t<=200 for t in a[1:])))'; }
+kh_timing_readings=()
+kh_timing_budget() { # JSON [later]
+  local rows ms pressure bound index=0 result=within verdict
+  rows="$(printf '%s' "$1" | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+if not isinstance(rows,list) or len(rows)<2: print("unread")
+else:
+    for row in rows:
+        value=row.get("drawn") if isinstance(row,dict) else None
+        pressure=row.get("cpu_some_pct") if isinstance(row,dict) else None
+        print(value if type(value) is int and value>=0 else "unmeasured", pressure if type(pressure) in (int,float) else "unmeasured")')" || { echo unread; return; }
+  while read -r ms pressure; do
+    index=$((index + 1))
+    [[ ${2:-} != later || $index -gt 1 ]] || continue
+    bound=200
+    [[ $index -gt 1 ]] || bound=4478
+    verdict="$(latency_pressure_verdict "$ms" "$pressure" "$bound")"
+    case "$verdict" in
+      unread) result=unread ;;
+      over) [[ $result == unread ]] || result=over ;;
+      unmeasured) [[ $result != within ]] || result=unmeasured ;;
+      within) ;;
+      *) echo unread; return ;;
+    esac
+  done <<<"$rows"
+  echo "$result"
+}
+kh_timing_readings_json() { printf '%s\n' "${kh_timing_readings[@]}" | py_reply 'import json,sys; print(json.dumps([json.loads(line) for line in sys.stdin]))'; }
+# Planted samples exercise both budgets through the same row reader.
+expect 'control: Key Hints rejects a low-pressure first-open miss' over kh_timing_budget '[{"drawn":4479,"cpu_some_pct":0.0},{"drawn":200,"cpu_some_pct":0.0}]'
+expect 'control: Key Hints rejects a low-pressure later-open miss' over kh_timing_budget '[{"drawn":200,"cpu_some_pct":0.0},{"drawn":201,"cpu_some_pct":0.0}]'
+expect 'control: Key Hints excludes a fast busy open' unmeasured kh_timing_budget '[{"drawn":200,"cpu_some_pct":0.0},{"drawn":200,"cpu_some_pct":2.9}]'
+expect 'control: Key Hints busy open cannot hide another miss' over kh_timing_budget '[{"drawn":4479,"cpu_some_pct":0.0},{"drawn":201,"cpu_some_pct":2.9}]'
+expect 'control: Key Hints refuses missing pressure' unread kh_timing_budget '[{"drawn":200,"cpu_some_pct":0.0},{"drawn":201}]'
 kh_timing_rows() { ipc smoke itemValues window vgs.keyhints BindField pluginId,bind | py_reply 'import json,sys; print(sum(r["pluginId"].startswith("vgs.") for r in json.load(sys.stdin)))'; }
 kh_timing_opens() {
-  local count="$1" n before="$failures" pressure start end elapsed sample profile
+  local count="$1" n before="$failures" pressure start end elapsed sample profile pct bound verdict
+  kh_timing_readings=()
   expect_poll 'the measured Key Hints shortcut is available' True record_exists vgs.keyhints
   [[ $failures == "$before" ]] || return 1
   profile="$(ipc shell listPlugins | py_reply 'import json,pathlib,sys
@@ -343,7 +377,12 @@ print(len(shipped))' "$repo/shell/plugins")" || { fail 'the measured all-shipped
     elapsed=$(( $(now_ms) - start ))
     [[ -n $end && $elapsed -gt 0 ]] || { fail 'the completed CPU pressure interval is unavailable'; return 1; }
     sample="$(kh_timing_samples | py_reply 'import json,sys; print(json.load(sys.stdin)[-1])')" || { fail 'the completed frame sample is unreadable'; return 1; }
-    printf '  keyhints-open index=%s latency_ms=%s cpu_some_pct=%s pressure_interval_ms=%s machine=cachy\n' "$n" "$sample" "$(cpu_some_pct "$pressure" "$end" "$elapsed")" "$elapsed"
+    pct="$(cpu_some_pct "$pressure" "$end" "$elapsed")"
+    bound=200
+    [[ $n -gt 1 ]] || bound=4478
+    verdict="$(latency_pressure_verdict "$sample" "$pct" "$bound")"
+    kh_timing_readings+=("{\"drawn\":$sample,\"cpu_some_pct\":$pct}")
+    printf '  keyhints-open index=%s latency_ms=%s cpu_some_pct=%s pressure_interval_ms=%s machine=cachy result=%s\n' "$n" "$sample" "$pct" "$elapsed" "$verdict"
     expect "the measured open $n has the keyboard" "[\"$shell_class\", \"$kh_title\"]" active_window
     expect "the measured open $n holds the baseline bind workload" True bash -c '[[ "$1" -ge 34 ]] && echo True || echo False' _ "$(kh_timing_rows)"
     [[ $failures == "$before" ]] || return 1
@@ -372,7 +411,13 @@ expect 'the timed shortcut reloads without configuration errors' '[]' hypr_reloa
 if kh_timing_tree keyhints-timing; then
   stop_shell
   if start_shell "$sandbox/tree-keyhints-timing" "$sandbox/keyhints-timing.log" && kh_timing_opens 5; then
-    expect 'first open is no slower than baseline and all later opens meet 200 ms' True kh_timing_budget
+    kh_timing_result="$(kh_timing_budget "$(kh_timing_readings_json)")" || kh_timing_result=unread
+    printf '  keyhints-open-result=%s\n' "$kh_timing_result"
+    if [[ $kh_timing_result == unmeasured ]]; then
+      not_measured keyhints "open-cpu_some_pct-above-$latency_pressure_limit"
+    else
+      expect 'first open is no slower than baseline and all later opens meet 200 ms' within printf '%s\n' "$kh_timing_result"
+    fi
     # Every bind is still a row after the timed window was destroyed.
     expect 'the timed Key Hints window opens for its row count' ok ipc shell summon window vgs.keyhints '{}'
     expect 'the all-plugin measurement holds at least the baseline bind count' True bash -c '[[ "$1" -ge 34 ]] && echo True || echo False' _ "$(kh_timing_rows)"
@@ -399,7 +444,13 @@ if kh_timing_tree keyhints-slow \
         function onVisibleChanged() { if (popup.item !== null && !popup.item.visible) root.shown = false; }
     }' '    }'; then
   if start_shell "$sandbox/tree-keyhints-slow" "$sandbox/keyhints-slow.log" && kh_timing_opens 2; then
-    expect 'control: eager popup construction fails the actual later-open budget' False kh_timing_later_budget
+    kh_control_result="$(kh_timing_budget "$(kh_timing_readings_json)" later)" || kh_control_result=unread
+    printf '  keyhints-control-result=%s\n' "$kh_control_result"
+    if [[ $kh_control_result == unmeasured ]]; then
+      not_measured keyhints "eager-control-cpu_some_pct-above-$latency_pressure_limit"
+    else
+      expect 'control: eager popup construction fails the actual later-open budget' over printf '%s\n' "$kh_control_result"
+    fi
   fi
   stop_shell
 fi
