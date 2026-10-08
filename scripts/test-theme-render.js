@@ -2488,15 +2488,15 @@ function verifyNeovim(template) {
             faults.push({ kind: "neovim-diff-fill", group, amount: Number(fill[2]), floor });
     }
     // Modified words use one recipe per declared mode. Dark words stay in
-    // the page or accent hue; light words retain the approved warning tint.
+    // the theme accent hue; light words retain the approved warning tint.
     for (const [mode, styles] of sourceModes) {
         const word = styles.get("DiffText");
-        const fill = /^#@\{mix\(\{color.background\}, \{(color.text|color.accent|palette.warning)\}, ([\d.]+)\)\}$/.exec(word?.bg);
+        const fill = /^#@\{mix\(\{color.background\}, \{(color.accent|palette.warning)\}, ([\d.]+)\)\}$/.exec(word?.bg);
         if (mode === "light") {
             if (word?.bg !== "#@{mix({color.background}, {palette.warning}, 0.35)}" ||
                 word?.fg !== "#@{contrast(mix({color.background}, {palette.warning}, 0.35))}")
                 faults.push({ kind: "neovim-light-word-recipe", mode, group: "DiffText" });
-        } else if (fill === null || !["color.text", "color.accent"].includes(fill[1])) {
+        } else if (word?.bg !== "#@{mix({color.background}, {color.accent}, 0.30)}") {
             faults.push({ kind: "neovim-dark-word-recipe", mode, group: "DiffText" });
         }
         if (fill !== null && Number(fill[2]) < 0.16)
@@ -2574,11 +2574,6 @@ function verifyNeovim(template) {
 }
 assert.deepEqual(neovimStyles(neovimTemplate.replace(/\n/g, "\r\n")), neovimStyles(neovimTemplate));
 const neovimMetrics = verifyNeovim(neovimTemplate);
-const neovimDarkA = "mix({color.background}, {color.text}, 0.24)";
-const neovimDarkB = "mix({color.background}, {color.accent}, 0.30)";
-const neovimAlternate = neovimTemplate.split(neovimDarkA).join(neovimDarkB);
-assert.notEqual(neovimAlternate, neovimTemplate);
-const neovimAlternateMetrics = verifyNeovim(neovimAlternate);
 // Replacing the mode table with its approved light entry reconstructs Last.
 // Every light package must keep all highlight colours and attributes.
 const neovimLastLight = neovimTemplate.replace(/  local diffText = \(\{[\s\S]*?\n  hl\("DiffText", diffText\)/,
@@ -2593,20 +2588,19 @@ for (const { pkg, shipped } of selectionPackages.filter(({ pkg }) => pkg.values.
         return neovimStyles(rendered.files[0].bytes.toString("utf8"));
     };
     assert.deepEqual(renderStyles(neovimTemplate), renderStyles(neovimLastLight));
-    assert.deepEqual(renderStyles(neovimAlternate), renderStyles(neovimLastLight));
 }
 const neovimControls = [
     ["neovim-diff-fill", 'hl("DiffAdd", { fg = "#@{contrast(mix({color.background}, {palette.success}, 0.18))}", bg = "#@{mix({color.background}, {palette.success}, 0.18)}" })',
         'hl("DiffAdd", { fg = "#@{contrast(mix({color.background}, {palette.success}, 0.04))}", bg = "#@{mix({color.background}, {palette.success}, 0.04)}" })', "DiffAdd"],
-    ["neovim-diff-fill", 'dark = { fg = "#@{contrast(mix({color.background}, {color.text}, 0.24))}", bg = "#@{mix({color.background}, {color.text}, 0.24)}"',
-        'dark = { fg = "#@{contrast(mix({color.background}, {color.text}, 0.08))}", bg = "#@{mix({color.background}, {color.text}, 0.08)}"', "DiffText"],
-    ["neovim-dark-word-recipe", 'dark = { fg = "#@{contrast(mix({color.background}, {color.text}, 0.24))}", bg = "#@{mix({color.background}, {color.text}, 0.24)}"',
+    ["neovim-diff-fill", 'dark = { fg = "#@{contrast(mix({color.background}, {color.accent}, 0.30))}", bg = "#@{mix({color.background}, {color.accent}, 0.30)}"',
+        'dark = { fg = "#@{contrast(mix({color.background}, {color.accent}, 0.08))}", bg = "#@{mix({color.background}, {color.accent}, 0.08)}"', "DiffText"],
+    ["neovim-dark-word-recipe", 'dark = { fg = "#@{contrast(mix({color.background}, {color.accent}, 0.30))}", bg = "#@{mix({color.background}, {color.accent}, 0.30)}"',
         'dark = { fg = "#@{contrast(mix({color.background}, {palette.warning}, 0.35))}", bg = "#@{mix({color.background}, {palette.warning}, 0.35)}"', "DiffText"],
     ["neovim-light-word-recipe", 'light = { fg = "#@{contrast(mix({color.background}, {palette.warning}, 0.35))}", bg = "#@{mix({color.background}, {palette.warning}, 0.35)}"',
-        'light = { fg = "#@{contrast(mix({color.background}, {color.text}, 0.24))}", bg = "#@{mix({color.background}, {color.text}, 0.24)}"', "DiffText"],
+        'light = { fg = "#@{contrast(mix({color.background}, {color.accent}, 0.30))}", bg = "#@{mix({color.background}, {color.accent}, 0.30)}"', "DiffText"],
     ["neovim-mode-selector", '})["@{scheme.mode}"]', '})["dark"]', "DiffText"],
-    ["neovim-contrast", 'dark = { fg = "#@{contrast(mix({color.background}, {color.text}, 0.24))}"',
-        'dark = { fg = "#@{mix({color.background}, {color.text}, 0.24)}"', "DiffText"],
+    ["neovim-contrast", 'dark = { fg = "#@{contrast(mix({color.background}, {color.accent}, 0.30))}"',
+        'dark = { fg = "#@{mix({color.background}, {color.accent}, 0.30)}"', "DiffText"],
     ["neovim-title-directory-color", 'hl("Title", { fg = "#@{color.success}", bold = true })', 'hl("Title", { fg = "#@{color.info}", bold = true })'],
     ["neovim-title-directory-weight", 'hl("Directory", { fg = "#@{color.info}" })', 'hl("Directory", { fg = "#@{color.info}", bold = true })'],
     ["neovim-token-color", 'hl("Title", { fg = "#@{color.success}", bold = true })', 'hl("Title", { fg = "#99ff99", bold = true })'],
@@ -2627,7 +2621,7 @@ const neovimControls = [
     ["neovim-search-state", 'bg = "#@{color.info}", bold = true, underline = true', 'bg = "#@{color.info}", bold = true'],
     ["neovim-diff-distinct", 'bg = "#@{mix({color.background}, {palette.danger}, 0.18)}", bold = true', 'bg = "#@{mix({color.background}, {palette.success}, 0.18)}", bold = true'],
     ["neovim-diff-text-state", 'bg = "#@{mix({color.background}, {palette.warning}, 0.35)}", bold = true, underline = true', 'bg = "#@{mix({color.background}, {palette.warning}, 0.35)}", bold = true'],
-    ["neovim-diff-text-state", 'bg = "#@{mix({color.background}, {color.text}, 0.24)}", bold = true, underline = true', 'bg = "#@{mix({color.background}, {color.text}, 0.24)}", bold = true']
+    ["neovim-diff-text-state", 'bg = "#@{mix({color.background}, {color.accent}, 0.30)}", bold = true, underline = true', 'bg = "#@{mix({color.background}, {color.accent}, 0.30)}", bold = true']
 ];
 const neovimScratch = fs.mkdtempSync(path.join(os.tmpdir(), "neovim-theme-control-"));
 try {
@@ -2644,15 +2638,13 @@ try {
 } finally {
     fs.rmSync(neovimScratch, { recursive: true, force: true });
 }
-console.log(`test-theme-render: neovim-alternate packages=${selectionPackages.length} pairs=${neovimAlternateMetrics.length} shortfalls=0 dark=page-accent:0.30 light=page-warning:0.35`);
+console.log(`test-theme-render: neovim-recipe dark=page-accent:0.30 light=page-warning:0.35`);
 console.log(`test-theme-render: neovim packages=${selectionPackages.length} audited-groups=${NEOVIM_AUDITED_UNSET.length} pairs=${neovimMetrics.length} controls=${neovimControls.length} floors=text:4.5,boundary:3`);
-for (const [variant, metrics] of [["A", neovimMetrics], ["B", neovimAlternateMetrics]]) {
-    for (const mode of ["dark", "light"]) {
-        const names = new Set(selectionPackages.filter(({ pkg }) => pkg.values.scheme.mode === mode).map(({ pkg }) => pkg.name));
-        const minimum = metrics.filter(metric => metric.group === "DiffText" && names.has(metric.package))
-            .reduce((a, b) => a.ratio < b.ratio ? a : b);
-        console.log(`test-theme-render: neovim-word-min ${JSON.stringify({ variant, mode, ...minimum })}`);
-    }
+for (const mode of ["dark", "light"]) {
+    const names = new Set(selectionPackages.filter(({ pkg }) => pkg.values.scheme.mode === mode).map(({ pkg }) => pkg.name));
+    const minimum = neovimMetrics.filter(metric => metric.group === "DiffText" && names.has(metric.package))
+        .reduce((a, b) => a.ratio < b.ratio ? a : b);
+    console.log(`test-theme-render: neovim-word-min ${JSON.stringify({ mode, ...minimum })}`);
 }
 for (const floor of [4.5, 3]) {
     const minimum = neovimMetrics.filter(metric => metric.floor === floor).reduce((a, b) => a.ratio < b.ratio ? a : b);
