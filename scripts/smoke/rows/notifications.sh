@@ -2808,7 +2808,12 @@ fade_gap_sample() {
   ipc smoke descendantGeometry panel vgs.notifications >"$items" || return
   surface="$(surface_box vgs:panel)" || return
   fade_output "$sandbox/fade-gap-current.png" || return
-  fade_gap_value "$sandbox/fade-gap-current.png" "$fade_background" "$items" "$view" "$surface" "$mon_w" "$mon_h"
+  local background="$sandbox/fade-gap-background.png" capture_rc=0
+  [[ $(ipc smoke gapPaint panel vgs.notifications true) == 2 ]] || return 1
+  fade_output "$background" || capture_rc=$?
+  [[ $(ipc smoke gapPaint panel vgs.notifications false) == 2 ]] || return 1
+  (( capture_rc == 0 )) || return "$capture_rc"
+  fade_gap_value "$sandbox/fade-gap-current.png" "$background" "$items" "$view" "$surface" "$mon_w" "$mon_h"
 }
 fade_gap_one_step() { # SAMPLE_JSON
   printf 'notification-visible-gap: %s\n' "$1" >&2
@@ -2989,13 +2994,15 @@ rescan "a rescan restores the painted notification cards"
 expect_poll "the restored pixel probe service is built" True record_exists vgs.notifications
 # Increase only the real scroll tail. The viewport gap stays fixed, but
 # the last card moves further from the hints when scrolled to the end.
+# The added64 exceeds shadow blur30 plus vertical offset10, so the real
+# painted glow leaves the clipped edge and the unchanged assertion fails.
 cp -- "$fade_qml" "$sandbox/CardScroll.gap-kept.qml"
 python3 - "$fade_qml" <<'PY_GAP_MUTANT'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1]);text=p.read_text()
 needle="contentHeight: cards.implicitHeight + root.look.stack.tail"
 assert text.count(needle)==1
-p.write_text(text.replace(needle,needle+" + 16"))
+p.write_text(text.replace(needle,needle+" + 64"))
 PY_GAP_MUTANT
 rescan "a rescan increases only the notification scroll tail"
 expect_poll "the extra-tail control service is built" True record_exists vgs.notifications

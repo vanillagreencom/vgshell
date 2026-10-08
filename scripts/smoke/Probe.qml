@@ -1717,6 +1717,38 @@ Scope {
             return root.json(root.descendants(item).filter(child => root.typeName(child) === type).map(found =>
                 root.descendants(found).filter(child => child !== found && child.visible && root.typeName(child) === childType).map(child => ThemeLogic.formatColor(child.color))));
         }
+        // Paired gap captures keep the layout and background in place.
+        function gapPaint(hostKey: string, id: string, hidden: bool): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const scrolls = root.descendants(item).filter(child => root.typeName(child) === "CardScroll");
+            const hints = root.descendants(item).filter(child => root.typeName(child) === "KeyHints");
+            if (scrolls.length !== 1 || hints.length !== 1) return "gap-targets-absent";
+            const targets = [scrolls[0].cards, hints[0]];
+            const restore = () => {
+                for (const target of targets) {
+                    const binding = Array.from(target.data).find(child => child.objectName === "captureGapPaint");
+                    if (binding !== undefined) {
+                        binding.when = false;
+                        binding.destroy();
+                    }
+                }
+            };
+            if (!hidden) {
+                restore();
+                return String(targets.length);
+            }
+            for (const target of targets) {
+                const previous = Array.from(target.data).find(child => child.objectName === "captureGapPaint");
+                if (hidden && previous === undefined) {
+                    if (hintInkBinding.createObject(target, { objectName: "captureGapPaint", target: target, property: "opacity", value: 0, when: true }) === null) {
+                        restore();
+                        return "gap-binding-failed";
+                    }
+                }
+            }
+            return String(targets.length);
+        }
         // A paired capture removes only word ink. The live backing, card
         // states and wallpaper remain painted at the same coordinates.
         // Binding restores the original ink expression when disabled:
