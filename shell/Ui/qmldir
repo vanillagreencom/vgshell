@@ -72,6 +72,8 @@ Tooltip 1.0 overlay/Tooltip.qml
 Menu 1.0 overlay/Menu.qml
 MenuItem 1.0 overlay/MenuItem.qml
 TitleButton 1.0 controls/TitleButton.qml
+RowAction 1.0 controls/RowAction.qml
+RowActions 1.0 controls/RowActions.qml
 internal AnchorTracker overlay/AnchorTracker.qml
 internal DismissScope overlay/DismissScope.qml
 internal ListMask overlay/ListMask.qml

@@ -81,10 +81,9 @@ Column {
             Keys.onReturnPressed: root.addTime(text)
             Keys.onEnterPressed: root.addTime(text)
         }
-        Button {
+        RowAction {
+            anchors.verticalCenter: parent.verticalCenter
             text: "Add time"
-            iconName: "plus"
-            variant: "secondary"
             onClicked: root.addTime(entry.text)
         }
     }

@@ -1,7 +1,7 @@
 # vgs.keyboard's real editor, layer options and bar click in the nested
 # sandbox. The direct-hyprctl widget control changes the keymap but fails
 # the widget's source contract: only the core owns the transport.
-# inputs: shell/plugins/vgs.keyboard/* shell/plugins/vgs.system/* shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Ui/layout/DeviceList.qml shell/Ui/layout/DeviceRow.qml shell/Ui/controls/Select.qml shell/Ui/controls/Button.qml shell/Ui/controls/Slider.qml shell/Ui/controls/TextField.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Hosts/SummonPopup.qml shell/Hosts/SummonLayer.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js scripts/smoke/Probe.qml scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.keyboard/* shell/plugins/vgs.system/* shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Ui/layout/DeviceList.qml shell/Ui/layout/DeviceRow.qml shell/Ui/controls/Select.qml shell/Ui/controls/Button.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Slider.qml shell/Ui/controls/TextField.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Hosts/SummonPopup.qml shell/Hosts/SummonLayer.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js scripts/smoke/Probe.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 keyboard_file="$home/.config/vgshell/shell.json"
 keyboard_saved="$sandbox/shell-before-keyboard.json"
@@ -251,7 +251,7 @@ expect_poll "Add saves the selected layout in every settings entry" '["us,de", "
 expect_poll "Add saves the selected variant in every settings entry" '[",nodeadkeys", ",nodeadkeys"]' keyboard_saved_value variants
 expect_poll "Add applies the selected layout" '"us,de"' keyboard_option input:kb_layout str
 expect_poll "Add applies the selected variant" '",nodeadkeys"' keyboard_option input:kb_variant str
-keyboard_focus Button systemLayout || { keyboard_restore; return 0; }
+keyboard_focus RowAction systemLayout || { keyboard_restore; return 0; }
 keyboard_editor_keys -k space || { keyboard_restore; return 0; }
 expect_poll "reset removes both saved layout values" '["absent", "absent"]' keyboard_saved_value layouts
 expect_poll "reset removes both saved variant values" '["absent", "absent"]' keyboard_saved_value variants

@@ -12,11 +12,12 @@ import qs.Unit
 // ListItem owns its larger icon gap and Badge its smaller chip gap. A theme that moves the shared token
 // moves every component that follows it. A group space, `stack.group`,
 // comes before a group: a button row after text, the row after a row's
-// hint or error line, and a section's first row after its description.
+// lines, hint or error line, and a section's first row after its
+// description.
 Item {
     id: root
     width: 400
-    height: 1400
+    height: 1700
 
     Button { id: button; text: "Publish"; iconName: "check" }
     TextField { id: input; width: 200; y: 40 }
@@ -78,6 +79,16 @@ Item {
         width: 300
         Field { id: groupedHinted; label: "Grouped"; hint: "A hint"; inline: true; width: parent.width; Switch { size: "sm" } }
         Field { id: groupedNext; label: "Next"; inline: true; width: parent.width; Switch { size: "sm" } }
+    }
+    Column {
+        id: linedRows
+        y: 1420
+        width: 300
+        spacing: Theme.stack.row
+        Field { id: linedRow; label: "Model"; lines: ["Choose a model below.", "Then add its key."]; inline: true; width: parent.width; Badge { text: "To do" } }
+        Field { id: afterLines; label: "Voice"; inline: true; width: parent.width; Badge { text: "Done" } }
+        Field { id: linedHinted; label: "Browser"; lines: ["One line"]; hint: "Set up the browser."; inline: true; width: parent.width; Badge { text: "Optional" } }
+        Field { id: afterBoth; label: "Input"; inline: true; width: parent.width; Badge { text: "Optional" } }
     }
     Section {
         id: blockSection
@@ -267,6 +278,22 @@ Item {
             same(() => fieldRows.height, lineBottom(lastHinted, fieldRows), "the column's end after its last hinted row");
             same(() => inlineSwitchSm.height, lineBottom(inlineSwitchSm, inlineSwitchSm), "a hinted field outside a positioner ends at its hint");
             same(() => topIn(groupedNext, hintedGroups) - lineBottom(groupedHinted, hintedGroups), Theme.groupList.gap, "a group list's gap after a hint");
+        }
+
+        // A row's lines sit under its value from the value column, its hint
+        // `field.gap` under them, and the next row starts a group space
+        // under the last of them.
+        function test_a_group_space_follows_a_row_with_lines() {
+            const lines = field => field.children[2].children[1].children.filter(child => child.role === "value");
+            const bottom = (item, within) => item.mapToItem(within, 0, item.height).y;
+            same(() => lines(linedRow).length, 2, "a line for each of lines");
+            same(() => lines(linedRow).every(line => line.visible), true, "the lines show");
+            same(() => lines(linedRow)[0].mapToItem(linedRow, 0, 0).x, linedRow.valueX, "the lines start on the value column");
+            same(() => topIn(afterLines, linedRows) - bottom(lines(linedRow)[1], linedRows), Theme.stack.group, "the row after a row's lines");
+            same(() => lines(linedHinted).length, 1, "one line");
+            const hint = linedHinted.children[2].children[0];
+            same(() => hint.mapToItem(linedRows, 0, 0).y - bottom(lines(linedHinted)[0], linedRows), Theme.field.gap, "the hint under the lines");
+            same(() => topIn(afterBoth, linedRows) - lineBottom(linedHinted, linedRows), Theme.stack.group, "the row after lines and a hint");
         }
 
         // A section of blocks, such as a state over a button row, sets its

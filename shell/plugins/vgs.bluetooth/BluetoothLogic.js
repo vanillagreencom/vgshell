@@ -604,15 +604,15 @@ function stateText(d) {
     return "Not paired";
 }
 
-// The action button of one of your devices: Connect or Disconnect.
+// The action of one of your devices: Connect or Disconnect.
 function mineAction(row) {
-    return row.connected ? { text: "Disconnect", variant: "secondary" } : { text: "Connect", variant: "primary" };
+    return { text: row.connected ? "Disconnect" : "Connect" };
 }
 
-// The action button of a nearby device: Pair, or none while it or another
-// device pairs.
+// The action of a nearby device: Pair, or none while it or another device
+// pairs.
 function nearbyAction(row, pairing) {
-    return pairing || row.pairing ? null : { text: "Pair", variant: "primary" };
+    return pairing || row.pairing ? null : { text: "Pair" };
 }
 
 // The overflow menu of one of your devices: Rename, Trust or Don't trust,

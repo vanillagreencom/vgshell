@@ -111,7 +111,7 @@ Item {
                 Section {
                     title: "Buttons"
                     rowSpacing: Theme.stack.group
-                    description: "Five variants, three sizes, checked and disabled"
+                    description: "Five variants, three sizes, checked and disabled, and a row's action"
                 Flow {
                     width: parent.width
                     spacing: Theme.stack.inline
@@ -161,6 +161,36 @@ Item {
                     Field { label: "Checked"; inline: true; width: parent.width; IconButton { iconName: "check"; label: "Checked"; checkable: true; checked: true } }
                     Field { label: "Disabled"; inline: true; width: parent.width; IconButton { iconName: "ban"; label: "Disabled"; enabled: false } }
                     Field { label: "Danger"; inline: true; width: parent.width; IconButton { iconName: "x"; label: "Close"; variant: "danger" } }
+                }
+                // A key/value row's action after the row's value, then
+                // pressed, disabled, in the danger tone, which leads with
+                // its mark, and two actions side by side; the Focus
+                // section draws its ring.
+                Column {
+                    width: parent.width
+                    spacing: Theme.stack.row
+                    Field {
+                        label: "Row action"
+                        inline: true
+                        width: parent.width
+                        Row {
+                            spacing: Theme.stack.inline
+                            Badge { text: "To do"; tone: "warning"; anchors.verticalCenter: parent.verticalCenter }
+                            RowAction { text: "Set up voice"; anchors.verticalCenter: parent.verticalCenter }
+                        }
+                    }
+                    Field { label: "Pressed"; inline: true; width: parent.width; RowAction { text: "Pressed"; down: true } }
+                    Field { label: "Disabled"; inline: true; width: parent.width; RowAction { text: "Disabled"; enabled: false } }
+                    Field { label: "Danger"; inline: true; width: parent.width; RowAction { text: "Remove"; tone: "danger" } }
+                    Field {
+                        label: "Side by side"
+                        inline: true
+                        width: parent.width
+                        RowActions {
+                            RowAction { text: "Update" }
+                            RowAction { text: "Remove"; tone: "danger" }
+                        }
+                    }
                 }
 
                 }
@@ -226,7 +256,7 @@ Item {
                     Field { label: "Switch"; inline: true; width: parent.width; Switch { size: "sm"; checked: true } }
                     Field { label: "Text"; inline: true; width: parent.width; Label { role: "value"; text: "Inline value"; width: parent.width; elide: Text.ElideRight } }
                     Field { label: "Badge"; inline: true; width: parent.width; Badge { text: "synced"; tone: "success" } }
-                    Field { label: "Button"; inline: true; width: parent.width; Button { text: "Open"; size: "sm"; variant: "secondary" } }
+                    Field { label: "Action"; inline: true; width: parent.width; RowAction { text: "Open" } }
                     Field { label: "Select"; inline: true; hint: "Hints start under the value column."; width: parent.width; Select { width: parent.width; model: ["Default", "Ocean", "Forest"] } }
                 }
                 Column {
@@ -249,7 +279,7 @@ Item {
                 }
                 Section {
                     title: "Groups"
-                    description: "Status rows with hints and setup buttons"
+                    description: "Status rows with hints and setup actions"
                 GroupList {
                     id: groups
                     width: parent.width
@@ -260,11 +290,16 @@ Item {
                     }
                     Field { label: "Agents running"; inline: true; width: groups.width; Label { role: "value"; text: "3"; width: parent.width; elide: Text.ElideRight } }
                     Field { label: "Last check"; inline: true; width: groups.width; Label { role: "value"; text: "9/30/26 3:57 PM"; width: parent.width; elide: Text.ElideRight } }
-                    Column {
+                    Field {
+                        label: "Agent dashboard"
+                        inline: true
+                        hint: "vsys shows your agents and provides Agent Warden"
                         width: groups.width
-                        spacing: Theme.field.gap
-                        Field { id: vsysRow; label: "Agent dashboard"; inline: true; hint: "vsys shows your agents and provides Agent Warden"; width: parent.width; Badge { text: "Not installed"; tone: "warning" } }
-                        Button { x: vsysRow.valueX; text: "Install vsys"; iconName: "wrench"; variant: "primary"; size: "sm" }
+                        Row {
+                            spacing: Theme.stack.inline
+                            Badge { text: "Not installed"; tone: "warning"; anchors.verticalCenter: parent.verticalCenter }
+                            RowAction { text: "Install vsys"; anchors.verticalCenter: parent.verticalCenter }
+                        }
                     }
                 }
 
@@ -569,6 +604,11 @@ Item {
                                 focusPreview: true
                                 iconName: "settings"
                                 label: "Settings"
+                            }
+                            RowAction {
+                                property string focusExample: "RowAction"
+                                focusPreview: true
+                                text: "Set up voice"
                             }
                         }
                     }
@@ -925,7 +965,7 @@ Item {
                         { key: "Mouse", text: "Mouse", secondary: "Connected", iconName: "mouse", battery: 0.08 },
                         { key: "Speaker", text: "Speaker", secondary: "Not connected", iconName: "speaker", badge: "Nearby", badgeTone: "info" }
                     ]
-                    actionOf: row => row.key === "Headphones" ? { text: "Disconnect", variant: "secondary" } : row.key === "Speaker" ? { text: "Connect", variant: "primary" } : null
+                    actionOf: row => row.key === "Headphones" ? { text: "Disconnect" } : row.key === "Speaker" ? { text: "Connect" } : null
                     menuOf: row => row.key === "Headphones"
                         ? [{ key: "rename", text: "Rename" }, { key: "trust", text: "Trust" }, { key: "forget", text: "Forget" }]
                         : row.key === "Mouse" ? [{ key: "rename", text: "Rename" }, { key: "forget", text: "Forget" }] : []

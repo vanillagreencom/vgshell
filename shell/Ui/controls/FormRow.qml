@@ -18,7 +18,7 @@ import qs.Ui
 // control. Light feedback in a form is this line, plain sentence-case text
 // in a muted or status colour. A chip, a fill or capitals are for a state
 // the user must act on now, with the action beside it. `action` is one
-// control for the message, such as a Button that undoes what the message
+// control for the message, such as a RowAction that undoes what the message
 // names: it draws on the message's line, on the row's end edge, only while
 // the row has a message, and the message wraps `stack.inline` before it.
 // Where that would leave the message less than `field.labelWidth`, as in a

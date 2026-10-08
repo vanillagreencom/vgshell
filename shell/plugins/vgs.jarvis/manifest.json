@@ -108,8 +108,8 @@
     "setupSignIn": { "type": "state", "label": "Sign in", "group": "Setup", "hint": "Use a Claude Code or Codex account, then select it as the AI model below.", "action": { "label": "Sign in", "tui": "sign-in" } },
     "claude": { "type": "state", "label": "Claude Code", "group": "AI model", "action": { "label": "Install Claude Code", "install": ["claude"] } },
     "codex": { "type": "state", "label": "Codex", "group": "AI model", "action": { "label": "Install Codex", "install": ["codex"] } },
-    "setupModel": { "type": "state", "label": "AI model", "group": "Setup", "action": { "label": "Add key", "tui": "add-key" } },
-    "setupVoice": { "type": "state", "label": "Local voice", "group": "Setup", "action": { "label": "Set up local voice", "tui": "setup-local" } },
+    "setupModel": { "type": "state", "label": "AI model", "group": "Setup", "hint": "Jarvis uses the AI model to answer you.", "action": { "label": "Add key", "tui": "add-key" } },
+    "setupVoice": { "type": "state", "label": "Local voice", "group": "Setup", "hint": "Jarvis uses local voice to hear you and speak on this computer.", "action": { "label": "Set up local voice", "tui": "setup-local" } },
     "setupBrowser": { "type": "state", "label": "Browser", "group": "Setup", "hint": "Set up the browser so Jarvis can use websites for you.", "action": { "label": "Set up browser", "tui": "setup-browser" } },
     "setupInput": { "type": "state", "label": "Input", "group": "Setup", "hint": "Check input so Jarvis can type and click for you.", "action": { "label": "Check input", "tui": "setup-input" } }
   },

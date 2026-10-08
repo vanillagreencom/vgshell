@@ -5,7 +5,7 @@
 # through the probe, its state file, the compositor and the lending record.
 # No owner data reaches it: every notification here is made up. The row ends
 # with the plugin disabled and every registration released.
-# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml
+# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/controls/RowAction.qml
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 note_state="$home/.local/state/vgshell/notifications/state.json"
@@ -2199,7 +2199,7 @@ expect "enabling the status fixture beside the token rows is allowed" ok ipc she
 expect_poll "the status fixture is built beside the token rows" True record_exists acme.status
 row_fields() { ipc smoke statusRowFields window vgs.settings | py_reply 'import json,sys; print(json.dumps([f for r in json.load(sys.stdin) for f in r]))'; }
 fixture_note() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; r=[s for p in json.load(sys.stdin) if p["id"] == "acme.status" for s in p["status"] if s["key"] == "note"]; print(json.dumps(r[0]["value"] if r else None))'; }
-settings_press "Connect" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Connect failed"
+settings_press --type RowAction "Connect" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Connect failed"
 expect_poll "Connect opens one masked field on the line" '[["TextField"]]' row_inputs
 masked() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; print(json.dumps([t for r in json.load(sys.stdin) for t in r if t in ("Save", "Cancel")]))'; }
 expect_poll "the field's Save and Cancel are drawn" '["Save", "Cancel"]' masked
@@ -2213,7 +2213,7 @@ expect "the Settings window is summoned again on the notifications' page" ok ipc
 settings_details
 expect_poll "control: a page built anew holds no field" '[]' row_fields
 expect "disabling the status fixture beside the token rows is allowed" ok ipc shell setPluginEnabled acme.status false
-settings_press "Connect" StatusLine "Acme Corp (acme)" || fail "the second click on Acme's Connect failed"
+settings_press --type RowAction "Connect" StatusLine "Acme Corp (acme)" || fail "the second click on Acme's Connect failed"
 expect_poll "Connect opens the masked field again" '[["TextField"]]' row_inputs
 type_keys "$typed_token" || fail "typing the token again failed"
 type_keys -k Return || fail "sending Enter to the field failed"
@@ -2229,7 +2229,7 @@ expect "the closed field leaves no input on the line" '[[]]' row_inputs
 expect "the manager refuses a store the stored line does not offer" "refused: secret=slack:T0ACME reason=not-offered" ipc smoke invokeInstance window vgs.settings storeSecret '{"id":"vgs.notifications","key":"slackTokens","account":"slack:T0ACME","secret":"xoxp-smoke-refused"}'
 expect "the manager refuses an account the plugin does not list" "refused: secret=slack:T0NOPE reason=unlisted" ipc smoke invokeInstance window vgs.settings storeSecret '{"id":"vgs.notifications","key":"slackTokens","account":"slack:T0NOPE","secret":"xoxp-smoke-refused"}'
 expect "of the steps so far only the Connect reached secret-tool" "$((calls_before + 1))" secret_calls
-settings_press "Disconnect" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Disconnect failed"
+settings_press --type RowAction "Disconnect" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Disconnect failed"
 expect_poll "Disconnect clears the account through secret-tool clear" "clear service vgs-notifications account slack:T0ACME" last_secret_call
 expect_poll "the write's end probes again: Acme reads Absent with Connect" "$(want_rows drawn "slack:T0ACME,absent;slack:T0GLOBEX,absent")" drawn_token_row
 typed_in_argv() { grep -c -F -- "$typed_token" "$shim/secret-tool.calls" || true; }
@@ -2302,7 +2302,7 @@ settings_details
 settings_photo_setup() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]; print("slackTokens" in [s["key"] for s in p["status"]] and {"curl", "secret-tool"}.issubset(r["name"] for r in p["requirements"]) and p["schema"].get("slackPhotos", {}).get("type") == "boolean")'; }
 expect_poll "photos off keeps Connect, its requirements and the switch in Settings" True settings_photo_setup
 expect_poll "photos off draws Connect for each workspace" "$(want_rows drawn "slack:T0ACME,absent;slack:T0GLOBEX,absent")" drawn_token_row
-settings_press "Connect" StatusLine "Acme Corp (acme)" || fail "Connect with photos off failed"
+settings_press --type RowAction "Connect" StatusLine "Acme Corp (acme)" || fail "Connect with photos off failed"
 expect_poll "Connect with photos off opens the masked field" '[["TextField"]]' row_inputs
 settings_press "Cancel" StatusLine "Acme Corp (acme)" || fail "Cancel with photos off failed"
 expect "the unused Connect field reads no token and calls no Slack API" "" off_token_calls

@@ -32,7 +32,7 @@
 # wall clock with a refresh every second; the row accepts 9 s to 20 s,
 # since a refresh that moved the deadline would hold it past any bound.
 # Every other reading is expect_poll's: 25 reads 0.2 s apart.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* scripts/fixtures/vpn/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* scripts/fixtures/vpn/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml
 set -euo pipefail
 devices_ready vpn || return 0
 vpn_saved="$sandbox/vpn-shell-before.json"
@@ -130,10 +130,10 @@ vpn_profile_press() {
 vpn_import_press() {
   local view rect x y hovered=false
   vpn_import_state before-reveal
-  ipc smoke revealText window vgs.system Button "Import WireGuard" | py_reply 'import json,sys; value=json.load(sys.stdin); sys.exit(0 if type(value) in (int,float) else 1)' || return 1
+  ipc smoke revealText window vgs.system RowAction "Import WireGuard" | py_reply 'import json,sys; value=json.load(sys.stdin); sys.exit(0 if type(value) in (int,float) else 1)' || return 1
   view="$(view_at_rest window vgs.system 'Import WireGuard')" || return 1
   [[ $view == \{* ]] || { vpn_import_state scroll-unsettled; return 1; }
-  rect="$(ipc smoke windowGeometry window vgs.vpn Button 'Import WireGuard')" || return 1
+  rect="$(ipc smoke windowGeometry window vgs.vpn RowAction 'Import WireGuard')" || return 1
   [[ $rect == \[* ]] || { vpn_import_state button-absent; return 1; }
   read -r x y < <(at_centre 'window:System Settings' "$rect") || return 1
   # A reveal changes the scene before the pointer has reached the button.
@@ -141,7 +141,7 @@ vpn_import_press() {
   hover "$x" "$y" || return 1
   smoke_poll_tries 200
   for _ in $(seq 1 "$smoke_poll_n"); do
-    hovered="$(ipc smoke readMatchingDescendant window vgs.vpn Button objectName vpn-import hovered)" || return 1
+    hovered="$(ipc smoke readMatchingDescendant window vgs.vpn RowAction objectName vpn-import hovered)" || return 1
     [[ $hovered == true ]] && break
     sleep 0.2
   done
@@ -156,11 +156,11 @@ vpn_import_state() {
   local key
   printf '        vpn-import phase=%s profiles=%s action=%s window=%s button=%s view=%s\n' "$1" \
     "$(vpn_profiles state)" "$(vpn_profiles action)" "$(surface_box 'window:System Settings')" \
-    "$(ipc smoke windowGeometry window vgs.vpn Button 'Import WireGuard')" \
+    "$(ipc smoke windowGeometry window vgs.vpn RowAction 'Import WireGuard')" \
     "$(ipc smoke viewHolding window vgs.system 'Import WireGuard')" >&2
   for key in visible enabled hovered pressed activeFocus; do
     printf '        vpn-import button.%s=%s\n' "$key" \
-      "$(ipc smoke readMatchingDescendant window vgs.vpn Button objectName vpn-import "$key")" >&2
+      "$(ipc smoke readMatchingDescendant window vgs.vpn RowAction objectName vpn-import "$key")" >&2
   done
   printf '        vpn-import local-problem=%s\n' \
     "$(vpn_body window localProblem | py_reply 'import json,sys; print("present" if json.load(sys.stdin) else "absent")')" >&2
@@ -336,7 +336,7 @@ terminal_ready "vpn"
 vpn_enter_pane "Allow"
 expect "the section opens on its body while the switch waits for Allow" '["VpnBody",null]' ipc smoke activeFocusItem window vgs.vpn
 type_keys -k Tab
-expect_poll "Tab reaches Allow" '["Button","Allow"]' ipc smoke activeFocusItem window vgs.vpn
+expect_poll "Tab reaches Allow" '["RowAction","Allow"]' ipc smoke activeFocusItem window vgs.vpn
 forget_record
 type_keys -k Return
 expect_poll "Allow hands the terminal vgshell system apply tailscale-operator" \

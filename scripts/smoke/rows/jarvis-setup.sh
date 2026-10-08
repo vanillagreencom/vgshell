@@ -73,8 +73,8 @@ print(json.dumps(out))
 '
 }
 setup_fresh='[["Status", ["warning"], [], 1], ["AI model", ["warning"], ["add-key"], 1], ["Local voice", ["warning"], ["setup-local"], 1], ["Browser", true], ["Input", true]]'
-setup_voice_left='[["Status", ["warning"], [], 1], ["AI model", ["success"], [], 0], ["Local voice", ["warning"], ["setup-local"], 1], ["Browser", true], ["Input", true]]'
-setup_ready='[["Status", ["success"], [], 1], ["AI model", ["success"], [], 0], ["Local voice", ["success"], [], 0], ["Browser", true], ["Input", true]]'
+setup_voice_left='[["Status", ["warning"], [], 1], ["AI model", ["success"], [], 1], ["Local voice", ["warning"], ["setup-local"], 1], ["Browser", true], ["Input", true]]'
+setup_ready='[["Status", ["success"], [], 1], ["AI model", ["success"], [], 1], ["Local voice", ["success"], [], 1], ["Browser", true], ["Input", true]]'
 # BRAIN as the Jarvis AI model setting, "" for none, delivered by a reload.
 setup_brain() { # BRAIN
   python3 - "$setup_config" "$1" <<'PY'

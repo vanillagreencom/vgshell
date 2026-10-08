@@ -50,7 +50,7 @@
 # outputs, vgs.system's and vgs.sound's enablement, the shell's PATH
 # directory and the pactl stand-in's replies as it found them, a shell
 # started from the repository running, and the private PipeWire up.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.sound/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/LevelSlider.qml shell/Ui/feedback/LevelLabel.qml shell/Ui/feedback/LevelOsd.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Hosts/PaneHost.qml shell/Hosts/LayerHost.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/Notices.qml shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* bin/vgshell scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.sound/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/LevelSlider.qml shell/Ui/feedback/LevelLabel.qml shell/Ui/feedback/LevelOsd.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Hosts/PaneHost.qml shell/Hosts/LayerHost.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/Notices.qml shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* bin/vgshell scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/hyprland-consent.sh shell/Ui/controls/RowAction.qml
 set -euo pipefail
 devices_ready sound || return 0
 
@@ -76,8 +76,8 @@ snd_audio() { devices_audio | py_reply 'import json,sys; d=json.load(sys.stdin);
 snd_volume() { devices_audio | py_reply 'import json,sys; n=json.load(sys.stdin)["nodes"].get(sys.argv[1]); print(round(n[0] * 100) if n else "absent")' "$1"; }
 snd_muted() { snd_audio "[\"nodes\"][\"$1\"][1]"; }
 snd_widget() { ipc smoke readInstance "$(bar_key)" vgs.sound "$1"; }
-# The Settings page's buttons that draw Use my binding.
-snd_use_mine() { ipc smoke itemTexts window vgs.settings Button | py_reply 'import json,sys; print(sum("Use my binding" in texts for texts in json.load(sys.stdin)))'; }
+# The Settings page's actions that draw Use my binding.
+snd_use_mine() { ipc smoke itemTexts window vgs.settings RowAction | py_reply 'import json,sys; print(sum("Use my binding" in texts for texts in json.load(sys.stdin)))'; }
 snd_status() { ipc smoke statusValues vgs.sound | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("streams"), sort_keys=True))'; }
 snd_binds() { hypr -j binds | py_reply 'import json,sys; print(json.dumps(sorted([b["key"], b["description"]] for b in json.load(sys.stdin) if b["description"].startswith("vgs.sound:") and b.get("submap", "") in ("", "default"))))'; }
 snd_pactl() { device_calls pactl; }
@@ -325,7 +325,7 @@ expect_poll "the service reads the 5% step again" 5 ipc smoke readInstance servi
 settings_page_open vgs.sound
 expect_poll "the microphone mute key names the user's bind" "$snd_user_hint" key_field vgs.sound mic-mute conflict
 expect "only the key a user bind holds offers Use my binding" 1 snd_use_mine
-settings_press "Use my binding" || fail "the click on Use my binding failed"
+settings_press --type RowAction "Use my binding" || fail "the click on Use my binding failed"
 expect_poll "Use my binding unbinds the microphone mute shortcut" null snd_key mic-mute
 expect_poll "the Hyprland layer no longer binds XF86AudioMicMute" \
   '[["XF86AUDIOLOWERVOLUME", "vgs.sound:volume-down"], ["XF86AUDIOMUTE", "vgs.sound:mute"], ["XF86AUDIORAISEVOLUME", "vgs.sound:volume-up"]]' snd_binds
@@ -358,7 +358,7 @@ expect_poll "control: the copy offers Use my binding too" 1 snd_use_mine
 # The window mapped where the last press was, so the pointer moves before
 # it presses.
 rest_pointer || fail "control: resting the pointer failed"
-settings_press "Use my binding" || fail "control: the click on the copy's Use my binding failed"
+settings_press --type RowAction "Use my binding" || fail "control: the click on the copy's Use my binding failed"
 expect_poll "control: the copy's Use my binding writes the key in effect" '"XF86AUDIOMICMUTE"' snd_key mic-mute
 expect "control: a Use my binding that sends the key in effect leaves the shortcut bound" stayed snd_stays "$snd_all_binds" snd_binds
 settings_page_close vgs.sound

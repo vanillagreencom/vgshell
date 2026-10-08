@@ -5,9 +5,9 @@ import qs.Ui
 // One row in the themes panel. An installed row applies its package, an
 // uninstalled catalog row runs its action, and a row with neither is not a
 // click target. The row shows the package name, source or catalog metadata,
-// badges, a swatch, an optional action button and problem lines; the
-// button and the lines start at the row's text column, `stack.row` under
-// the row and each other.
+// badges, a swatch, an optional RowAction and problem lines; the action
+// and the lines start at the row's text column, `stack.row` under the row
+// and each other.
 Column {
     id: root
 
@@ -33,11 +33,9 @@ Column {
     property bool imageryUpdate: false
     // A row click applies the package.
     property bool applicable: false
-    // The trailing action button's text, or "" when absent.
+    // The row's action's text, or "" when absent.
     property string actionLabel: ""
-    // The trailing action button's icon.
-    property string actionIcon: ""
-    // Whether the trailing action button can run now.
+    // Whether the row's action can run now.
     property bool actionEnabled: true
     // A line shown beside a spinner while the row's action runs.
     property string busyText: ""
@@ -54,7 +52,7 @@ Column {
 
     // Emitted when a row click applies the package.
     signal activated()
-    // Emitted when the trailing action button, or an action row click,
+    // Emitted when the row's action, or an action row click,
     // requests the row's action.
     signal actionRequested()
     signal pointed(string key)
@@ -130,15 +128,10 @@ Column {
     }
 
     // keyboard-path: the owning list runs this secondary action with Alt+D on the selected row
-    Button {
+    RowAction {
         visible: root.actionLabel !== ""
         x: row.textStart
-        width: implicitWidth
-        height: implicitHeight
         text: root.actionLabel
-        iconName: root.actionIcon
-        size: "sm"
-        variant: "secondary"
         enabled: root.actionEnabled
         focusPolicy: Qt.NoFocus
         onClicked: root.actionRequested()

@@ -943,6 +943,35 @@ var TOKENS = {
         caret: color("{color.textMuted}")
     },
 
+    // The action of a key/value row (RowAction): its text drawn as a link
+    // over an underline `underline` thick at rest and `underlineHover` on
+    // hover, `underlineGap` under the text's baseline. Each tone holds the
+    // text and underline colour at rest, on hover and pressed. Actions side
+    // by side in one row (RowActions) stand `gap` apart, one step of the
+    // space scale above `stack.inline`, so each reads as its own link. A
+    // danger action leads with an `icon` sized mark `iconGap` before its
+    // text, so it reads apart from an accent action by more than colour.
+    rowAction: {
+        underline: length("{border.thin}"),
+        underlineHover: length("{border.thick}"),
+        underlineGap: length("{space.xxs}"),
+        gap: length("{space.lg}"),
+        icon: length("{icon.size.sm}"),
+        iconGap: length("{space.xs}"),
+        tone: {
+            accent: {
+                foreground: color("{color.accent}"),
+                hover: color("{color.accentHover}"),
+                pressed: color("{color.accentPressed}")
+            },
+            danger: {
+                foreground: color("{color.danger}"),
+                hover: color("mix({color.danger}, {palette.foreground}, 0.18)"),
+                pressed: color("mix({color.danger}, {palette.background}, 0.18)")
+            }
+        }
+    },
+
     bar: {
         height: length(28),
         background: color("{color.background}"),

@@ -253,6 +253,17 @@ const DEFAULTS = [
     ["titleButton.underline", 1],
     ["titleButton.underlineGap", 2],
     ["titleButton.hover", "#ff5a36ff"],
+    // A row's action: the accent's text over a 1 px underline, 2 px on
+    // hover, 2 px under the baseline.
+    ["rowAction.underline", 1],
+    ["rowAction.underlineHover", 2],
+    ["rowAction.underlineGap", 2],
+    ["rowAction.tone.accent.foreground", "#ff5a36ff"],
+    // Side-by-side actions one space step, space.lg = 12, apart; the
+    // danger mark 14 px, 4 px before its text.
+    ["rowAction.gap", 12],
+    ["rowAction.icon", 14],
+    ["rowAction.iconGap", 4],
     // The dialog: 360 px wide, mul(4, 4) = 16 padding and mul(4, 3) = 12
     // from the free area's edges, stack.group = 12 between its blocks and
     // mul(4, 2) = 8 between its actions; its card is the raised surface,
@@ -1003,9 +1014,9 @@ try {
 // check must name it.
 const GRID_EXCEPTIONS = [
     [/^(font\.size|text\.[^.]+\.size)$/, "type sizes"],
-    [/(^border\.|\.border$|[bB]orderWidth$|^divider\.thickness$|^focusRing\.width$|^titleButton\.underline$|^tabs\.indicator$|^segmented\.indicator$|^avatarGroup\.ringWidth$|^hyprland\.border\.size$)/, "strokes"],
-    [/^(icon\.size\.|button\.size\.[^.]+\.icon$|slider\.handle$|radio\.dot$)/, "indicator and icon drawing sizes"],
-    [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap|carousel\.sliceName\.shadowOffset)$/, "2 px steps inside one component"],
+    [/(^border\.|\.border$|[bB]orderWidth$|^divider\.thickness$|^focusRing\.width$|^titleButton\.underline$|^rowAction\.underline(Hover)?$|^tabs\.indicator$|^segmented\.indicator$|^avatarGroup\.ringWidth$|^hyprland\.border\.size$)/, "strokes"],
+    [/^(icon\.size\.|button\.size\.[^.]+\.icon$|rowAction\.icon$|slider\.handle$|radio\.dot$)/, "indicator and icon drawing sizes"],
+    [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap|rowAction\.underlineGap|carousel\.sliceName\.shadowOffset)$/, "2 px steps inside one component"],
     [/^(badge\.paddingEnd|textField\.paddingX)$/, "optical insets inside one component"],
     [/^(space\.sm|badge\.size\.sm\.paddingX|kbd\.paddingX|tooltip\.paddingY)$/, "6 px padding inside a chip, a key cap or a tooltip"],
     [/^motion\./, "motion distances"],

@@ -4,11 +4,12 @@ import qs.Ui
 // One row of the Dev Tools window, drawn from a ViewLogic row: the tool's
 // icon on its tile, its name, the version or state line under it and any
 // problem lines, then its chips, a channel Select when the row offers
-// more than one channel, and one Button per action. The trailing group
+// more than one channel, and one RowAction per action, side by side in
+// RowActions. The trailing group
 // sits at the right while it takes at most `look.row.stackShare` of the
 // text's room, and moves under the text past that, so a narrow window
 // never starves the name. A problem line shows one elided line; when it
-// does not fit, a Details button shows every line whole in a CodeLine the
+// does not fit, a Details action shows every line whole in a CodeLine the
 // reader copies. A click on an action emits `acted` with the action and
 // the channel the Select holds, "" for none; the window decides what runs.
 // Every value the row draws itself reads `look`, the plugin's own table
@@ -32,10 +33,6 @@ Item {
     // under the text.
     readonly property real room: Math.max(0, width - tile.width - look.row.gap)
     readonly property bool stacked: trailing.implicitWidth > 0 && trailing.implicitWidth > room * look.row.stackShare
-    // The row's controls share one size: a channel Select is `md`, so the
-    // actions beside it are too; a chip is `md`, the height of an `sm`
-    // button.
-    readonly property string controlSize: view.channels.length > 0 ? "md" : "sm"
     property bool detailsOpen: false
     readonly property bool clipped: {
         for (let i = 0; i < lineRepeater.count; i++) {
@@ -106,11 +103,8 @@ Item {
                 copyLabel: "Copy the detail"
             }
         }
-        Button {
+        RowAction {
             visible: root.clipped || root.detailsOpen
-            size: "sm"
-            variant: "tertiary"
-            iconName: root.detailsOpen ? "chevron-up" : "chevron-down"
             text: root.detailsOpen ? "Hide details" : "Details"
             onClicked: root.detailsOpen = !root.detailsOpen
         }
@@ -138,15 +132,16 @@ Item {
             visible: root.view.channels.length > 0
             model: root.view.channels
         }
-        Repeater {
-            model: root.view.actions
-            Button {
-                required property var modelData
-                anchors.verticalCenter: parent.verticalCenter
-                size: root.controlSize
-                variant: modelData.variant
-                text: modelData.label
-                onClicked: root.acted(modelData, channel.visible ? channel.currentText : "")
+        RowActions {
+            anchors.verticalCenter: parent.verticalCenter
+            Repeater {
+                model: root.view.actions
+                RowAction {
+                    required property var modelData
+                    tone: modelData.tone
+                    text: modelData.label
+                    onClicked: root.acted(modelData, channel.visible ? channel.currentText : "")
+                }
             }
         }
     }

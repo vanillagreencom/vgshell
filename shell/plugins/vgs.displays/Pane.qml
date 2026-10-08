@@ -610,12 +610,9 @@ FocusScope {
                                         currentIndex = Qt.binding(() => root.choiceIndex(screenSelect.chosen));
                                     }
                                 }
-                                Button {
+                                RowAction {
                                     id: identifyButton
-                                    variant: "secondary"
-                                    size: "sm"
                                     text: "Identify"
-                                    iconName: "scan-eye"
                                     anchors.verticalCenter: parent.verticalCenter
                                     onClicked: root.identify(entry.modelData.id)
                                 }
@@ -758,10 +755,9 @@ FocusScope {
                             text: modelData.output
                             elide: Text.ElideRight
                         }
-                        Button {
+                        RowAction {
                             id: forgetButton
-                            variant: "secondary"
-                            size: "sm"
+                            anchors.verticalCenter: parent.verticalCenter
                             text: "Forget"
                             onClicked: root.assign(modelData.device, "")
                         }
@@ -795,10 +791,8 @@ FocusScope {
                     warning: modelData.value.text
                     warningTone: Logic.formWarningTone(modelData.tone)
 
-                    Button {
+                    RowAction {
                         visible: accessRow.modelData.action !== null && accessRow.modelData.action.offered
-                        variant: "secondary"
-                        size: "sm"
                         text: accessRow.modelData.action === null ? "" : accessRow.modelData.action.label
                         onClicked: root.runAction(accessRow.modelData.key)
                     }

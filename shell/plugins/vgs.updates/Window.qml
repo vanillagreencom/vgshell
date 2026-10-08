@@ -142,12 +142,10 @@ FocusScope {
                             text: source.modelData.badge
                             tone: source.modelData.badgeTone
                         },
-                        Button {
+                        RowAction {
                             id: update
                             anchors.verticalCenter: parent.verticalCenter
                             visible: source.modelData.updatable
-                            variant: "secondary"
-                            size: "sm"
                             text: "Update"
                             onClicked: root.run("source", source.modelData.source)
                         }

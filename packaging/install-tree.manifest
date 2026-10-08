@@ -122,6 +122,8 @@ f share/vgshell/shell/Ui/controls/InputWidth.qml
 f share/vgshell/shell/Ui/controls/LevelSlider.qml
 f share/vgshell/shell/Ui/controls/PathField.qml
 f share/vgshell/shell/Ui/controls/Radio.qml
+f share/vgshell/shell/Ui/controls/RowAction.qml
+f share/vgshell/shell/Ui/controls/RowActions.qml
 f share/vgshell/shell/Ui/controls/SegmentedControl.qml
 f share/vgshell/shell/Ui/controls/Select.qml
 f share/vgshell/shell/Ui/controls/ShortcutField.qml

@@ -20,7 +20,7 @@
 # expect_run_end at its ceiling, a presenter copy that writes no ended
 # record, whose run the core's `vgshell-tui wait` ends, and a disabled plugin's
 # list and hold gone.
-# inputs: scripts/smoke/fixtures/plugins/acme.tui/* shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml bin/vgshell-tui bin/lib/tui.sh bin/vgshell scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/Registry.qml
+# inputs: scripts/smoke/fixtures/plugins/acme.tui/* shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml bin/vgshell-tui bin/lib/tui.sh bin/vgshell scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Ui/controls/RowAction.qml
 set -euo pipefail
 tui_dir="$home/.config/vgshell/plugins/acme.tui"
 mkdir -p "$tui_dir"
@@ -100,12 +100,13 @@ expect_run_end "the hello run ends before the next request" acme.tui/hello
 # is handed what the plugin's own run hands it. The control: the manager
 # refuses a script the manifest does not list and reaches no terminal.
 # setup_drawn: the texts the page's Setup section draws. setup_button TEXT:
-# whether it draws the Button TEXT, then whether that button takes a press.
+# whether it draws the RowAction TEXT, then whether that action takes a
+# press.
 setup_drawn() { ipc smoke itemTexts window vgs.settings Section | py_reply 'import json,sys; r=[s for s in json.load(sys.stdin) if s and s[0] == "Setup"]; print(json.dumps(r[0] if len(r) == 1 else "sections=%d" % len(r)))'; }
 setup_button() {
   local any on
-  any="$(ipc smoke shownWindowGeometry window vgs.settings Button "$1")" || return
-  on="$(ipc smoke windowGeometry window vgs.settings Button "$1")" || return
+  any="$(ipc smoke shownWindowGeometry window vgs.settings RowAction "$1")" || return
+  on="$(ipc smoke windowGeometry window vgs.settings RowAction "$1")" || return
   [[ $any == \[* ]] && any=drawn
   [[ $on == \[* ]] && on=enabled
   printf '%s %s\n' "$any" "$on"
@@ -114,7 +115,7 @@ settings_page_open acme.tui
 expect_poll "the Settings page draws one Setup button per listed script" '["Setup", "Say hello", "Update"]' setup_drawn
 expect "an enabled plugin's Setup button takes a press" "drawn enabled" setup_button "Say hello"
 forget_record
-settings_press "Say hello" || fail "the click on the Setup section's Say hello failed"
+settings_press --type RowAction "Say hello" || fail "the click on the Setup section's Say hello failed"
 expect_poll "the Setup button hands the terminal the plugin's script and no argument" \
   "$(hello_words)" recorded
 expect_run_end "the Setup button's hello run ends" acme.tui/hello

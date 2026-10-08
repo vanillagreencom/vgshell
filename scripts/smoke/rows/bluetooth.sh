@@ -45,7 +45,7 @@
 # vgs.system enabled or disabled as it found them, discovery confirming,
 # the follow off and no planted systemctl answer, whichever step it
 # returns from.
-# inputs: shell/plugins/vgs.bluetooth/* shell/plugins/vgs.system/* shell/Ui/layout/Pane.qml shell/Ui/layout/DeviceList.qml scripts/smoke/fixtures/devices/* shell/Core/BluetoothAgent.qml shell/Core/BluetoothAgentModel.js shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh
+# inputs: shell/plugins/vgs.bluetooth/* shell/plugins/vgs.system/* shell/Ui/layout/Pane.qml shell/Ui/layout/DeviceList.qml shell/Ui/controls/RowAction.qml scripts/smoke/fixtures/devices/* shell/Core/BluetoothAgent.qml shell/Core/BluetoothAgentModel.js shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 
 bt_keyboard=00:1B:66:AA:BB:02
@@ -300,9 +300,9 @@ bt_main() {
 
   # Connect and disconnect by pointer.
   expect_poll "My Devices lists the four devices" '[["Smoke Headphones", true], ["Smoke Keyboard", true], ["Smoke Mouse", true], ["Smoke Speaker", true]]' bt_mine
-  click_in "window:System Settings" window vgs.bluetooth Button Disconnect || fail "the click on Disconnect failed"
+  click_in "window:System Settings" window vgs.bluetooth RowAction Disconnect || fail "the click on Disconnect failed"
   expect_poll "Disconnect disconnects the first device" "False" bt_device "$bt_headphones" Connected
-  click_in "window:System Settings" window vgs.bluetooth Button Connect || fail "the click on Connect failed"
+  click_in "window:System Settings" window vgs.bluetooth RowAction Connect || fail "the click on Connect failed"
   expect_poll "Connect connects it again" "True" bt_device "$bt_headphones" Connected
   expect "hiding the System window after pairing is allowed" ok ipc shell hide window vgs.system
   expect_poll "the System window is closed after pairing" closed bt_window_closed
@@ -392,7 +392,7 @@ PY
   expect_poll "the section offers the status row's action" '{"label": "Turn on the service"}' bt_service_action
   forget_record
   expect "no terminal is asked for before the click" absent recorded
-  click_in "window:System Settings" window acme.bluetooth-bare Button "Turn on the service" || fail "the click on Turn on the service failed"
+  click_in "window:System Settings" window acme.bluetooth-bare RowAction "Turn on the service" || fail "the click on Turn on the service failed"
   expect_poll "Turn on the service hands the terminal vgshell system apply service-bluetooth" \
     "$(core_words core/system "System setup" org.vgs.tui system apply service-bluetooth)" recorded
   expect_run_end "the Turn on the service core/system run ends" core/system

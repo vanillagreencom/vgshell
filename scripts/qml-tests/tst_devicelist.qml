@@ -29,7 +29,7 @@ Item {
         y: 40
         width: 420
         rows: root.three
-        actionOf: row => row.key === "a" ? { text: "Disconnect", variant: "secondary" } : null
+        actionOf: row => row.key === "a" ? { text: "Disconnect" } : null
         menuOf: row => row.key === "a" ? [{ key: "rename", text: "Rename" }, { key: "forget", text: "Forget" }] : []
     }
     SignalSpy { id: acted; target: list; signalName: "acted" }
@@ -68,7 +68,6 @@ Item {
             compare(list.rowAt(2).badge, "Nearby");
             verify(actionOf(list.rowAt(0)).visible, "the first row's action is hidden");
             compare(actionOf(list.rowAt(0)).text, "Disconnect");
-            compare(actionOf(list.rowAt(0)).variant, "secondary");
             verify(!actionOf(list.rowAt(1)).visible, "a row with no action draws one");
             compare(menuOf(list.rowAt(0)).items().map(item => item.text), ["Rename", "Forget"]);
             verify(!trailing(list.rowAt(1))[2].visible, "a row with no menu draws its overflow button");

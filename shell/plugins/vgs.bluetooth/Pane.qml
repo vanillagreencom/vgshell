@@ -134,17 +134,15 @@ FocusScope {
             shell: root.shell
         }
 
-        Button {
+        RowAction {
             visible: root.serviceAction !== null
             text: root.serviceAction === null ? "" : root.serviceAction.label
-            variant: "secondary"
             onClicked: root.turnOnService()
         }
 
-        Button {
+        RowAction {
             visible: power.power !== null && power.power.key === "rfkill-missing"
             text: "Install rfkill"
-            variant: "secondary"
             onClicked: {
                 const reply = root.shell.requirements.offer(["rfkill"]);
                 if (reply !== "ok" && reply !== "satisfied") console.warn("bluetooth: requirements " + reply);

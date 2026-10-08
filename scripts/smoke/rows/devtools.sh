@@ -30,7 +30,7 @@
 # summon unfocused, and a copy of the plugin whose service ignores a run's
 # end and a change of the scan's missing commands leaves the list as it
 # was after each.
-# inputs: shell/plugins/vgs.devtools/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.requires/* shell/Core/Notices.qml shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml bin/vgshell VERSION config/requirements.json bin/lib/qml-library.js scripts/smoke/rows/status.sh bin/vgshell-tui scripts/smoke/rows/settings.sh scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js
+# inputs: shell/plugins/vgs.devtools/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.requires/* shell/Core/Notices.qml shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml bin/vgshell VERSION config/requirements.json bin/lib/qml-library.js scripts/smoke/rows/status.sh bin/vgshell-tui scripts/smoke/rows/settings.sh scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/controls/RowAction.qml
 set -euo pipefail
 devtools_stand_ins
 requires_dir="$home/.config/vgshell/plugins/acme.requires"
@@ -366,7 +366,7 @@ expect "the window returns to Catalog after launcher reads" '[' select_devtools_
 # monitor 360 logical pixels wide. The wide reading is the narrow check's
 # control: the same reader answers `beside` there.
 actions_place() { # ROW BUTTON
-  python3 - "$(ipc smoke scopedWindowGeometry window vgs.devtools ToolRow "$1" Label "$1")" "$(ipc smoke scopedWindowGeometry window vgs.devtools ToolRow "$1" Button "$2")" <<'PY'
+  python3 - "$(ipc smoke scopedWindowGeometry window vgs.devtools ToolRow "$1" Label "$1")" "$(ipc smoke scopedWindowGeometry window vgs.devtools ToolRow "$1" RowAction "$2")" <<'PY'
 import json, sys
 name, button = sys.argv[1], sys.argv[2]
 if not name.startswith("[") or not button.startswith("["):
@@ -413,12 +413,12 @@ expect "the narrow window switches to Catalog for planted database rows" '[' sel
 # exact row's button, then press in the application window's coordinates.
 # Other narrow tool rows can also draw Details. Only VGS owns this click.
 devtools_any_button_count() {
-  ipc smoke itemTexts window vgs.devtools Button | py_reply 'import json,sys; print(sum(1 for row in json.load(sys.stdin) if sys.argv[1] in row))' "$1"
+  ipc smoke itemTexts window vgs.devtools RowAction | py_reply 'import json,sys; print(sum(1 for row in json.load(sys.stdin) if sys.argv[1] in row))' "$1"
 }
 devtools_old_button_guard() { [[ $1 == 1 ]] && echo accepted || echo refused; }
 devtools_details_global="$(devtools_any_button_count Details)"
 expect "control: each planted database row draws its own Details button" "$(python3 -c 'import json,sys; print(len(json.loads(sys.argv[1])))' "$docker_rows")" planted_details
-expect "control: the old any-Button count refuses the planted Details buttons" refused devtools_old_button_guard "$devtools_details_global"
+expect "control: the old any-action count refuses the planted Details buttons" refused devtools_old_button_guard "$devtools_details_global"
 mv -T -- "$dev_state/docker.saved" "$shim/docker"
 expect "the narrow window switches back to Info for VGS Details" '[' select_devtools_tab Info
 expect "the VGS ToolRow owns exactly one Details button" 1 devtools_vgs_button_count Details
@@ -426,9 +426,9 @@ devtools_details_press() {
   local shown count
   count="$(devtools_vgs_button_count "$1")" || return 1
   [[ $count == 1 ]] || { echo "devtools_details_press: buttons=$count label=$1" >&2; return 1; }
-  shown="$(ipc smoke revealScopedText window vgs.devtools ToolRow VGS Button "$1")" || return 1
+  shown="$(ipc smoke revealScopedText window vgs.devtools ToolRow VGS RowAction "$1")" || return 1
   [[ $shown =~ ^[0-9.]+$ ]] || { echo "devtools_details_press: reveal=$shown label=$1" >&2; return 1; }
-  click_scoped_in "window:Dev Tools" window vgs.devtools ToolRow VGS Button "$1"
+  click_scoped_in "window:Dev Tools" window vgs.devtools ToolRow VGS RowAction "$1"
 }
 devtools_details_press Details || fail "the click on the VGS row's Details failed"
 expect_poll "Details expands one copyable error line" 1 vgs_code_lines
@@ -505,7 +505,7 @@ expect "refresh after adding an older installed version answers ok" ok devtools 
 for action in Pin Version "Roll back"; do
   forget_record
   expect "the agent row scrolls into view for $action" revealed reveal_row "$agent_name"
-  click_scoped_in "window:Dev Tools" window vgs.devtools ToolRow "$agent_name" Button "$action" || fail "the click on $action failed"
+  click_scoped_in "window:Dev Tools" window vgs.devtools ToolRow "$agent_name" RowAction "$action" || fail "the click on $action failed"
   verb="$(python3 -c 'import sys; print({"Pin":"pin","Version":"version","Roll back":"rollback"}[sys.argv[1]])' "$action")"
   verb_before="$(ended_record "vgs.devtools/$verb")"
   expect_poll "$action hands the Dev Tools TUI its argv" "$(words vgs.devtools/$verb tui/devtools.sh "$verb" "$agent_id")" recorded_tail
@@ -536,7 +536,7 @@ expect "the window switches to Info for the fixture requirement" '[' select_devt
 expect_poll "the VGS section lists the fixture's missing requirement with Install" \
   "$(texts vgs-smoke-devtool "acme.requires · A command no sandbox has, which a package names" Missing Optional Install)" row_texts vgs-smoke-devtool
 expect_poll "the requirement's row scrolls into view" revealed reveal_row vgs-smoke-devtool
-click_scoped_in "window:Dev Tools" window vgs.devtools ToolRow vgs-smoke-devtool Button Install || fail "the click on the requirement's Install failed"
+click_scoped_in "window:Dev Tools" window vgs.devtools ToolRow vgs-smoke-devtool RowAction Install || fail "the click on the requirement's Install failed"
 expect_poll "Install raises the core's notice for the fixture's command" '["acme.requires", ["vgs-smoke-devtool"], ["vgs-smoke-devtool"], false]' notice_shown
 expect_poll "the notice maps" 1 layer_count vgs:notice
 expect_poll "the notice holds the keyboard" true ipc smoke noticeFocused
@@ -659,7 +659,7 @@ if [[ $(grep -c -F -- "$relist_line" "$control_dir/Service.qml") == 1 && $(grep 
   expect_poll "the control's agent row scrolls into view" revealed reveal_row "$agent_name"
   forget_record
   control_trigger_before="$(ipc smoke readInstance service vgs.devtools smokeControlTriggers)" || fail "the control's trigger marker is readable before the install run"
-  click_scoped_in "window:Dev Tools" window vgs.devtools ToolRow "$agent_name" Button Install || fail "the control's click on Install failed"
+  click_scoped_in "window:Dev Tools" window vgs.devtools ToolRow "$agent_name" RowAction Install || fail "the control's click on Install failed"
   expect_poll "the control's click hands the install TUI the row's id" "$(words vgs.devtools/install tui/install.sh "$agent_id")" recorded_tail
   expect_poll "the control's install run's presenter exits" moved ended_record_moved vgs.devtools/install "$install_before"
   expect_run_end "the control's install run ends" vgs.devtools/install

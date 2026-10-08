@@ -20,7 +20,7 @@ The plugin reads the warden's `status.json` and publishes the agent state for VG
 
 ## Setup
 
-The plugin's Settings page and its panel show each setup step as a button, only while the step is needed. Install vsys opens the install screen for vsys. Set up opens a floating terminal that starts the Agent Warden checks. Once Agent Warden runs, the page shows no setup button.
+The plugin's Settings page and its panel show each setup step as an action, only while the step is needed. Install vsys opens the install screen for vsys. Set up opens a floating terminal that starts the Agent Warden checks. Once Agent Warden runs, the page shows no setup action.
 
 <details><summary>Show command</summary>
 

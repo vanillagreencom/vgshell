@@ -101,7 +101,7 @@ FocusScope {
             text: root.localProblem !== "" ? root.localProblem : root.profiles.problem !== "" ? root.profiles.problem : root.vpn.problem
             wrapMode: Text.Wrap
         }
-        Button {
+        RowAction {
             objectName: "vpn-setup"
             visible: root.vpn.state !== "missing" && root.setupAction !== null
             text: root.setupAction === null ? "" : root.setupAction.label
@@ -145,10 +145,9 @@ FocusScope {
                 role: "hint"
                 text: root.vpn.login === "opened" ? "Finish the sign-in in your browser." : "Opening the sign-in page"
             }
-            Button {
+            RowAction {
+                anchors.verticalCenter: parent.verticalCenter
                 text: "Cancel"
-                variant: "secondary"
-                size: "sm"
                 onClicked: root.request("cancel-login", "")
             }
         }
@@ -202,12 +201,10 @@ FocusScope {
                 rows: root.accountRows
                 onActed: key => { if (!root.vpn.accounts.some(row => row.id === key && row.current)) root.request("switch", key); }
             }
-            Button {
+            RowAction {
                 visible: root.vpn.login === "idle" && root.vpn.state !== "signed-out"
                 enabled: root.vpn.writable
                 text: "Add account"
-                variant: "secondary"
-                iconName: "log-in"
                 onClicked: root.request("login", "")
             }
         }
@@ -257,11 +254,9 @@ FocusScope {
                     }
                 }
             }
-            Button {
+            RowAction {
                 objectName: "vpn-import"
                 text: "Import WireGuard"
-                iconName: "file-up"
-                variant: "secondary"
                 onClicked: root.answered(root.shell.ipc.call("import-wireguard", ""), "VGS could not open the import window.")
             }
         }

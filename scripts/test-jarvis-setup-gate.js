@@ -39,22 +39,26 @@ const REQUIREMENT = [
 ];
 
 // The Setup section from the daemon's answer: [label, answer, the summary's
-// tone, the steps still to do]. A step to do is a warning with one line and
-// its action; a done step is ok with none.
+// tone, the steps still to do, the steps to do that keep their declared
+// hint]. A step to do is a warning with its action and, unless its action
+// already says what it asks, a hint of its own; a done step is ok with
+// neither. No step draws lines: what it asks is description, its hint.
 const READINESS = [
-    ["ready", { kind: "answered", causes: [] }, "ok", []],
-    ["nothing set up", { kind: "answered", causes: ["speech=local-not-set-up", "brain=unselected"] }, "warning", ["setupVoice", "setupModel"]],
-    ["local voice only", { kind: "answered", causes: ["speech=local-not-ready"] }, "warning", ["setupVoice"]],
-    ["the AI model only", { kind: "answered", causes: ["brain=account-unavailable"] }, "warning", ["setupModel"]],
-    // ChainedEngine's cause while no speech row exists has no line of its own.
-    ["a cause with no line of its own", { kind: "answered", causes: ["speech=no-adapter"] }, "warning", ["setupVoice"]]
+    ["ready", { kind: "answered", causes: [] }, "ok", [], []],
+    ["nothing set up", { kind: "answered", causes: ["speech=local-not-set-up", "brain=unselected"] }, "warning", ["setupVoice", "setupModel"], ["setupVoice"]],
+    ["local voice only", { kind: "answered", causes: ["speech=local-not-ready"] }, "warning", ["setupVoice"], []],
+    ["the AI model only", { kind: "answered", causes: ["brain=account-unavailable"] }, "warning", ["setupModel"], []],
+    // ChainedEngine's cause while no speech row exists has no hint of its own.
+    ["a cause with no hint of its own", { kind: "answered", causes: ["speech=no-adapter"] }, "warning", ["setupVoice"], ["setupVoice"]],
+    // A brain cause with no hint of its own takes the step's.
+    ["a brain cause with no hint of its own", { kind: "answered", causes: ["brain=unnamed"] }, "warning", ["setupModel"], []]
 ];
 // Each brain cause asks for its own action.
 const BRAIN_CAUSES = ["brain=unselected", "brain=account-unavailable", "brain=model-required", "brain=accounts-unreadable"];
 const plain = value => JSON.parse(JSON.stringify(value));
 
 function verifyReadiness(gate) {
-    for (const [label, answer, tone, todo] of READINESS) {
+    for (const [label, answer, tone, todo, declared] of READINESS) {
         const got = plain(gate.readiness(answer));
         assert.deepEqual(Object.keys(got).sort(), ["setup", "setupModel", "setupVoice"], label);
         assert.equal(got.setup.tone, tone, label + ": the summary");
@@ -62,12 +66,13 @@ function verifyReadiness(gate) {
         for (const key of ["setupVoice", "setupModel"]) {
             const step = got[key];
             const open = todo.includes(key);
-            assert.deepEqual([step.tone, step.action, (step.lines || []).length], open ? ["warning", true, 1] : ["ok", false, 0], label + ": " + key);
-            if (open) assert.equal(typeof step.lines[0] === "string" && step.lines[0] !== "" && !/=/.test(step.lines[0]), true,
-                label + ": a plain line, no keyed cause on screen");
+            assert.deepEqual([step.tone, step.action, step.lines], open ? ["warning", true, undefined] : ["ok", false, undefined], label + ": " + key);
+            if (!open || declared.includes(key)) assert.equal(step.hint, undefined, label + ": " + key + " keeps its declared hint");
+            else assert.equal(typeof step.hint === "string" && step.hint !== "" && !/=/.test(step.hint), true,
+                label + ": a plain hint, no keyed cause on screen");
         }
     }
-    const lines = BRAIN_CAUSES.map(cause => plain(gate.readiness({ kind: "answered", causes: [cause] })).setupModel.lines[0]);
+    const lines = BRAIN_CAUSES.map(cause => plain(gate.readiness({ kind: "answered", causes: [cause] })).setupModel.hint);
     for (const cause of ["speech=local-memory-insufficient", "speech=local-memory-unavailable"]) {
         const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setup.tone, got.setupVoice.tone, got.setupVoice.action, got.setupModel.tone],
@@ -76,7 +81,7 @@ function verifyReadiness(gate) {
         assert.equal(typeof got.setupVoice.hint, "string");
         assert.notEqual(got.setupVoice.hint.trim(), "", "memory refusal carries guidance");
     }
-    assert.equal(new Set(lines).size, BRAIN_CAUSES.length, "each brain cause says its own line");
+    assert.equal(new Set(lines).size, BRAIN_CAUSES.length, "each brain cause says its own hint");
     // Before the daemon answers nothing reads ready or to do.
     const checking = plain(gate.readiness({ kind: "checking" }));
     assert.deepEqual([checking.setup.tone, checking.setup.action], ["info", undefined], "checking: setup");
@@ -97,6 +102,7 @@ function verifyReadiness(gate) {
     const stopped = plain(gate.readiness({ kind: "stopped" }));
     assert.deepEqual(Object.keys(stopped).sort(), ["setup", "setupModel", "setupVoice"], "stopped");
     assert.equal(stopped.setup.tone, "danger", "stopped: the summary");
+    assert.deepEqual([stopped.setup.lines, typeof stopped.setup.hint], [undefined, "string"], "stopped: the summary says why as its hint");
     for (const key of ["setupVoice", "setupModel"])
         assert.deepEqual([stopped[key].tone === checking[key].tone, stopped[key].action], [false, false], "stopped: " + key);
     assert.throws(() => gate.readiness({ kind: "answered", causes: ["voice=missing"] }), /^Error: jarvis-setup: cause=voice=missing/);
@@ -187,10 +193,13 @@ const CONTROLS = [
     ["the withheld text names every required command", 'lacking.join(" and ")', 'requires.join(" and ")'],
     ["a missing requirement offers no install", 'if (missing.indexOf(command) === -1) return { tone: "ok"', 'if (true) return { tone: "ok"'],
     ["a found requirement offers its install", 'if (missing.indexOf(command) === -1) return { tone: "ok"', 'if (false) return { tone: "ok"'],
-    ["a cause marks no step", "out[REQUIRED[step]] = {", "void {"],
+    ["a cause marks no step", "out[REQUIRED[step]] = hint === undefined", "void (hint === undefined)"],
     ["a cause marks the other step", 'var REQUIRED = { speech: "setupVoice", brain: "setupModel" };', 'var REQUIRED = { speech: "setupModel", brain: "setupVoice" };'],
-    ["the brain causes share one line", "var line = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var line = STEP_TODO[step];"],
-    ["an unknown cause has no line", "var line = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var line = TODO[cause];"],
+    ["the brain causes share one hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = STEP_TODO[step];"],
+    ["an unknown cause has no hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = TODO[cause];"],
+    ["local voice repeats its action as its hint", "var STEP_TODO = { brain:", 'var STEP_TODO = { speech: "fixture repeat", brain:'],
+    ["a step to do draws its hint as a line", ': { tone: "warning", text: "To do", hint: hint, action: true };', ': { tone: "warning", text: "To do", lines: [hint], action: true };'],
+    ["a stopped summary draws its reason as a line", 'hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." }', 'lines: ["Jarvis stopped after a problem. Turn Jarvis off and on again."] }'],
     ["causes leave the summary ready", 'setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
     ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupVoice: CHECKING, setupModel: CHECKING };', 'return { setup: CHECKING_SUMMARY, setupVoice: DONE, setupModel: DONE };'],
     ["an optional step reads done when not ok", 'if (value.tone === "ok") return DONE;', "if (true) return DONE;"],

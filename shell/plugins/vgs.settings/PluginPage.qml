@@ -18,24 +18,24 @@ import "Steps.js" as Steps
 // placement), a Setup section with the plugin's status entries of the
 // `Setup` group at its top, the first a Status row and each further one a
 // step row under its own label, whose value is a Badge chip in its tone,
-// beside it a step's offered screen as a button, with its lines and hint
-// under it (Steps.setupRows), then, one group space below, one button per
-// other setup screen the manifest lists, which
-// opens it through the manager: a screen an offered status action opens
-// first, primary, with the action's label, then the others secondary
-// (Steps.setupButtons), one settings section
+// beside it a step's offered screen as a RowAction, with its lines and
+// hint under it (Steps.setupRows), then, one group space below, on an
+// unlabelled row from the value column, one RowAction per other setup
+// screen the manifest lists, which opens it through the manager: a screen
+// an offered status action opens first, with the action's label, then the
+// others (Steps.setupButtons), one settings section
 // per schema group (entries without a group first, under `Settings`), one
 // section per `list` entry, titled with its label, and the Keys section,
 // then, for a plugin of kind `pane` while a panes holder is enabled, a
 // button named for the holder that opens the plugin's page there. A
 // plugin with none of those below its switches says so in one line. A
 // disabled plugin's fields are read-only, its Enabled switch says to turn
-// it on while it has something to change, and its setup and holder
-// buttons take no press.
+// it on while it has something to change, and its setup actions and
+// holder button take no press.
 //
 // Details holds what a user reads: the description, in the hint role in
 // the muted colour, the capabilities, the listing metadata, the Update and
-// Remove buttons of an installed plugin, one status section per status
+// Remove actions of an installed plugin, one status section per status
 // group (entries without a group first, under `Status`), whose values are
 // read-only and whose setup steps run through the manager (D061), and the
 // Requirements section with an Install all missing button while one is
@@ -101,7 +101,7 @@ FocusScope {
 
     readonly property var lists: row === null ? [] : Object.keys(row.schema).filter(key => row.schema[key].type === "list")
     // The status entries the Setup section draws at its top, and its
-    // buttons in drawn order.
+    // actions in drawn order.
     readonly property var setupEntries: row === null ? [] : Steps.setupEntries(row.status)
     readonly property var setupRows: row === null ? [] : Steps.setupRows(row.tuis, row.status)
     readonly property var setupButtons: row === null ? [] : Steps.setupButtons(row.tuis, row.status)
@@ -315,8 +315,8 @@ FocusScope {
                     // The plugin's own setup screens, each a TUI its
                     // manifest lists, opened through the manager as a status
                     // step is, under the state they set up. A keyed model
-                    // keeps each button while the rows are replaced, and a
-                    // refusal reads under them. The state and the buttons
+                    // keeps each action while the rows are replaced, and a
+                    // refusal reads under them. The state and the actions
                     // are two groups, so the rows sit `stack.group` apart.
                     Section {
                         id: setup
@@ -331,10 +331,10 @@ FocusScope {
                         // whose value is the entry's chip in its tone, or
                         // its text while it has no tone, so the label sits
                         // level with the chip, and a step's offered screen
-                        // as a button beside it; then its lines and its
-                        // hint under the row, from the value column
-                        // (Field.valueX). Unkeyed, so each status write
-                        // draws the entry anew.
+                        // as a RowAction beside it; then its lines and its
+                        // hint under the value, as a field draws them.
+                        // Unkeyed, so each status write draws the entry
+                        // anew.
                         Column {
                             width: setup.width
                             spacing: Theme.stack.row
@@ -343,65 +343,38 @@ FocusScope {
                                 model: ScriptModel {
                                     values: page.setupRows
                                 }
-                                Column {
+                                Field {
                                     id: setupState
                                     required property var modelData
                                     readonly property var view: Steps.statusView(modelData.entry, ms => new Date(ms).toLocaleString(Qt.locale(), Locale.ShortFormat))
                                     width: setup.width
-                                    spacing: Theme.field.gap
-                                    Field {
-                                        id: statusField
-                                        width: parent.width
-                                        label: setupState.modelData.label
-                                        inline: true
-                                        // A Row places only its visible
-                                        // children, so a row with no button
-                                        // draws as the chip alone.
-                                        Row {
-                                            spacing: Theme.stack.inline
-                                            Badge {
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                visible: setupState.view.tone !== ""
-                                                text: setupState.view.text
-                                                tone: setupState.view.tone === "" ? "neutral" : setupState.view.tone
-                                            }
-                                            Label {
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                role: setupState.view.muted ? "itemHint" : "value"
-                                                visible: setupState.view.tone === "" && setupState.view.text !== ""
-                                                text: setupState.view.text
-                                            }
-                                            Button {
-                                                visible: setupState.modelData.button !== null
-                                                text: visible ? setupState.modelData.button.label : ""
-                                                iconName: visible ? setupState.modelData.button.icon : ""
-                                                variant: "primary"
-                                                enabled: page.editable
-                                                onClicked: page.panel.openTui(page.row.id, setupState.modelData.button.name)
-                                            }
-                                        }
-                                    }
-                                    Column {
-                                        x: statusField.valueX
-                                        width: parent.width - x
-                                        spacing: Theme.field.gap
-                                        visible: setupState.view.lines.length > 0 || setupState.view.hint !== ""
-                                        Repeater {
-                                            model: setupState.view.lines
-                                            Label {
-                                                required property string modelData
-                                                role: "value"
-                                                text: modelData
-                                                width: parent.width
-                                                wrapMode: Text.Wrap
-                                            }
+                                    label: modelData.label
+                                    inline: true
+                                    lines: view.lines
+                                    hint: view.hint
+                                    // A Row places only its visible
+                                    // children, so a row with no action
+                                    // draws as the chip alone.
+                                    Row {
+                                        spacing: Theme.stack.inline
+                                        Badge {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            visible: setupState.view.tone !== ""
+                                            text: setupState.view.text
+                                            tone: setupState.view.tone === "" ? "neutral" : setupState.view.tone
                                         }
                                         Label {
-                                            role: "hint"
-                                            visible: text !== ""
-                                            text: setupState.view.hint
-                                            width: parent.width
-                                            wrapMode: Text.Wrap
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            role: setupState.view.muted ? "itemHint" : "value"
+                                            visible: setupState.view.tone === "" && setupState.view.text !== ""
+                                            text: setupState.view.text
+                                        }
+                                        RowAction {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            visible: setupState.modelData.button !== null
+                                            text: visible ? setupState.modelData.button.label : ""
+                                            enabled: page.editable
+                                            onClicked: page.panel.openTui(page.row.id, setupState.modelData.button.name)
                                         }
                                     }
                                 }
@@ -412,28 +385,34 @@ FocusScope {
                             width: setup.width
                             spacing: Theme.field.gap
 
-                            Flow {
+                            // An unlabelled row, so the actions start on the
+                            // value column with the step rows' chips.
+                            Field {
                                 width: parent.width
-                                spacing: Theme.stack.inline
-                                Repeater {
-                                    model: ScriptModel {
-                                        values: page.setupButtons
-                                        objectProp: "key"
-                                    }
-                                    // A withheld screen's button takes no
-                                    // press and no Tab stop; its reason opens
-                                    // on hover, which reaches a disabled
-                                    // item in Qt Quick, and the
-                                    // Setup state above names what is
-                                    // missing for a keyboard user.
-                                    Button {
-                                        required property var modelData
-                                        text: modelData.label
-                                        iconName: modelData.icon
-                                        variant: modelData.primary ? "primary" : "secondary"
-                                        enabled: page.editable && modelData.enabled
-                                        onClicked: page.panel.openTui(page.row.id, modelData.name)
-                                        Tooltip { text: modelData.reason }
+                                inline: true
+                                visible: page.setupButtons.length > 0
+                                Flow {
+                                    width: parent.width
+                                    spacing: Theme.rowAction.gap
+                                    Repeater {
+                                        model: ScriptModel {
+                                            values: page.setupButtons
+                                            objectProp: "key"
+                                        }
+                                        // A withheld screen's action takes
+                                        // no press and no Tab stop; its
+                                        // reason opens on hover, which
+                                        // reaches a disabled item in Qt
+                                        // Quick, and the Setup state above
+                                        // names what is missing for a
+                                        // keyboard user.
+                                        RowAction {
+                                            required property var modelData
+                                            text: modelData.label
+                                            enabled: page.editable && modelData.enabled
+                                            onClicked: page.panel.openTui(page.row.id, modelData.name)
+                                            Tooltip { text: modelData.reason }
+                                        }
                                     }
                                 }
                             }
@@ -601,18 +580,14 @@ FocusScope {
                             inline: true
                             visible: page.row !== null && page.row.source === "installed"
                             hint: "You can review changes before you apply them."
-                            Row {
-                                spacing: Theme.stack.inline
-                                Button {
+                            RowActions {
+                                RowAction {
                                     text: "Update"
-                                    iconName: "refresh-cw"
-                                    variant: "secondary"
                                     onClicked: page.panel.updatePlugin(page.row.id)
                                 }
-                                Button {
+                                RowAction {
                                     text: "Remove"
-                                    iconName: "trash"
-                                    variant: "danger"
+                                    tone: "danger"
                                     onClicked: page.panel.removePlugin(page.row.id)
                                 }
                             }

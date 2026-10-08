@@ -284,14 +284,16 @@ function verify(logic) {
         ["github:o/x", "package", "neutral", "1", [{ text: "Installed", tone: "success" }], [], ["Update", "Remove"], []]);
     same(logic.toolRow("agents", row({ launcher: "foreign" }), true).lines, ["Another tool manages this launcher."]);
     same(logic.toolRow("agents", row({ launcher: "foreign" }), false).lines, [], "a foreign launcher is named only while VGS writes launchers");
-    same(logic.toolRow("agents", row({}), false).actions, [{ kind: "verb", verb: "install", label: "Install", variant: "primary" }]);
+    same(logic.toolRow("agents", row({}), false).actions, [{ kind: "verb", verb: "install", label: "Install", tone: "accent" }]);
+    same(logic.toolRow("other", { section: "other", id: "github:o/x", installed: true, version: "1", actions: ["update", "remove"] }, false).actions.map(a => [a.verb, a.tone]),
+        [["update", "accent"], ["remove", "danger"]], "Remove draws in the danger tone");
 
     // The VGS row.
     const vgs = (answer, entry) => { const v = logic.vgsRow(answer, entry); return [v.secondary, v.chips, v.actions, v.lines]; };
     same(vgs(null, ""), ["Checking", [], [], []]);
     same(vgs({ value: null, error: "exit=1" }, "x"), ["State unknown", [{ text: "Unknown", tone: "danger" }], [], ["The check failed. Open Dev Tools again after 10 minutes to retry."]]);
     same(vgs(ok(self({ behind: true })), "acme.updates/update"),
-        ["0.1.0.r3.gabc1234 · Git checkout", [{ text: "Update to 0.1.1", tone: "warning" }], [{ kind: "entry", verb: "acme.updates/update", label: "Update", variant: "primary" }], []]);
+        ["0.1.0.r3.gabc1234 · Git checkout", [{ text: "Update to 0.1.1", tone: "warning" }], [{ kind: "entry", verb: "acme.updates/update", label: "Update", tone: "accent" }], []]);
     same(vgs(ok(self({ behind: true })), "")[3], ["Enable Updates in Plugins to update VGS here."]);
     same(vgs(ok(self({ method: "package", package: "vgshell-git" })), ""), ["0.1.0.r3.gabc1234 · Package vgshell-git", [{ text: "Up to date", tone: "success" }], [], []]);
     same(vgs(ok(self({ method: null, current: null, latest: null, behind: null, error: "method=unknown path=/t" })), ""),
@@ -300,7 +302,7 @@ function verify(logic) {
     // A requirement row.
     const req = r => { const v = logic.requirementRow(r, 0); return [v.name, v.secondary, v.chips, v.actions, v.lines]; };
     same(req({ owner: "core", name: "gum", purpose: "Draws", optional: true, package: { manager: "pacman", name: "gum" } }),
-        ["gum", "VGS · Draws", [{ text: "Missing", tone: "neutral" }, { text: "Optional", tone: "neutral" }], [{ kind: "doctor", verb: "", label: "Install", variant: "primary" }], []]);
+        ["gum", "VGS · Draws", [{ text: "Missing", tone: "neutral" }, { text: "Optional", tone: "neutral" }], [{ kind: "doctor", verb: "", label: "Install", tone: "accent" }], []]);
     same(req({ owner: "acme.y", name: "z", purpose: "Draws", optional: false, package: null }),
         ["z", "acme.y · Draws", [{ text: "Missing", tone: "warning" }], [], ["VGS cannot install this tool on this system."]]);
 
@@ -343,6 +345,7 @@ verifySettingHandler(load(file), windowSource);
 // Each control removes one rule from a copy of the logic and keeps the
 // text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["remove draws in the accent", 'remove: "danger" }', 'remove: "accent" }'],
     ["a missing launcher needs installation repair", 'if (/reason=launcher-missing/.test(reply))', 'if (false)'],
     ["a failed tool action has a message", 'function actionErrorText(reason) {', 'function actionErrorText(reason) { if (/step=failed/.test(String(reason))) return "";'],
     ["diagnostics stay out of display text", 'function errorText(reason, query) {', 'function errorText(reason, query) { return String(reason);'],

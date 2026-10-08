@@ -189,11 +189,9 @@ Column {
                 wrapMode: Text.Wrap
                 text: root.streams === null ? "" : root.streams.text
             }
-            Button {
+            RowAction {
                 visible: root.streams !== null && root.streams.action === true
                 text: "Install pactl"
-                size: "sm"
-                variant: "secondary"
                 onClicked: root.offerPactl()
             }
         }

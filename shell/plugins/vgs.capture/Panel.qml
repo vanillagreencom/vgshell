@@ -288,12 +288,9 @@ Item {
                         wrapMode: Text.Wrap
                         text: root.values.languages === undefined ? "" : root.values.languages.text
                     }
-                    Button {
-                        width: parent.width
+                    RowAction {
                         visible: root.languagesOffered
-                        variant: "secondary"
                         text: visible ? root.languagesRow.action.label : ""
-                        iconName: "languages"
                         onClicked: root.installLanguages()
                     }
                 }

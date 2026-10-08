@@ -94,11 +94,10 @@ FormRow {
                 text: root.display === null ? "" : Logic.stateText(root.display.state)
                 wrapMode: Text.Wrap
             }
-            Button {
+            RowAction {
                 id: allowButton
+                anchors.verticalCenter: parent.verticalCenter
                 visible: root.action !== null
-                variant: "secondary"
-                size: "sm"
                 text: root.action === null ? "" : root.action.label
                 onClicked: root.allow()
             }

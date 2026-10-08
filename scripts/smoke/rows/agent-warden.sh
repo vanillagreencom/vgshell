@@ -45,7 +45,7 @@
 # without the button.
 # The harness starts the plugin disabled; the row ends with it disabled,
 # its runtime files gone and no stub on PATH.
-# inputs: shell/plugins/vgs.agent-warden/* shell/plugins/vgs.settings/* shell/Ui/controls/InfoButton.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Popover.qml shell/Commons/Reply.js scripts/smoke/fixtures/agent-warden/* shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/PluginStatus.qml shell/Core/Notices.qml shell/Core/Notifier.qml shell/Core/TuiRunner.qml scripts/smoke/rows/manager.sh bin/vgshell-tui shell/Commons/Duration.js shell/Commons/qmldir
+# inputs: shell/plugins/vgs.agent-warden/* shell/plugins/vgs.settings/* shell/Ui/controls/InfoButton.qml shell/Ui/controls/Field.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Popover.qml shell/Commons/Reply.js scripts/smoke/fixtures/agent-warden/* shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/PluginStatus.qml shell/Core/Notices.qml shell/Core/Notifier.qml shell/Core/TuiRunner.qml scripts/smoke/rows/manager.sh bin/vgshell-tui shell/Commons/Duration.js shell/Commons/qmldir
 set -euo pipefail
 warden_copy="$home/.config/vgshell/plugins/vgs.agent-warden"
 rm -rf -- "$warden_dir"
@@ -520,10 +520,10 @@ expect_run_end "the setup run ends" vgs.agent-warden/setup
 settings_page_open vgs.agent-warden
 settings_details
 expect_poll "a warden not set up offers Set up" '[["warden", "Set up", true]]' offered_actions vgs.agent-warden
-expect_poll "the Warden row draws Set up" "$(words Warden "Not set up" "$warden_hint" "Set up")" warden_drawn
+expect_poll "the Warden row draws Set up" "$(words Warden "Not set up" "Set up" "$warden_hint")" warden_drawn
 expect "the page draws no Show command control" true no_show_command
 forget_record
-settings_press "Set up" || fail "the click on the Settings page's Set up failed"
+settings_press --type RowAction "Set up" || fail "the click on the Settings page's Set up failed"
 expect_poll "the Settings page's Set up hands the terminal the setup TUI" "$(words vgs.agent-warden/setup tui/setup.sh)" recorded_tail
 expect_run_end "the Settings page's setup run ends" vgs.agent-warden/setup
 settings_page_close vgs.agent-warden

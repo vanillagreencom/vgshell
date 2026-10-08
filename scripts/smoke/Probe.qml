@@ -600,14 +600,14 @@ Scope {
             // A drawn `list` field of the Settings page (ListField):
             // `listItems` reads each drawn item's name and its fields'
             // shown values, `listAdd` and `listRemove` click its Add and an
-            // item's Remove button, and `listApply` sends one item field's
+            // item's Remove action, and `listApply` sends one item field's
             // drawn editor a value as the editor does.
             const a = JSON.parse(arg);
             const list = descendants(item).find(child => child.pluginId === a.id && child.key === a.key && typeof child.add === "function");
             if (list === undefined) return "absent";
             const groups = descendants(list).filter(child => child.modelData !== undefined && child.modelData !== null && typeof child.modelData === "object" && typeof child.modelData.name === "string" && child.index !== undefined);
             const editors = group => descendants(group).filter(child => typeName(child) === "SettingField");
-            const button = (within, text) => descendants(within).find(child => typeName(child) === "Button" && child.text === text);
+            const button = (within, text) => descendants(within).find(child => typeName(child) === "RowAction" && child.text === text);
             if (name === "listItems")
                 return root.json(groups.map(group => {
                     const out = { name: group.modelData.name };
@@ -1002,13 +1002,13 @@ Scope {
                 const required = [
                     "Button primary", "Button secondary", "Button tertiary", "Button ghost", "Button danger",
                     "IconButton", "ToggleButton", "BarItem", "Switch", "Checkbox", "Radio",
-                    "SegmentedControl", "TileGroup", "Select", "TextField", "ShortcutField", "Slider", "TitleButton",
+                    "SegmentedControl", "TileGroup", "Select", "TextField", "ShortcutField", "Slider", "TitleButton", "RowAction",
                     "Tabs", "Disclosure", "DeviceRow", "Dialog accept action", "CardCarousel", "KeyCaps", "KeyNav list"
                 ];
                 const previewRequired = {
                     "Button primary": true, "Button secondary": true, "Button tertiary": true, "Button ghost": true, "Button danger": true,
                     "IconButton": true, "ToggleButton": true, "BarItem": true, "Switch": true, "Checkbox": true, "Radio": true,
-                    "SegmentedControl": true, "TileGroup": true, "Select": true, "TextField": true, "ShortcutField": true, "Slider": true, "TitleButton": true
+                    "SegmentedControl": true, "TileGroup": true, "Select": true, "TextField": true, "ShortcutField": true, "Slider": true, "TitleButton": true, "RowAction": true
                 };
                 const found = {};
                 for (const child of root.descendants(item.examples)) {
@@ -1816,8 +1816,8 @@ Scope {
         // #aarrggbb name, as layerItems reads a layer's.
         // A plugin page's shown Setup section, as { chips, lines, buttons }:
         // each visible Badge as [text, tone], every other visible line of
-        // text outside a Badge or a Button, and each visible Button as
-        // [text, variant, enabled, its Tooltip's text or ""], each in tree
+        // text outside a Badge or a RowAction, and each visible RowAction
+        // as [text, tone, enabled, its Tooltip's text or ""], each in tree
         // order, which is the drawn order; "absent" while no Setup section
         // shows.
         function setupSection(hostKey: string, id: string): string {
@@ -1827,7 +1827,7 @@ Scope {
             if (section === undefined) return "absent";
             const shown = root.descendants(section).filter(child => child.visible);
             const badges = shown.filter(child => root.typeName(child) === "Badge");
-            const buttons = shown.filter(child => root.typeName(child) === "Button");
+            const buttons = shown.filter(child => root.typeName(child) === "RowAction");
             const inside = (child, owners) => owners.some(owner => owner !== child && root.descendants(owner).indexOf(child) !== -1);
             const lines = shown.filter(child => root.typeName(child) === "Label" && child.text !== "" && !inside(child, badges) && !inside(child, buttons) && child.text !== section.title && child.text !== section.description);
             return root.json({
@@ -1835,33 +1835,34 @@ Scope {
                 lines: lines.map(line => line.text),
                 buttons: buttons.map(button => {
                     const tip = root.descendants(button).find(child => root.typeName(child) === "Tooltip");
-                    return [button.text, button.variant, button.enabled, tip === undefined ? "" : tip.text];
+                    return [button.text, button.tone, button.enabled, tip === undefined ? "" : tip.text];
                 })
             });
         }
         // A plugin page's shown Setup section by row, as [{ label, chips,
-        // buttons, lines }]: each shown Field of the section, its label, its
-        // Badges as [text, tone], its Buttons as { tui, variant, enabled },
-        // tui the screen the row's step opens (its Steps.setupRows button),
-        // and the shown lines of text its row draws under the Field, each in
-        // tree order; "absent" while no Setup section shows.
+        // buttons, lines }]: each shown step row of the section, a Field
+        // drawn for one of Steps.setupRows, its label, its Badges as [text,
+        // tone], its RowActions as { tui, tone, enabled }, tui the screen
+        // the row's step opens (its Steps.setupRows button), and the shown
+        // lines of text the Field draws under its value, each in tree
+        // order; "absent" while no Setup section shows.
         function setupRows(hostKey: string, id: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
             const section = root.descendants(item).find(child => root.typeName(child) === "Section" && child.visible && child.title === "Setup");
             if (section === undefined) return "absent";
-            const fields = root.descendants(section).filter(child => root.typeName(child) === "Field" && child.visible);
+            const fields = root.descendants(section).filter(child => root.typeName(child) === "Field" && child.visible && child.modelData !== undefined);
             return root.json(fields.map(field => {
-                const inside = root.descendants(field);
-                const shown = inside.filter(child => child.visible);
-                const under = root.descendants(field.parent).filter(child => child.visible && root.typeName(child) === "Label"
-                    && child.text !== "" && inside.indexOf(child) === -1);
-                const step = field.parent.modelData === undefined ? null : field.parent.modelData.button;
+                const shown = root.descendants(field).filter(child => child.visible);
+                const value = shown.find(child => root.typeName(child) === "FormRow");
+                const inValue = value === undefined ? [] : root.descendants(value);
+                const under = shown.filter(child => root.typeName(child) === "Label" && child.text !== "" && inValue.indexOf(child) === -1);
+                const step = field.modelData.button;
                 return {
                     label: field.label,
                     chips: shown.filter(child => root.typeName(child) === "Badge").map(badge => [badge.text, badge.tone]),
-                    buttons: shown.filter(child => root.typeName(child) === "Button").map(button => ({
-                        tui: step === null || step === undefined ? "" : step.name, variant: button.variant, enabled: button.enabled })),
+                    buttons: shown.filter(child => root.typeName(child) === "RowAction").map(button => ({
+                        tui: step === null || step === undefined ? "" : step.name, tone: button.tone, enabled: button.enabled })),
                     lines: under.map(line => line.text)
                 };
             }));

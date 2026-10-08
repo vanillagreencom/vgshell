@@ -364,7 +364,8 @@ function updateEntry(entries) {
 }
 
 var ACTION_LABELS = { install: "Install", update: "Update", remove: "Remove", version: "Version", pin: "Pin", unpin: "Unpin", rollback: "Roll back" };
-var ACTION_VARIANTS = { install: "primary", update: "secondary", remove: "danger", version: "secondary", pin: "secondary", unpin: "secondary", rollback: "secondary" };
+// Remove draws in the danger tone, every other action in the accent.
+var ACTION_TONES = { install: "accent", update: "accent", remove: "danger" };
 
 function latestFor(row, catalog) {
     if (row.latest !== undefined && row.latest !== null) return row.latest;
@@ -403,7 +404,7 @@ function stateChip(row, catalog) {
 // One catalog or other-tool ROW as the window draws it: { key, name, icon,
 // brand, tile, secondary, chips, channels, actions, lines }. `tile` is
 // "brand", "neutral" or "accent"; `chips` { text, tone }; `actions`
-// { kind, verb, label, variant }; `channels` the choices a Select offers,
+// { kind, verb, label, tone }, `tone` a RowAction tone; `channels` the choices a Select offers,
 // empty for none. WRITE is the writeLaunchers setting: a foreign launcher
 // is named only while VGS would write one.
 function toolRow(section, row, write, catalog) {
@@ -445,15 +446,15 @@ function toolRow(section, row, write, catalog) {
     if (write && row.launcher === "foreign") out.lines.push("Another tool manages this launcher.");
     if (section !== "other" && Array.isArray(row.channels) && row.channels.length > 1 && row.actions.indexOf("install") !== -1) out.channels = row.channels;
     ["install", "update", "remove"].forEach(function (verb) {
-        if (row.actions.indexOf(verb) !== -1) out.actions.push({ kind: "verb", verb: verb, label: ACTION_LABELS[verb], variant: ACTION_VARIANTS[verb] });
+        if (row.actions.indexOf(verb) !== -1) out.actions.push({ kind: "verb", verb: verb, label: ACTION_LABELS[verb], tone: ACTION_TONES[verb] });
     });
     if (row.installed === true && row.origin === "mise") {
-        out.actions.push({ kind: "verb", verb: "version", label: "Version", variant: "secondary" });
-        out.actions.push({ kind: "verb", verb: row.pinned === true ? "unpin" : "pin", label: row.pinned === true ? "Unpin" : "Pin", variant: "secondary" });
-        if (row.rollbackVersion !== null && row.rollbackVersion !== undefined) out.actions.push({ kind: "verb", verb: "rollback", label: "Roll back", variant: "secondary" });
+        out.actions.push({ kind: "verb", verb: "version", label: "Version", tone: "accent" });
+        out.actions.push({ kind: "verb", verb: row.pinned === true ? "unpin" : "pin", label: row.pinned === true ? "Unpin" : "Pin", tone: "accent" });
+        if (row.rollbackVersion !== null && row.rollbackVersion !== undefined) out.actions.push({ kind: "verb", verb: "rollback", label: "Roll back", tone: "accent" });
     }
     if (row.failed !== null && row.failed !== undefined && row.actions.indexOf("install") !== -1)
-        out.actions.unshift({ kind: "verb", verb: "install", label: "Retry", variant: "primary" });
+        out.actions.unshift({ kind: "verb", verb: "install", label: "Retry", tone: "accent" });
     return out;
 }
 
@@ -478,7 +479,7 @@ function vgsRow(answer, entry) {
     out.secondary = (s.current !== null ? s.current : s.version) + " · " + method;
     if (s.behind === true) {
         out.chips.push({ text: s.latest === null ? "Update available" : "Update to " + s.latest, tone: "warning" });
-        if (entry !== "") out.actions.push({ kind: "entry", verb: entry, label: "Update", variant: "primary" });
+        if (entry !== "") out.actions.push({ kind: "entry", verb: entry, label: "Update", tone: "accent" });
         else out.lines.push("Enable Updates in Plugins to update VGS here.");
     } else if (s.behind === false) {
         out.chips.push({ text: "Up to date", tone: "success" });
@@ -510,7 +511,7 @@ function requirementRow(requirement, index) {
     };
     if (requirement.optional) out.chips.push({ text: "Optional", tone: "neutral" });
     if (requirement.package === null) out.lines.push("VGS cannot install this tool on this system.");
-    else out.actions.push({ kind: "doctor", verb: "", label: "Install", variant: "primary" });
+    else out.actions.push({ kind: "doctor", verb: "", label: "Install", tone: "accent" });
     return out;
 }
 

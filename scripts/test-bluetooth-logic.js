@@ -429,9 +429,9 @@ function verifyDevices(logic) {
     same(logic.deviceAt([device("A", "x"), device("B", "y")], "B").name, "y", "deviceAt finds by address");
     same(logic.deviceAt([device("A", "x")], "C"), null, "deviceAt answers null for none");
     same([logic.mineAction({ connected: true }), logic.mineAction({ connected: false })],
-        [{ text: "Disconnect", variant: "secondary" }, { text: "Connect", variant: "primary" }], "your device's action");
+        [{ text: "Disconnect" }, { text: "Connect" }], "your device's action");
     same([logic.nearbyAction({ pairing: false }, false), logic.nearbyAction({ pairing: true }, false), logic.nearbyAction({ pairing: false }, true)],
-        [{ text: "Pair", variant: "primary" }, null, null], "Pair hides while any pairing runs");
+        [{ text: "Pair" }, null, null], "Pair hides while any pairing runs");
     same(logic.mineMenu({ trusted: true }).map(e => e.key), ["rename", "untrust", "forget"], "a trusted device's menu");
     same(logic.mineMenu({ trusted: false }).map(e => e.key), ["rename", "trust", "forget"], "an untrusted device's menu");
 }

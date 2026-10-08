@@ -494,7 +494,6 @@ Item {
                     applicable: modelData.installed && root.last.applying === null
                     applying: root.last.applying === modelData.name
                     actionLabel: root.catalogActionLabel(modelData)
-                    actionIcon: modelData.installed ? "cloud-download" : "package-plus"
                     actionEnabled: root.catalogAction === "" && root.last.applying === null
                     lines: root.catalogLines(modelData)
                     busyText: root.catalogBusyLabel(modelData)

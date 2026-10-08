@@ -144,35 +144,27 @@ BindField {
     onHintLinkActivated: if (citedLine !== null) lineAsked(citedLine)
 
     hintActions: [
-        Button {
+        RowAction {
             objectName: "removeUserLine"
             text: "Remove my line"
-            size: "sm"
-            variant: "secondary"
             visible: root.editable && root.userLine !== null && root.removed === null
             onClicked: root.removalAsked(root.userLine)
         },
-        Button {
+        RowAction {
             objectName: "pickAnotherKey"
             text: "Pick another key"
-            size: "sm"
-            variant: "secondary"
             visible: root.editable && root.userHolds && root.capture !== null
             onClicked: root.pickAnotherKey()
         },
-        Button {
+        RowAction {
             objectName: "useMyBinding"
             text: "Use my binding"
-            size: "sm"
-            variant: "secondary"
             visible: root.editable && root.userHolds
             onClicked: root.remove(root.keys.indexOf(root.found.key))
         },
-        Button {
+        RowAction {
             objectName: "undoUserLine"
             text: "Undo"
-            size: "sm"
-            variant: "secondary"
             visible: root.editable && root.removed !== null
             onClicked: root.undoRemoval()
         }

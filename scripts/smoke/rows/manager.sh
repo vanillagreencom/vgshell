@@ -18,7 +18,7 @@
 # page draws neither button, and each requirement row reads back with its
 # state and purpose. rows/settings.sh continues with the same window and
 # takes the plug off the bar again.
-# inputs: shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/BindField.qml shell/Core/Plugins.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/AppWindow.qml shell/Ui/foundation/PointerCursor.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* config/shell.json shell/Core/Capabilities.qml shell/Core/Registry.qml scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js
+# inputs: shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/BindField.qml shell/Core/Plugins.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/AppWindow.qml shell/Ui/foundation/PointerCursor.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* config/shell.json shell/Core/Capabilities.qml shell/Core/Registry.qml scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/controls/RowAction.qml
 set -euo pipefail
 # rows/status.sh removes a monitor just before this row, and its bar's
 # layer can outlive the removal, so the reading waits for the settled set.
@@ -500,9 +500,10 @@ fi
 # and runs none of it, so the plugin stays installed.
 terminal_stand_in
 terminal_ready "Settings' TUIs"
-# settings_button TEXT: whether the window draws a shown Button TEXT.
+# settings_button TEXT [TYPE]: whether the window draws a shown control of
+# TYPE, Button unless given, reading TEXT.
 # settings_label TEXT: the same for a Label.
-settings_button() { ipc smoke windowGeometry window vgs.settings Button "$1" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
+settings_button() { ipc smoke windowGeometry window vgs.settings "${2:-Button}" "$1" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
 settings_label() { ipc smoke windowGeometry window vgs.settings Label "$1" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
 # How many floating TUI windows the nested instance maps.
 tui_windows() { hypr -j clients | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c["class"].startswith("org.vgs.tui")))'; }
@@ -587,16 +588,16 @@ Item {
     height: 140
     Column {
         anchors.fill: parent
-        Button {
+        RowAction {
             property string focusExample: "Before disabled Update"
             text: "Before"
         }
-        Button {
+        RowAction {
             property string focusExample: "Disabled Update"
             text: "Update"
             enabled: false
         }
-        Button {
+        RowAction {
             property string focusExample: "After disabled Update"
             text: "After"
         }
@@ -606,7 +607,7 @@ QML
 expect "the disabled Update control builds" ok ipc smoke popupLoad settings-disabled-update "$repo/shell/Core/DisabledUpdateControl/Item.qml" window vgs.settings '{}'
 expect "the enabled button before disabled Update takes focus" focused ipc smoke popupFocusExample settings-disabled-update "Before disabled Update"
 type_keys -k Tab || fail "Tab from the enabled button before disabled Update failed"
-expect "control: Tab skips a disabled Update button" '["Button","After disabled Update",true,true,true]' ipc smoke focused window vgs.settings
+expect "control: Tab skips a disabled Update button" '["RowAction","After disabled Update",true,true,true]' ipc smoke focused window vgs.settings
 forget_record
 type_keys -k Return || fail "Return on the disabled Update control path failed"
 expect "control: Return on a disabled Update button runs no TUI" absent recorded
@@ -623,14 +624,14 @@ Item {
     height: 140
     Column {
         anchors.fill: parent
-        Button {
+        RowAction {
             property string focusExample: "Before enabled Update"
             text: "Before"
         }
-        Button {
+        RowAction {
             text: "Update"
         }
-        Button {
+        RowAction {
             text: "After"
         }
     }
@@ -639,14 +640,14 @@ QML
 expect "the enabled Update control builds" ok ipc smoke popupLoad settings-enabled-update "$repo/shell/Core/EnabledUpdateControl/Item.qml" window vgs.settings '{}'
 expect "the enabled control starts before Update" focused ipc smoke popupFocusExample settings-enabled-update "Before enabled Update"
 type_keys -k Tab || fail "Tab from the enabled button before enabled Update failed"
-expect "control: the same row reaches an enabled Update button" '["Button","Update",true,true,true]' ipc smoke focused window vgs.settings
+expect "control: the same row reaches an enabled Update button" '["RowAction","Update",true,true,true]' ipc smoke focused window vgs.settings
 expect "the enabled Update control is released" ok ipc smoke popupDrop settings-enabled-update
 rm -r -- "${repo:?}/shell/Core/EnabledUpdateControl" || fail "removing the enabled Update control failed"
 settings_show acme.probe
 settings_details
 forget_record
 hold_runs
-settings_click Button Update || fail "the click on Update failed"
+settings_click RowAction Update || fail "the click on Update failed"
 expect_poll "Update opens vgshell plugin update for the plugin in the wide floating TUI" \
   "$(core_words core/plugin-update "Update a plugin" org.vgs.tui.wide plugin update acme.probe)" recorded
 expect_poll "the update's terminal is focused over the Settings window" '["org.vgs.tui.wide", "VGS · Update a plugin"]' active_window
@@ -657,7 +658,7 @@ expect_poll "the update's terminal closes" 0 tui_windows
 expect_poll "the Settings window takes the focus back" "$settings_focused" active_window
 expect "the window still shows the plugin's page" '"acme.probe"' settings_page
 forget_record
-settings_click Button Remove || fail "the click on Remove failed"
+settings_click RowAction Remove || fail "the click on Remove failed"
 expect_poll "Remove opens vgshell plugin remove for the plugin in the floating TUI" \
   "$(core_words core/plugin-remove "Remove a plugin" org.vgs.tui plugin remove acme.probe)" recorded
 expect "Remove leaves the Settings window open" 1 window_count Plugins
@@ -728,8 +729,8 @@ expect_poll "the jump from a page on Details opens the other page on Settings" 0
 geometry expect_poll "the Settings page's key row ends on the settings fields' right edge, its label on its field" '[]' page_alignment 0 1
 expect_poll "the jump closes the menu" '[false]' title_menu opened
 settings_details
-expect "a bundled plugin's Details draw no Update button" absent settings_button Update
-expect "a bundled plugin's Details draw no Remove button" absent settings_button Remove
+expect "a bundled plugin's Details draw no Update action" absent settings_button Update RowAction
+expect "a bundled plugin's Details draw no Remove action" absent settings_button Remove RowAction
 
 # Keys: the Settings plugin's own page edits its shortcut's key. A key
 # rebinds, an emptied field unbinds, the reset button returns to the

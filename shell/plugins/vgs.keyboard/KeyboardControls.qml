@@ -137,10 +137,9 @@ Column {
                 onClicked: root.addSource()
             }
         }
-        Button {
+        RowAction {
             objectName: "systemLayout"
             text: "Use system layout"
-            variant: "secondary"
             onClicked: {
                 const reply = root.shell.configure.unset("variants");
                 if (reply === "ok") root.shell.configure.unset("layouts");

@@ -19,7 +19,7 @@
 # SCENE is gallery, settings, wide-settings, focus, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, jarvis-console, plugin-messages, ai-usage or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, plugin-messages, ai-usage or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -62,7 +62,11 @@
 # stand-ins report it ready, taken only when named; voice-keys is the Keys
 # section of Voice's Settings page with Voice on, then the pointer on its
 # first key's info icon with that icon's tooltip open where the tree draws
-# one, taken only when named; plugin-messages is a plugin's message to the
+# one, taken only when named; jarvis-setup is the Jarvis page's row
+# actions with its daemon ready, as the settings scene readies it: the
+# Settings tab's Setup section, then the Details tab at its Browser driver
+# line and at its AI model section, each anchor 12 px under the page's top,
+# taken only when named; plugin-messages is a plugin's message to the
 # user as the tree draws it, a core toast where the tree ships
 # shell/Core/Toasts.qml and else its card in vgs.notifications with
 # Silence off: the clipboard's paste failure, a transient message, its
@@ -92,7 +96,9 @@
 # catalog package themes/catalog/flexoki-light, and rounded is the
 # defaults with `radius.sm`, `radius.md` and `radius.lg` at 6, 12 and 16,
 # so every theme-rounded component shows whether its content clears its
-# corners.
+# corners. catalog-NAME is this checkout's catalog package
+# themes/catalog/NAME, so a shot shows a component under any catalog theme;
+# a NAME the catalog lacks is refused as `sandbox-shots: refused: mode=`.
 # --rev REV runs that revision's shell, bin, config and themes (git archive),
 # under this checkout's harness and probe, for a before shot; the plugin
 # fixtures a scene installs are that revision's, which its judge accepts.
@@ -215,14 +221,15 @@ while [[ $# -gt 0 ]]; do
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    gallery|settings|wide-settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|plugin-messages|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
+    gallery|settings|wide-settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|plugin-messages|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
 [[ -n $modes ]] || { if [[ -n $rev ]]; then modes=dark; else modes=dark,light; fi; }
 IFS=, read -r -a mode_list <<<"$modes"
 for mode in "${mode_list[@]}"; do
-  [[ $mode == dark || $mode == light || $mode == rounded ]] || { printf 'sandbox-shots: refused: mode=%s\n' "$mode" >&2; exit 2; }
+  [[ $mode == dark || $mode == light || $mode == rounded ]] && continue
+  [[ $mode =~ ^catalog-[a-z0-9][a-z0-9-]*$ ]] || { printf 'sandbox-shots: refused: mode=%s\n' "$mode" >&2; exit 2; }
 done
 [[ $scale == 1 || $scale == 2 ]] || { printf 'sandbox-shots: refused: scale=%s\n' "$scale" >&2; exit 2; }
 [[ -z $shot_size || $shot_size =~ ^[1-9][0-9]*x[1-9][0-9]*$ ]] || { printf 'sandbox-shots: refused: size=%s\n' "$shot_size" >&2; exit 2; }
@@ -231,6 +238,9 @@ done
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 checkout="$repo"
+for mode in "${mode_list[@]}"; do
+  [[ $mode != catalog-* || -f $checkout/themes/catalog/${mode#catalog-}/theme.json ]] || { printf 'sandbox-shots: refused: mode=%s\n' "$mode" >&2; exit 2; }
+done
 # No process this run starts may open an amdgpu node, so the run goes on
 # only where none is visible: scripts/smoke/gpu-fence.sh.
 "$checkout/scripts/smoke/gpu-fence.sh" --check || exec "$checkout/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
@@ -323,6 +333,7 @@ scene_ships() {
     voice-setup) ships_plugin vgs.voice vgs.settings ;;
     plugin-messages) ships_plugin vgs.clipboard vgs.lock vgs.notifications ;;
     voice-keys) [[ $manager_scene == settings ]] && ships_plugin vgs.voice ;;
+    jarvis-setup) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
     ai-usage) ships_plugin vgs.ai-usage ;;
     devtools) ships_plugin vgs.devtools ;;
     system) ships_plugin vgs.system ;;
@@ -671,9 +682,10 @@ narrow_end() {
 }
 
 theme_file="$home/.config/vgshell/theme.json"
-set_mode() { # dark|light|rounded
+set_mode() { # dark|light|rounded|catalog-NAME
   local name
   case $1 in
+    catalog-*) cp -- "$checkout/themes/catalog/${1#catalog-}/theme.json" "$theme_file.tmp"; name="${1#catalog-}" ;;
     dark) printf '{ "schemaVersion": 1, "name": "vgs", "tokens": {} }\n' >"$theme_file.tmp"; name=vgs ;;
     rounded) printf '{ "schemaVersion": 1, "name": "rounded", "tokens": { "radius": { "sm": 6, "md": 12, "lg": 16 } } }\n' >"$theme_file.tmp"; name=rounded ;;
     light) cp -- "$checkout/themes/catalog/flexoki-light/theme.json" "$theme_file.tmp"; name=flexoki-light ;;
@@ -851,9 +863,9 @@ jarvis_notice_close() {
   expect_poll "the scan that finds Jarvis's required commands closes its notice" 0 layer_count vgs:notice
   jarvis_restore_requirements
 }
-# slack_section: the Slack section through Globex's Connect button.
+# slack_section: the Slack section through Globex's Connect action.
 slack_section() {
-  settings_section Slack StatusLine "Globex" Button "Connect"
+  settings_section Slack StatusLine "Globex" RowAction "Connect"
 }
 # The setup steps of D061 on the open Settings window: Globex's Connect with
 # its masked field typed into, the status fixture's Set up token and Install
@@ -863,7 +875,7 @@ slack_section() {
 # step_offered ID KEY: whether plugin ID's Settings page offers the step of
 # its status entry KEY.
 step_offered() { status_row "$1" "$2" | py_reply 'import json,sys; r=json.load(sys.stdin); print(str(bool(r["action"] and r["action"]["offered"])).lower())'; }
-# step_shot MODE ID KEY LABEL NAME: plugin ID's page with the button LABEL
+# step_shot MODE ID KEY LABEL NAME: plugin ID's page with the action LABEL
 # of its entry KEY scrolled into view, as setup-MODE-NAME. A host where the
 # step is not offered, such as one whose scene stood in the command the
 # button installs, skips the shot and says so.
@@ -881,7 +893,7 @@ step_shot() {
     ok "skipped setup-$1-$5: $2 offers no $4 here"
     return 0
   fi
-  shown="$(ipc smoke revealText "$settings_kind" vgs.settings Button "$4")" || shown=unread
+  shown="$(ipc smoke revealText "$settings_kind" vgs.settings RowAction "$4")" || shown=unread
   [[ $shown =~ ^[0-9.]+$ ]] || { fail "the $4 button was not revealed: $shown"; return 0; }
   park_pointer
   take "setup-$1-$5"
@@ -892,7 +904,7 @@ scene_setup_steps() { # MODE
     read -r start end height <<<"$section"
     settings_scroll_to "$((start - 12))" || fail "the scroll to the Slack section failed"
   fi
-  settings_press "Connect" StatusLine "Globex" || fail "the click on Globex's Connect failed"
+  settings_press --type RowAction "Connect" StatusLine "Globex" || fail "the click on Globex's Connect failed"
   type_keys "xoxp-shot-token" || fail "typing into the masked field failed"
   park_pointer
   take_posed "setup-$1-slack-connect"
@@ -1201,7 +1213,7 @@ EOF
     expect "the Pads field's Add is clicked" clicked ipc smoke invokeInstance "$settings_kind" vgs.settings listAdd '{"id":"vgs.scratchpads","key":"pads"}'
     # The section's heading three margins under the top, clear of the
     # header, with the Add button its last line.
-    if section="$(settings_section Pads Button Add)"; then
+    if section="$(settings_section Pads RowAction Add)"; then
       read -r start _ _ <<<"$section"
       settings_scroll_to "$((start - 3 * margin))" || fail "the scroll to the Pads section failed"
     else
@@ -1243,7 +1255,7 @@ EOF
     expect_poll "the Web Apps page is shown" '"vgs.webapps"' settings_page
     expect "the Web apps field's Add is clicked" clicked ipc smoke invokeInstance "$settings_kind" vgs.settings listAdd '{"id":"vgs.webapps","key":"apps"}'
     expect "the web app's address and name are written" ok ipc smoke invokeInstance "$settings_kind" vgs.settings applySetting '{"id":"vgs.webapps","key":"apps","value":[{"name":"1","url":"http://127.0.0.1:9/","title":"Mail","icon":""}]}'
-    if section="$(settings_section "Web apps" Button Add)"; then
+    if section="$(settings_section "Web apps" RowAction Add)"; then
       read -r start _ _ <<<"$section"
       settings_scroll_to "$((start - 3 * margin))" || fail "the scroll to the Web apps section failed"
     else
@@ -2195,6 +2207,61 @@ scene_voice-keys() { # MODE
   expect_poll "vgs.voice is gone after its keys" False record_exists vgs.voice
 }
 
+# The Jarvis page's row actions, the daemon ready over the J09 world as the
+# settings scene enables it: the Settings tab's Setup section, then two
+# places of the Details tab whose status lines offer a step, the Browser
+# driver line and the AI model section. Each shot puts its anchor `margin`
+# px under the scroll area's top through the probe's scrollTo, so the
+# pointer never crosses the page and a tree whose rows differ in height
+# still draws the anchor at one place.
+# jarvis_anchor TYPE TEXT: the top of the first shown TYPE reading TEXT in
+# the page's scroll area's content coordinates.
+jarvis_anchor() {
+  local area box
+  area="$(settings_scroll)" && [[ $area == \{* ]] || { echo "area=${area:-unread}"; return 1; }
+  box="$(ipc smoke windowGeometry "$settings_kind" vgs.settings "$1" "$2")" && [[ $box == \[* ]] || { echo "anchor=${box:-unread}"; return 1; }
+  python3 -c 'import json,sys
+a, b = (json.loads(v) for v in sys.argv[1:3])
+print(int(b[1] - a["bar"][1] + a["contentY"]))' "$area" "$box"
+}
+# jarvis_anchor_shot NAME TYPE TEXT: the page scrolled to TYPE TEXT, taken.
+jarvis_anchor_shot() {
+  local top margin=12
+  if top="$(jarvis_anchor "$2" "$3")"; then
+    ipc smoke scrollTo "$settings_kind" vgs.settings "$((top - margin))" >/dev/null || fail "the scroll to the Jarvis page's $3 failed"
+    park_pointer
+    take "$1"
+  else
+    fail "the Jarvis page's $3 is unreadable: $top"
+  fi
+}
+# Whether the Setup section draws its rows: four chips and the Accounts
+# button.
+jarvis_setup_drawn() { ipc smoke setupSection "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); s=json.loads(t) if t.startswith("{") else None; print(s is not None and len(s["chips"]) >= 4 and any(b[0] == "Accounts" for b in s["buttons"]))'; }
+scene_jarvis-setup() { # MODE
+  expect "enabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect_poll "the Jarvis daemon answers hello without a restart" ready jarvis_started
+  # Jarvis requires wlrctl, which the shell finds absent, so enabling it
+  # raises its requirement notice, which closes before the shots.
+  for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
+  close_notices
+  expect "the Settings window opens for the Jarvis page" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps for the Jarvis page" 1 settings_count
+  expect "the window opens the Jarvis page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
+  expect_poll "the Jarvis page is shown" '"vgs.jarvis"' settings_page
+  page_details
+  expect_poll "the Jarvis page shows its daemon ready" True jarvis_page_ready
+  jarvis_anchor_shot "jarvis-details-$1-status" Label "Browser driver"
+  jarvis_anchor_shot "jarvis-details-$1-model" SectionHeader "AI model"
+  settings_tab_click Settings || fail "the click on the Settings tab failed"
+  expect_poll "the Jarvis page shows Settings" 0 settings_tab
+  expect_poll "the Jarvis Setup section draws its rows" True jarvis_setup_drawn
+  jarvis_anchor_shot "jarvis-setup-$1" SectionHeader Setup
+  settings_close
+  expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "vgs.jarvis is gone" absent ipc smoke jarvisProcess
+}
+
 voice_level_flowing() { ipc smoke readInstance service vgs.voice level | py_reply 'import json,sys; print(str(json.load(sys.stdin) > 0).lower())'; }
 
 # Voice's Set up as a first-time user meets it. Without voxtype, Set up on
@@ -2505,8 +2572,8 @@ scene_devtools() { # MODE
   # (ToolRow.qml), as in the narrow pass: the sandbox's install method is
   # always unknown, so the line is there whatever the other scenes set up.
   # Where the line fits, the first row's Install takes the hover.
-  [[ $(ipc smoke windowGeometry window vgs.devtools Button Details) != \[* ]] || hover=Details
-  hover_on "the pointer rests on the Dev Tools $hover button" window vgs.devtools Button "$hover" "window:Dev Tools" && take_posed "devtools-$1-hover"
+  [[ $(ipc smoke windowGeometry window vgs.devtools RowAction Details) != \[* ]] || hover=Details
+  hover_on "the pointer rests on the Dev Tools $hover button" window vgs.devtools RowAction "$hover" "window:Dev Tools" && take_posed "devtools-$1-hover"
   park_pointer
   while (( page <= 4 )); do
     at="$(ipc smoke scrollTo window vgs.devtools "$y")" || at=""

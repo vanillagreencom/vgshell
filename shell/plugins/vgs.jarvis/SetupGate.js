@@ -28,17 +28,19 @@ function requirementValue(command, missing) {
 // the causes the daemon publishes, ChainedEngine's one readiness judge, by
 // the step each cause names; the optional ones from their own readers.
 var REQUIRED = { speech: "setupVoice", brain: "setupModel" };
-// What a required step still to do asks, by its cause; a cause not named
-// here reads as its step's line.
+// The hint a required step still to do shows in place of its declared one,
+// by its cause: what the step's own action does not already say. A cause
+// named nowhere here takes its step's hint below; a step with none there,
+// such as local voice not set up, keeps the declared hint, which says what
+// the step gives, since its action already says to set it up.
 var TODO = {
     "brain=unselected": "Choose an AI model below.",
     "brain=account-unavailable": "The chosen AI model cannot be used. Add a key or sign in, then choose it below.",
     "brain=model-required": "The chosen AI model cannot be used. Choose another AI model below.",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Open Accounts to check them.",
-    "speech=local-not-set-up": "Set up local voice.",
-    "speech=local-not-ready": "Local voice is not ready. Set up local voice again."
+    "speech=local-not-ready": "Local voice did not start. Set it up again."
 };
-var STEP_TODO = { speech: "Set up local voice.", brain: "The chosen AI model cannot be used. Add a key or sign in, then choose it below." };
+var STEP_TODO = { brain: "The chosen AI model cannot be used. Add a key or sign in, then choose it below." };
 var DONE = { tone: "ok", text: "Done", action: false };
 var CHECKING = { tone: "info", text: "Checking", action: false };
 var LOADING = { tone: "info", text: "Loading", action: false };
@@ -65,7 +67,7 @@ function readiness(answer) {
     case "checking":
         return { setup: CHECKING_SUMMARY, setupVoice: CHECKING, setupModel: CHECKING };
     case "stopped":
-        return { setup: { tone: "danger", text: "Not ready", lines: ["Jarvis stopped after a problem. Turn Jarvis off and on again."] },
+        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },
             setupVoice: UNCHECKED, setupModel: UNCHECKED };
     case "answered":
         var out = { setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" } : { tone: "warning", text: "Not ready" },
@@ -82,8 +84,9 @@ function readiness(answer) {
                 out.setupVoice = MEMORY[cause];
                 return;
             }
-            var line = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];
-            out[REQUIRED[step]] = { tone: "warning", text: "To do", lines: [line], action: true };
+            var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];
+            out[REQUIRED[step]] = hint === undefined ? { tone: "warning", text: "To do", action: true }
+                : { tone: "warning", text: "To do", hint: hint, action: true };
         });
         return out;
     }

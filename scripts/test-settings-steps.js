@@ -55,11 +55,11 @@ const TUIS = [
 // PluginLogic.listedTuiRows marks them.
 const WITHHELD = TUIS.map(tui => Object.assign({}, tui, { withheld: "Needs acme-other. Install requirements first." }));
 const BUTTONS = [
-    ["a state that calls for its step draws it first, primary", { warden: { tone: "warning", text: "Not set up", action: true } }, [], [["setup", "Set up", true], ["configure", "Configure", false]]],
-    ["a ready state draws every screen secondary, in manifest order", { warden: { tone: "ok", text: "Ready" } }, [], [["setup", "Set up again", false], ["configure", "Configure", false]]],
-    ["nothing published draws every screen secondary", {}, [], [["setup", "Set up again", false], ["configure", "Configure", false]]],
-    ["a withheld step keeps its place with the withheld label", { warden: { tone: "warning", text: "Not set up", action: true } }, ["acme-other"], [["setup", "Install requirements", true], ["configure", "Configure", false]]],
-    ["two entries offering one screen draw it once, the first's", { token: "absent", warden: { tone: "warning", text: "Not set up", action: true } }, [], [["setup", "Set up token", true], ["configure", "Configure", false]]]
+    ["a state that calls for its step draws it first, with its label", { warden: { tone: "warning", text: "Not set up", action: true } }, [], [["setup", "Set up"], ["configure", "Configure"]]],
+    ["a ready state draws every screen in manifest order", { warden: { tone: "ok", text: "Ready" } }, [], [["setup", "Set up again"], ["configure", "Configure"]]],
+    ["nothing published draws every screen", {}, [], [["setup", "Set up again"], ["configure", "Configure"]]],
+    ["a withheld step keeps its place with the withheld label", { warden: { tone: "warning", text: "Not set up", action: true } }, ["acme-other"], [["setup", "Install requirements"], ["configure", "Configure"]]],
+    ["two entries offering one screen draw it once, the first's", { token: "absent", warden: { tone: "warning", text: "Not set up", action: true } }, [], [["setup", "Set up token"], ["configure", "Configure"]]]
 ];
 
 // MANIFEST with its requirements as the judge hands them on, which a
@@ -90,25 +90,25 @@ const STEPPED_TUIS = [
 const TODO = { tone: "warning", text: "To do", action: true };
 const DONE = { tone: "ok", text: "Done", action: false };
 // [label, manifest, listed screens, published values, the rows as [label,
-// step, button name and label or null], the Flow's buttons as [name,
-// label, primary]].
+// step, button name and label or null], the Flow's actions as [name,
+// label]].
 const ROWS = [
     ["a step to do draws its screen beside it, once", STEPPED, STEPPED_TUIS,
         { summary: { tone: "warning", text: "Not ready" }, model: TODO, browser: DONE, keyStore: { tone: "info", text: "No key", action: true } },
         [["Status", false, null], ["AI model", true, ["keys", "Add key"]], ["Browser", true, null]],
-        [["browser", "Set up browser", false], ["accounts", "Accounts", false]]],
+        [["browser", "Set up browser"], ["accounts", "Accounts"]]],
     ["every step done draws no button beside a step", STEPPED, STEPPED_TUIS,
         { summary: { tone: "ok", text: "Ready" }, model: DONE, browser: DONE, keyStore: { tone: "ok", text: "1 key", action: true } },
         [["Status", false, null], ["AI model", true, null], ["Browser", true, null]],
-        [["keys", "Add key", true], ["browser", "Set up browser", false], ["accounts", "Accounts", false]]],
+        [["keys", "Add key"], ["browser", "Set up browser"], ["accounts", "Accounts"]]],
     ["two steps to do each draw their own screen", STEPPED, STEPPED_TUIS,
         { summary: { tone: "warning", text: "Not ready" }, model: TODO, browser: TODO },
         [["Status", false, null], ["AI model", true, ["keys", "Add key"]], ["Browser", true, ["browser", "Set up browser"]]],
-        [["accounts", "Accounts", false]]],
+        [["accounts", "Accounts"]]],
     ["a single Setup entry stays the Status row, its screen in the Flow", MANIFEST, TUIS,
         { warden: { tone: "warning", text: "Not set up", action: true } },
         [["Status", false, null]],
-        [["setup", "Set up", true], ["configure", "Configure", false]]]
+        [["setup", "Set up"], ["configure", "Configure"]]]
 ];
 
 function verify(logic) {
@@ -119,16 +119,16 @@ function verify(logic) {
     // setupEntries: the Setup group's entries alone.
     same(logic.setupEntries(producer.statusRows(MANIFEST, {}, [])).map(entry => entry.key), ["warden"], "the Setup section takes the Setup group's entries");
     // setupButtons: [label, published values, missing requirements, the
-    // buttons as [name, label, primary]]. The manager row lists setup and
-    // configure; a step is drawn first, primary, with its action's label.
+    // actions as [name, label]]. The manager row lists setup and
+    // configure; a step is drawn first, with its action's label.
     for (const [label, values, missing, want] of BUTTONS) {
         const buttons = logic.setupButtons(TUIS, producer.statusRows(NORMAL, values, missing));
-        same(buttons.map(b => [b.name, b.label, b.primary]), want, "setupButtons: " + label);
+        same(buttons.map(b => [b.name, b.label]), want, "setupButtons: " + label);
     }
     // A withheld screen draws disabled with its reason, but for the step an
     // offered action names, which installs what it lacks.
     const withheld = logic.setupButtons(WITHHELD, producer.statusRows(NORMAL, { warden: { tone: "warning", text: "Not set up", action: true } }, ["acme-other"]));
-    same(withheld.map(b => [b.name, b.primary, b.enabled, b.reason !== ""]), [["setup", true, true, false], ["configure", false, false, true]], "setupButtons: a withheld screen draws disabled with a reason, the step stays active");
+    same(withheld.map(b => [b.name, b.enabled, b.reason !== ""]), [["setup", true, false], ["configure", false, true]], "setupButtons: a withheld screen draws disabled with a reason, the step stays active");
     same(logic.setupButtons(TUIS, producer.statusRows(NORMAL, {}, [])).map(b => [b.enabled, b.reason]), [[true, ""], [true, ""]], "setupButtons: a screen that lacks nothing takes a press");
     same(new Set(logic.setupButtons(TUIS, producer.statusRows(MANIFEST, { warden: { tone: "warning", text: "Not set up", action: true } }, [])).concat(logic.setupButtons(TUIS, producer.statusRows(MANIFEST, {}, [])))
         .map(b => b.key)).size, 3, "setupButtons: a step and the same screen's plain button are drawn as different buttons");
@@ -139,7 +139,7 @@ function verify(logic) {
         const status = producer.statusRows(manifest, values, []);
         same(logic.setupRows(tuis, status).map(row => [row.label, row.step, row.button === null ? null : [row.button.name, row.button.label]]),
             rows, "setupRows: " + label);
-        same(logic.setupButtons(tuis, status).map(b => [b.name, b.label, b.primary]), flow, "setupButtons beside steps: " + label);
+        same(logic.setupButtons(tuis, status).map(b => [b.name, b.label]), flow, "setupButtons beside steps: " + label);
     }
     // statusView: what a line draws of a state, with its lines.
     same(logic.statusView(producer.statusRows(MANIFEST, { warden: { tone: "ok", text: "Ready", lines: ["v1"] } }, []).find(e => e.key === "warden"), String),
@@ -157,12 +157,11 @@ const CONTROLS = [
     ["a declared action is always offered", "entry.action !== null && entry.action.offered", "entry.action !== null"],
     ["a present requirement still offers its install", "return requirement.state === \"missing\";", "return true;"],
     ["the Setup section takes every group", "return entry.group === SETUP_GROUP;", "return true;"],
-    ["an offered step draws secondary", "add(tui, entry.action.label, true);", "add(tui, entry.action.label, false);"],
     ["an offered step keeps its screen's label", "add(tui, entry.action.label, true);", "add(tui, tui.label, true);"],
     ["a screen draws twice", "if (tui !== undefined && !has(tui.name))", "if (tui !== undefined)"],
-    ["a button's key ignores its prominence and state", "key: tui.name + \" \" + label + \" \" + primary + \" \" + enabled,", "key: tui.name,"],
-    ["a withheld screen takes a press", "var enabled = primary || tui.withheld === \"\";", "var enabled = true;"],
-    ["the step is withheld too", "var enabled = primary || tui.withheld === \"\";", "var enabled = tui.withheld === \"\";"],
+    ["a button's key ignores its label and state", "key: tui.name + \" \" + label + \" \" + enabled,", "key: tui.name,"],
+    ["a withheld screen takes a press", "var enabled = offered || tui.withheld === \"\";", "var enabled = true;"],
+    ["the step is withheld too", "var enabled = offered || tui.withheld === \"\";", "var enabled = tui.withheld === \"\";"],
     ["a withheld screen gives no reason", "reason: enabled ? \"\" : tui.withheld", "reason: \"\""],
     ["a state draws no lines", "if (entry.value.lines !== undefined) out.lines = entry.value.lines;", ""],
     ["a step drops its button", "button: step ? stepButton(tuis, entry) : null", "button: null"],

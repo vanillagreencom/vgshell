@@ -32,7 +32,7 @@
 # and the TUI record as they were after the same clicks and keys. The row
 # ends with the plugin disabled, its stand-ins removed and the shim files
 # they covered restored.
-# inputs: shell/plugins/vgs.automations/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Ui/feedback/Dialog.qml shell/Commons/Duration.js shell/Commons/qmldir
+# inputs: shell/plugins/vgs.automations/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Ui/feedback/Dialog.qml shell/Commons/Duration.js shell/Commons/qmldir shell/Ui/controls/RowAction.qml
 set -euo pipefail
 auto_stub="$sandbox/automations-stub"
 # The systemctl stand-in fails daemon-reload while $auto_stub/fail-reload
@@ -314,7 +314,7 @@ forget_record
 # comes back after.
 printf '#!/usr/bin/env bash\nif [[ ${1:-} == show-user ]]; then echo yes; exit 0; fi\nprintf "%%s\\n" "loginctl $*" >>%q\nexit 1\n' "$auth_log" | sentinel_stand_over "$shim/loginctl"
 expect "loginctl resolves to the row's stand-in on the shell's PATH" "$shim/loginctl" shell_resolves loginctl
-settings_press "Enable while logged out" || fail "the click on Enable while logged out failed"
+settings_press --type RowAction "Enable while logged out" || fail "the click on Enable while logged out failed"
 expect_poll "Enable while logged out hands the terminal the linger TUI" "$(words vgs.automations/linger tui/linger.sh)" recorded_tail
 expect_run_end "the button's linger run ends" vgs.automations/linger
 expect_poll "the run's end lists again and lingering reads on" ok auto_status_tone linger

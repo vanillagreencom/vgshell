@@ -50,8 +50,9 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // `hintLink`, when set, names the substring of that conflict line that
 // opens a cited file through `hintLinkActivated`. The
 // `hintActions` are controls for the hint, such as the ways out of a
-// conflict it names: they draw on a line of their own under it, wrapping
-// within the field's width, and take no room while none shows. The
+// conflict it names, RowActions: they draw on a line of their own under
+// it, `rowAction.gap` apart, wrapping within the field's width, and take
+// no room while none shows. The
 // field is one focus scope whose focus starts on the box, one tab stop
 // whose arrows move among the alternatives through KeyNav; Enter, Return
 // and keypad Enter activate the alternative edited through it, or the box
@@ -537,7 +538,7 @@ FocusScope {
         Flow {
             id: hintActionRow
             width: parent.width
-            spacing: Theme.textField.gap
+            spacing: Theme.rowAction.gap
         }
     }
 }

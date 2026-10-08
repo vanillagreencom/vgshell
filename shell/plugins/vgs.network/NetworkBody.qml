@@ -402,11 +402,10 @@ FocusScope {
                     onClicked: { root.action("autoconnect", { interface: root.network.wifiInterface }); }
                 }
             }
-            Row {
+            RowActions {
                 visible: root.expanded
-                spacing: Theme.control.gap
-                Button { text: "Forget"; variant: "secondary"; enabled: root.selected !== null && root.selected.known && !root.busy; onClicked: root.action("forget", root.selected) }
-                Button { text: "Share QR code"; variant: "secondary"; enabled: Logic.shareable(root.selected); onClicked: root.share(root.selected) }
+                RowAction { text: "Forget"; enabled: root.selected !== null && root.selected.known && !root.busy; onClicked: root.action("forget", root.selected) }
+                RowAction { text: "Share QR code"; enabled: Logic.shareable(root.selected); onClicked: root.share(root.selected) }
             }
         }
         Section {
@@ -423,10 +422,9 @@ FocusScope {
                     glyph: "ethernet-port"
                 }
             }
-            Button {
+            RowAction {
                 visible: root.expanded && !!root.values.detailsTool && root.values.detailsTool.action === true
                 text: "Install details tool"
-                variant: "secondary"
                 onClicked: root.answered(root.shell.status.act("detailsTool"))
             }
         }

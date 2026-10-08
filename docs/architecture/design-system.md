@@ -97,6 +97,9 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 - Never make a user type a library's format syntax. Declare `presets` or `optionsFrom`, and judge a format string before writing it. `PluginLogic.validateManifest` refuses a string setting without either, and `scripts/test-setting-values.js` holds the format judge.
 - Do feed `optionsFrom` from a `choices` status entry of the same plugin, with stable ids and labels. Keep a configured id that leaves the offers and show it as unavailable. `scripts/test-plugin-logic.js` pins the schema and `settingChoices` model.
 - Do use the shared Settings row height token for every inline setting, so rows stay aligned. Review holds it.
+- Do draw the action of a key/value row as a `RowAction` right after the row's value: accent body text over an underline. Never put a boxed `Button` in such a row; a filled primary `Button` stands in a row only as the page's one main action, such as Install all missing. Set two or more actions of one row in `RowActions`, `rowAction.gap` apart. `scripts/qml-tests/tst_rowaction.qml` pins the control and the gap; review holds its placement.
+- Do lead every danger action with its trash mark, in the theme's danger colour, so it reads apart from an accent action by more than colour; `scripts/qml-tests/tst_rowaction.qml` pins it.
+- Do put a row's description, its lines, hint or error, on its own lines under the row's value, followed by the group space, `stack.group`, before the next row. `Theme.subTextRoom` gives that space in `Field`, `FormRow` and `SettingField`; `scripts/qml-tests/tst_spacing.qml`, `tst_formrow.qml` and `tst_settingfield.qml` pin it.
 
 ## The canonical example
 

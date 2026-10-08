@@ -4,8 +4,8 @@ import qs.Commons
 import qs.Ui
 
 // The editor of one `list` schema entry (Pads.js): one group per item, its
-// name beside a Remove button and each of its fields drawn by SettingField
-// as the page draws a flat entry, and an Add button, which appends an item
+// name beside a Remove action and each of its fields drawn by SettingField
+// as the page draws a flat entry, and an Add action, which appends an item
 // of the entry's `defaults` under the lowest whole number no item names.
 // Every edit sends the whole list through `apply`, which the page writes
 // through the manager's set-setting path, so the configuration's judge
@@ -81,11 +81,10 @@ Column {
                             text: itemGroup.modelData.name
                             anchors.verticalCenter: parent.verticalCenter
                         }
-                        Button {
+                        RowAction {
+                            anchors.verticalCenter: parent.verticalCenter
                             text: "Remove"
-                            iconName: "trash"
-                            variant: "danger"
-                            size: "sm"
+                            tone: "danger"
                             enabled: root.editable
                             onClicked: root.remove(itemGroup.modelData.name)
                         }
@@ -114,10 +113,8 @@ Column {
         width: root.width
         label: root.items.length === 0 ? "None yet" : ""
         inline: true
-        Button {
+        RowAction {
             text: "Add"
-            iconName: "plus"
-            variant: "secondary"
             enabled: root.editable
             onClicked: root.add()
         }

@@ -63,7 +63,7 @@
 # row's PATH, so the review directory's command names the stand-in agent
 # by its absolute path, as an edited review command may. The pipeline's
 # side of the review is scripts/test-updates-pipeline.sh's.
-# inputs: shell/plugins/vgs.updates/* shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/lib/qml-library.js shell/Core/PackageManagers.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.updates/* shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/lib/qml-library.js shell/Core/PackageManagers.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml
 set -euo pipefail
 updates_dir="$home/.config/vgshell/plugins/vgs.updates"
 updates_state="$home/.local/state/vgshell/updates-smoke"
@@ -342,14 +342,15 @@ w=json.load(sys.stdin)
 a=w[len(w) - w[::-1].index("--"):] if "--" in w else []
 if not a: print("partial"); sys.exit()
 print(json.dumps([os.path.basename(a[0])] + a[1:]))'; }
-# Click the window's button reading TEXT, read the argv it launched, WANT,
-# and wait for its run of KEY, and the check its end starts, to end.
-press_and_launch() { # TEXT KEY WANT
+# Click the window's control of TYPE, Button unless given, reading TEXT,
+# read the argv it launched, WANT, and wait for its run of KEY, and the
+# check its end starts, to end.
+press_and_launch() { # TEXT KEY WANT [TYPE]
   local before
   open_updates
   forget_record
   before="$(checks)"
-  click_in window:Updates window vgs.updates Button "$1" || fail "the click on the window's $1 failed"
+  click_in window:Updates window vgs.updates "${4:-Button}" "$1" || fail "the click on the window's $1 failed"
   expect_poll "the window's $1 opens its TUI with its argv" "$3" launched
   expect_run_end "the window's $1 run ends" "$2"
   expect_poll "the $1 run's end starts one check" "$((before + 1))" checks
@@ -480,7 +481,7 @@ for n, i in enumerate(sources):
     items = [j for j, r in enumerate(rows) if r["type"] == "ListItem" and inside(j, i) and shown(r)]
     if len(items) != 1: out.append("row%d listItems=%d" % (n, len(items))); continue
     item = rows[items[0]]
-    controls = [(j, rows[j]) for j, r in enumerate(rows) if r["type"] in ("Badge", "Button", "Icon") and inside(j, items[0]) and drawn(r)]
+    controls = [(j, rows[j]) for j, r in enumerate(rows) if r["type"] in ("Badge", "RowAction", "Icon") and inside(j, items[0]) and drawn(r)]
     icons = [r for _, r in controls if r["type"] == "Icon"]
     if not icons: out.append("row%d icons=0" % n); continue
     lead = min(icons, key=lambda r: r["box"][0])
@@ -554,7 +555,7 @@ expect_poll "the monitor has its logical width back" "$short_saved_logical_w" fi
 
 # Each button's argv, as the terminal stand-in records it. The first
 # Update is the System row's.
-press_and_launch Update vgs.updates/update-source '["update-source.sh", "pacman"]'
+press_and_launch Update vgs.updates/update-source '["update-source.sh", "pacman"]' RowAction
 press_and_launch "Update everything" vgs.updates/update '["update.sh"]'
 press_and_launch "Open last log" vgs.updates/log '["log.sh"]'
 before="$(checks)"

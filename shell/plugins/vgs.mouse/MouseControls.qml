@@ -45,13 +45,11 @@ Column {
     }
 
     // The action beside a row's line that names the user's own value.
-    component UserValueButton: Button {
+    component UserValueAction: RowAction {
         property string setting: ""
 
         objectName: "useHyprlandValue"
         visible: Logic.hasUserValue(root.userValues, root.optionPaths, setting)
-        variant: "secondary"
-        size: "sm"
         text: "Use my Hyprland value"
         // The button hides once the setting is gone, and a hidden item
         // holds no focus. The row message hides with it, so step back past
@@ -76,7 +74,7 @@ Column {
             width: parent.width
             label: "Pointer speed"
             warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "sensitivity")
-            action: UserValueButton { setting: "sensitivity" }
+            action: UserValueAction { setting: "sensitivity" }
             Item {
                 id: pointerSpeedRow
                 width: parent.width
@@ -117,7 +115,7 @@ Column {
             width: parent.width
             label: "Acceleration"
             warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "accelProfile")
-            action: UserValueButton { setting: "accelProfile" }
+            action: UserValueAction { setting: "accelProfile" }
             SegmentedControl {
                 model: ["Adaptive", "Flat"]
                 currentIndex: root.shell === null ? 0 : Logic.profileIndex(root.shell.settings.accelProfile)
@@ -129,7 +127,7 @@ Column {
             width: parent.width
             label: "Natural scroll"
             warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "naturalScroll")
-            action: UserValueButton { setting: "naturalScroll" }
+            action: UserValueAction { setting: "naturalScroll" }
             Switch {
                 size: "sm"
                 Accessible.name: "Natural scroll"
@@ -147,7 +145,7 @@ Column {
             width: parent.width
             label: "Left-handed"
             warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "leftHanded")
-            action: UserValueButton { setting: "leftHanded" }
+            action: UserValueAction { setting: "leftHanded" }
             Switch {
                 size: "sm"
                 Accessible.name: "Left-handed"
@@ -165,7 +163,7 @@ Column {
             width: parent.width
             label: "Scroll speed"
             warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "scrollFactor")
-            action: UserValueButton { setting: "scrollFactor" }
+            action: UserValueAction { setting: "scrollFactor" }
             Item {
                 id: scrollSpeedRow
                 width: parent.width
@@ -254,7 +252,7 @@ Column {
             width: parent.width
             label: "Tap to click"
             warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "tapToClick")
-            action: UserValueButton { setting: "tapToClick" }
+            action: UserValueAction { setting: "tapToClick" }
             Switch {
                 size: "sm"
                 Accessible.name: "Tap to click"
@@ -272,7 +270,7 @@ Column {
             width: parent.width
             label: "Natural scroll"
             warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "touchpadNaturalScroll")
-            action: UserValueButton { setting: "touchpadNaturalScroll" }
+            action: UserValueAction { setting: "touchpadNaturalScroll" }
             Switch {
                 size: "sm"
                 Accessible.name: "Touchpad natural scroll"
@@ -290,7 +288,7 @@ Column {
             width: parent.width
             label: "Disable while typing"
             warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "disableWhileTyping")
-            action: UserValueButton { setting: "disableWhileTyping" }
+            action: UserValueAction { setting: "disableWhileTyping" }
             Switch {
                 size: "sm"
                 Accessible.name: "Disable while typing"
@@ -308,7 +306,7 @@ Column {
             width: parent.width
             label: "Two-finger right-click"
             warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "clickMethod")
-            action: UserValueButton { setting: "clickMethod" }
+            action: UserValueAction { setting: "clickMethod" }
             Switch {
                 size: "sm"
                 Accessible.name: "Two-finger right-click"
@@ -326,7 +324,7 @@ Column {
             width: parent.width
             label: "Touchpad scroll speed"
             warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "touchpadScrollFactor")
-            action: UserValueButton { setting: "touchpadScrollFactor" }
+            action: UserValueAction { setting: "touchpadScrollFactor" }
             Item {
                 id: touchpadScrollSpeedRow
                 width: parent.width

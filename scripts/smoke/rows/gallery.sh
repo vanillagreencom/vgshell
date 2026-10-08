@@ -96,7 +96,7 @@ expect_poll "the device list navigator returns to Mouse" True device_focus_is De
 type_keys -k Tab || fail "tabbing to the device overflow failed"
 expect_poll "Tab reaches the current device's overflow" True device_focus_is IconButton Mouse
 type_keys -k Tab || fail "tabbing past the device row failed"
-expect_poll "Tab skips an unselected device row and reaches its action" True device_focus_is Button Mouse
+expect_poll "Tab skips an unselected device row and reaches its action" True device_focus_is RowAction Mouse
 
 # Pointer scrolling (docs/architecture/design-system.md § Pointer) on a plain Flickable a
 # plugin declares, the gallery's slim list, brought into the window first:
@@ -251,7 +251,7 @@ expect "the TileGroup focus control is released" ok ipc smoke popupDrop gallery-
 rm -r -- "${repo:?}/shell/Core/GalleryTileControl" || fail "removing the TileGroup focus control failed"
 gallery_tab_tour() {
   local required focus label seen_json
-  required='["Button primary","Button secondary","Button tertiary","Button ghost","Button danger","ToggleButton","IconButton","BarItem","Switch","Checkbox","SegmentedControl","Select","TextField","Slider","TitleButton","Tabs","Disclosure","DeviceRow","CardCarousel","KeyNav list","Dialog accept action"]'
+  required='["Button primary","Button secondary","Button tertiary","Button ghost","Button danger","ToggleButton","IconButton","BarItem","Switch","Checkbox","SegmentedControl","Select","TextField","Slider","TitleButton","RowAction","Tabs","Disclosure","DeviceRow","CardCarousel","KeyNav list","Dialog accept action"]'
   seen_json='[]'
   [[ $(ipc smoke focusExample window vgs.gallery "Button primary") == focused ]] || { echo "focus-start-failed"; return 1; }
   for _ in $(seq 1 220); do

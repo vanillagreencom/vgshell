@@ -46,7 +46,7 @@
 # HyprlandLayer.js calls Hyprland's hl.bind from the layer's own wrapper:
 # it failed "the broken bind's configuration error names the user's file
 # and line", reading the layer's vgs.lua at line 142.
-# inputs: scripts/smoke/fixtures/plugins/acme.hyprland/* scripts/smoke/fixtures/plugins/acme.hyprland-other/* shell/Core/PluginLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandState.* shell/Core/KeyCapture.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/plugins/vgs.settings/* shell/Ui/controls/BindField.qml shell/Ui/controls/ShortcutField.qml shell/Ui/feedback/LinkText.qml bin/vgshell bin/vgshell-hypr-judge scripts/smoke/rows/hyprland-consent.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.hyprland/* scripts/smoke/fixtures/plugins/acme.hyprland-other/* shell/Core/PluginLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandState.* shell/Core/KeyCapture.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/plugins/vgs.settings/* shell/Ui/controls/BindField.qml shell/Ui/controls/ShortcutField.qml shell/Ui/feedback/LinkText.qml bin/vgshell bin/vgshell-hypr-judge scripts/smoke/rows/hyprland-consent.sh shell/Ui/controls/RowAction.qml
 set -euo pipefail
 hypr_lua="$home/.config/hypr/hyprland.lua"
 hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
@@ -189,7 +189,7 @@ expect_poll "the capture names the user's file and line for the key" "[[\"~/.con
 settings_page_open acme.hyprland
 expect_poll "the Keys row's line names the user's file and line" "\"Also used by your Hyprland config at ~/.config/hypr/hyprland.lua line $bind_line.\"" key_field acme.hyprland ping conflict
 expect_poll "the Keys row's line links the user's file and line" "\"~/.config/hypr/hyprland.lua line $bind_line\"" ipc smoke readShownDescendant window vgs.settings ShortcutField hintLink
-settings_press "Remove my line" || fail "the click on Remove my line failed"
+settings_press --type RowAction "Remove my line" || fail "the click on Remove my line failed"
 expect_poll "Remove my line asks before it removes" True removal_asked
 expect "the line stays while the confirmation asks" yes user_bind_line
 click_in window:Plugins window vgs.settings Button "Remove line" || fail "the click on Remove line failed"
@@ -198,7 +198,7 @@ expect_poll "the confirmed removal takes the line out of the user's hyprland.lua
 expect_poll "the user's bind leaves Hyprland" False foreign_has SUPER+F7
 expect "the hypr directory stays a symlink to the user's directory" "$user_hypr" readlink -- "$home/.config/hypr"
 expect "the removal holds no configuration error" '[]' hypr_reload_errors
-settings_press "Undo" || fail "the click on Undo failed"
+settings_press --type RowAction "Undo" || fail "the click on Undo failed"
 expect_poll "Undo puts the user's line back" yes user_bind_line
 expect_poll "the user's bind holds the key again" True foreign_has SUPER+F7
 settings_page_close acme.hyprland

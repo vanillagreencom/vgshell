@@ -9,7 +9,7 @@
 # rows start from the defaults. The vgs.themes
 # block and its wallpaper block close the file, each delimited by its own
 # markers.
-# inputs: shell/plugins/vgs.themes/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.gallery/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml shell/Commons/Theme.qml shell/Commons/ThemeSource.qml bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js scripts/smoke/rows/theme.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Hosts/BarHost.qml
+# inputs: shell/plugins/vgs.themes/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.gallery/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml shell/Commons/Theme.qml shell/Commons/ThemeSource.qml bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js scripts/smoke/rows/theme.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Hosts/BarHost.qml shell/Ui/controls/RowAction.qml
 set -euo pipefail
 installed="$home/.config/vgshell/themes"
 # What the fixture's last apply callback received: state, shell, theme and
@@ -371,11 +371,12 @@ click_row() {
 panel_label() { ipc smoke itemTexts panel vgs.themes Label | py_reply 'import json,sys; print([sys.argv[1]] in json.load(sys.stdin))' "$1"; }
 panel_open() { [[ $(ipc smoke readInstance panel vgs.themes packages) != absent ]] && echo open || echo closed; }
 scroll_themes() { ipc smoke scrollTo panel vgs.themes "$1" >/dev/null; }
-# click_button TEXT: one click_item on the enabled button TEXT once it
-# shows.
+# click_button TEXT [TYPE]: one click_item on the enabled control of TYPE,
+# Button unless given, reading TEXT, once it shows.
 click_button() {
-  themes_item_ready Button "$1" || return 1
-  themes_click_item Button "$1"
+  local type="${2:-Button}"
+  themes_item_ready "$type" "$1" || return 1
+  themes_click_item "$type" "$1"
 }
 # A click the panel does not cover: the lower-left quarter of the screen,
 # away from the right section the panel opens under.
@@ -473,7 +474,7 @@ case $first_setup in
   '["reported", "warning", true]')
     forget_record
     hold_runs
-    settings_press "Install browser theming" || fail "the click on Install browser theming failed"
+    settings_press --type RowAction "Install browser theming" || fail "the click on Install browser theming failed"
     expect_poll "Install browser theming hands the terminal the browser-policy TUI" "$(words vgs.themes/browser-policy tui/browser-policy.sh)" recorded_tail
     expect_poll "the browser-policy run is live under the hold" busy key_idle vgs.themes/browser-policy
     printf '#!/bin/sh\nexit 0\n' >"$shim/vgshell-browser-policy"
@@ -723,14 +724,14 @@ else
 fi
 
 scroll_themes 10000
-click_button "Install" || fail "the click on the catalog Install button failed"
+click_button "Install" RowAction || fail "the click on the catalog Install button failed"
 expect "the catalog Install button reaches the theme capability" installed wait_catalog_installed
 expect_poll "the panel is open after catalog install" open panel_open
 expect_poll "the catalog install changes the row to an installed catalog theme without wallpapers" '[["catalog-smoke", "dark, wallpapers 13 MB", "Installed", "Download wallpapers"]]' theme_row catalog-smoke
 
 
 scroll_themes 10000
-click_button "Download wallpapers" || fail "the click on the catalog Download wallpapers button failed"
+click_button "Download wallpapers" RowAction || fail "the click on the catalog Download wallpapers button failed"
 expect_poll "the clicked catalog wallpaper download shows the browser progress text" '[["catalog-smoke", "dark, wallpapers 13 MB", "Installed", "Downloading 3 of 13 MB", "Download wallpapers"]]' theme_row catalog-smoke
 touch -- "$catalog_wallpapers_gate"
 expect "the clicked catalog Download wallpapers button reaches the theme capability" installed wait_catalog_wallpapers
