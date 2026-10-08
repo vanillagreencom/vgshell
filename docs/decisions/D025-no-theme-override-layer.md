@@ -3,7 +3,7 @@
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-09-28
-**Status**: Active
+**Status**: Active (Appearance keys → [D103](D103-appearance-values-over-the-theme.md))
 **Research**: [VGS-473](https://linear.app/vanillagreen/issue/VGS-473)
 
 **Decision**: The shell draws the applied package's document alone. A user who wants one colour changed installs an edited copy as their own package.

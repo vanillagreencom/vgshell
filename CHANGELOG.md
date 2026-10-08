@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Settings > Appearance has three new pages. Motion turns animations on or off and sets their style, Smooth or Snappy, and their speed, for the shell and, with Window animations on, for your windows. Windows sets the corner radius of windows, flyouts and grouped window tabs, and the window border width. UI sets the corner radius of buttons, text fields and segmented controls. Each value shows Set by theme until you change it, and Use theme value puts the theme's value back. The values live in shell.json `appearance`, which the new capability `appearance` writes. With no value set, every theme draws as before.
+- The Themes plugin's Apply theme borders, Apply theme corners and Apply theme animations switches are removed. Their off state is Use my Hyprland value on the Windows page, and window animations are the Motion page's Window animations switch, off by default.
+- `qs.Ui` adds `ValueSourceRow`, the one row for a value that maps to a Hyprland option: it says whether the theme, you or your Hyprland config sets the value and offers the way back. Mouse uses it.
+- A section the System window opens on a click shows no focus ring; one the keyboard opens still does. `shell.panes.mount` takes the focus reason.
 - Mouse settings show the value Hyprland applies for a setting VGS does not set. After Use my Hyprland value, Pointer speed reads your config's value, not 0.00×. The `hyprland` capability adds `values`, Hyprland's own value of each of a plugin's options the layer does not write.
 - The theme browser opens on `SUPER+SHIFT+T` and the wallpaper browser on `SUPER+SHIFT+W`. `SUPER+CTRL+T` and `SUPER+CTRL+W` no longer open them.
 - The theme browser's selected card shows a screenshot of the theme on a desktop, which every bundled and catalog theme ships as `preview.jpg`, in place of the desktop it drew from the theme's colours. An installed catalog theme keeps its catalog screenshot. A theme without one shows its first wallpaper, else its background and name. `vgshell theme preview` is removed.

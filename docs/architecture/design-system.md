@@ -6,7 +6,7 @@ Read before touching a token, the theme judge, `Theme`, a component of `qs.Ui`, 
 
 Every view meets the polish of Vercel's web app or a standard modern consumer app. This is the organization's user experience principle (owner, 2026-10-06).
 
-Every value a surface draws with comes from one table, `shell/Commons/Tokens.js`, read as `Theme.<group>.<token>`. One pure judge, `shell/Commons/ThemeLogic.js`, resolves a theme document against the table, and `Theme` publishes each group frozen ([D015](../decisions/D015-tokens-are-a-judged-table.md)).
+Every value a surface draws with comes from one table, `shell/Commons/Tokens.js`, read as `Theme.<group>.<token>`. One pure judge, `shell/Commons/ThemeLogic.js`, resolves a theme document against the table, and `Theme` publishes each group frozen ([D015](../decisions/D015-tokens-are-a-judged-table.md)). The user's Appearance values, shell.json `appearance`, resolve with it once, over the theme ([D103](../decisions/D103-appearance-values-over-the-theme.md)).
 
 The component library `qs.Ui`, listed in `shell/Ui/qmldir`, is the only code that turns a token into a drawn pixel. A screen composes its components and draws no control of its own. A control extends a `QtQuick.Templates` type ([D017](../decisions/D017-templates-and-path-icons.md)), and an overlay is a Quickshell `PopupWindow` anchored to the item that declares it ([D018](../decisions/D018-overlays-are-quickshell-popups.md)).
 
@@ -34,6 +34,22 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 - Do keep the shipped layout scale on the 4 px grid. `GRID_EXCEPTIONS` in `scripts/test-theme-logic.js` names the permitted classes, and that test walks every length token. Keep row heights independent of the control size scale, so changing buttons does not resize every list.
 - Do keep the shipped theme and every catalog entry readable at the floors `ThemeLogic.readabilityShortfalls` states. `scripts/check-theme-contrast.js` judges them.
 - Do draw rest, hover, pressed, focus, disabled and checked from their own tokens, each different from rest, and never draw hover or press on an item a click cannot change. Review holds it; `scripts/qml-tests/tst_button.qml` and `tst_toggles.qml` pin the shipped controls.
+
+### Appearance values
+
+- Do resolve the user's Appearance values only in `ThemeLogic.withAppearance`, once, and read the result through `Theme`; a value the user has not set is the theme's. `scripts/test-theme-logic.js` pins that no value draws every package as before.
+- Do set every token of a control from its one base by the fixed ratio, `ThemeLogic.APPEARANCE_RATIOS`, and apply a ratio to a user's value only. `scripts/test-theme-logic.js` pins each ratio:
+
+  | Base | Tokens | Ratio |
+  | --- | --- | --- |
+  | Corner radius | `hyprland.window.radius` | 1 |
+  | | `surface`, `popover`, `menu`, `dialog` and `osd` radius; a menu entry follows its menu | 0.75 |
+  | | `hyprland.window.groupRadius`, grouped window tabs | 0.5 |
+  | Border width | `hyprland.border.size` | 1 |
+  | Control radius | `button`, `textField` and `segmented` radius | 1 |
+
+- Never take a colour as an Appearance value; colours stay the theme's ([D025](../decisions/D025-no-theme-override-layer.md)). Review holds it.
+- Do draw a value that maps to a Hyprland option with `ValueSourceRow` ([D057](../decisions/D057-one-row-for-hyprland-mapped-values.md)). `scripts/qml-tests/tst_valuesourcerow.qml` pins its states.
 
 ### Appearance
 
