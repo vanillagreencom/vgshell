@@ -198,8 +198,9 @@ expect_poll "the restarted shell reserves no bar space" 0 reserved_total
 expect_poll "the restarted shell releases its services with no bar to wait for" no-bar services_released
 expect_poll "the restarted shell writes the zero-gap rule again" '[[0, 0, 0, 0], [0, 0, 0, 0]]' gap_rule
 copy_tree style-bar-host
-if edit_tree style-bar-host shell/Hosts/BarHost.qml '            visible: PluginLogic.barShown(slot.instance)
-' ''; then
+if edit_tree style-bar-host shell/Hosts/BarHost.qml '            visible: host.screenPresent && PluginLogic.barShown(slot.instance)
+' '            visible: host.screenPresent
+'; then
   restart_hidden "$sandbox/tree-style-bar-host" control-bar-host
   expect_poll "control: a bar host that ignores shown maps the hidden bar" "$monitors" bar_count
 fi

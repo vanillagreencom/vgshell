@@ -797,6 +797,7 @@ disp_windows_preserved() { # BEFORE
     sleep 0.2
     reading="$(disp_window_state)" || return 1
     if [[ $reading != "$1" ]]; then
+      printf '{"before":%s,"after":%s}\n' "$1" "$reading" >"$sandbox/displays-removal-state.json"
       printf '  display-removal before=%s after=%s\n' "$1" "$reading" >&2
       echo False
       return
@@ -804,6 +805,18 @@ disp_windows_preserved() { # BEFORE
   done
   echo True
 }
+disp_removal_ghost() {
+  python3 - "$sandbox/displays-removal-state.json" <<'PY'
+import json,sys
+state=json.load(open(sys.argv[1]))
+before,after=state["before"],state["after"]
+added=[client for client in after[0] if client not in before[0]]
+removed=[client for client in before[0] if client not in after[0]]
+print(not removed and len(added)==1 and added[0][1:]==["org.vgs.shell","quickshell"]
+      and after[1]==added[0][0] and before[1]!=added[0][0])
+PY
+}
+rm -f -- "$sandbox/displays-removal-state.json"
 disp_windows_before="$(disp_window_state)"
 # Keep the restore and output removal adjacent: an extra compositor read
 # here can let the old window finish deletion and hide the lifetime fault.
@@ -818,8 +831,7 @@ disp_removal_control() {
 }
 if [[ ${disp_lifetime_control:-no} == yes ]]; then
   expect "control: a bar visible during removal fails the same client and focus check" 1 disp_removal_control
-  expect_poll "control: the old bar becomes one generic shell window" 1 window_count quickshell
-  expect_poll "control: the generic shell window takes focus" '["org.vgs.shell", "quickshell"]' active_window
+  expect "control: the same removal snapshot adds a focused generic shell window" True disp_removal_ghost
 else
   disp_removal_check
   # The control runs this same row through the real host's old screen
@@ -841,6 +853,8 @@ else
     done
     disp_control_row() {
       (failures=0 behaviour_failures=0 disp_lifetime_control=yes repo="$sandbox/tree-bar-visible-removed"
+       tui_self="$repo/bin/vgshell-tui"
+       core_vgshell="$repo/shell/../bin/vgshell"
        source "$repo/scripts/smoke/rows/displays.sh" >"$sandbox/displays-lifetime-control.log" 2>&1
        echo "$failures")
     }
