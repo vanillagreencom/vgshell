@@ -327,23 +327,51 @@ themes_item_box() {
   layer="$(surface_box vgs:panel)" || return 1
   python3 -c 'import json,sys; l=json.loads(sys.argv[1]); r=json.loads(sys.argv[2]); print(json.dumps([l[0] + r[0], l[1] + r[1], r[2], r[3]]))' "$layer" "$rect"
 }
+# smoke_poll_tries reads a poll in a subshell as a control's and gives it
+# smoke_control_poll_bound_ms. A subshell that stands for the row's own
+# shell, such as a click's lookup scope, raises themes_poll_depth and
+# answers smoke_poll_tries through this copy with the caller's depth that
+# much higher: its polls keep the harness bound, and a control's subshell
+# inside it still reads as a control.
+eval "themes_harness_$(declare -f smoke_poll_tries)"
+themes_poll_depth=0
 # Keep point_item's moving-box and hover checks with the layer's position.
 # The lookup override stays inside this click and cannot affect later rows.
+# A failed click prints the item's box, whether it reports the pointer and
+# where the compositor has the pointer.
 themes_click_item() {
   (
+    themes_poll_depth=$((themes_poll_depth + 1))
+    smoke_poll_tries() { themes_harness_smoke_poll_tries "$1" "$((${2:-0} + themes_poll_depth))"; }
     control_box() { themes_item_box "$3" "$4"; }
-    click_item panel vgs.themes "$@"
+    click_item panel vgs.themes "$@" && exit 0
+    printf 'themes-click: refused item=[%s] box=%s hovered=%s pointer=[%s]\n' "$*" \
+      "$(themes_item_box "$1" "$2")" "$(control_hovered panel vgs.themes "$1" "$2")" "$(hypr cursorpos)" >&2
+    exit 1
   )
 }
-# click_row NAME: one click_item on the enabled list item NAME, which is
-# waited for for up to 5 s while a running apply disables the rows.
-click_row() {
+# Whether the panel draws the enabled item TYPE reading TEXT: shown or
+# absent. A running apply disables the rows and a running catalog action
+# the buttons.
+themes_item_shown() { [[ $(ipc smoke itemGeometry panel vgs.themes "$1" "$2") != absent ]] && echo shown || echo absent; }
+# themes_item_ready TYPE TEXT: 0 once themes_item_shown reads shown,
+# polled every 0.2 s for smoke_poll_bound_ms; a list item is revealed in
+# its view at each reading. 1 when it never shows, with no click.
+themes_item_ready() {
   local _
-  for _ in $(seq 1 25); do
-    [[ $(ipc smoke itemGeometry panel vgs.themes ListItem "$1") != absent ]] && break
-    ipc smoke revealText panel vgs.themes ListItem "$1" >/dev/null || true
+  smoke_poll_tries 200
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    if [[ $1 == ListItem ]]; then ipc smoke revealText panel vgs.themes ListItem "$2" >/dev/null || true; fi
+    [[ $(themes_item_shown "$1" "$2") == shown ]] && return 0
     sleep 0.2
   done
+  printf 'themes-click: refused item=[%s %s] shown=absent\n' "$1" "$2" >&2
+  return 1
+}
+# click_row NAME: one click_item on the enabled list item NAME once it
+# shows.
+click_row() {
+  themes_item_ready ListItem "$1" || return 1
   ipc smoke revealText panel vgs.themes ListItem "$1" >/dev/null || true
   themes_click_item ListItem "$1"
 }
@@ -351,14 +379,10 @@ click_row() {
 panel_label() { ipc smoke itemTexts panel vgs.themes Label | py_reply 'import json,sys; print([sys.argv[1]] in json.load(sys.stdin))' "$1"; }
 panel_open() { [[ $(ipc smoke readInstance panel vgs.themes packages) != absent ]] && echo open || echo closed; }
 scroll_themes() { ipc smoke scrollTo panel vgs.themes "$1" >/dev/null; }
-# click_button TEXT: one click_item on the enabled button TEXT, which is
-# waited for for up to 5 s while a running action disables the buttons.
+# click_button TEXT: one click_item on the enabled button TEXT once it
+# shows.
 click_button() {
-  local _
-  for _ in $(seq 1 25); do
-    [[ $(ipc smoke itemGeometry panel vgs.themes Button "$1") != absent ]] && break
-    sleep 0.2
-  done
+  themes_item_ready Button "$1" || return 1
   themes_click_item Button "$1"
 }
 # A click the panel does not cover: the lower-left quarter of the screen,
@@ -902,7 +926,7 @@ fi
 if vgs_rect="$(ipc smoke itemGeometry panel vgs.themes ListItem vgs)" && [[ $vgs_rect != absent ]] \
   && smoke_rect="$(ipc smoke itemGeometry panel vgs.themes ListItem smoke)" && [[ $smoke_rect != absent ]]; then
   read -r vx vy < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); sx,sy=json.loads(sys.argv[2])[:2]; print(int(x+w/2-sx), int(y+h/2-sy))' "$vgs_rect" "$smoke_rect")
-  if themes_click_item ListItem smoke "$vx" "$vy"; then
+  if (themes_click_item ListItem smoke "$vx" "$vy"); then
     fail "click_item clicked for the smoke row at the vgs row's centre"
   else
     ok "click_item clicks nothing at a point the smoke row does not report the pointer over"
@@ -910,6 +934,64 @@ if vgs_rect="$(ipc smoke itemGeometry panel vgs.themes ListItem vgs)" && [[ $vgs
 else
   fail "the rows' geometry is unreadable for the click control: vgs=${vgs_rect:-failed} smoke=${smoke_rect:-failed}"
 fi
+
+# Controls: a click whose item is ready late, as a row the panel has just
+# drawn is on a loaded host. late_click SHELL READER LATE NAME runs
+# click_row on the list item NAME in a subshell that replaces READER, a
+# function the click reads readiness through, with one answering LATE for
+# its first late_reads readings: more than a control's bound reads, fewer
+# than the harness bound's. With SHELL `row` the subshell stands for the
+# row's own shell, as a click's lookup scope does, so the click waits the
+# late readings out and clicks. With SHELL `control` it is a control's
+# subshell, where smoke_poll_tries gives the polls
+# smoke_control_poll_bound_ms, so the click stops first and clicks nothing.
+# Each reading appends one byte to $late_reads_file.
+late_reads=$((smoke_control_poll_bound_ms / 100 + 10))
+late_reads_file="$sandbox/late-reads"
+late_click() {
+  case $1 in
+    row|control) ;;
+    *) echo "late_click: refused: shell=$1" >&2; return 1 ;;
+  esac
+  : >"$late_reads_file" || return 1
+  (
+    if [[ $1 == row ]]; then
+      themes_poll_depth=$((themes_poll_depth + 1))
+      smoke_poll_tries() { themes_harness_smoke_poll_tries "$1" "$((${2:-0} + themes_poll_depth))"; }
+    fi
+    eval "late_$(declare -f "$2")" || exit 1
+    eval "$2() { printf . >>\"\$late_reads_file\"; if (( \$(stat -c %s -- \"\$late_reads_file\") <= late_reads )); then echo $3; else late_$2 \"\$@\"; fi; }" || exit 1
+    click_row "$4"
+  )
+}
+# Whether the last late_click read READER past its late readings: past or
+# within.
+late_reads_state() { local n; n="$(stat -c %s -- "$late_reads_file")" || return 1; ((n > late_reads)) && echo past || echo within; }
+# The pointer report: point_item reads control_hovered.
+if late_click control control_hovered false vgs; then
+  fail "a control's click on the vgs row clicked through a late pointer report"
+else
+  expect "a late pointer report outlasts a control's click on the vgs row" within late_reads_state
+  expect "no apply runs after the control's click on the late vgs row" idle theme_idle
+  expect "the control's click on the late vgs row clicks nothing" '"smoke"' lent theme.last.result.theme
+fi
+late_click row control_hovered false vgs || fail "the row's click on the vgs row stopped before its late pointer report"
+expect "the row's click on the vgs row reads past its late pointer report" past late_reads_state
+expect_poll "the row's click on the late vgs row applies vgs" '"vgs"' lent theme.last.result.theme
+expect "the late pointer report's vgs apply ends" idle theme_idle
+# The enabled row: click_row reads themes_item_shown.
+if late_click control themes_item_shown absent smoke; then
+  fail "a control's click on the smoke row clicked through a late enabled row"
+else
+  expect "a late enabled row outlasts a control's click on the smoke row" within late_reads_state
+  expect "no apply runs after the control's click on the late smoke row" idle theme_idle
+  expect "the control's click on the late smoke row clicks nothing" '"vgs"' lent theme.last.result.theme
+fi
+late_click row themes_item_shown absent smoke || fail "the row's click on the smoke row stopped before it was enabled"
+expect "the row's click on the smoke row reads past its late enabled row" past late_reads_state
+expect_poll "the row's click on the late smoke row applies smoke" '"smoke"' lent theme.last.result.theme
+expect "the late enabled row's smoke apply ends" idle theme_idle
+expect_poll "the shell displays smoke again after the late clicks" smoke ipc smoke themeName
 
 # An installed package's own file for a target that runs code is dropped
 # and the template renders in its place: the target is written and the row
