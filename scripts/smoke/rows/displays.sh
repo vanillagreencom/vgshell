@@ -58,7 +58,7 @@
 # user file, so vgs.system and vgs.displays are as it found them, and
 # removes the output, the assignments file and the stub backlight and
 # gives hidraw2 its mode back. The dim settings live in the user file.
-# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprctlReader.qml shell/Hosts/BarHost.qml shell/Hosts/PaneHost.qml shell/Hosts/OverlaySurface.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/foundation/Scrim.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.displays/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* shell/Core/SystemSteps.qml shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprctlReader.qml shell/Hosts/BarHost.qml shell/Hosts/PluginSlot.qml shell/Core/Plugins.qml shell/Core/Lifetime.js shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml shell/Hosts/OverlaySurface.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/foundation/Scrim.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
 set -euo pipefail
 devices_ready displays || return 0
 # The core probes the system steps once vgs.displays holds `system`, and
@@ -99,10 +99,6 @@ print(sum(1 for r in rows if r["request"].get("device") == node and r["request"]
 PY
 }
 disp_report() { hid_fake_call "$1" 0xC0074807 01000000000000 | py_reply 'import json,sys; print(json.load(sys.stdin)["data"])'; }
-disp_initial_reports=()
-for disp_hid in hidraw0 hidraw1 hidraw2; do
-  disp_initial_reports+=("$(disp_report "$disp_hid")")
-done
 # The screens each passive layer of the plugin maps on, in registration
 # order: the on-screen display, Identify, then the display-trial banner.
 disp_layers() { ipc smoke layerWindows vgs.displays | py_reply '
@@ -805,17 +801,93 @@ disp_windows_preserved() { # BEFORE
   done
   echo True
 }
-disp_removal_ghost() {
-  python3 - "$sandbox/displays-removal-state.json" <<'PY'
-import json,sys
-state=json.load(open(sys.argv[1]))
-before,after=state["before"],state["after"]
-added=[client for client in after[0] if client not in before[0]]
-removed=[client for client in before[0] if client not in after[0]]
-print(not removed and len(added)==1 and added[0][1:]==["org.vgs.shell","quickshell"]
-      and after[1]==added[0][0] and before[1]!=added[0][0])
-PY
+# PluginSlot clears its instance after retirement. barShown(null) returns
+# true, so the old host can re-show a removed bar while its native window
+# awaits deletion. Observe that actual owner transition, not Qt's later
+# client mapping race. Existing Probe popup ownership holds the observer
+# on the surviving bar, with a release handle for its lifetime observation.
+disp_lifetime_dir="$repo/shell/SmokeDisplayLifetime"
+mkdir -p -- "$disp_lifetime_dir"
+cat > "$disp_lifetime_dir/BarLifetime.qml" <<'QML'
+import QtQuick
+import Quickshell
+import qs.Core
+Item {
+    id: observer
+    required property string output
+    property QtObject ownerWindow: null
+    property var ownerLifetime: null
+    property var releaseOwner: null
+    property bool retired: false
+    property bool visibleAfterRetirement: false
+    property var events: []
+    property bool visibleListening: false
+    property bool screensListening: false
+    property bool visibleNow: false
+    property bool lossSeen: false
+    property var visibleAtRetirement: null
+    property string state: "unavailable:bar"
+    readonly property var evidence: ({ state: state, lossSeen: lossSeen, retired: retired, visibleAtRetirement: visibleAtRetirement, visibleNow: visibleNow, visibleAfterRetirement: visibleAfterRetirement, events: events })
+    function noteScreensChanged() {
+        if (lossSeen || Quickshell.screens.some(screen => screen.name === output)) return;
+        lossSeen = true;
+        events = events.concat([["screen-removed", visibleNow, retired]]);
+        state = "removed";
+        Qt.callLater(() => { state = retired ? "retired-turn-complete" : "unavailable:no-retirement"; });
+    }
+    function noteVisibleChanged() {
+        if (ownerWindow === null) return;
+        visibleNow = ownerWindow.visible;
+        events = events.concat([["visible", visibleNow, retired]]);
+        if (retired && visibleNow) visibleAfterRetirement = true;
+    }
+    function noteRetirement() {
+        if (ownerLifetime.active) return; // An early observer drop only unregisters.
+        visibleAtRetirement = visibleNow;
+        retired = true;
+        events = events.concat([["retired", visibleNow, retired]]);
+    }
+    Component.onCompleted: {
+        const rows = Plugins.built["bar:" + output] || [];
+        const bar = rows.find(row => row.origin === "core" && row.kind === "bar");
+        if (bar === undefined) return;
+        const win = bar.instance.QsWindow.window;
+        if (win === null) { state = "unavailable:owner-window"; return; }
+        ownerWindow = win;
+        ownerLifetime = bar.lifetime;
+        visibleNow = win.visible;
+        if (!visibleNow) { state = "unavailable:bar-hidden"; return; }
+        try {
+            state = "unavailable:visible-signal";
+            win.visibleChanged.connect(observer.noteVisibleChanged);
+            visibleListening = true;
+            state = "unavailable:screens-signal";
+            Quickshell.screensChanged.connect(observer.noteScreensChanged);
+            screensListening = true;
+            state = "unavailable:owner-lifetime";
+            releaseOwner = ownerLifetime.register(observer.noteRetirement);
+            state = "watching";
+        } catch (error) { state += ":" + String(error); }
+    }
+    Component.onDestruction: {
+        if (screensListening) Quickshell.screensChanged.disconnect(observer.noteScreensChanged);
+        if (releaseOwner !== null) releaseOwner();
+        if (ownerWindow !== null && visibleListening) {
+            ownerWindow.visibleChanged.disconnect(observer.noteVisibleChanged);
+        }
+    }
 }
+QML
+disp_lifetime_read() { ipc smoke popupRead displays-bar-lifetime evidence; }
+disp_lifetime_state() { disp_lifetime_read | py_reply 'import json,sys; print(json.load(sys.stdin)["state"])'; }
+disp_lifetime_ack() { disp_lifetime_read | py_reply 'import json,sys; state=json.load(sys.stdin); print(state["lossSeen"] and state["retired"] and state["state"]=="retired-turn-complete")'; }
+disp_lifetime_read_visible() { disp_lifetime_read | py_reply 'import json,sys; print(json.load(sys.stdin)["visibleAfterRetirement"])'; }
+disp_bar_hidden_check() {
+  expect "the removed bar never reopens after its instance retires" False disp_lifetime_read_visible
+}
+expect "the existing probe owns the removed bar lifetime observer on the surviving bar" ok \
+  ipc smoke popupLoad displays-bar-lifetime "$disp_lifetime_dir/BarLifetime.qml" "bar:$disp_main" vgs.bar "{\"output\":\"$disp_output\"}"
+expect "the observer starts on the real visible bar owner" watching disp_lifetime_state
 rm -f -- "$sandbox/displays-removal-state.json"
 disp_windows_before="$(disp_window_state)"
 # Keep the restore and output removal adjacent: an extra compositor read
@@ -826,48 +898,44 @@ expect_poll "the removed monitor's bar surface is gone" "$monitors" bar_count
 disp_removal_check() { expect "removing the display preserves clients and focus through later turns" True disp_windows_preserved "$disp_windows_before"; }
 disp_removal_control() {
   (failures=0 behaviour_failures=0
-   disp_removal_check >"$sandbox/displays-removal-control.log" 2>&1
+   disp_bar_hidden_check >"$sandbox/displays-removal-control.log" 2>&1
    echo "$failures")
 }
-if [[ ${disp_lifetime_control:-no} == yes ]]; then
-  expect "control: a bar visible during removal fails the same client and focus check" 1 disp_removal_control
-  expect "control: the same removal snapshot adds a focused generic shell window" True disp_removal_ghost
-else
-  disp_removal_check
-  # The control runs this same row through the real host's old screen
-  # activation and visibility. Its owned shell is stopped
-  # before the original tree returns, so the deliberate ghost is removed.
-  if copy_tree bar-visible-removed && edit_tree bar-visible-removed shell/Hosts/BarHost.qml \
-      'visible: host.screenPresent && PluginLogic.barShown(slot.instance)' \
-      'visible: PluginLogic.barShown(slot.instance)' \
-    && edit_tree bar-visible-removed shell/Hosts/BarHost.qml \
-      'active: host.screenPresent && host.wantedKey' \
-      'active: Quickshell.screens.indexOf(host.screen) !== -1 && host.wantedKey' \
-    && mkdir -p -- "$sandbox/tree-bar-visible-removed/scripts" \
-    && cp -R -- "$repo/scripts/smoke" "$sandbox/tree-bar-visible-removed/scripts/" \
-    && stop_shell; then
-    for disp_hid_i in "${!disp_initial_reports[@]}"; do
-      expect "the control restores hidraw$disp_hid_i to its starting report" \
-        "{\"result\": 7, \"data\": \"${disp_initial_reports[disp_hid_i]}\"}" \
-        hid_fake_call "hidraw$disp_hid_i" 0xC0074806 "${disp_initial_reports[disp_hid_i]}"
-    done
-    disp_control_row() {
-      (failures=0 behaviour_failures=0 disp_lifetime_control=yes repo="$sandbox/tree-bar-visible-removed"
-       tui_self="$repo/bin/vgshell-tui"
-       core_vgshell="$repo/shell/../bin/vgshell"
-       source "$repo/scripts/smoke/rows/displays.sh" >"$sandbox/displays-lifetime-control.log" 2>&1
-       echo "$failures")
-    }
-    if start_shell "$sandbox/tree-bar-visible-removed" "$sandbox/displays-bar-visible-removed.log"; then
-      expect "the mutant Displays row passes only its expected failure control" 0 disp_control_row
-      sed 's/^/  CONTROL  /' "$sandbox/displays-lifetime-control.log"
-      sed 's/^/  CONTROL  /' "$sandbox/displays-removal-control.log"
-    else
-      fail "the removed-screen bar control could not start its mutant shell"
-    fi
+expect_poll "the native visibility observer acknowledges the completed screen-loss turn" True disp_lifetime_ack
+disp_bar_hidden_check
+disp_removal_check
+expect "the existing probe releases the fixed bar lifetime observer" ok ipc smoke popupDrop displays-bar-lifetime
+# Reproduce the same owner boundary on the complete old host. The
+# control checks requested visibility across retirement even when Qt
+# deletes the native window before it can map a generic client.
+if copy_tree bar-visible-removed && edit_tree bar-visible-removed shell/Hosts/BarHost.qml \
+    'visible: host.screenPresent && PluginLogic.barShown(slot.instance)' \
+    'visible: PluginLogic.barShown(slot.instance)' \
+  && edit_tree bar-visible-removed shell/Hosts/BarHost.qml \
+    'active: host.screenPresent && host.wantedKey' \
+    'active: Quickshell.screens.indexOf(host.screen) !== -1 && host.wantedKey' \
+  && edit_tree bar-visible-removed shell/Hosts/BarHost.qml \
+    '    readonly property bool screenPresent: Quickshell.screens.indexOf(screen) !== -1
+' '' \
+  && stop_shell; then
+  if start_shell "$sandbox/tree-bar-visible-removed" "$sandbox/displays-bar-visible-removed.log"; then
+    expect "the old-host control adds its own monitor" ok hypr output create headless "$disp_output"
+    expect_poll "the old-host control waits for the monitor's bar" "$((monitors+1))" bar_count
+    expect "the existing probe owns the old host's bar observer" ok ipc smoke popupLoad \
+      displays-bar-lifetime "$sandbox/tree-bar-visible-removed/shell/SmokeDisplayLifetime/BarLifetime.qml" \
+      "bar:$disp_main" vgs.bar "{\"output\":\"$disp_output\"}"
+    expect "the old-host observer starts on the real visible bar" watching disp_lifetime_state
+    expect "the old-host control removes its own monitor" ok hypr output remove "$disp_output"
+    expect_poll "the old-host control acknowledges retirement and the screen-loss turn" True disp_lifetime_ack
+    expect "control: the old host fails the same owner visibility check" 1 disp_removal_control
+    disp_lifetime_read
+    sed 's/^/  CONTROL  /' "$sandbox/displays-removal-control.log"
+    expect "the existing probe releases the old bar lifetime observer" ok ipc smoke popupDrop displays-bar-lifetime
   else
     fail "the removed-screen bar control could not start its mutant shell"
   fi
-  stop_shell && start_shell "$repo" "$sandbox/displays-restored.log"
-  rm -rf -- "${sandbox:?}/tree-bar-visible-removed"
+else
+  fail "the removed-screen bar control could not start its mutant shell"
 fi
+stop_shell && start_shell "$repo" "$sandbox/displays-restored.log"
+rm -rf -- "${sandbox:?}/tree-bar-visible-removed"
