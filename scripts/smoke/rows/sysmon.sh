@@ -39,6 +39,7 @@ expect "memory hides through Settings" ok sysmon_setting showMemory false
 expect_poll "Settings reaches the widget" '["cpu"]' sysmon_icons "$sysmon_key" vgs.sysmon
 click_centre "$sysmon_key" vgs.sysmon || fail "the CPU reading takes a click"
 expect_poll "click opens the flyout" shown sysmon_shown panel vgs.sysmon
+expect_poll "the flyout holds the nested keyboard before Escape" true ipc smoke windowFocused panel vgs.sysmon
 type_keys -k Escape
 expect_poll "Escape closes the flyout" hidden sysmon_shown panel vgs.sysmon
 click_centre "$sysmon_key" vgs.sysmon || fail "the CPU reading opens again"
@@ -115,6 +116,7 @@ expect_poll "the keyboard window holds the nested keyboard" true ipc smoke windo
 expect_poll "the CPU button holds Qt focus before Enter" true ipc smoke readMatchingDescendant window "$sysmon_fixture_id" BarItem iconName cpu activeFocus
 type_keys -k Return
 expect_poll "Enter on the real widget opens the flyout" shown sysmon_shown panel "$sysmon_fixture_id"
+expect_poll "the keyboard flyout holds focus before Escape" true ipc smoke windowFocused panel "$sysmon_fixture_id"
 type_keys -k Escape
 expect_poll "the keyboard flyout closes" hidden sysmon_shown panel "$sysmon_fixture_id"
 expect "the keyboard window closes" ok ipc shell hide window "$sysmon_fixture_id"

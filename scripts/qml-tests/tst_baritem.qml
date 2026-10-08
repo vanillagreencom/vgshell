@@ -128,13 +128,13 @@ Item {
 
         function test_reserved_text_and_count_keep_the_width() {
             reserved.text = "5%"; reserved.count = "9°";
-            wait(0);
+            verify(waitForRendering(reserved));
             const width = reserved.width;
             reserved.text = "100%";
-            wait(0);
+            verify(waitForRendering(reserved));
             compare(reserved.width, width);
             reserved.count = "100°";
-            wait(0);
+            verify(waitForRendering(reserved));
             compare(reserved.width, width);
         }
 

@@ -80,12 +80,12 @@ Item {
             for (const item of items()) compare(item.text, "0%");
         }
         function test_fixed_width_from_five_to_one_hundred_percent() {
-            wait(0);
+            verify(waitForRendering(widget));
             const width = widget.implicitWidth;
             const widths = items().map(item => item.implicitWidth);
             verify(width > 0);
             status.values = { readings: sample(100) };
-            wait(0);
+            verify(waitForRendering(widget));
             compare(widget.implicitWidth, width);
             compare(JSON.stringify(items().map(item => item.implicitWidth)), JSON.stringify(widths));
         }
@@ -115,10 +115,10 @@ Item {
             compare(readings[2].countTone, Qt.color(Theme.color.warning));
             verify(readings[0].tooltip.indexOf("158°") !== -1);
             verify(readings[2].tooltip.indexOf("149°") !== -1);
-            wait(0);
+            verify(waitForRendering(widget));
             const width = widget.implicitWidth;
             status.values = { readings: sample(100) };
-            wait(0);
+            verify(waitForRendering(widget));
             compare(widget.implicitWidth, width);
         }
         function test_panel_converts_cpu_and_gpu_details() {

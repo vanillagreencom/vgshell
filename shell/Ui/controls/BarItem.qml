@@ -88,13 +88,15 @@ T.AbstractButton {
                     size: Theme.bar.item.icon
                 }
             }
-            TextMetrics { id: textWidth; font: textLabel.font; text: root.reservedText }
-            TextMetrics { id: countWidth; font: countLabel.font; text: root.reservedCount }
+            // Reserved strings use the drawn label's layout, so both widths
+            // include the same font shaping and pixel rounding.
+            Label { id: textWidth; visible: false; role: "bar"; text: root.reservedText }
+            Label { id: countWidth; visible: false; role: "bar"; text: root.reservedCount }
             Item {
                 visible: root.text !== "" || root.count !== ""
                 width: Math.max(values.implicitWidth,
-                    (root.text === "" ? 0 : root.reservedText === "" ? textLabel.implicitWidth : Math.ceil(textWidth.advanceWidth))
-                    + (root.count === "" ? 0 : root.reservedCount === "" ? countLabel.implicitWidth : Math.ceil(countWidth.advanceWidth))
+                    (root.text === "" ? 0 : root.reservedText === "" ? textLabel.implicitWidth : Math.ceil(textWidth.implicitWidth))
+                    + (root.count === "" ? 0 : root.reservedCount === "" ? countLabel.implicitWidth : Math.ceil(countWidth.implicitWidth))
                     + (root.text !== "" && root.count !== "" ? values.spacing : 0))
                 height: values.implicitHeight
                 Row {
