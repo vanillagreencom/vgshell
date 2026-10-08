@@ -121,8 +121,7 @@ const equals = (label, got, want) => { if (got !== want) note(label + " got=" + 
 const claude = JSON.parse(fs.readFileSync(path.join(live, "claude.json"), "utf8")).overrides;
 const mix = (first, second, amount) => "#" + [1, 3, 5].map(index =>
     byteHex(Math.round(channel(first, index) + (channel(second, index) - channel(first, index)) * amount))).join("");
-// Word at the VGS-1049 strength, which the counts must not fall below.
-const approvedWord = semantic => "#" + [1, 3, 5].map(index => {
+const word = semantic => "#" + [1, 3, 5].map(index => {
     const page = channel(values.color.background, index) / 255;
     const normalTone = page + (channel(values.palette[semantic], index) / 255 - page) * 0.14;
     return byteHex(Math.round(255 * (normalTone + (channel(values.color[semantic], index) / 255 - normalTone) * 0.22121734137238014)));
@@ -131,6 +130,8 @@ const dimmed = semantic => mix(values.color.background, values.palette[semantic]
 const claudeWant = {
     diffAdded: token("color.successSubtle"),
     diffRemoved: token("color.dangerSubtle"),
+    diffAddedWord: word("success"),
+    diffRemovedWord: word("danger"),
     diffAddedDimmed: dimmed("success"),
     diffRemovedDimmed: dimmed("danger"),
     background: slot("color6"),
@@ -145,20 +146,6 @@ const claudeWant = {
     composerSidebarBackground: token("color.surfaceSunken")
 };
 for (const [key, want] of Object.entries(claudeWant)) equals("claude." + key, claude[key], want);
-// Claude Code fills changed words with Word under its own diff text and
-// draws the +N -N counts in Word on the page.
-const nativeText = values.scheme.mode === "dark" ? "#f8f8f2" : "#333333";
-const ratio = (first, second) => logic.contrastRatio(logic.parseColor(first), logic.parseColor(second));
-for (const [key, semantic] of [["diffAddedWord", "success"], ["diffRemovedWord", "danger"]]) {
-    if (logic.parseColor(claude[key]) === null) {
-        note(JSON.stringify({ kind: "claude-word-color", key, got: claude[key] }));
-        continue;
-    }
-    const words = ratio(nativeText, claude[key]);
-    if (!(words >= 4.5)) note(JSON.stringify({ kind: "claude-word-contrast", key, ratio: words, floor: 4.5 }));
-    const counts = ratio(claude[key], values.color.background), approved = ratio(approvedWord(semantic), values.color.background);
-    if (!(counts > approved)) note(JSON.stringify({ kind: "claude-count-strength", key, ratio: counts, approved }));
-}
 const gemini = JSON.parse(fs.readFileSync(path.join(live, "gemini.json"), "utf8"));
 for (const role of ["added", "removed"]) {
     const fill = gemini.background.diff[role];
@@ -305,10 +292,6 @@ check "agent diff role keys match resolved tokens" agent_theme_pins "$tree" "$li
 tree_control claude-diff-pin themes/targets/claude/claude.json '"diffAdded": "#@{color.successSubtle}"' '"diffAdded": "#@{color.dangerSubtle}"'
 apply_json "the Claude pin mutant applies" 0 dusk
 check "the Claude pin mutant fails the role pins" test "$(agent_theme_pins "$tree" "$live" >/dev/null; echo $?)" == 1
-unset THEME_BIN
-tree_control claude-word-strength bin/lib/theme-render.js 'text = claudeWordTemplate(logic, input, text);' 'text = text;'
-apply_json "the Claude word-strength mutant applies" 0 dusk
-check "the Claude word-strength mutant fails the role pins" test "$(agent_theme_pins "$tree" "$live" >/dev/null; echo $?)" == 1
 unset THEME_BIN
 tree_control codex-diff-pin themes/targets/codex/codex.tmTheme '<string>#@{color.successSubtle}</string>' '<string>#@{color.dangerSubtle}</string>'
 apply_json "the Codex pin mutant applies" 0 dusk

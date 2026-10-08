@@ -1502,25 +1502,22 @@ try {
 console.log(`test-theme-render: wezterm packages=${selectionPackages.length} pairs=${weztermMetrics.length} modes=dark,light text-floor=4.5 boundary-floor=3 controls=text,boundary,tab-scope,label-distinction`);
 
 // Claude Code uses Word as both the diff fill and count foreground. Its
-// native diff text ignores overrides.text (the saved app contract in
-// tmp/claude-app-contract-VGS-1049.json); syntax scopes differ separately.
+// native BASIC syntax text ignores overrides.text (the saved app contract
+// in tmp/claude-app-contract-VGS-1049.json); syntax scopes differ separately.
 const claudeTemplateFile = path.join(themesDir, "targets", "claude", "claude.json");
 const claudeTemplate = fs.readFileSync(claudeTemplateFile, "utf8");
 const claudeTarget = selectionRender.acceptTarget(logic, "claude",
     fs.readFileSync(path.join(themesDir, "targets", "claude", "target.json"), "utf8"));
 assert.equal(claudeTarget.ok, true);
-// The template's Word recipe: the palette role at 0.14 over the page, then
-// the semantic role at the VGS-1049 strength over that.
-const CLAUDE_INNER = 0.14, CLAUDE_OUTER = 0.22121734137238014;
-function verifyClaudePalette(render, template) {
-    const metrics = [], paletteFailures = [], contrastFailures = [], boundFailures = [], countShortfalls = [];
+function verifyClaudePalette(template) {
+    const metrics = [], paletteFailures = [], contrastFailures = [], countShortfalls = [], baselineFailures = [];
     const rgb = hex => [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16));
     const hex = channels => "#" + channels.map(channel => Math.round(channel).toString(16).padStart(2, "0")).join("");
     const mixed = (first, second, amount) => hex(rgb(first).map((channel, index) => channel + (rgb(second)[index] - channel) * amount));
     for (const { pkg, shipped } of selectionPackages) {
-        const result = render.renderTarget(logic, TOKENS, claudeTarget.target,
+        const result = selectionRender.renderTarget(logic, TOKENS, claudeTarget.target,
             new Map([["claude.json", template]]), {
-                values: pkg.values, slots: render.terminalSource(pkg, selectionDefaults).terminal,
+                values: pkg.values, slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal,
                 curated: new Map(), installed: !shipped
             });
         assert.equal(result.ok, true);
@@ -1528,29 +1525,14 @@ function verifyClaudePalette(render, template) {
         const page = pkg.values.color.background;
         const basic = pkg.values.scheme.mode === "dark" ? "#f8f8f2" : "#333333";
         const ratio = (first, second) => logic.contrastRatio(logic.parseColor(first), logic.parseColor(second));
-        // The recipe with the outer layer at byte OUTER and the inner at byte
-        // INNER, in the template's mix order, as the hex6 file holds it.
-        const wordAt = (semantic, outer, inner) => hex(rgb(page).map((channel, index) => {
-            const pageChannel = channel / 255;
-            const normalTone = pageChannel + (rgb(pkg.values.palette[semantic])[index] / 255 - pageChannel) * inner / 255;
-            return 255 * (normalTone + (rgb(pkg.values.color[semantic])[index] / 255 - normalTone) * outer / 255);
-        }));
-        // The strongest outer byte, with the inner layer in proportion,
-        // at which the native diff text reads on both roles' Word.
-        const readableAt = outer => ["success", "danger"].every(semantic =>
-            ratio(basic, wordAt(semantic, outer, Math.round(outer * CLAUDE_INNER / CLAUDE_OUTER))) >= 4.5);
-        let bound = 255;
-        while (bound > 0 && !readableAt(bound)) bound--;
-        // The outer byte of a Word the recipe renders, or null. A strength
-        // between two outer bytes can round its inner layer either way.
-        const strength = (semantic, word) => {
-            for (let outer = 255; outer >= 0; outer--) {
-                const low = Math.max(0, Math.round((outer - 0.5) * CLAUDE_INNER / CLAUDE_OUTER));
-                const high = Math.round((outer + 0.5) * CLAUDE_INNER / CLAUDE_OUTER);
-                for (let inner = low; inner <= high; inner++) if (wordAt(semantic, outer, inner) === word) return outer;
-            }
-            return null;
-        };
+        // Main used selection for both Word fields. Eligibility is computed
+        // from that source contract, never from a named-theme exception.
+        const selection = pkg.values.color.selection;
+        const baselineWord = mixed(page, selection, parseInt(selection.slice(7, 9), 16) / 255);
+        const baselineRatio = ratio(basic, baselineWord);
+        const eligible = baselineRatio >= 4.5;
+        if (!eligible) baselineFailures.push({ kind: "claude-main-basic-word", theme: pkg.name,
+            mode: pkg.values.scheme.mode, baselineWord, ratio: baselineRatio, floor: 4.5, shortfall: 4.5 - baselineRatio });
         const pairs = [["Added", "success"], ["Removed", "danger"]].map(([role, semantic]) => {
             const normal = document.overrides["diff" + role];
             const word = document.overrides["diff" + role + "Word"];
@@ -1560,9 +1542,14 @@ function verifyClaudePalette(render, template) {
             const normalAlpha = parseInt(normalSource.slice(7, 9), 16) / 255;
             const expected = {
                 normal: mixed(page, normalSource, normalAlpha),
+                word: hex(rgb(page).map((channel, index) => {
+                    const pageChannel = channel / 255;
+                    const normalTone = pageChannel + (rgb(pkg.values.palette[semantic])[index] / 255 - pageChannel) * 0.14;
+                    return 255 * (normalTone + (rgb(pkg.values.color[semantic])[index] / 255 - normalTone) * 0.22121734137238014);
+                })),
                 dimmed: mixed(page, pkg.values.palette[semantic], Math.round(255 * 0.07) / 255)
             };
-            for (const [field, got] of [["normal", normal], ["dimmed", dimmed]]) {
+            for (const [field, got] of [["normal", normal], ["word", word], ["dimmed", dimmed]]) {
                 if (got !== expected[field]) paletteFailures.push({ kind: "claude-palette-" + field, theme: pkg.name, role, got, expected: expected[field] });
             }
             const colors = [normal, word, dimmed];
@@ -1570,29 +1557,22 @@ function verifyClaudePalette(render, template) {
                 paletteFailures.push({ kind: "claude-palette-color", theme: pkg.name, role, colors });
                 return null;
             }
-            const outer = strength(semantic, word);
-            if (outer === null) paletteFailures.push({ kind: "claude-palette-word", theme: pkg.name, role, got: word });
-            const approved = wordAt(semantic, CLAUDE_OUTER * 255, CLAUDE_INNER * 255);
-            const basicWord = ratio(basic, word), countPage = ratio(word, page), approvedCount = ratio(approved, page);
+            const basicWord = ratio(basic, word), countPage = ratio(word, page);
             const normalPage = ratio(normal, page), dimmedPage = ratio(dimmed, page);
             if (!(dimmedPage < normalPage) || normal === dimmed)
                 paletteFailures.push({ kind: "claude-dimmed-role", theme: pkg.name, role, normal, dimmed, normalPage, dimmedPage });
             if (word === normal || word === dimmed)
                 paletteFailures.push({ kind: "claude-word-role", theme: pkg.name, role, word, normal, dimmed });
-            const pair = { role, normal, word, dimmed, outer, basicWord, countPage, approvedCount,
+            const pair = { role, normal, word, dimmed, basicWord, countPage,
                 countSidebar: ratio(word, document.overrides.composerSidebarBackground),
                 wordNormal: ratio(word, normal), wordDimmed: ratio(word, dimmed), normalPage, dimmedPage,
                 addedRemovedDimmed: ratio(document.overrides.diffAddedDimmed, document.overrides.diffRemovedDimmed) };
-            if (basicWord < 4.5) contrastFailures.push({ kind: "claude-basic-word", theme: pkg.name,
-                mode: pkg.values.scheme.mode, role, ratio: basicWord, floor: 4.5, shortfall: 4.5 - basicWord, countPage });
-            if (outer !== null && outer < bound - 1) boundFailures.push({ kind: "claude-count-bound", theme: pkg.name,
-                mode: pkg.values.scheme.mode, role, outer, bound, countPage });
-            // The VGS-1049 strength falls between two outer bytes; the
-            // renderer writes whole bytes, so it is judged at the nearest.
-            if (outer !== null && outer < Math.round(CLAUDE_OUTER * 255)) boundFailures.push({ kind: "claude-count-approved", theme: pkg.name,
-                mode: pkg.values.scheme.mode, role, outer, countPage, approvedCount });
+            if (eligible && basicWord < 4.5) contrastFailures.push({ kind: "claude-basic-word", theme: pkg.name,
+                mode: pkg.values.scheme.mode, role, ratio: basicWord, floor: 4.5, shortfall: 4.5 - basicWord,
+                baselineRatio, basicWord, countPage });
             if (countPage < 3) countShortfalls.push({ kind: "claude-count-page", theme: pkg.name,
-                mode: pkg.values.scheme.mode, role, ratio: countPage, floor: 3, shortfall: 3 - countPage, basicWord, countPage });
+                mode: pkg.values.scheme.mode, role, ratio: countPage, floor: 3, shortfall: 3 - countPage,
+                baselineRatio, basicWord, countPage });
             return pair;
         });
         if (pairs.every(pair => pair !== null)) {
@@ -1603,34 +1583,19 @@ function verifyClaudePalette(render, template) {
             if (!paletteEqual && pairs[0].dimmed === pairs[1].dimmed)
                 paletteFailures.push({ kind: "claude-dimmed-distinction", theme: pkg.name, pairs });
         }
-        metrics.push({ theme: pkg.name, mode: pkg.values.scheme.mode, bound, pairs });
+        metrics.push({ theme: pkg.name, mode: pkg.values.scheme.mode, baselineWord, baselineRatio, eligible, pairs });
     }
-    return { metrics, paletteFailures, contrastFailures, boundFailures, countShortfalls };
+    return { metrics, paletteFailures, contrastFailures, countShortfalls, baselineFailures };
 }
-function verifyClaudeWords(render, template = claudeTemplate) {
-    const result = verifyClaudePalette(render, template);
-    assert.deepEqual([...result.paletteFailures, ...result.contrastFailures, ...result.boundFailures], []);
-    // No Word strength reads where the page, both roles and both palette
-    // roles are one mid grey under the dark base's light diff text.
-    const grey = "#a0a0a0ff", values = selectionDefaults.values;
-    const unreadable = render.renderTarget(logic, TOKENS, claudeTarget.target, new Map([["claude.json", template]]), {
-        values: { ...values, scheme: { ...values.scheme, mode: "dark" },
-            color: { ...values.color, background: grey, success: grey, danger: grey },
-            palette: { ...values.palette, success: grey, danger: grey } },
-        slots: selectionDefaults.terminal, curated: new Map(), installed: true
-    });
-    assert.equal(unreadable.ok, false);
-    assert.equal(unreadable.reason, "readability");
-    return result;
-}
-const claudeResult = verifyClaudeWords(selectionRender);
+const claudeResult = verifyClaudePalette(claudeTemplate);
+assert.deepEqual(claudeResult.paletteFailures, []);
 const claudeControls = [
     ["normal source", "#@{color.successSubtle}", "#@{color.dangerSubtle}", "claude-palette-normal"],
     ["palette word", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238014)}", "#00ff00", "claude-palette-word"],
     ["separate words", "#@{mix(mix({color.background},{palette.danger},0.14),{color.danger},0.22121734137238014)}", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238014)}", "claude-palette-word"],
     ["dimmed role", "#@{alpha({palette.success},0.07)}", "#@{color.successSubtle}", "claude-dimmed-role"],
     ["count report", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238014)}", "#@{color.background}", "claude-count-page"],
-    ["word past the bound", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238014)}", "#@{color.success}", "claude-basic-word"],
+    ["global bound", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238014)}", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238036)}", "claude-basic-word"],
     ["basic floor", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238014)}", "#@{scheme.mode|dark=f8f8f2|light=333333}", "claude-basic-word"]
 ];
 const claudeScratch = fs.mkdtempSync(path.join(os.tmpdir(), "claude-palette-control-"));
@@ -1641,8 +1606,8 @@ try {
         assert.notEqual(mutant, claudeTemplate);
         const file = path.join(claudeScratch, label.replaceAll(" ", "-") + ".json");
         fs.writeFileSync(file, mutant, { flag: "wx" });
-        const result = verifyClaudePalette(selectionRender, fs.readFileSync(file, "utf8"));
-        const observed = [...result.paletteFailures, ...result.contrastFailures, ...result.boundFailures, ...result.countShortfalls].find(failure => failure.kind === kind);
+        const result = verifyClaudePalette(fs.readFileSync(file, "utf8"));
+        const observed = [...result.paletteFailures, ...result.contrastFailures, ...result.countShortfalls].find(failure => failure.kind === kind);
         assert.ok(observed, label);
         if (kind === "claude-count-page") assert.equal(observed.ratio, 1);
         if (kind === "claude-basic-word") assert.ok(observed.ratio < observed.floor);
@@ -1650,7 +1615,7 @@ try {
 } finally {
     fs.rmSync(claudeScratch, { recursive: true, force: true });
 }
-for (const failure of claudeResult.countShortfalls)
+for (const failure of [...claudeResult.baselineFailures, ...claudeResult.contrastFailures, ...claudeResult.countShortfalls])
     console.log("test-theme-render: claude-floor-shortfall " + JSON.stringify(failure));
 for (const theme of claudeResult.metrics) {
     const ratio = theme.pairs[0].addedRemovedDimmed;
@@ -1658,8 +1623,7 @@ for (const theme of claudeResult.metrics) {
         theme: theme.theme, mode: theme.mode, ratio, reference: 3,
         added: theme.pairs[0].dimmed, removed: theme.pairs[1].dimmed }));
 }
-const claudePairs = claudeResult.metrics.flatMap(theme => theme.pairs);
-console.log(`test-theme-render: claude-palette packages=${claudeResult.metrics.length} controls=${claudeControls.length} word-floor=4.5 word-minimum=${Math.min(...claudePairs.map(pair => pair.basicWord))} count-minimum=${Math.min(...claudePairs.map(pair => pair.countPage))} approved-count-minimum=${Math.min(...claudePairs.map(pair => pair.approvedCount))} count-shortfalls=${claudeResult.countShortfalls.length}`);
+console.log(`test-theme-render: claude-palette packages=${claudeResult.metrics.length} controls=${claudeControls.length} count-minimum=${Math.min(...claudeResult.metrics.flatMap(theme => theme.pairs.map(pair => pair.countPage)))} basic-shortfalls=${claudeResult.contrastFailures.length} baseline-shortfalls=${claudeResult.baselineFailures.length} count-shortfalls=${claudeResult.countShortfalls.length}`);
 
 // RGB channel separation is a numerical distinction check. The owner judges
 // appearance in real terminal pictures. Rose Pine's main ANSI blue/brightblack
@@ -2691,23 +2655,20 @@ for (const floor of [4.5, 3]) {
 const CONTROLS = [
     ["editor cap applies before rendering", "text = editorHighlightTemplate(logic, input, text);", "text = text;", verifyEditorStyles],
     ["editor cap includes the underlying line", "fill = over(tint, fill);", "fill = over(tint, page);", verifyEditorStyles],
-    ["editor cap keeps the contrast floor", "return logic.contrastRatio(over(text, cell), cell) >= logic.READABILITY_FLOOR;", "return true;", verifyEditorStyles],
+    ["editor cap keeps the contrast floor", "return logic.contrastRatio(over(text, fill), fill) >= logic.READABILITY_FLOOR;", "return true;", verifyEditorStyles],
     ["editor cap uses encoded alpha bytes", "const tint = logic.parseColor(logic.formatColor({ ...colour, a: alpha * scale }));", "const tint = { ...colour, a: alpha * scale };", verifyEditorCaps],
     ["editor cap selects the strongest cell", "if (readable) return scale;", "if (readable) return scale === cap ? scale : scale * 0.95;", verifyEditorCaps],
     ["editor cap keeps a readable zero-byte limit", "if (readable) return scale;", "if (readable) return stacks.flat().every(({ alpha }) => Math.round(alpha * scale * 255) === 0) ? null : scale;", verifyEditorNoHeadroom],
     ["editor cap includes standalone warning lines", "        [{ colour: warning, alpha: 0.12 }]", "        []", verifyEditorWarningCap],
     ["editor cap is common to line and word", 'document.colors[key] = "#@{alpha({color." + role + "}, " + alpha * scale + ")}";', 'document.colors[key] = "#@{alpha({color." + role + "}, " + alpha * (alpha === 0.12 ? 1 : scale) + ")}";', verifyEditorStyles],
     ["editor cap caller leaves other targets", 'if (target.name === "vscode" && file.destination === "vscode.json") {', 'if (true) {', verifyEditorCaps],
-    ["editor cap refuses an unreadable zero tint", "if (scale === null) return null;\n    if (scale === 1) return text;", "if (scale === null) return text;\n    if (scale === 1) return text;", verifyEditorCaps],
+    ["editor cap refuses an unreadable zero tint", "if (scale === null) return null;", "if (scale === null) return text;", verifyEditorCaps],
     ["kitty earlier mark distinction", "!chosen.every(earlier => distinct(candidate, earlier))", "false", strictKitty],
     ["kitty page direction", 'if (!(input.values.scheme.mode === "light" ? luminance > logic.luminance(plain) : luminance < logic.luminance(plain))) continue;', "if (false) continue;", strictKitty],
     ["kitty active tab distinction", "if (index === 2 && !distinct(candidate, active)) continue;", "if (false) continue;", strictKitty],
     ["kitty role order", '"success", "danger", "textMuted"', '"danger", "success", "textMuted"', strictKitty],
     ["kitty complete role set", "if (complete !== null) return complete;", "return complete;", strictKitty],
-    ["claude word cap applies before rendering", "text = claudeWordTemplate(logic, input, text);", "text = text;", verifyClaudeWords],
-    ["claude word cap judges the encoded fill", 'case "fill": return logic.parseColor(logic.formatColor(fill));', 'case "fill": return fill;', verifyClaudeWords],
-    ["claude word cap refuses an unreadable page", "if (scale === null) return null;\n    const recipe", "if (scale === null) return text;\n    const recipe", verifyClaudeWords],
-    ["claude word cap judges the native diff text", 'logic.parseColor(input.values.scheme.mode === "dark" ? "#f8f8f2" : "#333333")', "logic.parseColor(input.values.color.text)", verifyClaudeWords],
+
     ["expression package references", "value: logic.valueAt(input.values, node.path)", "value: leaf.value"],
     ["expression refuses invalid input", 'return result.ok ? result.values.result : undefined;', 'return result.ok ? result.values.result : "#ff00ffff";'],
     ["editors target detects per editor", "if (document.detect.length !== 0) return refused", "if (false) return refused"],
@@ -2920,20 +2881,18 @@ try {
             failure = e;
         }
         assert.ok(failed, `control "${label}": the suite passed on a renderer without that rule`);
-        if (label.startsWith("editor cap") || label.startsWith("claude word cap")) {
+        if (label.startsWith("editor cap")) {
             assert.equal(failure.code, "ERR_ASSERTION");
             const typed = Array.isArray(failure.actual) ? failure.actual.filter(row => row && typeof row.kind === "string") : [];
             if (label === "editor cap selects the strongest cell") assert.ok(typed.some(row => row.kind === "strongest-cap"));
             if (label === "editor cap is common to line and word") assert.ok(typed.some(row => row.kind === "tint-order"));
             if (label === "editor cap includes standalone warning lines") assert.ok(typed.some(row => row.kind === "contrast" && row.surface === "merge.commonContentBackground"));
             if (label === "editor cap keeps a readable zero-byte limit") assert.ok(typed.some(row => row.kind === "no-headroom-limit" && row.field === "render"));
-            if (label === "claude word cap applies before rendering") assert.ok(typed.some(row => row.kind === "claude-count-bound"));
-            if (label === "claude word cap refuses an unreadable page") assert.deepEqual([failure.actual, failure.expected], [true, false]);
-            if (label === "claude word cap judges the encoded fill" || label === "claude word cap judges the native diff text") assert.ok(typed.some(row => row.kind === "claude-basic-word"));
             console.log("test-theme-render: cap-control " + JSON.stringify({ label, rejected: true, assertion: failure.code, categories: [...new Set(typed.map(row => row.kind))] }));
         }
     });
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
+assert.deepEqual(claudeResult.contrastFailures, []);
 console.log(`test-theme-render: ok targets=${ACCEPTED_TARGETS.length + REFUSED_TARGETS.length} templates=${ENCODED.length + GNOME_ACCENTED.length + RENDERED.length + MODES.length + REFUSED_TEMPLATES.length} wiring=${WIRED.length + WIRED_SECTION.length + CONFLICTS.length + CONFLICT_LINES.length + UNWIRED.length + UNWIRED_SECTION.length + PROFILES.length + VAULTS.length} controls=${CONTROLS.length}`);
