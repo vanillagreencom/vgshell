@@ -20,6 +20,15 @@ Item {
     BarItem { id: spinner; iconName: "refresh-cw"; spinning: true; y: 120 }
     BarItem { id: tooltipItem; iconName: "settings"; label: "Settings"; tooltip: "Open settings"; tooltipDetails: ["Pinned in the bar"]; x: 80 }
     property int clicks: 0
+    Component {
+        id: tooltipCase
+        BarItem {
+            property bool hasDetails: false
+            tooltipDetails: hasDetails ? ["Focused workspace"] : []
+            x: 180
+            y: 80
+        }
+    }
 
     TestCase {
         name: "baritem"
@@ -83,6 +92,37 @@ Item {
             compare(tip.anchorItem, tooltipItem);
             compare(tip.text, "Open settings");
             compare(JSON.stringify(tip.details), JSON.stringify(["Pinned in the bar"]));
+        }
+
+        // Workspaces supplies text alone; Gallery's counted Agent Warden
+        // supplies a distinct label. Explicit titles and details stay owned
+        // by their caller, even when the title repeats the visible text.
+        function test_tooltip_presence_data() {
+            return [
+                { tag: "workspace", properties: { text: "1" }, title: "", present: false },
+                { tag: "icon-only", properties: { iconName: "settings", label: "Settings" }, title: "Settings", present: true },
+                { tag: "explicit", properties: { text: "1", tooltip: "Workspace one" }, title: "Workspace one", present: true },
+                { tag: "explicit-repeat", properties: { text: "1", tooltip: "1" }, title: "1", present: true },
+                { tag: "details", properties: { text: "1", hasDetails: true }, title: "1", present: true },
+                { tag: "count-name", properties: { iconName: "shield", count: "2", label: "Agent Warden" }, title: "Agent Warden", present: true },
+                { tag: "count-repeat", properties: { count: "2", label: "2" }, title: "", present: false }
+            ];
+        }
+
+        function test_tooltip_presence(data) {
+            const item = createTemporaryObject(tooltipCase, root, data.properties);
+            verify(item !== null);
+            const tip = item.children.find(child => child.details !== undefined);
+            verify(tip !== undefined);
+            compare(typeof tip.text, "string");
+            compare(tip.text, data.title);
+            mouseMove(item, item.width / 2, item.height / 2);
+            tryCompare(tip.hover, "hovered", true);
+            compare(tip.resting, data.present);
+            if (data.present) tryCompare(tip, "shown", true);
+            else compare(tip.shown, false);
+            mouseMove(root, root.width - 1, root.height - 1);
+            tryCompare(tip, "shown", false);
         }
 
         function test_theme_moves_the_item() {

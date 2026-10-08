@@ -105,5 +105,9 @@ T.AbstractButton {
         FocusRing { target: root }
     }
 
-    Tooltip { text: root.tooltip !== "" ? root.tooltip : root.label; details: root.tooltipDetails }
+    Tooltip {
+        text: root.tooltip !== "" ? root.tooltip
+            : root.iconOnly || root.tooltipDetails.length > 0 || (root.label !== root.text && root.label !== root.count) ? root.label : ""
+        details: root.tooltipDetails
+    }
 }
