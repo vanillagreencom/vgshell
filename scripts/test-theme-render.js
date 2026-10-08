@@ -1889,15 +1889,22 @@ const editorControls = [
     ["link without its active colour", '    "textLink.activeForeground": "#@{color.accentHover}",\n', "", "coverage", "textLink.activeForeground"],
     ["active link text on the editor fill", '"textLink.activeForeground": "#@{color.accentHover}"', '"textLink.activeForeground": "#@{color.background}"', "contrast", "textLink.activeForeground", "editor.background"],
     ["active link text on the sidebar fill", '"textLink.activeForeground": "#@{color.accentHover}"', '"textLink.activeForeground": "#@{color.surface}"', "contrast", "textLink.activeForeground", "sideBar.background"],
-    ["diff without its insertion fill", '    "diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07)}",\n', "", "coverage", "diffEditor.insertedTextBackground"],
+    ["diff without its insertion fill", '    "diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07352941176470588)}",\n', "", "coverage", "diffEditor.insertedTextBackground"],
     ["Git without its conflict color", '    "gitDecoration.conflictingResourceForeground": "#@{color.warning}",\n', "", "coverage", "gitDecoration.conflictingResourceForeground"],
     ["Git text on the sidebar fill", '"gitDecoration.addedResourceForeground": "#@{color.success}"', '"gitDecoration.addedResourceForeground": "#@{color.surface}"', "contrast", "gitDecoration.addedResourceForeground", "sideBar.background"],
-    ["diff line stronger than the changed word", '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.03)}"', '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.3)}"', "tint-order", "diffEditor.insertedLineBackground", "diffEditor.insertedTextBackground"],
-    ["opaque diff word hides decorations", '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07)}"', '"diffEditor.insertedTextBackground": "#@{color.success}"', "opacity", "diffEditor.insertedTextBackground"],
-    ["changed text on its own fill", '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07)}"', '"diffEditor.insertedTextBackground": "#@{color.text}"', "contrast", "editor.foreground", "diffEditor.insertedTextBackground"],
+    ["diff line stronger than the changed word", '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.03676470588235294)}"', '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.3)}"', "tint-order", "diffEditor.insertedLineBackground", "diffEditor.insertedTextBackground"],
+    ["opaque diff word hides decorations", '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07352941176470588)}"', '"diffEditor.insertedTextBackground": "#@{color.success}"', "opacity", "diffEditor.insertedTextBackground"],
+    ["changed text on its own fill", '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07352941176470588)}"', '"diffEditor.insertedTextBackground": "#@{color.text}"', "contrast", "editor.foreground", "diffEditor.insertedTextBackground"],
+    ["coupled highlight exceeds the global bound", [
+        '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.03676470588235294)}"',
+        '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07352941176470588)}"'
+    ], [
+        '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.037745098039215684)}"',
+        '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07549019607843137)}"'
+    ], "contrast", "editor.foreground", "diffEditor.insertedTextBackground"],
     ["word fill includes the underlying line", [
-        '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.03)}"',
-        '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07)}"'
+        '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.03676470588235294)}"',
+        '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07352941176470588)}"'
     ], [
         '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.06)}"',
         '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.14)}"'
