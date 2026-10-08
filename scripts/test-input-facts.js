@@ -247,7 +247,7 @@ const controls = [
     [stateFile, stateChecks, "translation independent narrowing", "lists.push(read.value.translation);", "lists.push([]);"],
     [stateFile, keyFactsChecks, "global option string", ' || typeof read.value.str !== "string"', ""],
     [stateFile, keyFactsChecks, "global option name", 'read.value.option !== "input:" + KEY_OPTIONS[i]', "false"],
-    [stateFile, keyFactsChecks, "empty global sentinel", 'read.value.str === "[[EMPTY]]" ? "" : read.value.str', "read.value.str"],
+    [stateFile, keyFactsChecks, "empty global sentinel", 'return str === "[[EMPTY]]" ? "" : str;', "return str;"],
     [stateFile, keyFactsChecks, "custom keymap refused", 'if (global.kb_file !== "")', "if (false)"],
     [stateFile, keyFactsChecks, "native rules supported", 'if (main.rules !== "" && main.rules !== "evdev")', "if (false)"],
     [stateFile, keyFactsChecks, "native model supported", 'if (main.model !== "" && main.model !== "pc105")', "if (false)"],

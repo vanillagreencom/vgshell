@@ -87,10 +87,13 @@ Column {
                 width: parent.width
                 implicitHeight: Math.max(pointerSpeed.implicitHeight, pointerSpeedValue.implicitHeight)
 
+                // The rebound slider holds the shown value within its range,
+                // as Slider clamps value, so a press that moved nothing saves
+                // nothing, even over a user value past the range.
                 function commit() {
                     const wanted = pointerSpeed.value;
                     pointerSpeed.value = Qt.binding(() => root.shell === null ? 0 : root.shown("sensitivity"));
-                    if (wanted !== (root.shell === null ? 0 : root.shown("sensitivity"))) root.setValue("sensitivity", wanted);
+                    if (wanted !== pointerSpeed.value) root.setValue("sensitivity", wanted);
                 }
 
                 Slider {
@@ -179,7 +182,7 @@ Column {
                 function commit() {
                     const wanted = scrollSpeed.value;
                     scrollSpeed.value = Qt.binding(() => root.shell === null ? 1 : root.shown("scrollFactor"));
-                    if (wanted !== (root.shell === null ? 1 : root.shown("scrollFactor"))) root.setValue("scrollFactor", wanted);
+                    if (wanted !== scrollSpeed.value) root.setValue("scrollFactor", wanted);
                 }
 
                 Slider {
@@ -340,7 +343,7 @@ Column {
                 function commit() {
                     const wanted = touchpadScrollSpeed.value;
                     touchpadScrollSpeed.value = Qt.binding(() => root.shell === null ? 1 : root.shown("touchpadScrollFactor"));
-                    if (wanted !== (root.shell === null ? 1 : root.shown("touchpadScrollFactor"))) root.setValue("touchpadScrollFactor", wanted);
+                    if (wanted !== touchpadScrollSpeed.value) root.setValue("touchpadScrollFactor", wanted);
                 }
 
                 Slider {

@@ -70,12 +70,13 @@ function suite(lib, check) {
     check("options request: the written options and an unwritten one among them", ["input.sensitivity", "input.repeat_rate", "input.kb_layout", "input.touchpad.tap_to_click", "input.natural_scroll"].every(path => asked.indexOf("j/getoption " + path) !== -1), true);
     check("options request: not the device row", asked.indexOf("j/getoption device.touchpad.enabled") === -1, true);
     // Hyprland's reply to the request: VALUES by path, Hyprland's default
-    // for the rest, each part as getoption prints it.
+    // for the rest, each part as getoption prints it, an empty string as
+    // `[[EMPTY]]`.
     const FIELD = { "input.sensitivity": "float", "input.scroll_factor": "float", "input.touchpad.scroll_factor": "float", "input.repeat_rate": "int", "input.repeat_delay": "int", "misc.vrr": "int",
         "input.kb_layout": "str", "input.kb_variant": "str", "input.kb_options": "str", "input.accel_profile": "str" };
     const replies = values => asked.map(part => part.slice("j/getoption ".length)).map(path => {
         const field = FIELD[path] || "bool";
-        const value = Object.prototype.hasOwnProperty.call(values, path) ? values[path] : field === "str" ? "" : field === "bool" ? false : 0;
+        const value = Object.prototype.hasOwnProperty.call(values, path) ? values[path] : field === "str" ? "[[EMPTY]]" : field === "bool" ? false : 0;
         return getoption(path, field, value);
     }).join("\n\n\n") + "\n";
     const typed = { "input.sensitivity": 0.35, "input.repeat_rate": 40, "input.kb_layout": "us,de", "input.touchpad.tap_to_click": true, "input.natural_scroll": true };
@@ -84,6 +85,7 @@ function suite(lib, check) {
         ["each option by its type", replies(typed), Object.keys(typed), { ok: true, values: typed, unread: [] }],
         ["an option Hyprland does not know", replies(typed).replace(getoption("input.kb_layout", "str", "us,de"), "no such option"), Object.keys(typed),
             { ok: true, values: { "input.sensitivity": 0.35, "input.repeat_rate": 40, "input.touchpad.tap_to_click": true, "input.natural_scroll": true }, unread: ["refused: options=unread path=input.kb_layout reply=\"no such option\""] }],
+        ["an empty string option reads empty", replies(typed), ["input.kb_variant"], { ok: true, values: { "input.kb_variant": "" }, unread: [] }],
         ["a reply of another type", replies(typed).replace(getoption("input.repeat_rate", "int", 40), getoption("input.repeat_rate", "float", 40)), ["input.repeat_rate"], { ok: true, values: {}, unread: ["refused: options=unread path=input.repeat_rate "] }],
         ["a reply for another option", replies(typed).replace(getoption("input.sensitivity", "float", 0.35), getoption("input.scroll_factor", "float", 0.35)), ["input.sensitivity"], { ok: true, values: {}, unread: ["refused: options=unread path=input.sensitivity "] }],
         ["a reply missing", replies(typed).split("\n\n\n").slice(1).join("\n\n\n"), [], { ok: false, error: "refused: options=parts count=" + (asked.length - 1) + " want=" + asked.length }]
@@ -283,6 +285,7 @@ const CONTROLS = [
     ["the request reads no device row", "return Layer.OPTIONS[path].device === undefined; });", "return true; });"],
     ["one reply per option", 'var replies = Dispatch.batchReplies(text, READABLE.length, "options");', 'var replies = { ok: true, parts: String(text).split("\\n\\n\\n").map(function (part) { return part.trim(); }).filter(function (part) { return part !== ""; }) };'],
     ["each reply names its option", "read.value.option !== path || ", ""],
+    ["an empty string option reads empty", 'values[path] = field === "str" ? optionString(read.value.str) : read.value[field];', "values[path] = read.value[field];"],
     ["an unread option has no value", "replies.parts[i].slice(0, 120)));\n            continue;", "replies.parts[i].slice(0, 120)));"],
     ["each reply holds its type's field", " || !Object.prototype.hasOwnProperty.call(read.value, field))", ")"],
     ["a float within a millionth is the same", "Math.abs(read - want) > 0.000001", "read !== want"],

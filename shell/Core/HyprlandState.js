@@ -37,6 +37,12 @@ function keyRequest(devices, keys) {
         options: kb.options, activeLayoutIndex: kb.activeLayoutIndex }, keys: normalized } };
 }
 
+// A string option as getoption prints it, STR, as its value: getoption
+// prints an empty one as `[[EMPTY]]`.
+function optionString(str) {
+    return str === "[[EMPTY]]" ? "" : str;
+}
+
 // Native codes use the active main keyboard. Hyprland's virtual-keyboard
 // translation uses the global input map's first group instead. Both maps
 // come from one compositor snapshot; unsupported custom maps are refused.
@@ -56,7 +62,7 @@ function keyFacts(text, keys) {
         if (!read.ok || read.value === null || typeof read.value !== "object" || Array.isArray(read.value)
                 || read.value.option !== "input:" + KEY_OPTIONS[i] || typeof read.value.str !== "string")
             return { ok: false, error: "refused: keymap=option name=" + KEY_OPTIONS[i] };
-        global[KEY_OPTIONS[i]] = read.value.str === "[[EMPTY]]" ? "" : read.value.str;
+        global[KEY_OPTIONS[i]] = optionString(read.value.str);
     }
     if (global.kb_file !== "") return { ok: false, error: "refused: keymap=custom-file" };
     if (global.kb_rules !== "" && global.kb_rules !== "evdev") return { ok: false, error: "refused: keymap=rules" };
@@ -194,7 +200,7 @@ function optionValues(text) {
             errors.push("refused: options=unread path=" + path + " reply=" + JSON.stringify(replies.parts[i].slice(0, 120)));
             continue;
         }
-        values[path] = read.value[field];
+        values[path] = field === "str" ? optionString(read.value.str) : read.value[field];
     }
     return { ok: true, values: values, errors: errors };
 }
