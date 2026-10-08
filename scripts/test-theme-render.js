@@ -990,7 +990,7 @@ function verifyWeztermModes(template) {
         }
         for (const [role, fgRole, bgRole] of [
             ["copy_mode_active_highlight", "onAccent", "accent"], ["copy_mode_inactive_highlight", "onInfo", "info"],
-            ["quick_select_label", "onAccent", "accent"], ["quick_select_match", "onInfo", "info"]
+            ["quick_select_label", "text", "background"], ["quick_select_match", "onInfo", "info"]
         ]) pairs.push({ role, fg: color(text, `${role}_fg`, true), bg: color(text, `${role}_bg`, true), fgRole, bgRole });
         for (const [role, fgRole] of [["active_titlebar", "text"], ["inactive_titlebar", "textMuted"]]) {
             pairs.push({ role, fg: color(frame[1], `${role}_fg`), bg: color(frame[1], `${role}_bg`), fgRole, bgRole: "background" });
@@ -1002,7 +1002,13 @@ function verifyWeztermModes(template) {
             { role: "inactive_tab_edge", fg: color(tabBar[1], "inactive_tab_edge"), bg: background },
             { role: "inactive_tab_edge_hover", fg: color(tabBar[1], "inactive_tab_edge_hover"), bg: pairs.find(pair => pair.role === "inactive_tab_hover").bg }
         ];
-        for (const [kind, rows, floor] of [["wezterm-text", pairs, 4.5], ["wezterm-boundary", boundaries, 3]]) {
+        const label = pairs.find(pair => pair.role === "quick_select_label");
+        const match = pairs.find(pair => pair.role === "quick_select_match");
+        const labelBoundary = [{ role: "quick_select_label", fg: label.bg, bg: match.bg }];
+        for (const [kind, rows, floor] of [
+            ["wezterm-text", pairs, 4.5], ["wezterm-boundary", boundaries, 3],
+            ["wezterm-label-distinction", labelBoundary, 3]
+        ]) {
             for (const pair of rows) {
                 const ratio = logic.contrastRatio(logic.parseColor(pair.fg), logic.parseColor(pair.bg));
                 const metric = { kind, package: pkg.name, mode: pkg.values.scheme.mode, role: pair.role, ratio, floor };
@@ -1028,12 +1034,19 @@ assert.throws(() => verifyWeztermModes(weztermTemplate.replace("config.colors = 
         error.message.includes("WezTerm consumes tab colours from config.colors"));
 const weztermScratch = fs.mkdtempSync(path.join(os.tmpdir(), "wezterm-modes-control-"));
 try {
-    for (const [kind, needle, replacement] of [
-        ["wezterm-text", "quick_select_label_fg = { Color = '#@{color.onAccent}' }", "quick_select_label_fg = { Color = '#@{color.accent}' }"],
-        ["wezterm-boundary", "inactive_tab_edge = '#@{color.textMuted}'", "inactive_tab_edge = '#@{color.background}'"]
+    for (const [kind, edits] of [
+        ["wezterm-text", [["quick_select_label_fg = { Color = '#@{color.text}' }", "quick_select_label_fg = { Color = '#@{color.background}' }"]]],
+        ["wezterm-boundary", [["inactive_tab_edge = '#@{color.textMuted}'", "inactive_tab_edge = '#@{color.background}'"]]],
+        ["wezterm-label-distinction", [
+            ["quick_select_label_fg = { Color = '#@{color.text}' }", "quick_select_label_fg = { Color = '#@{color.onInfo}' }"],
+            ["quick_select_label_bg = { Color = '#@{color.background}' }", "quick_select_label_bg = { Color = '#@{color.info}' }"]
+        ]]
     ]) {
-        assert.equal(weztermTemplate.split(needle).length, 2);
-        const mutant = weztermTemplate.replace(needle, replacement);
+        let mutant = weztermTemplate;
+        for (const [needle, replacement] of edits) {
+            assert.equal(mutant.split(needle).length, 2);
+            mutant = mutant.replace(needle, replacement);
+        }
         assert.notEqual(mutant, weztermTemplate);
         const file = path.join(weztermScratch, `${kind}.lua`);
         fs.writeFileSync(file, mutant, { flag: "wx" });
@@ -1044,7 +1057,7 @@ try {
 } finally {
     fs.rmSync(weztermScratch, { recursive: true, force: true });
 }
-console.log(`test-theme-render: wezterm packages=${selectionPackages.length} pairs=${weztermMetrics.length} modes=dark,light text-floor=4.5 boundary-floor=3 controls=text,boundary,tab-scope`);
+console.log(`test-theme-render: wezterm packages=${selectionPackages.length} pairs=${weztermMetrics.length} modes=dark,light text-floor=4.5 boundary-floor=3 controls=text,boundary,tab-scope,label-distinction`);
 
 // RGB channel separation is a numerical distinction check. The owner judges
 // appearance in real terminal pictures. Rose Pine's main ANSI blue/brightblack
