@@ -77,7 +77,11 @@ ShellRoot {
             kind: "cover"
             namespace: "vgs:cover"
             shellLayer: WlrLayer.Overlay
-            keyboardFocus: WlrKeyboardFocus.Exclusive
+            // On demand, not exclusive: Hyprland 0.56.2 sends every pointer
+            // event to an exclusive layer (InputManager mouseMoveUnified),
+            // so the other screens' covers would never see the pointer.
+            // Either kind takes the keyboard and the pointer when it maps.
+            keyboardFocus: WlrKeyboardFocus.OnDemand
         }
     }
 
