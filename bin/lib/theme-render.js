@@ -628,6 +628,7 @@ function placeholderText(logic, tokens, input, name, encode) {
         const value = expressionColor(logic, tokens, input, path);
         return value === undefined ? undefined : encode(value);
     }
+    if (input.targetColors && Object.hasOwn(input.targetColors, path) && cases.length === 0) return encode(input.targetColors[path]);
     const leaf = logic.nodeAt(tokens, path);
     if (!logic.isLeaf(leaf)) return undefined;
     const value = path.split(".").reduce((node, key) => node[key], input.values);
@@ -648,6 +649,90 @@ function curatedTaken(logic, file, bytes) {
         return false;
     }
     return logic.isPlainObject(document) && file.curatedKeys.some(key => logic.hasOwn(document, key));
+}
+
+// sRGB to CIELAB under D65. Keep colour difference separate from WCAG
+// luminance: its XYZ matrix and transfer breakpoint belong to the metric.
+function colorLab(color) {
+    const linear = value => value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+    const r = linear(color.r), g = linear(color.g), b = linear(color.b);
+    const f = value => value > 0.008856 ? Math.cbrt(value) : 7.787 * value + 16 / 116;
+    const x = f((0.412424 * r + 0.357579 * g + 0.180464 * b) / 0.95047);
+    const y = f(0.212656 * r + 0.715158 * g + 0.0721856 * b);
+    const z = f((0.0193324 * r + 0.119193 * g + 0.950444 * b) / 1.08883);
+    return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+}
+
+// CIEDE2000, unit weighting factors, Sharma et al. equations 2-22.
+// https://www.hajim.rochester.edu/ece/sites/gsharma/ciede2000/ciede2000noteCRNA.pdf
+function colorDeltaE([l1, a1, b1], [l2, a2, b2]) {
+    const radians = degrees => degrees * Math.PI / 180;
+    const cos = degrees => Math.cos(radians(degrees));
+    const sin = degrees => Math.sin(radians(degrees));
+    const chroma = (a, b) => Math.hypot(a, b);
+    const initialMean = (chroma(a1, b1) + chroma(a2, b2)) / 2;
+    const compensation = 0.5 * (1 - Math.sqrt(initialMean ** 7 / (initialMean ** 7 + 25 ** 7)));
+    const adjustedA1 = (1 + compensation) * a1, adjustedA2 = (1 + compensation) * a2;
+    const c1 = chroma(adjustedA1, b1), c2 = chroma(adjustedA2, b2);
+    const hue = (a, b) => a === 0 && b === 0 ? 0 : (Math.atan2(b, a) * 180 / Math.PI + 360) % 360;
+    const h1 = hue(adjustedA1, b1), h2 = hue(adjustedA2, b2);
+    let deltaHue = h2 - h1;
+    if (c1 * c2 === 0) deltaHue = 0;
+    else if (deltaHue > 180) deltaHue -= 360;
+    else if (deltaHue < -180) deltaHue += 360;
+    let meanHue = (h1 + h2) / 2;
+    if (c1 * c2 === 0) meanHue = h1 + h2;
+    else if (Math.abs(h1 - h2) > 180) meanHue += h1 + h2 < 360 ? 180 : -180;
+    const meanL = (l1 + l2) / 2, meanC = (c1 + c2) / 2;
+    const t = 1 - 0.17 * cos(meanHue - 30) + 0.24 * cos(2 * meanHue) +
+        0.32 * cos(3 * meanHue + 6) - 0.20 * cos(4 * meanHue - 63);
+    const offset = meanL - 50;
+    const sl = 1 + 0.015 * offset * offset / Math.sqrt(20 + offset * offset);
+    const sc = 1 + 0.045 * meanC, sh = 1 + 0.015 * meanC * t;
+    const rotation = -2 * Math.sqrt(meanC ** 7 / (meanC ** 7 + 25 ** 7)) *
+        sin(60 * Math.exp(-(((meanHue - 275) / 25) ** 2)));
+    const dl = (l2 - l1) / sl, dc = (c2 - c1) / sc;
+    const dh = 2 * Math.sqrt(c1 * c2) * sin(deltaHue / 2) / sh;
+    return Math.sqrt(dl * dl + dc * dc + dh * dh + rotation * dc * dh);
+}
+const colorDifference = (a, b) => colorDeltaE(colorLab(a), colorLab(b));
+
+// Marks try their semantic role first, then cycle through this one role order.
+// The fixed tint keeps a mark quieter than page text. Compare the rounded
+// output colours, since those are the colours kitty actually draws.
+const KITTY_ROLE_ORDER = ["accent", "warning", "info", "success", "danger", "textMuted", "textDisabled", "text", "textFaint", "borderControl", "accentPressed", "accentHover", "textHeading"];
+function kittyColors(logic, tokens, input) {
+    const page = logic.parseColor(input.values.palette.background);
+    const plain = logic.parseColor(input.values.palette.foreground);
+    const active = logic.parseColor(input.values.bar.active);
+    const distinct = (a, b) => logic.contrastRatio(a, b) >= 3 || colorDifference(a, b) >= 15;
+    // A locally valid middle mark can consume the only role left for the
+    // info mark. Select the first complete set in role order instead.
+    function select(chosen) {
+        const index = chosen.length;
+        if (index === 3) return chosen;
+        const tint = [0.52, 0.14, 0.04][index];
+        for (let offset = 0; offset < KITTY_ROLE_ORDER.length; offset++) {
+            const role = KITTY_ROLE_ORDER[(index + offset) % KITTY_ROLE_ORDER.length];
+            const value = expressionColor(logic, tokens, input, `mix({color.${role}}, {palette.background}, ${tint})`);
+            const candidate = logic.parseColor("#" + hex6(value, input.values.color.background));
+            const luminance = logic.luminance(candidate);
+            if (!(input.values.scheme.mode === "light" ? luminance > logic.luminance(plain) : luminance < logic.luminance(plain))) continue;
+            if (!distinct(candidate, page) || !chosen.every(earlier => distinct(candidate, earlier))) continue;
+            if (index === 2 && !distinct(candidate, active)) continue;
+            const complete = select([...chosen, candidate]);
+            if (complete !== null) return complete;
+        }
+        return null;
+    }
+    const chosen = select([]);
+    if (chosen === null) throw new Error("theme-render: kitty has no distinct role colour set");
+    const colors = {};
+    for (const [index, fill] of chosen.entries()) {
+        colors[`kitty.mark${index + 1}_background`] = logic.formatColor(fill);
+        colors[`kitty.mark${index + 1}_foreground`] = logic.formatColor(logic.contrastColor(fill));
+    }
+    return colors;
 }
 
 // The owner's tmux formats use ANSI blue for active text and brightblack
@@ -786,6 +871,7 @@ function renderTarget(logic, tokens, target, templates, input) {
         throw new Error("theme-render: renderTarget: target " + target.name + " rendered without terminal slots");
     if (typeof input.installed !== "boolean")
         throw new Error("theme-render: renderTarget: target " + target.name + " rendered without the package's source");
+    if (target.name === "kitty") input = { ...input, targetColors: kittyColors(logic, tokens, input) };
     if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };
     const encode = hex => ENCODERS[target.encoder](hex, input.values.color.background);
     const rendered = new Map();
@@ -1128,4 +1214,4 @@ function unwiredText(text, line, section) {
     return next === text ? null : next;
 }
 
-module.exports = { TARGET_FILE, EDITOR_BASE, extensionVersion, extensionFolder, isExtensionFolder, registeredText, unregisteredText, unobsoletedText, acceptTarget, placeholderNames, detected, setupDone, curatedTaken, renderTarget, terminalSource, refusalLine, wiringForm, wiringLine, entryItems, profileDirs, vaultDirs, reloadNamesWiring, reloadCommand, reloadAlways, selectKeys, selectValue, wiredText, unwiredText, isSectionHeader, opensSection, assignedKey };
+module.exports = { colorDeltaE, colorDifference, TARGET_FILE, EDITOR_BASE, extensionVersion, extensionFolder, isExtensionFolder, registeredText, unregisteredText, unobsoletedText, acceptTarget, placeholderNames, detected, setupDone, curatedTaken, renderTarget, terminalSource, refusalLine, wiringForm, wiringLine, entryItems, profileDirs, vaultDirs, reloadNamesWiring, reloadCommand, reloadAlways, selectKeys, selectValue, wiredText, unwiredText, isSectionHeader, opensSection, assignedKey };

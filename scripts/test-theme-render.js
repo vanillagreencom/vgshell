@@ -1093,57 +1093,14 @@ const KITTY_MARKS = [
 const KITTY_MARK_PAIRS = [
     ["mark1_background", "mark2_background"],
     ["mark1_background", "mark3_background"],
-    ["mark2_background", "mark3_background"]
+    ["mark2_background", "mark3_background"],
+    ["mark3_background", "active_tab_background"]
 ];
 const KITTY_FIELDS = [...new Set([
     ...KITTY_TEXT.flat(), ...KITTY_BOUNDARIES, ...KITTY_CANVAS
 ])];
 
-// sRGB to CIELAB under D65. Keep colour difference separate from WCAG
-// luminance: its XYZ matrix and transfer breakpoint belong to the metric.
-function kittyLab(color) {
-    const linear = value => value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
-    const r = linear(color.r), g = linear(color.g), b = linear(color.b);
-    const f = value => value > 0.008856 ? Math.cbrt(value) : 7.787 * value + 16 / 116;
-    const x = f((0.412424 * r + 0.357579 * g + 0.180464 * b) / 0.95047);
-    const y = f(0.212656 * r + 0.715158 * g + 0.0721856 * b);
-    const z = f((0.0193324 * r + 0.119193 * g + 0.950444 * b) / 1.08883);
-    return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
-}
-
-// CIEDE2000, unit weighting factors, Sharma et al. equations 2-22.
-// https://www.hajim.rochester.edu/ece/sites/gsharma/ciede2000/ciede2000noteCRNA.pdf
-function kittyDeltaE([l1, a1, b1], [l2, a2, b2]) {
-    const radians = degrees => degrees * Math.PI / 180;
-    const cos = degrees => Math.cos(radians(degrees));
-    const sin = degrees => Math.sin(radians(degrees));
-    const chroma = (a, b) => Math.hypot(a, b);
-    const initialMean = (chroma(a1, b1) + chroma(a2, b2)) / 2;
-    const compensation = 0.5 * (1 - Math.sqrt(initialMean ** 7 / (initialMean ** 7 + 25 ** 7)));
-    const adjustedA1 = (1 + compensation) * a1, adjustedA2 = (1 + compensation) * a2;
-    const c1 = chroma(adjustedA1, b1), c2 = chroma(adjustedA2, b2);
-    const hue = (a, b) => a === 0 && b === 0 ? 0 : (Math.atan2(b, a) * 180 / Math.PI + 360) % 360;
-    const h1 = hue(adjustedA1, b1), h2 = hue(adjustedA2, b2);
-    let deltaHue = h2 - h1;
-    if (c1 * c2 === 0) deltaHue = 0;
-    else if (deltaHue > 180) deltaHue -= 360;
-    else if (deltaHue < -180) deltaHue += 360;
-    let meanHue = (h1 + h2) / 2;
-    if (c1 * c2 === 0) meanHue = h1 + h2;
-    else if (Math.abs(h1 - h2) > 180) meanHue += h1 + h2 < 360 ? 180 : -180;
-    const meanL = (l1 + l2) / 2, meanC = (c1 + c2) / 2;
-    const t = 1 - 0.17 * cos(meanHue - 30) + 0.24 * cos(2 * meanHue) +
-        0.32 * cos(3 * meanHue + 6) - 0.20 * cos(4 * meanHue - 63);
-    const offset = meanL - 50;
-    const sl = 1 + 0.015 * offset * offset / Math.sqrt(20 + offset * offset);
-    const sc = 1 + 0.045 * meanC, sh = 1 + 0.015 * meanC * t;
-    const rotation = -2 * Math.sqrt(meanC ** 7 / (meanC ** 7 + 25 ** 7)) *
-        sin(60 * Math.exp(-(((meanHue - 275) / 25) ** 2)));
-    const dl = (l2 - l1) / sl, dc = (c2 - c1) / sc;
-    const dh = 2 * Math.sqrt(c1 * c2) * sin(deltaHue / 2) / sh;
-    return Math.sqrt(dl * dl + dc * dc + dh * dh + rotation * dc * dh);
-}
-const kittyDifference = (a, b) => kittyDeltaE(kittyLab(a), kittyLab(b));
+const kittyDifference = selectionRender.colorDifference;
 
 // Published supplementary data covers neutral colours, hue wrapping and
 // the discontinuity near opposite hues, not only the original examples.
@@ -1184,7 +1141,7 @@ const KITTY_DIFFERENCE_REFERENCES = [
     [2.0776, 0.0795, -1.135, 0.9033, -0.0636, -0.5514, 0.9082]
 ];
 for (const row of KITTY_DIFFERENCE_REFERENCES)
-    assert.ok(Math.abs(kittyDeltaE(row.slice(0, 3), row.slice(3, 6)) - row[6]) <= 0.00005, JSON.stringify(row));
+    assert.ok(Math.abs(selectionRender.colorDeltaE(row.slice(0, 3), row.slice(3, 6)) - row[6]) <= 0.00005, JSON.stringify(row));
 
 function kittyTint(pkg, { source, page }) {
     const seed = logic.parseColor(pkg.values.color[source]);
@@ -1195,10 +1152,10 @@ function kittyTint(pkg, { source, page }) {
     return logic.formatColor(tint).slice(0, 7);
 }
 
-function verifyKittyStyles(template) {
+function verifyKittyStyles(template, render = selectionRender) {
     const shortfalls = [];
     const metrics = selectionPackages.map(({ pkg, shipped }) => {
-        const rendered = selectionRender.renderTarget(logic, TOKENS, kittyTarget.target,
+        const rendered = render.renderTarget(logic, TOKENS, kittyTarget.target,
             new Map([["kitty.conf", template]]), {
                 values: pkg.values,
                 slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal,
@@ -1246,8 +1203,9 @@ function verifyKittyStyles(template) {
             if (!(mode === "light" ? fillLuminance > plainLuminance : fillLuminance < plainLuminance))
                 shortfalls.push({ kind: "kitty-mark-page", theme: pkg.name, role: mark.role, peer: "foreground",
                     fillLuminance, plainLuminance, mode, fill: fields.get(mark.role), plain: fields.get("foreground") });
-            const expected = kittyTint(pkg, mark);
-            if (fields.get(mark.role) !== expected)
+            const expected = ["accent", "warning", "info", "success", "danger", "textMuted", "textDisabled", "text", "textFaint", "borderControl", "accentPressed", "accentHover", "textHeading"]
+                .map(source => kittyTint(pkg, { ...mark, source }));
+            if (!expected.includes(fields.get(mark.role)))
                 shortfalls.push({ kind: "kitty-mark-tint", theme: pkg.name, role: mark.role, source: mark.source,
                     actual: fields.get(mark.role), expected, page: mark.page });
         }
@@ -1265,7 +1223,49 @@ function verifyKittyStyles(template) {
     return { metrics, shortfalls };
 }
 
+// The old semantic sources can be different hex colours yet still look
+// alike. Restore those near-same pairs while preserving readable labels.
+for (const [theme, changes, peer] of [
+    ["amberbyte", {
+        mark2_background: "mix({color.warning}, {palette.background}, 0.14)",
+        mark3_background: "mix({color.info}, {palette.background}, 0.04)"
+    }, "mark2_background"],
+    ["dracula", { mark3_background: "mix({color.info}, {palette.background}, 0.04)" }, "active_tab_background"]
+]) {
+    let mutant = kittyTemplate;
+    for (const [role, expression] of Object.entries(changes)) {
+        const needle = `${role} #@{kitty.${role}}`;
+        assert.equal(mutant.split(needle).length, 2);
+        mutant = mutant.replace(needle, `${role} #@{${expression}}`);
+        const textRole = role.replace("background", "foreground");
+        mutant = mutant.replace(`${textRole} #@{kitty.${textRole}}`, `${textRole} #@{contrast(${expression})}`);
+    }
+    const failures = verifyKittyStyles(mutant).shortfalls;
+    assert.throws(() => assert.deepEqual(failures, []), error => error instanceof assert.AssertionError &&
+        error.actual.some(failure => failure.kind === "kitty-mark-distinction" && failure.theme === theme &&
+            [failure.role, failure.peer].includes(peer) && failure.fill !== failure.peerFill &&
+            failure.ratio < failure.contrastFloor && failure.difference < failure.differenceFloor));
+    assert.equal(failures.some(failure => failure.kind === "kitty-text" && failure.theme === theme), false);
+    console.log(`test-theme-render: kitty-near-same-control theme=${theme} peer=${peer} rejected=true`);
+}
+
 const kittyBaseline = verifyKittyStyles(kittyTemplate);
+// Literal outputs cover unchanged accent marks, semantic replacements,
+// and palettes where a middle mark must leave a role for the later mark.
+const KITTY_ORDERED_SETS = [
+    ["dracula", ["#705c94", "#d5dd80", "#4ef278"]],
+    ["flexoki-light", ["#94b0cc", "#947b2d", "#b94a40"]],
+    ["amberbyte", ["#6d4141", "#bc5e5f", "#beb4b4"]],
+    ["solitude", ["#464c4f", "#71787c", "#c3c5c5"]],
+    ["x-1632", ["#656a73", "#8d96a5", "#b49c9c"]],
+    ["lumon", ["#4e7388", "#cfd5db", "#8895a0"]]
+];
+for (const [theme, expected] of KITTY_ORDERED_SETS) {
+    const metric = kittyBaseline.metrics.find(metric => metric.theme === theme);
+    assert.notEqual(metric, undefined, theme);
+    assert.deepEqual(KITTY_MARKS.map(({ role }) => metric.fields[role]), expected, theme);
+}
+
 const kittyControls = [
     ...KITTY_FIELDS.map(role => ({ kind: "kitty-field", role, remove: true })),
     ...KITTY_TEXT.map(([role, peer]) => ({ kind: "kitty-text", role, peer })),
@@ -1274,12 +1274,10 @@ const kittyControls = [
     ...KITTY_MARKS.map(({ role }) => ({ kind: "kitty-mark-canvas", role, peer: "background" })),
     ...KITTY_MARK_PAIRS.map(([role, peer]) => ({ kind: "kitty-mark-distinction", role, peer })),
     ...KITTY_MARKS.map(({ role }) => ({ kind: "kitty-mark-page", role, peer: "foreground" })),
-    ...KITTY_MARKS.map(({ role, source }) => ({ kind: "kitty-mark-tint", role, source,
-        wrongSource: source === "warning" ? "info" : "warning" })),
+    ...KITTY_MARKS.map(({ role }) => ({ kind: "kitty-mark-tint", role, literal: "#010203" })),
     ...KITTY_CANVAS.map(role => ({ kind: "kitty-canvas", role, peer: "active_tab_background" })),
     { kind: "kitty-focus", role: "active_border_color", peer: "inactive_border_color" }
 ];
-let kittyUnexpectedKnownLimit;
 const kittyScratch = fs.mkdtempSync(path.join(os.tmpdir(), "kitty-style-control-"));
 try {
     for (const [index, control] of kittyControls.entries()) {
@@ -1294,7 +1292,7 @@ try {
         let replacement = "";
         if (!control.remove) {
             replacement = control.kind === "kitty-mark-tint"
-                ? matches[0].replace(`{color.${control.source}}`, `{color.${control.wrongSource}}`)
+                ? control.role + " " + control.literal
                 : control.role + " " + lines.find(line => line.startsWith(control.peer + " ")).slice(control.peer.length + 1);
         }
         const mutant = lines.map(line => line === matches[0] ? replacement : line).join("\n");
@@ -1305,8 +1303,6 @@ try {
             .filter(shortfall => sameRule(shortfall) && baselinePassed.has(shortfall.theme));
         assert.throws(() => assert.deepEqual(newFailures, []),
             error => error instanceof assert.AssertionError && Array.isArray(error.actual) && error.actual.length > 0);
-        if (kittyUnexpectedKnownLimit === undefined && control.kind === "kitty-mark-distinction")
-            kittyUnexpectedKnownLimit = newFailures[0];
     }
 } finally {
     fs.rmSync(kittyScratch, { recursive: true, force: true });
@@ -1317,93 +1313,7 @@ const kittyMarkTextMinimum = Math.min(...kittyBaseline.metrics.flatMap(metric =>
     .map(ratio => ratio.ratio)));
 console.log(`test-theme-render: kitty packages=${kittyBaseline.metrics.length} fields=${KITTY_FIELDS.length} text-floor=4.5 boundary-floor=3 mark-contrast-or-difference=3,15 passing=${kittyBaseline.metrics.length - kittyFailingThemes.size} controls=${kittyControls.length} references=${KITTY_DIFFERENCE_REFERENCES.length} mark-text-minimum=${kittyMarkTextMinimum}`);
 for (const shortfall of kittyBaseline.shortfalls) console.log(`test-theme-render: kitty-shortfall ${JSON.stringify(shortfall)}`);
-// Require the owner-accepted theme/rule/colour/measurement set exactly.
-// An added, removed or changed known limit requires a new acceptance.
-const KITTY_KNOWN_LIMITS = [
-    { kind: "kitty-mark-distinction", theme: "amberbyte",
-        role: "mark2_background", peer: "mark3_background", fill: "#bc5e5f", peerFill: "#cf6767",
-        ratio: 1.1803274541046165, difference: 4.778735570034672, contrastFloor: 3, differenceFloor: 15 },
-    { kind: "kitty-mark-page", theme: "archwave", role: "mark2_background", peer: "foreground",
-        fillLuminance: 0.6450577991118819, plainLuminance: 0.48127315651670705, mode: "dark",
-        fill: "#dad768", plain: "#d4a5ff" },
-    { kind: "kitty-mark-distinction", theme: "artzen",
-        role: "mark2_background", peer: "mark3_background", fill: "#ad7373", peerFill: "#b9807a",
-        ratio: 1.1743480929662613, difference: 4.939537049282841, contrastFloor: 3, differenceFloor: 15 },
-    { kind: "kitty-mark-distinction", theme: "brutalism",
-        role: "mark2_background", peer: "mark3_background", fill: "#b26b6b", peerFill: "#ca6363",
-        ratio: 1.0514242389794157, difference: 5.580489201594463, contrastFloor: 3, differenceFloor: 15 },
-    { kind: "kitty-mark-distinction", theme: "fireside",
-        role: "mark2_background", peer: "mark3_background", fill: "#a09e90", peerFill: "#b1b1b0",
-        ratio: 1.2564156856100577, difference: 8.480533205188605, contrastFloor: 3, differenceFloor: 15 },
-    { kind: "kitty-mark-distinction", theme: "kurayami",
-        role: "mark2_background", peer: "mark3_background", fill: "#c6c6a5", peerFill: "#c0cab0",
-        ratio: 1.0244810669374436, difference: 4.436909073664786, contrastFloor: 3, differenceFloor: 15 },
-    { kind: "kitty-mark-distinction", theme: "lumon",
-        role: "mark1_background", peer: "mark2_background", fill: "#4e7388", peerFill: "#6392b3",
-        ratio: 1.5230884063572667, difference: 12.246911369430487, contrastFloor: 3, differenceFloor: 15 },
-    { kind: "kitty-mark-distinction", theme: "lumon",
-        role: "mark2_background", peer: "mark3_background", fill: "#6392b3", peerFill: "#6bb2dc",
-        ratio: 1.4344117524923075, difference: 9.933043567851419, contrastFloor: 3, differenceFloor: 15 },
-    { kind: "kitty-mark-distinction", theme: "lunar",
-        role: "mark2_background", peer: "mark3_background", fill: "#dfc454", peerFill: "#f6d75b",
-        ratio: 1.216108588664129, difference: 4.889313685764491, contrastFloor: 3, differenceFloor: 15 },
-    { kind: "kitty-mark-page", theme: "moon-orbit", role: "mark2_background", peer: "foreground",
-        fillLuminance: 0.38045934917200447, plainLuminance: 0.3302783180539751, mode: "dark",
-        fill: "#df9561", plain: "#669afd" },
-    { kind: "kitty-mark-distinction", theme: "osaka-jade",
-        role: "mark2_background", peer: "mark3_background", fill: "#4b8b55", peerFill: "#589579",
-        ratio: 1.1691497793558399, difference: 8.547438087247574, contrastFloor: 3, differenceFloor: 15 },
-    { kind: "kitty-mark-page", theme: "pmndrs", role: "mark2_background", peer: "foreground",
-        fillLuminance: 0.6932956873771549, plainLuminance: 0.4201981674065717, mode: "dark",
-        fill: "#dfdbac", plain: "#a6accd" },
-    { kind: "kitty-mark-page", theme: "pmndrs", role: "mark3_background", peer: "foreground",
-        fillLuminance: 0.5922886595221314, plainLuminance: 0.4201981674065717, mode: "dark",
-        fill: "#85d5f6", plain: "#a6accd" },
-    { kind: "kitty-mark-distinction", theme: "roseofdune",
-        role: "mark2_background", peer: "mark3_background", fill: "#785c4b", peerFill: "#74624d",
-        ratio: 1.0483131121456588, difference: 5.852079917156127, contrastFloor: 3, differenceFloor: 15 },
-    { kind: "kitty-mark-distinction", theme: "snow",
-        role: "mark2_background", peer: "mark3_background", fill: "#94a0ad", peerFill: "#7e8ea3",
-        ratio: 1.2554790472035509, difference: 6.784245276876806, contrastFloor: 3, differenceFloor: 15 },
-    { kind: "kitty-mark-distinction", theme: "tycho",
-        role: "mark2_background", peer: "mark3_background", fill: "#af796d", peerFill: "#a38e7c",
-        ratio: 1.1624948833403297, difference: 12.853919034705227, contrastFloor: 3, differenceFloor: 15 },
-    { kind: "kitty-mark-distinction", theme: "vantablack",
-        role: "mark2_background", peer: "mark3_background", fill: "#b1b1b1", peerFill: "#878787",
-        ratio: 1.675295242164073, difference: 13.19659967665954, contrastFloor: 3, differenceFloor: 15 },
-    { kind: "kitty-mark-page", theme: "vice-city", role: "mark2_background", peer: "foreground",
-        fillLuminance: 0.6709162925584398, plainLuminance: 0.45651347840539835, mode: "dark",
-        fill: "#dddd03", plain: "#f793d9" },
-    { kind: "kitty-mark-distinction", theme: "void",
-        role: "mark2_background", peer: "mark3_background", fill: "#bfb0dd", peerFill: "#b494ee",
-        ratio: 1.24470468313, difference: 10.85337800922608, contrastFloor: 3, differenceFloor: 15 },
-];
-function verifyKittyKnownLimits(shortfalls) {
-    assert.deepEqual(shortfalls, KITTY_KNOWN_LIMITS);
-}
-verifyKittyKnownLimits(kittyBaseline.shortfalls);
-assert.notEqual(kittyUnexpectedKnownLimit, undefined);
-assert.throws(() => verifyKittyKnownLimits([...kittyBaseline.shortfalls, kittyUnexpectedKnownLimit]),
-    error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
-        error.actual.includes(kittyUnexpectedKnownLimit) && error.expected === KITTY_KNOWN_LIMITS);
-console.log(`test-theme-render: kitty-known-limit-control kind=added-unexpected miss=${JSON.stringify(kittyUnexpectedKnownLimit)}`);
-const kittyRemovedKnownLimit = KITTY_KNOWN_LIMITS[0];
-assert.throws(() => verifyKittyKnownLimits(kittyBaseline.shortfalls.slice(1)),
-    error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
-        error.expected === KITTY_KNOWN_LIMITS && error.expected.includes(kittyRemovedKnownLimit) &&
-        !error.actual.some(shortfall => shortfall.kind === kittyRemovedKnownLimit.kind &&
-            shortfall.theme === kittyRemovedKnownLimit.theme && shortfall.role === kittyRemovedKnownLimit.role &&
-            shortfall.peer === kittyRemovedKnownLimit.peer));
-console.log(`test-theme-render: kitty-known-limit-control kind=removed-expected miss=${JSON.stringify(kittyRemovedKnownLimit)}`);
-const kittyChangedKnownLimit = { ...kittyBaseline.shortfalls[0], ratio: 2 };
-assert.throws(() => verifyKittyKnownLimits([kittyChangedKnownLimit, ...kittyBaseline.shortfalls.slice(1)]),
-    error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
-        error.expected === KITTY_KNOWN_LIMITS && error.actual.length === error.expected.length &&
-        error.actual[0] === kittyChangedKnownLimit && error.actual[0].kind === error.expected[0].kind &&
-        error.actual[0].theme === error.expected[0].theme && error.actual[0].role === error.expected[0].role &&
-        error.actual[0].peer === error.expected[0].peer && error.actual[0].ratio !== error.expected[0].ratio);
-console.log(`test-theme-render: kitty-known-limit-control kind=changed-measurement miss=${JSON.stringify(kittyChangedKnownLimit)}`);
-console.log(`test-theme-render: kitty-known-limits=${KITTY_KNOWN_LIMITS.length} controls=3`);
+assert.deepEqual(kittyBaseline.shortfalls, []);
 
 // Helix reads jump labels as a dedicated style. Parse rendered TOML with
 // Python's standard parser, as the editor-entry suite does for this target.
@@ -2495,6 +2405,12 @@ for (const role of ALACRITTY_ROLES) {
 
 // Each control removes one rule's behaviour from a copy of the renderer and
 // keeps the text around it. The suite must fail on every copy.
+const strictKitty = render => {
+    const result = verifyKittyStyles(kittyTemplate, render);
+    assert.deepEqual(result.shortfalls, []);
+    for (const [theme, expected] of KITTY_ORDERED_SETS)
+        assert.deepEqual(KITTY_MARKS.map(({ role }) => result.metrics.find(metric => metric.theme === theme).fields[role]), expected);
+};
 const CONTROLS = [
     ["editor cap applies before rendering", "text = editorHighlightTemplate(logic, input, text);", "text = text;", verifyEditorStyles],
     ["editor cap includes the underlying line", "fill = over(tint, fill);", "fill = over(tint, page);", verifyEditorStyles],
@@ -2506,6 +2422,12 @@ const CONTROLS = [
     ["editor cap is common to line and word", 'document.colors[key] = "#@{alpha({color." + role + "}, " + alpha * scale + ")}";', 'document.colors[key] = "#@{alpha({color." + role + "}, " + alpha * (alpha === 0.12 ? 1 : scale) + ")}";', verifyEditorStyles],
     ["editor cap caller leaves other targets", 'if (target.name === "vscode" && file.destination === "vscode.json") {', 'if (true) {', verifyEditorCaps],
     ["editor cap refuses an unreadable zero tint", "if (scale === null) return null;", "if (scale === null) return text;", verifyEditorCaps],
+    ["kitty earlier mark distinction", "!chosen.every(earlier => distinct(candidate, earlier))", "false", strictKitty],
+    ["kitty page direction", 'if (!(input.values.scheme.mode === "light" ? luminance > logic.luminance(plain) : luminance < logic.luminance(plain))) continue;', "if (false) continue;", strictKitty],
+    ["kitty active tab distinction", "if (index === 2 && !distinct(candidate, active)) continue;", "if (false) continue;", strictKitty],
+    ["kitty role order", '"success", "danger", "textMuted"', '"danger", "success", "textMuted"', strictKitty],
+    ["kitty complete role set", "if (complete !== null) return complete;", "return complete;", strictKitty],
+
     ["expression package references", "value: logic.valueAt(input.values, node.path)", "value: leaf.value"],
     ["expression refuses invalid input", 'return result.ok ? result.values.result : undefined;', 'return result.ok ? result.values.result : "#ff00ffff";'],
     ["editors target detects per editor", "if (document.detect.length !== 0) return refused", "if (false) return refused"],
