@@ -121,11 +121,13 @@ function memberText(segments, value) {
 // TEXT with MEMBER first in OBJECT. A multi-line object takes it on its own
 // line at the indentation of its first member; a single-line one takes it
 // on that line, ahead of its first member; an empty one takes it two spaces
-// deeper than the line the object opens on.
+// deeper than the line the object opens on, ahead of any comment it holds.
 function withMember(text, object, member) {
     const lineEnd = lineBreak(text);
     if (object.members.length === 0) {
         const indent = /^[ \t]*/.exec(text.slice(text.lastIndexOf("\n", object.start) + 1))[0];
+        const inside = text.slice(object.start + 1, object.end - 1);
+        if (inside.trim() !== "") return text.slice(0, object.start + 1) + lineEnd + indent + "  " + member + inside + text.slice(object.end - 1);
         return text.slice(0, object.start + 1) + lineEnd + indent + "  " + member + lineEnd + indent + text.slice(object.end - 1);
     }
     const first = object.members[0].start;

@@ -1152,10 +1152,10 @@ function otherVersions(dir, id, keep) {
 }
 
 // Keep extension TARGET's generated extension in each of EDITORS: its
-// files, FILES' bytes, copied into the folder of VERSION, which
-// extensions.json then registers and `.obsolete` stops marking, and only
-// then every other version's folder removed, so the editor never registers
-// a folder that is gone. Answers null, or the failure's { reason, failure }
+// files, FILES' bytes, copied into the folder of VERSION, which `.obsolete`
+// then stops marking and extensions.json registers, and only then every
+// other version's folder removed, so the editor never registers a folder
+// that is gone or that it deletes as obsolete. Answers null, or the failure's { reason, failure }
 // for target NAME.
 function keepExtension(name, target, files, version, editors) {
     const key = "target=" + name + " reason";
@@ -1169,9 +1169,9 @@ function keepExtension(name, target, files, version, editors) {
                 const held = readIfPresent(at);
                 if (held === undefined || !held.equals(bytes.get(destination))) replaceFile(at, bytes.get(destination), key, 0o644);
             }
-            const failure = editFile(key, path.join(editor.extensions, REGISTRY_FILE), true,
-                utf8Edit(text => render.registeredText(logic, text, id, version, editor.extensions))) ||
-                editFile(key, path.join(editor.extensions, OBSOLETE_FILE), false, utf8Edit(text => render.unobsoletedText(logic, text, id)));
+            const failure = editFile(key, path.join(editor.extensions, OBSOLETE_FILE), false, utf8Edit(text => render.unobsoletedText(logic, text, id))) ||
+                editFile(key, path.join(editor.extensions, REGISTRY_FILE), true,
+                    utf8Edit(text => render.registeredText(logic, text, id, version, editor.extensions)));
             if (failure !== null) return failure;
             for (const old of otherVersions(editor.extensions, id, folder)) writing(old, key, () => fs.rmSync(old, { recursive: true, force: true }));
         }

@@ -164,12 +164,12 @@ tree_control fixed-version themes/targets/vscode/package.json '"version": "@{ext
 fresh fixed-version
 THEME_PATH="$with_codium" tinst "the fixed-version mutant applies" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply nord
 check "the fixed-version mutant's manifest misses the theme's version" turned extension_is_current "$oss"
-judge_control no-registry "utf8Edit(text => render.registeredText(logic, text, id, version, editor.extensions))) ||" 'utf8Edit(text => null)) ||'
+judge_control no-registry "utf8Edit(text => render.registeredText(logic, text, id, version, editor.extensions)));" 'utf8Edit(text => null));'
 fresh no-registry
 THEME_PATH="$with_codium" tinst "the no-registry mutant applies" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply nord
 check "the no-registry mutant's extension is in place" extension_is_current "$oss"
 check "the no-registry mutant registers nothing" turned registered "$oss"
-judge_control keeps-obsolete "editFile(key, path.join(editor.extensions, OBSOLETE_FILE), false, utf8Edit(text => render.unobsoletedText(logic, text, id)))" 'null'
+judge_control keeps-obsolete "editFile(key, path.join(editor.extensions, OBSOLETE_FILE), false, utf8Edit(text => render.unobsoletedText(logic, text, id))) ||" 'null ||'
 fresh keeps-obsolete
 mkdir -p "$oss"; printf '{"%s-1.0.5":true,"pub.gone-1.0.0":true}' "$id" >"$oss/.obsolete"
 THEME_PATH="$with_codium" tinst "the keeps-obsolete mutant applies" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply nord
