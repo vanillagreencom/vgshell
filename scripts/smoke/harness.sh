@@ -1,9 +1,10 @@
 # Sourced by qml-smoke.sh; owns the sandbox and shared readers.
-# inputs: scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/leaks.sh bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/lock/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
+# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/leaks.sh bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/lock/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
 set -euo pipefail
 source "$repo/scripts/smoke/verdict.sh"
 source "$repo/scripts/smoke/mode-hold.sh"
 source "$repo/scripts/smoke/tree.sh"
+source "$repo/scripts/smoke/user-config.sh"
 source "$repo/scripts/smoke/shot.sh"
 source "$repo/scripts/smoke/app-window.sh"
 source "$repo/bin/lib/ipc-reply.sh"

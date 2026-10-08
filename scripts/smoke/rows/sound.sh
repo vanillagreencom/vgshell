@@ -50,7 +50,7 @@
 # outputs, vgs.system's and vgs.sound's enablement, the shell's PATH
 # directory and the pactl stand-in's replies as it found them, a shell
 # started from the repository running, and the private PipeWire up.
-# inputs: shell/plugins/vgs.sound/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/LevelSlider.qml shell/Ui/feedback/LevelLabel.qml shell/Ui/feedback/LevelOsd.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Hosts/PaneHost.qml shell/Hosts/LayerHost.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/Notices.qml shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* bin/vgshell scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.sound/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/LevelSlider.qml shell/Ui/feedback/LevelLabel.qml shell/Ui/feedback/LevelOsd.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Hosts/PaneHost.qml shell/Hosts/LayerHost.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/Notices.qml shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* bin/vgshell scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 devices_ready sound || return 0
 
@@ -483,7 +483,7 @@ expect_poll "the restored shell reads the speakers" true snd_tooltip_names 'Smok
 kill -- "-$devices_player_pid" 2>/dev/null || true
 for snd_name in "${snd_recorded[@]}"; do rm -f -- "${shim:?}/$snd_name"; done
 device_reply_clear pactl
-cp -- "$snd_saved" "$snd_file"
+user_config_restore "$snd_saved"
 expect "the configuration reloads as the row found it" ok ipc shell reloadConfig
 expect_poll "vgs.system's enablement is as the row found it" "$snd_system_was" plugin_enabled vgs.system
 expect_poll "vgs.sound's enablement is as the row found it" "$snd_sound_was" plugin_enabled vgs.sound

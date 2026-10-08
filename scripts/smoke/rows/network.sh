@@ -5,7 +5,7 @@
 # No latency budget is measured. Polls use expect_poll's IPC round trip.
 # The production reprompt control suppresses the password prompt in a
 # sandbox plugin copy. The secret reader's control plants a synthetic log.
-# inputs: shell/plugins/vgs.network/* shell/Commons/Nmcli.js shell/Commons/qmldir shell/plugins/vgs.system/* shell/Core/* shell/Hosts/* shell/Ui/* shell/Commons/* shell/shell.qml config/shell.json bin/vgshell-scan bin/vgshell-plugin-judge bin/lib/check-manifests.js bin/lib/qml-library.js scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/overlay-capture.sh
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.network/* shell/Commons/Nmcli.js shell/Commons/qmldir shell/plugins/vgs.system/* shell/Core/* shell/Hosts/* shell/Ui/* shell/Commons/* shell/shell.qml config/shell.json bin/vgshell-scan bin/vgshell-plugin-judge bin/lib/check-manifests.js bin/lib/qml-library.js scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/overlay-capture.sh
 set -euo pipefail
 devices_ready network || return 0
 net_saved="$sandbox/network-shell-before.json"
@@ -709,7 +709,7 @@ rm -rf -- "${net_copy:?}"
 rescan "the shipped plugin is restored"
 expect "Network disables after its row" ok ipc shell setPluginEnabled vgs.network false
 expect_poll "Network releases its service build record" False record_exists vgs.network
-cp -- "$net_saved" "$home/.config/vgshell/shell.json"
+user_config_restore "$net_saved"
 expect "the row restores the configuration" ok ipc shell reloadConfig
 device_reply_clear nmcli
 device_reply_clear systemctl

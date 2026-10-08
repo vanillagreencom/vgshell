@@ -3,7 +3,7 @@
 # key stays down. The client records actual evdev edges. No latency budget:
 # fixture and client readings poll through IPC or the harness's 200 ms log
 # reader. The unit runner controls registration, guards and teardown.
-# inputs: scripts/smoke/fixtures/plugins/acme.hold/* shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginLogic.js scripts/smoke/keyboard/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/hyprland.sh
+# inputs: scripts/smoke/user-config.sh scripts/smoke/fixtures/plugins/acme.hold/* shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginLogic.js scripts/smoke/keyboard/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/hyprland.sh
 set -euo pipefail
 
 hold_dir="$home/.config/vgshell/plugins/acme.hold"
@@ -307,7 +307,7 @@ expect "late key-up after disable calls no release handler" "$((up_before + 1))"
 expect "the observer releases this row's ordering marker" ok ipc smoke holdMarkerStop
 expect_poll "the ordering marker leaves no native registration" 0 hold_native smoke:hold-marker
 close_toplevel "$hold_client_pid" "the hold client exits"
-cp -- "$sandbox/hold-before.json" "$hold_config"
+user_config_restore "$sandbox/hold-before.json"
 cp -- "$sandbox/hold-before.lua" "$hold_lua"
 expect "restore the hold row's configuration" ok ipc shell reloadConfig
 expect "restore the nested compositor's input settings without configuration errors" '[]' hypr_reload_errors

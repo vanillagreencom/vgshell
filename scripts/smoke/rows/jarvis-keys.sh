@@ -2,7 +2,7 @@
 # account, provider or network runs. No latency ceiling is measured.
 # State/effect reads poll once per nested IPC round trip. Fixture callback
 # gates poll at 10 ms; hold barriers use the shell's native marker.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/ShortcutRegistry.qml scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.probe/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml scripts/smoke/toplevel/* shell/Core/HyprlandLayer.js scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/ShortcutRegistry.qml scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.probe/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml scripts/smoke/toplevel/* shell/Core/HyprlandLayer.js scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 
 jarvis_key_config="$home/.config/vgshell/shell.json"
@@ -454,7 +454,7 @@ cp -- "$sandbox/jarvis-key-engine-before" "$jarvis_key_engine"
 rm -- "$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
 rm -- "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_rescan
-cp -- "$sandbox/jarvis-key-config-before.json" "$jarvis_key_config"
+user_config_restore "$sandbox/jarvis-key-config-before.json"
 cp -- "$sandbox/jarvis-key-lua-before" "$jarvis_key_lua"
 expect "restore the Jarvis key configuration" ok ipc shell reloadConfig
 expect "restore the nested keyboard configuration" ok hypr reload config-only

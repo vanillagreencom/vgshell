@@ -4,7 +4,7 @@
 # network runs; no PAM, polkit, keyring or TUI is reached. No latency
 # ceiling is measured. Widget and state reads poll once per nested IPC
 # round trip; fixture callback gates poll at 10 ms.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* bin/lib/qml-library.js
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* bin/lib/qml-library.js
 set -euo pipefail
 
 jarvis_widget_config="$home/.config/vgshell/shell.json"
@@ -274,7 +274,7 @@ done
 rm -- "$jarvis_widget_dir/backend/scripted-fixture.js"
 rm -- "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_rescan
-cp -- "$sandbox/jarvis-widget-config-before.json" "$jarvis_widget_config"
+user_config_restore "$sandbox/jarvis-widget-config-before.json"
 cp -- "$sandbox/jarvis-widget-lua-before" "$jarvis_widget_lua"
 expect "restore the Jarvis widget configuration" ok ipc shell reloadConfig
 expect "restore the nested keyboard configuration" ok hypr reload config-only

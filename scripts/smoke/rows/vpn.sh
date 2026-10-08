@@ -32,7 +32,7 @@
 # wall clock with a refresh every second; the row accepts 9 s to 20 s,
 # since a refresh that moved the deadline would hold it past any bound.
 # Every other reading is expect_poll's: 25 reads 0.2 s apart.
-# inputs: shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* scripts/fixtures/vpn/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* scripts/fixtures/vpn/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh
 set -euo pipefail
 devices_ready vpn || return 0
 vpn_saved="$sandbox/vpn-shell-before.json"
@@ -545,7 +545,7 @@ expect "the control copy disables" ok ipc shell setPluginEnabled vgs.vpn false
 expect_poll "the control's service is gone" False record_exists vgs.vpn
 rm -rf -- "${vpn_copy:?}"
 rescan "the shipped plugin is restored"
-cp -- "$vpn_saved" "$home/.config/vgshell/shell.json"
+user_config_restore "$vpn_saved"
 expect "the row restores the configuration" ok ipc shell reloadConfig
 rm -f -- "$vpn_system_link"
 device_reply_clear nmcli
