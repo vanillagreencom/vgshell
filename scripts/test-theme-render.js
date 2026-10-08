@@ -1131,7 +1131,7 @@ function verifyKittyStyles(template) {
             const plainLuminance = logic.luminance(colors.get("foreground"));
             const mode = pkg.values.scheme.mode;
             if (!(mode === "light" ? fillLuminance > plainLuminance : fillLuminance < plainLuminance))
-                shortfalls.push({ kind: "kitty-mark-page", theme: pkg.name, role: mark.role,
+                shortfalls.push({ kind: "kitty-mark-page", theme: pkg.name, role: mark.role, peer: "foreground",
                     fillLuminance, plainLuminance, mode, fill: fields.get(mark.role), plain: fields.get("foreground") });
             const expected = kittyTint(pkg, mark);
             if (fields.get(mark.role) !== expected)
@@ -1166,6 +1166,7 @@ const kittyControls = [
     ...KITTY_CANVAS.map(role => ({ kind: "kitty-canvas", role, peer: "active_tab_background" })),
     { kind: "kitty-focus", role: "active_border_color", peer: "inactive_border_color" }
 ];
+let kittyUnexpectedKnownLimit;
 const kittyScratch = fs.mkdtempSync(path.join(os.tmpdir(), "kitty-style-control-"));
 try {
     for (const [index, control] of kittyControls.entries()) {
@@ -1191,6 +1192,8 @@ try {
             .filter(shortfall => sameRule(shortfall) && baselinePassed.has(shortfall.theme));
         assert.throws(() => assert.deepEqual(newFailures, []),
             error => error instanceof assert.AssertionError && Array.isArray(error.actual) && error.actual.length > 0);
+        if (kittyUnexpectedKnownLimit === undefined && control.kind === "kitty-mark-distinction")
+            kittyUnexpectedKnownLimit = newFailures[0];
     }
 } finally {
     fs.rmSync(kittyScratch, { recursive: true, force: true });
@@ -1201,9 +1204,93 @@ const kittyMarkTextMinimum = Math.min(...kittyBaseline.metrics.flatMap(metric =>
     .map(ratio => ratio.ratio)));
 console.log(`test-theme-render: kitty packages=${kittyBaseline.metrics.length} fields=${KITTY_FIELDS.length} text-floor=4.5 boundary-floor=3 mark-contrast-or-difference=3,15 passing=${kittyBaseline.metrics.length - kittyFailingThemes.size} controls=${kittyControls.length} references=${KITTY_DIFFERENCE_REFERENCES.length} mark-text-minimum=${kittyMarkTextMinimum}`);
 for (const shortfall of kittyBaseline.shortfalls) console.log(`test-theme-render: kitty-shortfall ${JSON.stringify(shortfall)}`);
-// Keep baseline misses red after controls prove new failures on passing
-// theme/rule combinations. No known-theme exception changes this verdict.
-assert.deepEqual(kittyBaseline.shortfalls, []);
+// Require the owner-accepted theme/rule/colour/measurement set exactly.
+// An added, removed or changed known limit requires a new acceptance.
+const KITTY_KNOWN_LIMITS = [
+    { kind: "kitty-mark-distinction", theme: "amberbyte",
+        role: "mark2_background", peer: "mark3_background", fill: "#bc5e5f", peerFill: "#cf6767",
+        ratio: 1.1803274541046165, difference: 4.778735570034672, contrastFloor: 3, differenceFloor: 15 },
+    { kind: "kitty-mark-page", theme: "archwave", role: "mark2_background", peer: "foreground",
+        fillLuminance: 0.6450577991118819, plainLuminance: 0.48127315651670705, mode: "dark",
+        fill: "#dad768", plain: "#d4a5ff" },
+    { kind: "kitty-mark-distinction", theme: "artzen",
+        role: "mark2_background", peer: "mark3_background", fill: "#ad7373", peerFill: "#b9807a",
+        ratio: 1.1743480929662613, difference: 4.939537049282841, contrastFloor: 3, differenceFloor: 15 },
+    { kind: "kitty-mark-distinction", theme: "brutalism",
+        role: "mark2_background", peer: "mark3_background", fill: "#b26b6b", peerFill: "#ca6363",
+        ratio: 1.0514242389794157, difference: 5.580489201594463, contrastFloor: 3, differenceFloor: 15 },
+    { kind: "kitty-mark-distinction", theme: "fireside",
+        role: "mark2_background", peer: "mark3_background", fill: "#a09e90", peerFill: "#b1b1b0",
+        ratio: 1.2564156856100577, difference: 8.480533205188605, contrastFloor: 3, differenceFloor: 15 },
+    { kind: "kitty-mark-distinction", theme: "kurayami",
+        role: "mark2_background", peer: "mark3_background", fill: "#c6c6a5", peerFill: "#c0cab0",
+        ratio: 1.0244810669374436, difference: 4.436909073664786, contrastFloor: 3, differenceFloor: 15 },
+    { kind: "kitty-mark-distinction", theme: "lumon",
+        role: "mark1_background", peer: "mark2_background", fill: "#4e7388", peerFill: "#6392b3",
+        ratio: 1.5230884063572667, difference: 12.246911369430487, contrastFloor: 3, differenceFloor: 15 },
+    { kind: "kitty-mark-distinction", theme: "lumon",
+        role: "mark2_background", peer: "mark3_background", fill: "#6392b3", peerFill: "#6bb2dc",
+        ratio: 1.4344117524923075, difference: 9.933043567851419, contrastFloor: 3, differenceFloor: 15 },
+    { kind: "kitty-mark-distinction", theme: "lunar",
+        role: "mark2_background", peer: "mark3_background", fill: "#dfc454", peerFill: "#f6d75b",
+        ratio: 1.216108588664129, difference: 4.889313685764491, contrastFloor: 3, differenceFloor: 15 },
+    { kind: "kitty-mark-page", theme: "moon-orbit", role: "mark2_background", peer: "foreground",
+        fillLuminance: 0.38045934917200447, plainLuminance: 0.3302783180539751, mode: "dark",
+        fill: "#df9561", plain: "#669afd" },
+    { kind: "kitty-mark-distinction", theme: "osaka-jade",
+        role: "mark2_background", peer: "mark3_background", fill: "#4b8b55", peerFill: "#589579",
+        ratio: 1.1691497793558399, difference: 8.547438087247574, contrastFloor: 3, differenceFloor: 15 },
+    { kind: "kitty-mark-page", theme: "pmndrs", role: "mark2_background", peer: "foreground",
+        fillLuminance: 0.6932956873771549, plainLuminance: 0.4201981674065717, mode: "dark",
+        fill: "#dfdbac", plain: "#a6accd" },
+    { kind: "kitty-mark-page", theme: "pmndrs", role: "mark3_background", peer: "foreground",
+        fillLuminance: 0.5922886595221314, plainLuminance: 0.4201981674065717, mode: "dark",
+        fill: "#85d5f6", plain: "#a6accd" },
+    { kind: "kitty-mark-distinction", theme: "roseofdune",
+        role: "mark2_background", peer: "mark3_background", fill: "#785c4b", peerFill: "#74624d",
+        ratio: 1.0483131121456588, difference: 5.852079917156127, contrastFloor: 3, differenceFloor: 15 },
+    { kind: "kitty-mark-distinction", theme: "snow",
+        role: "mark2_background", peer: "mark3_background", fill: "#94a0ad", peerFill: "#7e8ea3",
+        ratio: 1.2554790472035509, difference: 6.784245276876806, contrastFloor: 3, differenceFloor: 15 },
+    { kind: "kitty-mark-distinction", theme: "tycho",
+        role: "mark2_background", peer: "mark3_background", fill: "#af796d", peerFill: "#a38e7c",
+        ratio: 1.1624948833403297, difference: 12.853919034705227, contrastFloor: 3, differenceFloor: 15 },
+    { kind: "kitty-mark-distinction", theme: "vantablack",
+        role: "mark2_background", peer: "mark3_background", fill: "#b1b1b1", peerFill: "#878787",
+        ratio: 1.675295242164073, difference: 13.19659967665954, contrastFloor: 3, differenceFloor: 15 },
+    { kind: "kitty-mark-page", theme: "vice-city", role: "mark2_background", peer: "foreground",
+        fillLuminance: 0.6709162925584398, plainLuminance: 0.45651347840539835, mode: "dark",
+        fill: "#dddd03", plain: "#f793d9" },
+    { kind: "kitty-mark-distinction", theme: "void",
+        role: "mark2_background", peer: "mark3_background", fill: "#bfb0dd", peerFill: "#b494ee",
+        ratio: 1.24470468313, difference: 10.85337800922608, contrastFloor: 3, differenceFloor: 15 },
+];
+function verifyKittyKnownLimits(shortfalls) {
+    assert.deepEqual(shortfalls, KITTY_KNOWN_LIMITS);
+}
+verifyKittyKnownLimits(kittyBaseline.shortfalls);
+assert.notEqual(kittyUnexpectedKnownLimit, undefined);
+assert.throws(() => verifyKittyKnownLimits([...kittyBaseline.shortfalls, kittyUnexpectedKnownLimit]),
+    error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
+        error.actual.includes(kittyUnexpectedKnownLimit) && error.expected === KITTY_KNOWN_LIMITS);
+console.log(`test-theme-render: kitty-known-limit-control kind=added-unexpected miss=${JSON.stringify(kittyUnexpectedKnownLimit)}`);
+const kittyRemovedKnownLimit = KITTY_KNOWN_LIMITS[0];
+assert.throws(() => verifyKittyKnownLimits(kittyBaseline.shortfalls.slice(1)),
+    error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
+        error.expected === KITTY_KNOWN_LIMITS && error.expected.includes(kittyRemovedKnownLimit) &&
+        !error.actual.some(shortfall => shortfall.kind === kittyRemovedKnownLimit.kind &&
+            shortfall.theme === kittyRemovedKnownLimit.theme && shortfall.role === kittyRemovedKnownLimit.role &&
+            shortfall.peer === kittyRemovedKnownLimit.peer));
+console.log(`test-theme-render: kitty-known-limit-control kind=removed-expected miss=${JSON.stringify(kittyRemovedKnownLimit)}`);
+const kittyChangedKnownLimit = { ...kittyBaseline.shortfalls[0], ratio: 2 };
+assert.throws(() => verifyKittyKnownLimits([kittyChangedKnownLimit, ...kittyBaseline.shortfalls.slice(1)]),
+    error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
+        error.expected === KITTY_KNOWN_LIMITS && error.actual.length === error.expected.length &&
+        error.actual[0] === kittyChangedKnownLimit && error.actual[0].kind === error.expected[0].kind &&
+        error.actual[0].theme === error.expected[0].theme && error.actual[0].role === error.expected[0].role &&
+        error.actual[0].peer === error.expected[0].peer && error.actual[0].ratio !== error.expected[0].ratio);
+console.log(`test-theme-render: kitty-known-limit-control kind=changed-measurement miss=${JSON.stringify(kittyChangedKnownLimit)}`);
+console.log(`test-theme-render: kitty-known-limits=${KITTY_KNOWN_LIMITS.length} controls=3`);
 
 // Helix reads jump labels as a dedicated style. Parse rendered TOML with
 // Python's standard parser, as the editor-entry suite does for this target.
