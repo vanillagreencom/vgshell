@@ -7,7 +7,10 @@ import qs.Unit
 // Theme reaches a component: a published value is the theme's, a theme
 // change re-evaluates a binding without rebuilding the item, the revision
 // rises after the groups hold the new theme, and a refused document changes
-// nothing. The pixel rows read colours back from a rendered item.
+// nothing. The user's Appearance values, Theme's one input, resolve over the
+// theme before the revision rises, an equal text resolves nothing again,
+// and no text draws the theme alone. The pixel rows read colours back from
+// a rendered item.
 Item {
     id: root
     width: 200
@@ -17,16 +20,20 @@ Item {
     Button { id: button; text: "Go"; y: 40 }
     property int revisionsSeen: 0
     property string accentAtRevision: ""
+    property int radiusAtRevision: -1
     Connections {
         target: Theme
-        function onRevisionChanged() { root.revisionsSeen += 1; root.accentAtRevision = Theme.color.accent; }
+        function onRevisionChanged() { root.revisionsSeen += 1; root.accentAtRevision = Theme.color.accent; root.radiusAtRevision = Theme.popover.radius; }
     }
 
     TestCase {
         name: "theme"
         when: windowShown
 
-        function init() { UnitTheme.reset(); }
+        function init() {
+            Theme.appearanceInput = "";
+            UnitTheme.reset();
+        }
 
         function test_default_values() {
             compare(Theme.name, "vgs");
@@ -69,6 +76,33 @@ Item {
             compare(UnitTheme.override({ palette: { acent: "#000000" } }), "theme: refused: token=palette.acent reason=unknown-token");
             compare(Theme.color.accent, "#ff123456");
             compare(Theme.revision, revision);
+        }
+
+        function test_appearance_values_resolve_before_the_revision() {
+            const revision = Theme.revision;
+            const text = JSON.stringify({ windowRadius: 12 });
+            Theme.appearanceInput = text;
+            compare(Theme.revision, revision + 1);
+            compare(Theme.popover.radius, 9, "a flyout takes three quarters of the corner radius");
+            compare(root.radiusAtRevision, 9, "the groups hold the values before the revision rises");
+            compare(Theme.appearanceState.input, text);
+            compare(Theme.appearanceState.sources.windowRadius, "user");
+            verify(Object.isFrozen(Theme.appearanceState));
+            Theme.appearanceInput = JSON.stringify({ windowRadius: 12 });
+            compare(Theme.revision, revision + 1, "an equal text resolves nothing again");
+            compare(UnitTheme.override({ palette: { accent: "#123456" } }), "ok");
+            compare(Theme.popover.radius, 9, "a theme change keeps the user's values");
+            Theme.appearanceInput = "";
+            compare(Theme.popover.radius, 0, "no text draws the theme alone");
+            compare(Theme.appearanceState.sources.windowRadius, "theme");
+        }
+
+        // expected-log: appearance: refused: windowRadius=99 -- the refused member the test plants is logged
+        function test_a_refused_value_is_logged_and_set_by_theme() {
+            Theme.appearanceInput = JSON.stringify({ windowRadius: 99, controlRadius: 4 });
+            compare(Theme.popover.radius, 0);
+            compare(Theme.button.radius, 4, "the other member still applies");
+            compare(Theme.appearanceState.sources.windowRadius, "theme");
         }
 
         function test_pixels_follow_the_theme() {
