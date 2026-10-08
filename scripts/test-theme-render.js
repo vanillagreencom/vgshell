@@ -873,6 +873,89 @@ try {
 }
 console.log(`test-theme-render: selection packages=${selectionPackages.length} roles=${SELECTION_ROLES.length} controls=${selectionControls}`);
 
+// Gemini 0.62.0 createCustomTheme reads ui.focus and DarkGray. Its nested
+// border fields are ignored: packages/cli/src/ui/themes/theme.ts at v0.62.0.
+const geminiDir = path.join(themesDir, "targets", "gemini");
+const geminiTemplate = fs.readFileSync(path.join(geminiDir, "gemini.json"), "utf8");
+const geminiTarget = selectionRender.acceptTarget(logic, "gemini",
+    fs.readFileSync(path.join(geminiDir, "target.json"), "utf8"));
+assert.equal(geminiTarget.ok, true);
+
+function geminiShortfalls(document) {
+    const shortfalls = [];
+    const valueAt = role => role.split(".").reduce((value, key) => value?.[key], document);
+    for (const role of ["ui.focus", "DarkGray"]) {
+        if (typeof valueAt(role) !== "string")
+            shortfalls.push({ kind: "gemini-key", role });
+    }
+    if (Object.hasOwn(document, "border")) shortfalls.push({ kind: "gemini-key", role: "border" });
+    const pairs = [
+        ...Object.keys(document.text).map(role => [`text.${role}`, "background.primary", 4.5]),
+        ...Object.keys(document.status).map(role => [`status.${role}`, "background.primary", 4.5]),
+        ["ui.comment", "background.primary", 4.5],
+        ["ui.symbol", "background.primary", 4.5],
+        ...document.ui.gradient.map((_, index) => [`ui.gradient.${index}`, "background.primary", 4.5]),
+        ["text.primary", "background.diff.added", 4.5],
+        ["text.primary", "background.diff.removed", 4.5],
+        ["ui.focus", "background.primary", 4.5],
+        ["DarkGray", "background.primary", 3]
+    ];
+    for (const [role, surface, floor] of pairs) {
+        const foreground = logic.parseColor(valueAt(role));
+        const background = logic.parseColor(valueAt(surface));
+        if (foreground === null || background === null) {
+            shortfalls.push({ kind: "gemini-color", role, surface });
+            continue;
+        }
+        const ratio = logic.contrastRatio(foreground, background);
+        if (ratio < floor) shortfalls.push({ kind: "gemini-contrast", role, surface, ratio, floor });
+    }
+    return shortfalls;
+}
+
+function renderGemini(pkg, shipped, template) {
+    const rendered = selectionRender.renderTarget(logic, TOKENS, geminiTarget.target,
+        new Map([["gemini.json", template]]), {
+            values: pkg.values,
+            slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal,
+            curated: new Map(),
+            installed: !shipped
+        });
+    assert.equal(rendered.ok, true);
+    return JSON.parse(rendered.files.find(file => file.destination === "gemini.json").bytes);
+}
+
+for (const { pkg, shipped } of selectionPackages)
+    assert.deepEqual(geminiShortfalls(renderGemini(pkg, shipped, geminiTemplate)), [], pkg.name);
+
+const geminiScratch = fs.mkdtempSync(path.join(os.tmpdir(), "gemini-control-"));
+const geminiControls = [
+    ["focus-key", document => {
+        document.border = { focused: document.ui.focus };
+        delete document.ui.focus;
+    }, "gemini-key", "ui.focus"],
+    ["border-key", document => {
+        document.border = { default: document.DarkGray };
+        delete document.DarkGray;
+    }, "gemini-key", "DarkGray"],
+    ["text-contrast", document => { document.ui.symbol = document.background.primary; }, "gemini-contrast", "ui.symbol"],
+    ["focus-contrast", document => { document.ui.focus = document.background.primary; }, "gemini-contrast", "ui.focus"],
+    ["boundary-contrast", document => { document.DarkGray = document.background.primary; }, "gemini-contrast", "DarkGray"]
+];
+try {
+    for (const [name, mutate, kind, role] of geminiControls) {
+        const document = JSON.parse(geminiTemplate);
+        mutate(document);
+        const file = path.join(geminiScratch, `${name}.json`);
+        fs.writeFileSync(file, JSON.stringify(document), { flag: "wx" });
+        const failures = geminiShortfalls(renderGemini(selectionDefaults, true, fs.readFileSync(file, "utf8")));
+        assert.ok(failures.some(failure => failure.kind === kind && failure.role === role));
+    }
+} finally {
+    fs.rmSync(geminiScratch, { recursive: true, force: true });
+}
+console.log(`test-theme-render: gemini packages=${selectionPackages.length} controls=${geminiControls.length}`);
+
 // Helix reads jump labels as a dedicated style. Parse rendered TOML with
 // Python's standard parser, as the editor-entry suite does for this target.
 const helixDir = path.join(themesDir, "targets", "helix");

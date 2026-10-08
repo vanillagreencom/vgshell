@@ -4,29 +4,27 @@
   "background": {
     "primary": "#@{color.background}",
     "diff": {
-      "added": "#@{color.successSubtle}",
-      "removed": "#@{color.dangerSubtle}"
+      "added": "#@{mix(mix({color.background}, {color.success}, 0.12), contrast({color.text}), 0.15)}",
+      "removed": "#@{mix(mix({color.background}, {color.danger}, 0.12), contrast({color.text}), 0.15)}"
     }
   },
   "text": {
-    "primary": "#@{color.text}",
+    "primary": "#@{color.textHeading}",
     "secondary": "#@{color.textMuted}",
     "link": "#@{color.info}",
     "accent": "#@{color.accent}",
-    "response": "#@{color.text}"
+    "response": "#@{color.textHeading}"
   },
-  "border": {
-    "default": "#@{color.border}",
-    "focused": "#@{color.accent}"
-  },
+  "DarkGray": "#@{mix({color.borderControl}, contrast({color.background}), 0.15)}",
   "status": {
     "success": "#@{color.success}",
     "warning": "#@{color.warning}",
     "error": "#@{color.danger}"
   },
   "ui": {
+    "focus": "#@{mix({color.focus}, {color.textHeading}, 0.5)}",
     "comment": "#@{color.textFaint}",
-    "symbol": "#@{terminal.color6}",
-    "gradient": ["#@{color.accent}", "#@{terminal.color5}", "#@{terminal.color4}"]
+    "symbol": "#@{mix({color.info}, {color.text}, 0.35)}",
+    "gradient": ["#@{color.accent}", "#@{mix({color.danger}, {color.text}, 0.25)}", "#@{mix({color.info}, {color.text}, 0.25)}"]
   }
 }
