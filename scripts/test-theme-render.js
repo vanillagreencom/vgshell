@@ -1689,6 +1689,8 @@ const EDITOR_PAIRS = [
     ["editor.foreground", "editor.background"],
     ["sideBar.foreground", "sideBar.background"],
     ["statusBar.foreground", "statusBar.background"],
+    ["statusBar.noFolderForeground", "statusBar.noFolderBackground"],
+    ["statusBar.debuggingForeground", "statusBar.debuggingBackground"],
     ["activityBar.foreground", "activityBar.background"],
     ["tab.activeForeground", "tab.activeBackground"],
     ["panelTitle.activeForeground", "panel.background"],
@@ -1743,15 +1745,20 @@ function verifyEditorStyles(render, template) {
 const editorPackages = verifyEditorStyles(require(rendererFile));
 const vscodeTemplate = fs.readFileSync(path.join(repo, "themes/targets/vscode/vscode.json"), "utf8");
 const editorControls = [
-    ["diff without its insertion fill", '    "diffEditor.insertedTextBackground": "#@{color.successSubtle}",\n', "", "coverage"],
-    ["status bar text on its own fill", '"statusBar.foreground": "#@{color.text}"', '"statusBar.foreground": "#@{color.surface}"', "contrast"],
-    ["terminal red as the background", '"terminal.ansiRed": "#@{terminal.color1}"', '"terminal.ansiRed": "#@{color.background}"', "contrast"],
-    ["a dark theme for every package", '"type": "@{scheme.mode}"', '"type": "dark"', "mode"]
+    ["diff without its insertion fill", '    "diffEditor.insertedTextBackground": "#@{color.successSubtle}",\n', "", "coverage", "diffEditor.insertedTextBackground"],
+    ["status bar text on its own fill", '"statusBar.foreground": "#@{color.text}"', '"statusBar.foreground": "#@{color.surface}"', "contrast", "statusBar.foreground"],
+    ["empty workspace without its status bar fill", '    "statusBar.noFolderBackground": "#@{color.surface}",\n', "", "coverage", "statusBar.noFolderBackground"],
+    ["empty workspace status bar text on its own fill", '"statusBar.noFolderForeground": "#@{color.text}"', '"statusBar.noFolderForeground": "#@{color.surface}"', "contrast", "statusBar.noFolderForeground"],
+    ["debugger without its status bar fill", '    "statusBar.debuggingBackground": "#@{color.surface}",\n', "", "coverage", "statusBar.debuggingBackground"],
+    ["debugger status bar text on its own fill", '"statusBar.debuggingForeground": "#@{color.text}"', '"statusBar.debuggingForeground": "#@{color.surface}"', "contrast", "statusBar.debuggingForeground"],
+    ["terminal red as the background", '"terminal.ansiRed": "#@{terminal.color1}"', '"terminal.ansiRed": "#@{color.background}"', "contrast", "terminal.ansiRed"],
+    ["a dark theme for every package", '"type": "@{scheme.mode}"', '"type": "dark"', "mode", "type"]
 ];
-for (const [label, needle, replacement, kind] of editorControls) {
+for (const [label, needle, replacement, kind, key] of editorControls) {
     assert.equal(vscodeTemplate.split(needle).length, 2, label);
     assert.throws(() => verifyEditorStyles(require(rendererFile), vscodeTemplate.replace(needle, replacement)),
-        error => error instanceof assert.AssertionError && Array.isArray(error.actual) && error.actual.some(shortfall => shortfall.kind === kind), label);
+        error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
+            error.actual.some(shortfall => shortfall.kind === kind && shortfall.key === key), label);
 }
 console.log(`test-theme-render: editor packages=${editorPackages} pairs=${EDITOR_PAIRS.length} controls=${editorControls.length}`);
 
