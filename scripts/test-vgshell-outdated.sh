@@ -178,6 +178,8 @@ slow_untimed_control() {
 }
 stop_signal_row() { # SIGNAL WANT_EXIT
   local sig="$1" want="$2" cfg="$tmp/cfg-stop-$1"
+  # A shell cannot trap a signal ignored on entry, as HUP is under nohup.
+  local -a base_env=("${base_env[@]:0:2}" "--default-signal=$sig" "${base_env[@]:2}")
   job_checkout "$cfg" stop
   stop_git slow
   stop_run "$sig" plugin outdated --json
@@ -188,6 +190,7 @@ stop_signal_row() { # SIGNAL WANT_EXIT
 }
 stop_trapless_control() {
   local cfg="$tmp/cfg-stop-trapless"
+  local -a base_env=("${base_env[@]:0:2}" --default-signal=TERM "${base_env[@]:2}")
   job_checkout "$cfg" stop
   stop_git slow
   tree_control trapless bin/vgshell 'trap_stops unattended_git_stop' ':'
@@ -197,6 +200,7 @@ stop_trapless_control() {
 }
 stop_stepless_control() {
   local cfg="$tmp/cfg-stop-stepless"
+  local -a base_env=("${base_env[@]:0:2}" --default-signal=TERM "${base_env[@]:2}")
   job_checkout "$cfg" stop
   stop_git slow
   tree_control stepless bin/vgshell 'trap_stops step_stop' ':'
@@ -206,6 +210,7 @@ stop_stepless_control() {
 }
 stop_deaf10_row() {
   local cfg="$tmp/cfg-stop-deaf10"
+  local -a base_env=("${base_env[@]:0:2}" --default-signal=TERM "${base_env[@]:2}")
   job_checkout "$cfg" stop
   stop_git deaf 10
   stop_run TERM plugin outdated --json
@@ -214,6 +219,7 @@ stop_deaf10_row() {
 }
 stop_graceless_control() {
   local cfg="$tmp/cfg-stop-graceless"
+  local -a base_env=("${base_env[@]:0:2}" --default-signal=TERM "${base_env[@]:2}")
   job_checkout "$cfg" stop
   stop_git deaf 10
   tree_control graceless bin/vgshell '--kill-after="$outdated_kill_grace" ' ''
