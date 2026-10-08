@@ -1756,9 +1756,21 @@ function verifyAppStyles(render, changedTemplates = {}) {
             return [app, result.files[0].bytes.toString("utf8")];
         }));
         assert.equal(JSON.stringify({ values: pkg.values, slots: pkg.terminal }), original, "render leaves package data unchanged");
+        const faintSettings = [...rendered.ghostty.matchAll(/^\s*faint-opacity\s*=\s*([^\r\n]+)\s*$/gm)];
+        const faintOpacity = faintSettings.length === 1 ? Number(faintSettings[0][1]) : NaN;
+        assert.deepEqual(faintOpacity === 0.8 ? [] : [{ kind: "ghostty-faint-opacity", theme: name,
+            settings: faintSettings.length, opacity: faintOpacity, expected: 0.8 }], []);
+        const foreground = /^foreground = (#[0-9a-f]{6})$/m.exec(rendered.ghostty)[1];
+        assert.equal(foreground, pkg.values.palette.foreground.slice(0, 7), name + "/normal foreground");
+        for (const slot of logic.terminalSlotNames()) {
+            const index = slot.slice("color".length);
+            assert.equal(new RegExp(`^palette = ${index}=(#[0-9a-f]{6})$`, "m").exec(rendered.ghostty)[1],
+                pkg.terminal[slot].slice(0, 7), name + "/normal " + slot);
+        }
         assert.equal(/^palette = 8=(#[0-9a-f]{6})$/m.exec(rendered.ghostty)[1],
             pkg.terminal.color8.slice(0, 7), name + "/terminal preserves its original brightblack");
         const bg = /^background = (#[0-9a-f]{6})$/m.exec(rendered.ghostty)[1];
+        assert.equal(bg, pkg.values.palette.background.slice(0, 7), name + "/normal background");
         assert.equal(/^vim.o.background = "(dark|light)"$/m.exec(rendered.neovim)[1], pkg.values.scheme.mode);
         for (const group of ["Normal", "NormalNC", "SignColumn"]) {
             const highlight = rendered.neovim.split("\n").find(line => line.trimStart().startsWith('hl("' + group + '",'));
@@ -1799,7 +1811,8 @@ function verifyAppStyles(render, changedTemplates = {}) {
             assert.equal(line.includes("#["), false, option + "/inline style overrides managed colours");
         }
         if (name === "horizon-light") assert.equal(session.fg, "#ffffff");
-        metrics.push({ name, background: bg, session, active, inactive, ratios, separation, preserved: inactive.fg === old });
+        metrics.push({ name, background: bg, session, active, inactive, ratios, separation, preserved: inactive.fg === old,
+            ghostty: { foreground, faintOpacity } });
     }
     return metrics;
 }
@@ -2239,7 +2252,79 @@ for (const [label, needle, replacement, kind, key, surface] of editorControls) {
 }
 console.log(`test-theme-render: editor packages=${editorPackages} pairs=${EDITOR_PAIRS.length} change-keys=${EDITOR_CHANGE_KEYS.length} controls=${editorControls.length}`);
 
-verifyAppStyles(require(rendererFile));
+const appStyleMetrics = verifyAppStyles(require(rendererFile));
+
+// This is an ideal full-coverage linear-light model, not a pixel measurement.
+// Ghostty v1.3.1 src/renderer/generic.zig uses ceil(opacity * 255) for SGR2;
+// ordinary foregrounds retain alpha 255. Its glyph coverage shader is outside
+// this model. Native Ghostty pictures establish the displayed contrast.
+function ghosttyFaintModel(foreground, background, opacity) {
+    const text = logic.parseColor(foreground), cell = logic.parseColor(background);
+    assert.notEqual(text, null);
+    assert.notEqual(cell, null);
+    assert.equal(text.a, 1);
+    assert.equal(cell.a, 1);
+    const alpha = Math.ceil(opacity * 255) / 255;
+    const light = alpha * logic.luminance(text) + (1 - alpha) * logic.luminance(cell);
+    // A grey with this luminance gives the same WCAG ratio as the modelled
+    // linear RGB blend. Use the production contrast judge on typed colours.
+    const grey = light <= 0.0031308 ? 12.92 * light : 1.055 * light ** (1 / 2.4) - 0.055;
+    const ratio = logic.contrastRatio({ r: grey, g: grey, b: grey, a: 1 }, cell);
+    assert.ok(Number.isFinite(ratio) && ratio >= 1);
+    return ratio;
+}
+const ghosttyFaintModels = [];
+for (const metric of appStyleMetrics) {
+    const pkg = selectionPackages.find(entry => entry.pkg.name === metric.name).pkg;
+    const claude = claudeResult.metrics.find(entry => entry.theme === metric.name);
+    const backgrounds = [metric.background, pkg.values.color.surfaceSunken.slice(0, 7),
+        ...claude.pairs.flatMap(pair => [pair.normal, pair.dimmed])];
+    const foregrounds = [metric.ghostty.foreground, pkg.values.color.textMuted.slice(0, 7),
+        pkg.values.color.textFaint.slice(0, 7), pkg.values.scheme.mode === "dark" ? "#f8f8f2" : "#333333",
+        ...logic.terminalSlotNames().map(slot => pkg.terminal[slot].slice(0, 7))];
+    for (const foreground of foregrounds) {
+        for (const background of backgrounds) {
+            const before = ghosttyFaintModel(foreground, background, 0.5);
+            const after = ghosttyFaintModel(foreground, background, metric.ghostty.faintOpacity);
+            const normal = logic.contrastRatio(logic.parseColor(foreground), logic.parseColor(background));
+            assert.ok(Number.isFinite(normal) && normal >= 1);
+            assert.ok(after + 1e-12 >= before);
+            if (normal > 1 + 1e-12) {
+                assert.ok(after > before);
+                assert.ok(after < normal);
+            }
+            ghosttyFaintModels.push({ theme: metric.name, mode: pkg.values.scheme.mode,
+                foreground, background, before, after, normal });
+        }
+    }
+}
+assert.ok(ghosttyFaintModels.some(metric => metric.mode === "dark"));
+assert.ok(ghosttyFaintModels.some(metric => metric.mode === "light"));
+assert.throws(() => ghosttyFaintModel("invalid", "#ffffff", 0.8),
+    error => error instanceof assert.AssertionError && error.actual === null);
+const ghosttyTemplate = fs.readFileSync(path.join(themesDir, "targets", "ghostty", "ghostty.conf"), "utf8");
+const ghosttyScratch = fs.mkdtempSync(path.join(os.tmpdir(), "ghostty-faint-control-"));
+try {
+    for (const [label, needle, replacement] of [
+        ["default", "faint-opacity = 0.8\n", "faint-opacity = 0.5\n"],
+        ["absent", "faint-opacity = 0.8\n", ""],
+        ["normal-foreground", "\nforeground = #@{palette.foreground}\n", "\nforeground = #@{palette.background}\n"]
+    ]) {
+        assert.equal(ghosttyTemplate.split(needle).length, 2);
+        const mutant = ghosttyTemplate.replace(needle, replacement);
+        assert.notEqual(mutant, ghosttyTemplate);
+        const file = path.join(ghosttyScratch, `${label}.conf`);
+        fs.writeFileSync(file, mutant, { flag: "wx" });
+        assert.throws(() => verifyAppStyles(require(rendererFile), { ghostty: fs.readFileSync(file, "utf8") }),
+            error => error instanceof assert.AssertionError && (label === "normal-foreground" ?
+                error.actual === selectionDefaults.values.palette.background.slice(0, 7) &&
+                    error.expected === selectionDefaults.values.palette.foreground.slice(0, 7) :
+                Array.isArray(error.actual) && error.actual.some(failure => failure.kind === "ghostty-faint-opacity")));
+    }
+} finally {
+    fs.rmSync(ghosttyScratch, { recursive: true, force: true });
+}
+console.log(`test-theme-render: ghostty-faint packages=${appStyleMetrics.length} opacity=0.8 controls=default,absent,normal-foreground,invalid-color model=full-coverage-linear comparisons=${ghosttyFaintModels.length} normal=source-unchanged`);
 const tmuxTemplate = fs.readFileSync(path.join(repo, "themes/targets/tmux/tmux.conf"), "utf8");
 const styleControls = [
     ["old session block text", 'fg=#@{color.onInfo}', 'fg=#@{color.text}'],
