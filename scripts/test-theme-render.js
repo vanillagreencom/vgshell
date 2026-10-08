@@ -1054,6 +1054,115 @@ try {
 }
 console.log("test-theme-render: tmux-session control=palette-info rejected=akane/session");
 
+// Alacritty's search, hint labels and footer have explicit colour pairs.
+// Parse the rendered TOML, including catalog packages that use the same
+// accent and primary foreground, before judging contrast and role identity.
+const alacrittyDir = path.join(themesDir, "targets", "alacritty");
+const alacrittyTemplate = fs.readFileSync(path.join(alacrittyDir, "alacritty.toml"), "utf8");
+const alacrittyTarget = selectionRender.acceptTarget(logic, "alacritty",
+    fs.readFileSync(path.join(alacrittyDir, "target.json"), "utf8"));
+assert.equal(alacrittyTarget.ok, true);
+const ALACRITTY_ROLES = ["search.matches", "search.focused_match", "hints.start", "hints.end", "footer_bar"];
+
+function verifyAlacrittyColors(template, packages = selectionPackages) {
+    const texts = packages.map(({ pkg, shipped }) => {
+        const rendered = selectionRender.renderTarget(logic, TOKENS, alacrittyTarget.target,
+            new Map([["alacritty.toml", template]]), {
+                values: pkg.values,
+                slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal,
+                curated: new Map(), installed: !shipped
+            });
+        assert.equal(rendered.ok, true);
+        const output = rendered.files.find(file => file.destination === "alacritty.toml");
+        assert.notEqual(output, undefined);
+        return output.bytes.toString("utf8");
+    });
+    const parsed = spawnSync("python3", ["-c",
+        "import json, sys, tomllib; json.dump([tomllib.loads(text) for text in json.load(sys.stdin)], sys.stdout)"], {
+        input: JSON.stringify(texts), encoding: "utf8",
+        env: { PATH: process.env.PATH, LANG: "C.UTF-8", VGS_TEST_RUN: "1" }
+    });
+    assert.ifError(parsed.error);
+    assert.equal(parsed.status, 0, parsed.stderr);
+    const documents = JSON.parse(parsed.stdout);
+    assert.equal(documents.length, packages.length);
+    const shortfalls = [];
+    for (const [index, document] of documents.entries()) {
+        const pkg = packages[index].pkg;
+        const colors = document.colors;
+        const base = logic.parseColor(colors.primary.background);
+        assert.notEqual(base, null);
+        const pairs = new Map();
+        for (const role of ALACRITTY_ROLES) {
+            const pair = role.split(".").reduce((value, key) => value?.[key], colors);
+            assert.equal(logic.isPlainObject(pair), true, `${pkg.name}/${role}`);
+            const foreground = logic.parseColor(pair.foreground);
+            const background = logic.parseColor(pair.background);
+            assert.notEqual(foreground, null, `${pkg.name}/${role}`);
+            assert.notEqual(background, null, `${pkg.name}/${role}`);
+            const textRatio = logic.contrastRatio(foreground, background);
+            const boundaryRatio = logic.contrastRatio(background, base);
+            if (textRatio < 4.5) shortfalls.push({ kind: "alacritty-text", package: pkg.name, role, ratio: textRatio, floor: 4.5 });
+            if (boundaryRatio < 3) shortfalls.push({ kind: "alacritty-boundary", package: pkg.name, role, ratio: boundaryRatio, floor: 3 });
+            pairs.set(role, pair);
+        }
+        if (pairs.get("search.matches").background === pairs.get("search.focused_match").background) {
+            shortfalls.push({ kind: "alacritty-focused-distinct", package: pkg.name, role: "search.focused_match" });
+        }
+        for (const role of ["hints.start", "hints.end"]) {
+            const pair = pairs.get(role);
+            if (pair.foreground === colors.primary.foreground) {
+                shortfalls.push({ kind: "alacritty-hint-distinct", package: pkg.name, role });
+            }
+        }
+    }
+    assert.deepEqual(shortfalls, []);
+    return documents;
+}
+
+const alacrittyDocuments = verifyAlacrittyColors(alacrittyTemplate);
+assert.ok(selectionPackages.some(({ pkg }) => pkg.values.scheme.mode === "dark"));
+assert.ok(selectionPackages.some(({ pkg }) => pkg.values.scheme.mode === "light"));
+assert.ok(selectionPackages.some(({ pkg }) => pkg.name === "vice-city"));
+const alacrittyScratch = fs.mkdtempSync(path.join(os.tmpdir(), "alacritty-colors-control-"));
+let alacrittyControls = 0;
+try {
+    const sectionPair = (template, role, foreground, background) => {
+        const expression = new RegExp(`(\\[colors\\.${role.replaceAll(".", "\\.")}\\]\\n)foreground = "[^"\\n]+"\\nbackground = "[^"\\n]+"`);
+        assert.equal([...template.matchAll(new RegExp(expression.source, "g"))].length, 1);
+        const mutant = template.replace(expression, `$1foreground = "${foreground}"\nbackground = "${background}"`);
+        assert.notEqual(mutant, template);
+        return mutant;
+    };
+    const controls = ALACRITTY_ROLES.flatMap(role => {
+        const fill = role === "search.focused_match" || role === "hints.start" ? "#@{color.accent}" : "#@{color.textMuted}";
+        return [
+            { kind: "alacritty-text", role, template: sectionPair(alacrittyTemplate, role, fill, fill) },
+            { kind: "alacritty-boundary", role, template: sectionPair(alacrittyTemplate, role,
+                "#@{color.text}", "#@{color.background}") }
+        ];
+    });
+    controls.push({ kind: "alacritty-focused-distinct", role: "search.focused_match",
+        template: sectionPair(alacrittyTemplate, "search.focused_match", "#@{color.background}", "#@{color.textMuted}") });
+    // Restore ordinary text colours: contrast still passes, but the
+    // hint foreground loses its distinction from the labelled text.
+    for (const role of ["hints.start", "hints.end"]) {
+        controls.push({ kind: "alacritty-hint-distinct", role,
+            template: sectionPair(alacrittyTemplate, role, "#@{palette.foreground}", "#@{color.background}") });
+    }
+    for (const [index, control] of controls.entries()) {
+        const file = path.join(alacrittyScratch, `${index}.toml`);
+        fs.writeFileSync(file, control.template, { flag: "wx" });
+        assert.throws(() => verifyAlacrittyColors(fs.readFileSync(file, "utf8")),
+            error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
+                error.actual.some(shortfall => shortfall.kind === control.kind && shortfall.role === control.role));
+        alacrittyControls++;
+    }
+} finally {
+    fs.rmSync(alacrittyScratch, { recursive: true, force: true });
+}
+console.log(`test-theme-render: alacritty packages=${alacrittyDocuments.length} roles=${ALACRITTY_ROLES.length} text-floor=4.5 boundary-floor=3 controls=${alacrittyControls}`);
+
 // Each control removes one rule's behaviour from a copy of the renderer and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [

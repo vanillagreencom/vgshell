@@ -12,6 +12,26 @@ cursor = "#@{palette.foreground}"
 text = "#@{palette.foreground}"
 background = "#@{color.borderStrong}"
 
+[colors.search.matches]
+foreground = "#@{color.background}"
+background = "#@{color.textMuted}"
+
+[colors.search.focused_match]
+foreground = "#@{color.onAccent}"
+background = "#@{color.accent}"
+
+[colors.hints.start]
+foreground = "#@{color.onAccent}"
+background = "#@{color.accent}"
+
+[colors.hints.end]
+foreground = "#@{color.background}"
+background = "#@{color.textMuted}"
+
+[colors.footer_bar]
+foreground = "#@{color.background}"
+background = "#@{color.textMuted}"
+
 [colors.normal]
 black = "#@{terminal.color0}"
 red = "#@{terminal.color1}"
