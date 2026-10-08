@@ -251,13 +251,7 @@ Singleton {
             instance.bar = barRow.instance;
             instance.moduleName = id;
             instance.settings = instance.shell.settings;
-            instance.frame = {
-                describe: () => root.frameFacts(id),
-                hide: () => root.setPlaced(id, false),
-                dragStart: point => root.dragStart(hostKey, id, locator, instance, point),
-                dragMove: point => root.dragMove(hostKey, point),
-                dragEnd: point => root.dragEnd(hostKey, point)
-            };
+            instance.frame = widgetFrame(hostKey, id, locator, instance);
         } catch (e) {
             const error = "bar-widget not built: " + e.message;
             console.error("plugins: " + id + " " + error);
@@ -268,6 +262,15 @@ Singleton {
         return instance;
     }
 
+    function widgetFrame(hostKey, id, locator, item) {
+        return {
+            describe: () => root.frameFacts(id, item),
+            hide: () => root.setPlaced(id, false),
+            dragStart: point => root.dragStart(hostKey, id, locator, item, point),
+            dragMove: point => root.dragMove(hostKey, point),
+            dragEnd: point => root.dragEnd(hostKey, point)
+        };
+    }
     // A drag takes the keyboard through the window-free key capture and
     // leaves the bar's keyboard focus as it is: Hyprland v0.56.2 ends a held
     // press when a layer surface's keyboard interactivity changes.
@@ -276,8 +279,10 @@ Singleton {
     function dragStart(hostKey, id, locator, item, point) {
         cancelBarDrag();
         const row = rowFor(hostKey, item);
-        const ctx = { onDispose: cleanup => row.lifetime.register(cleanup) };
-        const bar = mounts[hostKey].row.instance;
+        const mount = mounts[hostKey];
+        const owner = row.origin === "plugin" ? mount.row : row;
+        const ctx = { onDispose: cleanup => owner.lifetime.register(cleanup) };
+        const bar = mount.row.instance;
         const origin = item.mapToItem(bar, 0, 0);
         const gap = gapComponent.createObject(bar, { width: item.width, height: item.height });
         barDrag = { hostKey: hostKey, id: id, item: item, gap: gap,
@@ -360,16 +365,20 @@ Singleton {
         if (barDrag !== null && barDrag.hostKey === hostKey) cancelBarDrag();
     }
 
-    // What the widget frame's Hide dialog says about plugin `id`, read when it
-    // opens: { name, keys, stops }, `keys` the keys in effect of its bound
+    // What the widget frame's Hide dialog says about entry `id`, read when it
+    // opens: { name, keys, stops, builtin }, `keys` the keys in effect of its bound
     // shortcuts and `stops` true when hiding the widget also turns the
-    // plugin off (PluginLogic.enablementRule "widget").
-    function frameFacts(id) {
-        const m = Registry.manifests[id];
+    // plugin off (PluginLogic.enablementRule "widget"). A builtin has no
+    // independent settings or enablement; its wrapper supplies its label.
+    function frameFacts(id, item) {
+        const owner = widgetOwner(id);
+        const m = owner === null ? Registry.manifests[id] : owner;
         const keys = [];
-        for (const row of Logic.bindRows(Config.effective, m, Capabilities.shortcutDescriptions))
-            for (const key of row.keys) keys.push(key);
-        return { name: m.name, keys: keys, stops: Logic.enablementRule(m) === "widget" };
+        if (owner === null)
+            for (const row of Logic.bindRows(Config.effective, m, Capabilities.shortcutDescriptions))
+                for (const key of row.keys) keys.push(key);
+        return { name: owner === null ? m.name : item.Accessible.name, keys: keys,
+            stops: owner === null && Logic.enablementRule(m) === "widget", builtin: owner !== null };
     }
 
     // Destroy an instance the core built. A bar's mounted widgets go first,
@@ -503,6 +512,10 @@ Singleton {
                 if (entry.origin === "plugin") {
                     const registered = (built[hostKey] || []).find(row => row.id === spec.id && row.origin === "plugin");
                     entry.widget = registered ? registered.instance : null;
+                    if (entry.widget !== null) {
+                        const item = entry.widget;
+                        item.frame = widgetFrame(hostKey, spec.id, entry.locator, item);
+                    }
                 }
                 entries.push(entry);
             }
@@ -521,8 +534,9 @@ Singleton {
         return item.visible && item.width > 0 && item.height > 0;
     }
 
-    // Passive section containers let the core keep position and width
-    // bound to the same participating items, including registered builtins.
+    // Passive containers keep the centering binding live while BarWidget
+    // animates x. Row transition writes remove that y binding, as the
+    // cold-transition control in smoke/rows/bar.sh observes.
     function positionBar(hostKey, drag) {
         const mount = mounts[hostKey];
         for (const section of Logic.SECTIONS) {
@@ -694,7 +708,7 @@ Singleton {
         return hidden.length > 0 ? "ok hidden=" + hidden.join(",") : "ok";
     }
 
-    // Show or hide plugin `id`'s widget in the bar (PluginLogic.withPlaced).
+    // Show or hide entry `id` in the bar (PluginLogic.withPlaced).
     // disabledPlugins is never written: a plugin with another kind stays
     // enabled and keeps its service and other kinds built, and a plugin
     // whose only kind is bar-widget reads disabled once unplaced. The reply is one keyed line the CLI prints as is: `ok` (the file
@@ -702,19 +716,43 @@ Singleton {
     // reason=no-bar-widget|disabled` from PluginLogic.placedRefusal, or a
     // refusal naming why the user file was not written.
     function setPlaced(id, placed) {
-        if (!Registry.has(id)) return "unknown: " + id;
-        const m = Registry.manifests[id];
-        const refusal = Logic.placedRefusal(Config.effective, m, Registry.defaultBarId);
+        const owner = widgetOwner(id);
+        if (owner === null && !Registry.has(id)) return "unknown: " + id;
+        const m = owner === null ? Registry.manifests[id] : owner;
+        const refusal = Logic.placedRefusal(Config.effective, m, Registry.defaultBarId, widgetBuiltinNames(), id);
         if (refusal !== "") return refusal;
-        return Config.writeUser(Logic.withPlaced(Config.user, m, placed, Config.effective));
+        return Config.writeUser(Logic.withPlaced(Config.user, m, placed, Config.effective, id, Config.shipped));
+    }
+
+    function widgetBuiltinNames() {
+        const active = Object.values(mounts).find(mount => mount.row.id === Registry.activeBarId);
+        return active === undefined ? [] : active.row.instance.builtinNames;
+    }
+
+    function widgetBuiltinRows(id) {
+        const active = Object.values(mounts).find(mount => mount.row.id === id && id === Registry.activeBarId);
+        if (active === undefined) return [];
+        const bar = active.row.instance;
+        if (!Array.isArray(bar.builtinNames)) return [];
+        return bar.builtinNames.map(name => ({
+            id: id + "/" + name,
+            name: bar.builtinLabels[name],
+            placed: Logic.layoutPositionOf(Config.effective, id + "/" + name, null) !== null
+        }));
+    }
+
+    function widgetOwner(id) {
+        return Logic.builtinOwner(Config.effective, Registry.manifests, Registry.defaultBarId, widgetBuiltinNames(), id);
     }
 
     function moveWidget(id, section, index, from) {
-        if (!Registry.has(id)) return "unknown: " + id;
-        const m = Registry.manifests[id];
-        const refusal = Logic.moveRefusal(Config.effective, m, section, index, Registry.defaultBarId);
+        const names = widgetBuiltinNames();
+        const owner = widgetOwner(id);
+        if (owner === null && !Registry.has(id)) return "unknown: " + id;
+        const m = owner === null ? Registry.manifests[id] : owner;
+        const refusal = Logic.moveRefusal(Config.effective, m, section, index, Registry.defaultBarId, names, id);
         if (refusal !== "") return refusal;
-        return Config.writeUser(Logic.withMoved(Config.user, m, from || null, section, index, Config.effective));
+        return Config.writeUser(Logic.withMoved(Config.user, m, from || null, section, index, Config.effective, id));
     }
 
     // Write one setting of one plugin into each configuration entry in

@@ -33,6 +33,16 @@ if [[ $bars == "$monitors" && $monitors != 0 && $monitors != -1 ]]; then ok "one
 expect_widgets "every bar mounted the placed plugin widget" '["acme.tick"]'
 expect_builtins "every bar registered its built-in workspaces and clock" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
 
+# Preserve cold geometry before disable, placement or bar reconstruction.
+bar_initial_key="$(bar_key)"
+for bar_initial_id in vgs.bar vgs.bar/left-workspaces vgs.bar/center-clock; do
+  printf '  cold_geometry id=%s value=%s\n' "$bar_initial_id" "$(ipc smoke descendantGeometry "$bar_initial_key" "$bar_initial_id")"
+done
+for bar_initial_section in left center right; do
+  printf '  cold_section section=%s value=%s\n' "$bar_initial_section" "$(ipc smoke barSectionGeometry "$bar_initial_key" "$bar_initial_section")"
+done
+printf '  cold_profile value=%s\n' "$(ipc shell listShellConfig)"
+
 # The built-ins share one vertical centre, the bar's, and draw in the
 # `text.bar` role alone. A workspace pill is a BarItem: its label plus
 # `bar.item.paddingX` a side, never narrower than it is tall, and
@@ -52,7 +62,14 @@ bar_alignment() {
   floor="$(ipc smoke themeValue bar.item.height)" || return
   python3 - "$bar_box" "$ws" "$clock" "$pad" "$gap" "$floor" <<'PY'
 import json, sys
-bar, ws, clock, pad, gap, floor = (json.loads(a) for a in sys.argv[1:])
+values = []
+for raw in sys.argv[1:]:
+    try: values.append(json.loads(raw))
+    except (ValueError, TypeError):
+        print(json.dumps(["absent"])); sys.exit()
+bar, ws, clock, pad, gap, floor = values
+if not isinstance(bar, list) or len(bar) != 4 or not isinstance(ws, list) or not isinstance(clock, list):
+    print(json.dumps(["absent"])); sys.exit()
 out = []
 def near(a, b): return abs(a - b) <= 1
 def mid_x(r): return r["box"][0] + r["box"][2] / 2
@@ -76,7 +93,10 @@ for name, rows in (("workspaces", ws), ("clock", clock)):
 pills = sorted(((r, [l for l in within(ws, i, "Label") if l["box"][2] > 0]) for i, r in enumerate(ws) if r["type"] == "BarItem"), key=lambda p: p[0]["box"][0])
 if len(pills) != 3: out.append("workspaces pills=%d want=3" % len(pills))
 if not any(pill["box"][2] > floor + 1 for pill, _ in pills): out.append("workspaces wide=0")
-for n, (pill, (label,)) in enumerate(pills):
+for n, (pill, labels) in enumerate(pills):
+    if len(labels) != 1:
+        out.append("pill%d labels=%d" % (n, len(labels))); continue
+    label = labels[0]
     check("pill%d.width" % n, pill["box"][2], max(floor, label["implicit"][0] + 2 * pad))
     check("pill%d.height" % n, pill["box"][3], floor)
     check("pill%d.label.x" % n, mid_x(label), mid_x(pill))
@@ -517,3 +537,45 @@ cp -- "$bar_participation_saved" "$home/.config/vgshell/shell.json.tmp"
 mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
 start_shell "$repo" "$sandbox/bar-participation-restored.log" || fail "the shell returns after participation controls"
 expect_widgets "participation restores the original mounted fixture" '["acme.tick"]'
+
+# Row owns a read-only implicitWidth (QQuickImplicitSizeItem, Qt 6.11).
+# This disposable control binds its writable width so the bar builds.
+# Its transitions must then fail the same cold vertical-alignment reader.
+# https://github.com/qt/qtdeclarative/blob/6.11/src/quick/items/qquickimplicitsizeitem_p.h
+bar_alignment_misplaced() {
+  bar_alignment | py_reply 'import json,sys; rows=json.load(sys.stdin); print(any(s.startswith("clock.label.y=") for s in rows) and any(s.startswith("pill0.y=") for s in rows))'
+}
+if copy_tree bar-motion-control \
+  && edit_tree bar-motion-control shell/plugins/vgs.bar/Bar.qml '    Item {
+        id: left
+        readonly property real spacing: Theme.bar.gap' '    Row {
+        move: Transition { NumberAnimation { properties: "x"; duration: 0 } }
+        add: Transition { NumberAnimation { properties: "x"; duration: 0 } }
+        id: left
+        spacing: Theme.bar.gap' \
+  && edit_tree bar-motion-control shell/plugins/vgs.bar/Bar.qml '    Item {
+        id: center
+        readonly property real spacing: Theme.bar.gap' '    Row {
+        move: Transition { NumberAnimation { properties: "x"; duration: 0 } }
+        add: Transition { NumberAnimation { properties: "x"; duration: 0 } }
+        id: center
+        spacing: Theme.bar.gap' \
+  && edit_tree bar-motion-control shell/plugins/vgs.bar/Bar.qml '    Item {
+        id: right
+        readonly property real spacing: Theme.bar.gap' '    Row {
+        move: Transition { NumberAnimation { properties: "x"; duration: 0 } }
+        add: Transition { NumberAnimation { properties: "x"; duration: 0 } }
+        id: right
+        spacing: Theme.bar.gap' \
+  && edit_tree bar-motion-control shell/Core/Plugins.qml 'container.implicitWidth = Qt.binding(() => {' 'container.width = Qt.binding(() => {'; then
+  stop_shell
+  start_shell "$sandbox/tree-bar-motion-control" "$sandbox/bar-motion-control.log" || fail "the Row motion control shell starts"
+  expect_poll "control: the cold Row builds its bar surface" "$monitors" bar_count
+  printf "  cold_control_log=%s\n" "$sandbox/bar-motion-control.log"
+  expect_builtins "control: the Row motion bar still registers both builtins" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
+  printf '  cold_control_alignment=%s\n' "$(bar_alignment)"
+  geometry expect "control: the alignment reader rejects Row's cold transition writes" True bar_alignment_misplaced
+  stop_shell
+  start_shell "$repo" "$sandbox/bar-motion-restored.log" || fail "the shell starts after the Row motion control"
+  geometry expect_poll "the restored cold bar centers both builtin contents" '[]' bar_alignment
+fi

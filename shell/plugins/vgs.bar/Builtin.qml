@@ -1,4 +1,5 @@
 import QtQuick
+import qs.Ui
 
 // Repeater stacks its delegates as siblings (Qt Quick Repeater reference).
 // Keep this Loader under the bar; only its loaded wrapper changes visual parent.
@@ -7,10 +8,12 @@ Loader {
 
     required property string name
     required property Item barItem
-    sourceComponent: Item {
+    sourceComponent: BarWidget {
         id: wrapper
         property var release: null
 
+        bar: root.barItem
+        Accessible.name: root.barItem.builtinLabels[root.name]
         implicitWidth: content.implicitWidth
         implicitHeight: content.implicitHeight
 

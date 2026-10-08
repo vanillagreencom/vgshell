@@ -510,6 +510,53 @@ function suite(ctx, check) {
         ["a registration appears once across sections", { bar: { id: "vgs.bar", layout: { left: [{ id: "vgs.bar/center-clock" }], center: [{ id: "vgs.bar/center-clock" }], right: [] } } }, builtinNames, { left: [{ id: "vgs.bar/center-clock" }], center: [], right: [] }],
         ["disabled active bar exposes no builtin", Object.assign({ disabledPlugins: ["vgs.bar"] }, builtinConfig), builtinNames, { left: [{ id: "acme.widget" }], center: [], right: [] }],
     ]) check("effectiveLayout builtin: " + name, ctx.effectiveLayout(config, manifests, "vgs.bar", names), want);
+    for (const [name, config, id, section, index, want] of [
+        ["builtin moves with its active bar owner", builtinConfig, "vgs.bar/center-clock", "left", 0, ""],
+        ["builtin needs its advertised name", builtinConfig, "vgs.bar/unknown", "left", 0, "refused: moved=vgs.bar/unknown reason=no-bar-widget"],
+        ["builtin needs placement", { bar: { id: "vgs.bar", layout: {} } }, "vgs.bar/center-clock", "left", 0, "refused: moved=vgs.bar/center-clock reason=unplaced"],
+        ["builtin uses the same section guard", builtinConfig, "vgs.bar/center-clock", "top", 0, 'refused: section="top" want=left|center|right'],
+        ["builtin uses the same index guard", builtinConfig, "vgs.bar/center-clock", "left", -1, "refused: index=-1 want=integer>=0"],
+    ]) check("moveRefusal builtin: " + name, ctx.moveRefusal(config, manifests["vgs.bar"], section, index, "vgs.bar", builtinNames, id), want);
+    check("withMoved keeps builtin identity across sections", ctx.withMoved({}, manifests["vgs.bar"], null, "right", 0, builtinConfig, "vgs.bar/center-clock").bar.layout,
+        { left: builtinConfig.bar.layout.left, center: [], right: [{ id: "vgs.bar/center-clock" }] });
+    for (const [name, id, names, want] of [
+        ["registered builtin can be hidden", "vgs.bar/center-clock", builtinNames, ""],
+        ["unknown builtin cannot be placed", "vgs.bar/unknown", builtinNames, "refused: placed=vgs.bar/unknown reason=no-bar-widget"],
+        ["foreign builtin cannot be placed", "alt.bar/center-clock", builtinNames, "refused: placed=alt.bar/center-clock reason=no-bar-widget"],
+        ["builtin needs its catalogue", "vgs.bar/center-clock", [], "refused: placed=vgs.bar/center-clock reason=no-bar-widget"],
+    ]) check("placedRefusal builtin: " + name, ctx.placedRefusal(builtinConfig, manifests["vgs.bar"], "vgs.bar", names, id), want);
+    const hiddenBuiltin = ctx.withPlaced({}, manifests["vgs.bar"], false, builtinConfig, "vgs.bar/center-clock");
+    check("builtin Hide removes its ordinary entry", hiddenBuiltin.bar.layout,
+        { left: builtinConfig.bar.layout.left, center: [], right: [] });
+    check("builtin Hide creates no independent settings row", hiddenBuiltin.plugins, undefined);
+    check("builtin Hide keeps owner enablement", ctx.isEnabled(ctx.effectiveConfig(builtinConfig, hiddenBuiltin), manifests["vgs.bar"], "vgs.bar"), true);
+    check("builtin placement restores only an ordinary entry", ctx.withPlaced(hiddenBuiltin, manifests["vgs.bar"], true,
+        ctx.effectiveConfig(builtinConfig, hiddenBuiltin), "vgs.bar/center-clock").bar.layout.center, [{ id: "vgs.bar/center-clock" }]);
+    const builtinDefaults = { bar: { id: "vgs.bar", layout: {
+        left: [{ id: "acme.widget" }, { id: "vgs.bar/left-workspaces" }, { id: "acme.tick" }],
+        center: [{ id: "vgs.bar/center-clock" }], right: [] } } };
+    for (const [name, id, layout, expected] of [
+        ["restores between declared neighbours", "vgs.bar/left-workspaces", { left: [{ id: "acme.widget" }, { id: "acme.tick" }, { id: "acme.extra" }], center: [], right: [] },
+            { left: [{ id: "acme.widget" }, { id: "vgs.bar/left-workspaces" }, { id: "acme.tick" }, { id: "acme.extra" }], center: [], right: [] }],
+        ["restores before a remaining next neighbour", "vgs.bar/left-workspaces", { left: [{ id: "acme.extra" }, { id: "acme.other" }, { id: "acme.tick" }], center: [], right: [] },
+            { left: [{ id: "acme.extra" }, { id: "acme.other" }, { id: "vgs.bar/left-workspaces" }, { id: "acme.tick" }], center: [], right: [] }],
+        ["restores after a remaining previous neighbour", "vgs.bar/left-workspaces", { left: [{ id: "acme.extra" }, { id: "acme.widget" }, { id: "acme.other" }], center: [], right: [] },
+            { left: [{ id: "acme.extra" }, { id: "acme.widget" }, { id: "vgs.bar/left-workspaces" }, { id: "acme.other" }], center: [], right: [] }],
+        ["restores at declared position without neighbours", "vgs.bar/left-workspaces", { left: [{ id: "acme.extra" }, { id: "acme.other" }], center: [], right: [] },
+            { left: [{ id: "acme.extra" }, { id: "vgs.bar/left-workspaces" }, { id: "acme.other" }], center: [], right: [] }],
+        ["restores clock at its default before automatic widgets", "vgs.bar/center-clock", { left: [], center: [{ id: "acme.extra" }], right: [] },
+            { left: [], center: [{ id: "vgs.bar/center-clock" }, { id: "acme.extra" }], right: [] }],
+    ]) {
+        const user = { version: 1, bar: { id: "vgs.bar", layout }, plugins: [{ id: "vgs.bar", clockFormat: "HH:mm" }], disabledPlugins: [], unrelated: { keep: true } };
+        const restored = ctx.withPlaced(user, manifests["vgs.bar"], true, user, id, builtinDefaults);
+        check("builtin default restore: " + name, restored, Object.assign({}, user, { bar: { id: "vgs.bar", layout: expected } }));
+        check("builtin restore twice is once: " + name, ctx.withPlaced(restored, manifests["vgs.bar"], true, restored, id, builtinDefaults), restored);
+    }
+    const relocatedDefault = { bar: { layout: { left: [], center: [], right: [{ id: "vgs.bar/left-workspaces" }] } } };
+    check("builtin default restoration never infers section from its ID", ctx.withPlaced({}, manifests["vgs.bar"], true,
+        { bar: { layout: { left: [], center: [], right: [] } } }, "vgs.bar/left-workspaces", relocatedDefault).bar.layout,
+        { left: [], center: [], right: [{ id: "vgs.bar/left-workspaces" }] });
+
     // settingTargetOf rows: [kind, want]. Every kind has one target.
     for (const kind of ctx.KINDS)
         check("settingTargetOf: " + kind, ctx.settingTargetOf(kind), kind === "bar-widget" ? "layout" : "plugins");
@@ -1460,13 +1507,17 @@ const CONTROLS = [
     ["an idle watch takes whole seconds", "!Number.isInteger(seconds) || ", ""],
     ["an idle watch needs a handler", "if (typeof onChange !== \"function\") return \"refused: idle-handler=not-a-function\";", ""],
     ["a requirement the scan missed is reported missing", "missing.indexOf(entry.name) === -1 ? \"present\" : \"missing\"", "\"present\""],
-    ["placing never writes disabledPlugins", "function withPlaced(user, manifest, placed, effective) {\n    var out = isPlainObject(user) ? clone(user) : {};", "function withPlaced(user, manifest, placed, effective) {\n    var out = isPlainObject(user) ? clone(user) : {};\n    out.disabledPlugins = Array.isArray(effective.disabledPlugins) ? effective.disabledPlugins.slice() : [];"],
-    ["a widget already as asked changes nothing", "if (placed === isPlaced(effective, manifest))\n        return out;", "if (false)\n        return out;"],
-    ["unplacing removes the entries", "return entry.id !== manifest.id; });", "return true; });"],
-    ["unplacing lists a plugin with no row", "    seedUserBar(out, effective);\n    if (pluginRow(effective, manifest.id) === undefined) {", "    seedUserBar(out, effective);\n    if (false) {"],
-    ["moving refuses a plugin without a widget", "if (manifest.kinds.indexOf(\"bar-widget\") === -1)\n        return \"refused: moved=\" + manifest.id + \" reason=no-bar-widget\";", "if (false)\n        return \"refused: moved=\" + manifest.id + \" reason=no-bar-widget\";"],
-    ["moving refuses a disabled widget", "if (isPlaced(config, manifest) && !isEnabled(config, manifest, defaultBarId))\n        return \"refused: moved=\" + manifest.id + \" reason=disabled\";", "if (false)\n        return \"refused: moved=\" + manifest.id + \" reason=disabled\";"],
-    ["moving refuses an unplaced widget", "if (!isPlaced(config, manifest))\n        return \"refused: moved=\"", "if (false)\n        return \"refused: moved=\""],
+    ["placing never writes disabledPlugins", "function withPlaced(user, manifest, placed, effective, id, shipped) {\n    id = id === undefined ? manifest.id : id;\n    var out = isPlainObject(user) ? clone(user) : {};", "function withPlaced(user, manifest, placed, effective, id, shipped) {\n    id = id === undefined ? manifest.id : id;\n    var out = isPlainObject(user) ? clone(user) : {};\n    out.disabledPlugins = Array.isArray(effective.disabledPlugins) ? effective.disabledPlugins.slice() : [];"],
+    ["a widget already as asked changes nothing", "if (placed === (layoutPositionOf(effective, id, null) !== null))\n        return out;", "if (false)\n        return out;"],
+    ["unplacing removes the entries", "return entry.id !== id; });", "return true; });"],
+    ["unplacing lists a plugin with no row", "    seedUserBar(out, effective);\n    if (id === manifest.id && pluginRow(effective, id) === undefined) {", "    seedUserBar(out, effective);\n    if (false) {"],
+    ["unplacing a builtin creates no independent row", "if (id === manifest.id && pluginRow(effective, id) === undefined) {", "if (pluginRow(effective, id) === undefined) {"],
+    ["builtin restore uses its declared location", "id === manifest.id || shipped === undefined ? null : layoutPositionOf(shipped, id, null)", "null"],
+    ["builtin restore follows its next declared neighbour", "at = following; break;", "break;"],
+    ["builtin restore follows its previous declared neighbour", "at = preceding + 1; break;", "break;"],
+    ["moving refuses a plugin without a widget", "if (!builtin && manifest.kinds.indexOf(\"bar-widget\") === -1)\n        return \"refused: moved=\" + id + \" reason=no-bar-widget\";", "if (false)\n        return \"refused: moved=\" + id + \" reason=no-bar-widget\";"],
+    ["moving refuses a disabled widget", "if (placed && !isEnabled(config, manifest, defaultBarId))\n        return \"refused: moved=\" + id + \" reason=disabled\";", "if (false)\n        return \"refused: moved=\" + id + \" reason=disabled\";"],
+    ["moving refuses an unplaced widget", "if (!placed)\n        return \"refused: moved=\"", "if (false)\n        return \"refused: moved=\""],
     ["moving refuses an unknown section", "if (SECTIONS.indexOf(section) === -1)\n        return \"refused: section=\" + JSON.stringify(section) + \" want=left|center|right\";", "if (false)\n        return \"refused: section=\" + JSON.stringify(section) + \" want=left|center|right\";"],
     ["moving refuses a bad index", "if (typeof index !== \"number\" || !Number.isInteger(index) || index < 0)\n        return \"refused: index=\" + JSON.stringify(index) + \" want=integer>=0\";", "if (false)\n        return \"refused: index=\" + JSON.stringify(index) + \" want=integer>=0\";"],
     ["moving uses the locator nth", "if (seen === locator.nth) return { section: locator.section, index: i, nth: locator.nth, entry: entries[i] };", "if (seen === 0) return { section: locator.section, index: i, nth: locator.nth, entry: entries[i] };"],
@@ -1484,7 +1535,7 @@ const CONTROLS = [
     ["the first presence places each widget", "forEach(function (id) { placeWidget(out, manifests[id], effective); });", "forEach(function (id) {});"],
     ["a third-party plugin of another kind is enabled by its row", "return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? \"first-party\" : \"row\";", "return \"first-party\";"],
     ["a first-party plugin of another kind is enabled unlisted", "return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? \"first-party\" : \"row\";", "return \"row\";"],
-    ["moving reads enablement from isEnabled", "isPlaced(config, manifest) && !isEnabled(config, manifest, defaultBarId)", "isPlaced(config, manifest) && (Array.isArray(config.disabledPlugins) ? config.disabledPlugins : []).indexOf(manifest.id) !== -1"],
+    ["moving reads enablement from isEnabled", "placed && !isEnabled(config, manifest, defaultBarId)", "placed && (Array.isArray(config.disabledPlugins) ? config.disabledPlugins : []).indexOf(manifest.id) !== -1"],
     ["alwaysOn is a manifest key", "\"secrets\", \"alwaysOn\"];", "\"secrets\"];"],
     ["alwaysOn is a boolean", "if (typeof raw.alwaysOn !== \"boolean\")", "if (false)"],
     ["alwaysOn needs the first-party rule", "if (raw.alwaysOn && enablementRule(raw) !== \"first-party\")", "if (false)"],
@@ -1493,11 +1544,11 @@ const CONTROLS = [
     ["an alwaysOn plugin takes an enable", "if (!enabled && manifest.alwaysOn === true)", "if (manifest.alwaysOn === true)"],
     ["a widget-only plugin is enabled only by its placement", "if (manifest.kinds.every(function (k) { return k === \"bar-widget\"; })) return \"widget\";", ""],
     ["a copied entry setting shares nothing with its source", "target[k] = clone(entry[k]);", "target[k] = entry[k];"],
-    ["an unplaced plugin's new row carries the entry's settings", "copyEntrySettings({ id: manifest.id }, layoutEntryOf(out, manifest.id), manifest, false)", "{ id: manifest.id }"],
-    ["a placed entry carries the plugins row's settings", "copyEntrySettings({ id: manifest.id }, pluginRow(effective, manifest.id), manifest, false)", "{ id: manifest.id }"],
+    ["an unplaced plugin's new row carries the entry's settings", "copyEntrySettings({ id: id }, layoutEntryOf(out, id), manifest, false)", "{ id: manifest.id }"],
+    ["a placed entry carries the plugins row's settings", "copyEntrySettings({ id: id }, pluginRow(effective, id), manifest, false)", "{ id: manifest.id }"],
     ["open chooses a window over a panel", "if (manifest.kinds.indexOf(\"window\") !== -1) return \"window\";\n    if (manifest.kinds.indexOf(\"panel\") !== -1) return \"panel\";", "if (manifest.kinds.indexOf(\"panel\") !== -1) return \"panel\";\n    if (manifest.kinds.indexOf(\"window\") !== -1) return \"window\";"],
     ["a disabled plugin's placement is refused", "if (!isEnabled(config, manifest, defaultBarId))\n        return \"refused: placed=\"", "if (false)\n        return \"refused: placed=\""],
-    ["a plugin without a widget is refused placement", "if (manifest.kinds.indexOf(\"bar-widget\") === -1)\n        return \"refused: placed=\"", "if (false)\n        return \"refused: placed=\""],
+    ["a plugin without a widget is refused placement", "if (!builtin && manifest.kinds.indexOf(\"bar-widget\") === -1)\n        return \"refused: placed=\"", "if (false)\n        return \"refused: placed=\""],
     ["a hidden bar maps no surface", "return instance === null || instance.shown !== false;", "return true;"],
     ["a bar being built maps its surface", "return instance === null || instance.shown !== false;", "return instance !== null && instance.shown !== false;"],
     ["a service writes every entry its plugin reads", 'return kind === "pane" || kind === "service" ? settingTargets(config, manifest)', 'return kind === "pane" ? settingTargets(config, manifest)'],

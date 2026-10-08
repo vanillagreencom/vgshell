@@ -537,6 +537,18 @@ Scope {
             return root.json({ model: editor.model, index: editor.currentIndex, text: editor.currentText, value: field.value, enabled: editor.enabled,
                 shown: editor.contentItem.text, list: root.selectList(editor) });
         }
+        if (name === "fieldBoolean" || name === "focusBoolean") {
+            const a = JSON.parse(arg);
+            const field = fieldOf(item, a.id, a.key);
+            if (field === null) return "absent";
+            const editor = descendants(field).find(child => typeName(child) === "Switch");
+            if (editor === undefined) return "no-switch";
+            if (name === "focusBoolean") {
+                editor.forceActiveFocus(Qt.TabFocusReason);
+                return editor.activeFocus ? "focused" : "unfocused";
+            }
+            return root.json({ type: field.spec.type, value: field.value, checked: editor.checked, enabled: editor.enabled });
+        }
         if (name === "fieldCustom" || name === "editFieldCustom") {
             const a = JSON.parse(arg);
             const field = fieldOf(item, a.id, a.key);
@@ -1473,6 +1485,10 @@ Scope {
             const item = root.instance(hostKey, id);
             const content = item === null ? undefined : root.descendants(item).find(child => root.typeName(child) === "Clock");
             return content === undefined || content[key] === undefined ? "absent" : root.json(content[key]);
+        }
+        function barWidgetFrameFacts(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            return item === null || item.frame === null ? "absent" : root.json(item.frame.describe());
         }
         // `drawn` once the window of plugin ID's HOST_KEY instance has
         // presented a frame at its current size, else `pending`. The first

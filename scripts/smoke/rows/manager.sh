@@ -1159,6 +1159,14 @@ with open(path + ".tmp", "w") as out: json.dump(doc, out)
 os.replace(path + ".tmp", path)
 PYREAD
 }
+expect "a foreign builtin ID cannot move" "unknown: other.bar/center-clock" ipc shell movePluginWidget other.bar/center-clock left 0
+expect "an unadvertised builtin ID cannot move" "unknown: vgs.bar/unknown" ipc shell movePluginWidget vgs.bar/unknown left 0
+expect "the clock can move through the ordinary API" ok ipc shell movePluginWidget vgs.bar/center-clock left 0
+expect_builtins "moving the clock keeps its registration ID" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
+read_moved_clock() { ipc smoke builtinContentProperty "$(bar_key)" vgs.bar/center-clock format; }
+expect "the moved clock still receives the bar format" '"HH:mm:ss"' read_moved_clock
+expect "the clock returns to center through the ordinary API" ok ipc shell movePluginWidget vgs.bar/center-clock center 0
+
 # Each bar stays alive while its built-ins change. The pending callbacks
 # must describe only its current capability holds and live built-ins.
 bar_cleanup_balanced() {
