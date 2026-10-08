@@ -23,7 +23,7 @@ Singleton {
     TuiRunner { id: tuis }
     SecretWriter { id: secrets }
     SystemSteps { id: systemSteps; active: root.systemHeld }
-    SudoGrant { id: sudoGrant; active: root.sudoHeld; tuis: tuis }
+    SudoGrant { id: sudoGrant; active: root.sudoHeld; runner: tuis }
     HyprlandState {
         id: hyprlandState
         active: root.holderIds("hyprland").length > 0 || shortcuts.keyCapture.wantsBinds

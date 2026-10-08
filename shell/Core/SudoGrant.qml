@@ -20,7 +20,7 @@ Scope {
     // Whether any plugin holds `sudo`; Capabilities binds it.
     property bool active: false
     // The runner that opens the grant's TUIs and holds their records.
-    required property TuiRunner tuis
+    required property TuiRunner runner
     // { state, until, rootHalf } as PluginLogic.sudoReport reads them,
     // frozen and replaced whole when a read changes one.
     property var current: Object.freeze({ state: "unknown", until: "", rootHalf: "" })
@@ -43,7 +43,7 @@ Scope {
     // The latest ended run of each of the grant's TUIs. It changes when a
     // run ends, a run the launcher opened included, and when the shell
     // first lists the records a run before it left.
-    readonly property string endedRuns: tuis.coreEnded("sudo-grant") + " " + tuis.coreEnded("sudo-revoke")
+    readonly property string endedRuns: runner.coreEnded("sudo-grant") + " " + runner.coreEnded("sudo-revoke")
 
     onActiveChanged: {
         if (active) read();
@@ -88,7 +88,7 @@ Scope {
                 root.waiters = root.waiters.filter(w => w !== waiter);
             });
         }
-        const answer = tuis.openCore(name, args, waiter === null ? undefined : result => root.runEnded(waiter, result));
+        const answer = runner.openCore(name, args, waiter === null ? undefined : result => root.runEnded(waiter, result));
         if (answer !== "ok" && waiter !== null) waiter.release();
         return Logic.tuiShownAnswer("core/" + name, answer);
     }
