@@ -29,12 +29,16 @@ list lays out the plate under its pointer as a row:
   touchpad-scroll an element of DRAG_VIEWS that has no direct TouchpadScroll
                    child with `view` bound to the view's own `id`. Qualified
                    component names count too. No marker exempts it.
-  cursor-positioner a ListCursor declared as a direct child of one of
-                   POSITIONERS: the positioner lays the shown plate out as
-                   a row and moves every row after it. Declare the cursor
-                   beside the positioner, in the item that holds it.
-                   Qualified component names count too. No marker exempts
-                   it.
+  cursor-positioner a ListCursor declared as a direct child of a positioner
+                   or layout of POSITIONERS, or of a qs.Ui component that
+                   lays out what it holds, such as Pane or Section, which
+                   qml_controls.qs_ui_positioners reads from the
+                   repository's shell/Ui: the positioner lays the shown
+                   plate out as a row and moves every row after it. Declare
+                   the cursor beside it, in the item that holds it. A
+                   cursor that binds its own `parent` is placed there and
+                   passes. Qualified component names count too. No marker
+                   exempts it.
 The rules read code with comments blanked, through scripts/qml_source.py;
 the structure is read with string contents blanked too, so a brace inside a
 string opens no block.
@@ -53,7 +57,8 @@ The pass is
 `views` counting the elements of DRAG_VIEWS read and `cursors` the ListCursor
 elements. Exit 0 when clean, 1 on
 any finding, 2 when a directory or file cannot be read, printed as
-`check-pointer-cursor: unreadable: <path>: <strerror>`. A tree the walk
+`check-pointer-cursor: unreadable: <path>: <strerror>`, and so does a qs.Ui
+file the positioner reading cannot open. A tree the walk
 found no QML file in is unreadable too: an empty walk certifies nothing.
 """
 import os
@@ -64,7 +69,7 @@ import sys
 # no bytecode cache beside it.
 sys.dont_write_bytecode = True
 from qml_source import Unreadable, blank_comments, source_texts
-from qml_controls import NO_BUTTON, base_type, blocks, marker, takes_click, template_alias
+from qml_controls import NO_BUTTON, POSITIONERS, base_type, blocks, marker, qs_ui_positioners, takes_click, template_alias
 
 REPO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 DEFAULT_ROOTS = (os.path.join(REPO, "shell"), os.path.join(REPO, ".agents", "skills", "vgs-plugin", "templates"))
@@ -73,8 +78,7 @@ COMPONENT = "PointerCursor"
 # Flickable and the Qt Quick views built on it, each of which drags its
 # content with the left mouse button unless told otherwise.
 DRAG_VIEWS = frozenset(("Flickable", "ListView", "GridView", "TableView", "TreeView", "HorizontalHeaderView", "VerticalHeaderView"))
-# The Qt Quick positioners, each of which places every visible child.
-POSITIONERS = frozenset(("Column", "Row", "Flow", "Grid"))
+OWN_PARENT = re.compile(r"(?:^|[;\n])\s*parent\s*:")
 
 LITERAL = re.compile(r"\bQt\.PointingHandCursor\b")
 EXEMPT = re.compile(r"^\s*//\s*pointer-cursor-exempt:\s*\S")
@@ -86,7 +90,7 @@ def declares_cursor(block):
     return any(child.type == COMPONENT for child in block.children)
 
 
-def check_tree(root, findings, counts):
+def check_tree(root, findings, counts, positioners):
     files = 0
     for path, text in source_texts(root):
         code = blank_comments(text)
@@ -119,7 +123,7 @@ def check_tree(root, findings, counts):
             if base_type(block.type, None) == "ListCursor":
                 counts["cursors"] += 1
                 holder = block.parent.type if block.parent is not None else None
-                if base_type(holder, None) in POSITIONERS:
+                if base_type(holder, None) in positioners and OWN_PARENT.search(block.own_text()) is None:
                     findings.append(f"cursor-positioner {path}:{block.line} ListCursor: its parent {holder} lays the plate out as a row; declare it beside the {holder}")
             if not takes_click(block, alias):
                 continue
@@ -142,8 +146,12 @@ def main(argv):
     findings = []
     counts = {"files": 0, "clickable": 0, "exempt": 0, "views": 0, "cursors": 0}
     try:
+        try:
+            positioners = POSITIONERS | qs_ui_positioners(REPO)
+        except OSError as exc:
+            raise Unreadable(exc.filename or os.path.join(REPO, "shell", "Ui"), exc.strerror or str(exc))
         for root in roots:
-            check_tree(os.path.abspath(root), findings, counts)
+            check_tree(os.path.abspath(root), findings, counts, positioners)
     except Unreadable as exc:
         print(f"check-pointer-cursor: unreadable: {exc.path}: {exc.strerror}")
         return 2

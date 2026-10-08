@@ -166,15 +166,18 @@ function inspect(sample, name) {
 }
 
 // Judge a request to end an app, `{ name, pids }`, against the newest
-// sample: every pid must be one ss named for that app in it, so a request
-// signals only processes the user saw in the row. `{ pids }` to signal, or
-// `{ error }`: `value` for a malformed request, `pid` for a pid that is not
-// a positive integer, `app` when the sample holds no connection of the
-// app, `changed` for a pid the app no longer holds.
-function killRequest(sample, request) {
+// sample, taken at `sampledAt`, at `now`, both in milliseconds: every pid
+// must be one ss named for that app in a sample at most `maxAge` old, so a
+// request signals only processes the user saw in the row while they held
+// those pids. `{ pids }` to signal, or `{ error }`: `value` for a malformed
+// request, `pid` for a pid that is not a positive integer, `stale` for no
+// sample or one older than `maxAge`, `app` when the sample holds no
+// connection of the app, `changed` for a pid the app no longer holds.
+function killRequest(sample, sampledAt, now, maxAge, request) {
     if (request === null || typeof request !== "object" || typeof request.name !== "string" || !Array.isArray(request.pids) || request.pids.length === 0)
         return { error: "value" };
     if (!request.pids.every(pid => Number.isSafeInteger(pid) && pid > 0)) return { error: "pid" };
+    if (sample === null || !(now - sampledAt <= maxAge)) return { error: "stale" };
     const app = inspect(sample, request.name);
     if (app === null) return { error: "app" };
     if (request.pids.some(pid => app.pids.indexOf(pid) === -1)) return { error: "changed" };

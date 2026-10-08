@@ -13,13 +13,14 @@ cp -- "$traffic_source/tui/bandwhich.sh" "$traffic_dir/bandwhich.sh"
 cp -- "$repo/scripts/fixtures/traffic/net-dev-before.txt" "$traffic_dir/net-dev"
 printf '#!/usr/bin/env bash\nexec python3 %q %q "$@"\n' "$repo/scripts/smoke/fixtures/traffic/ss.py" "$traffic_dir" >"$traffic_dir/ss"
 printf '#!/usr/bin/env bash\nfor arg; do case "$arg" in /sys/class/net/enp5s0) echo /sys/devices/pci/net/enp5s0 ;; /sys/class/net/wlan0) echo /sys/devices/pci/net/wlan0 ;; /sys/class/net/*) echo /sys/devices/virtual/net/"${arg##*/}" ;; esac; done\n' >"$traffic_dir/readlink"
-# Player's socket belongs to the row's own sleep child. The Kill stand-in
-# records its argv and signals only that child, so a request that reached
-# it with any other pid signals nothing outside the row.
+# Player's socket belongs to the row's own sleep child, so Inspect reads a
+# real command line. The Kill stand-in records its argv and signals
+# nothing; it exits 1, as kill(1) does when a signal fails, while
+# WORLD/kill-fail exists.
 spawn "$traffic_dir/child.log" sleep 600
 traffic_child="$spawn_pid"
 printf '{"Player": %d}\n' "$traffic_child" >"$traffic_dir/pids"
-printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>%q\n[[ $* == "-TERM %d" ]] || exit 1\nexec kill "$@"\n' "$traffic_dir/kills" "$traffic_child" >"$traffic_dir/kill"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>%q\nif [[ -e %q ]]; then echo "kill: sending signal failed: No such process" >&2; exit 1; fi\n' "$traffic_dir/kills" "$traffic_dir/kill-fail" >"$traffic_dir/kill"
 chmod +x "$traffic_dir/ss" "$traffic_dir/readlink" "$traffic_dir/kill"
 cp -- "$repo/scripts/smoke/fixtures/tui/vgs.traffic/tui/bandwhich.sh" "$traffic_source/tui/bandwhich.sh"
 python3 - "$traffic_source/Service.qml" "$traffic_dir" <<'PY'
@@ -81,9 +82,48 @@ traffic_kills() { if [[ -f $traffic_dir/kills ]]; then wc -l <"$traffic_dir/kill
 traffic_last_kill() { tail -n 1 "$traffic_dir/kills" 2>/dev/null; }
 traffic_ending() { traffic_values | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["traffic"]["ending"]))'; }
 traffic_inspect_pids() { ipc vgs.traffic invoke inspect "{\"name\":\"$1\"}" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["pids"]))'; }
-# The row's child exited, reaped or not: /proc/<pid>/stat field 3 is Z
-# until the row waits for it.
-traffic_child_state() { local state; state="$(sed 's/.*) //' "/proc/$traffic_child/stat" 2>/dev/null | cut -d' ' -f1)"; [[ -z $state || $state == Z ]] && echo ended || echo "running:$state"; }
+# Each contract below is a mark, the steps that reach the state, and a
+# read, one assertion; a control runs the read alone in its subshell,
+# whose polls end after 5 s, after the mark ran outside it.
+# The plate under a hovered row is not laid out as a row: FIRST keeps its
+# place while the pointer rests on HOVERED and the plate shows.
+traffic_hover_mark() { # FIRST HOVERED
+  rest_pointer
+  traffic_first_box="$(ipc smoke itemGeometry panel vgs.traffic ListItem "$1")"
+  point_item panel vgs.traffic ListItem "$2" >/dev/null || fail "Traffic row hover failed"
+  expect_poll "a hovered row shows the list's plate" true ipc smoke readDescendant panel vgs.traffic ListCursor visible
+}
+traffic_hover_kept() { expect "a hover moves no row" "$traffic_first_box" ipc smoke itemGeometry panel vgs.traffic ListItem "$1"; } # FIRST
+# A click on ROW opens its actions; once Escape closes them and the panel
+# holds the keyboard again, ROW is not highlighted, which it is only while
+# the list holds the keyboard.
+traffic_click_mark() { # ROW
+  click_item panel vgs.traffic ListItem "$1" || fail "Traffic row click failed"
+  expect_poll "a row click opens its actions" true traffic_menu_open
+  type_keys -k Escape
+  expect_poll "Escape closes the row's actions" false traffic_menu_open
+  expect_poll "the panel holds the keyboard again" true ipc smoke activeFocusIn panel vgs.traffic
+}
+traffic_click_kept() { expect "a row click leaves the list without keyboard focus" false ipc smoke readMatchingDescendant panel vgs.traffic ListItem text "$1" highlighted; } # ROW
+traffic_panel_edit() { # OLD NEW
+  python3 - "$traffic_source/Panel.qml" "$1" "$2" <<'PY'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);s=p.read_text();old,new=sys.argv[2:]
+assert s.count(old)==1,old;p.write_text(s.replace(old,new))
+PY
+}
+traffic_control_open() { # NAME
+  rescan "the $1 control is scanned"
+  expect "the $1 control's widget is placed" ok ipc shell setPluginPlaced vgs.traffic true
+  expect_poll "the $1 control's widget leases" 1 traffic_read leaseCount
+  click_centre "$(bar_key)" vgs.traffic || fail "the $1 control did not open"
+  expect_poll "the $1 control publishes per-app traffic" True traffic_snapshot_ready
+}
+traffic_control_close() { # NAME
+  expect "the $1 control closes" ok ipc shell hide panel vgs.traffic
+  expect "the $1 control's widget unplaces" ok ipc shell setPluginPlaced vgs.traffic false
+  expect_poll "the $1 control releases every lease" 0 traffic_read leaseCount
+}
 rescan "Traffic's reader fixture is scanned"
 expect "Traffic enables" ok ipc shell setPluginEnabled vgs.traffic true
 expect "Traffic is placed" ok ipc shell setPluginPlaced vgs.traffic true
@@ -118,19 +158,12 @@ expect "upload starts in descending order" false ipc smoke readInstance panel vg
 type_keys -k Return
 expect_poll "Return reverses the focused header" true ipc smoke readInstance panel vgs.traffic ascending
 expect "a sort moves the rows it built" "$traffic_built" traffic_rows_built
-# Ascending upload puts Player first. The plate under a hovered row must
-# not be laid out as a row above it.
-rest_pointer
-traffic_first_box="$(ipc smoke itemGeometry panel vgs.traffic ListItem Player)"
-point_item panel vgs.traffic ListItem Browser >/dev/null || fail "Traffic row hover failed"
-expect_poll "a hovered row shows the list's plate" true ipc smoke readDescendant panel vgs.traffic ListCursor visible
-expect "a hover moves no row" "$traffic_first_box" ipc smoke itemGeometry panel vgs.traffic ListItem Player
-click_item panel vgs.traffic ListItem Browser || fail "Traffic row click failed"
-expect_poll "a row click opens its actions" true traffic_menu_open
-type_keys -k Escape
-expect_poll "Escape closes the row's actions" false traffic_menu_open
+# Ascending upload puts Player first.
+traffic_hover_mark Player Browser
+traffic_hover_kept Player
+traffic_click_mark Browser
 expect "a row click selects its app" '"app:Browser"' ipc smoke readInstance panel vgs.traffic currentKey
-expect "a row click leaves the list without keyboard focus" false ipc smoke readMatchingDescendant panel vgs.traffic ListItem text Browser highlighted
+traffic_click_kept Browser
 click_item panel vgs.traffic ListItem Player || fail "Traffic Inspect row click failed"
 expect_poll "the Inspect row's actions open" true traffic_menu_open
 click_item popup:panel vgs.traffic "" "" MenuItem Inspect || fail "Traffic Inspect click failed"
@@ -151,11 +184,18 @@ expect "the question names the pid" true traffic_popup_reads Label "Process $tra
 expect "nothing is signalled before the answer" 0 traffic_kills
 click_item popup:panel vgs.traffic "" "" Button Kill || fail "Traffic Kill answer failed"
 expect_poll "Kill sends SIGTERM to the row's process" "-TERM $traffic_child" traffic_last_kill
-expect_poll "the row's own child ends" ended traffic_child_state
-traffic_child_status=0
-wait "$traffic_child" || traffic_child_status=$?
-expect "the child ended on SIGTERM" 143 echo "$traffic_child_status"
 expect_poll "the panel learns the request was sent" '{"name": "Player", "state": "sent"}' traffic_ending
+: >"$traffic_dir/kill-fail"
+click_item panel vgs.traffic ListItem Player || fail "Traffic failing Kill row click failed"
+expect_poll "the failing Kill row's actions open" true traffic_menu_open
+click_item popup:panel vgs.traffic "" "" MenuItem Kill || fail "Traffic failing Kill click failed"
+expect_poll "the failing Kill asks first" true traffic_popup_reads Label "Kill Player?"
+click_item popup:panel vgs.traffic "" "" Button Kill || fail "Traffic failing Kill answer failed"
+expect_poll "a second Kill runs one more kill" 2 traffic_kills
+expect_poll "a failed kill reaches the panel" '{"name": "Player", "state": "failed"}' traffic_ending
+rm -- "${traffic_dir:?}/kill-fail"
+kill "$traffic_child" 2>/dev/null || true
+wait "$traffic_child" 2>/dev/null || true
 click_item panel vgs.traffic TextField "" || fail "Traffic search focus failed"
 expect_poll "a click focuses search" true ipc smoke activeFocusWithin panel vgs.traffic TextField
 type_keys 'zzzz' || fail "Traffic search input failed"
@@ -294,6 +334,33 @@ import pathlib,sys
 p=pathlib.Path(sys.argv[1]);s=p.read_text();old='model: root.rows'
 assert s.count(old)==1;s=s.replace(old,'model: ScriptModel { values: root.rows; objectProp: "key" }');p.write_text(s)
 PY
+# A disposable panel whose cursor sits in the rows' Column must fail the
+# hover read: the shown plate is laid out as the first row.
+traffic_list_cursor=$'                ListCursor { id: listCursor }\n'
+traffic_entries_open=$'                    id: entries\n                    width: parent.width\n'
+traffic_panel_edit "$traffic_list_cursor" ""
+traffic_cursor_in_column=$'                    ListCursor { id: listCursor }\n'
+traffic_panel_edit "$traffic_entries_open" "$traffic_entries_open$traffic_cursor_in_column"
+traffic_control_open "cursor-in-column"
+traffic_hover_mark Player Browser
+traffic_hover_control() { (failures=0 behaviour_failures=0; traffic_hover_kept Player >"$traffic_dir/hover-control.log"; echo "$failures"); }
+expect "a cursor in the rows' Column breaks the hover test" 1 traffic_hover_control
+sed 's/^ */  control log: /' "$traffic_dir/hover-control.log"
+rest_pointer
+traffic_control_close "cursor-in-column"
+traffic_panel_edit "$traffic_entries_open$traffic_cursor_in_column" "$traffic_entries_open"
+traffic_panel_edit $'                Column {\n                    id: entries\n' "$traffic_list_cursor"$'                Column {\n                    id: entries\n'
+# A disposable panel whose row click takes the keyboard, as before, must
+# fail the click read.
+traffic_click_act='root.act(modelData, "menu", false);'
+traffic_panel_edit "$traffic_click_act" "$traffic_click_act appList.forceActiveFocus(Qt.MouseFocusReason);"
+traffic_control_open "click-focus"
+traffic_click_mark Browser
+traffic_click_control() { (failures=0 behaviour_failures=0; traffic_click_kept Browser >"$traffic_dir/click-control.log"; echo "$failures"); }
+expect "a click that takes the keyboard breaks the click test" 1 traffic_click_control
+sed 's/^ */  control log: /' "$traffic_dir/click-control.log"
+traffic_control_close "click-focus"
+traffic_panel_edit "$traffic_click_act appList.forceActiveFocus(Qt.MouseFocusReason);" "$traffic_click_act"
 # A disposable panel with the wrong initial target must fail the same
 # search-focus assertion used before any click in the first open.
 python3 - "$traffic_source/Panel.qml" <<'PY'

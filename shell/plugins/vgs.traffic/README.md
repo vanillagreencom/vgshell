@@ -6,7 +6,7 @@ See download and upload speeds in the bar. Click the widget to see traffic per a
 
 - Choose download, upload, or both speeds in the bar.
 - Search apps and sort their download, upload, or connection count.
-- Click an app to inspect its processes and connections, or to kill it. Kill asks first and names each process it ends.
+- Click an app to inspect its processes and connections, or to kill it. Kill asks first and names the app and its processes.
 - See traffic from other accounts and protocols in Other traffic.
 - Open the complete traffic view with See all.
 

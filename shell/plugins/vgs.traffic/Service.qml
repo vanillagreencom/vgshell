@@ -34,6 +34,9 @@ Item {
     property var ending: null
     // A kill has started and its exit is not handled yet.
     property bool killing: false
+    // Set first as the service is destroyed: a child stopped then reports
+    // its end, and nothing may publish from it.
+    property bool disposing: false
     readonly property var snapshot: ({ state: app.state, down: total.down, up: total.up, interfaces: total.interfaces,
         apps: app.apps, other: app.other, bandwhich: bandwhichPresent, ending: ending })
 
@@ -84,15 +87,16 @@ Item {
         return app === null ? "refused: inspect=app" : JSON.stringify(app);
     }
     // SIGTERM to the pids of one app, each named for it by ss in the newest
-    // sample, at most one refresh interval old while the panel is open.
-    // Linux hands out pids in turn up to pid_max, so a pid the sample names
-    // is not given to a new process within that interval unless the pid
-    // space wraps around in it.
+    // sample, refused when that sample started more than two refresh
+    // intervals ago: a read that a tick skipped, that hangs or that failed
+    // leaves an older sample, or none. Linux hands out pids in turn up to
+    // pid_max, so a pid the sample names is not given to a new process
+    // within that time unless the pid space wraps around in it.
     function kill(arg) {
         if (socketLeaseCount === 0) return "refused: kill=closed";
         if (killing) return "refused: kill=busy";
         const request = JSON.parse(arg);
-        const judged = Logic.killRequest(previousSockets, request);
+        const judged = Logic.killRequest(previousSockets, socketsAt, Date.now(), 2 * tick.interval, request);
         if (judged.error !== undefined) return "refused: kill=" + judged.error;
         ending = { name: request.name, state: "running" };
         killer.command = ["kill", "-TERM"].concat(judged.pids.map(String));
@@ -101,7 +105,7 @@ Item {
         return "ok";
     }
     function killed(code) {
-        if (!killing) return;
+        if (!killing || disposing) return;
         killing = false;
         if (code !== 0) console.warn("traffic: kill exit=" + code + " " + killErrors.text.trim());
         if (ending !== null) ending = { name: ending.name, state: code === 0 ? "sent" : "failed" };
@@ -154,7 +158,7 @@ Item {
         app = { state: "unknown", apps: [], other: { down: null, up: null } };
     }
     function finishSockets(code, text) {
-        if (!socketReading) return;
+        if (!socketReading || disposing) return;
         socketReading = false;
         if (socketLeaseCount === 0 || startedGeneration !== socketGeneration) return;
         if (code !== 0) {
@@ -194,7 +198,7 @@ Item {
         environment: ({ PATH: null, LC_ALL: "C" })
         stdout: StdioCollector { id: interfaceOutput; waitForEnd: true }
         onExited: code => {
-            if (root.leaseCount === 0) return;
+            if (root.leaseCount === 0 || root.disposing) return;
             root.countedNames = code === 0 ? Logic.physicalInterfaces(root.resolvingNames, interfaceOutput.text.trim().split("\n")) : null;
             if (root.countedNames === null) root.failedTotals();
             else Qt.callLater(root.read);
@@ -234,5 +238,5 @@ Item {
         }
         publish();
     }
-    Component.onDestruction: { tick.stop(); sockets.running = false; interfaces.running = false; killer.running = false; }
+    Component.onDestruction: { disposing = true; tick.stop(); sockets.running = false; interfaces.running = false; killer.running = false; }
 }

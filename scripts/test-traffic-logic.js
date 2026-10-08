@@ -100,10 +100,11 @@ test("formatter-steps-digits-and-unknown", api => {
         assert.equal(api.formatRate(input, kb, mb), expected, input + " " + kb + " " + mb);
     kbDigits(api);
 });
-test("rate-sample-is-the-widest-unit", api => {
+function rateSamples(api) {
     for (const [whole, kb, mb, expected] of [[2,0,1,"88.8 MB/s"], [3,0,1,"888.8 MB/s"], [2,2,1,"88.88 KB/s"], [2,0,0,"88 MB/s"], [2,1,1,"88.8 MB/s"]])
         assert.equal(api.rateSample(whole, kb, mb), expected);
-});
+}
+test("rate-sample-is-the-widest-unit", rateSamples);
 const owners = 'ESTAB 0 0 192.0.2.2:1234 198.51.100.1:443 users:(("a\\"b",pid=7,fd=3),("a\\"b",pid=7,fd=4),("helper",pid=9,fd=1),("a\\"b",pid=8,fd=2)) ino:5\n\tbytes_acked:3';
 function ownerName(api) { assert.deepEqual(plain(api.parseSockets(owners)["5"]).pids, [7, 8]); }
 test("ss-owner-pids-per-name", api => {
@@ -123,13 +124,23 @@ test("inspect-processes-and-connections", api => {
     assert.equal(api.inspect(world(), "Absent"), null);
     assert.equal(api.inspect(world(), ""), null);
     assert.equal(api.inspect(null, "Browser"), null);
+    inspectCap(api);
+});
+function inspectCap(api) {
     const many = Object.fromEntries(Array.from({ length: api.INSPECT_ROWS + 3 }, (_, i) => [String(i), { name: "App", pids: [i + 1], state: "ESTAB", peer: "198.51.100." + i + ":443", down: 0, up: 0 }]));
     const app = api.inspect(many, "App");
     assert.equal(app.pids.length, api.INSPECT_ROWS + 3);
     assert.equal(app.connections.length, api.INSPECT_ROWS);
     assert.equal(app.connectionCount, api.INSPECT_ROWS + 3);
-});
-function killOutsideRow(api) { assert.deepEqual(plain(api.killRequest(world(), { name: "Browser", pids: [42, 50] })), { error: "changed" }); }
+}
+// A sample taken at 10 s, judged at 13 s with a 4 s limit unless a row
+// says otherwise.
+const judge = (api, request, sample = world(), now = 13000, sampledAt = 10000) => plain(api.killRequest(sample, sampledAt, now, 4000, request));
+function killOutsideRow(api) { assert.deepEqual(judge(api, { name: "Browser", pids: [42, 50] }), { error: "changed" }); }
+function killStale(api) {
+    assert.deepEqual(judge(api, { name: "Player", pids: [50] }, world(), 14000), { pids: [50] }, "at the limit");
+    assert.deepEqual(judge(api, { name: "Player", pids: [50] }, world(), 14001), { error: "stale" }, "past the limit");
+}
 test("kill-request-judge", api => {
     for (const [request, expected] of [
         [{ name: "Browser", pids: [44, 42, 44] }, { pids: [42, 44] }],
@@ -145,18 +156,22 @@ test("kill-request-judge", api => {
         [{ name: "Browser" }, { error: "value" }],
         [{ pids: [42] }, { error: "value" }],
         [null, { error: "value" }]
-    ]) assert.deepEqual(plain(api.killRequest(world(), request)), expected, JSON.stringify(request));
-    assert.deepEqual(plain(api.killRequest(null, { name: "Browser", pids: [42] })), { error: "app" });
+    ]) assert.deepEqual(judge(api, request), expected, JSON.stringify(request));
+    assert.deepEqual(judge(api, { name: "Browser", pids: [42] }, null), { error: "stale" }, "no sample");
+    assert.deepEqual(judge(api, { name: "Browser", pids: [42] }, world(), 13000, NaN), { error: "stale" }, "no sample time");
     killOutsideRow(api);
+    killStale(api);
 });
-test("connection-states-and-command-lines", api => {
+function connectionStates(api) {
     for (const [state, expected] of [["ESTAB", "Open"], ["SYN-SENT", "Opening"], ["SYN-RECV", "Opening"], ["FIN-WAIT-1", "Closing"], ["FIN-WAIT-2", "Closing"],
-        ["CLOSE-WAIT", "Closing"], ["LAST-ACK", "Closing"], ["CLOSING", "Closing"], ["TIME-WAIT", "Closing"], ["UNKNOWN", "UNKNOWN"]])
+        ["CLOSE-WAIT", "Closing"], ["LAST-ACK", "Closing"], ["CLOSING", "Closing"], ["TIME-WAIT", "Closing"], ["UNKNOWN", "UNKNOWN"], ["constructor", "constructor"]])
         assert.equal(api.connectionState(state), expected);
-    assert.equal(api.connectionState("constructor"), "constructor");
+}
+function commandLines(api) {
     for (const [text, expected] of [["/usr/bin/app\0--flag\0value\0", "/usr/bin/app --flag value"], ["app\0", "app"], ["", ""], ["a b\0c\0\0", "a b c"]])
         assert.equal(api.commandLine(text), expected);
-});
+}
+test("connection-states-and-command-lines", api => { connectionStates(api); commandLines(api); });
 test("capture-state-actions", api => {
     for (const [state, tone, action] of [["ready","ok",false], ["needed","warning",true], ["nixos","warning",true], ["absent","info",false], ["denied","warning",false], ["unknown","warning",false]]) {
         const result = api.capture({ state }); assert.equal(result.tone, tone); assert.equal(result.action, action);
@@ -185,6 +200,11 @@ const controls = [
     ["kb-digits", 'unit === 1 ? kbDigits : mbDigits', 'mbDigits', kbDigits],
     ["owner-other-name", 'if (each === name && Number.isSafeInteger(pid)', 'if (Number.isSafeInteger(pid)', ownerName],
     ["kill-outside-row", 'if (request.pids.some(pid => app.pids.indexOf(pid) === -1)) return { error: "changed" };', '', killOutsideRow],
+    ["kill-stale", 'if (sample === null || !(now - sampledAt <= maxAge)) return { error: "stale" };', 'if (sample === null) return { error: "stale" };', killStale],
+    ["rate-sample-unit", 'return kb.length > mb.length ? kb : mb;', 'return mb;', rateSamples],
+    ["inspect-cap", 'connections: connections.slice(0, INSPECT_ROWS)', 'connections: connections', inspectCap],
+    ["connection-state-own", 'return Object.prototype.hasOwnProperty.call(STATES, state) ? STATES[state] : state;', 'return STATES[state] || state;', connectionStates],
+    ["command-line-trailing", 'return text.replace(/\\0+$/, "").split("\\0").join(" ");', 'return text.split("\\0").join(" ");', commandLines],
     ["net-dev-transmit-field", 'const down = Number(fields[0]), up = Number(fields[8]);', 'const down = Number(fields[0]), up = Number(fields[9]);', api => assert.equal(api.parseNetDev(before).enp5s0.up, 2000)],
     ["ipv6-loopback-counted", 'host === "::1"', 'host === "::2"', api => assert.equal(Object.keys(api.parseSockets(socketBefore)).includes("14"), false)],
     ["unknown-as-zero", 'return "--";', 'return "0 B/s";', api => assert.equal(api.formatRate(null), "--")],

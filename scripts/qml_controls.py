@@ -13,6 +13,16 @@ TEMPLATES_ALIAS = re.compile(r"^\s*import\s+QtQuick\.Templates(?:\s+[\d.]+)?\s+a
 TYPE_BEFORE = re.compile(r"(?:^|[^\w.$])((?:[A-Za-z_]\w*\.)*[A-Z]\w*)\s*$")
 NO_BUTTON = re.compile(r"\bacceptedButtons\s*:\s*Qt\.NoButton\b")
 QS_UI_CONTROL_FLOOR = 8
+# The Qt Quick positioners and layouts, each of which places every visible
+# child it holds.
+POSITIONERS = frozenset(("Column", "Row", "Flow", "Grid", "ColumnLayout", "RowLayout", "GridLayout"))
+DEFAULT_PROPERTY = re.compile(r"(?:^|[;\n])\s*default\s+property\b")
+DEFAULT_DATA = re.compile(r"(?:^|[;\n])\s*default\s+property\s+alias\s+\w+\s*:\s*([A-Za-z_]\w*)\.(?:data|children)\s*(?=;|\n|$)")
+OBJECT_ID = re.compile(r"(?:^|[;\n])\s*id\s*:\s*([A-Za-z_]\w*)\s*(?=;|\n|$)")
+# qs_ui_positioners found 13 when this floor was set (Card, Dialog,
+# Disclosure, GroupList, KeyCaps, KeyHints, Menu, Pane, Popover,
+# RowActions, Section, SectionHeader, TimeChipList).
+QS_UI_POSITIONER_FLOOR = 10
 
 
 class Block:
@@ -126,3 +136,41 @@ def qs_ui_controls(repo):
     if len(controls) < QS_UI_CONTROL_FLOOR:
         raise RuntimeError(f"qs-ui-controls-extractor-broken count={len(controls)} floor={QS_UI_CONTROL_FLOOR}")
     return frozenset(controls)
+
+
+def qs_ui_positioners(repo):
+    """The qs.Ui components that lay out the children declared in them: one
+    whose default property aliases the `data` or `children` of a positioner,
+    or of another such component, or whose root is one and which declares no
+    default property of its own. Read from the qmldir and each file; a file
+    that cannot be read raises OSError, and a count under the floor names
+    the extractor as broken."""
+    from qml_source import blank_comments
+
+    holds = {}
+    for name, path in qmldir_exports(repo):
+        with open(path, "r", encoding="utf-8-sig") as handle:
+            text = handle.read()
+        parsed = blocks(blank_comments(text, literals=False))
+        root = next((block for block in parsed if block.type is not None), None)
+        if root is None:
+            continue
+        own = root.own_text()
+        target = DEFAULT_DATA.search(own)
+        if target is not None:
+            held = next((block for block in parsed if block.type is not None
+                         and (named := OBJECT_ID.search(block.own_text())) is not None and named.group(1) == target.group(1)), None)
+            holds[name] = None if held is None else base_type(held.type, None)
+        elif DEFAULT_PROPERTY.search(own) is None:
+            holds[name] = base_type(root.type, None)
+    found = set()
+    grew = True
+    while grew:
+        grew = False
+        for name, kind in holds.items():
+            if name not in found and (kind in POSITIONERS or kind in found):
+                found.add(name)
+                grew = True
+    if len(found) < QS_UI_POSITIONER_FLOOR:
+        raise RuntimeError(f"qs-ui-positioners-extractor-broken count={len(found)} floor={QS_UI_POSITIONER_FLOOR}")
+    return frozenset(found)

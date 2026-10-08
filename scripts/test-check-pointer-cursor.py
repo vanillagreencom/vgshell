@@ -87,6 +87,24 @@ ROWS = [
     ("a ListCursor in an item inside a Column passes", body("    Column { Item { ListCursor { } } }\n"), None, None),
     ("a ListCursor named in a comment inside a Column is no finding", body("    Column {\n        // ListCursor { }\n    }\n"), None, None),
     ("the cursor marker exempts no ListCursor", body("    Column {\n        // pointer-cursor-exempt: a list\n        ListCursor { }\n    }\n"), "cursor-positioner", 7),
+    ("a ListCursor in a ColumnLayout", body("    ColumnLayout { ListCursor { } }\n"), "cursor-positioner", 5),
+    ("a ListCursor in a RowLayout", body("    RowLayout { ListCursor { } }\n"), "cursor-positioner", 5),
+    ("a ListCursor in a GridLayout", body("    GridLayout { ListCursor { } }\n"), "cursor-positioner", 5),
+    # qs.Ui components read from the repository's shell/Ui: each holds what
+    # is declared in it in a Column, through its default property.
+    ("a ListCursor in a Pane", body("    Pane { ListCursor { } }\n"), "cursor-positioner", 5),
+    ("a ListCursor in a Section", body("    Section { ListCursor { } }\n"), "cursor-positioner", 5),
+    ("a ListCursor in a Dialog", body("    Dialog { ListCursor { } }\n"), "cursor-positioner", 5),
+    ("a ListCursor in a Card", body("    Card { ListCursor { } }\n"), "cursor-positioner", 5),
+    ("a ListCursor in a Popover", body("    Popover { ListCursor { } }\n"), "cursor-positioner", 5),
+    ("a ListCursor in a qualified qs.Ui Pane", "import QtQuick\nimport qs.Ui as Ui\nItem {\n    Ui.Pane { Ui.ListCursor { } }\n}\n", "cursor-positioner", 4),
+    # ScrollArea holds its content in a Flickable's content item; Field
+    # aliases its default property to its control, not to its Column.
+    ("a ListCursor in a ScrollArea passes", body("    ScrollArea { ListCursor { } }\n"), None, None),
+    ("a ListCursor in a Field passes", body("    Field { ListCursor { } }\n"), None, None),
+    ("a ListCursor that binds its own parent passes", body("    Column { ListCursor { parent: other } }\n"), None, None),
+    ("a ListCursor in a Pane that binds its own parent passes", body("    Pane {\n        ListCursor {\n            id: plate\n            parent: list\n        }\n    }\n"), None, None),
+    ("a parent named in a child of the cursor does not place it", body("    Column { ListCursor { Item { parent: other } } }\n"), "cursor-positioner", 5),
 ]
 
 SCROLL_ROWS = [
