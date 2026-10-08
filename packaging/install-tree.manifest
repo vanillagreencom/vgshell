@@ -88,6 +88,7 @@ f share/vgshell/shell/Core/SecretWriter.qml
 f share/vgshell/shell/Core/ServiceGate.qml
 f share/vgshell/shell/Core/SessionLock.qml
 f share/vgshell/shell/Core/ShortcutRegistry.qml
+f share/vgshell/shell/Core/SudoGrant.qml
 f share/vgshell/shell/Core/SystemSteps.qml
 f share/vgshell/shell/Core/ThemeRunner.qml
 f share/vgshell/shell/Core/TuiRecords.qml
@@ -555,6 +556,9 @@ f share/vgshell/shell/plugins/vgs.sound/SoundControls.qml
 f share/vgshell/shell/plugins/vgs.sound/SoundLogic.js
 f share/vgshell/shell/plugins/vgs.sound/Widget.qml
 f share/vgshell/shell/plugins/vgs.sound/manifest.json
+f share/vgshell/shell/plugins/vgs.sudo/SudoView.js
+f share/vgshell/shell/plugins/vgs.sudo/Widget.qml
+f share/vgshell/shell/plugins/vgs.sudo/manifest.json
 f share/vgshell/shell/plugins/vgs.sysmon/Panel.qml
 f share/vgshell/shell/plugins/vgs.sysmon/Reading.qml
 f share/vgshell/shell/plugins/vgs.sysmon/Service.qml

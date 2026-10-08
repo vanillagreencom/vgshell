@@ -86,6 +86,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Screensaver](shell/plugins/vgs.screensaver/README.md) | Show animated text art when the desktop is inactive. |
 | [Plugins](shell/plugins/vgs.settings/README.md) | Manage your plugins, settings and shortcuts. |
 | [Sound](shell/plugins/vgs.sound/README.md) | Set the volume, the sound devices and each app's volume. |
+| [Passwordless Sudo](shell/plugins/vgs.sudo/README.md) | Turn passwordless sudo on and off from the bar. |
 | [System Monitor](shell/plugins/vgs.sysmon/README.md) | See CPU, memory and graphics card use. |
 | [System Settings](shell/plugins/vgs.system/README.md) | Sound, displays, network and other system settings in one window. |
 | [Themes](shell/plugins/vgs.themes/README.md) | Choose themes and wallpapers. |
