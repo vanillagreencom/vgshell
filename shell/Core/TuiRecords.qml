@@ -27,7 +27,7 @@ Scope {
     // PluginLogic.tuiWaitRecordsKept still keeps beside the listing: bounded
     // by the listed running records plus one per key.
     property var waitRecords: []
-    // Each listed record file's path -> the FileView that reads it once.
+    // Each listed record file's path -> the Process that reads it once.
     property var readers: ({})
     // PluginLogic.tuiRuns of the file and wait records.
     property var runs: Logic.tuiRuns([])
@@ -169,8 +169,10 @@ Scope {
 
     // One reader per listed file, kept while the file is listed. A record
     // is never rewritten, so each file is read once, however often the
-    // listing's rows are rebuilt; a file read again could be removed between
-    // FileView's check and its open, which it logs whatever printErrors says.
+    // listing's rows are rebuilt. bin/vgshell-tui may remove a listed record
+    // before the shell reads it, and Quickshell 0.3.1's FileView logs a
+    // failed open whatever printErrors says (src/io/fileview.cpp line 145),
+    // so the reader is a process whose failure the core judges.
     function syncReaders() {
         const listed = {};
         for (let i = 0; i < recordFiles.count; i++) listed[recordFiles.get(i, "filePath")] = true;
@@ -187,6 +189,7 @@ Scope {
             if (Object.prototype.hasOwnProperty.call(next, path)) continue;
             const reader = readerComponent.createObject(root);
             reader.path = path;
+            reader.running = true;
             next[path] = reader;
         }
         readers = next;
@@ -241,34 +244,46 @@ Scope {
 
     Component {
         id: readerComponent
-        FileView {
+        Process {
             id: reader
-            printErrors: false
-            property int readError: 0
+            property string path: ""
+            // The read's { code, status }; a failed start leaves it null.
+            property var completion: null
+            command: ["cat", "--", reader.path]
+            clearEnvironment: true
+            environment: ({ PATH: Quickshell.env("PATH") })
+            stdout: StdioCollector { id: content }
+            stderr: StdioCollector { id: readErrors }
             property Process existenceCheck: Process {
                 property var completion: null
                 command: ["test", "-e", reader.path]
                 clearEnvironment: true
                 environment: ({ PATH: Quickshell.env("PATH") })
                 onExited: (code, status) => { completion = { code: code, status: status }; }
-                // Quickshell 0.3.1 reports a failed start only through
-                // runningChanged, without exited: preserve the read error.
-                // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
                 onRunningChanged: {
-                    if (running || reader.readError === 0) return;
+                    if (running) return;
                     const done = completion;
                     const gone = done !== null && done.status === 0 && done.code === 1;
-                    if (!gone) console.error("tui: record=" + reader.path + " unreadable: error=" + reader.readError);
-                    reader.readError = 0;
+                    const read = reader.completion;
+                    const end = read === null ? "start=failed" : "code=" + read.code + " status=" + read.status;
+                    if (!gone) console.error("tui: record=" + reader.path + " unreadable: " + end);
                 }
             }
-            onLoaded: root.recordLoaded(reader.path, text())
-            onLoadFailed: error => {
-                // FileView checks exists, isFile and isReadable separately;
-                // a removal can fail any check. Probe once, without rereading.
-                // https://github.com/quickshell-mirror/quickshell/blob/v0.3.1/src/io/fileview.cpp
-                reader.readError = error;
-                reader.existenceCheck.completion = null;
+            onExited: (code, status) => { reader.completion = { code: code, status: status }; }
+            // Quickshell 0.3.1 reports a failed start only through
+            // runningChanged, without exited, so the read and its probe
+            // each judge their end there.
+            // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
+            onRunningChanged: {
+                if (running) return;
+                const done = reader.completion;
+                if (done !== null && done.status === 0 && done.code === 0) {
+                    root.recordLoaded(reader.path, content.text);
+                    return;
+                }
+                // A removal after the listing fails the read; only an
+                // existing file makes the failure an error. Probe once,
+                // without rereading.
                 reader.existenceCheck.running = true;
             }
         }

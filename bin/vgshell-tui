@@ -77,12 +77,11 @@
 # <stem>@<run>.ended.json, removes every older ended record of the key, and
 # removes its run lock's name; the lock itself goes with the process. Its
 # own running record stays for the next run of the key or reap to remove:
-# the shell may not have read that file yet, and a file removed between the
-# shell's check and its open is logged as a failed read. A
-# record is one JSON object written whole under a hidden name and moved into
-# place, and is never rewritten: a new state is a new file, so a watcher of
-# the directory's names sees every change, and an ended record stands over
-# its run's running one.
+# the shell may not have read that file yet. A record is one JSON object
+# written whole under a hidden name and moved into place, and is never
+# rewritten: a new state is a new file, so a watcher of the directory's
+# names sees every change, and an ended record stands over its run's
+# running one.
 #   { "key", "run", "state": "running" | "ended", "code": <int> | null,
 #     "startedAt": <ISO 8601 UTC>, "endedAt": <ISO 8601 UTC> | null,
 #     "window": { "appId", "title" } }
