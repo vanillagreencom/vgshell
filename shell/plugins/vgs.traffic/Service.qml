@@ -76,6 +76,7 @@ Item {
         if (fileReading || socketReading || interfaces.running) { skippedTicks++; return; }
         fileReading = true;
         net.reload();
+        net.text();
     }
     function netLoaded(text) {
         fileReading = false;
@@ -137,13 +138,14 @@ Item {
         running: root.leaseCount > 0
         onTriggered: root.read()
     }
-    // FileView.reload starts an asynchronous read. text() in loaded reads
-    // completed data without blocking: Quickshell 0.3.1 FileView reference.
+    // With preload off, reload unloads and text starts the asynchronous
+    // read. loaded consumes completed data with no blocking. 0.3.1:
     // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/FileView
     FileView {
         id: net
         path: "/proc/net/dev"
         preload: false
+        blockLoading: false
         onLoaded: root.netLoaded(text())
         onLoadFailed: error => { root.failedTotals(); console.warn("traffic: net-dev read=" + error); }
     }

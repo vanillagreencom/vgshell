@@ -31,6 +31,7 @@ panel.write_text(s)
 PY
 traffic_read() { ipc smoke readInstance service vgs.traffic "$1"; }
 traffic_values() { ipc smoke statusValues vgs.traffic; }
+traffic_state() { traffic_values | py_reply 'import json,sys;print(json.dumps(json.load(sys.stdin)["traffic"]["state"]))'; }
 traffic_panel() { [[ $(ipc smoke instanceGeometry panel vgs.traffic) != absent ]] && echo shown || echo hidden; }
 traffic_ss_calls() { if [[ -f $traffic_dir/calls ]]; then wc -l <"$traffic_dir/calls" | tr -d ' '; else echo 0; fi; }
 traffic_has_totals() { traffic_values | py_reply 'import json,sys;t=json.load(sys.stdin)["traffic"]; print(isinstance(t["down"],(int,float)) and isinstance(t["up"],(int,float)) and [i["name"] for i in t["interfaces"]]==["enp5s0","wlan0"])'; }
@@ -60,22 +61,22 @@ click_centre "$(bar_key)" vgs.traffic || fail "Traffic click failed"
 expect_poll "a click opens Traffic" shown traffic_panel
 expect_poll "the panel acquires its socket lease" 1 traffic_read socketLeaseCount
 expect_poll "the first socket sample starts" true traffic_read ssRunning
-expect "the first sample shows Measuring" '"measuring"' ipc smoke readInstance panel vgs.traffic traffic.state
+expect "the first sample shows Measuring" '"measuring"' traffic_state
 traffic_started="$(traffic_read ssStarts)"
 for _ in 1 2 3; do ipc smoke invokeInstance service vgs.traffic read "" >/dev/null; done
 expect "overlapping reads start no second ss" "$traffic_started" traffic_read ssStarts
-expect "one socket child is live" running traffic_socket_stopped
+expect_poll "one socket child is live" running traffic_socket_stopped
 expect "ss receives the specified connected TCP request" '["-tinpeH", "state", "connected"]' head -1 "$traffic_dir/calls"
 rm -- "${traffic_dir:?}/hold"
 expect_poll "the reader publishes per-app traffic" True traffic_snapshot_ready
 expect "a needed capture probe offers Allow" true traffic_captured
 expect "bandwhich is absent in the stock fixture" false traffic_foot
-click_in vgs:panel panel vgs.traffic Button Upload || fail "Traffic upload header click failed"
+click_item panel vgs.traffic Button Upload || fail "Traffic upload header click failed"
 expect_poll "a pointer sorts by upload" '"up"' ipc smoke readInstance panel vgs.traffic sortKey
 expect "upload starts in descending order" false ipc smoke readInstance panel vgs.traffic ascending
 type_keys -k Return
 expect_poll "Return reverses the focused header" true ipc smoke readInstance panel vgs.traffic ascending
-click_in vgs:panel panel vgs.traffic TextField "" || fail "Traffic search focus failed"
+click_item panel vgs.traffic TextField "" || fail "Traffic search focus failed"
 expect_poll "search takes focus on open" true ipc smoke activeFocusWithin panel vgs.traffic TextField
 type_keys 'zzzz' || fail "Traffic search input failed"
 expect_poll "search filters named apps" true ipc smoke readInstance panel vgs.traffic emptyShown
@@ -155,6 +156,8 @@ release_runs
 expect_run_end "the capture terminal stand-in ends" core/system
 expect "the ready capture seam publishes" ok ipc vgs.traffic invoke capture-fixture '{"state":"ready","reason":"granted","tool":true}'
 expect_poll "ready removes Allow" false traffic_captured
+click_centre "$(bar_key)" vgs.traffic || fail "Traffic ready-tool click failed"
+expect_poll "Traffic opens again after the capture terminal" shown traffic_panel
 : >"$traffic_dir/tui-hold"
 forget_record
 expect "See all launches the plugin's safe TUI fixture" ok ipc smoke invokeInstance panel vgs.traffic seeAll ""
