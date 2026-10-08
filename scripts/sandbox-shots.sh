@@ -19,7 +19,7 @@
 # SCENE is gallery, settings, wide-settings, focus, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, plugin-messages, ai-usage or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, jarvis-console, plugin-messages, ai-usage or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -48,7 +48,9 @@
 # as scripts/smoke/rows/ai-usage.sh reads them: the endpoint stand-in
 # scripts/fixtures/ai-usage/endpoint.js on 127.0.0.1, the Codex stand-in
 # beside it and planted sign-ins, with no host claude or codex on the
-# shell's PATH; clipboard is the clipboard history over copies made on the
+# shell's PATH; jarvis-console is the Jarvis console window over the
+# scripted daemon fixture in each conversation state, taken only when
+# named; clipboard is the clipboard history over copies made on the
 # nested instance's own clipboard, taken only when named; voice is Voice's
 # on-screen display while dictating, its plasma orb fed by stand-ins for
 # voxtype's status stream and audio bridge, so no audio device opens, taken
@@ -213,7 +215,7 @@ while [[ $# -gt 0 ]]; do
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    gallery|settings|wide-settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|plugin-messages|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
+    gallery|settings|wide-settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|plugin-messages|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -316,6 +318,7 @@ scene_ships() {
     capture) ships_plugin vgs.capture ;;
     keyhints) ships_plugin vgs.keyhints vgs.launcher vgs.settings vgs.themes ;;
     clipboard) ships_plugin vgs.clipboard ;;
+    jarvis-console) ships_plugin vgs.jarvis ;;
     voice) ships_plugin vgs.voice ;;
     voice-setup) ships_plugin vgs.voice vgs.settings ;;
     plugin-messages) ships_plugin vgs.clipboard vgs.lock vgs.notifications ;;
@@ -815,6 +818,39 @@ page_reported() { # ID
 jarvis_started() { ipc smoke jarvisProcess | py_reply 'import json,sys; d=json.load(sys.stdin); print("ready" if d["retries"] == 0 and d["lifetime"]["kind"] == "ready" else "retries=%d kind=%s" % (d["retries"], d["lifetime"]["kind"]))'; }
 # Whether the Jarvis page's Status rows draw its Daemon row as ready.
 jarvis_page_ready() { ipc smoke itemTexts "$settings_kind" vgs.settings StatusRow | py_reply 'import json,sys; print(any("Daemon" in r and "Ready; no capture" in r for r in json.load(sys.stdin)))'; }
+jarvis_shot_requirement_standins=()
+jarvis_setup_requirements() {
+  local commands command
+  jarvis_shot_requirement_standins=()
+  commands="$(python3 - "$repo/shell/plugins/vgs.jarvis/manifest.json" <<'PY'
+import json,sys
+with open(sys.argv[1]) as source:
+    manifest=json.load(source)
+for row in manifest["requirements"]:
+    if not row.get("optional", False) and "command" in row:
+        print(row["command"])
+PY
+)" || return 1
+  while IFS= read -r command; do
+    [[ $(shell_resolves "$command") == none ]] || continue
+    printf '#!/bin/sh\nexit 99\n' >"$shim/$command"
+    chmod 755 "$shim/$command"
+    jarvis_shot_requirement_standins+=("$command")
+  done <<<"$commands"
+}
+jarvis_restore_requirements() {
+  local command
+  for command in "${jarvis_shot_requirement_standins[@]}"; do
+    rm -f -- "${shim:?}/$command"
+  done
+  rescan "the Jarvis console requirement stand-ins are removed"
+}
+jarvis_notice_close() {
+  jarvis_setup_requirements || { fail "the Jarvis requirement stand-ins are not written"; return 1; }
+  rescan "the scan that finds Jarvis's required commands"
+  expect_poll "the scan that finds Jarvis's required commands closes its notice" 0 layer_count vgs:notice
+  jarvis_restore_requirements
+}
 # slack_section: the Slack section through Globex's Connect button.
 slack_section() {
   settings_section Slack StatusLine "Globex" Button "Connect"
@@ -1984,6 +2020,92 @@ scene_keyhints() { # MODE
   take "keyhints-$1"
   expect "the Key Hints window hides" ok ipc shell hide window vgs.keyhints
   expect_poll "the Key Hints window is gone" 0 window_count "Key Hints"
+}
+
+# Jarvis Console over the scripted daemon fixture. It mutates only the
+# sandbox copy of the daemon and engine, then restores them before leaving.
+scene_jarvis-console() { # MODE
+  local plugin="$repo/shell/plugins/vgs.jarvis" backend="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
+  local engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
+  local before_backend="$sandbox/jarvis-console-$1-jarvisd-before.js"
+  local before_engine="$sandbox/jarvis-console-$1-engine-before.js"
+  local gates="$sandbox/jarvis-console-$1-gates" startup_gate="$sandbox/jarvis-console-$1-startup-gate"
+  local startup_seen="$sandbox/jarvis-console-$1-startup-seen"
+  cp -- "$backend" "$before_backend"
+  cp -- "$engine" "$before_engine"
+  mkdir -p -- "$gates"
+  jarvis_console_last() {
+    ipc smoke jarvisProcess | py_reply '
+import json,sys
+s=json.load(sys.stdin)["status"].get("conversation", [])
+print("none" if not s else s[-1]["role"]+":"+s[-1]["text"]+":"+s[-1]["stage"])
+'
+  }
+  jarvis_console_lifetime() { ipc smoke jarvisProcess | py_reply 'import json,sys; print(json.load(sys.stdin)["lifetime"]["kind"])'; }
+  jarvis_console_mute() { ipc smoke jarvisProcess | py_reply 'import json,sys; print(json.load(sys.stdin)["status"]["detail"]["state"]["mute"]["kind"])'; }
+  jarvis_console_focused() {
+    ipc smoke itemValues window vgs.jarvis TextField activeFocus | py_reply '
+import json,sys
+print("true" if any(row.get("activeFocus") is True for row in json.load(sys.stdin)) else "false")
+'
+  }
+  jarvis_console_field_text() { ipc smoke readShownDescendant window vgs.jarvis TextField text; }
+  jarvis_console_summon() {
+    expect "the Jarvis console summons" ok ipc shell summon window vgs.jarvis '{}'
+    expect_poll "the Jarvis console maps" 1 window_count Jarvis
+    expect_poll "the Jarvis console text field has focus" true jarvis_console_focused
+  }
+  jarvis_console_restore() {
+    cp -- "$before_backend" "$backend"
+    cp -- "$before_engine" "$engine"
+    rm -f -- "$plugin/backend/scripted-fixture.js" "$home/.local/state/vgshell/jarvis/mute.json"
+  }
+
+  jarvis_setup_requirements
+  "$node_bin" "$checkout/scripts/fixtures/jarvis/prepare.js" --gate-daemon "$backend" "$startup_gate" "$startup_seen"
+  tree_rescan "the Jarvis gated daemon is scanned"
+  expect "enabling vgs.jarvis for the not-ready console image is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect_poll "the Jarvis gated daemon starts" starting jarvis_console_lifetime
+  jarvis_console_summon
+  park_pointer
+  take_posed "jarvis-console-$1-not-ready"
+  expect "the Jarvis console hides after the not-ready image" ok ipc shell hide window vgs.jarvis
+  expect "disabling vgs.jarvis after the not-ready image is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "vgs.jarvis is gone after the not-ready image" absent ipc smoke jarvisProcess
+  jarvis_console_restore
+
+  "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" "$backend" "$gates" --mapped-indicator
+  tree_rescan "the Jarvis scripted daemon is scanned"
+  expect "enabling vgs.jarvis for console images is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect_poll "the Jarvis scripted daemon answers hello" ready jarvis_started
+  jarvis_console_summon
+  park_pointer
+  take_posed "jarvis-console-$1-empty"
+  type_keys "Draft message for Jarvis" || fail "typing a Jarvis console draft failed"
+  expect_poll "the Jarvis console draft is shown" '"Draft message for Jarvis"' jarvis_console_field_text
+  park_pointer
+  take_posed "jarvis-console-$1-draft"
+  type_keys -M ctrl a -m ctrl -k BackSpace || fail "clearing the Jarvis console draft failed"
+  expect_poll "the Jarvis console draft clears" '""' jarvis_console_field_text
+  expect "the Jarvis console IPC says a typed turn" ok ipc vgs.jarvis invoke say "typed from console"
+  expect_poll "the Jarvis console shows the typed user line" "user:typed from console:final" jarvis_console_last
+  park_pointer
+  take_posed "jarvis-console-$1-thinking"
+  : >"$gates/brain"
+  expect_poll "the Jarvis console shows the scripted reply" "assistant:scripted utterance:partial" jarvis_console_last
+  park_pointer
+  take_posed "jarvis-console-$1-reply"
+  expect "the Jarvis console mutes Jarvis" ok ipc vgs.jarvis invoke mute ''
+  expect_poll "muted Jarvis reaches the console" on jarvis_console_mute
+  park_pointer
+  take_posed "jarvis-console-$1-muted"
+  expect "the Jarvis console hides after its images" ok ipc shell hide window vgs.jarvis
+  expect "disabling vgs.jarvis after its console images is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "vgs.jarvis is gone after its console images" absent ipc smoke jarvisProcess
+  jarvis_restore_requirements
+  jarvis_console_restore
+  tree_rescan "the stock Jarvis files are scanned after console images"
+  jarvis_notice_close
 }
 
 # The clipboard history over the copies its setup made, the newest copy
