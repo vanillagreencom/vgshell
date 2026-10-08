@@ -513,6 +513,19 @@ function suite(ctx, check) {
     ]) check("moveRefusal builtin: " + name, ctx.moveRefusal(config, manifests["vgs.bar"], section, index, "vgs.bar", builtinNames, id), want);
     check("withMoved keeps builtin identity across sections", ctx.withMoved({}, manifests["vgs.bar"], null, "right", 0, builtinConfig, "vgs.bar/center-clock").bar.layout,
         { left: builtinConfig.bar.layout.left, center: [], right: [{ id: "vgs.bar/center-clock" }] });
+    for (const [name, id, names, want] of [
+        ["registered builtin can be hidden", "vgs.bar/center-clock", builtinNames, ""],
+        ["unknown builtin cannot be placed", "vgs.bar/unknown", builtinNames, "refused: placed=vgs.bar/unknown reason=no-bar-widget"],
+        ["foreign builtin cannot be placed", "alt.bar/center-clock", builtinNames, "refused: placed=alt.bar/center-clock reason=no-bar-widget"],
+        ["builtin needs its catalogue", "vgs.bar/center-clock", [], "refused: placed=vgs.bar/center-clock reason=no-bar-widget"],
+    ]) check("placedRefusal builtin: " + name, ctx.placedRefusal(builtinConfig, manifests["vgs.bar"], "vgs.bar", names, id), want);
+    const hiddenBuiltin = ctx.withPlaced({}, manifests["vgs.bar"], false, builtinConfig, "vgs.bar/center-clock");
+    check("builtin Hide removes its ordinary entry", hiddenBuiltin.bar.layout,
+        { left: builtinConfig.bar.layout.left, center: [], right: [] });
+    check("builtin Hide creates no independent settings row", hiddenBuiltin.plugins, undefined);
+    check("builtin Hide keeps owner enablement", ctx.isEnabled(ctx.effectiveConfig(builtinConfig, hiddenBuiltin), manifests["vgs.bar"], "vgs.bar"), true);
+    check("builtin placement restores only an ordinary entry", ctx.withPlaced(hiddenBuiltin, manifests["vgs.bar"], true,
+        ctx.effectiveConfig(builtinConfig, hiddenBuiltin), "vgs.bar/center-clock").bar.layout.center, [{ id: "vgs.bar/center-clock" }]);
 
     // settingTargetOf rows: [kind, want]. Every kind has one target.
     for (const kind of ctx.KINDS)
@@ -1464,10 +1477,11 @@ const CONTROLS = [
     ["an idle watch takes whole seconds", "!Number.isInteger(seconds) || ", ""],
     ["an idle watch needs a handler", "if (typeof onChange !== \"function\") return \"refused: idle-handler=not-a-function\";", ""],
     ["a requirement the scan missed is reported missing", "missing.indexOf(entry.name) === -1 ? \"present\" : \"missing\"", "\"present\""],
-    ["placing never writes disabledPlugins", "function withPlaced(user, manifest, placed, effective) {\n    var out = isPlainObject(user) ? clone(user) : {};", "function withPlaced(user, manifest, placed, effective) {\n    var out = isPlainObject(user) ? clone(user) : {};\n    out.disabledPlugins = Array.isArray(effective.disabledPlugins) ? effective.disabledPlugins.slice() : [];"],
-    ["a widget already as asked changes nothing", "if (placed === isPlaced(effective, manifest))\n        return out;", "if (false)\n        return out;"],
-    ["unplacing removes the entries", "return entry.id !== manifest.id; });", "return true; });"],
-    ["unplacing lists a plugin with no row", "    seedUserBar(out, effective);\n    if (pluginRow(effective, manifest.id) === undefined) {", "    seedUserBar(out, effective);\n    if (false) {"],
+    ["placing never writes disabledPlugins", "function withPlaced(user, manifest, placed, effective, id) {\n    id = id === undefined ? manifest.id : id;\n    var out = isPlainObject(user) ? clone(user) : {};", "function withPlaced(user, manifest, placed, effective, id) {\n    id = id === undefined ? manifest.id : id;\n    var out = isPlainObject(user) ? clone(user) : {};\n    out.disabledPlugins = Array.isArray(effective.disabledPlugins) ? effective.disabledPlugins.slice() : [];"],
+    ["a widget already as asked changes nothing", "if (placed === (layoutPositionOf(effective, id, null) !== null))\n        return out;", "if (false)\n        return out;"],
+    ["unplacing removes the entries", "return entry.id !== id; });", "return true; });"],
+    ["unplacing lists a plugin with no row", "    seedUserBar(out, effective);\n    if (id === manifest.id && pluginRow(effective, id) === undefined) {", "    seedUserBar(out, effective);\n    if (false) {"],
+    ["unplacing a builtin creates no independent row", "if (id === manifest.id && pluginRow(effective, id) === undefined) {", "if (pluginRow(effective, id) === undefined) {"],
     ["moving refuses a plugin without a widget", "if (!builtin && manifest.kinds.indexOf(\"bar-widget\") === -1)\n        return \"refused: moved=\" + id + \" reason=no-bar-widget\";", "if (false)\n        return \"refused: moved=\" + id + \" reason=no-bar-widget\";"],
     ["moving refuses a disabled widget", "if (placed && !isEnabled(config, manifest, defaultBarId))\n        return \"refused: moved=\" + id + \" reason=disabled\";", "if (false)\n        return \"refused: moved=\" + id + \" reason=disabled\";"],
     ["moving refuses an unplaced widget", "if (!placed)\n        return \"refused: moved=\"", "if (false)\n        return \"refused: moved=\""],
@@ -1488,7 +1502,7 @@ const CONTROLS = [
     ["the first presence places each widget", "forEach(function (id) { placeWidget(out, manifests[id], effective); });", "forEach(function (id) {});"],
     ["a third-party plugin of another kind is enabled by its row", "return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? \"first-party\" : \"row\";", "return \"first-party\";"],
     ["a first-party plugin of another kind is enabled unlisted", "return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? \"first-party\" : \"row\";", "return \"row\";"],
-    ["moving reads enablement from isEnabled", "isPlaced(config, manifest) && !isEnabled(config, manifest, defaultBarId)", "isPlaced(config, manifest) && (Array.isArray(config.disabledPlugins) ? config.disabledPlugins : []).indexOf(manifest.id) !== -1"],
+    ["moving reads enablement from isEnabled", "placed && !isEnabled(config, manifest, defaultBarId)", "placed && (Array.isArray(config.disabledPlugins) ? config.disabledPlugins : []).indexOf(manifest.id) !== -1"],
     ["alwaysOn is a manifest key", "\"secrets\", \"alwaysOn\"];", "\"secrets\"];"],
     ["alwaysOn is a boolean", "if (typeof raw.alwaysOn !== \"boolean\")", "if (false)"],
     ["alwaysOn needs the first-party rule", "if (raw.alwaysOn && enablementRule(raw) !== \"first-party\")", "if (false)"],

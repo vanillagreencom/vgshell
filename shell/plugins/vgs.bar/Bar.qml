@@ -32,6 +32,7 @@ Item {
     property var widgetLayout: ({ left: [], center: [], right: [] })
     readonly property string builtinKey: JSON.stringify(
         ["left", "center", "right"].flatMap(section => widgetLayout[section])
+            .filter(entry => shell !== null && entry.id.indexOf(shell.manifest.id + "/") === 0)
             .map(entry => shell === null ? "" : entry.id.slice(shell.manifest.id.length + 1))
             .filter(name => builtinNames.indexOf(name) !== -1))
 

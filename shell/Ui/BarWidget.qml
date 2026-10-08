@@ -3,11 +3,11 @@ import Quickshell
 import qs.Commons
 import qs.Ui
 
-// Base item every bar widget extends. The core assigns five properties
+// Base item for plugin widgets and registered builtin wrappers. The core assigns five properties to plugin widgets
 // after it builds the widget: `shell` (the widget's own scoped object),
 // `bar` (the bar API), `moduleName` (the plugin id), `settings` (the
 // manifest defaults under the widget's layout entry) and `frame`, what Hide
-// reads and calls: `describe()` answers { name, keys, stops } and `hide()`
+// reads and calls: `describe()` answers { name, keys, stops, builtin } and `hide()`
 // takes the widget out of every bar section.
 //
 // Every widget gets the same right-click menu, with no code in the plugin:
@@ -45,7 +45,7 @@ Item {
     }
 
     // pointer-cursor-exempt: it adds the right click to the widget, whose own controls show the hand
-    // keyboard-path: the Show in bar switch on the plugin's Settings page hides and shows the widget
+    // keyboard-path: Settings has Show in bar for plugin widgets and Reset VGS for builtins
     TapHandler {
         acceptedButtons: Qt.RightButton
         enabled: root.frame !== null && typeof root.frame.hide === "function"
@@ -181,7 +181,9 @@ Item {
                         id: dialog
                         anchors.fill: parent
                         title: "Hide " + ui.facts.name + "?"
-                        message: ui.facts.stops
+                        message: ui.facts.builtin
+                            ? ui.facts.name + " leaves the bar. To show it again, select Reset VGS in Shell & Plugins. This resets your settings, installed plugins and themes."
+                            : ui.facts.stops
                             ? ui.facts.name + " leaves the bar. To show it again, turn on Enabled on its page in Plugins. Hiding it also turns it off."
                             : ui.facts.name + " leaves the bar. To show it again, turn on Show in bar on its page in Plugins."
                         actions: [{ label: "Cancel", role: "cancel", focused: true }, { label: "Hide", role: "accept", variant: "danger" }]
