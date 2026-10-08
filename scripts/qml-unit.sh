@@ -228,7 +228,25 @@ status=0
 for file in "${files[@]}"; do
   echo "== $(basename -- "$file")"
   file_status=0
-  out="$(env -i HOME="$root/home" PATH="/usr/bin:/usr/lib/qt6/bin" LC_ALL=C.UTF-8 \
+  render_command=(env -i)
+  render_environment=()
+  if [[ ${file##*/} == tst_notification_scroll.qml ]]; then
+    # Offscreen defaults to Qt's Software renderer, which cannot paint
+    # MultiEffect. An isolated X display supplies a software OpenGL
+    # context for this shader test. xvfb-run owns its auth file and
+    # display cleanup; no caller display or Wayland socket enters Qt.
+    for tool in Xvfb xvfb-run xauth; do
+      if ! command -v "$tool" >/dev/null 2>&1; then
+        printf 'qml-unit: status=not-measured file=%s missing=%s\n' "${file##*/}" "$tool"
+        exit 77
+      fi
+    done
+    render_command=(xvfb-run --auto-servernum --server-args='-screen 0 800x600x24 -nolisten tcp'
+      sh -c 'exec env -i DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" "$@"' qml-unit-shader)
+    render_environment=(QT_QUICK_BACKEND=rhi QSG_RHI_BACKEND=opengl LIBGL_ALWAYS_SOFTWARE=1)
+  fi
+  out="$("${render_command[@]}" HOME="$root/home" PATH="/usr/bin:/usr/lib/qt6/bin" LC_ALL=C.UTF-8 \
+    "${render_environment[@]}" \
     QT_QPA_PLATFORM="offscreen:configfile=$root/screens.json" QT_SCREEN_SCALE_FACTORS="one=1;two=2" XDG_RUNTIME_DIR="$root/runtime" QML_XHR_ALLOW_FILE_READ=1 \
     QT_FORCE_STDERR_LOGGING=1 QT_MESSAGE_PATTERN='%{if-warning}warning: %{endif}%{if-critical}critical: %{endif}%{if-category}%{category}: %{endif}%{message}' \
     "$runner" -import "$imports" -input "$file" 2>&1)" || file_status=$?

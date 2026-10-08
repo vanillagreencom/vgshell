@@ -433,19 +433,20 @@ def png_rgba(path):
         elif kind == b"IDAT": idat += data[pos + 8:pos + 8 + n]
         pos += 12 + n
     iw, ih, depth, ctype, _, _, interlace = head
-    if (depth, ctype, interlace) != (8, 6, 0): return "png=%d/%d/%d" % (depth, ctype, interlace)
-    raw, stride, prev, rows = zlib.decompress(idat), iw * 4, bytearray(iw * 4), []
+    if depth != 8 or ctype not in (2, 6) or interlace != 0: return "png=%d/%d/%d" % (depth, ctype, interlace)
+    channels = 3 if ctype == 2 else 4
+    raw, stride, prev, rows = zlib.decompress(idat), iw * channels, bytearray(iw * channels), []
     for y in range(ih):
         f, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
         for i in range(stride):
-            a, b, c = (line[i - 4] if i >= 4 else 0), prev[i], (prev[i - 4] if i >= 4 else 0)
+            a, b, c = (line[i - channels] if i >= channels else 0), prev[i], (prev[i - channels] if i >= channels else 0)
             if f == 1: line[i] = (line[i] + a) & 255
             elif f == 2: line[i] = (line[i] + b) & 255
             elif f == 3: line[i] = (line[i] + (a + b) // 2) & 255
             elif f == 4:
                 p = a + b - c
                 line[i] = (line[i] + (a if abs(p - a) <= abs(p - b) and abs(p - a) <= abs(p - c) else b if abs(p - b) <= abs(p - c) else c)) & 255
-        rows.append(line); prev = line
+        rows.append(line if channels == 4 else bytearray(v for x in range(iw) for v in (*line[x * 3:x * 3 + 3], 255))); prev = line
     return iw, ih, rows
 '
 click_pill Reply || fail "the click on Reply failed"
@@ -2114,6 +2115,135 @@ write_theme '{ "schemaVersion": 1, "name": "vgs", "tokens": {} }'
 expect_poll "the defaults return" vgs ipc smoke themeName
 expect "dismissing the last toast is allowed" ok notes dismiss-all
 expect_poll "the last toast's exit has played" 0 layer_count vgs:layer
+
+# A layer flag is not a painted card. Read the nested output inside a
+# notification title that lies wholly above the bottom fade band. Only
+# the card title supplies the known opaque ink; neither the header nor the
+# wallpaper can satisfy this sample. The PNG reader above accepts both
+# Qt item RGBA grabs and the compositor RGB captures this check consumes.
+fade_card_ink_value() { # PNG ITEMS VIEW SURFACE INK TAIL OUTPUT_WIDTH OUTPUT_HEIGHT
+  python3 -c "$png_rgba_py"'
+items, view, surface = map(json.loads, sys.argv[2:5])
+ink = json.loads(sys.argv[5])
+image = png_rgba(sys.argv[1])
+if isinstance(image, str): print(image); sys.exit()
+iw, ih, rows = image
+mon_w, mon_h = map(float, sys.argv[7:9])
+vx, vy, vw, vh = view["box"]
+tail = float(sys.argv[6])
+titles = [i for i in items if i.get("name") == "notificationTitleText" and i["visible"] and
+          i["box"][2] > 0 and i["box"][3] > 0 and i["box"][1] >= vy and
+          i["box"][1] + i["box"][3] <= vy + vh - tail and
+          i["box"][0] >= vx and i["box"][0] + i["box"][2] <= vx + vw]
+if not titles: print("no-title-above-fade"); sys.exit()
+title = titles[len(titles) // 2]
+x, y, w, h = title["box"]
+sx, sy = iw / mon_w, ih / mon_h
+left, top = math.ceil((surface[0] + x) * sx), math.ceil((surface[1] + y) * sy)
+right, bottom = math.floor((surface[0] + x + w) * sx), math.floor((surface[1] + y + h) * sy)
+if left < 0 or top < 0 or right > iw or bottom > ih or left >= right or top >= bottom:
+    print("title-outside-output"); sys.exit()
+colour = bytes.fromhex(ink[-6:])
+count = sum(rows[py][4 * px:4 * px + 3] == colour for py in range(top, bottom) for px in range(left, right))
+print(json.dumps({"count": count, "ink": ink, "title": title["text"], "box": [left, top, right-left, bottom-top],
+                  "contentY": view["contentY"], "travel": view["contentHeight"]-view["height"]}))
+' "$@"
+}
+fade_card_sample() { # PNG
+  local items view surface ink socket output
+  items="$(ipc smoke descendantGeometry panel vgs.notifications)" || return
+  view="$(view_at_rest panel vgs.notifications "Fade probe 12")" || return
+  surface="$(surface_box vgs:panel)" || return
+  ink="$(look_at text.foreground)" || return
+  [[ $items == \[* && $view == \{* && $surface == \[* ]] || { echo no-card-view; return; }
+  socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return
+  output="$(first_name)" || return
+  if ! shot_grim "$socket" "$rt_dir" -o "$output" -t png "$1"; then
+    echo capture-unreadable
+    return
+  fi
+  fade_card_ink_value "$1" "$items" "$view" "$surface" "$ink" "$note_stack_tail" "$mon_w" "$mon_h"
+}
+fade_card_value_drawn() { # SAMPLE_JSON
+  local sample="$1"
+  [[ $sample == \{* ]] || { printf '%s\n' "$sample"; return; }
+  printf 'notification-fade: %s\n' "$sample" >&2
+  py_reply 'import json,sys
+sample=json.load(sys.stdin)
+print(type(sample["count"]) is int and sample["count"] > 0)' <<<"$sample"
+}
+fade_card_drawn() { # PNG
+  local sample
+  sample="$(fade_card_sample "$1")" || return
+  fade_card_value_drawn "$sample"
+}
+fade_scroll_state() {
+  view_at_rest panel vgs.notifications "Fade probe 12" | py_reply 'import json,sys
+v=json.load(sys.stdin); travel=v["contentHeight"]-v["height"]
+print("end" if travel > 0 and abs(v["contentY"]-travel) < 0.5 else "mid" if 0 < v["contentY"] < travel else "other")'
+}
+fade_wheel_end() {
+  local view rect x y
+  view="$(view_at_rest panel vgs.notifications "Fade probe 12")" || return
+  rect="$(py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["box"]))' <<<"$view")" || return
+  read -r x y < <(at_centre vgs:panel "$rect") || return
+  hover "$x" "$y" && wheel "$x" "$y" 10 || return
+  fade_scroll_state
+}
+fade_open_mid() {
+  expect "the pixel probe inbox opens" ok notes inbox
+  expect_poll "the pixel probe inbox holds its list focus" True panel_focus_on_list
+  for _ in $(seq 1 8); do type_keys -k Down || fail "the pixel probe Down key failed"; done
+  geometry expect_poll "the pixel probe list is at mid-scroll" mid fade_scroll_state
+  summon_drawn panel vgs.notifications || fail "the pixel probe panel drew no frame"
+}
+note_stack_tail="$(look_at stack.tail)" || fail "the fade height is unreadable"
+for at in $(seq 1 12); do
+  notify smoke-fade 0 "Fade probe $at" "The release notes are ready for your review. The build finished and the report is attached." '[]' '{"urgency": <byte 2>}' 0 >/dev/null
+done
+expect_poll "the pixel probe has its long list" True has_row live "Fade probe 12"
+for fade_mode in dark light; do
+  if [[ $fade_mode == light ]]; then
+    write_theme '{"schemaVersion":1,"name":"fade-light","tokens":{"scheme":{"mode":"light"}}}'
+    expect_poll "the pixel probe uses light ink" '"#ff2a2a2a"' look_at text.foreground
+  else
+    write_theme '{"schemaVersion":1,"name":"vgs","tokens":{}}'
+    expect_poll "the pixel probe uses dark ink" '"#ffe8e8e8"' look_at text.foreground
+  fi
+  fade_open_mid
+  render expect_poll "the $fade_mode mid-scroll cards draw known ink above the fade" True fade_card_drawn "$sandbox/fade-$fade_mode-mid.png"
+  geometry expect_poll "the $fade_mode pixel probe reaches its end" end fade_wheel_end
+  render expect_poll "the $fade_mode end cards draw known ink above the fade" True fade_card_drawn "$sandbox/fade-$fade_mode-end.png"
+  expect "the $fade_mode pixel probe closes" ok notes close
+done
+# The same positive assertion must fail when only card content is hidden.
+# Opacity preserves every list and title box, so geometry cannot detect it.
+fade_qml="$repo/shell/plugins/vgs.notifications/CardScroll.qml"
+cp -- "$fade_qml" "$sandbox/CardScroll.fade-kept.qml"
+python3 - "$fade_qml" <<'PY_FADE'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]); text=p.read_text(); needle="        id: cards\n"
+assert text.count(needle)==1
+p.write_text(text.replace(needle,needle+"        opacity: 0\n"))
+PY_FADE
+rescan "a rescan hides only the notification card content"
+expect_poll "the hidden-card control service is built" True record_exists vgs.notifications
+fade_open_mid
+fade_hidden_sample="$(fade_card_sample "$sandbox/fade-hidden-cards.png")"
+geometry expect "the hidden-card control keeps a title box and draws no known ink" True py_reply 'import json,sys
+s=json.load(sys.stdin);print(type(s["count"]) is int and s["count"]==0 and s["box"][2]>0 and s["box"][3]>0)' <<<"$fade_hidden_sample"
+fade_hidden_control() {
+  (failures=0; behaviour_failures=0; render expect "the cards draw known ink above the fade" True fade_card_value_drawn "$fade_hidden_sample" >"$sandbox/fade-hidden-control.log"; echo "$failures")
+}
+expect "control: hidden cards fail the same painted-ink assertion" 1 fade_hidden_control
+expect "the hidden-card control closes" ok notes close
+cp -- "$sandbox/CardScroll.fade-kept.qml" "$fade_qml"
+rescan "a rescan restores the painted notification cards"
+expect_poll "the restored pixel probe service is built" True record_exists vgs.notifications
+write_theme '{"schemaVersion":1,"name":"vgs","tokens":{}}'
+expect_poll "the pixel probe restores the dark look" '"#ffe8e8e8"' look_at text.foreground
+expect "the pixel probe notifications dismiss" ok notes dismiss-all
+expect_poll "the pixel probe notifications leave" 0 on_screen
 
 # The Slack token rows: the service publishes whether the stub libsecret
 # holds each listed workspace's token, never a
