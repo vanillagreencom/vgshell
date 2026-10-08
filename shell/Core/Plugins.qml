@@ -704,12 +704,24 @@ Singleton {
         const m = owner === null ? Registry.manifests[id] : owner;
         const refusal = Logic.placedRefusal(Config.effective, m, Registry.defaultBarId, widgetBuiltinNames(), id);
         if (refusal !== "") return refusal;
-        return Config.writeUser(Logic.withPlaced(Config.user, m, placed, Config.effective, id));
+        return Config.writeUser(Logic.withPlaced(Config.user, m, placed, Config.effective, id, Config.shipped));
     }
 
     function widgetBuiltinNames() {
         const active = Object.values(mounts).find(mount => mount.row.id === Registry.activeBarId);
         return active === undefined ? [] : active.row.instance.builtinNames;
+    }
+
+    function widgetBuiltinRows(id) {
+        const active = Object.values(mounts).find(mount => mount.row.id === id && id === Registry.activeBarId);
+        if (active === undefined) return [];
+        const bar = active.row.instance;
+        if (!Array.isArray(bar.builtinNames)) return [];
+        return bar.builtinNames.map(name => ({
+            id: id + "/" + name,
+            name: bar.builtinLabels[name],
+            placed: Logic.layoutPositionOf(Config.effective, id + "/" + name, null) !== null
+        }));
     }
 
     function widgetOwner(id) {

@@ -45,6 +45,7 @@ Item {
         source: "bundled",
         enabled: true,
         placed: false,
+        builtins: [],
         kinds: ["service"],
         capabilities: ["shortcut"],
         schema: ({}),
