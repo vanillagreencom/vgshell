@@ -1668,8 +1668,8 @@ const claudeControls = [
         "const score = logic.contrastRatio(colour, background);", "claude-word-optimum"],
     ["separate role hues", '[["diffAddedWord", 1], ["diffRemovedWord", 0]]',
         '[["diffAddedWord", 1], ["diffRemovedWord", 1]]', "claude-word-hue"],
-    ["word highlight differs from line", 'document.overrides[key] = "#" + logic.formatColor(chosen).slice(1, 7);',
-        'document.overrides[key] = document.overrides[key === "diffAddedWord" ? "diffAdded" : "diffRemoved"];', "claude-word-optimum"],
+    ["word highlight differs from line", '\n        document.overrides[key] = "#" + logic.formatColor(chosen).slice(1, 7);',
+        '\n        document.overrides[key] = document.overrides[key === "diffAddedWord" ? "diffAdded" : "diffRemoved"];', "claude-word-optimum"],
     ["normal and dimmed word-line floor", "    claudeLines(logic, input, document);", "", "claude-word-line"]
 ];
 try {
@@ -1683,8 +1683,18 @@ try {
         assert.notEqual(mutant, claudeSource);
         const file = path.join(claudeScratch, label.replaceAll(" ", "-") + ".js");
         fs.writeFileSync(file, mutant, { flag: "wx" });
-        assert.throws(() => verifyClaudeWords(require(file)), error => error instanceof assert.AssertionError &&
-            Array.isArray(error.actual) && error.actual.some(failure => failure.kind === kind));
+        let observed = null;
+        assert.throws(() => verifyClaudeWords(require(file)), error => {
+            if (!(error instanceof assert.AssertionError) || !Array.isArray(error.actual)) return false;
+            observed = error.actual.find(failure => failure.kind === kind);
+            return observed !== undefined;
+        });
+        if (kind === "claude-word-line") {
+            assert.equal(observed.floor, 3);
+            assert.ok(observed.ratio < observed.floor);
+            assert.match(observed.field, /^diff(Added|Removed)(Dimmed)?$/);
+            console.log(`test-theme-render: claude-boundary-control kind=${observed.kind} theme=${observed.theme} field=${observed.field} ratio=${observed.ratio} floor=${observed.floor}`);
+        }
     }
 } finally {
     fs.rmSync(claudeScratch, { recursive: true, force: true });
