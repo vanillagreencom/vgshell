@@ -111,16 +111,30 @@ Item {
                 const driver = (text.match(/^DRIVER=(.+)$/m) || [])[1];
                 const pci = (text.match(/^PCI_SLOT_NAME=(.+)$/m) || [])[1];
                 if (["amdgpu", "nvidia", "i915", "xe"].indexOf(driver) === -1 || !pci || cards.some(card => card.id === pci)) { done(); return; }
-                const card = { id: pci.toLowerCase(), path: device, driver: driver, name: driver === "amdgpu" ? "AMD graphics" : driver === "nvidia" ? "NVIDIA graphics" : "Intel graphics", discrete: driver === "nvidia", vramTotal: null, temperaturePath: "" };
+                const card = { id: pci.toLowerCase(), path: device, driver: driver, name: driver === "amdgpu" ? "AMD graphics" : driver === "nvidia" ? "NVIDIA graphics" : "Intel graphics", discrete: driver === "nvidia", vramTotal: null, temperaturePath: "", discoveryComplete: driver === "nvidia" };
                 cards.push(card);
                 read(device + "/power/runtime_status", state => {
                     if (state.trim() !== "active") { done(); return; }
-                    function sensors() { list(device + "/hwmon", /^hwmon\d+$/, monitors => { if (monitors.length) card.temperaturePath = monitors[0] + "/temp1_input"; done(); }); }
-                    if (driver === "amdgpu") read(device + "/mem_info_vram_total", total => { card.vramTotal = Logic.number(total); card.discrete = card.vramTotal !== null && card.vramTotal > 1073741824; sensors(); });
-                    else sensors();
+                    if (card.discoveryComplete) done();
+                    else completeGpuDiscovery(card, done);
                 });
             });
         }, finish));
+    }
+    function completeGpuDiscovery(card, done) {
+        function sensors() {
+            list(card.path + "/hwmon", /^hwmon\d+$/, monitors => {
+                if (monitors.length) card.temperaturePath = monitors[0] + "/temp1_input";
+                card.discoveryComplete = true;
+                done();
+            });
+        }
+        if (card.driver === "amdgpu") read(card.path + "/mem_info_vram_total", total => {
+            card.vramTotal = Logic.number(total);
+            card.discrete = card.vramTotal !== null && card.vramTotal > 1073741824;
+            sensors();
+        });
+        else sensors();
     }
     function publishChoices() {
         devices = Logic.orderGpus(devices);
@@ -150,21 +164,15 @@ Item {
         }
     }
     function tick() {
-        if (query !== null && Date.now() - query.startedAt >= 10000) { queryEnding = true; nvidia.running = false; }
-        if (!discovered || leaseCount === 0 || cycleBusy) return;
-        const inventory = nvidiaPresent && !nvidia.running && !queryEnding ? devices.find(card => card.driver === "nvidia" && !card.inventoryComplete) : null;
-        if (inventory) {
-            cycleBusy = true;
-            const token = generation;
-            read(inventory.path + "/power/runtime_status", state => {
-                if (token !== generation || leaseCount === 0) return;
-                if (state.trim() !== "active") { inventory.inventoryComplete = true; cycleBusy = false; tick(); return; }
-                startQuery("inventory", inventory);
-                cycleBusy = false;
-                tick();
-            });
-            return;
+        if (query !== null && !queryEnding && Date.now() - query.startedAt >= 10000) {
+            gpuResult = { id: query.card.id, state: "unavailable", use: null, vramUsed: null, vramTotal: null, temperature: null };
+            queryEnding = true;
+            // running=false sends SIGTERM; the child can still be running.
+            // Keep the request barrier until exited confirms completion.
+            // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
+            nvidia.running = false;
         }
+        if (!discovered || leaseCount === 0 || cycleBusy) return;
         cycleBusy = true;
         const token = generation;
         const sample = { cpu: {}, memory: {}, gpu: null, sampledAt: Date.now() };
@@ -178,6 +186,25 @@ Item {
         });
         read("/proc/meminfo", text => { if (live()) sample.memory = Logic.memory(text); });
         if (cpuTemperaturePath !== "") read(cpuTemperaturePath, text => { if (live()) sample.cpu.temperature = Logic.temperature(text); });
+        // A card skipped while asleep stays pending. CPU and memory reads
+        // precede this cold discovery, and an inactive card waits for the
+        // next timer tick instead of recursively starting another cycle.
+        const pendingCards = devices.filter(card => card.driver === "nvidia" ? nvidiaPresent && !card.inventoryComplete : !card.discoveryComplete);
+        each(pendingCards, (card, done) => {
+            read(card.path + "/power/runtime_status", state => {
+                if (!live()) return;
+                if (state.trim() !== "active") { done(); return; }
+                if (card.driver !== "nvidia") { completeGpuDiscovery(card, done); return; }
+                if (!nvidia.running && !queryEnding) startQuery("inventory", card);
+                done();
+            });
+        }, () => {
+            if (!live()) return;
+            if (pendingCards.length) publishChoices();
+            sampleGpu(sample, live);
+        });
+    }
+    function sampleGpu(sample, live) {
         const selected = chosenGpu === "" ? devices[0] : devices.find(card => card.id === chosenGpu);
         if (!selected) {
             if (chosenGpu !== "") sample.gpu = { id: chosenGpu, name: "Graphics card unavailable", state: "unavailable", use: null };
@@ -224,15 +251,15 @@ Item {
     }
     function finishQuery(code) {
         const pending = query;
+        const timedOut = queryEnding;
         query = null;
         queryEnding = false;
         if (leaseCount === 0 || pending === null || pending.generation !== generation) return;
-        const row = code === 0 ? Logic.nvidiaRows(gpuText.text).find(card => card.id === pending.card.id) : null;
+        const row = code === 0 && !timedOut ? Logic.nvidiaRows(gpuText.text).find(card => card.id === pending.card.id) : null;
         if (pending.kind === "inventory") {
             pending.card.inventoryComplete = true;
             if (row) { pending.card.name = row.name; pending.card.vramTotal = row.vramTotal; }
             publishChoices();
-            tick();
             return;
         }
         gpuResult = row ? Object.assign({ state: "ready" }, row) : { id: pending.card.id, state: "unavailable", use: null, vramUsed: null, vramTotal: null, temperature: null };

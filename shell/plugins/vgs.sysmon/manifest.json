@@ -89,7 +89,8 @@
     "showGpu": {
       "type": "boolean",
       "label": "GPU",
-      "group": "Readings"
+      "group": "Readings",
+      "description": "GPU readings hide when no supported graphics card is found; open Details for live status."
     },
     "cpuTemperature": {
       "type": "boolean",

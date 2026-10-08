@@ -859,7 +859,7 @@ mutations=(
   "the bar text drops its separate tone|controls/BarItem.qml|color: root.textTone|color: root.foreground|tst_baritem.qml"
   "the bar count drops its separate tone|controls/BarItem.qml|color: root.countTone|color: root.foreground|tst_baritem.qml"
   "System Monitor maps real zero to unknown|../plugins/vgs.sysmon/Widget.qml|text: root.percent(root.cpu.use)|text: \"--\"|tst_sysmon_widget.qml"
-  "System Monitor keeps the NVIDIA child after the last lease|../plugins/vgs.sysmon/Service.qml|            nvidia.running = false;|            nvidia.running = true;|tst_sysmon_service.qml"
+  "System Monitor keeps the NVIDIA child after the last lease|../plugins/vgs.sysmon/Service.qml|            query = null;|            query = null; nvidia.running = true; return;|tst_sysmon_service.qml"
   "a long inline label elides on one line|controls/FormRow.qml|        maximumLineCount: 2|        maximumLineCount: 1|tst_textfield.qml"
   "the field publishes no value column|controls/Field.qml|readonly property real valueX: leftPadding + controlRow.valueX|readonly property real valueX: leftPadding|tst_textfield.qml"
   "a pane's footer divider shows only while more lies below|layout/Pane.qml|visible: root.footerHeight > 0 && scroll.contentY + scroll.height < scroll.contentHeight - 1|visible: root.footerHeight > 0|tst_pane.qml"

@@ -102,6 +102,37 @@ Item {
             compare(readings[0].count, "--");
             compare(readings[2].count, "--");
         }
+        function test_production_tone_boundaries_data() {
+            const rules = [
+                { name: "cpu-use", reading: "cpu", field: "use", icon: "cpu", output: "tone", warning: 60, danger: 80 },
+                { name: "memory-use", reading: "memory", field: "use", icon: "memory-stick", output: "tone", warning: 75, danger: 90 },
+                { name: "cpu-temperature", reading: "cpu", field: "temperature", icon: "cpu", output: "countTone", warning: 70, danger: 85 },
+                { name: "gpu-temperature", reading: "gpu", field: "temperature", icon: "gpu", output: "countTone", warning: 65, danger: 80 }
+            ];
+            const cases = [];
+            for (const rule of rules) {
+                const values = [
+                    { value: null, expected: Theme.bar.foreground },
+                    { value: rule.warning - 1, expected: Theme.bar.foreground },
+                    { value: rule.warning, expected: Theme.color.warning },
+                    { value: rule.warning + 1, expected: Theme.color.warning },
+                    { value: rule.danger - 1, expected: Theme.color.warning },
+                    { value: rule.danger, expected: Theme.color.danger },
+                    { value: rule.danger + 1, expected: Theme.color.danger }
+                ];
+                for (const row of values) cases.push(Object.assign({ tag: rule.name + "-" + row.value }, rule, row));
+            }
+            return cases;
+        }
+        function test_production_tone_boundaries(data) {
+            widget.settings = { showCpu: true, showMemory: true, showGpu: true, cpuTemperature: true, gpuTemperature: true };
+            const reading = sample(5);
+            reading[data.reading][data.field] = data.value;
+            status.values = { readings: reading };
+            const item = items().find(row => row.iconName === data.icon);
+            verify(item !== undefined);
+            compare(item[data.output], Qt.color(data.expected));
+        }
         function test_widget_lease_lifetime() {
             compare(root.leaseCalls.length, 1);
             compare(root.leaseCalls[0][0], "lease");
