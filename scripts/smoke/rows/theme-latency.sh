@@ -17,7 +17,10 @@
 # 89/108/132 ms. Six at load 8.6: 171, 93, 158, 116, 108, 121 ms,
 # CPU pressure 0.3 to 0.8%, compositor logs on.
 # Wallpaper keeps its 150 ms bound.
-# inputs: shell/plugins/vgs.themes/* shell/Core/ThemeRunner.qml shell/Commons/Theme* shell/Ui/layout/CardCarousel.qml themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/ThemeLatencyProbe.qml scripts/smoke/fixtures/theme-image.jpg
+# Each theme change prints a split line, the ms of each part of the change
+# (latency_split), and each reading keeps the probe's marks, its frame
+# starts and presents, the GUI thread's gaps and the probe's own ms.
+# inputs: shell/plugins/vgs.themes/* shell/Core/ThemeRunner.qml shell/Commons/Theme* shell/Ui/layout/CardCarousel.qml themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/ThemeLatencyProbe.qml scripts/smoke/theme-latency-stamps.js scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 # Exercise the actual QML reader under Node with controlled presented frames.
 # These controls hold dismissal, wallpaper readiness and selected content.
@@ -47,7 +50,7 @@ function item(type, children = []) {
 function reader(text) {
     let clock = 10;
     const context = vm.createContext({ root: { themeLatency: null }, Theme: { name: 'latency' }, Plugins: { built: { overlay: [] } }, Image, Date: { now: () => clock++ } });
-    for (const name of ['typeName', 'descendants', 'visibleInTree', 'desktopExposed', 'backgroundReady', 'selectedCard', 'cardPicture', 'selectedPictureReady', 'latencyFrame']) vm.runInContext(declaration(text, name), context);
+    for (const name of ['typeName', 'descendants', 'browserParts', 'visibleInTree', 'desktopExposed', 'backgroundReady', 'selectedCard', 'cardPicture', 'selectedPictureReady', 'latencyFrame', 'readFrame', 'frameLog']) vm.runInContext(declaration(text, name), context);
     context.root.selectedPictureReady = context.selectedPictureReady;
     context.begin = (kind, want, background = '') => { context.root.themeLatency = { kind, want, background, started: 0, jobs: [] }; };
     return context;
@@ -91,6 +94,11 @@ function verify(text) {
     c.begin('theme', 'latency', 'file:///a.jpg'); c.latencyFrame(background, 'background');
     assert.equal(c.root.themeLatency.drawn, undefined, 'theme must wait for its new bar frame too');
     c.latencyFrame(bar, 'bar'); assert.equal(typeof c.root.themeLatency.drawn, 'number');
+    c.Theme.name = 'before';
+    c.begin('theme', 'latency', 'file:///a.jpg'); c.latencyFrame(background, 'background'); c.latencyFrame(bar, 'bar');
+    assert.equal(c.root.themeLatency.drawn, undefined, 'a bar frame before the theme publishes must not complete it');
+    c.Theme.name = 'latency'; c.latencyFrame(bar, 'bar');
+    assert.equal(typeof c.root.themeLatency.drawn, 'number', 'a wallpaper frame drawn before the theme publishes must count');
     c.begin('step', '');
     const picture = new Image('file:///a.jpg'), card = item('ThemeCard', [picture]), browser = item('Browser', [card]);
     card.current = true; card.picture = 'file:///a.jpg';
@@ -121,13 +129,15 @@ const controls = [
     ['missing selected picture', 'if (card === undefined || !visibleInTree(card)) { reading.late = (reading.late || 0) + 1; return; }', 'if (card === undefined || !visibleInTree(card)) return;'],
     ['low selected picture', 'if (picture !== null && picture.low) reading.low = (reading.low || 0) + 1;', ''],
     ['a low picture is not full', '&& !picture.low && reading.full[key]', '&& reading.full[key]'],
-    ['an unmeasured file is low', 'size === undefined || size[0]', 'size !== undefined && size[0]']
+    ['an unmeasured file is low', 'size === undefined || size[0]', 'size !== undefined && size[0]'],
+    ['bar waits for the published theme', '            if (Theme.name !== reading.want) return;\n            if (kind === "bar")', '            if (kind === "bar")'],
+    ['wallpaper frame before the publish', '            if (kind === "background" && descendants(item).some(child => child instanceof Image && child.status === Image.Ready && String(child.source).split("?")[0] === reading.background)) reading.backgroundFrame = frameTime - reading.started;\n            if (Theme.name !== reading.want) return;\n', '            if (Theme.name !== reading.want) return;\n            if (kind === "background" && descendants(item).some(child => child instanceof Image && child.status === Image.Ready && String(child.source).split("?")[0] === reading.background)) reading.backgroundFrame = frameTime - reading.started;\n']
 ];
 for (const [label, needle, replacement] of controls) {
     assert.equal(source.split(needle).length, 2, label + ': exact control match');
     assert.throws(() => verify(source.replace(needle, replacement)), { name: 'AssertionError' }, label + ': reader without this rule must fail');
 }
-console.log('theme-latency-reader: ok controls=7 browser-held=refused wallpaper-loading=refused retained-live=refused selected-missing=refused selected-low=refused low-full=refused unmeasured-low=refused');
+console.log('theme-latency-reader: ok controls=9 browser-held=refused wallpaper-loading=refused retained-live=refused selected-missing=refused selected-low=refused low-full=refused unmeasured-low=refused bar-unpublished=refused wallpaper-before-publish=refused');
 JS
 
 cp -- "$repo/scripts/smoke/ThemeLatencyProbe.qml" "$repo/shell/ThemeLatencyProbe.qml"
@@ -156,6 +166,39 @@ print(json.dumps(dict(zip(["cpu_some_pct","memory_some_pct","io_some_pct"],value
 expect "contention keeps measured zero and nonzero pressure" '{"cpu_some_pct": 0.0, "memory_some_pct": 1.2, "io_some_pct": 2.3, "window_ms": 100, "load_average": 6.25, "scope": "host"}' latency_contention 0.0 1.2 2.3 100 6.25
 expect "contention keeps unavailable pressure distinct from zero" '{"cpu_some_pct": null, "memory_some_pct": null, "io_some_pct": 0.0, "window_ms": 100, "load_average": null, "scope": "host"}' latency_contention unmeasured unmeasured 0.0 100 unmeasured
 
+# A theme reading with its apply process's stamps from STAMPS, the last
+# line the stand-in started after the reading did, as ms from its start,
+# and `split`: the ms each part of the change took, in order. queue: the
+# key press to the queued job; launch: to the stand-in's start; runner:
+# bin/vgshell to node; boot: node's start; judge: the judge up to the
+# theme file; seen: to the shell's watcher; read: the read and the judge
+# in the shell to the new name; bound: the tokens bound to the revision;
+# reply: the process's exit to the answer; close: the later of the
+# revision and the answer to the browser's removal; frame: to the drawn
+# frame. A part whose ends are missing is null.
+latency_split() { # VALUE [STAMPS]
+  printf '%s' "$1" | py_reply 'import json,sys
+x=json.load(sys.stdin)
+start=x["started"]
+rows=[]
+try:
+    with open(sys.argv[1]) as f: rows=[json.loads(line) for line in f if line.strip()]
+except FileNotFoundError: pass
+mine=[r for r in rows if r.get("spawned",0)>=start]
+p={k:v-start for k,v in mine[-1].items()} if mine else {}
+x["process"]=p
+q=next((j["queued"] for j in x.get("jobs",[]) if j["verb"]=="apply"),None)
+def gap(a,b): return None if a is None or b is None else b-a
+later=None if x.get("published") is None or x.get("answered") is None else max(x["published"],x["answered"])
+x["split"]={"queue":q,"launch":gap(q,p.get("spawned")),"runner":gap(p.get("spawned"),p.get("node")),"boot":gap(p.get("node"),p.get("ready")),"judge":gap(p.get("ready"),p.get("theme")),"seen":gap(p.get("theme"),x.get("seen")),"read":gap(x.get("seen"),x.get("named")),"bound":gap(x.get("named"),x.get("published")),"reply":gap(p.get("exit"),x.get("answered")),"close":gap(later,x.get("uncovered")),"frame":gap(x.get("uncovered"),x.get("drawn"))}
+print(json.dumps(x))' "${2-$latency_stamps}"
+}
+latency_split_field() { latency_split "$@" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["split"], sort_keys=True))'; }
+latency_split_control="$sandbox/latency-split-control"
+printf '%s\n' '{"spawned":900,"node":1015,"ready":1030,"theme":1080,"exit":1090}' '{"spawned":1012,"node":1020,"ready":1035,"theme":1070,"exit":1075}' >"$latency_split_control"
+expect "the split reads the reading's own apply process" '{"boot": 15, "bound": 8, "close": 4, "frame": 30, "judge": 35, "launch": 4, "queue": 8, "read": 12, "reply": 2, "runner": 8, "seen": 5}' latency_split_field '{"started":1000,"jobs":[{"verb":"list","queued":2},{"verb":"apply","queued":8}],"seen":75,"named":87,"published":95,"answered":77,"uncovered":99,"drawn":129}' "$latency_split_control"
+expect "the split takes no earlier reading's process and leaves its parts null" '{"boot": null, "bound": null, "close": null, "frame": null, "judge": null, "launch": null, "queue": null, "read": null, "reply": null, "runner": null, "seen": null}' latency_split_field '{"started":5000,"jobs":[]}' "$latency_split_control"
+rm -- "$latency_split_control"
 latency_read() { ipc theme-latency themeLatencyRead; }
 latency_done() { latency_read | py_reply 'import json,sys; print("drawn" if "drawn" in json.load(sys.stdin) else "pending")'; }
 latency_report() {
@@ -170,6 +213,7 @@ latency_report() {
   io_pressure="$(cpu_some_pct "$latency_io_start" "${resources[1]}" "$((end_ms - latency_window_start))")"
   contention="$(latency_contention "$pressure" "$memory_pressure" "$io_pressure" "$((end_ms - latency_window_start))" "$latency_load")" || return 1
   value="$(printf '%s' "$value" | py_reply 'import json,sys; value=json.load(sys.stdin); value["contention"]=json.loads(sys.argv[1]); print(json.dumps(value))' "$contention")" || return 1
+  [[ $1 != theme ]] || value="$(latency_split "$value")" || return 1
   if [[ $1 != open-cold ]]; then
     local bound=150 planted verdict drawn reading=$1
     [[ $1 == open-warm ]] && bound=240
@@ -190,6 +234,7 @@ latency_report() {
     expect "$1 rejects a reading over its bound" over latency_verdict "$planted" "$bound"
   fi
   printf 'theme-latency: reading=%s value=%s\n' "$1" "$value"
+  [[ $1 != theme ]] || printf 'theme-latency: split=%s\n' "$(printf '%s' "$value" | py_reply 'import json,sys; x=json.load(sys.stdin); print(json.dumps(dict(x["split"], drawn=x.get("drawn"), wallReady=x.get("wallReady"), hyprReloaded=x.get("hyprReloaded"), probeMs=x.get("probeMs"), stalls=x.get("stalls",[]), frames=x.get("frames",{}))))')"
   printf 'theme-latency: load=%s cpu_some_pct=%s pressure_window_ms=%s\n' "$latency_load" "$pressure" "$((end_ms - latency_window_start))"
 }
 latency_pressure_start() {
@@ -293,11 +338,17 @@ cp -p -- "$repo/bin/vgshell" "$sandbox/vgshell-before-latency"
 cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.latency-real"
 latency_gate="$sandbox/latency-catalog-gate"
 latency_started="$sandbox/latency-catalog-started"
+# Each apply's judge stamps its parts into this file, one line a process.
+latency_stamps="$sandbox/latency-apply-stamps"
 cat >"$repo/bin/vgshell" <<EOF
 #!/usr/bin/env bash
 if [[ \${1-} == theme && \${2-} == catalog ]]; then
   touch '$latency_started'
   while [[ ! -e '$latency_gate' ]]; do sleep 0.01; done
+fi
+if [[ \${1-} == theme && \${2-} == apply ]]; then
+  export VGS_LATENCY_SPAWNED="\$EPOCHREALTIME" VGS_LATENCY_STAMPS='$latency_stamps'
+  export NODE_OPTIONS="\${NODE_OPTIONS:+\$NODE_OPTIONS }--require=$repo/scripts/smoke/theme-latency-stamps.js"
 fi
 exec '$repo/bin/vgshell.latency-real' "\$@"
 EOF
@@ -487,6 +538,7 @@ expect_poll "the refresh browser closes" 0 layer_count vgs:overlay
 
 cp -p -- "$sandbox/vgshell-before-latency" "$repo/bin/vgshell"
 rm -- "$repo/bin/vgshell.latency-real"
+rm -f -- "${latency_stamps:?}"
 expect "the theme service disables after latency readings" ok ipc shell setPluginEnabled vgs.themes false
 expect "vgs restores after latency readings" 'ok theme=vgs state=applied shell=applied' "${shell_env[@]}" "$repo/bin/vgshell" theme apply vgs
 expect_poll "vgs restores the shell" vgs ipc smoke themeName

@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Window
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import qs.Core
 import qs.Commons
 
@@ -15,14 +16,49 @@ Scope {
     property bool selectedFrameReady: false
 
     function typeName(item) { return String(item).split("(")[0].replace(/(_QML(TYPE)?_\d+)+$/, ""); }
+    // The engine hands one wrapper per object, so a Set finds each object
+    // once; an indexOf walk made a browser frame's reader quadratic.
     function descendants(item) {
         const all = [item];
+        const seen = new Set(all);
         for (let i = 0; i < all.length; i++) {
             const children = Array.from(all[i].children || []).concat(Array.from(all[i].data || []));
             for (const child of children)
-                if (typeof child === "object" && child !== null && all.indexOf(child) === -1) all.push(child);
+                if (typeof child === "object" && child !== null && !seen.has(child)) {
+                    seen.add(child);
+                    all.push(child);
+                }
         }
         return all;
+    }
+    // The browser ITEM's views and cards, found in one walk that does not
+    // enter a card and names only an object with a model or with cards, as
+    // both views have. Naming an object builds a string: while the reader
+    // named every object of the browser, its frames took 67 to 107 ms of a
+    // warm open (probeMs, theme-latency row on cachy, 2026-10-08).
+    function browserParts(item) {
+        const parts = { themeView: undefined, wallpaperView: undefined, cards: [] };
+        const all = [item];
+        const seen = new Set(all);
+        for (let i = 0; i < all.length; i++) {
+            const node = all[i];
+            if (node.modelData !== undefined || node.cards !== undefined) {
+                const type = typeName(node);
+                if (type === "ThemeView") parts.themeView = node;
+                else if (type === "WallpaperView") parts.wallpaperView = node;
+                else if (type === "ThemeCard" || type === "WallpaperCard") {
+                    parts.cards.push(node);
+                    continue;
+                }
+            }
+            const children = Array.from(node.children || []).concat(Array.from(node.data || []));
+            for (const child of children)
+                if (typeof child === "object" && child !== null && !seen.has(child)) {
+                    seen.add(child);
+                    all.push(child);
+                }
+        }
+        return parts;
     }
     function visibleInTree(item) {
         for (let at = item; at !== null && at !== undefined; at = at.parent)
@@ -30,25 +66,80 @@ Scope {
         return true;
     }
 
-    function catalogReady(item) {
-        const children = descendants(item);
-        const view = children.find(child => typeName(child) === "ThemeView");
-        if (view === undefined || view.entries === null || view.packages === null) return false;
+    // What the browser's complete catalog still waits for, from its
+    // browserParts PARTS: `view` before its answers, `cards` before every
+    // package and catalog entry has a card, `pictures=N` while N visible
+    // cards have no ready picture, else "".
+    function catalogWaiting(parts) {
+        const view = parts.themeView;
+        if (view === undefined || view.entries === null || view.packages === null) return "view";
         const names = {};
         for (const row of view.packages) if (row.state !== "shadowed") names[row.name] = true;
         for (const row of view.entries) names[row.name] = true;
-        if (view.shownCards.length !== Object.keys(names).length) return false;
-        for (const card of children.filter(child => typeName(child) === "ThemeCard" && visibleInTree(child))) {
+        if (view.shownCards.length !== Object.keys(names).length) return "cards";
+        let pending = 0;
+        for (const card of parts.cards.filter(child => typeName(child) === "ThemeCard" && visibleInTree(child))) {
             if (card.picture === "") continue;
             const shown = descendants(card).filter(child => child instanceof Image && visibleInTree(child) && String(child.source) !== "");
-            if (!shown.some(image => image.status === Image.Ready)) return false;
+            if (!shown.some(image => image.status === Image.Ready)) pending++;
         }
-        return true;
+        return pending === 0 ? "" : "pictures=" + pending;
     }
+    function catalogReady(item) { return catalogWaiting(browserParts(item)) === ""; }
 
     function latencyMark(stage) {
         if (themeLatency !== null && themeLatency[stage] === undefined)
             themeLatency[stage] = Date.now() - themeLatency.started;
+    }
+
+    // A GUI-thread gap of beatMs plus stallMs or longer between two beats
+    // while a reading waits for its frame: [ms from the reading's start to
+    // the gap's start, its length]. A blocked thread and a busy one read
+    // alike, and a shorter gap is not seen.
+    readonly property int beatMs: 4
+    readonly property int stallMs: 12
+    property double lastBeat: 0
+    Timer {
+        interval: root.beatMs
+        repeat: true
+        running: root.themeLatency !== null && root.themeLatency.kind !== "step" && root.themeLatency.drawn === undefined
+        onRunningChanged: root.lastBeat = Date.now()
+        onTriggered: {
+            const now = Date.now();
+            const reading = root.themeLatency;
+            if (reading !== null && now - root.lastBeat >= root.beatMs + root.stallMs) {
+                if (reading.stalls === undefined) reading.stalls = [];
+                reading.stalls.push([root.lastBeat - reading.started, now - root.lastBeat]);
+            }
+            root.lastBeat = now;
+        }
+    }
+
+    // The theme file's change as the shell's own watcher sees it, beside
+    // ThemeSource's watcher of the same file.
+    FileView {
+        path: Paths.configDir + "/theme.json"
+        preload: false
+        watchChanges: true
+        printErrors: false
+        onFileChanged: if (root.themeLatency !== null && root.themeLatency.kind === "theme") root.latencyMark("seen")
+    }
+
+    // A theme change rewrites the shell's Hyprland layer and reloads
+    // Hyprland's configuration: `layerWritten` when the layer file changes,
+    // `hyprReloaded` when Hyprland reports the reload on its event socket.
+    FileView {
+        path: Paths.stateDir + "/hypr/vgs.lua"
+        preload: false
+        watchChanges: true
+        printErrors: false
+        onFileChanged: if (root.themeLatency !== null && root.themeLatency.kind === "theme") root.latencyMark("layerWritten")
+    }
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) {
+            if (event.name === "configreloaded" && root.themeLatency !== null && root.themeLatency.kind === "theme") root.latencyMark("hyprReloaded");
+        }
     }
 
     function desktopExposed() {
@@ -79,9 +170,9 @@ Scope {
     }
 
     function selectedCard(item) {
-        const children = descendants(item);
-        const view = children.find(child => typeName(child) === "WallpaperView");
-        return children.find(child => typeName(child) === "ThemeCard" && child.current || typeName(child) === "WallpaperCard" && view !== undefined && view.selected !== null && child.modelData.key === view.selected.key);
+        const parts = browserParts(item);
+        const view = parts.wallpaperView;
+        return parts.cards.find(child => typeName(child) === "ThemeCard" && child.current || typeName(child) === "WallpaperCard" && view !== undefined && view.selected !== null && child.modelData.key === view.selected.key);
     }
 
     // CARD's picture: null when the card draws none, else whether it is
@@ -111,9 +202,38 @@ Scope {
         return picture === null || picture.ready;
     }
 
+    // While a timed reading waits, the ms from its start at which the GUI
+    // thread starts a frame of a window of KEY's kind (`started`, its
+    // afterAnimating) and handles the frameSwapped the render thread sends
+    // after the frame's swap (`swapped`), up to 24 of each. The compositor
+    // paces the swap: each overlay swap blocked 31 to 35 ms in the sandbox
+    // (qt.scenegraph.time.renderloop, theme-latency row on cachy,
+    // 2026-10-08).
+    function frameLog(key) {
+        const reading = root.themeLatency;
+        if (reading === null || reading.kind === "step" || reading.drawn !== undefined) return;
+        if (reading.frames === undefined) reading.frames = {};
+        if (reading.frames[key] === undefined) reading.frames[key] = [];
+        if (reading.frames[key].length < 24) reading.frames[key].push(Date.now() - reading.started);
+    }
+
+    // A frame's reader, with the GUI-thread ms it took while its reading
+    // waits added to the reading's `probeMs`, so a reading names what the
+    // probe itself cost the frames it times.
     function latencyFrame(item, kind) {
         const frameTime = Date.now();
-        if (typeName(item) === "Browser") {
+        const reading = root.themeLatency;
+        const pending = reading !== null && reading.kind !== "step" && reading.drawn === undefined;
+        frameLog(kind + ".swapped");
+        readFrame(item, kind, frameTime);
+        if (pending) reading.probeMs = (reading.probeMs || 0) + Date.now() - frameTime;
+    }
+
+    function readFrame(item, kind, frameTime) {
+        // The selected picture is read for a step reading and the arming
+        // checks between readings, never inside a pending timed one.
+        const timed = root.themeLatency !== null && root.themeLatency.kind !== "step" && root.themeLatency.drawn === undefined;
+        if (typeName(item) === "Browser" && !timed) {
             root.selectedFrameItem = item;
             root.selectedFrameReady = root.selectedPictureReady(item);
         }
@@ -140,14 +260,27 @@ Scope {
         }
         if (reading.kind === "open") {
             if (typeName(item) !== "Browser") return;
-            const view = descendants(item).find(child => typeName(child) === "ThemeView");
-            const card = descendants(item).find(child => typeName(child) === "ThemeCard" && child.current);
+            if (reading.firstFrame === undefined) reading.firstFrame = frameTime - reading.started;
+            const parts = browserParts(item);
+            const view = parts.themeView;
+            const card = parts.cards.find(child => typeName(child) === "ThemeCard" && child.current);
             if (view === undefined || card === undefined || !visibleInTree(card) || !view.activeFocus || view.shownCards.length === 0) return;
-            if (reading.want === "warm" && !catalogReady(item)) return;
+            if (reading.focusFrame === undefined) reading.focusFrame = frameTime - reading.started;
+            const waiting = reading.want === "warm" ? catalogWaiting(parts) : "";
+            if (waiting !== "") {
+                // Each frame whose wait differs from the last frame's:
+                // [ms from the start, what the catalog waits for].
+                if (reading.waits === undefined) reading.waits = [];
+                if (reading.waits.length === 0 || reading.waits[reading.waits.length - 1][1] !== waiting) reading.waits.push([frameTime - reading.started, waiting]);
+                return;
+            }
         } else if (reading.kind === "theme") {
+            // The wallpaper covers the background's window, so its frame
+            // counts from the reading's start; the bar draws the theme, so
+            // its frame counts once the theme has published.
+            if (kind === "background" && descendants(item).some(child => child instanceof Image && child.status === Image.Ready && String(child.source).split("?")[0] === reading.background)) reading.backgroundFrame = frameTime - reading.started;
             if (Theme.name !== reading.want) return;
             if (kind === "bar") reading.barFrame = frameTime - reading.started;
-            if (kind === "background" && descendants(item).some(child => child instanceof Image && child.status === Image.Ready && String(child.source).split("?")[0] === reading.background)) reading.backgroundFrame = frameTime - reading.started;
             // The empty background is an explicit theme without wallpaper.
             if (reading.barFrame === undefined || (reading.background !== "" && reading.backgroundFrame === undefined)) return;
         } else if (reading.kind === "wallpaper") {
@@ -174,6 +307,31 @@ Scope {
             required property var modelData
             target: modelData.instance.Window.window
             function onFrameSwapped() { root.latencyFrame(modelData.instance, modelData.kind); }
+            function onAfterAnimating() { root.frameLog(modelData.kind + ".started"); }
+        }
+    }
+    function wallpaperWanted(image) {
+        const reading = root.themeLatency;
+        return reading !== null && reading.background !== "" && String(image.source).split("?")[0] === reading.background;
+    }
+
+    // When a background image takes the reading's wallpaper (`wallSet`)
+    // and when its decode is ready (`wallReady`).
+    Variants {
+        model: {
+            const images = [];
+            for (const key of Object.keys(Plugins.built))
+                for (const row of Plugins.built[key])
+                    if (row.kind === "background")
+                        for (const child of root.descendants(row.instance))
+                            if (child instanceof Image) images.push({ image: child });
+            return images;
+        }
+        Connections {
+            required property var modelData
+            target: modelData.image
+            function onSourceChanged() { if (root.wallpaperWanted(modelData.image)) root.latencyMark("wallSet"); }
+            function onStatusChanged() { if (root.wallpaperWanted(modelData.image) && modelData.image.status === Image.Ready) root.latencyMark("wallReady"); }
         }
     }
     Connections {
@@ -186,8 +344,11 @@ Scope {
             }
         }
     }
+    // ThemeSource sets the name, then the values every token binding reads,
+    // then the revision, so named to published is the binding of tokens.
     Connections {
         target: Theme
+        function onNameChanged() { root.latencyMark("named"); }
         function onRevisionChanged() { root.latencyMark("published"); }
     }
     Connections {
@@ -195,10 +356,15 @@ Scope {
         function onJobsChanged() {
             if (root.themeLatency === null) return;
             if (root.themeLatency.kind === "theme" && root.themeLatency.jobs.some(job => job.verb === "apply") && !Capabilities.themes.jobs.some(job => job.verb === "apply")) root.latencyMark("answered");
+            const now = Date.now() - root.themeLatency.started;
+            root.themeLatencyJobs.forEach((job, i) => {
+                const row = root.themeLatency.jobs[i];
+                if (row.left === undefined && Capabilities.themes.jobs.indexOf(job) === -1) row.left = now;
+            });
             for (const job of Capabilities.themes.jobs) {
                 if (root.themeLatencyJobs.indexOf(job) !== -1) continue;
                 root.themeLatencyJobs.push(job);
-                root.themeLatency.jobs.push({ verb: job.verb, queued: Date.now() - root.themeLatency.started });
+                root.themeLatency.jobs.push({ verb: job.verb, queued: now });
             }
         }
     }
