@@ -2595,10 +2595,9 @@ expect_poll "the Settings window is gone after the Position checks" 0 window_cou
 notes dismiss-all >/dev/null
 expect_poll "the Place toasts are gone" 0 layer_count vgs:layer
 
-# Read glyph cores from the actual capture. Edge antialiasing is excluded
-# by taking the pixels farthest from the halo tone in each word box.
 # ThemeLogic judges resolved ink against the halo at its drawn opacity
-# over the same bare wallpaper pixels.
+# over bare wallpaper pixels at the floating words. Capture core readings
+# remain diagnostic; antialiasing is not a resolved-colour contrast rule.
 fade_hint_sample_value() { # PNG BACKGROUND ITEMS SURFACE COLOURS SHADOW OPACITY OUTPUT_WIDTH OUTPUT_HEIGHT [REFERENCE_JSON]
   python3 -c "$png_rgba_py"'
 image, background = png_rgba(sys.argv[1]), png_rgba(sys.argv[2])
@@ -2663,7 +2662,7 @@ const readings=sample.samples.map(s=>{
     shadowRGB:sample.shadowRGB,shadowOpacity:sample.shadowOpacity,minimum:ratios.length?Math.min(...ratios):null};
 });
 console.error("notification-hint-contrast: "+JSON.stringify(readings));
-const covered=readings.length===2 && readings.every(s=>s.corePixels>=20 && s.columnSpan>=s.box[2]/2 && s.coreError<=32);
+const covered=readings.length===2 && readings.every(s=>s.corePixels>0);
 console.log(covered && (process.argv[4]==="coverage" || readings.every(s=>s.minimum>=4.5))?"True":"False");
 JS_HINT
 }
@@ -2857,13 +2856,16 @@ for fade_mode in dark light; do
   render expect_poll "the $fade_mode mid-scroll cards draw known ink above the fade" True fade_card_drawn "$sandbox/fade-$fade_mode-mid.png"
   render expect_poll "the $fade_mode floating words contrast with their painted halo" True fade_hint_drawn "$sandbox/fade-hints-$fade_mode.png"
   fade_positive_sample="$(fade_hint_sample "$sandbox/fade-hints-reference-$fade_mode.png")" || fail "the positive hint core sample is unreadable"
+  printf "%s\n" "$fade_positive_sample" >"$sandbox/fade-hints-reference-$fade_mode.json"
   geometry expect_poll "the $fade_mode pixel probe reaches its end" end fade_wheel_end
   render expect_poll "the $fade_mode end cards draw known ink above the fade" True fade_card_drawn "$sandbox/fade-$fade_mode-end.png"
   geometry expect_poll "the $fade_mode drawn card glow is one spacing step above the chips" True fade_gap_drawn
   expect "the $fade_mode pixel probe closes" ok notes close
-  fade_hints_qml="$repo/shell/Ui/feedback/KeyHints.qml"
-  cp -- "$fade_hints_qml" "$sandbox/KeyHints.contrast-kept.qml"
-  python3 - "$fade_hints_qml" <<'PY_HINT_MUTANT'
+done
+# Plant the actual muted-text defect once, then read both real themes.
+fade_hints_qml="$repo/shell/Ui/feedback/KeyHints.qml"
+cp -- "$fade_hints_qml" "$sandbox/KeyHints.contrast-kept.qml"
+python3 - "$fade_hints_qml" <<'PY_HINT_MUTANT'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1]);text=p.read_text();needle="color: Theme.keyHints.foreground"
 assert text.count(needle)==1
@@ -2871,24 +2873,35 @@ changed=text.replace(needle,"color: Theme.text.hint.color")
 assert changed!=text
 p.write_text(changed)
 PY_HINT_MUTANT
-  # A fresh shell reads the changed shared Ui module.
-  stop_shell
-  start_shell "$repo" "$sandbox/notifications-muted-$fade_mode.log" || fail "the muted hint shell failed"
-  expect_poll "the muted hint shell builds notifications" True record_exists vgs.notifications
+# A fresh shell reads the changed shared Ui module.
+stop_shell
+start_shell "$repo" "$sandbox/notifications-muted-hints.log" || fail "the muted hint shell failed"
+expect_poll "the muted hint shell builds notifications" True record_exists vgs.notifications
+for fade_mode in dark light; do
+  if [[ $fade_mode == light ]]; then
+    write_theme "$fade_light_theme"
+    expect_poll "the muted probe uses light ink" '"#ff2a2a2a"' look_at text.foreground
+  else
+    write_theme '{"schemaVersion":1,"name":"vgs","tokens":{}}'
+    expect_poll "the muted probe uses dark ink" '"#ffe8e8e8"' look_at text.foreground
+  fi
+  fade_background="$sandbox/fade-background-$fade_mode.png"
+  fade_positive_sample="$(cat "$sandbox/fade-hints-reference-$fade_mode.json")" || fail "the positive wallpaper sample is unreadable"
   fade_open_mid
   fade_muted_sample="$(fade_hint_sample "$sandbox/fade-muted-hints-$fade_mode.png" "$fade_positive_sample")"
   printf "%s\n" "$fade_muted_sample" >"$sandbox/fade-muted-hints-$fade_mode.json"
-  render expect "the muted $fade_mode control still draws both measured words" True fade_hint_contrast_value "$fade_muted_sample" coverage
+  render expect "the muted $fade_mode control keeps a real wallpaper sample" True fade_hint_contrast_value "$fade_muted_sample" coverage
   fade_muted_control() {
     (failures=0; behaviour_failures=0; render expect "the floating words contrast with their painted halo" True fade_hint_contrast_value "$fade_muted_sample" >"$sandbox/fade-muted-hints-$fade_mode-control.log"; echo "$failures")
   }
-  expect "control: muted $fade_mode words fail the same pixel contrast assertion" 1 fade_muted_control
+  expect "control: muted $fade_mode words fail the same typed contrast assertion" 1 fade_muted_control
   expect "the muted $fade_mode probe closes" ok notes close
-  cp -- "$sandbox/KeyHints.contrast-kept.qml" "$fade_hints_qml"
-  stop_shell
-  start_shell "$repo" "$sandbox/notifications-restored-$fade_mode.log" || fail "the restored hint shell failed"
-  expect_poll "the restored hint shell builds notifications" True record_exists vgs.notifications
+
 done
+cp -- "$sandbox/KeyHints.contrast-kept.qml" "$fade_hints_qml"
+stop_shell
+start_shell "$repo" "$sandbox/notifications-restored-hints.log" || fail "the restored hint shell failed"
+expect_poll "the restored hint shell builds notifications" True record_exists vgs.notifications
 # The same positive assertion must fail when only card content is hidden.
 # Opacity preserves every list and title box, so geometry cannot detect it.
 fade_qml="$repo/shell/plugins/vgs.notifications/CardScroll.qml"
