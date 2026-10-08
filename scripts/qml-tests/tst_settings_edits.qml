@@ -220,13 +220,20 @@ Item {
             const original = { shortcut: "spare", key: "SUPER+M", default: "SUPER+M", description: "Spare" };
             const field = disposableKey.createObject(root, { width: 600, capture: pageCapture, bind: original });
             const box = () => descendants(field).find(item => String(item).indexOf("QQuickAbstractButton") === 0);
-            waitForItemPolished(box().parent);
+            // Rows update once per frame. Finish the nested action/tool
+            // layouts before reading the box, including hidden actions.
+            // https://doc.qt.io/qt-6/qml-qtquick-row.html#forceLayout-method
+            const layout = () => {
+                for (let item = field.actions[0].parent; item; item = item.parent)
+                    if (typeof item.forceLayout === "function") item.forceLayout();
+            };
+            layout();
             const expected = box().width;
             for (const key of [null, "SUPER+N", "SUPER+M"]) {
                 field.bind = Object.assign({}, original, { key: key });
                 const reset = field.actions.find(item => item.label.indexOf("Reset to ") === 0);
                 compare(reset.visible, key !== original.default);
-                waitForItemPolished(box().parent);
+                layout();
                 tryCompare(box(), "width", expected);
             }
             field.destroy();
