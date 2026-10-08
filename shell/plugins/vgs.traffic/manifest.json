@@ -100,7 +100,7 @@
   "schema": {
     "show": {
       "type": "enum",
-      "label": "Show in bar",
+      "label": "Speeds shown",
       "options": [
         "both",
         "download",
