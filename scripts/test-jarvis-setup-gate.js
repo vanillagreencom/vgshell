@@ -132,11 +132,16 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
                 .find(item => item.entry.key === "setupModel");
             assert.equal(setupRow.button === null ? undefined : setupRow.button.name, MODEL_TUI[row.want[1]], row.name + ": Settings link");
             // A signed-out app replaces the cause's hint with its own.
-            if (row.answer === UNSELECTED && row.want[1] !== "signIn") {
+            if (row.answer === UNSELECTED) {
                 const detailsEntry = vm.runInNewContext("(" + accessor[0] + ")", { row: { status: judge.statusRows(manifest, values, []) } })("setupModel");
-                for (const [consumer, actual] of [["Settings", setupRow.entry], ["Details", detailsEntry]])
-                    assert.equal(settings.statusView(actual, String).hint, "Choose an AI model in Settings > AI model.",
-                        row.name + ": " + consumer + " AI model hint");
+                const unselected = gate.readiness(UNSELECTED).setupModel.hint;
+                for (const [consumer, actual] of [["Settings", setupRow.entry], ["Details", detailsEntry]]) {
+                    const hint = settings.statusView(actual, String).hint;
+                    if (row.want[1] !== "signIn")
+                        assert.equal(hint, "Choose an AI model in Settings > AI model.", row.name + ": " + consumer + " AI model hint");
+                    else assert.deepEqual([typeof hint, hint === unselected], ["string", false],
+                        row.name + ": " + consumer + " signed-out hint replaces the unselected one");
+                }
             }
         } catch (error) {
             error.check = "setup-model-action";
@@ -311,6 +316,8 @@ const CONTROLS = [
     ["a signed-out cause offers Add key", '(cause === "brain=signed-out" ? "signIn" : "key")', '"key"', "a signed-out AI model: setupModel"],
     ["a signed-out cause loses Sign in beside a key", 'if (value.action !== "key") return value;', "if (value.action === undefined) return value;"],
     ["a signed-out app offers Add key", 'if (absent && access.kind === "signed-out") return', "if (false) return"],
+    ["a signed-out app keeps the unselected hint", "{ hint: SIGNED_OUT_HINT, action: \"signIn\" }", "{ action: \"signIn\" }",
+        "signed-out hint replaces the unselected one"],
     ["a signed-out app reads as none", 'account.signIn === true; }) ? "signed-out"', 'false; }) ? "signed-out"'],
     ["a merely found app suppresses Add key", '["signed-in", "verified", "verifying"].indexOf(account.state) !== -1', '["found", "unchecked", "signed-in", "verified", "verifying"].indexOf(account.state) !== -1'],
     ["checking account discovery offers Add key", 'access.kind === "absent"', 'access.kind !== "present"'],

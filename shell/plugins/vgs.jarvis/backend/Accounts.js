@@ -27,6 +27,15 @@ const PROBE_MS = 30000;
 // budget. AI usage bounds its read, which adds a rate-limit request, at
 // 20000 ms.
 const EMAIL_MS = 10000;
+// One vendor command in the account reader process, which no deadline
+// waits on: a bound on a stalled program, not a latency budget.
+const COMMAND_MS = 5000;
+// choose()'s status command blocks the daemon's one event loop inside every
+// hello, so its bound sits well under Service.qml's 5000 ms helloDeadline;
+// a timeout reads unavailable, which accepted() keeps. The raw status
+// commands took 16-132 ms (reviewer-perf, spawnSync with run()'s options,
+// n=10 each, 2026-10-08).
+const CHOOSE_STATUS_MS = 1500;
 // Who asks in the account read's initialize.
 const CLIENT = Object.freeze({ name: "vgs-jarvis", title: "VGS Jarvis", version: "1" });
 // The harness probe's whole system prompt, so the probe stays one short turn.
@@ -336,15 +345,16 @@ class Accounts {
         return { candidates: Array.from(candidates.values()), partial: found.partial };
     }
 
-    run(command, args, extra = {}) {
+    run(command, args, extra = {}, timeout = COMMAND_MS) {
         return cp.spawnSync(command, args, { env: { ...this.env, ...extra }, cwd: this.home,
-            timeout: 5000, maxBuffer: MAX_BYTES, stdio: ["ignore", "pipe", "pipe"] });
+            timeout, maxBuffer: MAX_BYTES, stdio: ["ignore", "pipe", "pipe"] });
     }
 
     // A candidate's account, or null for an absent folder, which is neither
     // probed nor listed: Claude Code creates the folder its status command
-    // names. The held folder's marker is read after the command.
-    cliAccount(candidate) {
+    // names. The held folder's marker is read after the command, which
+    // TIMEOUT bounds.
+    cliAccount(candidate, timeout = COMMAND_MS) {
         const row = provider(candidate.provider);
         const opened = directory(candidate.directory, true);
         if (opened.kind === "absent") return null;
@@ -352,7 +362,7 @@ class Accounts {
         let marker = "absent";
         try {
             if (row.command !== null) {
-                const result = this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory });
+                const result = this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory }, timeout);
                 try { state = login(row, result); }
                 finally { result.stdout?.fill(0); result.stderr?.fill(0); }
             }
@@ -549,7 +559,7 @@ class Accounts {
     /**
      * The saved Brain account id as the engine takes it: accepted()'s
      * answer. A subscription's login is its vendor status command's answer
-     * through cliAccount, bounded by run()'s timeout, once per engine
+     * through cliAccount, bounded by CHOOSE_STATUS_MS, once per engine
      * configure, each hello; an absent folder is account-unavailable. Pi
      * has no status command. No other account runs a command or reads a
      * port here.
@@ -557,7 +567,7 @@ class Accounts {
     choose(id) {
         const resolved = this.resolve(id);
         if (resolved === null || resolved.source.kind !== "cli") return accepted(resolved, null);
-        const account = this.cliAccount({ provider: resolved.provider, directory: resolved.source.directory, label: resolved.label });
+        const account = this.cliAccount({ provider: resolved.provider, directory: resolved.source.directory, label: resolved.label }, CHOOSE_STATUS_MS);
         return account === null ? accepted(null, null) : accepted(resolved, account.state.kind);
     }
 

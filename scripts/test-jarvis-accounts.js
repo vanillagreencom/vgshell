@@ -522,6 +522,55 @@ world(async () => {
         folder => absentFolder(judgeIn(folder)));
     controls++;
     cases++;
+    // A folder removed after discovery is refused by Verify before the
+    // vendor program starts, which would create the folder it names.
+    const goneFolder = async Judge => {
+        const gone = seed(env.HOME, ".claude-gone", ".credentials.json");
+        let id;
+        const judge = new Judge(directory, env);
+        try { id = judge.discover().find(row => row.source.directory === gone).id; }
+        finally { fs.rmSync(gone, { recursive: true }); }
+        const before = calls("cli-calls").length;
+        try {
+            assert.deepEqual(await judge.verify(id, "user"), { kind: "unavailable", reason: "account-directory" }, "Verify refuses a removed folder");
+            assert.equal(calls("cli-calls").slice(before).some(call => call.env.CLAUDE_CONFIG_DIR === gone), false,
+                "Verify runs no vendor program for a removed folder");
+            assert.equal(present(gone), false, "Verify creates no folder");
+        } finally { fs.rmSync(gone, { recursive: true, force: true }); }
+    };
+    await goneFolder(Accounts);
+    await mutant("backend/Accounts.js", "verify-absent-folder",
+        'if (directory(account.source.directory).kind !== "directory") fail("verify=account-directory");', "",
+        folder => goneFolder(judgeIn(folder)));
+    controls++;
+    cases++;
+    // The engine's status check, inside every hello, stops a stalled vendor
+    // command at its own bound, under the shell's 5000 ms first-hello
+    // deadline, and reads it unavailable, which the engine still takes,
+    // never signed out: the stand-in answers signed out only after 4000 ms.
+    const stalledStatus = Judge => {
+        const judge = new Judge(directory, env);
+        const id = judge.discover().find(row => row.source.directory === nestedClaude).id;
+        mode("claude", "slow");
+        try {
+            const before = calls("cli-calls").length;
+            const started = Date.now();
+            const answer = judge.choose(id);
+            const elapsed = Date.now() - started;
+            assert.equal(calls("cli-calls").slice(before).some(call => call.env.CLAUDE_CONFIG_DIR === nestedClaude), true,
+                "the status command ran");
+            assert.ok(elapsed < 3000, "choose() stops a stalled status command at its own bound: " + elapsed + " ms");
+            assert.equal(answer.kind, "accepted", "a stalled status command is not signed out");
+        } finally { mode("claude", "signed-in"); }
+    };
+    stalledStatus(Accounts);
+    for (const [name, needle, replacement] of [
+        ["choose-command-bound", "label: resolved.label }, CHOOSE_STATUS_MS);", "label: resolved.label });"],
+        ["run-ignores-bound", "timeout, maxBuffer", "timeout: COMMAND_MS, maxBuffer"]]) {
+        await mutant("backend/Accounts.js", name, needle, replacement, folder => stalledStatus(judgeIn(folder)));
+        controls++;
+    }
+    cases++;
     // A signed-out folder, the vendor's own not logged in answer, is listed
     // absent, with Sign in for a provider that has one, and is neither
     // offered nor chosen; signed in, it is offered and chosen. A Copilot
@@ -880,8 +929,8 @@ world(async () => {
     for (const [name, needle, replacement, check] of [
         ["marker-open", "const stat = fs.lstatSync(markerPath);", "const stat = (fs.readFileSync(markerPath), fs.lstatSync(markerPath));",
             Judge => discovery(new Judge(directory, { ...env, CODEX_HOME: explicit, OPENAI_API_KEY: privateValue }))],
-        ["marker-first", "const result = this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory });",
-            "fs.lstatSync(path.join(candidate.directory, harness(row.id).marker));\n        const result = this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory });",
+        ["marker-first", "const result = this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory }, timeout);",
+            "fs.lstatSync(path.join(candidate.directory, harness(row.id).marker));\n        const result = this.run(row.command[0], row.command.slice(1), { [harness(row.id).variable]: candidate.directory }, timeout);",
             Judge => discovery(new Judge(directory, { ...env, CODEX_HOME: explicit, OPENAI_API_KEY: privateValue }))],
 
         ["manual", "for (const item of this.added())", "for (const item of [])",

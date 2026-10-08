@@ -33,6 +33,8 @@ const selected=mode("claude-mode","signed-in");
 if(selected==="late-link" && process.env.CLAUDE_CONFIG_DIR.endsWith("/late-account")
     && !fs.existsSync(process.env.CLAUDE_CONFIG_DIR))
     fs.symlinkSync(path.join(process.env.HOME,".claude"),process.env.CLAUDE_CONFIG_DIR);
+// A stalled status command answers signed out only after 4000 ms.
+if(selected==="slow"){setTimeout(()=>{console.log(JSON.stringify({loggedIn:false}));process.exit(1);},4000);return;}
 if(selected==="failed"){console.error("fixture-secret-private");process.exit(7);}
 if(selected==="junk"){console.log("fixture-secret-private");process.exit(0);}
 // A folder's fixture-email file names its sign-in email; empty names none.
