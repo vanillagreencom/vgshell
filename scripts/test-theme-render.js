@@ -1685,6 +1685,78 @@ function verifyAppStyles(render, changedTemplates = {}) {
 // it, a translucent fill composited over editor.background first. The
 // terminal panel's colours are the terminal's text slots, as
 // check-theme-contrast.js judges them for the terminal.
+// Required color IDs from Microsoft's theme-color reference. Missing IDs
+// let the editor use its own change colors instead of the package palette.
+const EDITOR_CHANGE_KEYS = [
+    "editorGutter.addedBackground",
+    "editorGutter.addedSecondaryBackground",
+    "editorOverviewRuler.addedForeground",
+    "minimapGutter.addedBackground",
+    "editorGutter.modifiedBackground",
+    "editorGutter.modifiedSecondaryBackground",
+    "editorOverviewRuler.modifiedForeground",
+    "minimapGutter.modifiedBackground",
+    "editorGutter.deletedBackground",
+    "editorGutter.deletedSecondaryBackground",
+    "editorOverviewRuler.deletedForeground",
+    "minimapGutter.deletedBackground",
+    "diffEditor.insertedTextBackground",
+    "diffEditor.insertedTextBorder",
+    "diffEditor.insertedLineBackground",
+    "diffEditorGutter.insertedLineBackground",
+    "diffEditorOverview.insertedForeground",
+    "diffEditor.removedTextBackground",
+    "diffEditor.removedTextBorder",
+    "diffEditor.removedLineBackground",
+    "diffEditorGutter.removedLineBackground",
+    "diffEditorOverview.removedForeground",
+    "diffEditor.border",
+    "diffEditor.diagonalFill",
+    "diffEditor.unchangedRegionBackground",
+    "diffEditor.unchangedRegionForeground",
+    "diffEditor.unchangedRegionShadow",
+    "diffEditor.unchangedCodeBackground",
+    "diffEditor.move.border",
+    "diffEditor.moveActive.border",
+    "multiDiffEditor.headerBackground",
+    "multiDiffEditor.background",
+    "multiDiffEditor.border",
+    "gitDecoration.addedResourceForeground",
+    "gitDecoration.modifiedResourceForeground",
+    "gitDecoration.deletedResourceForeground",
+    "gitDecoration.renamedResourceForeground",
+    "gitDecoration.stageModifiedResourceForeground",
+    "gitDecoration.stageDeletedResourceForeground",
+    "gitDecoration.untrackedResourceForeground",
+    "gitDecoration.ignoredResourceForeground",
+    "gitDecoration.conflictingResourceForeground",
+    "gitDecoration.submoduleResourceForeground",
+    "merge.currentHeaderBackground",
+    "merge.currentContentBackground",
+    "editorOverviewRuler.currentContentForeground",
+    "merge.incomingHeaderBackground",
+    "merge.incomingContentBackground",
+    "editorOverviewRuler.incomingContentForeground",
+    "merge.commonHeaderBackground",
+    "merge.commonContentBackground",
+    "editorOverviewRuler.commonContentForeground",
+    "merge.border",
+    "mergeEditor.change.background",
+    "mergeEditor.change.word.background",
+    "mergeEditor.changeBase.background",
+    "mergeEditor.changeBase.word.background",
+    "mergeEditor.conflict.unhandledUnfocused.border",
+    "mergeEditor.conflict.unhandledFocused.border",
+    "mergeEditor.conflict.handledUnfocused.border",
+    "mergeEditor.conflict.handledFocused.border",
+    "mergeEditor.conflict.handled.minimapOverViewRuler",
+    "mergeEditor.conflict.unhandled.minimapOverViewRuler",
+    "mergeEditor.conflictingLines.background",
+    "mergeEditor.conflict.input1.background",
+    "mergeEditor.conflict.input2.background",
+    "scmGraph.historyItemHoverAdditionsForeground",
+    "scmGraph.historyItemHoverDeletionsForeground",
+];
 const EDITOR_PAIRS = [
     ["editor.foreground", "editor.background"],
     ["sideBar.foreground", "sideBar.background"],
@@ -1698,8 +1770,46 @@ const EDITOR_PAIRS = [
     ["activityBar.foreground", "activityBar.background"],
     ["tab.activeForeground", "tab.activeBackground"],
     ["panelTitle.activeForeground", "panel.background"],
-    ["editor.foreground", "diffEditor.insertedTextBackground"],
-    ["editor.foreground", "diffEditor.removedTextBackground"],
+    ["editor.foreground", "diffEditor.insertedLineBackground"],
+    ["editor.foreground", "diffEditor.removedLineBackground"],
+    ["editor.foreground", "diffEditor.insertedTextBackground", "diffEditor.insertedLineBackground"],
+    ["editor.foreground", "diffEditor.removedTextBackground", "diffEditor.removedLineBackground"],
+    ["diffEditor.unchangedRegionForeground", "diffEditor.unchangedRegionBackground"],
+    ["gitDecoration.addedResourceForeground", "sideBar.background"],
+    ["gitDecoration.addedResourceForeground", "editor.background"],
+    ["gitDecoration.modifiedResourceForeground", "sideBar.background"],
+    ["gitDecoration.modifiedResourceForeground", "editor.background"],
+    ["gitDecoration.deletedResourceForeground", "sideBar.background"],
+    ["gitDecoration.deletedResourceForeground", "editor.background"],
+    ["gitDecoration.renamedResourceForeground", "sideBar.background"],
+    ["gitDecoration.renamedResourceForeground", "editor.background"],
+    ["gitDecoration.stageModifiedResourceForeground", "sideBar.background"],
+    ["gitDecoration.stageModifiedResourceForeground", "editor.background"],
+    ["gitDecoration.stageDeletedResourceForeground", "sideBar.background"],
+    ["gitDecoration.stageDeletedResourceForeground", "editor.background"],
+    ["gitDecoration.untrackedResourceForeground", "sideBar.background"],
+    ["gitDecoration.untrackedResourceForeground", "editor.background"],
+    ["gitDecoration.ignoredResourceForeground", "sideBar.background"],
+    ["gitDecoration.ignoredResourceForeground", "editor.background"],
+    ["gitDecoration.conflictingResourceForeground", "sideBar.background"],
+    ["gitDecoration.conflictingResourceForeground", "editor.background"],
+    ["gitDecoration.submoduleResourceForeground", "sideBar.background"],
+    ["gitDecoration.submoduleResourceForeground", "editor.background"],
+    ["editor.foreground", "merge.currentHeaderBackground"],
+    ["editor.foreground", "merge.currentContentBackground"],
+    ["editor.foreground", "merge.incomingHeaderBackground"],
+    ["editor.foreground", "merge.incomingContentBackground"],
+    ["editor.foreground", "merge.commonHeaderBackground"],
+    ["editor.foreground", "merge.commonContentBackground"],
+    ["editor.foreground", "mergeEditor.change.background"],
+    ["editor.foreground", "mergeEditor.change.word.background", "mergeEditor.change.background"],
+    ["editor.foreground", "mergeEditor.changeBase.background"],
+    ["editor.foreground", "mergeEditor.changeBase.word.background", "mergeEditor.changeBase.background"],
+    ["editor.foreground", "mergeEditor.conflictingLines.background"],
+    ["editor.foreground", "mergeEditor.conflict.input1.background"],
+    ["editor.foreground", "mergeEditor.conflict.input2.background"],
+    ["scmGraph.historyItemHoverAdditionsForeground", "editorWidget.background"],
+    ["scmGraph.historyItemHoverDeletionsForeground", "editorWidget.background"],
     ["terminal.foreground", "terminal.background"],
     ...["Red", "Green", "Yellow", "Blue", "Magenta", "Cyan"].flatMap(name => [`terminal.ansi${name}`, `terminal.ansiBright${name}`])
         .map(key => [key, "terminal.background"])
@@ -1731,13 +1841,37 @@ function verifyEditorStyles(render, template) {
         if (theme.type !== pkg.values.scheme.mode) shortfalls.push({ name, kind: "mode", key: "type" });
         const colour = key => typeof theme.colors[key] === "string" && /^#[0-9a-f]{8}$/.test(theme.colors[key]) ? logic.parseColor(theme.colors[key]) : null;
         const editor = colour("editor.background");
-        for (const [text, surface] of EDITOR_PAIRS) {
+        for (const key of EDITOR_CHANGE_KEYS) {
+            if (colour(key) === null) shortfalls.push({ name, kind: "coverage", key });
+        }
+        for (const [line, word] of [
+            ["diffEditor.insertedLineBackground", "diffEditor.insertedTextBackground"],
+            ["diffEditor.removedLineBackground", "diffEditor.removedTextBackground"],
+            ["mergeEditor.change.background", "mergeEditor.change.word.background"],
+            ["mergeEditor.changeBase.background", "mergeEditor.changeBase.word.background"]
+        ]) {
+            const lineFill = colour(line), wordFill = colour(word);
+            if (lineFill !== null && wordFill !== null && lineFill.a >= wordFill.a) {
+                shortfalls.push({ name, kind: "tint-order", key: line, surface: word });
+            }
+        }
+        for (const key of EDITOR_CHANGE_KEYS.filter(key =>
+            /^diffEditor\.(inserted|removed)(Text|Line)Background$/.test(key) ||
+            /^merge\.(current|incoming|common)(Header|Content)Background$/.test(key))) {
+            if (colour(key)?.a === 1) shortfalls.push({ name, kind: "opacity", key });
+        }
+        for (const [text, surface, below] of EDITOR_PAIRS) {
             const fg = colour(text), bg = colour(surface);
             if (fg === null || bg === null || editor === null) {
                 shortfalls.push({ name, kind: "coverage", key: fg === null ? text : surface });
                 continue;
             }
-            const fill = over(bg, editor);
+            const lower = below === undefined ? editor : colour(below);
+            if (lower === null) {
+                shortfalls.push({ name, kind: "coverage", key: below });
+                continue;
+            }
+            const fill = over(bg, over(lower, editor));
             const ratio = logic.contrastRatio(over(fg, fill), fill);
             if (ratio < logic.READABILITY_FLOOR) shortfalls.push({ name, kind: "contrast", key: text, surface, ratio });
         }
@@ -1755,7 +1889,19 @@ const editorControls = [
     ["link without its active colour", '    "textLink.activeForeground": "#@{color.accentHover}",\n', "", "coverage", "textLink.activeForeground"],
     ["active link text on the editor fill", '"textLink.activeForeground": "#@{color.accentHover}"', '"textLink.activeForeground": "#@{color.background}"', "contrast", "textLink.activeForeground", "editor.background"],
     ["active link text on the sidebar fill", '"textLink.activeForeground": "#@{color.accentHover}"', '"textLink.activeForeground": "#@{color.surface}"', "contrast", "textLink.activeForeground", "sideBar.background"],
-    ["diff without its insertion fill", '    "diffEditor.insertedTextBackground": "#@{color.successSubtle}",\n', "", "coverage", "diffEditor.insertedTextBackground"],
+    ["diff without its insertion fill", '    "diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07)}",\n', "", "coverage", "diffEditor.insertedTextBackground"],
+    ["Git without its conflict color", '    "gitDecoration.conflictingResourceForeground": "#@{color.warning}",\n', "", "coverage", "gitDecoration.conflictingResourceForeground"],
+    ["Git text on the sidebar fill", '"gitDecoration.addedResourceForeground": "#@{color.success}"', '"gitDecoration.addedResourceForeground": "#@{color.surface}"', "contrast", "gitDecoration.addedResourceForeground", "sideBar.background"],
+    ["diff line stronger than the changed word", '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.03)}"', '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.3)}"', "tint-order", "diffEditor.insertedLineBackground", "diffEditor.insertedTextBackground"],
+    ["opaque diff word hides decorations", '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07)}"', '"diffEditor.insertedTextBackground": "#@{color.success}"', "opacity", "diffEditor.insertedTextBackground"],
+    ["changed text on its own fill", '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07)}"', '"diffEditor.insertedTextBackground": "#@{color.text}"', "contrast", "editor.foreground", "diffEditor.insertedTextBackground"],
+    ["word fill includes the underlying line", [
+        '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.03)}"',
+        '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07)}"'
+    ], [
+        '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.06)}"',
+        '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.14)}"'
+    ], "contrast", "editor.foreground", "diffEditor.insertedTextBackground"],
     ["status bar text on its own fill", '"statusBar.foreground": "#@{color.text}"', '"statusBar.foreground": "#@{color.surface}"', "contrast", "statusBar.foreground"],
     ["empty workspace without its status bar fill", '    "statusBar.noFolderBackground": "#@{color.surface}",\n', "", "coverage", "statusBar.noFolderBackground"],
     ["empty workspace status bar text on its own fill", '"statusBar.noFolderForeground": "#@{color.text}"', '"statusBar.noFolderForeground": "#@{color.surface}"', "contrast", "statusBar.noFolderForeground"],
@@ -1765,13 +1911,19 @@ const editorControls = [
     ["a dark theme for every package", '"type": "@{scheme.mode}"', '"type": "dark"', "mode", "type"]
 ];
 for (const [label, needle, replacement, kind, key, surface] of editorControls) {
-    assert.equal(vscodeTemplate.split(needle).length, 2, label);
-    assert.throws(() => verifyEditorStyles(require(rendererFile), vscodeTemplate.replace(needle, replacement)),
+    const edits = Array.isArray(needle) ? needle.map((text, index) => [text, replacement[index]]) : [[needle, replacement]];
+    let mutant = vscodeTemplate;
+    for (const [text, value] of edits) {
+        assert.equal(mutant.split(text).length, 2, label);
+        mutant = mutant.replace(text, value);
+    }
+    assert.notEqual(mutant, vscodeTemplate, label);
+    assert.throws(() => verifyEditorStyles(require(rendererFile), mutant),
         error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
             error.actual.some(shortfall => shortfall.kind === kind && shortfall.key === key &&
                 (surface === undefined || shortfall.surface === surface)), label);
 }
-console.log(`test-theme-render: editor packages=${editorPackages} pairs=${EDITOR_PAIRS.length} controls=${editorControls.length}`);
+console.log(`test-theme-render: editor packages=${editorPackages} pairs=${EDITOR_PAIRS.length} change-keys=${EDITOR_CHANGE_KEYS.length} controls=${editorControls.length}`);
 
 verifyAppStyles(require(rendererFile));
 const tmuxTemplate = fs.readFileSync(path.join(repo, "themes/targets/tmux/tmux.conf"), "utf8");
