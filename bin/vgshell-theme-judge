@@ -118,10 +118,20 @@
 //   vgshell-theme-judge asset-lock
 //       print the download lock's file, `download.lock` in the
 //       theme-asset cache.
+//   vgshell-theme-judge default-file <target>
+//       print the one file shipped target TARGET writes, rendered against
+//       the shipped `vgs` package as `packages` renders it: the gum colours
+//       bin/vgshell-tui present exports while no apply has written gum.env,
+//       since the shell draws `vgs` while no theme is applied. Exit 0 with
+//       the file's bytes on stdout; 1 on a refusal, `default-file=<target>
+//       reason=<key>`: `unknown` for no such shipped target, `files
+//       count=<n>` for a target with other than one file, `unreadable`,
+//       `terminal-fallback` for a `vgs` without terminal slots, or the
+//       judge's own reason for a refused target, package or render.
 //
 // list, apply, follow, reload, background, installed, checkouts, origin,
 // catalog, install, catalog-update, catalog-probe, recover,
-// wallpapers-fetch and wallpapers-land refuse with one line on stderr,
+// wallpapers-fetch, wallpapers-land and default-file refuse with one line on stderr,
 // `vgshell: refused: <key>=...`, through bin/lib/judge-files.js: exit 1, or
 // 75 for `reason=busy`. Under `json`, apply prints its structured result
 // on stdout first, refusals included, and so do follow, reload, background,
@@ -406,9 +416,7 @@ function checkTargets(base, defaults) {
         } catch (e) {
             unreadable(e.path || dir, e.code);
         }
-        const verdict = judged.verdict.ok
-            ? render.renderTarget(logic, tokens, judged.verdict.target, judged.templates, { values: defaults.values, slots: defaults.terminal, curated: new Map(), installed: false })
-            : judged.verdict;
+        const verdict = judged.verdict.ok ? renderDefault(judged, defaults) : judged.verdict;
         if (verdict.ok) {
             console.log("ok       " + TARGETS + "/" + name);
             continue;
@@ -417,6 +425,44 @@ function checkTargets(base, defaults) {
         refused += 1;
     }
     return refused;
+}
+
+// JUDGED, readTarget's accepted target, rendered against DEFAULTS, an
+// accepted `vgs` verdict with terminal slots, whatever a package curates.
+function renderDefault(judged, defaults) {
+    return render.renderTarget(logic, tokens, judged.verdict.target, judged.templates,
+        { values: defaults.values, slots: defaults.terminal, curated: new Map(), installed: false });
+}
+
+// --- default-file
+
+// Print shipped target NAME's one file rendered against the shipped `vgs`
+// package, as checkTargets renders it.
+function defaultFile(name) {
+    const key = "default-file=" + name + " reason";
+    const readOrRefuse = (where, read) => {
+        try {
+            return read();
+        } catch (e) {
+            if (typeof e.code !== "string") throw e;
+            refuse(key + "=unreadable path=" + (e.path || where) + " error=" + e.code, "unreadable");
+        }
+    };
+    const base = path.join(SHIPPED, TARGETS);
+    const names = readOrRefuse(base, () => childDirs(base));
+    if (names === null || !names.includes(name)) refuse(key + "=unknown", "unknown");
+    const vgs = path.join(SHIPPED, logic.DEFAULT_NAME);
+    const defaults = readOrRefuse(vgs, () => readPackage(vgs, true)).verdict;
+    if (!defaults.ok) refuse(key + "=" + defaults.reason + " path=" + vgs, defaults.reason, 1, logic.refusalLine(defaults));
+    if (defaults.terminal === null) refuse(key + "=terminal-fallback path=" + vgs, "terminal-fallback");
+    const dir = path.join(base, name);
+    const judged = readOrRefuse(dir, () => readTarget(dir));
+    if (!judged.verdict.ok) refuse(key + "=" + judged.verdict.reason, judged.verdict.reason, 1, render.refusalLine(name, judged.verdict));
+    const count = judged.verdict.target.files.length;
+    if (count !== 1) refuse(key + "=files count=" + count, "files");
+    const rendered = renderDefault(judged, defaults);
+    if (!rendered.ok) refuse(key + "=" + rendered.reason, rendered.reason, 1, render.refusalLine(name, rendered));
+    process.stdout.write(rendered.files[0].bytes);
 }
 
 // --- catalog
@@ -2868,6 +2914,10 @@ main(() => {
     case "asset-lock":
         if (args.length !== 0) usage("arguments=" + command);
         assetLock();
+        break;
+    case "default-file":
+        if (args.length !== 1) usage("arguments=" + command);
+        defaultFile(args[0]);
         break;
     default:
         usage("command=" + (command || "missing"));

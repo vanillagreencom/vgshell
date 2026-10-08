@@ -131,7 +131,8 @@ check "VGS_TUI_LIB is the checkout's library" grep -qxF "LIB=$repo/bin/lib/tui.s
 check "VGS_TUI_LOGO is the checkout's logo" grep -qxF "LOGO=$repo/bin/lib/logo.txt" "$tmp/out"
 check "a core command has no VGS_PLUGIN_ID" grep -qxF "ID=unset" "$tmp/out"
 check "a core command has no VGS_PLUGIN_DIR" grep -qxF "DIR=unset" "$tmp/out"
-check "no gum.env exports no colour" grep -qxF "ACCENT=unset" "$tmp/out"
+# With no gum.env the shipped vgs colours are exported, which
+# scripts/test-theme-gum.js pins; here only that the default path is quiet.
 check "no gum.env warns nothing" test ! -s "$tmp/err"
 
 # gum.env: every line KEY=#rrggbb with an accepted key, or none is used.
@@ -792,12 +793,14 @@ check "check with a terminal launcher prints nothing" test ! -s "$tmp/err"
 # A tree for a copy of bin/vgshell, bin/vgshell-tui or bin/vgshell-plugin-judge, as
 # the runner CLI's mutant trees are built: the three files copied, so a
 # control can rewrite one, and
-# bin/lib, which holds the loader, linked beside them. SHELL_DIR is linked
-# as shell/, where launch reads the size table.
+# bin/lib, which holds the loader, and the theme judge, which renders
+# present's colours with no gum.env, linked beside them. SHELL_DIR is
+# linked as shell/, where launch reads the size table.
 tui_tree() { # DIR SHELL_DIR
   mkdir -p "$1/bin"
   cp -- "$repo/bin/vgshell" "$repo/bin/vgshell-tui" "$repo/bin/vgshell-plugin-judge" "$1/bin/"
   ln -s -- "$repo/bin/lib" "$1/bin/lib"
+  ln -s -- "$repo/bin/vgshell-theme-judge" "$1/bin/vgshell-theme-judge"
   ln -s -- "$2" "$1/shell"
 }
 

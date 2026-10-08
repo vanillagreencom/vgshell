@@ -6,10 +6,15 @@
 // of each render and warn nothing. The expected colours are pinned literals
 // written from each package's theme.json; flexoki-light's success, warning
 // and danger are mixes its theme.json states, resolved once under node with
-// ThemeLogic.accept.
+// ThemeLogic.accept. With no gum.env, as before any theme apply, present
+// must export the vgs colours from `vgshell-theme-judge default-file gum`,
+// pinned by the same vgs literals.
 //
-// The control renders a copy of the template whose last value is a `$(...)`
-// command and requires the same check to fail on it, with nothing run.
+// The controls: a copy of the template whose last value is a `$(...)`
+// command must fail the check, with nothing run; a copy of the presenter
+// without its no-gum.env branch must fail the absent row. The judge's verb
+// must refuse a target with two files, planted in a copy of the themes
+// directory beside a copy of the judge.
 "use strict";
 const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
@@ -24,6 +29,7 @@ const logic = load(path.join(repo, "shell", "Commons", "ThemeLogic.js"));
 const TOKENS = load(path.join(repo, "shell", "Commons", "Tokens.js")).TOKENS;
 const targetDir = path.join(repo, "themes", "targets", "gum");
 const presenter = path.join(repo, "bin", "vgshell-tui");
+const judge = path.join(repo, "bin", "vgshell-theme-judge");
 
 // The package in DIR, a directory under themes/, judged as shipped when
 // SHIPPED holds and as the installed package a catalog entry becomes
@@ -53,26 +59,42 @@ const rendered = (pkg, text) => {
     return result.files[0].bytes.toString("utf8");
 };
 
-// Runs present on TEXT as the state directory's gum.env and returns what the
-// command it ran saw. Throws unless present exported every line of TEXT
-// whole and printed nothing on stderr. The child gets its own HOME, state
-// and runtime directories, never the developer's.
-const presented = (root, text) => {
+// node first on PATH: a version-manager shim there may read the
+// developer's own configuration, and present runs node for the judge.
+const childPath = path.dirname(process.execPath) + path.delimiter + process.env.PATH;
+
+// Runs present, BIN by default, on TEXT as the state directory's gum.env,
+// or with none for null, and returns what the command it ran saw. Throws
+// unless present exported every line of TEXT whole and printed nothing on
+// stderr. The child gets its own HOME, state and runtime directories, never
+// the developer's.
+const presented = (root, text, bin = presenter) => {
     const state = path.join(root, "state");
     fs.mkdirSync(path.join(state, "vgshell", "theme"), { recursive: true });
-    fs.writeFileSync(path.join(state, "vgshell", "theme", "gum.env"), text);
-    const run = spawnSync(presenter, ["present", "--presentation", "plain", "--", "env"], {
+    if (text !== null) fs.writeFileSync(path.join(state, "vgshell", "theme", "gum.env"), text);
+    const run = spawnSync(bin, ["present", "--presentation", "plain", "--", "env"], {
         encoding: "utf8",
-        env: { PATH: process.env.PATH, HOME: root, XDG_STATE_HOME: state, XDG_RUNTIME_DIR: root }
+        env: { PATH: childPath, HOME: root, XDG_STATE_HOME: state, XDG_RUNTIME_DIR: root }
     });
     assert.equal(run.error, undefined, String(run.error));
     assert.equal(run.status, 0, run.stderr);
     assert.equal(run.stderr, "", `present warned: ${run.stderr}`);
     const seen = new Set(run.stdout.split("\n"));
+    if (text === null) return seen;
     const lines = text.split("\n");
     assert.equal(lines.pop(), "", "gum.env ends in a newline");
     for (const line of lines) assert.ok(seen.has(line), `present did not export ${line}`);
     return seen;
+};
+
+// A copy of FILE under DIR with NEEDLE, which occurs once, replaced.
+const mutant = (file, dir, needle, replacement) => {
+    const text = fs.readFileSync(file, "utf8");
+    assert.equal(text.split(needle).length, 2, `control: ${needle} occurs once in ${file}`);
+    const copy = path.join(dir, path.basename(file));
+    fs.writeFileSync(copy, text.replace(needle, replacement), { mode: 0o755 });
+    assert.notEqual(fs.readFileSync(copy, "utf8"), text);
+    return copy;
 };
 
 // Hand-written from themes/<dir>/theme.json: a line each for the base
@@ -95,6 +117,47 @@ try {
         lines = text.split("\n").length - 1;
     }
 
+    // No gum.env: the vgs colours, from the judge's render of the target.
+    const [, , vgsLines] = EXPECTED[0];
+    const absent = seen => {
+        for (const line of vgsLines) assert.ok(seen.has(line), `no gum.env: present did not export ${line}`);
+    };
+    absent(presented(path.join(root, "absent"), null));
+
+    // A tree whose bin/ holds the mutant presenter and a copy of the judge,
+    // whose themes/ links the shipped vgs package and gum target beside a
+    // planted target with two files; bin/lib and shell/ are links.
+    const tree = path.join(root, "tree");
+    fs.mkdirSync(path.join(tree, "bin"), { recursive: true });
+    fs.mkdirSync(path.join(tree, "themes", "targets", "two"), { recursive: true });
+    fs.symlinkSync(path.join(repo, "bin", "lib"), path.join(tree, "bin", "lib"));
+    fs.symlinkSync(path.join(repo, "shell"), path.join(tree, "shell"));
+    fs.symlinkSync(path.join(repo, "themes", "vgs"), path.join(tree, "themes", "vgs"));
+    fs.symlinkSync(targetDir, path.join(tree, "themes", "targets", "gum"));
+    fs.copyFileSync(judge, path.join(tree, "bin", "vgshell-theme-judge"));
+    const two = path.join(tree, "themes", "targets", "two");
+    const twoTarget = JSON.parse(fs.readFileSync(path.join(targetDir, "target.json"), "utf8"));
+    twoTarget.files = [{ template: "gum.env", destination: "two.a" }, { template: "gum.env", destination: "two.b" }];
+    fs.writeFileSync(path.join(two, "target.json"), JSON.stringify(twoTarget));
+    fs.copyFileSync(path.join(targetDir, "gum.env"), path.join(two, "gum.env"));
+
+    // Control: present without its no-gum.env branch fails the absent row.
+    const unthemed = mutant(presenter, path.join(tree, "bin"),
+        `  text="$(node "$root/bin/vgshell-theme-judge" default-file gum 2>/dev/null)" || status=$?`, "  return 0");
+    assert.throws(() => absent(presented(path.join(root, "unthemed"), null, unthemed)), /no gum\.env: present did not export/,
+        "control: present without its no-gum.env branch passed the absent row");
+
+    // The verb refuses a target with other than one file, and prints nothing.
+    const verb = target => spawnSync(process.execPath, [path.join(tree, "bin", "vgshell-theme-judge"), "default-file", target],
+        { encoding: "utf8", env: { PATH: childPath, HOME: root } });
+    const one = verb("gum");
+    assert.equal(one.status, 0, one.stderr);
+    assert.equal(one.stdout, rendered(defaults, template), "default-file gum is the gum target's vgs render");
+    const refused = verb("two");
+    assert.equal(refused.status, 1, refused.stderr);
+    assert.equal(refused.stdout, "");
+    assert.equal(refused.stderr.split("\n")[0], "vgshell: refused: default-file=two reason=files count=2");
+
     // Control: a `$(...)` value fails the check and runs nothing.
     const planted = path.join(root, "planted");
     const bad = rendered(defaults, template + `GUM_SPIN_TITLE_FOREGROUND=$(touch ${planted})\n`);
@@ -102,7 +165,7 @@ try {
         "control: the check passed a gum.env line holding $(...)");
     assert.equal(fs.existsSync(planted), false, "control: present ran the planted line");
 
-    console.log(`test-theme-gum: ok packages=${EXPECTED.length} lines=${lines} controls=1`);
+    console.log(`test-theme-gum: ok packages=${EXPECTED.length} lines=${lines} controls=2`);
 } finally {
     fs.rmSync(root, { recursive: true, force: true });
 }

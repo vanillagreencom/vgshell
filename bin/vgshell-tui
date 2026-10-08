@@ -47,7 +47,11 @@
 #   - each line of ${XDG_STATE_HOME:-~/.local/state}/vgshell/theme/gum.env, which
 #     is parsed and never sourced: every line must be KEY=#rrggbb, KEY
 #     matching gum_key below, or no line is exported and a warning names
-#     the first bad line;
+#     the first bad line. With no gum.env, as before any theme apply, the
+#     lines are the gum target rendered from the shipped vgs package, the
+#     theme the shell draws then, which `vgshell-theme-judge default-file
+#     gum` prints under the same rule; when the judge fails, present warns
+#     `vgshell-tui: gum-env=default-unavailable exit=<n>` and exports none;
 #   - VGS_TUI_LIB, this checkout's bin/lib/tui.sh, and VGS_TUI_LOGO, its
 #     bin/lib/logo.txt;
 #   - with --plugin, VGS_PLUGIN_ID and VGS_PLUGIN_DIR, a private copy of the
@@ -296,22 +300,39 @@ await_record() {
   exit 1
 }
 
-# Exports gum.env's colours when every line passes, else warns and exports
-# none. An absent file exports nothing and says nothing.
-export_gum_env() {
+# Exports the colours of the gum.env lines on stdin when every line passes,
+# else warns and exports none. SOURCE, `path=<file>` or `default=gum`, names
+# them in the warning.
+export_gum_lines() { # SOURCE
   local line n=0 keys=() values=() i
-  [[ -e $gum_env ]] || return 0
   while IFS= read -r line || [[ -n $line ]]; do
     n=$((n + 1))
     if [[ $line =~ $gum_line ]] && [[ ${BASH_REMATCH[1]} =~ $gum_key ]]; then
       keys+=("${line%%=*}")
       values+=("${line#*=}")
     else
-      printf 'vgshell-tui: gum-env=rejected line=%d path=%s\nno colour of the file is used\n' "$n" "$gum_env" >&2
+      printf 'vgshell-tui: gum-env=rejected line=%d %s\nno colour of the file is used\n' "$n" "$1" >&2
       return 0
     fi
-  done <"$gum_env" || { printf 'vgshell-tui: gum-env=unreadable path=%s\n' "$gum_env" >&2; return 0; }
+  done
   for i in "${!keys[@]}"; do export "${keys[i]}=${values[i]}"; done
+}
+
+# Exports gum.env's colours, or with no gum.env the shipped vgs package's,
+# which the shell draws while no theme is applied. A judge that cannot
+# render them warns and exports none, so the command still runs.
+export_gum_env() {
+  local text status=0
+  if [[ -e $gum_env ]]; then
+    export_gum_lines "path=$gum_env" <"$gum_env" || printf 'vgshell-tui: gum-env=unreadable path=%s\n' "$gum_env" >&2
+    return 0
+  fi
+  text="$(node "$root/bin/vgshell-theme-judge" default-file gum 2>/dev/null)" || status=$?
+  if [[ $status != 0 ]]; then
+    printf 'vgshell-tui: gum-env=default-unavailable exit=%d\nno colour of the vgs theme is used\n' "$status" >&2
+    return 0
+  fi
+  export_gum_lines "default=gum" <<<"$text"
 }
 
 # Copies the whole snapshot into a fresh directory under the runtime dir
