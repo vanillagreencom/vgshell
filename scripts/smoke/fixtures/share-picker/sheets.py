@@ -15,11 +15,15 @@ for mode in ("dark", "light"):
     images = [(Image.open(root / f"{mode}-{name}.png").convert("RGB"), label) for name, label in names]
     width = max(image.width for image, _ in images)
     height = max(image.height for image, _ in images)
-    sheet = Image.new("RGB", (width * 2, (height + 56) * ((len(images) + 1) // 2)), "#242426" if mode == "dark" else "#f5f5f0")
+    caption_height = 90
+    sheet = Image.new("RGB", (width * 2, (height + caption_height) * ((len(images) + 1) // 2)), "#242426" if mode == "dark" else "#f5f5f0")
     draw = ImageDraw.Draw(sheet)
     for index, (image, label) in enumerate(images):
-        x, y = index % 2 * width, index // 2 * (height + 56)
+        x, y = index % 2 * width, index // 2 * (height + caption_height)
         draw.text((x + 18, y + 14), mode.capitalize() + " " + label, font=font,
                   fill="white" if mode == "dark" else "black")
-        sheet.paste(image, (x, y + 56))
+        if index > 0:
+            draw.text((x + 18, y + 48), "focus ring at open: fixed by the shared item", font=font,
+                      fill="white" if mode == "dark" else "black")
+        sheet.paste(image, (x, y + caption_height))
     sheet.save(root / f"{mode}-before-after.png")
