@@ -2658,16 +2658,38 @@ const covered=readings.length===2 && readings.every(s=>s.glyphPixels>0 && s.back
 console.log(covered && (process.argv[4]==="coverage" || readings.every(s=>s.minimum>=4.5))?"True":"False");
 JS_HINT
 }
+fade_paint_wait() { # METHOD HIDDEN
+  local reply
+  smoke_poll_tries 200
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    reply="$(ipc smoke "$1" panel vgs.notifications "$2")" || return
+    [[ $reply != 2 ]] || return 0
+    [[ $reply == pending ]] || { printf 'notification-capture: method=%s state=%s\n' "$1" "$reply" >&2; return 1; }
+    sleep 0.2
+  done
+  printf 'notification-capture: method=%s state=frame-pending\n' "$1" >&2
+  return 1
+}
+fade_capture_geometry_same() { # BEFORE AFTER
+  py_reply 'import json,sys;print(json.load(open(sys.argv[1]))==json.load(open(sys.argv[2])))' "$1" "$2"
+}
 fade_hint_sample() { # PNG [REFERENCE_JSON]
-  local items="${1%.png}-items.json" surface background captured=0
+  local items="${1%.png}-items.json" surface background captured=0 restored_sample restore_geometry="${1%.png}-restored-items.json"
   ipc smoke descendantGeometry panel vgs.notifications >"$items" || return
   surface="$(surface_box vgs:panel)" || return
   fade_output "$1" || return
   background="${1%.png}-background.png"
-  [[ $(ipc smoke hintInk panel vgs.notifications true) == 2 ]] || return 1
-  fade_output "$background" || captured=$?
-  [[ $(ipc smoke hintInk panel vgs.notifications false) == 2 ]] || return 1
+  if fade_paint_wait hintInk true; then fade_output "$background" || captured=$?; else captured=$?; fi
+  fade_paint_wait hintInk false || captured=$?
+  ipc smoke notificationPaintCleanup panel vgs.notifications >/dev/null || captured=$?
   [[ $captured == 0 ]] || return "$captured"
+  fade_output "${1%.png}-restored.png" || return
+  ipc smoke descendantGeometry panel vgs.notifications >"$restore_geometry" || return
+  [[ $(fade_capture_geometry_same "$items" "$restore_geometry") == True ]] || { echo 'notification-capture: hints-geometry-changed' >&2; return 1; }
+  restored_sample="$(fade_hint_sample_value "${1%.png}-restored.png" "$background" "$items" "$surface" "$mon_w" "$mon_h" "${2:-}")" || return
+  [[ $(fade_hint_contrast_value "$restored_sample" coverage) == True ]] || { echo 'notification-capture: restored-hints-undrawn' >&2; return 1; }
+  printf '%s\n' "$restored_sample" >"${1%.png}-restored.json"
+  printf 'notification-capture-restored: kind=hints geometry=stable sample=%s\n' "${1%.png}-restored.json" >&2
   fade_hint_sample_value "$1" "$background" "$items" "$surface" "$mon_w" "$mon_h" "${2:-}"
 }
 fade_hint_drawn() { # PNG
@@ -2675,6 +2697,13 @@ fade_hint_drawn() { # PNG
   sample="$(fade_hint_sample "$1")" || return
   [[ $sample == \{* ]] || { printf "%s\n" "$sample"; return; }
   fade_hint_contrast_value "$sample"
+}
+fade_hint_failed_capture() {
+  local status=0 background="$sandbox/fade-failed-capture-background.png"
+  mkdir -- "$background" || return
+  fade_hint_sample "$sandbox/fade-failed-capture.png" >"$sandbox/fade-failed-capture.json" 2>"$sandbox/fade-failed-capture.log" || status=$?
+  rmdir -- "$background" || return
+  printf '%s\n' "$status"
 }
 # A layer flag is not a painted card. Read the nested output inside a
 # notification title wholly above the fade. Neither the header nor the
@@ -2803,16 +2832,24 @@ fade_output() { # PNG
   shot_grim "$socket" "$rt_dir" -o "$output" -t png "$1"
 }
 fade_gap_sample() {
-  local items="$sandbox/fade-gap-current-items.json" view surface
+  local items="$sandbox/fade-gap-current-items.json" view surface restored_sample restored_ink restore_geometry="$sandbox/fade-gap-restored-items.json"
   view="$(view_at_rest panel vgs.notifications "Fade probe 12")" || return
   ipc smoke descendantGeometry panel vgs.notifications >"$items" || return
   surface="$(surface_box vgs:panel)" || return
   fade_output "$sandbox/fade-gap-current.png" || return
   local background="$sandbox/fade-gap-background.png" capture_rc=0
-  [[ $(ipc smoke gapPaint panel vgs.notifications true) == 2 ]] || return 1
-  fade_output "$background" || capture_rc=$?
-  [[ $(ipc smoke gapPaint panel vgs.notifications false) == 2 ]] || return 1
+  if fade_paint_wait gapPaint true; then fade_output "$background" || capture_rc=$?; else capture_rc=$?; fi
+  fade_paint_wait gapPaint false || capture_rc=$?
+  ipc smoke notificationPaintCleanup panel vgs.notifications >/dev/null || capture_rc=$?
   (( capture_rc == 0 )) || return "$capture_rc"
+  fade_output "$sandbox/fade-gap-restored.png" || return
+  ipc smoke descendantGeometry panel vgs.notifications >"$restore_geometry" || return
+  [[ $(fade_capture_geometry_same "$items" "$restore_geometry") == True ]] || { echo 'notification-capture: gap-geometry-changed' >&2; return 1; }
+  restored_sample="$(fade_gap_value "$sandbox/fade-gap-restored.png" "$background" "$items" "$view" "$surface" "$mon_w" "$mon_h")" || return
+  [[ $restored_sample == \{* ]] || { printf 'notification-capture: restored-gap=%s\n' "$restored_sample" >&2; return 1; }
+  restored_ink="$(fade_card_sample "$sandbox/fade-gap-restored-ink.png")" || return
+  [[ $(fade_card_value_drawn "$restored_ink") == True ]] || { echo 'notification-capture: restored-cards-undrawn' >&2; return 1; }
+  printf 'notification-capture-restored: kind=gap geometry=stable sample=%s\n' "$restored_sample" >&2
   fade_gap_value "$sandbox/fade-gap-current.png" "$background" "$items" "$view" "$surface" "$mon_w" "$mon_h"
 }
 fade_gap_one_step() { # SAMPLE_JSON
@@ -2838,15 +2875,15 @@ fade_state_point() {
 # A held native press reaches the real card mouse area. Its process owns
 # the virtual pointer until the captured pair is complete, then releases.
 fade_pressed_hint_pair() { # PNG
-  local x y line out_fd in_fd pid sample status=0
+  local x y line out_fd in_fd pid sample status=0 prior_failures="$failures"
   read -r x y < <(fade_state_point) || return 1
   coproc fade_press { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$x" "$y" hold; }
   out_fd="${fade_press[0]}"; in_fd="${fade_press[1]}"; pid="$fade_press_PID"
   if ! read -r -t 10 line <&"$out_fd" || [[ $line != "holding $x $y" ]]; then
     status=1
   else
-    expect_poll "the captured real card is pressed" True fade_state_pressed
-    sample="$(fade_hint_sample "$1")" || status=1
+    expect_poll "the captured real card is pressed" True fade_state_pressed >&2
+    if [[ $failures != "$prior_failures" ]]; then status=1; else sample="$(fade_hint_sample "$1")" || status=1; fi
   fi
   printf '\n' >&"$in_fd" || status=1
   wait "$pid" || status=1
@@ -2920,12 +2957,17 @@ PY_WALL_THEME
   fade_open_mid
   render expect_poll "the $fade_mode mid-scroll cards draw known ink above the fade" True fade_card_drawn "$sandbox/fade-$fade_mode-mid.png"
   render expect_poll "the $fade_mode floating words contrast with their captured background" True fade_hint_drawn "$sandbox/fade-hints-$fade_mode.png"
+  if [[ $fade_mode == dark ]]; then
+    expect "control: a failed background capture returns failure" 1 fade_hint_failed_capture
+    render expect "the same panel restores readable words after a failed capture" True fade_hint_drawn "$sandbox/fade-hints-after-failure.png"
+  fi
   fade_positive_sample="$(fade_hint_sample "$sandbox/fade-hints-reference-$fade_mode.png")" || fail "the positive hint core sample is unreadable"
   printf "%s\n" "$fade_positive_sample" >"$sandbox/fade-hints-reference-$fade_mode.json"
   fade_hint_states "$fade_mode"
   geometry expect_poll "the $fade_mode pixel probe reaches its end" end fade_wheel_end
   render expect_poll "the $fade_mode end cards draw known ink above the fade" True fade_card_drawn "$sandbox/fade-$fade_mode-end.png"
   geometry expect_poll "the $fade_mode drawn card glow is one spacing step above the chips" True fade_gap_drawn
+  geometry expect "the same $fade_mode panel keeps its painted gap across repeated captures" True fade_gap_drawn
   expect "the $fade_mode pixel probe closes" ok notes close
 done
 # Plant the actual muted-text defect once, then read both real themes.

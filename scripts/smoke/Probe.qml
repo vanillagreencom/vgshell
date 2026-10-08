@@ -28,11 +28,61 @@ Scope {
     Component {
         id: hintInkBinding
         Binding {
+            id: captureBinding
             objectName: "captureHintInk"
             property: "color"
             value: "transparent"
             when: false
+            property int presentedFrames: 0
+            readonly property var captureWindow: target === null ? null : target.Window.window
+            // frameSwapped follows presentation. Ask for another frame to
+            // drain any frame already in flight before the property change:
+            // doc.qt.io/qt-6/qml-qtquick-window.html#frameSwapped-signal.
+            property QtObject frameListener: Connections {
+                target: captureBinding.captureWindow
+                function onFrameSwapped() {
+                    captureBinding.presentedFrames += 1;
+                    if (captureBinding.presentedFrames < 2) captureBinding.captureWindow.update();
+                }
+            }
         }
+    }
+    function releaseCapturePaint(binding) {
+        binding.when = false;
+        binding.objectName = "";
+        binding.destroy();
+    }
+    function notificationCapturePaint(targets, name, property, value, hidden) {
+        let pending = false;
+        const bindings = [];
+        for (const target of targets) {
+            let binding = Array.from(target.data).find(child => child.objectName === name);
+            if (binding === undefined && hidden) {
+                binding = hintInkBinding.createObject(target, { objectName: name, target: target, property: property, value: value });
+                if (binding === null) {
+                    for (const owner of targets) {
+                        const created = Array.from(owner.data).find(child => child.objectName === name);
+                        if (created !== undefined) root.releaseCapturePaint(created);
+                    }
+                    return "paint-binding-failed";
+                }
+                // Dynamic parenting alone does not append this resource to
+                // Item.data. Keep its owned handle where restore looks:
+                // doc.qt.io/qt-6/qml-qtquick-item.html#data-prop.
+                target.data.push(binding);
+            }
+            if (binding === undefined) continue;
+            bindings.push(binding);
+            if (binding.when !== hidden) {
+                binding.presentedFrames = 0;
+                binding.when = hidden;
+                if (binding.captureWindow !== null) binding.captureWindow.update();
+            }
+            if (binding.captureWindow === null || binding.presentedFrames < 2) pending = true;
+        }
+        if (pending) return "pending";
+        if (!hidden) for (const binding of bindings) root.releaseCapturePaint(binding);
+        return String(targets.length);
     }
     Component {
         id: holdMarkerComponent
@@ -1725,29 +1775,7 @@ Scope {
             const hints = root.descendants(item).filter(child => root.typeName(child) === "KeyHints");
             if (scrolls.length !== 1 || hints.length !== 1) return "gap-targets-absent";
             const targets = [scrolls[0].cards, hints[0]];
-            const restore = () => {
-                for (const target of targets) {
-                    const binding = Array.from(target.data).find(child => child.objectName === "captureGapPaint");
-                    if (binding !== undefined) {
-                        binding.when = false;
-                        binding.destroy();
-                    }
-                }
-            };
-            if (!hidden) {
-                restore();
-                return String(targets.length);
-            }
-            for (const target of targets) {
-                const previous = Array.from(target.data).find(child => child.objectName === "captureGapPaint");
-                if (hidden && previous === undefined) {
-                    if (hintInkBinding.createObject(target, { objectName: "captureGapPaint", target: target, property: "opacity", value: 0, when: true }) === null) {
-                        restore();
-                        return "gap-binding-failed";
-                    }
-                }
-            }
-            return String(targets.length);
+            return root.notificationCapturePaint(targets, "captureGapPaint", "opacity", 0, hidden);
         }
         // A paired capture removes only word ink. The live backing, card
         // states and wallpaper remain painted at the same coordinates.
@@ -1759,16 +1787,19 @@ Scope {
             const hints = root.descendants(item).filter(child => root.typeName(child) === "KeyHints" && child.visible);
             const labels = hints.reduce((all, hint) => all.concat(root.descendants(hint).filter(child => root.typeName(child) === "Label" && child.role === "hint" && child.visible)), []);
             if (labels.length === 0) return "ink-absent";
-            for (const label of labels) {
-                const previous = Array.from(label.data).find(child => child.objectName === "captureHintInk");
-                if (hidden && previous === undefined) {
-                    if (hintInkBinding.createObject(label, { target: label, when: true }) === null) return "ink-binding-failed";
-                } else if (!hidden && previous !== undefined) {
-                    previous.when = false;
-                    previous.destroy();
+            return root.notificationCapturePaint(labels, "captureHintInk", "color", "transparent", hidden);
+        }
+        // A failed capture still restores every acquired property and
+        // releases its child frame listener, even if no frame arrives.
+        function notificationPaintCleanup(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            for (const target of root.descendants(item)) {
+                for (const binding of Array.from(target.data || [])) {
+                    if (binding.objectName === "captureHintInk" || binding.objectName === "captureGapPaint") root.releaseCapturePaint(binding);
                 }
             }
-            return String(labels.length);
+            return "ok";
         }
         // The box of the first visible, enabled item named `type` whose
         // `text` is `text`, in screen coordinates, so a row can click it.
