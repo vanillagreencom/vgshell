@@ -667,7 +667,7 @@ A file under docs/architecture/ is a principle document for one reader's task an
 dev = """
 ## UI evidence (KEN-3470: CQ33)
 
-For each changed view, capture a before image from the base revision and an after image from HEAD in every supported theme, dark and light. Put the images under tmp/ui-shots/ in the worktree; `scripts/sandbox-shots.sh` captures them. List each file in the round summary with the view, before or after, and theme. A later change to the view replaces its after images and carries its before images forward. A new view has after images only. The reviewer judges the view from this set.
+For each changed view, capture a before image from the base revision and an after image from HEAD in every supported theme, dark and light. Put the images under tmp/ui-shots/ in the worktree; `scripts/sandbox-shots.sh` captures them. List each image on its own line in the round summary as `tmp/ui-shots/[FILE]` - [View], [before|after], [THEME]. A later change to the view replaces its after images and carries its before images forward. List the full set in that round's summary. A new view has after images only.
 """
 docs-writing = """
 ## VGS documentation policy (KEN-3470)
