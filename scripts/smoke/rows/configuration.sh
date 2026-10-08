@@ -105,6 +105,13 @@ configuration_retire_bar() {
 configuration_setting_notices() {
   ipc shell listPlugins | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([{"id":e["id"],"keys":e["keys"]} for e in d["errors"] if e.get("kind")=="unknown-settings" and e.get("id")=="vgs.bar"], sort_keys=True))'
 }
+configuration_manager_notices() {
+  ipc shell listPlugins >"$sandbox/configuration-notices.json" || return
+  ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+notices=[e for e in json.load(open(sys.argv[1]))["errors"] if e.get("kind")=="unknown-settings" and e.get("id")=="vgs.bar"]
+print(json.dumps([{"id":e["id"],"keys":e["keys"],"reported":any(r["id"]==e["id"] and r["errors"].count(e["error"])==1 for r in rows)} for e in notices],sort_keys=True))' "$sandbox/configuration-notices.json"
+}
 configuration_saved_left() {
   python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps(next(e["left"] for e in d["plugins"] if e["id"]=="vgs.bar")))' "$home/.config/vgshell/shell.json"
 }
@@ -120,17 +127,38 @@ os.replace(p + ".tmp", p)
 PY
   if start_shell "$sandbox/tree-configuration-retired-setting" "$sandbox/configuration-retired-setting-qs.log"; then
     expect_poll "the retired bar field gets one typed notice" '[{"id": "vgs.bar", "keys": ["left"]}]' configuration_setting_notices
+    expect "Settings opens with the retired field saved" ok ipc shell summon window vgs.settings '{}'
+    expect_poll "Settings receives the same retired-setting notice once" '[{"id": "vgs.bar", "keys": ["left"], "reported": true}]' configuration_manager_notices
     expect "editing another plugin leaves the retired field in the file" ok ipc shell setPluginEnabled acme.tick false
     expect "the saved retired field stays after the edit" '["workspaces"]' configuration_saved_left
     expect "the other plugin is enabled again" ok ipc shell setPluginEnabled acme.tick true
     stop_shell || :
     if edit_tree configuration-retired-setting shell/Core/Registry.qml \
-        'errors.concat(extra, watchError, unknownSettings)' 'errors.concat(extra, watchError)'; then
+        'errors.concat(extra, watchError, unknownSettingErrors)' 'errors.concat(extra, watchError)'; then
       if start_shell "$sandbox/tree-configuration-retired-setting" "$sandbox/configuration-hidden-setting-qs.log"; then
         expect_poll "control: removing the notice makes the positive typed check fail" '[]' configuration_setting_notices
         expect "control: the retired field still reaches the shell's saved file" '["workspaces"]' configuration_saved_left
       fi
     fi
+  fi
+  configuration_control_restore
+fi
+
+if configuration_retire_bar configuration-hidden-manager-setting && edit_tree configuration-hidden-manager-setting shell/Core/Registry.qml \
+    'const settingNotices = unknownSettingErrors;' 'const settingNotices = false ? unknownSettingErrors : [];'; then
+  stop_shell || :
+  python3 - "$home/.config/vgshell/shell.json" <<'PY'
+import json, os, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["plugins"] = [e for e in d.get("plugins", []) if e["id"] != "vgs.bar"] + [{"id":"vgs.bar", "left":["workspaces"]}]
+json.dump(d, open(p + ".tmp", "w"), indent=2)
+os.replace(p + ".tmp", p)
+PY
+  if start_shell "$sandbox/tree-configuration-hidden-manager-setting" "$sandbox/configuration-hidden-manager-setting-qs.log"; then
+    expect "control: Settings opens with the same retired field saved" ok ipc shell summon window vgs.settings '{}'
+    expect_poll "control: removing the Settings route makes its typed check fail" '[{"id": "vgs.bar", "keys": ["left"], "reported": false}]' configuration_manager_notices
+    expect "control: the retired field still reaches the Settings copy" '["workspaces"]' configuration_saved_left
   fi
   configuration_control_restore
 fi
