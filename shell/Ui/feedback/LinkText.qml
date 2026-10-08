@@ -87,6 +87,8 @@ T.Control {
     implicitHeight: label.implicitHeight
     height: implicitHeight
     activeFocusOnTab: linked
+    Accessible.name: text
+    Accessible.role: linked ? Accessible.Link : Accessible.StaticText
 
     Keys.onReturnPressed: event => { if (root.linked) root.clicked(); else event.accepted = false; }
     Keys.onEnterPressed: event => { if (root.linked) root.clicked(); else event.accepted = false; }

@@ -76,6 +76,7 @@ FocusScope {
         const reopen = opened && mode === payload.mode;
         mode = payload.mode;
         opened = true;
+        actionIndex = -1;
         call("panel-opened", mode);
         refresh();
         Qt.callLater(() => {

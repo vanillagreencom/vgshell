@@ -79,6 +79,8 @@ Item {
         objectName: "fieldLabel"
         T.Control {
             id: labelFocus
+            Accessible.name: labelText.text
+            Accessible.role: Accessible.StaticText
             anchors.fill: parent
             activeFocusOnTab: root.labelTooltip !== "" && visible
             Tooltip { text: root.labelTooltip }

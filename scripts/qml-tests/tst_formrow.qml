@@ -94,6 +94,8 @@ Item {
             const ring = label.children.find(child => String(child).indexOf("FocusRing") === 0);
             control.forceActiveFocus(Qt.OtherFocusReason);
             compare(control.activeFocus, true);
+            compare(control.Accessible.name, explainedLabel.label);
+            compare(control.Accessible.role, Accessible.StaticText);
             compare(ring.visible, false);
             keyClick(Qt.Key_Tab);
             keyClick(Qt.Key_Backtab);

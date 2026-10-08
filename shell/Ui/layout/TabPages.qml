@@ -14,7 +14,8 @@ import qs.Ui
 // key: a ShortcutField that captures takes it as the combo, and an open
 // list or menu holds the keyboard in its own surface. A hidden item
 // keeps the keyboard it holds, so when the page that hides holds it the
-// strip takes it with the Tab focus reason, and its ring shows.
+// strip takes it with the current Qt focus reason. Keyboard page keys
+// give the strip a Tab reason.
 FocusScope {
     id: root
 
@@ -38,7 +39,13 @@ FocusScope {
         // the page that hides. The first tab's arrival sets the index, so
         // the strip is the scope's focus from the start.
         if (!strip.focus) {
-            if (root.activeFocus) strip.forceActiveFocus(Qt.TabFocusReason);
+            if (root.activeFocus) {
+                let focused = root.Window.activeFocusItem;
+                while (focused !== null && !("focusReason" in focused)) focused = focused.parent;
+                const reason = focused === null ? Qt.OtherFocusReason : focused.focusReason;
+                strip.forceActiveFocus(reason);
+                strip.focusReason = reason;
+            }
             else strip.focus = true;
         }
         show();
@@ -48,7 +55,13 @@ FocusScope {
     // for them as it does for its own.
     Keys.onPressed: event => {
         const action = KeyNavLogic.intent(event.key, event.modifiers, "horizontal", false);
-        if (action === "tabPrev" || action === "tabNext") event.accepted = strip.nav.handle(event);
+        if (action === "tabPrev" || action === "tabNext") {
+            event.accepted = strip.nav.handle(event);
+            if (event.accepted) {
+                strip.forceActiveFocus(Qt.TabFocusReason);
+                strip.focusReason = Qt.TabFocusReason;
+            }
+        }
     }
 
     Tabs {

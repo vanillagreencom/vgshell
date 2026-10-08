@@ -25,6 +25,7 @@ Item {
 
         function test_initial_focus_has_no_ring_and_tab_shows_it() {
             compare(canvas.activeFocus, true);
+            compare(canvas.Accessible.name, "Display arrangement");
             compare(ring().visible, false);
             keyClick(Qt.Key_Tab);
             compare(next.activeFocus, true);

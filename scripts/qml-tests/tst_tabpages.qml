@@ -12,7 +12,7 @@ import qs.Unit
 // strip, each its own way and round the ends, and from a control of the
 // shown page, where a Select, a SegmentedControl and a Slider keep the
 // value they hold; a page that
-// hides while it holds the keyboard hands it to the strip with its ring,
+// hides while it holds focus hands the current Qt reason to the strip,
 // and one that hides while the keyboard is elsewhere leaves the strip the
 // component's focus, which the strip is from the start.
 Item {
@@ -167,14 +167,46 @@ Item {
             compare(untouched.tabs.activeFocus, true);
         }
 
-        function test_a_page_that_hides_hands_the_keyboard_to_the_strip() {
-            save.forceActiveFocus(Qt.MouseFocusReason);
+        function test_a_page_that_hides_preserves_its_focus_reason_data() {
+            return [
+                { tag: "initial", reason: Qt.OtherFocusReason, ring: false },
+                { tag: "pointer", reason: Qt.MouseFocusReason, ring: false },
+                { tag: "keyboard", reason: Qt.TabFocusReason, ring: true }
+            ];
+        }
+
+        function test_a_page_that_hides_preserves_its_focus_reason(data) {
+            save.forceActiveFocus(data.reason);
+            save.focusReason = data.reason;
             compare(save.activeFocus, true);
             pages.currentIndex = 1;
             compare(save.activeFocus, false, "a hidden control keeps the keyboard");
             compare(pages.tabs.activeFocus, true);
-            compare(pages.tabs.visualFocus, true, "the strip takes the keyboard without its ring");
-            compare(pages.tabs.itemAt(1).background.children[1].visible, true);
+            compare(pages.tabs.focusReason, data.reason);
+            compare(pages.tabs.visualFocus, data.ring);
+            compare(pages.tabs.itemAt(1).background.children[1].visible, data.ring);
+        }
+
+        function test_an_initial_index_arrives_in_an_active_scope_without_a_ring() {
+            pages.currentIndex = -1;
+            pages.tabs.focus = false;
+            first.focus = true;
+            save.forceActiveFocus(Qt.OtherFocusReason);
+            save.focusReason = Qt.OtherFocusReason;
+            compare(pages.activeFocus, true);
+            pages.currentIndex = 0;
+            compare(pages.tabs.activeFocus, true);
+            compare(pages.tabs.visualFocus, false);
+            compare(pages.tabs.itemAt(0).background.children[1].visible, false);
+        }
+
+        function test_a_page_key_after_pointer_focus_shows_the_ring() {
+            save.forceActiveFocus(Qt.MouseFocusReason);
+            save.focusReason = Qt.MouseFocusReason;
+            keyClick(Qt.Key_PageDown, Qt.ControlModifier);
+            compare(pages.currentIndex, 1);
+            compare(pages.tabs.activeFocus, true);
+            compare(pages.tabs.visualFocus, true);
         }
 
         function test_a_page_that_hides_without_the_keyboard_leaves_it_where_it_is() {

@@ -17,7 +17,7 @@ T.TextArea {
     InputWidth { target: root }
 
     property bool error: false
-    readonly property color outline: error ? Theme.textField.error : activeFocus ? Theme.textField.focus : hovered ? Theme.textField.hover : Theme.textField.borderColor
+    readonly property color outline: error ? Theme.textField.error : focusRing.visible ? Theme.textField.focus : hovered ? Theme.textField.hover : Theme.textField.borderColor
 
     implicitWidth: Theme.size.panel.sm
     implicitHeight: Math.max(Theme.size.control.lg * 3, contentHeight + topPadding + bottomPadding)
@@ -44,6 +44,6 @@ T.TextArea {
         border.width: Theme.textField.border
         border.color: root.outline
         Behavior on border.color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
-        FocusRing { target: root }
+        FocusRing { id: focusRing; target: root; ringColor: root.error ? Theme.textField.error : Theme.focusRing.color }
     }
 }

@@ -97,6 +97,8 @@ Item {
             linked.forceActiveFocus(Qt.OtherFocusReason);
             const ring = linked.children.find(child => String(child).indexOf("FocusRing") === 0);
             compare(linked.activeFocus, true);
+            compare(linked.Accessible.name, linked.text);
+            compare(linked.Accessible.role, Accessible.Link);
             compare(ring.visible, false);
             keyClick(Qt.Key_Tab);
             keyClick(Qt.Key_Backtab);

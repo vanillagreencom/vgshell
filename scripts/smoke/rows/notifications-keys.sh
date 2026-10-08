@@ -497,6 +497,51 @@ expect "disabling the summon-only service copy is allowed" ok ipc shell setPlugi
 expect_poll "the summon-only service copy is gone" False record_exists vgs.notifications
 cp -- "$sandbox/Service.qml.keys-kept" "$nk_service"
 rescan "a rescan restores the service"
+# A service can summon the same live panel again. Its selected row stays,
+# but action preview is keyboard state and must restart with no action ring.
+nk_action_index() { ipc smoke readInstance panel vgs.notifications actionIndex; }
+nk_focus_reopen() {
+  expect "the focus fixture opens the inbox" ok notes panel
+  expect_poll "the focus fixture inbox maps" open inbox_shown
+  expect_poll "the opened inbox selects no action" -1 nk_action_index
+  type_keys -k Right || fail "Right reaches the inbox action fixture"
+  expect_poll "Right selects the first inbox action" 0 nk_action_index
+  expect "the same inbox is summoned again" ok notes panel
+}
+expect "enabling notifications for the reopen focus proof is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "the reopen focus service is built" True record_exists vgs.notifications
+notes dismiss-all >/dev/null
+expect "clearing history before the reopen focus proof is allowed" ok notes clear-history
+notify smoke-app 0 "Focus reopen" "Choose an action" '["default", "Open", "reply", "Reply"]' '{}' 0 >/dev/null
+expect_poll "the reopen focus notification is live" True has_row live "Focus reopen"
+nk_focus_reopen
+expect_poll "the same-panel reopen clears its action preview" -1 nk_action_index
+type_keys -k Right || fail "Right reaches the reopened inbox"
+expect_poll "keyboard action selection still works after reopen" 0 nk_action_index
+type_keys -k Escape || fail "Escape closes the reopen focus proof"
+expect_poll "the reopen focus inbox closes" closed inbox_shown
+expect "disabling notifications for the retained-action control is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+cp -- "$nk_panel" "$sandbox/Panel.qml.focus-kept"
+python3 - "$nk_panel" <<'PYCONTROL'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+needle = 'opened = true;\n        actionIndex = -1;'
+assert text.count(needle) == 1, "the open owner resets its action preview once"
+open(path, "w").write(text.replace(needle, 'opened = true;'))
+PYCONTROL
+rescan "a rescan reads the retained-action control"
+expect "enabling the retained-action control is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "the retained-action service is built" True record_exists vgs.notifications
+nk_focus_reopen
+nk_reopen_no_preview() { expect "the same-panel reopen has no action preview" -1 nk_action_index; }
+nk_reopen_preview_control() { (failures=0 behaviour_failures=0; nk_reopen_no_preview >"$sandbox/notifications-reopen-focus-control.log"; echo "$failures"); }
+expect "control: retaining the prior action fails the same reopen assertion" 1 nk_reopen_preview_control
+sed 's/^/  CONTROL  /' "$sandbox/notifications-reopen-focus-control.log"
+type_keys -k Escape || fail "Escape closes the retained-action control"
+expect "disabling the retained-action control is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+cp -- "$sandbox/Panel.qml.focus-kept" "$nk_panel"
+rescan "a rescan restores the shipped reopen focus owner"
 expect "the observer releases the notifications key ordering marker" ok ipc smoke holdMarkerStop
 hypr_lua_restore notifications-keys || fail "the key rows put the harness hyprland.lua back"
 expect "the nested instance reloads the harness hyprland.lua after the key rows" ok hypr reload config-only

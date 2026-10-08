@@ -124,11 +124,17 @@ Item {
             mouseMove(root, root.width - 1, root.height - 1);
             tryCompare(tip, "opened", false);
             root.Window.window.requestActivate();
+            tryCompare(root.Window.window, "active", true);
+            wait(0);
             const focused = [];
             const record = () => { if (tip.opened) focused.push(tip.text); };
             tip.openedChanged.connect(record);
             try {
-                labelControl.forceActiveFocus(Qt.TabFocusReason);
+                labelControl.forceActiveFocus(Qt.OtherFocusReason);
+                keyClick(Qt.Key_Tab);
+                keyClick(Qt.Key_Backtab);
+                compare(labelControl.activeFocus, true);
+                compare(labelControl.visualFocus, true);
                 tryVerify(() => focused.length > 0, 2000);
             } finally {
                 tip.openedChanged.disconnect(record);

@@ -81,7 +81,7 @@ Item {
             keyClick("o");
             keyClick("k");
             compare(command.text, "echo\nok");
-            compare(String(command.outline), String(Qt.color(Theme.textField.focus)));
+            compare(String(command.outline), String(Qt.color(Theme.textField.borderColor)));
             command.error = true;
             compare(String(command.outline), String(Qt.color(Theme.textField.error)));
         }

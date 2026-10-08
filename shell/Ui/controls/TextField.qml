@@ -10,7 +10,7 @@ import qs.Ui
 // outline with the error colour; `password` masks what is typed, for a
 // secret the shell stores (D061), and Qt then keeps it off the clipboard. The template owns the text, the cursor,
 // the selection, `validator` and `acceptableInput`; the outline follows
-// hover, focus and error, in that order of precedence reversed, and the
+// hover, keyboard focus and error, in that order of precedence reversed, and the
 // focus ring of a field in error draws in the error colour, so the cue
 // stays while the user edits. Its icons are the `md` control's; under a
 // rounded theme the side padding grows until the text clears the corner.
@@ -31,7 +31,7 @@ T.TextField {
     property bool escapeReverts: false
     property string committedText: ""
     property alias actions: actionRow.data
-    readonly property color outline: error ? Theme.textField.error : activeFocus ? Theme.textField.focus : hovered ? Theme.textField.hover : Theme.textField.borderColor
+    readonly property color outline: error ? Theme.textField.error : focusRing.visible ? Theme.textField.focus : hovered ? Theme.textField.hover : Theme.textField.borderColor
     readonly property real sidePadding: Theme.controlPadding(Theme.textField.paddingX, Theme.textField.radius, Math.max(Theme.textField.height, height), contentHeight)
 
     implicitWidth: Theme.size.panel.sm / 2
@@ -89,7 +89,7 @@ T.TextField {
             elide: Text.ElideRight
         }
 
-        FocusRing { target: root; ringColor: root.error ? Theme.textField.error : Theme.focusRing.color }
+        FocusRing { id: focusRing; target: root; ringColor: root.error ? Theme.textField.error : Theme.focusRing.color }
     }
 
     // A child of the field, not of the background: the control puts its

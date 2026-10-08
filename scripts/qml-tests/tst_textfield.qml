@@ -84,12 +84,14 @@ Item {
             compare(String(plain.outline), String(Qt.color(Theme.textField.borderColor)));
             compare(ring.visible, false);
             plain.forceActiveFocus(Qt.OtherFocusReason);
-            compare(String(plain.outline), String(Qt.color(Theme.textField.focus)));
+            compare(plain.activeFocus, true);
+            compare(String(plain.outline), String(Qt.color(Theme.textField.borderColor)));
             compare(ring.visible, false);
             keyClick(Qt.Key_Tab);
             keyClick(Qt.Key_Backtab);
             compare(plain.activeFocus, true);
             compare(ring.visible, true);
+            compare(String(plain.outline), String(Qt.color(Theme.textField.focus)));
             compare(String(ring.border.color), String(Qt.color(Theme.focusRing.color)));
             plain.error = true;
             compare(String(plain.outline), String(Qt.color(Theme.textField.error)));
