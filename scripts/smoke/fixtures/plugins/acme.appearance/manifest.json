@@ -1,0 +1,11 @@
+{
+    "schemaVersion": 1,
+    "id": "acme.appearance",
+    "name": "Appearance values",
+    "version": "0.1.0",
+    "author": "Smoke",
+    "description": "Reads and writes the user's Appearance values through the appearance capability",
+    "kinds": ["service"],
+    "entryPoints": { "service": "Service.qml" },
+    "capabilities": ["appearance"]
+}

@@ -26,12 +26,12 @@
 # row, each on a source_tree copy of the shell. A copy whose
 # MouseControls.useHyprlandValue calls no configure.unset failed "the action
 # removes the setting from the bar entry and the plugins row", reading
-# [0.55, 0.55], and getoption kept 0.55. A copy whose MouseLogic.warningText
+# [0.55, 0.55], and getoption kept 0.55. A copy whose row line logic
 # gives every row a line, whose FormRow never moves its action under the
 # message and whose action hands the keys to no control failed "no row
 # shows a message before the user table", read the flyout's message -10.95
 # px wide beside an action 186.95 px wide, and read the keys on the action.
-# inputs: shell/plugins/vgs.mouse/* shell/plugins/vgs.system/* shell/Core/PluginLogic.js shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Hosts/PaneHost.qml shell/Ui/controls/Button.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Slider.qml shell/Ui/controls/Switch.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml shell/Ui/layout/DeviceRow.qml bin/vgshell scripts/smoke/rows/hyprland-consent.sh shell/Commons/Tokens.js shell/Ui/controls/TextField.qml scripts/smoke/Probe.qml
+# inputs: shell/plugins/vgs.mouse/* shell/plugins/vgs.system/* shell/Core/PluginLogic.js shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Hosts/PaneHost.qml shell/Ui/controls/Button.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Slider.qml shell/Ui/controls/Switch.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/controls/RowActions.qml shell/Commons/Theme.qml shell/Ui/feedback/LinkText.qml shell/Ui/layout/DeviceRow.qml bin/vgshell scripts/smoke/rows/hyprland-consent.sh shell/Commons/Tokens.js shell/Ui/controls/TextField.qml scripts/smoke/Probe.qml
 set -euo pipefail
 
 mouse_file="$home/.config/vgshell/shell.json"
@@ -63,8 +63,9 @@ def under(index, row):
     return False
 rows = [i["parent"] for i in items if i["type"] in ("Label", "LinkText") and i.get("role") == "tooltip" and i["visible"] and i.get("text") and items[i["parent"]].get("name") == "fieldRow"]
 print(json.dumps([sorted({c["type"] for n, c in enumerate(items) if c["type"] in ("Slider", "Switch", "SegmentedControl") and under(n, row)}) for row in rows]))'; }
-# The user's values the pane's controls hold from the `hyprland` capability.
-mouse_user_values() { ipc smoke readDescendant window vgs.mouse MouseControls userValues; }
+# The user's own Hyprland value the Pointer speed row reads from the
+# `hyprland` capability, `undefined` for none.
+mouse_user_values() { ipc smoke readMatchingDescendant window vgs.mouse MouseRow label "Pointer speed" hyprlandConfigValue; }
 # The text of the label beside the first drawn slider, the pointer speed's.
 mouse_speed_label() { ipc smoke descendantGeometry window vgs.mouse | py_reply '
 import json, sys
@@ -217,12 +218,12 @@ expect "the user file holds the pane's sensitivity in the bar entry and the plug
 expect "no row offers the user's Hyprland value while the user's config sets none" 0 mouse_action_count
 mouse_width="$(mouse_slider_width)" || fail "the Mouse pointer-speed slider's width is unreadable"
 expect "no row shows a message before the user table" '[]' mouse_messages
-expect "the pane holds no user value before the user table" '[]' mouse_user_values
+expect "the pane holds no user value before the user table" undefined mouse_user_values
 printf '%s\n' 'hl.config({ input = { accel_profile = "flat", sensitivity = -0.5 } })' >>"$mouse_hypr"
 expect "the nested instance reloads with the user Mouse table" ok hypr reload config-only
 expect_poll "the pane's sensitivity holds over the user Mouse table" '[0.55, true]' mouse_option input:sensitivity float
 expect_poll "the user's other key of that table keeps the user's value" '["flat", true]' mouse_option input:accel_profile str
-expect_poll "the pane holds the user's value of the pointer speed" '[{"path":"input.sensitivity","value":-0.5}]' mouse_user_values
+expect_poll "the pane holds the user's value of the pointer speed" -0.5 mouse_user_values
 expect_poll "the pointer speed row alone shows a message under it" '[["Slider"]]' mouse_messages
 expect "the message leaves the pointer-speed slider its width" "$mouse_width" mouse_slider_width
 expect_poll "the pointer speed row alone offers the user's Hyprland value" 1 mouse_action_count
@@ -248,7 +249,7 @@ expect_poll "with the setting gone the pointer speed row reads the user's value"
 expect_poll "the layer writes no Mouse option once the setting is gone" no mouse_layer_mentions 'vgs.mouse 0.1.0: input options its settings set'
 expect_poll "no row offers the user's Hyprland value once VGS sets none" 0 mouse_action_count
 expect_poll "no row shows a message once VGS sets none" '[]' mouse_messages
-expect_poll "the pane holds no user value once VGS sets none" '[]' mouse_user_values
+expect_poll "the pane holds no user value once VGS sets none" undefined mouse_user_values
 hypr_lua_restore mouse || fail "hyprland.lua is put back after the Mouse override read"
 expect "the nested instance reloads without the Mouse override line" ok hypr reload config-only
 

@@ -125,6 +125,9 @@ panes
 system-window
 # After system-window, whose vgs.system it enables again for the Mouse pane.
 mouse
+# After hyprland-consent, whose wired layer it reads Hyprland through, beside
+# the other System sections.
+appearance
 keyboard
 # After system-window, whose vgs.system it enables again for the displays
 # pane, and after device-fakes, which leaves the XDR's report at 40 %, the
