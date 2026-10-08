@@ -657,7 +657,7 @@ const table = [
         s = step(logic, s, callback("capture-opened", s.capture, 51)).state;
         const sent = step(logic, s, callback("final", s.turn, 52, { text: "next turn" }));
         assert.notEqual(sent.state.turn.op, owner.op);
-        assert.equal(sent.effects.find(e => e.kind === "brain-send").owner, owner.op);
+        assert.equal(sent.effects.find(e => e.kind === "brain-send").owner, owner.op, "next chained turn retains the conversation's brain owner");
         assert.deepEqual(sent.state.brain, owner);
         s = step(logic, sent.state, callback("brain-done", sent.state.turn, 53)).state;
         const closed = step(logic, s, event("lease-ended", 54));
@@ -890,6 +890,8 @@ table.push(["duplex-delegation", logic => {
     const replacement = step(logic, first.state, callback("delegation", first.state.speech, 31, { id: "new", text: "new context" }));
     assert.ok(replacement.effects.some(e => e.kind === "brain-cancel" && e.target === first.state.turn.op));
     assert.ok(replacement.state.turn.op > first.state.turn.op);
+    assert.equal(replacement.effects.find(e => e.kind === "brain-send").owner, first.state.brain.op, "replacement delegation retains the conversation's brain owner");
+    assert.deepEqual(replacement.state.brain, first.state.brain, "replacement retains the conversation's brain owner");
     const late = step(logic, replacement.state, callback("brain-done", first.state.turn, 32));
     assert.equal(late.state.turn.op, replacement.state.turn.op);
     assert.equal(late.state.stale, replacement.state.stale + 1);
@@ -1500,8 +1502,10 @@ try {
             'if (false) dropApproval(s, effects, "interrupt", at);', "hold-approval"],
         ["completed-brain", 'if (s.turn.kind === "none") closeBrain(s, effects);',
             'if (false && s.turn.kind === "none") closeBrain(s, effects);', "completed-brain-owner"],
-        ["retain-brain", 'if (s.brain.kind === "closed") s.brain = { kind: "acquired", gen: brain.gen, op: brain.op };',
-            'if (true || s.brain.kind === "closed") s.brain = { kind: "acquired", gen: brain.gen, op: brain.op };', "reused-brain-owner"],
+        ["retain-brain", 'var brain = effect(s, effects, "brain-send", { text: text });\n    if (s.brain.kind === "closed")',
+            'var brain = effect(s, effects, "brain-send", { text: text });\n    if (true)', "reused-brain-owner", "next chained turn retains the conversation's brain owner"],
+        ["retain-delegation-brain", 'var brain = effect(s, effects, "brain-send", { text: e.text, delegation: e.id });\n            if (s.brain.kind === "closed")',
+            'var brain = effect(s, effects, "brain-send", { text: e.text, delegation: e.id });\n            if (true)', "duplex-delegation", "replacement delegation retains the conversation's brain owner"],
         ["release", 'if (s.input.kind !== "held") break;', 'if (false && s.input.kind !== "held") break;', "hold-edges"],
         ["toggle", "at - s.toggleAt < 250", "at - s.toggleAt < 249", "toggle-debounce"],
         ["start-gen", 's.gen++;\n        s.conversation = { kind: "active" };', 's.gen += 0;\n        s.conversation = { kind: "active" };', "start-generation"],
@@ -1623,7 +1627,7 @@ try {
         ["state-reply", 'if (!exact(r[f], ["kind"]) || ["none", "waiting"].indexOf(r[f].kind) === -1) return false;',
             'if (false) return false;', "wire-speech-reply-tag"]
     );
-    for (const [name, needle, replacement, row] of mutants) {
+    for (const [name, needle, replacement, row, assertion] of mutants) {
         const count = source.split(needle).length - 1;
         // Assert the match before changing only the disposable copy.
         const expected = 1;
@@ -1632,7 +1636,8 @@ try {
         assert.notEqual(changed, source);
         const mutant = path.join(root, name + ".js");
         fs.writeFileSync(mutant, changed);
-        assert.throws(() => table.find(item => item[0] === row)[1](load(mutant)), assert.AssertionError,
+        assert.throws(() => table.find(item => item[0] === row)[1](load(mutant)),
+            error => error instanceof assert.AssertionError && (assertion === undefined || error.message.includes(assertion)),
             name + " must turn its rule assertion red");
         controls++;
     }

@@ -206,7 +206,7 @@ const CONTROLS = [
     ["the brain causes share one hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = STEP_TODO[step];"],
     ["an unknown cause has no hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = TODO[cause];"],
     ["local voice repeats its action as its hint", "var STEP_TODO = { brain:", 'var STEP_TODO = { speech: "fixture repeat", brain:'],
-    ["a step to do draws its hint as a line", ': { tone: "warning", text: "To do", hint: hint, action: true };', ': { tone: "warning", text: "To do", lines: [hint], action: true };'],
+    ["a step to do draws its hint as a line", ': { tone: "warning", text: "To do", hint: hint, action: cause.indexOf("speech=live-") !== 0 };', ': { tone: "warning", text: "To do", lines: [hint], action: cause.indexOf("speech=live-") !== 0 };', "nothing set up: setupModel"],
     ["a stopped summary draws its reason as a line", 'hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." }', 'lines: ["Jarvis stopped after a problem. Turn Jarvis off and on again."] }'],
     ["causes leave the summary ready", 'setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
     ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupVoice: CHECKING, setupModel: CHECKING };', 'return { setup: CHECKING_SUMMARY, setupVoice: DONE, setupModel: DONE };'],
@@ -223,7 +223,7 @@ const scratchRoot = path.join(__dirname, "..", "tmp");
 fs.mkdirSync(scratchRoot, { recursive: true });
 const temp = fs.mkdtempSync(path.join(scratchRoot, "jarvis-setup-gate-control-"));
 try {
-    for (const [label, needle, replacement] of CONTROLS) {
+    for (const [label, needle, replacement, assertion] of CONTROLS) {
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);
         const changed = source.replace(needle, () => replacement);
         assert.notEqual(changed, source, `control "${label}": the copy changed`);
@@ -237,6 +237,7 @@ try {
         }
         assert.ok(failure instanceof assert.AssertionError, `control "${label}": the suite passed on a copy without that rule` +
             (failure === null ? "" : ", or failed on something other than an assertion: " + failure));
+        if (assertion !== undefined) assert.equal(failure.message.includes(assertion), true, label + ": the intended assertion fails");
     }
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });

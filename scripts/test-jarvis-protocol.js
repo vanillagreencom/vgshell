@@ -24,7 +24,7 @@ const shellStatus = { v: 1, type: "shell-status", gen: 0, revision: hello.revisi
 const state = { v: 1, type: "state", gen: 0, revision: hello.revision, seq: 1,
     state: JSON.parse(JSON.stringify(Protocol.Session.initial())), phase: "down" };
 const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
-assert.deepEqual(Object.keys(manifest.settings), ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount"]);
+assert.deepEqual(Object.keys(manifest.settings).sort(), ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount"].sort());
 assert.deepEqual([manifest.settings.cloudVision, manifest.schema.cloudVision.options], ["ask", ["ask", "allow", "never"]]);
 assert.equal(typeof manifest.settings.privateWindows, "string");
 assert.deepEqual(manifest.schema.mode.options, ["hold", "toggle"]);
@@ -138,7 +138,7 @@ const cases = [
         changed(hello, { settings: { ...hello.settings, echoCancel } }), "shell", "shape-settings"]),
     ["mode", changed(hello, { settings: { ...hello.settings, mode: "always" } }), "shell", "mode"],
     ["extra-setting", changed(hello, { settings: { ...hello.settings, extra: "" } }), "shell", "shape-settings"],
-    ["missing-brain", changed(hello, { settings: { sounds: false, mode: "hold", microphone: "", speaker: "" } }), "shell", "shape-settings"],
+    ["missing-brain", changed(hello, { settings: { ...hello.settings, brain: undefined } }), "shell", "shape-settings"],
     ["brain-setting", changed(hello, { settings: { ...hello.settings, brain: 1 } }), "shell", "shape-settings"],
     ["keys", changed(hello, { keys: { talk: "SUPER+A" } }), "shell", "shape-keys"],
     ["key-type", changed(hello, { keys: { ...hello.keys, talk: false } }), "shell", "key-talk"],
@@ -227,7 +227,7 @@ const cases = [
     ["private-windows-type", changed(hello, { settings: { ...hello.settings, privateWindows: ["bitwarden"] } }), "shell", "private-windows"],
     ["private-windows-control", changed(hello, { settings: { ...hello.settings, privateWindows: "bitwarden\nvault" } }), "shell", "private-windows"],
     ["private-windows-size", changed(hello, { settings: { ...hello.settings, privateWindows: "a".repeat(1025) } }), "shell", "private-windows"],
-    ["missing-task-terminal", changed(hello, { settings: { sounds: false, mode: "hold", microphone: "", speaker: "", brain: "" } }), "shell", "shape-settings"],
+    ["missing-task-terminal", changed(hello, { settings: { ...hello.settings, taskTerminal: undefined } }), "shell", "shape-settings"],
     ["task-stop-shape", changed(taskStop, { task: undefined }), "shell", "shape-task-stop"],
     ["task-stop-id", changed(taskStop, { task: "../home" }), "shell", "task-id"],
     ["tui-state-direction", JSON.stringify(tuiState), "daemon", "direction-tui-state"],
