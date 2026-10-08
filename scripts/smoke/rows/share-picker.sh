@@ -21,6 +21,16 @@ share_border() { hypr -j getoption general:col.inactive_border | py_reply 'impor
 share_border_initial="$(share_border)"
 [[ ! -f $share_theme ]] || cp -- "$share_theme" "$share_world/theme.saved"
 share_read() { ipc smoke readInstance window vgs.capture "$1"; }
+share_rings() { ipc smoke descendantGeometry window vgs.capture | py_reply 'import json,sys; print(any(r["type"]=="FocusRing" and r["visible"] for r in json.load(sys.stdin)))'; }
+share_open_focus_check() { expect "application-window open keeps focus without a ring" False share_rings; }
+share_keyboard_focus_check() { expect "Tab draws the keyboard focus ring" True share_rings; }
+share_tabs_span() {
+  ipc smoke descendantGeometry window vgs.capture | py_reply 'import json,sys
+rows=json.load(sys.stdin); strip=next(r for r in rows if r["type"]=="Tabs"); tabs=[r for r in rows if r["type"] in ("TabButton","QQuickTabButton")]
+hint=next(r for r in rows if r["type"]=="Label" and r.get("role")=="hint" and r["visible"])
+print(len(tabs)==3 and abs(strip["box"][2]-hint["box"][2])<1 and all(abs(t["box"][2]-tabs[0]["box"][2])<1 for t in tabs) and abs(tabs[-1]["box"][0]+tabs[-1]["box"][2]-strip["box"][0]-strip["box"][2])<1)'
+}
+share_tabs_width_check() { expect "the page tabs fill the content width equally" True share_tabs_span; }
 share_arg() { ipc smoke invokeInstance window vgs.capture "$1" "${2:-}" >/dev/null; }
 share_args() { ipc smoke invokeInstanceArgs window vgs.capture "$1" "$2" >/dev/null; }
 share_mapped() { ipc smoke instanceGeometry window vgs.capture | py_reply 'import json,sys; s=sys.stdin.read().strip(); print(s != "absent" and len(json.loads(s)) == 4)'; }
@@ -107,6 +117,36 @@ share_dismiss_notice() {
 }
 share_control_start() { stop_shell || :; start_shell "$sandbox/tree-$1" "$share_world/$1-shell.log"; expect_poll "the $1 Capture service builds" True record_exists vgs.capture; share_dismiss_notice; }
 share_control_restore() { stop_shell || :; start_shell "$repo" "$share_world/$1-restored.log"; expect_poll "the restored Capture service builds" True record_exists vgs.capture; share_dismiss_notice; }
+copy_tree share-open-focus-control
+edit_tree share-open-focus-control shell/Hosts/AppWindow.qml 'slot.focusInitial(Qt.OtherFocusReason);' 'slot.focusInitial(Qt.ShortcutFocusReason);'
+edit_tree share-open-focus-control shell/plugins/vgs.capture/Window.qml $'width: pane.contentWidth\n            model: ["Screens", "Windows", "Area"]' $'width: Math.min(pane.contentWidth, Theme.control.maxWidth)\n            model: ["Screens", "Windows", "Area"]'
+share_control_start share-open-focus-control
+share_launch control-open-focus
+expect_poll "the keyboard-style open control maps" True share_mapped
+expect_poll "the keyboard-style open control draws a ring" True share_rings
+share_open_focus_control() { (failures=0 behaviour_failures=0; share_open_focus_check >"$share_world/open-focus-control.log"; echo "$failures"); }
+expect "control: keyboard-style initial focus fails the same open-ring assertion" 1 share_open_focus_control
+cat -- "$share_world/open-focus-control.log"
+share_tabs_width_control() { (failures=0 behaviour_failures=0; share_tabs_width_check >"$share_world/tabs-width-control.log"; echo "$failures"); }
+expect "control: capped page tabs fail the same content-width assertion" 1 share_tabs_width_control
+cat -- "$share_world/tabs-width-control.log"
+share_click Button Cancel
+expect_poll "the open-focus control caller cancels" True share_cancelled control-open-focus
+share_control_restore share-open-focus-control
+copy_tree share-keyboard-focus-control
+edit_tree share-keyboard-focus-control shell/plugins/vgs.capture/Window.qml 'FocusRing { target: sources; targetRadius: Theme.listItem.radius }' 'FocusRing { target: sources; targetRadius: Theme.listItem.radius; visible: false }'
+share_control_start share-keyboard-focus-control
+share_launch control-keyboard-focus
+expect_poll "the ring-disabled control maps" True share_mapped
+expect_poll "the ring-disabled control tabs have focus" true ipc smoke readDescendant window vgs.capture Tabs activeFocus
+type_keys -k Tab || fail "share-picker: control Tab failed"
+expect_poll "the ring-disabled control leaves the tabs" false ipc smoke readDescendant window vgs.capture Tabs activeFocus
+share_keyboard_focus_control() { (failures=0 behaviour_failures=0; share_keyboard_focus_check >"$share_world/keyboard-focus-control.log"; echo "$failures"); }
+expect "control: disabling the ring fails the same Tab-ring assertion" 1 share_keyboard_focus_control
+cat -- "$share_world/keyboard-focus-control.log"
+share_click Button Cancel
+expect_poll "the keyboard-focus control caller cancels" True share_cancelled control-keyboard-focus
+share_control_restore share-keyboard-focus-control
 share_drag_plan() {
   local rows box current
   rows="$(ipc smoke descendantGeometry window vgs.capture)" || return
@@ -255,7 +295,14 @@ share_launch keyboard
 share_current_id="$(share_request_id)"
 expect "control: an old request cannot satisfy a new caller" False share_new_request "$share_current_id" fixture
 rest_pointer || fail "share-picker: parking pointer for keyboard failed"
-expect_poll "the tab control has the keyboard" true ipc smoke readDescendant window vgs.capture SegmentedControl activeFocus
+expect_poll "the page tabs have the keyboard" true ipc smoke readDescendant window vgs.capture Tabs activeFocus
+share_open_focus_check
+share_tabs_width_check
+type_keys -k Tab || fail "share-picker: first Tab failed"
+share_keyboard_focus_check
+type_keys -M shift -k Tab -m shift || fail "share-picker: Shift+Tab failed"
+expect_poll "Shift+Tab returns focus to the page tabs" true ipc smoke readDescendant window vgs.capture Tabs activeFocus
+expect_poll "keyboard traversal shows the page-tab ring" true ipc smoke readDescendant window vgs.capture Tabs visualFocus
 type_keys -k Right || fail "share-picker: Right failed"
 expect_poll "Right selects Windows" 1 share_read tab
 type_keys -k Right || fail "share-picker: second Right failed"
@@ -360,6 +407,8 @@ for share_mode in dark light; do
     case $share_tab in screens) share_shot_tab=0; share_arg switchTab 0;; windows) share_shot_tab=1; share_arg switchTab 1;; area) share_shot_tab=2; share_arg switchTab 2; share_set_region;; esac
     share_shot_kind=after
     expect_poll "$share_mode $share_tab has preview content" true share_read previewReady
+    share_open_focus_check
+    expect "$share_mode $share_tab tabs span the content width" True share_tabs_span
     rest_pointer || fail "share-picker: parking pointer failed"
     shot "$share_mode-$share_tab" || fail "share-picker: After $share_mode $share_tab failed"
     if [[ $share_tab == area ]]; then
@@ -368,6 +417,13 @@ for share_mode in dark light; do
       shot "$share_mode-area-controls" || fail "share-picker: After $share_mode Area controls failed"
     fi
   done
+  share_arg switchTab 0
+  type_keys -k Tab || fail "share-picker: picture Tab failed"
+  share_keyboard_focus_check
+  type_keys -M shift -k Tab -m shift || fail "share-picker: picture Shift+Tab failed"
+  share_shot_tab=0
+  expect_poll "the $share_mode keyboard panel shows the page-tab ring" true ipc smoke readDescendant window vgs.capture Tabs visualFocus
+  shot "$share_mode-keyboard-focus" || fail "share-picker: keyboard focus $share_mode failed"
   share_click Button Cancel
   expect_poll "the pictured request cancels" True share_cancelled "$share_mode-shots"
 done

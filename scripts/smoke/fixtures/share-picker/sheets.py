@@ -10,7 +10,8 @@ for mode in ("dark", "light"):
              ("screens", "After: Screens, Remember, Cancel"),
              ("windows", "After: Windows, Remember, Cancel"),
              ("area", "After: Area, Remember, Cancel"),
-             ("area-controls", "After: Area controls, Remember, Cancel")]
+             ("area-controls", "After: Area controls, Remember, Cancel"),
+             ("keyboard-focus", "After: keyboard focus after Tab and Shift+Tab")]
     images = [(Image.open(root / f"{mode}-{name}.png").convert("RGB"), label) for name, label in names]
     width = max(image.width for image, _ in images)
     height = max(image.height for image, _ in images)

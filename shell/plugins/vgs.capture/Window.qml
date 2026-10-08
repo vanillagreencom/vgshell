@@ -32,8 +32,7 @@ FocusScope {
         request = next.id === undefined ? { id: "", windows: [], remember: false } : next;
         if (!sharing) return;
         remember = request.remember;
-        tab = 0;
-        select(0);
+        switchTab(0);
     }
     function close() { if (shell !== null && sharing) shell.ipc.call("share-close", JSON.stringify({ id: request.id })); }
     function select(index) {
@@ -42,7 +41,10 @@ FocusScope {
         const screen = screens[index];
         if (tab !== 1 && screen !== undefined) region = { x: 0, y: 0, width: screen.width, height: screen.height };
     }
-    function switchTab(index) { tab = index; region = { x: 0, y: 0, width: 0, height: 0 }; select(0); }
+    // setCurrentIndex preserves Qt's binding for programmatic requests;
+    // page keys update root.tab through currentIndexChanged.
+    // https://doc.qt.io/qt-6/qml-qtquick-controls-tabbar.html
+    function switchTab(index) { tab = index; tabs.setCurrentIndex(index); region = { x: 0, y: 0, width: 0, height: 0 }; select(0); }
     function share() {
         if (current === null) return;
         let choice;
@@ -75,12 +77,12 @@ FocusScope {
         container: "window"
         title: "Share your screen"
         bodySpacing: Theme.stack.group
-        header: SegmentedControl {
+        header: Tabs {
             id: tabs
             width: pane.contentWidth
             model: ["Screens", "Windows", "Area"]
             currentIndex: root.tab
-            onActivated: index => root.switchTab(index)
+            onCurrentIndexChanged: if (currentIndex !== root.tab) root.switchTab(currentIndex)
         }
 
         Column {
