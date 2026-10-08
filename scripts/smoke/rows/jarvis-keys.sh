@@ -163,7 +163,9 @@ jarvis_key_active_stop() { # PHASE
   expect "active physical Stop delivers $effect" "$((before + 1))" jarvis_key_effects "$effect"
   stale="$(jarvis_key_state stale)"
   jarvis_key_gate "$late"
-  if [[ $1 == thinking ]]; then stale=$((stale + 2)); else stale=$((stale + 1)); fi
+  # The scripted fixture emits transcript, play and brain-done callbacks for
+  # the late brain; the speech path waits only for its late playback callback.
+  if [[ $1 == thinking ]]; then stale=$((stale + 3)); else stale=$((stale + 1)); fi
   expect_poll "the prior turn's callback is received and discarded" "$stale" jarvis_key_state stale
   jarvis_key_stop_assertion
   expect "a stale callback starts no new playback" "$starts" jarvis_key_effects playback-start

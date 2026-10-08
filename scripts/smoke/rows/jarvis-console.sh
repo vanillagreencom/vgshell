@@ -15,6 +15,8 @@ cp -- "$jarvis_console_config" "$sandbox/jarvis-console-config-before.json"
 cp -- "$jarvis_console_lua" "$sandbox/jarvis-console-lua-before"
 cp -- "$jarvis_console_service" "$sandbox/jarvis-console-service-before"
 cp -- "$jarvis_console_backend" "$sandbox/jarvis-console-backend-before"
+jarvis_console_resolve_binds_by_sym() { hypr -j getoption input:resolve_binds_by_sym | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v.get("bool"), v["set"]]))'; }
+jarvis_console_option_before="$(jarvis_console_resolve_binds_by_sym)"
 
 jarvis_console_state() { # FIELD
   ipc smoke jarvisProcess | py_reply '
@@ -25,7 +27,7 @@ elif sys.argv[1] == "last": print("none" if not s else s[-1]["role"]+":"+s[-1]["
 elif sys.argv[1] == "text": print("\n".join(row["role"]+":"+row["text"] for row in s))
 ' "$1"
 }
-jarvis_console_open() { type_keys -M super -M alt c -m alt -m super || fail "typing the Jarvis console shortcut failed"; }
+jarvis_console_open() { type_keys -M logo -M alt c -m alt -m logo || fail "typing the Jarvis console shortcut failed"; }
 jarvis_console_client_count() { window_count Jarvis; }
 jarvis_console_say_count() {
   python3 - "$jarvis_console_gates/effects.jsonl" <<'PY'
@@ -67,6 +69,21 @@ jarvis_console_focus_control() {
    expect_poll "the console text field has focus" true jarvis_console_text_field_focused >"$sandbox/jarvis-console-focus-control.log"
    echo "$failures")
 }
+jarvis_console_remove_requirement_shims() {
+  local command
+  if declare -p jarvis_requirement_standins >/dev/null 2>&1; then
+    for command in "${jarvis_requirement_standins[@]}"; do
+      rm -f -- "${shim:?}/$command"
+    done
+  fi
+}
+jarvis_console_requirement_shims() {
+  python3 - "$shim" "${jarvis_requirement_standins[@]}" <<'PY'
+import json, pathlib, sys
+shim = pathlib.Path(sys.argv[1])
+print(json.dumps([name for name in sys.argv[2:] if (shim / name).exists()]))
+PY
+}
 jarvis_console_cleanup() {
   hold_stop_keyboard || true
   ipc smoke holdMarkerStop >/dev/null || true
@@ -74,6 +91,9 @@ jarvis_console_cleanup() {
   cp -- "$sandbox/jarvis-console-backend-before" "$jarvis_console_backend"
   cp -- "$sandbox/jarvis-console-config-before.json" "$jarvis_console_config"
   cp -- "$sandbox/jarvis-console-lua-before" "$jarvis_console_lua"
+  jarvis_console_remove_requirement_shims
+  ipc shell reloadConfig >/dev/null 2>&1 || true
+  hypr reload config-only >/dev/null 2>&1 || true
   rm -f -- "${jarvis_console_plugin:?}/backend/scripted-fixture.js" "${home:?}/.local/state/vgshell/jarvis/mute.json"
 }
 trap jarvis_console_cleanup EXIT
@@ -179,9 +199,16 @@ cp -- "$sandbox/jarvis-console-backend-before" "$jarvis_console_backend"
 cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"
 rm -f -- "${jarvis_console_plugin:?}/backend/scripted-fixture.js" "${home:?}/.local/state/vgshell/jarvis/mute.json"
 jarvis_rescan
+cp -- "$sandbox/jarvis-console-config-before.json" "$jarvis_console_config"
+cp -- "$sandbox/jarvis-console-lua-before" "$jarvis_console_lua"
+expect "restore the Jarvis console shell configuration" ok ipc shell reloadConfig
+expect "restore the Jarvis console keyboard configuration" ok hypr reload config-only
+expect "the console row restores symbolic bind resolution" "$jarvis_console_option_before" jarvis_console_resolve_binds_by_sym
 jarvis_enable
 expect_poll "the restored stock daemon remains unconfigured" session jarvis_session unconfigured
 expect "the console row leaves no scripted fixture" False python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$jarvis_console_plugin/backend/scripted-fixture.js"
 expect "the console row leaves no Jarvis mute state" False python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_disable
+jarvis_restore_requirements
+expect "the console row removes its requirement shims" '[]' jarvis_console_requirement_shims
 jarvis_notice_close
