@@ -9,6 +9,7 @@ jarvis_console_lua="$home/.config/hypr/hyprland.lua"
 jarvis_console_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
 jarvis_console_qml="$repo/shell/plugins/vgs.jarvis/Console.qml"
 jarvis_console_backend="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
+jarvis_console_engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
 jarvis_console_plugin="$repo/shell/plugins/vgs.jarvis"
 jarvis_console_gates="$sandbox/jarvis-console-gates"
 jarvis_key_gates="$jarvis_console_gates"
@@ -17,6 +18,7 @@ cp -- "$jarvis_console_lua" "$sandbox/jarvis-console-lua-before"
 cp -- "$jarvis_console_service" "$sandbox/jarvis-console-service-before"
 cp -- "$jarvis_console_qml" "$sandbox/jarvis-console-qml-before"
 cp -- "$jarvis_console_backend" "$sandbox/jarvis-console-backend-before"
+cp -- "$jarvis_console_engine" "$sandbox/jarvis-console-engine-before"
 jarvis_console_resolve_binds_by_sym() { hypr -j getoption input:resolve_binds_by_sym | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v.get("bool"), v["set"]]))'; }
 jarvis_console_option_before="$(jarvis_console_resolve_binds_by_sym)"
 
@@ -92,6 +94,7 @@ jarvis_console_cleanup() {
   cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"
   cp -- "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
   cp -- "$sandbox/jarvis-console-backend-before" "$jarvis_console_backend"
+  cp -- "$sandbox/jarvis-console-engine-before" "$jarvis_console_engine"
   cp -- "$sandbox/jarvis-console-config-before.json" "$jarvis_console_config"
   cp -- "$sandbox/jarvis-console-lua-before" "$jarvis_console_lua"
   jarvis_console_remove_requirement_shims
@@ -207,6 +210,7 @@ hold_barrier
 expect "control: moving focus off the field breaks the keyboard-path assertion" 1 jarvis_console_focus_control
 jarvis_disable
 cp -- "$sandbox/jarvis-console-backend-before" "$jarvis_console_backend"
+cp -- "$sandbox/jarvis-console-engine-before" "$jarvis_console_engine"
 cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"
 cp -- "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
 rm -f -- "${jarvis_console_plugin:?}/backend/scripted-fixture.js" "${home:?}/.local/state/vgshell/jarvis/mute.json"
@@ -222,6 +226,7 @@ jarvis_enable
 expect_poll "the restored stock daemon remains unconfigured" session jarvis_session unconfigured
 expect "the console row leaves no scripted fixture" False python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$jarvis_console_plugin/backend/scripted-fixture.js"
 expect "the console row restores Console.qml" same python3 -c 'import filecmp,sys; print("same" if filecmp.cmp(sys.argv[1], sys.argv[2], shallow=False) else "different")' "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
+expect "the console row restores ChainedEngine.js" same python3 -c 'import filecmp,sys; print("same" if filecmp.cmp(sys.argv[1], sys.argv[2], shallow=False) else "different")' "$sandbox/jarvis-console-engine-before" "$jarvis_console_engine"
 expect "the console row leaves no Jarvis mute state" False python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_disable
 jarvis_notice_close
