@@ -32,10 +32,12 @@
 # row puts the harness hyprland.lua
 # back at its end.
 # The open budget is the owner's 200 ms. VGS-1057's nested baseline on
-# 2026-10-07 built 34 rows with all 32 shipped plugins enabled: the first
+# 2026-10-07 on host cachy built 34 rows with all 32 shipped plugins enabled: the first
 # native frame took 4478 ms (tmp/VGS-1057/baseline.json). The timer reads
 # the shortcut handler and QQuickWindow.frameSwapped, before visibility;
-# polling every 200 ms only waits for those timestamped readings.
+# polling every 200 ms only waits for those timestamped readings. CPU
+# pressure spans shortcut send through native-frame readback; each open
+# prints its actual pressure sampling interval. The ceiling holds at any pressure.
 # Restoring eager Tooltip window construction must exceed the same budget.
 # inputs: shell/plugins/vgs.keyhints/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.voice/manifest.json shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Tooltip.qml shell/Ui/overlay/AnchorTracker.qml shell/Hosts/AppWindow.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/HyprlandLayer.js bin/lib/qml-library.js
 set -euo pipefail
@@ -121,6 +123,25 @@ kh_hint_within() {
   done
   echo absent
 }
+
+# The service-built reader preserves failed and malformed replies as unread.
+kh_record_reader="$(declare -f record_exists)"
+expect 'the readiness reader finds a built service' True bash -c "$kh_record_reader
+ipc() { printf '%s\n' '{\"services\":[{\"id\":\"vgs.keyhints\"}]}'; }
+record_exists vgs.keyhints"
+expect 'the readiness reader finds an absent service' False bash -c "$kh_record_reader
+ipc() { printf '%s\n' '{\"services\":[]}'; }
+record_exists vgs.keyhints"
+expect 'control: unavailable built reply stays unread' unavailable bash -c "$kh_record_reader
+ipc() { return 1; }
+record_exists vgs.keyhints"
+expect 'control: malformed built reply stays unread' unavailable bash -c "$kh_record_reader
+ipc() { printf '%s\n' 'unavailable'; }
+record_exists vgs.keyhints"
+expect 'control: wrong built reply shape stays unread' unavailable bash -c "$kh_record_reader
+ipc() { printf '%s\n' '{\"services\":[{}]}'; }
+record_exists vgs.keyhints"
+unset kh_record_reader
 
 hypr_lua_save keyhints
 kh_lua
@@ -250,8 +271,8 @@ if copy_tree keyhints-unfiltered \
 fi
 
 # Time the real shortcut and first native frame. Each copy changes only
-# measurement callbacks; the control changes LazyLoader's active binding,
-# which restores the actual eager popup-window construction path.
+# measurement callbacks; the control removes the LazyLoader wrapper and
+# restores direct-owned eager PopupWindow construction, as in the baseline.
 kh_timing_tree() {
   local name="$1"
   copy_tree "$name" \
@@ -287,16 +308,37 @@ PY_TIMES
 kh_timing_count() { kh_timing_samples | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 kh_timing_budget() { kh_timing_samples | py_reply 'import json,sys; a=json.load(sys.stdin); print(bool(len(a)>1 and a[0]<=4478 and all(t<=200 for t in a[1:])))'; }
 kh_timing_later_budget() { kh_timing_samples | py_reply 'import json,sys; a=json.load(sys.stdin); print(bool(len(a)>1 and all(t<=200 for t in a[1:])))'; }
+kh_timing_rows() { ipc smoke itemValues window vgs.keyhints BindField pluginId,bind | py_reply 'import json,sys; print(sum(r["pluginId"].startswith("vgs.") for r in json.load(sys.stdin)))'; }
 kh_timing_opens() {
-  local count="$1" n
+  local count="$1" n before="$failures" pressure start end elapsed sample profile
   expect_poll 'the measured Key Hints shortcut is available' True record_exists vgs.keyhints
-  rest_pointer
+  [[ $failures == "$before" ]] || return 1
+  profile="$(ipc shell listPlugins | py_reply 'import json,pathlib,sys
+plugins={p["id"]:p for p in json.load(sys.stdin)["plugins"]}
+shipped=[json.loads(p.read_text())["id"] for p in pathlib.Path(sys.argv[1]).glob("*/manifest.json")]
+if not shipped or not all(p in plugins and plugins[p]["enabled"] is True for p in shipped):
+    raise ValueError("the measured profile does not enable every shipped plugin")
+print(len(shipped))' "$repo/shell/plugins")" || { fail 'the measured all-shipped-plugin profile is unreadable or incomplete'; return 1; }
+  printf '  keyhints-profile enabled_shipped=%s baseline_bind_floor=34\n' "$profile"
+  rest_pointer || { fail 'the measurement pointer move failed'; return 1; }
   for ((n=1; n<=count; n++)); do
+    pressure="$(cpu_some_us)"
+    [[ -n $pressure ]] || { fail 'the starting CPU pressure reading is unavailable'; return 1; }
+    start="$(now_ms)"
     kh_toggle || { fail 'the measured SUPER+SLASH was not sent'; return 1; }
     expect_poll "the measured open $n presents its first native frame" "$n" kh_timing_count
+    [[ $failures == "$before" ]] || return 1
+    end="$(cpu_some_us)"
+    elapsed=$(( $(now_ms) - start ))
+    [[ -n $end && $elapsed -gt 0 ]] || { fail 'the completed CPU pressure interval is unavailable'; return 1; }
+    sample="$(kh_timing_samples | py_reply 'import json,sys; print(json.load(sys.stdin)[-1])')" || { fail 'the completed frame sample is unreadable'; return 1; }
+    printf '  keyhints-open index=%s latency_ms=%s cpu_some_pct=%s pressure_interval_ms=%s machine=cachy\n' "$n" "$sample" "$(cpu_some_pct "$pressure" "$end" "$elapsed")" "$elapsed"
     expect "the measured open $n has the keyboard" "[\"$shell_class\", \"$kh_title\"]" active_window
-    ipc shell hide window vgs.keyhints
+    expect "the measured open $n holds the baseline bind workload" True bash -c '[[ "$1" -ge 34 ]] && echo True || echo False' _ "$(kh_timing_rows)"
+    [[ $failures == "$before" ]] || return 1
+    if ! ipc shell hide window vgs.keyhints; then fail 'the measured window hide failed'; return 1; fi
     expect_poll 'the measured window is destroyed on hide' 0 window_count "$kh_title"
+    [[ $failures == "$before" ]] || return 1
   done
   printf '  keyhints-open-ms=%s budget_ms=200\n' "$(kh_timing_samples)"
 }
@@ -317,22 +359,36 @@ printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/
 expect 'the timed shortcut reloads without configuration errors' '[]' hypr_reload_errors
 if kh_timing_tree keyhints-timing; then
   stop_shell
-  start_shell "$sandbox/tree-keyhints-timing" "$sandbox/keyhints-timing.log" || fail 'the measured shell starts'
-  kh_timing_opens 5
-  expect 'first open is no slower than baseline and all later opens meet 200 ms' True kh_timing_budget
-  # Every bind is still a row after the timed window was destroyed.
-  expect 'the timed Key Hints window opens for its row count' ok ipc shell summon window vgs.keyhints '{}'
-  kh_timing_rows() { ipc smoke itemValues window vgs.keyhints BindField pluginId,bind | py_reply 'import json,sys; print(sum(r["pluginId"].startswith("vgs.") for r in json.load(sys.stdin)))'; }
-  expect 'the all-plugin measurement holds at least the baseline bind count' True bash -c '[[ "$1" -ge 34 ]] && echo True || echo False' _ "$(kh_timing_rows)"
-  expect 'Key Hints sections use the shared group spacing token' True kh_spacing
-  ipc shell hide window vgs.keyhints
+  if start_shell "$sandbox/tree-keyhints-timing" "$sandbox/keyhints-timing.log" && kh_timing_opens 5; then
+    expect 'first open is no slower than baseline and all later opens meet 200 ms' True kh_timing_budget
+    # Every bind is still a row after the timed window was destroyed.
+    expect 'the timed Key Hints window opens for its row count' ok ipc shell summon window vgs.keyhints '{}'
+    expect 'the all-plugin measurement holds at least the baseline bind count' True bash -c '[[ "$1" -ge 34 ]] && echo True || echo False' _ "$(kh_timing_rows)"
+    expect 'Key Hints sections use the shared group spacing token' True kh_spacing
+    expect 'the row-count window is hidden' ok ipc shell hide window vgs.keyhints
+  fi
   stop_shell
 fi
 if kh_timing_tree keyhints-slow \
-  && edit_tree keyhints-slow shell/Ui/overlay/Tooltip.qml '        active: root.shown' '        active: true'; then
-  start_shell "$sandbox/tree-keyhints-slow" "$sandbox/keyhints-slow.log" || fail 'the eager-window control shell starts'
-  kh_timing_opens 2
-  expect 'control: eager popup construction fails the actual later-open budget' False kh_timing_later_budget
+  && edit_tree keyhints-slow shell/Ui/overlay/Tooltip.qml 'popup.item !== null && popup.item.visible' 'window.visible' \
+  && edit_tree keyhints-slow shell/Ui/overlay/Tooltip.qml 'popup.item === null ? null : popup.item.tracker' 'window.tracker' \
+  && edit_tree keyhints-slow shell/Ui/overlay/Tooltip.qml '    LazyLoader {
+        id: popup
+        active: root.shown
+
+        PopupWindow {' '    PopupWindow {' \
+  && edit_tree keyhints-slow shell/Ui/overlay/Tooltip.qml '            visible: root.shown' '            visible: root.shown
+            onVisibleChanged: if (!visible) root.shown = false' \
+  && edit_tree keyhints-slow shell/Ui/overlay/Tooltip.qml '        }
+    }
+
+    Connections {
+        target: popup.item
+        function onVisibleChanged() { if (popup.item !== null && !popup.item.visible) root.shown = false; }
+    }' '    }'; then
+  if start_shell "$sandbox/tree-keyhints-slow" "$sandbox/keyhints-slow.log" && kh_timing_opens 2; then
+    expect 'control: eager popup construction fails the actual later-open budget' False kh_timing_later_budget
+  fi
   stop_shell
 fi
 cp -- "$sandbox/keyhints-timing-config.json" "$home/.config/vgshell/shell.json.next"

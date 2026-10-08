@@ -2367,10 +2367,29 @@ builds() { ipc smoke buildCount; }
 
 # One plugin's row in the registry listing: `plugin_known ID` prints True or
 # False, `plugin_enabled ID` its enabled flag or `absent`. `record_exists ID`
-# prints True when any build record under any host names ID.
+# prints True when any build record under any host names ID, False for an
+# absent ID, and unavailable when the built reply cannot establish either.
 plugin_known() { ipc shell listPlugins | python3 -c 'import json,sys; print(any(p["id"]==sys.argv[1] for p in json.load(sys.stdin)["plugins"]))' "$1"; }
 plugin_enabled() { ipc shell listPlugins | python3 -c 'import json,sys; rows=[p["enabled"] for p in json.load(sys.stdin)["plugins"] if p["id"]==sys.argv[1]]; print(rows[0] if rows else "absent")' "$1"; }
-record_exists() { ipc shell built | python3 -c 'import json,sys; print(any(r["id"]==sys.argv[1] for rows in json.load(sys.stdin).values() for r in rows))' "$1"; }
+record_exists() {
+  local reply status
+  if reply="$(ipc shell built)"; then
+    python3 -c 'import json,sys
+try:
+    built=json.load(sys.stdin)
+    if not isinstance(built,dict) or any(not isinstance(rows,list) or any(not isinstance(r,dict) or not isinstance(r.get("id"),str) for r in rows) for rows in built.values()):
+        raise ValueError("shape")
+except (ValueError,TypeError):
+    print("record-exists: id=%s built=unparsed" % sys.argv[1],file=sys.stderr)
+    print("unavailable")
+else:
+    print(any(r["id"]==sys.argv[1] for rows in built.values() for r in rows))' "$1" <<<"$reply"
+  else
+    status=$?
+    printf 'record-exists: id=%s built=unavailable status=%s\n' "$1" "$status" >&2
+    printf 'unavailable\n'
+  fi
+}
 # A plugin tells the user something through shell.notify.send, one system
 # notification that vgs.notifications draws as a card; the smoke set starts
 # it disabled. notes_on LABEL enables it and waits for it to be built and
