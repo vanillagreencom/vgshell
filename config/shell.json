@@ -3,15 +3,19 @@
   "bar": {
     "id": "vgs.bar",
     "layout": {
-      "left": [],
-      "center": [],
+      "left": [
+        { "id": "vgs.launcher" },
+        { "id": "vgs.bar/left-workspaces" },
+        { "id": "vgs.tray" }
+      ],
+      "center": [{ "id": "vgs.bar/center-clock" }],
       "right": [
-        { "id": "vgs.sound" },
+        { "id": "vgs.vpn" },
         { "id": "vgs.network" },
         { "id": "vgs.bluetooth" },
+        { "id": "vgs.sound" },
         { "id": "vgs.displays" },
         { "id": "vgs.keyboard" },
-        { "id": "vgs.vpn" },
         { "id": "vgs.settings" }
       ]
     }

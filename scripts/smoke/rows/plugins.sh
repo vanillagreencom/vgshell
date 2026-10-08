@@ -71,7 +71,7 @@ fi
 service_built() { ipc shell built | py_reply 'import json,sys; d=json.load(sys.stdin); print(any(r["id"]=="acme.probe" and r["kind"]=="service" for r in d.get("service",[])))'; }
 read_widget() { ipc smoke readInstance "$(bar_key)" acme.probe "$1"; }
 read_service() { ipc smoke readInstance service acme.probe "$1"; }
-read_clock() { ipc smoke readInstance "$(bar_key)" vgs.bar/center-clock "$1"; }
+read_clock() { ipc smoke builtinContentProperty "$(bar_key)" vgs.bar/center-clock "$1"; }
 read_tick() { ipc smoke readInstance "$(bar_key)" acme.tick "$1"; }
 expect_poll "the service host built the fixture service" True service_built
 expect_widgets "the fixture widget joined the right section" '["acme.tick","acme.probe"]'

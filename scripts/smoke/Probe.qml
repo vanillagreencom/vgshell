@@ -1442,6 +1442,16 @@ Scope {
                 cause: service.cause, audioHealth: service.audioHealth, status: service.shell.status.values });
         }
         function instanceGeometry(hostKey: string, id: string): string { return root.geometry(root.instance(hostKey, id)); }
+        function barSectionGeometry(hostKey: string, section: string): string {
+            if (PluginLogic.SECTIONS.indexOf(section) === -1) return "unknown";
+            const mount = Plugins.mounts[hostKey];
+            return root.geometry(mount === undefined ? null : mount.row.instance[section + "Section"]);
+        }
+        function builtinContentProperty(hostKey: string, id: string, key: string): string {
+            const item = root.instance(hostKey, id);
+            const content = item === null ? undefined : root.descendants(item).find(child => root.typeName(child) === "Clock");
+            return content === undefined || content[key] === undefined ? "absent" : root.json(content[key]);
+        }
         // `drawn` once the window of plugin ID's HOST_KEY instance has
         // presented a frame at its current size, else `pending`. The first
         // read starts listening, and each pending read asks the window for

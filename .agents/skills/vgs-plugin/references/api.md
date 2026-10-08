@@ -46,8 +46,10 @@ Declare it as `property var shell: null`, or inherit it from `BarWidget`.
 |---|---|---|---|
 | `screen` | received | ShellScreen | the screen this bar draws on |
 | `leftSection`, `centerSection`, `rightSection` | declared | Item | the containers the core parents widgets into, in layout order; a `RowLayout` in the template |
+| `builtinNames` | declared | list of strings | registration names the bar can draw, accepted only under the active bar's ID |
+| `widgetLayout` | received | object | the effective `left`, `center` and `right` entry lists; the bar uses the registered IDs to keep its builtin model current |
 
-A bar never creates, destroys or reads a plugin widget. It may draw built-in widgets of its own ahead of them in each container and register each with `shell.builtins`. A built-in widget is drawn by its plugin inside its own surface and is never a kind ([D005](../../../../docs/decisions/D005-kinds-are-surfaces-no-dependencies.md)).
+A bar never creates, destroys or reads a plugin widget. It draws its own builtins from `widgetLayout` and registers each wrapper with `shell.builtins`. The core orders registered builtin IDs and plugin IDs together through `bar.layout`. A builtin wrapper extends `BarWidget` and receives drag callbacks in `frame`; it has no Hide action. Its model owns its lifetime and preserves the same object across section moves. A built-in widget is drawn by its plugin inside its own surface and is never a kind ([D005](../../../../docs/decisions/D005-kinds-are-surfaces-no-dependencies.md)).
 
 ## The shell object
 

@@ -48,6 +48,7 @@ Item {
     // keyboard-path: the Show in bar switch on the plugin's Settings page hides and shows the widget
     TapHandler {
         acceptedButtons: Qt.RightButton
+        enabled: root.frame !== null && typeof root.frame.hide === "function"
         onTapped: {
             frameUi.active = true;
             frameUi.item.openMenu();

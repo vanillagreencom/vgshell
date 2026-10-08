@@ -276,8 +276,10 @@ Singleton {
     function dragStart(hostKey, id, locator, item, point) {
         cancelBarDrag();
         const row = rowFor(hostKey, item);
-        const ctx = { onDispose: cleanup => row.lifetime.register(cleanup) };
-        const bar = mounts[hostKey].row.instance;
+        const mount = mounts[hostKey];
+        const owner = row.origin === "plugin" ? mount.row : row;
+        const ctx = { onDispose: cleanup => owner.lifetime.register(cleanup) };
+        const bar = mount.row.instance;
         const origin = item.mapToItem(bar, 0, 0);
         const gap = gapComponent.createObject(bar, { width: item.width, height: item.height });
         barDrag = { hostKey: hostKey, id: id, item: item, gap: gap,
@@ -408,6 +410,9 @@ Singleton {
         if (Logic.hasOwn(built, ctx.hostKey) && built[ctx.hostKey].some(r => r.id === id))
             throw new Error("refused: builtin=" + id + " held host=" + ctx.hostKey);
         record(ctx.hostKey, { id: id, kind: ctx.kind, origin: "plugin", instance: item, capabilities: [], entry: null, settingsKey: "", providers: {}, lifetime: null, screen: ctx.screen });
+        // Repeater registrations can complete after the bar's first mount.
+        // Converge through its existing reconciler, only while that mount lives.
+        Qt.callLater(() => { if (Logic.hasOwn(mounts, ctx.hostKey)) root.reconcileBar(ctx.hostKey); });
         return ctx.onDispose(() => root.forget(ctx.hostKey, item));
     }
 
@@ -437,7 +442,7 @@ Singleton {
         const next = Object.assign(Object.create(null), mounts);
         next[hostKey] = { row: row, sections: sections };
         mounts = next;
-        reconcileBar(hostKey, Logic.effectiveLayout(Config.effective, Registry.manifests, Registry.defaultBarId));
+        reconcileBar(hostKey);
     }
 
     function unmountBar(hostKey) {
@@ -445,7 +450,7 @@ Singleton {
         const mount = mounts[hostKey];
         for (const section of Logic.SECTIONS)
             for (const entry of mount.sections[section].entries)
-                if (entry.widget !== null) destroyBuilt(hostKey, entry.widget);
+                if (entry.widget !== null && entry.origin === "core") destroyBuilt(hostKey, entry.widget);
         const next = Object.assign(Object.create(null), mounts);
         delete next[hostKey];
         mounts = next;
@@ -453,20 +458,26 @@ Singleton {
 
     // The section order changes visual parents, never widget lifetime. The
     // exact entry key keeps each repeated widget's settings with its object.
-    function reconcileBar(hostKey, layout) {
+    function reconcileBar(hostKey) {
         if (barDrag !== null && barDrag.hostKey === hostKey) cancelBarDrag();
         const mount = mounts[hostKey];
         const manifests = Registry.manifests;
+        const names = mount.row.instance.builtinNames;
+        const layout = Logic.effectiveLayout(Config.effective, manifests, Registry.defaultBarId, names);
+        if (mount.row.instance.widgetLayout !== undefined)
+            mount.row.instance.widgetLayout = layout;
         const holders = Capabilities.exclusiveHolders();
         const pool = Logic.SECTIONS.reduce((entries, section) => entries.concat(mount.sections[section].entries), []);
         for (const section of Logic.SECTIONS) {
-            const wanted = layout[section].filter(e => Logic.lendRefusal(holders, manifests[e.id]) === "");
+            const wanted = layout[section].filter(e => !Logic.hasOwn(manifests, e.id) || Logic.lendRefusal(holders, manifests[e.id]) === "");
             const container = sectionContainer(mount.row, section);
             const entries = [];
             for (let i = 0; container !== null && i < wanted.length; ++i) {
                 const spec = wanted[i];
                 const key = JSON.stringify(spec);
-                const revision = manifests[spec.id].__revision;
+                const owner = Logic.builtinOwner(Config.effective, manifests, Registry.defaultBarId, names, spec.id);
+                const origin = owner === null ? "core" : "plugin";
+                const revision = owner === null ? manifests[spec.id].__revision : mount.row.revision;
                 const nth = wanted.slice(0, i).filter(e => e.id === spec.id).length;
                 let at = pool.findIndex(entry => entry.locator.id === spec.id && entry.key === key && entry.revision === revision);
                 if (at === -1) at = pool.findIndex(entry => entry.locator.id === spec.id && entry.revision === revision);
@@ -476,7 +487,7 @@ Singleton {
                     // The configure provider and frame both hold this locator.
                     entry.locator.section = section;
                     entry.locator.nth = nth;
-                    if (entry.widget !== null) refreshRow(rowFor(hostKey, entry.widget), spec);
+                    if (entry.widget !== null && entry.origin === "core") refreshRow(rowFor(hostKey, entry.widget), spec);
                     entry.key = key;
                 } else {
                     // A source replacement must release registrations before
@@ -484,18 +495,31 @@ Singleton {
                     for (let stale = pool.length - 1; stale >= 0; --stale) {
                         if (pool[stale].locator.id !== spec.id || pool[stale].revision === revision) continue;
                         const obsolete = pool.splice(stale, 1)[0];
-                        if (obsolete.widget !== null) destroyBuilt(hostKey, obsolete.widget);
+                        if (obsolete.widget !== null && obsolete.origin === "core") destroyBuilt(hostKey, obsolete.widget);
                     }
                     const locator = { id: spec.id, section: section, nth: nth };
-                    entry = { key: key, revision: revision, locator: locator,
-                        widget: createWidget(spec.id, container, mount.row, spec, hostKey, locator) };
+                    const registered = origin === "plugin" ? (built[hostKey] || []).find(row => row.id === spec.id && row.origin === "plugin") : null;
+                    entry = { key: key, revision: revision, locator: locator, origin: origin,
+                        widget: origin === "core" ? createWidget(spec.id, container, mount.row, spec, hostKey, locator) : registered ? registered.instance : null };
+                }
+                if (entry.origin === "plugin") {
+                    const registered = (built[hostKey] || []).find(row => row.id === spec.id && row.origin === "plugin");
+                    entry.widget = registered ? registered.instance : null;
+                    if (entry.widget !== null) {
+                        const item = entry.widget;
+                        item.frame = {
+                            dragStart: point => root.dragStart(hostKey, spec.id, entry.locator, item, point),
+                            dragMove: point => root.dragMove(hostKey, point),
+                            dragEnd: point => root.dragEnd(hostKey, point)
+                        };
+                    }
                 }
                 entries.push(entry);
             }
             mount.sections[section].entries = entries;
         }
         for (const entry of pool)
-            if (entry.widget !== null) destroyBuilt(hostKey, entry.widget);
+            if (entry.widget !== null && entry.origin === "core") destroyBuilt(hostKey, entry.widget);
         positionBar(hostKey, null);
     }
 
@@ -566,10 +590,9 @@ Singleton {
     // stale at this point. Instances a slot is about to destroy are
     // refreshed for nothing; the slot forgets them next.
     function reconcile() {
-        const layout = Logic.effectiveLayout(Config.effective, Registry.manifests, Registry.defaultBarId);
         for (const hostKey of Object.keys(mounts)) {
             try {
-                reconcileBar(hostKey, layout);
+                reconcileBar(hostKey);
             } catch (e) {
                 console.error("plugins: reconciling " + hostKey + " failed: " + e.message);
             }
@@ -681,11 +704,14 @@ Singleton {
     }
 
     function moveWidget(id, section, index, from) {
-        if (!Registry.has(id)) return "unknown: " + id;
-        const m = Registry.manifests[id];
-        const refusal = Logic.moveRefusal(Config.effective, m, section, index, Registry.defaultBarId);
+        const active = Object.values(mounts).find(mount => mount.row.id === Registry.activeBarId);
+        const names = active === undefined ? [] : active.row.instance.builtinNames;
+        const owner = Logic.builtinOwner(Config.effective, Registry.manifests, Registry.defaultBarId, names, id);
+        if (owner === null && !Registry.has(id)) return "unknown: " + id;
+        const m = owner === null ? Registry.manifests[id] : owner;
+        const refusal = Logic.moveRefusal(Config.effective, m, section, index, Registry.defaultBarId, names, id);
         if (refusal !== "") return refusal;
-        return Config.writeUser(Logic.withMoved(Config.user, m, from || null, section, index, Config.effective));
+        return Config.writeUser(Logic.withMoved(Config.user, m, from || null, section, index, Config.effective, id));
     }
 
     // Write one setting of one plugin into each configuration entry in

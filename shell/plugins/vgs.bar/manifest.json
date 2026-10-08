@@ -23,9 +23,6 @@
     "shortcut"
   ],
   "settings": {
-    "left": ["workspaces"],
-    "center": ["clock"],
-    "right": [],
     "clockFormat": "ddd d MMM  HH:mm",
     "hidden": false
   },

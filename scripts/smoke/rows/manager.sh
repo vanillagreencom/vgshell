@@ -18,7 +18,7 @@
 # page draws neither button, and each requirement row reads back with its
 # state and purpose. rows/settings.sh continues with the same window and
 # takes the plug off the bar again.
-# inputs: shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/BindField.qml shell/Core/Plugins.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/AppWindow.qml shell/Ui/foundation/PointerCursor.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* config/shell.json shell/Core/Capabilities.qml shell/Core/Registry.qml scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/controls/RowAction.qml
+# inputs: shell/plugins/vgs.bar/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/BindField.qml shell/Core/Plugins.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/AppWindow.qml shell/Ui/foundation/PointerCursor.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* config/shell.json shell/Core/Capabilities.qml shell/Core/Registry.qml scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/controls/RowAction.qml
 set -euo pipefail
 # rows/status.sh removes a monitor just before this row, and its bar's
 # layer can outlive the removal, so the reading waits for the settled set.
@@ -1144,49 +1144,28 @@ expect_poll "the fixture's service is built again" True record_exists acme.probe
 expect "the Settings window hides after the refusals" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone after the refusals" 0 window_count Plugins
 
-# The bar's built-ins: the manager built-in is gone, and a user row still
-# naming it draws nothing and is logged with the command that places the
-# Settings gear.
-bar_row() { # [SECTION] JSON list of built-ins for that section, right by default
-  local section=right
-  [[ $# -eq 2 ]] && { section="$1"; shift; }
-  python3 - "$home/.config/vgshell/shell.json" "$1" "$section" <<'PY'
+# Builtin presence is the ordinary layout entry. Test writes use the same
+# section lists as external configuration edits and preserve plugin entries.
+bar_builtin_present() { # ID true|false SECTION
+  python3 - "$home/.config/vgshell/shell.json" "$1" "$2" "$3" <<'PYREAD'
 import json, os, sys
-p = sys.argv[1]
-d = json.load(open(p))
-rows = d.setdefault("plugins", [])
-row = [e for e in rows if e["id"] == "vgs.bar"]
-if not row:
-    rows.append({"id": "vgs.bar"})
-    row = rows[-1:]
-row[0][sys.argv[3]] = json.loads(sys.argv[2])
-json.dump(d, open(p + ".tmp", "w"), indent=2)
-os.replace(p + ".tmp", p)
-PY
+path, ident, present, section = sys.argv[1:]
+doc = json.load(open(path))
+layout = doc["bar"]["layout"]
+for key in ("left", "center", "right"):
+    layout[key] = [entry for entry in layout[key] if entry["id"] != ident]
+if present == "true": layout[section].insert(0, {"id": ident})
+with open(path + ".tmp", "w") as out: json.dump(doc, out)
+os.replace(path + ".tmp", path)
+PYREAD
 }
-expected_errors+=('bar: no built-in widget named "manager":')
-bar_row '["manager"]'
-expect_log "a user row naming the retired manager built-in is logged by every bar" "$monitors" 'bar: no built-in widget named "manager":'
-expect_builtins "the retired manager built-in draws nothing" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
-bar_row '["clock"]'
-expect_builtins "a built-in listed in the right section registers there" '["vgs.bar/center-clock","vgs.bar/left-workspaces","vgs.bar/right-clock"]'
-bar_row left '["clock","workspaces"]'
-expect_builtins "the same built-in in two sections registers in both" '["vgs.bar/center-clock","vgs.bar/left-clock","vgs.bar/left-workspaces","vgs.bar/right-clock"]'
-bar_row center '[]'
-expect_builtins "moving and reordering built-ins keeps every one registered" '["vgs.bar/left-clock","vgs.bar/left-workspaces","vgs.bar/right-clock"]'
-read_moved_clock() { ipc smoke readInstance "$(bar_key)" vgs.bar/left-clock format; }
-expect "the moved clock is the registered one" '"HH:mm:ss"' read_moved_clock
-bar_row left '["workspaces"]'
-bar_row center '["clock"]'
-bar_row '[]'
-expect_builtins "the built-ins return to their sections" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
-# A name listed twice in one section is drawn once and the repeat logged by
-# every bar; the logged line proves the bar read the setting.
-expected_errors+=('vgs\.bar: setting left ')
-bar_row left '["workspaces","workspaces"]'
-expect_log "a built-in listed twice in one section is logged by every bar" "$monitors" 'vgs\.bar: setting left '
-expect_builtins "a built-in listed twice in one section registers once" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
-bar_row left '["workspaces"]'
+expect "a foreign builtin ID cannot move" "unknown: other.bar/center-clock" ipc shell movePluginWidget other.bar/center-clock left 0
+expect "an unadvertised builtin ID cannot move" "unknown: vgs.bar/unknown" ipc shell movePluginWidget vgs.bar/unknown left 0
+expect "the clock can move through the ordinary API" ok ipc shell movePluginWidget vgs.bar/center-clock left 0
+expect_builtins "moving the clock keeps its registration ID" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
+read_moved_clock() { ipc smoke builtinContentProperty "$(bar_key)" vgs.bar/center-clock format; }
+expect "the moved clock still receives the bar format" '"HH:mm:ss"' read_moved_clock
+expect "the clock returns to center through the ordinary API" ok ipc shell movePluginWidget vgs.bar/center-clock center 0
 
 # Each bar stays alive while its built-ins change. The pending callbacks
 # must describe only its current capability holds and live built-ins.
@@ -1195,11 +1174,11 @@ bar_cleanup_balanced() {
 }
 builtin_builds_before="$(builds)"
 for builtin_cycle in {1..12}; do
-  bar_row '["clock"]'
-  expect_builtins "built-in cleanup cycle $builtin_cycle adds a right clock" '["vgs.bar/center-clock","vgs.bar/left-workspaces","vgs.bar/right-clock"]'
+  bar_builtin_present vgs.bar/center-clock false center
+  expect_builtins "built-in cleanup cycle $builtin_cycle removes the clock" '["vgs.bar/left-workspaces"]'
   expect_poll "built-in cleanup cycle $builtin_cycle keeps only live callbacks" True bar_cleanup_balanced
-  bar_row '[]'
-  expect_builtins "built-in cleanup cycle $builtin_cycle removes the right clock" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
+  bar_builtin_present vgs.bar/center-clock true center
+  expect_builtins "built-in cleanup cycle $builtin_cycle restores the clock" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
   expect_poll "built-in cleanup cycle $builtin_cycle forgets released callbacks" True bar_cleanup_balanced
   expect "built-in cleanup cycle $builtin_cycle preserves the bar lifetime" "$builtin_builds_before" builds
 done
