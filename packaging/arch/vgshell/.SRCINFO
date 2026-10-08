@@ -64,6 +64,7 @@ pkgbase = vgshell
 	depends = xdg-utils
 	optdepends = bandwhich: See all network traffic in the Network Traffic plugin
 	optdepends = libcap: check and allow traffic capture in the Network Traffic plugin
+	optdepends = btop: all processes and system readings from the System monitor panel
 	optdepends = claude-code: sign in to Claude Code and use its account as the Jarvis AI model
 	optdepends = openai-codex: sign in to Codex and use its account as the Jarvis AI model
 	optdepends = voxtype-bin: Voice dictation engine

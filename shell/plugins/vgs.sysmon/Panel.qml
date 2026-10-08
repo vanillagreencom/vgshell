@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "SysmonLogic.js" as Logic
 
 FocusScope {
     id: root
@@ -12,15 +13,27 @@ FocusScope {
     readonly property bool btopPresent: shell !== null && shell.requirements.missing.indexOf("btop") === -1
     readonly property Item initialFocus: root
     property string problem: ""
+    property bool leased: false
+    property var leaseShell: null
+    property string leaseId: ""
     implicitWidth: Theme.size.panel.md
     implicitHeight: layout.implicitHeight
-    function open(payloadJson) { problem = ""; }
-    function close() {}
+    function open(payloadJson) {
+        problem = "";
+        if (leaseId === "") leaseId = String(root);
+        if (!leased && shell !== null && shell.ipc.call("lease", JSON.stringify({ id: leaseId, open: true })) === "ok") { leased = true; leaseShell = shell; }
+    }
+    function close() {
+        if (leased && leaseShell !== null) leaseShell.ipc.call("lease", JSON.stringify({ id: leaseId, open: false }));
+        leased = false;
+        leaseShell = null;
+    }
+    Component.onDestruction: close()
     function setting(name, fallback) { return shell !== null && shell.settings[name] !== undefined ? shell.settings[name] : fallback; }
     function percent(value) { return typeof value === "number" ? Math.round(value) + "%" : "--"; }
     function degrees(value) { return typeof value === "number" ? Math.round(value) + "°" : "--"; }
     function gb(value) { return typeof value === "number" ? (value / 1073741824).toFixed(1) + " GB" : "--"; }
-    function tone(value, warning, danger) { return typeof value === "number" && value >= danger ? "danger" : typeof value === "number" && value >= warning ? "warning" : "accent"; }
+    function tone(value, warning, danger) { const state = Logic.tone(value, warning, danger); return state === "normal" ? "accent" : state; }
     function seeAll() {
         const reply = shell.tui.run("btop", []);
         if (reply === "ok" || reply === "busy") shell.surfaces.hide("panel");
@@ -70,7 +83,7 @@ FocusScope {
                 title: "GPU"; iconName: "gpu"
                 reading: root.gpu && root.gpu.state === "asleep" ? "Asleep" : root.percent(root.gpu ? root.gpu.use : null)
                 value: root.gpu && root.gpu.state !== "asleep" ? root.gpu.use : null
-                description: root.gpu ? root.gpu.name : ""
+                description: root.gpu ? root.gpu.name + (root.gpu.state === "unsupported" ? " · Use not available" : "") : ""
                 details: root.gpu && root.gpu.state === "asleep" ? ["The graphics card is asleep."] : ["VRAM " + root.gb(root.gpu ? root.gpu.vramUsed : null) + " of " + root.gb(root.gpu ? root.gpu.vramTotal : null), "Temperature " + root.degrees(root.gpu ? root.gpu.temperature : null)]
             }
         }

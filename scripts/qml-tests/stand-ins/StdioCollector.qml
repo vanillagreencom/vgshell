@@ -4,6 +4,7 @@ import QtQuick
 // outside the shell. The Process stand-in writes text here before it emits
 // exited, so the core reads the same shape it reads in production.
 QtObject {
+    property bool waitForEnd: false
     property string text: ""
 
     signal streamFinished()

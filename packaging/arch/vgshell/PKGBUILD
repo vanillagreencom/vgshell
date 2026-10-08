@@ -73,6 +73,7 @@ depends=(
 optdepends=(
   'bandwhich: See all network traffic in the Network Traffic plugin'
   'libcap: check and allow traffic capture in the Network Traffic plugin'
+  'btop: all processes and system readings from the System monitor panel'
   'claude-code: sign in to Claude Code and use its account as the Jarvis AI model'
   'openai-codex: sign in to Codex and use its account as the Jarvis AI model'
   'voxtype-bin: Voice dictation engine'

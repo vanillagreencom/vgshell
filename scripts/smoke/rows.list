@@ -137,6 +137,7 @@ capture
 ai-usage
 traffic
 network
+sysmon
 # After system-window, which leaves vgs.system as this row finds it, and
 # over the device fakes; it reads no state the displays row leaves.
 bluetooth

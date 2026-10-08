@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "SysmonLogic.js" as Logic
 
 BarWidget {
     id: root
@@ -8,6 +9,9 @@ BarWidget {
     readonly property var cpu: readings.cpu || ({})
     readonly property var memory: readings.memory || ({})
     readonly property var gpu: readings.gpu || null
+    property bool leased: false
+    property var leaseShell: null
+    property string leaseId: ""
     implicitWidth: row.implicitWidth
     implicitHeight: row.implicitHeight
     visible: setting("showCpu", true) || setting("showMemory", true) || (setting("showGpu", true) && gpu !== null)
@@ -16,8 +20,19 @@ BarWidget {
     function degrees(value) { return typeof value === "number" ? Math.round(value) + "°" : "--"; }
     function gb(value) { return typeof value === "number" ? (value / 1073741824).toFixed(1) + " GB" : "--"; }
     function tone(value, warning, danger) {
-        return typeof value !== "number" ? Theme.bar.foreground : value >= danger ? Theme.color.danger : value >= warning ? Theme.color.warning : Theme.bar.foreground;
+        const state = Logic.tone(value, warning, danger);
+        return state === "danger" ? Theme.color.danger : state === "warning" ? Theme.color.warning : Theme.bar.foreground;
     }
+    function holdLease() {
+        if (shell === null || leased) return;
+        if (leaseId === "") leaseId = String(root);
+        if (shell.ipc.call("lease", JSON.stringify({ id: leaseId, open: true })) === "ok") { leased = true; leaseShell = shell; }
+    }
+    onShellChanged: holdLease()
+    // The service starts after the first bar frame. Its initial status
+    // publish retries the lifetime lease without a widget poller.
+    onReadingsChanged: holdLease()
+    Component.onDestruction: if (leased && leaseShell !== null) leaseShell.ipc.call("lease", JSON.stringify({ id: leaseId, open: false }))
     function toggle() {
         const reply = shell.surfaces.toggle("panel", "{}", root);
         if (reply !== "ok") console.warn("sysmon widget: panel " + reply);

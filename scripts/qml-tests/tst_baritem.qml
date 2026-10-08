@@ -19,6 +19,7 @@ Item {
     BarItem { id: pill; text: "1"; active: true; y: 80 }
     BarItem { id: spinner; iconName: "refresh-cw"; spinning: true; y: 120 }
     BarItem { id: tooltipItem; iconName: "settings"; label: "Settings"; tooltip: "Open settings"; tooltipDetails: ["Pinned in the bar"]; x: 80 }
+    BarItem { id: reserved; text: "5%"; reservedText: "100%"; count: "9°"; reservedCount: "100°"; x: 150 }
     property int clicks: 0
     Component {
         id: tooltipCase
@@ -123,6 +124,31 @@ Item {
             else compare(tip.shown, false);
             mouseMove(root, root.width - 1, root.height - 1);
             tryCompare(tip, "shown", false);
+        }
+
+        function test_reserved_text_and_count_keep_the_width() {
+            reserved.text = "5%"; reserved.count = "9°";
+            wait(0);
+            const width = reserved.width;
+            const textWidth = labels(reserved)[0].width;
+            const countWidth = labels(reserved)[1].width;
+            reserved.text = "100%";
+            wait(0);
+            compare(reserved.width, width);
+            compare(labels(reserved)[0].width, textWidth);
+            reserved.count = "100°";
+            wait(0);
+            compare(reserved.width, width);
+            compare(labels(reserved)[1].width, countWidth);
+        }
+
+        function test_text_and_count_take_separate_tones() {
+            reserved.text = "5%"; reserved.count = "9°";
+            reserved.tone = "#ff0000";
+            reserved.textTone = "#0000ff";
+            reserved.countTone = "#00ff00";
+            compare(String(labels(reserved)[0].color), "#0000ff");
+            compare(String(labels(reserved)[1].color), "#00ff00");
         }
 
         function test_theme_moves_the_item() {

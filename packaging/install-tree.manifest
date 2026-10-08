@@ -555,6 +555,13 @@ f share/vgshell/shell/plugins/vgs.sound/SoundControls.qml
 f share/vgshell/shell/plugins/vgs.sound/SoundLogic.js
 f share/vgshell/shell/plugins/vgs.sound/Widget.qml
 f share/vgshell/shell/plugins/vgs.sound/manifest.json
+f share/vgshell/shell/plugins/vgs.sysmon/Panel.qml
+f share/vgshell/shell/plugins/vgs.sysmon/Reading.qml
+f share/vgshell/shell/plugins/vgs.sysmon/Service.qml
+f share/vgshell/shell/plugins/vgs.sysmon/SysmonLogic.js
+f share/vgshell/shell/plugins/vgs.sysmon/Widget.qml
+f share/vgshell/shell/plugins/vgs.sysmon/manifest.json
+f share/vgshell/shell/plugins/vgs.sysmon/tui/btop.sh
 f share/vgshell/shell/plugins/vgs.system/Memory.js
 f share/vgshell/shell/plugins/vgs.system/Service.qml
 f share/vgshell/shell/plugins/vgs.system/Sidebar.qml

@@ -8,18 +8,21 @@
   "license": "MIT",
   "icon": "activity",
   "kinds": [
+    "service",
     "bar-widget",
     "panel"
   ],
   "entryPoints": {
     "bar-widget": "Widget.qml",
-    "panel": "Panel.qml"
+    "panel": "Panel.qml",
+    "service": "Service.qml"
   },
   "capabilities": [
     "status",
     "surfaces",
     "requirements",
-    "tui"
+    "tui",
+    "ipc"
   ],
   "defaultSection": "right",
   "requirements": [
@@ -35,6 +38,15 @@
       },
       "optional": true,
       "purpose": "Shows all processes and system readings"
+    },
+    {
+      "command": "nvidia-smi",
+      "packages": {
+        "pacman": "nvidia-utils",
+        "apt": "nvidia-smi"
+      },
+      "optional": true,
+      "purpose": "Reads NVIDIA graphics card use and temperature"
     }
   ],
   "settings": {
@@ -56,6 +68,11 @@
     "gpus": {
       "type": "choices",
       "label": "Graphics cards"
+    },
+    "graphics": {
+      "type": "state",
+      "label": "Graphics card",
+      "group": "Readings"
     }
   },
   "schema": {
@@ -112,6 +129,16 @@
       "step": 1,
       "unit": "seconds",
       "group": "Readings"
+    }
+  },
+  "tui": {
+    "btop": {
+      "script": "tui/btop.sh",
+      "title": "System Monitor",
+      "size": "wide",
+      "requires": [
+        "btop"
+      ]
     }
   }
 }

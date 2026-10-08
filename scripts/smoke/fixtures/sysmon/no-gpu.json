@@ -1,0 +1,1 @@
+{"cpu": {"use": 12, "temperature": 54, "cores": 32}, "memory": {"use": 38, "used": 27917287424, "total": 73014444032, "available": 45097156608, "swapUse": 6, "swapUsed": 536870912.0, "swapTotal": 8589934592}, "gpu": null}

@@ -68,6 +68,7 @@ Requires:       xdg-desktop-portal-gtk
 Requires:       xdg-desktop-portal-hyprland
 Requires:       xdg-terminal-exec
 Requires:       xdg-utils
+Recommends:     btop
 Recommends:     bluez
 Recommends:     brightnessctl
 Recommends:     cronie

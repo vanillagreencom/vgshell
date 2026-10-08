@@ -16,3 +16,5 @@ scripts/fixtures/pkg/** -whitespace
 *.ttf binary
 *.mp4 binary
 scripts/smoke/user-config.sh text eol=lf
+*.webp binary
+scripts/smoke/fixtures/sysmon/*.json text eol=lf

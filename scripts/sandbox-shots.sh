@@ -19,7 +19,7 @@
 # SCENE is gallery, settings, wide-settings, focus, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, plugin-messages, traffic, ai-usage or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, plugin-messages, traffic, ai-usage, sysmon or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -221,7 +221,7 @@ while [[ $# -gt 0 ]]; do
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    gallery|settings|wide-settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|plugin-messages|traffic|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
+    sysmon|gallery|settings|wide-settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|plugin-messages|traffic|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -311,6 +311,7 @@ fi
 ships_plugin() { local id; for id; do [[ -f $tree/shell/plugins/$id/manifest.json ]] || return 1; done; }
 scene_ships() {
   case $1 in
+    sysmon) ships_plugin vgs.sysmon ;;
     settings|manager) [[ $1 == "$manager_scene" ]] ;;
     plugin-pages) [[ $manager_scene == settings ]] ;;
     wide-settings) ships_plugin vgs.system vgs.displays vgs.mouse vgs.sound ;;
@@ -413,6 +414,13 @@ if [[ " ${scenes[*]} " == *" traffic "* ]]; then
 fi
 source "$checkout/scripts/smoke/harness.sh"
 source "$checkout/scripts/smoke/power-fakes.sh"
+if [[ " ${scenes[*]} " == *" sysmon "* ]]; then
+  # Presence draws See all; the scene never invokes this stand-in.
+  printf '#!/usr/bin/env bash\nexit 1\n' >"$shim/btop"
+  chmod 755 "$shim/btop"
+  # The private copy keeps the live poller from replacing posed readings.
+  cp -- "$checkout/scripts/smoke/fixtures/sysmon/Service.qml" "$repo/shell/plugins/vgs.sysmon/Service.qml"
+fi
 # The harness copied the tree into the sandbox; the export is no longer
 # read, and every later read of the tree reads the sandbox's copy.
 [[ -z $source_tree ]] || rm -rf -- "$source_tree"
@@ -3824,6 +3832,65 @@ PY
       fi ;;
   esac
 done
+
+sysmon_shot_settings() { # MASK CPU_TEMP GPU_TEMP UNIT SWAP
+  local expected
+  python3 - "$home/.config/vgshell/shell.json" "$@" <<'PYS'
+import json,os,sys
+p=sys.argv[1]; mask=int(sys.argv[2]); d=json.load(open(p))
+settings={'showCpu':bool(mask&1),'showMemory':bool(mask&2),'showGpu':bool(mask&4),'cpuTemperature':sys.argv[3]=='true','gpuTemperature':sys.argv[4]=='true','memoryUnit':sys.argv[5],'showSwap':sys.argv[6]=='true'}
+d['bar']['layout']={'left':[], 'center':[], 'right':[{'id':'vgs.sysmon',**settings}]}
+d['plugins']=[r for r in d.get('plugins',[]) if r['id']!='vgs.sysmon']+[{'id':'vgs.sysmon',**settings}]
+json.dump(d,open(p+'.new','w'));os.replace(p+'.new',p)
+PYS
+  expect_poll "the sysmon configuration settles" true ipc smoke configSettled
+  expected="$(python3 -c 'import json,sys;m=int(sys.argv[1]);print(json.dumps([bool(m&1),bool(m&2),bool(m&4),sys.argv[2]=="true",sys.argv[3]=="true",sys.argv[4],sys.argv[5]=="true"]))' "$@")" || { fail "the sysmon shot settings are unreadable"; return; }
+  expect_poll "the sysmon widget has current toggles" "$expected" sysmon_shot_toggles
+  expect "the fixture holds the widget status" held ipc smoke holdStatus "$(bar_key)" vgs.sysmon
+}
+sysmon_shot_toggles() { ipc smoke readInstance "$(bar_key)" vgs.sysmon settings | py_reply 'import json,sys; s=json.load(sys.stdin);print(json.dumps([s.get("showCpu"),s.get("showMemory"),s.get("showGpu"),s.get("cpuTemperature"),s.get("gpuTemperature"),s.get("memoryUnit"),s.get("showSwap")]))'; }
+sysmon_shot_fixture() {
+  local readings
+  readings="$(cat -- "$checkout/scripts/smoke/fixtures/sysmon/$1.json")" || { fail "the $1 fixture is unreadable"; return; }
+  expect "the $1 readings publish" ok ipc smoke heldStatusSet readings "$readings"
+}
+scene_sysmon() {
+  local mode="$1" mask name
+  tree_rescan "the btop fixture is scanned"
+  expect "System Monitor is enabled" ok ipc shell setPluginEnabled vgs.sysmon true
+  for mask in 1 2 4 3 5 6 7 0; do
+    sysmon_shot_settings "$mask" false false percent false
+    sysmon_shot_fixture normal
+    name="$(python3 -c 'import sys;m=int(sys.argv[1]);print("-".join(n for b,n in [(1,"cpu"),(2,"memory"),(4,"gpu")] if m&b) or "none")' "$mask")" || { fail "the sysmon reading combination is unreadable"; return; }
+    park_pointer
+    take "sysmon-$mode-combination-$name"
+  done
+  sysmon_shot_settings 7 true true percent false
+  sysmon_shot_fixture normal
+  take "sysmon-$mode-both-temperatures"
+  sysmon_shot_settings 7 true false percent false
+  take "sysmon-$mode-cpu-temperature"
+  sysmon_shot_settings 7 false true percent false
+  take "sysmon-$mode-gpu-temperature"
+  sysmon_shot_settings 7 true true used true
+  take "sysmon-$mode-used-gb-swap"
+  sysmon_shot_settings 7 true true percent false
+  for name in zero warning danger unknown no-gpu asleep; do
+    sysmon_shot_fixture "$name"
+    take "sysmon-$mode-$name"
+    if [[ $name == asleep || $name == no-gpu || $name == unknown ]]; then
+      expect "the widget opens its anchored flyout" ok ipc smoke invokeInstance "$(bar_key)" vgs.sysmon toggle ''
+      expect_poll "the System Monitor flyout is built" '"System Monitor"' ipc smoke readDescendant panel vgs.sysmon Pane title
+      take "sysmon-$mode-flyout-$name"
+      expect "the flyout closes" ok ipc shell hide panel vgs.sysmon
+    fi
+  done
+  sysmon_shot_fixture normal
+  expect "the widget opens its detail flyout" ok ipc smoke invokeInstance "$(bar_key)" vgs.sysmon toggle ''
+  expect_poll "the System Monitor flyout is built" '"System Monitor"' ipc smoke readDescendant panel vgs.sysmon Pane title
+  take "sysmon-$mode-flyout-see-all"
+  expect "the flyout closes" ok ipc shell hide panel vgs.sysmon
+}
 
 # The first shot is the bare desktop; every later shot must differ from the
 # one before it, which is what proves grim reads the frame being drawn now.

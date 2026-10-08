@@ -1,0 +1,1 @@
+{"cpu": {"use": null, "temperature": null, "cores": null}, "memory": {"use": null, "used": null, "total": null, "available": null, "swapUse": null, "swapUsed": null, "swapTotal": null}, "gpu": {"state": "ready", "name": "NVIDIA GeForce RTX 5090", "use": null, "temperature": null, "vramUsed": null, "vramTotal": null}}
