@@ -87,6 +87,15 @@ expect "the built-in clock reads the bar's clock format" '"ddd d MMM  HH:mm"' re
 
 # The built-in receives the bar's capability, independently of fixture grants.
 expect "the built-in workspaces receive a callable compositor action" true ipc smoke hasWorkspaceAction "$(bar_key)" vgs.bar/left-workspaces
+if copy_tree workspaces-action \
+  && edit_tree workspaces-action shell/plugins/vgs.bar/Builtin.qml 'Workspaces { bar: root.barItem }' 'Workspaces { bar: Item { property var shell: ({ compositor: {} }) } }'; then
+  stop_shell
+  start_shell "$sandbox/tree-workspaces-action" "$sandbox/workspaces-action.log" || fail "the Workspaces action control starts"
+  expect "control: Workspaces content with no compositor action reads false" false ipc smoke hasWorkspaceAction "$(bar_key)" vgs.bar/left-workspaces
+  stop_shell
+  start_shell "$repo" "$sandbox/workspaces-action-restored.log" || fail "the shell returns after the Workspaces action control"
+  expect "the restored Workspaces content receives its compositor action" true ipc smoke hasWorkspaceAction "$(bar_key)" vgs.bar/left-workspaces
+fi
 active_ws() { hypr -j activeworkspace | py_reply 'import json,sys; print(json.load(sys.stdin)["id"])'; }
 
 # A settings change reaches the running instance and builds nothing: the

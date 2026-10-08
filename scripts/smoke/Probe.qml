@@ -1454,7 +1454,8 @@ Scope {
             if (mount === undefined) return "absent";
             const bar = mount.row.instance;
             // Hide unmaps BarHost and clears the attached Window.window.
-            // The mounted Items remain alive and keep their local geometry.
+            // The mounted Items remain alive. Effective visibility and
+            // section geometry return when BarHost maps the window again.
             return root.json({ shown: PluginLogic.barShown(bar), windowVisible: bar.Window.window !== null && bar.Window.window.visible,
                 sections: PluginLogic.SECTIONS.map(section => {
                     const container = bar[section + "Section"];
@@ -1587,9 +1588,10 @@ Scope {
         }
         function hasWorkspaceAction(hostKey: string, id: string): bool {
             const item = root.instance(hostKey, id);
-            if (item === null || !item.bar || !item.bar.shell) return false;
-            const compositor = item.bar.shell.compositor;
-            return compositor !== undefined && typeof compositor.focusWorkspace === "function";
+            const content = item === null ? undefined : root.descendants(item).find(child => root.typeName(child) === "Workspaces");
+            if (content === undefined || !content.bar || !content.bar.shell) return false;
+            const compositor = content.bar.shell.compositor;
+            return compositor !== undefined && compositor !== null && typeof compositor.focusWorkspace === "function";
         }
         function textOf(hostKey: string, id: string): string {
             const item = root.instance(hostKey, id);

@@ -387,6 +387,8 @@ bar_participation() {
   py_reply 'import json,sys
 data=json.load(sys.stdin); state=sys.argv[1]; errors=[]
 if not isinstance(data,dict): print("absent"); sys.exit()
+if data["shown"]!=(sys.argv[2]=="shown") or data["windowVisible"]!=(sys.argv[2]=="shown"): errors.append("window")
+if sys.argv[2]=="hidden": print(json.dumps(errors)); sys.exit()
 sections=data.get("sections",[])
 center=next((s for s in sections if s["section"]=="center"),None)
 if center is None: print("missing-center"); sys.exit()
@@ -407,8 +409,19 @@ for row in drawn:
     x+=row["box"][2]+gap
 drop=center["drop"]
 if abs(drop["width"]-width)>0.5 or [w["locator"]["id"] for w in drop["widgets"]]!=[r["id"] for r in drawn]: errors.append("drop")
-if data["shown"]!=(sys.argv[2]=="shown") or data["windowVisible"]!=(sys.argv[2]=="shown"): errors.append("window")
-print(json.dumps(sorted(set(errors))))' "$1" "${2:-shown}" <<<"$snapshot"
+if sys.argv[3]:
+    before=json.load(open(sys.argv[3]))
+    if [s["section"] for s in sections]!=[s["section"] for s in before["sections"]]: errors.append("membership")
+    else:
+        for actual,prior in zip(sections,before["sections"]):
+            if abs(actual["width"]-prior["width"])>0.5 or actual["gap"]!=prior["gap"]: errors.append("width")
+            if [(r["locator"],r["present"]) for r in actual["entries"]]!=[(r["locator"],r["present"]) for r in prior["entries"]]: errors.append("membership"); continue
+            for row,old in zip(actual["entries"],prior["entries"]):
+                if row["visible"]!=old["visible"] or any(abs(a-b)>0.5 for a,b in zip(row["box"][2:],old["box"][2:])): errors.append("producer")
+                if any(abs(a-b)>0.5 for a,b in zip(row["box"][:2],old["box"][:2])): errors.append("position")
+            a,p=actual["drop"],prior["drop"]
+            if abs(a["width"]-p["width"])>0.5 or abs(a["x"]-p["x"])>0.5 or a["widgets"]!=p["widgets"]: errors.append("drop")
+print(json.dumps(sorted(set(errors))))' "$1" "${2:-shown}" "${3:-}" <<<"$snapshot"
 }
 bar_participation_fault() {
   bar_participation "$1" | py_reply 'import json,sys; errors=json.load(sys.stdin); print(isinstance(errors,list) and {"width","position","drop"}<=set(errors) and "producer" not in errors and "window" not in errors)'
@@ -446,11 +459,13 @@ for bar_participation_case in hidden zero-width zero-height; do
   bar_participation_state shown
   geometry expect_poll "shown geometry returns after $bar_participation_case" '[]' bar_participation shown
 done
+bar_participation_before="$sandbox/bar-participation-before.json"
+ipc smoke barParticipationGeometry "$(bar_key)" >"$bar_participation_before" || fail "shown participation geometry is unreadable before Hide"
 expect "the mapped bar hides through its shipped toggle" ok ipc vgs.bar invoke toggle ''
-expect_poll "the hidden window retains section geometry" '[]' bar_participation shown hidden
+expect_poll "the hidden bar unmaps its window" '[]' bar_participation shown hidden
 expect "the hidden bar keeps its mounted objects" '[]' ipc smoke barWidgetIdentities
 expect "the hidden bar reveals through its shipped toggle" ok ipc vgs.bar invoke toggle ''
-geometry expect_poll "the revealed bar restores drawn geometry" '[]' bar_participation shown
+geometry expect_poll "the revealed bar restores its shown section geometry" '[]' bar_participation shown shown "$bar_participation_before"
 expect "the revealed bar keeps its mounted objects" '[]' ipc smoke barWidgetIdentities
 expect "participation releases the object snapshot" ok ipc smoke forgetBarWidgets
 stop_shell
@@ -468,6 +483,21 @@ for bar_participation_case in hidden zero-width zero-height; do
     stop_shell
   fi
 done
+# A section that stays collapsed after Show must fail the same restoration
+# reader as the real toggle, with a shown baseline from this control.
+if copy_tree bar-participation-restore \
+  && edit_tree bar-participation-restore shell/plugins/vgs.bar/Bar.qml '    id: bar' $'    id: bar\n    property bool smokeHidden: false\n    onShownChanged: if (!shown) smokeHidden = true' \
+  && edit_tree bar-participation-restore shell/plugins/vgs.bar/Bar.qml '        id: center' $'        id: center\n        width: bar.smokeHidden ? 0 : implicitWidth'; then
+  bar_participation_state shown
+  start_shell "$sandbox/tree-bar-participation-restore" "$sandbox/bar-participation-restore.log" || fail "the restoration control starts"
+  geometry expect_poll "control: the section starts with shown geometry" '[]' bar_participation shown
+  ipc smoke barParticipationGeometry "$(bar_key)" >"$bar_participation_before" || fail "the restoration control baseline is unreadable"
+  expect "control: Hide reaches the real toggle before restoration" ok ipc vgs.bar invoke toggle ''
+  expect_poll "control: the collapsed section window hides" '[]' bar_participation shown hidden
+  expect "control: Show reaches the real toggle after collapse" ok ipc vgs.bar invoke toggle ''
+  geometry expect_poll "control: a section that stays zero width fails the restoration reader" '["drop", "width"]' bar_participation shown shown "$bar_participation_before"
+  stop_shell
+fi
 # The real Hide route must unmap its window. Retained Item boxes are not
 # evidence of a mapped surface; the same typed reader checks both states.
 if copy_tree bar-participation-window \
