@@ -1749,12 +1749,12 @@ function verifyEditorStyles(render, template) {
 const editorPackages = verifyEditorStyles(require(rendererFile));
 const vscodeTemplate = fs.readFileSync(path.join(repo, "themes/targets/vscode/vscode.json"), "utf8");
 const editorControls = [
-    ["link without its rest colour", '    "textLink.foreground": "#@{color.textMuted}",\n', "", "coverage", "textLink.foreground"],
-    ["link rest text on the editor fill", '"textLink.foreground": "#@{color.textMuted}"', '"textLink.foreground": "#@{color.background}"', "contrast", "textLink.foreground", "editor.background"],
-    ["link rest text on the sidebar fill", '"textLink.foreground": "#@{color.textMuted}"', '"textLink.foreground": "#@{color.surface}"', "contrast", "textLink.foreground", "sideBar.background"],
-    ["link without its active colour", '    "textLink.activeForeground": "#@{color.text}",\n', "", "coverage", "textLink.activeForeground"],
-    ["active link text on the editor fill", '"textLink.activeForeground": "#@{color.text}"', '"textLink.activeForeground": "#@{color.background}"', "contrast", "textLink.activeForeground", "editor.background"],
-    ["active link text on the sidebar fill", '"textLink.activeForeground": "#@{color.text}"', '"textLink.activeForeground": "#@{color.surface}"', "contrast", "textLink.activeForeground", "sideBar.background"],
+    ["link without its rest colour", '    "textLink.foreground": "#@{color.accent}",\n', "", "coverage", "textLink.foreground"],
+    ["link rest text on the editor fill", '"textLink.foreground": "#@{color.accent}"', '"textLink.foreground": "#@{color.background}"', "contrast", "textLink.foreground", "editor.background"],
+    ["link rest text on the sidebar fill", '"textLink.foreground": "#@{color.accent}"', '"textLink.foreground": "#@{color.surface}"', "contrast", "textLink.foreground", "sideBar.background"],
+    ["link without its active colour", '    "textLink.activeForeground": "#@{color.accentHover}",\n', "", "coverage", "textLink.activeForeground"],
+    ["active link text on the editor fill", '"textLink.activeForeground": "#@{color.accentHover}"', '"textLink.activeForeground": "#@{color.background}"', "contrast", "textLink.activeForeground", "editor.background"],
+    ["active link text on the sidebar fill", '"textLink.activeForeground": "#@{color.accentHover}"', '"textLink.activeForeground": "#@{color.surface}"', "contrast", "textLink.activeForeground", "sideBar.background"],
     ["diff without its insertion fill", '    "diffEditor.insertedTextBackground": "#@{color.successSubtle}",\n', "", "coverage", "diffEditor.insertedTextBackground"],
     ["status bar text on its own fill", '"statusBar.foreground": "#@{color.text}"', '"statusBar.foreground": "#@{color.surface}"', "contrast", "statusBar.foreground"],
     ["empty workspace without its status bar fill", '    "statusBar.noFolderBackground": "#@{color.surface}",\n', "", "coverage", "statusBar.noFolderBackground"],
