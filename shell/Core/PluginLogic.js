@@ -2988,8 +2988,11 @@ function perScreenLayerShown(kind, instance) {
     return false;
 }
 
+// SCREENS is Quickshell.screens, a QML list: it has length and indexes, but
+// Array.isArray answers false for it (a run's Wayland trace on 2026-10-08
+// showed every cover asking for no keyboard under that test).
 function perScreenLayerTakesKeyboard(kind, screens, screen) {
-    return kind === "cover" && Array.isArray(screens) && screens.length > 0 && screen !== null && screens[0].name === screen.name;
+    return kind === "cover" && screens.length > 0 && screen !== null && screens[0].name === screen.name;
 }
 
 // What a manifest's `menu` key may hold: launcher rows keyed by a dotted id
