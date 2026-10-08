@@ -34,6 +34,11 @@ keyboard_editor_keys() {
   keyboard_wait || return 1
   type_keys "$@" || { fail "keyboard-input: status=type-failed target=window:vgs.system"; return 1; }
 }
+# main-run.sh treats a leading FAIL as a real failure. These logs hold
+# expected failures from subshell controls, whose assertions passed.
+keyboard_control_log() {
+  sed 's/^/  CONTROL  /'
+}
 keyboard_right_click() {
   local box x y
   box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.keyboard)" || return 1
@@ -195,7 +200,7 @@ keyboard_reject_panel() {
   if [[ $count == 1 ]]; then echo rejected; else echo "timeouts=$count"; fi
 }
 expect "a mapped panel stops editor input at the keyboard-holder wait" rejected keyboard_reject_panel keyboard_editor_keys
-cat -- "$sandbox/keyboard-input-keyboard_editor_keys.log"
+keyboard_control_log <"$sandbox/keyboard-input-keyboard_editor_keys.log"
 declare -f keyboard_editor_keys >"$sandbox/keyboard-input-driver.sh"
 python3 - "$sandbox/keyboard-input-driver.sh" "$sandbox/keyboard-input-no-wait.sh" <<'PYNOWAIT'
 import pathlib, sys
@@ -214,7 +219,7 @@ keyboard_rejection_control() {
    echo "$failures")
 }
 expect "control: removing the wait fails the same keyboard-holder assertion" 1 keyboard_rejection_control
-cat -- "$sandbox/keyboard-input-control.log"
+keyboard_control_log <"$sandbox/keyboard-input-control.log"
 expect "the keyboard-holder control hides its panel" ok ipc shell hide panel vgs.keyboard
 expect_poll "the keyboard-holder control unmaps its panel" 0 layer_count vgs:panel
 expect "the keyboard-holder control closes its System window" ok ipc shell hide window vgs.system
@@ -413,12 +418,12 @@ assert changed != text
 pathlib.Path(sys.argv[2]).write_text(changed)
 PYCLEANUP
   expect "the $keyboard_cleanup_fixture cleanup fixture stops on one keyboard timeout" 1 keyboard_timeout_row "$keyboard_cleanup_fixture"
-  grep -F 'keyboard-input: status=timeout' "$sandbox/keyboard-timeout-$keyboard_cleanup_fixture.log"
+  grep -F 'keyboard-input: status=timeout' "$sandbox/keyboard-timeout-$keyboard_cleanup_fixture.log" | keyboard_control_log
   if [[ $keyboard_cleanup_fixture == restored ]]; then
     keyboard_cleanup_check
   else
     expect "control: omitting failure cleanup fails the same restored-state assertion" 1 keyboard_cleanup_control
-    cat -- "$sandbox/keyboard-cleanup-control.log"
+    keyboard_control_log <"$sandbox/keyboard-cleanup-control.log"
     keyboard_restore
     keyboard_cleanup_check
   fi

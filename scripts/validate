@@ -428,7 +428,7 @@ rows=(
   "tools|memory sampler report|scripts/test-sample-shell-memory.sh|scripts/sample-shell-memory.sh bin/vgshell"
   "tools|heap profile attribution|python3 scripts/test-attribute-heap-profile.py|scripts/attribute-heap-profile.py"
   "tools|landing time controls|python3 scripts/test-landing-times.py|scripts/landing-times.py"
-  "tools|main runner controls|scripts/test-main-run.sh|scripts/main-run.sh"
+  "tools|main runner controls|scripts/test-main-run.sh|scripts/main-run.sh scripts/smoke/rows/keyboard.sh"
   "tools|smoke verdict controls|scripts/test-smoke-verdict.sh|scripts/smoke/verdict.sh"
   "tools|mode hold controls|scripts/test-mode-hold.sh|scripts/smoke/mode-hold.sh scripts/smoke/verdict.sh"
   "tools|smoke row readers|python3 scripts/check-smoke-readers.py|scripts/smoke/rows/* scripts/smoke/*.sh bin/lib/ipc-reply.sh scripts/validate scripts/smoke/rows.list"

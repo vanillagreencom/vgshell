@@ -40,6 +40,8 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 table="$TMP_ROOT/table"
 calls="$TMP_ROOT/calls"
 paths="$TMP_ROOT/paths"
+report_lines="$TMP_ROOT/report-lines"
+: >"$report_lines"
 clone="$TMP_ROOT/clone"
 runner="$clone/scripts/main-run.sh"
 
@@ -47,7 +49,8 @@ runner="$clone/scripts/main-run.sh"
 xenv=(env -i PATH="$PATH" HOME="$TMP_ROOT/home" LC_ALL=C
   GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid
   GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
-  MAIN_RUN_TEST_TABLE="$table" MAIN_RUN_TEST_CALLS="$calls" MAIN_RUN_TEST_PATHS="$paths")
+  MAIN_RUN_TEST_TABLE="$table" MAIN_RUN_TEST_CALLS="$calls" MAIN_RUN_TEST_PATHS="$paths"
+  MAIN_RUN_TEST_LOG="$report_lines")
 g() { "${xenv[@]}" git "$@"; }
 mkdir -p "$TMP_ROOT/home"
 
@@ -62,6 +65,7 @@ printf 'area=%s args=%s slot=%s\n' "$area" "$*" "${MAIN_RUN_TEST_SLOT:-0}" >>"$M
 pwd -P >>"$MAIN_RUN_TEST_PATHS"
 while [[ -n ${MAIN_RUN_TEST_WAIT:-} && ! -f $MAIN_RUN_TEST_WAIT ]]; do sleep 0.02; done
 echo "validate: selected=1 area=$area secs=0"
+cat -- "$MAIN_RUN_TEST_LOG"
 [[ ${rc:-0} -eq 0 ]] || echo "validate: secs=0 exit=$rc row=stand-in $area"
 exit "${rc:-0}"
 EOF
@@ -216,6 +220,54 @@ if case_concurrent_paths; then ok "distinct result roots with the same name have
 if case_red "$TMP_ROOT/r-77" qml 77; then ok "an area exiting 77 is red and keeps last-green"; else fail "77: ${problems[*]}"; fi
 if case_red "$TMP_ROOT/r-1" unit 1; then ok "an area exiting 1 is red and keeps last-green"; else fail "1: ${problems[*]}"; fi
 if case_naming; then ok "a red run names one landing per identifier since the last green"; else fail "naming: ${problems[*]}"; fi
+
+# Use the row's actual replay function. The batch reporter must retain a
+# real failure beside a deliberately failed control without naming the
+# control as a defect.
+python3 - "$repo/scripts/smoke/rows/keyboard.sh" "$TMP_ROOT/keyboard-control-log.sh" "$TMP_ROOT/keyboard-control-unmarked.sh" <<'PY'
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+name = 'keyboard_control_log() {\n'
+assert text.count(name) == 1
+body = name + text.split(name, 1)[1].split('\n}', 1)[0] + '\n}\n'
+pathlib.Path(sys.argv[2]).write_text(body)
+marker = "sed 's/^/  CONTROL  /'"
+assert body.count(marker) == 1
+changed = body.replace(marker, 'cat')
+assert changed != body
+pathlib.Path(sys.argv[3]).write_text(changed)
+PY
+source "$TMP_ROOT/keyboard-control-log.sh"
+case_control_report() {
+  problems=()
+  local text
+  printf '  FAIL  keyboard-report-control\n' >"$TMP_ROOT/expected-failure.log"
+  keyboard_control_log <"$TMP_ROOT/expected-failure.log" >"$report_lines"
+  printf '  FAIL  real-report-failure\n' >>"$report_lines"
+  areas 'unit 1'
+  main --root "$1" unit
+  [[ $status -eq 1 ]] || problems+=(real-failure-passed)
+  text="$(result "$1")" || { problems+=(result=missing); return 1; }
+  [[ $text == *'  |   FAIL  real-report-failure'* ]] || problems+=(real-failure-missing)
+  [[ $text != *keyboard-report-control* ]] || problems+=(control-reported-as-failure)
+  [[ $(<"$report_lines") == *keyboard-report-control* ]] || problems+=(control-diagnostic-lost)
+  : >"$report_lines"
+  [[ ${#problems[@]} -eq 0 ]]
+}
+if case_control_report "$TMP_ROOT/r-control-report"; then
+  ok "the batch report names a real failure and keeps Keyboard control diagnostics in the log"
+else
+  fail "control report: ${problems[*]}"
+fi
+source "$TMP_ROOT/keyboard-control-unmarked.sh"
+if case_control_report "$TMP_ROOT/c-control-report"; then
+  fail "control: unmarked Keyboard diagnostics still pass the report assertion"
+elif [[ ${problems[*]} == control-reported-as-failure ]]; then
+  ok "control: removing the Keyboard control marker fails the same report assertion (${problems[*]})"
+else
+  fail "control report: unexpected rejection (${problems[*]})"
+fi
+source "$TMP_ROOT/keyboard-control-log.sh"
 
 # --due on one root: no earlier run, then 0, 4 and 5 landings after a run.
 due_root="$TMP_ROOT/r-due"
