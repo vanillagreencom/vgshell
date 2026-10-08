@@ -10,6 +10,11 @@
 // must export the vgs colours from `vgshell-theme-judge default-file gum`,
 // pinned by the same vgs literals.
 //
+// With no gum.env and a judge that fails, or one that prints a line the
+// rule rejects, present warns with its keyed line, exports no colour and
+// still runs the command with its exit code; those judges are stand-ins in
+// copies of the tree.
+//
 // The controls: a copy of the template whose last value is a `$(...)`
 // command must fail the check, with nothing run; a copy of the presenter
 // without its no-gum.env branch must fail the absent row. The judge's verb
@@ -63,20 +68,26 @@ const rendered = (pkg, text) => {
 // developer's own configuration, and present runs node for the judge.
 const childPath = path.dirname(process.execPath) + path.delimiter + process.env.PATH;
 
-// Runs present, BIN by default, on TEXT as the state directory's gum.env,
-// or with none for null, and returns what the command it ran saw. Throws
-// unless present exported every line of TEXT whole and printed nothing on
-// stderr. The child gets its own HOME, state and runtime directories, never
-// the developer's.
-const presented = (root, text, bin = presenter) => {
+// Runs present, BIN, on TEXT as the state directory's gum.env, or with
+// none for null, and answers the run of ARGV. The child gets its own HOME,
+// state and runtime directories, never the developer's.
+const present = (root, text, bin, argv) => {
     const state = path.join(root, "state");
     fs.mkdirSync(path.join(state, "vgshell", "theme"), { recursive: true });
     if (text !== null) fs.writeFileSync(path.join(state, "vgshell", "theme", "gum.env"), text);
-    const run = spawnSync(bin, ["present", "--presentation", "plain", "--", "env"], {
+    const run = spawnSync(bin, ["present", "--presentation", "plain", "--", ...argv], {
         encoding: "utf8",
         env: { PATH: childPath, HOME: root, XDG_STATE_HOME: state, XDG_RUNTIME_DIR: root }
     });
     assert.equal(run.error, undefined, String(run.error));
+    return run;
+};
+
+// present, BIN by default, running `env`: what the command saw. Throws
+// unless present exported every line of TEXT whole and printed nothing on
+// stderr.
+const presented = (root, text, bin = presenter) => {
+    const run = present(root, text, bin, ["env"]);
     assert.equal(run.status, 0, run.stderr);
     assert.equal(run.stderr, "", `present warned: ${run.stderr}`);
     const seen = new Set(run.stdout.split("\n"));
@@ -146,6 +157,27 @@ try {
         `  text="$(node "$root/bin/vgshell-theme-judge" default-file gum 2>/dev/null)" || status=$?`, "  return 0");
     assert.throws(() => absent(presented(path.join(root, "unthemed"), null, unthemed)), /no gum\.env: present did not export/,
         "control: present without its no-gum.env branch passed the absent row");
+
+    // A judge that fails, or prints a line the rule rejects: the keyed
+    // warning, no colour, and the command's own exit code. Each tree holds a
+    // copy of the presenter, bin/lib linked, and a stand-in judge.
+    const judgeRows = [
+        ["failing", "process.exit(3);\n", "vgshell-tui: gum-env=default-unavailable exit=3"],
+        ["rejected", "process.stdout.write(\"FOREGROUND=#000000\\nPATH=#000000\\n\");\n", "vgshell-tui: gum-env=rejected line=2 default=gum"]
+    ];
+    for (const [name, judgeText, warning] of judgeRows) {
+        const bin = path.join(root, "judge-" + name, "bin");
+        fs.mkdirSync(bin, { recursive: true });
+        fs.symlinkSync(path.join(repo, "bin", "lib"), path.join(bin, "lib"));
+        fs.copyFileSync(presenter, path.join(bin, "vgshell-tui"));
+        fs.chmodSync(path.join(bin, "vgshell-tui"), 0o755);
+        fs.writeFileSync(path.join(bin, "vgshell-theme-judge"), judgeText);
+        const run = present(path.join(root, "judge-" + name), null, path.join(bin, "vgshell-tui"), ["sh", "-c", "env; exit 7"]);
+        assert.equal(run.status, 7, `${name} judge: present did not keep the command's exit code: ${run.stderr}`);
+        assert.equal(run.stderr.split("\n")[0], warning, `${name} judge: present's warning`);
+        const exported = run.stdout.split("\n").filter(line => /^(GUM_|FOREGROUND=|BACKGROUND=|BORDER_FOREGROUND=|VGS_TUI_(ACCENT|SUCCESS|WARNING|DANGER)=)/.test(line));
+        assert.deepEqual(exported, [], `${name} judge: present exported a colour`);
+    }
 
     // The verb refuses a target with other than one file, and prints nothing.
     const verb = target => spawnSync(process.execPath, [path.join(tree, "bin", "vgshell-theme-judge"), "default-file", target],
