@@ -4,6 +4,8 @@ Read before touching a token, the theme judge, `Theme`, a component of `qs.Ui`, 
 
 ## The approach
 
+Every view meets the polish of Vercel's web app or a standard modern consumer app. This is the organization's user experience principle (owner, 2026-10-06).
+
 Every value a surface draws with comes from one table, `shell/Commons/Tokens.js`, read as `Theme.<group>.<token>`. One pure judge, `shell/Commons/ThemeLogic.js`, resolves a theme document against the table, and `Theme` publishes each group frozen ([D015](../decisions/D015-tokens-are-a-judged-table.md)).
 
 The component library `qs.Ui`, listed in `shell/Ui/qmldir`, is the only code that turns a token into a drawn pixel. A screen composes its components and draws no control of its own. A control extends a `QtQuick.Templates` type ([D017](../decisions/D017-templates-and-path-icons.md)), and an overlay is a Quickshell `PopupWindow` anchored to the item that declares it ([D018](../decisions/D018-overlays-are-quickshell-popups.md)).
