@@ -9,7 +9,6 @@ metadata:
   source: kendex
   repository: "https://github.com/vanillagreencom/kendex"
   bugs: "https://github.com/vanillagreencom/kendex/issues"
-  version: "2.1.0"
 tags: [integration]
 ---
 
@@ -132,7 +131,7 @@ linear.sh labels list --max --format=safe
 
 `issues list --all-projects` enumerates every project in one command (each row carries its `project` name); `--no-project` returns only unassigned issues. Both are mutually exclusive with `--project`. Use `--all-projects`; never loop per project. An unrecognized filter flag is rejected. Repeated `--label` flags (and `--labels a,b`) require ALL named labels.
 
-A list of issues, projects, labels, project labels, teams, users, cycles, documents or initiatives returns its first `--limit` rows (75 by default, a positive whole number) and prints a `linear-list: truncated` line on stderr when rows were left unread; `--max` reads every page. `milestones list`, `statuses list`, `comments list` and `attachments list` always read every row and take neither. A read follows each nested collection (labels, relations, children, comments) to its end. A read that cannot finish its chain (a failed later page, a missing or repeated cursor, or a chain still open after 400 pages) exits nonzero with no output, never a partial result. An audit that must see the whole backlog passes `--max`.
+A list of issues, projects, labels, project labels, teams, users, cycles, documents or initiatives returns its first `--limit` rows (75 by default, a positive whole number) and prints a `linear-list: truncated` line on stderr when rows were left unread; `--max` reads every page. `milestones list`, `statuses list`, `comments list` and `attachments list` always read every row and take neither. A read follows each nested collection (labels, relations, children, comments) to its end. A read that cannot finish its chain (a failed later page, a missing or repeated cursor, or a chain still open after 400 pages) exits nonzero with no output, never a partial result. An audit that must see the whole backlog passes `--max`. A text search over issues uses `issues list --search TERMS`, which Linear filters by title and description server-side, never a `--max` list piped to a local filter.
 
 A rate-limited request exits nonzero with one JSON line on stderr carrying `"code":"RATELIMITED"` and `requests_reset`, the UTC time the request quota refills. A rate-limited request is retried twice. A query or attachment download answered 5xx or not at all is retried twice too, but such a mutation is sent once, since Linear may already have applied it: stderr then carries a `linear-http: write=unconfirmed` line, and the write is read back before it is sent again. Each wait doubles, or is the answer's `Retry-After` when that is longer; a `Retry-After` over 60 seconds, or any other HTTP error, fails on its first answer. Holding an activation or completion until the reset: [patterns/workflow-actions.md § Quota Holds](patterns/workflow-actions.md#quota-holds).
 
@@ -201,10 +200,11 @@ A **name** selects one project on `issues create` / `update` / `bulk-update --pr
 
 `--labels` REPLACES the whole issue-label set. Fetch current labels, compute the final set, validate it against `labels list --max --format=safe` (which reports `is_group` so parent/group labels can be rejected), then pass the complete set. `issues update --labels` and `issues activate --agent` resolve names live against the issue's own team and workspace labels. An unresolved name refuses before mutation and names the team and label. `--clear-labels` is the only way to empty the set.
 
-- `agent:*` labels are mutually exclusive, one per issue; `issues activate` applies them with the "In Progress" transition (semantics: `issues --help`).
+- `agent:*` labels are mutually exclusive, one per issue; `issues activate` applies them with the "In Progress" transition (semantics: `issues --help`). Its default output is JSON; `--format ids` or `--format=ids` prints only the identifier.
 - `issues activate` assigns an issue nobody is assigned to the user whose email is `KENDEX_USER_EMAIL`, in the same mutation, and never replaces an assignee. It says which happened in one stderr line, `assignee-set`, `assignee-kept` or `assignee-skipped` with its `cause=`, and in the result's `assignee` field; a skip still activates, and a failed issue read, users lookup or update fails the activation with no line (lines: `issues --help`). `--assignee` on create and update takes the same address form: a value containing `@` matches a user's whole email, case-insensitively; a user id is sent as given.
 - `issues bulk-update` is non-atomic: on partial failure it emits `partial: true` with per-issue results and exits non-zero.
 - `issues block` applies the `blocked` label, creates the blocking relation, and comments. A rejected relation fails the command.
+- `issues complete` posts an optional summary before setting "Done". Its default output is JSON; `--format ids` or `--format=ids` prints only the identifier. A failed state update after a posted summary exits nonzero and reports on stderr in either format.
 
 ## validate-completion
 

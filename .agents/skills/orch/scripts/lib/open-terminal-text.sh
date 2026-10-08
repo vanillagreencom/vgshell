@@ -57,10 +57,10 @@ ot_message() { # REASON FIELD=VALUE...
     launch-unattended-missing) text='This lane launch leaves out the unattended words, and a lane with its question tool taken away can still ask the person in chat and end its turn waiting, idle with nobody at the pane. Nothing was launched. Put the text under this line, whole, in the brief file or inside one quoted argument of the --cmd command; a launch without --cmd is briefed with it by this launcher.' ;;
     launch-effort-missing) text='This lane launch names no reasoning effort, so the harness would run whatever its own default is, and that default changes without notice. Nothing was launched. Name the effort in the --cmd command where the launch carries its own harness argv, and in --launch-flags where it does not; spellings holds the flags this harness takes, one ending in = being a whole token with its value attached.' ;;
     lane-selected) text='The launch account is selected.' ;;
-    pi-mail-wake-missing) text='The selected pi-hooks lists no lane mail wake, so mail cannot start a turn in this idle Pi lane. Nothing was launched. root and scope name the deciding install; update names its kendex command. Repair on the lane machine, on the host for location=hosted. For scope=global, set PI_CODING_AGENT_DIR to root before the update; resolve a home-relative host root under that host home. For scope=project, run the update from the project containing root. update-pi refuses project writes in linked worktrees and has no --project-path option: have the install owner replace that carrier from its updated declared source instead. A global update does not repair a project carrier. Repeat the original launch after repair; retry=--relaunch is required on a host because create already owns the item.' ;;
+    pi-mail-wake-missing) text='The selected pi-hooks lists no lane mail wake, so mail cannot start a turn in this idle Pi lane. Nothing was launched. root and scope name the deciding install; update names its kendex command. Repair on the lane machine, on the host for location=hosted. For scope=global, set PI_CODING_AGENT_DIR to root before the update; resolve a home-relative host root under that host home. For scope=project, run the update from the project containing root. update-pi refuses project writes in a linked worktree with no manifest of its own and has no --project-path option: have the install owner replace that carrier from its updated declared source instead. A global update does not repair a project carrier. Repeat the original launch after repair; retry=--relaunch is required on a host because create already owns the item.' ;;
     launch-trusted) text='The launch directory is trusted in the config this launch will read, so the harness starts into it rather than onto the folder-trust question. route=preapproved is the account config already carrying the entry; route=launch-home is a CODEX_HOME built for this launch under the account, holding the account files by link and a config of its own, because the account config is a link the account shim repoints at every launch; route=account-config is the entry written into the claude config dir .claude.json, the file that harness keeps its own answer in; route=allow-all-env is a copilot command carrying --allow-all or --yolo, whose COPILOT_ALLOW_ALL=true trusts the directory with nothing written.' ;;
     launch-trust-missing) text='The folder-trust entry for this launch directory could not be made in the config this launch would read. Nothing was launched: the harness would open on the folder-trust question and wait there for an answer nobody at the pane gives. Remedy by reason: trust-refused is an answer already recorded for this directory that is not trust, which this will not overwrite, so change it where it was written or launch somewhere else; config-unreadable is the account config present and unreadable or unparseable, a dangling shim link being the usual codex cause, so relink or repair it, and for a claude config dir .claude.json the parser'"'"'s own words are printed under this line, the position to repair the file at; account-store is the account transcript directory that could not be made; home-create is the private CODEX_HOME under the account, or the claude config dir, that could not be made, and home-path, home-link and home-entry are that CODEX_HOME that could not be built, so check that the account directory is writable, home-entry naming a real file or directory sitting where a link to the account belongs; config-write is that home config.toml, or a claude config dir .claude.json, that could not be written, the claude writer'"'"'s own words printed under this line the same way, and config-install the rename over it that failed; entry-unreadable is the entry written and not read back. The lane host provider makes this entry for a sandboxed lane instead.' ;;
-    lane-model-walled) text='The account has no usage window left for the model this launch passes, once the lanes already on it spend what they are expected to; bucket names the shared or model window that decided, pct names how much of it is used, and projected-headroom the room left after that expected burn, or none where the claims could not be read. Nothing was launched: the session would open on a usage banner. A window nobody could measure is lane-model-unreadable instead. The threshold that judged is on the keyed lanes: line above.' ;;
+    lane-model-walled) text='The account has no usage window left for the model this launch passes, once the lanes already on it spend what they are expected to; bucket names the window whose projected room decided, the 5-hour session window where the lanes on the account spend it before it resets and otherwise the shared or model window that binds, pct names how much of it is used, and projected-headroom the room left after that expected burn, or none where the claims could not be read. Nothing was launched: the session would open on a usage banner. A window nobody could measure is lane-model-unreadable instead. The threshold that judged is on the keyed lanes: line above.' ;;
     lane-model-unreadable) text='The lane could not be read for the model this launch passes. Nothing was launched: an unread window is not an empty one.' ;;
     host-credential-dead) text='The account read expired, and the lane host reports holding that same account. Nothing was launched. The expired copy is the credential this machine holds, which could not be renewed, or the copy the provider holds where its accounts row reports the account expired: lanes list names which in its THROUGH column. Remedy for THROUGH local: log in again on this machine for that config directory, or for a codex lane run the codex command lanes list names in its DETAIL; a provider that re-seeds the host from that directory at every create, as the reference provider does, sends this dead copy again. For THROUGH host, renew the credential the provider holds. A RELAUNCH onto this same account proceeds instead, on the copy the provider installed; a window read for the account walls either shape.' ;;
     host-relaunch-credential) text='Nothing here measured this account, and the lane host reports holding it, so the relaunch proceeds on the copy the provider installed. Nothing checked that copy is live. The resumed session reports its own usage banner, which the watch reads as usage-limit. A window this machine CAN read still walls a relaunch: an account at or above --lane-max-pct is refused as lane-model-walled, hosted or not.' ;;
@@ -121,7 +121,7 @@ fix=File a prioritized issue in that repository and send it with lane-mail peer 
     relaunch-unrebased) text='The rebase onto the base branch conflicts, so it was aborted and the session relaunches on the tree as it stands. The restack is the lane'"'"'s to run.' ;;
     worktree-links-failed) text='The kept tree has configured symlinks the repair could not restore, so the lane could not reach its own .agents scripts. The item was not launched.' ;;
     resume-lineless) text='The host selected a matching Codex session and resumed it without a continuation line. Paste its continuation into the pane per oversee-lanes.md section Talking to a lane, Pane paste. A fresh start carries its brief and needs no paste.' ;;
-    relaunch-selection-failed) text='The hosted Codex selection result could not be reset, read or recognized. The operation names the failed step. The lane is not counted as launched. Repair the host file access or selection command, then relaunch.' ;;
+    relaunch-selection-failed) text='The hosted Codex selection result could not be reset, read or recognized. The operation names the failed step. The lane is not counted as launched. After a lane-host-busy refusal, repeat the original launch to resume its saved step. Otherwise repair the host file access or selection command, then relaunch.' ;;
     host-resolve-failed) text='The lane-host helper could not resolve the host.' ;;
     host-invalid) text='A hosted launch needs tmux mode, a resolved lane and --harness claude, codex, pi or copilot, and a cloud-session launch tmux mode and a resolved lane. Nothing was created.' ;;
     host-capabilities-failed) text='lane-host could not declare the host kind'"'"'s capability line, or declared a launch this launcher has no arm for, so nothing says how to launch on it; its own words are above this line. Nothing was launched.' ;;
@@ -145,8 +145,9 @@ fix=File a prioritized issue in that repository and send it with lane-mail peer 
     host-started) text='The parked item'"'"'s sandbox is up again on the disk the park kept, and its record now reads stopped with parked dropped, which is that sandbox'"'"'s state from here: up, no harness in it. create --relaunch now resumes the harness on it; a create that fails after this line leaves the stopped record, which a plain relaunch recovers with no start, going straight to create --relaunch.' ;;
     parked-record-failed) text='The parked item'"'"'s sandbox is up again, but its record could not be rewritten from parked to stopped, so it still reads parked over a running sandbox and nothing was created. Fix what workflow-state names above and relaunch the item again: the start is answered again for a sandbox already up.' ;;
     state-read-failed) text='The fleet state could not be read for this item'"'"'s record, so whether the item is parked is unknown. Nothing was launched: fix what workflow-state names above.' ;;
-    lane-host-busy) text='lane-host refused the call step names at its per-home cap on provider calls, after waiting ORCH_LANE_HOST_BUSY_WAIT_SECS for a slot; its own line is above and the provider ran nothing. After a refused create nothing was made: launch the item again. After a refused wait, marker, Pi settings or Pi carrier call the host holds the item: relaunch it with --relaunch.' ;;
+    lane-host-busy) text='lane-host refused the call step names at its selected pool cap. The provider ran nothing. After a refused create, retry the item. When preparation is saved, repeat the original launch with the same host, account, harness and relaunch choice. It resumes the saved step in the accepted sandbox and keeps any started pane. A refused start keeps the sandbox parked.' ;;
     host-line-invalid) text='The lane host create output lacks ssh-target, path or remote-prefix on one line, or names a state other than preparing.' ;;
+    host-launch-mismatch) text='The saved preparation belongs to another host, account, harness or relaunch choice. Retry with the accepted launch identity. The saved preparation remains available.' ;;
     host-prepare-failed) text='The lane host accepted this item and its wait reported the preparation failed; the provider says why above. No lane was started. The host keeps what it made until lane-host close or a --relaunch.' ;;
     lane-preparing) text='The lane host accepted this item and is still preparing it. A background job waits for the host, launches the lane in the window opened for it and records the outcome, which oversee-watch reports as lane-ready or lane-prepare-failed. log is the job output.' ;;
     lane-prepare-failed) text='The background launch of this lane failed and its window is closed unless a tmux-failed line precedes this one, so no remedy above that names the window applies. reason wait-failed is the host wait, which says why above; launch-failed is a launch step, whose keyed line is above. The record is stopped: lane-close closes the host and the record, or relaunch the item.' ;;
@@ -511,10 +512,10 @@ Options:
                     The model also gates the lane, which is judged on that
                     model's own window rather than the account's binding one.
                     Every codex command built here, fresh launch, relaunch
-                    and wake alike, also carries -c
-                    check_for_update_on_startup=false ahead of these flags,
-                    so Codex never opens its startup update prompt, where a
-                    pasted line would install the update and end the session.
+                    and wake alike, carries its launch-only settings from
+                    lib/lane-launch.sh ahead of these flags: no startup update
+                    prompt, no shared background server warning, and enabled
+                    hooks run without a persisted trust entry.
                     Every copilot command built here carries --autopilot
                     --max-autopilot-continues 3 ahead of these flags, so a
                     turn that stops short is continued with nobody at the
@@ -706,14 +707,17 @@ Each item's worktree is created here (worktree create, or create --reuse
 --keep-on-conflict under --relaunch when the item's tree already exists). An item whose worktree
 is owned by another session (create exit 75) is skipped and the remaining
 items still launch. A hosted item takes the same skip on lane-host create
-exit 75; a create lane-host refused at its per-home cap is lane-host-busy, and
+exit 75 without an accepted state=preparing line; a create lane-host refused at its per-home cap is lane-host-busy, and
 any other create failure is host-create-failed. The final summary line reports
-launched, skipped, and failed counts, and preparing where a hosted launch was handed to a background job.
+launched, skipped, and failed counts. Preparing counts both background jobs
+and saved foreground busy continuations, as schemas/lane-host.md § Provider
+protocol defines.
 
 Every launch that stands under --state-dir is recorded in the oversee
 workflow state that flag names (`workflow-state get oversee .lanes`, created
-when absent); a launch with no --state-dir names no fleet, records nothing
-and creates no state. A record is one entry per
+when absent); a launch with no --state-dir names no fleet and writes no
+fleet record. Its saved foreground hosted continuation uses the item state
+per schemas/lane-host.md § Provider protocol. A fleet record is one entry per
 item, keyed by its workflow-state id, the Linear id for a Linear item and
 issue-N for a GitHub item, carrying the tracker, repository, harness, window,
 account dir, host, kind (the host kind's declared `kind`; a cloud session's
@@ -723,7 +727,8 @@ worktree), mail_root, surface, model, session_id, session_since
 (the time this launch or relaunch read before its terminal opened), allow_all
 (whether a copilot command grants --allow-all or --yolo), launched_at,
 status `running`, or `preparing` with its `prepare` record for a hosted lane
-handed to a background job (see --host), and over_cap, `fleet` where an
+waiting in a background job or saved foreground continuation (see --host),
+and over_cap, `fleet` where an
 --over-cap launch passed the fleet cap;
 schemas/workflow-state.md § Oversee state is the shape. `oversee-watch
 --state` reads the live fleet from it. A launch rewrites every field of an
@@ -748,8 +753,8 @@ lock held prints lock-waiting and waits for it. The worktree and host creates
 run with no lock held. A reservation that cannot be written refuses the
 launch as cap-reserve-failed.
 The fleet cap, ORCH_OVERSEER_LANES (default 3), read through orch-env, counts
-the records whose status is running, preparing (a hosted lane handed to a
-background job, see --host) or parked (a hosted lane stopped by
+the records whose status is running, preparing (a hosted background job or
+saved foreground continuation, see --host) or parked (a hosted lane stopped by
 `lane-close --park`, whose resume takes back its slot) plus the live launch claims and reservations this
 fleet wrote that no such record names (a claim store several fleets share
 counts each fleet's own claims here); a launch that would pass it is refused
@@ -760,8 +765,9 @@ failed to write under --lane auto, whose re-pick reads claims, as
 claim-unrecorded. A store that cannot be read refuses as cap-unreadable, a
 lock file that cannot be opened as cap-lock-unopenable, and a lock another
 launch holds past the wait as cap-lock-failed. A --relaunch meets the fleet
-cap where the item has no running, preparing or parked record. --wake is not
-judged.
+cap where the item has no running, preparing or parked record. A saved
+foreground continuation uses its held slot after its identity matches.
+--wake is not judged.
 Both flags below need --state-dir, and are refused as cap-option-unanchored
 without it:
   --wait-slot       Wait for room instead of refusing: count again every 5

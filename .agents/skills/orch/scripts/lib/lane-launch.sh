@@ -154,7 +154,14 @@ lane_copilot_pool_fix() { # HOST READ [DIR [STATUS [DETAIL]]]
 # one exists; the first paste a lane receives then answers that prompt, installs
 # the update and exits the session. `check_for_update_on_startup=false` is the
 # key the Codex config reference names for centrally managed installs, passed
-# per launch so no installed config is edited. The ninth is the words that take
+# per launch so no installed config is edited. `features.daemon_auto_start=false`
+# keeps these embedded launches from warning about the shared background server;
+# `-c` also accepts an unknown feature on older Codex builds.
+# `--dangerously-bypass-hook-trust`, documented at
+# https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks, replaces the
+# per-hook `trusted_hash` entries the local route cannot keep current.
+# These settings ride local and hosted commands and overseer successions.
+# The ninth is the words that take
 # the harness question tool away, written as they stand, and `-` where this
 # table names none. A lane asks its overseer through `lane-mail ask`, and a
 # question tool in a lane opens a dialog nobody at the pane answers, so every
@@ -241,7 +248,7 @@ lane_copilot_pool_fix() { # HOST READ [DIR [STATUS [DETAIL]]]
 #             clarifying question the CLI otherwise asks at the pane.
 LAUNCH_CHOICE_FLAGS=(
   'claude|--model|--effort|-|-|--dangerously-skip-permissions --permission-mode=bypassPermissions --permission-mode=dontAsk|--dangerously-skip-permissions --permission-mode=bypassPermissions|-|--disallowedTools=AskUserQuestion,EnterPlanMode|--settings={"env":{"DISABLE_AUTO_COMPACT":"1"}}'
-  'codex|-m --model|model_reasoning_effort=|-|-c|--dangerously-bypass-approvals-and-sandbox --approve-for-me --ask-for-approval=never -a=never|--dangerously-bypass-approvals-and-sandbox|-c check_for_update_on_startup=false|-c features.default_mode_request_user_input=false|-c model_auto_compact_token_limit=9223372036854775807 -c model_auto_compact_token_limit_scope=body_after_prefix -c model_post_turn_compact_threshold_percent=0'
+  'codex|-m --model|model_reasoning_effort=|-|-c|--dangerously-bypass-approvals-and-sandbox --approve-for-me --ask-for-approval=never -a=never|--dangerously-bypass-approvals-and-sandbox|-c check_for_update_on_startup=false;-c features.daemon_auto_start=false;--dangerously-bypass-hook-trust|-c features.default_mode_request_user_input=false|-c model_auto_compact_token_limit=9223372036854775807 -c model_auto_compact_token_limit_scope=body_after_prefix -c model_post_turn_compact_threshold_percent=0'
   'opencode|-m --model|-|-|-|-|-|-|-|-'
   'pi|--model|--thinking|:|-|-|-|-|--exclude-tools question|-'
   'copilot|--model|--reasoning-effort|-|-|--allow-all --yolo --allow-all-tools|--allow-all --yolo|--autopilot --max-autopilot-continues 3;--context long_context;--no-auto-update|--no-ask-user|-'
@@ -675,7 +682,7 @@ LAUNCH_UNATTENDED_TEXT='This is an unattended orch lane, and nobody reads this p
 # arms the commit hooks only through the commit-guards script where the
 # checkout carries it, and otherwise commits under the gates that hold the
 # merge. It holds no apostrophe or backtick, as the words above hold none.
-LAUNCH_SESSION_TEXT='This is an unattended orch lane in a cloud session, and nobody reads it. The task above is the whole issue. This session cloned the item branch {branch}: work on it as checked out, create no worktree and no other branch, and push every commit to {branch} on origin, never to a claude/ branch, since your overseer finds your work by that branch name. You reach your overseer through your branch and pull request and nothing else. Where .agents/skills/commit-guards/scripts/install-git-hooks is present, arm the commit hooks with it before your first commit. Where it is not, commit anyway, since the pull request CI, the review gate and the second-opinion gate hold the merge. Then, before any other work, make your first commit with git commit --allow-empty, push it to {branch}, and open a draft pull request from {branch}: your overseer reads an item branch with no open pull request soon after launch as a lane that never started, and GitHub opens none on a branch with no commit ahead of its base. While the work goes on, and while a blocker stands, keep the pull request draft, with where the work stands and any blocker under a ## Lane status heading in its body, and name a blocker in a pull request comment too. When the work is done, mark the pull request ready for review. Never ask a question: a step that needs an answer is a step this lane never takes, so name the blocker in the pull request and end your turn. Never run linear.sh, lane-mail or pr-merge, never arm a background wake, and never wait on a person.'
+LAUNCH_SESSION_TEXT='This is an unattended orch lane in a cloud session, and nobody reads it. The task above is the whole issue. This session cloned the item branch {branch}: work on it as checked out, create no worktree and no other branch, and push every commit to {branch} on origin, never to a claude/ branch, since your overseer finds your work by that branch name. You reach your overseer through your branch and pull request and nothing else. Where .agents/skills/commit-guards/scripts/install-git-hooks is present, arm the commit hooks with it before your first commit. Where it is not, commit anyway, since the pull request CI, the review gate and the second-opinion gate hold the merge. Then, before any other work, make your first commit with git commit --allow-empty, push it to {branch}, and open a draft pull request from {branch}: your overseer reads an item branch with no open pull request soon after launch as a lane that never started, and GitHub opens none on a branch with no commit ahead of its base. While the work goes on, and while a blocker stands, keep the pull request draft, with where the work stands and any blocker under a ## Lane status heading in its body, and name a blocker in a pull request comment too. When the change is committed and pushed and your own tests pass, mark the pull request ready for review without waiting to read CI, since CI and merge belong to the landing lane. Never ask a question: a step that needs an answer is a step this lane never takes, so name the blocker in the pull request and end your turn. Never run linear.sh, lane-mail or pr-merge, never arm a background wake, and never wait on a person.'
 
 # ORCH_QUESTION_TOOL, decided once here for every launcher: `off`, the
 # default, gives a launched overseer its harness row's question-off words in
@@ -1467,11 +1474,18 @@ lane_process_env_readable() {
 }
 
 # The smallest bound an observation can settle inside, in seconds. A settle is
-# two reads a second apart, so a check handed less than this can never verify an
-# account and never catch a mismatch, whatever the pane is doing and whatever
-# the loop in lane_account_check would otherwise have reported. Callers that
-# share one deadline between several waits size their bounds against it.
+# two reads at most a second apart, so a check handed less than this can never
+# verify an account and never catch a mismatch, whatever the pane is doing and
+# whatever the loop in lane_account_check would otherwise have reported.
+# Callers that share one deadline between several waits size their bounds
+# against it.
 LANE_SETTLE_MIN_SECS=1
+
+# ORCH_LANE_SETTLE_MS, milliseconds between the two reads a settle compares: a
+# whole number from 1 to 1000, a second where unset. A test suite whose panes
+# come up in milliseconds shortens it. The ceiling keeps LANE_SETTLE_MIN_SECS
+# true: a longer pause would not fit one settle inside a one-second bound.
+LANE_SETTLE_MS_DEFAULT=1000
 
 # The account the pane is REALLY running on, against the one that was picked.
 # A wrapper on PATH exports the lane variable for its own name, so a launch can
@@ -1479,10 +1493,11 @@ LANE_SETTLE_MIN_SECS=1
 # against the picked one and nothing on screen says so.
 #
 # The guard fails closed on what it OBSERVES and never on what it could not: an
-# observed disagreement returns 1 and the caller closes the window, while no
-# readable per-process environment, no pane pid, a broken descendant probe and
-# no descendant carrying the variable inside the bound each return 0 with the
-# reason named, and leave a healthy lane running.
+# observed disagreement returns 1 and the caller closes the window, while an
+# ORCH_LANE_SETTLE_MS out of range, no readable per-process environment, no
+# pane pid, a broken descendant probe and no descendant carrying the variable
+# inside the bound each return 0 with the reason named, and leave a healthy
+# lane running.
 #
 # The outcome is one tagged value in LANE_ACCOUNT_RESULT, which every caller
 # matches to choose its own message: `skipped`, `verified`, `mismatch`, or
@@ -1491,8 +1506,8 @@ LANE_SETTLE_MIN_SECS=1
 # BOUND is how many seconds the caller gives the reading to settle, never below
 # LANE_SETTLE_MIN_SECS above.
 #
-# An observation counts only once it SETTLES: two reads a second apart carrying
-# the same value. The first non-empty read is not the harness's answer — under
+# An observation counts only once it SETTLES: two reads ORCH_LANE_SETTLE_MS
+# apart carrying the same value. The first non-empty read is not the harness's answer — under
 # the env-prefix form the launch child carries the picked value from its own
 # execve until the wrapper's exec lands, and trusting that read would confirm an
 # account the pane is about to stop running.
@@ -1515,9 +1530,17 @@ LANE_SETTLE_MIN_SECS=1
 # this function's answer, read by the caller that matches on it.
 lane_account_check() { # PANE LANE_VAR PICKED FORM BOUND
   local pane="$1" name="$2" picked="$3" form="$4" bound="$5" pid observed rc waited=0 settled=""
+  local settle_ms="${ORCH_LANE_SETTLE_MS:-$LANE_SETTLE_MS_DEFAULT}" pause
   LANE_ACCOUNT_OBSERVED=""
   LANE_ACCOUNT_RESULT=skipped
   lane_account_readable "$form" || return 0
+  # A pause outside the setting's range is a reading this check cannot take,
+  # named as such rather than replaced by the default the operator overrode,
+  # and on every host, ahead of the readings a host may not offer.
+  if [[ ! "$settle_ms" =~ ^[1-9][0-9]{0,3}$ ]] || (( settle_ms > 1000 )); then
+    LANE_ACCOUNT_RESULT=unobserved:settle-invalid
+    return 0
+  fi
   lane_process_env_readable || { LANE_ACCOUNT_RESULT=unobserved:no-process-environment; return 0; }
   pid="$(tmux display-message -p -t "$pane" '#{pane_pid}')" || pid=""
   # 0 is not a pane's pid, and walking from it reads processes belonging to no
@@ -1533,21 +1556,23 @@ lane_account_check() { # PANE LANE_VAR PICKED FORM BOUND
   # read happened to find, each of which tells an operator something about the
   # pane when what happened is that the caller had no budget left to look.
   (( bound >= LANE_SETTLE_MIN_SECS )) || { LANE_ACCOUNT_RESULT=unobserved:no-settle-budget; return 0; }
+  # A whole second stays the integer `sleep 1`, which every sleep accepts.
+  if (( settle_ms == 1000 )); then pause=1; else printf -v pause '0.%03d' "$settle_ms"; fi
   while :; do
     rc=0
     observed="$(lane_observed_dir "$pid" "$name")" || rc=$?
     [[ "$rc" -eq 0 ]] || { LANE_ACCOUNT_RESULT=unobserved:descendant-probe; return 0; }
     [[ -z "$observed" || "$observed" != "$settled" ]] || break
     settled="$observed"
-    if (( waited >= bound )); then
+    if (( waited >= bound * 1000 )); then
       # A value that never repeated is a pane still changing hands, which is not
       # the same miss as never seeing one at all.
       if [[ -n "$settled" ]]; then LANE_ACCOUNT_RESULT=unobserved:unsettled
       else LANE_ACCOUNT_RESULT=unobserved:no-lane-variable; fi
       return 0
     fi
-    sleep 1
-    waited=$((waited + 1))
+    sleep "$pause"
+    waited=$((waited + settle_ms))
   done
   LANE_ACCOUNT_OBSERVED="$observed"
   if [[ "$(lane_claims_canon "$(lane_launch_home_account "$observed")")" \

@@ -29,7 +29,14 @@ mailbox and the lane records one after another, and prints what it finds as
 it finds it: lane-question, lane-notice, directive-read, directive-unread,
 peer-note, owner-note, owner-ask-resolved and owner-ask-closed. Before the
 overseer mailbox is read, `lane-mail resolve --default` closes due owner asks.
-Only an unanswered ask receives a recommendation answer. A read that waits
+Only an unanswered ask receives a recommendation answer. The interval is
+counted start to start and kept across runs in the state directory. Between
+two mail passes, and through a --repeat sleep, the overseer mailbox's size is
+checked once a second, and once it moves that mailbox alone is read, so a
+note to the overseer is printed within about a second while the lane
+mailboxes keep the interval; a run's first turn reads it alone too when no
+mail pass is due. A run's first long pass follows a read of every mailbox in
+that run, due or not. ORCH_WATCH_MAIL_INTERVAL 0 checks nothing between turns. A read that waits
 on a lock or a slow host delays
 the mailboxes after it past that interval, as do the overseer pane below and,
 run in this loop, a run's one GitHub auth check before its first long pass
@@ -167,9 +174,20 @@ The long pass's events, checked and reported in this order:
                              record gets no such judgement. Emitted every long
                              pass it stands
   EVENT pr-watch rc=N        new review-gate attention; reducer output follows
+                             refresh-ready wakes on the opening pass and
+                             once per new head, including without a lane
   EVENT merged <PR> <branch> <repo>
                              an --item PR merged at or after --since, in any
-                             --repo. A parked record's item is an --item for
+                             --repo, <branch> being the item's own, its key
+                             lower-cased. The PR is the item's by
+                             lib/lane-state.sh's lane_own: the number a
+                             parked record names, a head on that branch, or
+                             the key in its title's conventional-commit scope
+                             or right after Closes on a body line, as a
+                             Claude cloud session's claude/ branch names no
+                             item; a search for the key that fills its page
+                             exits 2 as merged-search-truncated at 1000. A
+                             parked record's item is an --item for
                              this check alone, and the merge of the pull
                              request its record names, in that repository,
                              is followed by parked-merged below. Another pull
@@ -237,6 +255,7 @@ The long pass's events, checked and reported in this order:
   EVENT security-alert <repo> kind=<dependabot|code-scanning|secret-scanning>
         number=<N> [severity=<s>] <package|rule>=<name> [manifest=<path>]
         [scope=<scope>] [advisory=<GHSA>] [validity=<v>] url=<url> [pr=<N>]
+        [report=repeat]
                              an open alert in any --repo that the fleet
                              state's alerts_triaged records no verdict for:
                              a Dependabot alert names its package, manifest,
@@ -245,9 +264,14 @@ The long pass's events, checked and reported in this order:
                              repository path percent-encoded, %20 a space
                              and %25 a percent sign; a code scanning
                              alert its rule; a secret its type and, where
-                             GitHub checks it, its validity. Reported once;
-                             a first-repository baseline row keeps it quiet,
-                             a record or the alert closing clears the row.
+                             GitHub checks it, its validity. Reported, then
+                             printed again with report=repeat on every long
+                             pass that reads alerts_triaged and the alert's
+                             own list, until a record or the alert closing
+                             clears its first-repository baseline row; a
+                             read that fails or a scanning feature turned off
+                             prints no repeat for that source. A repeat does
+                             not itself end the run.
                              ORCH_SECURITY_ALERTS=off lists nothing
   EVENT security-alerts-unread reads=<source>:<cause>[,...]
                              an alert list or the alerts_triaged record could
@@ -316,8 +340,9 @@ The long pass's events, checked and reported in this order:
                              which --relaunch and handoffs keep and a fresh
                              launch after lane-close renews. stage= is the Step line of its
                              status file, `parked`, `unread` where its read
-                             failed, or `none`. Reported once per
-                             launched_at
+                             failed, or `none`. Reported once per age interval
+                             of ORCH_WATCH_LANE_AGE_SECS, including after a
+                             relaunch; a late pass reports the current interval
   EVENT window-gone <lane>   the tmux window no longer exists. Nothing follows
                              the line: the remedy is one relaunch, which
                              reads the item's worktree and PR, not a screen
@@ -329,10 +354,11 @@ The long pass's events, checked and reported in this order:
                              unjudged; unusable local probes keep the lane watched
   EVENT lane-closed <item>   under a lane-exited whose window watches a --hosted
                              item already reported merged, once the pass finds
-                             its worktree gone: `lane-close` succeeded; the
-                             provider's output follows, then `kept=none` when
-                             that output has no `kept=` line because the close
-                             kept no archive. A lane exiting while its
+                             its worktree gone: `lane-close` succeeded; its
+                             `kept=` line follows, its `closed=absent item=ID`
+                             line where the host no longer held the item and
+                             ran no archive pass, or else `kept=none` because
+                             the close kept no archive. A lane exiting while its
                              worktree stands is not closed
   EVENT lane-close-refused <item>
                              the same close exited 3: its clone or worktree
@@ -471,9 +497,10 @@ The long pass's events, checked and reported in this order:
                              listing no account of the harness is `queue`;
                              otherwise `lanes pick --harness <h> [--model <m>]`
                              with the record's harness and model decides:
-                             room is `queue`, a wall `dated` until the earliest
-                             reset of that model's binding bucket among the
-                             harness's accounts on that host, and every account
+                             room is `queue`, a wall `dated` until the
+                             walled_resets_at that pick names, the earliest
+                             reset of the window that decided each walled
+                             account on that model and host, and every account
                              unmeasured or a failed pick `unjudged`, the
                              failure named as owed-wall-unjudged
 
@@ -565,8 +592,9 @@ verdicts. Lane prompts use pane and turn.
 
 A line already delivered is not delivered again by a re-run: overseer-dead,
 overseer-walled, merged, lane-asking, usage-limit, model-capacity,
-lane-exited, idle-after-return, handoff, account, outside-contribution and
-security-alert are keyed in that baseline. Mail is reported at least once and never lost: lane-question,
+lane-exited, idle-after-return, handoff, account and outside-contribution
+are keyed in that baseline. A security-alert is keyed there too, and a re-run
+prints it again only as report=repeat while no verdict names it. Mail is reported at least once and never lost: lane-question,
 lane-notice, directive-unread and, for a directive read after its lane is
 first watched, directive-read are keyed in the mail pass's own file beside
 it, owner-note, owner-ask-resolved and peer-note by the overseer mailbox's
@@ -680,7 +708,8 @@ Options:
   --repeat SECS       the watch for a session: run one watch per pass with
                       the other options, sleep SECS after it exits, or
                       ORCH_WATCH_MAIL_INTERVAL where that is shorter and the
-                      pass did not exit 2, and run the next. A successor launch, a
+                      pass did not exit 2, and run the next, sooner once
+                      the overseer mailbox moves. A successor launch, a
                       notice-only recovery or an exhausted retry stops the
                       repeat command with status 0. Requires --state. A
                       window that tmux does not list is carried until a pass
@@ -909,7 +938,7 @@ Environment:
                               security-alerts-unread rows; the mail pass's
                               file beside the first one holds
                               each lane mailbox's read position and when the
-                              last long pass started, plus claims/ and
+                              last mail and long passes started, plus claims/ and
                               usage/, both shared across the repositories
                               that point here
   ORCH_WATCH_MAIL_INTERVAL    seconds from the start of one mail pass to the
@@ -1024,6 +1053,7 @@ ow_message() { # REASON FIELD=VALUE...
     tracker-list-invalid) text='The tracker list output could not be parsed.' ;;
     owed-roster-invalid) text='The account listing read for the owed items could not be put to them, so the heartbeat names none.' ;;
     owed-accounts-unread) text='lanes list failed under this host, so the owed items on it read unjudged this heartbeat. Its own words follow.' ;;
+    merged-search-truncated) text='The merged pull requests naming the item in their title or body, since --since, reached the search limit, so the item'"'"'s own pull request may be past it and its merge unreported. No merged event is judged from a partial list.' ;;
     owed-list-truncated) text='The item repository open pull request listing reached its limit, so an owed issue-N pull request past it would be missing. The heartbeat names no owed item from a partial list.' ;;
     owed-wall-unjudged) text='lanes pick could not judge the wall for this host, harness and model, so the owed items on them read unjudged this heartbeat. Its own words follow.' ;;
     handoff-read-failed) text='The handoff record could not be read.' ;;

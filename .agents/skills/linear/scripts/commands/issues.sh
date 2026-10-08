@@ -199,12 +199,14 @@ Relation Options (add-relation):
   --peer-rule-violation remove-relation: the tpm-audit structural repair
 
 Activate Options:
+  --format <fmt>       Output format: ids (identifier only); default is JSON.
   --agent <name>        Apply the exclusive agent:<name> issue label together
                         with the "In Progress" transition (replaces any existing
                         agent:* label, preserves other labels). Fails without
                         changing state when the label does not exist.
 
 Complete Options:
+  --format <fmt>        Output format: ids (identifier only); default is JSON.
   --summary <text>       Post a completion summary comment, then set "Done"
   --summary-file <path>  Read the summary from a file (preferred for markdown)
   --done-when-met <all|N[,N...]>
@@ -232,7 +234,7 @@ Validate-Completion:
   child fails state_ok). Canceled children are excluded from the expansion —
   abandoned work can never be "Done" and is not a pending gap. Each validated
   issue must also have a comment containing "Completion Summary" or
-  "Bundle Complete".
+  "Bundle Complete", without regard to letter case.
   --container marks the positional target as a CONTAINER parent — a bundle
   whose children are each worked as their own PR unit, with the container
   closing LAST. The container's own state passes for any live state (canceled
@@ -805,7 +807,10 @@ get_issue() {
     # Warn about extra arguments (common mistake: use bulk-get for multiple)
     if [ ${#extra_args[@]} -gt 0 ]; then
         echo "Warning: 'get' accepts only one issue. Ignored: ${extra_args[*]}" >&2
-        echo "Hint: Use 'bulk-get' for multiple issues: linear.sh issues bulk-get ${issue_id} ${extra_args[*]}" >&2
+        echo "Hint: Use 'bulk-get' for multiple issues: linear.sh issues bulk-get ${issue_id}" >&2
+        if [[ " ${extra_args[*]} " == *" --bundle "* ]]; then
+            echo "Hint: Read the bundle: linear.sh issues get ${issue_id} --with-bundle" >&2
+        fi
     fi
 
     local query
@@ -2731,8 +2736,20 @@ activate_issue() {
     shift
 
     local agent=""
+    local output_format=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
+        --format)
+            linear_require_option_value "$@" || return 1
+            output_format="$2"
+            linear_require_format "$output_format" ids || return 1
+            shift 2
+            ;;
+        --format=*)
+            output_format="${1#*=}"
+            linear_require_format "$output_format" ids || return 1
+            shift
+            ;;
         --agent)
             if [[ -n "${2:-}" && ! "$2" =~ ^- ]]; then
                 agent="$2"
@@ -2819,6 +2836,10 @@ activate_issue() {
     fi
 
     printf '%s\n' "$assignee_line" >&2
+    if [ "$output_format" = "ids" ]; then
+        echo "$update_result" | jq -r '.identifier // empty'
+        return 0
+    fi
     local identifier
     identifier=$(echo "$update_result" | jq -r '.identifier // empty')
     jq -cn --arg identifier "$identifier" --arg agent "$agent" --arg assignee "$assignee_state" \
@@ -3032,8 +3053,20 @@ complete_issue() {
     local summary=""
     local summary_file=""
     local done_when_met=""
+    local output_format=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
+        --format)
+            linear_require_option_value "$@" || return 1
+            output_format="$2"
+            linear_require_format "$output_format" ids || return 1
+            shift 2
+            ;;
+        --format=*)
+            output_format="${1#*=}"
+            linear_require_format "$output_format" ids || return 1
+            shift
+            ;;
         --done-when-met)
             if [[ -n "${2:-}" && ! "$2" =~ ^- ]]; then
                 done_when_met="$2"
@@ -3193,6 +3226,10 @@ complete_issue() {
         return 1
     fi
 
+    if [ "$output_format" = "ids" ]; then
+        echo "$update_result" | jq -r '.identifier // empty'
+        return 0
+    fi
     local identifier
     identifier=$(echo "$update_result" | jq -r '.identifier // empty')
     jq -cn --arg identifier "$identifier" --arg summary "$summary" --arg checked "$done_when_checked" \
@@ -3333,7 +3370,7 @@ validate_completion() {
         # A failed read is not "no summary": the check fails closed on it.
         comments=$("$BASH" "$SCRIPT_DIR/comments.sh" list "$issue_id") || return 1
         local has_summary
-        has_summary=$(echo "$comments" | jq 'any(.[]; .body | (contains("Completion Summary") or contains("Bundle Complete")))')
+        has_summary=$(echo "$comments" | jq 'any(.[]; .body | test("Completion Summary|Bundle Complete"; "i"))')
 
         local result
         result=$(build_completion_validation_result "$issue_id" "$state" "$parent_id" "$has_summary" "$role" "$state_type")

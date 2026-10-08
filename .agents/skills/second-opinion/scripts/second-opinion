@@ -100,7 +100,8 @@ A nonzero exit, per-CLI timeout or recognized quota/rate-limit refusal on
 stderr advances to the next roster name. On a zero exit the stderr refusal
 counts only when stdout holds no usable review/audit answer. Every attempt records name, cause
 and seconds on stderr and in review/audit qa_metadata.attempts (or the failed
-record when exhausted). Forced targets never fall through.
+record when exhausted). A Claude attempt also records account when its
+CLAUDE_CONFIG_DIR is known, using the directory name only. Forced targets never fall through.
 When no eligible target remains before execution the run refuses (exit 1).
 Review mode collects up to SECOND_OPINION_COUNT opinions (default 1; a
 shortfall is stated and stamped as degraded coverage); with 2 or more,
@@ -1039,15 +1040,61 @@ target_cmd() {
   esac
 }
 
-# A target with a command is available when its executable (the command's
-# first word) resolves — the first word is what actually gets exec'd, and an
-# env override may point it away from the target's own name.
+# A target with a command is available when its program word is an executable
+# file where the command will look for it: the first word, or past a leading
+# env, its options and its VAR=value assignments, the word env runs, so
+# `env VAR=value copilot ...` is judged on copilot, not env. The command runs
+# from --cwd, and env's PATH=, -i, -u PATH and -C DIR change the PATH searched
+# and the directory a relative name resolves from, as env applies them before
+# it execs; a PATH env clears is the system default, and the last -C names the
+# directory, from --cwd. An env option outside those, such as BSD's -P or
+# GNU's -S, -a or signal options, is not modelled: the command is then judged
+# on env itself, as it was before env prefixes were read, and the runtime
+# reports a missing program. The argv is exec'd as it stands, never by a
+# shell, so a builtin such as exec is no program. An env override may point it
+# away from the target's own name. A command with no program word after its
+# assignments has nothing to run.
 target_available() {
-  local cmd
+  local cmd assignment='^[A-Za-z_][A-Za-z0-9_]*=' path="$PATH" dir="$CWD" chdir="" entry rest
   cmd="$(target_cmd "$1")"
   # shellcheck disable=SC2086
   set -- $cmd
-  command -v "$1" >/dev/null 2>&1
+  if [[ "${1:-}" == env ]]; then
+    shift
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --) shift; break ;;
+        -u|--unset) [[ "${2:-}" != PATH ]] || path=/bin:/usr/bin; shift ;;
+        -C|--chdir) chdir="${2:-}"; shift ;;
+        -uPATH|--unset=PATH|-i|-|--ignore-environment) path=/bin:/usr/bin ;;
+        -u?*|--unset=*|-v|-0|--null|--debug) ;;
+        -C?*) chdir="${1#-C}" ;;
+        --chdir=*) chdir="${1#--chdir=}" ;;
+        -*) type -P env >/dev/null 2>&1; return ;;
+        *) break ;;
+      esac
+      [[ $# -gt 0 ]] && shift
+    done
+    if [[ "$chdir" == /* ]]; then dir="$chdir"; elif [[ -n "$chdir" ]]; then dir="$dir/$chdir"; fi
+    while [[ "${1:-}" =~ $assignment ]]; do
+      [[ "$1" != PATH=* ]] || path="${1#PATH=}"
+      shift
+    done
+  fi
+  [[ $# -gt 0 ]] || return 1
+  if [[ "$1" == */* ]]; then
+    entry="$1"
+    [[ "$entry" == /* ]] || entry="$dir/$entry"
+    [[ -f "$entry" && -x "$entry" ]]
+    return
+  fi
+  rest="$path:"
+  while [[ -n "$rest" ]]; do
+    entry="${rest%%:*}"; rest="${rest#*:}"
+    [[ "$entry" == /* ]] || entry="$dir/${entry:-.}"
+    [[ -f "$entry/$1" && -x "$entry/$1" ]] && return 0
+  done
+  return 1
 }
 
 # Whether the account a target spends has room, by its
@@ -2750,7 +2797,7 @@ REFUSAL_PATTERNS=(
 # and its answer is a first response: the primary call's and a fall-through
 # target's alike pass gate_first_response before either becomes the response.
 collect_response() {
-  local invocation_prompt="$1" attempt_started attempt_finished attempt_seconds pattern refusal_rc answer_json
+  local invocation_prompt="$1" attempt_started attempt_finished attempt_seconds pattern refusal_rc answer_json attempt_account assignment
   while :; do
     EXIT_CODE=0
     attempt_started=$(date +%s)
@@ -2774,9 +2821,22 @@ collect_response() {
       # A zero-exit envelope failure stays with this target: no retry on empty.
       [[ $attempt_cause == quota || -z "$RESULT_ENVELOPE_CAUSE" ]] || attempt_cause="result-$RESULT_ENVELOPE_SUBTYPE"
     fi
+    # Fleet acceptance reads the account from real attempt records. Use the
+    # launch prefix already selected, never the room check's other env values.
+    attempt_account=""
+    [[ "$TARGET_CLI" != claude ]] || attempt_account="${CLAUDE_CONFIG_DIR:-}"
+    while IFS= read -r assignment; do
+      case "$assignment" in
+        CLAUDE_CONFIG_DIR=*) attempt_account="${assignment#*=}" ;;
+      esac
+    done <<<"$TARGET_CLI_ENV"
+    attempt_account="${attempt_account%/}"
+    attempt_account="${attempt_account##*/}"
     ATTEMPTS_JSON=$(jq -cn --argjson prev "$ATTEMPTS_JSON" --arg name "$TARGET_CLI" \
       --arg cause "$attempt_cause" --argjson seconds "$attempt_seconds" \
-      '$prev + [{name: $name, cause: $cause, seconds: $seconds}]')
+      --arg account "$attempt_account" \
+      '$prev + [{name: $name, cause: $cause, seconds: $seconds}
+        + (if $account == "" then {} else {account: $account} end)]')
     echo "second-opinion: attempt name=$TARGET_CLI cause=$attempt_cause seconds=$attempt_seconds" >&2
     [[ $EXIT_CODE -ne 0 ]] || break
     # Keep the failed command's text visible before RESULT is overwritten.

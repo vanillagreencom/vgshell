@@ -233,7 +233,9 @@ Branch deletion:
 
 Terminal and mutation rules:
   After github.sh router setup, MERGED or CLOSED short-circuits pr-merge safety
-  checks, bot-token load, and merge-state mutation; UNKNOWN continues. --check reports state.
+  checks, bot-token load, and merge-state mutation; UNKNOWN continues to the
+  readiness check, which re-reads it, and any mode, --auto included, refuses
+  with nothing merged or armed when that read is not OPEN. --check reports state.
 
   Every gh pr merge invocation is exact-head guarded by --match-head-commit; a changed head is BLOCKED.
   Queue membership comes from GraphQL isInMergeQueue and mergeQueueEntry. An
@@ -358,66 +360,6 @@ exit_terminal_state() {
         exit 1
         ;;
     esac
-}
-
-# The base branch's required status-check contexts as a JSON array, read from
-# its ruleset and classic-protection endpoints. GitHub merges a PR whose
-# non-required checks are red, so these names are what the CI gate may block
-# on. Any answer that is not positive evidence of the whole required set
-# prints `[]`, which counts every check — a branch whose protection cannot be
-# read must never merge over a red one.
-#
-# An empty classic list counts only when the branch answer actually carried a
-# `protection` object. GitHub omits that key from the branch payload for a
-# caller without push access, and a missing key parses cleanly and exits 0, so
-# reading it as "nothing required" would narrow the set to the ruleset
-# contexts alone under a read-only token.
-#
-# The ruleset read also refuses on a rule type it cannot account for. Only
-# `required_status_checks` names its contexts; the types listed in the filter
-# below gate the ref, its commits, its files or its reviews and put nothing in
-# the check rollup. `pull_request` is the review gate among them: it demands a
-# REVIEW and, where set, resolved threads, which GitHub enforces itself and
-# never reports as a check on the head. `copilot_code_review`
-# only requests a review and gates no merge at all. Every other type — `workflows`, `code_scanning`,
-# `code_quality`, `code_coverage` and whatever GitHub adds next — gates the
-# merge on a check result whose context the rule never names, so naming a
-# required set beside one would drop that check's red to a warning. An
-# unrecognized type therefore turns the narrowing OFF rather than merging over
-# a check the read cannot see. Rule types: docs.github.com/en/rest/repos/rules
-RULESET_CONTEXTS_JQ='
-  [
-    "branch_name_pattern", "commit_author_email_pattern",
-    "commit_message_pattern", "committer_email_pattern",
-    "copilot_code_review", "creation",
-    "deletion", "file_extension_restriction", "file_path_restriction",
-    "max_file_path_length", "max_file_size", "merge_queue",
-    "non_fast_forward", "pull_request", "required_deployments",
-    "required_linear_history", "required_signatures",
-    "required_status_checks", "tag_name_pattern", "update"
-  ] as $accounted
-  | .[]
-  | (.type // "") as $type
-  | (select(($accounted | index($type)) == null) | "unnameable:" + $type)
-  , (select($type == "required_status_checks")
-     | .parameters.required_status_checks[]?
-     | "ctx:" + (.context // ""))'
-# Both reads yield one line per rule: `ctx:<context>` for a context a ruleset
-# or classic protection names, `unnameable:<type>` for a ruleset rule gating
-# on a check it does not name. A failed read or an unnameable rule prints `[]`.
-required_contexts() {
-    local pr_num="$1" base="" rules="" classic="" branch_json=""
-    if ! base=$(gh pr view "$pr_num" --json baseRefName --jq '.baseRefName' 2>/dev/null) || [ -z "$base" ] \
-        || ! base=$(jq -nr --arg v "$base" '$v | @uri') \
-        || ! rules=$(gh api "repos/{owner}/{repo}/rules/branches/$base" --paginate --jq "$RULESET_CONTEXTS_JQ" 2>/dev/null) \
-        || ! branch_json=$(gh api "repos/{owner}/{repo}/branches/$base" 2>/dev/null) \
-        || ! jq -e 'type == "object" and has("protection")' >/dev/null 2>&1 <<<"$branch_json" \
-        || ! classic=$(jq -r '.protection.required_status_checks | (.contexts // []) + [(.checks // [])[] | .context] | .[] | "ctx:" + .' <<<"$branch_json" 2>/dev/null) \
-        || grep -q '^unnameable:' <<<"$rules"; then
-        echo '[]'
-        return 0
-    fi
-    printf '%s\n%s\n' "$rules" "$classic" | jq -R -s -c 'split("\n") | map(select(startswith("ctx:")) | ltrimstr("ctx:")) | unique'
 }
 
 # harness-ci's classifier, asked for one pull request's queue-only class, runs
@@ -642,10 +584,11 @@ run_checks() {
         '{can_merge: $can_merge, issues: $issues, warnings: $warnings, mergeable: $mergeable, review: $review, transient: $transient, state: $state, merged_at: $merged_at, head_runs: $head_runs, checks: $checks, required_contexts: $required_contexts}'
 }
 
-# True when the readiness result carries a reply-check issue, which no GitHub
-# rule holds an armed PR on, so --auto answers it no better than a merge.
-reply_blocked() {
-    jq -e 'any(.issues[]; startswith("review_replies"))' >/dev/null <<<"$1"
+# True when --auto answers the readiness result no better than a merge: a
+# state other than OPEN, whose checks returned before the reply check ran, or
+# a reply-check issue. No GitHub rule holds an armed PR on a reply.
+auto_refused() {
+    jq -e '.state != "OPEN" or any(.issues[]; startswith("review_replies"))' >/dev/null <<<"$1"
 }
 
 print_blocked() {
@@ -663,7 +606,7 @@ print_blocked() {
     echo "$check_result" | jq -r '.issues[]' | sed 's/^/  ✗ /' >&2
     echo "$check_result" | jq -r '.warnings[]' | sed 's/^/  ⚠ /' >&2
     echo "" >&2
-    reply_blocked "$check_result" || echo "Use --auto to queue for auto-merge." >&2
+    auto_refused "$check_result" || echo "Use --auto to queue for auto-merge." >&2
 }
 
 # Run gh with the same effective identity used for the merge mutation. Keep the token scoped to the
@@ -1161,8 +1104,9 @@ main() {
         exit 1
     fi
     # No GitHub rule reads what a review reply says, so GitHub would merge an
-    # armed PR past one: --auto defers every blocker but the reply check's.
-    if [ "$auto" = true ] && reply_blocked "$check_result"; then
+    # armed PR past one: --auto defers every blocker but the reply check's,
+    # and refuses a state it could not read as OPEN, whose replies went unread.
+    if [ "$auto" = true ] && auto_refused "$check_result"; then
         print_blocked "$check_result" "$pr_num"
         exit 1
     fi

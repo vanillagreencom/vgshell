@@ -174,8 +174,10 @@ Active children pause the merge and ask the user per orphan — was the work lan
 
 Read `.title`, `.project.id` and the label names, and split the names, joined by commas, by the taxonomy the create refuses against with `linear.sh labels declared "[NAMES]"`: `.kept`, joined the same way, is `[PARENT_LABELS]`, and `.dropped`, printed in this step's output, is `[DROPPED_LABELS]` (`none` when empty). A non-zero exit **aborts the merge**. Take `[BUNDLE_PRIORITY]` as the highest priority across `[SAFE_IDS]` (Linear: `1`=Urgent…`4`=Low, lower wins; default `3`). Build `[BUNDLE_DESC]` per `.agents/skills/project-management/templates/parent-issue-template.md`, with a `## Sub-Issues` list and a `## Context` line naming the detachment. Its `**Reached by**` line is this rebundle run: `this merge-pr rebundle, detaching pending children from [ISSUE] before merge`. A rebundle parent is structural, so the create passes no `--review-born`.
 
+Write `[BUNDLE_DESC]` with the harness file-write tool to `tmp/rebundle-description-[ISSUE].md` and bind that path as `[BODY_FILE]`.
+
 ```bash
-.agents/skills/linear/scripts/linear.sh issues create --state "Backlog" --title "[PARENT_TITLE] follow-ups" --description "[BUNDLE_DESC]" --project "[PARENT_PROJECT]" --labels "[PARENT_LABELS]" --priority [BUNDLE_PRIORITY] --format=ids
+.agents/skills/linear/scripts/linear.sh issues create --state "Backlog" --title "[PARENT_TITLE] follow-ups" --description-file [BODY_FILE] --project "[PARENT_PROJECT]" --labels "[PARENT_LABELS]" --priority [BUNDLE_PRIORITY] --format=ids
 ```
 
 A non-zero exit or empty output **aborts the merge**. Otherwise reparent each safe id (one call each), link the bundle back, and comment on the original:
@@ -188,8 +190,14 @@ A non-zero exit or empty output **aborts the merge**. Otherwise reparent each sa
 .agents/skills/linear/scripts/linear.sh issues add-relation [NEW_BUNDLE] --related [ISSUE]
 ```
 
+Write the comment body with the harness file-write tool to `tmp/rebundle-comment-[ISSUE].md` and bind that path as `[BODY_FILE]`:
+
+```markdown
+Pending children rebundled under [NEW_BUNDLE] before merge to avoid cascade-Done. Labels the taxonomy does not declare, left off the bundle: [DROPPED_LABELS].
+```
+
 ```bash
-.agents/skills/linear/scripts/linear.sh comments create [ISSUE] --body "Pending children rebundled under [NEW_BUNDLE] before merge to avoid cascade-Done. Labels the taxonomy does not declare, left off the bundle: [DROPPED_LABELS]."
+.agents/skills/linear/scripts/linear.sh comments create [ISSUE] --body-file [BODY_FILE]
 ```
 
 ## 5. Execute The Merge
@@ -274,13 +282,23 @@ Use the output as `MAIN_REPO_ROOT`.
    | `conflicting` | The guarded Restack cycle below |
    | `ejected` | Recovery cycle below, using the resolved gate mode and `[RECOVERY_COUNT]` |
    | `disarmed` | Recovery cycle below |
+   | `armed_blocked` | Armed, never enqueued, and GitHub will not enqueue it. `cause: check_failed` takes the Recovery cycle below. `cause: not_mergeable` means every check passed, so ci-fix has no failure to work: return to § 3 for a fresh readiness check, which names what keeps the PR out of the queue, spending no recovery cycle; a second `not_mergeable` on the same head hands back with that check's result |
    | `dequeued` | Late-findings triage below; on `cause: late_findings_dequeue_failed` confirm the dequeue or the disarm first |
-   | `queued` | Still armed at the deadline. `cause: still_progressing` means the merge is live: run the wait again, and keep repeating until a verdict terminates it. `cause: progress_unobservable` means no poll could read the queue's checks, which is not evidence of an idle queue: run the wait again on the same head under the bound below, rather than straight into the Recovery cycle. `cause: stalled` takes the Recovery cycle below |
+   | `queued` | Unconfirmed at the deadline. With an entry (every cause but `exit_unconfirmed`) the PR is still armed: `cause: still_progressing` means the merge is live: run the wait again, and keep repeating until a verdict terminates it. `cause: progress_unobservable` means the queue entry's head could not be read, which is not evidence of an idle queue: run the wait again on the same head under the bound below, rather than straight into the Recovery cycle. `cause: stalled` takes the Recovery cycle below. `cause: exit_unconfirmed` is not armed: the last poll saw the PR out of the queue and unarmed, short of the confirmation count (`unconfirmed_verdict` names which), so do not wait for it to merge; run the wait once more, which reads the arm afresh, and route its verdict |
+   | `armed_awaiting_checks` | Armed, not yet enqueued, no check failed: GitHub enqueues the PR when its required checks pass. Run the wait again on the same head, spending no recovery cycle, under the wall-clock budget below |
    | `not_queued` | The arm this step made is gone — an ejection or a silent disarm — not a merge that never fired. Take the Recovery cycle below, where `ejected` and `disarmed` already go. Never re-arm here: the head's merge-group run has just failed, and re-arming it into a shared queue can eject the PRs batched with it |
    | `closed` | Hand back with the verdict; no replay |
    | `unknown` | Unrecognized, or `status: error` — a read failed and says nothing about the arm, which after exit `75` is usually still live. Unarm before handing back, by § 1's no-armed-hand-back rule. Hand back with the `error` and `cause` fields, and never re-arm |
 
    A `still_progressing` repeat has no limit. Keep the lane active until a terminal verdict; after a merge, run steps 2-6.
+
+   For `armed_awaiting_checks`, record the time of the first such result on this head and read the budget once:
+
+   ```bash
+   .agents/skills/orch/scripts/orch-env QUEUE_WAIT_ARMED_MINUTES 90
+   ```
+
+   Repeat the wait while that many minutes have not passed since the recorded time; a new head, or any other verdict, clears the record. Past the budget, hand back with the last result's `pending_checks` (under `cause: checks_unread` there are none: say the check rollup was never read) and the minutes waited, skipping steps 2-6: the budget, not `CI_FIX_MAX_CYCLES`, bounds a wait on checks that have not failed.
 
    For `progress_unobservable`, repeat once on the same head. A second consecutive `progress_unobservable` takes the Recovery cycle, as `stalled` does. Keep the lane active for steps 2-6. The progress counts in `queue-wait --help` report what the wait could read; neither gates the route.
 

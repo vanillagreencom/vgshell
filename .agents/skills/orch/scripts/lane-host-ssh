@@ -202,14 +202,35 @@ def create_worktree(row, item, flags):
         raise SystemExit(made.returncode)
 
 
+# What stop, status and close answer for an item the clone holds nothing of:
+# the answer the protocol states for each verb on an item the provider holds
+# no sandbox for, so a caller needs no branch of its own for it
+# (../schemas/lane-host.md § Provider protocol).
+ABSENT_ANSWERS = {"stop": "stopped item={} processes=0", "status": "exited", "close": "closed=absent item={}"}
+
+
 def owned(row, item, verb):
-    """Exit 75 unless the clone marker names the item as its owner."""
-    result = remote(row, '''if ! test -f "$1/.git/lane-host-item"; then exit 75; fi
-owner=$(cat -- "$1/.git/lane-host-item") || exit 1
-if test "$owner" != "$2"; then exit 75; fi''', row["clone"], item, accept=(75,))
-    if result.returncode == 75:
-        notice(verb + "-unowned", item=item)
-        raise SystemExit(75)
+    """Exit 75 unless the clone marker names the item as its owner.
+
+    A standing clone whose marker is gone or names another item, with no
+    worktree for this item, holds nothing of it: a finished close left it so,
+    and a create for another item may have followed. The verb gives its absent
+    answer and exits 0, touching nothing of the other item. A worktree for the
+    item beside no marker naming it is a create that failed after making it,
+    which still refuses as unowned, as does a clone that is not there."""
+    owner = remote(row, '''test -d "$1/.git" || exit 0
+if test -f "$1/.git/lane-host-item"; then
+  owner=$(cat -- "$1/.git/lane-host-item") || exit 1
+  if test "$owner" = "$2"; then printf owned; exit 0; fi
+fi
+printf other''', row["clone"], item).stdout
+    if owner == b"owned":
+        return
+    if owner == b"other" and not worktree_exists(row, item):
+        print(ABSENT_ANSWERS[verb].format(item))
+        raise SystemExit(0)
+    notice(verb + "-unowned", item=item)
+    raise SystemExit(75)
 
 
 def owned_worktree(row, item, verb):
@@ -228,17 +249,25 @@ cat -- "$marker"''', row["clone"], item).stdout.decode().strip()
     return path
 
 
-def create_flags(row, item, reuse_requested):
-    """Ask the installed worktree owner whether reuse has a target."""
-    if not reuse_requested:
-        return []
+def worktree_exists(row, item):
+    """Ask the installed worktree owner whether the item's tree stands."""
     present = worktree(row, "exists", item).stdout
-    if present == b"true\n":
-        return ["--reuse"]
-    if present == b"false\n":
-        return []
+    if present in (b"true\n", b"false\n"):
+        return present == b"true\n"
     notice("worktree-exists-invalid", item=item)
     raise SystemExit(1)
+
+
+def create_flags(row, item, reuse_requested):
+    """Reuse a standing tree or open the item branch a cloud lane pushed."""
+    if not reuse_requested:
+        return []
+    if worktree_exists(row, item):
+        return ["--reuse"]
+    branch = item.lower()
+    existing = remote(row, '"$1/.agents/skills/github/scripts/git-https-auth" -C "$1" ls-remote --exit-code --heads origin "$2"',
+                      row["clone"], "refs/heads/" + branch, accept=(2,))
+    return ["--base", branch] if existing.returncode == 0 else []
 
 
 def require_render(row):
@@ -268,6 +297,41 @@ def require_render(row):
     printf 'this render is not committed at HEAD and git never updates it; remove the clone, or delete its untracked .agents render, before create runs again\\n' >&2
     exit 1
   fi
+done''', row["clone"])
+
+
+def install_dependencies(row):
+    """Install each node_modules a WORKTREE_SYMLINKS entry links, in the clone.
+
+    The clone is the main checkout, the one place worktree --help lets an
+    install run; a worktree links its node_modules from here. The settings
+    come through the clone's own loader, so this reads what the worktree
+    command reads, in a subshell: npm ci and the dependencies' install scripts
+    run with the SSH session's environment, never the project's settings or
+    its private env file. npm ci empties node_modules first, so the marker of the
+    committed lockfile blob it was installed from lives inside it and survives
+    only a finished install: an unchanged lockfile installs nothing. An entry
+    climbing out of the clone is the worktree command's to refuse, never a
+    directory to install in.
+    """
+    remote(row, '''symlinks=$(. "$1/.agents/skills/worktree/scripts/lib/kendex-env.sh" &&
+  kendex_load_project_env "$1" >&2 && printf '%s' "${WORKTREE_SYMLINKS:-}") || exit 1
+read -r -a entries <<<"$symlinks"
+for entry in ${entries[@]+"${entries[@]}"}; do
+  case "/$entry/" in */../*|*/./*|//*) continue ;; esac
+  case "$entry" in node_modules|*/node_modules) ;; *) continue ;; esac
+  lockfile=${entry%node_modules}package-lock.json
+  if ! blob=$(git -C "$1" rev-parse -q --verify "HEAD:$lockfile"); then
+    printf 'lane-host-ssh: dependency-install-skipped path=%s cause=no-committed-lockfile\\n' "$lockfile" >&2
+    continue
+  fi
+  marker="$1/$entry/.lane-host-install"
+  installed=""
+  if test -f "$marker"; then installed=$(cat -- "$marker") || exit 1; fi
+  if test "$installed" = "$blob"; then continue; fi
+  printf 'lane-host-ssh: dependency-install path=%s\\n' "$lockfile" >&2
+  (cd -- "$1/${entry%node_modules}" && npm ci --no-audit --no-fund) >&2
+  printf '%s\\n' "$blob" >"$marker"
 done''', row["clone"])
 
 
@@ -346,7 +410,10 @@ fi''', row["clone"])
         put(row, approval.name if args.harness == "claude" else remote_account + "/" + approval.name, data)
     # An existing clone acquires ownership before shared files change. Run
     # setup again after preparation so its links, copies and identity are current.
+    # The install changes the shared node_modules, so it waits for that
+    # ownership too, and precedes the final setup pass that links it.
     flags = ["--reuse"] if result.stdout == b"existing" else create_flags(row, args.item, args.relaunch or args.reuse)
+    install_dependencies(row)
     create_worktree(row, args.item, flags)
     path = worktree(row, "path", args.item).stdout.decode().strip()
     if not path or "\n" in path or "\t" in path:
@@ -373,16 +440,51 @@ exec "$marker" "$2" "$3"''', row["clone"], path, args.item)
 
 
 def archive_tmp(row, item, worktree_path):
-    """Preserve remaining lane records locally before close removes their worktree."""
-    data = remote(row, '''paths=()
+    """Preserve remaining lane records locally before close removes their worktree.
+
+    The item's workflow state goes with them wherever the lane's settings and
+    private env file put its state directory, as the clone's own workflow-state
+    resolves it from the worktree, or the clone once the worktree is gone: the
+    lane's own resolution, on the lane's own host. The archive's
+    `lane-host-state` member names that file's member, or is an empty line
+    where the lane wrote none, so a reader takes the state the lane resolved,
+    never another copy of the same name. A resolution that fails stops close,
+    the sandbox and its state kept: an archive without the state loses it."""
+    data = remote(row, '''paths=() names=()
 for base in "$1" "$2"; do
   candidate="$base/tmp"
   if test -e "$candidate" || test -L "$candidate"; then
     paths+=("${candidate#/}")
   fi
 done
+state="" member="" from="$2"
+test -d "$from" || from="$1"
+states="$1/.agents/skills/orch/scripts/workflow-state"
+if test -x "$states"; then
+  if ! state=$(cd "$from" && "$states" path "$3"); then
+    printf 'lane-host-ssh: state-unresolved item=%s\\n' "$3" >&2
+    exit 1
+  fi
+  names=(lane-host-state)
+  if test -f "$state"; then
+    # workflow-state joins a relative setting such as ../lane-state as given,
+    # and tar cuts a member name at its last .. component, so the record names
+    # the file's physical path: the one test -f found, a symlink before ..
+    # followed as the filesystem follows it, and the root directory kept.
+    dir=$(cd -P -- "$(dirname -- "$state")" && pwd -P)
+    state="${dir%/}/$(basename -- "$state")"
+    member="${state#/}"
+    case "$state" in
+      "$1/tmp/"* | "$2/tmp/"*) ;;
+      *) paths+=("$member") ;;
+    esac
+  fi
+fi
 if test "${#paths[@]}" -eq 0; then exit 0; fi
-exec tar -chzf - -C / -- "${paths[@]}"''', row["clone"], worktree_path).stdout
+manifest=$(mktemp -d)
+trap 'rm -rf -- "${manifest:?}"' EXIT
+printf '%s\\n' "$member" > "$manifest/lane-host-state"
+tar -chzf - -C "$manifest" ${names[@]+"${names[@]}"} -C / "${paths[@]}"''', row["clone"], worktree_path, item).stdout
     if not data:
         return
     fleet = Path(os.environ.get("FLEET_DIR") or str(Path.home() / ".fleet")).expanduser()
@@ -502,6 +604,15 @@ create renders nothing and installs no Pi package: the worktree carries the
 render its base branch commits. A clone whose checkout lacks that render exits
 1 with render-missing, and one whose render is not committed at HEAD exits 1
 with render-untracked.
+For each WORKTREE_SYMLINKS entry naming a node_modules, create runs npm ci in
+the clone, the lane's main checkout, beside that entry's committed
+package-lock.json once it holds the item, before the final setup pass links
+it. node_modules/.lane-host-install records the lockfile blob installed, so an
+unchanged lockfile installs nothing; a failed install fails create. An entry
+with no committed package-lock.json installs nothing and prints
+dependency-install-skipped. On an existing clone the first setup pass, which
+takes the item, runs before that install and can print the worktree's
+dependency-source-missing warning; the --reuse setup that follows links it.
 Claude reads ACCOUNT/setup-token; Codex and Pi read ACCOUNT/auth.json. Copilot
 copies nothing: it runs under COPILOT_HOME at the row's account, which holds its
 own stored login. When present,
@@ -524,7 +635,8 @@ on stderr, appending nothing. A clone without the repeat guard delivers with
 append-library-outdated path=LIBRARY repeat-check=skipped on stderr. A clone
 without that library predates the verb and append exits 1 naming it, so
 refresh a host created before the verb shipped. Prepare the
-host with Git, gh, Bash, kendex and the harness first. A Pi lane runs with the
+host with Git, gh, Bash, kendex and the harness first, and npm where a linked
+node_modules has a committed package-lock.json. A Pi lane runs with the
 row's remote account directory as PI_CODING_AGENT_DIR, so install its Pi
 packages once on the host at that root:
 PI_CODING_AGENT_DIR=<row account> kendex update-pi --scope global.
@@ -532,7 +644,8 @@ The control machine requires Python 3.8 or later.
 create returns ssh-target, path and remote-prefix as tab-separated key=value
 fields, and pi-root, the row's account directory, for a Pi lane. Existing
 ownership exits 75; --reuse and --relaunch pass --reuse to the worktree
-command when the target exists; a missing target uses plain create.
+command when the target exists. Without a target, an origin item branch uses
+--base; no origin item branch uses plain create.
 Every create passes --hosted, so the item's worktree sits at the clone's one
 hosted lane path (worktree path --hosted), and path= names it.
 Every create's remote-prefix records the launch identity of the shell that
@@ -556,7 +669,13 @@ holds no pid and start exits 1 with stop-identity-invalid: remove that file,
 which the stop then reads as a lane with no identity, and stop again. status
 takes the same arguments and reads the owned harness without signalling it:
 running or exited on stdout. A failed ownership or process read exits nonzero
-and reports no status. close removes the identity with the item marker. close preserves render-only drift as a binary patch under clone/tmp, restores
+and reports no status. A clone holding neither a marker naming the item nor
+the item's worktree, as a finished close leaves it whether or not a create for
+another item followed, holds nothing of the item: stop answers stopped item=ID
+processes=0, status answers exited and close answers closed=absent item=ID,
+each with exit 0 and touching nothing. A missing or other item's marker beside
+the item's standing worktree refuses stop, status and close with exit 75
+before worktree path lookup. close removes the identity with the item marker. close preserves render-only drift as a binary patch under clone/tmp, restores
 the generated paths, refreshes the clone, and then closes. An untracked render,
 a skill symlink a post-launch kendex apply added among them, enters the patch
 through a temporary index rather than a working-tree comparison, so a link to a
@@ -565,12 +684,14 @@ back and refuses unless the patch carries every path it is about to restore or
 remove; that refusal, and an untracked render the temporary index cannot read,
 exit 3 and keep the static host. Any path outside the
 clone's generated inventory refuses close with exit 3 and keeps the static host.
-An absent or different item marker refuses close with exit 75
-before worktree lookup. Before worktree removal, close archives remaining clone/tmp
-and worktree/tmp directories under FLEET_DIR/archive/REPO/ITEM/tmp-STAMP.tgz
+Before worktree removal, close archives remaining clone/tmp
+and worktree/tmp directories, and the item's workflow state where the lane's
+settings place it outside them, with a lane-host-state member naming that
+state's member, under FLEET_DIR/archive/REPO/ITEM/tmp-STAMP.tgz
 (FLEET_DIR defaults to ~/.fleet) and prints kept=PATH. A failed archive stops
-close. An already removed worktree's tmp cannot be recovered. No remaining tmp
-means no archive and no kept line. Archives contain paths relative to / and
+close, as does a state directory the clone's workflow-state cannot resolve,
+reported as state-unresolved. An already removed worktree's tmp cannot be recovered. No remaining tmp
+and no workflow state outside it means no archive and no kept line. Archives contain paths relative to / and
 follow symlinks, so linked records remain in the archive after their target is gone.
 close --merged, the caller's word that the item's pull request merged, is
 accepted and changes nothing: a static host keeps the whole archive.

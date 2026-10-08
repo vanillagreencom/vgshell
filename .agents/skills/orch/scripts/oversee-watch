@@ -191,8 +191,6 @@ source "$SCRIPT_DIR/lib/usage-reset.sh"
 source "$SCRIPT_DIR/lib/lane-claims.sh"
 # shellcheck source=lib/account-wall.sh
 source "$SCRIPT_DIR/lib/account-wall.sh"
-# shellcheck source=lib/lane-model.sh
-source "$SCRIPT_DIR/lib/lane-model.sh"
 # shellcheck source=lib/pr-watch-pass.sh
 source "$SCRIPT_DIR/lib/pr-watch-pass.sh"
 # shellcheck source=lib/outside-contribution.sh
@@ -250,8 +248,6 @@ case "$WORKFLOW_STATE_DIR" in
   /*) ;;
   *) WORKFLOW_STATE_DIR="$PROJECT_ROOT/$WORKFLOW_STATE_DIR" ;;
 esac
-WORKFLOW_STATE_ARGS=(--state-dir "$WORKFLOW_STATE_DIR")
-FLEET_STATE_DIR="${OVERSEE_WATCH_FLEET_STATE_DIR:-$WORKFLOW_STATE_DIR}"
 PW_STATE_DIR="${OVERSEE_WATCH_STATE_DIR:-$PROJECT_ROOT/tmp/oversee-watch}"
 # Two state files per fleet: the first repository's baseline, which the long
 # pass writes, and the mail pass's file beside it, which only the mail pass and
@@ -270,7 +266,7 @@ PW_STATE_DIR="${OVERSEE_WATCH_STATE_DIR:-$PROJECT_ROOT/tmp/oversee-watch}"
 #   handoff<TAB><item><TAB><record checksum>
 #   lane-prepare<TAB><item><TAB><preparation start epoch>|<ready|failed|stuck>
 #   start-stalled<TAB><item><TAB><running_at epoch>|<passes since reported, or seen>
-#   lane-long<TAB><item><TAB><launched_at epoch it was reported under>
+#   lane-long<TAB><item><TAB><launched_at epoch>|<reported age interval>
 #   lane-failed<TAB><item><TAB><the last lane-local failure the long pass reported>
 #   merged<TAB><item><TAB><repo>#<number>[ <repo>#<number>...]
 #   outside-contribution<TAB><repo>#<number><TAB><pr HEAD_SHA|issue>
@@ -280,10 +276,11 @@ PW_STATE_DIR="${OVERSEE_WATCH_STATE_DIR:-$PROJECT_ROOT/tmp/oversee-watch}"
 #   account<TAB><harness>|<through>|<config dir><TAB><status>|<verdict>|<binding_resets_at or ->|<status of the last unmeasured reading, or ->
 # And in the mail pass's file:
 #   lane-mail<TAB><item>[@clone]<TAB><to-overseer.jsonl lines already drained> <first id>
-#   directive<TAB><item>[@clone]<TAB><to-lane.cursor reported read> <last line reported unread> <first id>
+#   directive<TAB><item>[@clone]<TAB><to-lane.cursor reported read> <last line reported unread>[:<passes since unread reported>] <first id>
 #   clone-root<TAB><item><TAB><the hosted lane's clone, on its own host>
 #   lane-failed<TAB><item><TAB><the last lane-local failure the mail pass reported>
 #   long-pass<TAB>fleet<TAB><the epoch the last long pass started at>
+#   mail-pass<TAB>fleet<TAB><the epoch the last full mail pass started at>
 # Four rows are keyed by the overseer's own pane rather than by a lane, and
 # are pruned on every pass so a pane that stops being the overseer's leaves
 # nothing behind:
@@ -370,6 +367,17 @@ lane_window_listed() { # LANE
 
 parse_argv "$@"
 
+FLEET_STATE_DIR="${OVERSEE_WATCH_FLEET_STATE_DIR:-$WORKFLOW_STATE_DIR}"
+if [[ -n "$STATE_FILE" ]]; then
+  FLEET_STATE_DIR="${STATE_FILE%/*}"
+  [[ "$FLEET_STATE_DIR" != "$STATE_FILE" ]] || FLEET_STATE_DIR=.
+  case "$FLEET_STATE_DIR" in
+    /*) ;;
+    *) FLEET_STATE_DIR="$PWD/$FLEET_STATE_DIR" ;;
+  esac
+fi
+WORKFLOW_STATE_ARGS=(--state-dir "$FLEET_STATE_DIR")
+
 [[ "$INTERVAL" =~ ^[0-9]+$ ]] || die interval-invalid "" "value=$INTERVAL"
 [[ "$MAX_LOOPS" =~ ^[0-9]+$ && "$MAX_LOOPS" -ge 1 ]] || die max-loops-invalid "" "value=$MAX_LOOPS"
 # The age a usage figure may be served at, named to every lane reader a pass
@@ -403,9 +411,6 @@ fi
 # and only a larger cap brings it back.
 WATCH_TAIL_LINES="${ORCH_WATCH_TAIL_LINES:-12}"
 [[ "$WATCH_TAIL_LINES" =~ ^[1-9][0-9]*$ ]] || die tail-lines-invalid "" "value=$WATCH_TAIL_LINES"
-# How long a lane handed to a background launch job may read preparing before
-# it is reported stuck. The host's own preparation takes minutes; the default
-# leaves it several times that before a record nothing finished is named.
 PREPARE_SECS="${ORCH_WATCH_PREPARE_SECS:-1800}"
 [[ "$PREPARE_SECS" =~ ^[1-9][0-9]*$ ]] || die prepare-secs-invalid "" "value=$PREPARE_SECS"
 # The mail pass's own cadence, apart from --interval: its reads are files and
@@ -413,6 +418,17 @@ PREPARE_SECS="${ORCH_WATCH_PREPARE_SECS:-1800}"
 # call.
 MAIL_INTERVAL="${ORCH_WATCH_MAIL_INTERVAL:-20}"
 [[ "$MAIL_INTERVAL" =~ ^(0|[1-9][0-9]*)$ ]] || die mail-interval-invalid "" "value=$MAIL_INTERVAL"
+# The overseer mailbox, which every owner, Slack and peer note lands in. A wait
+# for the next mail pass checks its size once a second and reads it alone the
+# moment it moves, so a note waits a second rather than up to the mail
+# interval, and the lane mailboxes keep that interval. With no interval the
+# mail is read once a turn and nothing waits on this.
+OVERSEER_BOX="$(lane_context_overseer_box "$PROJECT_ROOT")/to-lane.jsonl"
+# `none` for a mailbox not there yet or unreadable: the read it starts judges
+# it. wc -c, since stat's size flag differs between GNU and BSD.
+overseer_box_size() {
+  wc -c 2>/dev/null < "$OVERSEER_BOX" || echo none
+}
 UNREAD_SECS="${ORCH_DIRECTIVE_UNREAD_SECS:-300}"
 [[ "$UNREAD_SECS" =~ ^(0|[1-9][0-9]*)$ ]] || die unread-secs-invalid "" "value=$UNREAD_SECS"
 # How long a running lane record may stand with no status file before
@@ -425,9 +441,8 @@ START_STALL_SECS="${ORCH_WATCH_START_STALL_SECS:-600}"
 # lane-stalled goes out. Provisional: the first cloud acceptance run sets it.
 LANE_STALL_SECS="${ORCH_WATCH_LANE_STALL_SECS:-3600}"
 [[ "$LANE_STALL_SECS" =~ ^[1-9][0-9]*$ ]] || die lane-stall-secs-invalid "" "value=$LANE_STALL_SECS"
-# How long after a record's launched_at, which --relaunch and handoffs keep
-# and a fresh launch renews, a running or parked lane is
-# reported once as lane-long.
+# Age threshold in seconds for lane-long on a running or parked lane.
+# Repeat schedule: oversee-watch --help, event lane-long.
 LANE_AGE_SECS="${ORCH_WATCH_LANE_AGE_SECS:-14400}"
 [[ "$LANE_AGE_SECS" =~ ^[1-9][0-9]*$ ]] || die lane-age-secs-invalid "" "value=$LANE_AGE_SECS"
 # The state's records the pane never judges and the start-stall check reads,
@@ -592,12 +607,7 @@ LANE_ROWS_FILTER="$LANE_RUNNING_JQ"'
      (.launched_at | if . == null then "" else (fromdateiso8601 | tostring) end)]
   | join("\u001f"))'
 
-# The preparation records of lanes open-terminal handed to a background job,
-# one line each: item, outcome, the preparation's start in epoch seconds, the
-# job's log and the failure reason, joined by the unit separator. The record's
-# status is the outcome: preparing is pending, running is ready, and stopped
-# carrying the job's reason is failed. Any other record's preparation is over,
-# a close or a kept sandbox included, and is not read.
+# The unit separator keeps paths with spaces in one field.
 PREPARE_ROWS_FILTER='
   (.lanes // [])[] | select(type == "object" and (.prepare | type) == "object")
   | ({preparing: "pending", running: "ready"}[.status // ""] // (if .status == "stopped" and .prepare.reason != null then "failed" else empty end)) as $outcome
@@ -766,6 +776,7 @@ watch_pane_gone() { # PANE
 REPEAT_CHILD_PID=""
 repeat_stop() { # STATUS
   watch_pid_release "$STATE_FILE"
+  [[ -z "$BOX_POLL_PID" ]] || kill -TERM "$BOX_POLL_PID" 2>/dev/null || :
   if [[ -n "$REPEAT_CHILD_PID" ]]; then
     kill -TERM "$REPEAT_CHILD_PID" 2>/dev/null || true
     wait "$REPEAT_CHILD_PID" 2>/dev/null || true
@@ -830,6 +841,25 @@ watch_claim() { # ARGV...
   fi
 }
 
+# Waits out the sleep PID, checking the overseer mailbox once a second while it
+# runs. Returns 1 once the mailbox has moved off SEEN, the sleep stopped and
+# reaped, and 0 when the sleep ends first, its status left for `wait`. The
+# check's own sleep is waited on in the background, as tick_sleep's is, and
+# repeat_stop takes it with the loop.
+BOX_POLL_PID=""
+box_wait() { # PID SEEN
+  while kill -0 "$1" 2>/dev/null; do
+    sleep 1 &
+    BOX_POLL_PID=$!
+    wait "$BOX_POLL_PID" || die sleep-failed "" "secs=1"
+    BOX_POLL_PID=""
+    [[ "$(overseer_box_size)" != "$2" ]] || continue
+    kill -TERM "$1" 2>/dev/null || :
+    wait "$1" 2>/dev/null || :
+    return 1
+  done
+}
+
 # The pass is handed the state itself and only the entries argv gave this
 # wrapper, never the merged set: a lane whose record closed while the pass
 # loops has to leave that pass's fleet, which a hand-passed --item never does.
@@ -837,9 +867,8 @@ watch_claim() { # ARGV...
 # every sleep, since the pass would refuse it too.
 REPEAT_FIRST=1
 repeat_watch() { # ARGV...
-  local self="$SCRIPT_DIR/${BASH_SOURCE[0]##*/}" args line noted="" gone="" pending pass_rc fleet_state_dir delay
-  fleet_state_dir="${STATE_FILE%/*}"
-  [[ "$fleet_state_dir" != "$STATE_FILE" ]] || fleet_state_dir=.
+  local self="$SCRIPT_DIR/${BASH_SOURCE[0]##*/}" args line noted="" gone="" pending pass_rc delay
+  local box_seen
   check_repo_set
   while :; do
     fleet_merge
@@ -891,7 +920,12 @@ repeat_watch() { # ARGV...
     # The pass and the delay are waited on in the background (tick_sleep), so
     # a TERM on this loop reaches its trap at once and the trap stops the pass.
     pass_rc=0
-    OVERSEE_WATCH_FLEET_STATE_DIR="$fleet_state_dir" \
+    # Before the pass, so a note landing while it runs, after its own read,
+    # moves the mailbox off this and cuts the delay below short. A note the
+    # pass did read cuts it short too, and the next pass reads the mailbox
+    # once more; its full mail pass keeps the time the mail-pass row sets.
+    box_seen="$(overseer_box_size)"
+    OVERSEE_WATCH_FLEET_STATE_DIR="$FLEET_STATE_DIR" \
       OVERSEE_WATCH_REPEAT_OWNER="$$" \
       OVERSEE_WATCH_SESSION="$WATCH_SESSION" \
       "$self" "${args[@]}" &
@@ -924,7 +958,9 @@ repeat_watch() { # ARGV...
     [[ "$pass_rc" -eq 2 || "$MAIL_INTERVAL" -ge "$delay" ]] || delay="$MAIL_INTERVAL"
     OVERSEE_WATCH_SLEEP=repeat sleep "$delay" &
     REPEAT_CHILD_PID=$!
-    wait "$REPEAT_CHILD_PID" || die sleep-failed "" "secs=$delay"
+    if [[ "$MAIL_INTERVAL" -eq 0 ]] || box_wait "$REPEAT_CHILD_PID" "$box_seen"; then
+      wait "$REPEAT_CHILD_PID" || die sleep-failed "" "secs=$delay"
+    fi
     REPEAT_CHILD_PID=""
   done
 }
@@ -1051,7 +1087,9 @@ close_hosted_lane() { # ITEM
   case "$rc" in
     0)
       echo "EVENT lane-closed $1"
-      if line="$(grep '^kept=' <<<"$out")"; then
+      # A host that no longer held the item ran no archive pass, so lane-close
+      # gives no archive verdict and its closed=absent line stands in its place.
+      if line="$(grep '^kept=' <<<"$out")" || line="$(grep -xF "closed=absent item=$1" <<<"$out")"; then
         printf '%s\n' "$line"
       else
         echo "kept=none"
@@ -1254,18 +1292,36 @@ MAIL_STATE_FILE="$(pw_state_file "${REPOS[0]}").mail"
 # closed here: the relaunched lane's own completion is what closes it. The
 # merged row that holds the key is what parked_merged_owed repeats the hand
 # from at each heartbeat while the record still reads parked.
+# GitHub's search ceiling for one gh pr list; the key search refuses a page
+# that reaches it, since the item's own pull request may be past it.
+MERGED_SEARCH_PAGE=1000
 check_merged() {
   [[ -n "$ITEM_BRANCHES" ]] || return 0
-  local errf="$WORK_DIR/merged.err" item branch repo list hit hits prior keys fresh key line state="${PW_SEEN[0]}"
+  local errf="$WORK_DIR/merged.err" item branch repo list named pr hit hits prior keys fresh key line state="${PW_SEEN[0]}"
+  local fields=number,headRefName,headRepositoryOwner,mergedAt,title,body search rows
   for item in "${MERGED_ITEMS[@]}"; do
     branch="$(printf '%s' "$item" | tr '[:upper:]' '[:lower:]')"
+    PARKED_KEY=""
+    item_parked "$item" || true
     hits=""
     for repo in "${REPOS[@]}"; do
-      list="$(gh pr list --repo "$repo" --head "$branch" --state merged --limit 10 --json number,headRefName,headRepositoryOwner,mergedAt 2>"$errf")" \
+      list="$(gh pr list --repo "$repo" --head "$branch" --state merged --limit 10 --json "$fields" 2>"$errf")" \
         || die pr-list-failed "$(cat "$errf")" "repo=$repo" "state=merged" "branch=$branch"
-      if ! hit="$(jq -r --arg branch "$branch" --arg owner "${repo%%/*}" --arg repo "$repo" --argjson since "$SINCE_EPOCH" \
-        "$LANE_MERGED_JQ"' lane_merged($branch; $owner; $since)[] | "\(.number) \(.headRefName) \($repo)"' \
-        <<<"$list" 2>"$errf")"; then
+      # A cloud session's branch names no item, so its pull request is found
+      # by the key in its title or body; lane_own judges what this returns.
+      # GitHub text search cannot ask for the key's place in a title scope or
+      # after Closes, so mentions come back too, bounded by --since.
+      search="\"$item\" in:title,body${SINCE:+ merged:>=$SINCE}"
+      named="$(gh pr list --repo "$repo" --search "$search" --state merged --limit "$MERGED_SEARCH_PAGE" --json "$fields" 2>"$errf")" \
+        || die pr-list-failed "$(cat "$errf")" "repo=$repo" "state=merged" "search=$item"
+      rows="$(jq length <<<"$named" 2>"$errf")" || die pr-list-invalid "$(cat "$errf")" "repo=$repo" "search=$item"
+      [[ "$rows" -lt "$MERGED_SEARCH_PAGE" ]] || die merged-search-truncated "" "repo=$repo" "item=$item" "limit=$MERGED_SEARCH_PAGE"
+      pr=null
+      [[ "${PARKED_KEY%#*}" != "$repo" ]] || pr="${PARKED_KEY##*#}"
+      if ! hit="$(jq -rs --arg item "$item" --arg owner "${repo%%/*}" --arg repo "$repo" --argjson pr "$pr" --argjson since "$SINCE_EPOCH" \
+        "$LANE_MERGED_JQ"' add // [] | reduce .[] as $row ([]; if any(.[]; .number == $row.number) then . else . + [$row] end)
+        | lane_merged($item; $owner; $pr; $since)[] | "\(.number) \($item | ascii_downcase) \($repo)"' \
+        <<<"$list$named" 2>"$errf")"; then
         die pr-list-invalid "$(cat "$errf")" "repo=$repo" "branch=$branch"
       fi
       [[ -z "$hit" ]] || hits+="$hit"$'\n'
@@ -1443,10 +1499,7 @@ check_handoff() {
   lane_row_commit "$state"
 }
 
-# A lane open-terminal handed to a background job while its host prepared it
-# is reported from its record: the outcome the job wrote, once, and a record
-# still preparing past PREPARE_SECS, once. The row is keyed by the
-# preparation's start, so a relaunch that prepares again is reported afresh.
+# Key by the preparation's start so a relaunch is reported afresh.
 check_prepare() {
   local item outcome since log reason key age rows="${PW_SEEN[0]}" items=()
   while IFS=$'\x1f' read -r item outcome since log reason; do
@@ -1741,18 +1794,22 @@ mail_read() { # ITEM LANE_MAIL_ARGS...
 # moves: its receipt for each directive passed. The overseer's own mailbox is
 # read last by `inbox --peek` and acknowledged only once its notes are
 # printed, so a stopped pass leaves them unread rather than taken and unsaid.
-check_mail() {
+# With `overseer`, that mailbox is read alone, and the lists a long pass takes
+# from the last full read stand.
+check_mail() { # [overseer]
   local item stored prior seen header count first line fields id kind options text rest root cursor from re by class
-  local envelopes receipts replaced hold lane_read to_first read_at unread_at at
+  local envelopes receipts replaced hold lane_read to_first read_at unread_at unread_passes repeat standing reported at
   local mail_items host_flag args state="$MAIL_SEEN"
-  HOSTED_GONE_ITEMS=""
-  # This pass's failures alone, as HOSTED_GONE_ITEMS is this pass's: a long
-  # pass forked after it skips only the lanes whose read failed just now.
-  PASS_FAILED_ITEMS=""
   mail_items=()
-  for item in ${ITEMS[@]+"${ITEMS[@]}"}; do
-    item_in "$item" ${MAILLESS[@]+"${MAILLESS[@]}"} || mail_items+=("$item")
-  done
+  if [[ "${1:-}" != overseer ]]; then
+    HOSTED_GONE_ITEMS=""
+    # This pass's failures alone, as HOSTED_GONE_ITEMS is this pass's: a long
+    # pass forked after it skips only the lanes whose read failed just now.
+    PASS_FAILED_ITEMS=""
+    for item in ${ITEMS[@]+"${ITEMS[@]}"}; do
+      item_in "$item" ${MAILLESS[@]+"${MAILLESS[@]}"} || mail_items+=("$item")
+    done
+  fi
   mail_items+=(overseer)
   for item in "${mail_items[@]}"; do
     root=""
@@ -1843,8 +1900,9 @@ check_mail() {
         || die mail-read-invalid "" "item=$item" "value=${header:-<empty>}"
       lane_read="${BASH_REMATCH[1]}"
       to_first="${BASH_REMATCH[2]}"
-      # `<read> <unread> <first>`: the cursor directive-read was last reported
-      # up to, the last line reported directive-unread, and the id to-lane.jsonl
+      # `<read> <unread>[:<passes>] <first>`: the cursor directive-read was
+      # last reported up to, the last line reported directive-unread with the
+      # passes since unread lines were last reported, and the id to-lane.jsonl
       # opened with. A lane with no row yet is taken as having read up to its
       # cursor, so a first pass does not replay every directive it ever read.
       # Only a mailbox opening with another envelope is a replacement, and
@@ -1855,12 +1913,16 @@ check_mail() {
         die state-read-failed "" "item=$item" "row=directive"
       fi
       read -r read_at unread_at seen <<<"$stored"
+      unread_passes=0
+      if [[ "$unread_at" == *:* ]]; then
+        unread_passes="${unread_at#*:}"; unread_at="${unread_at%%:*}"
+      fi
       if [[ "$lane_read" == missed ]]; then
         hold=item
-      elif ! [[ "$read_at" =~ ^[0-9]+$ && "$unread_at" =~ ^[0-9]+$ ]]; then
-        read_at="$lane_read"; unread_at=0
+      elif ! [[ "$read_at" =~ ^[0-9]+$ && "$unread_at" =~ ^[0-9]+$ && "$unread_passes" =~ ^[0-9]+$ ]]; then
+        read_at="$lane_read"; unread_at=0; unread_passes=0
       elif [[ -n "$to_first" && -n "$seen" && "$to_first" != "$seen" ]]; then
-        read_at=0; unread_at=0
+        read_at=0; unread_at=0; unread_passes=0
       elif [[ "$lane_read" -lt "$read_at" ]]; then
         hold=directives
       fi
@@ -1942,19 +2004,33 @@ check_mail() {
     [[ "$replaced" -eq 0 && "$count" -lt "$prior" ]] \
       || state="$(lane_row_set lane-mail "$state" "$cursor" "$count $first")"
     if [[ "$hold" == none ]]; then
+      # A directive reported unread and still unread is reported again every
+      # MARK_REPEAT full mail passes, the rhythm start-stalled keeps on long
+      # passes; one mailbox's standing lines share the count, which any unread
+      # line it reports starts over.
+      unread_passes=$((unread_passes + 1))
+      repeat=0
+      (( unread_passes < MARK_REPEAT )) || repeat=1
+      standing=0
+      reported=0
       while read -r line id at; do
         [[ -n "$line" ]] || continue
         if [[ "$line" -le "$lane_read" ]]; then
           [[ "$line" -gt "$read_at" ]] || continue
           echo "EVENT directive-read $item $id"
           PASS_EVENT=1
-        elif [[ "$line" -gt "$unread_at" && -n "$at" ]] && (( PASS_NOW - at >= UNREAD_SECS )); then
+        elif [[ -n "$at" ]] && (( PASS_NOW - at >= UNREAD_SECS )) \
+          && [[ "$line" -gt "$unread_at" || "$repeat" -eq 1 ]]; then
           echo "EVENT directive-unread $item $id age=$((PASS_NOW - at))"
-          unread_at="$line"
+          [[ "$line" -le "$unread_at" ]] || unread_at="$line"
+          reported=1
           PASS_EVENT=1
+        elif [[ "$line" -le "$unread_at" ]]; then
+          standing=1
         fi
       done <<<"$(tail -n +2 <<<"$receipts")"
-      state="$(lane_row_set directive "$state" "$cursor" "$lane_read $unread_at ${to_first:-$seen}")"
+      (( standing == 1 && reported == 0 )) || unread_passes=0
+      state="$(lane_row_set directive "$state" "$cursor" "$lane_read $unread_at:$unread_passes ${to_first:-$seen}")"
     fi
     # Committed here, per item and after its lines are out: a later mailbox
     # can fail without discarding this read, and a row left uncommitted would
@@ -3602,9 +3678,8 @@ check_report() {
 # where that host's `lanes list` failed; `queue` where it lists no account of
 # the harness; otherwise `lanes pick` for the record's harness and model
 # decides, the launcher's own judge: room is `queue`, a wall is `dated` until
-# the earliest reset lib/lane-model.sh's lane_binding gives that model among
-# the harness's readings a launch on that host runs under, and anything else
-# is `unjudged`. One
+# the earliest reset that judgement names for its walled accounts, and
+# anything else is `unjudged`. One
 # listing is read per host and one pick asked per host, harness and model.
 # Without --state there is no queue to compare.
 OWED_PR_LIMIT=1000
@@ -3722,15 +3797,14 @@ owed_accounts() { # HOST
 
 # The wall verdict of one host, harness and model, as OWED_VERDICT. `lanes
 # pick` judges it under that host exactly as a launch there is judged. Exit 0
-# is room; exit 3 with walled accounts is a wall, dated by lane_binding over
-# that host's listing of the harness. The listing carries a hosted account
-# twice, this machine's reading and the provider's, and a launch on a provider
-# runs under the provider's, so only rows `measured_through` `host` date a
-# provider's wall and only `local` rows the local host's; with none, `until=-`.
-# Exit 3 with none walled is every account unmeasured, and any other exit a
-# judgement that failed, named on stderr: both are `unjudged`.
+# is room; exit 3 with walled accounts is a wall, dated by the refusal's own
+# walled_resets_at: the same judgement, on the launch's model and on the
+# reading the provider's copy runs under, names each walled account's deciding
+# window and its reset, `until=-` where none states one. Exit 3 with none
+# walled is every account unmeasured, and any other exit a judgement that
+# failed, named on stderr: both are `unjudged`.
 owed_wall() { # HOST HARNESS MODEL
-  local host="$1" harness="$2" model="$3" errf="$WORK_DIR/owed-pick.err" rc=0 walled until through
+  local host="$1" harness="$2" model="$3" errf="$WORK_DIR/owed-pick.err" rc=0 walled until
   local args=(pick --harness "$harness" --json)
   OWED_VERDICT="verdict=unjudged harness=$harness"
   owed_accounts "$host"
@@ -3749,13 +3823,8 @@ owed_wall() { # HOST HARNESS MODEL
         ow_message owed-wall-unjudged "host=$host" "harness=$harness" "model=$model" "exit=3" >&2
         cat -- "$errf" >&2
       elif [[ "$walled" -gt 0 ]]; then
-        [[ "$model" != - ]] || model=""
-        through=host
-        [[ "$host" != local ]] || through=local
-        until="$(jq -r --arg h "$harness" --arg m "$model" --arg t "$through" "$LANE_MODEL_JQ"'
-          [.[] | select(.harness == $h and .measured_through == $t) | lane_binding($m) | .resets_at? // empty | strings]
-          | min // "-"' \
-          <<<"$OWED_LISTING" 2>"$errf")" || die owed-roster-invalid "$(cat "$errf")" "host=$host"
+        until="$(jq -r '.walled_resets_at | if . == null then "-" elif type == "string" then . else error("walled_resets_at") end' \
+          <<<"$BOUNDED_OUT" 2>"$errf")" || die owed-roster-invalid "$(cat "$errf")" "host=$host"
         OWED_VERDICT="verdict=dated harness=$harness until=$until"
       fi ;;
     *)
@@ -3965,10 +4034,12 @@ tick_sleep() { # SECS
   wait "$TICK_SLEEP_PID"
   TICK_SLEEP_PID=""
 }
-# Until the next mail pass or long pass is due. A long pass in flight is
-# checked each second, so its block goes out within a second of its end. With no
-# mail interval the mail pass runs once a turn: a long pass in flight is waited
-# for, and with none the turn waits for the next one to come due.
+# Until the next mail pass or long pass is due, or the overseer mailbox moves
+# off BOX_SEEN. A long pass in flight and the mailbox are checked each second, so
+# a long pass's block goes out within a second of its end and a note within a
+# second of landing. With no mail interval the mail pass runs once a turn: a
+# long pass in flight is waited for, and with none the turn waits for the next
+# one to come due.
 tick_wait() {
   local now next
   while :; do
@@ -3985,13 +4056,21 @@ tick_wait() {
     [[ "$MAIL_INTERVAL" -gt 0 ]] || next="$LONG_DUE"
     [[ -n "$LONG_PID" || "$LONG_DUE" -ge "$next" ]] || next="$LONG_DUE"
     [[ "$next" -gt "$now" ]] || return 0
-    if [[ -n "$LONG_PID" ]]; then
-      tick_sleep 1
-    else
+    if [[ "$MAIL_INTERVAL" -eq 0 ]]; then
       tick_sleep "$((next - now))"
       return 0
     fi
+    tick_sleep 1
+    [[ "$(overseer_box_size)" == "$BOX_SEEN" ]] || return 0
   done
+}
+
+# One mail read: every mailbox or, with `overseer`, the overseer's alone. The
+# overseer mailbox's size is taken first, so a note landing during the read
+# moves it again and wakes the next wait.
+mail_turn() { # [overseer]
+  BOX_SEEN="$(overseer_box_size)"
+  overseer_down || check_mail "$@"
 }
 
 # One clock per turn. The stamp a lane's wall is observed on and the
@@ -4007,7 +4086,20 @@ PASS_NOW=""
 PASS_EVENT=0
 PASS_FAILED=0
 PASS_FAILED_ITEMS=""
-MAIL_DUE=0
+# The full mail pass is due an interval after the last one started, in this
+# run or an earlier one: a run started early on a note to the overseer reads
+# that mailbox alone first, and holds the lane mailboxes to their interval.
+if ! MAIL_DUE="$(lane_row_get mail-pass "$MAIL_SEEN" fleet)"; then
+  die state-read-failed "" "path=$MAIL_STATE_FILE" "row=mail-pass"
+fi
+if [[ "$MAIL_DUE" =~ ^[0-9]+$ ]]; then MAIL_DUE=$((MAIL_DUE + MAIL_INTERVAL)); else MAIL_DUE=0; fi
+# Empty until the first read, so a run's first turn reads the overseer mailbox
+# whether or not the full mail pass is due.
+BOX_SEEN=""
+# Set once this process has read every mailbox. A long pass forked before then
+# would take its removed worktrees and failed reads from no read at all, so the
+# turn that starts one reads every mailbox first, due or not.
+MAIL_FULL=0
 # The run's end, asked at the foot of every turn and again once the wait after
 # it has taken a long pass in, so a run whose news is out never reads the mail
 # or the fleet once more first. Nothing ends while a long pass is in flight.
@@ -4023,7 +4115,7 @@ run_end() {
     MAIL_OWED=0
     # A turn of its own: the turn's reading predates the long pass it follows.
     PASS_NOW="$(date -u +%s)" || die time-failed "" "clock=UTC"
-    overseer_down || check_mail
+    mail_turn
   fi
   if [[ "$PASS_FAILED" -eq 1 ]]; then
     pr_watch_context
@@ -4044,12 +4136,18 @@ while :; do
   PASS_NOW="$(date -u +%s)" || die time-failed "" "clock=UTC"
   # Mail first, so a long pass forked below starts from the clone roots and
   # removed worktrees this turn has just learned.
-  if [[ "$PASS_NOW" -ge "$MAIL_DUE" ]]; then
+  long_now=0
+  ! long_due || long_now=1
+  if [[ "$PASS_NOW" -ge "$MAIL_DUE" || ( "$long_now" -eq 1 && "$MAIL_FULL" -eq 0 ) ]]; then
     MAIL_DUE=$((PASS_NOW + MAIL_INTERVAL))
     MAIL_OWED=0
-    overseer_down || check_mail
+    MAIL_FULL=1
+    [[ "$MAIL_INTERVAL" -eq 0 ]] || mail_row_commit "$(lane_row_set mail-pass "$MAIL_SEEN" fleet "$PASS_NOW")"
+    mail_turn
+  elif [[ "$(overseer_box_size)" != "$BOX_SEEN" ]]; then
+    mail_turn overseer
   fi
-  ! long_due || long_start
+  [[ "$long_now" -eq 0 ]] || long_start
   long_collect
   run_end
   tick_wait

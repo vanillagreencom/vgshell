@@ -213,7 +213,7 @@ item_open_pr() { # ITEM
       ow_message pr-read-failed "item=$1" "repo=$repo" >&2; cat -- "$WORK_DIR/pr.err" >&2; rc=2; break
     fi
     row="$(jq -c --arg branch "$branch" --arg owner "${repo%%/*}" "$LANE_MERGED_JQ"'
-      [.[] | lane_own($branch; $owner)] | first // empty' <<<"$list")" || { rc=2; break; }
+      [.[] | lane_own($branch; $owner; null)] | first // empty' <<<"$list")" || { rc=2; break; }
     [[ -n "$row" ]] || continue
     OPEN_PR_HEAD="$(jq -r '.headRefOid // ""' <<<"$row")" && OPEN_PR_DIGEST="$(jq -r '.body // ""' <<<"$row" | cksum)" \
       || die lane-stall-unread "" "item=$1"
@@ -269,26 +269,29 @@ check_lane_stall() {
 
 # A running or parked lane LANE_AGE_SECS past its record's launched_at, which
 # --relaunch and handoffs keep and a fresh launch after lane-close renews, is
-# reported lane-long once per launched_at, its stage the Step
-# line of its status file.
+# reported lane-long once per age interval, its stage the Step line of its
+# status file. Keep the launch with the interval so a fresh launch starts over.
 check_lane_long() {
-  local entry item launched age prior rows="${PW_SEEN[0]}"
+  local entry item launched age interval prior rows="${PW_SEEN[0]}"
   for entry in ${LANE_AGES[@]+"${LANE_AGES[@]}"}; do
     item="${entry%%=*}"
     launched="${entry#*=}"
     age=$((PASS_NOW - launched))
     (( age >= LANE_AGE_SECS )) || continue
+    interval=$((age / LANE_AGE_SECS))
     if ! prior="$(lane_row_get lane-long "$rows" "$item")"; then
       die state-read-failed "" "item=$item" "row=lane-long"
     fi
-    [[ "$prior" != "$launched" ]] || continue
+    # Older watch runs stored only launched_at after their first report.
+    [[ "$prior" != "$launched" ]] || prior="$launched|1"
+    [[ "$prior" != "$launched|$interval" ]] || continue
     lane_step "$item"
     echo "EVENT lane-long $item age=$age stage=$LANE_STEP"
     PASS_EVENT=1
-    rows="$(lane_row_set lane-long "$rows" "$item" "$launched")"
+    rows="$(lane_row_set lane-long "$rows" "$item" "$launched|$interval")"
   done
   # Pruned only once no record names the item, so the gap a relaunch or a
-  # handoff leaves between running records never reports the lane again.
+  # handoff leaves between running records keeps the reported interval.
   rows="$(lane_row_prune lane-long "$rows" ${RECORDED_ITEMS[@]+"${RECORDED_ITEMS[@]}"})"
   lane_row_commit "$rows"
 }
@@ -312,7 +315,8 @@ lane_step() { # ITEM
   else return 0
   fi
   [[ -f "$file" ]] || return 0
-  if ! LANE_STEP="$(awk 'tolower($0) ~ /^step:/ { sub(/^[^:]*:[ \t]*/, ""); print; exit }' "$file")"; then LANE_STEP=unread
+  # Lanes write the line bare or as a Markdown list item.
+  if ! LANE_STEP="$(awk 'tolower($0) ~ /^([-*][ \t]+)?step:/ { sub(/^[^:]*:[ \t]*/, ""); print; exit }' "$file")"; then LANE_STEP=unread
   elif [[ -z "$LANE_STEP" ]]; then LANE_STEP=none
   fi
 }

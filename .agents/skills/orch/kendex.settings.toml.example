@@ -61,8 +61,8 @@ PR_COPILOT_REQUESTS = "on"
 
 # Seconds to keep waiting for the build to start before treating its
 # absence as a failure. Raise it where a build needs approval before it
-# begins.
-CI_WAIT_NO_CHECKS_GRACE = "180"
+# begins. A value that is not a whole number of seconds waits the default.
+CI_WAIT_NO_CHECKS_GRACE = "600"
 
 # How many times a lane may try to fix a failing build before a person
 # takes over.
@@ -163,9 +163,17 @@ ORCH_TMUX_VERIFY_SECS = "15"
 # 300 is reported and cut back to 300.
 ORCH_LANE_SSH_PROMPT_SECS = "60"
 
-# Provider processes lane-host runs at once, per home: every overseer and
+# Long provider processes lane-host runs at once, per home: every overseer and
 # checkout on the machine shares the count.
 ORCH_LANE_HOST_MAX_CALLS = "4"
+
+# Short provider calls have their own per-home cap, so a held create cannot
+# stop mailbox reads. Verb placement is in schemas/lane-host.md.
+ORCH_LANE_HOST_SHORT_MAX_CALLS = "4"
+
+# Seconds a short provider call at the ORCH_LANE_HOST_SHORT_MAX_CALLS cap
+# waits for a slot before it refuses as lane-host-busy with exit 69.
+ORCH_LANE_HOST_SHORT_BUSY_WAIT_SECS = "30"
 
 # Seconds a lane-host call at the ORCH_LANE_HOST_MAX_CALLS cap waits for a
 # slot before it refuses as lane-host-busy with exit 69.
@@ -209,11 +217,9 @@ ORCH_LANE_HOST_BUSY_WAIT_SECS = "30"
 # ORCH_LANE_MAX_PCT = "95"
 
 # How much of an account's 5-hour allowance one running lane is expected to
-# use in an hour, where no rate has been measured for the account yet; a
-# weekly allowance is charged its share by length. A lane is not launched on
-# an account whose running lanes would carry its usage to ORCH_LANE_MAX_PCT
-# within the hour, whether the account is picked or named. 0 turns the charge
-# off.
+# use in an hour, charged for each running lane wherever no rate is measured;
+# `lanes --help` (pick, ORCH_LANE_BURN_PCT_PER_HOUR) states which windows and
+# for how long. 0 turns the charge off.
 # ORCH_LANE_BURN_PCT_PER_HOUR = "5"
 
 # The credits a Codex account past ORCH_LANE_MAX_PCT must hold more than to
@@ -247,6 +253,12 @@ ORCH_LANE_HOST_BUSY_WAIT_SECS = "30"
 # separated by spaces.
 # QA_PERF_PATHS = "src/hot/* engine/src/*"
 
+# The files whose change asks for a UI review, as path patterns separated
+# by spaces, and the design-system doc that review judges screenshots
+# against.
+# QA_UI_PATHS = "ui/src/*"
+# QA_UI_DESIGN_DOC = "docs/design-system.md"
+
 # How many lanes the overseer keeps running at once. A launch that would
 # go past it is refused.
 ORCH_OVERSEER_LANES = "3"
@@ -279,9 +291,15 @@ ORCH_EXTERNAL_TRIAGE = "on"
 # the provider in those same characters, the model in lowercase letters,
 # digits, dots, underscores, hyphens and slashes, starting with a letter or
 # digit. The effort is lowercase letters, the level as that harness spells
-# it; on pi it is the thinking level. An entry that names no model stops the
-# launch. The deprecated positive account number uses the caller's model
-# and warns once per run until the next major release.
+# it; on pi it is the thinking level. In this grammar, an entry that names no
+# model stops the launch. The deprecated positive account number first uses
+# the caller's model. With no caller model, the overseer uses the same-harness
+# model from lib/overseer-launch.sh's OL_DEFAULT_PREFERENCE. With neither, it
+# uses the harness's native model default. It warns once per run until the
+# next major release and names the conversion.
+# Numeric succession entries can cross harnesses only when the model comes
+# from the target harness's default preference. The permission rules in
+# oversee-succeed --help still apply.
 # Replace it with a model name, such as claude:claude-opus-5-5:high. The name is not checked
 # before launch, so a misspelled codex, copilot or pi model opens the new
 # overseer on that name. Which entries a first launch and a succession skip is in
@@ -332,9 +350,8 @@ ORCH_OVERSEER_SUCCESSOR_ACCOUNTS = "1"
 # start-stalled, on every harness.
 # ORCH_WATCH_START_STALL_SECS = "600"
 
-# Seconds after a lane record's launched_at, which --relaunch and handoffs keep
-# and a fresh launch after lane-close renews, a running or parked lane is
-# reported once as lane-long.
+# Age threshold in seconds for lane-long on a running or parked lane.
+# Repeat schedule: oversee-watch --help, event lane-long.
 # ORCH_WATCH_LANE_AGE_SECS = "14400"
 
 # Seconds from the start of one oversee-watch mail pass to the next; a mail
