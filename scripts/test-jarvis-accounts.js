@@ -496,9 +496,10 @@ world(async () => {
     labels(Accounts);
     for (const [name, needle, replacement] of [
         ["label-email", 'item.email ? row.label + " / " + item.email', 'item.email ? row.label + " / " + item.label'],
-        ["label-single", ".length === 1 ? row.label", ".length === 0 ? row.label"],
+        ["label-single", ".length === 1;", ".length === 0;"],
         ["label-no-email", ": row.label + \" / \" + item.label;", ": row.label;"],
-        ["label-order", ".sort((left, right) => order(left.label, right.label) || order(left.value, right.value));", ";"]]) {
+        ["label-order", ".sort((left, right) => order(left.label, right.label) || order(left.value, right.value)).slice(0, MAX_ROWS);",
+            ".slice(0, MAX_ROWS);"]]) {
         await mutant("backend/Accounts.js", name, needle, replacement, folder => labels(judgeIn(folder)));
         controls++;
     }
@@ -764,7 +765,8 @@ world(async () => {
 
     // The service passes exactly the harnesses' root variables.
     const variables = folder => assert.deepEqual({ ...require(path.join(folder, "backend/Core.js")).accounts().accountVariables(name => "value-" + name) },
-        { CLAUDE_CONFIG_DIR: "value-CLAUDE_CONFIG_DIR", CODEX_HOME: "value-CODEX_HOME", COPILOT_HOME: "value-COPILOT_HOME" });
+        { CLAUDE_CONFIG_DIR: "value-CLAUDE_CONFIG_DIR", CODEX_HOME: "value-CODEX_HOME", COPILOT_HOME: "value-COPILOT_HOME",
+            PI_CODING_AGENT_DIR: "value-PI_CODING_AGENT_DIR" });
     variables(plugin);
     cases++;
     await mutant("shell/Commons/AccountDirectories.js", "account-variables",
