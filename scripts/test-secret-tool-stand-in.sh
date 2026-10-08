@@ -15,12 +15,9 @@ if [[ $# -gt 1 ]]; then
   exit 2
 fi
 
-mkdir -p -- "$repo/tmp"
-tmp="$repo/tmp/test-secret-tool-stand-in-$$"
-if ! mkdir -- "$tmp"; then
-  echo "test-secret-tool-stand-in: scratch=mkdir-failed path=[$tmp]" >&2
-  exit 1
-fi
+# The EXIT trap is armed only on the directory mktemp made: an empty or
+# non-directory answer never reaches rm -rf.
+tmp="$(mktemp -d)" || { echo "test-secret-tool-stand-in: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $tmp && ! -L $tmp ]] || { echo "test-secret-tool-stand-in: scratch=not-a-directory value=[$tmp]" >&2; exit 1; }
 tmp="$(cd -- "$tmp" && pwd -P)"
 trap 'rm -rf -- "${tmp:?}"' EXIT
@@ -30,22 +27,6 @@ test_env=(env -i PATH="$PATH" HOME="$tmp/home" LC_ALL=C TMPDIR="$tmp")
 failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
-
-release_fifo() { # FIFO
-  "${test_env[@]}" python3 - "$1" <<'PY' || true
-import os
-import sys
-
-try:
-    fd = os.open(sys.argv[1], os.O_WRONLY | os.O_NONBLOCK)
-except OSError:
-    raise SystemExit(0)
-try:
-    os.write(fd, b"x")
-finally:
-    os.close(fd)
-PY
-}
 
 extract_functions() { # HARNESS OUT
   "${test_env[@]}" python3 - "$1" "$2" <<'PY'
@@ -105,27 +86,17 @@ install_stand_in() { # FUNCTIONS SHIM
   )
 }
 
-wait_for_writer_ack() { # ACK
-  timeout 10 "${test_env[@]}" bash -c 'set -euo pipefail; IFS= read -r line <"$1"; [[ $line == ok ]]' _ "$1"
-}
-
-write_release() { # RELEASE
-  release_fifo "$1"
-}
-
 control_problem=""
 order_check() { # LABEL FUNCTIONS [no-record]
-  local label="$1" functions="$2" case_dir shim fifo ack release expected expected_call
+  local label="$1" functions="$2" case_dir shim fifo expected expected_call fd
   local secret_size=5000000
-  local secret_pid writer_pid writer_status=0 secret_status=0 calls states problems=()
+  local secret_pid secret_status=0 calls states problems=()
   case_dir="$tmp/$label"
   shim="$case_dir/shim"
   mkdir -p -- "$case_dir"
   install_stand_in "$functions" "$shim"
   fifo="$case_dir/stdin.fifo"
-  ack="$case_dir/ack.fifo"
-  release="$case_dir/release.fifo"
-  mkfifo -- "$fifo" "$ack" "$release"
+  mkfifo -- "$fifo"
   expected="$case_dir/expected.secret"
   "${test_env[@]}" python3 - "$expected" "$secret_size" <<'PY'
 from pathlib import Path
@@ -138,26 +109,20 @@ PY
   timeout 10 "${test_env[@]}" bash -c 'exec "$1" store "--label=VGS notifications Slack token slack:T0ACME" service vgs-notifications account slack:T0ACME <"$2"' \
     _ "$shim/secret-tool" "$fifo" &
   secret_pid=$!
-  timeout 10 "${test_env[@]}" bash -c '
-    set -euo pipefail
-    exec 9>"$1"
-    cat -- "$4" >&9
-    printf "ok\n" >"$2"
-    IFS= read -r _ <"$3" || true
-  ' _ "$fifo" "$ack" "$release" "$expected" &
-  writer_pid=$!
-
-  if ! wait_for_writer_ack "$ack"; then
-    problems+=("writer=not-acknowledged")
+  # The test shell holds the stand-in's stdin. On Linux a read-write open
+  # of a FIFO never blocks, and this fd never reads, so every byte goes to
+  # the stand-in, which sees EOF only when the fd closes. A write larger
+  # than the pipe buffer returns only once the stand-in has read most of
+  # it, so the check below runs while the stand-in is reading an open stdin.
+  exec {fd}<>"$fifo"
+  if ! timeout 10 cat -- "$expected" >&"$fd"; then
+    problems+=("writer=timeout-or-failed")
   elif [[ -e $shim/secret-tool.calls ]] && grep -F -x -q -- "$expected_call" "$shim/secret-tool.calls"; then
     problems+=("store-call-before-stdin-eof")
   fi
-
-  write_release "$release"
-  wait "$writer_pid" || writer_status=$?
+  exec {fd}>&-
   wait "$secret_pid" || secret_status=$?
 
-  [[ $writer_status -eq 0 ]] || problems+=("writer-exit=$writer_status")
   [[ $secret_status -eq 0 ]] || problems+=("secret-tool-exit=$secret_status")
 
   if [[ ! -r $shim/secret-tool.calls ]]; then
