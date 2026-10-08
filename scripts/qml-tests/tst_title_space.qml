@@ -75,7 +75,7 @@ Item {
         function test_slot_measure_owner_can_be_destroyed_while_slot_survives() {
             const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 300; title: "Title"; Item { height: 20 } }', root);
             const slot = titleBlock(made).children[4];
-            const measured = Qt.createQmlObject('import QtQuick\nItem { Rectangle { width: 70; height: 24; implicitWidth: 70 } }', slot);
+            const measured = Qt.createQmlObject('import QtQuick\nItem { implicitHeight: childrenRect.height; Rectangle { width: 70; height: 24; implicitWidth: 70 } }', slot);
             slot.contentItem = measured;
             compare(slot.implicitWidth, 70);
             compare(slot.implicitHeight, 24);

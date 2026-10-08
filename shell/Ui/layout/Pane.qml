@@ -133,7 +133,7 @@ Item {
     // child removal does not call the destroyed Pane.
     component Slot: Item {
         property Item contentItem: this
-        implicitHeight: contentItem === null ? 0 : contentItem.childrenRect.height
+        implicitHeight: contentItem === null ? 0 : (contentItem === this ? childrenRect.height : contentItem.implicitHeight)
         implicitWidth: {
             if (contentItem === null) return 0;
             let widest = 0;
