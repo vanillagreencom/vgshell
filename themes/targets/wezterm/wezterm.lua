@@ -17,16 +17,6 @@ if build then
         cursor_border = '#@{palette.foreground}',
         selection_fg = '#@{palette.foreground}',
         selection_bg = '#@{color.borderStrong}',
-        tab_bar = {
-          background = '#@{color.background}',
-          active_tab = { bg_color = '#@{color.accent}', fg_color = '#@{color.onAccent}' },
-          inactive_tab = { bg_color = '#@{color.background}', fg_color = '#@{color.textMuted}' },
-          inactive_tab_hover = { bg_color = '#@{color.surfaceRaised}', fg_color = '#@{color.text}' },
-          new_tab = { bg_color = '#@{color.background}', fg_color = '#@{color.textMuted}' },
-          new_tab_hover = { bg_color = '#@{color.surfaceRaised}', fg_color = '#@{color.text}' },
-          inactive_tab_edge = '#@{color.textMuted}',
-          inactive_tab_edge_hover = '#@{color.text}',
-        },
         copy_mode_active_highlight_bg = { Color = '#@{color.accent}' },
         copy_mode_active_highlight_fg = { Color = '#@{color.onAccent}' },
         copy_mode_inactive_highlight_bg = { Color = '#@{color.info}' },
@@ -40,6 +30,20 @@ if build then
       },
     }
     config.color_scheme = 'vgs'
+    -- WezTerm reads tab styling from config.colors:
+    -- https://wezterm.org/config/appearance.html#tab-bar-appearance
+    config.colors = {
+      tab_bar = {
+        background = '#@{color.background}',
+        active_tab = { bg_color = '#@{color.accent}', fg_color = '#@{color.onAccent}' },
+        inactive_tab = { bg_color = '#@{color.background}', fg_color = '#@{color.textMuted}' },
+        inactive_tab_hover = { bg_color = '#@{color.surfaceRaised}', fg_color = '#@{color.text}' },
+        new_tab = { bg_color = '#@{color.background}', fg_color = '#@{color.textMuted}' },
+        new_tab_hover = { bg_color = '#@{color.surfaceRaised}', fg_color = '#@{color.text}' },
+        inactive_tab_edge = '#@{color.textMuted}',
+        inactive_tab_edge_hover = '#@{color.text}',
+      },
+    }
     -- The default fancy tab bar reads its strip from window_frame:
     -- https://wezterm.org/config/appearance.html#native-fancy-tab-bar-appearance
     config.window_frame = {

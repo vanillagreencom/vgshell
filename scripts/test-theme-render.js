@@ -966,7 +966,9 @@ function verifyWeztermModes(template) {
                 curated: new Map(), installed: !shipped });
         assert.equal(rendered.ok, true);
         const text = rendered.files[0].bytes.toString("utf8");
-        const tabBar = /tab_bar = \{([\s\S]*?)\n        \},/.exec(text);
+        const colors = /config\.colors = \{([\s\S]*?)\n    \}/.exec(text);
+        assert.notEqual(colors, null, "WezTerm consumes tab colours from config.colors");
+        const tabBar = /tab_bar = \{([\s\S]*?)\n      \},/.exec(colors[1]);
         const frame = /config\.window_frame = \{([\s\S]*?)\n    \}/.exec(text);
         assert.notEqual(tabBar, null, pkg.name);
         assert.notEqual(frame, null, pkg.name);
@@ -1020,6 +1022,10 @@ function verifyWeztermModes(template) {
     return metrics;
 }
 const weztermMetrics = verifyWeztermModes(weztermTemplate);
+assert.equal(weztermTemplate.split("config.colors = {").length, 2);
+assert.throws(() => verifyWeztermModes(weztermTemplate.replace("config.colors = {", "config.ignored_colors = {")),
+    error => error instanceof assert.AssertionError && error.actual === null &&
+        error.message.includes("WezTerm consumes tab colours from config.colors"));
 const weztermScratch = fs.mkdtempSync(path.join(os.tmpdir(), "wezterm-modes-control-"));
 try {
     for (const [kind, needle, replacement] of [
@@ -1038,7 +1044,7 @@ try {
 } finally {
     fs.rmSync(weztermScratch, { recursive: true, force: true });
 }
-console.log(`test-theme-render: wezterm packages=${selectionPackages.length} pairs=${weztermMetrics.length} modes=dark,light text-floor=4.5 boundary-floor=3 controls=text,boundary`);
+console.log(`test-theme-render: wezterm packages=${selectionPackages.length} pairs=${weztermMetrics.length} modes=dark,light text-floor=4.5 boundary-floor=3 controls=text,boundary,tab-scope`);
 
 // RGB channel separation is a numerical distinction check. The owner judges
 // appearance in real terminal pictures. Rose Pine's main ANSI blue/brightblack
