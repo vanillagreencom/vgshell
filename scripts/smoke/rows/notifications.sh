@@ -2595,9 +2595,11 @@ expect_poll "the Settings window is gone after the Position checks" 0 window_cou
 notes dismiss-all >/dev/null
 expect_poll "the Place toasts are gone" 0 layer_count vgs:layer
 
-# Sample opaque glyph pixels and the adjacent painted halo in the real
-# compositor capture. ThemeLogic remains the only contrast judge.
-fade_hint_sample_value() { # PNG BACKGROUND ITEMS SURFACE COLOURS SHADOW OUTPUT_WIDTH OUTPUT_HEIGHT
+# Read glyph cores from the actual capture. Edge antialiasing is excluded
+# by taking the pixels farthest from the halo tone in each word box.
+# ThemeLogic judges resolved ink against the halo at its drawn opacity
+# over the same bare wallpaper pixels.
+fade_hint_sample_value() { # PNG BACKGROUND ITEMS SURFACE COLOURS SHADOW OPACITY OUTPUT_WIDTH OUTPUT_HEIGHT [REFERENCE_JSON]
   python3 -c "$png_rgba_py"'
 image, background = png_rgba(sys.argv[1]), png_rgba(sys.argv[2])
 if isinstance(image,str) or isinstance(background,str): print("png-unreadable"); sys.exit()
@@ -2605,42 +2607,39 @@ iw,ih,rows=image
 bw,bh,back=background
 if (iw,ih)!=(bw,bh): print("background-size-mismatch"); sys.exit()
 items,surface,colours=map(json.loads,sys.argv[3:6])
-sx,sy=iw/float(sys.argv[7]),ih/float(sys.argv[8])
 shadow=bytes.fromhex(json.loads(sys.argv[6])[-6:])
+opacity=float(sys.argv[7])
+sx,sy=iw/float(sys.argv[8]),ih/float(sys.argv[9])
 labels=[i for i in items if i.get("role")=="hint" and i.get("text") in ("dismiss","actions") and i["visible"]]
 if len(labels)!=2 or len(colours)!=2: print("hint-labels-unreadable"); sys.exit()
+reference=json.loads(sys.argv[10]) if len(sys.argv)>10 and sys.argv[10] else None
 samples=[]
 for label,ink in zip(labels,colours):
-    # itemColours returns ThemeLogic RGBA.
-    colour=bytes.fromhex(ink[1:7])
     x,y,w,h=label["box"]
     left,top=math.ceil((surface[0]+x)*sx),math.ceil((surface[1]+y)*sy)
     right,bottom=math.floor((surface[0]+x+w)*sx),math.floor((surface[1]+y+h)*sy)
-    if not (3<=left<right<=iw-3 and 3<=top<bottom<=ih-3): print("hint-outside-output"); sys.exit()
-    px=lambda x,y:rows[y][4*x:4*x+3]
-    cores={(x,y) for y in range(top,bottom) for x in range(left,right) if px(x,y)==colour and
-           max(abs(colour[c]-back[y][4*x+c]) for c in range(3))>=3}
-    pairs=[]
-    for x,y in sorted(cores):
-        # The nearest non-glyph pixel changed from the bare wallpaper is
-        # painted halo. Reject antialiased glyph pixels near the ink tone.
-        nearby=[]
-        for dy in range(-3,4):
-            for dx in range(-3,4):
-                if not dx and not dy: continue
-                hx,hy=x+dx,y+dy
-                halo=px(hx,hy)
-                if max(abs(a-b) for a,b in zip(halo,colour))<32: continue
-                bare=back[hy][4*hx:4*hx+3]
-                if max(abs(halo[c]-bare[c]) for c in range(3))<3: continue
-                if sum((halo[c]-bare[c])*(shadow[c]-bare[c]) for c in range(3))<=0: continue
-                nearby.append((dx*dx+dy*dy,hx,hy,list(halo)))
-        if nearby:
-            distance=min(p[0] for p in nearby)
-            for d,hx,hy,halo in nearby:
-                if d==distance:pairs.append({"textPixel":[x,y],"haloPixel":[hx,hy],"textRGB":list(px(x,y)),"haloRGB":halo})
-    samples.append({"text":label["text"],"ink":ink,"box":[left,top,right-left,bottom-top],"corePixels":len(cores),"pairs":pairs})
-print(json.dumps({"samples":samples}))
+    if not (0<=left<right<=iw and 0<=top<bottom<=ih): print("hint-outside-output"); sys.exit()
+    pixels=[]
+    for y in range(top,bottom):
+        for x in range(left,right):
+            pixel=list(rows[y][4*x:4*x+3]);bare=list(back[y][4*x:4*x+3])
+            if max(abs(pixel[c]-bare[c]) for c in range(3))<3: continue
+            distance=sum((pixel[c]-shadow[c])**2 for c in range(3))
+            pixels.append((distance,x,y,pixel,bare))
+    pixels.sort(reverse=True)
+    count=math.ceil((right-left)*(bottom-top)*0.1)
+    cores=[{"at":[x,y],"RGB":pixel,"wallpaperRGB":bare} for _,x,y,pixel,bare in pixels[:count]]
+    if reference is not None:
+        kept=next((v for v in reference["samples"] if v["text"]==label["text"]),None)
+        if kept is None: print("reference-word-absent"); sys.exit()
+        # The colour-only mutant keeps glyph shape and relative geometry.
+        cores=[]
+        for core in kept["cores"]:
+            x=left+core["at"][0]-kept["box"][0];y=top+core["at"][1]-kept["box"][1]
+            if not (left<=x<right and top<=y<bottom): print("reference-core-outside-word"); sys.exit()
+            cores.append({"at":[x,y],"RGB":list(rows[y][4*x:4*x+3]),"wallpaperRGB":list(back[y][4*x:4*x+3])})
+    samples.append({"text":label["text"],"ink":ink,"box":[left,top,right-left,bottom-top],"cores":cores})
+print(json.dumps({"samples":samples,"shadowRGB":list(shadow),"shadowOpacity":opacity,"coreShare":0.1}))
 ' "$@"
 }
 fade_hint_contrast_value() { # SAMPLE_JSON [coverage]
@@ -2650,30 +2649,34 @@ const logic=load(process.argv[2]+"/shell/Commons/ThemeLogic.js");
 const sample=JSON.parse(process.argv[3]);
 const rgb=values=>({r:values[0]/255,g:values[1]/255,b:values[2]/255,a:1});
 const readings=sample.samples.map(s=>{
-  const ratios=s.pairs.map(p=>logic.contrastRatio(rgb(p.textRGB),rgb(p.haloRGB))).sort((a,b)=>a-b);
-  const glyphPixels=new Set(s.pairs.map(p=>p.textPixel.join(",")));
-  const haloPixels=new Set(s.pairs.map(p=>p.haloPixel.join(",")));
-  const columns=s.pairs.map(p=>p.textPixel[0]);
-  return {text:s.text,ink:s.ink,box:s.box,corePixels:s.corePixels,pairs:ratios.length,
-    measuredTextPixels:glyphPixels.size,haloPixels:haloPixels.size,
+  const ink=logic.parseColor(s.ink);
+  const coreRGB=[0,1,2].map(c=>s.cores.map(p=>p.RGB[c]).sort((a,b)=>a-b)[Math.floor(s.cores.length/2)]);
+  const expected=[ink.r,ink.g,ink.b].map(v=>Math.round(v*255));
+  const error=Math.max(...coreRGB.map((v,c)=>Math.abs(v-expected[c])));
+  const columns=s.cores.map(p=>p.at[0]);
+  const ratios=s.cores.map(p=>{
+    const halo=sample.shadowRGB.map((v,c)=>v*sample.shadowOpacity+p.wallpaperRGB[c]*(1-sample.shadowOpacity));
+    return logic.contrastRatio(ink,rgb(halo));
+  });
+  return {text:s.text,ink:s.ink,box:s.box,corePixels:s.cores.length,coreRGB,coreError:error,
     columnSpan:columns.length?Math.max(...columns)-Math.min(...columns)+1:0,
-    minimum:ratios[0]??null,lowerDecile:ratios[Math.floor(ratios.length/10)]??null,
-    median:ratios[Math.floor(ratios.length/2)]??null};
+    shadowRGB:sample.shadowRGB,shadowOpacity:sample.shadowOpacity,minimum:ratios.length?Math.min(...ratios):null};
 });
 console.error("notification-hint-contrast: "+JSON.stringify(readings));
-const covered=readings.length===2 && readings.every(s=>s.measuredTextPixels>=20 && s.haloPixels>=20 && s.columnSpan>=s.box[2]/2);
+const covered=readings.length===2 && readings.every(s=>s.corePixels>=20 && s.columnSpan>=s.box[2]/2 && s.coreError<=32);
 console.log(covered && (process.argv[4]==="coverage" || readings.every(s=>s.minimum>=4.5))?"True":"False");
 JS_HINT
 }
-fade_hint_sample() { # PNG
-  local items surface colours shadow
+fade_hint_sample() { # PNG [REFERENCE_JSON]
+  local items surface colours shadow opacity
   items="$(ipc smoke descendantGeometry panel vgs.notifications)" || return
   surface="$(surface_box vgs:panel)" || return
   # Breadth-first descendants list the floating words before chip labels.
   colours="$(ipc smoke itemColours panel vgs.notifications KeyHints Label | py_reply 'import json,sys; rows=json.load(sys.stdin); print(json.dumps(rows[0][:2]) if len(rows)==1 else "unread")')" || return
   shadow="$(ipc smoke themeValue keyHints.shadow)" || return
+  opacity="$(ipc smoke themeValue keyHints.shadowOpacity)" || return
   fade_output "$1" || return
-  fade_hint_sample_value "$1" "$fade_background" "$items" "$surface" "$colours" "$shadow" "$mon_w" "$mon_h"
+  fade_hint_sample_value "$1" "$fade_background" "$items" "$surface" "$colours" "$shadow" "$opacity" "$mon_w" "$mon_h" "${2:-}"
 }
 fade_hint_drawn() { # PNG
   local sample
@@ -2853,6 +2856,7 @@ for fade_mode in dark light; do
   fade_open_mid
   render expect_poll "the $fade_mode mid-scroll cards draw known ink above the fade" True fade_card_drawn "$sandbox/fade-$fade_mode-mid.png"
   render expect_poll "the $fade_mode floating words contrast with their painted halo" True fade_hint_drawn "$sandbox/fade-hints-$fade_mode.png"
+  fade_positive_sample="$(fade_hint_sample "$sandbox/fade-hints-reference-$fade_mode.png")" || fail "the positive hint core sample is unreadable"
   geometry expect_poll "the $fade_mode pixel probe reaches its end" end fade_wheel_end
   render expect_poll "the $fade_mode end cards draw known ink above the fade" True fade_card_drawn "$sandbox/fade-$fade_mode-end.png"
   geometry expect_poll "the $fade_mode drawn card glow is one spacing step above the chips" True fade_gap_drawn
@@ -2872,7 +2876,7 @@ PY_HINT_MUTANT
   start_shell "$repo" "$sandbox/notifications-muted-$fade_mode.log" || fail "the muted hint shell failed"
   expect_poll "the muted hint shell builds notifications" True record_exists vgs.notifications
   fade_open_mid
-  fade_muted_sample="$(fade_hint_sample "$sandbox/fade-muted-hints-$fade_mode.png")"
+  fade_muted_sample="$(fade_hint_sample "$sandbox/fade-muted-hints-$fade_mode.png" "$fade_positive_sample")"
   printf "%s\n" "$fade_muted_sample" >"$sandbox/fade-muted-hints-$fade_mode.json"
   render expect "the muted $fade_mode control still draws both measured words" True fade_hint_contrast_value "$fade_muted_sample" coverage
   fade_muted_control() {

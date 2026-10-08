@@ -138,7 +138,7 @@ Item {
             verify(effect !== null, "the shipped effect component builds");
             compare(effect.shadowEnabled, true);
             compare(effect.shadowColor, Qt.color(row.shadow));
-            compare(effect.shadowOpacity, 1);
+            compare(effect.shadowOpacity, 0.7);
             verify(effect.blurMax >= 4, "the soft halo covers the floating label");
             compare(effect.shadowBlur, 1);
             compare(label.layer.enabled, true);

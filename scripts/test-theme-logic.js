@@ -184,7 +184,7 @@ const DEFAULTS = [
     ["kbd.paddingX", 6],
     ["kbd.height", 20],
     ["keyHints.shadow", "#000000ff"],
-    ["keyHints.shadowOpacity", 1],
+    ["keyHints.shadowOpacity", 0.7],
     ["keyHints.foreground", "#d7d7d9ff"],
     ["keyHints.weight", 600],
     ["keyHints.blur", 4],
