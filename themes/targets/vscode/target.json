@@ -1,12 +1,19 @@
 {
-  "app": "Visual Studio Code",
+  "app": "VS Code, VSCodium and Cursor",
   "runsCode": true,
   "encoder": "hex8",
   "files": [
     { "template": "vscode.json", "destination": "vscode.json", "curatedKeys": ["colors", "tokenColors", "semanticTokenColors"] },
     { "template": "package.json", "destination": "vscode.package.json" }
   ],
-  "detect": ["code"],
-  "wiring": { "base": "home", "dir": ".vscode/extensions/vgs-theme", "owned": true, "links": { "package.json": "vscode.package.json", "vgs-color-theme.json": "vscode.json" } },
+  "detect": [],
+  "editors": [
+    { "detect": "code", "extensions": ".vscode/extensions", "user": "Code/User" },
+    { "detect": "code-insiders", "extensions": ".vscode-insiders/extensions", "user": "Code - Insiders/User" },
+    { "detect": "codium", "extensions": ".vscode-oss/extensions", "user": "VSCodium/User" },
+    { "detect": "cursor", "extensions": ".cursor/extensions", "user": "Cursor/User" }
+  ],
+  "wiring": { "extension": "local.vgs-theme", "version": "vscode.json", "copies": { "package.json": "vscode.package.json", "vgs-color-theme.json": "vscode.json" } },
+  "select": { "base": "editor", "file": "settings.json", "format": "jsonc", "key": ["workbench.colorTheme"], "value": "vgs" },
   "reload": null
 }

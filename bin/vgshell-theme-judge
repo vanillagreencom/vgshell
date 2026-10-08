@@ -901,6 +901,8 @@ function planTarget(dir, row, slots, disabled, configHome, live) {
         case "entry": {
             return null;
         }
+        case "extension":
+            return detectedEditors(target, configHome).length === 0 ? "not-detected" : null;
         case "none":
             return null;
         default:
@@ -912,8 +914,11 @@ function planTarget(dir, row, slots, disabled, configHome, live) {
     // A settings file that is absent, or whose key the edit refuses, skips
     // the target before anything lands, so its application keeps its theme.
     // An account target's served account directories are read once here,
-    // so the entries and the selections land in the same directories.
+    // so the entries and the selections land in the same directories, and
+    // so are an editors target's detected editors.
     let roots;
+    const editors = isEditorTarget(target) ? detectedEditors(target, configHome) : undefined;
+    if (editors !== undefined) roots = editors.map(editor => editor.user);
     if (target.select !== undefined) {
         const selected = reading(name, dir, () => {
             if (isAccountTarget(target)) roots = accountRoots(target, true);
@@ -958,7 +963,20 @@ function planTarget(dir, row, slots, disabled, configHome, live) {
         if (planned.value === "wiring-file-absent" || planned.value === "entry-occupied") return skipped(planned.value);
         entryPlan = planned.value;
     }
-    return { name, state: "pending", reason: null, target, files: rendered.files, dropped, entryPlan, roots };
+    if (render.wiringForm(target.wiring) === "extension") {
+        const registries = reading(name, dir, () => {
+            for (const editor of editors) {
+                const verdicts = [render.registeredText(logic, utf8(readIfPresent(path.join(editor.extensions, REGISTRY_FILE))), target.wiring.extension, rendered.version, editor.extensions),
+                    render.unobsoletedText(logic, utf8(readIfPresent(path.join(editor.extensions, OBSOLETE_FILE))), target.wiring.extension)];
+                const refusal = verdicts.find(verdict => verdict !== null && typeof verdict !== "string");
+                if (refusal !== undefined) return refusal.reason;
+            }
+            return null;
+        }, failed);
+        if (!registries.ok) return registries.entry;
+        if (registries.value !== null) return skipped(registries.value);
+    }
+    return { name, state: "pending", reason: null, target, files: rendered.files, dropped, entryPlan, roots, editors, version: rendered.version };
 }
 
 // Every shipped target under themes/targets/, planned by planTarget, in
@@ -1087,6 +1105,102 @@ function isDirectory(dir) {
 
 function isAccountTarget(target) {
     return target.accounts !== undefined;
+}
+
+function isEditorTarget(target) {
+    return target.editors !== undefined;
+}
+
+// The registration an editor of the VS Code family keeps in its extensions
+// directory, and the folders it marks for deletion there.
+const REGISTRY_FILE = "extensions.json";
+const OBSOLETE_FILE = ".obsolete";
+
+// The editors of editors TARGET whose command is on PATH, or with ALL every
+// editor, as their absolute `extensions` directory under the home directory
+// and `user` directory under CONFIG_HOME.
+function detectedEditors(target, configHome, all = false) {
+    return target.editors.filter(editor => all || onPath(editor.detect))
+        .map(editor => ({ extensions: path.join(os.homedir(), editor.extensions), user: path.join(configHome, editor.user) }));
+}
+
+function utf8(bytes) {
+    return bytes === undefined ? undefined : bytes.toString("utf8");
+}
+
+// EDIT, which maps a file's UTF-8 text to what editFile takes, as the edit
+// of the file's latin1 text editFile hands over.
+function utf8Edit(edit) {
+    return text => {
+        const next = edit(text === undefined ? undefined : Buffer.from(text, "latin1").toString("utf8"));
+        return typeof next === "string" ? Buffer.from(next, "utf8").toString("latin1") : next;
+    };
+}
+
+// The folders of extension ID in DIR other than KEEP, an absent DIR
+// holding none.
+function otherVersions(dir, id, keep) {
+    let names;
+    try {
+        names = fs.readdirSync(dir);
+    } catch (e) {
+        if (e.code === "ENOENT") return [];
+        e.path = dir;
+        throw e;
+    }
+    return names.filter(name => name !== keep && render.isExtensionFolder(name, id)).sort().map(name => path.join(dir, name));
+}
+
+// Keep extension TARGET's generated extension in each of EDITORS: its
+// files, FILES' bytes, copied into the folder of VERSION, which
+// extensions.json then registers and `.obsolete` stops marking, and only
+// then every other version's folder removed, so the editor never registers
+// a folder that is gone. Answers null, or the failure's { reason, failure }
+// for target NAME.
+function keepExtension(name, target, files, version, editors) {
+    const key = "target=" + name + " reason";
+    const id = target.wiring.extension;
+    const folder = render.extensionFolder(id, version);
+    const bytes = new Map(files.map(file => [file.destination, file.bytes]));
+    try {
+        for (const editor of editors) {
+            for (const [file, destination] of Object.entries(target.wiring.copies)) {
+                const at = path.join(editor.extensions, folder, file);
+                const held = readIfPresent(at);
+                if (held === undefined || !held.equals(bytes.get(destination))) replaceFile(at, bytes.get(destination), key, 0o644);
+            }
+            const failure = editFile(key, path.join(editor.extensions, REGISTRY_FILE), true,
+                utf8Edit(text => render.registeredText(logic, text, id, version, editor.extensions))) ||
+                editFile(key, path.join(editor.extensions, OBSOLETE_FILE), false, utf8Edit(text => render.unobsoletedText(logic, text, id)));
+            if (failure !== null) return failure;
+            for (const old of otherVersions(editor.extensions, id, folder)) writing(old, key, () => fs.rmSync(old, { recursive: true, force: true }));
+        }
+    } catch (e) {
+        if (e instanceof Refusal) return { reason: e.reason, failure: e.first };
+        if (typeof e.code !== "string") throw e;
+        return { reason: "unreadable", failure: key + "=unreadable path=" + e.path + " error=" + e.code };
+    }
+    return null;
+}
+
+// Remove extension TARGET's registration and folders from every editor it
+// names, detected or not. Answers null, or the failure's { reason, failure }
+// for target NAME.
+function dropExtension(name, target, configHome) {
+    const key = "target=" + name + " reason";
+    const id = target.wiring.extension;
+    try {
+        for (const editor of detectedEditors(target, configHome, true)) {
+            const failure = editFile(key, path.join(editor.extensions, REGISTRY_FILE), false, utf8Edit(text => render.unregisteredText(logic, text, id)));
+            if (failure !== null) return failure;
+            for (const old of otherVersions(editor.extensions, id, null)) writing(old, key, () => fs.rmSync(old, { recursive: true, force: true }));
+        }
+    } catch (e) {
+        if (e instanceof Refusal) return { reason: e.reason, failure: e.first };
+        if (typeof e.code !== "string") throw e;
+        return { reason: "unreadable", failure: key + "=unreadable path=" + e.path + " error=" + e.code };
+    }
+    return null;
 }
 
 // The account directories of account TARGET's harness that
@@ -1312,14 +1426,20 @@ function dropEntries(name, target, configHome, live) {
 
 // The settings file TARGET's `select` names, under its base, and the edit
 // theme-select.js makes in that file's latin1 text, the value's `@{state}`
-// written as LIVE.
+// written as LIVE, and whether the file is `create`d when absent. An editor
+// writes no settings file until a setting changes, so an editor's absent
+// file is edited as an empty object and created.
 function selectionEdits(target, configHome, live, roots) {
     const selection = target.select;
     const value = latin1(Buffer.from(render.selectValue(target, live), "utf8"));
-    const dirs = isAccountTarget(target) ? roots || accountRoots(target, true) : [baseDir(selection.base, configHome)];
+    const create = selection.base === render.EDITOR_BASE;
+    const dirs = isAccountTarget(target) ? roots || accountRoots(target, true)
+        : create ? roots || detectedEditors(target, configHome).map(editor => editor.user)
+        : [baseDir(selection.base, configHome)];
     return dirs.map(root => ({
         file: path.join(root, selection.file),
-        edit: text => select.selectedText(selection.format, text, render.selectKeys(target), value)
+        create,
+        edit: text => select.selectedText(selection.format, text === undefined && create ? "{}\n" : text, render.selectKeys(target), value)
     }));
 }
 
@@ -1332,24 +1452,27 @@ function wire(entry, configHome, live) {
     switch (render.wiringForm(entry.target.wiring)) {
     case "include": failure = editWiring(entry.name, entry.target, configHome, live, render.wiredText); break;
     case "entry": failure = keepEntries(entry.name, entry.target, configHome, live, entry.entryPlan); break;
+    case "extension": failure = keepExtension(entry.name, entry.target, entry.files, entry.version, entry.editors); break;
     case "none": failure = null; break;
     default: throw new Error("vgshell-theme-judge: wire: target " + entry.name + " has no known wiring form");
     }
     if (failure === null && entry.target.select !== undefined) {
         for (const selection of selectionEdits(entry.target, configHome, live, entry.roots)) {
-            failure = editFile("target=" + entry.name + " reason", selection.file, false, selection.edit);
+            failure = editFile("target=" + entry.name + " reason", selection.file, selection.create, selection.edit);
             if (failure !== null) break;
         }
     }
     return failure === null ? entry : Object.assign({ name: entry.name, state: "failed", dropped: entry.dropped }, failure);
 }
 
-// Undo a disabled TARGET's wiring: remove its include line or its links.
+// Undo a disabled TARGET's wiring: remove its include line, its links or
+// its generated extension.
 // Answers null, or the failure's { reason, failure } for target NAME.
 function unwire(name, target, configHome, live) {
     switch (render.wiringForm(target.wiring)) {
     case "include": return editWiring(name, target, configHome, live, render.unwiredText);
     case "entry": return dropEntries(name, target, configHome, live);
+    case "extension": return dropExtension(name, target, configHome);
     case "none": return null;
     default: throw new Error("vgshell-theme-judge: unwire: target " + name + " has no known wiring form");
     }
@@ -2797,6 +2920,17 @@ function setupTargetRows(name, target, configHome, live) {
             }
         break;
     }
+    case "extension":
+        for (const editor of detectedEditors(target, configHome)) {
+            try {
+                for (const folder of otherVersions(editor.extensions, target.wiring.extension, null))
+                    rows.push({ name, app: target.app, file: folder, line: null, state: "wired" });
+            } catch (e) {
+                if (typeof e.code !== "string") throw e;
+                rows.push(...unreadable(e.path, e.code));
+            }
+        }
+        break;
     case "none":
         break;
     default:

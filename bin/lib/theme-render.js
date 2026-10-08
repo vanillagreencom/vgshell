@@ -10,6 +10,7 @@
 //
 // A refusal is { ok: false, reason, detail }; `refusalLine` prints it.
 "use strict";
+const crypto = require("crypto");
 
 // Every key target.json carries, each required. `wiring` and `reload` may
 // be null. `runsCode` is true when the application loads or runs code from
@@ -28,15 +29,30 @@ const ACCOUNTS_KEY = "accounts";
 // key paths that each take the value. bin/lib/theme-select.js makes the
 // edit.
 const SELECT_KEY = "select";
+// An optional editors target serves every installed editor of one family
+// from one render: each `{ detect, extensions, user }` names the editor's
+// command, its extensions directory under the home directory and its user
+// settings directory under the configuration home. An editor is wired only
+// while its own command is on PATH, so the target's `detect` is empty. Its
+// wiring is the extension form and its selection is relative to each
+// editor's `user` directory.
+const EDITORS_KEY = "editors";
+const EDITOR_KEYS = ["detect", "extensions", "user"];
+const EDITOR_BASE = "editor";
 // The optional top-level key naming the command a one-time owner step
 // installs and the target's hook runs: until it is on PATH the target is
 // skipped with `setup-absent`, so no apply runs a hook that cannot work.
 const SETUP_KEY = "setup";
 const SELECT_KEYS = ["base", "file", "format", "key", "value"];
-const SELECT_FORMATS = ["json", "toml", "yaml"];
+// `jsonc` is JSON with comments and trailing commas, as VS Code-family
+// editors read their settings.
+const SELECT_FORMATS = ["json", "jsonc", "toml", "yaml"];
 // The longest `key` a line-exact format takes: a root key, or a key in one
 // table or top-level mapping. JSON takes any depth.
 const SELECT_LINE_DEPTH = 2;
+// One segment of a JSON key path: a bare name that may hold dots, since VS
+// Code-family editors read `workbench.colorTheme` as one flat key.
+const JSON_KEY_PATTERN = /^[A-Za-z0-9_.-]+$/;
 // A character a selection value may not hold, since a TOML basic string
 // refuses it raw.
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
@@ -44,7 +60,7 @@ const FILE_KEYS = ["template", "destination"];
 // The one optional key of a `files` entry: the top-level JSON keys, one of
 // which a package's curated file of that destination must hold to be taken.
 const CURATED_KEYS_KEY = "curatedKeys";
-// The two wiring forms. An include wiring keeps one line in the
+// The three wiring forms. An include wiring keeps one line in the
 // application's configuration file; its optional keys are the section the
 // line goes into, the Mozilla profiles.ini paths whose profile directories
 // the file is relative to, and the fallback files under HOME tried when the
@@ -52,13 +68,23 @@ const CURATED_KEYS_KEY = "curatedKeys";
 // target's files in the application's theme or extension directory and edits
 // no file; its optional key is the Obsidian vault registry whose vaults the
 // directory is relative to. Exactly one of `links` or `copies` tells which
-// entry kind it writes. A null wiring keeps nothing: the target's hook
+// entry kind it writes. An extension wiring, an editors target's only form,
+// keeps one generated extension in each wired editor's extensions directory:
+// `extension` is its `<publisher>.<name>` id, `version` the destination
+// whose final bytes make its version, and `copies` its files, each a copy of
+// one of the target's files. A null wiring keeps nothing: the target's hook
 // asserts the setting that makes its application read the files.
 const WIRING_KEYS = ["file", "line", "create"];
 const INCLUDE_OPTIONAL_KEYS = ["section", "profiles", "fallbacks"];
 const ENTRY_BASE_KEYS = ["base", "dir", "owned"];
 const ENTRY_ITEM_KEYS = ["links", "copies"];
 const ENTRY_OPTIONAL_KEYS = ["vaults"];
+const EXTENSION_KEYS = ["extension", "version", "copies"];
+// An extension id, `<publisher>.<name>`, as the editors' own manifests
+// spell one, in lower case so it is the folder name the editors compare.
+const EXTENSION_ID_PATTERN = /^[a-z0-9][a-z0-9-]*\.[a-z0-9][a-z0-9-]*$/;
+// The placeholder a file of an extension target writes its version with.
+const VERSION_PLACEHOLDER = "extension.version";
 // The directories an entry's `dir` and a selection's `file` are relative
 // to: the user's configuration home, ${XDG_CONFIG_HOME:-~/.config}, the home
 // directory, or the user's cache home, ${XDG_CACHE_HOME:-~/.cache}.
@@ -99,6 +125,9 @@ const TARGET_PLACEHOLDER = "target";
 // a directory or file name, a leading dot allowed so `.vscode` can be
 // named, never `.` or `..`.
 const DIR_SEGMENT_PATTERN = /^\.?[A-Za-z0-9][A-Za-z0-9._-]*$/;
+// A segment of an editor's `user` directory, which may hold inner spaces:
+// VS Code Insiders keeps its settings under `Code - Insiders/User`.
+const USER_SEGMENT_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._ -]*[A-Za-z0-9._-])?$/;
 
 // A wiring section is one bare name, as an INI section or a TOML table
 // header writes it between brackets; so is each segment of a selection's
@@ -286,10 +315,12 @@ function wiringError(logic, wiring) {
     return "";
 }
 
-// The form of an accepted target's WIRING, `include`, `entry` or `none`,
+// The form of an accepted target's WIRING, `include`, `entry`, `extension`
+// or `none`,
 // which each caller matches exhaustively.
 function wiringForm(wiring) {
     if (wiring === null) return "none";
+    if (Object.prototype.hasOwnProperty.call(wiring, "extension")) return "extension";
     return entryItemKey(wiring) === "" ? "include" : "entry";
 }
 
@@ -324,6 +355,42 @@ function entryError(logic, wiring, destinations, hasAccounts) {
     for (const [name, destination] of Object.entries(wiring[itemKey])) {
         if (!logic.isPackageName(name)) return "key=wiring." + itemKey + "." + name;
         if (!destinations.has(destination)) return "key=wiring." + itemKey + "." + name;
+    }
+    return "";
+}
+
+// The first defect of an extension `wiring`, or "": its id, the destination
+// its version is made from, and its copies, each a package file name mapped
+// to one of DESTINATIONS. The version destination itself cannot name the
+// version, which renderTarget refuses.
+function extensionError(logic, wiring, destinations) {
+    if (!hasExactKeys(logic, wiring, EXTENSION_KEYS)) return "key=wiring";
+    if (typeof wiring.extension !== "string" || !EXTENSION_ID_PATTERN.test(wiring.extension)) return "key=wiring.extension";
+    if (!destinations.has(wiring.version)) return "key=wiring.version";
+    if (!logic.isPlainObject(wiring.copies) || Object.keys(wiring.copies).length === 0) return "key=wiring.copies";
+    for (const [name, destination] of Object.entries(wiring.copies))
+        if (!logic.isPackageName(name) || !destinations.has(destination)) return "key=wiring.copies." + name;
+    return "";
+}
+
+// The first defect of `editors`, or "": one or more editors, each a command
+// name, an extensions directory relative to the home directory and a user
+// directory relative to the configuration home, no two sharing a command or
+// a directory.
+function editorsError(logic, editors) {
+    if (!Array.isArray(editors) || editors.length === 0) return "key=editors";
+    const seen = new Set();
+    for (let at = 0; at < editors.length; at++) {
+        const editor = editors[at];
+        const key = "key=editors[" + at + "]";
+        if (!hasExactKeys(logic, editor, EDITOR_KEYS)) return key;
+        if (!logic.isPackageName(editor.detect)) return key + ".detect";
+        if (!isRelativePath(editor.extensions)) return key + ".extensions";
+        if (typeof editor.user !== "string" || !editor.user.split("/").every(segment => USER_SEGMENT_PATTERN.test(segment))) return key + ".user";
+        for (const value of ["detect:" + editor.detect, "extensions:" + editor.extensions, "user:" + editor.user]) {
+            if (seen.has(value)) return key;
+            seen.add(value);
+        }
     }
     return "";
 }
@@ -393,11 +460,17 @@ function setupDone(target, onPath) {
     return target.setup === undefined || onPath(target.setup);
 }
 
-// Whether KEY is a key path FORMAT takes: one bare name per segment, and
-// at most SELECT_LINE_DEPTH of them for a line-exact format.
+function isJsonFormat(format) {
+    return format === "json" || format === "jsonc";
+}
+
+// Whether KEY is a key path FORMAT takes: one bare name per segment, a dot
+// allowed in a JSON one, and at most SELECT_LINE_DEPTH of them for a
+// line-exact format.
 function isKeyPath(format, key) {
-    return Array.isArray(key) && key.length > 0 && key.every(segment => typeof segment === "string" && SECTION_PATTERN.test(segment)) &&
-        (format === "json" || key.length <= SELECT_LINE_DEPTH);
+    const segment = isJsonFormat(format) ? JSON_KEY_PATTERN : SECTION_PATTERN;
+    return Array.isArray(key) && key.length > 0 && key.every(name => typeof name === "string" && segment.test(name)) &&
+        (isJsonFormat(format) || key.length <= SELECT_LINE_DEPTH);
 }
 
 // Whether key path A is B or a table, mapping or object on B's path, so the
@@ -407,13 +480,14 @@ function isKeyPrefix(a, b) {
 }
 
 // The first defect of `select`, or "": a settings file under one of the
-// entry bases, one name per segment, its format, the key path the theme is
+// entry bases, or under each editor's user directory for an editors target,
+// one name per segment, its format, the key path the theme is
 // named at, or a list of two or more such paths none of which is another or
 // lies on another's path, and one line of value whose only placeholder is
 // `@{state}`.
-function selectError(logic, select, hasAccounts) {
+function selectError(logic, select, hasAccounts, hasEditors) {
     if (!hasExactKeys(logic, select, SELECT_KEYS)) return "key=select";
-    if (!entryBaseAccepted(select.base, hasAccounts)) return "key=select.base";
+    if (!entryBaseAccepted(select.base, hasAccounts) && !(hasEditors && select.base === EDITOR_BASE)) return "key=select.base";
     if (!isRelativePath(select.file)) return "key=select.file";
     if (!SELECT_FORMATS.includes(select.format)) return "key=select.format";
     if (!isKeyPath(select.format, select.key)) {
@@ -440,7 +514,7 @@ function acceptTarget(logic, name, text) {
     }
     if (!logic.isPlainObject(document)) return refused("target-schema", "key=document");
     for (const key of Object.keys(document))
-        if (!TARGET_KEYS.includes(key) && key !== SELECT_KEY && key !== SETUP_KEY && key !== ACCOUNTS_KEY) return refused("target-schema", "unknown=" + key);
+        if (!TARGET_KEYS.includes(key) && ![SELECT_KEY, SETUP_KEY, ACCOUNTS_KEY, EDITORS_KEY].includes(key)) return refused("target-schema", "unknown=" + key);
     for (const key of TARGET_KEYS)
         if (!logic.hasOwn(document, key)) return refused("target-schema", "missing=" + key);
     if (!isLine(document.app)) return refused("target-schema", "key=app");
@@ -458,13 +532,22 @@ function acceptTarget(logic, name, text) {
     if (logic.hasOwn(document, SETUP_KEY) && !logic.isPackageName(document.setup)) return refused("target-schema", "key=setup");
     const hasAccounts = logic.hasOwn(document, ACCOUNTS_KEY);
     if (hasAccounts && !logic.isPackageName(document.accounts)) return refused("target-schema", "key=accounts");
+    const hasEditors = logic.hasOwn(document, EDITORS_KEY);
+    if (hasEditors) {
+        const editors = editorsError(logic, document.editors);
+        if (editors !== "") return refused("target-schema", editors);
+        if (document.detect.length !== 0) return refused("target-schema", "key=detect");
+        if (!logic.isPlainObject(document.wiring) || wiringForm(document.wiring) !== "extension") return refused("target-schema", "key=wiring");
+    }
+    const form = logic.isPlainObject(document.wiring) ? wiringForm(document.wiring) : "";
     const wiring = document.wiring === null ? ""
-        : logic.isPlainObject(document.wiring) && wiringForm(document.wiring) === "entry" ? entryError(logic, document.wiring, destinations, hasAccounts)
+        : form === "extension" ? (hasEditors ? extensionError(logic, document.wiring, destinations) : "key=wiring")
+        : form === "entry" ? entryError(logic, document.wiring, destinations, hasAccounts)
         : wiringError(logic, document.wiring);
     if (wiring !== "") return refused("target-schema", wiring);
     const reload = reloadError(logic, document.reload, document);
     if (reload !== "") return refused("target-schema", reload);
-    const select = logic.hasOwn(document, SELECT_KEY) ? selectError(logic, document.select, hasAccounts) : "";
+    const select = logic.hasOwn(document, SELECT_KEY) ? selectError(logic, document.select, hasAccounts, hasEditors) : "";
     if (select !== "") return refused("target-schema", select);
     if (hasAccounts) {
         if (!logic.hasOwn(document, SELECT_KEY) || wiringForm(document.wiring) !== "entry" ||
@@ -609,8 +692,12 @@ function tmuxSlots(logic, input) {
 // curated file stands in. On a `runsCode` target an installed package's
 // curated file is dropped, never judged, and its destination listed in
 // `dropped`; any other curated file curatedTaken admits is taken verbatim.
-// Answers { ok: true, files: [{ destination, bytes, curated }], dropped }
-// in the target's order, or one refusal.
+// An extension target renders its `version` destination first and writes
+// its extensionVersion wherever another file names `@{extension.version}`;
+// any other file naming it refuses the target.
+// Answers { ok: true, files: [{ destination, bytes, curated }], dropped,
+// version } in the target's order, `version` undefined but on an extension
+// target, or one refusal.
 function renderTarget(logic, tokens, target, templates, input) {
     if (input.slots === null || typeof input.slots !== "object")
         throw new Error("theme-render: renderTarget: target " + target.name + " rendered without terminal slots");
@@ -618,9 +705,12 @@ function renderTarget(logic, tokens, target, templates, input) {
         throw new Error("theme-render: renderTarget: target " + target.name + " rendered without the package's source");
     if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };
     const encode = hex => ENCODERS[target.encoder](hex, input.values.color.background);
-    const files = [];
+    const rendered = new Map();
     const dropped = [];
-    for (const file of target.files) {
+    const versionFrom = target.wiring !== null && wiringForm(target.wiring) === "extension" ? target.wiring.version : undefined;
+    const order = target.files.filter(file => file.destination === versionFrom).concat(target.files.filter(file => file.destination !== versionFrom));
+    let version;
+    for (const file of order) {
         const text = templates.get(file.template);
         if (typeof text !== "string")
             throw new Error("theme-render: renderTarget: template " + file.template + " of target " + target.name + " was not read");
@@ -632,7 +722,7 @@ function renderTarget(logic, tokens, target, templates, input) {
                 out += part;
                 continue;
             }
-            const value = placeholderText(logic, tokens, input, part.name, encode);
+            const value = part.name === VERSION_PLACEHOLDER ? version : placeholderText(logic, tokens, input, part.name, encode);
             if (value === undefined) return refused("placeholder", "template=" + file.template + " placeholder=" + JSON.stringify(part.name));
             out += value;
         }
@@ -640,9 +730,19 @@ function renderTarget(logic, tokens, target, templates, input) {
         const drop = present && input.installed && target.runsCode;
         if (drop) dropped.push(file.destination);
         const curated = present && !drop && curatedTaken(logic, file, input.curated.get(file.destination));
-        files.push({ destination: file.destination, bytes: curated ? input.curated.get(file.destination) : Buffer.from(out, "utf8"), curated });
+        const bytes = curated ? input.curated.get(file.destination) : Buffer.from(out, "utf8");
+        if (file.destination === versionFrom) version = extensionVersion(bytes);
+        rendered.set(file.destination, { destination: file.destination, bytes, curated });
     }
-    return { ok: true, files, dropped };
+    const destinations = target.files.map(file => file.destination);
+    return { ok: true, files: destinations.map(destination => rendered.get(destination)), dropped: destinations.filter(destination => dropped.includes(destination)), version };
+}
+
+// The version an extension whose `version` file holds BYTES carries:
+// `1.0.<n>`, n the first 32 bits of the bytes' sha256, so new bytes make a
+// new version and the editors replace the theme they cached for the old one.
+function extensionVersion(bytes) {
+    return "1.0." + parseInt(crypto.createHash("sha256").update(bytes).digest("hex").slice(0, 8), 16);
 }
 
 // The include line an accepted TARGET keeps in its application's
@@ -730,6 +830,73 @@ function vaultDirs(logic, text) {
         if (typeof dir === "string" && dir.startsWith("/") && !dirs.includes(dir)) dirs.push(dir);
     }
     return dirs;
+}
+
+// The folder extension ID at VERSION is kept in, in an editor's extensions
+// directory, as the editors name an installed extension's folder.
+function extensionFolder(id, version) {
+    return id + "-" + version;
+}
+
+// Whether NAME is a folder extensionFolder gives extension ID at any
+// version: what an apply removes once another version is registered.
+function isExtensionFolder(name, id) {
+    return name.startsWith(id + "-") && /^[0-9]+\.[0-9]+\.[0-9]+$/.test(name.slice(id.length + 1));
+}
+
+// TEXT parsed as JSON when it is a value CHECK admits, else undefined.
+function parsedJson(text, check) {
+    try {
+        const value = JSON.parse(text);
+        return check(value) ? value : undefined;
+    } catch (e) {
+        return undefined;
+    }
+}
+
+function registeredId(logic, entry) {
+    return logic.isPlainObject(entry) && logic.isPlainObject(entry.identifier) && typeof entry.identifier.id === "string"
+        ? entry.identifier.id.toLowerCase() : null;
+}
+
+// The text an editor's extensions.json holding TEXT, undefined when it is
+// absent, takes so that it registers extension ID at VERSION in its folder
+// under DIR, the extensions directory, and no other version of it: null when
+// it already does, or the refusal `registry-refused` for a file that is no
+// JSON array. An entry the editor already holds for that folder is kept as
+// it is, so metadata the editor added to it stays.
+function registeredText(logic, text, id, version, dir) {
+    const entries = text === undefined ? [] : parsedJson(text, Array.isArray);
+    if (entries === undefined) return refused("registry-refused", "file=extensions.json");
+    const folder = extensionFolder(id, version);
+    const own = entries.filter(entry => registeredId(logic, entry) === id);
+    if (own.length === 1 && own[0].version === version && own[0].relativeLocation === folder) return null;
+    return JSON.stringify(entries.filter(entry => registeredId(logic, entry) !== id).concat({
+        identifier: { id }, version, location: { $mid: 1, path: dir + "/" + folder, scheme: "file" }, relativeLocation: folder, metadata: { source: "vsix" }
+    }));
+}
+
+// The text an editor's extensions.json holding TEXT takes once it registers
+// no version of extension ID: null when it registers none or is absent, or
+// the refusal `registry-refused` for a file that is no JSON array.
+function unregisteredText(logic, text, id) {
+    if (text === undefined) return null;
+    const entries = parsedJson(text, Array.isArray);
+    if (entries === undefined) return refused("registry-refused", "file=extensions.json");
+    const kept = entries.filter(entry => registeredId(logic, entry) !== id);
+    return kept.length === entries.length ? null : JSON.stringify(kept);
+}
+
+// The text an editor's `.obsolete` holding TEXT takes once it marks no
+// folder of extension ID obsolete, since a marked folder is one the editor
+// skips and deletes: null when it marks none or is absent, or the refusal
+// `registry-refused` for a file that is no JSON object.
+function unobsoletedText(logic, text, id) {
+    if (text === undefined) return null;
+    const marks = parsedJson(text, logic.isPlainObject);
+    if (marks === undefined) return refused("registry-refused", "file=.obsolete");
+    const kept = Object.keys(marks).filter(name => !isExtensionFolder(name, id));
+    return kept.length === Object.keys(marks).length ? null : JSON.stringify(Object.fromEntries(kept.map(name => [name, marks[name]])));
 }
 
 // Whether the line TEXT is the header of SECTION. bin/lib/theme-select.js
@@ -874,4 +1041,4 @@ function unwiredText(text, line, section) {
     return next === text ? null : next;
 }
 
-module.exports = { TARGET_FILE, acceptTarget, placeholderNames, detected, setupDone, curatedTaken, renderTarget, terminalSource, refusalLine, wiringForm, wiringLine, entryItems, profileDirs, vaultDirs, reloadNamesWiring, reloadCommand, reloadAlways, selectKeys, selectValue, wiredText, unwiredText, isSectionHeader, opensSection, assignedKey };
+module.exports = { TARGET_FILE, EDITOR_BASE, extensionVersion, extensionFolder, isExtensionFolder, registeredText, unregisteredText, unobsoletedText, acceptTarget, placeholderNames, detected, setupDone, curatedTaken, renderTarget, terminalSource, refusalLine, wiringForm, wiringLine, entryItems, profileDirs, vaultDirs, reloadNamesWiring, reloadCommand, reloadAlways, selectKeys, selectValue, wiredText, unwiredText, isSectionHeader, opensSection, assignedKey };

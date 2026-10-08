@@ -39,7 +39,7 @@ function terminated(text, lineEnd) {
 
 // The text a settings file holding TEXT, or undefined when it is absent,
 // takes so that each of KEYS, a list of paths of bare names, holds VALUE in
-// FORMAT, `json`, `toml` or `yaml`: the new text, null when every key
+// FORMAT, `json`, `jsonc`, `toml` or `yaml`: the new text, null when every key
 // already holds VALUE, or a refusal. Each key is set in order in the text
 // the key before it left, and any key refused refuses the whole edit.
 function selectedText(format, text, keys, value) {
@@ -58,10 +58,11 @@ function selectedText(format, text, keys, value) {
 function keySelected(format, text, key, value) {
     const refuse = cause => ({ ok: false, reason: REFUSED, detail: "format=" + format + " cause=" + cause + " key=" + key.join(".") });
     switch (format) {
-    case "json": return jsonSelected(text, key, value, refuse);
+    case "json": return jsonSelected(text, text, key, value, refuse);
+    case "jsonc": return jsonSelected(text, jsoncBlanked(text), key, value, refuse);
     case "toml": return tomlSelected(text, key, value, refuse);
     case "yaml": return yamlSelected(text, key, value, refuse);
-    default: throw new Error("theme-select: selectedText: format " + format + " is none of json, toml, yaml");
+    default: throw new Error("theme-select: selectedText: format " + format + " is none of json, jsonc, toml, yaml");
     }
 }
 
@@ -134,18 +135,56 @@ function withMember(text, object, member) {
     return text.slice(0, object.start + 1) + lineEnd + between.slice(newline + 1) + member + "," + text.slice(object.start + 1);
 }
 
-// JSON: the whole file must parse as an object. The key's string token is
-// replaced; a missing key is added, with the objects missing on its path,
-// as the first member of the deepest object that exists.
-function jsonSelected(text, key, value, refuse) {
+// TEXT, JSON with comments and trailing commas, with each comment and each
+// trailing comma written as spaces, its line breaks kept: plain JSON whose
+// every offset is TEXT's, so a span read from it is TEXT's span.
+function jsoncBlanked(text) {
+    const out = text.split("");
+    const blank = (from, to) => { for (let i = from; i < to; i++) if (out[i] !== "\n" && out[i] !== "\r") out[i] = " "; };
+    // The offset past the string opening at AT, or the text's end for one
+    // left open, which JSON.parse then refuses.
+    const pastString = (source, at) => {
+        let i = at + 1;
+        while (i < source.length && source[i] !== "\"") i += source[i] === "\\" ? 2 : 1;
+        return Math.min(i + 1, source.length);
+    };
+    let i = 0;
+    while (i < text.length) {
+        if (text[i] === "\"") {
+            i = pastString(text, i);
+        } else if (text.startsWith("//", i)) {
+            const end = text.indexOf("\n", i);
+            blank(i, end === -1 ? text.length : end);
+            i = end === -1 ? text.length : end;
+        } else if (text.startsWith("/*", i)) {
+            const end = text.indexOf("*/", i + 2);
+            blank(i, end === -1 ? text.length : end + 2);
+            i = end === -1 ? text.length : end + 2;
+        } else {
+            i++;
+        }
+    }
+    // A comma blanked inside a string changes no offset and no structure.
+    const plain = out.join("");
+    for (i = 0; i < plain.length; i++)
+        if (plain[i] === "," && "}]".includes(plain[skipSpace(plain, i + 1)])) out[i] = " ";
+    return out.join("");
+}
+
+// JSON: the whole file must parse as an object; PLAIN is TEXT, or for
+// `jsonc` TEXT blanked by jsoncBlanked, and every byte outside the edit is
+// TEXT's. The key's string token is replaced; a missing key is added, with
+// the objects missing on its path, as the first member of the deepest
+// object that exists.
+function jsonSelected(text, plain, key, value, refuse) {
     let document;
     try {
-        document = JSON.parse(text);
+        document = JSON.parse(plain);
     } catch (e) {
         return refuse("unparseable");
     }
     if (document === null || typeof document !== "object" || Array.isArray(document)) return refuse("unparseable");
-    let object = jsonSpan(text, 0);
+    let object = jsonSpan(plain, 0);
     for (let depth = 0; depth < key.length; depth++) {
         const found = object.members.filter(member => member.key === key[depth]);
         if (found.length > 1) return refuse("duplicate-key");

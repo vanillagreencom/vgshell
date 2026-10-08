@@ -2,8 +2,8 @@
   "name": "vgs-theme",
   "displayName": "vgs",
   "description": "The vgs desktop theme, kept by vgshell theme apply.",
-  "publisher": "vgs",
-  "version": "1.0.0",
+  "publisher": "local",
+  "version": "@{extension.version}",
   "engines": { "vscode": "^1.74.0" },
   "categories": ["Themes"],
   "contributes": {

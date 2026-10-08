@@ -15,6 +15,7 @@
       "info": "#7b79a4"
     },
     "color": {
+      "text": "mix({palette.foreground}, contrast({palette.background}), 0.05)",
       "textMuted": "mix({palette.foreground}, {palette.background}, 0.00)",
       "textFaint": "mix({palette.foreground}, {palette.background}, 0.00)",
       "success": "mix({palette.success}, contrast({palette.background}), 0.31)",

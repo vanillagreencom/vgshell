@@ -21,6 +21,8 @@ const GEMINI = ["ui", "theme"];
 const CODEX = ["tui", "theme"];
 const HERMES = ["display", "skin"];
 const OMP = [["theme", "dark"], ["theme", "light"]];
+// VS Code-family editors read one flat key holding a dot.
+const EDITOR = ["workbench.colorTheme"];
 
 // Edits that land: the format, the file's text, the key, the value, the
 // text the file takes, or null when it already selects the value.
@@ -45,6 +47,12 @@ const SELECTED = [
     ["json", '{\n  "ui": {}\n}', GEMINI, "/s/gemini.json", '{\n  "ui": {\n    "theme": "/s/gemini.json"\n  }\n}'],
     ["json", '{"ui":{"theme":"Default"}}', GEMINI, "/s/gemini.json", '{"ui":{"theme":"/s/gemini.json"}}'],
     ["json", "{}", ["a", "b", "c"], "v", '{\n  "a": { "b": { "c": "v" } }\n}'],
+    ["json", '{"workbench.colorTheme": "Default Dark+"}', EDITOR, "vgs", '{"workbench.colorTheme": "vgs"}'],
+    ["jsonc", "{}", EDITOR, "vgs", '{\n  "workbench.colorTheme": "vgs"\n}'],
+    ["jsonc", '{\n    // mine\n    "editor.fontSize": 14,\n}\n', EDITOR, "vgs", '{\n    "workbench.colorTheme": "vgs",\n    // mine\n    "editor.fontSize": 14,\n}\n'],
+    ["jsonc", '{\n  "workbench.colorTheme": "Default Dark+", /* was, */\n  "a": [1, 2,],\n}', EDITOR, "vgs", '{\n  "workbench.colorTheme": "vgs", /* was, */\n  "a": [1, 2,],\n}'],
+    ["jsonc", '/* top */ { "u": "http://x//y", "workbench.colorTheme": "vgs" }', EDITOR, "vgs", null],
+    ["jsonc", '{ "s": "a\\"/*b" }', EDITOR, "vgs", '{ "workbench.colorTheme": "vgs", "s": "a\\"/*b" }'],
     ["toml", 'model = "o3"\n\n[tui]\nanimations = false\n\n[mcp_servers.x]\ncommand = "y"\n', CODEX, "vgs", 'model = "o3"\n\n[tui]\ntheme = "vgs"\nanimations = false\n\n[mcp_servers.x]\ncommand = "y"\n'],
     ["toml", "[ tui ] # ui\n", CODEX, "vgs", '[ tui ] # ui\ntheme = "vgs"\n'],
     ["toml", 'model = "o3"\n', CODEX, "vgs", 'model = "o3"\n[tui]\ntheme = "vgs"\n'],
@@ -107,6 +115,11 @@ const REFUSED = [
     ["json", '{"ui": "Default"}', GEMINI, "not-a-table"],
     ["json", '{"ui": {"theme": "a", "theme": "b"}}', GEMINI, "duplicate-key"],
     ["json", '{"ui": {}, "ui": {}}', GEMINI, "duplicate-key"],
+    ["jsonc", '{ "a": 1 /* open', EDITOR, "unparseable"],
+    ["jsonc", '{ "a": "open', EDITOR, "unparseable"],
+    ["jsonc", "[1,,]", EDITOR, "unparseable"],
+    ["jsonc", "// only\n[]", EDITOR, "unparseable"],
+    ["jsonc", '{ "workbench.colorTheme": 1, }', EDITOR, "not-a-string"],
     ["toml", "[tui]\n[tui]\n", CODEX, "duplicate-table"],
     ["toml", '["tui"]\n', CODEX, "not-a-table"],
     ["toml", "[[tui]]\n", CODEX, "not-a-table"],
@@ -184,6 +197,8 @@ const ACCEPTED = [
     { format: "yaml", file: ".hermes/config.yaml", key: ["skin"], value: "vgs" },
     { format: "yaml", file: ".omp/agent/config.yml", key: OMP, value: "vgs" },
     { key: [["a", "b", "c"], ["d"]] },
+    { key: EDITOR },
+    { format: "jsonc", key: EDITOR, value: "vgs" },
     { value: "@{state}/gemini.json" },
     { value: "@@{x}" }
 ];
@@ -200,7 +215,9 @@ const REFUSED_SCHEMA = [
     [targetText({ format: "ini" }), "key=select.format"],
     [targetText({ key: [] }), "key=select.key"],
     [targetText({ key: "theme" }), "key=select.key"],
-    [targetText({ key: ["a.b"] }), "key=select.key"],
+    [targetText({ format: "toml", key: ["a.b"] }), "key=select.key"],
+    [targetText({ format: "yaml", key: ["a.b"] }), "key=select.key"],
+    [targetText({ key: ["a b"] }), "key=select.key"],
     [targetText({ key: [1] }), "key=select.key"],
     [targetText({ format: "toml", key: ["a", "b", "c"] }), "key=select.key"],
     [targetText({ format: "yaml", key: ["a", "b", "c"] }), "key=select.key"],
@@ -231,9 +248,9 @@ function verify(render, edit) {
         assert.deepEqual(edit.selectedText(format, text, keys, "vgs"),
             { ok: false, reason: "selection-refused", detail: "format=" + format + " cause=" + cause + " key=" + key }, format + " " + JSON.stringify(text));
     // An absent file is never created, whatever its format.
-    for (const format of ["json", "toml", "yaml"])
+    for (const format of ["json", "jsonc", "toml", "yaml"])
         assert.deepEqual(edit.selectedText(format, undefined, [CLAUDE], "vgs"), { ok: false, reason: "selection-file-absent", detail: "" }, format);
-    assert.throws(() => edit.selectedText("ini", "", [CLAUDE], "vgs"), /none of json, toml, yaml/);
+    assert.throws(() => edit.selectedText("ini", "", [CLAUDE], "vgs"), /none of json, jsonc, toml, yaml/);
 
     for (const fields of ACCEPTED) {
         const verdict = render.acceptTarget(logic, "probe", targetText(fields));
@@ -266,6 +283,14 @@ verify(require(renderFile), require(selectFile));
 const S = "theme-select.js";
 const R = "theme-render.js";
 const CONTROLS = [
+    [S, '    case "jsonc": return jsonSelected(text, jsoncBlanked(text), key, value, refuse);', '    case "jsonc": return jsonSelected(text, text, key, value, refuse);'],
+    [S, '} else if (text.startsWith("//", i)) {', '} else if (false) {'],
+    [S, '} else if (text.startsWith("/*", i)) {', '} else if (false) {'],
+    [S, 'if (text[i] === "\\"") {\n            i = pastString(text, i);', 'if (false) {\n            i = pastString(text, i);'],
+    [S, '        if (plain[i] === "," && "}]".includes(plain[skipSpace(plain, i + 1)])) out[i] = " ";\n', ""],
+    [R, 'const SELECT_FORMATS = ["json", "jsonc", "toml", "yaml"];', 'const SELECT_FORMATS = ["json", "toml", "yaml"];'],
+    [R, "const segment = isJsonFormat(format) ? JSON_KEY_PATTERN : SECTION_PATTERN;", "const segment = JSON_KEY_PATTERN;"],
+    [R, "const segment = isJsonFormat(format) ? JSON_KEY_PATTERN : SECTION_PATTERN;", "const segment = SECTION_PATTERN;"],
     [S, 'if (text === undefined) return { ok: false, reason: ABSENT, detail: "" };', 'if (text === undefined) text = "";'],
     [S, "    } catch (e) {\n        return refuse(\"unparseable\");", "    } catch (e) {\n        return text;"],
     [S, 'if (document === null || typeof document !== "object" || Array.isArray(document)) return refuse("unparseable");', 'if (document === null) return refuse("unparseable");'],
@@ -329,19 +354,19 @@ const CONTROLS = [
     [S, "if (key.length === 1) return appended(entry);", ""],
     [S, 'appended(map + ":" + cr + "\\n  " + name', 'appended(map + ":" + cr + "\\n" + name'],
     [S, '" ".repeat(key.length === 2 && indent === 0 ? 2 : indent)', '" ".repeat(indent)'],
-    [R, "if (!TARGET_KEYS.includes(key) && key !== SELECT_KEY && key !== SETUP_KEY && key !== ACCOUNTS_KEY) return", "if (!TARGET_KEYS.includes(key) && key !== SETUP_KEY && key !== ACCOUNTS_KEY) return"],
-    [R, "const select = logic.hasOwn(document, SELECT_KEY) ? selectError(logic, document.select, hasAccounts) : \"\";", "const select = \"\";"],
+    [R, "![SELECT_KEY, SETUP_KEY, ACCOUNTS_KEY, EDITORS_KEY].includes(key)", "![SETUP_KEY, ACCOUNTS_KEY, EDITORS_KEY].includes(key)"],
+    [R, "const select = logic.hasOwn(document, SELECT_KEY) ? selectError(logic, document.select, hasAccounts, hasEditors) : \"\";", "const select = \"\";"],
     [R, 'if (!hasExactKeys(logic, select, SELECT_KEYS)) return "key=select";', 'if (!logic.isPlainObject(select)) return "key=select";'],
-    [R, 'if (!entryBaseAccepted(select.base, hasAccounts)) return "key=select.base";', ""],
+    [R, 'if (!entryBaseAccepted(select.base, hasAccounts) && !(hasEditors && select.base === EDITOR_BASE)) return "key=select.base";', ""],
     [R, 'if (!isRelativePath(select.file)) return "key=select.file";', ""],
     [R, 'if (!SELECT_FORMATS.includes(select.format)) return "key=select.format";', ""],
     [S, 'if (verdict !== null && typeof verdict !== "string") return verdict;', 'if (verdict !== null && typeof verdict !== "string") continue;'],
     [S, "changed === null ? text : changed", "text"],
     [S, "if (verdict !== null) changed = verdict;", "changed = verdict;"],
     [R, "key.length > 0 && ", ""],
-    [R, 'key.every(segment => typeof segment === "string" && SECTION_PATTERN.test(segment))', "true"],
-    [R, '(format === "json" || key.length <= SELECT_LINE_DEPTH)', "true"],
-    [R, '(format === "json" || key.length <= SELECT_LINE_DEPTH)', "(key.length <= SELECT_LINE_DEPTH)"],
+    [R, 'key.every(name => typeof name === "string" && segment.test(name))', "true"],
+    [R, '(isJsonFormat(format) || key.length <= SELECT_LINE_DEPTH)', "true"],
+    [R, '(isJsonFormat(format) || key.length <= SELECT_LINE_DEPTH)', "(key.length <= SELECT_LINE_DEPTH)"],
     [R, "keys.length < 2 || ", ""],
     [R, "!keys.every(key => isKeyPath(select.format, key))", "false"],
     [R, 'if (keys.some((a, i) => keys.some((b, j) => i !== j && isKeyPrefix(a, b)))) return "key=select.key";', ""],

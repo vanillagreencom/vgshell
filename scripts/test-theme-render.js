@@ -61,6 +61,15 @@ const accountSelect = { base: "account", file: "settings.json", format: "json", 
 const twoFiles = [{ template: "a.conf", destination: "probe.conf" }, { template: "b.json", destination: "probe.pkg.json" }];
 const entryText = (fields = {}) => targetText({ files: twoFiles, wiring: Object.assign({}, entry, fields) });
 const copyEntryText = (fields = {}) => targetText({ files: twoFiles, wiring: Object.assign({}, copyEntry, fields) });
+// An editors target: one generated extension per detected editor, its
+// version made from probe.conf, and the theme selected in each editor's
+// settings.
+const editors = [{ detect: "probe", extensions: ".probe/extensions", user: "Probe - Beta/User" }];
+const extension = { extension: "local.probe-theme", version: "probe.conf", copies: { "package.json": "probe.pkg.json", "theme.json": "probe.conf" } };
+const editorSelect = { base: "editor", file: "settings.json", format: "jsonc", key: ["workbench.colorTheme"], value: "vgs" };
+const extensionText = (fields = {}) => targetText(Object.assign({ files: twoFiles, detect: [], editors, wiring: extension, select: editorSelect, reload: null }, fields));
+const extensionWith = fields => Object.assign({}, extension, fields);
+const editorWith = fields => [Object.assign({}, editors[0], fields)];
 const targetText = (fields = {}) => JSON.stringify(Object.assign({
     app: "Probe",
     runsCode: false,
@@ -98,7 +107,11 @@ const ACCEPTED_TARGETS = [
     ["probe", entryText({ dir: ".obsidian/themes/vgs", owned: true, vaults: "obsidian/obsidian.json" })],
     ["probe", entryText({ base: "home", dir: ".probe", vaults: ".probe-vaults.json" })],
     ["probe", targetText({ setup: "probe-setup", wiring: null })],
-    ["probe", targetText({ runsCode: true })]
+    ["probe", targetText({ runsCode: true })],
+    ["probe", extensionText()],
+    ["probe", extensionText({ select: undefined })],
+    ["probe", extensionText({ editors: editors.concat({ detect: "probe-oss", extensions: ".probe-oss/extensions", user: "ProbeOSS/User" }) })],
+    ["probe", extensionText({ wiring: extensionWith({ version: "probe.pkg.json" }) })]
 ];
 
 // Refused targets: the name, the document text, the reason, the detail.
@@ -208,7 +221,34 @@ const REFUSED_TARGETS = [
     ["probe", targetText({ wiring: "none" }), "target-schema", "key=wiring"],
     ["probe", targetText({ setup: "/usr/local/bin/probe" }), "target-schema", "key=setup"],
     ["probe", targetText({ setup: ["probe"] }), "target-schema", "key=setup"],
-    ["probe", targetText({ setup: "" }), "target-schema", "key=setup"]
+    ["probe", targetText({ setup: "" }), "target-schema", "key=setup"],
+    ["probe", extensionText({ detect: ["probe"] }), "target-schema", "key=detect"],
+    ["probe", extensionText({ editors: [] }), "target-schema", "key=editors"],
+    ["probe", extensionText({ editors: editors[0] }), "target-schema", "key=editors"],
+    ["probe", extensionText({ editors: [{ detect: "probe", extensions: ".probe/extensions" }] }), "target-schema", "key=editors[0]"],
+    ["probe", extensionText({ editors: editorWith({ settings: "x" }) }), "target-schema", "key=editors[0]"],
+    ["probe", extensionText({ editors: editorWith({ detect: "probe --x" }) }), "target-schema", "key=editors[0].detect"],
+    ["probe", extensionText({ editors: editorWith({ extensions: "../extensions" }) }), "target-schema", "key=editors[0].extensions"],
+    ["probe", extensionText({ editors: editorWith({ user: "/etc/probe" }) }), "target-schema", "key=editors[0].user"],
+    ["probe", extensionText({ editors: editorWith({ user: " Probe/User" }) }), "target-schema", "key=editors[0].user"],
+    ["probe", extensionText({ editors: editorWith({ user: "Probe /User" }) }), "target-schema", "key=editors[0].user"],
+    ["probe", extensionText({ editors: editorWith({ user: "../User" }) }), "target-schema", "key=editors[0].user"],
+    ["probe", extensionText({ editors: editors.concat(Object.assign({}, editors[0], { extensions: ".other/extensions", user: "Other/User" })) }), "target-schema", "key=editors[1]"],
+    ["probe", extensionText({ editors: editors.concat(Object.assign({}, editors[0], { detect: "other", user: "Other/User" })) }), "target-schema", "key=editors[1]"],
+    ["probe", extensionText({ editors: editors.concat(Object.assign({}, editors[0], { detect: "other", extensions: ".other/extensions" })) }), "target-schema", "key=editors[1]"],
+    ["probe", extensionText({ wiring: entry }), "target-schema", "key=wiring"],
+    ["probe", extensionText({ wiring: null }), "target-schema", "key=wiring"],
+    ["probe", targetText({ files: twoFiles, wiring: extension }), "target-schema", "key=wiring"],
+    ["probe", extensionText({ wiring: extensionWith({ extension: "Local.Probe" }) }), "target-schema", "key=wiring.extension"],
+    ["probe", extensionText({ wiring: extensionWith({ extension: "probe-theme" }) }), "target-schema", "key=wiring.extension"],
+    ["probe", extensionText({ wiring: extensionWith({ extension: "local.probe.theme" }) }), "target-schema", "key=wiring.extension"],
+    ["probe", extensionText({ wiring: extensionWith({ version: "other.conf" }) }), "target-schema", "key=wiring.version"],
+    ["probe", extensionText({ wiring: extensionWith({ copies: {} }) }), "target-schema", "key=wiring.copies"],
+    ["probe", extensionText({ wiring: extensionWith({ copies: { "theme.json": "other.conf" } }) }), "target-schema", "key=wiring.copies.theme.json"],
+    ["probe", extensionText({ wiring: extensionWith({ copies: { "../theme.json": "probe.conf" } }) }), "target-schema", "key=wiring.copies.../theme.json"],
+    ["probe", extensionText({ wiring: extensionWith({ links: { "theme.json": "probe.conf" } }) }), "target-schema", "key=wiring"],
+    ["probe", targetText({ select: editorSelect }), "target-schema", "key=select.base"],
+    ["probe", targetText({ wiring: accountEntry, select: editorSelect, accounts: "claude" }), "target-schema", "key=select.base"]
 ];
 
 // One colour through each encoder: the defaults' color.selection is
@@ -442,6 +482,77 @@ const DETECTED = [
     [["c", ["a", "b"]], ["b", "c"], true]
 ];
 
+// The version an extension whose version file holds TEXT carries, written
+// from the rule: `1.0.` and the first 32 bits of the sha256, in decimal.
+const versionOf = text => "1.0." + BigInt("0x" + require("node:crypto").createHash("sha256").update(text).digest("hex").slice(0, 8)).toString();
+
+// An editors target renders its version file first, writes the version
+// wherever another file names it, and keeps the files in its order; the
+// registry edits register exactly one version of the id.
+function verifyExtension(render, accepted) {
+    const id = "local.probe-theme";
+    const renderWith = (target, a, b, curated = new Map()) => render.renderTarget(logic, TOKENS, target, new Map([["a.conf", a], ["b.json", b]]),
+        { values: probe.values, slots: defaults.terminal, curated, installed: false });
+    const first = accepted("probe", extensionText());
+    const result = renderWith(first, "c=@{palette.accent}", "v=@{extension.version}");
+    assert.equal(result.ok, true);
+    assert.equal(result.version, versionOf("c=123456"));
+    assert.deepEqual(result.files.map(file => [file.destination, file.bytes.toString("utf8")]), [["probe.conf", "c=123456"], ["probe.pkg.json", "v=" + versionOf("c=123456")]]);
+    assert.notEqual(renderWith(first, "c=@{palette.accent} ", "v").version, result.version);
+    // The version file may come last in `files`; it renders first all the same.
+    const last = accepted("probe", extensionText({ wiring: extensionWith({ version: "probe.pkg.json" }) }));
+    const lastResult = renderWith(last, "v=@{extension.version}", "b=@{palette.accent}");
+    assert.equal(lastResult.ok, true);
+    assert.deepEqual(lastResult.files.map(file => [file.destination, file.bytes.toString("utf8")]), [["probe.conf", "v=" + versionOf("b=123456")], ["probe.pkg.json", "b=123456"]]);
+    // A curated version file stands in, and the version is made from it.
+    const curated = renderWith(first, "c=@{palette.accent}", "v=@{extension.version}", new Map([["probe.conf", Buffer.from("mine")]]));
+    assert.equal(curated.version, versionOf("mine"));
+    assert.equal(curated.files[1].bytes.toString("utf8"), "v=" + versionOf("mine"));
+    // The version file cannot name its own version, nor can any file of a
+    // target that is no editors target.
+    assert.deepEqual(renderWith(first, "v=@{extension.version}", "b"), { ok: false, reason: "placeholder", detail: 'template=a.conf placeholder="extension.version"' });
+    const plain = accepted("probe", targetText({ files: twoFiles, wiring: entry }));
+    assert.deepEqual(renderWith(plain, "a", "v=@{extension.version}"), { ok: false, reason: "placeholder", detail: 'template=b.json placeholder="extension.version"' });
+    assert.equal(renderWith(plain, "a", "b").version, undefined);
+
+    assert.equal(render.extensionFolder(id, "1.0.7"), "local.probe-theme-1.0.7");
+    for (const [name, want] of [["local.probe-theme-1.0.7", true], ["local.probe-theme-12.0.123456", true], ["local.probe-theme", false],
+        ["local.probe-theme-1.0", false], ["local.probe-theme-1.0.7-x", false], ["local.probe-theme-extra-1.0.7", false], ["other.probe-theme-1.0.7", false]])
+        assert.equal(render.isExtensionFolder(name, id), want, name);
+
+    const entryOf = version => ({ identifier: { id }, version, location: { $mid: 1, path: "/h/.probe/extensions/local.probe-theme-" + version, scheme: "file" },
+        relativeLocation: "local.probe-theme-" + version, metadata: { source: "vsix" } });
+    const other = { identifier: { id: "pub.other", uuid: "u" }, version: "2.0.0", relativeLocation: "pub.other-2.0.0" };
+    const registered = text => {
+        const next = render.registeredText(logic, text, id, "1.0.9", "/h/.probe/extensions");
+        return typeof next === "string" ? JSON.parse(next) : next;
+    };
+    assert.deepEqual(registered(undefined), [entryOf("1.0.9")]);
+    assert.deepEqual(registered("[]"), [entryOf("1.0.9")]);
+    assert.deepEqual(registered(JSON.stringify([other, entryOf("1.0.3")])), [other, entryOf("1.0.9")]);
+    assert.deepEqual(registered(JSON.stringify([Object.assign(entryOf("1.0.3"), { identifier: { id: "LOCAL.Probe-Theme" } }), other])), [other, entryOf("1.0.9")]);
+    assert.deepEqual(registered(JSON.stringify([entryOf("1.0.9"), entryOf("1.0.9")])), [entryOf("1.0.9")]);
+    // An entry the editor holds for this version is kept, its metadata too.
+    const held = Object.assign(entryOf("1.0.9"), { metadata: { source: "vsix", installedTimestamp: 5 } });
+    assert.equal(registered(JSON.stringify([other, held])), null);
+    for (const text of ["{}", "", "[", "null"])
+        assert.deepEqual(registered(text), { ok: false, reason: "registry-refused", detail: "file=extensions.json" }, text);
+
+    const unregistered = text => render.unregisteredText(logic, text, id);
+    assert.equal(unregistered(undefined), null);
+    assert.equal(unregistered(JSON.stringify([other])), null);
+    assert.deepEqual(JSON.parse(unregistered(JSON.stringify([entryOf("1.0.3"), other]))), [other]);
+    assert.deepEqual(unregistered("{}"), { ok: false, reason: "registry-refused", detail: "file=extensions.json" });
+
+    const unobsoleted = text => render.unobsoletedText(logic, text, id);
+    assert.equal(unobsoleted(undefined), null);
+    assert.equal(unobsoleted('{"pub.other-2.0.0":true}'), null);
+    assert.deepEqual(JSON.parse(unobsoleted('{"local.probe-theme-1.0.3":true,"pub.other-2.0.0":true,"local.probe-theme-1.0.9":true}')), { "pub.other-2.0.0": true });
+    assert.equal(unobsoleted('{"local.probe-theme-x":true}'), null);
+    for (const text of ["[]", "", "null"])
+        assert.deepEqual(unobsoleted(text), { ok: false, reason: "registry-refused", detail: "file=.obsolete" }, text);
+}
+
 function verify(render) {
     const accepted = (name, text) => {
         const result = render.acceptTarget(logic, name, text);
@@ -461,6 +572,8 @@ function verify(render) {
         assert.equal(render.detected(detect, command => found.includes(command)), want, `${JSON.stringify(detect)} with ${JSON.stringify(found)}`);
     assert.equal(render.refusalLine("probe", { ok: false, reason: "target-schema", detail: "key=app" }), "target=probe reason=target-schema key=app");
     assert.equal(render.refusalLine("probe", { ok: false, reason: "target-json", detail: "" }), "target=probe reason=target-json");
+
+    verifyExtension(render, accepted);
 
     // The terminal fallback: a package's own slots, else the defaults'.
     assert.equal(render.terminalSource(own, defaults), own);
@@ -1566,6 +1679,82 @@ function verifyAppStyles(render, changedTemplates = {}) {
     }
     return metrics;
 }
+// The VS Code-family editor theme, for every shipped and catalog package:
+// each surface the editor, sidebar, status bar, a diff and the terminal
+// panel draw holds a colour, and its text meets the readability floor on
+// it, a translucent fill composited over editor.background first. The
+// terminal panel's colours are the terminal's text slots, as
+// check-theme-contrast.js judges them for the terminal.
+const EDITOR_PAIRS = [
+    ["editor.foreground", "editor.background"],
+    ["sideBar.foreground", "sideBar.background"],
+    ["statusBar.foreground", "statusBar.background"],
+    ["activityBar.foreground", "activityBar.background"],
+    ["tab.activeForeground", "tab.activeBackground"],
+    ["panelTitle.activeForeground", "panel.background"],
+    ["editor.foreground", "diffEditor.insertedTextBackground"],
+    ["editor.foreground", "diffEditor.removedTextBackground"],
+    ["terminal.foreground", "terminal.background"],
+    ...["Red", "Green", "Yellow", "Blue", "Magenta", "Cyan"].flatMap(name => [`terminal.ansi${name}`, `terminal.ansiBright${name}`])
+        .map(key => [key, "terminal.background"])
+];
+function over(top, below) {
+    const mix = channel => top[channel] * top.a + below[channel] * (1 - top.a);
+    return { r: mix("r"), g: mix("g"), b: mix("b"), a: 1 };
+}
+function verifyEditorStyles(render, template) {
+    const dir = path.join(repo, "themes", "targets", "vscode");
+    const accepted = render.acceptTarget(logic, "vscode", fs.readFileSync(path.join(dir, "target.json"), "utf8"));
+    assert.equal(accepted.ok, true);
+    const templates = new Map(accepted.target.files.map(file => [file.template,
+        file.template === "vscode.json" && template !== undefined ? template : fs.readFileSync(path.join(dir, file.template), "utf8")]));
+    const catalog = JSON.parse(fs.readFileSync(path.join(repo, "themes", "catalog", "index.json"), "utf8"));
+    assert.ok(catalog.entries.some(entry => entry.name === "flexoki-light"));
+    const shortfalls = [];
+    let packages = 0;
+    for (const name of ["vgs", ...catalog.entries.map(entry => entry.name)]) {
+        const pkgDir = path.join(repo, "themes", name === "vgs" ? "vgs" : "catalog/" + name);
+        const pkg = logic.acceptPackage(TOKENS, { directoryName: name,
+            themeJson: fs.readFileSync(path.join(pkgDir, "theme.json"), "utf8"),
+            terminalJson: fs.readFileSync(path.join(pkgDir, "terminal.json"), "utf8"), shipped: name === "vgs" });
+        assert.equal(pkg.ok, true);
+        const result = render.renderTarget(logic, TOKENS, accepted.target, templates,
+            { values: pkg.values, slots: pkg.terminal, curated: new Map(), installed: name !== "vgs" });
+        assert.equal(result.ok, true);
+        const theme = JSON.parse(result.files.find(file => file.destination === "vscode.json").bytes.toString("utf8"));
+        if (theme.type !== pkg.values.scheme.mode) shortfalls.push({ name, kind: "mode", key: "type" });
+        const colour = key => typeof theme.colors[key] === "string" && /^#[0-9a-f]{8}$/.test(theme.colors[key]) ? logic.parseColor(theme.colors[key]) : null;
+        const editor = colour("editor.background");
+        for (const [text, surface] of EDITOR_PAIRS) {
+            const fg = colour(text), bg = colour(surface);
+            if (fg === null || bg === null || editor === null) {
+                shortfalls.push({ name, kind: "coverage", key: fg === null ? text : surface });
+                continue;
+            }
+            const fill = over(bg, editor);
+            const ratio = logic.contrastRatio(over(fg, fill), fill);
+            if (ratio < logic.READABILITY_FLOOR) shortfalls.push({ name, kind: "contrast", key: text, surface, ratio });
+        }
+        packages++;
+    }
+    assert.deepEqual(shortfalls, []);
+    return packages;
+}
+const editorPackages = verifyEditorStyles(require(rendererFile));
+const vscodeTemplate = fs.readFileSync(path.join(repo, "themes/targets/vscode/vscode.json"), "utf8");
+const editorControls = [
+    ["diff without its insertion fill", '    "diffEditor.insertedTextBackground": "#@{color.successSubtle}",\n', "", "coverage"],
+    ["status bar text on its own fill", '"statusBar.foreground": "#@{color.text}"', '"statusBar.foreground": "#@{color.surface}"', "contrast"],
+    ["terminal red as the background", '"terminal.ansiRed": "#@{terminal.color1}"', '"terminal.ansiRed": "#@{color.background}"', "contrast"],
+    ["a dark theme for every package", '"type": "@{scheme.mode}"', '"type": "dark"', "mode"]
+];
+for (const [label, needle, replacement, kind] of editorControls) {
+    assert.equal(vscodeTemplate.split(needle).length, 2, label);
+    assert.throws(() => verifyEditorStyles(require(rendererFile), vscodeTemplate.replace(needle, replacement)),
+        error => error instanceof assert.AssertionError && Array.isArray(error.actual) && error.actual.some(shortfall => shortfall.kind === kind), label);
+}
+console.log(`test-theme-render: editor packages=${editorPackages} pairs=${EDITOR_PAIRS.length} controls=${editorControls.length}`);
+
 verifyAppStyles(require(rendererFile));
 const tmuxTemplate = fs.readFileSync(path.join(repo, "themes/targets/tmux/tmux.conf"), "utf8");
 const styleControls = [
@@ -1740,6 +1929,29 @@ for (const role of ALACRITTY_ROLES) {
 const CONTROLS = [
     ["expression package references", "value: logic.valueAt(input.values, node.path)", "value: leaf.value"],
     ["expression refuses invalid input", 'return result.ok ? result.values.result : undefined;', 'return result.ok ? result.values.result : "#ff00ffff";'],
+    ["editors target detects per editor", "if (document.detect.length !== 0) return refused", "if (false) return refused"],
+    ["editors key known", "![SELECT_KEY, SETUP_KEY, ACCOUNTS_KEY, EDITORS_KEY].includes(key)", "![SELECT_KEY, SETUP_KEY, ACCOUNTS_KEY].includes(key)"],
+    ["editors judged", "const editors = editorsError(logic, document.editors);", 'const editors = "";'],
+    ["editors take the extension form", 'if (!logic.isPlainObject(document.wiring) || wiringForm(document.wiring) !== "extension") return refused("target-schema", "key=wiring");', ""],
+    ["extension form needs editors", '(hasEditors ? extensionError(logic, document.wiring, destinations) : "key=wiring")', "extensionError(logic, document.wiring, destinations)"],
+    ["extension form", 'if (Object.prototype.hasOwnProperty.call(wiring, "extension")) return "extension";', ""],
+    ["editor keys exact", 'if (!hasExactKeys(logic, editor, EDITOR_KEYS)) return key;', 'if (!logic.isPlainObject(editor)) return key;'],
+    ["editor user segment", "const USER_SEGMENT_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._ -]*[A-Za-z0-9._-])?$/;", "const USER_SEGMENT_PATTERN = /^[A-Za-z0-9._ -]+$/;"],
+    ["editor user spaces", "const USER_SEGMENT_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._ -]*[A-Za-z0-9._-])?$/;", "const USER_SEGMENT_PATTERN = DIR_SEGMENT_PATTERN;"],
+    ["editors distinct", "if (seen.has(value)) return key;", ""],
+    ["editor select base", "!(hasEditors && select.base === EDITOR_BASE)", "!(select.base === EDITOR_BASE)"],
+    ["extension id", "const EXTENSION_ID_PATTERN = /^[a-z0-9][a-z0-9-]*\\.[a-z0-9][a-z0-9-]*$/;", "const EXTENSION_ID_PATTERN = /./;"],
+    ["extension version a destination", 'if (!destinations.has(wiring.version)) return "key=wiring.version";', ""],
+    ["extension copies named", 'if (!logic.isPackageName(name) || !destinations.has(destination)) return "key=wiring.copies." + name;', ""],
+    ["version file first", "const order = target.files.filter(file => file.destination === versionFrom).concat(target.files.filter(file => file.destination !== versionFrom));", "const order = target.files;"],
+    ["version from the final bytes", "if (file.destination === versionFrom) version = extensionVersion(bytes);", 'if (file.destination === versionFrom) version = extensionVersion(Buffer.from(out, "utf8"));'],
+    ["version written", "const value = part.name === VERSION_PLACEHOLDER ? version : placeholderText(", "const value = part.name === VERSION_PLACEHOLDER ? \"1.0.0\" : placeholderText("],
+    ["version from the sha256", '.digest("hex").slice(0, 8), 16);', '.digest("hex").slice(0, 2), 16);'],
+    ["registry keeps a held entry", "if (own.length === 1 && own[0].version === version && own[0].relativeLocation === folder) return null;", ""],
+    ["registry one version", "return JSON.stringify(entries.filter(entry => registeredId(logic, entry) !== id).concat({", "return JSON.stringify(entries.concat({"],
+    ["registry id case", "? entry.identifier.id.toLowerCase() : null;", "? entry.identifier.id : null;"],
+    ["registry an array", "const entries = text === undefined ? [] : parsedJson(text, Array.isArray);", "const entries = text === undefined ? [] : parsedJson(text, () => true);"],
+    ["obsolete versions only", '/^[0-9]+\\.[0-9]+\\.[0-9]+$/.test(name.slice(id.length + 1))', "true"],
     ["tmux derivation never changes terminal", 'if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };', 'if (target.name === "tmux" || target.name === "ghostty") input = { ...input, slots: tmuxSlots(logic, input) };', verifyAppStyles],
     ["tmux old inactive values", 'if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };', "", verifyAppStyles],
     ["tmux readability", 'const readable = color => color.a === 1 && logic.contrastRatio(color, background) >= logic.READABILITY_FLOOR;', 'const readable = color => true;', verifyAppStyles],
@@ -1785,7 +1997,7 @@ const CONTROLS = [
     ["own terminal first", "for (const candidate of [pkg, defaults]) {", "for (const candidate of [defaults, pkg]) {"],
     ["terminal fallback", "for (const candidate of [pkg, defaults]) {", "for (const candidate of [pkg]) {"],
     ["target name", "if (typeof name !== \"string\" || !TARGET_NAME_PATTERN.test(name))", "if (false)"],
-    ["unknown key", "if (!TARGET_KEYS.includes(key) && key !== SELECT_KEY && key !== SETUP_KEY && key !== ACCOUNTS_KEY) return", "if (false) return"],
+    ["unknown key", "if (!TARGET_KEYS.includes(key) && ![SELECT_KEY, SETUP_KEY, ACCOUNTS_KEY, EDITORS_KEY].includes(key)) return", "if (false) return"],
     ["missing key", "if (!logic.hasOwn(document, key)) return", "if (false) return"],
     ["app", "if (!isLine(document.app)) return", "if (false) return"],
     ["encoder name", "if (!logic.hasOwn(ENCODERS, document.encoder)) return", "if (false) return"],
@@ -1834,7 +2046,7 @@ const CONTROLS = [
     ["reload names wiring", "return names !== null && names.includes(WIRING_PLACEHOLDER);", "return false;"],
     ["reload argument state", "target.reload.command.map(arg => withValues(arg, values,", "target.reload.command.map(arg => String(arg,"],
     ["reload always read", "target.reload.always === true", "target.reload.always !== undefined"],
-    ["setup admitted", "key !== SELECT_KEY && key !== SETUP_KEY && key !== ACCOUNTS_KEY)", "key !== SELECT_KEY && key !== ACCOUNTS_KEY)"],
+    ["setup admitted", "![SELECT_KEY, SETUP_KEY, ACCOUNTS_KEY, EDITORS_KEY].includes(key)", "![SELECT_KEY, ACCOUNTS_KEY, EDITORS_KEY].includes(key)"],
     ["setup is a command name", "!logic.isPackageName(document.setup)", "false"],
     ["setup read", "target.setup === undefined || onPath(target.setup)", "true"],
     ["wiring none form", "if (wiring === null) return \"none\";", "if (false) return \"none\";"],
@@ -1888,7 +2100,7 @@ const CONTROLS = [
     ["vault listed once", "&& !dirs.includes(dir)) dirs.push(dir);", ") dirs.push(dir);"],
     ["entry base", "if (!entryBaseAccepted(wiring.base, hasAccounts)) return", "if (false) return"],
     ["entry cache base", 'const ENTRY_BASES = ["config", "home", "cache"];', 'const ENTRY_BASES = ["config", "home"];'],
-    ["accounts key admitted", "&& key !== ACCOUNTS_KEY) return", ") return"],
+    ["accounts key admitted", "![SELECT_KEY, SETUP_KEY, ACCOUNTS_KEY, EDITORS_KEY].includes(key)", "![SELECT_KEY, SETUP_KEY, EDITORS_KEY].includes(key)"],
     ["accounts id shape", "if (hasAccounts && !logic.isPackageName(document.accounts)) return", "if (false) return"],
     ["account base requires accounts", "return ENTRY_BASES.includes(base) || (hasAccounts && base === ACCOUNT_BASE);", "return ENTRY_BASES.includes(base) || base === ACCOUNT_BASE;"],
     ["accounts require account wiring and selection", "if (hasAccounts) {", "if (false) {"],

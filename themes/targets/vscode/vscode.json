@@ -80,6 +80,8 @@
     "editorGutter.addedBackground": "#@{color.success}",
     "editorGutter.modifiedBackground": "#@{color.warning}",
     "editorGutter.deletedBackground": "#@{color.danger}",
+    "diffEditor.insertedTextBackground": "#@{color.successSubtle}",
+    "diffEditor.removedTextBackground": "#@{color.dangerSubtle}",
     "scrollbarSlider.background": "#@{color.border}",
     "scrollbarSlider.hoverBackground": "#@{color.borderStrong}",
     "scrollbarSlider.activeBackground": "#@{color.borderStrong}",
