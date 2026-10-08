@@ -13,8 +13,8 @@ text = "#@{palette.foreground}"
 background = "#@{color.borderStrong}"
 
 [colors.search.matches]
-foreground = "#@{color.background}"
-background = "#@{color.textMuted}"
+foreground = "#@{contrast(mix({color.background}, contrast({color.background}), 0.45))}"
+background = "#@{mix({color.background}, contrast({color.background}), 0.45)}"
 
 [colors.search.focused_match]
 foreground = "#@{color.onAccent}"
@@ -29,8 +29,8 @@ foreground = "#@{color.background}"
 background = "#@{color.textMuted}"
 
 [colors.footer_bar]
-foreground = "#@{color.background}"
-background = "#@{color.textMuted}"
+foreground = "#@{contrast(mix({color.background}, contrast({color.background}), 0.45))}"
+background = "#@{mix({color.background}, contrast({color.background}), 0.45)}"
 
 [colors.normal]
 black = "#@{terminal.color0}"

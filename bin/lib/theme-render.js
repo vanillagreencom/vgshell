@@ -120,7 +120,7 @@ const PROFILE_SECTION = /^Profile[0-9]+$/;
 // `@@{` is a literal `@{`, `@{name}` a placeholder and a `@{` with no `}`
 // after it unterminated. Every other character is literal text, so `#{...}`
 // and `${...}` pass through.
-const MARKER = /@@\{|@\{([^}]*)\}|@\{/g;
+const MARKER = /@@\{|@\{((?:[^{}]|\{[^{}]*\})*)\}|@\{/g;
 
 // Each encoder writes one resolved colour, which is `#rrggbbaa`.
 const ENCODERS = {
@@ -504,6 +504,33 @@ function caseText(leaf, cases, value) {
     return texts.size === leaf.options.length ? texts.get(value) : undefined;
 }
 
+// Templates use the token judge's colour expressions. Resolve only the
+// references the expression reads, from this package's already resolved
+// values, so mix and contrast retain the judge's types and refusal rules.
+function expressionColor(logic, tokens, input, expression) {
+    const tree = logic.parseExpression(expression);
+    if (tree.error !== undefined || tree.kind !== "call") return undefined;
+    const table = { motion: { scale: { ...tokens.motion.scale, value: input.values.motion.scale } } };
+    function addReferences(node) {
+        if (node.kind === "reference") {
+            const leaf = logic.nodeAt(tokens, node.path);
+            if (!logic.isLeaf(leaf)) return false;
+            const parts = node.path.split(".");
+            let group = table;
+            for (const part of parts.slice(0, -1)) {
+                if (!Object.hasOwn(group, part)) group[part] = {};
+                group = group[part];
+            }
+            group[parts.at(-1)] = { ...leaf, value: logic.valueAt(input.values, node.path) };
+        }
+        return node.kind !== "call" || node.args.every(addReferences);
+    }
+    if (!addReferences(tree)) return undefined;
+    table.result = { type: "color", value: expression };
+    const result = logic.resolve(table, {});
+    return result.ok ? result.values.result : undefined;
+}
+
 // The text placeholder NAME stands for, or undefined when it names no token
 // and no slot. A colour is written by ENCODE; a token with cases as the case
 // of its value; any other token as its value.
@@ -513,6 +540,10 @@ function placeholderText(logic, tokens, input, name, encode) {
         if (cases.length > 0) return undefined;
         const slot = path.slice(TERMINAL_PREFIX.length);
         return logic.terminalSlotNames().includes(slot) ? encode(input.slots[slot]) : undefined;
+    }
+    if (path.includes("(") && cases.length === 0) {
+        const value = expressionColor(logic, tokens, input, path);
+        return value === undefined ? undefined : encode(value);
     }
     const leaf = logic.nodeAt(tokens, path);
     if (!logic.isLeaf(leaf)) return undefined;

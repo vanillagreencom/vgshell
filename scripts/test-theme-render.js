@@ -256,6 +256,9 @@ assert.equal(tealed.ok, true, tealed.ok ? "" : logic.refusalLine(tealed));
 // defaults' slots: the template, the rendered text.
 const RENDERED = [
     ["accent=@{palette.accent}\n", "accent=123456\n"],
+    ["@{mix(#000000, #ffffff, 0.5)}", "808080"],
+    ["@{mix({palette.accent}, #ffffff, 0.5)}", "899aab"],
+    ["@{contrast(mix({color.background}, contrast({color.background}), 0.45))}", "ffffff"],
     ["@@{palette.accent}", "@{palette.accent}"],
     ["@@@{palette.accent}", "@@{palette.accent}"],
     ["set -g status-left '#{pane_id} ${HOME} {palette.accent} @ @@ #@{palette.accent}'", "set -g status-left '#{pane_id} ${HOME} {palette.accent} @ @@ #123456'"],
@@ -500,6 +503,17 @@ function verify(render) {
         assert.equal(rendered("hex6", text, pkg).bytes.toString("utf8"), want, `${pkg.values.scheme.mode} ${text}`);
     for (const [text, detail] of REFUSED_TEMPLATES)
         assert.deepEqual(one("hex6", text), { ok: false, reason: "placeholder", detail }, text);
+
+    for (const expression of [
+        "mix({color.nope}, #ffffff, 0.45)", "mix({color.background}, #ffffff)",
+        "mix({color.background}, #ffffff, 2)", "contrast({font.family.mono})",
+        "contrast(alpha({color.background}, 0.5))", "unknown({color.background})",
+        "mix({color.background}, {color.surface}, 0.45)|dark=a|light=b"
+    ]) {
+        const refused = one("hex6", `@{${expression}}`);
+        assert.equal(refused.ok, false);
+        assert.equal(refused.reason, "placeholder");
+    }
 
     // A package's own terminal.json wins over the defaults'.
     assert.equal(rendered("hex6", "@{terminal.color1}", own).bytes.toString("utf8"), "abcdef");
@@ -1087,6 +1101,7 @@ function verifyAlacrittyColors(template, packages = selectionPackages) {
     const documents = JSON.parse(parsed.stdout);
     assert.equal(documents.length, packages.length);
     const shortfalls = [];
+    const metrics = [];
     for (const [index, document] of documents.entries()) {
         const pkg = packages[index].pkg;
         const colors = document.colors;
@@ -1104,6 +1119,16 @@ function verifyAlacrittyColors(template, packages = selectionPackages) {
             const boundaryRatio = logic.contrastRatio(background, base);
             if (textRatio < 4.5) shortfalls.push({ kind: "alacritty-text", package: pkg.name, role, ratio: textRatio, floor: 4.5 });
             if (boundaryRatio < 3) shortfalls.push({ kind: "alacritty-boundary", package: pkg.name, role, ratio: boundaryRatio, floor: 3 });
+            metrics.push({ package: pkg.name, mode: pkg.values.scheme.mode, role,
+                foreground: pair.foreground, background: pair.background, textRatio, boundaryRatio });
+            if (role === "search.matches" || role === "footer_bar") {
+                const surface = logic.parseColor(pkg.values.color.surface);
+                const opposite = logic.contrastColor(base);
+                const distance = endpoint => Math.hypot(background.r - endpoint.r,
+                    background.g - endpoint.g, background.b - endpoint.b);
+                if (distance(surface) > distance(opposite)) shortfalls.push({
+                    kind: "alacritty-surface-direction", package: pkg.name, role });
+            }
             pairs.set(role, pair);
         }
         if (pairs.get("search.matches").background === pairs.get("search.focused_match").background) {
@@ -1117,10 +1142,10 @@ function verifyAlacrittyColors(template, packages = selectionPackages) {
         }
     }
     assert.deepEqual(shortfalls, []);
-    return documents;
+    return metrics;
 }
 
-const alacrittyDocuments = verifyAlacrittyColors(alacrittyTemplate);
+const alacrittyMetrics = verifyAlacrittyColors(alacrittyTemplate);
 assert.ok(selectionPackages.some(({ pkg }) => pkg.values.scheme.mode === "dark"));
 assert.ok(selectionPackages.some(({ pkg }) => pkg.values.scheme.mode === "light"));
 assert.ok(selectionPackages.some(({ pkg }) => pkg.name === "vice-city"));
@@ -1135,7 +1160,8 @@ try {
         return mutant;
     };
     const controls = ALACRITTY_ROLES.flatMap(role => {
-        const fill = role === "search.focused_match" || role === "hints.start" ? "#@{color.accent}" : "#@{color.textMuted}";
+        const fill = role === "search.focused_match" || role === "hints.start" ? "#@{color.accent}" :
+            role === "hints.end" ? "#@{color.textMuted}" : "#@{mix({color.background}, contrast({color.background}), 0.45)}";
         return [
             { kind: "alacritty-text", role, template: sectionPair(alacrittyTemplate, role, fill, fill) },
             { kind: "alacritty-boundary", role, template: sectionPair(alacrittyTemplate, role,
@@ -1143,17 +1169,31 @@ try {
         ];
     });
     controls.push({ kind: "alacritty-focused-distinct", role: "search.focused_match",
-        template: sectionPair(alacrittyTemplate, "search.focused_match", "#@{color.background}", "#@{color.textMuted}") });
+        template: sectionPair(alacrittyTemplate, "search.focused_match",
+            "#@{contrast(mix({color.background}, contrast({color.background}), 0.45))}",
+            "#@{mix({color.background}, contrast({color.background}), 0.45)}") });
     // Restore ordinary text colours: contrast still passes, but the
     // hint foreground loses its distinction from the labelled text.
     for (const role of ["hints.start", "hints.end"]) {
         controls.push({ kind: "alacritty-hint-distinct", role,
             template: sectionPair(alacrittyTemplate, role, "#@{palette.foreground}", "#@{color.background}") });
     }
+    for (const [name, foreground, background] of [
+        ["dracula", "#000000", "#ffffff"], ["flexoki-light", "#ffffff", "#000000"]
+    ]) {
+        const packages = selectionPackages.filter(({ pkg }) => pkg.name === name);
+        assert.equal(packages.length, 1);
+        for (const role of ["search.matches", "footer_bar"]) {
+            controls.push({ kind: "alacritty-surface-direction", role, packages,
+                template: sectionPair(alacrittyTemplate, role, foreground, background) });
+            controls.push({ kind: "alacritty-boundary", role, packages,
+                template: sectionPair(alacrittyTemplate, role, "#@{color.text}", "#@{color.surfaceRaised}") });
+        }
+    }
     for (const [index, control] of controls.entries()) {
         const file = path.join(alacrittyScratch, `${index}.toml`);
         fs.writeFileSync(file, control.template, { flag: "wx" });
-        assert.throws(() => verifyAlacrittyColors(fs.readFileSync(file, "utf8")),
+        assert.throws(() => verifyAlacrittyColors(fs.readFileSync(file, "utf8"), control.packages),
             error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
                 error.actual.some(shortfall => shortfall.kind === control.kind && shortfall.role === control.role));
         alacrittyControls++;
@@ -1161,11 +1201,17 @@ try {
 } finally {
     fs.rmSync(alacrittyScratch, { recursive: true, force: true });
 }
-console.log(`test-theme-render: alacritty packages=${alacrittyDocuments.length} roles=${ALACRITTY_ROLES.length} text-floor=4.5 boundary-floor=3 controls=${alacrittyControls}`);
+console.log(`test-theme-render: alacritty packages=${selectionPackages.length} roles=${ALACRITTY_ROLES.length} text-floor=4.5 boundary-floor=3 controls=${alacrittyControls}`);
+for (const role of ALACRITTY_ROLES) {
+    const metrics = alacrittyMetrics.filter(metric => metric.role === role);
+    console.log(`test-theme-render: alacritty-min role=${role} text=${Math.min(...metrics.map(metric => metric.textRatio))} boundary=${Math.min(...metrics.map(metric => metric.boundaryRatio))}`);
+}
 
 // Each control removes one rule's behaviour from a copy of the renderer and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["expression package references", "value: logic.valueAt(input.values, node.path)", "value: leaf.value"],
+    ["expression refuses invalid input", 'return result.ok ? result.values.result : undefined;', 'return result.ok ? result.values.result : "#ff00ffff";'],
     ["tmux derivation never changes terminal", 'if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };', 'if (target.name === "tmux" || target.name === "ghostty") input = { ...input, slots: tmuxSlots(logic, input) };', verifyAppStyles],
     ["tmux old inactive values", 'if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };', "", verifyAppStyles],
     ["tmux readability", 'const readable = color => color.a === 1 && logic.contrastRatio(color, background) >= logic.READABILITY_FLOOR;', 'const readable = color => true;', verifyAppStyles],
@@ -1179,7 +1225,7 @@ const CONTROLS = [
     ["gnome accent hue wraps", "return Math.min(d, 360 - d);", "return d;"],
     ["gnome accent linear light", "return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;", "return c;"],
     ["escape", 'if (m[0] === "@@{") {', "if (false) {"],
-    ["pass-through", "const MARKER = /@@\\{|@\\{([^}]*)\\}|@\\{/g;", "const MARKER = /@@\\{|[@#$]\\{([^}]*)\\}|@\\{/g;"],
+    ["pass-through", "const MARKER = /@@\\{|@\\{((?:[^{}]|\\{[^{}]*\\})*)\\}|@\\{/g;", "const MARKER = /@@\\{|[@#$]\\{((?:[^{}]|\\{[^{}]*\\})*)\\}|@\\{/g;"],
     ["unterminated", "if (m[1] === undefined) return { ok: false, at: m.index };", "if (m[1] === undefined) continue;"],
     ["unknown placeholder", "if (value === undefined) return refused(", "if (false) return refused("],
     ["group placeholder", "if (!logic.isLeaf(leaf)) return undefined;", "if (leaf === undefined) return undefined;"],
