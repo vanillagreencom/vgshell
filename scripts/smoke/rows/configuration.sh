@@ -94,25 +94,25 @@ if copy_tree configuration-overwrites-malformed && edit_tree configuration-overw
   configuration_control_restore
 fi
 
-# Model the pending bar cutover in a disposable tree. The manifest and bar
-# retire left; ordinary manager and configure writes discard its saved key.
-configuration_retire_bar() {
+# Read the saved undeclared field from runtime settings in a disposable
+# tree; ordinary manager and configure writes must discard its saved key.
+configuration_bar_settings_reader() {
   local name="$1"
-  copy_tree "$name" && edit_tree "$name" shell/plugins/vgs.bar/manifest.json \
-    $'    "left": ["workspaces"],\n' '' && edit_tree "$name" shell/plugins/vgs.bar/Bar.qml \
-    'const names = shell.settings[section];' 'const names = section === "left" ? [] : shell.settings[section];' && \
-    edit_tree "$name" shell/plugins/vgs.bar/Bar.qml \
+  copy_tree "$name" && edit_tree "$name" shell/plugins/vgs.bar/Bar.qml \
     'property var shell: null' 'property var shell: null; readonly property bool retiredDelivered: shell !== null && Object.prototype.hasOwnProperty.call(shell.settings, "left")'
 }
 configuration_saved_left() {
   python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(any("left" in e for e in d.get("plugins", []) if e["id"]=="vgs.bar"))' "$home/.config/vgshell/shell.json"
+}
+configuration_saved_declared() {
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); e=next(e for e in d["plugins"] if e["id"]=="vgs.bar"); print(json.dumps([e["clockFormat"],e["keys"]],sort_keys=True))' "$home/.config/vgshell/shell.json"
 }
 configuration_plant_left() {
   python3 - "$home/.config/vgshell/shell.json" <<'PYDATA'
 import json, os, sys
 p = sys.argv[1]
 d = json.load(open(p))
-d["plugins"] = [e for e in d.get("plugins", []) if e["id"] != "vgs.bar"] + [{"id":"vgs.bar", "left":["workspaces"], "keys":{"toggle":"SUPER+SHIFT+SPACE"}}]
+d["plugins"] = [e for e in d.get("plugins", []) if e["id"] != "vgs.bar"] + [{"id":"vgs.bar", "left":["workspaces"], "clockFormat":"HH:mm", "keys":{"toggle":"SUPER+SHIFT+SPACE"}}]
 json.dump(d, open(p + ".tmp", "w"), indent=2)
 os.replace(p + ".tmp", p)
 PYDATA
@@ -122,38 +122,51 @@ configuration_runtime_left() {
   key="$(bar_key)" || return
   ipc smoke readInstance "$key" vgs.bar retiredDelivered
 }
-if configuration_retire_bar configuration-retired-setting; then
+if configuration_bar_settings_reader configuration-retired-setting; then
   stop_shell || :
   configuration_plant_left
+  cp -- "$home/.config/vgshell/shell.json" "$sandbox/configuration-retired-saved.json"
   if start_shell "$sandbox/tree-configuration-retired-setting" "$sandbox/configuration-retired-setting-qs.log"; then
     expect_poll "the retired bar field never enters runtime settings" false configuration_runtime_left
     expect "loading the saved field makes no cleanup write" True configuration_saved_left
+    expect "loading the saved field keeps the owner's file unchanged" same bash -c 'cmp -s -- "$1" "$2" && echo same' _ "$sandbox/configuration-retired-saved.json" "$home/.config/vgshell/shell.json"
     expect "Settings opens for an ordinary setting write" ok ipc shell summon window vgs.settings '{}'
     expect "the ordinary Settings write accepts a declared bar field" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.bar","key":"clockFormat","value":"HH:mm"}'
     expect "the ordinary Settings write removes the saved retired field" False configuration_saved_left
-    expect "the ordinary Settings write keeps the declared value and shortcuts" '["HH:mm", {"toggle": "SUPER+SHIFT+SPACE"}]' python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); e=next(e for e in d["plugins"] if e["id"]=="vgs.bar"); print(json.dumps([e["clockFormat"],e["keys"]],sort_keys=True))' "$home/.config/vgshell/shell.json"
+    expect "the ordinary Settings write keeps the declared value and shortcuts" '["HH:mm", {"toggle": "SUPER+SHIFT+SPACE"}]' configuration_saved_declared
     stop_shell || :
     configuration_plant_left
     if start_shell "$sandbox/tree-configuration-retired-setting" "$sandbox/configuration-retired-configure-qs.log"; then
       expect_poll "the configure write starts with no retired runtime setting" false configuration_runtime_left
       expect "the bar service accepts an ordinary configure write" ok ipc vgs.bar invoke toggle ''
       expect "the ordinary configure write removes the saved retired field" False configuration_saved_left
+      expect "the ordinary configure write keeps the declared value and shortcuts" '["HH:mm", {"toggle": "SUPER+SHIFT+SPACE"}]' configuration_saved_declared
       expect "the bar service restores its visibility" ok ipc vgs.bar invoke toggle ''
     fi
   fi
   configuration_control_restore
 fi
 
-if configuration_retire_bar configuration-copy-all-settings && edit_tree configuration-copy-all-settings shell/Core/PluginLogic.js \
+if configuration_bar_settings_reader configuration-copy-all-settings && edit_tree configuration-copy-all-settings shell/Core/PluginLogic.js \
     'if (hasOwn(manifest.settings, k) || (stored && ENTRY_RESERVED_KEYS.indexOf(k) !== -1))' \
     'if (stored || ENTRY_RESERVED_KEYS.indexOf(k) === -1)'; then
   stop_shell || :
   configuration_plant_left
   if start_shell "$sandbox/tree-configuration-copy-all-settings" "$sandbox/configuration-copy-all-settings-qs.log"; then
     expect_poll "control: copy-everything delivers the retired runtime field" true configuration_runtime_left
-    expect "control: the bar service makes the same ordinary setting write" ok ipc vgs.bar invoke toggle ''
-    expect "control: copy-everything leaves the retired field after the write" True configuration_saved_left
-    expect "control: the bar service restores its visibility" ok ipc vgs.bar invoke toggle ''
+    expect "control: Settings opens for the same ordinary setting write" ok ipc shell summon window vgs.settings '{}'
+    expect "control: the ordinary Settings write accepts a declared bar field" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.bar","key":"clockFormat","value":"HH:mm"}'
+    expect "control: copy-everything leaves the retired field after the Settings write" True configuration_saved_left
+    expect "control: the Settings write keeps the declared value and shortcuts" '["HH:mm", {"toggle": "SUPER+SHIFT+SPACE"}]' configuration_saved_declared
+    stop_shell || :
+    configuration_plant_left
+    if start_shell "$sandbox/tree-configuration-copy-all-settings" "$sandbox/configuration-copy-all-configure-qs.log"; then
+      expect_poll "control: the configure write starts with the retired runtime field" true configuration_runtime_left
+      expect "control: the bar service makes the same ordinary setting write" ok ipc vgs.bar invoke toggle ''
+      expect "control: copy-everything leaves the retired field after the configure write" True configuration_saved_left
+      expect "control: the configure write keeps the declared value and shortcuts" '["HH:mm", {"toggle": "SUPER+SHIFT+SPACE"}]' configuration_saved_declared
+      expect "control: the bar service restores its visibility" ok ipc vgs.bar invoke toggle ''
+    fi
   fi
   configuration_control_restore
 fi

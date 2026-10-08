@@ -501,7 +501,7 @@ fi
 # The real Hide route must unmap its window. Retained Item boxes are not
 # evidence of a mapped surface; the same typed reader checks both states.
 if copy_tree bar-participation-window \
-  && edit_tree bar-participation-window shell/Hosts/BarHost.qml 'visible: PluginLogic.barShown(slot.instance)' 'visible: true'; then
+  && edit_tree bar-participation-window shell/Hosts/BarHost.qml 'visible: host.screenPresent && PluginLogic.barShown(slot.instance)' 'visible: true'; then
   bar_participation_state shown
   start_shell "$sandbox/tree-bar-participation-window" "$sandbox/bar-participation-window.log" || fail "the hidden-window control starts"
   geometry expect_poll "control: the mapped window starts with shown geometry" '[]' bar_participation shown
