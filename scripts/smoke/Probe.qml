@@ -1459,6 +1459,25 @@ Scope {
             const mount = Plugins.mounts[hostKey];
             return root.geometry(mount === undefined ? null : mount.row.instance[section + "Section"]);
         }
+        // All mounted entries and the production drop reader, without a
+        // visibility projection that could hide an empty layout slot.
+        function barParticipationGeometry(hostKey: string): string {
+            const mount = Plugins.mounts[hostKey];
+            if (mount === undefined) return "absent";
+            const bar = mount.row.instance;
+            return root.json({ shown: PluginLogic.barShown(bar), windowVisible: bar.Window.window.visible,
+                sections: PluginLogic.SECTIONS.map(section => {
+                    const container = bar[section + "Section"];
+                    return { section: section, width: container.width, gap: container.spacing,
+                        drop: Plugins.barDragSectionGeometry(hostKey, section),
+                        entries: mount.sections[section].entries.map(entry => {
+                            const item = entry.widget;
+                            return { id: entry.locator.id, locator: entry.locator, present: item !== null,
+                                visible: item === null ? false : item.visible,
+                                box: item === null ? null : [item.x, item.y, item.width, item.height] };
+                        }) };
+                }) });
+        }
         function builtinContentProperty(hostKey: string, id: string, key: string): string {
             const item = root.instance(hostKey, id);
             const content = item === null ? undefined : root.descendants(item).find(child => root.typeName(child) === "Clock");
