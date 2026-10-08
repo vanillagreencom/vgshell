@@ -44,12 +44,13 @@ Row {
             Label {
                 id: hintLabel
                 role: "hint"
+                color: Theme.keyHints.foreground
                 y: topForCapCenter(Math.max(Theme.kbd.height, caps.implicitHeight))
                 text: pair.modelData.text
                 layer.enabled: visible
                 layer.smooth: true
                 // MultiEffect pads its text shadow in the label's layer.
-                // The token's contrast() uses the actual hint colour's
+                // The token's contrast() uses the full-strength foreground's
                 // luminance, so custom text colours keep the opposite tone.
                 // doc.qt.io/qt-6/qml-qtquick-effects-multieffect.html
                 layer.effect: MultiEffect {

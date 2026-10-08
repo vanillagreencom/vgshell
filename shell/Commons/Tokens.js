@@ -678,9 +678,10 @@ var TOKENS = {
     },
 
     keyHints: {
-        shadow: color("contrast(alpha({text.hint.color}, 1))"),
+        foreground: color("alpha({color.text}, 1)"),
+        shadow: color("contrast({keyHints.foreground})"),
         shadowOpacity: share(1),
-        blur: length(8),
+        blur: length(4),
         shadowOffset: length(0)
     },
 

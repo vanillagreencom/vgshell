@@ -128,7 +128,7 @@ Item {
         }
 
         function test_hint_shadow_follows_text_luminance(row) {
-            compare(UnitTheme.override({ scheme: { mode: row.mode }, text: { hint: { color: row.ink } } }), "ok");
+            compare(UnitTheme.override({ scheme: { mode: row.mode }, color: { text: row.ink } }), "ok");
             const label = hints.children[0].children[1];
             tryCompare(label, "color", Qt.color(row.ink));
             verify(label.layer.effect !== null, "the actual hint label carries its effect");
@@ -137,7 +137,7 @@ Item {
             compare(effect.shadowEnabled, true);
             compare(effect.shadowColor, Qt.color(row.shadow));
             compare(effect.shadowOpacity, 1);
-            verify(effect.blurMax >= 8, "a wide soft shadow covers the floating label");
+            verify(effect.blurMax >= 4, "the soft halo covers the floating label");
             compare(effect.shadowBlur, 1);
             compare(label.layer.enabled, true);
             hints.visible = false;
