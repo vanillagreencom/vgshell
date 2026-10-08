@@ -143,7 +143,7 @@ mutations=(
   "unbound drops its clear-button slot|controls/ShortcutField.qml|visible: root.editable; enabled: root.editable|visible: root.editable && root.key !== \"\"; enabled: root.editable|tst_shortcutfield.qml"
   "idle shortcut tools create their buttons eagerly|controls/ShortcutField.qml|tool.inUse|true|tst_shortcutfield.qml"
   "reverse Tab skips an unloaded shortcut tool|controls/ShortcutField.qml|activeFocusOnTab: !control.active|activeFocusOnTab: false|tst_shortcutfield.qml"
-  "hidden shortcut tools keep their loaded buttons|controls/ShortcutField.qml|tool.visible && tool.enabled|tool.enabled|tst_shortcutfield.qml"
+  "hidden shortcut tools keep their loaded buttons|controls/ShortcutField.qml|active: tool.visible && tool.enabled &&|active: !tool.visible ? tool.enabled : tool.visible && tool.enabled &&|tst_shortcutfield.qml"
   "a loaded shortcut tool sends no action|controls/ShortcutField.qml|onClicked: tool.clicked()|onClicked: {}|tst_shortcutfield.qml"
   "hidden caller actions change the box width|controls/ShortcutField.qml|width: children.reduce((sum, child) => sum + child.width, 0)|width: implicitWidth|tst_settings_edits.qml"
   "unbound uses larger item text|controls/ShortcutField.qml|role: root.capturing ? \"item\" : \"kbd\"|role: \"item\"|tst_shortcutfield.qml"
