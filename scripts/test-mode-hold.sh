@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Drive scripts/smoke/mode-hold.sh, the mode a row holds on a nested
 # output, with no sandbox. A stub hypr stands in for the nested
-# compositor: `hypr eval RULE` answers the case's reply and, when it is
-# `ok`, records the rule; `hypr -j monitors` lists WAYLAND-1 at the mode
-# and scale the case plans for the rules applied so far, so the real
-# monitor_rule, output_mode and mode_scale_of run. A stub sleep keeps the
+# compositor: a reload answers the case's reply and, when it is
+# `ok`, records the rule from the hold file. `hypr -j monitors` lists
+# WAYLAND-1 at the mode and scale the case plans for the reloads so far,
+# so the real monitor_rule, reload reader and mode_scale_of run. A stub sleep keeps the
 # 5 s polls instant. Each case pins the exit status, the tallies, mode
 # resets among them, the hold's state as held_mode_state reads it, the
-# window size the hold records, the rules applied and the first line
-# printed. A second table runs
+# window size the hold records, the rules applied and the typed
+# not-measured diagnostic. A second table runs
 # whole_scale_mode, the mode and scale a hold above scale 1 takes, and
 # pins its output and exit status. A third runs held_mode_host_sized, whether
 # a taken hold reads the host window's own size, over the stub monitor. The
@@ -36,8 +36,8 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 # stub state lives in files, since take_mode runs in a command
 # substitution.
 run_case() {
-  local file="$1" label call reply plan want_status want_rules want_line dir out status=0 got_state got_rules got_line
-  IFS='|' read -r label call reply plan want_status want_rules want_line <<<"$2"
+  local file="$1" label call reply plan want_status want_rules dir out status=0 got_state got_rules
+  IFS='|' read -r label call reply plan want_status want_rules <<<"$2"
   dir="$(mktemp -d "$tmp/case.XXXXXX")" || { printf '        %s: scratch=mktemp-failed\n' "$label"; return 1; }
   out="$(env -i PATH="$PATH" bash -c '
 set -euo pipefail
@@ -50,6 +50,7 @@ IFS=, read -r -a stub_plan <<<"$5"
 mode_hold_file="$stub_dir/monitor-hold.lua"
 ok() { printf "ok %s\n" "$*"; }
 sleep() { :; }
+py_reply() { python3 -c "$@"; }
 # The plan names, for each rule applied, what the monitor then reads:
 # `take` is the rule'\''s own mode and scale, anything else that reading,
 # as the host'\''s configure leaves it. The last entry stands for every
@@ -57,9 +58,17 @@ sleep() { :; }
 hypr() {
   local rules=0 reading rule
   [[ -f $stub_dir/rules ]] && rules="$(wc -l <"$stub_dir/rules")"
+  if [[ $1 == --batch ]]; then
+    if [[ $stub_reply == config-error ]]; then
+      printf "ok\n\n\n[\"invalid rule\"]\n"
+    else
+      printf "%s\n\n\n[]\n" "$stub_reply"
+    fi
+    [[ $stub_reply != ok ]] || tail -n 1 "$mode_hold_file" >>"$stub_dir/rules"
+    return 0
+  fi
   if [[ $1 == eval ]]; then
-    printf "%s\n" "$stub_reply"
-    [[ $stub_reply == ok ]] && printf "%s\n" "$2" >>"$stub_dir/rules"
+    printf "ok\n"
     return 0
   fi
   reading="1755x933 scale=1"
@@ -71,11 +80,15 @@ hypr() {
       reading="${BASH_REMATCH[1]} scale=${BASH_REMATCH[2]}"
     fi
   fi
+  if [[ $reading == unreadable ]]; then echo "[]"; return 0; fi
   printf "[{\"name\": \"WAYLAND-1\", \"width\": %s, \"height\": %s, \"scale\": %s}]\n" \
     "${reading%%x*}" "$(r="${reading#*x}"; echo "${r% scale=*}")" "${reading##*scale=}"
 }
 status=0
 case "$stub_call" in
+  hold-after-failure) fail "product failure"; hold_mode "the case" WAYLAND-1 3510x1866 2 ;;
+  take-missing) take_mode WAYLAND-1 3510x1866 2 || status=$? ;;
+  release-only) release_mode "the release" WAYLAND-1 3510x1866 2 ;;
   hold) hold_mode "the case" WAYLAND-1 3510x1866 2 ;;
   restore)
     printf "%s\n" "$(monitor_rule WAYLAND-1 3510x1866 2)" >"$mode_hold_file"
@@ -87,7 +100,7 @@ case "$stub_call" in
     expect_poll() { :; }
     hold_mode "the case" WAYLAND-1 3510x1866 2
     release_mode "the release" WAYLAND-1 1755x933 ;;
-  nested|nested-failed)
+  nested)
     expect() { local label="$1" want="$2" got; shift 2; got="$("$@")"; [[ $got == "$want" ]] || failures=$((failures + 1)); }
     expect_poll() { expect "$@"; }
     check_hold() {
@@ -99,15 +112,11 @@ case "$stub_call" in
     }
     hold_mode "the case" WAYLAND-1 3510x1866 2
     hold_mode "the middle" WAYLAND-1 1440x900
-    if [[ $stub_call == nested ]]; then
-      check_hold "1440x900 scale=1"
-      hold_mode "the inner" WAYLAND-1 1440x320
-      check_hold "1440x320 scale=1"
-      release_mode "the inner release" WAYLAND-1 1755x933
-      check_hold "1440x900 scale=1"
-    else
-      check_hold "3510x1866 scale=2"
-    fi
+    check_hold "1440x900 scale=1"
+    hold_mode "the inner" WAYLAND-1 1440x320
+    check_hold "1440x320 scale=1"
+    release_mode "the inner release" WAYLAND-1 1755x933
+    check_hold "1440x900 scale=1"
     release_mode "the middle release" WAYLAND-1 1755x933
     check_hold "3510x1866 scale=2"
     release_mode "the outer release" WAYLAND-1 1755x933
@@ -119,31 +128,45 @@ printf "result status=%s failures=%s resets=%s held=[%s] window=[%s] state=%s fi
 ' _ "$repo" "$file" "$dir" "$reply" "$plan" "$call")" || status=$?
   got_state="$(grep -m 1 '^result ' <<<"$out")" || got_state=""
   got_rules=0; [[ -f $dir/rules ]] && got_rules="$(wc -l <"$dir/rules")"
-  got_line="${out%%$'\n'*}"
-  if [[ $status -eq 0 && $got_state == "result $want_status" && $got_rules -eq $want_rules && $got_line == "$want_line" ]]; then
+  local want_exit=0
+  if [[ $want_status == 'qml-smoke: failed='* ]]; then
+    want_exit=1
+    got_state="$(grep '^qml-smoke: failed=' <<<"$out")" || got_state=""
+    [[ $out != *'status=not-measured'* && $out != *'result '* ]] || return 1
+  elif [[ $want_status == qml-smoke:* ]]; then
+    want_exit=77
+    got_state="$(grep '^qml-smoke: status=not-measured ' <<<"$out")" || got_state=""
+    [[ $out != *'  FAIL  '* && $out != *'result '* ]] || return 1
+  else
+    want_status="result $want_status"
+  fi
+  if [[ $status -eq $want_exit && $got_state == "$want_status" && $got_rules -eq $want_rules ]]; then
     return 0
   fi
-  printf '        %s: exit=%s %s rules=%s want [result %s] rules=%s\n        first line: %s\n        want line:  %s\n' \
-    "$label" "$status" "$got_state" "$got_rules" "$want_status" "$want_rules" "$got_line" "$want_line"
+  printf '        %s: exit=%s state=[%s] rules=%s want exit=%s [%s] rules=%s\n' \
+    "$label" "$status" "$got_state" "$got_rules" "$want_exit" "$want_status" "$want_rules"
   return 1
 }
 
-# Rows: label | call | eval reply | readings after each rule, comma
-# separated | result | rules applied | first line.
+# Rows: label | call | reload reply | readings after each rule, comma
+# separated | result or typed diagnostic | rules applied.
 # The output reads 1755x933 at scale 1 before any rule, the size a taken
 # hold records as the host window's.
 cases=(
-  "a hold the output takes at once is held|hold|ok|take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1755x933] state=held file=present|1|ok the case: WAYLAND-1 reads 3510x1866 scale=2, attempts=1 got=[3510x1866 scale=2]"
-  "a hold the host resets once is applied again and held|hold|ok|1755x933 scale=1.5,take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1755x933] state=held file=present|2|ok the case: WAYLAND-1 reads 3510x1866 scale=2, attempts=2 got=[3510x1866 scale=2]"
-  "a hold the host always resets fails after the bound|hold|ok|1755x933 scale=1.5|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|3|  FAIL  the case: WAYLAND-1 does not read 3510x1866 scale=2: attempts=3 got=[1755x933 scale=1.5]"
-  "a hold that reads another mode fails after the bound|hold|ok|1700x900 scale=1|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|3|  FAIL  the case: WAYLAND-1 does not read 3510x1866 scale=2: attempts=3 got=[1700x900 scale=1]"
-  "a refused rule fails at once|hold|error|take|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|0|  FAIL  the case: WAYLAND-1 does not read 3510x1866 scale=2: attempts=1 eval=[error]"
-  "a restore after a reset takes the held mode and scale|restore|ok|1755x933 scale=1.5,take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[] state=held file=present|2|result status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[] state=held file=present"
-  "a restore the host always resets fails after the bound|restore|ok|1755x933 scale=1.5|status=1 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[] state=reset file=present|3|hold-restore: not-held output=WAYLAND-1 want=[3510x1866 scale=2] attempts=3 got=[1755x933 scale=1.5]"
-  "a release empties the recorded window size|hold-release|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|1|ok the case: WAYLAND-1 reads 3510x1866 scale=2, attempts=1 got=[3510x1866 scale=2]"
-  "a restore with no hold is refused|restore-none|ok|take|status=1 failures=0 resets=0 held=[] window=[] state=none file=absent|0|hold-restore: refused hold=none"
-  "nested holds restore each parent and its scale|nested|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|6|ok the case: WAYLAND-1 reads 3510x1866 scale=2, attempts=1 got=[3510x1866 scale=2]"
-  "a failed inner hold restores its parent|nested-failed|ok|take,1700x900 scale=1,1700x900 scale=1,1700x900 scale=1,take|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|7|ok the case: WAYLAND-1 reads 3510x1866 scale=2, attempts=1 got=[3510x1866 scale=2]"
+  "an unavailable mode preserves an earlier product failure|hold-after-failure|ok|1755x933 scale=1.5|qml-smoke: failed=1|3"
+  "a hold that cannot take a readable mode stops unmeasured|hold|ok|1755x933 scale=1.5|qml-smoke: status=not-measured nested-output=mode-unavailable output=WAYLAND-1 want=[3510x1866 scale=2] attempts=3 got=[1755x933 scale=1.5]|3"
+  "a release that cannot take its base stops unmeasured|release-only|ok|1700x900 scale=1|qml-smoke: status=not-measured nested-output=mode-unavailable output=WAYLAND-1 want=[3510x1866 scale=2] attempts=3 got=[1700x900 scale=1]|3"
+  "an unreadable output fails instead of being excused|hold|ok|unreadable|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|3"
+  "an unreadable hold file fails before reload|take-missing|ok|take|status=1 failures=0 resets=0 held=[] window=[] state=none file=absent|0"
+  "configuration errors fail instead of being excused|hold|config-error|take|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|0"
+  "a hold the output takes at once is held|hold|ok|take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1755x933] state=held file=present|1"
+  "a hold the host resets once is applied again and held|hold|ok|1755x933 scale=1.5,take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1755x933] state=held file=present|2"
+  "a refused rule fails at once|hold|error|take|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|0"
+  "a restore after a reset takes the held mode and scale|restore|ok|1755x933 scale=1.5,take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[] state=held file=present|2"
+  "a restore the host always resets fails after the bound|restore|ok|1755x933 scale=1.5|status=1 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[] state=reset file=present|3"
+  "a release empties the recorded window size|hold-release|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|2"
+  "a restore with no hold is refused|restore-none|ok|take|status=1 failures=0 resets=0 held=[] window=[] state=none file=absent|0"
+  "nested holds restore each parent and its scale|nested|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|6"
 )
 for row in "${cases[@]}"; do
   if run_case "$subject" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
@@ -270,16 +293,21 @@ mutate() {
 # Rows: label | text | replacement | the case label that must go red. A
 # field holds no `|`, the separator.
 controls=(
+  "configuration errors are accepted|[[ \$reply != '[]' ]]|[[ \$reply == never ]]|configuration errors fail instead of being excused"
+  "an unreadable output is excused|[[ \$got != unreadable ]]|true|an unreadable output fails instead of being excused"
+  "an unavailable mode excuses an earlier product failure|if [[ \$behaviour_failures -gt 0 ]]; then|if false; then|an unavailable mode preserves an earlier product failure"
+  "take_mode defers mode application until a frame|reply=\"\$(hypr_reload_errors)\"|reply=\"\$(output_mode \"\$output\" \"\$mode\" \"\$scale\")\"|a hold the output takes at once is held"
+  "an unavailable mode uses a product failure|  exit 77|  return 0|a hold that cannot take a readable mode stops unmeasured"
+  "an unreadable hold file is excused|if [[ ! -r \$mode_hold_file ]]; then|if false; then|an unreadable hold file fails before reload"
   "take_mode applies the rule once|attempt <= mode_attempts; attempt++|attempt <= 1; attempt++|a hold the host resets once is applied again and held"
-  "take_mode applies the rule past the bound|mode_attempts=3|mode_attempts=4|a hold the host always resets fails after the bound"
+  "take_mode applies the rule past the bound|mode_attempts=3|mode_attempts=4|a hold that cannot take a readable mode stops unmeasured"
   "hold_mode records no window size|    mode_hold_window=\"\$window\"|    mode_hold_window=\"\"|a hold the output takes at once is held"
   "release_mode keeps the window size|  mode_hold_window=\"\"|  mode_hold_window=\"\$mode_hold_window\"|a release empties the recorded window size"
   "held_mode_host_sized always answers true|held_mode_host_sized() {|held_mode_host_sized() { return 0|the held mode is not host-sized"
   "held_mode_host_sized reads a hold at the window's own size|[[ \$mode_hold_window != \"\${mode_hold[1]% scale=*}\" ]]|true|a hold at the window's own size is never host-sized"
-  "take_mode polls after a refused rule|[[ \$reply != ok ]]|[[ \$reply == never ]]|a refused rule fails at once"
+  "a refused reload is accepted|if reload.strip() != \"ok\":|if False:|a refused rule fails at once"
   "hold_restore drops the held scale|take_mode \"\${mode_hold[0]}\" \"\${mode_hold[1]% scale=*}\" \"\${mode_hold[1]##*scale=}\"|take_mode \"\${mode_hold[0]}\" \"\${mode_hold[1]% scale=*}\" \"1\"|a restore after a reset takes the held mode and scale"
   "a release drops every parent|if [[ \${#mode_hold_parents[@]} -gt 0 ]]; then|if false; then|nested holds restore each parent and its scale"
-  "a failed inner hold leaves the output changed|      hold_restore |      true |a failed inner hold restores its parent"
   "the fixture base ignores a matching outer hold|base_mode_scale() {|base_mode_scale() { mode_scale_of \"\$1\"; return|a reset output keeps its matching outer hold as the fixture base"
   "the fixture base takes another output's hold|\${mode_hold[0]} == \"\$1\"|true|another output's hold does not replace the fixture base"
   "hold_restore runs with no hold|if [[ \${#mode_hold[@]} -eq 0 ]]; then|if [[ \${#mode_hold[@]} -eq -1 ]]; then|a restore with no hold is refused"

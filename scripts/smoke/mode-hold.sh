@@ -62,26 +62,50 @@ whole_scale_mode() {
   fi
   echo "$best"
 }
-# mode_attempts: how many times take_mode applies one rule. A host
+# Reload the nested Hyprland and read its configuration errors in the same
+# batch request, printed as a JSON list. Hyprland v0.56.2 empties the list
+# on every `hyprctl eval` (CConfigManager::eval) and the shell evals after
+# each reload, so a configerrors request of its own can read [] while the
+# configuration holds errors. A reload that does not answer ok prints its
+# answer and fails.
+hypr_reload_errors() {
+  hypr --batch 'reload config-only ; j/configerrors' | py_reply '
+import json, sys
+reload, errors = sys.stdin.read().split("\n\n\n")
+if reload.strip() != "ok":
+    print("reload answered " + json.dumps(reload.strip()))
+    sys.exit(1)
+print(json.dumps([e for e in json.loads(errors) if e]))'
+}
+
+# mode_attempts: how many times take_mode reloads one held rule. A host
 # configure of the nested window that arrives after the rule gives the
 # output the host window's size again (held_mode_state), so a rule that
 # took can read as another mode. The bound stops the retries when the
 # host keeps configuring the window.
 mode_attempts=3
 mode_hold_parents=()
-# take_mode NAME MODE SCALE: output NAME takes MODE at SCALE. output_mode
-# applies the rule, then mode_scale_of reads the output every 200 ms for
+# take_mode NAME MODE SCALE: output NAME takes the rule already written
+# to mode_hold_file. A config-only reload applies monitor rules directly.
+# hl.monitor through eval only schedules their application on render.preChecks
+# (CMonitorRuleManager, Hyprland v0.56.2); an output without frame callbacks
+# can acknowledge eval yet never apply the rule. Then mode_scale_of reads
+# the output every 200 ms for
 # up to 5 s; an output that never reads `MODE scale=SCALE` gets the rule
 # again, up to mode_attempts times. Prints `attempts=<n> got=[<reading>]`,
 # the last reading `unreadable` when the monitor cannot be read, and
-# returns 0 when the output reads the mode and scale, 1 when it never
-# does. A rule hyprctl does not answer `ok` is no reset: take_mode prints
-# `attempts=<n> eval=[<reply>]` and returns 1 at once.
+# returns 0 when the output reads the mode and scale, 77 when a readable
+# output never takes it, and 1 when the rule file, reload or read fails.
+# A reload hyprctl does not answer `ok` prints its reply and returns 1.
 take_mode() {
   local output="$1" mode="$2" scale="$3" attempt reply got=""
+  if [[ ! -r $mode_hold_file ]]; then
+    printf 'reason=hold-file-unreadable path=%s\n' "$mode_hold_file"
+    return 1
+  fi
   for ((attempt = 1; attempt <= mode_attempts; attempt++)); do
-    if ! reply="$(output_mode "$output" "$mode" "$scale")" || [[ $reply != ok ]]; then
-      printf 'attempts=%s eval=[%s]\n' "$attempt" "$reply"
+    if ! reply="$(hypr_reload_errors)" || [[ $reply != '[]' ]]; then
+      printf 'attempts=%s reload=[%s]\n' "$attempt" "$reply"
       return 1
     fi
     for _ in $(seq 1 25); do
@@ -94,20 +118,30 @@ take_mode() {
     done
   done
   printf 'attempts=%s got=[%s]\n' "$mode_attempts" "$got"
-  return 1
+  [[ $got != unreadable ]] || return 1
+  return 77
+}
+# mode_unavailable OUTPUT WANT READING: stop before a product check uses
+# geometry from a readable output that could not take its requested mode.
+# scripts/main-run.sh consumes status=not-measured; no FAIL line is emitted.
+mode_unavailable() {
+  if [[ $behaviour_failures -gt 0 ]]; then
+    printf 'qml-smoke: nested-output=mode-unavailable output=%s want=[%s] %s\n' "$1" "$2" "$3"
+    smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets" || exit $?
+  fi
+  printf 'qml-smoke: status=not-measured nested-output=mode-unavailable output=%s want=[%s] %s\n' "$1" "$2" "$3"
+  exit 77
 }
 # hold_mode LABEL NAME MODE [SCALE]: output NAME takes MODE at SCALE, 1 by
 # default, until release_mode restores the previous hold, or the caller's
 # mode when no outer hold exists. The first hold's WxH is kept as the
 # host window's size (mode_hold_window) once the hold begins. The rule
 # goes into mode_hold_file, which every load of the configuration runs,
-# and take_mode applies it now. The hold begins once the monitor reads
-# both; a mode or a scale never taken is a failure and restores the outer
-# hold, or leaves no hold file without one. A hold never taken cannot tell a host configure
-# from a rule that never applied: both leave the output at its WxH before
-# the rule.
+# and take_mode reloads it now. The hold begins once the monitor reads
+# both. A readable output that never takes the mode stops the run as
+# not measured before any product fit check runs.
 hold_mode() {
-  local label="$1" output="$2" want="$3 scale=${4:-1}" taken window previous_rule=""
+  local label="$1" output="$2" want="$3 scale=${4:-1}" taken window previous_rule="" status=0
   local row_class=hold
   if [[ ${#mode_hold[@]} -gt 0 ]]; then
     previous_rule="$(cat -- "$mode_hold_file")" || { fail "$label: the held rule is unreadable"; return 0; }
@@ -125,6 +159,8 @@ hold_mode() {
     mode_hold_window="$window"
     ok "$label: $output reads $want, $taken"
   else
+    status=$?
+    [[ $status != 77 ]] || mode_unavailable "$output" "$want" "$taken"
     fail "$label: $output does not read $want: $taken"
     if [[ -n $previous_rule ]]; then
       printf '%s\n' "$previous_rule" >"$mode_hold_file" || fail "$label: the outer hold file is not restored"
@@ -204,19 +240,34 @@ held_mode_host_sized() {
 # give NAME the caller's MODE at SCALE, 1 by default. Read both before the
 # rows go on, whether or not the inner hold took.
 release_mode() {
+  local taken status=0
   if [[ ${#mode_hold_parents[@]} -gt 0 ]]; then
     local top=$((${#mode_hold_parents[@]} - 4))
     mode_hold=("${mode_hold_parents[top]}" "${mode_hold_parents[top + 1]}")
     mode_hold_window="${mode_hold_parents[top + 2]}"
     printf '%s\n' "${mode_hold_parents[top + 3]}" >"$mode_hold_file" || fail "$1: the outer hold file is not restored"
     mode_hold_parents=("${mode_hold_parents[@]:0:top}")
-    expect "$1" ok output_mode "${mode_hold[0]}" "${mode_hold[1]% scale=*}" "${mode_hold[1]##*scale=}"
-    expect_poll "${mode_hold[0]} reads ${mode_hold[1]}" "${mode_hold[1]}" mode_scale_of "${mode_hold[0]}"
-    return 0
+  else
+    mode_hold=()
+    mode_hold_window=""
+    # A reload needs the base rule even without frame callbacks. Remove
+    # it once the base takes, leaving no outer hold.
+    if ! monitor_rule "$2" "$3" "${4:-1}" >"$mode_hold_file.next" || ! mv -T -- "$mode_hold_file.next" "$mode_hold_file"; then
+      fail "$1: the restore rule is not written"
+      rm -f -- "$mode_hold_file.next" || fail "$1: the partial restore rule is not removed"
+      return 0
+    fi
   fi
-  mode_hold=()
-  mode_hold_window=""
-  rm -f -- "$mode_hold_file" || fail "$1: the hold file $mode_hold_file is not removed"
-  expect "$1" ok output_mode "$2" "$3" "${4:-1}"
-  expect_poll "$2 reads $3 scale=${4:-1}" "$3 scale=${4:-1}" mode_scale_of "$2"
+  local output="${mode_hold[0]:-$2}" want="${mode_hold[1]:-$3 scale=${4:-1}}"
+  if taken="$(take_mode "$output" "${want% scale=*}" "${want##*scale=}")"; then
+    ok "$1: $output reads $want, $taken"
+  else
+    status=$?
+    [[ $status != 77 ]] || mode_unavailable "$output" "$want" "$taken"
+    fail "$1: $output does not read $want: $taken"
+  fi
+  if ((${#mode_hold[@]} == 0)); then
+    rm -f -- "$mode_hold_file" || fail "$1: the hold file $mode_hold_file is not removed"
+  fi
+  return 0
 }
