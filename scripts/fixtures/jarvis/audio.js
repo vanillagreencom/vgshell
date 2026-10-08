@@ -41,11 +41,14 @@ async function world(main, timeout = 120000) {
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
 }
 
-// ms bounds a missing observation, not a latency budget.
+// ms bounds a missing observation, not a latency budget. A timeout carries
+// operator "until", so a caller tells an observation that never came from
+// one that came with the wrong value.
 async function until(check, message, ms = 5000) {
     const deadline = performance.now() + ms;
     while (!check()) {
-        assert.ok(performance.now() < deadline, message);
+        if (performance.now() >= deadline)
+            throw new assert.AssertionError({ message, actual: false, expected: true, operator: "until" });
         // Observe child pipe/lock state. This is not a latency measurement.
         await new Promise(resolve => setTimeout(resolve, 10));
     }

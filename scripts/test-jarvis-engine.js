@@ -1318,6 +1318,10 @@ world(async () => {
     await server.ready;
     let controls = 0;
     try {
+        // A wait that never observes fails typed; one that settles on another
+        // state fails its own assertion, so a control names which it met.
+        await assert.rejects(wait(() => false, "unobserved", 20), { operator: "until" });
+        await assert.rejects(settled(() => false, () => true, "settled elsewhere"), error => error.operator === "==");
         selection(Fixture.copy(root).Engine);
         for (const [name, needle, replacement = ""] of [
             ["speech-first", "const failing = [speech, brain]", "const failing = [brain, speech]"],
@@ -1457,7 +1461,7 @@ world(async () => {
             try { await cases(kit, server, scenario); }
             catch (error) { failure = error; }
             assert.ok(failure instanceof assert.AssertionError, name + " must turn an assertion red: " + failure);
-            console.log("control=" + name + " detected: " + failure.message.split("\n")[0]);
+            console.log("control=" + name + " detected operator=" + failure.operator + ": " + failure.message.split("\n")[0]);
             controls++;
         }
         const toggleKit = Fixture.copy(root);
