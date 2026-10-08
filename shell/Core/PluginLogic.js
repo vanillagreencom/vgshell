@@ -20,7 +20,7 @@ var KINDS = ["bar-widget", "bar", "panel", "overlay", "menu", "window", "pane", 
 
 // Capabilities the core can hand a plugin. A manifest naming another one is
 // refused. Capabilities.qml maps each name to its provider.
-var CAPABILITIES = ["compositor", "configure", "idle", "ipc", "lock", "session", "notifications", "polkit", "run", "screens", "shortcut", "surfaces", "builtins", "manager", "panes", "notify", "theme", "layers", "status", "tui", "system", "requirements", "doctor", "secrets", "hyprland", "bluetoothAgent", "monitors"];
+var CAPABILITIES = ["compositor", "configure", "idle", "ipc", "lock", "session", "notifications", "polkit", "run", "screens", "shortcut", "surfaces", "builtins", "manager", "panes", "notify", "theme", "layers", "status", "tui", "system", "requirements", "doctor", "secrets", "hyprland", "bluetoothAgent", "monitors", "sudo"];
 
 // A plugin's system notification, shell.notify.send. The tones and the
 // icon grammar are the ones the `x-vgs-tone` and `x-vgs-icon` hints take
@@ -735,6 +735,51 @@ function systemStateOf(steps, declared) {
     var out = {};
     declared.forEach(function (step) { out[step] = { state: steps[step].state, reason: steps[step].reason }; });
     return out;
+}
+
+// The longest timed grant the core TUI `sudo-grant` takes, in minutes;
+// bin/vgshell-sudo-grant judges the same bound again.
+var SUDO_MINUTES_MAX = 1440;
+
+// Whether DURATION is a grant the core TUI `sudo-grant` takes: a string of
+// whole minutes from 1 to SUDO_MINUTES_MAX with no leading zero, or
+// `indefinite`.
+function sudoDurationValid(duration) {
+    if (duration === "indefinite")
+        return true;
+    return typeof duration === "string" && /^[1-9][0-9]{0,3}$/.test(duration) && Number(duration) <= SUDO_MINUTES_MAX;
+}
+
+// What the SudoGrant owner holds after one run of `bin/vgshell-sudo-grant
+// status`, COMPLETION { code, status } or null for a run that never
+// started, STDOUT and STDERR its output: { state, until, rootHalf, line }.
+// `state` is `unknown` before a read answers and after one fails, `absent`
+// while the grant's root half is not installed, `inactive`, `active`, or
+// `nixos`, where the system configuration holds every sudo rule; `until`
+// is an active grant's ISO deadline or `indefinite`, else ""; `rootHalf`
+// is `current`, `stale` or `absent`, "" for nixos and unknown. A run that
+// prints no status line reads `unknown`, and `line` is the log line naming
+// why: `sudo: read=unstarted`, `sudo: read=failed exit=<code>
+// status=<status> <first stderr line>`, or `sudo: read=malformed
+// line=<first line as JSON>`; `line` is "" otherwise.
+function sudoReport(completion, stdout, stderr) {
+    var failed = function (line) { return { state: "unknown", until: "", rootHalf: "", line: line }; };
+    if (completion === null)
+        return failed("sudo: read=unstarted");
+    if (completion.status !== 0 || completion.code !== 0)
+        return failed("sudo: read=failed exit=" + completion.code + " status=" + completion.status + " " + String(stderr).split("\n")[0]);
+    var text = String(stdout).replace(/\n$/, "");
+    if (text === "sudo-grant=skipped=nixos-config")
+        return { state: "nixos", until: "", rootHalf: "", line: "" };
+    if (text === "sudo-grant=inactive root-half=absent")
+        return { state: "absent", until: "", rootHalf: "absent", line: "" };
+    var inactive = /^sudo-grant=inactive root-half=(current|stale)$/.exec(text);
+    if (inactive !== null)
+        return { state: "inactive", until: "", rootHalf: inactive[1], line: "" };
+    var active = /^sudo-grant=active until=(indefinite|[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z) root-half=(current|stale)$/.exec(text);
+    if (active !== null)
+        return { state: "active", until: active[1], rootHalf: active[2], line: "" };
+    return failed("sudo: read=malformed line=" + JSON.stringify(text.split("\n")[0]));
 }
 
 // The name a raw requirement entry, one requirementsError accepted, is
@@ -2138,13 +2183,16 @@ var TUI_RUN_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 // rest as a normalized manifest `tui` entry has them. coreTuiTable judges
 // the table when this file loads. The package pickers run in the default
 // size.
-// `edit`, `requirements-install`, `system`, `plugin-update` and
-// `plugin-remove` are not listed. The first opens a cited file from a
-// surface, the requirement notice opens the install row with the arguments
-// PluginLogic.noticeView names, the `manager` capability's act opens
-// `system` with `apply <step>` for a status action that names a system step
-// (D081), and the plugin manager opens update and remove with one plugin id
-// (MANAGER_TUIS). A plugin update shows its incoming diff, so it opens wide.
+// `edit`, `requirements-install`, `system`, `plugin-update`,
+// `plugin-remove` and `sudo-revoke` are not listed. The first opens a cited
+// file from a surface, the requirement notice opens the install row with
+// the arguments PluginLogic.noticeView names, the `manager` capability's
+// act opens `system` with `apply <step>` for a status action that names a
+// system step (D081), the plugin manager opens update and remove with one
+// plugin id (MANAGER_TUIS), and the `sudo` capability opens `sudo-grant`
+// with a duration and `sudo-revoke`, which asks nothing while a grant is
+// active, so its terminal closes by itself. A plugin update shows its
+// incoming diff, so it opens wide.
 var CORE_TUIS = coreTuiTable({
     "pkg-install": {
         argv: ["vgshell", "pkg", "install"],
@@ -2221,6 +2269,13 @@ var CORE_TUIS = coreTuiTable({
         title: "System setup",
         size: "default",
         presentation: "full",
+        entry: null
+    },
+    "sudo-revoke": {
+        argv: ["vgshell", "sudo", "revoke"],
+        title: "Passwordless sudo",
+        size: "default",
+        presentation: "plain",
         entry: null
     }
 });

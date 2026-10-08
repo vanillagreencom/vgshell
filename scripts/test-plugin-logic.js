@@ -1307,6 +1307,35 @@ function suite(ctx, check) {
     check("keyRefusal: a shortcut of no pad is undeclared", ctx.keyRefusal(padsManifest.manifest, "toggle", "SUPER+9"), "refused: key=toggle undeclared");
     check("bindRows: a pad's key has no default", ctx.bindRows(padConfig, padsManifest.manifest, { "acme.pads:pad-1": "Show or hide pad 1" }),
         [{ shortcut: "pad-1", key: "SUPER+ALT+P", keys: ["SUPER+ALT+P", "code:105"], default: null, description: "Show or hide pad 1", info: "" }, { shortcut: "pad-2", key: null, keys: [], default: null, description: "", info: "" }, { shortcut: "pad-3", key: null, keys: [], default: null, description: "", info: "" }]);
+
+    // The `sudo` capability: the grant durations the core TUI takes, and
+    // what one run of `vgshell-sudo-grant status` reads as.
+    check("sudo is a capability", ctx.CAPABILITIES.indexOf("sudo") !== -1, true);
+    const durationRows = [
+        ["15", true], ["1", true], ["1440", true], ["indefinite", true],
+        ["1441", false], ["0", false], ["015", false], ["", false], [" 15", false], ["60\n", false],
+        ["1.5", false], ["Indefinite", false], [15, false], [null, false], [undefined, false],
+    ];
+    for (const [value, want] of durationRows)
+        check("sudoDurationValid: " + JSON.stringify(value), ctx.sudoDurationValid(value), want);
+    const sudoDone = { code: 0, status: 0 };
+    const sudoUnknown = line => ({ state: "unknown", until: "", rootHalf: "", line: line });
+    const sudoRows = [
+        ["a timed grant", sudoDone, "sudo-grant=active until=2026-10-08T22:07:25Z root-half=current\n", "", { state: "active", until: "2026-10-08T22:07:25Z", rootHalf: "current", line: "" }],
+        ["an indefinite grant through a stale root half", sudoDone, "sudo-grant=active until=indefinite root-half=stale\n", "", { state: "active", until: "indefinite", rootHalf: "stale", line: "" }],
+        ["no grant", sudoDone, "sudo-grant=inactive root-half=current\n", "", { state: "inactive", until: "", rootHalf: "current", line: "" }],
+        ["no root half", sudoDone, "sudo-grant=inactive root-half=absent\n", "", { state: "absent", until: "", rootHalf: "absent", line: "" }],
+        ["NixOS", sudoDone, "sudo-grant=skipped=nixos-config\n", "", { state: "nixos", until: "", rootHalf: "", line: "" }],
+        ["a run that never started", null, "", "", sudoUnknown("sudo: read=unstarted")],
+        ["a refusal", { code: 1, status: 0 }, "", "vgs-sudo-grant: refused: sudo=unsupported\nmore", sudoUnknown("sudo: read=failed exit=1 status=0 vgs-sudo-grant: refused: sudo=unsupported")],
+        ["a crash", { code: 0, status: 1 }, "sudo-grant=inactive root-half=current\n", "", sudoUnknown("sudo: read=failed exit=0 status=1 ")],
+        ["a deadline that is no time", sudoDone, "sudo-grant=active until=soon root-half=current\n", "", sudoUnknown("sudo: read=malformed line=\"sudo-grant=active until=soon root-half=current\"")],
+        ["an active grant with no root half", sudoDone, "sudo-grant=active until=indefinite root-half=absent\n", "", sudoUnknown("sudo: read=malformed line=\"sudo-grant=active until=indefinite root-half=absent\"")],
+        ["a second line", sudoDone, "sudo-grant=inactive root-half=current\nmore\n", "", sudoUnknown("sudo: read=malformed line=\"sudo-grant=inactive root-half=current\"")],
+        ["nothing printed", sudoDone, "", "", sudoUnknown("sudo: read=malformed line=\"\"")],
+    ];
+    for (const [name, completion, stdout, stderr, want] of sudoRows)
+        check("sudoReport: " + name, ctx.sudoReport(completion, stdout, stderr), want);
 }
 
 suite(load(LOGIC), report);
@@ -1316,6 +1345,11 @@ suite(load(LOGIC), report);
 // judge's own place in a temporary tree, beside the icon set, the
 // package-manager table and the Hyprland layer's table it imports.
 const CONTROLS = [
+    ["sudo is a capability", '"monitors", "sudo"];', '"monitors"];'],
+    ["a grant longer than a day is refused", "Number(duration) <= SUDO_MINUTES_MAX", "true"],
+    ["a sudo read that fails is unknown", 'completion.code !== 0)\n        return failed("sudo: read=failed', 'completion.code !== 0 && false)\n        return failed("sudo: read=failed'],
+    ["a sudo deadline is an ISO time", "(indefinite|[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)", "(indefinite|[^ ]+)"],
+    ["no sudo root half reads absent", 'return { state: "absent", until: "", rootHalf: "absent", line: "" };', 'return { state: "inactive", until: "", rootHalf: "absent", line: "" };'],
     ["undeclared settings never reach runtime or ordinary writes", "if (hasOwn(manifest.settings, k) || (stored && ENTRY_RESERVED_KEYS.indexOf(k) !== -1))", "if (stored || ENTRY_RESERVED_KEYS.indexOf(k) === -1)"],
     ["stored entries retain reserved keys", "stored && ENTRY_RESERVED_KEYS.indexOf(k) !== -1", "false && stored && ENTRY_RESERVED_KEYS.indexOf(k) !== -1"],
     ["builtin placement needs the active catalogue", 'builtinNames.indexOf(id.slice(prefix.length)) !== -1', 'true'],
@@ -1332,7 +1366,7 @@ const CONTROLS = [
     ["the Bluetooth agent is exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "panes"];'],
     ["monitors is not exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "monitors", "panes"];'],
     ["panes is exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent"];'],
-    ["monitors is a capability", "\"hyprland\", \"bluetoothAgent\", \"monitors\"];", "\"hyprland\", \"bluetoothAgent\"];"],
+    ["monitors is a capability", "\"hyprland\", \"bluetoothAgent\", \"monitors\", ", "\"hyprland\", \"bluetoothAgent\", "],
     ["hyprland monitors is a key", 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors"];', 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads"];'],
     ["optionsFrom needs a string", "if (entry.type !== \"string\")\n                return at + \".optionsFrom needs type string\";", "if (false)\n                return at + \".optionsFrom needs type string\";"],
     ["hyprland monitors need the capability", "if (monitors !== undefined && capabilities.indexOf(\"monitors\") === -1)\n        return \"hyprland.monitors needs capability monitors\";", "if (false)\n        return \"hyprland.monitors needs capability monitors\";"],

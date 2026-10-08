@@ -134,6 +134,15 @@ Scope {
         };
     }
 
+    // The run id of core TUI NAME's latest ended run, "" before one ended,
+    // whoever opened it. Bindable: a core owner whose state a run changes
+    // reads it again when this changes, a run the launcher opened included.
+    function coreEnded(name) {
+        const keys = recordStore.runs.keys;
+        const key = "core/" + name;
+        return Object.prototype.hasOwnProperty.call(keys, key) && keys[key].ended !== null ? keys[key].ended.run : "";
+    }
+
     // The calling plugin's own TUIs' state, one frozen copy per read.
     function stateOf(ctx) {
         return frozen(Logic.tuiState(recordStore.runs, ctx.id, Object.keys(ctx.manifest.tui)));

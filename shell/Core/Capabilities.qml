@@ -23,6 +23,7 @@ Singleton {
     TuiRunner { id: tuis }
     SecretWriter { id: secrets }
     SystemSteps { id: systemSteps; active: root.systemHeld }
+    SudoGrant { id: sudoGrant; active: root.sudoHeld; tuis: tuis }
     HyprlandState {
         id: hyprlandState
         active: root.holderIds("hyprland").length > 0 || shortcuts.keyCapture.wantsBinds
@@ -49,6 +50,7 @@ Singleton {
     }
     readonly property bool polkitHeld: holderIds("polkit").length > 0
     readonly property bool systemHeld: holderIds("system").length > 0
+    readonly property bool sudoHeld: holderIds("sudo").length > 0
     property int polkitFlows: 0
 
     function holderIds(name) {
@@ -200,6 +202,7 @@ Singleton {
         theme: themes.provider,
         tui: tuis.provider,
         system: systemSteps.provider,
+        sudo: sudoGrant.provider,
         bluetoothAgent: bluetoothAgent.provider,
         secrets: secrets.provider,
         hyprland: hyprlandState.provider,
@@ -469,6 +472,7 @@ Singleton {
             theme: themes.record(),
             tui: tuis.record(),
             system: systemSteps.record(),
+            sudo: sudoGrant.record(),
             bluetoothAgent: bluetoothAgent.record(),
             notices: Notices.record(),
             hyprland: hyprlandState.record(),

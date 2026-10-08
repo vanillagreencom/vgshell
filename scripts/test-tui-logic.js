@@ -358,6 +358,7 @@ function suite(ctx, check) {
         "pkg-install": { argv: ["vgshell", "pkg", "install"], title: "Install packages", size: "default", presentation: "full", entry: { label: "Install packages", icon: "package-plus", group: "Packages" } },
         "pkg-remove": { argv: ["vgshell", "pkg", "remove"], title: "Remove packages", size: "default", presentation: "full", entry: { label: "Remove packages", icon: "package-minus", group: "Packages" } },
         "sudo-grant": { argv: ["vgshell", "sudo", "grant"], title: "Passwordless sudo", size: "default", presentation: "full", entry: { label: "Passwordless sudo", icon: "shield-alert", group: "System" } },
+        "sudo-revoke": { argv: ["vgshell", "sudo", "revoke"], title: "Passwordless sudo", size: "default", presentation: "plain", entry: null },
         "doctor": { argv: ["vgshell", "doctor"], title: "Requirements", size: "default", presentation: "full", entry: { label: "Check requirements", icon: "stethoscope", group: "System" } },
         "plugin-add": { argv: ["vgshell", "plugin", "add"], title: "Add a plugin", size: "default", presentation: "full", entry: { label: "Add a plugin", icon: "circle-plus", group: "Plugins" } },
         "theme-add": { argv: ["vgshell", "theme", "add"], title: "Add a theme", size: "default", presentation: "full", entry: { label: "Add a theme", icon: "palette", group: "Themes" } },
