@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Templates as T
 import QtTest
 import qs.Commons
 import qs.Ui
@@ -43,10 +44,10 @@ Item {
                 Repeater {
                     id: keyboardRows
                     model: 8
-                    Rectangle {
+                    T.Control {
                         width: root.narrowKeyboardBody ? keyboardBody.width : keyboard.width
                         height: 24
-                        color: "#ff00ff"
+                        background: Rectangle { color: "#ff00ff" }
                         FocusRing { target: parent; outside: true }
                     }
                 }

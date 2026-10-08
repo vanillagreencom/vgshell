@@ -3643,7 +3643,7 @@ for scene in "${scenes[@]}"; do
     theme-previews) need_setup launcher; need_setup panels; need_setup bar; need_setup ai-usage ;;
     tooltips) need_setup launcher; need_setup panels; need_setup bar; need_setup tooltips ;;
     focus) need_setup settings ;;
-    focus-open) need_setup settings; need_setup network ;;
+    focus-open) need_setup focus-open ;;
     narrow) for s in launcher panels bar devtools dialog notifications gallery; do need_setup "$s"; done
       ! scene_ships lock || need_setup lock ;;
     *) need_setup "$scene" ;;
@@ -3842,6 +3842,15 @@ PY2
       fi
       expect "enabling vgs.$scene is allowed" ok ipc shell setPluginEnabled "vgs.$scene" true
       expect_poll "vgs.$scene is built" True record_exists "vgs.$scene" ;;
+    focus-open)
+      mkdir -p "$home/.config/vgshell/plugins/acme.probe"
+      cp -R -- "$fixtures/acme.probe/." "$home/.config/vgshell/plugins/acme.probe/"
+      tree_rescan "the comparison fixture is scanned"
+      expect_poll "the comparison fixture is listed" True plugin_known acme.probe
+      for id in acme.probe vgs.settings; do
+        expect "enabling $id for the comparison is allowed" ok ipc shell setPluginEnabled "$id" true
+        expect_poll "$id is built for the comparison" True record_exists "$id"
+      done ;;
     settings|plugin-pages)
       # The Settings window lists the probe fixture, a plugin with many
       # grouped settings, and the launcher, a plugin with a key; both

@@ -730,6 +730,7 @@ capture_choice() { ipc smoke readDescendant panel vgs.capture "$1" currentIndex;
 capture_action() { capture_read action | py_reply 'import json,sys; print(json.load(sys.stdin))'; }
 capture_back() { type_keys -M shift -k Tab -m shift || fail "capture: sending Shift+Tab to the panel failed"; }
 capture_key() { type_keys -k "$1" || fail "capture: sending $1 to the panel failed"; }
+capture_shot_initial='["Button", "Take screenshot", false, false, true]'
 capture_shot_focus='["Button", "Take screenshot", true, true, true]'
 capture_record_focus='["Button", "Start recording", true, true, true]'
 capture_panel_file="$repo/shell/plugins/vgs.capture/Panel.qml"
@@ -769,7 +770,7 @@ capture_setting delay 3
 expect "capture opens its panel" ok ipc vgs.capture invoke toggle ''
 expect_poll "capture panel maps" false capture_panel
 expect_poll "capture panel has a drawn layer with geometry" True capture_panel_geometry
-expect_poll "the panel opens on Take screenshot with its ring" "$capture_shot_focus" capture_focus
+expect_poll "the panel opens on Take screenshot without its ring" "$capture_shot_initial" capture_focus
 expect "the primary action screenshots an area" screenshot-area capture_primary
 capture_back
 expect_poll "Shift+Tab reaches the target tiles" TileGroup capture_focus_type
@@ -805,7 +806,7 @@ expect "the same action cancels the panel's countdown" ok ipc vgs.capture invoke
 expect_poll "the cancelled countdown leaves capture idle" idle capture_phase
 capture_panel_plant walk
 expect "capture opens the walk copy's panel" ok ipc vgs.capture invoke toggle ''
-expect_poll "control: the walk copy opens on Take screenshot" "$capture_shot_focus" capture_focus
+expect_poll "control: the walk copy opens on Take screenshot" "$capture_shot_initial" capture_focus
 capture_back
 expect_poll "control: Shift+Tab reaches the walk copy's tiles" TileGroup capture_focus_type
 capture_key Right
@@ -830,7 +831,7 @@ expect_poll "control: the walk copy's panel closes" absent capture_panel
 capture_panel_plant focus
 expect "capture opens the focus copy's panel" ok ipc vgs.capture invoke toggle ''
 expect_poll "control: the focus copy opens on the mode switch" SegmentedControl capture_focus_type
-expect "control: opening on the mode switch fails the Take screenshot readback" False capture_is capture_focus "$capture_shot_focus"
+expect "control: opening on the mode switch fails the Take screenshot readback" False capture_is capture_focus "$capture_shot_initial"
 expect "capture closes the focus copy's panel" ok ipc vgs.capture invoke toggle ''
 expect_poll "the focus copy's panel unmaps" absent capture_panel
 capture_panel_plant original

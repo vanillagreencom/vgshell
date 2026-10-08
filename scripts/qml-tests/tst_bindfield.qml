@@ -117,7 +117,8 @@ Item {
             const tip = descendant(label, item => String(item).indexOf("Tooltip") === 0);
             compare(descendant(row, item => String(item).indexOf("InfoButton") === 0), null);
             compare(tip.text, "Locks the screen at once.");
-            verify(label.activeFocusOnTab);
+            const labelControl = label.children.find(item => item.visualFocus !== undefined);
+            verify(labelControl.activeFocusOnTab);
             mouseMove(label, label.width / 2, label.height / 2);
             tryCompare(tip, "opened", true);
             mouseMove(root, root.width - 1, root.height - 1);
@@ -127,7 +128,7 @@ Item {
             const record = () => { if (tip.opened) focused.push(tip.text); };
             tip.openedChanged.connect(record);
             try {
-                label.forceActiveFocus(Qt.TabFocusReason);
+                labelControl.forceActiveFocus(Qt.TabFocusReason);
                 tryVerify(() => focused.length > 0, 2000);
             } finally {
                 tip.openedChanged.disconnect(record);
@@ -136,7 +137,7 @@ Item {
             input(row).forceActiveFocus(Qt.TabFocusReason);
             tryCompare(tip, "opened", false);
             const plain = descendant(later, item => item.objectName === "fieldLabel");
-            verify(!plain.activeFocusOnTab);
+            verify(!plain.children.find(item => item.visualFocus !== undefined).activeFocusOnTab);
         }
 
         function test_the_field_holds_the_key_in_effect() {

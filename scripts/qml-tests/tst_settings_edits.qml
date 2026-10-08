@@ -268,7 +268,7 @@ Item {
             const record = () => { if (tip.opened) focused.push(tip.text); };
             tip.openedChanged.connect(record);
             try {
-                label.forceActiveFocus(Qt.TabFocusReason);
+                label.children.find(item => item.visualFocus !== undefined).forceActiveFocus(Qt.TabFocusReason);
                 tryVerify(() => focused.length > 0, 2000);
             } finally {
                 tip.openedChanged.disconnect(record);

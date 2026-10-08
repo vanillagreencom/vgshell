@@ -77,7 +77,6 @@ Item {
     Label {
         id: labelText
         objectName: "fieldLabel"
-        readonly property bool visualFocus: labelFocus.visualFocus
         T.Control {
             id: labelFocus
             anchors.fill: parent
