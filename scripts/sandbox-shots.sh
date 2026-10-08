@@ -19,7 +19,7 @@
 # SCENE is gallery, settings, wide-settings, focus, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, plugin-messages, ai-usage or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, plugin-messages, traffic, ai-usage or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -221,7 +221,7 @@ while [[ $# -gt 0 ]]; do
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    gallery|settings|wide-settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|plugin-messages|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
+    gallery|settings|wide-settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|plugin-messages|traffic|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -335,6 +335,7 @@ scene_ships() {
     voice-keys) [[ $manager_scene == settings ]] && ships_plugin vgs.voice ;;
     jarvis-setup) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
     ai-usage) ships_plugin vgs.ai-usage ;;
+    traffic) ships_plugin vgs.traffic vgs.settings ;;
     devtools) ships_plugin vgs.devtools ;;
     system) ships_plugin vgs.system ;;
     network) ships_plugin vgs.system vgs.network ;;
@@ -406,6 +407,9 @@ fi
 # host claude or codex.
 if [[ " ${scenes[*]} " == *" ai-usage "* ]]; then
   shell_hidden_commands+=(claude codex)
+fi
+if [[ " ${scenes[*]} " == *" traffic "* ]]; then
+  shell_hidden_commands+=(bandwhich)
 fi
 source "$checkout/scripts/smoke/harness.sh"
 source "$checkout/scripts/smoke/power-fakes.sh"
@@ -2004,6 +2008,70 @@ scene_ai-usage() { # MODE
   expect_poll "AI Usage's panel is gone" absent ipc smoke readInstance panel vgs.ai-usage rows
 }
 
+# The production traffic views over a fixture service in the sandbox copy.
+traffic_shot_setting() {
+  python3 - "$home/.config/vgshell/shell.json" "$1" <<'PY2' || return 1
+import json, os, sys
+path, show = sys.argv[1:]
+config = json.load(open(path))
+for section in config["bar"]["layout"].values():
+    for row in section:
+        if row["id"] == "vgs.traffic":
+            row["show"] = show
+with open(path + ".tmp", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".tmp", path)
+PY2
+  expect "Traffic's display mode reloads" ok ipc shell reloadConfig
+  expect_poll "Traffic shows $1" "\"$1\"" ipc smoke readInstance "$(bar_key)" vgs.traffic showMode
+}
+scene_traffic() { # MODE
+  local state show box
+  expect "Traffic hides for its Before image" ok ipc shell setPluginPlaced vgs.traffic false
+  take "traffic-$1-before-bar"
+  expect "Traffic is placed for its After images" ok ipc shell setPluginPlaced vgs.traffic true
+  for show in both download upload; do
+    traffic_shot_setting "$show" || fail "Traffic's $show setting failed"
+    take "traffic-$1-bar-$show"
+    box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.traffic)" || box=absent
+    record_item "traffic-$1-bar-$show" "$box"
+  done
+  traffic_shot_setting both || fail "Traffic's both setting failed"
+  for state in apps measuring idle capture-needed no-bandwhich; do
+    if [[ $state == no-bandwhich ]]; then
+      rm -- "${shim:?}/bandwhich"
+      tree_rescan "Traffic's missing optional tool is scanned"
+    fi
+    expect "Traffic's $state fixture publishes" ok ipc vgs.traffic invoke scene "$state"
+    click_centre "$(bar_key)" vgs.traffic || fail "opening Traffic's $state panel failed"
+    expect_poll "Traffic's panel opens" true ipc smoke readInstance panel vgs.traffic visible
+    expect "Traffic's panel takes focus for its image" focused ipc smoke invokeInstance panel vgs.traffic focusInstance ""
+    take "traffic-$1-panel-$state"
+    box="$(ipc smoke instanceGeometry panel vgs.traffic)" || box=absent
+    record_item "traffic-$1-panel-$state" "$box"
+    expect "Traffic's panel hides" ok ipc shell hide panel vgs.traffic
+  done
+  cp -- "$checkout/scripts/smoke/fixtures/traffic/allow.sh" "$shim/bandwhich"
+  tree_rescan "Traffic's optional tool stand-in is scanned for Settings"
+  expect "Traffic's capture-needed fixture publishes for Settings" ok ipc vgs.traffic invoke scene capture-needed
+  expect "Settings opens Traffic's page" ok ipc shell summon "$settings_kind" vgs.settings '{"plugin":"vgs.traffic"}'
+  expect "Settings selects Traffic" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.traffic
+  expect_poll "Settings shows Traffic" '"vgs.traffic"' settings_page
+  take "traffic-$1-settings-display"
+  page_details
+  ipc smoke revealText "$settings_kind" vgs.settings Button "Allow" >/dev/null || fail "Traffic's capture action was not revealed"
+  take "traffic-$1-settings-capture"
+  rm -- "${shim:?}/bandwhich"
+  tree_rescan "Traffic's missing optional tool is scanned for Settings"
+  expect "Traffic's absent capture fixture publishes for Settings" ok ipc vgs.traffic invoke scene no-bandwhich
+  ipc smoke revealText "$settings_kind" vgs.settings Button "Install all missing" >/dev/null || fail "Traffic's optional requirement was not revealed"
+  take "traffic-$1-settings-requirements"
+  settings_close
+  cp -- "$checkout/scripts/smoke/fixtures/traffic/allow.sh" "$shim/bandwhich"
+  tree_rescan "Traffic restores its optional tool stand-in"
+  expect "Traffic restores its apps fixture" ok ipc vgs.traffic invoke scene apps
+}
+
 # The Key Hints window, with the pointer parked.
 scene_keyhints() { # MODE
   expect "the Key Hints window summons" ok ipc shell summon window vgs.keyhints '{}'
@@ -3525,6 +3593,27 @@ for scene in "${setups[@]}"; do
       expect_poll "the code is recorded" "$((clipboard_before + 5))" clipboard_total
       clipboard_pin="$(ipc vgs.clipboard invoke rows 'Meeting notes' | py_reply 'import json,sys; print(json.load(sys.stdin)["rows"][0]["id"])')" || fail "the entry to pin is unreadable"
       expect "the first copy is pinned" ok ipc vgs.clipboard invoke pin "$clipboard_pin" ;;
+    traffic)
+      cp -- "$checkout/scripts/smoke/fixtures/traffic/allow.sh" "$shim/bandwhich"
+      cp -- "$checkout/scripts/smoke/fixtures/traffic/Service.qml" "$repo/shell/plugins/vgs.traffic/Service.qml"
+      mkdir -p -- "$repo/shell/plugins/vgs.traffic/tui"
+      cp -- "$checkout/scripts/smoke/fixtures/traffic/allow.sh" "$repo/shell/plugins/vgs.traffic/tui/allow.sh"
+      python3 - "$repo/shell/plugins/vgs.traffic/manifest.json" <<'PY2' || fail "planting Traffic's fixture manifest failed"
+import json, sys
+path = sys.argv[1]
+manifest = json.load(open(path))
+manifest["kinds"].append("service")
+manifest["entryPoints"]["service"] = "Service.qml"
+manifest["capabilities"].append("ipc")
+manifest["tui"] = {"capture": {"script": "tui/allow.sh", "title": "Allow traffic capture"}, "bandwhich": {"script": "tui/allow.sh", "title": "All network traffic"}}
+manifest["status"]["capture"]["action"] = {"label": "Allow", "tui": "capture"}
+json.dump(manifest, open(path, "w"))
+PY2
+      tree_rescan "Traffic's fixture is scanned"
+      expect "enabling Traffic for its design is allowed" ok ipc shell setPluginEnabled vgs.traffic true
+      expect "Traffic's widget is placed" ok ipc shell setPluginPlaced vgs.traffic true
+      expect "enabling Settings for Traffic's design is allowed" ok ipc shell setPluginEnabled vgs.settings true
+      expect_poll "Traffic's service is built" True record_exists vgs.traffic ;;
     ai-usage)
       # The usage helper of the sandbox's copy asks the endpoint stand-in,
       # its origin edited as rows/ai-usage.sh edits it, and Codex's sign-in
