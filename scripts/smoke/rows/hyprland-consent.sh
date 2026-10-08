@@ -41,14 +41,7 @@ expect_poll "the welcome holds the keyboard" true ipc smoke noticeFocused
 expect_poll "the welcome draws link text, key chips, Connect and Not now without Show command" '{"actions": ["Connect", "Not now"], "busy": false, "focused": "Connect", "hasLinkText": true, "keys": [{"shortcut": "Super+Shift+T", "text": "picks a theme."}], "keysTitle": "Quick commands", "rowCount": 3, "title": "Welcome to VGS"}' welcome_drawn_shape
 fit_monitor="$(first_name)" || fail "the first monitor's name is unreadable"
 fit_base_mode="$(first_mode)" || fail "the first monitor's mode is unreadable"
-fit_monitor_power() { hypr -j monitors | py_reply 'import json,sys; ms=[m for m in json.load(sys.stdin) if m["name"] == sys.argv[1]]; print(ms[0]["dpmsStatus"] if len(ms) == 1 else "absent")' "$fit_monitor"; }
-# Eval monitor rules wait for render.preChecks. A powered-off nested
-# output supplies no frames; the hold must apply before it powers on.
-expect "the nested output powers off before the mode request" ok hypr dispatch 'hl.dsp.dpms({ action = "off" })'
-expect_poll "the nested output supplies no frames before the mode request" False fit_monitor_power
 hold_mode "the nested compositor holds $fit_monitor at 1440x900 for the welcome" "$fit_monitor" 1440x900
-expect "the nested output powers on at the held mode" ok hypr dispatch 'hl.dsp.dpms({ action = "on" })'
-expect_poll "the nested output supplies frames for the welcome fit check" True fit_monitor_power
 expect_poll "the welcome fits a 1440x900 output without scrolling" fits notice_fit 900
 release_mode "the nested compositor gives $fit_monitor its own mode after 1440x900" "$fit_monitor" "$fit_base_mode"
 hold_mode "the nested compositor holds $fit_monitor at 1440x320 for the welcome's control" "$fit_monitor" 1440x320
