@@ -41,8 +41,9 @@
 # each. The Uninstall stage, with one agent, reads one Badge and is that
 # reading's control. A program
 # `stop` recorded is ended by the service's own check, with no press. The
-# last control is a plugin copy whose service never asks polkitd again:
-# after the same steps its agent stays unregistered. The host needs pacman
+# last control removes every service registration trigger. It keeps the
+# already-refused agent for a new check, so initial registration cannot race
+# the check that ends the recorded program. The host needs pacman
 # as its primary package manager, as the Dev Tools row does. The row ends
 # with vgs.polkit disabled and the fixture as it found it.
 #
@@ -239,6 +240,7 @@ text = open(path).read()
 for needle, replacement in (
     ("        seenEnds = ends;\n        register();\n", "        seenEnds = ends;\n"),
     ("        if (answer.ok && answer.stopped > 0) register();\n", ""),
+    ("    onPolkitMissingChanged: if (!polkitMissing) register()\n", ""),
 ):
     assert text.count(needle) == 1, "polkit control: the register call must match once: " + needle
     text = text.replace(needle, replacement)
@@ -248,14 +250,15 @@ rescan "rescan over the second control copy answers ok"
 expect_poll "the second control copy is the plugin the shell runs" "$control_dir" control_dir_of
 polkit_behind "control"
 polkit_step "control" uninstall Uninstall
-# A real wait: the control's agent must stay unregistered past the turn in
-# which the shipped service asks polkitd again.
-sleep 1
 expect "control: a service that never asks again stays unregistered after the step" false polkit_lent polkitRegistered
-polkit_off "control, before the recorded program"
+# Keep the agent whose first registration polkit_behind observed refused.
+# PolkitAgent registers asynchronously on construction: VGS-1110's traced
+# delayed response registered after the check without a service retry.
+# A new agent here would race the check that ends the recorded program.
+expect "control: the already-refused core agent remains lent" true polkit_lent polkitAgent
 polkit_record_plant || fail "the stop record could not be planted for the control"
 polkit_other_start "control, a recorded program"
-expect "control, a recorded program: enabling the polkit plugin is allowed" ok ipc shell setPluginEnabled vgs.polkit true
+expect "control: the refused agent starts a new check" "" ipc smoke invokeInstance service vgs.polkit look ""
 expect_poll "control, a recorded program: the check ended it" gone polkit_other_state
 expect_poll "control: the check that ended it found no other agent" "$unregistered" polkit_status
 expect "control: a service that never asks again stays unregistered after its check" false polkit_lent polkitRegistered
