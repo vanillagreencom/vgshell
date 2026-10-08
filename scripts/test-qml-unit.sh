@@ -50,9 +50,9 @@ fi
 # path. The replacement keeps the text around the
 # behaviour and removes the behaviour. A field holds no `|`, the separator.
 mutations=(
-  "System Monitor paints no detail text|../plugins/vgs.sysmon/Reading.qml|role: \"hint\"|role: \"hint\"; opacity: 0|tst_sysmon_widget.qml"
+  "System Monitor paints no detail text|../plugins/vgs.sysmon/Reading.qml|            role: \"hint\"|            role: \"hint\"; opacity: 0|tst_sysmon_widget.qml"
   "System Monitor replaces detail rows on each sample|../plugins/vgs.sysmon/Reading.qml|model: root.details.length|model: root.details|tst_sysmon_widget.qml"
-  "System Monitor freezes detail values|../plugins/vgs.sysmon/Reading.qml|text: root.details[index]|text: "stale"|tst_sysmon_widget.qml"
+  "System Monitor freezes detail values|../plugins/vgs.sysmon/Reading.qml|text: root.details[index]|text: \"stale\"|tst_sysmon_widget.qml"
   "a plain parent binding can exceed the input maximum|controls/InputWidth.qml|Math.max(target.minimumWidth, Math.min(target.maximumWidth, target.width))|target.width|tst_inputwidth.qml"
   "QR accepts a non-square matrix|foundation/QrMatrix.qml|row.length !== found.length|false|tst_qrmatrix.qml"
   "QR accepts nonbinary modules|foundation/QrMatrix.qml|!/^[01]+$/.test(row)|false|tst_qrmatrix.qml"

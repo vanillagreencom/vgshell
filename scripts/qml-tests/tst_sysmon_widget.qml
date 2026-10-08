@@ -175,11 +175,38 @@ Item {
                 }
             }
             verify(waitForRendering(panel));
-            for (const group of held) for (const row of group) {
-                const image = grabImage(row);
+            // QtTest crops grabImage at the item's local x/y. Capture the
+            // root and map nested detail bounds into that image instead.
+            // Compare against the same panel with only these glyphs hidden:
+            // an opaque background alone cannot satisfy this paint check.
+            // https://github.com/qt/qtdeclarative/blob/v6.11.2/src/qmltest/quicktestresult.cpp
+            const rows = [];
+            for (const group of held) for (const row of group) rows.push(row);
+            const opacities = rows.map(row => row.opacity);
+            const painted = grabImage(root);
+            let blank;
+            try {
+                for (const row of rows) row.opacity = 0;
+                verify(waitForRendering(panel));
+                blank = grabImage(root);
+            } finally {
+                for (let index = 0; index < rows.length; index++) rows[index].opacity = opacities[index];
+            }
+            verify(waitForRendering(panel));
+            const scaleX = painted.width / root.width;
+            const scaleY = painted.height / root.height;
+            for (const row of rows) {
+                const point = row.mapToItem(root, 0, 0);
+                const left = Math.floor(point.x * scaleX);
+                const top = Math.floor(point.y * scaleY);
+                const right = Math.ceil((point.x + row.width) * scaleX);
+                const bottom = Math.ceil((point.y + row.height) * scaleY);
+                verify(left >= 0 && top >= 0 && right <= painted.width && bottom <= painted.height);
+                verify(right > left && bottom > top, "the detail region is nonempty");
                 let ink = false;
-                for (let x = 0; x < image.width && !ink; x++)
-                    for (let y = 0; y < image.height && !ink; y++) ink = image.alpha(x, y) > 0;
+                for (let x = left; x < right && !ink; x++)
+                    for (let y = top; y < bottom && !ink; y++)
+                        ink = !Qt.colorEqual(painted.pixel(x, y), blank.pixel(x, y));
                 verify(ink, "each retained detail row paints the updated sample");
             }
             compare(held[0][0].text, "Temperature 63° · 16 cores");

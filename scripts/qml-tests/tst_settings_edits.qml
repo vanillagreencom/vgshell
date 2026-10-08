@@ -209,6 +209,17 @@ Item {
         // READY, then let the comparison that follows report what is shown.
         function settle(ready) { for (let i = 0; i < 20 && !ready(); i++) wait(50); }
         function keyFields(item) { return descendants(item).filter(child => child.pluginId === "acme.unit" && child.bind !== undefined && child.shortcutField !== undefined); }
+        // destroy() defers deletion until this script block ends. Detach
+        // the page before restoring the shared model, so cleanup creates
+        // no new shortcut fields on a page that is leaving.
+        // https://doc.qt.io/qt-6/qtqml-javascript-dynamicobjectcreation.html
+        function releasePage(page, restoredRow) {
+            page.row = null;
+            compare(keyFields(page).length, 0);
+            root.pageRow = restoredRow;
+            compare(keyFields(page).length, 0, "cleanup does not rebuild shortcut fields");
+            page.destroy();
+        }
         function type(field, text) {
             const input = editor(field);
             input.forceActiveFocus(Qt.TabFocusReason);
@@ -243,10 +254,7 @@ Item {
         function test_settings_bind_explanation_uses_the_shared_label_tooltip() {
             const field = disposableKey.createObject(root, { width: 420, z: 1,
                 bind: { shortcut: "spare", key: "SUPER+N", default: "SUPER+N", description: "Spare", info: "Open the window." } });
-            // Animated key feedback in this offscreen popup test reaches
-            // Qt's queued animation-driver warning. Keep its content and
-            // input checks deterministic; Theme and field tests keep motion.
-            compare(UnitTheme.override({ tooltip: { delay: 20 }, motion: { scale: 0 } }), "ok");
+            compare(UnitTheme.override({ tooltip: { delay: 20 } }), "ok");
             const label = descendants(field).find(item => item.objectName === "fieldLabel");
             const tip = descendants(label).find(item => String(item).indexOf("Tooltip") === 0);
             verify(!descendants(field).some(item => String(item).indexOf("InfoButton") === 0));
@@ -321,7 +329,7 @@ Item {
             verify(!descendants(field()).some(child => child.role === "hint" && child.visible && child.text === "No supported graphics card found."));
             update({});
             tryVerify(() => field().hintText === "", 1000, "cleared status removes the hint");
-            root.pageRow = original;
+            releasePage(page, original);
         }
 
         function test_enter_writes_the_field_it_is_pressed_in() {
@@ -568,8 +576,7 @@ Item {
             reset.clicked();
             compare(fakePanel.keyWrites.length, before + 1);
             compare(fakePanel.keyWrites[before][2], undefined, "the reset sends undefined, so the default list applies");
-            root.pageRow = shipped;
-            page.destroy();
+            releasePage(page, shipped);
         }
 
         // A refused key on the page returns to the row's text entry: a
@@ -605,8 +612,7 @@ Item {
             }
             field.discard();
             fakePanel.refusesKeys = false;
-            root.pageRow = shipped;
-            page.destroy();
+            releasePage(page, shipped);
         }
     }
 }
