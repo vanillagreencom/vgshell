@@ -225,6 +225,9 @@ enabled = true
 source = "kendex"
 enabled = true
 
+[agents.frontend]
+source = "kendex"
+
 [skills.code-quality]
 source = "kendex"
 enabled = true
@@ -405,12 +408,6 @@ source = "kendex"
 [hooks.stop-failure-row]
 source = "kendex"
 
-[hooks.skill-load-check]
-source = "kendex"
-
-[hooks.skill-load-record]
-source = "kendex"
-
 [hooks.task-completed-check]
 source = "kendex"
 
@@ -571,7 +568,8 @@ Label creation rule: if a label listed here is missing from live Linear inventor
 
 | Label | Use when |
 |-------|----------|
-| `agent:maintainer` | Maintenance, docs cleanup, tooling/workflow tasks, repository organization, or mixed low-risk work — including QML/Go/helper implementation until dedicated domain agents exist. |
+| `agent:frontend` | Quickshell QML and its JavaScript: a plugin's view, a surface, a component of `qs.Ui`, a Settings field. |
+| `agent:maintainer` | Maintenance, docs cleanup, tooling/workflow tasks, repository organization, or mixed low-risk work — including Go/helper implementation until dedicated domain agents exist. |
 | `agent:multi` | Bundle parent or coordination issue whose children span 2+ domains. Avoid on leaf implementation issues unless the issue is truly orchestration-only. |
 | `agent:human` | Manual/user-owned work, external dependency/vendor action, or work intentionally not delegated to an AI agent. |
 | `agent:researcher` | Research issue owned by the researcher workflow/agent. Must be paired with `research`. |

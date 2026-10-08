@@ -1,6 +1,130 @@
 {
   "version": 11,
   "entries": {
+    "agent:frontend:claude": {
+      "name": "frontend",
+      "kind": "agent",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "626b63e977e97cd19f32791bb0ffb92f4e81ab5cda974c2309fcd9e19ab5d456",
+      "sourceCommit": "9fd3ad9c90d20d149e44f5b530081559ceb19155",
+      "renderedHash": "d083b4f425fb7962b85e4b590fb95ef4dd7cef5a04a77cef85353aae4ecd5760",
+      "enabled": true,
+      "upstreamSkills": [
+        "code-quality",
+        "decider",
+        "dev",
+        "github",
+        "linear",
+        "preflight"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "frontend",
+        "paths": [
+          ".claude/agents/frontend.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        }
+      ]
+    },
+    "agent:frontend:codex": {
+      "name": "frontend",
+      "kind": "agent",
+      "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "626b63e977e97cd19f32791bb0ffb92f4e81ab5cda974c2309fcd9e19ab5d456",
+      "sourceCommit": "9fd3ad9c90d20d149e44f5b530081559ceb19155",
+      "renderedHash": "da4ad7c0fcac8d73602b52c51472d748bd76209aebe250dc6bd4c730aabf40dd",
+      "enabled": true,
+      "upstreamSkills": [
+        "code-quality",
+        "decider",
+        "dev",
+        "github",
+        "linear",
+        "preflight"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "frontend",
+        "paths": [
+          ".codex/agents/frontend.toml"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        }
+      ]
+    },
+    "agent:frontend:copilot": {
+      "name": "frontend",
+      "kind": "agent",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "626b63e977e97cd19f32791bb0ffb92f4e81ab5cda974c2309fcd9e19ab5d456",
+      "sourceCommit": "9fd3ad9c90d20d149e44f5b530081559ceb19155",
+      "renderedHash": "49bf7122ad7e0d2241902187f649f47854dc82f6f69aa35560d9e0052c0ffef6",
+      "enabled": true,
+      "upstreamSkills": [
+        "code-quality",
+        "decider",
+        "dev",
+        "github",
+        "linear",
+        "preflight"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "frontend",
+        "paths": [
+          ".github/agents/frontend.agent.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        }
+      ]
+    },
+    "agent:frontend:pi": {
+      "name": "frontend",
+      "kind": "agent",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "626b63e977e97cd19f32791bb0ffb92f4e81ab5cda974c2309fcd9e19ab5d456",
+      "sourceCommit": "9fd3ad9c90d20d149e44f5b530081559ceb19155",
+      "renderedHash": "e025ac055331078f814bd4e235272db544c3139b6c0014d19d59dbfc6973862a",
+      "enabled": true,
+      "upstreamSkills": [
+        "code-quality",
+        "decider",
+        "dev",
+        "github",
+        "linear",
+        "preflight"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "frontend",
+        "paths": [
+          ".pi/agents/frontend.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        }
+      ]
+    },
     "agent:maintainer:claude": {
       "name": "maintainer",
       "kind": "agent",
@@ -3718,275 +3842,6 @@
         }
       ]
     },
-    "hook:skill-load-check:claude": {
-      "name": "skill-load-check",
-      "kind": "hook",
-      "harness": "claude",
-      "source": "kendex",
-      "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "669788cbb396d6545f3c727743abdfb38774f15f754b1fb4c9c71e0c4210ffaa",
-      "sourceCommit": "002204beed1fe284bc483f70fa1f1b911857cf79",
-      "renderedHash": "ce46fb87bcc55e75250e8740cfa536e48118a6f0ba37b45c002065595680a5be",
-      "enabled": true,
-      "emitted": {
-        "kind": "hook",
-        "name": "skill-load-check",
-        "paths": [
-          ".claude/hooks/skill-load-check.sh"
-        ]
-      },
-      "registration": {
-        "event": "PreToolUse",
-        "command": "[ -z \"${COPILOT_PROJECT_DIR-}\" ] || exit 0; bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/skill-load-check.sh\"",
-        "matcher": "Edit|MultiEdit|NotebookEdit|Write|Bash"
-      },
-      "reasons": [
-        {
-          "reason": "requested"
-        },
-        {
-          "reason": "required-by",
-          "by": {
-            "source": "kendex",
-            "kind": "hook",
-            "name": "skill-load-record",
-            "harness": "claude"
-          }
-        }
-      ]
-    },
-    "hook:skill-load-check:codex": {
-      "name": "skill-load-check",
-      "kind": "hook",
-      "harness": "codex",
-      "source": "kendex",
-      "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "669788cbb396d6545f3c727743abdfb38774f15f754b1fb4c9c71e0c4210ffaa",
-      "sourceCommit": "002204beed1fe284bc483f70fa1f1b911857cf79",
-      "renderedHash": "ce46fb87bcc55e75250e8740cfa536e48118a6f0ba37b45c002065595680a5be",
-      "enabled": true,
-      "emitted": {
-        "kind": "hook",
-        "name": "skill-load-check",
-        "paths": [
-          ".codex/hooks/skill-load-check.sh"
-        ]
-      },
-      "registration": {
-        "event": "PreToolUse",
-        "command": "p='.codex/hooks/skill-load-check.sh'; r=$({ cd -P . && pwd; } 2>/dev/null); case $r in /*) ;; *) r=;; esac; while [ -n \"$r\" ] && ! [ -f \"$r/$p\" ]; do [ \"$r\" = / ] && r= || { r=${r%/*}; [ -n \"$r\" ] || r=/; }; done; [ -n \"$r\" ] || { printf 'kendex-hook-missing: %s\\nNo directory above %s holds this script. Run kendex refresh in the project.\\n' \"$p\" \"$PWD\" >&2; exit 1; }; bash \"$r/$p\"",
-        "matcher": "Edit|MultiEdit|NotebookEdit|Write|Bash"
-      },
-      "reasons": [
-        {
-          "reason": "requested"
-        },
-        {
-          "reason": "required-by",
-          "by": {
-            "source": "kendex",
-            "kind": "hook",
-            "name": "skill-load-record",
-            "harness": "codex"
-          }
-        }
-      ]
-    },
-    "hook:skill-load-check:copilot": {
-      "name": "skill-load-check",
-      "kind": "hook",
-      "harness": "copilot",
-      "source": "kendex",
-      "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "669788cbb396d6545f3c727743abdfb38774f15f754b1fb4c9c71e0c4210ffaa",
-      "sourceCommit": "002204beed1fe284bc483f70fa1f1b911857cf79",
-      "renderedHash": "ce46fb87bcc55e75250e8740cfa536e48118a6f0ba37b45c002065595680a5be",
-      "enabled": true,
-      "emitted": {
-        "kind": "hook",
-        "name": "skill-load-check",
-        "paths": [
-          ".github/hooks/skill-load-check.sh"
-        ]
-      },
-      "registration": {
-        "event": "preToolUse",
-        "command": "p='.github/hooks/skill-load-check.sh'; r=$({ cd -P . && pwd; } 2>/dev/null); case $r in /*) ;; *) r=;; esac; while [ -n \"$r\" ] && ! [ -f \"$r/$p\" ]; do [ \"$r\" = / ] && r= || { r=${r%/*}; [ -n \"$r\" ] || r=/; }; done; [ -n \"$r\" ] || { printf 'kendex-hook-missing: %s\\nNo directory above %s holds this script. Run kendex refresh in the project.\\n' \"$p\" \"$PWD\" >&2; exit 1; }; o=$( { e=$(bash \"$r/$p\" 2>&1 >&3 3>&-); s=$?; [ -z \"$e\" ] || printf '%s\\n' \"$e\" >&2; printf '\\036'; [ \"$s\" != 2 ] || [ -z \"$e\" ] || printf '%s\\n' \"$e\" | awk 'BEGIN{for(i=1;i<32;i++)m[sprintf(\"%c\",i)]=sprintf(\"\\\\u%04x\",i);m[\"\\t\"]=\"\\\\t\";m[\"\\r\"]=\"\\\\r\";m[\"\\\\\"]=\"\\\\\\\\\";m[\"\\\"\"]=\"\\\\\\\"\";printf \"\\\"\"}{if(NR>1)printf \"\\\\n\";n=length($0);for(i=1;i<=n;i++){c=substr($0,i,1);printf \"%s\",((c in m)?m[c]:c)}}END{printf \"\\\"\"}'; exit \"$s\"; } 3>&1 ); s=$?; R=$(printf '\\036'); a=; case $o in *\"$R\"*) a=${o##*\"$R\"}; o=${o%\"$R\"*} ;; esac; case $o in *[![:space:]]*) printf '%s' \"$o\" ;; *) [ -z \"$a\" ] || printf '{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":%s}\\n' \"$a\" ;; esac; exit \"$s\"",
-        "matcher": "edit|str_replace_editor|apply_patch|NotebookEdit|create|bash|powershell"
-      },
-      "reasons": [
-        {
-          "reason": "requested"
-        },
-        {
-          "reason": "required-by",
-          "by": {
-            "source": "kendex",
-            "kind": "hook",
-            "name": "skill-load-record",
-            "harness": "copilot"
-          }
-        }
-      ]
-    },
-    "hook:skill-load-check:pi": {
-      "name": "skill-load-check",
-      "kind": "hook",
-      "harness": "pi",
-      "source": "kendex",
-      "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "669788cbb396d6545f3c727743abdfb38774f15f754b1fb4c9c71e0c4210ffaa",
-      "sourceCommit": "002204beed1fe284bc483f70fa1f1b911857cf79",
-      "renderedHash": "ce46fb87bcc55e75250e8740cfa536e48118a6f0ba37b45c002065595680a5be",
-      "enabled": true,
-      "emitted": {
-        "kind": "hook",
-        "name": "skill-load-check",
-        "paths": [
-          ".pi/kendex/hooks/skill-load-check.sh"
-        ]
-      },
-      "registration": {
-        "event": "tool_call",
-        "command": "p='.pi/kendex/hooks/skill-load-check.sh'; r=$({ cd -P . && pwd; } 2>/dev/null); case $r in /*) ;; *) r=;; esac; while [ -n \"$r\" ] && ! [ -f \"$r/$p\" ]; do [ \"$r\" = / ] && r= || { r=${r%/*}; [ -n \"$r\" ] || r=/; }; done; [ -n \"$r\" ] || { printf 'kendex-hook-missing: %s\\nNo directory above %s holds this script. Run kendex refresh in the project.\\n' \"$p\" \"$PWD\" >&2; exit 1; }; bash \"$r/$p\"",
-        "matcher": "Edit|MultiEdit|NotebookEdit|Write|Bash"
-      },
-      "reasons": [
-        {
-          "reason": "requested"
-        },
-        {
-          "reason": "required-by",
-          "by": {
-            "source": "kendex",
-            "kind": "hook",
-            "name": "skill-load-record",
-            "harness": "pi"
-          }
-        }
-      ]
-    },
-    "hook:skill-load-record:claude": {
-      "name": "skill-load-record",
-      "kind": "hook",
-      "harness": "claude",
-      "source": "kendex",
-      "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "93218bebb2fff7b15ce400f5fdebe823baa5b4e7aea20c11fdb41ae74d0bd117",
-      "sourceCommit": "002204beed1fe284bc483f70fa1f1b911857cf79",
-      "renderedHash": "882fefe85111db37d236263c8b7843b39af28b23408a09821ad74c523f0ea02f",
-      "enabled": true,
-      "emitted": {
-        "kind": "hook",
-        "name": "skill-load-record",
-        "paths": [
-          ".claude/hooks/skill-load-record.sh"
-        ]
-      },
-      "registration": {
-        "event": "PostToolUse",
-        "command": "[ -z \"${COPILOT_PROJECT_DIR-}\" ] || exit 0; bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/skill-load-record.sh\"",
-        "matcher": "Skill|skill"
-      },
-      "reasons": [
-        {
-          "reason": "requested"
-        }
-      ]
-    },
-    "hook:skill-load-record:codex": {
-      "name": "skill-load-record",
-      "kind": "hook",
-      "harness": "codex",
-      "source": "kendex",
-      "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "93218bebb2fff7b15ce400f5fdebe823baa5b4e7aea20c11fdb41ae74d0bd117",
-      "sourceCommit": "002204beed1fe284bc483f70fa1f1b911857cf79",
-      "renderedHash": "882fefe85111db37d236263c8b7843b39af28b23408a09821ad74c523f0ea02f",
-      "enabled": true,
-      "emitted": {
-        "kind": "hook",
-        "name": "skill-load-record",
-        "paths": [
-          ".codex/hooks/skill-load-record.sh"
-        ]
-      },
-      "registration": {
-        "event": "PostToolUse",
-        "command": "p='.codex/hooks/skill-load-record.sh'; r=$({ cd -P . && pwd; } 2>/dev/null); case $r in /*) ;; *) r=;; esac; while [ -n \"$r\" ] && ! [ -f \"$r/$p\" ]; do [ \"$r\" = / ] && r= || { r=${r%/*}; [ -n \"$r\" ] || r=/; }; done; [ -n \"$r\" ] || { printf 'kendex-hook-missing: %s\\nNo directory above %s holds this script. Run kendex refresh in the project.\\n' \"$p\" \"$PWD\" >&2; exit 1; }; bash \"$r/$p\"",
-        "matcher": "Skill|skill"
-      },
-      "reasons": [
-        {
-          "reason": "requested"
-        }
-      ]
-    },
-    "hook:skill-load-record:copilot": {
-      "name": "skill-load-record",
-      "kind": "hook",
-      "harness": "copilot",
-      "source": "kendex",
-      "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "93218bebb2fff7b15ce400f5fdebe823baa5b4e7aea20c11fdb41ae74d0bd117",
-      "sourceCommit": "002204beed1fe284bc483f70fa1f1b911857cf79",
-      "renderedHash": "882fefe85111db37d236263c8b7843b39af28b23408a09821ad74c523f0ea02f",
-      "enabled": true,
-      "emitted": {
-        "kind": "hook",
-        "name": "skill-load-record",
-        "paths": [
-          ".github/hooks/skill-load-record.sh"
-        ]
-      },
-      "registration": {
-        "event": "postToolUse",
-        "command": "p='.github/hooks/skill-load-record.sh'; r=$({ cd -P . && pwd; } 2>/dev/null); case $r in /*) ;; *) r=;; esac; while [ -n \"$r\" ] && ! [ -f \"$r/$p\" ]; do [ \"$r\" = / ] && r= || { r=${r%/*}; [ -n \"$r\" ] || r=/; }; done; [ -n \"$r\" ] || { printf 'kendex-hook-missing: %s\\nNo directory above %s holds this script. Run kendex refresh in the project.\\n' \"$p\" \"$PWD\" >&2; exit 1; }; o=$( { e=$(bash \"$r/$p\" 2>&1 >&3 3>&-); s=$?; [ -z \"$e\" ] || printf '%s\\n' \"$e\" >&2; printf '\\036'; [ \"$s\" != 2 ] || [ -z \"$e\" ] || printf '%s\\n' \"$e\" | awk 'BEGIN{for(i=1;i<32;i++)m[sprintf(\"%c\",i)]=sprintf(\"\\\\u%04x\",i);m[\"\\t\"]=\"\\\\t\";m[\"\\r\"]=\"\\\\r\";m[\"\\\\\"]=\"\\\\\\\\\";m[\"\\\"\"]=\"\\\\\\\"\";printf \"\\\"\"}{if(NR>1)printf \"\\\\n\";n=length($0);for(i=1;i<=n;i++){c=substr($0,i,1);printf \"%s\",((c in m)?m[c]:c)}}END{printf \"\\\"\"}'; exit \"$s\"; } 3>&1 ); s=$?; R=$(printf '\\036'); a=; case $o in *\"$R\"*) a=${o##*\"$R\"}; o=${o%\"$R\"*} ;; esac; case $o in *[![:space:]]*) printf '%s' \"$o\" ;; *) [ -z \"$a\" ] || printf '{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":%s}\\n' \"$a\" ;; esac; exit \"$s\"",
-        "matcher": "skill"
-      },
-      "reasons": [
-        {
-          "reason": "requested"
-        },
-        {
-          "reason": "required-by",
-          "by": {
-            "source": "kendex",
-            "kind": "hook",
-            "name": "skill-load-check",
-            "harness": "copilot"
-          }
-        }
-      ]
-    },
-    "hook:skill-load-record:pi": {
-      "name": "skill-load-record",
-      "kind": "hook",
-      "harness": "pi",
-      "source": "kendex",
-      "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "93218bebb2fff7b15ce400f5fdebe823baa5b4e7aea20c11fdb41ae74d0bd117",
-      "sourceCommit": "002204beed1fe284bc483f70fa1f1b911857cf79",
-      "renderedHash": "882fefe85111db37d236263c8b7843b39af28b23408a09821ad74c523f0ea02f",
-      "enabled": true,
-      "emitted": {
-        "kind": "hook",
-        "name": "skill-load-record",
-        "paths": [
-          ".pi/kendex/hooks/skill-load-record.sh"
-        ]
-      },
-      "registration": {
-        "event": "tool_result",
-        "command": "p='.pi/kendex/hooks/skill-load-record.sh'; r=$({ cd -P . && pwd; } 2>/dev/null); case $r in /*) ;; *) r=;; esac; while [ -n \"$r\" ] && ! [ -f \"$r/$p\" ]; do [ \"$r\" = / ] && r= || { r=${r%/*}; [ -n \"$r\" ] || r=/; }; done; [ -n \"$r\" ] || { printf 'kendex-hook-missing: %s\\nNo directory above %s holds this script. Run kendex refresh in the project.\\n' \"$p\" \"$PWD\" >&2; exit 1; }; bash \"$r/$p\"",
-        "matcher": "Skill|skill"
-      },
-      "reasons": [
-        {
-          "reason": "requested"
-        }
-      ]
-    },
     "hook:stop-failure-row:claude": {
       "name": "stop-failure-row",
       "kind": "hook",
@@ -4431,15 +4286,6 @@
             "name": "command-safety",
             "harness": "claude"
           }
-        },
-        {
-          "reason": "required-by",
-          "by": {
-            "source": "kendex",
-            "kind": "hook",
-            "name": "skill-load-check",
-            "harness": "claude"
-          }
         }
       ]
     },
@@ -4488,15 +4334,6 @@
             "source": "kendex",
             "kind": "hook",
             "name": "command-safety",
-            "harness": "codex"
-          }
-        },
-        {
-          "reason": "required-by",
-          "by": {
-            "source": "kendex",
-            "kind": "hook",
-            "name": "skill-load-check",
             "harness": "codex"
           }
         }
@@ -4549,15 +4386,6 @@
             "name": "command-safety",
             "harness": "copilot"
           }
-        },
-        {
-          "reason": "required-by",
-          "by": {
-            "source": "kendex",
-            "kind": "hook",
-            "name": "skill-load-check",
-            "harness": "copilot"
-          }
         }
       ]
     },
@@ -4606,15 +4434,6 @@
             "source": "kendex",
             "kind": "hook",
             "name": "command-safety",
-            "harness": "pi"
-          }
-        },
-        {
-          "reason": "required-by",
-          "by": {
-            "source": "kendex",
-            "kind": "hook",
-            "name": "skill-load-check",
             "harness": "pi"
           }
         }
@@ -6333,9 +6152,9 @@
       "harness": "claude",
       "source": "kendex",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "43980575853aa8b5b2bdb81e5222a6dd8573a3ebc1fedb75a706f7e96ff7b7b9",
+      "sourceHash": "747509ae872cdf528e656a96a4c9f6d1a0cd517d253ef9d2335b39a0e13d53d9",
       "sourceCommit": "9fd3ad9c90d20d149e44f5b530081559ceb19155",
-      "renderedHash": "2478061700890688ff231641b965822ce5c14a4edd00174c7c1d26f4e390b578",
+      "renderedHash": "b9172a6e78f31057d0fdf09cafba39beba452c5dd1e9f0823a4f4665f1267c78",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -6366,9 +6185,9 @@
       "harness": "codex",
       "source": "kendex",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "43980575853aa8b5b2bdb81e5222a6dd8573a3ebc1fedb75a706f7e96ff7b7b9",
+      "sourceHash": "747509ae872cdf528e656a96a4c9f6d1a0cd517d253ef9d2335b39a0e13d53d9",
       "sourceCommit": "9fd3ad9c90d20d149e44f5b530081559ceb19155",
-      "renderedHash": "2478061700890688ff231641b965822ce5c14a4edd00174c7c1d26f4e390b578",
+      "renderedHash": "b9172a6e78f31057d0fdf09cafba39beba452c5dd1e9f0823a4f4665f1267c78",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -6398,9 +6217,9 @@
       "harness": "copilot",
       "source": "kendex",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "43980575853aa8b5b2bdb81e5222a6dd8573a3ebc1fedb75a706f7e96ff7b7b9",
+      "sourceHash": "747509ae872cdf528e656a96a4c9f6d1a0cd517d253ef9d2335b39a0e13d53d9",
       "sourceCommit": "9fd3ad9c90d20d149e44f5b530081559ceb19155",
-      "renderedHash": "2478061700890688ff231641b965822ce5c14a4edd00174c7c1d26f4e390b578",
+      "renderedHash": "b9172a6e78f31057d0fdf09cafba39beba452c5dd1e9f0823a4f4665f1267c78",
       "enabled": true,
       "emitted": {
         "kind": "skill",
@@ -6430,9 +6249,9 @@
       "harness": "pi",
       "source": "kendex",
       "sourceRepo": "vanillagreencom/kendex",
-      "sourceHash": "43980575853aa8b5b2bdb81e5222a6dd8573a3ebc1fedb75a706f7e96ff7b7b9",
+      "sourceHash": "747509ae872cdf528e656a96a4c9f6d1a0cd517d253ef9d2335b39a0e13d53d9",
       "sourceCommit": "9fd3ad9c90d20d149e44f5b530081559ceb19155",
-      "renderedHash": "2478061700890688ff231641b965822ce5c14a4edd00174c7c1d26f4e390b578",
+      "renderedHash": "b9172a6e78f31057d0fdf09cafba39beba452c5dd1e9f0823a4f4665f1267c78",
       "enabled": true,
       "emitted": {
         "kind": "skill",

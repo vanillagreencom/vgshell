@@ -51,7 +51,8 @@ Label creation rule: if a label listed here is missing from live Linear inventor
 
 | Label | Use when |
 |-------|----------|
-| `agent:maintainer` | Maintenance, docs cleanup, tooling/workflow tasks, repository organization, or mixed low-risk work — including QML/Go/helper implementation until dedicated domain agents exist. |
+| `agent:frontend` | Quickshell QML and its JavaScript: a plugin's view, a surface, a component of `qs.Ui`, a Settings field. |
+| `agent:maintainer` | Maintenance, docs cleanup, tooling/workflow tasks, repository organization, or mixed low-risk work — including Go/helper implementation until dedicated domain agents exist. |
 | `agent:multi` | Bundle parent or coordination issue whose children span 2+ domains. Avoid on leaf implementation issues unless the issue is truly orchestration-only. |
 | `agent:human` | Manual/user-owned work, external dependency/vendor action, or work intentionally not delegated to an AI agent. |
 | `agent:researcher` | Research issue owned by the researcher workflow/agent. Must be paired with `research`. |
