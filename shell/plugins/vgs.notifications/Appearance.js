@@ -1,7 +1,7 @@
 .pragma library
 
 // The notifications' own look, the table the manifest's `appearance` names
-// and ThemeLogic.acceptAppearance judges. Every value is the Spotlight
+// and ThemeLogic.acceptAppearance judges. The original values are the Spotlight
 // notification stack's (px13 dotfiles, method.notifications Service.qml,
 // components/NotificationCard.qml and InboxHeader.qml, spotlight/Theme.qml,
 // GlassSurface.qml, EdgeLight.qml, PillButton.qml and Switch.qml, and
@@ -136,6 +136,8 @@ var TOKENS = {
         edge: length(5),
         pad: length(40),
         tail: length(24),
+        // The mask band reserves no layout space.
+        fadeHeight: length(60),
         far: length(12)
     },
 

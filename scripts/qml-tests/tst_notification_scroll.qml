@@ -50,6 +50,8 @@ Item {
         }
 
         function test_bottom_fade(row) {
+            compare(frame.look.stack.tail, 24, "the scroll tail keeps its original size");
+            compare(frame.look.stack.fadeHeight, 60, "the fade is 2.5 times the original 24 pixel band");
             content.Layout.preferredHeight = row.contentHeight;
             tryCompare(frame.flickable, "contentHeight", row.contentHeight + frame.look.stack.tail);
             frame.flickable.contentY = Math.max(0, frame.flickable.contentHeight - frame.flickable.height) * row.progress;
@@ -67,8 +69,8 @@ Item {
             const painted = grabImage(frame);
             const x = Math.floor(painted.width / 2);
             const at = y => Math.floor(y * painted.height / frame.height);
-            const above = painted.red(x, at(frame.height - frame.look.stack.tail - 2));
-            const middle = painted.red(x, at(frame.height - frame.look.stack.tail / 2));
+            const above = painted.red(x, at(frame.height - frame.look.stack.fadeHeight - 2));
+            const middle = painted.red(x, at(frame.height - frame.look.stack.fadeHeight / 2));
             const bottom = painted.red(x, painted.height - 2);
             compare(painted.green(x, painted.height - 2), 0, "the mask adds no colour band");
             compare(painted.blue(x, painted.height - 2), bottom, "the mask changes paint alpha only");

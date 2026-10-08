@@ -2600,7 +2600,7 @@ expect_poll "the Place toasts are gone" 0 layer_count vgs:layer
 # the card title supplies the known opaque ink; neither the header nor the
 # wallpaper can satisfy this sample. The PNG reader above accepts both
 # Qt item RGBA grabs and the compositor RGB captures this check consumes.
-fade_card_ink_value() { # PNG ITEMS VIEW SURFACE INK TAIL OUTPUT_WIDTH OUTPUT_HEIGHT
+fade_card_ink_value() { # PNG ITEMS VIEW SURFACE INK BAND OUTPUT_WIDTH OUTPUT_HEIGHT
   python3 -c "$png_rgba_py"'
 items, view, surface = map(json.loads, sys.argv[2:5])
 ink = json.loads(sys.argv[5])
@@ -2609,10 +2609,10 @@ if isinstance(image, str): print(image); sys.exit()
 iw, ih, rows = image
 mon_w, mon_h = map(float, sys.argv[7:9])
 vx, vy, vw, vh = view["box"]
-tail = float(sys.argv[6])
+band = float(sys.argv[6])
 titles = [i for i in items if i.get("name") == "notificationTitleText" and i["visible"] and
           i["box"][2] > 0 and i["box"][3] > 0 and i["box"][1] >= vy and
-          i["box"][1] + i["box"][3] <= vy + vh - tail and
+          i["box"][1] + i["box"][3] <= vy + vh - band and
           i["box"][0] >= vx and i["box"][0] + i["box"][2] <= vx + vw]
 if not titles: print("no-title-above-fade"); sys.exit()
 title = titles[len(titles) // 2]
@@ -2641,7 +2641,7 @@ fade_card_sample() { # PNG
     echo capture-unreadable
     return
   fi
-  fade_card_ink_value "$1" "$items" "$view" "$surface" "$ink" "$note_stack_tail" "$mon_w" "$mon_h"
+  fade_card_ink_value "$1" "$items" "$view" "$surface" "$ink" "$note_fade_height" "$mon_w" "$mon_h"
 }
 fade_card_value_drawn() { # SAMPLE_JSON
   local sample="$1"
@@ -2676,7 +2676,44 @@ fade_open_mid() {
   geometry expect_poll "the pixel probe list is at mid-scroll" mid fade_scroll_state
   summon_drawn panel vgs.notifications || fail "the pixel probe panel drew no frame"
 }
-note_stack_tail="$(look_at stack.tail)" || fail "the fade height is unreadable"
+# The owner requested a larger mask without extra room below the list.
+# These real boxes catch layout padding and contentHeight tail changes.
+fade_gap_value() { # ITEMS VIEW
+  python3 - "$1" "$2" <<'PY_GAP'
+import json,sys
+items,view=map(json.loads,sys.argv[1:3])
+hints=next(i for i in items if i["type"]=="KeyHints" and i["visible"])
+cards=[i for i in items if i["type"]=="NotificationCard" and i["visible"]]
+assert cards and all(i["box"][2]>0 and i["box"][3]>0 for i in cards)
+last=max(cards,key=lambda i:i["box"][1]+i["box"][3])
+edge=view["box"][1]+view["box"][3]
+last_bottom=last["box"][1]+last["box"][3]
+travel=view["contentHeight"]-view["height"]
+print(json.dumps({"viewportGap":hints["box"][1]-edge,
+                 "lastCardGap":hints["box"][1]-last_bottom,
+                 "atEnd":travel>0 and abs(view["contentY"]-travel)<0.5,
+                 "viewportBottom":edge,"lastCardBottom":last_bottom,
+                 "hintsTop":hints["box"][1],"cards":len(cards)}))
+PY_GAP
+}
+fade_gap_sample() {
+  local items view
+  view="$(view_at_rest panel vgs.notifications "Fade probe 12")" || return
+  items="$(ipc smoke descendantGeometry panel vgs.notifications)" || return
+  fade_gap_value "$items" "$view"
+}
+fade_gap_unchanged() { # SAMPLE_JSON
+  printf 'notification-fade-gap: %s\n' "$1" >&2
+  py_reply 'import json,sys
+s=json.load(sys.stdin);expected=float(sys.argv[1])+float(sys.argv[2])
+print(s["atEnd"] is True and s["cards"]>0 and abs(s["viewportGap"]-expected)<0.5 and abs(s["lastCardGap"]-expected-24)<0.5)' "$note_header_gap" "$note_card_gap" <<<"$1"
+}
+fade_gap_drawn() {
+  local sample
+  sample="$(fade_gap_sample)" || return
+  fade_gap_unchanged "$sample"
+}
+note_fade_height="$(look_at stack.fadeHeight)" || fail "the fade height is unreadable"
 for at in $(seq 1 12); do
   notify smoke-fade 0 "Fade probe $at" "The release notes are ready for your review. The build finished and the report is attached." '[]' '{"urgency": <byte 2>}' 0 >/dev/null
 done
@@ -2693,6 +2730,7 @@ for fade_mode in dark light; do
   render expect_poll "the $fade_mode mid-scroll cards draw known ink above the fade" True fade_card_drawn "$sandbox/fade-$fade_mode-mid.png"
   geometry expect_poll "the $fade_mode pixel probe reaches its end" end fade_wheel_end
   render expect_poll "the $fade_mode end cards draw known ink above the fade" True fade_card_drawn "$sandbox/fade-$fade_mode-end.png"
+  geometry expect_poll "the $fade_mode viewport and last card keep their gap to the hints" True fade_gap_drawn
   expect "the $fade_mode pixel probe closes" ok notes close
 done
 # The same positive assertion must fail when only card content is hidden.
@@ -2719,6 +2757,36 @@ expect "the hidden-card control closes" ok notes close
 cp -- "$sandbox/CardScroll.fade-kept.qml" "$fade_qml"
 rescan "a rescan restores the painted notification cards"
 expect_poll "the restored pixel probe service is built" True record_exists vgs.notifications
+# Increase only the real scroll tail. The viewport gap stays fixed, but
+# the last card moves further from the hints when scrolled to the end.
+cp -- "$fade_qml" "$sandbox/CardScroll.gap-kept.qml"
+python3 - "$fade_qml" <<'PY_GAP_MUTANT'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);text=p.read_text()
+needle="contentHeight: cards.implicitHeight + root.look.stack.tail"
+assert text.count(needle)==1
+p.write_text(text.replace(needle,needle+" + 16"))
+PY_GAP_MUTANT
+rescan "a rescan increases only the notification scroll tail"
+expect_poll "the extra-tail control service is built" True record_exists vgs.notifications
+fade_open_mid
+geometry expect_poll "the extra-tail control reaches its end" end fade_wheel_end
+fade_extra_gap="$(fade_gap_sample)"
+geometry expect "the extra-tail control changes the last card gap only" True py_reply 'import json,sys
+s=json.load(sys.stdin);expected=float(sys.argv[1])+float(sys.argv[2])
+print(s["atEnd"] is True and s["cards"]>0 and abs(s["viewportGap"]-expected)<0.5 and abs(s["lastCardGap"]-expected-40)<0.5)' "$note_header_gap" "$note_card_gap" <<<"$fade_extra_gap"
+fade_gap_control() {
+  (failures=0; behaviour_failures=0; geometry expect "the viewport and last card keep their gap to the hints" True fade_gap_unchanged "$fade_extra_gap" >"$sandbox/fade-gap-control.log"; echo "$failures")
+}
+expect "control: extra scroll tail fails the same gap assertion" 1 fade_gap_control
+expect "the extra-tail control closes" ok notes close
+cp -- "$sandbox/CardScroll.gap-kept.qml" "$fade_qml"
+rescan "a rescan restores the notification scroll tail"
+expect_poll "the restored gap probe service is built" True record_exists vgs.notifications
+fade_open_mid
+geometry expect_poll "the restored gap probe reaches its end" end fade_wheel_end
+geometry expect_poll "the restored viewport and last card keep their gap to the hints" True fade_gap_drawn
+expect "the restored gap probe closes" ok notes close
 write_theme '{"schemaVersion":1,"name":"vgs","tokens":{}}'
 expect_poll "the pixel probe restores the dark look" '"#ffe8e8e8"' look_at text.foreground
 expect "the pixel probe notifications dismiss" ok notes dismiss-all

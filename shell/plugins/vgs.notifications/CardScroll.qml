@@ -65,7 +65,7 @@ Item {
         const back = 1 - t;
         const x = 3 * back * back * t * curve.x1 + 3 * back * t * t * curve.x2 + t * t * t;
         const y = 3 * back * back * t * curve.y1 + 3 * back * t * t * curve.y2 + t * t * t;
-        const span = Math.min(look.stack.tail, view.height) / Math.max(1, view.height);
+        const span = Math.min(look.stack.fadeHeight, view.height) / Math.max(1, view.height);
         return { position: 1 - span + span * x, alpha: 1 - y };
     }
 
