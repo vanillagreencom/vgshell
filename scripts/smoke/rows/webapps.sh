@@ -266,11 +266,82 @@ expect "web app 2's Remove button is clicked" clicked wa_remove 2
 expect_poll "the page draws no web app after Remove" '[]' wa_drawn
 expect_poll "Remove takes every entry and icon away" none wa_planted
 expect "the Settings window is hidden after Remove" ok ipc shell hide window vgs.settings
-# The stand-in browser's entry matches the search too, so the list is read
-# once it is laid out, never while it is still empty.
+# A browser already present cannot acknowledge removal. Observe the
+# launcher's own itemsChanged publication before reading its drawn rows.
+# The observer lives in a fresh directory and is dropped before the
+# launcher closes. Qt's Connections target tracks the current owner:
+# https://doc.qt.io/qt-6/qml-qtqml-connections.html
+mkdir -- "$wa_dir/removal-reader"
+cat >"$wa_dir/removal-reader/Observer.qml" <<'QML'
+import QtQuick
+
+Item {
+    id: root
+    visible: false
+    property var owner: null
+    property int revision: 0
+    property var publication: ({ revision: 0, state: "pending", ids: [] })
+
+    function publish() {
+        if (owner === null) return;
+        const ids = Object.values(owner.items).filter(row => row.kind === "app").map(row => row.appId);
+        revision += 1;
+        publication = {
+            revision: revision,
+            state: ids.indexOf("vgs-smoke-browser") !== -1
+                && ids.indexOf("vgs-webapp-1") === -1
+                && ids.indexOf("vgs-webapp-2") === -1 ? "ready" : "pending",
+            ids: ids
+        };
+    }
+    onOwnerChanged: publish()
+    Connections {
+        target: root.owner
+        function onItemsChanged() { root.publish(); }
+    }
+    // Accept a removal published before the observer attached, too.
+    Component.onCompleted: publish()
+
+    // The controls supply the same items contract as the launcher, while
+    // retaining each removed identity through an unrelated update.
+    property QtObject controlOwner: QtObject {
+        property var items: ({})
+    }
+    function retainRemoved() {
+        controlOwner.items = {
+            browser: { kind: "app", appId: "vgs-smoke-browser" },
+            removed: { kind: "app", appId: "vgs-webapp-1" }
+        };
+        owner = controlOwner;
+    }
+    function retainSecondRemoved() {
+        controlOwner.items = {
+            browser: { kind: "app", appId: "vgs-smoke-browser" },
+            removed: { kind: "app", appId: "vgs-webapp-2" }
+        };
+    }
+    function removeRetained() {
+        controlOwner.items = { browser: { kind: "app", appId: "vgs-smoke-browser" } };
+    }
+    function removeBrowser() { controlOwner.items = {}; }
+}
+QML
+wa_removal_state() { ipc smoke popupRead webapps-removal publication | py_reply 'import json,sys; v=json.load(sys.stdin); print(v["state"] if isinstance(v,dict) and v.get("revision",0) > 0 else "unpublished")'; }
 expect "the launcher opens searching for the removed app" ok ipc shell summon overlay vgs.launcher '{"query":"Smoke"}'
+expect "the removal observer attaches to the launcher" ok ipc smoke popupLoad webapps-removal "$wa_dir/removal-reader/Observer.qml" overlay vgs.launcher '{"owner":"@instance"}'
+wa_index_poll "the launcher publishes application rows after Remove" ready wa_removal_state || true
+printf 'webapps-removal-publication: %s\n' "$(ipc smoke popupRead webapps-removal publication)"
 expect_poll "the launcher lists the stand-in browser for the search" True wa_has_row "Smoke Browser"
 expect "the launcher no longer lists the removed web app" False wa_has_row "Smoke Mail"
+expect "control: the observer retains the first removed identity" ok ipc smoke popupCall webapps-removal retainRemoved
+expect "control: the first stale identity blocks the removal publication" pending wa_removal_state
+expect "control: another update retains the second removed identity" ok ipc smoke popupCall webapps-removal retainSecondRemoved
+expect "control: the second stale identity blocks the removal publication" pending wa_removal_state
+expect "control: the next update removes the retained identity" ok ipc smoke popupCall webapps-removal removeRetained
+expect "the observer accepts the signal that removes the retained identity" ready wa_removal_state
+expect "control: an empty application update removes the browser too" ok ipc smoke popupCall webapps-removal removeBrowser
+expect "control: an empty model cannot acknowledge removal" pending wa_removal_state
+expect "the removal observer is released before the launcher closes" ok ipc smoke popupDrop webapps-removal
 wa_focused "the launcher holds the keyboard after Remove"
 type_keys -k Escape -k Escape || fail "sending Escape in the launcher after Remove failed"
 expect_poll "Escape closes the launcher after Remove" 0 layer_count vgs:overlay
