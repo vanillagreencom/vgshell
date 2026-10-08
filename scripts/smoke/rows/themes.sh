@@ -327,22 +327,14 @@ themes_item_box() {
   layer="$(surface_box vgs:panel)" || return 1
   python3 -c 'import json,sys; l=json.loads(sys.argv[1]); r=json.loads(sys.argv[2]); print(json.dumps([l[0] + r[0], l[1] + r[1], r[2], r[3]]))' "$layer" "$rect"
 }
-# smoke_poll_tries reads a poll in a subshell as a control's and gives it
-# smoke_control_poll_bound_ms. A subshell that stands for the row's own
-# shell, such as a click's lookup scope, raises themes_poll_depth and
-# answers smoke_poll_tries through this copy with the caller's depth that
-# much higher: its polls keep the harness bound, and a control's subshell
-# inside it still reads as a control.
-eval "themes_harness_$(declare -f smoke_poll_tries)"
-themes_poll_depth=0
 # Keep point_item's moving-box and hover checks with the layer's position.
-# The lookup override stays inside this click and cannot affect later rows.
-# A failed click prints the item's box, whether it reports the pointer and
-# where the compositor has the pointer.
+# The lookup override stays inside this click and cannot affect later rows;
+# the subshell that holds it raises smoke_poll_scope, so the click keeps
+# the harness bound. A failed click prints the item's box, whether it
+# reports the pointer and where the compositor has the pointer.
 themes_click_item() {
   (
-    themes_poll_depth=$((themes_poll_depth + 1))
-    smoke_poll_tries() { themes_harness_smoke_poll_tries "$1" "$((${2:-0} + themes_poll_depth))"; }
+    smoke_poll_scope=$((smoke_poll_scope + 1))
     control_box() { themes_item_box "$3" "$4"; }
     click_item panel vgs.themes "$@" && exit 0
     printf 'themes-click: refused item=[%s] box=%s hovered=%s pointer=[%s]\n' "$*" \
@@ -857,7 +849,8 @@ expect_poll "a later apply of that package that succeeds clears its failed targe
 # the list at its top; its first pointer move first scrolls the list down
 # by twice the vgs item's height and writes the item's box before and
 # after the scroll to $click_plant. With MODE `real`, click_item follows
-# the item and clicks it. With MODE `single-read`, click_item runs on a
+# the item and clicks it, its subshell standing for the row's own shell
+# (smoke_poll_scope). With MODE `single-read`, click_item runs on a
 # copy of point_item that reads the box once, the form that clicked before
 # the list settled: it hovers where the item was, never finds it under the
 # pointer and clicks nothing. The vgs item is the target: the scroll
@@ -869,7 +862,7 @@ planted_click() {
   (
     source "$sandbox/planted-hover.sh" || exit 1
     case "$1" in
-      real) ;;
+      real) smoke_poll_scope=$((smoke_poll_scope + 1)) ;;
       single-read) source "$sandbox/point-item-single-read.sh" || exit 1 ;;
       *) echo "planted_click: refused: mode=$1" >&2; exit 1 ;;
     esac
@@ -940,8 +933,8 @@ fi
 # click_row on the list item NAME in a subshell that replaces READER, a
 # function the click reads readiness through, with one answering LATE for
 # its first late_reads readings: more than a control's bound reads, fewer
-# than the harness bound's. With SHELL `row` the subshell stands for the
-# row's own shell, as a click's lookup scope does, so the click waits the
+# than the harness bound's. With SHELL `row` the subshell raises
+# smoke_poll_scope, as a click's lookup scope does, so the click waits the
 # late readings out and clicks. With SHELL `control` it is a control's
 # subshell, where smoke_poll_tries gives the polls
 # smoke_control_poll_bound_ms, so the click stops first and clicks nothing.
@@ -955,42 +948,41 @@ late_click() {
   esac
   : >"$late_reads_file" || return 1
   (
-    if [[ $1 == row ]]; then
-      themes_poll_depth=$((themes_poll_depth + 1))
-      smoke_poll_tries() { themes_harness_smoke_poll_tries "$1" "$((${2:-0} + themes_poll_depth))"; }
-    fi
+    if [[ $1 == row ]]; then smoke_poll_scope=$((smoke_poll_scope + 1)); fi
     eval "late_$(declare -f "$2")" || exit 1
     eval "$2() { printf . >>\"\$late_reads_file\"; if (( \$(stat -c %s -- \"\$late_reads_file\") <= late_reads )); then echo $3; else late_$2 \"\$@\"; fi; }" || exit 1
     click_row "$4"
   )
 }
-# Whether the last late_click read READER past its late readings: past or
-# within.
-late_reads_state() { local n; n="$(stat -c %s -- "$late_reads_file")" || return 1; ((n > late_reads)) && echo past || echo within; }
-# The pointer report: point_item reads control_hovered.
-if late_click control control_hovered false vgs; then
-  fail "a control's click on the vgs row clicked through a late pointer report"
-else
-  expect "a late pointer report outlasts a control's click on the vgs row" within late_reads_state
-  expect "no apply runs after the control's click on the late vgs row" idle theme_idle
-  expect "the control's click on the late vgs row clicks nothing" '"smoke"' lent theme.last.result.theme
-fi
-late_click row control_hovered false vgs || fail "the row's click on the vgs row stopped before its late pointer report"
-expect "the row's click on the vgs row reads past its late pointer report" past late_reads_state
-expect_poll "the row's click on the late vgs row applies vgs" '"vgs"' lent theme.last.result.theme
-expect "the late pointer report's vgs apply ends" idle theme_idle
-# The enabled row: click_row reads themes_item_shown.
-if late_click control themes_item_shown absent smoke; then
-  fail "a control's click on the smoke row clicked through a late enabled row"
-else
-  expect "a late enabled row outlasts a control's click on the smoke row" within late_reads_state
-  expect "no apply runs after the control's click on the late smoke row" idle theme_idle
-  expect "the control's click on the late smoke row clicks nothing" '"vgs"' lent theme.last.result.theme
-fi
-late_click row themes_item_shown absent smoke || fail "the row's click on the smoke row stopped before it was enabled"
-expect "the row's click on the smoke row reads past its late enabled row" past late_reads_state
-expect_poll "the row's click on the late smoke row applies smoke" '"smoke"' lent theme.last.result.theme
-expect "the late enabled row's smoke apply ends" idle theme_idle
+# How the last late_click read its reader: unread with no reading, within
+# while every reading was a planted late one, past once it read on.
+late_reads_state() {
+  local n
+  n="$(stat -c %s -- "$late_reads_file")" || return 1
+  if ((n == 0)); then echo unread; elif ((n > late_reads)); then echo past; else echo within; fi
+}
+# One row per reader: the reader, its late answer, the item clicked, the
+# package applied before the click, which the control's click leaves
+# applied, and what the reader guards. point_item reads control_hovered
+# for the pointer report and click_row reads themes_item_shown for the
+# enabled row. The table is read on its own file descriptor, so no command
+# in the loop reads it.
+while read -r reader late item before guard <&3; do
+  if late_click control "$reader" "$late" "$item"; then
+    fail "a control's click on the $item row clicked through a late $guard"
+  else
+    expect "a late $guard outlasts a control's click on the $item row" within late_reads_state
+    expect "no apply runs after the control's click on the late $item row" idle theme_idle
+    expect "the control's click on the late $item row clicks nothing" "\"$before\"" lent theme.last.result.theme
+  fi
+  late_click row "$reader" "$late" "$item" || fail "the row's click on the $item row stopped before its late $guard"
+  expect "the row's click on the $item row reads past its late $guard" past late_reads_state
+  expect_poll "the row's click on the late $item row applies $item" "\"$item\"" lent theme.last.result.theme
+  expect "the $item apply after the late $guard ends" idle theme_idle
+done 3<<'LATE'
+control_hovered false vgs smoke pointer report
+themes_item_shown absent smoke vgs enabled row
+LATE
 expect_poll "the shell displays smoke again after the late clicks" smoke ipc smoke themeName
 
 # An installed package's own file for a target that runs code is dropped

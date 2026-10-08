@@ -1708,9 +1708,15 @@ smoke_control_poll_bound_ms=5000
 # smoke_poll_tries STEP_MS [CALLER_DEPTH]: the reads a poll of STEP_MS
 # steps makes before its bound, in smoke_poll_n. Called directly, never in
 # $(), so it sees the caller's subshell depth: deeper than CALLER_DEPTH (0,
-# or 1 for point_item, which every caller reads through $()) is a control.
+# or 1 for point_item, which every caller reads through $()) plus
+# smoke_poll_scope is a control. A row that runs its own steps in a
+# subshell, such as one that scopes a lookup override to one click, raises
+# smoke_poll_scope by one inside it: its polls keep the long bound, and a
+# control's subshell around or inside it still reads as a control. Unset,
+# as in a test that copies the function alone, it reads as 0.
+smoke_poll_scope=0
 smoke_poll_tries() { # STEP_MS [CALLER_DEPTH]
-  if (( BASH_SUBSHELL <= ${2:-0} )); then smoke_poll_n=$((smoke_poll_bound_ms / $1)); else smoke_poll_n=$((smoke_control_poll_bound_ms / $1)); fi
+  if (( BASH_SUBSHELL <= ${2:-0} + ${smoke_poll_scope:-0} )); then smoke_poll_n=$((smoke_poll_bound_ms / $1)); else smoke_poll_n=$((smoke_control_poll_bound_ms / $1)); fi
 }
 # expect_log LABEL COUNT PATTERN: the log holds at least COUNT matching
 # lines within smoke_poll_bound_ms. A row that asserts something did not
