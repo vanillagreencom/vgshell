@@ -19,6 +19,7 @@ Singleton {
     IpcRegistry { id: commands }
     NotificationHub { id: notifications; active: root.notificationsHeld }
     SessionLock { id: sessionLock }
+    Component { id: screencopyPreview; ScreencopyPreview {} }
     ThemeRunner { id: themes }
     TuiRunner { id: tuis }
     SecretWriter { id: secrets }
@@ -149,6 +150,7 @@ Singleton {
             get all() { return Quickshell.screens; },
             current: ctx.screen
         }),
+        screencopy: ctx => ({ preview: screencopyPreview }),
         shortcut: shortcuts.provider,
         manager: ctx => ({
             get plugins() { return Registry.managerRows; },

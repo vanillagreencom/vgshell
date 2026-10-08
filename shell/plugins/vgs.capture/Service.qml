@@ -11,6 +11,7 @@ import qs.Commons
 Item {
     id: root
     property var shell: null
+    ShareSession { shell: root.shell }
     property bool registered: false
     property string phase: "idle"
     property string action: ""

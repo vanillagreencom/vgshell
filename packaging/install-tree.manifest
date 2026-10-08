@@ -29,6 +29,7 @@ f share/vgshell/bin/vgshell-lock
 f share/vgshell/bin/vgshell-pkg
 f share/vgshell/bin/vgshell-plugin-judge
 f share/vgshell/bin/vgshell-scan
+f share/vgshell/bin/vgshell-share-picker
 f share/vgshell/bin/vgshell-sudo-grant
 f share/vgshell/bin/vgshell-system
 f share/vgshell/bin/vgshell-theme-judge
@@ -84,6 +85,7 @@ f share/vgshell/shell/Core/PluginLogic.js
 f share/vgshell/shell/Core/PluginStatus.qml
 f share/vgshell/shell/Core/Plugins.qml
 f share/vgshell/shell/Core/Registry.qml
+f share/vgshell/shell/Core/ScreencopyPreview.qml
 f share/vgshell/shell/Core/SecretWriter.qml
 f share/vgshell/shell/Core/ServiceGate.qml
 f share/vgshell/shell/Core/SessionLock.qml
@@ -269,10 +271,13 @@ f share/vgshell/shell/plugins/vgs.bluetooth/Widget.qml
 f share/vgshell/shell/plugins/vgs.bluetooth/manifest.json
 f share/vgshell/shell/plugins/vgs.capture/Panel.qml
 f share/vgshell/shell/plugins/vgs.capture/Service.qml
+f share/vgshell/shell/plugins/vgs.capture/ShareSession.qml
 f share/vgshell/shell/plugins/vgs.capture/Widget.qml
+f share/vgshell/shell/plugins/vgs.capture/Window.qml
 f share/vgshell/shell/plugins/vgs.capture/helper/capture.py
 f share/vgshell/shell/plugins/vgs.capture/manifest.json
 f share/vgshell/shell/plugins/vgs.capture/tui/install-languages.sh
+f share/vgshell/shell/plugins/vgs.capture/tui/setup-sharing.sh
 f share/vgshell/shell/plugins/vgs.clipboard/ClipboardHistory.js
 f share/vgshell/shell/plugins/vgs.clipboard/Overlay.qml
 f share/vgshell/shell/plugins/vgs.clipboard/Service.qml

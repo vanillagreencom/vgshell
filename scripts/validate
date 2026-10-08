@@ -332,6 +332,7 @@ rows=(
   "cli|updates check helper|scripts/test-updates-check.sh|shell/plugins/vgs.updates/bin/check shell/plugins/vgs.updates/NormalizeCheck.js shell/plugins/vgs.updates/UpdatesLogic.js bin/lib/qml-library.js"
   "cli|displays brightness helper|python3 scripts/test-displays-brightness.py|shell/plugins/vgs.displays/helper/* scripts/smoke/fixtures/devices/hid-fake.py scripts/smoke/fixtures/devices/hid-world.json scripts/smoke/fixtures/devices/stand-in.py"
   "cli|capture worker|python3 scripts/test-capture.py|shell/plugins/vgs.capture/* scripts/test-capture.py scripts/smoke/fixtures/capture/* shell/Core/Capabilities.qml shell/Core/Dispatch.js bin/lib/qml-library.js bin/lib/tui.sh"
+  "cli|portal share picker|python3 scripts/test-share-picker.py|bin/vgshell-share-picker bin/vgshell bin/lib/ipc-reply.sh scripts/fixtures/share-picker/*"
   "cli|AI usage helper|node scripts/test-ai-usage.js|shell/plugins/vgs.ai-usage/* bin/lib/anchored.js bin/lib/account-folders.js bin/lib/qml-library.js bin/lib/tui.sh shell/Commons/AccountDirectories.js scripts/test-ai-usage.js scripts/fixtures/ai-usage/* shell/Commons/Duration.js bin/lib/codex-account.js"
   "cli|clipboard helper|python3 scripts/test-clipboard.py|shell/plugins/vgs.clipboard/helper/* scripts/test-clipboard.py"
   "cli|updates pipeline controls|scripts/test-updates-pipeline.sh|scripts/vgshell-rows.sh shell/plugins/vgs.updates/tui/* shell/plugins/vgs.updates/bin/facts shell/plugins/vgs.updates/UpdatesLogic.js bin/lib/tui.sh bin/lib/qml-library.js"

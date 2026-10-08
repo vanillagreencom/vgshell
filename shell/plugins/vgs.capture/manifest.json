@@ -7,11 +7,13 @@
   "description": "Save screenshots, record the screen and copy text from an area.",
   "license": "MIT",
   "icon": "camera",
-  "kinds": ["service", "bar-widget", "panel"],
-  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml" },
-  "capabilities": ["compositor", "configure", "ipc", "monitors", "notify", "requirements", "run", "shortcut", "status", "surfaces", "tui"],
+  "kinds": ["service", "bar-widget", "panel", "window"],
+  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml", "window": "Window.qml" },
+  "capabilities": ["compositor", "configure", "ipc", "monitors", "notify", "requirements", "run", "screens", "screencopy", "shortcut", "status", "surfaces", "tui"],
   "defaultSection": "right",
   "requirements": [
+    { "command": "systemctl", "packages": { "pacman": "systemd", "dnf": "systemd", "nix": "systemd" }, "optional": true, "purpose": "Applies the screen sharing picker to the portal service" },
+    { "command": "busctl", "packages": { "pacman": "systemd", "dnf": "systemd", "nix": "systemd" }, "optional": true, "purpose": "Checks when the screen sharing portal loaded its picker" },
     { "command": "grim", "packages": { "pacman": "grim", "dnf": "grim", "nix": "grim" }, "optional": false, "purpose": "Captures screenshots and images for text recognition" },
     { "command": "slurp", "packages": { "pacman": "slurp", "dnf": "slurp", "nix": "slurp" }, "optional": false, "purpose": "Selects an area or a whole output to capture" },
     { "command": "hyprpicker", "packages": { "pacman": "hyprpicker", "dnf": "hyprpicker", "nix": "hyprpicker" }, "optional": false, "purpose": "Holds the screen still while you select an area" },
@@ -80,6 +82,7 @@
     { "shortcut": "text", "key": "SUPER+CTRL+PRINT", "info": "Lets you drag over an area, reads the text in it and copies that text." }
   ] },
   "status": {
+    "sharing": { "type": "state", "label": "Screen sharing", "group": "Sharing", "hint": "Setup applies the VGS picker. A running screen share stops.", "action": { "label": "Set up screen sharing", "tui": "setup-sharing" } },
     "capture": { "type": "data", "label": "Capture state" },
     "recording": { "type": "state", "label": "Recording" },
     "audioSources": { "type": "choices", "label": "Audio sources" },
@@ -87,6 +90,7 @@
     "languages": { "type": "state", "label": "Text languages", "hint": "English is installed with Capture. Install languages adds the data for the other chosen text languages.", "action": { "label": "Install languages", "tui": "install-languages" } }
   },
   "tui": {
+    "setup-sharing": { "script": "tui/setup-sharing.sh", "title": "Set up screen sharing", "requires": ["systemctl", "busctl"] },
     "install-languages": { "script": "tui/install-languages.sh", "title": "Install text languages", "requires": ["tesseract"] }
   }
 }

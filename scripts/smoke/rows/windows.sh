@@ -20,7 +20,7 @@
 # Plugins plug in the bar and takes it off again, and leaves each other
 # window's plugin as it found it, hyprland.lua as it found it and no window
 # open. The bar's plug reads Plugins, the title of the window it opens.
-# inputs: shell/plugins/vgs.settings/* shell/plugins/*/manifest.json shell/plugins/vgs.automations/* shell/plugins/vgs.devtools/* shell/plugins/vgs.gallery/* shell/plugins/vgs.keyhints/* shell/plugins/vgs.system/* shell/plugins/vgs.updates/* shell/Commons/Reply.js shell/plugins/vgs.themes/* shell/Hosts/AppWindow.qml shell/Core/HyprlandLayer.js scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.settings/* shell/plugins/vgs.capture/* shell/plugins/*/manifest.json shell/plugins/vgs.automations/* shell/plugins/vgs.devtools/* shell/plugins/vgs.gallery/* shell/plugins/vgs.keyhints/* shell/plugins/vgs.system/* shell/plugins/vgs.updates/* shell/Commons/Reply.js shell/plugins/vgs.themes/* shell/Hosts/AppWindow.qml shell/Core/HyprlandLayer.js shell/Core/Notices.qml scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 windows_lua="$home/.config/hypr/hyprland.lua"
 cp -- "$windows_lua" "$sandbox/hyprland-before-windows.lua"

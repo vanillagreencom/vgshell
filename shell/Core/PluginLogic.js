@@ -20,7 +20,7 @@ var KINDS = ["bar-widget", "bar", "panel", "overlay", "menu", "window", "pane", 
 
 // Capabilities the core can hand a plugin. A manifest naming another one is
 // refused. Capabilities.qml maps each name to its provider.
-var CAPABILITIES = ["compositor", "configure", "idle", "ipc", "lock", "session", "notifications", "polkit", "run", "screens", "shortcut", "surfaces", "builtins", "manager", "panes", "notify", "theme", "layers", "status", "tui", "system", "requirements", "doctor", "secrets", "hyprland", "bluetoothAgent", "monitors", "sudo"];
+var CAPABILITIES = ["compositor", "configure", "idle", "ipc", "lock", "session", "notifications", "polkit", "run", "screens", "screencopy", "shortcut", "surfaces", "builtins", "manager", "panes", "notify", "theme", "layers", "status", "tui", "system", "requirements", "doctor", "secrets", "hyprland", "bluetoothAgent", "monitors", "sudo"];
 
 // A plugin's system notification, shell.notify.send. The tones and the
 // icon grammar are the ones the `x-vgs-tone` and `x-vgs-icon` hints take

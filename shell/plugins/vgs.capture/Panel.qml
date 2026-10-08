@@ -9,6 +9,7 @@ import qs.Ui
 Item {
     id: root
     property var shell: null
+    property string surfaceKind: "panel"
     property Item initialFocus: primaryAction
     property string problem: ""
     property string mode: "Screenshot"
@@ -85,7 +86,7 @@ Item {
     function invoke(name) {
         const reply = shell.ipc.call(name, "");
         problem = reply === "ok" ? "" : reply.indexOf("capture=missing") >= 0 ? "Install the missing tools to use this action." : "Capture is busy. Wait for it to finish.";
-        if (reply === "ok") shell.ipc.call("toggle", "");
+        if (reply === "ok") shell.surfaces.hide(surfaceKind);
         return reply;
     }
     function installLanguages() { return shell.status.act("languages"); }

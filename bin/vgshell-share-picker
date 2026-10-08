@@ -1,0 +1,430 @@
+#!/usr/bin/env python3
+"""xdph custom_picker_binary: one selection on stdout, failures on stderr.
+
+The wire format is xdph v1.4.1 src/shared/ScreencopyShared.cpp and
+hyprland-share-picker/main.cpp. Window ids name portal handles, while addresses
+name Hyprland windows. Only the portal handle may appear in a window selection.
+"""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import signal
+import stat
+import subprocess
+import sys
+import threading
+import time
+import uuid
+
+
+PICKER_TIMEOUT = 120.0
+IPC_TIMEOUT = 3.0
+PORTAL_RESTART_TIMEOUT = 30.0
+POLL_INTERVAL = 0.1
+CHILD_ENV = (
+    "PATH", "HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "XDG_DATA_HOME",
+    "XDG_CACHE_HOME", "XDG_STATE_HOME", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS",
+    "HYPRLAND_INSTANCE_SIGNATURE", "LANG", "LC_ALL", "VGS_TEST_RUN",
+)
+
+
+class PickerError(Exception):
+    pass
+
+
+class ActivationNeeded(PickerError):
+    pass
+
+
+def decimal(value, maximum):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]+", value):
+        raise PickerError("window-list=invalid-number")
+    number = int(value)
+    if number > maximum:
+        raise PickerError("window-list=number-out-of-range")
+    return number
+
+
+def parse_windows(text):
+    windows, ids = [], set()
+    while text:
+        fields = []
+        for separator in ("[HC>]", "[HT>]", "[HE>]", "[HA>]"):
+            value, found, text = text.partition(separator)
+            if not found:
+                raise PickerError("window-list=missing-separator")
+            fields.append(value)
+        portal_id = str(decimal(fields[0], 0xFFFFFFFF))
+        address = decimal(fields[3], 0xFFFFFFFFFFFFFFFF)
+        if portal_id in ids:
+            raise PickerError("window-list=duplicate-id")
+        ids.add(portal_id)
+        windows.append({"id": portal_id, "address": hex(address), "class": fields[1], "title": fields[2]})
+    return windows
+
+
+def output_name(value):
+    if not isinstance(value, str) or not value or re.search(r"[\x00-\x20\x7f@]", value):
+        raise PickerError("selection=invalid-output")
+    return value
+
+
+def serialize_choice(choice, windows):
+    if not isinstance(choice, dict) or type(choice.get("remember")) is not bool:
+        raise PickerError("selection=invalid-choice")
+    kind = choice.get("type")
+    if kind == "screen":
+        payload = "screen:" + output_name(choice.get("output"))
+    elif kind == "window":
+        portal_id = str(decimal(choice.get("id"), 0xFFFFFFFF))
+        if portal_id not in {window["id"] for window in windows}:
+            raise PickerError("selection=unknown-window")
+        payload = "window:" + portal_id
+    elif kind == "region":
+        coordinates = [choice.get(key) for key in ("x", "y", "width", "height")]
+        # xdph uses std::stoi and output-local coordinates, rather than global
+        # monitor positions. Refuse values that overflow that consumer's int.
+        if any(type(value) is not int or value < 0 or value > 0x7FFFFFFF for value in coordinates):
+            raise PickerError("selection=invalid-region")
+        if not coordinates[2] or not coordinates[3]:
+            raise PickerError("selection=empty-region")
+        payload = "region:" + output_name(choice.get("output")) + "@" + ",".join(map(str, coordinates))
+    else:
+        raise PickerError("selection=unknown-type")
+    return "[SELECTION]" + ("r" if choice["remember"] else "") + "/" + payload + "\n"
+
+
+def run_child(arguments, stopped, timeout, operation):
+    environment = {key: os.environ[key] for key in CHILD_ENV if key in os.environ}
+    child = subprocess.Popen(
+        arguments,
+        env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, text=True, start_new_session=True,
+    )
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if stopped.is_set():
+                raise PickerError("picker=interrupted")
+            if remaining <= 0:
+                raise PickerError(operation + "=timeout")
+            try:
+                stdout, stderr = child.communicate(timeout=min(POLL_INTERVAL, remaining))
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        if child.returncode:
+            raise PickerError(operation + "=failed")
+        return stdout
+    finally:
+        if child.poll() is None:
+            os.killpg(child.pid, signal.SIGKILL)
+        child.communicate()
+
+
+def ipc_call(command, payload, stopped, timeout):
+    executable = Path(__file__).resolve().with_name("vgshell")
+    stdout = run_child(
+        [str(executable), "ipc", "call", "vgs.capture", "invoke", command,
+         json.dumps(payload, ensure_ascii=True, separators=(",", ":"))],
+        stopped, timeout, "ipc-" + command,
+    )
+    # vgshell judges the qs reply. qs may print log lines before its last
+    # reply line, which is the capture service's protocol document.
+    lines = stdout.splitlines()
+    if not lines:
+        raise PickerError("ipc=empty-reply command=" + command)
+    return lines[-1]
+
+
+def pick(remember, stopped):
+    windows = parse_windows(os.environ.get("XDPH_WINDOW_SHARING_LIST", ""))
+    request = {"id": str(uuid.uuid4()), "windows": windows, "remember": remember}
+    deadline = time.monotonic() + PICKER_TIMEOUT
+    # Cleanup also covers an interrupted begin call: the shell can accept it
+    # before the child has delivered its reply.
+    try:
+        reply = ipc_call("share-begin", request, stopped, min(IPC_TIMEOUT, PICKER_TIMEOUT))
+        if reply != "ok":
+            raise PickerError("picker=begin-refused")
+        while not stopped.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise PickerError("picker=timeout")
+            reply = ipc_call("share-result", {"id": request["id"]}, stopped, min(IPC_TIMEOUT, remaining))
+            if reply == "cancelled":
+                raise PickerError("picker=cancelled")
+            if reply != "pending":
+                try:
+                    result = json.loads(reply)
+                    choice = result["choice"]
+                except (json.JSONDecodeError, KeyError, TypeError) as error:
+                    raise PickerError("picker=invalid-result") from error
+                return serialize_choice(choice, windows)
+            stopped.wait(min(POLL_INTERVAL, max(0, deadline - time.monotonic())))
+        raise PickerError("picker=interrupted")
+    finally:
+        try:
+            ipc_call("share-cancel", {"id": request["id"]}, threading.Event(), IPC_TIMEOUT)
+        except (OSError, PickerError):
+            # The session owner also expires requests. A dead shell cannot
+            # acknowledge cleanup, and must never turn failure into selection.
+            pass
+
+
+def uncomment(line):
+    index = 0
+    while index < len(line):
+        if line[index] == "#":
+            if line[index:index + 2] == "##":
+                index += 2
+                continue
+            return line[:index], line[index:]
+        index += 1
+    return line, ""
+
+
+def rewrite_config(text, executable):
+    # Hyprlang comments use ## for a literal #. Preserve every other byte;
+    # only the custom picker assignment belongs to VGS.
+    if re.search(r"[\x00\r\n#]", executable):
+        raise PickerError("configure=invalid-executable-path")
+    categories, lines, replacements = [], [], 0
+    for line in text.splitlines(keepends=True):
+        newline = "\r\n" if line.endswith("\r\n") else "\n" if line.endswith("\n") else ""
+        body = line[:-len(newline)] if newline else line
+        code, comment = uncomment(body)
+        stripped = code.strip()
+        if not stripped:
+            pass
+        elif stripped == "}":
+            if not categories:
+                raise PickerError("configure=unbalanced-category")
+            categories.pop()
+        elif re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\s*\{", stripped):
+            categories.append(stripped[:-1].strip())
+        else:
+            assignment = re.fullmatch(r"(\s*)([A-Za-z_$][A-Za-z0-9_$:]*)(\s*=\s*)(.*)", code)
+            if not assignment:
+                raise PickerError("configure=invalid-syntax")
+            key = ":".join([*categories, assignment[2]])
+            if key == "screencopy:custom_picker_binary":
+                padding = assignment[4][len(assignment[4].rstrip()):]
+                line = assignment[1] + assignment[2] + assignment[3] + executable + padding + comment + newline
+                replacements += 1
+        lines.append(line)
+    if categories:
+        raise PickerError("configure=unbalanced-category")
+    result = "".join(lines)
+    if not replacements:
+        result += ("\n" if result and not result.endswith("\n") else "")
+        result += "screencopy {\n    custom_picker_binary = " + executable + "\n}\n"
+    return result
+
+
+def config_directory(create=True):
+    home = os.environ.get("XDG_CONFIG_HOME")
+    if not home:
+        if not os.environ.get("HOME"):
+            raise PickerError("configure=home-unset")
+        home = str(Path(os.environ["HOME"]) / ".config")
+    directory = Path(home) / "hypr"
+    if not directory.is_absolute():
+        raise PickerError("configure=config-home-relative")
+    descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in directory.parts[1:]:
+            if part == "..":
+                raise PickerError("configure=config-home-parent")
+            if create:
+                try:
+                    os.mkdir(part, mode=0o700, dir_fd=descriptor)
+                except FileExistsError:
+                    pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def snapshot(value):
+    return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+
+def read_config(directory):
+    try:
+        descriptor = os.open("xdph.conf", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+    except FileNotFoundError:
+        return None, ""
+    with os.fdopen(descriptor, "r", encoding="utf-8", newline="") as source:
+        original = os.fstat(source.fileno())
+        if not stat.S_ISREG(original.st_mode):
+            raise PickerError("configure=config-not-regular")
+        text = source.read()
+        if snapshot(original) != snapshot(os.fstat(source.fileno())):
+            raise PickerError("configure=config-changed")
+    return original, text
+
+
+def portal_state(config, stopped):
+    # xdph reads its config once, in CPortalManager's constructor. systemd's
+    # ExecMainStartTimestamp is a uint64 CLOCK_REALTIME microsecond value:
+    # https://www.freedesktop.org/software/systemd/man/org.freedesktop.systemd1.html
+    # A running backend older than the file cannot have accepted that write.
+    reply = run_child(
+        ["systemctl", "--user", "show",
+         "--property=LoadState", "--property=ActiveState",
+         "xdg-desktop-portal-hyprland.service"],
+        stopped, IPC_TIMEOUT, "portal-probe",
+    )
+    properties = {}
+    for line in reply.splitlines():
+        key, separator, value = line.partition("=")
+        if not separator or key in properties:
+            raise PickerError("portal-probe=invalid-properties")
+        properties[key] = value
+    if properties.get("LoadState") != "loaded":
+        raise PickerError("portal-probe=unit-not-loaded")
+    active = properties.get("ActiveState")
+    if active in ("inactive", "failed"):
+        return "ready"
+    if active in ("activating", "deactivating", "reloading"):
+        return "needed"
+    if active != "active":
+        raise PickerError("portal-probe=invalid-active-state")
+    # The object is systemd's escaped form of the fixed backend unit name.
+    # Query the service manager, so a probe never activates the portal backend.
+    timestamp = run_child(
+        ["busctl", "--user", "get-property", "org.freedesktop.systemd1",
+         "/org/freedesktop/systemd1/unit/xdg_2ddesktop_2dportal_2dhyprland_2eservice",
+         "org.freedesktop.systemd1.Service", "ExecMainStartTimestamp"],
+        stopped, IPC_TIMEOUT, "portal-probe-start",
+    )
+    match = re.fullmatch(r"t ([0-9]+)\n?", timestamp)
+    if not match:
+        raise PickerError("portal-probe=invalid-start-time")
+    started_ns = int(match[1]) * 1000
+    return "ready" if started_ns >= config.st_mtime_ns else "needed"
+
+
+def probe(stopped):
+    try:
+        directory = config_directory(create=False)
+    except FileNotFoundError:
+        return {"state": "needed"}
+    try:
+        original, text = read_config(directory)
+        if original is None or rewrite_config(text, str(Path(__file__).resolve())) != text:
+            return {"state": "needed"}
+        state = portal_state(original, stopped)
+        same_config(directory, original)
+        return {"state": state}
+    finally:
+        os.close(directory)
+
+
+def same_config(directory, expected):
+    try:
+        current = os.stat("xdph.conf", dir_fd=directory, follow_symlinks=False)
+    except FileNotFoundError:
+        current = None
+    if ((expected is None) != (current is None)
+            or expected is not None and snapshot(expected) != snapshot(current)):
+        raise PickerError("configure=config-changed")
+
+
+def replace_config(directory, text, expected, mode):
+    temporary = None
+    try:
+        candidate = ".xdph.conf." + uuid.uuid4().hex
+        descriptor = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=directory)
+        temporary = candidate
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as target:
+            target.write(text)
+            os.fchmod(target.fileno(), mode)
+            target.flush()
+            os.fsync(target.fileno())
+            same_config(directory, expected)
+            os.replace(temporary, "xdph.conf", src_dir_fd=directory, dst_dir_fd=directory)
+            temporary = None
+            installed = os.fstat(target.fileno())
+        os.fsync(directory)
+        return installed
+    finally:
+        if temporary is not None:
+            os.unlink(temporary, dir_fd=directory)
+
+
+def configure(stopped=None):
+    stopped = stopped or threading.Event()
+    directory = config_directory()
+    try:
+        original, text = read_config(directory)
+        rewritten = rewrite_config(text, str(Path(__file__).resolve()))
+        if rewritten == text:
+            if portal_state(original, stopped) == "ready":
+                return
+            installed = original
+        else:
+            mode = stat.S_IMODE(original.st_mode) if original else 0o600
+            installed = replace_config(directory, rewritten, original, mode)
+        same_config(directory, installed)
+        try:
+            # xdph v1.4.1 reads its config in CPortalManager's constructor.
+            # try-restart activates the write for a running backend and leaves
+            # an inactive backend stopped until a portal request starts it.
+            run_child(["systemctl", "--user", "try-restart", "xdg-desktop-portal-hyprland.service"],
+                      stopped, PORTAL_RESTART_TIMEOUT, "portal-restart")
+            same_config(directory, installed)
+            if portal_state(installed, stopped) != "ready":
+                raise PickerError("portal-restart=not-active-for-config")
+        except (OSError, PickerError) as error:
+            # Keep the configured picker for the next backend start. Probe
+            # reports Needed while a running backend predates this file.
+            raise ActivationNeeded("activation=needed cause=" + str(error)) from error
+    finally:
+        os.close(directory)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--allow-token", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--configure", action="store_true")
+    mode.add_argument("--probe", action="store_true")
+    args = parser.parse_args()
+    stopped = threading.Event()
+    for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(number, lambda signum, frame: stopped.set())
+    try:
+        if args.probe:
+            try:
+                result = probe(stopped)
+            except (OSError, UnicodeError, PickerError, ValueError) as error:
+                result = {"state": "needed", "error": str(error)}
+            print(json.dumps(result, separators=(",", ":")))
+        elif args.configure:
+            configure(stopped)
+        else:
+            selection = pick(args.allow_token, stopped)
+            if stopped.is_set():
+                raise PickerError("picker=interrupted")
+            sys.stdout.write(selection)
+        return 0
+    except ActivationNeeded as error:
+        print("share-picker: refused: " + str(error), file=sys.stderr)
+        return 75
+    except (OSError, UnicodeError, PickerError, ValueError) as error:
+        print("share-picker: refused: " + str(error), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

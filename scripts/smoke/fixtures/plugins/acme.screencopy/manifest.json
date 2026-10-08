@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"acme.screencopy","name":"Preview fixture","version":"0.1.0","author":"acme","description":"Fixture for the lent screen preview.","kinds":["window"],"entryPoints":{"window":"Window.qml"},"capabilities":["screencopy"]}

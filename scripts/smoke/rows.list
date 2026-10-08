@@ -135,6 +135,7 @@ displays
 sound
 power
 capture
+share-picker
 # After capture, before tui-guard: its Sign in reaches the stand-in
 # terminal, and it reads no state another row leaves.
 ai-usage

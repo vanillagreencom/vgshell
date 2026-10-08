@@ -744,6 +744,8 @@ cases=(
   "fixture|scripts/smoke/fixtures/plugins/acme.contention/Background.qml|all|$fixture_plan"
   "smoke-row|scripts/smoke/rows/example.sh|all|$smoke_plan"
   "capture-worker-suite|scripts/test-capture.py|cli|python3 scripts/test-capture.py"
+  "share-picker-suite|scripts/test-share-picker.py|cli|python3 scripts/test-share-picker.py"
+  "share-picker-consumer|scripts/fixtures/share-picker/xdph-selection.cpp|cli|python3 scripts/test-share-picker.py"
   "jarvis-key-smoke|scripts/smoke/rows/jarvis-keys.sh|all|node scripts/test-jarvis-daemon.js"$'\n'"${smoke_plan/smoke_reads_named/$'smoke_reads_named\npython3 scripts/test-smoke-user-config.py'}"
   "compositor-reveal-barrier-suite|scripts/test-compositor-reveal.py|tools|python3 scripts/test-compositor-reveal.py"
   "smoke-configuration-restore-suite|scripts/test-smoke-user-config.py|tools|python3 scripts/test-smoke-user-config.py"
