@@ -34,8 +34,6 @@
     "selectionBg": "#@{color.borderStrong}",
     "diffAdded": "#@{color.successSubtle}",
     "diffRemoved": "#@{color.dangerSubtle}",
-    "diffAddedWord": "#@{color.selection}",
-    "diffRemovedWord": "#@{color.selection}",
     "diffAddedDimmed": "#@{color.surfaceHover}",
     "diffRemovedDimmed": "#@{color.surfaceHover}",
     "background": "#@{terminal.color6}",

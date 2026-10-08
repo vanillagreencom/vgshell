@@ -122,8 +122,6 @@ const claude = JSON.parse(fs.readFileSync(path.join(live, "claude.json"), "utf8"
 const claudeWant = {
     diffAdded: token("color.successSubtle"),
     diffRemoved: token("color.dangerSubtle"),
-    diffAddedWord: token("color.selection"),
-    diffRemovedWord: token("color.selection"),
     diffAddedDimmed: token("color.surfaceHover"),
     diffRemovedDimmed: token("color.surfaceHover"),
     background: slot("color6"),
@@ -138,6 +136,22 @@ const claudeWant = {
     composerSidebarBackground: token("color.surfaceSunken")
 };
 for (const [key, want] of Object.entries(claudeWant)) equals("claude." + key, claude[key], want);
+// Independently pin the two Claude dual-use fields after an actual apply.
+const syntax = logic.parseColor(values.scheme.mode === "dark" ? "#f8f8f2" : "#333333");
+const countBackground = logic.parseColor(values.color.background);
+for (const [key, primary] of [["diffAddedWord", 1], ["diffRemovedWord", 0]]) {
+    const fill = logic.parseColor(claude[key]);
+    if (fill === null) { note("claude." + key + " absent colour"); continue; }
+    const rgb = [fill.r, fill.g, fill.b], other = rgb.filter((_, index) => index !== primary);
+    if (!(rgb[primary] > other[0] && other[0] === other[1])) note("claude." + key + " wrong role hue");
+    const score = Math.min(logic.contrastRatio(syntax, fill), logic.contrastRatio(fill, countBackground));
+    for (let lightnessStep = 0; lightnessStep <= 510; lightnessStep++) {
+        const lightness = lightnessStep / 510, chroma = 1 - Math.abs(2 * lightness - 1), base = lightness - chroma / 2;
+        const tint = logic.parseColor("#" + [0, 1, 2].map(index => byteHex(Math.round(255 * (base + (index === primary ? chroma : 0))))).join(""));
+        const candidate = Math.min(logic.contrastRatio(syntax, tint), logic.contrastRatio(tint, countBackground));
+        if (candidate > score + Number.EPSILON * 16) { note("claude." + key + " misses joint contrast optimum"); break; }
+    }
+}
 const gemini = JSON.parse(fs.readFileSync(path.join(live, "gemini.json"), "utf8"));
 for (const role of ["added", "removed"]) {
     const fill = gemini.background.diff[role];
