@@ -383,7 +383,7 @@ fi
 # adds a gate that never starts the deadline: it never releases.
 bar_hidden() { # NAME
   copy_tree "$1" && edit_tree "$1" shell/Hosts/BarHost.qml \
-    $'            visible: PluginLogic.barShown(slot.instance)\n' \
+    $'            visible: host.screenPresent && PluginLogic.barShown(slot.instance)\n' \
     $'            visible: false\n'
 }
 deadline_warnings() { log_lines 'WARN qml: plugins: services released reason=deadline waited_ms=[0-9]+ unpresented=bar:'; }

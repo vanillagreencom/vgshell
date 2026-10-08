@@ -99,6 +99,10 @@ print(sum(1 for r in rows if r["request"].get("device") == node and r["request"]
 PY
 }
 disp_report() { hid_fake_call "$1" 0xC0074807 01000000000000 | py_reply 'import json,sys; print(json.load(sys.stdin)["data"])'; }
+disp_initial_reports=()
+for disp_hid in hidraw0 hidraw1 hidraw2; do
+  disp_initial_reports+=("$(disp_report "$disp_hid")")
+done
 # The screens each passive layer of the plugin maps on, in registration
 # order: the on-screen display, Identify, then the display-trial banner.
 disp_layers() { ipc smoke layerWindows vgs.displays | py_reply '
@@ -775,7 +779,6 @@ device_reply_clear brightnessctl
 expect "disabling vgs.displays at the end is allowed" ok ipc shell setPluginEnabled vgs.displays false
 expect_poll "no displays layer is left" '[]' ipc smoke layerWindows vgs.displays
 rm -f -- "${disp_file:?}"
-cp -- "$disp_user_saved" "$disp_user.tmp" && mv -T -- "$disp_user.tmp" "$disp_user"
 # Native deletion can run after the bar's layer is already gone. Observe
 # clients and focus for 5 s, every 0.2 s, so a later Qt remap cannot pass
 # the immediate surface-count check and leak into Power's start snapshot.
@@ -802,6 +805,9 @@ disp_windows_preserved() { # BEFORE
   echo True
 }
 disp_windows_before="$(disp_window_state)"
+# Keep the restore and output removal adjacent: an extra compositor read
+# here can let the old window finish deletion and hide the lifetime fault.
+cp -- "$disp_user_saved" "$disp_user.tmp" && mv -T -- "$disp_user.tmp" "$disp_user"
 expect "the nested compositor removes the displays monitor" ok hypr output remove "$disp_output"
 expect_poll "the removed monitor's bar surface is gone" "$monitors" bar_count
 disp_removal_check() { expect "removing the display preserves clients and focus through later turns" True disp_windows_preserved "$disp_windows_before"; }
@@ -816,21 +822,35 @@ if [[ ${disp_lifetime_control:-no} == yes ]]; then
   expect_poll "control: the generic shell window takes focus" '["org.vgs.shell", "quickshell"]' active_window
 else
   disp_removal_check
-  # The control runs this same row through the real host, with only its
-  # screen-loss visibility guard removed. Its owned shell is stopped
+  # The control runs this same row through the real host's old screen
+  # activation and visibility. Its owned shell is stopped
   # before the original tree returns, so the deliberate ghost is removed.
   if copy_tree bar-visible-removed && edit_tree bar-visible-removed shell/Hosts/BarHost.qml \
       'visible: host.screenPresent && PluginLogic.barShown(slot.instance)' \
       'visible: PluginLogic.barShown(slot.instance)' \
-    && stop_shell && start_shell "$sandbox/tree-bar-visible-removed" "$sandbox/displays-bar-visible-removed.log"; then
+    && edit_tree bar-visible-removed shell/Hosts/BarHost.qml \
+      'active: host.screenPresent && host.wantedKey' \
+      'active: Quickshell.screens.indexOf(host.screen) !== -1 && host.wantedKey' \
+    && mkdir -p -- "$sandbox/tree-bar-visible-removed/scripts" \
+    && cp -R -- "$repo/scripts/smoke" "$sandbox/tree-bar-visible-removed/scripts/" \
+    && stop_shell; then
+    for disp_hid_i in "${!disp_initial_reports[@]}"; do
+      expect "the control restores hidraw$disp_hid_i to its starting report" \
+        "{\"result\": 7, \"data\": \"${disp_initial_reports[disp_hid_i]}\"}" \
+        hid_fake_call "hidraw$disp_hid_i" 0xC0074806 "${disp_initial_reports[disp_hid_i]}"
+    done
     disp_control_row() {
-      (failures=0 behaviour_failures=0 disp_lifetime_control=yes
+      (failures=0 behaviour_failures=0 disp_lifetime_control=yes repo="$sandbox/tree-bar-visible-removed"
        source "$repo/scripts/smoke/rows/displays.sh" >"$sandbox/displays-lifetime-control.log" 2>&1
        echo "$failures")
     }
-    expect "the mutant Displays row passes only its expected failure control" 0 disp_control_row
-    sed 's/^/  CONTROL  /' "$sandbox/displays-lifetime-control.log"
-    sed 's/^/  CONTROL  /' "$sandbox/displays-removal-control.log"
+    if start_shell "$sandbox/tree-bar-visible-removed" "$sandbox/displays-bar-visible-removed.log"; then
+      expect "the mutant Displays row passes only its expected failure control" 0 disp_control_row
+      sed 's/^/  CONTROL  /' "$sandbox/displays-lifetime-control.log"
+      sed 's/^/  CONTROL  /' "$sandbox/displays-removal-control.log"
+    else
+      fail "the removed-screen bar control could not start its mutant shell"
+    fi
   else
     fail "the removed-screen bar control could not start its mutant shell"
   fi
