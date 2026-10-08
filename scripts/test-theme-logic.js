@@ -333,7 +333,7 @@ const ACCEPTED = [
         ["color.mark3", "#000000ff"], ["color.onMark3", "#ffffffff"]
     ] },
     ...[1, 2, 3].map(mark => ({ tokens: { color: { ["mark" + mark]: "#000000" } },
-        want: [["color.mark" + mark, "#000000ff"], ["color.onMark" + mark, "#ffffffff"] })),
+        want: [["color.mark" + mark, "#000000ff"], ["color.onMark" + mark, "#ffffffff"]] })),
     { tokens: { palette: { accent: "#123456", info: "#234567", success: "#345678", warning: "#456789", danger: "#56789a" }, color: { textMuted: "#6789ab" } }, want: [["voiceOrb.tone.accent", "#123456ff"], ["voiceOrb.tone.info", "#234567ff"], ["voiceOrb.tone.success", "#345678ff"], ["voiceOrb.tone.warning", "#456789ff"], ["voiceOrb.tone.danger", "#56789aff"], ["voiceOrb.tone.muted", "#6789abff"]] },
     { tokens: { motion: { scale: 0 }, voiceOrb: { attack: 90, release: 300, period: 4000 } }, want: [["voiceOrb.attack", 0], ["voiceOrb.release", 0], ["voiceOrb.period", 0]] },
     { tokens: { motion: { scale: 2 } }, want: [["voiceOrb.attack", 140], ["voiceOrb.release", 500], ["voiceOrb.period", 12000]] },
