@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Core
+import "../Ui/foundation/KeyNavLogic.js" as KeyNavLogic
 
 // One plugin instance of one kind inside a host. Owns the whole lifecycle:
 // builds through the core, rebuilds when the plugin id or the plugin
@@ -62,9 +63,7 @@ FocusScope {
     // https://doc.qt.io/qt-6/qml-qtquick-item.html#forceActiveFocus-method
     function focusInitial() {
         const target = focusTarget();
-        target.forceActiveFocus(Qt.OtherFocusReason);
-        // Qt keeps a focused Control's previous reason when focus stays put.
-        if ("focusReason" in target) target.focusReason = Qt.OtherFocusReason;
+        KeyNavLogic.focusInitial(target, slot.Window.window);
     }
 
     // Open the manager's window at the Settings page of `settingsPage`,

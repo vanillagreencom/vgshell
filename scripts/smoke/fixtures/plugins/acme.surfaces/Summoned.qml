@@ -4,7 +4,7 @@ import qs.Ui
 Item {
     id: root
     property var shell: null
-    property alias initialFocus: focusTarget
+    property alias initialFocus: initialScope
     property int opened: 0
     property string lastPayload: ""
     implicitWidth: 200
@@ -25,14 +25,19 @@ Item {
     function moveAnchor() { container.y += 20; return "ok"; }
     function hideAnchor() { container.visible = false; return "ok"; }
     function anchorGeometry() { const p = menuAnchor.mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, menuAnchor.width, menuAnchor.height]); }
-    T.Control {
-        id: focusTarget
-        property string text: "Initial focus"
+    FocusScope {
+        id: initialScope
         width: 120
         height: 40
         anchors.centerIn: parent
-        focusPolicy: Qt.StrongFocus
-        background: Item { FocusRing { target: focusTarget } }
+        T.Control {
+            id: focusTarget
+            property string text: "Initial focus"
+            anchors.fill: parent
+            focus: true
+            focusPolicy: Qt.StrongFocus
+            background: Item { FocusRing { target: focusTarget } }
+        }
     }
     Button {
         text: "Next"

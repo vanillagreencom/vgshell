@@ -205,6 +205,7 @@ function applyRows(root, mutation) {
     const installed = path.join(config, "themes");
     writePackage(shipped, "vgs", "vgs");
     writePackage(shipped, "probe", "probe", null);
+    fs.writeFileSync(path.join(shipped, "probe", "theme.json"), JSON.stringify({schemaVersion: 1, name: "probe", tokens: {text: {body: {family: "JetBrains Mono", lineHeight: 0.8}}, stack: {titleSpace: 1}}}));
     writePackage(shipped, "unrelated", "wrong-name");
     writePackage(installed, "broken", "wrong-name");
     const trace = path.join(root, "trace.jsonl");
@@ -223,6 +224,7 @@ Module._load = function(file, ...args) { log(['module', file]); return load.call
     let proc = apply();
     assert.equal(proc.status, 0, proc.stdout + proc.stderr);
     assert.equal(JSON.parse(proc.stdout).state, "applied");
+    assert.equal(JSON.parse(fs.readFileSync(path.join(config, "theme.json"), "utf8")).tokens.stack.titleSpace, 1, "apply keeps the accepted body-line unit");
     assert.equal(fs.readFileSync(path.join(state, "theme", "terminal.json"), "utf8"), fs.readFileSync(path.join(shipped, "vgs", "terminal.json"), "utf8"), "selected theme uses shipped fallback slots");
     const observed = fs.readFileSync(trace, "utf8").trim().split("\n").map(line => JSON.parse(line));
     assert.ok(observed.some(([kind, file]) => kind === "read" && file === path.join(shipped, "probe", "theme.json")), "observer reached selected package");
@@ -261,6 +263,15 @@ try {
     assert.equal(proc.status, 0, proc.stdout + proc.stderr);
     assert.match(proc.stdout, /ok       vgs/);
     assert.match(proc.stdout, /vgshell-theme-judge: ok/);
+
+    for (const family of ["Inter Variable", "JetBrains Mono"]) {
+        for (const [titleSpace, status, reason] of [[1, 0, null], [2, 0, null], [0.8, 1, "range"], ["{space.md}", 1, "type"]]) {
+            fs.writeFileSync(path.join(base, "vgs", "theme.json"), JSON.stringify({schemaVersion: 1, name: "vgs", tokens: {text: {body: {family, lineHeight: 0.8}}, stack: {titleSpace}}}));
+            const portable = run(base);
+            assert.equal(portable.status, status, portable.stdout + portable.stderr);
+            if (reason !== null) assert.match(portable.stdout, new RegExp("reason=" + reason));
+        }
+    }
 
     base = path.join(root, "name-mismatch");
     writePackage(base, "vgs", "other");

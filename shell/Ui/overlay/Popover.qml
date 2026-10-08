@@ -37,8 +37,8 @@ Item {
     function open() {
         window.visible = true;
         Qt.callLater(() => {
-            if (!focusFirst(scope, Qt.OtherFocusReason))
-                scope.forceActiveFocus(Qt.OtherFocusReason);
+            if (!focusFirst(scope))
+                KeyNavLogic.focusInitial(scope, scope.Window.window);
         });
     }
     function close() { window.visible = false; }
@@ -47,15 +47,14 @@ Item {
         const output = OverlayState.outputOf(anchorItem);
         return output === null ? 0 : output.height;
     }
-    function focusFirst(item, reason) {
+    function focusFirst(item) {
         for (const child of item.children) {
             if (child.visible === false || child.enabled === false) continue;
             if (KeyNavLogic.canTabFocus(child)) {
-                child.forceActiveFocus(reason);
-                if ("focusReason" in child) child.focusReason = reason;
+                KeyNavLogic.focusInitial(child, scope.Window.window);
                 return true;
             }
-            if (focusFirst(child, reason)) return true;
+            if (focusFirst(child)) return true;
         }
         return false;
     }

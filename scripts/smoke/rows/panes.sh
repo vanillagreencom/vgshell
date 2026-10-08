@@ -53,13 +53,13 @@ expect_poll "the holder lists the pane with its manifest metadata and placement"
 expect "the pane host shell has panes and not the pane's capabilities" '"manifest,panes,settings,surfaces"' ipc smoke readInstance window acme.panehost shellKeys
 expect "a non-pane holder cannot use own-pane summon" "refused: kind=pane id=acme.panehost" ipc smoke invokeInstance window acme.panehost summonPaneAsNonPane '{}'
 
-expect_poll "the holder's Open pane button starts with keyboard focus" '["Button","Open pane",true,true,true]' ipc smoke focused window acme.panehost
+expect_poll "the holder's Open pane button starts without a ring" '["Button","Open pane",false,false,true]' ipc smoke focused window acme.panehost
 type_keys -k Return || fail "keyboard Return on the holder's Open pane button failed"
 expect_poll "keyboard Return mounts the pane" '["acme.pane"]' window_panes
 expect_poll "the mounted pane reads its own manifest id" '"acme.pane"' ipc smoke readInstance window acme.pane manifestId
 expect "the mounted pane got its own scoped shell, not the host shell" '"configure,idle,manifest,settings,surfaces"' ipc smoke readInstance window acme.pane shellKeys
 expect "the mounted pane received the keyboard payload" '"{\"from\":\"button\"}"' ipc smoke readInstance window acme.pane payload
-expect_poll "the pane's initial focus takes the keyboard" '["Button","Pane edit",true,true,true]' ipc smoke focused window acme.pane
+expect_poll "the pane's initial focus takes the keyboard without a ring" '["Button","Pane edit",false,false,true]' ipc smoke focused window acme.pane
 type_keys -k Return || fail "keyboard Return on the pane edit button failed"
 expect_poll "keyboard Return on the pane control edits the setting" '"pane-edited"' ipc smoke readInstance window acme.pane label
 type_keys -k Escape || fail "keyboard Escape from the pane failed"

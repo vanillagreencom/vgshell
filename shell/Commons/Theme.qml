@@ -88,7 +88,9 @@ Singleton {
     // The accepted values converted once, as one frozen tree. It follows
     // the fonts too, so a family judged before a bundled font was ready is
     // judged again.
-    readonly property var published: convert(source.values, [mono, sans].filter(font => font.status === FontLoader.Ready).map(font => font.name))
+    readonly property var convertedValues: convert(source.values, [mono, sans].filter(font => font.status === FontLoader.Ready).map(font => font.name))
+    readonly property real bodyLineBox: Math.max(Math.round(convertedValues.text.body.size * convertedValues.text.body.lineHeight), Math.ceil(bodyMetrics.height))
+    readonly property var published: convertBodyLines(Tokens.TOKENS, convertedValues, bodyLineBox)
 
     // A resolved colour is `#rrggbbaa`; Qt reads eight digits with alpha
     // first, so the alpha moves to the front here and nowhere else.
@@ -190,6 +192,40 @@ Singleton {
         return walk(table, values, defaults);
     }
 
+    // Match Label's font. Its inputs precede unit conversion, so changing
+    // a body family cannot create a publication/measurement binding loop.
+    FontMetrics {
+        id: bodyMetrics
+        font.family: root.convertedValues.text.body.family
+        font.pixelSize: root.convertedValues.text.body.size
+        font.weight: root.convertedValues.text.body.weight
+        font.variableAxes: ({ wght: root.convertedValues.text.body.weight })
+        font.letterSpacing: root.convertedValues.text.body.letterSpacing * root.convertedValues.text.body.size
+        font.capitalization: root.convertedValues.text.body.uppercase ? Font.AllUppercase : Font.MixedCase
+    }
+
+    // A body-lines token is a count in the portable table. Convert that
+    // unit here, after font families are converted, into drawn pixels.
+    function convertBodyLines(table, values, lineBox) {
+        const walk = (level, node) => {
+            let out = node;
+            for (const key of Object.keys(level)) {
+                let value = node[key];
+                if (ThemeLogic.isLeaf(level[key])) {
+                    if (level[key].type === "body-lines") {
+                        value = Math.ceil(value * lineBox);
+                    }
+                } else value = walk(level[key], value);
+                if (value !== node[key]) {
+                    if (out === node) out = Object.assign({}, node);
+                    out[key] = value;
+                }
+            }
+            return out === node ? node : Object.freeze(out);
+        };
+        return walk(table, values);
+    }
+
     function convert(values, loaded) {
         return convertTree(Tokens.TOKENS, values, source.defaults.values, loaded);
     }
@@ -208,7 +244,8 @@ Singleton {
             console.error("appearance: refused: " + ThemeLogic.refusalLine(accepted).replace(/^theme: refused: /, ""));
             return null;
         }
-        return convertTree(table, accepted.values, accepted.values, []);
+        const converted = convertTree(table, accepted.values, accepted.values, []);
+        return convertBodyLines(table, converted, bodyLineBox);
     }
 
     FontLoader {

@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import qs.Core
+import "../Ui/foundation/KeyNavLogic.js" as KeyNavLogic
 
 Scope {
     id: host
@@ -36,8 +37,7 @@ Scope {
                 if (item === null) return;
                 const target = item.initialFocus !== undefined && item.initialFocus !== null ? item.initialFocus : item;
                 if (typeof target.forceActiveFocus === "function") {
-                    target.forceActiveFocus(Qt.OtherFocusReason);
-                    if ("focusReason" in target) target.focusReason = Qt.OtherFocusReason;
+                    KeyNavLogic.focusInitial(target, slot.Window.window);
                 }
             }
 

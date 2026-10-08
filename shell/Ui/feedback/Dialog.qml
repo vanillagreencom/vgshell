@@ -113,16 +113,14 @@ FocusScope {
         const first = buttons()[focusIndex !== -1 ? focusIndex : acceptIndex];
         const target = first !== undefined && first.enabled ? first : enabled[0];
         if (target !== undefined) {
-            target.forceActiveFocus(Qt.OtherFocusReason);
-            target.focusReason = Qt.OtherFocusReason;
+            KeyNavLogic.focusInitial(target, root.Window.window);
         }
     }
 
     // Hand the focus to the initial focus item, else the accept action.
     function takeFocus() {
         if (initialFocus !== null && initialFocus.enabled) {
-            initialFocus.forceActiveFocus();
-            if ("focusReason" in initialFocus) initialFocus.focusReason = Qt.OtherFocusReason;
+            KeyNavLogic.focusInitial(initialFocus, root.Window.window);
         }
         else focusInitial();
     }
@@ -190,7 +188,16 @@ FocusScope {
     // A scope gives the focus back to the child that last held it; the
     // initial focus item or the accept action takes it instead, so an
     // action clicked in an earlier showing never answers Enter in the next.
-    onActiveFocusChanged: if (activeFocus) takeFocus()
+    function keyboardEntry() {
+        let focused = root.Window.activeFocusItem;
+        if (!KeyNavLogic.contains(root, focused)) return false;
+        while (focused !== root && !("focusReason" in focused)) focused = focused.parent;
+        return [Qt.TabFocusReason, Qt.BacktabFocusReason, Qt.ShortcutFocusReason].indexOf(focused.focusReason) !== -1;
+    }
+
+    // Native Tab enters its actual destination. Explicit host opens call
+    // takeFocus() and use the no-keyboard reason.
+    onActiveFocusChanged: if (activeFocus && !keyboardEntry()) takeFocus()
 
     // An item that takes Tab focus moves the focus along Qt's own chain
     // before the key reaches the dialog, out of it on Backtab; the dialog's

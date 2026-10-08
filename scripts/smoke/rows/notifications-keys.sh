@@ -454,7 +454,7 @@ expect "enabling the notifications beside the whole-height list copy is allowed"
 expect_poll "the service is built beside the whole-height list copy" True record_exists vgs.notifications
 expect_poll "the inbox shortcut is listed beside the whole-height list copy" 1 note_shortcuts
 long_inbox_warm nk_press || fail "the whole-height list copy's first open failed"
-geometry expect "control: a panel whose list keeps its whole height runs a long inbox past the short room's panel on every open" "clipped=hints clipped=list" long_inbox_cut nk_press
+geometry expect "control: a panel whose list keeps its whole height runs a long inbox past the short room's panel on every open" "clipped=list clipped=scrollbar under-header=card under-header=list" long_inbox_cut nk_press
 ok "control short room readings: $(long_inbox_readings)"
 cp -- "$sandbox/Panel.qml.keys-kept" "$nk_panel"
 rescan "a rescan restores the panel after the short room"

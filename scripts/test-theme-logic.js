@@ -79,7 +79,7 @@ const DEFAULTS = [
     ["text.body.size", 15],
     // Line boxes on the 4 px grid: 15 * 1.6 = 24, 16 * 1.5 = 24, 18 * 1.333 = 24, 20 * 1.4 = 28.
     ["text.body.lineHeight", 1.6],
-    ["stack.titleSpace", 24],
+    ["stack.titleSpace", 1],
     ["text.h3.lineHeight", 1.5],
     ["text.windowTitle.lineHeight", 1.333],
     ["text.h2.lineHeight", 1.4],
@@ -354,9 +354,9 @@ const ACCEPTED = [
     { tokens: { radius: { sm: 6, md: 12 } }, want: [["menu.radius", 12], ["menu.item.radius", 12], ["listItem.radius", 6]] },
     // A group list's hairline is a tenth of the foreground: 0.1 * 255 = 25.5, 0x1a.
     { tokens: { palette: { foreground: "#ffffff" } }, want: [["groupList.divider", "#ffffff1a"]] },
-    { tokens: { font: { size: 16 } }, want: [["text.body.size", 16], ["text.hint.size", 14], ["stack.titleSpace", 26]] },
-    { tokens: { text: { body: { lineHeight: 2 } } }, want: [["stack.titleSpace", 30]] },
-    { tokens: { stack: { titleSpace: 32 } }, want: [["stack.titleSpace", 32]] },
+    { tokens: { font: { size: 16 } }, want: [["text.body.size", 16], ["text.hint.size", 14], ["stack.titleSpace", 1]] },
+    { tokens: { text: { body: { lineHeight: 2 } } }, want: [["stack.titleSpace", 1]] },
+    { tokens: { stack: { titleSpace: "mul(1, 2)" } }, want: [["stack.titleSpace", 2]] },
     { tokens: { motion: { scale: 0 } }, want: [["motion.duration.fast", 0], ["motion.duration.slow", 0], ["motion.list.travel.duration", 0], ["motion.list.enter.duration", 0], ["motion.list.stagger", 0], ["motion.list.rise", 6]] },
     // The list motion follows the scale steps it names: fast at 60 travels
     // 60, and slow at 400 enters mul(400, 1.2) = 480.
@@ -445,8 +445,9 @@ const REFUSED = [
     { tokens: { motion: { easing: { standard: "bouncy" } } }, reason: "option", token: "motion.easing.standard" },
     { tokens: { scheme: { mode: "dim" } }, reason: "option", token: "scheme.mode" },
     { tokens: { dialog: { titleRole: "shout" } }, reason: "option", token: "dialog.titleRole" },
-    { tokens: { stack: { titleSpace: 4 } }, reason: "title-space", token: "stack.titleSpace" },
-    { tokens: { stack: { titleSpace: 24 }, font: { size: 20 } }, reason: "title-space", token: "stack.titleSpace" }
+    { tokens: { stack: { titleSpace: 0.8 } }, reason: "range", token: "stack.titleSpace" },
+    { tokens: { stack: { titleSpace: "{space.md}" } }, reason: "type", token: "stack.titleSpace" },
+    { tokens: { stack: { group: "{stack.titleSpace}" } }, reason: "type", token: "stack.group" }
 ];
 
 // A plugin's own table and its light overrides, the shape a plugin's
@@ -596,6 +597,21 @@ function verify(judge) {
     assert.throws(() => judge.defaults({ palette: {}, motion: { scale: { type: "number", value: 1, min: 0, max: 4 } } }), /theme: token table: group palette is empty/);
     assert.throws(() => judge.defaults({ palette: { accent: { type: "color", value: "{palette.accent}" } }, motion: { scale: { type: "number", value: 1, min: 0, max: 4 } } }), /theme: refused: token=palette\.accent reason=cycle/);
 
+    const lineTable = {
+        motion: {scale: {type: "number", value: 1, min: 0, max: 4}},
+        stack: {first: {type: "body-lines", value: 1}, twice: {type: "body-lines", value: "mul({stack.first}, 2)"}}
+    };
+    assert.equal(judge.tableError(lineTable), "");
+    assert.equal(judge.defaults(lineTable).values.stack.twice, 2, "compatible body-line references retain their unit");
+    for (const family of ["Inter Variable", "JetBrains Mono"]) {
+        const tokens = {text: {body: {family, lineHeight: 0.8}}, stack: {titleSpace: 1}};
+        const packageVerdict = judge.acceptPackage(TOKENS, {directoryName: "probe", themeJson: document(tokens), terminalJson: JSON.stringify({schemaVersion: 1, slots: TERMINAL_SLOTS}), shipped: false});
+        assert.equal(packageVerdict.ok, true, "compact body-line package agrees with document acceptance");
+        assert.equal(packageVerdict.values.stack.titleSpace, 1);
+        assert.equal(judge.accept(TOKENS, document(tokens)).ok, true);
+        const belowLine = {...tokens, stack: {titleSpace: 0.8}};
+        assert.equal(judge.acceptPackage(TOKENS, {directoryName: "probe", themeJson: document(belowLine), terminalJson: JSON.stringify({schemaVersion: 1, slots: TERMINAL_SLOTS}), shipped: false}).reason, "range");
+    }
     const defaults = judge.defaults(TOKENS);
     assert.equal(defaults.name, "vgs");
     for (const [token, want] of DEFAULTS)
@@ -1024,7 +1040,7 @@ const CONTROLS = [
     ["boundary roles", "    \"checkbox.borderColor\",\n", ""],
     ["boundary pairs", "    [\"toggle.knobOff\", \"toggle.off\"],\n", ""],
     ["boundary floor", "var BOUNDARY_FLOOR = 3;", "var BOUNDARY_FLOOR = 1;"],
-    ["title space below body line", "if (result.values.stack.titleSpace < bodyLine)", "if (false)"]
+    ["title space below body line", '"body-lines": [1, 4096]', '"body-lines": [0, 4096]']
 ];
 
 const source = fs.readFileSync(judgeFile, "utf8");

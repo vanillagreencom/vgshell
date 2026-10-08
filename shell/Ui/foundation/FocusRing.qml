@@ -47,11 +47,11 @@ Rectangle {
     // on a square target.
     readonly property real ringRadius: targetRadius === 0 ? 0 : Math.max(0, targetRadius + extent)
 
-    readonly property bool keyboardFocus: [Qt.TabFocusReason, Qt.BacktabFocusReason, Qt.ShortcutFocusReason].indexOf(target.focusReason) !== -1
+    readonly property bool keyboardFocus: target !== null && [Qt.TabFocusReason, Qt.BacktabFocusReason, Qt.ShortcutFocusReason].indexOf(target.focusReason) !== -1
 
     anchors.fill: parent
     anchors.margins: -extent
-    visible: target.focusPreview === true || (("visualFocus" in target) ? target.visualFocus : target.activeFocus && keyboardFocus)
+    visible: target !== null && (target.focusPreview === true || (("visualFocus" in target) ? target.visualFocus : target.activeFocus && keyboardFocus))
     color: "transparent"
     border.color: drawnColor
     border.width: Theme.focusRing.width

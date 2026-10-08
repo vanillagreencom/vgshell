@@ -57,7 +57,7 @@ FocusScope {
         const action = KeyNavLogic.intent(event.key, event.modifiers, "horizontal", false);
         if (action === "tabPrev" || action === "tabNext") {
             event.accepted = strip.nav.handle(event);
-            if (event.accepted) {
+            if (event.accepted && root.activeFocus) {
                 strip.forceActiveFocus(Qt.TabFocusReason);
                 strip.focusReason = Qt.TabFocusReason;
             }

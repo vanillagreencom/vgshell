@@ -55,6 +55,34 @@ Item {
 
         function placeholder() { return plain.background.children[1]; }
 
+        function test_retained_keyboard_border_clears_on_initial_focus_after_one_frame_data() {
+            return [{tag: "neutral", hovered: false, error: false}, {tag: "hovered", hovered: true, error: false}, {tag: "error", hovered: true, error: true}];
+        }
+        function test_retained_keyboard_border_clears_on_initial_focus_after_one_frame(data) {
+            root.Window.window.requestActivate();
+            tryCompare(root.Window.window, "active", true);
+            mouseMove(root, root.width - 1, root.height - 1);
+            plain.forceActiveFocus(Qt.OtherFocusReason);
+            compare(plain.cursorVisible, true);
+            iconed.forceActiveFocus(Qt.OtherFocusReason);
+            keyClick(Qt.Key_Backtab);
+            compare(plain.activeFocus, true);
+            tryCompare(plain.background.border, "color", Qt.color(Theme.textField.focus));
+            if (data.hovered) {
+                mouseMove(plain, plain.width / 2, plain.height / 2);
+                tryCompare(plain, "hovered", true);
+            }
+            KeyNavLogic.focusInitial(plain, root.Window.window);
+            plain.error = data.error;
+            compare(plain.focusReason, Qt.OtherFocusReason);
+            compare(plain.cursorVisible, true);
+            waitForRendering(plain);
+            const expected = data.error ? Theme.textField.error : data.hovered ? Theme.textField.hover : Theme.textField.borderColor;
+            compare(String(plain.background.border.color), String(Qt.color(expected)));
+            plain.error = false;
+            mouseMove(root, root.width - 1, root.height - 1);
+        }
+
         function test_typing_reaches_text() {
             plain.forceActiveFocus();
             keyClick("a");

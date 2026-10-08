@@ -16,15 +16,15 @@ var SCHEMA_VERSION = 1;
 var DOCUMENT_KEYS = ["schemaVersion", "name", "tokens"];
 
 // The types a token may declare.
-var TYPES = ["color", "length", "number", "duration", "family", "weight", "flag", "easing", "choice"];
+var TYPES = ["color", "length", "body-lines", "number", "duration", "family", "weight", "flag", "easing", "choice"];
 
 // Types whose value is a number. A numeric literal takes the type of the
 // token it is written for.
-var NUMERIC_TYPES = ["length", "number", "duration", "weight"];
+var NUMERIC_TYPES = ["length", "body-lines", "number", "duration", "weight"];
 
 // The range of each numeric type that has one range for every token. A
 // `number` token declares its own.
-var RANGES = { length: [0, 4096], duration: [0, 10000], weight: [100, 900] };
+var RANGES = { length: [0, 4096], "body-lines": [1, 4096], duration: [0, 10000], weight: [100, 900] };
 
 // Types whose resolved value is rounded to a whole number.
 var WHOLE_TYPES = ["length", "duration", "weight"];
@@ -614,9 +614,6 @@ function accept(tokens, text) {
     var result = resolve(tokens, stated.overrides);
     if (!result.ok)
         return result;
-    var bodyLine = Math.round(result.values.text.body.size * result.values.text.body.lineHeight);
-    if (result.values.stack.titleSpace < bodyLine)
-        return refusal("title-space", "stack.titleSpace", "min=" + bodyLine + " value=" + result.values.stack.titleSpace);
     return { ok: true, name: document.name, values: result.values };
 }
 

@@ -17,6 +17,7 @@ function length(value, min, max) {
     if (max !== undefined) out.max = max;
     return out;
 }
+function bodyLines(value) { return { type: "body-lines", value: value }; }
 function duration(value) { return { type: "duration", value: value }; }
 function family(value) { return { type: "family", value: value }; }
 function weight(value) { return { type: "weight", value: value }; }
@@ -369,7 +370,7 @@ var TOKENS = {
         group: length("{space.lg}"),
         page: length("{space.xl}"),
         section: length("{space.xxl}"),
-        titleSpace: length("mul({text.body.size}, {text.body.lineHeight})"),
+        titleSpace: bodyLines(1),
         inline: length("{space.md}")
     },
 

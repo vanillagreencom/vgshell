@@ -181,7 +181,7 @@ expect "IPC open summons the window" ok devtools open
 app_window_rows "Dev Tools" vgs.devtools
 expect "IPC open summons the window again" ok devtools open
 expect_poll "the window is shown" shown window_shown
-expect_poll "the window opens on Catalog search with a visible ring" '["TextField","Search tools",true,true,true]' ipc smoke focused window vgs.devtools
+expect_poll "the window opens on Catalog search without a focus ring" '["TextField","Search tools",false,false,true]' ipc smoke focused window vgs.devtools
 forget_record
 type_keys -k Return -k Tab || fail "Return and Tab on the Dev Tools search failed"
 expect_poll "Tab after Return is processed by the Dev Tools window" moved devtools_focus_moved_from_search
@@ -465,7 +465,7 @@ mv -f -- "$dev_state/installed.next" "$dev_state/installed"
 catalog_ended() { ipc smoke readInstance service vgs.devtools ended | py_reply 'import json,sys; t=sys.stdin.read().strip(); d=json.loads(t) if t.startswith("{") else {}; print(d.get("catalog", "none"))'; }
 catalog_before="$(catalog_ended)"
 expect "IPC open summons the window on its search for the install path" ok devtools open
-expect_poll "the search holds the keyboard for the install path" '["TextField","Search tools",true,true,true]' ipc smoke focused window vgs.devtools
+expect_poll "the search holds the keyboard for the install path without an initial ring" '["TextField","Search tools",false,false,true]' ipc smoke focused window vgs.devtools
 catalog_moved() { [[ $(catalog_ended) != "$catalog_before" ]] && echo moved || echo waiting; }
 expect_poll "the open's list ended before the install path" moved catalog_moved
 # A list asked for while one runs runs once more after it (Query.qml), so

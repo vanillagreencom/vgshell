@@ -210,6 +210,19 @@ function contains(ancestor, item) {
     return false;
 }
 
+// Initial focus uses Qt's existing reason. Re-focusing an active scope does
+// not reset its focused child, so reset that child only inside this target.
+function focusInitial(target, window) {
+    target.forceActiveFocus(Qt.OtherFocusReason);
+    const focused = window === null || window === undefined ? null : window.activeFocusItem;
+    let owner = target;
+    if (contains(target, focused)) {
+        owner = focused;
+        while (owner !== target && !("focusReason" in owner)) owner = owner.parent;
+    }
+    if ("focusReason" in owner) owner.focusReason = Qt.OtherFocusReason;
+}
+
 // Activate a button-like object without click() or animateClick(), because
 // those re-focus with the mouse focus reason and hide the focus ring.
 function activate(control) {

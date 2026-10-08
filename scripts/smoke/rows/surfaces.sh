@@ -5,7 +5,7 @@
 # anchor. The background is drawn on every screen while enabled. Layer
 # geometry is read from the compositor's layer list, window geometry from
 # its client list, popup geometry from the built instance.
-# inputs: scripts/smoke/fixtures/plugins/acme.surfaces/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonPopup.qml shell/Hosts/PluginSlot.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml scripts/smoke/toplevel/* scripts/smoke/rows/sources.sh shell/Ui/foundation/FocusRing.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml shell/Commons/Tokens.js
+# inputs: scripts/smoke/fixtures/plugins/acme.surfaces/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonPopup.qml shell/Hosts/PluginSlot.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml scripts/smoke/toplevel/* scripts/smoke/rows/sources.sh shell/Ui/foundation/FocusRing.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml shell/Commons/Tokens.js shell/Ui/foundation/KeyNavLogic.js
 set -euo pipefail
 surf="$home/.config/vgshell/plugins/acme.surfaces"
 mkdir -p "$surf"
@@ -88,6 +88,8 @@ expect "a panel summons over IPC for keyboard focus" ok ipc shell summon panel a
 expect_poll "the IPC panel focuses its primary control without a ring" '["Control", "Initial focus", false, false, true]' surface_focused panel
 type_keys -k Tab || fail "sending Tab to the IPC panel failed"
 expect_poll "Tab shows the IPC panel focus ring" '["Control", "Next", true, true, true]' surface_focused panel
+type_keys -M shift -k Tab -m shift || fail "returning to the panel's scope leaf failed"
+expect_poll "Backtab focuses the initial scope leaf with its ring" '["Control", "Initial focus", true, true, true]' surface_focused panel
 expect "the IPC panel repeats its open" ok ipc shell summon panel acme.surfaces '{}'
 expect_poll "a repeated panel open clears its ring" '["Control", "Initial focus", false, false, true]' surface_focused panel
 type_keys -k Escape || fail "sending Escape to the IPC panel failed"
@@ -124,7 +126,7 @@ python3 - "$home/.config/vgshell/plugins/acme.surfaces/Summoned.qml" <<'PYEDIT'
 import pathlib, sys
 p = pathlib.Path(sys.argv[1])
 s = p.read_text()
-old = "    property alias initialFocus: focusTarget\n"
+old = "    property alias initialFocus: initialScope\n"
 assert s.count(old) == 1
 p.write_text(s.replace(old, ""))
 PYEDIT
@@ -419,9 +421,9 @@ expect "a disabled plugin is not summoned" "refused: disabled=acme.surfaces" ipc
 # Must-fail control for initial focus: retain the focus call but restore a
 # keyboard reason in a disposable tree. The same no-ring assertion fails.
 copy_tree focus-keyboard-open
-edit_tree focus-keyboard-open shell/Hosts/PluginSlot.qml \
-  'target.focusReason = Qt.OtherFocusReason;' \
-  'target.focusReason = Qt.TabFocusReason;'
+edit_tree focus-keyboard-open shell/Ui/foundation/KeyNavLogic.js \
+  'owner.focusReason = Qt.OtherFocusReason;' \
+  'owner.focusReason = Qt.TabFocusReason;'
 edit_tree focus-keyboard-open shell/Ui/layout/Pane.qml \
   'readonly property real headerBodyGap: hasTitle && headerSlotImplicitHeight === 0 ? Theme.stack.titleSpace : gap' \
   'readonly property real headerBodyGap: gap'
@@ -447,3 +449,23 @@ expect "the focus control window closes" ok ipc shell hide window acme.surfaces
 expect "the focus control restores its disabled fixture" ok ipc shell setPluginEnabled acme.surfaces false
 stop_shell
 start_shell "$repo" "$sandbox/focus-open-restored.log" || fail "the focus control restores the shipped shell"
+
+copy_tree focus-scope-leaf
+edit_tree focus-scope-leaf shell/Ui/foundation/KeyNavLogic.js \
+  'owner = focused;' \
+  'owner = target;'
+stop_shell
+start_shell "$sandbox/tree-focus-scope-leaf" "$sandbox/focus-scope-leaf.log" || fail "the retained-scope control starts"
+expect "the retained-scope control enables its fixture" ok ipc shell setPluginEnabled acme.surfaces true
+expect "the retained-scope control opens its window" ok ipc shell summon window acme.surfaces '{}'
+expect_poll "the retained-scope window maps" 1 window_count Surfaces
+expect_poll "the retained-scope window holds the keyboard" true ipc smoke windowFocused window acme.surfaces
+type_keys -k Tab -M shift -k Tab -m shift || fail "native scope-leaf navigation in the control failed"
+expect_poll "the control's scope leaf holds keyboard focus" '["Control", "Initial focus", true, true, true]' surface_focused window
+expect "the retained-scope control repeats its open" ok ipc shell summon window acme.surfaces '{}'
+expect "control: removing only the leaf reset fails the repeated-open no-ring assertion" 1 surface_no_ring_control
+sed 's/^/  CONTROL  /' "$sandbox/focus-keyboard-open-control.log"
+expect "the retained-scope control closes its window" ok ipc shell hide window acme.surfaces
+expect "the retained-scope control disables its fixture" ok ipc shell setPluginEnabled acme.surfaces false
+stop_shell
+start_shell "$repo" "$sandbox/focus-scope-restored.log" || fail "the retained-scope control restores the shipped shell"

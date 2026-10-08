@@ -134,6 +134,29 @@ Item {
             compare(pane(dialog).scrollArea.rightInset, pane(dialog).contentInset);
         }
 
+        function test_native_inline_entry_preserves_forward_and_reverse_destination() {
+            const source = 'import QtQuick\nimport qs.Ui\nItem { width: 400; height: 200; property alias before: before; property alias after: after; property alias card: card; Button { id: before; text: "Before inline" } Dialog { id: card; y: 40; modal: false; actions: [{label: "First cancel", role: "cancel"}, {label: "Middle accept", role: "accept"}, {label: "Last cancel", role: "cancel"}] } Button { id: after; y: 140; text: "After inline" } }';
+            const fixture = Qt.createQmlObject(source, root);
+            try {
+                root.Window.window.requestActivate();
+                tryCompare(root.Window.window, "active", true);
+                fixture.before.forceActiveFocus(Qt.OtherFocusReason);
+                keyClick(Qt.Key_Tab);
+                compare(fixture.card.buttons()[0].activeFocus, true);
+                compare(fixture.card.buttons()[0].focusReason, Qt.TabFocusReason);
+                compare(ring(fixture.card.buttons()[0]).visible, true);
+                fixture.after.forceActiveFocus(Qt.OtherFocusReason);
+                keyClick(Qt.Key_Backtab);
+                compare(fixture.card.buttons()[2].activeFocus, true);
+                compare(fixture.card.buttons()[1].activeFocus, false);
+                compare(fixture.card.buttons()[2].focusReason, Qt.BacktabFocusReason);
+                compare(ring(fixture.card.buttons()[2]).visible, true);
+                fixture.card.takeFocus();
+                compare(fixture.card.buttons()[1].activeFocus, true);
+                compare(ring(fixture.card.buttons()[1]).visible, false);
+            } finally { fixture.destroy(); }
+        }
+
         function test_accept_action_takes_initial_focus_without_a_ring() {
             const [notNow, download] = dialog.buttons();
             dialog.forceActiveFocus();

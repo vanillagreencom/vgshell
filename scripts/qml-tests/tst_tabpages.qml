@@ -20,7 +20,7 @@ Item {
     width: 400
     height: 460
 
-    Button { id: before; text: "Before" }
+    Button { id: before; text: "Before"; Keys.forwardTo: [pages] }
     TabPages {
         id: pages
         y: 60
@@ -52,6 +52,17 @@ Item {
             pages.currentIndex = 0;
             root.Window.window.requestActivate();
             before.forceActiveFocus(Qt.TabFocusReason);
+        }
+
+        function test_forwarded_page_keys_keep_focus_outside_the_pages() {
+            tryCompare(root.Window.window, "active", true);
+            before.forceActiveFocus(Qt.OtherFocusReason);
+            before.focusReason = Qt.OtherFocusReason;
+            keyClick(Qt.Key_PageDown, Qt.ControlModifier);
+            compare(pages.currentIndex, 1);
+            compare(before.activeFocus, true);
+            compare(pages.tabs.activeFocus, false);
+            compare(before.visualFocus, false);
         }
 
         function focusStrip() {

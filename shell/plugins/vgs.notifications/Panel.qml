@@ -27,6 +27,8 @@ FocusScope {
     property bool refreshing: false
     property int refreshQueuedFor: -1
     property Item initialFocus: list
+    // InboxHeader owns this panel's Settings gear.
+    readonly property Item settingsHost: parent
 
     // As wide as the column: the cards with their side room, where the
     // scroll bar sits, wider than the header they sit under.
@@ -272,7 +274,7 @@ FocusScope {
             InboxHeader {
                 id: header
                 look: root.look
-                settingsHost: root.parent
+                settingsHost: root.settingsHost
                 mode: root.mode
                 subtitle: root.subtitle
                 silenced: root.silenced
