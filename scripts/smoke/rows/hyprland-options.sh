@@ -132,7 +132,7 @@ expect "enabling the options fixture is allowed" ok ipc shell setPluginEnabled a
 expect "enabling the second options fixture is allowed" ok ipc shell setPluginEnabled acme.hyprland-other true
 expect_poll "the options fixture builds" True record_exists acme.hyprland
 expect_poll "the second options fixture builds" True record_exists acme.hyprland-other
-expect_poll "the fixture reads back the exact hyprland members it was given" '"devices,foreignBinds,overridden,resolveKeys,switchKeyboardLayout,userValues"' read_options members
+expect_poll "the fixture reads back the exact hyprland members it was given" '"devices,foreignBinds,overridden,resolveKeys,switchKeyboardLayout,userValues,values"' read_options members
 expect_poll "the core reads Hyprland while a plugin holds hyprland" true reads_active
 expect_poll "with no option set the layer writes no options section" no layer_mentions "acme.hyprland 0.1.0: input options its settings set"
 expect_poll "the fixture's bind is written" yes layer_has 'hl.bind("SUPER + F7", hl.dsp.global("acme.hyprland:ping"), { description = "acme.hyprland:ping" })'
@@ -149,6 +149,7 @@ expect "the layer writes no unset option" no layer_mentions natural_scroll
 expect "the options hold no configuration error" '[]' hypr_reload_errors
 expect_poll "no option is overridden while the user sets none after the line" '[]' read_options overridden
 expect_poll "no option has a user value while the user sets none after the line" '[]' read_options userValues
+expect_poll "values holds Hyprland's value of the one readable option the layer does not write" '{"input.natural_scroll":false}' read_options values
 expect_poll "the layer's own bind is no foreign bind" False foreign_has SUPER+F7
 
 set_options acme.hyprland '{"repeatRate": 2.5}'
