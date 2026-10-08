@@ -284,14 +284,15 @@
 # § Packages.
 #
 # `sudo` runs bin/vgshell-sudo-grant, which states its output and refusals.
-# `status`, `grant` and `revoke` reach its root half through `sudo -N`,
-# which asks for the password unless a grant is active, and `grant` asks
-# one question, so each needs a terminal; the core floating TUI
-# `core/sudo-grant` runs `vgshell sudo grant` in one. No grant exists until
-# the owner runs `sudo install`. On NixOS, every sudo verb writes nothing,
-# reports `skipped=nixos-config`, and `grant` prints the
-# `security.sudo.extraRules` snippet: docs/architecture/commands-are-data.md
-# § System steps.
+# `grant` and `revoke` reach its root half through `sudo -N`, which asks
+# for the password unless a grant is active, and `grant` asks how long and
+# then to confirm, so each needs a terminal; the core floating TUIs
+# `core/sudo-grant` and `core/sudo-revoke` run `vgshell sudo grant` and
+# `vgshell sudo revoke` in one. `status` reads sudo's own listing and asks
+# nothing. The first grant installs the root half. On NixOS, every sudo
+# verb writes nothing, reports `skipped=nixos-config`, and `grant` prints
+# the `security.sudo.extraRules` snippet:
+# docs/architecture/commands-are-data.md § System steps.
 #
 # `system` runs bin/vgshell-system, which holds the closed table of system
 # steps and states its output and refusals. `apply` and `undo` ask one
@@ -522,7 +523,7 @@ Usage: vgshell sudo <subcommand> [arguments]
 
 Subcommands:
   status             Show whether a passwordless sudo grant is active
-  grant [minutes]    Grant passwordless sudo for a limited time
+  grant [duration]   Grant passwordless sudo for minutes, or indefinitely
   revoke             End the active grant now
   install            Install the root half of the grant
   uninstall          Remove every grant and the root half
