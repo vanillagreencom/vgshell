@@ -915,16 +915,16 @@ function verifyAppStyles(render, changedTemplates = {}) {
         assert.equal(status.bg, bg);
         assert.equal(active.bg, bg);
         assert.equal(inactive.bg, bg);
-        assert.equal(session.bg, pkg.values.palette.info.slice(0, 7));
         assert.equal(session.fg, pkg.values.color.onInfo.slice(0, 7));
         assert.equal(active.fg, pkg.values.color.info.slice(0, 7));
         assert.equal(active.bold, true);
         assert.equal(inactive.bold, undefined);
         const ratios = Object.fromEntries(Object.entries({ status, session, active, inactive }).map(([role, style]) => {
             const ratio = logic.contrastRatio(logic.parseColor(style.fg), logic.parseColor(style.bg));
-            assert.ok(ratio >= 4.5, name + "/" + role + " contrast=" + ratio);
+            assert.deepEqual(ratio < 4.5 ? [{ kind: "app-style-contrast", theme: name, role, ratio, floor: 4.5 }] : [], []);
             return [role, ratio];
         }));
+        assert.equal(session.bg, pkg.values.color.info.slice(0, 7));
         const separation = channelSeparation(active.fg, inactive.fg);
         assert.ok(separation >= 55.65, name + "/inactive RGB separation=" + separation);
         const old = pkg.terminal.color8.slice(0, 7);
@@ -950,7 +950,7 @@ verifyAppStyles(require(rendererFile));
 const tmuxTemplate = fs.readFileSync(path.join(repo, "themes/targets/tmux/tmux.conf"), "utf8");
 const styleControls = [
     ["old session block text", 'fg=#@{color.onInfo}', 'fg=#@{color.text}'],
-    ["rejected session without block", 'bg=#@{palette.info}', 'bg=#@{color.background}'],
+    ["rejected session without block", 'set -g status-left-style "bg=#@{color.info}', 'set -g status-left-style "bg=#@{color.background}'],
     ["old filled active tab", 'set -g window-status-current-style "bg=#@{color.background}', 'set -g window-status-current-style "bg=#@{palette.accent}'],
     ["rejected neutral unbolded active", 'fg=#@{color.info},bold', 'fg=#@{color.textHeading}'],
     ["old inline active", 'set -g window-status-current-format " #I:#W#F "', 'set -g window-status-current-format "#[fg=blue,bold] #I:#W#F "']
@@ -959,6 +959,22 @@ for (const [label, needle, replacement] of styleControls) {
     assert.equal(tmuxTemplate.split(needle).length, 2, label);
     assert.throws(() => verifyAppStyles(require(rendererFile), { tmux: tmuxTemplate.replace(needle, replacement) }), undefined, label);
 }
+const sessionScratch = fs.mkdtempSync(path.join(os.tmpdir(), "tmux-session-control-"));
+try {
+    const needle = 'set -g status-left-style "bg=#@{color.info}';
+    assert.equal(tmuxTemplate.split(needle).length, 2);
+    const mutant = tmuxTemplate.replace(needle, 'set -g status-left-style "bg=#@{palette.info}');
+    assert.notEqual(mutant, tmuxTemplate);
+    const file = path.join(sessionScratch, "tmux.conf");
+    fs.writeFileSync(file, mutant, { flag: "wx" });
+    assert.throws(() => verifyAppStyles(require(rendererFile), { tmux: fs.readFileSync(file, "utf8") }),
+        error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
+            error.actual.some(shortfall => shortfall.kind === "app-style-contrast" &&
+                shortfall.theme === "akane" && shortfall.role === "session" && shortfall.ratio < shortfall.floor));
+} finally {
+    fs.rmSync(sessionScratch, { recursive: true, force: true });
+}
+console.log("test-theme-render: tmux-session control=palette-info rejected=akane/session");
 
 // Each control removes one rule's behaviour from a copy of the renderer and
 // keeps the text around it. The suite must fail on every copy.
