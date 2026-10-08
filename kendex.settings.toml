@@ -93,6 +93,12 @@ ORCH_LANE_SSH_PROMPT_SECS = "60"
 ORCH_MERGE_AUTONOMY = "auto"
 ORCH_LANE_OUTPUT = "quiet"
 
+# Owner clock for oversee-report: the audited runtime defaults, kept explicit
+# (KEN-3470 ORCH-M10). The 23-8 window the owner-message night rule names is
+# a separate instruction; changing these hours needs the owner.
+ORCH_OWNER_TIME_ZONE = "America/Los_Angeles"
+ORCH_REPORT_QUIET_HOURS = "0-7"
+
 # ORCH_LANE_ALIASES (optional) maps config-directory names to lane names.
 # Discovery owns the lane inventory; ORCH_LANE_DIRS covers other layouts.
 
