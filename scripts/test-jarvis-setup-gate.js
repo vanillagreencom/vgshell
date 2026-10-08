@@ -65,7 +65,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
 const pageFile = path.join(path.dirname(file), "..", "vgs.settings", "PluginPage.qml");
 const serviceFile = path.join(path.dirname(file), "Service.qml");
 const accountsFile = path.join(path.dirname(file), "Accounts.qml");
-const words = load(path.join(path.dirname(file), "AccountStatus.js"));
+const words = require(path.join(path.dirname(file), "AccountStatus.js"));
 const UNSELECTED = { kind: "answered", causes: ["brain=unselected"] };
 const MODEL = [
     { name: "key only before model discovery", keys: [{ value: "present" }], apps: [], answer: UNSELECTED, want: ["warning", false] },
