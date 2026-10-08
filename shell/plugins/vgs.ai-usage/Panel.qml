@@ -86,7 +86,14 @@ Item {
                         visible: source.toString() !== ""
                     }
                 }
-                Label { visible: text !== ""; role: "hint"; text: modelData.account }
+                Label {
+                    visible: text !== ""
+                    role: "hint"
+                    text: modelData.account
+                    // Qt Text reserves padding in addition to contentHeight:
+                    // doc.qt.io/qt-6/qml-qtquick-text.html#padding-prop.
+                    bottomPadding: Theme.stack.inline
+                }
                 Label { visible: root.fullView && text !== ""; role: "hint"; text: modelData.detail }
                 Label {
                     width: parent.width

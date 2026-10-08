@@ -177,6 +177,40 @@ if matched:
     matched=x>=bx+bw and abs((y+h/2)-(by+bh/2))<1
 print("matched" if matched else "missing")' "$age" "$button"
 }
+# Read the mounted card layout: identities have extra line space, while a
+# card without an identity keeps the shared Card gap below its heading.
+usage_identity_spacing() {
+  local accounts labels inline gap
+  accounts="$(usage_panel)" && labels="$(ipc smoke itemValues panel vgs.ai-usage Label text,contentHeight)" \
+    && inline="$(ipc smoke themeValue stack.inline)" && gap="$(ipc smoke themeValue card.gap)" || return
+  ipc smoke descendantGeometry panel vgs.ai-usage | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+accounts=json.loads(sys.argv[1])
+labels=json.loads(sys.argv[2])
+inline,gap=map(float,sys.argv[3:])
+cards=[i for i,r in enumerate(rows) if r["type"]=="Card"]
+matched=len(cards)==len(accounts)
+for card,account in zip(cards,accounts):
+    columns=[i for i,r in enumerate(rows) if r["parent"]==card and r["type"]=="QQuickColumn"]
+    if len(columns)!=1:
+        matched=False
+        continue
+    children=[r for r in rows if r["parent"]==columns[0] and r["visible"] and r["box"][3]>0]
+    if account["account"]:
+        identities=[r for r in children if r.get("text")==account["account"]]
+        contents=[r["contentHeight"] for r in labels if r["text"]==account["account"]]
+        matched=matched and len(identities)==len(contents)==1
+        if identities and contents:
+            identity=identities[0]
+            following=[r for r in children if r["box"][1]>identity["box"][1]]
+            matched=matched and abs(identity["box"][3]-contents[0]-inline)<0.5 and bool(following)
+            if following:
+                matched=matched and min(r["box"][1] for r in following)>=identity["box"][1]+contents[0]+inline+gap-0.5
+    else:
+        children.sort(key=lambda r:r["box"][1])
+        matched=matched and len(children)>1 and abs(children[1]["box"][1]-children[0]["box"][1]-children[0]["box"][3]-gap)<0.5
+print("matched" if matched else "mismatch")' "$accounts" "$labels" "$inline" "$gap"
+}
 # The mounted card Images, in card order, must load the mark for each
 # listed provider with the shared text colour and icon size.
 usage_panel_marks() {
@@ -329,6 +363,7 @@ expect "the full panel carries provider details" '[["claude", "default", [["Extr
 summon_drawn panel vgs.ai-usage || fail "the panel never drew a frame"
 expect_poll "every listed provider card loads its theme-colour mark" matched usage_panel_marks
 expect_poll "one shared check age sits beside Check now in small text" matched usage_panel_checked
+expect_poll "card identities have line space and empty identities have no gap" matched usage_identity_spacing
 expect_poll "each usage value and progress fill share their theme tier" matched usage_panel_colours
 usage_panel_box() { ipc smoke instanceGeometry panel vgs.ai-usage | py_reply 'import json,sys; r=json.load(sys.stdin); print(r[2] > 0 and r[3] > 0)'; }
 expect "the panel has a size" True usage_panel_box
@@ -586,8 +621,18 @@ expect_poll "the gateway card carries API billing" True usage_gateway_api
 expect_poll "the gateway card draws its API chip" true usage_api_chip
 expect_poll "the gateway card draws its published Vercel mark" True usage_gateway_logo
 expect_poll "every listed provider keeps its theme-colour mark with the API card" matched usage_panel_marks
+expect_poll "the API card without an identity keeps the shared heading gap" matched usage_identity_spacing
 expect "the API card panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the API card panel is gone" absent usage_panel
+usage_edit "$usage_panel_qml" 'bottomPadding: Theme.stack.inline' 'bottomPadding: 0' || fail "the absent identity spacing control edit failed"
+rescan "the absent identity spacing control is scanned"
+usage_refresh "the absent identity spacing control"
+click_centre "$(bar_key)" vgs.ai-usage || fail "opening the absent identity spacing control failed"
+summon_drawn panel vgs.ai-usage || fail "the absent identity spacing control never drew a frame"
+expect "absent identity line space fails the card spacing reading" 1 usage_control "$usage_dir/identity-spacing-control.log" "identity line space must draw" matched usage_identity_spacing
+expect "the absent identity spacing panel hides" ok ipc shell hide panel vgs.ai-usage
+expect_poll "the absent identity spacing panel is gone" absent usage_panel
+cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
 usage_edit "$usage_panel_qml" 'text: root.checked' 'text: ""' || fail "the absent check age control edit failed"
 rescan "the absent check age control is scanned"
 usage_refresh "the absent check age control"
