@@ -182,6 +182,14 @@ var TOKENS = {
         accentPressed: color("mix({palette.accent}, {palette.background}, 0.18)"),
         accentSubtle: color("alpha({palette.accent}, 0.14)"),
         onAccent: color("contrast({palette.accent})"),
+        // Neutral levels keep marked ranges distinct when a palette repeats
+        // its status colours. Their polarity follows the terminal canvas.
+        mark1: color("mix(#777777, contrast({palette.background}), 0.06)"),
+        onMark1: color("contrast({color.mark1})"),
+        mark2: color("mix(#737373, contrast({palette.background}), 0.44)"),
+        onMark2: color("contrast({color.mark2})"),
+        mark3: color("contrast({palette.background})"),
+        onMark3: color("contrast({color.mark3})"),
         focus: color("{palette.accent}"),
         selection: color("alpha({palette.accent}, 0.35)"),
         scrim: color("alpha({palette.background}, 0.6)")

@@ -978,9 +978,28 @@ const KITTY_STATES = [
     ["mark2_background", "background"],
     ["mark3_background", "background"]
 ];
+const KITTY_MARK_PAIRS = [
+    ["mark1_background", "mark2_background"],
+    ["mark1_background", "mark3_background"],
+    ["mark2_background", "mark3_background"]
+];
 const KITTY_FIELDS = [...new Set([
     ...KITTY_TEXT.flat(), ...KITTY_BOUNDARIES, ...KITTY_CANVAS
 ])];
+
+// For neutral sRGB, CIEDE2000 reduces to |delta L*| / S_L.
+// Sharma et al., equations 18 and 22:
+// https://www.hajim.rochester.edu/ece/sites/gsharma/ciede2000/ciede2000noteCRNA.pdf
+function kittyMarkDifference(a, b) {
+    if ([a, b].some(color => color.r !== color.g || color.g !== color.b)) return null;
+    const lightness = color => {
+        const y = logic.luminance(color);
+        return y > Math.pow(6 / 29, 3) ? 116 * Math.cbrt(y) - 16 : Math.pow(29 / 3, 3) * y;
+    };
+    const first = lightness(a), second = lightness(b);
+    const offset = (first + second) / 2 - 50;
+    return Math.abs(first - second) / (1 + 0.015 * offset * offset / Math.sqrt(20 + offset * offset));
+}
 
 function verifyKittyStyles(template) {
     const shortfalls = [];
@@ -1014,6 +1033,13 @@ function verifyKittyStyles(template) {
         KITTY_TEXT.forEach(([role, peer]) => contrast("kitty-text", role, peer, 4.5));
         KITTY_BOUNDARIES.forEach(role => contrast("kitty-boundary", role, "background", 3));
         KITTY_STATES.forEach(([role, peer]) => contrast("kitty-state", role, peer, 3));
+        const differences = KITTY_MARK_PAIRS.map(([role, peer]) => {
+            if (!colors.has(role) || !colors.has(peer)) return null;
+            const difference = kittyMarkDifference(colors.get(role), colors.get(peer));
+            const metric = { kind: "kitty-mark-distinction", theme: pkg.name, role, peer, difference, floor: 15 };
+            if (difference === null || difference < metric.floor) shortfalls.push(metric);
+            return metric;
+        });
         for (const role of KITTY_CANVAS) {
             if (colors.has(role) && fields.get(role) !== fields.get("background"))
                 shortfalls.push({ kind: "kitty-canvas", theme: pkg.name, role });
@@ -1021,7 +1047,7 @@ function verifyKittyStyles(template) {
         if (colors.has("active_border_color") && colors.has("inactive_border_color") &&
             fields.get("active_border_color") === fields.get("inactive_border_color"))
             shortfalls.push({ kind: "kitty-focus", theme: pkg.name, role: "active_border_color" });
-        return { theme: pkg.name, mode: pkg.values.scheme.mode, fields: Object.fromEntries(fields), ratios };
+        return { theme: pkg.name, mode: pkg.values.scheme.mode, fields: Object.fromEntries(fields), ratios, differences };
     });
     assert.deepEqual(shortfalls, []);
     assert.ok(metrics.some(metric => metric.mode === "dark"));
@@ -1035,6 +1061,7 @@ const kittyControls = [
     ...KITTY_TEXT.map(([role, peer]) => ({ kind: "kitty-text", role, peer })),
     ...KITTY_BOUNDARIES.map(role => ({ kind: "kitty-boundary", role, peer: "background" })),
     ...KITTY_STATES.map(([role, peer]) => ({ kind: "kitty-state", role, peer })),
+    ...KITTY_MARK_PAIRS.map(([role, peer]) => ({ kind: "kitty-mark-distinction", role, peer })),
     ...KITTY_CANVAS.map(role => ({ kind: "kitty-canvas", role, peer: "active_tab_background" })),
     { kind: "kitty-focus", role: "active_border_color", peer: "inactive_border_color" }
 ];
@@ -1052,12 +1079,13 @@ try {
         fs.writeFileSync(file, mutant, { flag: "wx" });
         assert.throws(() => verifyKittyStyles(fs.readFileSync(file, "utf8")),
             error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
-                error.actual.some(shortfall => shortfall.kind === control.kind && shortfall.role === control.role));
+                error.actual.some(shortfall => shortfall.kind === control.kind && shortfall.role === control.role &&
+                    (control.kind !== "kitty-mark-distinction" || shortfall.peer === control.peer)));
     }
 } finally {
     fs.rmSync(kittyScratch, { recursive: true, force: true });
 }
-console.log(`test-theme-render: kitty packages=${kittyMetrics.length} fields=${KITTY_FIELDS.length} text-floor=4.5 boundary-floor=3 state-floor=3 controls=${kittyControls.length}`);
+console.log(`test-theme-render: kitty packages=${kittyMetrics.length} fields=${KITTY_FIELDS.length} text-floor=4.5 boundary-floor=3 state-floor=3 mark-difference-floor=15 mark-difference-min=${Math.min(...kittyMetrics.flatMap(metric => metric.differences.map(pair => pair.difference)))} controls=${kittyControls.length}`);
 
 // Helix reads jump labels as a dedicated style. Parse rendered TOML with
 // Python's standard parser, as the editor-entry suite does for this target.
