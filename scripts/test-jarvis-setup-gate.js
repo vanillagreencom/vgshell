@@ -89,6 +89,8 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
     const publishAccounts = accountsSource.match(/^    function publish\(\) \{\n[\s\S]*?^    \}/m);
     const publishSetup = serviceSource.match(/^    function publishSetup\(answer\) \{\n[\s\S]*?^    \}/m);
     assert.ok(publishAccounts && publishSetup);
+    const accessor = fs.readFileSync(pageFile, "utf8").match(/function statusEntry\(key\) \{[\s\S]*?\n    \}/);
+    assert.ok(accessor, "the Details accessor is present");
     const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
     for (const row of MODEL) {
         const values = row.keys === undefined ? {} : { keys: row.keys.map(key => ({ label: "Fixture key", ...key })) };
@@ -113,6 +115,12 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
             const setupRow = settings.setupRows([{ name: "add-key" }], judge.statusRows(manifest, values, []))
                 .find(item => item.entry.key === "setupModel");
             assert.equal(setupRow.button !== null, row.want[1], row.name + ": Settings link");
+            if (row.answer === UNSELECTED) {
+                const detailsEntry = vm.runInNewContext("(" + accessor[0] + ")", { row: { status: judge.statusRows(manifest, values, []) } })("setupModel");
+                for (const [consumer, actual] of [["Settings", setupRow.entry], ["Details", detailsEntry]])
+                    assert.equal(settings.statusView(actual, String).hint, "Choose an AI model in Settings > AI model.",
+                        row.name + ": " + consumer + " AI model hint");
+            }
         } catch (error) {
             error.check = "setup-model-action";
             error.case = row.name;
@@ -274,10 +282,12 @@ function verify(gate) {
 verify(load(file));
 const pageSource = fs.readFileSync(pageFile, "utf8");
 verifyVoiceConsumers(load(file), pageSource);
+console.log("test-jarvis-setup-gate: consumer=Settings,Details hint=Choose an AI model in Settings > AI model.");
 
 // Each control removes one rule from a copy and keeps the text around it:
 // [label, needle, replacement].
 const CONTROLS = [
+    ["the AI model hint names the Settings field", '"brain=unselected": "Choose an AI model in Settings > AI model."', '"brain=unselected": "Choose an AI model in Settings."', "Settings AI model hint"],
     ["present keys still offer Add key", 'var absent = keys !== undefined && keys.every(function (key) { return key.value === "absent"; });', 'var absent = keys !== undefined;'],
     ["a signed-in app still offers Add key", 'access.kind === "absent"', 'access.kind !== "checking"'],
     ["a merely found app suppresses Add key", '["signed-in", "verified", "verifying"].indexOf(account.state) !== -1', '["found", "unchecked", "signed-in", "verified", "verifying"].indexOf(account.state) !== -1'],

@@ -34,7 +34,7 @@ var REQUIRED = { speech: "setupVoice", brain: "setupModel" };
 // such as local voice not set up, keeps the declared hint, which says what
 // the step gives, since its action already says to set it up.
 var TODO = {
-    "brain=unselected": "Choose an AI model in Settings.",
+    "brain=unselected": "Choose an AI model in Settings > AI model.",
     "brain=account-unavailable": "The chosen AI model cannot be used. Add a key or sign in, then choose it below.",
     "brain=model-required": "The chosen AI model cannot be used. Choose another AI model below.",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Open Accounts to check them.",
