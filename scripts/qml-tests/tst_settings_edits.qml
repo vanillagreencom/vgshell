@@ -243,7 +243,10 @@ Item {
         function test_settings_bind_explanation_uses_the_shared_label_tooltip() {
             const field = disposableKey.createObject(root, { width: 420, z: 1,
                 bind: { shortcut: "spare", key: "SUPER+N", default: "SUPER+N", description: "Spare", info: "Open the window." } });
-            compare(UnitTheme.override({ tooltip: { delay: 20 } }), "ok");
+            // Animated key feedback in this offscreen popup test reaches
+            // Qt's queued animation-driver warning. Keep its content and
+            // input checks deterministic; Theme and field tests keep motion.
+            compare(UnitTheme.override({ tooltip: { delay: 20 }, motion: { scale: 0 } }), "ok");
             const label = descendants(field).find(item => item.objectName === "fieldLabel");
             const tip = descendants(label).find(item => String(item).indexOf("Tooltip") === 0);
             verify(!descendants(field).some(item => String(item).indexOf("InfoButton") === 0));

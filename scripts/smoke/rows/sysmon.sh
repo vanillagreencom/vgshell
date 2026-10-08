@@ -117,6 +117,43 @@ expect_poll "the CPU button holds Qt focus before Enter" true ipc smoke readMatc
 type_keys -k Return
 expect_poll "Enter on the real widget opens the flyout" shown sysmon_shown panel "$sysmon_fixture_id"
 expect_poll "the keyboard flyout holds focus before Escape" true ipc smoke windowFocused panel "$sysmon_fixture_id"
+
+# The fixture publishes through the real status provider. Its shipped
+# Panel/Reading tree takes actual nested pointer events on every reading.
+expect "the fixture status provider is held" held ipc smoke holdStatus service "$sysmon_fixture_id"
+sysmon_stability_sample='{"cpu":{"use":12,"temperature":63,"cores":16},"memory":{"use":25,"used":1073741824,"total":4294967296,"available":2147483648,"swapUse":0,"swapUsed":0,"swapTotal":0},"gpu":{"id":"fixture","name":"Fixture GPU","state":"awake","use":32,"temperature":58,"vramUsed":1073741824,"vramTotal":4294967296}}'
+expect "a live sample reaches the production flyout" ok ipc smoke heldStatusSet readings "$sysmon_stability_sample"
+expect_poll "CPU detail text updates live" '["Temperature 63° · 16 cores"]' ipc smoke readMatchingDescendant panel "$sysmon_fixture_id" Reading iconName cpu details
+expect_poll "GPU detail text updates live" '["VRAM 1.0 GB of 4.0 GB","Temperature 58°"]' ipc smoke readMatchingDescendant panel "$sysmon_fixture_id" Reading iconName gpu details
+sysmon_stability_geometry() { ipc smoke itemValues panel "$sysmon_fixture_id" Reading title,y,height,visible; }
+sysmon_stability_scroll() { ipc smoke itemValues panel "$sysmon_fixture_id" ScrollArea contentY; }
+sysmon_stability_rings() { ipc smoke itemValues panel "$sysmon_fixture_id" FocusRing visible | py_reply 'import json,sys; print(sum(r["visible"] for r in json.load(sys.stdin)))'; }
+sysmon_stability_box="$(sysmon_stability_geometry)" || return
+sysmon_stability_y="$(sysmon_stability_scroll)" || return
+sysmon_stability_focus="$(ipc smoke activeFocusItem panel "$sysmon_fixture_id")" || return
+sysmon_stability_window="$(surface_box 'window:System Monitor keyboard fixture')" || return
+printf '  sysmon_stability geometry=%s scroll=%s deepest_focus=%s anchor_window=%s\n' "$sysmon_stability_box" "$sysmon_stability_y" "$sysmon_stability_focus" "$sysmon_stability_window"
+expect "the body keeps the flyout keyboard focus" true ipc smoke readInstance panel "$sysmon_fixture_id" activeFocus
+expect "the unfocused readings have no ring" 0 sysmon_stability_rings
+for sysmon_stability_label in CPU Memory GPU 'Temperature 63° · 16 cores' '2.0 GB available' 'Temperature 58°'; do
+  sysmon_stability_rect="$(ipc smoke itemGeometry panel "$sysmon_fixture_id" Label "$sysmon_stability_label")" || return
+  # mapToGlobal for an anchored popup is relative to its anchor window.
+  # Add the actual compositor position, as the surfaces row does.
+  read -r sysmon_stability_x sysmon_stability_top < <(at_centre 'window:System Monitor keyboard fixture' "$sysmon_stability_rect") || return
+  printf '  sysmon_stability label=%s box=%s pointer=[%s,%s] focus_before=%s\n' "$sysmon_stability_label" "$sysmon_stability_rect" "$sysmon_stability_x" "$sysmon_stability_top" "$sysmon_stability_focus"
+  hover "$sysmon_stability_x" "$sysmon_stability_top" || fail "reading pointer move failed"
+  expect "hover keeps the complete reading layout: $sysmon_stability_label" "$sysmon_stability_box" sysmon_stability_geometry
+  click "$sysmon_stability_x" "$sysmon_stability_top" || fail "reading click failed"
+  sysmon_stability_after="$(ipc smoke activeFocusItem panel "$sysmon_fixture_id")" || return
+  printf '  sysmon_stability label=%s focus_after=%s\n' "$sysmon_stability_label" "$sysmon_stability_after"
+  expect "click leaves the same deepest focus: $sysmon_stability_label" "$sysmon_stability_focus" printf '%s\n' "$sysmon_stability_after"
+  expect "click leaves keyboard focus in the body: $sysmon_stability_label" true ipc smoke readInstance panel "$sysmon_fixture_id" activeFocus
+  expect "click draws no ring: $sysmon_stability_label" 0 sysmon_stability_rings
+  expect "click does not scroll: $sysmon_stability_label" "$sysmon_stability_y" sysmon_stability_scroll
+  expect "click keeps the complete reading layout: $sysmon_stability_label" "$sysmon_stability_box" sysmon_stability_geometry
+done
+# See all keeps its action. Escape stays host-owned below.
+expect "See all remains a keyboard control" true ipc smoke readMatchingDescendant panel "$sysmon_fixture_id" Button text 'See all' enabled
 type_keys -k Escape
 expect_poll "the keyboard flyout closes" hidden sysmon_shown panel "$sysmon_fixture_id"
 expect "the keyboard window closes" ok ipc shell hide window "$sysmon_fixture_id"

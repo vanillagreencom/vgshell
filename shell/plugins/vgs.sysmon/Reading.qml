@@ -22,5 +22,16 @@ Column {
     }
     Label { visible: text !== ""; width: parent.width; role: "hint"; text: root.description; wrapMode: Text.WordWrap }
     ProgressBar { width: parent.width; from: 0; to: 100; value: typeof root.value === "number" ? root.value : 0; tone: root.tone }
-    Repeater { model: root.details; Label { required property string modelData; width: root.width; role: "hint"; text: modelData; wrapMode: Text.WordWrap } }
+    // The numeric model keeps each position's Label alive while a new
+    // sample updates its text. The Qt unit identity check reaches this.
+    Repeater {
+        model: root.details.length
+        Label {
+            required property int index
+            width: root.width
+            role: "hint"
+            text: root.details[index]
+            wrapMode: Text.WordWrap
+        }
+    }
 }

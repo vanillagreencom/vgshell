@@ -1,13 +1,14 @@
 import QtQuick
 import QtTest
 import qs.Commons
+import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.sysmon" as Sysmon
 
 Item {
     id: root
     width: 900
-    height: 200
+    height: 900
     property var leaseCalls: []
     QtObject { id: status; property var values: ({}) }
     Component { id: widgetComponent; Sysmon.Widget {} }
@@ -139,6 +140,85 @@ Item {
             status.values = { readings: reading };
             verify(found.find(item => item.iconName === "cpu").details[0].indexOf("--") !== -1);
             verify(found.find(item => item.iconName === "gpu").details[1].indexOf("--") !== -1);
+        }
+        function descendants(item) {
+            const found = [];
+            function walk(node) {
+                for (const child of node.children) { found.push(child); walk(child); }
+            }
+            walk(item);
+            return found;
+        }
+        function panelReadings(panel) {
+            return descendants(panel).filter(item => item.details !== undefined && item.iconName !== undefined);
+        }
+        function detailRows(reading) {
+            const repeated = reading.children.find(item => item instanceof Repeater);
+            return Array.from({ length: repeated.count }, (_, index) => repeated.itemAt(index));
+        }
+        function test_panel_sampling_keeps_detail_rows_and_live_text() {
+            const panel = createTemporaryObject(panelComponent, root, { shell: scope() });
+            verify(panel !== null);
+            const readings = panelReadings(panel);
+            const held = readings.map(detailRows);
+            const value = sample(12);
+            value.cpu.temperature = 63;
+            value.memory.available = 2147483648;
+            value.gpu.temperature = 58;
+            status.values = { readings: value };
+            for (let group = 0; group < readings.length; group++) {
+                const rows = detailRows(readings[group]);
+                compare(rows.length, held[group].length);
+                for (let index = 0; index < rows.length; index++) {
+                    compare(rows[index], held[group][index], "sampling retains each existing detail Label");
+                    compare(rows[index].text, readings[group].details[index], "the retained row draws the live value");
+                }
+            }
+            verify(waitForRendering(panel));
+            for (const group of held) for (const row of group) {
+                const image = grabImage(row);
+                let ink = false;
+                for (let x = 0; x < image.width && !ink; x++)
+                    for (let y = 0; y < image.height && !ink; y++) ink = image.alpha(x, y) > 0;
+                verify(ink, "each retained detail row paints the updated sample");
+            }
+            compare(held[0][0].text, "Temperature 63° · 16 cores");
+            compare(held[1][1].text, "2.0 GB available");
+            compare(held[2][1].text, "Temperature 58°");
+            status.values = { readings: sample(5, { name: "Sleeping GPU", state: "asleep" }) };
+            const asleep = readings.find(item => item.iconName === "gpu");
+            compare(detailRows(asleep).length, 1, "sleep intentionally changes the detail count");
+            compare(detailRows(asleep)[0].text, "The graphics card is asleep.");
+            status.values = { readings: sample(5, null) };
+            compare(asleep.visible, false);
+        }
+        function test_panel_reading_hover_and_click_keep_geometry_focus_and_scroll() {
+            const facade = scope(); facade.requirements.missing = [];
+            facade.tui = { run: () => "ok" }; facade.surfaces.hide = () => "ok";
+            const panel = createTemporaryObject(panelComponent, root, { shell: facade });
+            verify(panel !== null);
+            panel.height = Qt.binding(() => panel.implicitHeight);
+            panel.forceActiveFocus(Qt.OtherFocusReason);
+            verify(waitForRendering(panel));
+            const readings = panelReadings(panel);
+            const pane = descendants(panel).find(item => item instanceof Pane);
+            const originalFocus = root.Window.window.activeFocusItem;
+            const originalScroll = pane.scrollArea.contentY;
+            const boxes = readings.map(item => [item.y, item.height, item.childrenRect.height]);
+            for (const reading of readings) {
+                mouseMove(reading, reading.width / 2, reading.height / 2);
+                verify(waitForRendering(panel));
+                compare(JSON.stringify(readings.map(item => [item.y, item.height, item.childrenRect.height])), JSON.stringify(boxes), "hover adds no layout row");
+                mouseClick(reading, reading.width / 2, reading.height / 2);
+                verify(waitForRendering(panel));
+                compare(root.Window.window.activeFocusItem, originalFocus, "a reading click leaves keyboard focus in the body");
+                compare(pane.scrollArea.contentY, originalScroll, "a reading click does not scroll");
+                verify(!descendants(reading).some(item => item instanceof FocusRing && item.visible), "a reading click draws no focus ring");
+            }
+            const seeAll = descendants(panel).find(item => item instanceof Button && item.text === "See all");
+            verify(seeAll !== undefined && seeAll.visible);
+            seeAll.forceActiveFocus(Qt.TabFocusReason);
+            compare(seeAll.activeFocus, true, "See all remains keyboard accessible");
         }
         function test_production_tone_boundaries_data() {
             const rules = [
