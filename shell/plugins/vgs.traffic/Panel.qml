@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
+import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
 import "TrafficLogic.js" as Logic
@@ -165,8 +166,11 @@ Item {
                 Button { id: connectionsHeader; Layout.preferredWidth: table.connectionsWidth; text: "Connections"; iconName: root.sortKey === "connections" ? root.ascending ? "chevron-up" : "chevron-down" : ""; size: "sm"; variant: "ghost"; onClicked: root.sort("connections") }
             }
             Divider { width: parent.width }
-            FocusScope {
+            T.Control {
                 id: appList
+                focusPolicy: Qt.StrongFocus
+                Accessible.role: Accessible.List
+                Accessible.name: "Network traffic applications"
                 width: parent.width
                 implicitHeight: entries.implicitHeight
                 visible: !root.emptyShown
@@ -177,6 +181,7 @@ Item {
                 Keys.onPressed: event => { if (navigation.handle(event)) event.accepted = true; }
                 KeyNav {
                     id: navigation
+                    focusTarget: appList
                     count: root.rows.length
                     currentIndex: root.current
                     cursor: listCursor
@@ -208,10 +213,9 @@ Item {
                             cursor: listCursor
                             highlighted: root.current === index && appList.activeFocus
                             onPointed: root.currentKey = modelData.key
-                            // A click opens the row's actions and leaves the
-                            // keyboard focus where it was.
                             onClicked: {
                                 root.currentKey = modelData.key;
+                                appList.focusReason = Qt.MouseFocusReason;
                                 root.act(modelData, "menu", false);
                             }
                             contentItem: RowLayout {

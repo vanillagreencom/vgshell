@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import qs.Commons
 import qs.Ui
+import "../foundation/KeyNavLogic.js" as KeyNavLogic
 
 // Seven weekday chips, Monday first. `selected` holds weekday keys
 // `mon` through `sun`; a click toggles one key and keeps the list in week
@@ -54,12 +55,12 @@ FocusScope {
     function move(step) {
         currentIndex = Math.max(0, Math.min(days.length - 1, currentIndex + step));
         focusCurrent(step > 0 ? Qt.TabFocusReason : Qt.BacktabFocusReason);
+        KeyNavLogic.focusNavigation(chipAt(currentIndex));
     }
 
     implicitWidth: row.implicitWidth
     implicitHeight: row.implicitHeight
-    activeFocusOnTab: true
-    onActiveFocusChanged: if (activeFocus) focusCurrent(Qt.TabFocusReason)
+    activeFocusOnTab: false
     Keys.onLeftPressed: move(-1)
     Keys.onRightPressed: move(1)
 
@@ -76,6 +77,8 @@ FocusScope {
                 required property int index
                 text: modelData.label
                 size: "sm"
+                focus: root.currentIndex === index
+                activeFocusOnTab: root.currentIndex === index
                 checked: root.has(modelData.key)
                 Accessible.name: modelData.key
                 onClicked: {

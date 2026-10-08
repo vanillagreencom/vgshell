@@ -386,6 +386,7 @@ FocusScope {
 
                 KeyNav {
                     id: nav
+                    focusTarget: box
                     count: root.keys.length
                     currentIndex: root.editing
                     orientation: "horizontal"
@@ -402,9 +403,9 @@ FocusScope {
                     radius: Theme.textField.radius
                     color: Theme.textField.background
                     border.width: Theme.textField.border
-                    border.color: root.capturing || box.activeFocus ? Theme.textField.focus : box.hovered ? Theme.textField.hover : Theme.textField.borderColor
-                    Behavior on border.color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
-                    FocusRing { target: box }
+                    border.color: root.capturing || focusRing.visible ? Theme.textField.focus : box.hovered ? Theme.textField.hover : Theme.textField.borderColor
+                    // Resetting retained focus must clear the drawn border immediately.
+                    FocusRing { id: focusRing; target: box }
                 }
 
                 // The flow's implicit width is its widest line, which is

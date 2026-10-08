@@ -96,6 +96,7 @@ Flickable {
         else if (action === "first") root.contentY = 0;
         else if (action === "last") root.contentY = Math.max(0, root.contentHeight - root.height);
         else return false;
+        KeyNavLogic.focusNavigation(keyboardFocus);
         return true;
     }
 

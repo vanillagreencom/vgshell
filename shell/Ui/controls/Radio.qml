@@ -40,6 +40,7 @@ T.RadioButton {
     Keys.onPressed: event => { event.accepted = nav.handle(event); }
 
     property KeyNav nav: KeyNav {
+        focusTarget: root
         count: root.radioSiblings.length
         currentIndex: root.radioIndex
         orientation: "both"

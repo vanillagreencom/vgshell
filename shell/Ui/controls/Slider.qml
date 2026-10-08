@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
+import "../foundation/KeyNavLogic.js" as KeyNavLogic
 
 // A horizontal slider. The template owns `from`, `to`, `value`, `stepSize`
 // and the arithmetic of a drag, the arrow keys and a click on the track;
@@ -48,6 +49,11 @@ T.Slider {
         // Ctrl+PageUp and Ctrl+PageDown switch tabs (TabPages), so
         // the slider leaves them.
         const paging = !(event.modifiers & Qt.ControlModifier);
+        if (event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
+            KeyNavLogic.focusNavigation(root); // native horizontal movement
+            event.accepted = false;
+            return; // Qt's slider template owns horizontal arrow arithmetic.
+        }
         if (event.key === Qt.Key_Up) commit(value + (stepSize > 0 ? stepSize : pageStep));
         else if (event.key === Qt.Key_Down) commit(value - (stepSize > 0 ? stepSize : pageStep));
         else if (event.key === Qt.Key_Home) commit(from);
@@ -58,6 +64,7 @@ T.Slider {
             event.accepted = false;
             return;
         }
+        KeyNavLogic.focusNavigation(root); // accepted custom movement
         event.accepted = true;
     }
 

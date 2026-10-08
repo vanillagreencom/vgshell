@@ -63,7 +63,7 @@ T.AbstractButton {
         if (open) OverlayState.opened(); else OverlayState.closed();
     }
     Component.onDestruction: share(false)
-    readonly property color outline: activeFocus || list.visible ? Theme.textField.focus : hovered ? Theme.textField.hover : Theme.textField.borderColor
+    readonly property color outline: focusRing.visible || list.visible ? Theme.textField.focus : hovered ? Theme.textField.hover : Theme.textField.borderColor
     readonly property real sidePadding: Theme.controlPadding(Theme.textField.paddingX, Theme.textField.radius, Math.max(Theme.textField.height, height), implicitContentHeight)
     // The list's top and bottom inset inside its window; its side inset is
     // the border.
@@ -119,6 +119,7 @@ T.AbstractButton {
     Keys.onPressed: event => { event.accepted = closedNav.handle(event); }
 
     property KeyNav closedNav: KeyNav {
+        focusTarget: root
         count: root.count
         currentIndex: root.currentIndex
         wrap: false /* closed select */
@@ -149,8 +150,8 @@ T.AbstractButton {
         color: Theme.textField.background
         border.width: Theme.textField.border
         border.color: root.outline
-        Behavior on border.color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
-        FocusRing { target: root }
+        // Resetting retained focus must clear the drawn border immediately.
+        FocusRing { id: focusRing; target: root }
     }
 
     PopupWindow {

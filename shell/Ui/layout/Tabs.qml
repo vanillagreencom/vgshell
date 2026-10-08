@@ -23,6 +23,7 @@ T.TabBar {
     Keys.onPressed: event => { event.accepted = nav.handle(event); }
 
     property KeyNav nav: KeyNav {
+        focusTarget: root
         count: root.count
         currentIndex: root.currentIndex
         orientation: "horizontal"
@@ -74,6 +75,7 @@ T.TabBar {
             focusPolicy: Qt.NoFocus
             PointerCursor {}
             Accessible.name: text
+            onClicked: { root.forceActiveFocus(Qt.MouseFocusReason); root.focusReason = Qt.MouseFocusReason; }
 
             contentItem: Label {
                 role: "button"

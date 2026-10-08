@@ -223,6 +223,14 @@ function focusInitial(target, window) {
     if ("focusReason" in owner) owner.focusReason = Qt.OtherFocusReason;
 }
 
+// Accepted navigation can leave an already focused Qt Control's reason
+// unchanged (native-key probe, VGS-1111 review). Update Qt's own reason;
+// never take focus from another receiver or mark a programmatic move.
+function focusNavigation(target) {
+    if (target !== null && target !== undefined && target.activeFocus && "focusReason" in target)
+        target.focusReason = Qt.ShortcutFocusReason;
+}
+
 // Activate a button-like object without click() or animateClick(), because
 // those re-focus with the mouse focus reason and hide the focus ring.
 function activate(control) {

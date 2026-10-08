@@ -59,6 +59,8 @@ FocusScope {
 
     KeyNav {
         id: nav
+        // Resolve the row when this scope takes focus, after its rows exist.
+        focusTarget: list.activeFocus ? list.rowAt(list.current) : null
         count: list.rows.length
         currentIndex: list.current
         cursor: plate

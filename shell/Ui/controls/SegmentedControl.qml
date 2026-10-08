@@ -68,6 +68,7 @@ T.Control {
     Keys.onPressed: event => { event.accepted = nav.handle(event); }
 
     property KeyNav nav: KeyNav {
+        focusTarget: root
         count: root.model.length
         currentIndex: root.currentIndex
         orientation: "horizontal"
@@ -99,7 +100,7 @@ T.Control {
                 PointerCursor {}
                 text: String(modelData)
                 Accessible.name: text
-                onClicked: { root.forceActiveFocus(Qt.MouseFocusReason); root.choose(index); }
+                onClicked: { root.forceActiveFocus(Qt.MouseFocusReason); root.focusReason = Qt.MouseFocusReason; root.choose(index); }
 
                 contentItem: Label {
                     role: "button"

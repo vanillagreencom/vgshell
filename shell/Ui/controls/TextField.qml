@@ -66,11 +66,8 @@ T.TextField {
         color: Theme.textField.background
         border.width: Theme.textField.border
         border.color: root.outline
-        Behavior on border.color {
-            // Initial focus must not retain an animating keyboard outline.
-            enabled: focusRing.visible
-            ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard }
-        }
+        // A retained error transition can still contain its old keyboard
+        // colour after Other focus (VGS-1111 rendered reset probe). Snap it.
 
         Icon {
             visible: root.leadingIcon !== ""

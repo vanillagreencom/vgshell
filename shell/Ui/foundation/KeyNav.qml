@@ -15,6 +15,8 @@ Item {
     width: 0
     height: 0
 
+    // The Qt control that already holds this composite's keyboard.
+    property Item focusTarget: null
     // Number of rows or entries in the composite.
     property int count: 0
     // The owner's current row or entry index.
@@ -81,40 +83,41 @@ Item {
     }
 
     // Move by a signed delta through the roving list.
-    function moveBy(delta) {
-        return moveTo(Logic.step(currentIndex, count, delta, wrap, canReach));
+    function moveBy(delta, keyboard) {
+        return moveTo(Logic.step(currentIndex, count, delta, wrap, canReach), keyboard);
     }
 
     // Move to the first reachable item.
-    function first() {
-        return moveTo(Logic.edge(count, canReach, false));
+    function first(keyboard) {
+        return moveTo(Logic.edge(count, canReach, false), keyboard);
     }
 
     // Move to the last reachable item.
-    function last() {
-        return moveTo(Logic.edge(count, canReach, true));
+    function last(keyboard) {
+        return moveTo(Logic.edge(count, canReach, true), keyboard);
     }
 
     // Move by one page.
-    function pageBy(delta) {
+    function pageBy(delta, keyboard) {
         const rows = pageSize > 0 ? pageSize : Logic.pageRows(viewHeight, rowHeight);
-        return moveTo(Logic.step(currentIndex, count, delta * rows, false, canReach));
+        return moveTo(Logic.step(currentIndex, count, delta * rows, false, canReach), keyboard);
     }
 
     // Extend the type-ahead buffer by `letter` and move to the match.
-    function typeAhead(letter) {
+    function typeAhead(letter, keyboard) {
         if (labelAt === null || labelAt === undefined) return false;
         const labels = [];
         for (let i = 0; i < count; i++) labels.push(label(i));
         const result = Logic.typeAhead(typed, letter, labels, canReach, currentIndex);
         typed = result.typed;
         typing.restart();
-        return moveTo(result.index);
+        return moveTo(result.index, keyboard);
     }
 
     // Move to an exact index and reveal it when configured.
-    function moveTo(index) {
+    function moveTo(index, keyboard) {
         if (index < 0 || index >= count || !canReach(index)) return false;
+        if (keyboard === true) Logic.focusNavigation(focusTarget);
         if (cursor !== null && cursor !== undefined && cursor.disarm !== undefined) cursor.disarm();
         moved(index);
         reveal(index);
@@ -132,12 +135,12 @@ Item {
     // Handle one QML key event and return whether the owner should accept it.
     function handle(event) {
         const action = Logic.intent(event.key, event.modifiers, orientation, textEntry, { spaceActivates, crossAxis });
-        if (action === "prev") return moveBy(-1);
-        else if (action === "next") return moveBy(1);
-        else if (action === "first") return first();
-        else if (action === "last") return last();
-        else if (action === "pagePrev") return pageBy(-1);
-        else if (action === "pageNext") return pageBy(1);
+        if (action === "prev") return moveBy(-1, true);
+        else if (action === "next") return moveBy(1, true);
+        else if (action === "first") return first(true);
+        else if (action === "last") return last(true);
+        else if (action === "pagePrev") return pageBy(-1, true);
+        else if (action === "pageNext") return pageBy(1, true);
         else if (action === "activate") {
             if (currentIndex >= 0 && currentIndex < count && canReach(currentIndex)) {
                 activated(currentIndex);
@@ -158,17 +161,19 @@ Item {
             return false;
         } else if (action === "tabPrev" || action === "tabNext") {
             if (!stepsTabs) return false;
+            Logic.focusNavigation(focusTarget);
             tabStepped(action === "tabPrev" ? -1 : 1);
             return true;
         } else if (action === "crossPrev" || action === "crossNext") {
             if (currentIndex >= 0 && currentIndex < count && canReach(currentIndex)) {
+                Logic.focusNavigation(focusTarget);
                 crossed(action === "crossPrev" ? -1 : 1);
                 return true;
             }
             return false;
         } else {
             const letter = Logic.printable(event.text, event.modifiers);
-            return letter !== "" ? typeAhead(letter) : false;
+            return letter !== "" ? typeAhead(letter, true) : false;
         }
     }
 }
