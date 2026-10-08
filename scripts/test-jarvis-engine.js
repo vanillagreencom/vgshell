@@ -356,7 +356,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     child.stdin.on("error", e => { if (e.code !== "EPIPE") throw e; });
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = (locked = false) => send({ type: "hello", locked,
-        settings: { mode: "hold", microphone: "", speaker: "", brain: ending === "brain" ? "" : "fixture-account", taskTerminal: "auto", cloudVision: "ask", privateWindows: "bitwarden" },
+        settings: { sounds: false, mode: "hold", microphone: "", speaker: "", brain: ending === "brain" ? "" : "fixture-account", taskTerminal: "auto", cloudVision: "ask", privateWindows: "bitwarden" },
         keys: { talk: null, mute: null, stop: null, confirm: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     const intent = name => send({ type: "intent", intent: name });
     const before = server.requests.length;
