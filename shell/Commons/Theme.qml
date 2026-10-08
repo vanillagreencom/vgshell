@@ -26,6 +26,15 @@ Singleton {
     // `loaded`, `absent`, `refused` or `unreadable`. A refused edit moves it
     // without a new revision.
     readonly property string fileState: source.state
+    // The user's Appearance values, shell.json `appearance` as JSON text,
+    // "" for none. Config alone binds it; scripts/check-plugin-boundary.py
+    // refuses a plugin that names it.
+    property string appearanceInput: ""
+    // Where each Appearance value comes from, frozen: { input, the
+    // appearanceInput it was resolved from; values; theme; sources;
+    // hyprland } (ThemeLogic.withAppearance). The groups below already
+    // hold the resolved values.
+    readonly property var appearanceState: source.appearance
 
     readonly property var scheme: published.scheme
     readonly property var palette: published.palette
@@ -260,5 +269,8 @@ Singleton {
         onStatusChanged: if (status === FontLoader.Error) console.error("theme: bundled font failed to load: " + source)
     }
 
-    ThemeSource { id: source }
+    ThemeSource {
+        id: source
+        userText: root.appearanceInput
+    }
 }

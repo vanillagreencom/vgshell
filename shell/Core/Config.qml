@@ -42,6 +42,13 @@ Singleton {
     readonly property string notReady: shipped === null ? shippedState : (userState === "pending" ? "pending" : "")
     readonly property bool ready: notReady === ""
     readonly property var effective: shipped === null ? ({}) : Logic.effectiveConfig(shipped, user)
+    // The effective `appearance` as JSON text, "" before `ready` or when
+    // the file sets none, which Theme resolves over the theme. Text, so an
+    // edit of another key, which replaces `effective`, compares equal and
+    // the theme does not resolve again.
+    readonly property string appearanceText: ready && Logic.isPlainObject(effective.appearance) ? JSON.stringify(effective.appearance) : ""
+
+    Binding { target: Theme; property: "appearanceInput"; value: root.appearanceText }
 
     // Judge one file's text: { state, value } with `value` only when loaded.
     function judge(label, text) {

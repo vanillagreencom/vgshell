@@ -67,6 +67,9 @@ const DEFAULTS = [
     ["hyprland.border.size", 2],
     ["hyprland.window.radius", 0],
     ["hyprland.window.roundingPower", 2],
+    // Group tabs take the window radius until a user's corner radius sets
+    // half of it.
+    ["hyprland.window.groupRadius", 0],
     ["hyprland.motion.preset", "smooth"],
     ["hyprland.shadow.color", "#0000008c"],
     // mul(15, 2.27) = 34.05, mul(15, 1.33) = 19.95, mul(15, 1.2) = 18, mul(15, 1.07) = 16.05,
@@ -856,6 +859,107 @@ function verify(judge) {
 
     assert.equal(judge.refusalLine(judge.accept(TOKENS, document({ palette: { acent: "#fff" } }))), "theme: refused: token=palette.acent reason=unknown-token");
     assert.equal(judge.refusalLine(judge.accept(TOKENS, JSON.stringify({ foreground: "#123456" }))), "theme: refused: document reason=unknown-key key=foreground");
+    verifyAppearance(judge);
+}
+
+// The user's Appearance values over the theme (D103). Each expected value
+// is the arithmetic its comment names, never read from the judge.
+function verifyAppearance(judge) {
+    const shipped = judge.defaults(TOKENS);
+    const over = (theme, user) => {
+        const result = judge.withAppearance(TOKENS, theme, user);
+        assert.equal(result.ok, true, result.ok ? "" : judge.refusalLine(result));
+        return result;
+    };
+    const accepted = tokens => {
+        const result = judge.accept(TOKENS, document(tokens));
+        assert.equal(result.ok, true, result.ok ? "" : judge.refusalLine(result));
+        return result;
+    };
+    // No value, or an empty key, draws every package exactly as it draws
+    // today: the shipped theme, every package under themes/ and every
+    // catalog entry.
+    const packages = [shipped].concat(fs.readdirSync(path.join(repo, "themes")).filter(name => fs.existsSync(path.join(repo, "themes", name, "theme.json")))
+        .concat(fs.readdirSync(path.join(repo, "themes/catalog")).filter(name => fs.existsSync(path.join(repo, "themes/catalog", name, "theme.json"))).map(name => "catalog/" + name))
+        .map(name => judge.accept(TOKENS, fs.readFileSync(path.join(repo, "themes", name, "theme.json"), "utf8"))));
+    assert.ok(packages.length > 10, "the shipped and catalog packages are read");
+    for (const theme of packages) {
+        assert.equal(theme.ok, true);
+        assert.deepEqual(plain(over(theme, {}).values), plain(theme.values), theme.name + ": no Appearance value");
+        assert.deepEqual(plain(judge.published(TOKENS, theme, "").values), plain(theme.values), theme.name + ": no appearance key");
+    }
+    // A corner radius of 12: windows 12, flyouts 12 * 0.75 = 9, group tabs
+    // 12 * 0.5 = 6; a menu entry follows its menu.
+    const twelve = over(shipped, { windowRadius: 12 }).values;
+    assert.deepEqual([at(twelve, "hyprland.window.radius"), at(twelve, "surface.radius"), at(twelve, "popover.radius"), at(twelve, "menu.radius"), at(twelve, "menu.item.radius"), at(twelve, "dialog.radius"), at(twelve, "osd.radius"), at(twelve, "hyprland.window.groupRadius")],
+        [12, 9, 9, 9, 9, 9, 9, 6], "a corner radius of 12 and its ratios");
+    assert.equal(at(twelve, "button.radius"), 0, "the corner radius leaves controls to the UI base");
+    // 13: 13 * 0.75 = 9.75 rounds to 10, 13 * 0.5 = 6.5 rounds to 7.
+    const thirteen = over(shipped, { windowRadius: 13 }).values;
+    assert.deepEqual([at(thirteen, "surface.radius"), at(thirteen, "hyprland.window.groupRadius")], [10, 7], "lengths round to whole pixels");
+    const controls = over(shipped, { controlRadius: 6 }).values;
+    assert.deepEqual([at(controls, "button.radius"), at(controls, "textField.radius"), at(controls, "segmented.radius"), at(controls, "surface.radius"), at(controls, "checkbox.radius")], [6, 6, 6, 0, 0], "a control radius sets buttons, inputs and segmented controls alone");
+    assert.equal(at(over(shipped, { borderWidth: 5 }).values, "hyprland.border.size"), 5, "a border width sets the window border");
+    // A theme's own radius stands without a ratio, and a user's value wins
+    // over a theme's.
+    const roundTheme = accepted({ hyprland: { window: { radius: 12 } }, button: { radius: 2 }, surface: { radius: 3 } });
+    assert.deepEqual([at(roundTheme.values, "surface.radius"), at(roundTheme.values, "hyprland.window.groupRadius")], [3, 12], "the theme's values stand without a ratio");
+    assert.deepEqual(plain(over(roundTheme, {}).values), plain(roundTheme.values), "no value keeps the theme's own");
+    const userWins = over(roundTheme, { windowRadius: 8, controlRadius: 4 }).values;
+    assert.deepEqual([at(userWins, "surface.radius"), at(userWins, "button.radius")], [6, 4], "a user's value wins over the theme's");
+    // Motion: off stills every duration, a speed of 2 halves each,
+    // 150 / 2 = 75, and Snappy sets the preset and both easings.
+    const still = over(shipped, { motion: false }).values;
+    assert.deepEqual([at(still, "motion.scale"), at(still, "motion.duration.normal"), at(still, "motion.list.enter.duration")], [0, 0, 0], "motion off stills the shell");
+    const fast = over(shipped, { motionSpeed: 2 }).values;
+    assert.deepEqual([at(fast, "motion.scale"), at(fast, "motion.duration.normal")], [0.5, 75], "a speed of 2 halves every duration");
+    const snappy = over(shipped, { motionStyle: "snappy" }).values;
+    assert.deepEqual([at(snappy, "hyprland.motion.preset"), at(snappy, "motion.easing.standard"), at(snappy, "motion.easing.emphasized"), at(snappy, "motion.list.travel.easing")], ["snappy", "outQuart", "outExpo", "outExpo"], "Snappy sets the preset and the easings");
+    const smooth = over(accepted({ hyprland: { motion: { preset: "snappy" } }, motion: { easing: { standard: "linear" } } }), { motionStyle: "smooth" }).values;
+    assert.deepEqual([at(smooth, "hyprland.motion.preset"), at(smooth, "motion.easing.standard"), at(smooth, "motion.easing.emphasized")], ["smooth", "outCubic", "outQuint"], "Smooth sets the table's own preset and easings over a theme's");
+    const stillTheme = accepted({ motion: { scale: 0 } });
+    const moved = over(stillTheme, { motion: true }).values;
+    assert.deepEqual([at(moved, "motion.scale"), at(moved, "motion.duration.normal")], [1, 150], "Motion on over a still theme moves at speed 1");
+    assert.equal(at(over(stillTheme, { motion: true, motionSpeed: 0.5 }).values, "motion.scale"), 2, "and at a slower speed, 1 / 0.5");
+    assert.equal(at(over(stillTheme, { motionSpeed: 2 }).values, "motion.scale"), 0, "a speed alone does not move a still theme");
+    assert.equal(at(over(shipped, { motion: false, motionSpeed: 2 }).values, "motion.scale"), 0, "a speed does not move motion that is off");
+    // Where each value comes from, what the theme shows, and which layer
+    // groups the user leaves to Hyprland.
+    const plainResult = over(shipped, {}).appearance;
+    assert.deepEqual(plain(plainResult.sources), { windowRadius: "theme", borderWidth: "theme", controlRadius: "theme", motion: "theme", motionStyle: "theme", motionSpeed: "theme", windowAnimations: "hyprland" }, "every value from the theme, animations from Hyprland");
+    assert.deepEqual(plain(plainResult.hyprland), { radius: true, borders: true, motion: false }, "the layer writes borders and radius and leaves animations");
+    assert.deepEqual(plain(plainResult.theme), { motion: true, motionStyle: "smooth", motionSpeed: 1, windowRadius: 0, borderWidth: 2, controlRadius: 0 }, "the theme's own values");
+    assert.equal(over(accepted({ motion: { scale: 2 } }), {}).appearance.theme.motionSpeed, 0.5, "a theme's speed is 1 / its scale");
+    const own = over(shipped, { windowRadius: "hyprland", borderWidth: "hyprland", windowAnimations: true, controlRadius: 4 }).appearance;
+    assert.deepEqual(plain([own.sources.windowRadius, own.sources.borderWidth, own.sources.windowAnimations, own.sources.controlRadius]), ["hyprland", "hyprland", "user", "user"], "Use my Hyprland value is its own source");
+    assert.deepEqual(plain(own.hyprland), { radius: false, borders: false, motion: true }, "the layer leaves the groups the user keeps and writes the motion the user chose");
+    assert.deepEqual(plain(over(shipped, { windowRadius: "hyprland" }).values), plain(shipped.values), "Use my Hyprland value leaves the shell's surfaces on the theme");
+    // A member the judge refuses is left out, listed by key, and shows as
+    // Set by theme.
+    const refused = over(shipped, { windowRadius: 40, controlRadius: "hyprland", motion: "yes", motionStyle: "bouncy", motionSpeed: 3, windowAnimations: false, corner: 4, borderWidth: -1 });
+    assert.deepEqual(plain(refused.refusals.map(row => row.key)), ["windowRadius", "controlRadius", "motion", "motionStyle", "motionSpeed", "windowAnimations", "corner", "borderWidth"], "each bad member is refused by key");
+    assert.ok(refused.refusals.every(row => row.line.startsWith("refused: ")), "each refusal is a keyed line");
+    assert.deepEqual(plain(refused.values), plain(shipped.values), "refused members draw the theme");
+    assert.deepEqual(plain(refused.appearance.values), {}, "refused members hold no value");
+    for (const [key, value] of [["windowRadius", 32], ["windowRadius", 0], ["windowRadius", "hyprland"], ["borderWidth", 20], ["borderWidth", "hyprland"], ["controlRadius", 16], ["motion", true], ["motion", false], ["motionStyle", "smooth"], ["motionSpeed", 0.5], ["motionSpeed", 2], ["windowAnimations", true]])
+        assert.equal(judge.appearanceRefusal(key, value), "", key + "=" + JSON.stringify(value) + " is accepted");
+    for (const [key, value] of [["windowRadius", 33], ["windowRadius", "12"], ["borderWidth", 21], ["controlRadius", 17], ["controlRadius", "hyprland"], ["motionSpeed", 0.25], ["motionSpeed", "hyprland"], ["motion", "hyprland"], ["windowAnimations", false], ["motionStyle", "none"], ["corner", 1], ["windowRadius", undefined]])
+        assert.ok(judge.appearanceRefusal(key, value).startsWith("refused: "), key + "=" + JSON.stringify(value) + " is refused");
+    // What Theme publishes: the values, the frozen sources with the text
+    // they were read from, and a line per refused member. A value the
+    // theme's own expressions cannot take draws the theme alone: here a
+    // theme's offset of 300 control radii leaves the length range.
+    const text = JSON.stringify({ windowRadius: 12, controlRadius: 99 });
+    const published = judge.published(TOKENS, shipped, text);
+    assert.equal(published.appearance.input, text, "the publication names the text it read");
+    assert.ok(Object.isFrozen(published.appearance) && Object.isFrozen(published.appearance.sources), "the publication is frozen");
+    assert.equal(at(published.values, "surface.radius"), 9, "the publication resolves the accepted members");
+    assert.equal(published.logs.length, 1, "one line per refused member");
+    const brittle = accepted({ focusRing: { offset: "mul({button.radius}, 300)" } });
+    assert.equal(judge.withAppearance(TOKENS, brittle, { controlRadius: 16 }).ok, false, "16 * 300 = 4800 leaves the length range");
+    const fallback = judge.published(TOKENS, brittle, JSON.stringify({ controlRadius: 16 }));
+    assert.deepEqual([plain(fallback.values), fallback.logs.length], [plain(brittle.values), 1], "a resolver refusal is logged and draws the theme alone");
+    assert.equal(fallback.appearance.sources.controlRadius, "theme", "and shows the value as Set by theme");
 }
 verify(load(judgeFile));
 
@@ -1063,7 +1167,31 @@ const CONTROLS = [
     ["boundary roles", "    \"checkbox.borderColor\",\n", ""],
     ["boundary pairs", "    [\"toggle.knobOff\", \"toggle.off\"],\n", ""],
     ["boundary floor", "var BOUNDARY_FLOOR = 3;", "var BOUNDARY_FLOOR = 1;"],
-    ["title space below body line", '"body-lines": [1, 4096]', '"body-lines": [0, 4096]']
+    ["title space below body line", '"body-lines": [1, 4096]', '"body-lines": [0, 4096]'],
+    ["appearance flyout ratio", "flyout: 0.75,", "flyout: 1,"],
+    ["appearance group tab ratio", "groupTab: 0.5,", "groupTab: 1,"],
+    ["appearance control ratio", "control: 1 };", "control: 0.5 };"],
+    ["appearance user over theme", "Object.keys(stated).forEach(function (path) { overrides[path] = stated[path]; });", "Object.keys(stated).forEach(function (path) { if (!hasOwn(overrides, path)) overrides[path] = stated[path]; });"],
+    ["appearance ratios on a user value alone", "if (member.targets !== undefined && typeof values[key] === \"number\")\n            member.targets.forEach(function (target) { stated[target[0]] = values[key] * APPEARANCE_RATIOS[target[1]]; });", "if (member.targets !== undefined)\n            member.targets.forEach(function (target) { stated[target[0]] = (typeof values[key] === \"number\" ? values[key] : shown[key]) * APPEARANCE_RATIOS[target[1]]; });"],
+    ["appearance hyprland value on a group member", "if (member.hyprland !== undefined && value === \"hyprland\")", "if (value === \"hyprland\")"],
+    ["appearance range", "value >= member.min && value <= member.max", "true"],
+    ["appearance flag only", "member.only !== undefined ? value === member.only : typeof value === \"boolean\"", "typeof value === \"boolean\""],
+    ["appearance choice", "if (member.options.indexOf(value) !== -1)\n            return \"\";", "return \"\";"],
+    ["appearance unknown member", "if (!hasOwn(APPEARANCE, key))\n        return \"refused: appearance=\" + key + \" unknown\";", "if (!hasOwn(APPEARANCE, key))\n        return \"\";"],
+    ["appearance refused member left out", "if (line === \"\")\n            values[key] = given[key];", "if (true)\n            values[key] = given[key];"],
+    ["appearance motion off", "if (!moving && hasOwn(values, \"motion\"))\n        stated[MOTION_SCALE] = 0;", "if (!moving && hasOwn(values, \"motion\"))\n        stated[MOTION_SCALE] = 1;"],
+    ["appearance speed", "stated[MOTION_SCALE] = 1 / values.motionSpeed;", "stated[MOTION_SCALE] = values.motionSpeed;"],
+    ["appearance on over a still theme", "else if (moving && themeScale === 0)\n        stated[MOTION_SCALE] = 1;", ""],
+    ["appearance speed needs motion", "else if (moving && hasOwn(values, \"motionSpeed\"))", "else if (hasOwn(values, \"motionSpeed\"))"],
+    ["appearance style easings", "stated[\"motion.easing.emphasized\"] = MOTION_STYLES[values.motionStyle].emphasized;", ""],
+    ["appearance style preset", "stated[\"hyprland.motion.preset\"] = values.motionStyle;", ""],
+    ["appearance hyprland source", "values[key] === \"hyprland\" ? \"hyprland\" : \"user\";", "\"user\";"],
+    ["appearance unset source", "(member.unset || \"theme\")", "\"theme\""],
+    ["appearance layer groups", "hyprland[member.hyprland] = sources[key] !== \"hyprland\";", "hyprland[member.hyprland] = true;"],
+    ["appearance theme speed", "motionSpeed: themeScale > 0 ? 1 / themeScale : 1", "motionSpeed: 1"],
+    ["appearance published input", "    appearance.input = text;\n", ""],
+    ["appearance published fallback", "result = withAppearance(tokens, accepted, {});\n    }", "}"],
+    ["accept states its overrides", "values: result.values, overrides: stated.overrides };", "values: result.values, overrides: {} };"]
 ];
 
 const source = fs.readFileSync(judgeFile, "utf8");

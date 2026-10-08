@@ -256,7 +256,10 @@ var TOKENS = {
         },
         window: {
             radius: length("{radius.md}", 0, 32),
-            roundingPower: number(2, 1, 10)
+            roundingPower: number(2, 1, 10),
+            // Grouped window tabs; a user's corner radius sets half of it
+            // here (ThemeLogic.APPEARANCE_RATIOS).
+            groupRadius: length("{hyprland.window.radius}", 0, 32)
         },
         motion: {
             preset: { type: "choice", value: "smooth", options: ["none", "snappy", "smooth"] }

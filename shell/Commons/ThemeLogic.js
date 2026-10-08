@@ -586,8 +586,9 @@ function overridesOf(tokens, tree) {
 }
 
 // Judge and resolve one shell document, given as text. Answers
-// { ok: true, name, values } or one refusal; nothing of a refused document
-// is part of the answer.
+// { ok: true, name, values, overrides } or one refusal; nothing of a
+// refused document is part of the answer. `overrides` is what the document
+// states, which withAppearance resolves again under a user's values.
 function accept(tokens, text) {
     var document;
     try {
@@ -614,7 +615,7 @@ function accept(tokens, text) {
     var result = resolve(tokens, stated.overrides);
     if (!result.ok)
         return result;
-    return { ok: true, name: document.name, values: result.values };
+    return { ok: true, name: document.name, values: result.values, overrides: stated.overrides };
 }
 
 // --- plugin-owned appearance
@@ -984,7 +985,7 @@ function defaults(tokens) {
     var result = resolve(tokens, {});
     if (!result.ok)
         throw new Error(refusalLine(result));
-    return { ok: true, name: DEFAULT_NAME, values: result.values };
+    return { ok: true, name: DEFAULT_NAME, values: result.values, overrides: {} };
 }
 
 // Every dotted path the table holds, groups and tokens both, for the
@@ -1002,4 +1003,164 @@ function paths(tokens) {
     };
     walk(tokens, "");
     return out;
+}
+
+// --- Appearance values over the theme (D103)
+
+// The share of a user's base value each token takes: windows the base,
+// flyouts three quarters, grouped window tabs half, controls the base. A
+// ratio applies to a user's value only; a theme's own tokens stand as the
+// theme states them.
+var APPEARANCE_RATIOS = { window: 1, flyout: 0.75, groupTab: 0.5, control: 1 };
+
+// The motion styles a user may choose, each named after the Hyprland
+// preset it sets, with the shell's two easings beside it. `smooth` is the
+// table's own default.
+var MOTION_STYLES = {
+    smooth: { standard: "outCubic", emphasized: "outQuint" },
+    snappy: { standard: "outQuart", emphasized: "outExpo" }
+};
+
+// Each member of shell.json `appearance`. `type` is `length` (a whole
+// pixel count from `min` to `max`), `number` (from `min` to `max`), `flag`
+// (a boolean, or `only` that value) or `choice` (one of `options`).
+// `hyprland` names the generated layer's group the member decides: a
+// length member takes the value "hyprland", which leaves that group to the
+// user's own Hyprland configuration, and a member without a value is
+// `unset`, "theme" unless stated. `theme` is the token whose resolved theme
+// value the member shows while the user sets none; `targets` are the tokens
+// a user's number sets, each with its ratio.
+var APPEARANCE = {
+    windowRadius: {
+        type: "length", min: 0, max: 32, hyprland: "radius", theme: "hyprland.window.radius",
+        targets: [["hyprland.window.radius", "window"], ["surface.radius", "flyout"], ["popover.radius", "flyout"], ["menu.radius", "flyout"],
+            ["dialog.radius", "flyout"], ["osd.radius", "flyout"], ["hyprland.window.groupRadius", "groupTab"]]
+    },
+    borderWidth: { type: "length", min: 0, max: 20, hyprland: "borders", theme: "hyprland.border.size", targets: [["hyprland.border.size", "window"]] },
+    controlRadius: { type: "length", min: 0, max: 16, theme: "button.radius", targets: [["button.radius", "control"], ["textField.radius", "control"], ["segmented.radius", "control"]] },
+    motion: { type: "flag" },
+    motionStyle: { type: "choice", options: Object.keys(MOTION_STYLES) },
+    motionSpeed: { type: "number", min: 0.5, max: 2 },
+    // Hyprland keeps the user's own animations unless the user chooses to
+    // move windows with the shell's motion: no theme value stands in.
+    windowAnimations: { type: "flag", only: true, hyprland: "motion", unset: "hyprland" }
+};
+
+// Why VALUE cannot be the user's KEY of APPEARANCE, as a keyed line, or "".
+function appearanceRefusal(key, value) {
+    if (!hasOwn(APPEARANCE, key))
+        return "refused: appearance=" + key + " unknown";
+    var member = APPEARANCE[key];
+    var want;
+    switch (member.type) {
+    case "length":
+    case "number":
+        if (member.hyprland !== undefined && value === "hyprland")
+            return "";
+        if (typeof value === "number" && isFinite(value) && value >= member.min && value <= member.max)
+            return "";
+        want = member.min + ".." + member.max + (member.hyprland !== undefined ? "|hyprland" : "");
+        break;
+    case "flag":
+        if (member.only !== undefined ? value === member.only : typeof value === "boolean")
+            return "";
+        want = member.only !== undefined ? String(member.only) : "boolean";
+        break;
+    case "choice":
+        if (member.options.indexOf(value) !== -1)
+            return "";
+        want = member.options.join("|");
+        break;
+    default:
+        throw new Error("theme: appearance member " + key + " has unknown type " + member.type);
+    }
+    return "refused: " + key + "=" + JSON.stringify(value) + " want=" + want;
+}
+
+// THEME, an accept or defaults answer, under USER, shell.json `appearance`:
+// { ok: true, values, appearance, refusals } or the resolver's refusal.
+// Each member APPEARANCE refuses is left out and listed in `refusals` as
+// { key, line }, so it shows as Set by theme. The user's values join the
+// theme's overrides, the user's winning, and resolve once, so every token
+// that references a changed token follows it; with no user token the
+// theme's own values answer unchanged. `appearance` is { values, the
+// accepted members; theme, what each member shows while the user sets
+// none; sources, `theme`, `user` or `hyprland` per member; hyprland,
+// whether the layer writes each group a member decides }.
+function withAppearance(tokens, theme, user) {
+    var given = isPlainObject(user) ? user : {};
+    var values = {};
+    var refusals = [];
+    Object.keys(given).forEach(function (key) {
+        var line = appearanceRefusal(key, given[key]);
+        if (line === "")
+            values[key] = given[key];
+        else
+            refusals.push({ key: key, line: line });
+    });
+    var themeScale = valueAt(theme.values, MOTION_SCALE);
+    var shown = {
+        motion: themeScale > 0,
+        motionStyle: valueAt(theme.values, "hyprland.motion.preset"),
+        motionSpeed: themeScale > 0 ? 1 / themeScale : 1
+    };
+    var stated = {};
+    var sources = {};
+    var hyprland = {};
+    Object.keys(APPEARANCE).forEach(function (key) {
+        var member = APPEARANCE[key];
+        if (member.theme !== undefined)
+            shown[key] = valueAt(theme.values, member.theme);
+        sources[key] = !hasOwn(values, key) ? (member.unset || "theme") : values[key] === "hyprland" ? "hyprland" : "user";
+        if (member.hyprland !== undefined)
+            hyprland[member.hyprland] = sources[key] !== "hyprland";
+        if (member.targets !== undefined && typeof values[key] === "number")
+            member.targets.forEach(function (target) { stated[target[0]] = values[key] * APPEARANCE_RATIOS[target[1]]; });
+    });
+    var moving = hasOwn(values, "motion") ? values.motion : themeScale > 0;
+    if (!moving && hasOwn(values, "motion"))
+        stated[MOTION_SCALE] = 0;
+    else if (moving && hasOwn(values, "motionSpeed"))
+        stated[MOTION_SCALE] = 1 / values.motionSpeed;
+    else if (moving && themeScale === 0)
+        stated[MOTION_SCALE] = 1;
+    if (hasOwn(values, "motionStyle")) {
+        stated["hyprland.motion.preset"] = values.motionStyle;
+        stated["motion.easing.standard"] = MOTION_STYLES[values.motionStyle].standard;
+        stated["motion.easing.emphasized"] = MOTION_STYLES[values.motionStyle].emphasized;
+    }
+    var resolved = { ok: true, values: theme.values };
+    if (Object.keys(stated).length > 0) {
+        var overrides = {};
+        Object.keys(theme.overrides).forEach(function (path) { overrides[path] = theme.overrides[path]; });
+        Object.keys(stated).forEach(function (path) { overrides[path] = stated[path]; });
+        resolved = resolve(tokens, overrides);
+        if (!resolved.ok)
+            return resolved;
+    }
+    return { ok: true, values: resolved.values, appearance: { values: values, theme: shown, sources: sources, hyprland: hyprland }, refusals: refusals };
+}
+
+function frozen(value) {
+    if (value !== null && typeof value === "object")
+        Object.keys(value).forEach(function (key) { frozen(value[key]); });
+    return Object.freeze(value);
+}
+
+// What Theme publishes for ACCEPTED, an accept or defaults answer, under
+// TEXT, shell.json `appearance` as JSON text or "" for none: { values,
+// appearance, logs }. `appearance` is withAppearance's, deep-frozen, with
+// `input` TEXT; `logs` are the lines to log, one per refused member, and the
+// resolver's refusal, after which the theme alone is drawn.
+function published(tokens, accepted, text) {
+    var logs = [];
+    var result = withAppearance(tokens, accepted, text === "" ? {} : JSON.parse(text));
+    if (!result.ok) {
+        logs.push(refusalLine(result).replace(/^theme: /, "appearance: ") + "; drawing the theme alone");
+        result = withAppearance(tokens, accepted, {});
+    }
+    result.refusals.forEach(function (refused) { logs.push("appearance: " + refused.line); });
+    var appearance = JSON.parse(JSON.stringify(result.appearance));
+    appearance.input = text;
+    return { values: result.values, appearance: frozen(appearance), logs: logs };
 }
