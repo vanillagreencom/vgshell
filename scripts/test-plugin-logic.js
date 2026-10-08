@@ -492,6 +492,27 @@ function suite(ctx, check) {
     }
     check("effectiveLayout does not alias the configuration", (() => { const c = ctx.effectiveConfig(shipped, null); ctx.effectiveLayout(c, manifests, "vgs.bar").left[0].x = 1; return c.bar.layout.left[0].x; })(), undefined);
 
+    const builtinNames = ["left-workspaces", "center-clock"];
+    const builtinConfig = { bar: { id: "vgs.bar", layout: {
+        left: [{ id: "acme.widget" }, { id: "vgs.bar/left-workspaces" }],
+        center: [{ id: "vgs.bar/center-clock" }], right: [] } } };
+    for (const [name, config, names, want] of [
+        ["registered builtin shares plugin order", builtinConfig, builtinNames, builtinConfig.bar.layout],
+        ["no catalogue admits no builtin", builtinConfig, [], { left: [{ id: "acme.widget" }], center: [], right: [] }],
+        ["foreign and unknown registration IDs are ignored", { bar: { id: "vgs.bar", layout: { left: [{ id: "alt.bar/center-clock" }, { id: "vgs.bar/unknown" }], center: [], right: [] } } }, builtinNames, { left: [], center: [], right: [] }],
+        ["a registration appears once across sections", { bar: { id: "vgs.bar", layout: { left: [{ id: "vgs.bar/center-clock" }], center: [{ id: "vgs.bar/center-clock" }], right: [] } } }, builtinNames, { left: [{ id: "vgs.bar/center-clock" }], center: [], right: [] }],
+        ["disabled active bar exposes no builtin", Object.assign({ disabledPlugins: ["vgs.bar"] }, builtinConfig), builtinNames, { left: [{ id: "acme.widget" }], center: [], right: [] }],
+    ]) check("effectiveLayout builtin: " + name, ctx.effectiveLayout(config, manifests, "vgs.bar", names), want);
+    for (const [name, config, id, section, index, want] of [
+        ["builtin moves with its active bar owner", builtinConfig, "vgs.bar/center-clock", "left", 0, ""],
+        ["builtin needs its advertised name", builtinConfig, "vgs.bar/unknown", "left", 0, "refused: moved=vgs.bar/unknown reason=no-bar-widget"],
+        ["builtin needs placement", { bar: { id: "vgs.bar", layout: {} } }, "vgs.bar/center-clock", "left", 0, "refused: moved=vgs.bar/center-clock reason=unplaced"],
+        ["builtin uses the same section guard", builtinConfig, "vgs.bar/center-clock", "top", 0, 'refused: section="top" want=left|center|right'],
+        ["builtin uses the same index guard", builtinConfig, "vgs.bar/center-clock", "left", -1, "refused: index=-1 want=integer>=0"],
+    ]) check("moveRefusal builtin: " + name, ctx.moveRefusal(config, manifests["vgs.bar"], section, index, "vgs.bar", builtinNames, id), want);
+    check("withMoved keeps builtin identity across sections", ctx.withMoved({}, manifests["vgs.bar"], null, "right", 0, builtinConfig, "vgs.bar/center-clock").bar.layout,
+        { left: builtinConfig.bar.layout.left, center: [], right: [{ id: "vgs.bar/center-clock" }] });
+
     // settingTargetOf rows: [kind, want]. Every kind has one target.
     for (const kind of ctx.KINDS)
         check("settingTargetOf: " + kind, ctx.settingTargetOf(kind), kind === "bar-widget" ? "layout" : "plugins");
@@ -1185,6 +1206,11 @@ suite(load(LOGIC), report);
 // judge's own place in a temporary tree, beside the icon set, the
 // package-manager table and the Hyprland layer's table it imports.
 const CONTROLS = [
+    ["builtin placement needs the active catalogue", 'builtinNames.indexOf(id.slice(prefix.length)) !== -1', 'true'],
+    ["builtin placement needs the active bar prefix", 'id.indexOf(prefix) === 0', 'true'],
+    ["builtin placement needs an enabled owner", 'isEnabled(config, bar, defaultBarId)', 'true'],
+    ["builtin registration appears once", 'if (seenBuiltins.indexOf(entry.id) !== -1) return false;', ''],
+    ["builtin and plugin entries keep declared order", '}).map(clone);\n    });\n    return out;\n}\n\n// Enabled bar widgets', '}).map(clone).reverse();\n    });\n    return out;\n}\n\n// Enabled bar widgets'],
     ["session is a known capability", '"lock", "session",', '"lock", ("session" && "planted"),'],
     ["session is not exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"].concat(["session"]);'],
     ["the Bluetooth agent is exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "panes"];'],
@@ -1392,9 +1418,9 @@ const CONTROLS = [
     ["a widget already as asked changes nothing", "if (placed === isPlaced(effective, manifest))\n        return out;", "if (false)\n        return out;"],
     ["unplacing removes the entries", "return entry.id !== manifest.id; });", "return true; });"],
     ["unplacing lists a plugin with no row", "    seedUserBar(out, effective);\n    if (pluginRow(effective, manifest.id) === undefined) {", "    seedUserBar(out, effective);\n    if (false) {"],
-    ["moving refuses a plugin without a widget", "if (manifest.kinds.indexOf(\"bar-widget\") === -1)\n        return \"refused: moved=\" + manifest.id + \" reason=no-bar-widget\";", "if (false)\n        return \"refused: moved=\" + manifest.id + \" reason=no-bar-widget\";"],
-    ["moving refuses a disabled widget", "if (isPlaced(config, manifest) && !isEnabled(config, manifest, defaultBarId))\n        return \"refused: moved=\" + manifest.id + \" reason=disabled\";", "if (false)\n        return \"refused: moved=\" + manifest.id + \" reason=disabled\";"],
-    ["moving refuses an unplaced widget", "if (!isPlaced(config, manifest))\n        return \"refused: moved=\"", "if (false)\n        return \"refused: moved=\""],
+    ["moving refuses a plugin without a widget", "if (!builtin && manifest.kinds.indexOf(\"bar-widget\") === -1)\n        return \"refused: moved=\" + id + \" reason=no-bar-widget\";", "if (false)\n        return \"refused: moved=\" + id + \" reason=no-bar-widget\";"],
+    ["moving refuses a disabled widget", "if (placed && !isEnabled(config, manifest, defaultBarId))\n        return \"refused: moved=\" + id + \" reason=disabled\";", "if (false)\n        return \"refused: moved=\" + id + \" reason=disabled\";"],
+    ["moving refuses an unplaced widget", "if (!placed)\n        return \"refused: moved=\"", "if (false)\n        return \"refused: moved=\""],
     ["moving refuses an unknown section", "if (SECTIONS.indexOf(section) === -1)\n        return \"refused: section=\" + JSON.stringify(section) + \" want=left|center|right\";", "if (false)\n        return \"refused: section=\" + JSON.stringify(section) + \" want=left|center|right\";"],
     ["moving refuses a bad index", "if (typeof index !== \"number\" || !Number.isInteger(index) || index < 0)\n        return \"refused: index=\" + JSON.stringify(index) + \" want=integer>=0\";", "if (false)\n        return \"refused: index=\" + JSON.stringify(index) + \" want=integer>=0\";"],
     ["moving uses the locator nth", "if (seen === locator.nth) return { section: locator.section, index: i, nth: locator.nth, entry: entries[i] };", "if (seen === 0) return { section: locator.section, index: i, nth: locator.nth, entry: entries[i] };"],

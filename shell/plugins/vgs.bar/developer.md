@@ -2,11 +2,9 @@
 
 The bar's row in `plugins` in `~/.config/vgshell/shell.json` holds its settings, for example `{ "id": "vgs.bar", "clockFormat": "HH:mm" }`.
 
-`left`, `center` and `right` list the built-in widgets each section shows, in order, from `workspaces` and `clock`. The defaults are `["workspaces"]`, `["clock"]` and `[]`. An empty list hides them. These lists are not on the Settings page, since the page draws no list.
+`bar.layout` orders plugin IDs and the bar's registered builtin IDs together. `vgs.bar/left-workspaces` and `vgs.bar/center-clock` keep those IDs when moved to another section. Removing an entry hides that builtin.
 
-A name listed twice in one section is drawn once and the repeat is logged. `manager` draws nothing and logs the command that places the Plugins gear, which `vgs.settings` draws.
-
-Plugin widgets follow the built-ins in each section. A plugin's manifest names its section; `bar.layout` in `shell.json` places a widget anywhere. The shipped layout puts the Plugins gear in the right section.
+The bar declares `builtinNames` and receives `widgetLayout` from the core. Its single keyed model owns the builtin objects. The core positions their registered wrappers through the same section and drag path as plugin widgets.
 
 `hidden` hides the bar on every screen; its surface is unmapped, so it reserves no space. The launcher's Hide top bar row and the shortcut `vgs.bar:toggle` flip it.
 

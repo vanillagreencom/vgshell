@@ -18,6 +18,7 @@ set -euo pipefail
 placement_file="$home/.config/vgshell/shell.json"
 placement_saved="$sandbox/shell-before-placement.json"
 cp -- "$placement_file" "$placement_saved"
+cp -- "$placement_file" "$sandbox/shell-placement-entry.json"
 # [enabled, placed] of plugin ID in listPlugins.
 placement_listed() { ipc shell listPlugins | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin)["plugins"] if p["id"] == sys.argv[1]]; print(json.dumps([r[0]["enabled"], r[0]["placed"]]) if r else "absent")' "$1"; }
 # Whether each bar draws the fixture's widget, as the set of answers over
@@ -149,21 +150,69 @@ placement_reads() {
 expect "the fixture starts enabled and placed" '[true, true]' placement_listed acme.probe
 placement_disabled_before="$(placement_disabled)" || fail "the user file's disabledPlugins is unreadable"
 
-bar_row left '["clock","workspaces"]'
-expect_builtins "the external settings edit adds a left clock" '["vgs.bar/center-clock","vgs.bar/left-clock","vgs.bar/left-workspaces"]'
-expect "the built-in reorder snapshot includes both left widgets" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.bar/left-clock","vgs.bar/left-workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
-bar_row left '["workspaces","clock"]'
+expect "the clock moves beside workspaces through the ordinary API" ok ipc shell movePluginWidget vgs.bar/center-clock left 0
+expect_builtins "both builtins keep their IDs in the left section" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
+expect "the builtin reorder snapshot includes both widgets" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.bar/left-workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
+expect "workspaces moves before clock through the ordinary API" ok ipc shell movePluginWidget vgs.bar/left-workspaces left 0
 placement_left_builtin_order() {
   local ws clock
   ws="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar/left-workspaces)" || return
-  clock="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar/left-clock)" || return
+  clock="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar/center-clock)" || return
   py_reply 'import json,sys; a=json.load(sys.stdin); b=json.loads(sys.argv[1]); print(a[0]<b[0])' "$clock" <<<"$ws"
 }
-geometry expect_poll "the external settings edit reorders the existing built-ins" True placement_left_builtin_order
-expect "the external settings reorder keeps built-in and mounted identities" '[]' ipc smoke barWidgetIdentities
-expect "the built-in snapshot is released" ok ipc smoke forgetBarWidgets
-bar_row left '["workspaces"]'
-expect_builtins "the left clock leaves after the external edit" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
+geometry expect_poll "the ordinary API reorders the existing builtins" True placement_left_builtin_order
+expect "builtin section transfer and reorder keep all objects" '[]' ipc smoke barWidgetIdentities
+expect "the builtin snapshot is released" ok ipc smoke forgetBarWidgets
+cp -- "$placement_file" "$placement_saved"
+
+placement_builtin_section() {
+  ipc shell listShellConfig | py_reply 'import json,sys; layout=json.load(sys.stdin)["bar"]["layout"]; print(json.dumps([s for s in ("left","center","right") for e in layout[s] if e["id"]==sys.argv[1]]))' "$1"
+}
+# Hold the builtin's own shared frame across a section move into a plugin
+# neighbour. The same pointer barrier proves it stays the grabbed object.
+placement_held_builtin() {
+  local x y tx ty barrier out_fd in_fd hold_pid
+  read -r x y < <(placement_point vgs.bar/left-workspaces) || return 1
+  read -r tx ty < <(placement_before acme.tick vgs.bar/left-workspaces) || return 1
+  expect "the builtin drag snapshot includes all widgets" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.bar/left-workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
+  hover "$((x + 1))" "$y" || return 1
+  coproc builtin_hold { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$tx" "$ty" hold; }
+  out_fd="${builtin_hold[0]}" in_fd="${builtin_hold[1]}" hold_pid="$builtin_hold_PID"
+  read -r -t 10 barrier <&"$out_fd" || return 1
+  [[ $barrier == "holding $tx $ty" ]] || return 1
+  expect_poll "the builtin drag holds keyboard capture" vgs:passthrough key_submap
+  expect "the builtin's press stays held across visual section transfer" true ipc smoke readInstance "$(bar_key)" vgs.bar/left-workspaces frameDragging
+  expect "the held builtin preview keeps every widget object" '[]' ipc smoke barWidgetIdentities
+  expect "the builtin preview selects before its plugin neighbour" '["center", 0]' placement_preview_slot
+  printf '\n' >&"$in_fd"
+  exec {in_fd}>&-
+  read -r -t 10 barrier <&"$out_fd" || return 1
+  wait "$hold_pid" || return 1
+  exec {out_fd}<&-
+  pointer_at="$tx $ty"
+  expect_poll "the builtin pointer drop persists its new section" '["center"]' placement_builtin_section vgs.bar/left-workspaces
+  expect "the builtin pointer drop keeps every object" '[]' ipc smoke barWidgetIdentities
+  expect_poll "the builtin drop releases keyboard capture" default key_submap
+  expect "the builtin drag snapshot is released" ok ipc smoke forgetBarWidgets
+}
+placement_preview_slot() { ipc smoke barDragGeometry "$(bar_key)" | py_reply 'import json,sys; state=json.load(sys.stdin); print(json.dumps([state["section"],state["index"]]) if isinstance(state,dict) else "absent")'; }
+placement_held_builtin || fail "the builtin held pointer move completes"
+expect "workspaces returns to left after its pointer move" ok ipc shell movePluginWidget vgs.bar/left-workspaces left 0
+cp -- "$placement_file" "$sandbox/shell-before-builtin-escape.json"
+read -r tick_x tick_y < <(placement_point acme.tick) || fail "the builtin Escape target is unreadable"
+placement_drag_escape vgs.bar/left-workspaces "$tick_x" "$tick_y" vgs:passthrough || fail "the builtin Escape press completes"
+expect "builtin Escape leaves its layout unchanged" unchanged placement_same_as "$sandbox/shell-before-builtin-escape.json"
+expect_poll "builtin Escape leaves no keyboard capture" default key_submap
+workspace_before="$(hypr -j activeworkspace | py_reply 'import json,sys; print(json.load(sys.stdin)["id"])')" || fail "the focused workspace is unreadable"
+workspace_target=1
+[[ $workspace_before == 1 ]] && workspace_target=2
+workspace_box="$(ipc smoke itemGeometry "$(bar_key)" vgs.bar/left-workspaces BarItem "$workspace_target")" || fail "the workspace pill is unreadable"
+workspace_point="$(py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x+w/2,y+h/2))' <<<"$workspace_box")" || fail "the workspace pill point is unreadable"
+read -r workspace_x workspace_y <<<"$workspace_point"
+hover "$((workspace_x + 1))" "$workspace_y" && click "$workspace_x" "$workspace_y" || fail "the still workspace click completes"
+placement_focused_workspace() { hypr -j activeworkspace | py_reply 'import json,sys; print(json.load(sys.stdin)["id"])'; }
+expect_poll "a still click on the builtin keeps its workspace action" "$workspace_target" placement_focused_workspace
+expect "the original workspace returns after the builtin click" ok hypr dispatch workspace "$workspace_before"
 
 expect "disabling acme.tick for the refusals is allowed" ok ipc shell setPluginEnabled acme.tick false
 expect_poll "acme.tick reads disabled for the refusals" False plugin_enabled acme.tick
@@ -194,7 +243,6 @@ expect_poll "the rendered order follows the move to left" '["acme.probe", "acme.
 expect "moving the fixture back to right is allowed" ok ipc shell movePluginWidget acme.probe right 0
 expect_poll "the fixture is back in the right section after move tests" '{"left": [], "center": ["acme.tick"], "right": ["acme.probe"]}' placement_order
 
-placement_preview_slot() { ipc smoke barDragGeometry "$(bar_key)" | py_reply 'import json,sys; state=json.load(sys.stdin); print(json.dumps([state["section"],state["index"]]) if isinstance(state,dict) else "absent")'; }
 # An unchanged drop still must return the held widget to its Row. The
 # configuration writer publishes no change for this exact same slot.
 placement_same_slot() {
@@ -429,18 +477,18 @@ if copy_tree placement-rebuild-control \
   expect_poll "control: the rebuild still commits the same order" '{"left": [], "center": ["acme.probe", "acme.tick"], "right": []}' placement_order
   expect "control: restoring the rebuild makes the object check red" '["acme.probe","acme.tick"]' ipc smoke barWidgetIdentities
   expect "control: the identity snapshot is released" ok ipc smoke forgetBarWidgets
-  bar_row left '["clock","workspaces"]'
-  expect_builtins "control: the left clock is mounted" '["vgs.bar/center-clock","vgs.bar/left-clock","vgs.bar/left-workspaces"]'
-  expect "control: the built-in identity snapshot includes both widgets" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.bar/left-clock","vgs.bar/left-workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
-  bar_row left '["workspaces","clock"]'
-  geometry expect_poll "control: the rebuild still reorders the built-ins" True placement_left_builtin_order
-  expect "control: restoring the built-in rebuild makes the object check red" '["acme.probe","acme.tick","vgs.bar/left-clock","vgs.bar/left-workspaces"]' ipc smoke barWidgetIdentities
-  expect "control: the built-in snapshot is released" ok ipc smoke forgetBarWidgets
+  expect "control: clock moves into left with the same ID" ok ipc shell movePluginWidget vgs.bar/center-clock left 0
+  expect_builtins "control: both builtin IDs remain registered" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
+  expect "control: the builtin identity snapshot includes both widgets" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.bar/left-workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
+  expect "control: workspaces moves before clock" ok ipc shell movePluginWidget vgs.bar/left-workspaces left 0
+  geometry expect_poll "control: the rebuild still reorders the builtins" True placement_left_builtin_order
+  expect "control: rebuilding builtin delegates makes the object check red" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.bar/left-workspaces"]' ipc smoke barWidgetIdentities
+  expect "control: the builtin snapshot is released" ok ipc smoke forgetBarWidgets
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$repo" "$sandbox/placement-rebuild-restored.log" || fail "the shell starts after the rebuild control"
 fi
 
-cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+cp -- "$sandbox/shell-placement-entry.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
 expect_poll "the restored user file places the fixture again" '[true, true]' placement_listed acme.probe
 expect_poll "the restored fixture widget is in every bar" '[true]' placement_in_bars

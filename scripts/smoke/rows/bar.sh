@@ -1,4 +1,4 @@
-# inputs: config/shell.json shell/Core/PluginLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json
+# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* config/shell.json shell/Core/PluginLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json
 set -euo pipefail
 expect "instance guard accepts the runner's shell" true ipc shell guarded
 
@@ -188,67 +188,164 @@ else
   fail "buildCount unreadable"
 fi
 
-# A profile without a user bar reads the shipped System placement. Mouse
-# remains enabled but unplaced. The controls remove required buttons through
-# the placement API and the same reader rejects the incomplete bar.
+# Declaration and effective placement use one independent expected contract.
+# Runtime reads permit first-presence additions outside the requested group.
+fresh_want='{"left":["vgs.launcher","vgs.bar/left-workspaces","vgs.tray"],"center":["vgs.bar/center-clock"],"right":["vgs.vpn","vgs.network","vgs.bluetooth","vgs.sound","vgs.displays","vgs.keyboard","vgs.settings"]}'
+fresh_bar_declared() {
+  py_reply 'import json,sys
+config=json.load(sys.stdin); want=json.loads(sys.argv[1])
+layout={s:[e["id"] for e in config["bar"]["layout"][s]] for s in want}
+mouse=any(e["id"]=="vgs.mouse" for e in config["plugins"])
+print(layout==want and mouse and "vgs.mouse" not in config["disabledPlugins"])' "$fresh_want" <"$1"
+}
 fresh_bar_placement() {
   local config records
   config="$(ipc shell listShellConfig)" && records="$(ipc shell built)" || return 1
-  py_reply '
-import json, sys
-config, records = json.load(sys.stdin), json.loads(sys.argv[1])
-family = {"vgs.sound", "vgs.network", "vgs.bluetooth", "vgs.displays", "vgs.keyboard", "vgs.vpn", "vgs.mouse", "vgs.settings"}
-want = ["vgs.sound", "vgs.network", "vgs.bluetooth", "vgs.displays", "vgs.keyboard", "vgs.vpn", "vgs.settings"]
-layout = config["bar"]["layout"]
-placed = [e["id"] for e in layout["right"] if e["id"] in family]
-other = [e["id"] for section in ("left", "center") for e in layout[section] if e["id"] in family]
-bars = [[r["id"] for r in rows if r["kind"] == "bar-widget" and r["id"] in family] for key, rows in records.items() if key.startswith("bar:")]
-print("placed" if placed == want and not other and len(bars) == int(sys.argv[2]) and bars and all(ids == want for ids in bars) else json.dumps({"right": placed, "other": other, "bars": bars}))' "$records" "$monitors" <<<"$config"
+  py_reply 'import json,sys
+config,records,want=json.load(sys.stdin),json.loads(sys.argv[1]),json.loads(sys.argv[3])
+requested={i for ids in want.values() for i in ids}
+layout={s:[e["id"] for e in config["bar"]["layout"][s]] for s in want}
+ordered={s:[i for i in layout[s] if i in requested] for s in want}
+bars=[[r["id"] for r in rows if r["origin"]=="plugin" or r["kind"]=="bar-widget"] for key,rows in records.items() if key.startswith("bar:")]
+built=len(bars)==int(sys.argv[2]) and bool(bars) and all(all(ids.count(i)==1 for i in requested) and "vgs.mouse" not in ids for ids in bars)
+print("placed" if ordered==want and layout["left"][:1]==["vgs.launcher"] and all("vgs.mouse" not in ids for ids in layout.values()) and built else json.dumps({"ordered":ordered,"layout":layout,"bars":bars}))' "$records" "$monitors" "$fresh_want" <<<"$config"
 }
 fresh_bar_complete() { local state; state="$(fresh_bar_placement)" || return 1; [[ $state == placed ]] && echo True || echo False; }
+# Read actual boxes, including unrelated widgets, rather than record order.
+fresh_bar_rendered() {
+  local records hosts key id section box visible rows="" ids
+  records="$(ipc shell built)" || return 1
+  hosts="$(py_reply 'import json,sys; print(" ".join(k for k in json.load(sys.stdin) if k.startswith("bar:")))' <<<"$records")" || return 1
+  [[ -n $hosts ]] || { echo absent; return; }
+  for key in $hosts; do
+    box="$(ipc smoke instanceGeometry "$key" vgs.bar)" || return 1
+    rows+="$key bar $box"$'\n'
+    for section in left center right; do
+      box="$(ipc smoke barSectionGeometry "$key" "$section")" || return 1
+      rows+="$key $section $box"$'\n'
+    done
+    ids="$(py_reply 'import json,sys; print(" ".join(r["id"] for r in json.load(sys.stdin)[sys.argv[1]] if r["origin"]=="plugin" or r["kind"]=="bar-widget"))' "$key" <<<"$records")" || return 1
+    for id in $ids; do
+      box="$(ipc smoke instanceGeometry "$key" "$id")" && visible="$(ipc smoke readInstance "$key" "$id" visible)" || return 1
+      rows+="$key $id $visible $box"$'\n'
+    done
+  done
+  py_reply 'import json,sys
+want=json.loads(sys.argv[1]); hosts={}; failures=[]
+for line in sys.stdin:
+    fields=line.strip().split(" ",2)
+    if len(fields)!=3: continue
+    host,key,value=fields; rows=hosts.setdefault(host,{})
+    if key in ("bar","left","center","right"):
+        rows[key]=json.loads(value) if value.startswith("[") else None
+    else:
+        visible,box=value.split(" ",1); rows[key]=(visible=="true",json.loads(box) if box.startswith("[") else None)
+def inside(box,parent):
+    return box is not None and parent is not None and box[0]>=parent[0]-1 and box[1]>=parent[1]-1 and box[0]+box[2]<=parent[0]+parent[2]+1 and box[1]+box[3]<=parent[1]+parent[3]+1
+for host,rows in hosts.items():
+    if any(rows.get(s) is None for s in ("bar","left","center","right")): failures.append(host+":missing-section"); continue
+    for section,ids in want.items():
+        drawn=[]
+        for ident in ids:
+            visible,box=rows.get(ident,(False,None))
+            if box is None: failures.append(ident+":missing"); continue
+            # Displays draws only for a matching ready display. Keyboard
+            # draws only with multiple layouts. Both records remain required.
+            if ident in ("vgs.displays","vgs.keyboard") and not visible: continue
+            if not visible or box[2]<=0 or box[3]<=0: failures.append(ident+":not-drawn"); continue
+            if not inside(box,rows[section]) or not inside(box,rows["bar"]): failures.append(ident+":outside-section")
+            drawn.append((box[0],ident))
+        expected=[ident for ident in ids if ident not in ("vgs.displays","vgs.keyboard") or rows.get(ident,(False,None))[0]]
+        if [ident for _,ident in sorted(drawn)]!=expected: failures.append(section+":order")
+    launcher=rows.get("vgs.launcher",(False,None))[1]
+    if launcher is not None:
+        for ident,value in rows.items():
+            if ident in ("bar","left","center","right"): continue
+            visible,box=value
+            if visible and box is not None and box[2]>0 and inside(box,rows["left"]) and box[0]<launcher[0]-1: failures.append(ident+":before-launcher")
+print("drawn" if len(hosts)==int(sys.argv[2]) and not failures else json.dumps({"hosts":list(hosts),"failures":failures}))' "$fresh_want" "$monitors" <<<"$rows"
+}
+fresh_bar_drawn() { local state; state="$(fresh_bar_rendered)" || return 1; [[ $state == drawn ]] && echo True || echo False; }
+fresh_restore() {
+  cp -- "$fresh_settled" "$home/.config/vgshell/shell.json.tmp"
+  mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
+  expect_poll "the full settled automatic placement profile returns" placed fresh_bar_placement
+}
+expect "the shipped lists match the complete requested declaration" True fresh_bar_declared "$repo/config/shell.json"
+fresh_declared_control="$sandbox/bar-declared-control.json"
+python3 - "$repo/config/shell.json" "$fresh_declared_control" <<'PY'
+import json,sys
+config=json.load(open(sys.argv[1])); config["bar"]["layout"]["right"].append({"id":"vgs.mouse"})
+with open(sys.argv[2],"w") as out: json.dump(config,out)
+PY
+expect "control: declaration rejects an extra shipped entry" False fresh_bar_declared "$fresh_declared_control"
 fresh_saved="$sandbox/bar-fresh-saved.json"
 cp -- "$home/.config/vgshell/shell.json" "$fresh_saved"
 if devices_ready bar; then
   stop_shell
-  # Probes read the private stand-ins while all System services are on.
-  # Keep their call histories for the later device-fixture checks.
   fresh_history="$sandbox/bar-fresh-history"
   mkdir -p -- "$fresh_history"
   cp -a -- "$devices_dir/calls" "$fresh_history/calls"
+  cp -a -- "$shim" "$fresh_history/shim"
+  fresh_paths=("$dev_state" "$home/.local/state/vgshell/updates/status.json")
+  for fresh_i in "${!fresh_paths[@]}"; do
+    if [[ -e ${fresh_paths[fresh_i]} ]]; then cp -a -- "${fresh_paths[fresh_i]}" "$fresh_history/state-$fresh_i"; fi
+  done
   if [[ -f $devices_hid_log ]]; then cp -- "$devices_hid_log" "$fresh_history/hid.calls"; fi
-  # Unrelated services stay off, as in the harness. No user layout or
-  # settings can supply the System placement this profile reads.
-  python3 - "$fresh_saved" "$home/.config/vgshell/shell.json" <<'PY'
-import json, os, sys
-saved, path = sys.argv[1:]
-family = {"vgs.system", "vgs.sound", "vgs.network", "vgs.bluetooth", "vgs.displays", "vgs.keyboard", "vgs.vpn", "vgs.mouse"}
-disabled = [i for i in json.load(open(saved))["disabledPlugins"] if i not in family]
-installed = os.path.join(os.path.dirname(path), "plugins")
-disabled = sorted(set(disabled) | set(os.listdir(installed)))
-with open(path + ".tmp", "w") as out:
-    json.dump({"version": 1, "disabledPlugins": disabled}, out)
-os.replace(path + ".tmp", path)
-PY
+  default_set_prepare '[]'
   expect "the fresh profile has no user bar" False python3 -c 'import json,sys; print("bar" in json.load(open(sys.argv[1])))' "$home/.config/vgshell/shell.json"
+  spawn "$sandbox/bar-fresh-tray.log" env -i PATH="$PATH" HOME="$home" DBUS_SESSION_BUS_ADDRESS="unix:path=$rt_dir/bus" python3 "$source_repo/scripts/smoke/fixtures/tray/mock-sni.py" "$sandbox/bar-fresh-tray.calls"
+  fresh_tray_pid="$spawn_pid"
   start_shell "$repo" "$sandbox/qs-bar-fresh.log" || fail "the fresh profile shell starts"
-  expect_poll "the fresh bar mounts the System defaults before Settings and leaves Mouse unplaced" placed fresh_bar_placement
+  expect_poll "the fresh bar preserves requested order and automatic widgets" placed fresh_bar_placement
+  geometry expect_poll "the fresh bar draws Launcher, workspaces, tray and clock in order" drawn fresh_bar_rendered
   expect "Mouse stays enabled off the fresh bar" True plugin_enabled vgs.mouse
-  expect "control: Settings can leave the fresh bar with the System family intact" ok ipc shell setPluginPlaced vgs.settings false
-  expect_poll "control: the placement reader rejects a bar missing only Settings" False fresh_bar_complete
-  expect "Settings returns to the fresh bar" ok ipc shell setPluginPlaced vgs.settings true
-  expect_poll "the complete fresh bar returns after the Settings control" placed fresh_bar_placement
-  expect "control: Sound can leave the fresh bar" ok ipc shell setPluginPlaced vgs.sound false
-  expect_poll "control: the placement reader rejects a bar missing Sound" False fresh_bar_complete
+  fresh_settled="$sandbox/bar-fresh-settled.json"
+  cp -- "$home/.config/vgshell/shell.json" "$fresh_settled"
+  for fresh_missing in vgs.settings vgs.sound; do
+    expect "control: $fresh_missing can leave the fresh bar" ok ipc shell setPluginPlaced "$fresh_missing" false
+    expect_poll "control: placement rejects a bar missing $fresh_missing" False fresh_bar_complete
+    fresh_restore
+  done
+  expect "control: Sound can move before VPN" ok ipc shell movePluginWidget vgs.sound right 0
+  expect_poll "control: placement rejects the wrong right order" False fresh_bar_complete
+  fresh_restore
+  expect "control: Launcher can move after workspaces" ok ipc shell movePluginWidget vgs.launcher left 1
+  expect_poll "control: typed placement rejects Launcher after workspaces" False fresh_bar_complete
+  geometry expect_poll "control: rendered placement rejects Launcher after workspaces" False fresh_bar_drawn
+  fresh_restore
+  fresh_snapshot="$(ipc smoke rememberBarWidgets "$(bar_key)")" || fail "the fresh identity snapshot is unreadable"
+  expect "the fresh snapshot includes builtin identities" True py_reply 'import json,sys; ids=json.load(sys.stdin); print({"vgs.bar/left-workspaces","vgs.bar/center-clock"} <= set(ids))' <<<"$fresh_snapshot"
+  expect "control: workspaces moves to right with the same ID" ok ipc shell movePluginWidget vgs.bar/left-workspaces right 0
+  expect_poll "control: placement rejects workspaces in another section" False fresh_bar_complete
+  expect "builtin section transfer keeps every object" '[]' ipc smoke barWidgetIdentities
+  expect "the fresh identity snapshot is released" ok ipc smoke forgetBarWidgets
+  fresh_restore
+  python3 - "$home/.config/vgshell/shell.json" <<'PY'
+import json,os,sys
+path=sys.argv[1]; config=json.load(open(path)); config["bar"]["layout"]["center"]=[e for e in config["bar"]["layout"]["center"] if e["id"]!="vgs.bar/center-clock"]
+with open(path+".tmp","w") as out: json.dump(config,out)
+os.replace(path+".tmp",path)
+PY
+  expect_poll "control: placement rejects a missing builtin clock" False fresh_bar_complete
+  fresh_restore
+  expect "control: enabled Mouse can be placed" ok ipc shell setPluginPlaced vgs.mouse true
+  expect_poll "control: placement rejects any Mouse placement" False fresh_bar_complete
+  fresh_restore
+  geometry expect_poll "rendered placement returns after all controls" drawn fresh_bar_rendered
   stop_shell
-  rm -rf -- "$devices_dir/calls"
+  kill -TERM "$fresh_tray_pid" 2>/dev/null || true
+  wait "$fresh_tray_pid" 2>/dev/null || true
+  rm -rf -- "${devices_dir:?}/calls" "${shim:?}"
   cp -a -- "$fresh_history/calls" "$devices_dir/calls"
-  if [[ -f $fresh_history/hid.calls ]]; then
-    cp -- "$fresh_history/hid.calls" "$devices_hid_log"
-  else
-    rm -f -- "$devices_hid_log"
-  fi
+  cp -a -- "$fresh_history/shim" "$shim"
+  for fresh_i in "${!fresh_paths[@]}"; do
+    rm -rf -- "${fresh_paths[fresh_i]:?}"
+    if [[ -e $fresh_history/state-$fresh_i ]]; then cp -a -- "$fresh_history/state-$fresh_i" "${fresh_paths[fresh_i]}"; fi
+  done
+  if [[ -f $fresh_history/hid.calls ]]; then cp -- "$fresh_history/hid.calls" "$devices_hid_log"; else rm -f -- "$devices_hid_log"; fi
   cp -- "$fresh_saved" "$home/.config/vgshell/shell.json.tmp"
   mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
   start_shell "$repo" "$sandbox/qs-bar-restored.log" || fail "the smoke profile shell starts again"
-  expect_widgets "the original placed widget is restored after the fresh profile" '["acme.tick"]'
+  expect_widgets "the original placed widget returns after the fresh profile" '["acme.tick"]'
 fi

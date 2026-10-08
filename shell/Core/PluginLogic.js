@@ -3710,14 +3710,29 @@ function unknownIds(config, manifests) {
     return out;
 }
 
-// The widgets each bar section shows: the layout entries whose plugin is
-// known, declares kind bar-widget and is enabled. This is the one place
-// enablement meets placement; a bar receives the result and interprets
-// nothing. Entries are copied, so the caller may hold them.
-function effectiveLayout(config, manifests, defaultBarId) {
+// A registration name belongs only to the enabled active bar's catalogue.
+function builtinOwner(config, manifests, defaultBarId, builtinNames, id) {
+    var barId = activeBarId(config, defaultBarId);
+    var prefix = barId + "/";
+    var bar = hasOwn(manifests, barId) ? manifests[barId] : undefined;
+    return bar !== undefined && isEnabled(config, bar, defaultBarId)
+        && id.indexOf(prefix) === 0 && Array.isArray(builtinNames)
+        && builtinNames.indexOf(id.slice(prefix.length)) !== -1 ? bar : null;
+}
+
+// One section order for enabled plugin widgets and advertised builtins.
+// A registration has one object, so only its first placement is drawn.
+function effectiveLayout(config, manifests, defaultBarId, builtinNames) {
     var out = {};
+    var seenBuiltins = [];
     SECTIONS.forEach(function (section) {
         out[section] = sectionEntries(config, section).filter(function (entry) {
+            var owner = builtinOwner(config, manifests, defaultBarId, builtinNames, entry.id);
+            if (owner !== null) {
+                if (seenBuiltins.indexOf(entry.id) !== -1) return false;
+                seenBuiltins.push(entry.id);
+                return true;
+            }
             var m = hasOwn(manifests, entry.id) ? manifests[entry.id] : undefined;
             return m !== undefined && m.kinds.indexOf("bar-widget") !== -1 && isEnabled(config, m, defaultBarId);
         }).map(clone);
@@ -3816,13 +3831,16 @@ function placedRefusal(config, manifest, defaultBarId) {
 // INDEX, or "". Moving keeps the existing layout entry and its settings, so
 // it needs a placed and enabled widget. SECTION and INDEX are the persisted
 // layout address, not pixel geometry.
-function moveRefusal(config, manifest, section, index, defaultBarId) {
-    if (manifest.kinds.indexOf("bar-widget") === -1)
-        return "refused: moved=" + manifest.id + " reason=no-bar-widget";
-    if (isPlaced(config, manifest) && !isEnabled(config, manifest, defaultBarId))
-        return "refused: moved=" + manifest.id + " reason=disabled";
-    if (!isPlaced(config, manifest))
-        return "refused: moved=" + manifest.id + " reason=unplaced";
+function moveRefusal(config, manifest, section, index, defaultBarId, builtinNames, id) {
+    id = id === undefined ? manifest.id : id;
+    var builtin = builtinOwner(config, { [manifest.id]: manifest }, defaultBarId, builtinNames, id) !== null;
+    var placed = layoutPositionOf(config, id, null) !== null;
+    if (!builtin && manifest.kinds.indexOf("bar-widget") === -1)
+        return "refused: moved=" + id + " reason=no-bar-widget";
+    if (placed && !isEnabled(config, manifest, defaultBarId))
+        return "refused: moved=" + id + " reason=disabled";
+    if (!placed)
+        return "refused: moved=" + id + " reason=unplaced";
     if (SECTIONS.indexOf(section) === -1)
         return "refused: section=" + JSON.stringify(section) + " want=left|center|right";
     if (typeof index !== "number" || !Number.isInteger(index) || index < 0)
@@ -3877,14 +3895,15 @@ function withPlaced(user, manifest, placed, effective) {
 // `{ section, nth }` or null for the first entry in section order. INDEX is
 // the target section's entry index after the source entry has been removed.
 // The moved entry keeps its settings.
-function withMoved(user, manifest, from, section, index, effective) {
+function withMoved(user, manifest, from, section, index, effective, id) {
+    id = id === undefined ? manifest.id : id;
     var out = isPlainObject(user) ? clone(user) : {};
     if (out.version === undefined) out.version = CONFIG_VERSION;
     seedUserBar(out, effective);
     if (!isPlainObject(out.bar.layout)) out.bar.layout = { left: [], center: [], right: [] };
     for (var s = 0; s < SECTIONS.length; s++)
         if (!Array.isArray(out.bar.layout[SECTIONS[s]])) out.bar.layout[SECTIONS[s]] = [];
-    var source = layoutPositionOf(out, manifest.id, from);
+    var source = layoutPositionOf(out, id, from);
     if (source === null) return out;
     var entry = out.bar.layout[source.section].splice(source.index, 1)[0];
     var target = out.bar.layout[section];
