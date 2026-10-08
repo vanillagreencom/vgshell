@@ -101,6 +101,7 @@ function choiceLine(label, value, width) {
 function providerChoices(kind, width, pages) {
     var rows = PROVIDERS.filter(function (row) {
         if (kind === "cli") return row.kind === "cli";
+        if (kind === "sign-in") return row.kind === "cli" && Array.isArray(row.signIn);
         if (kind === "key") return modelKeyProvider(row);
         throw new Error("jarvis-providers: kind=" + kind);
     });

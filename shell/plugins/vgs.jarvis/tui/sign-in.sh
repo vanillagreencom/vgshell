@@ -26,7 +26,7 @@ gum() { "${child_env[@]}" "${gum_env[@]}" gum "$@"; }
 program="$VGS_PLUGIN_DIR/backend/accounts.js"
 vgs_tui_header "Sign in to an AI account" "Use your Claude Code or Codex account as the Jarvis AI model." \
   "The app runs its own sign-in. Jarvis does not read or copy its login token."
-choices="$(vgs_tui_logged "$log" "${child_env[@]}" node "$program" --tree "$tree" providers cli "$(vgs_tui_columns)")" ||
+choices="$(vgs_tui_logged "$log" "${child_env[@]}" node "$program" --tree "$tree" providers sign-in "$(vgs_tui_columns)")" ||
   { vgs_tui_failed "$log" "Jarvis could not list the apps. Close this window and try again."; exit 1; }
 selected="$(vgs_tui_choose --label-delimiter=$'\t' --header "Select the app to sign in to." <<<"$choices")" || exit 130
 folders="$(vgs_tui_logged "$log" "${child_env[@]}" node "$program" --tree "$tree" sign-in-folders "$selected" "$(vgs_tui_columns)")" ||

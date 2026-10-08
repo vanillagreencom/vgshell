@@ -44,6 +44,11 @@ function provider(id) {
     // not list stays visible but unavailable; it never selects a driver.
     return row || { id, label: id, kind: "unsupported" };
 }
+function signInProvider(id) {
+    const row = provider(id);
+    if (row.kind !== "cli" || !Array.isArray(row.signIn)) fail("sign-in=provider");
+    return row;
+}
 /**
  * Whether the chained engine runs an account, read by the engine and by the
  * AI model list: RESOLVED, resolve()'s answer, as { kind: "accepted",
@@ -196,9 +201,8 @@ class Accounts {
     added() {
         return addedRows(this.file);
     }
-
     signInFolders(providerId) {
-        if (provider(providerId).kind !== "cli") fail("sign-in=provider");
+        signInProvider(providerId);
         const found = this.candidates();
         if (found.partial) fail("sign-in=search-incomplete");
         return found.candidates.filter(item => item.provider === providerId
@@ -225,9 +229,9 @@ class Accounts {
     // The vendor owns its login and token store. Its output and prompts stay
     // on the terminal, never in our metadata, parser or setup log.
     signIn(value) {
-        if (process.stdin.isTTY !== true) fail("sign-in=terminal-required");
         const entry = added(value);
-        const row = provider(entry.provider);
+        const row = signInProvider(entry.provider);
+        if (process.stdin.isTTY !== true) fail("sign-in=terminal-required");
         const make = file => {
             const opened = directory(file, true);
             if (opened.kind === "directory") return opened;

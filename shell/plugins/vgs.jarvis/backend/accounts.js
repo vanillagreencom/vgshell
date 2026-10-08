@@ -88,7 +88,7 @@ async function main() {
         break;
     }
     case "providers":
-        if (args.length !== 3 || !["cli", "key"].includes(args[1])) throw new Error("jarvis-accounts: arguments=providers");
+        if (args.length !== 3 || !["cli", "sign-in", "key"].includes(args[1])) throw new Error("jarvis-accounts: arguments=providers");
         lines = providerChoices(args[1], width(args[2]), false);
         break;
     case "items": {

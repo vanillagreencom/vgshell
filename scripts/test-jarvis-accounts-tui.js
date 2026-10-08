@@ -168,10 +168,19 @@ world(async () => {
     wide(plugin);
     narrow(plugin);
     choices(plugin);
-    // Add directory offers sign-in programs only, claude and codex among them.
+    // Add directory offers CLI providers, including Copilot, even when a
+    // provider has no sign-in command.
     const cliIds = providerIds(plugin, "cli");
-    assert.ok(cliIds.includes("claude") && cliIds.includes("codex"));
+    assert.ok(cliIds.includes("claude") && cliIds.includes("codex") && cliIds.includes("copilot"));
     assert.ok(cliIds.every(id => PROVIDERS.find(row => row.id === id)?.kind === "cli"));
+    // The Sign in screen offers only CLI providers with a sign-in command.
+    const signInProviders = folder => {
+        const ids = providerIds(folder, "sign-in");
+        assert.ok(ids.includes("claude") && ids.includes("codex"));
+        assert.equal(ids.includes("copilot"), false);
+        assert.ok(ids.every(id => Array.isArray(PROVIDERS.find(row => row.id === id)?.signIn)));
+    };
+    signInProviders(plugin);
     // Use keyring item offers the AI model key providers Add key does: key
     // rows with a model, openai among them, never the speech-only
     // ElevenLabs key or Cerebras, whose row names no model.
@@ -439,8 +448,27 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
         assert.equal(result.stdout, "", "no vendor output without a terminal");
     };
     terminalRequired(plugin);
+    const copilotRefused = folder => {
+        for (const [verb, args] of [
+            ["sign-in-folders", ["copilot", "1000"]],
+            ["sign-in-entry", ["copilot", "new", "work"]],
+            ["sign-in", ["copilot", hand, "work"]]
+        ]) {
+            const before = records().length;
+            const result = cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), "--tree", tree, verb, ...args],
+                { env, encoding: "utf8", timeout: 15000 });
+            assert.equal(result.status, 1, verb);
+            if (verb !== "sign-in") assert.equal(result.stderr, "jarvis-accounts: sign-in=provider\n");
+            assert.equal(records().length, before, "no vendor program for " + verb);
+        }
+    };
+    copilotRefused(plugin);
     await control("backend/Accounts.js", "sign-in-terminal-required", 'if (process.stdin.isTTY !== true)',
         'if (false)', terminalRequired);
+    await control("AccountProviders.js", "sign-in-provider-list", 'if (kind === "sign-in") return row.kind === "cli" && Array.isArray(row.signIn);',
+        'if (kind === "sign-in") return row.kind === "cli";', signInProviders);
+    await control("backend/Accounts.js", "sign-in-provider-refusal", 'if (row.kind !== "cli" || !Array.isArray(row.signIn)) fail("sign-in=provider");',
+        'if (row.kind !== "cli") fail("sign-in=provider");', copilotRefused);
     await control("tui/sign-in.sh", "sign-in-prompt-colors", '"${gum_env[@]}" gum "$@"',
         'gum "$@"', themedSignIn);
     await control("tui/sign-in.sh", "sign-in-terminal-profile", 'gum_env=(TERM="${TERM:-}" COLORTERM="${COLORTERM:-}")',
