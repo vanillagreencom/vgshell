@@ -293,6 +293,7 @@ import sys
 fixture, sandbox = map(Path, sys.argv[1:])
 assert fixture.parent.resolve().is_relative_to(sandbox.resolve()), "cursor fixture must stay in the sandbox"
 fixture.write_text('''import QtQuick
+import QtQuick.Templates as T
 Rectangle {
     x: 0
     y: 0
@@ -305,7 +306,8 @@ Rectangle {
     readonly property bool hovering: pointer.hovered
     Component.onCompleted: {
         owner = parent;
-        button = owner.children[0];
+        // BarWidget owns a Loader before the plugin's button.
+        button = owner.children.find(child => child instanceof T.AbstractButton);
         owner.implicitWidth = 160;
     }
     Component.onDestruction: {
@@ -340,7 +342,16 @@ capture_cursor_pair() {
   expect "capture takes the second scene with the hand cursor" ok ipc vgs.capture invoke screenshot ''
   expect_poll "the cursor image finishes" idle capture_phase
 }
-capture_cursor_release() { expect "the flat cursor fixture is released" ok ipc smoke popupDrop capture-cursor; }
+capture_widget_width_restored() {
+  local widget button
+  widget="$(ipc smoke readInstance "$(bar_key)" vgs.capture implicitWidth)" || return 1
+  button="$(ipc smoke readDescendant "$(bar_key)" vgs.capture BarItem implicitWidth)" || return 1
+  [[ $widget == "$button" && $widget != 0 ]] && echo True || echo False
+}
+capture_cursor_release() {
+  expect "the flat cursor fixture is released" ok ipc smoke popupDrop capture-cursor
+  expect_poll "the cursor fixture restores the capture button's width" True capture_widget_width_restored
+}
 capture_cursor_changed() {
   local current
   current="$(capture_crop_hash "$(capture_path)" "$capture_cursor_crop" 50 20)" || return 1
@@ -648,10 +659,41 @@ expect_poll "capture waits for recorder finalization" idle capture_phase
 expect "SIGINT finalized the single recorder's file" True capture_recorded
 expect "the stopped recording leaves no recorder" False capture_recorder_left
 capture_config holdFinalize false
+: >"$capture_state/calls.jsonl"
+rm -f -- "$capture_state/signal"
 expect "capture starts another owned recording" ok ipc vgs.capture invoke record ''
 expect_poll "the second recording is active" recording capture_phase
+# The old cursor teardown collapsed the widget to its inherited Loader's
+# width. Keep that defect in a disposable copy to prove the stop reading
+# rejects a click that cannot reach the button.
+capture_cursor_control="$(mktemp -d "$sandbox/capture-cursor-control.XXXXXX")"
+python3 - "$sandbox/capture-cursor.qml" "$capture_cursor_control/Item.qml" <<'PY'
+from pathlib import Path
+import sys
+source, control = map(Path, sys.argv[1:])
+original = source.read_text()
+before = "button = owner.children.find(child => child instanceof T.AbstractButton);"
+after = "button = false ? owner.children.find(child => child instanceof T.AbstractButton) : owner.children[0];"
+assert original.count(before) == 1, "cursor teardown control match"
+changed = original.replace(before, after)
+assert changed != original
+control.write_text(changed)
+PY
+expect "control: the cursor teardown copy builds" ok ipc smoke popupLoad capture-cursor-control "$capture_cursor_control/Item.qml" "$(bar_key)" vgs.capture '{}'
+expect_poll "control: the cursor copy takes its input width" 160 capture_cursor_width
+expect "control: the cursor teardown copy is released" ok ipc smoke popupDrop capture-cursor-control
+expect_poll "control: the inherited child fails the restored-width readback" False capture_widget_width_restored
+click_centre "$(bar_key)" vgs.capture || fail "control: the collapsed recording widget could not be clicked"
+expect "control: the collapsed widget fails the idle stop readback" recording capture_phase
+expect "control: the missed click leaves the owned recorder running" True capture_recorder_left
+expect "control: the missed click fails the finalized-file readback" False capture_recorded
+expect "the correct cursor teardown builds after its control" ok ipc smoke popupLoad capture-cursor "$sandbox/capture-cursor.qml" "$(bar_key)" vgs.capture '{}'
+expect_poll "the restored cursor fixture takes its input width" 160 capture_cursor_width
+capture_cursor_release
 click_centre "$(bar_key)" vgs.capture || fail "the recording widget could not be clicked"
 expect_poll "clicking the recording widget stops capture" idle capture_phase
+expect_poll "the widget stop finalizes the owned recorder's file" True capture_recorded
+expect "the widget stop leaves no recorder" False capture_recorder_left
 expect "the widget clears its recording indicator after finalization" false ipc smoke readInstance "$(bar_key)" vgs.capture recording
 # The panel opens on its primary action. Shift+Tab reaches the target tiles
 # and then the mode switch; an arrow choice on either changes the action the
