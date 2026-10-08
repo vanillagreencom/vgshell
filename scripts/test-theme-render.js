@@ -2422,14 +2422,23 @@ const neovimTarget = selectionRender.acceptTarget(logic, "neovim",
     fs.readFileSync(path.join(neovimDir, "target.json"), "utf8"));
 assert.equal(neovimTarget.ok, true);
 
-function neovimStyles(text) {
+function neovimStyles(text, mode = "dark") {
     text = text.replace(/\r\n/g, "\n");
     const styles = new Map();
-    for (const [, group, body] of text.matchAll(/hl\("([^"]+)", \{([^\n]*)\}\)/g)) {
+    const parseSpec = body => {
         const spec = {};
         for (const [, key, value, flag, number] of body.matchAll(/(\w+) = (?:("[^"\n]*")|(true|false)|(\d+))/g))
             spec[key] = value === undefined ? (flag === undefined ? Number(number) : flag === "true") : JSON.parse(value);
-        styles.set(group, spec);
+        return spec;
+    };
+    for (const [, group, body] of text.matchAll(/hl\("([^"]+)", \{([^\n]*)\}\)/g))
+        styles.set(group, parseSpec(body));
+    const wordTable = /local diffText = \(\{([\s\S]*?)\n  \}\)\["([^"\n]+)"\]/.exec(text);
+    if (wordTable !== null && /hl\("DiffText", diffText\)/.test(text)) {
+        const selected = wordTable[2] === "@{scheme.mode}" ? mode : wordTable[2];
+        const cases = new Map(Array.from(wordTable[1].matchAll(/(dark|light) = \{([^\n]*)\},/g),
+            ([, key, body]) => [key, parseSpec(body)]));
+        if (cases.has(selected)) styles.set("DiffText", cases.get(selected));
     }
     const links = /local links = \{([\s\S]*?)\n  \}/.exec(text);
     assert.notEqual(links, null);
@@ -2451,31 +2460,49 @@ function neovimStyles(text) {
 function verifyNeovim(template) {
     const faults = [];
     const metrics = [];
-    const sourceStyles = neovimStyles(template);
-    for (const [group, style] of sourceStyles)
-        for (const field of ["fg", "bg", "sp"])
-            if (style[field] !== undefined && !style[field].startsWith("#@{"))
-                faults.push({ kind: "neovim-token-color", group, field });
+    const sourceModes = new Map(["dark", "light"].map(mode => [mode, neovimStyles(template, mode)]));
+    const sourceStyles = sourceModes.get("dark");
+    for (const [mode, styles] of sourceModes)
+        for (const [group, style] of styles)
+            for (const field of ["fg", "bg", "sp"])
+                if (style[field] !== undefined && !style[field].startsWith("#@{"))
+                    faults.push({ kind: "neovim-token-color", mode, group, field });
+    if (!/\}\)\["@\{scheme.mode\}"\]\n  hl\("DiffText", diffText\)/.test(template))
+        faults.push({ kind: "neovim-mode-selector", group: "DiffText" });
     const resolved = (styles, group, seen = new Set()) => {
         if (seen.has(group) || !styles.has(group)) return null;
         seen.add(group);
         const style = styles.get(group);
         return style.link === undefined ? style : resolved(styles, style.link, seen);
     };
-    for (const group of NEOVIM_AUDITED_UNSET)
-        if (resolved(sourceStyles, group) === null) faults.push({ kind: "neovim-coverage", group });
+    for (const [mode, styles] of sourceModes)
+        for (const group of NEOVIM_AUDITED_UNSET)
+            if (resolved(styles, group) === null) faults.push({ kind: "neovim-coverage", mode, group });
     // Role provenance is checked on the source. These fixed expressions use
     // each package's palette; no catalogue-specific value enters the target.
-    for (const [group, role, floor] of [["DiffAdd", "success", 0.08], ["DiffDelete", "danger", 0.08],
-        ["DiffText", "warning", 0.16]]) {
+    for (const [group, role, floor] of [["DiffAdd", "success", 0.08], ["DiffDelete", "danger", 0.08]]) {
         const fill = /^#@\{mix\(\{color.background\}, \{palette\.(\w+)\}, ([\d.]+)\)\}$/.exec(sourceStyles.get(group)?.bg);
         if (fill === null || fill[1] !== role)
             faults.push({ kind: "neovim-diff-palette", group, role });
         else if (Number(fill[2]) < floor)
             faults.push({ kind: "neovim-diff-fill", group, amount: Number(fill[2]), floor });
     }
-    // Modified lines use the page's existing raised surface. The warning
-    // tint belongs to modified words, which remain a separate state.
+    // Modified words use one recipe per declared mode. Dark words stay in
+    // the page or accent hue; light words retain the approved warning tint.
+    for (const [mode, styles] of sourceModes) {
+        const word = styles.get("DiffText");
+        const fill = /^#@\{mix\(\{color.background\}, \{(color.text|color.accent|palette.warning)\}, ([\d.]+)\)\}$/.exec(word?.bg);
+        if (mode === "light") {
+            if (word?.bg !== "#@{mix({color.background}, {palette.warning}, 0.35)}" ||
+                word?.fg !== "#@{contrast(mix({color.background}, {palette.warning}, 0.35))}")
+                faults.push({ kind: "neovim-light-word-recipe", mode, group: "DiffText" });
+        } else if (fill === null || !["color.text", "color.accent"].includes(fill[1])) {
+            faults.push({ kind: "neovim-dark-word-recipe", mode, group: "DiffText" });
+        }
+        if (fill !== null && Number(fill[2]) < 0.16)
+            faults.push({ kind: "neovim-diff-fill", mode, group: "DiffText", amount: Number(fill[2]), floor: 0.16 });
+    }
+    // Modified lines use the page's existing raised surface.
     if (sourceStyles.get("DiffChange")?.bg !== "#@{color.surfaceRaised}")
         faults.push({ kind: "neovim-diff-neutral", group: "DiffChange" });
     for (const { pkg, shipped } of selectionPackages) {
@@ -2485,7 +2512,6 @@ function verifyNeovim(template) {
                 curated: new Map(), installed: !shipped });
         assert.equal(rendered.ok, true);
         const styles = neovimStyles(rendered.files[0].bytes.toString("utf8"));
-        const page = logic.parseColor(pkg.values.color.background);
         const pair = (group, field, background, floor) => {
             const style = resolved(styles, group);
             const fg = logic.parseColor(style?.[field]);
@@ -2548,11 +2574,39 @@ function verifyNeovim(template) {
 }
 assert.deepEqual(neovimStyles(neovimTemplate.replace(/\n/g, "\r\n")), neovimStyles(neovimTemplate));
 const neovimMetrics = verifyNeovim(neovimTemplate);
+const neovimDarkA = "mix({color.background}, {color.text}, 0.24)";
+const neovimDarkB = "mix({color.background}, {color.accent}, 0.30)";
+const neovimAlternate = neovimTemplate.split(neovimDarkA).join(neovimDarkB);
+assert.notEqual(neovimAlternate, neovimTemplate);
+const neovimAlternateMetrics = verifyNeovim(neovimAlternate);
+// Replacing the mode table with its approved light entry reconstructs Last.
+// Every light package must keep all highlight colours and attributes.
+const neovimLastLight = neovimTemplate.replace(/  local diffText = \(\{[\s\S]*?\n  hl\("DiffText", diffText\)/,
+    '  hl("DiffText", { fg = "#@{contrast(mix({color.background}, {palette.warning}, 0.35))}", bg = "#@{mix({color.background}, {palette.warning}, 0.35)}", bold = true, underline = true })');
+for (const { pkg, shipped } of selectionPackages.filter(({ pkg }) => pkg.values.scheme.mode === "light")) {
+    const renderStyles = template => {
+        const rendered = selectionRender.renderTarget(logic, TOKENS, neovimTarget.target,
+            new Map([["neovim.lua", template]]), { values: pkg.values,
+                slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal,
+                curated: new Map(), installed: !shipped });
+        assert.equal(rendered.ok, true);
+        return neovimStyles(rendered.files[0].bytes.toString("utf8"));
+    };
+    assert.deepEqual(renderStyles(neovimTemplate), renderStyles(neovimLastLight));
+    assert.deepEqual(renderStyles(neovimAlternate), renderStyles(neovimLastLight));
+}
 const neovimControls = [
     ["neovim-diff-fill", 'hl("DiffAdd", { fg = "#@{contrast(mix({color.background}, {palette.success}, 0.18))}", bg = "#@{mix({color.background}, {palette.success}, 0.18)}" })',
         'hl("DiffAdd", { fg = "#@{contrast(mix({color.background}, {palette.success}, 0.04))}", bg = "#@{mix({color.background}, {palette.success}, 0.04)}" })', "DiffAdd"],
-    ["neovim-diff-fill", 'hl("DiffText", { fg = "#@{contrast(mix({color.background}, {palette.warning}, 0.35))}", bg = "#@{mix({color.background}, {palette.warning}, 0.35)}", bold = true, underline = true })',
-        'hl("DiffText", { fg = "#@{contrast(mix({color.background}, {palette.warning}, 0.08))}", bg = "#@{mix({color.background}, {palette.warning}, 0.08)}", bold = true, underline = true })', "DiffText"],
+    ["neovim-diff-fill", 'dark = { fg = "#@{contrast(mix({color.background}, {color.text}, 0.24))}", bg = "#@{mix({color.background}, {color.text}, 0.24)}"',
+        'dark = { fg = "#@{contrast(mix({color.background}, {color.text}, 0.08))}", bg = "#@{mix({color.background}, {color.text}, 0.08)}"', "DiffText"],
+    ["neovim-dark-word-recipe", 'dark = { fg = "#@{contrast(mix({color.background}, {color.text}, 0.24))}", bg = "#@{mix({color.background}, {color.text}, 0.24)}"',
+        'dark = { fg = "#@{contrast(mix({color.background}, {palette.warning}, 0.35))}", bg = "#@{mix({color.background}, {palette.warning}, 0.35)}"', "DiffText"],
+    ["neovim-light-word-recipe", 'light = { fg = "#@{contrast(mix({color.background}, {palette.warning}, 0.35))}", bg = "#@{mix({color.background}, {palette.warning}, 0.35)}"',
+        'light = { fg = "#@{contrast(mix({color.background}, {color.text}, 0.24))}", bg = "#@{mix({color.background}, {color.text}, 0.24)}"', "DiffText"],
+    ["neovim-mode-selector", '})["@{scheme.mode}"]', '})["dark"]', "DiffText"],
+    ["neovim-contrast", 'dark = { fg = "#@{contrast(mix({color.background}, {color.text}, 0.24))}"',
+        'dark = { fg = "#@{mix({color.background}, {color.text}, 0.24)}"', "DiffText"],
     ["neovim-title-directory-color", 'hl("Title", { fg = "#@{color.success}", bold = true })', 'hl("Title", { fg = "#@{color.info}", bold = true })'],
     ["neovim-title-directory-weight", 'hl("Directory", { fg = "#@{color.info}" })', 'hl("Directory", { fg = "#@{color.info}", bold = true })'],
     ["neovim-token-color", 'hl("Title", { fg = "#@{color.success}", bold = true })', 'hl("Title", { fg = "#99ff99", bold = true })'],
@@ -2572,7 +2626,8 @@ const neovimControls = [
         'hl("DiffAdd", { fg = "#@{contrast(mix({color.background}, {palette.danger}, 0.18))}", bg = "#@{mix({color.background}, {palette.danger}, 0.18)}" })'],
     ["neovim-search-state", 'bg = "#@{color.info}", bold = true, underline = true', 'bg = "#@{color.info}", bold = true'],
     ["neovim-diff-distinct", 'bg = "#@{mix({color.background}, {palette.danger}, 0.18)}", bold = true', 'bg = "#@{mix({color.background}, {palette.success}, 0.18)}", bold = true'],
-    ["neovim-diff-text-state", 'bg = "#@{mix({color.background}, {palette.warning}, 0.35)}", bold = true, underline = true', 'bg = "#@{mix({color.background}, {palette.warning}, 0.35)}", bold = true']
+    ["neovim-diff-text-state", 'bg = "#@{mix({color.background}, {palette.warning}, 0.35)}", bold = true, underline = true', 'bg = "#@{mix({color.background}, {palette.warning}, 0.35)}", bold = true'],
+    ["neovim-diff-text-state", 'bg = "#@{mix({color.background}, {color.text}, 0.24)}", bold = true, underline = true', 'bg = "#@{mix({color.background}, {color.text}, 0.24)}", bold = true']
 ];
 const neovimScratch = fs.mkdtempSync(path.join(os.tmpdir(), "neovim-theme-control-"));
 try {
@@ -2589,7 +2644,16 @@ try {
 } finally {
     fs.rmSync(neovimScratch, { recursive: true, force: true });
 }
+console.log(`test-theme-render: neovim-alternate packages=${selectionPackages.length} pairs=${neovimAlternateMetrics.length} shortfalls=0 dark=page-accent:0.30 light=page-warning:0.35`);
 console.log(`test-theme-render: neovim packages=${selectionPackages.length} audited-groups=${NEOVIM_AUDITED_UNSET.length} pairs=${neovimMetrics.length} controls=${neovimControls.length} floors=text:4.5,boundary:3`);
+for (const [variant, metrics] of [["A", neovimMetrics], ["B", neovimAlternateMetrics]]) {
+    for (const mode of ["dark", "light"]) {
+        const names = new Set(selectionPackages.filter(({ pkg }) => pkg.values.scheme.mode === mode).map(({ pkg }) => pkg.name));
+        const minimum = metrics.filter(metric => metric.group === "DiffText" && names.has(metric.package))
+            .reduce((a, b) => a.ratio < b.ratio ? a : b);
+        console.log(`test-theme-render: neovim-word-min ${JSON.stringify({ variant, mode, ...minimum })}`);
+    }
+}
 for (const floor of [4.5, 3]) {
     const minimum = neovimMetrics.filter(metric => metric.floor === floor).reduce((a, b) => a.ratio < b.ratio ? a : b);
     console.log(`test-theme-render: neovim-min ${JSON.stringify(minimum)}`);

@@ -54,7 +54,11 @@ local function apply()
   hl("DiffAdd", { fg = "#@{contrast(mix({color.background}, {palette.success}, 0.18))}", bg = "#@{mix({color.background}, {palette.success}, 0.18)}" })
   hl("DiffChange", { fg = "#@{contrast({color.surfaceRaised})}", bg = "#@{color.surfaceRaised}", italic = true })
   hl("DiffDelete", { fg = "#@{contrast(mix({color.background}, {palette.danger}, 0.18))}", bg = "#@{mix({color.background}, {palette.danger}, 0.18)}", bold = true })
-  hl("DiffText", { fg = "#@{contrast(mix({color.background}, {palette.warning}, 0.35))}", bg = "#@{mix({color.background}, {palette.warning}, 0.35)}", bold = true, underline = true })
+  local diffText = ({
+    dark = { fg = "#@{contrast(mix({color.background}, {color.text}, 0.24))}", bg = "#@{mix({color.background}, {color.text}, 0.24)}", bold = true, underline = true },
+    light = { fg = "#@{contrast(mix({color.background}, {palette.warning}, 0.35))}", bg = "#@{mix({color.background}, {palette.warning}, 0.35)}", bold = true, underline = true },
+  })["@{scheme.mode}"]
+  hl("DiffText", diffText)
   hl("Directory", { fg = "#@{color.info}" })
   hl("Title", { fg = "#@{color.success}", bold = true })
   hl("Folded", { fg = "#@{color.textMuted}", bg = "#@{color.surface}", italic = true })
