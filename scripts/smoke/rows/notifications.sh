@@ -2595,16 +2595,19 @@ expect_poll "the Settings window is gone after the Position checks" 0 window_cou
 notes dismiss-all >/dev/null
 expect_poll "the Place toasts are gone" 0 layer_count vgs:layer
 
+# Geometry uses files, as the Position readers above do. A full page
+# exceeds the kernel limit for one argument. The image and JSON remain
+# paired under the sandbox for the pixel evidence.
 # Paired frames use the same real state. The probe hides only hint ink;
 # the opaque backing stays drawn. Ratios use both captured RGB values.
-fade_hint_sample_value() { # PNG BACKGROUND ITEMS SURFACE OUTPUT_WIDTH OUTPUT_HEIGHT [REFERENCE_JSON]
+fade_hint_sample_value() { # PNG BACKGROUND ITEMS_FILE SURFACE OUTPUT_WIDTH OUTPUT_HEIGHT [REFERENCE_JSON]
   python3 -c "$png_rgba_py"'
 image, background = png_rgba(sys.argv[1]), png_rgba(sys.argv[2])
 if isinstance(image,str) or isinstance(background,str): print("png-unreadable"); sys.exit()
 iw,ih,rows=image
 bw,bh,back=background
 if (iw,ih)!=(bw,bh): print("background-size-mismatch"); sys.exit()
-items,surface=map(json.loads,sys.argv[3:5])
+items,surface=json.load(open(sys.argv[3])),json.loads(sys.argv[4])
 sx,sy=iw/float(sys.argv[5]),ih/float(sys.argv[6])
 labels=[i for i in items if i.get("role")=="hint" and i.get("text") in ("dismiss","actions") and i["visible"]]
 if len(labels)!=2: print("hint-labels-unreadable"); sys.exit()
@@ -2656,8 +2659,8 @@ console.log(covered && (process.argv[4]==="coverage" || readings.every(s=>s.mini
 JS_HINT
 }
 fade_hint_sample() { # PNG [REFERENCE_JSON]
-  local items surface background captured=0
-  items="$(ipc smoke descendantGeometry panel vgs.notifications)" || return
+  local items="${1%.png}-items.json" surface background captured=0
+  ipc smoke descendantGeometry panel vgs.notifications >"$items" || return
   surface="$(surface_box vgs:panel)" || return
   fade_output "$1" || return
   background="${1%.png}-background.png"
@@ -2676,9 +2679,10 @@ fade_hint_drawn() { # PNG
 # A layer flag is not a painted card. Read the nested output inside a
 # notification title wholly above the fade. Neither the header nor the
 # wallpaper can supply this sample's known opaque title ink.
-fade_card_ink_value() { # PNG ITEMS VIEW SURFACE INK BAND OUTPUT_WIDTH OUTPUT_HEIGHT
+fade_card_ink_value() { # PNG ITEMS_FILE VIEW SURFACE INK BAND OUTPUT_WIDTH OUTPUT_HEIGHT
   python3 -c "$png_rgba_py"'
-items, view, surface = map(json.loads, sys.argv[2:5])
+items = json.load(open(sys.argv[2]))
+view, surface = map(json.loads, sys.argv[3:5])
 ink = json.loads(sys.argv[5])
 image = png_rgba(sys.argv[1])
 if isinstance(image, str): print(image); sys.exit()
@@ -2705,12 +2709,12 @@ print(json.dumps({"count": count, "ink": ink, "title": title["text"], "box": [le
 ' "$@"
 }
 fade_card_sample() { # PNG
-  local items view surface ink socket output
-  items="$(ipc smoke descendantGeometry panel vgs.notifications)" || return
+  local items="${1%.png}-items.json" view surface ink socket output
+  ipc smoke descendantGeometry panel vgs.notifications >"$items" || return
   view="$(view_at_rest panel vgs.notifications "Fade probe 12")" || return
   surface="$(surface_box vgs:panel)" || return
   ink="$(look_at text.foreground)" || return
-  [[ $items == \[* && $view == \{* && $surface == \[* ]] || { echo no-card-view; return; }
+  [[ $view == \{* && $surface == \[* ]] || { echo no-card-view; return; }
   socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return
   output="$(first_name)" || return
   if ! shot_grim "$socket" "$rt_dir" -o "$output" -t png "$1"; then
@@ -2754,14 +2758,15 @@ fade_open_mid() {
 }
 # Compare drawn pixels against the same wallpaper without this panel.
 # Include visible card glow in the central strip below the card's box.
-fade_gap_value() { # PNG BACKGROUND ITEMS VIEW SURFACE OUTPUT_WIDTH OUTPUT_HEIGHT
+fade_gap_value() { # PNG BACKGROUND ITEMS_FILE VIEW SURFACE OUTPUT_WIDTH OUTPUT_HEIGHT
   python3 -c "$png_rgba_py"'
 image, background = png_rgba(sys.argv[1]), png_rgba(sys.argv[2])
 if isinstance(image,str) or isinstance(background,str): print("png-unreadable"); sys.exit()
 iw,ih,rows=image
 bw,bh,back=background
 if (iw,ih)!=(bw,bh): print("background-size-mismatch"); sys.exit()
-items,view,surface=map(json.loads,sys.argv[3:6])
+items=json.load(open(sys.argv[3]))
+view,surface=map(json.loads,sys.argv[4:6])
 cards=[i for i in items if i["type"]=="NotificationCard" and i["visible"]]
 caps=[i for i in items if i["type"]=="KeyCaps" and i["visible"]]
 if not cards or not caps: print("card-or-chips-absent"); sys.exit()
@@ -2798,9 +2803,9 @@ fade_output() { # PNG
   shot_grim "$socket" "$rt_dir" -o "$output" -t png "$1"
 }
 fade_gap_sample() {
-  local items view surface
+  local items="$sandbox/fade-gap-current-items.json" view surface
   view="$(view_at_rest panel vgs.notifications "Fade probe 12")" || return
-  items="$(ipc smoke descendantGeometry panel vgs.notifications)" || return
+  ipc smoke descendantGeometry panel vgs.notifications >"$items" || return
   surface="$(surface_box vgs:panel)" || return
   fade_output "$sandbox/fade-gap-current.png" || return
   fade_gap_value "$sandbox/fade-gap-current.png" "$fade_background" "$items" "$view" "$surface" "$mon_w" "$mon_h"
