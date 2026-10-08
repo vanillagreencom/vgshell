@@ -169,6 +169,10 @@ expect "Key Hints rows use the shared group spacing token" True kh_spacing
 expect_poll "the Themes row shows the user bind on its default key with no interaction" "$kh_user_hint" kh_field "$kh_themes" conflict
 
 expect_poll "the Themes row's field takes the focus" focused ipc smoke invokeInstance window vgs.keyhints focusKeyField "$kh_themes"
+type_keys -k Return || fail "Return on the Key Hints field failed"
+expect_poll "Return on the Key Hints field begins capture" true kh_field "$kh_themes" capturing
+type_keys -k Escape || fail "Escape in the Key Hints capture failed"
+expect_poll "Escape ends the Key Hints capture" false kh_field "$kh_themes" capturing
 type_keys "wallpaper" || fail "typing on the Themes row's field failed"
 expect_poll "typing on a row's field filters the rows" '["vgs.themes:wallpapers"]' kh_rows
 type_keys -M ctrl -k a -m ctrl -k BackSpace || fail "clearing the search field failed"
@@ -205,6 +209,11 @@ expect "Settings is summoned on the Themes page" ok ipc shell summon window vgs.
 expect_poll "the Settings window shows the Themes page" '"vgs.themes"' ipc smoke readInstance window vgs.settings page
 expect_poll "the Settings Keys row shows the key written here" '"SUPER+SLASH"' settings_field key
 expect_poll "the Settings Keys row shows the same hint" '"Also used by Key Hints (toggle)."' settings_field conflict
+expect_poll "the Settings Keys row's field takes the focus" focused ipc smoke invokeInstance window vgs.settings focusKeyField "$kh_themes"
+type_keys -k Return || fail "Return on the Settings field failed"
+expect_poll "Return on the Settings field begins capture" true settings_field capturing
+type_keys -k Escape || fail "Escape in the Settings capture failed"
+expect_poll "Escape ends the Settings capture" false settings_field capturing
 expect "the Settings Keys row's reset is applied" applied ipc smoke invokeInstance window vgs.settings applyKey "$kh_themes"
 expect_poll "the reset removes the Themes key from shell.json" absent themes_key
 expect_poll "the Themes row here shows the default key again" '"SUPER+SHIFT+T"' kh_field "$kh_themes" key

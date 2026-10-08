@@ -134,6 +134,7 @@ mutations=(
   "a submap change before the enter ends the capture|../Core/KeyCapture.qml|} else if (phase === \"passthrough\") {|} else if (phase !== \"idle\") {|tst_keycapture.qml"
   "key capture names keys itself|../Core/KeyCapture.qml|keyFor: (key, modifiers) => Logic.capturedKey(key, modifiers),|keyFor: (key, modifiers) => ({ kind: \"key\", key: String(key) }),|tst_keycapture.qml"
   "the shortcut field ignores Return|controls/ShortcutField.qml|Keys.onReturnPressed: event => root.enterPressed(event)|Keys.onReturnPressed: {}|tst_shortcutfield.qml"
+  "the shortcut field never begins capture|controls/ShortcutField.qml|capture.begin(root);|{}|tst_shortcutfield.qml"
   "the shortcut field ignores keypad Enter|controls/ShortcutField.qml|Keys.onEnterPressed: event => root.enterPressed(event)|Keys.onEnterPressed: {}|tst_shortcutfield.qml"
   "a click on the shortcut field begins nothing|controls/ShortcutField.qml|onClicked: root.edit(root.adding ? root.editing : root.groupAt(box.pressX))|onClicked: {}|tst_shortcutfield.qml"
   "a bind's shortcut field draws no capture hint|controls/ShortcutField.qml|property string conflict: found === null ? \"\" : found.hint|property string conflict: \"\"|tst_shortcutfield.qml"

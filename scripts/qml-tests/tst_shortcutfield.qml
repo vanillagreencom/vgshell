@@ -229,10 +229,19 @@ Item {
         }
 
         function test_return_space_enter_and_click_begin() {
+            const keyboard = buttonLabelled(field, "Type the keys");
+            mouseMove(keyboard);
+            tryVerify(() => keyboard.button !== null);
+            keyboard.button.forceActiveFocus(Qt.TabFocusReason);
+            before.forceActiveFocus(Qt.TabFocusReason);
             for (const start of [() => keyClick(Qt.Key_Return), () => keyClick(Qt.Key_Space), () => keyClick(Qt.Key_Enter), () => mouseClick(box(field))]) {
                 capture.holder = null;
                 capture.calls = [];
-                field.forceActiveFocus(Qt.TabFocusReason);
+                // A FocusScope restores its last focused child, which can
+                // be a deferred tool. This case activates the capture box.
+                // https://doc.qt.io/qt-6.8/qtquick-input-focus.html
+                box(field).forceActiveFocus(Qt.TabFocusReason);
+                verify(box(field).activeFocus);
                 start();
                 compare(JSON.stringify(capture.calls), '["begin"]');
                 compare(field.capturing, true);
