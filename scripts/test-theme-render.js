@@ -12,6 +12,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 const { load } = require("../bin/lib/qml-library.js");
 
 const repo = path.join(__dirname, "..");
@@ -857,6 +858,83 @@ try {
     fs.rmSync(selectionScratch, { recursive: true, force: true });
 }
 console.log(`test-theme-render: selection packages=${selectionPackages.length} roles=${SELECTION_ROLES.length} controls=${selectionControls}`);
+
+// Helix reads jump labels as a dedicated style. Parse rendered TOML with
+// Python's standard parser, as the editor-entry suite does for this target.
+const helixDir = path.join(themesDir, "targets", "helix");
+const helixTemplate = fs.readFileSync(path.join(helixDir, "helix.toml"), "utf8");
+const helixTarget = selectionRender.acceptTarget(logic, "helix",
+    fs.readFileSync(path.join(helixDir, "target.json"), "utf8"));
+assert.equal(helixTarget.ok, true);
+
+function verifyHelixJumpLabels(template) {
+    const texts = selectionPackages.map(({ pkg, shipped }) => {
+        const rendered = selectionRender.renderTarget(logic, TOKENS, helixTarget.target,
+            new Map([["helix.toml", template]]), {
+                values: pkg.values,
+                slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal,
+                curated: new Map(),
+                installed: !shipped
+            });
+        assert.equal(rendered.ok, true);
+        const output = rendered.files.find(file => file.destination === "helix.toml");
+        assert.notEqual(output, undefined);
+        return output.bytes.toString("utf8");
+    });
+    const parsed = spawnSync("python3", ["-c",
+        "import json, sys, tomllib; json.dump([tomllib.loads(text) for text in json.load(sys.stdin)], sys.stdout)"], {
+        input: JSON.stringify(texts), encoding: "utf8",
+        env: { PATH: process.env.PATH, LANG: "C.UTF-8", VGS_TEST_RUN: "1" }
+    });
+    assert.ifError(parsed.error);
+    assert.equal(parsed.status, 0, parsed.stderr);
+    const documents = JSON.parse(parsed.stdout);
+    assert.equal(documents.length, selectionPackages.length);
+    const shortfalls = [];
+    const metrics = documents.map((document, index) => {
+        const pkg = selectionPackages[index].pkg;
+        const label = document["ui.virtual.jump-label"];
+        assert.equal(logic.isPlainObject(label), true, pkg.name);
+        const foreground = logic.parseColor(label.fg);
+        const background = logic.parseColor(document["ui.background"].bg);
+        assert.notEqual(foreground, null, pkg.name);
+        assert.notEqual(background, null, pkg.name);
+        const ratio = logic.contrastRatio(foreground, background);
+        if (ratio < logic.READABILITY_FLOOR) shortfalls.push({ kind: "jump-label-contrast",
+            package: pkg.name, foreground: label.fg, background: document["ui.background"].bg,
+            ratio, floor: logic.READABILITY_FLOOR });
+        return { package: pkg.name, mode: pkg.values.scheme.mode, foreground: label.fg,
+            background: document["ui.background"].bg, ratio, modifiers: label.modifiers };
+    });
+    assert.deepEqual(shortfalls, []);
+    for (const [index, metric] of metrics.entries()) {
+        assert.deepEqual(logic.parseColor(metric.foreground),
+            logic.parseColor(selectionPackages[index].pkg.values.color.accent), metric.package);
+        assert.ok(Array.isArray(metric.modifiers) && metric.modifiers.includes("bold"), metric.package);
+    }
+    assert.ok(metrics.some(metric => metric.mode === "dark"));
+    assert.ok(metrics.some(metric => metric.mode === "light"));
+    return metrics;
+}
+
+const helixMetrics = verifyHelixJumpLabels(helixTemplate);
+const helixScratch = fs.mkdtempSync(path.join(os.tmpdir(), "helix-jump-control-"));
+try {
+    const needle = '"ui.virtual.jump-label" = { fg = "#@{color.accent}", modifiers = ["bold"] }';
+    assert.equal(helixTemplate.split(needle).length, 2);
+    const mutant = helixTemplate.replace(needle,
+        '"ui.virtual.jump-label" = { fg = "#@{color.textDisabled}", modifiers = ["bold"] }');
+    assert.notEqual(mutant, helixTemplate);
+    const file = path.join(helixScratch, "helix.toml");
+    fs.writeFileSync(file, mutant, { flag: "wx" });
+    assert.throws(() => verifyHelixJumpLabels(fs.readFileSync(file, "utf8")),
+        error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
+            error.actual.some(shortfall => shortfall.kind === "jump-label-contrast" &&
+                shortfall.ratio < shortfall.floor));
+} finally {
+    fs.rmSync(helixScratch, { recursive: true, force: true });
+}
+console.log(`test-theme-render: helix-jump-label packages=${helixMetrics.length} modes=dark,light floor=${logic.READABILITY_FLOOR} control=disabled-grey-rejected`);
 
 // RGB channel separation is a numerical distinction check. The owner judges
 // appearance in real terminal pictures. Rose Pine's main ANSI blue/brightblack

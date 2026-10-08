@@ -27,6 +27,7 @@
 "ui.menu" = { fg = "#@{color.text}", bg = "#@{color.surfaceRaised}" }
 "ui.menu.selected" = { fg = "#@{color.onAccent}", bg = "#@{color.accent}" }
 "ui.virtual" = "#@{color.textDisabled}"
+"ui.virtual.jump-label" = { fg = "#@{color.accent}", modifiers = ["bold"] }
 "ui.virtual.ruler" = { bg = "#@{color.surface}" }
 "ui.virtual.whitespace" = "#@{color.textDisabled}"
 "ui.virtual.indent-guide" = "#@{color.borderSubtle}"
