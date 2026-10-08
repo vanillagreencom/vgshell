@@ -44,13 +44,13 @@ async function world(main, timeout = 120000) {
 // ms bounds a missing observation, not a latency budget. A timeout carries
 // operator "until", so a caller tells an observation that never came from
 // one that came with the wrong value.
-async function until(check, message, ms = 5000) {
+async function until(check, message, ms = 5000, poll = 10) {
     const deadline = performance.now() + ms;
     while (!check()) {
         if (performance.now() >= deadline)
             throw new assert.AssertionError({ message, actual: false, expected: true, operator: "until" });
         // Observe child pipe/lock state. This is not a latency measurement.
-        await new Promise(resolve => setTimeout(resolve, 10));
+        await new Promise(resolve => setTimeout(resolve, poll));
     }
 }
 

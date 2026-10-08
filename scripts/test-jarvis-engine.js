@@ -188,13 +188,14 @@ async function advance(w, periods) {
         await turn();
     }
 }
+// Each poll advances the injected playback clock one node period. Child pipes
+// and the stand-in player's exit cross real I/O, so the poll is short.
 async function playOut(w) {
-    for (let i = 0; i < 3000 && w.s().playback.kind !== "idle"; i++) {
+    await wait(() => {
+        if (w.s().playback.kind === "idle") return true;
         w.audioClock.advance(20);
-        // Child pipes and the stand-in player's exit cross real I/O.
-        await new Promise(resolve => setTimeout(resolve, 1));
-    }
-    assert.equal(w.s().playback.kind, "idle", "playback completes");
+        return false;
+    }, "playback completes", OBSERVE_MS, 1);
 }
 const user = body => body.messages.filter(message => message.role === "user").map(message => message.content);
 const assistantCaptions = w => w.captions.filter(row => row[1] === "assistant");
