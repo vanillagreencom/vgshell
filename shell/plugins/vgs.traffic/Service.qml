@@ -29,8 +29,13 @@ Item {
     property int startedGeneration: 0
     property int ssStarts: 0
     property int skippedTicks: 0
+    // The last request to kill an app while the panel is open: null, or
+    // `{ name, state }`, `state` `running`, `sent` or `failed`.
+    property var ending: null
+    // A kill has started and its exit is not handled yet.
+    property bool killing: false
     readonly property var snapshot: ({ state: app.state, down: total.down, up: total.up, interfaces: total.interfaces,
-        apps: app.apps, other: app.other, bandwhich: bandwhichPresent })
+        apps: app.apps, other: app.other, bandwhich: bandwhichPresent, ending: ending })
 
     function publish() {
         if (shell === null || !registered) return;
@@ -66,9 +71,41 @@ Item {
         socketGeneration++;
         previousSockets = null;
         socketsAt = 0;
+        ending = null;
         app = { state: "measuring", apps: [], other: { down: null, up: null } };
         if (socketLeaseCount === 0) sockets.running = false;
         else Qt.callLater(root.read);
+    }
+
+    // An app's pids and connections in the newest sample, for the panel's
+    // Inspect and Kill. Reads only while the panel holds the sample.
+    function inspect(arg) {
+        const app = socketLeaseCount === 0 ? null : Logic.inspect(previousSockets, JSON.parse(arg).name);
+        return app === null ? "refused: inspect=app" : JSON.stringify(app);
+    }
+    // SIGTERM to the pids of one app, each named for it by ss in the newest
+    // sample, at most one refresh interval old while the panel is open.
+    // Linux hands out pids in turn up to pid_max, so a pid the sample names
+    // is not given to a new process within that interval unless the pid
+    // space wraps around in it.
+    function kill(arg) {
+        if (socketLeaseCount === 0) return "refused: kill=closed";
+        if (killing) return "refused: kill=busy";
+        const request = JSON.parse(arg);
+        const judged = Logic.killRequest(previousSockets, request);
+        if (judged.error !== undefined) return "refused: kill=" + judged.error;
+        ending = { name: request.name, state: "running" };
+        killer.command = ["kill", "-TERM"].concat(judged.pids.map(String));
+        killing = true;
+        killer.running = true;
+        return "ok";
+    }
+    function killed(code) {
+        if (!killing) return;
+        killing = false;
+        if (code !== 0) console.warn("traffic: kill exit=" + code + " " + killErrors.text.trim());
+        if (ending !== null) ending = { name: ending.name, state: code === 0 ? "sent" : "failed" };
+        Qt.callLater(root.read);
     }
 
     function read() {
@@ -174,15 +211,28 @@ Item {
         // process.cpp). Normal exited runs first and clears socketReading.
         onRunningChanged: if (!running && root.socketReading) root.finishSockets(-1, "")
     }
+    // kill(1) signals every pid it is given and exits non-zero when any
+    // signal fails, naming the cause on stderr; it writes nothing to stdout.
+    Process {
+        id: killer
+        clearEnvironment: true
+        environment: ({ PATH: null, LC_ALL: "C" })
+        stderr: StdioCollector { id: killErrors; waitForEnd: true }
+        onExited: code => root.killed(code)
+        // FailedToStart emits runningChanged without exited, as for ss.
+        onRunningChanged: if (!running) root.killed(-1)
+    }
     onShellChanged: {
         if (shell === null) return;
         if (!registered) {
             shell.ipc.handle("lease", root.lease);
+            shell.ipc.handle("inspect", root.inspect);
+            shell.ipc.handle("kill", root.kill);
             shell.ipc.handle("open", arg => shell.surfaces.summon("panel", arg || "{}"));
             shell.shortcut.register("open", "Network Traffic", () => shell.surfaces.toggle("panel", "{}"));
             registered = true;
         }
         publish();
     }
-    Component.onDestruction: { tick.stop(); sockets.running = false; interfaces.running = false; }
+    Component.onDestruction: { tick.stop(); sockets.running = false; interfaces.running = false; killer.running = false; }
 }

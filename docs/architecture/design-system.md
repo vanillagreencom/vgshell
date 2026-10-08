@@ -70,6 +70,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 - Do make every animation read a `motion` token, so `motion.scale` 0 stills the shell. `literal-duration` in `scripts/check-design-tokens.py` refuses a literal duration.
 - Do stop an animation no duration drives, such as a shader clock, while `motion.scale` is 0. Review holds it.
 - Do give a list of selectable rows one `ListCursor`, and never a per-row hover fill beside it. Use the shared row entrance and pass a plugin-owned look's timings and plate into the cursor. `scripts/qml-tests/tst_listcursor.qml` and `tst_overlays.qml` pin it. A view's built-in highlight cannot replace the shared cursor: it supplies no easing curve and cannot serve rows in a `Column`.
+- Never declare a `ListCursor` in a `Column`, `Row`, `Flow` or `Grid`, which would lay the shown plate out as a row and move every row; declare it beside the positioner. `cursor-positioner` in `scripts/check-pointer-cursor.py` refuses it.
 
 ### Layout
 

@@ -59,7 +59,8 @@ test("ss-acked-inode-ipv6-own-process-and-loopback", api => {
     acked(api);
     const sockets = plain(api.parseSockets(socketBefore));
     assert.deepEqual(Object.keys(sockets), ["10", "11", "12"]);
-    assert.deepEqual(sockets["11"], { name: "Browser", up: 50, down: 100 });
+    assert.deepEqual(sockets["11"], { name: "Browser", pids: [44], state: "ESTAB", peer: "[2001:db8:1::3]:443", up: 50, down: 100 });
+    assert.deepEqual(sockets["12"].pids, []);
     assert.equal(sockets["12"].name, "");
     assert.equal(Object.keys(api.parseSockets(socketAfter)).includes("16"), false);
     assert.equal(api.loopback("[2001:db8::1]:443"), false);
@@ -90,15 +91,78 @@ test("bounded-sockets-and-apps", api => {
     const proto = api.parseSockets('ESTAB 0 0 192.168.1.2:1234 93.184.216.34:443 users:(("__proto__",pid=42,fd=8)) ino:9\n\tbytes_acked:3 bytes_received:6');
     assert.equal(api.apps(proto, {}, 4000, 1000, { down: 10, up: 10 }).apps[0].name, "__proto__");
 });
-test("formatter-steps-and-unknown", api => {
-    for (const [input, expected] of [[0,"0 B/s"], [1023,"1023 B/s"], [1024,"1.0 KB/s"], [34816,"34.0 KB/s"], [1048576,"1.0 MB/s"], [1073741824,"1.0 GB/s"], [null,"--"], [undefined,"--"], [-1,"--"], [NaN,"--"]]) assert.equal(api.formatRate(input), expected);
+function kbDigits(api) { assert.equal(api.formatRate(34816, 0, 1), "34 KB/s"); assert.equal(api.formatRate(35328, 1, 0), "34.5 KB/s"); }
+test("formatter-steps-digits-and-unknown", api => {
+    // The manifest's defaults: whole KB/s, MB/s and up with one decimal.
+    for (const [input, kb, mb, expected] of [[0,0,1,"0 B/s"], [1023,2,2,"1023 B/s"], [1024,0,1,"1 KB/s"], [34816,0,1,"34 KB/s"],
+        [35328,1,1,"34.5 KB/s"], [35328,2,0,"34.50 KB/s"], [1048576,0,1,"1.0 MB/s"], [12.2 * 1048576,0,1,"12.2 MB/s"], [12.25 * 1048576,0,2,"12.25 MB/s"],
+        [12.2 * 1048576,1,0,"12 MB/s"], [1073741824,0,1,"1.0 GB/s"], [null,0,1,"--"], [undefined,0,1,"--"], [-1,0,1,"--"], [NaN,0,1,"--"]])
+        assert.equal(api.formatRate(input, kb, mb), expected, input + " " + kb + " " + mb);
+    kbDigits(api);
+});
+test("rate-sample-is-the-widest-unit", api => {
+    for (const [whole, kb, mb, expected] of [[2,0,1,"88.8 MB/s"], [3,0,1,"888.8 MB/s"], [2,2,1,"88.88 KB/s"], [2,0,0,"88 MB/s"], [2,1,1,"88.8 MB/s"]])
+        assert.equal(api.rateSample(whole, kb, mb), expected);
+});
+const owners = 'ESTAB 0 0 192.0.2.2:1234 198.51.100.1:443 users:(("a\\"b",pid=7,fd=3),("a\\"b",pid=7,fd=4),("helper",pid=9,fd=1),("a\\"b",pid=8,fd=2)) ino:5\n\tbytes_acked:3';
+function ownerName(api) { assert.deepEqual(plain(api.parseSockets(owners)["5"]).pids, [7, 8]); }
+test("ss-owner-pids-per-name", api => {
+    const socket = plain(api.parseSockets(owners)["5"]);
+    assert.equal(socket.name, 'a"b');
+    ownerName(api);
+});
+const world = () => ({
+    1: { name: "Browser", pids: [44, 42], state: "ESTAB", peer: "198.51.100.9:443", down: 0, up: 0 },
+    2: { name: "Browser", pids: [42], state: "FIN-WAIT-1", peer: "198.51.100.1:443", down: 0, up: 0 },
+    3: { name: "Player", pids: [50], state: "ESTAB", peer: "[2001:db8::1]:443", down: 0, up: 0 },
+    4: { name: "", pids: [], state: "ESTAB", peer: "198.51.100.2:443", down: 0, up: 0 }
+});
+test("inspect-processes-and-connections", api => {
+    assert.deepEqual(plain(api.inspect(world(), "Browser")), { name: "Browser", pids: [42, 44],
+        connections: [{ peer: "198.51.100.1:443", state: "FIN-WAIT-1" }, { peer: "198.51.100.9:443", state: "ESTAB" }], connectionCount: 2 });
+    assert.equal(api.inspect(world(), "Absent"), null);
+    assert.equal(api.inspect(world(), ""), null);
+    assert.equal(api.inspect(null, "Browser"), null);
+    const many = Object.fromEntries(Array.from({ length: api.INSPECT_ROWS + 3 }, (_, i) => [String(i), { name: "App", pids: [i + 1], state: "ESTAB", peer: "198.51.100." + i + ":443", down: 0, up: 0 }]));
+    const app = api.inspect(many, "App");
+    assert.equal(app.pids.length, api.INSPECT_ROWS + 3);
+    assert.equal(app.connections.length, api.INSPECT_ROWS);
+    assert.equal(app.connectionCount, api.INSPECT_ROWS + 3);
+});
+function killOutsideRow(api) { assert.deepEqual(plain(api.killRequest(world(), { name: "Browser", pids: [42, 50] })), { error: "changed" }); }
+test("kill-request-judge", api => {
+    for (const [request, expected] of [
+        [{ name: "Browser", pids: [44, 42, 44] }, { pids: [42, 44] }],
+        [{ name: "Player", pids: [50] }, { pids: [50] }],
+        [{ name: "Browser", pids: [50] }, { error: "changed" }],
+        [{ name: "Absent", pids: [42] }, { error: "app" }],
+        [{ name: "", pids: [42] }, { error: "app" }],
+        [{ name: "Browser", pids: [0] }, { error: "pid" }],
+        [{ name: "Browser", pids: [-42] }, { error: "pid" }],
+        [{ name: "Browser", pids: [42.5] }, { error: "pid" }],
+        [{ name: "Browser", pids: ["42"] }, { error: "pid" }],
+        [{ name: "Browser", pids: [] }, { error: "value" }],
+        [{ name: "Browser" }, { error: "value" }],
+        [{ pids: [42] }, { error: "value" }],
+        [null, { error: "value" }]
+    ]) assert.deepEqual(plain(api.killRequest(world(), request)), expected, JSON.stringify(request));
+    assert.deepEqual(plain(api.killRequest(null, { name: "Browser", pids: [42] })), { error: "app" });
+    killOutsideRow(api);
+});
+test("connection-states-and-command-lines", api => {
+    for (const [state, expected] of [["ESTAB", "Open"], ["SYN-SENT", "Opening"], ["SYN-RECV", "Opening"], ["FIN-WAIT-1", "Closing"], ["FIN-WAIT-2", "Closing"],
+        ["CLOSE-WAIT", "Closing"], ["LAST-ACK", "Closing"], ["CLOSING", "Closing"], ["TIME-WAIT", "Closing"], ["UNKNOWN", "UNKNOWN"]])
+        assert.equal(api.connectionState(state), expected);
+    assert.equal(api.connectionState("constructor"), "constructor");
+    for (const [text, expected] of [["/usr/bin/app\0--flag\0value\0", "/usr/bin/app --flag value"], ["app\0", "app"], ["", ""], ["a b\0c\0\0", "a b c"]])
+        assert.equal(api.commandLine(text), expected);
 });
 test("capture-state-actions", api => {
     for (const [state, tone, action] of [["ready","ok",false], ["needed","warning",true], ["nixos","warning",true], ["absent","info",false], ["denied","warning",false], ["unknown","warning",false]]) {
         const result = api.capture({ state }); assert.equal(result.tone, tone); assert.equal(result.action, action);
     }
 });
-for (const [name, old, replacement, verify] of [
+const controls = [
     ["bytes-sent", 'const down = /\\bbytes_received:(\\d+)/.exec(line), up = /\\bbytes_acked:(\\d+)/.exec(line);', 'const down = /\\bbytes_received:(\\d+)/.exec(line), up = /\\bbytes_sent:(\\d+)/.exec(line);', acked],
     ["omitted-upload-unknown", 'acked = up ? Number(up[1]) : 0', 'acked = up ? Number(up[1]) : NaN', omittedZeroCounters],
     ["omitted-download-unknown", 'const received = down ? Number(down[1]) : 0', 'const received = down ? Number(down[1]) : NaN', omittedZeroCounters],
@@ -117,16 +181,20 @@ for (const [name, old, replacement, verify] of [
         const sockets = Object.fromEntries(Array.from({ length: 51 }, (_, i) => [String(i + 1), { name: "App" + i, down: 6, up: 3 }]));
         assert.equal(api.apps(sockets, {}, 3000, 0, { down: 1000, up: 1000 }).apps.length, 50);
     }],
-    ["formatter-base", 'value /= 1024;', 'value /= 1000;', api => assert.equal(api.formatRate(34816), "34.0 KB/s")],
+    ["formatter-base", 'value /= 1024;', 'value /= 1000;', api => assert.equal(api.formatRate(34816, 1, 1), "34.0 KB/s")],
+    ["kb-digits", 'unit === 1 ? kbDigits : mbDigits', 'mbDigits', kbDigits],
+    ["owner-other-name", 'if (each === name && Number.isSafeInteger(pid)', 'if (Number.isSafeInteger(pid)', ownerName],
+    ["kill-outside-row", 'if (request.pids.some(pid => app.pids.indexOf(pid) === -1)) return { error: "changed" };', '', killOutsideRow],
     ["net-dev-transmit-field", 'const down = Number(fields[0]), up = Number(fields[8]);', 'const down = Number(fields[0]), up = Number(fields[9]);', api => assert.equal(api.parseNetDev(before).enp5s0.up, 2000)],
     ["ipv6-loopback-counted", 'host === "::1"', 'host === "::2"', api => assert.equal(Object.keys(api.parseSockets(socketBefore)).includes("14"), false)],
     ["unknown-as-zero", 'return "--";', 'return "0 B/s";', api => assert.equal(api.formatRate(null), "--")],
     ["capture-action", 'action: state === "needed" || state === "nixos"', 'action: false', api => assert.equal(api.capture({ state: "needed" }).action, true)]
-]) {
+];
+for (const [name, old, replacement, verify] of controls) {
     assert(source.includes(old), "control match: " + name);
     const mutant = {};
     vm.runInNewContext(source.replace(/^\.pragma library\n/, "").replace(old, replacement), mutant, { filename: name });
     assert.throws(() => verify(mutant), { name: "AssertionError" });
     try { verify(mutant); } catch (error) { console.log("control traffic=" + name + " rejected=" + error.message); }
 }
-console.log("test-traffic-logic: passed=" + passed + " controls=17");
+console.log("test-traffic-logic: passed=" + passed + " controls=" + controls.length);

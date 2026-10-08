@@ -91,10 +91,23 @@
       },
       "optional": true,
       "purpose": "Allows the Traffic capture setup step to grant access"
+    },
+    {
+      "command": "kill",
+      "packages": {
+        "pacman": "util-linux",
+        "apt": "procps",
+        "dnf": "util-linux-core",
+        "nix": "util-linux"
+      },
+      "optional": false,
+      "purpose": "Ends an app you choose to kill"
     }
   ],
   "settings": {
     "show": "both",
+    "kbDecimals": 0,
+    "mbDecimals": 1,
     "refreshSeconds": 2
   },
   "schema": {
@@ -106,6 +119,24 @@
         "download",
         "upload"
       ],
+      "group": "Display"
+    },
+    "kbDecimals": {
+      "type": "number",
+      "label": "KB/s decimals",
+      "description": "Digits after the decimal point for speeds in KB/s",
+      "min": 0,
+      "max": 2,
+      "step": 1,
+      "group": "Display"
+    },
+    "mbDecimals": {
+      "type": "number",
+      "label": "MB/s decimals",
+      "description": "Digits after the decimal point for speeds in MB/s and GB/s",
+      "min": 0,
+      "max": 2,
+      "step": 1,
       "group": "Display"
     },
     "refreshSeconds": {

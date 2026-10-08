@@ -78,6 +78,15 @@ ROWS = [
     ("the cursor marker exempts no view", body("    // pointer-cursor-exempt: a list\n    Flickable { id: area; TouchpadScroll { view: area } }\n"), "mouse-drag", 6),
     ("a view that takes no mouse button", body("    GridView { id: grid; acceptedButtons: Qt.NoButton; TouchpadScroll { view: grid } }\n"), None, None),
     ("a view named in a comment is no finding", body("    // Flickable { }\n"), None, None),
+    ("a ListCursor in a Column", body("    Column {\n        ListCursor { id: plate }\n        Repeater { }\n    }\n"), "cursor-positioner", 6),
+    ("a ListCursor in a Row", body("    Row { ListCursor { } }\n"), "cursor-positioner", 5),
+    ("a ListCursor in a Flow", body("    Flow { ListCursor { } }\n"), "cursor-positioner", 5),
+    ("a ListCursor in a Grid", body("    Grid { ListCursor { } }\n"), "cursor-positioner", 5),
+    ("a qualified ListCursor in a qualified Column", "import QtQuick as Q\nimport qs.Ui as Ui\nQ.Item {\n    Q.Column { Ui.ListCursor { } }\n}\n", "cursor-positioner", 4),
+    ("a ListCursor beside the Column passes", body("    ListCursor { id: plate }\n    Column { Repeater { } }\n"), None, None),
+    ("a ListCursor in an item inside a Column passes", body("    Column { Item { ListCursor { } } }\n"), None, None),
+    ("a ListCursor named in a comment inside a Column is no finding", body("    Column {\n        // ListCursor { }\n    }\n"), None, None),
+    ("the cursor marker exempts no ListCursor", body("    Column {\n        // pointer-cursor-exempt: a list\n        ListCursor { }\n    }\n"), "cursor-positioner", 7),
 ]
 
 SCROLL_ROWS = [
@@ -191,14 +200,15 @@ def run_impostor_owner_row():
 def run_repository_floor():
     """The repository's own trees pass and the parser found what they hold:
     142 QML files and 31 elements that take a click when this row was
-    written, and 7 views when the drag rule was added. A count under the floor names the extractor as broken, not the
+    written, 7 views when the drag rule was added, and 16 ListCursor elements
+    when the positioner rule was added. A count under the floor names the extractor as broken, not the
     tree as sparse. shell/Ui/foundation/PointerCursor.qml names the hand, so
     the pass also holds the one real owner exempt."""
     proc = subprocess.run([sys.executable, CHECK], capture_output=True, text=True, check=False, env=ENV)
     fields = dict(part.split("=", 1) for part in proc.stdout.strip().split()[2:] if "=" in part) if proc.returncode == 0 else {}
-    good = proc.returncode == 0 and int(fields.get("files", 0)) >= 100 and int(fields.get("clickable", 0)) >= 25 and int(fields.get("views", 0)) >= 7
+    good = proc.returncode == 0 and int(fields.get("files", 0)) >= 100 and int(fields.get("clickable", 0)) >= 25 and int(fields.get("views", 0)) >= 7 and int(fields.get("cursors", 0)) >= 15
     if proc.returncode == 0 and not good:
-        print(f"  the extractor is broken: it found files={fields.get('files')} clickable={fields.get('clickable')} views={fields.get('views')}")
+        print(f"  the extractor is broken: it found files={fields.get('files')} clickable={fields.get('clickable')} views={fields.get('views')} cursors={fields.get('cursors')}")
     return report("the repository's trees pass above the coverage floor", good, proc)
 
 

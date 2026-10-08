@@ -13,12 +13,19 @@ cp -- "$traffic_source/tui/bandwhich.sh" "$traffic_dir/bandwhich.sh"
 cp -- "$repo/scripts/fixtures/traffic/net-dev-before.txt" "$traffic_dir/net-dev"
 printf '#!/usr/bin/env bash\nexec python3 %q %q "$@"\n' "$repo/scripts/smoke/fixtures/traffic/ss.py" "$traffic_dir" >"$traffic_dir/ss"
 printf '#!/usr/bin/env bash\nfor arg; do case "$arg" in /sys/class/net/enp5s0) echo /sys/devices/pci/net/enp5s0 ;; /sys/class/net/wlan0) echo /sys/devices/pci/net/wlan0 ;; /sys/class/net/*) echo /sys/devices/virtual/net/"${arg##*/}" ;; esac; done\n' >"$traffic_dir/readlink"
-chmod +x "$traffic_dir/ss" "$traffic_dir/readlink"
+# Player's socket belongs to the row's own sleep child. The Kill stand-in
+# records its argv and signals only that child, so a request that reached
+# it with any other pid signals nothing outside the row.
+spawn "$traffic_dir/child.log" sleep 600
+traffic_child="$spawn_pid"
+printf '{"Player": %d}\n' "$traffic_child" >"$traffic_dir/pids"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>%q\n[[ $* == "-TERM %d" ]] || exit 1\nexec kill "$@"\n' "$traffic_dir/kills" "$traffic_child" >"$traffic_dir/kill"
+chmod +x "$traffic_dir/ss" "$traffic_dir/readlink" "$traffic_dir/kill"
 cp -- "$repo/scripts/smoke/fixtures/tui/vgs.traffic/tui/bandwhich.sh" "$traffic_source/tui/bandwhich.sh"
 python3 - "$traffic_source/Service.qml" "$traffic_dir" <<'PY'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1]);s=p.read_text();root=sys.argv[2]
-for old,new in [('path: "/proc/net/dev"','path: "'+root+'/net-dev"'), ('["readlink", "-m", "--"]','["'+root+'/readlink", "-m", "--"]'), ('["ss", "-tinpeH", "state", "connected"]','["'+root+'/ss", "-tinpeH", "state", "connected"]'), ('shell.system.state["bandwhich-capture"]','root.fixtureCapture')]:
+for old,new in [('path: "/proc/net/dev"','path: "'+root+'/net-dev"'), ('["readlink", "-m", "--"]','["'+root+'/readlink", "-m", "--"]'), ('["ss", "-tinpeH", "state", "connected"]','["'+root+'/ss", "-tinpeH", "state", "connected"]'), ('["kill", "-TERM"]','["'+root+'/kill", "-TERM"]'),('shell.system.state["bandwhich-capture"]','root.fixtureCapture')]:
     assert s.count(old)==1,old;s=s.replace(old,new)
 s=s.replace('shell !== null && shell.requirements.missing.indexOf("bandwhich") === -1', 'root.fixtureTool')
 s=s.replace('property bool registered: false','property bool registered: false\n    property bool fixtureTool: false\n    property var fixtureCapture: ({ state: "needed", reason: "capture-needed" })')
@@ -27,6 +34,10 @@ p.write_text(s)
 panel=pathlib.Path(sys.argv[1]).with_name("Panel.qml")
 s=panel.read_text();old='shell.tui.run("bandwhich")';assert s.count(old)==1
 s=s.replace(old, 'shell.tui.run("bandwhich", ["'+root+'/tui-hold"])')
+# A count of the row items the panel has built, read to show that a sample
+# changes rows in place.
+for old,new in [('property bool leased: false','property bool leased: false\n    property int rowsBuilt: 0'), ('                            cursor: listCursor\n','                            cursor: listCursor\n                            Component.onCompleted: root.rowsBuilt++\n')]:
+    assert s.count(old)==1,old;s=s.replace(old,new)
 panel.write_text(s)
 PY
 traffic_read() { ipc smoke readInstance service vgs.traffic "$1"; }
@@ -50,6 +61,29 @@ else:
 PY
 }
 traffic_snapshot_ready() { traffic_values | py_reply 'import json,sys;t=json.load(sys.stdin)["traffic"]; print(t["state"]=="ready" and {r["name"] for r in t["apps"]}=={"Browser","Player"})'; }
+traffic_rows_built() { ipc smoke readInstance panel vgs.traffic rowsBuilt; }
+traffic_started_since() { local now; now="$(traffic_read ssStarts)" || return; ((now >= $1)) && echo true || echo false; }
+# Two whole samples, each of which hands the rows a new list at every
+# status write, leave every row item the panel built in place: the count
+# and the ss starts are marked, three more starts mean two samples ended,
+# and traffic_rows_kept compares. A control's polls end after 5 s, so the
+# wait for samples stays outside a control.
+traffic_rows_mark() {
+  traffic_mark_built="$(traffic_rows_built)" traffic_mark_started="$(traffic_read ssStarts)"
+  expect_poll "two more samples land" true traffic_started_since "$((traffic_mark_started + 3))"
+}
+traffic_rows_kept() { # LABEL
+  expect "$1" "$traffic_mark_built" traffic_rows_built
+}
+traffic_popup_reads() { [[ $(ipc smoke popupItemGeometry panel vgs.traffic "" "" "$1" "$2") != absent ]] && echo true || echo false; }
+traffic_menu_open() { traffic_popup_reads MenuItem Kill; }
+traffic_kills() { if [[ -f $traffic_dir/kills ]]; then wc -l <"$traffic_dir/kills" | tr -d ' '; else echo 0; fi; }
+traffic_last_kill() { tail -n 1 "$traffic_dir/kills" 2>/dev/null; }
+traffic_ending() { traffic_values | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["traffic"]["ending"]))'; }
+traffic_inspect_pids() { ipc vgs.traffic invoke inspect "{\"name\":\"$1\"}" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["pids"]))'; }
+# The row's child exited, reaped or not: /proc/<pid>/stat field 3 is Z
+# until the row waits for it.
+traffic_child_state() { local state; state="$(sed 's/.*) //' "/proc/$traffic_child/stat" 2>/dev/null | cut -d' ' -f1)"; [[ -z $state || $state == Z ]] && echo ended || echo "running:$state"; }
 rescan "Traffic's reader fixture is scanned"
 expect "Traffic enables" ok ipc shell setPluginEnabled vgs.traffic true
 expect "Traffic is placed" ok ipc shell setPluginPlaced vgs.traffic true
@@ -73,11 +107,55 @@ rm -- "${traffic_dir:?}/hold"
 expect_poll "the reader publishes per-app traffic" True traffic_snapshot_ready
 expect "a needed capture probe offers Allow" true traffic_captured
 expect "bandwhich is absent in the stock fixture" false traffic_foot
+expect "KB/s shows no decimals by default" "34 KB/s" ipc smoke invokeInstanceArgs panel vgs.traffic rate '{"args":[34816]}'
+expect "MB/s shows one decimal by default" "12.2 MB/s" ipc smoke invokeInstanceArgs panel vgs.traffic rate '{"args":[12792627]}'
+traffic_rows_mark
+traffic_rows_kept "samples change the rows in place"
+traffic_built="$(traffic_rows_built)"
 click_item panel vgs.traffic Button Upload || fail "Traffic upload header click failed"
 expect_poll "a pointer sorts by upload" '"up"' ipc smoke readInstance panel vgs.traffic sortKey
 expect "upload starts in descending order" false ipc smoke readInstance panel vgs.traffic ascending
 type_keys -k Return
 expect_poll "Return reverses the focused header" true ipc smoke readInstance panel vgs.traffic ascending
+expect "a sort moves the rows it built" "$traffic_built" traffic_rows_built
+# Ascending upload puts Player first. The plate under a hovered row must
+# not be laid out as a row above it.
+rest_pointer
+traffic_first_box="$(ipc smoke itemGeometry panel vgs.traffic ListItem Player)"
+point_item panel vgs.traffic ListItem Browser >/dev/null || fail "Traffic row hover failed"
+expect_poll "a hovered row shows the list's plate" true ipc smoke readDescendant panel vgs.traffic ListCursor visible
+expect "a hover moves no row" "$traffic_first_box" ipc smoke itemGeometry panel vgs.traffic ListItem Player
+click_item panel vgs.traffic ListItem Browser || fail "Traffic row click failed"
+expect_poll "a row click opens its actions" true traffic_menu_open
+type_keys -k Escape
+expect_poll "Escape closes the row's actions" false traffic_menu_open
+expect "a row click selects its app" '"app:Browser"' ipc smoke readInstance panel vgs.traffic currentKey
+expect "a row click leaves the list without keyboard focus" false ipc smoke readMatchingDescendant panel vgs.traffic ListItem text Browser highlighted
+click_item panel vgs.traffic ListItem Player || fail "Traffic Inspect row click failed"
+expect_poll "the Inspect row's actions open" true traffic_menu_open
+click_item popup:panel vgs.traffic "" "" MenuItem Inspect || fail "Traffic Inspect click failed"
+expect_poll "Inspect shows the app's command line" true traffic_popup_reads Label "sleep 600"
+expect "Inspect shows the app's pid" true traffic_popup_reads Label "$traffic_child"
+expect "Inspect shows the app's peer" true traffic_popup_reads Label "198.51.100.1:443"
+expect "Inspect shows the connection's state" true traffic_popup_reads Label "Open"
+type_keys -k Escape
+expect_poll "Escape closes Inspect" false traffic_popup_reads Label "sleep 600"
+expect "the service names the row's own pid" "[$traffic_child]" traffic_inspect_pids Player
+expect "a kill of a pid outside the row is refused" "refused: kill=changed" ipc vgs.traffic invoke kill '{"name":"Player","pids":[42]}'
+expect "a refused kill runs no kill" 0 traffic_kills
+click_item panel vgs.traffic ListItem Player || fail "Traffic Kill row click failed"
+expect_poll "the Kill row's actions open" true traffic_menu_open
+click_item popup:panel vgs.traffic "" "" MenuItem Kill || fail "Traffic Kill click failed"
+expect_poll "Kill asks first, naming the app" true traffic_popup_reads Label "Kill Player?"
+expect "the question names the pid" true traffic_popup_reads Label "Process $traffic_child"
+expect "nothing is signalled before the answer" 0 traffic_kills
+click_item popup:panel vgs.traffic "" "" Button Kill || fail "Traffic Kill answer failed"
+expect_poll "Kill sends SIGTERM to the row's process" "-TERM $traffic_child" traffic_last_kill
+expect_poll "the row's own child ends" ended traffic_child_state
+traffic_child_status=0
+wait "$traffic_child" || traffic_child_status=$?
+expect "the child ended on SIGTERM" 143 echo "$traffic_child_status"
+expect_poll "the panel learns the request was sent" '{"name": "Player", "state": "sent"}' traffic_ending
 click_item panel vgs.traffic TextField "" || fail "Traffic search focus failed"
 expect_poll "a click focuses search" true ipc smoke activeFocusWithin panel vgs.traffic TextField
 type_keys 'zzzz' || fail "Traffic search input failed"
@@ -191,6 +269,31 @@ type_keys -k Tab -k Return
 expect_poll "no widget or panel leaves a lease" 0 traffic_read leaseCount
 expect_poll "no lease leaves a running timer" false traffic_read timerRunning
 expect_poll "no lease leaves ss running" false traffic_read ssRunning
+# A disposable panel that feeds its rows a plain list must fail the same
+# in-place assertion: the Repeater then rebuilds every row at each status
+# write. The control's log keeps the count it built.
+python3 - "$traffic_source/Panel.qml" <<'PY'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);s=p.read_text();old='model: ScriptModel { values: root.rows; objectProp: "key" }'
+assert s.count(old)==1;s=s.replace(old,'model: root.rows');p.write_text(s)
+PY
+rescan "the plain-list rows control is scanned"
+expect "the rows control's widget is placed" ok ipc shell setPluginPlaced vgs.traffic true
+expect_poll "the rows control's widget leases" 1 traffic_read leaseCount
+click_centre "$(bar_key)" vgs.traffic || fail "the rows control did not open"
+expect_poll "the rows control publishes per-app traffic" True traffic_snapshot_ready
+traffic_rows_mark
+traffic_rows_control() { (failures=0 behaviour_failures=0; traffic_rows_kept "the control's rows" >"$traffic_dir/rows-control.log"; echo "$failures"); }
+expect "a plain list breaks the in-place test" 1 traffic_rows_control
+printf '  control log: rows built %s -> %s while ss started %s -> %s\n' "$traffic_mark_built" "$(traffic_rows_built)" "$traffic_mark_started" "$(traffic_read ssStarts)"
+expect "the rows control closes" ok ipc shell hide panel vgs.traffic
+expect "the rows control's widget unplaces" ok ipc shell setPluginPlaced vgs.traffic false
+expect_poll "the rows control releases every lease" 0 traffic_read leaseCount
+python3 - "$traffic_source/Panel.qml" <<'PY'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);s=p.read_text();old='model: root.rows'
+assert s.count(old)==1;s=s.replace(old,'model: ScriptModel { values: root.rows; objectProp: "key" }');p.write_text(s)
+PY
 # A disposable panel with the wrong initial target must fail the same
 # search-focus assertion used before any click in the first open.
 python3 - "$traffic_source/Panel.qml" <<'PY'

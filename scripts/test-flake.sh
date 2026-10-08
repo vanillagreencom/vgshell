@@ -98,11 +98,13 @@ flags=(--no-update-lock-file --no-link --print-out-paths)
 marker='# vgs-nix-path'
 
 # The entry point's PATH line, run with an empty environment, answers which
-# of the names resolve. Prints each name that does not.
+# of the names resolve. Prints each name that does not. `type -P` reads PATH
+# alone, as the shell's processes find a command: `command -v` would answer
+# a Bash builtin such as kill with no file on PATH.
 unresolved() { # LINE NAME...
   local line="$1"; shift
   env -i "$(command -v bash)" -c 'set -e; PATH=; eval "$1"; shift
-    for name in "$@"; do command -v -- "$name" >/dev/null || echo "$name"; done' _ "$line" "$@"
+    for name in "$@"; do type -P -- "$name" >/dev/null || echo "$name"; done' _ "$line" "$@"
 }
 path_holds() { # ENTRY: one PATH line; every command resolves, hyprctl does not; a rerun keeps PATH
   local line missing

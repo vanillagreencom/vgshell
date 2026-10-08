@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Enforce the pointer rules docs/architecture/design-system.md § Pointer states.
+"""Enforce the pointer rules docs/architecture/design-system.md § Pointer states,
+and where a list's ListCursor sits (§ Motion).
 
 Every element of shipped QML that takes a click shows the pointing hand
 through `PointerCursor` from qs.Ui, the one owner of the hand. Each view
-disables mouse dragging and declares its touchpad scroll handler:
+disables mouse dragging and declares its touchpad scroll handler, and no
+list lays out the plate under its pointer as a row:
   cursor-missing   an element that takes a click declares no PointerCursor
                    among its direct children. A TapHandler holds no
                    children, so it takes one among its parent's. The
@@ -27,6 +29,12 @@ disables mouse dragging and declares its touchpad scroll handler:
   touchpad-scroll an element of DRAG_VIEWS that has no direct TouchpadScroll
                    child with `view` bound to the view's own `id`. Qualified
                    component names count too. No marker exempts it.
+  cursor-positioner a ListCursor declared as a direct child of one of
+                   POSITIONERS: the positioner lays the shown plate out as
+                   a row and moves every row after it. Declare the cursor
+                   beside the positioner, in the item that holds it.
+                   Qualified component names count too. No marker exempts
+                   it.
 The rules read code with comments blanked, through scripts/qml_source.py;
 the structure is read with string contents blanked too, so a brace inside a
 string opens no block.
@@ -41,8 +49,9 @@ detail names the view type and has `id=<id>` and
 `required="TouchpadScroll { view: <id> }"` fields; the control suite reads
 these fields. A view without an id uses `<missing>` and `<view-id>`.
 The pass is
-`check-pointer-cursor: ok files=<n> clickable=<n> exempt=<n> views=<n>`,
-`views` counting the elements of DRAG_VIEWS read. Exit 0 when clean, 1 on
+`check-pointer-cursor: ok files=<n> clickable=<n> exempt=<n> views=<n> cursors=<n>`,
+`views` counting the elements of DRAG_VIEWS read and `cursors` the ListCursor
+elements. Exit 0 when clean, 1 on
 any finding, 2 when a directory or file cannot be read, printed as
 `check-pointer-cursor: unreadable: <path>: <strerror>`. A tree the walk
 found no QML file in is unreadable too: an empty walk certifies nothing.
@@ -64,6 +73,8 @@ COMPONENT = "PointerCursor"
 # Flickable and the Qt Quick views built on it, each of which drags its
 # content with the left mouse button unless told otherwise.
 DRAG_VIEWS = frozenset(("Flickable", "ListView", "GridView", "TableView", "TreeView", "HorizontalHeaderView", "VerticalHeaderView"))
+# The Qt Quick positioners, each of which places every visible child.
+POSITIONERS = frozenset(("Column", "Row", "Flow", "Grid"))
 
 LITERAL = re.compile(r"\bQt\.PointingHandCursor\b")
 EXEMPT = re.compile(r"^\s*//\s*pointer-cursor-exempt:\s*\S")
@@ -105,6 +116,11 @@ def check_tree(root, findings, counts):
                     for child in block.children
                 ):
                     findings.append(f'touchpad-scroll {path}:{block.line} {block.type} id={name or "<missing>"} required="TouchpadScroll {{ view: {name or "<view-id>"} }}"')
+            if base_type(block.type, None) == "ListCursor":
+                counts["cursors"] += 1
+                holder = block.parent.type if block.parent is not None else None
+                if base_type(holder, None) in POSITIONERS:
+                    findings.append(f"cursor-positioner {path}:{block.line} ListCursor: its parent {holder} lays the plate out as a row; declare it beside the {holder}")
             if not takes_click(block, alias):
                 continue
             counts["clickable"] += 1
@@ -124,7 +140,7 @@ def check_tree(root, findings, counts):
 def main(argv):
     roots = argv[1:] or list(DEFAULT_ROOTS)
     findings = []
-    counts = {"files": 0, "clickable": 0, "exempt": 0, "views": 0}
+    counts = {"files": 0, "clickable": 0, "exempt": 0, "views": 0, "cursors": 0}
     try:
         for root in roots:
             check_tree(os.path.abspath(root), findings, counts)
@@ -136,7 +152,7 @@ def main(argv):
     if findings:
         print(f"check-pointer-cursor: findings={len(findings)}")
         return 1
-    print(f"check-pointer-cursor: ok files={counts['files']} clickable={counts['clickable']} exempt={counts['exempt']} views={counts['views']}")
+    print(f"check-pointer-cursor: ok files={counts['files']} clickable={counts['clickable']} exempt={counts['exempt']} views={counts['views']} cursors={counts['cursors']}")
     return 0
 
 
