@@ -15,7 +15,7 @@ Open Settings > Plugins > Network Traffic to change the display and refresh inte
 
 The optional bandwhich requirement enables See all. Install it from the Requirements section. The Traffic capture row has Allow when capture access is needed. Allowing it lets every account on this computer see network traffic through bandwhich.
 
-A package update can remove capture access. Allow appears again when this happens.
+A package update can remove capture access. Close Settings, then open Settings > Plugins > Network Traffic to check access again. The Traffic capture row shows Allow if access is needed.
 
 <details>
 <summary>Show command</summary>

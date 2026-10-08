@@ -383,8 +383,12 @@ probe_tailscale_operator() {
 # other account. A writable parent would let that account replace the
 # binary between the question and the root command.
 capture_binary() {
-  local found dir
-  found="$(command -v bandwhich)" || { set_probe absent bandwhich-missing; return 1; }
+  local found dir search_path="$safe_path"
+  # NixOS puts configured wrappers first in a terminal's PATH. Their file
+  # grants include cap_setpcap so the wrapper can pass the grant to its source:
+  # https://github.com/NixOS/nixpkgs/blob/master/nixos/modules/security/wrappers/default.nix
+  if [[ $detected_system == nix ]]; then search_path="$prefix/run/wrappers/bin:$search_path"; fi
+  found="$(PATH="$search_path" command -v bandwhich)" || { set_probe absent bandwhich-missing; return 1; }
   capture_path="$(readlink -f -- "$found")" || { set_probe unknown path-unreadable; return 1; }
   [[ -f $capture_path && -x $capture_path ]] || { set_probe unknown path-unreadable; return 1; }
   dir="$capture_path"
@@ -397,10 +401,11 @@ capture_binary() {
 
 probe_bandwhich_capture() {
   local output clause names flags action operation name cap clauses=() members=()
+  local system_known=0
   local -A granted=()
+  detect_system && system_known=1
   capture_binary || return 0
-  detect_system || { set_probe unknown system-undetected; return; }
-  if [[ $detected_system == nix ]]; then set_probe needed capture-needed; return; fi
+  ((system_known == 1)) || { set_probe unknown system-undetected; return; }
   command -v getcap >/dev/null || { set_probe unknown getcap-missing; return; }
   output="$(getcap -n -- "$capture_path" 2>/dev/null)" || { set_probe unknown getcap-failed; return; }
   [[ -n $output ]] || { set_probe needed capture-needed; return; }

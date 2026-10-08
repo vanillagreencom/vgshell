@@ -157,8 +157,11 @@ cat >"$bin/getcap" <<EOF
 #!/bin/sh
 [ -e "$tmp/getcap-fail" ] && exit 1
 for last; do :; done
-[ -s "$tmp/capture-caps" ] || exit 0
-printf '%s %s\n' "\$last" "\$(cat "$tmp/capture-caps")"
+printf '%s\n' "\$last" >>"$tmp/capture-probes"
+caps="$tmp/capture-caps"
+case "\$last" in "$root/run/wrappers/"*) caps="$tmp/wrapper-caps" ;; esac
+[ -s "\$caps" ] || exit 0
+printf '%s %s\n' "\$last" "\$(cat "\$caps")"
 EOF
 cat >"$bin/setcap" <<EOF
 #!/bin/sh
@@ -223,7 +226,7 @@ boot_b=99999999-8888-7777-6666-555555555555
 # no operator, greetd installed and disabled with no display manager
 # enabled, and every record cleared.
 fresh() {
-  rm -rf -- "${root:?}/etc" "${root:?}/sys" "${root:?}/dev" "${root:?}/var" "${root:?}/proc" "$tmp/units"
+  rm -rf -- "${root:?}/etc" "${root:?}/sys" "${root:?}/dev" "${root:?}/var" "${root:?}/proc" "${root:?}/run" "$tmp/units"
   mkdir -p "$root/etc/udev/rules.d" "$root/etc/greetd" "$root/etc/pam.d" "$root/etc/systemd/system" "$root/dev" "$root/var/lib" "$root/proc/sys/kernel/random" "$tmp/units"
   chmod 0755 "$root/etc" "$root/etc/udev" "$root/etc/udev/rules.d" "$root/etc/greetd" "$root/etc/pam.d" "$root/etc/systemd" "$root/etc/systemd/system" "$root/var" "$root/var/lib"
   mkdir -p "$root/sys/class/hidraw/hidraw0/device" "$root/sys/class/hidraw/hidraw1/device"
@@ -240,9 +243,18 @@ fresh() {
   : >"$tmp/operator"
   rm -f -- "$tmp"/{sudo.log,udevadm.log,systemctl.log,modprobe.log,tailscale.log,gum.log,gum-hook,foreign,sudo-exit,udev-fail,other-rule,i2c-rule,tailscaled-down,before-tree,after-tree,no-greeter,getent-fail,owners,greeter-name}
   printf '0\n' >"$tmp/gum-answer"
-  rm -f -- "$bin/bandwhich" "$tmp/capture-caps" "$tmp/getcap-fail" "$tmp/setcap-fail" "$tmp/setcap.log"
+  rm -f -- "$bin/bandwhich" "$tmp/capture-caps" "$tmp/wrapper-caps" "$tmp/capture-probes" "$tmp/getcap-fail" "$tmp/setcap-fail" "$tmp/setcap.log"
 }
 capture_fixture() { printf '#!/bin/sh\nexit 64\n' >"$bin/bandwhich"; chmod 0755 "$bin/bandwhich"; }
+# NixOS activation publishes its generated wrapper directory through bin.
+capture_wrapper="$root/run/wrappers/wrappers.fixture/bandwhich"
+capture_wrapper_fixture() {
+  mkdir -p -- "${capture_wrapper%/*}"
+  chmod 0755 "$root/run" "$root/run/wrappers" "${capture_wrapper%/*}"
+  ln -s -- wrappers.fixture "$root/run/wrappers/bin"
+  printf '#!/bin/sh\nexit 64\n' >"$capture_wrapper"
+  chmod 0755 "$capture_wrapper"
+}
 caller="$tmp/caller"; mkdir -p "$caller"
 ln -s -- "$node_bin" "$caller/node"
 nixos_path="$tmp/nixos-path"; mkdir -p "$nixos_path"
@@ -659,15 +671,54 @@ run "undo preserves a replacement binary" 1 "vgs-system: refused: record=binary-
 check "a replacement undo runs no sudo" no_sudo
 run_tty "capture applies to the package replacement" 0 apply bandwhich-capture
 check "the replacement capture grant reads ready" test "$(step_state bandwhich-capture)" == "ready granted"
-fresh; capture_fixture; printf '%s\n' "$capture_all" >"$tmp/capture-caps"
-run_nixos "capture on NixOS uses the configuration" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
-check "capture on NixOS reads nixos" out_has '"bandwhich-capture":{"state":"nixos","reason":"capture-needed"}'
+capture_nixos_contract() { out_has "\"bandwhich-capture\":{\"state\":\"$1\",\"reason\":\"$2\"}"; }
+fresh
+run_nixos "capture on NixOS without the package" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
+check "NixOS without bandwhich reads absent" capture_nixos_contract absent bandwhich-missing
+capture_fixture
+run_nixos "capture on NixOS without a wrapper" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
+check "NixOS with the package but no configured wrapper needs configuration" capture_nixos_contract nixos capture-needed
 run_nixos "capture apply on NixOS prints a wrapper" 0 "" "$nixos_path:$caller:/usr/bin:/bin" apply bandwhich-capture
 check "the NixOS wrapper grants every capability" out_has "  capabilities = \"$capture_want\";"
 check "the NixOS wrapper uses the package binary" out_has '  source = "${pkgs.bandwhich}/bin/bandwhich";'
 check "capture on NixOS writes nothing" untouched
 check "capture on NixOS runs no sudo" no_sudo
 check "capture on NixOS asks nothing" test ! -e "$tmp/gum.log"
+capture_wrapper_fixture
+# The wrapper's extra cap_setpcap is part of NixOS's actual grant.
+capture_wrapper_all="cap_setpcap,${capture_all}"
+printf '%s\n' "$capture_wrapper_all" >"$tmp/wrapper-caps"
+run_nixos "capture on NixOS with the configured wrapper" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
+check "the configured wrapper reads ready" capture_nixos_contract ready granted
+check "the probe reads the resolved configured wrapper" test "$(tail -n 1 "$tmp/capture-probes")" == "$capture_wrapper"
+run_nixos "the configured NixOS capture apply runs nothing" 0 "" "$nixos_path:$caller:/usr/bin:/bin" apply bandwhich-capture
+check "the configured NixOS capture apply reads ready" out_is 'ok system=bandwhich-capture state=ready'
+check "the configured NixOS capture apply writes nothing" untouched
+check "the configured NixOS capture apply runs no sudo" no_sudo
+check "the configured NixOS capture apply asks nothing" test ! -e "$tmp/gum.log"
+printf '%s\n' "$capture_all" >"$tmp/capture-caps"
+for caps in '' cap_setpcap,cap_dac_read_search,cap_net_admin,cap_net_raw=ep \
+  cap_setpcap,cap_sys_ptrace,cap_net_admin,cap_net_raw=ep \
+  cap_setpcap,cap_sys_ptrace,cap_dac_read_search,cap_net_raw=ep \
+  cap_setpcap,cap_sys_ptrace,cap_dac_read_search,cap_net_admin=ep \
+  cap_setpcap,cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin=p \
+  cap_setpcap,cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin=e \
+  "$capture_wrapper_all [rootid=1000]"; do
+  printf '%s\n' "$caps" >"$tmp/wrapper-caps"
+  run_nixos "capture on NixOS with an incomplete wrapper [$caps]" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
+  check "the incomplete wrapper needs configuration despite a granted package binary [$caps]" capture_nixos_contract nixos capture-needed
+done
+printf '%s\n' "$capture_wrapper_all" >"$tmp/wrapper-caps"
+printf '%s %s\n' "$uid" "$capture_wrapper" >"$tmp/owners"
+run_nixos "capture on NixOS with another account's wrapper" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
+check "the wrapper must belong to root" capture_nixos_contract denied install-untrusted
+rm -- "$tmp/owners"
+for path in "$capture_wrapper" "${capture_wrapper%/*}"; do
+  chmod 0775 "$path"
+  run_nixos "capture on NixOS with a writable wrapper path [$path]" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
+  check "the wrapper and its parents must be trusted [$path]" capture_nixos_contract denied install-untrusted
+  chmod 0755 "$path"
+done
 
 # greeter: VGS's own greetd configuration, PAM service and drop-in, the
 # theme, theme copy and state directories, then greetd enabled and never
@@ -1128,7 +1179,7 @@ control capture-ready '  IFS=, read -r -a members <<<"$capture_caps"
   for cap in'
 capture_fixture; printf '%s\n' "$capture_all" >"$tmp/capture-caps"
 check "the ready mutant fails the ready contract" capture_control_rejected "ready granted" ready
-control capture-absent 'found="$(command -v bandwhich)" || { set_probe absent bandwhich-missing; return 1; }' 'found="$(command -v bandwhich)" || { set_probe needed capture-needed; return 1; }'
+control capture-absent 'found="$(PATH="$search_path" command -v bandwhich)" || { set_probe absent bandwhich-missing; return 1; }' 'found="$(PATH="$search_path" command -v bandwhich)" || { set_probe needed capture-needed; return 1; }'
 check "the absent mutant fails the absent contract" capture_control_rejected "absent bandwhich-missing" absent
 control capture-trust '    trusted "${dir:-/}" || { set_probe denied install-untrusted; return 1; }' '    true || { set_probe denied install-untrusted; return 1; }'
 capture_fixture; printf '%s %s\n' "$uid" "$bin/bandwhich" >"$tmp/owners"
@@ -1138,13 +1189,22 @@ check "the trust mutant fails the writable binary contract" capture_control_reje
 chmod 0755 "$bin/bandwhich"; chmod 0775 "$bin"
 check "the trust mutant fails the writable parent contract" capture_control_rejected "denied install-untrusted" parent
 chmod 0755 "$bin"
-control capture-nixos '  if [[ $detected_system == nix ]]; then set_probe needed capture-needed; return; fi' '  if false; then set_probe needed capture-needed; return; fi'
-capture_fixture; printf '%s\n' "$capture_all" >"$tmp/capture-caps"
-run_nixos "the capture NixOS mutant's status" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
-capture_nixos_contract() { out_has '"bandwhich-capture":{"state":"nixos","reason":"capture-needed"}'; }
-capture_nixos_rejected=0
-capture_nixos_contract || capture_nixos_rejected=$?
-printf 'control: capture=nixos expected=nixos exit=%s\n' "$capture_nixos_rejected"
-check "the NixOS mutant fails the configuration contract" test "$capture_nixos_rejected" == 1
+capture_nixos_control_rejected() {
+  local status=0
+  capture_nixos_contract ready granted || status=$?
+  printf 'control: capture=%s expected=ready exit=%s\n' "$1" "$status"
+  test "$status" == 1
+}
+for mutation in wrapper-path wrapper-probe; do
+  case "$mutation" in
+    wrapper-path) control capture-wrapper-path '  if [[ $detected_system == nix ]]; then search_path="$prefix/run/wrappers/bin:$search_path"; fi' '  if false; then search_path="$prefix/run/wrappers/bin:$search_path"; fi' ;;
+    wrapper-probe) control capture-wrapper-probe '  ((system_known == 1)) ||' '  if [[ $detected_system == nix ]]; then set_probe needed capture-needed; return; fi
+  ((system_known == 1)) ||' ;;
+  esac
+  capture_fixture; capture_wrapper_fixture
+  printf '%s\n' "$capture_wrapper_all" >"$tmp/wrapper-caps"
+  run_nixos "the capture NixOS $mutation mutant's status" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
+  check "the NixOS $mutation mutant fails the ready contract" capture_nixos_control_rejected "$mutation"
+done
 
 rows_done "$suite"

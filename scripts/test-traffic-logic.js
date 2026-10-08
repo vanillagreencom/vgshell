@@ -27,6 +27,19 @@ function elapsed(api) {
     });
 }
 function acked(api) { assert.equal(api.parseSockets(socketBefore)["10"].up, 1000); }
+function omittedZeroCounters(api) {
+    // iproute2 ss tcp_stats_print omits byte fields whose counters are zero.
+    for (const [name, fields, up, down] of [
+        ["upload omitted", "bytes_received:100", 0, 100],
+        ["download omitted", "bytes_acked:50", 50, 0],
+        ["both omitted", "cubic rto:200", 0, 0]
+    ]) {
+        const sockets = api.parseSockets('ESTAB 0 0 192.0.2.2:1234 198.51.100.1:443 users:(("App",pid=42,fd=8)) ino:17\n\t' + fields);
+        assert(Object.prototype.hasOwnProperty.call(sockets, "17"), name + ": socket retained");
+        assert.equal(sockets["17"].up, up, name + ": upload");
+        assert.equal(sockets["17"].down, down, name + ": download");
+    }
+}
 test("net-dev-fields", api => {
     assert.deepEqual(plain(api.parseNetDev(before).enp5s0), { down: 1000, up: 2000 });
     assert.equal(api.parseNetDev("unreadable"), null);
@@ -52,6 +65,7 @@ test("ss-acked-inode-ipv6-own-process-and-loopback", api => {
     assert.equal(api.loopback("[2001:db8::1]:443"), false);
     assert.equal(api.loopback("127.19.2.3:443"), true);
 });
+test("ss-omitted-zero-counters", omittedZeroCounters);
 test("per-inode-new-socket-merged-name-and-remainder", api => {
     const a = api.parseSockets(socketBefore), b = api.parseSockets(socketAfter);
     assert.equal(api.apps(a, null, 1000, 0, { down: 6000, up: 4000 }).state, "measuring");
@@ -86,6 +100,8 @@ test("capture-state-actions", api => {
 });
 for (const [name, old, replacement, verify] of [
     ["bytes-sent", 'const down = /\\bbytes_received:(\\d+)/.exec(line), up = /\\bbytes_acked:(\\d+)/.exec(line);', 'const down = /\\bbytes_received:(\\d+)/.exec(line), up = /\\bbytes_sent:(\\d+)/.exec(line);', acked],
+    ["omitted-upload-unknown", 'acked = up ? Number(up[1]) : 0', 'acked = up ? Number(up[1]) : NaN', omittedZeroCounters],
+    ["omitted-download-unknown", 'const received = down ? Number(down[1]) : 0', 'const received = down ? Number(down[1]) : NaN', omittedZeroCounters],
     ["lo-counted", '!resolved[i].startsWith("/sys/devices/virtual/")', 'true', virtualSkip],
     ["configured-interval", 'const seconds = (at - previousAt) / 1000;', 'const seconds = 2;', elapsed],
     ["backwards-known", 'current < previous || ', '', api => assert.equal(api.delta(3, 5, 1), null)],
@@ -113,4 +129,4 @@ for (const [name, old, replacement, verify] of [
     assert.throws(() => verify(mutant), { name: "AssertionError" });
     try { verify(mutant); } catch (error) { console.log("control traffic=" + name + " rejected=" + error.message); }
 }
-console.log("test-traffic-logic: passed=" + passed + " controls=15");
+console.log("test-traffic-logic: passed=" + passed + " controls=17");

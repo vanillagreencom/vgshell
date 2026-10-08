@@ -37,6 +37,7 @@ traffic_ss_calls() { if [[ -f $traffic_dir/calls ]]; then wc -l <"$traffic_dir/c
 traffic_has_totals() { traffic_values | py_reply 'import json,sys;t=json.load(sys.stdin)["traffic"]; print(isinstance(t["down"],(int,float)) and isinstance(t["up"],(int,float)) and [i["name"] for i in t["interfaces"]]==["enp5s0","wlan0"])'; }
 traffic_captured() { traffic_values | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["capture"]["action"]))'; }
 traffic_foot() { ipc smoke readInstance panel vgs.traffic footShown; }
+traffic_search_focus_contract() { expect_poll "search takes focus on open" true ipc smoke activeFocusWithin panel vgs.traffic TextField; }
 traffic_socket_stopped() { python3 - "$traffic_dir" <<'PY'
 import pathlib,sys
 root=pathlib.Path(sys.argv[1]);p=root/'pid'
@@ -59,6 +60,7 @@ expect "a closed panel starts no ss" 0 traffic_ss_calls
 : >"$traffic_dir/hold"
 click_centre "$(bar_key)" vgs.traffic || fail "Traffic click failed"
 expect_poll "a click opens Traffic" shown traffic_panel
+traffic_search_focus_contract
 expect_poll "the panel acquires its socket lease" 1 traffic_read socketLeaseCount
 expect_poll "the first socket sample starts" true traffic_read ssRunning
 expect "the first sample shows Measuring" '"measuring"' traffic_state
@@ -77,7 +79,7 @@ expect "upload starts in descending order" false ipc smoke readInstance panel vg
 type_keys -k Return
 expect_poll "Return reverses the focused header" true ipc smoke readInstance panel vgs.traffic ascending
 click_item panel vgs.traffic TextField "" || fail "Traffic search focus failed"
-expect_poll "search takes focus on open" true ipc smoke activeFocusWithin panel vgs.traffic TextField
+expect_poll "a click focuses search" true ipc smoke activeFocusWithin panel vgs.traffic TextField
 type_keys 'zzzz' || fail "Traffic search input failed"
 expect_poll "search filters named apps" true ipc smoke readInstance panel vgs.traffic emptyShown
 type_keys -k Escape
@@ -189,6 +191,29 @@ type_keys -k Tab -k Return
 expect_poll "no widget or panel leaves a lease" 0 traffic_read leaseCount
 expect_poll "no lease leaves a running timer" false traffic_read timerRunning
 expect_poll "no lease leaves ss running" false traffic_read ssRunning
+# A disposable panel with the wrong initial target must fail the same
+# search-focus assertion used before any click in the first open.
+python3 - "$traffic_source/Panel.qml" <<'PY'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);s=p.read_text();old='readonly property Item initialFocus: search'
+assert s.count(old)==1;s=s.replace(old,'readonly property Item initialFocus: root');p.write_text(s)
+PY
+rescan "the wrong initial focus control is scanned"
+expect "the focus control's widget is placed" ok ipc shell setPluginPlaced vgs.traffic true
+expect_poll "the focus control's widget leases" 1 traffic_read leaseCount
+click_centre "$(bar_key)" vgs.traffic || fail "the focus control did not open"
+expect_poll "the focus control opens Traffic" shown traffic_panel
+expect_poll "the focus control leaves search unfocused" false ipc smoke activeFocusWithin panel vgs.traffic TextField
+traffic_focus_control() { (failures=0 behaviour_failures=0; traffic_search_focus_contract >"$traffic_dir/focus-control.log"; echo "$failures"); }
+expect "the wrong initial target breaks the focus test" 1 traffic_focus_control
+expect "the focus control closes" ok ipc shell hide panel vgs.traffic
+expect "the focus control's widget unplaces" ok ipc shell setPluginPlaced vgs.traffic false
+expect_poll "the focus control releases every lease" 0 traffic_read leaseCount
+python3 - "$traffic_source/Panel.qml" <<'PY'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);s=p.read_text();old='readonly property Item initialFocus: root'
+assert s.count(old)==1;s=s.replace(old,'readonly property Item initialFocus: search');p.write_text(s)
+PY
 # A disposable production panel copy omits its close release. Its reading
 # must report a surviving lease after Escape and widget unplacement.
 python3 - "$traffic_source/Panel.qml" <<'PY'
