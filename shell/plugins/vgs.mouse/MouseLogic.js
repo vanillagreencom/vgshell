@@ -28,63 +28,11 @@ function statusValue(devices) {
     return { hasTouchpad: hasTouchpad(devices), devices: rows };
 }
 
-function overriddenMap(paths) {
-    var out = {};
-    if (!Array.isArray(paths)) return out;
-    for (var i = 0; i < paths.length; i++) out[paths[i]] = true;
-    return out;
-}
-
-function optionPath(options, key) {
-    return options !== null && options !== undefined && typeof options === "object" ? options[key] : undefined;
-}
-
-function rowOverridden(paths, options, key) {
-    var path = optionPath(options, key);
-    return path !== undefined && overriddenMap(paths)[path] === true;
-}
-
-function overriddenText(paths, options, key) {
-    return rowOverridden(paths, options, key) ? "Overridden by your Hyprland config" : "";
-}
-
-// The value the user's Hyprland configuration gave the option setting KEY
-// maps to, from VALUES, the capability's `userValues`; undefined when it
-// names no such option.
-function userValue(values, options, key) {
-    var path = optionPath(options, key);
-    if (path === undefined || !Array.isArray(values)) return undefined;
-    for (var i = 0; i < values.length; i++)
-        if (values[i].path === path) return values[i].value;
-    return undefined;
-}
-
-function hasUserValue(values, options, key) {
-    return userValue(values, options, key) !== undefined;
-}
-
-// The value the row of setting KEY shows: Hyprland's own from VALUES, the
-// capability's `values`, which names only an option VGS sets none of, else
-// SETTINGS' value.
-function shownValue(values, settings, options, key) {
-    var path = optionPath(options, key);
-    if (values !== null && values !== undefined && path !== undefined && Object.prototype.hasOwnProperty.call(values, path)) return values[path];
-    return settings[key];
-}
-
 // VALUE as the row of setting KEY shows it.
 function valueText(key, value) {
     if (typeof value === "boolean") return value ? "on" : "off";
     if (typeof value === "number") return key === "sensitivity" ? pointerSpeedText(value) : factorText(value);
     return String(value);
-}
-
-// The line under a row: the user's own value where VGS replaced it, else
-// the overridden line.
-function warningText(paths, values, options, key) {
-    var value = userValue(values, options, key);
-    if (value !== undefined) return "Hyprland config sets " + valueText(key, value);
-    return overriddenText(paths, options, key);
 }
 
 function pointerSpeedText(value) {

@@ -11,21 +11,12 @@ Column {
     property bool compact: false
     property string problem: ""
     readonly property var devices: shell === null ? null : shell.hyprland.devices
-    readonly property var overridden: shell === null ? [] : shell.hyprland.overridden
-    readonly property var userValues: shell === null ? [] : shell.hyprland.userValues
-    readonly property var hyprlandValues: shell === null ? null : shell.hyprland.values
     readonly property var optionPaths: shell === null ? ({}) : shell.manifest.hyprland.options
     readonly property bool hasTouchpad: Logic.hasTouchpad(devices)
     readonly property Item firstFocus: pointerSpeed
 
     width: parent ? parent.width : implicitWidth
     spacing: Theme.stack.group
-
-    // What the row of KEY shows: Hyprland's value while VGS sets none, so
-    // the row reads the user's own after Use my Hyprland value.
-    function shown(key) {
-        return Logic.shownValue(hyprlandValues, shell.settings, optionPaths, key);
-    }
 
     function setValue(key, value) {
         const reply = shell.configure.set(key, value);
@@ -46,28 +37,20 @@ Column {
         if (answer !== "ok") console.warn("mouse: edit " + answer);
     }
 
-    // The line naming the user's value draws 1 px under `hint`, in the
-    // 12 px sans role, so it fits beside its action on one line.
-    component MouseFormRow: FormRow {
-        warningRole: "tooltip"
-        warningLink: warning === "" ? "" : "Hyprland config"
-        onWarningLinkActivated: root.openHyprlandConfig()
-    }
-
-    // The action beside a row's line that names the user's own value.
-    component UserValueAction: RowAction {
+    // The row of one setting: Hyprland's own value while VGS sets none, so
+    // the row reads the user's own after Use my Hyprland value, else the
+    // setting's.
+    component MouseRow: ValueSourceRow {
         property string setting: ""
 
-        objectName: "useHyprlandValue"
-        visible: Logic.hasUserValue(root.userValues, root.optionPaths, setting)
-        text: "Use my Hyprland value"
-        // The button hides once the setting is gone, and a hidden item
-        // holds no focus. The row message hides with it, so step back past
-        // the message link to the row's own control.
-        onClicked: {
-            nextItemInFocusChain(false).nextItemInFocusChain(false).forceActiveFocus(focusReason);
-            root.useHyprlandValue(setting);
-        }
+        width: parent.width
+        hyprland: root.shell === null ? null : root.shell.hyprland
+        path: root.optionPaths[setting] || ""
+        source: hyprlandValue !== undefined ? "hyprland" : "user"
+        userValue: root.shell === null ? undefined : root.shell.settings[setting]
+        formatValue: value => Logic.valueText(setting, value)
+        onUseHyprlandValue: root.useHyprlandValue(setting)
+        onOpenHyprlandConfig: root.openHyprlandConfig()
     }
 
     SectionHeader {
@@ -80,11 +63,10 @@ Column {
         width: parent.width
         spacing: Theme.stack.row
 
-        MouseFormRow {
-            width: parent.width
+        MouseRow {
+            id: sensitivitySource
+            setting: "sensitivity"
             label: "Pointer speed"
-            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "sensitivity")
-            action: UserValueAction { setting: "sensitivity" }
             Item {
                 id: pointerSpeedRow
                 width: parent.width
@@ -95,7 +77,7 @@ Column {
                 // nothing, even over a user value past the range.
                 function commit() {
                     const wanted = pointerSpeed.value;
-                    pointerSpeed.value = Qt.binding(() => root.shell === null ? 0 : root.shown("sensitivity"));
+                    pointerSpeed.value = Qt.binding(() => root.shell === null ? 0 : sensitivitySource.shownValue);
                     if (wanted !== pointerSpeed.value) root.setValue("sensitivity", wanted);
                 }
 
@@ -107,7 +89,7 @@ Column {
                     to: 1
                     stepSize: 0.05
                     snapMode: T.Slider.SnapAlways
-                    value: root.shell === null ? 0 : root.shown("sensitivity")
+                    value: root.shell === null ? 0 : sensitivitySource.shownValue
                     onPressedChanged: if (!pressed) pointerSpeedRow.commit()
                     onMoved: if (!pressed) pointerSpeedRow.commit()
                 }
@@ -124,59 +106,55 @@ Column {
             }
         }
 
-        MouseFormRow {
-            width: parent.width
+        MouseRow {
+            id: accelProfileSource
+            setting: "accelProfile"
             label: "Acceleration"
-            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "accelProfile")
-            action: UserValueAction { setting: "accelProfile" }
             SegmentedControl {
                 model: ["Adaptive", "Flat"]
-                currentIndex: root.shell === null ? 0 : Logic.profileIndex(root.shown("accelProfile"))
+                currentIndex: root.shell === null ? 0 : Logic.profileIndex(accelProfileSource.shownValue)
                 onActivated: index => root.setValue("accelProfile", Logic.profileAt(index))
             }
         }
 
-        MouseFormRow {
-            width: parent.width
+        MouseRow {
+            id: naturalScrollSource
+            setting: "naturalScroll"
             label: "Natural scroll"
-            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "naturalScroll")
-            action: UserValueAction { setting: "naturalScroll" }
             Switch {
                 size: "sm"
                 Accessible.name: "Natural scroll"
-                checked: root.shell !== null && root.shown("naturalScroll") === true
+                checked: root.shell !== null && naturalScrollSource.shownValue === true
                 onToggled: {
                     const wanted = checked;
-                    checked = Qt.binding(() => root.shell !== null && root.shown("naturalScroll") === true);
+                    checked = Qt.binding(() => root.shell !== null && naturalScrollSource.shownValue === true);
                     root.setValue("naturalScroll", wanted);
                 }
             }
         }
 
-        MouseFormRow {
+        MouseRow {
+            id: leftHandedSource
             visible: !root.compact
-            width: parent.width
+            setting: "leftHanded"
             label: "Left-handed"
-            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "leftHanded")
-            action: UserValueAction { setting: "leftHanded" }
             Switch {
                 size: "sm"
                 Accessible.name: "Left-handed"
-                checked: root.shell !== null && root.shown("leftHanded") === true
+                checked: root.shell !== null && leftHandedSource.shownValue === true
                 onToggled: {
                     const wanted = checked;
-                    checked = Qt.binding(() => root.shell !== null && root.shown("leftHanded") === true);
+                    checked = Qt.binding(() => root.shell !== null && leftHandedSource.shownValue === true);
                     root.setValue("leftHanded", wanted);
                 }
             }
         }
 
-        MouseFormRow {
+        MouseRow {
+            id: scrollFactorSource
             visible: !root.compact
-            width: parent.width
+            setting: "scrollFactor"
             label: "Scroll speed"
-            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "scrollFactor")
-            action: UserValueAction { setting: "scrollFactor" }
             Item {
                 id: scrollSpeedRow
                 width: parent.width
@@ -184,7 +162,7 @@ Column {
 
                 function commit() {
                     const wanted = scrollSpeed.value;
-                    scrollSpeed.value = Qt.binding(() => root.shell === null ? 1 : root.shown("scrollFactor"));
+                    scrollSpeed.value = Qt.binding(() => root.shell === null ? 1 : scrollFactorSource.shownValue);
                     if (wanted !== scrollSpeed.value) root.setValue("scrollFactor", wanted);
                 }
 
@@ -196,7 +174,7 @@ Column {
                     to: 2
                     stepSize: 0.05
                     snapMode: T.Slider.SnapAlways
-                    value: root.shell === null ? 1 : root.shown("scrollFactor")
+                    value: root.shell === null ? 1 : scrollFactorSource.shownValue
                     onPressedChanged: if (!pressed) scrollSpeedRow.commit()
                     onMoved: if (!pressed) scrollSpeedRow.commit()
                 }
@@ -226,11 +204,10 @@ Column {
         width: parent.width
         spacing: Theme.stack.row
 
-        MouseFormRow {
+        MouseRow {
             visible: root.compact
-            width: parent.width
+            setting: "touchpadEnabled"
             label: "Touchpad"
-            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "touchpadEnabled")
             Switch {
                 size: "sm"
                 Accessible.name: "Touchpad"
@@ -243,11 +220,10 @@ Column {
             }
         }
 
-        MouseFormRow {
+        MouseRow {
             visible: !root.compact
-            width: parent.width
+            setting: "touchpadEnabled"
             label: "Touchpad"
-            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "touchpadEnabled")
             Switch {
                 size: "sm"
                 Accessible.name: "Touchpad"
@@ -260,84 +236,79 @@ Column {
             }
         }
 
-        MouseFormRow {
+        MouseRow {
+            id: tapToClickSource
             visible: !root.compact
-            width: parent.width
+            setting: "tapToClick"
             label: "Tap to click"
-            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "tapToClick")
-            action: UserValueAction { setting: "tapToClick" }
             Switch {
                 size: "sm"
                 Accessible.name: "Tap to click"
-                checked: root.shell !== null && root.shown("tapToClick") === true
+                checked: root.shell !== null && tapToClickSource.shownValue === true
                 onToggled: {
                     const wanted = checked;
-                    checked = Qt.binding(() => root.shell !== null && root.shown("tapToClick") === true);
+                    checked = Qt.binding(() => root.shell !== null && tapToClickSource.shownValue === true);
                     root.setValue("tapToClick", wanted);
                 }
             }
         }
 
-        MouseFormRow {
+        MouseRow {
+            id: touchpadNaturalScrollSource
             visible: !root.compact
-            width: parent.width
+            setting: "touchpadNaturalScroll"
             label: "Natural scroll"
-            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "touchpadNaturalScroll")
-            action: UserValueAction { setting: "touchpadNaturalScroll" }
             Switch {
                 size: "sm"
                 Accessible.name: "Touchpad natural scroll"
-                checked: root.shell !== null && root.shown("touchpadNaturalScroll") === true
+                checked: root.shell !== null && touchpadNaturalScrollSource.shownValue === true
                 onToggled: {
                     const wanted = checked;
-                    checked = Qt.binding(() => root.shell !== null && root.shown("touchpadNaturalScroll") === true);
+                    checked = Qt.binding(() => root.shell !== null && touchpadNaturalScrollSource.shownValue === true);
                     root.setValue("touchpadNaturalScroll", wanted);
                 }
             }
         }
 
-        MouseFormRow {
+        MouseRow {
+            id: disableWhileTypingSource
             visible: !root.compact
-            width: parent.width
+            setting: "disableWhileTyping"
             label: "Disable while typing"
-            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "disableWhileTyping")
-            action: UserValueAction { setting: "disableWhileTyping" }
             Switch {
                 size: "sm"
                 Accessible.name: "Disable while typing"
-                checked: root.shell !== null && root.shown("disableWhileTyping") === true
+                checked: root.shell !== null && disableWhileTypingSource.shownValue === true
                 onToggled: {
                     const wanted = checked;
-                    checked = Qt.binding(() => root.shell !== null && root.shown("disableWhileTyping") === true);
+                    checked = Qt.binding(() => root.shell !== null && disableWhileTypingSource.shownValue === true);
                     root.setValue("disableWhileTyping", wanted);
                 }
             }
         }
 
-        MouseFormRow {
+        MouseRow {
+            id: clickMethodSource
             visible: !root.compact
-            width: parent.width
+            setting: "clickMethod"
             label: "Two-finger right-click"
-            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "clickMethod")
-            action: UserValueAction { setting: "clickMethod" }
             Switch {
                 size: "sm"
                 Accessible.name: "Two-finger right-click"
-                checked: root.shell !== null && root.shown("clickMethod") === true
+                checked: root.shell !== null && clickMethodSource.shownValue === true
                 onToggled: {
                     const wanted = checked;
-                    checked = Qt.binding(() => root.shell !== null && root.shown("clickMethod") === true);
+                    checked = Qt.binding(() => root.shell !== null && clickMethodSource.shownValue === true);
                     root.setValue("clickMethod", wanted);
                 }
             }
         }
 
-        MouseFormRow {
+        MouseRow {
+            id: touchpadScrollFactorSource
             visible: !root.compact
-            width: parent.width
+            setting: "touchpadScrollFactor"
             label: "Touchpad scroll speed"
-            warning: Logic.warningText(root.overridden, root.userValues, root.optionPaths, "touchpadScrollFactor")
-            action: UserValueAction { setting: "touchpadScrollFactor" }
             Item {
                 id: touchpadScrollSpeedRow
                 width: parent.width
@@ -345,7 +316,7 @@ Column {
 
                 function commit() {
                     const wanted = touchpadScrollSpeed.value;
-                    touchpadScrollSpeed.value = Qt.binding(() => root.shell === null ? 1 : root.shown("touchpadScrollFactor"));
+                    touchpadScrollSpeed.value = Qt.binding(() => root.shell === null ? 1 : touchpadScrollFactorSource.shownValue);
                     if (wanted !== touchpadScrollSpeed.value) root.setValue("touchpadScrollFactor", wanted);
                 }
 
@@ -357,7 +328,7 @@ Column {
                     to: 2
                     stepSize: 0.05
                     snapMode: T.Slider.SnapAlways
-                    value: root.shell === null ? 1 : root.shown("touchpadScrollFactor")
+                    value: root.shell === null ? 1 : touchpadScrollFactorSource.shownValue
                     onPressedChanged: if (!pressed) touchpadScrollSpeedRow.commit()
                     onMoved: if (!pressed) touchpadScrollSpeedRow.commit()
                 }

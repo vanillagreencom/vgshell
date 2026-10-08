@@ -267,6 +267,18 @@ Item {
                     FormRow { label: "Natural scroll"; width: parent.width; Switch { size: "sm"; checked: true } }
                     FormRow { label: "Pointer speed"; warning: "Overridden"; width: parent.width; Slider { from: 0; to: 100; value: 40; width: parent.width } }
                 }
+                // ValueSourceRow in each state, a value the theme can set
+                // and one mapped to a Hyprland option. Its actions are
+                // RowActions, whose focus example stands above.
+                Column {
+                    width: parent.width
+                    spacing: Theme.stack.row
+                    ValueSourceRow { id: themeSource; label: "Set by theme"; width: parent.width; themeOffered: true; source: "theme"; themeValue: 8; formatValue: value => value + " px"; Slider { from: 0; to: 32; value: themeSource.shownValue; width: parent.width } }
+                    ValueSourceRow { id: userSource; label: "User value"; width: parent.width; themeOffered: true; source: "user"; themeValue: 8; userValue: 12; formatValue: value => value + " px"; Slider { from: 0; to: 32; value: userSource.shownValue; width: parent.width } }
+                    ValueSourceRow { id: hyprlandSource; label: "Hyprland value"; width: parent.width; themeOffered: true; source: "hyprland"; themeValue: 8; path: "decoration.rounding"; hyprland: ({ values: { "decoration.rounding": 10 }, userValues: [], overridden: [] }); Slider { from: 0; to: 32; value: hyprlandSource.shownValue; width: parent.width } }
+                    ValueSourceRow { id: configSource; label: "Hyprland line"; width: parent.width; themeOffered: true; source: "user"; themeValue: 8; userValue: 12; path: "decoration.rounding"; formatValue: value => value + " px"; hyprland: ({ values: {}, userValues: [{ path: "decoration.rounding", value: 10 }], overridden: [] }); Slider { from: 0; to: 32; value: configSource.shownValue; width: parent.width } }
+                    ValueSourceRow { label: "Overridden"; width: parent.width; source: "user"; userValue: true; path: "input.natural_scroll"; hyprland: ({ values: {}, userValues: [], overridden: ["input.natural_scroll"] }); Switch { size: "sm"; checked: true } }
+                }
                 Field { label: "Command"; hint: "Multi-line command text"; width: parent.width; TextArea { width: parent.width; text: "echo hello\nprintf '%s\\n' done" } }
                 Field { label: "Date"; hint: "A keyboard picker"; width: parent.width; DateField { date: "2026-01-05" } }
                 Field { label: "Time"; hint: "Use Up and Down to change the minutes"; width: parent.width; TimeField { text: "09:00" } }
