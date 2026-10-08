@@ -27,6 +27,9 @@ FocusScope {
         return panel.plugins.filter(p => wanted === "" || [p.name, p.id, p.description].some(t => String(t).toLowerCase().indexOf(wanted) !== -1));
     }
     readonly property alias scrollArea: layout.scrollArea
+    // The height the list takes unscrolled: its heading, its rows and the
+    // window's insets.
+    readonly property real fitHeight: layout.uncappedHeight
     readonly property alias initialFocus: search
 
     Keys.onPressed: event => { event.accepted = handleKey(event); }

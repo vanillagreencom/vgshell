@@ -7,11 +7,13 @@ import qs.Ui
 // Hyprland window titled Plugins, which Hyprland floats, centres, frames
 // and focuses like any other window. It asks to be `size.window.width`
 // wide, or the monitor's width less `size.window.gutter` a side when that
-// is less, and `size.window.tallHeightShare` of the monitor's height tall,
-// or its height less the gutter a side when that is less, read from the
-// screen its `screens` capability gives; the size holds while pages change,
-// since Hyprland would move a resized window. The pages fill whatever
-// size the window has after that. The list page and the plugin page
+// is less, and as tall as the page it opens on, a plugin page's taller
+// tab or the list, up to `size.window.tallHeightShare` of the monitor's
+// height, or its height less the gutter a side when that is less, read
+// from the screen its `screens` capability gives. The size holds while
+// pages change, since Hyprland would move a resized window. The pages fill
+// whatever size the window has after that, and a page taller than it
+// scrolls. The list page and the plugin page
 // sit side by side and slide on `motion.duration.normal`, so a
 // `motion.scale` of 0 makes a push or a pop instant; the page not shown is
 // hidden once the slide ends, so the keyboard reaches the shown page alone.
@@ -92,7 +94,15 @@ FocusScope {
     property Item initialFocus: pending !== null || removal !== null ? prompt : page === "" ? list.initialFocus : detail.initialFocus
 
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
-    implicitHeight: screen === null ? Theme.size.panel.maxHeight : Math.floor(Math.min(Theme.size.window.tallHeightShare * screen.height, OverlayState.room(screen).height))
+    // The tallest the window opens.
+    readonly property real maxHeight: screen === null ? Theme.size.panel.maxHeight : Math.floor(Math.min(Theme.size.window.tallHeightShare * screen.height, OverlayState.room(screen).height))
+    // Only the height as the window shows counts: the window host calls open()
+    // before it shows the window, Quickshell 0.3.1 polishes the item tree
+    // just before it maps (proxywindow.cpp setVisibleDirect, QTBUG-126704),
+    // and a FloatingWindow takes a new implicit size only while hidden
+    // (floatingwindow.cpp trySetHeight), so a page reached after the window
+    // shows keeps its size and scrolls.
+    implicitHeight: Math.min(maxHeight, Math.ceil(page === "" ? list.fitHeight : detail.fitHeight))
     focus: true
 
     function rowOf(id) { return plugins.find(p => p.id === id) || null; }

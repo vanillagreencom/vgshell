@@ -69,6 +69,10 @@ FocusScope {
     readonly property bool requirementMissing: row !== null && row.requirements.some(Steps.requirementApplies)
     readonly property bool isSelf: row !== null && panel.shell !== null && row.id === panel.shell.manifest.id
     readonly property alias scrollArea: layout.scrollArea
+    // The height the page takes unscrolled, sized for the taller tab so a
+    // tab change needs no other height: TabPages holds both pages built and
+    // only hides the one not shown, so its Column keeps its height.
+    readonly property real fitHeight: layout.uncappedHeight - (tabs.currentPage === null ? 0 : tabs.currentPage.height) + Math.max(settingsPage.height, detailsPage.height)
     readonly property alias titleMenu: menu
     readonly property alias title: titleHeader.titleButton
     readonly property alias initialFocus: back
