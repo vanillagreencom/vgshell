@@ -591,14 +591,6 @@ jarvis_bubble_approval action
 expect_poll "control: the two-binding request is drawn" drawn jarvis_bubble_acknowledged
 jarvis_key_stop
 expect_poll "control: clearing the two-binding hold ends approval" none jarvis_key_state approval
-jarvis_bubble_failures="$(
-  failures=0 behaviour_failures=0
-  # The real row appends sampler output; keep this control's files private.
-  sandbox="$(mktemp -d "$sandbox/jarvis-bubble-bindings.XXXXXX")"
-  source "$repo/scripts/smoke/rows/diagnostics.sh" >"$sandbox/diagnostics.log"
-  echo "$failures"
-)"
-expect "control: the two-binding read fails the diagnostics row" 1 printf '%s\n' "$jarvis_bubble_failures"
 unexpected_log_errors "$instance_log" >"$sandbox/jarvis-bubble-bindings-errors.log"
 jarvis_bubble_control_pattern="$(python3 - "$sandbox/jarvis-bubble-bindings-errors.log" <<'PY'
 import re,sys
@@ -613,6 +605,52 @@ assert len(set(uris))==1
 print(re.escape(uris[0])+r'\[[0-9]+:[0-9]+\]:')
 PY
 )"
+# This reader consumes check_unexpected_log's failure block. Other
+# diagnostics failures do not change whether it holds this copy's warning.
+jarvis_bubble_binding_failure() { # DIAGNOSTICS_LOG WARNING_PATTERN
+  python3 - "$1" "$2" <<'PYREAD'
+from pathlib import Path
+import re,sys
+warning=re.compile(r" WARN scene: " + sys.argv[2])
+failed=False
+for line in Path(sys.argv[1]).read_text().splitlines():
+    if line.startswith("  FAIL  "): failed=True
+    elif line.startswith(("  ok    ","  SKIP  ")): failed=False
+    if failed and warning.search(line):
+        print("rejected")
+        break
+else:
+    print("missing")
+PYREAD
+}
+jarvis_bubble_binding_dir="$(mktemp -d "$sandbox/jarvis-bubble-bindings.XXXXXX")"
+(
+  failures=0 behaviour_failures=0
+  # Force an unrelated failure too. It must not change the binding verdict.
+  first_bar_ms=$((first_bar_budget_ms + 1))
+  # The real row appends sampler output; keep this control's files private.
+  sandbox="$jarvis_bubble_binding_dir"
+  source "$repo/scripts/smoke/rows/diagnostics.sh"
+) >"$jarvis_bubble_binding_dir/diagnostics.log"
+expect "control: the two-binding warning is among the diagnostics failures" rejected jarvis_bubble_binding_failure "$jarvis_bubble_binding_dir/diagnostics.log" "$jarvis_bubble_control_pattern"
+# Remove only the injected warning from the real diagnostic output. The
+# same assertion must then fail despite the remaining unrelated failure.
+python3 - "$jarvis_bubble_binding_dir/diagnostics.log" "$jarvis_bubble_binding_dir/no-binding.log" "$jarvis_bubble_control_pattern" <<'PYFILTER'
+from pathlib import Path
+import re,sys
+source,target=map(Path,sys.argv[1:3])
+warning=re.compile(r" WARN scene: " + sys.argv[3])
+rows=source.read_text().splitlines(keepends=True)
+kept=[row for row in rows if not warning.search(row)]
+assert len(kept)<len(rows)
+target.write_text("".join(kept))
+PYFILTER
+jarvis_bubble_binding_control="$(
+  failures=0 behaviour_failures=0
+  expect "the injected binding warning is rejected" rejected jarvis_bubble_binding_failure "$jarvis_bubble_binding_dir/no-binding.log" "$jarvis_bubble_control_pattern" >"$jarvis_bubble_binding_dir/missing-warning.log"
+  echo "$failures"
+)"
+expect "control: unrelated failures cannot stand in for the binding warning" 1 printf '%s\n' "$jarvis_bubble_binding_control"
 expected_errors+=("$jarvis_bubble_control_pattern")
 jarvis_disable
 cp -- "$sandbox/jarvis-bubble-before" "$jarvis_bubble_file"

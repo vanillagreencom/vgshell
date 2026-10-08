@@ -102,8 +102,10 @@ expect "the core built the bar, its placed widget and the vgs.themes background 
 # Use the runner's EPOCHREALTIME clock conversion in this shell so date,
 # seq and tail processes add no caller work to that interval.
 reconcile_ms=""
+reconcile_cpu_some_pct=unmeasured
 if disable_reply="$(ipc shell setPluginEnabled acme.tick false)"; then
   replied_ms=$(( ${EPOCHREALTIME//[!0-9]/} / 1000 ))
+  reconcile_cpu_start="$(cpu_some_us)"
   reconcile_poll_count=0
   for ((reconcile_poll = 0; reconcile_poll < 500; ++reconcile_poll)); do
     reconcile_poll_count=$((reconcile_poll_count + 1))
@@ -112,13 +114,14 @@ if disable_reply="$(ipc shell setPluginEnabled acme.tick false)"; then
       built_now="$vgs_ipc_last_line"
       if [[ $built_now == \{*\} && $built_now != *'"id":"acme.tick"'* ]]; then
         reconcile_ms=$(( ${EPOCHREALTIME//[!0-9]/} / 1000 - replied_ms ))
+        reconcile_cpu_some_pct="$(cpu_some_pct "$reconcile_cpu_start" "$(cpu_some_us)" "$reconcile_ms")"
         break
       fi
     fi
     sleep 0.005
   done
 fi
-printf '  reconcile_observation polls=%s latency_ms=%s cpu=%s\n' "${reconcile_poll_count:-0}" "$reconcile_ms" "$(cat /proc/pressure/cpu)"
+printf '  reconcile_observation polls=%s latency_ms=%s cpu_some_pct=%s\n' "${reconcile_poll_count:-0}" "$reconcile_ms" "$reconcile_cpu_some_pct"
 if [[ $disable_reply == ok ]]; then ok "disabling a widget is allowed"; else fail "disabling a widget is allowed: got $disable_reply"; fi
 tick_entry() { ipc shell listShellConfig | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([e for e in d["bar"]["layout"]["center"] if e["id"]=="acme.tick"]))'; }
 user_keys() { python3 -c 'import json,sys; print(",".join(sorted(json.load(open(sys.argv[1])).keys())))' "$home/.config/vgshell/shell.json"; }
