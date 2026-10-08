@@ -1989,6 +1989,66 @@ function verifyEditorCaps(render, report = false) {
 }
 verifyEditorCaps(require(rendererFile), true);
 
+function verifyEditorNoHeadroom(render, report = false) {
+    // An installed theme can leave no readable nonzero diff fill. Keep its
+    // ordinary theme and version even when line and word bytes both vanish.
+    const name = "no-headroom";
+    const pkg = logic.acceptPackage(TOKENS, { directoryName: name,
+        themeJson: JSON.stringify({ schemaVersion: 1, name, tokens: { palette: {
+            background: "#262626", foreground: "#8c8c8c",
+            success: "#ffffff", danger: "#ffffff", warning: "#ffffff"
+        } } }), terminalJson: undefined, shipped: false });
+    const failure = (field, value) => [{ kind: "no-headroom-limit", name, field, value }];
+    assert.deepEqual(pkg.ok ? [] : failure("package", pkg.reason), []);
+    const dir = path.join(repo, "themes/targets/vscode");
+    const accepted = render.acceptTarget(logic, "vscode", fs.readFileSync(path.join(dir, "target.json"), "utf8"));
+    assert.equal(accepted.ok, true);
+    const target = accepted.target;
+    const templates = new Map(target.files.map(file => [file.template, fs.readFileSync(path.join(dir, file.template), "utf8")]));
+    const input = { values: pkg.values, slots: defaults.terminal, curated: new Map(), installed: true };
+    const result = render.renderTarget(logic, TOKENS, target, templates, input);
+    assert.deepEqual(result.ok ? [] : failure("render", result.reason), []);
+    const bytes = result.files.find(file => file.destination === "vscode.json").bytes;
+    const theme = JSON.parse(bytes.toString("utf8"));
+    const recipe = JSON.parse(templates.get("vscode.json")).colors;
+    const fills = Object.entries(recipe).filter(([, value]) => value.endsWith(", 0.12)}") || value.endsWith(", 0.24)}"))
+        .map(([key, value]) => ({ key, strength: value.endsWith(", 0.12)}") ? 0.12 : 0.24,
+            color: theme.colors[key], alpha: logic.parseColor(theme.colors[key])?.a }));
+    assert.ok(fills.some(fill => fill.key === "merge.commonContentBackground"));
+    assert.ok(fills.some(fill => fill.key === "diffEditor.removedTextBackground"));
+    assert.deepEqual(fills.filter(fill => fill.color !== "#ffffff00").map(fill => ({
+        kind: "no-headroom-limit", name, field: "fill", ...fill
+    })), []);
+    const lineAlpha = logic.parseColor(theme.colors["diffEditor.insertedLineBackground"]).a;
+    const wordAlpha = logic.parseColor(theme.colors["diffEditor.insertedTextBackground"]).a;
+    const observed = { kind: "no-headroom-limit", name, accepted: pkg.ok, rendered: result.ok,
+        // Encoded fills share scale zero; the private solver may return a
+        // positive midpoint whose alpha still rounds to the zero byte.
+        encodedScales: [...new Set(fills.map(fill => fill.alpha / fill.strength))],
+        lineAlpha, wordAlpha, fillOrder: lineAlpha === wordAlpha ? "collapsed" : "distinct",
+        page: theme.colors["editor.background"], foreground: theme.colors["editor.foreground"],
+        pageContrast: logic.contrastRatio(logic.parseColor(theme.colors["editor.foreground"]),
+            logic.parseColor(theme.colors["editor.background"])) };
+    assert.deepEqual(observed, { kind: "no-headroom-limit", name, accepted: true, rendered: true,
+        encodedScales: [0], lineAlpha: 0, wordAlpha: 0, fillOrder: "collapsed",
+        page: "#262626ff", foreground: "#8c8c8cff", pageContrast: 4.500432865400819 });
+    const plain = render.renderTarget(logic, TOKENS, { ...target, name: "no-headroom-probe" }, templates, input);
+    assert.deepEqual(plain.ok ? [] : failure("ordinary-render", plain.reason), []);
+    const ordinary = JSON.parse(plain.files.find(file => file.destination === "vscode.json").bytes.toString("utf8"));
+    const cappedKeys = new Set(fills.map(fill => fill.key));
+    const withoutFills = document => ({ ...document,
+        colors: Object.fromEntries(Object.entries(document.colors).filter(([key]) => !cappedKeys.has(key))) });
+    assert.deepEqual(withoutFills(theme), withoutFills(ordinary));
+    assert.equal(theme.type, "dark");
+    assert.equal(theme.colors["textLink.foreground"], pkg.values.color.accent);
+    assert.equal(result.version, versionOf(bytes.toString("utf8")));
+    const extension = JSON.parse(result.files.find(file => file.destination === "vscode.package.json").bytes.toString("utf8"));
+    assert.equal(extension.version, result.version);
+    if (report) console.log("test-theme-render: editor-limit " + JSON.stringify({ ...observed,
+        fills: fills.map(({ key, color }) => ({ key, color })), ordinaryThemeRetained: true, version: result.version }));
+}
+verifyEditorNoHeadroom(require(rendererFile), true);
+
 function verifyEditorWarningCap(render) {
     const dir = path.join(repo, "themes/targets/vscode");
     const target = render.acceptTarget(logic, "vscode", fs.readFileSync(path.join(dir, "target.json"), "utf8")).target;
@@ -2232,6 +2292,7 @@ const CONTROLS = [
     ["editor cap keeps the contrast floor", "return logic.contrastRatio(over(text, fill), fill) >= logic.READABILITY_FLOOR;", "return true;", verifyEditorStyles],
     ["editor cap uses encoded alpha bytes", "const tint = logic.parseColor(logic.formatColor({ ...colour, a: alpha * scale }));", "const tint = { ...colour, a: alpha * scale };", verifyEditorCaps],
     ["editor cap selects the strongest cell", "if (readable) return scale;", "if (readable) return scale === cap ? scale : scale * 0.95;", verifyEditorCaps],
+    ["editor cap keeps a readable zero-byte limit", "if (readable) return scale;", "if (readable) return stacks.flat().every(({ alpha }) => Math.round(alpha * scale * 255) === 0) ? null : scale;", verifyEditorNoHeadroom],
     ["editor cap includes standalone warning lines", "        [{ colour: warning, alpha: 0.12 }]", "        []", verifyEditorWarningCap],
     ["editor cap is common to line and word", 'document.colors[key] = "#@{alpha({color." + role + "}, " + alpha * scale + ")}";', 'document.colors[key] = "#@{alpha({color." + role + "}, " + alpha * (alpha === 0.12 ? 1 : scale) + ")}";', verifyEditorStyles],
     ["editor cap caller leaves other targets", 'if (target.name === "vscode" && file.destination === "vscode.json") {', 'if (true) {', verifyEditorCaps],
@@ -2454,6 +2515,7 @@ try {
             if (label === "editor cap selects the strongest cell") assert.ok(typed.some(row => row.kind === "strongest-cap"));
             if (label === "editor cap is common to line and word") assert.ok(typed.some(row => row.kind === "tint-order"));
             if (label === "editor cap includes standalone warning lines") assert.ok(typed.some(row => row.kind === "contrast" && row.surface === "merge.commonContentBackground"));
+            if (label === "editor cap keeps a readable zero-byte limit") assert.ok(typed.some(row => row.kind === "no-headroom-limit" && row.field === "render"));
             console.log("test-theme-render: cap-control " + JSON.stringify({ label, rejected: true, assertion: failure.code, categories: [...new Set(typed.map(row => row.kind))] }));
         }
     });
