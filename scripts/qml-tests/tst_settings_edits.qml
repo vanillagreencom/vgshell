@@ -217,17 +217,19 @@ Item {
         }
 
         function test_settings_key_boxes_keep_width_across_bound_unbound_and_reset_states() {
-            const original = keyRow.bind;
-            keyRow.capture = pageCapture;
-            const box = () => descendants(keyRow).find(item => String(item).indexOf("QQuickAbstractButton") === 0);
+            const original = { shortcut: "spare", key: "SUPER+M", default: "SUPER+M", description: "Spare" };
+            const field = disposableKey.createObject(root, { width: 600, capture: pageCapture, bind: original });
+            const box = () => descendants(field).find(item => String(item).indexOf("QQuickAbstractButton") === 0);
+            waitForItemPolished(box().parent);
             const expected = box().width;
             for (const key of [null, "SUPER+N", "SUPER+M"]) {
-                keyRow.bind = Object.assign({}, original, { key: key });
+                field.bind = Object.assign({}, original, { key: key });
+                const reset = field.actions.find(item => item.label.indexOf("Reset to ") === 0);
+                compare(reset.visible, key !== original.default);
                 waitForItemPolished(box().parent);
-                compare(box().width, expected);
+                tryCompare(box(), "width", expected);
             }
-            keyRow.bind = original;
-            keyRow.capture = null;
+            field.destroy();
         }
 
         function test_settings_bind_explanation_uses_the_shared_label_tooltip() {

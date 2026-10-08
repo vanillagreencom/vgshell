@@ -95,7 +95,10 @@ Item {
             return descendants(of).find(child => child.anchorItem === of && child.details !== undefined);
         }
         function tooltipTitle(of) {
-            const window = tooltipOf(of).tracker.popup;
+            // openedChanged runs before the tooltip's tracker binding
+            // updates. Read the loaded window itself in that callback.
+            const loader = tooltipOf(of).resources.find(child => String(child).indexOf("LazyLoader") === 0);
+            const window = loader.item;
             return descendants(window.contentItem).find(child => child.objectName === "tooltipTitle");
         }
         function rest(of) {
