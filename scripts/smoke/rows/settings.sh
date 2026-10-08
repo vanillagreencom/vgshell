@@ -14,7 +14,7 @@
 # reason naming it. Dispatches asked for back to back run in order behind one
 # process, the queue has a bound, and a process that cannot start does not
 # stop the queue.
-# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml
+# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml
 set -euo pipefail
 click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
 expect_poll "the gear's click opens the Settings window" open settings_open
@@ -32,8 +32,9 @@ expect_poll "the page draws the fixture's fields again" '[9, 0]' page_fields
 # plugin's page opens on Settings, where a plugin with nothing below its
 # switches says so in one line and, disabled, draws no hint to turn it on,
 # and a page change returns the body to
-# its top, read on the disabled Jarvis page, whose two pages both overflow
-# and whose Enabled switch draws that hint, the hint reader's control.
+# its top. A disposable fixture supplies both pages' content, independent
+# of requirements or accounts on the host. The disabled Jarvis page is
+# only the Enabled hint reader's control.
 # The control, at the row's end, is a copy of the page that opens on
 # Details, keeps its place and forwards no key to its pages, read by the
 # same readers.
@@ -54,9 +55,36 @@ page_top() { scroll_value contentY; }
 # enabled_hint NAME: whether the page draws the Enabled switch's hint to
 # turn plugin NAME on.
 enabled_hint() { settings_label "Turn on $1 to change its settings and shortcuts."; }
-# page_scrolled Y: the body moved to contentY Y, which only a page that
-# overflows by as much holds.
-page_scrolled() { ipc smoke scrollTo window vgs.settings "$1" | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
+# page_scrolled Y: reject insufficient fixture content as a setup error
+# before judging scroll return. Probe.scrollTo reports the clamped position
+# and both heights from the same scroll operation.
+page_scrolled() {
+  ipc smoke scrollTo window vgs.settings "$1" | py_reply '
+import json,sys
+d=json.load(sys.stdin)
+wanted=int(sys.argv[1])
+if not isinstance(d,list) or len(d)!=3:
+    print(json.dumps({"setupError":"scroll-unavailable","reading":d}))
+    sys.exit(2)
+y,content,view=d
+print("settings-scroll: requested=%s contentHeight=%s height=%s contentY=%s" % (wanted,content,view,y), file=sys.stderr)
+if content-view < wanted:
+    print(json.dumps({"setupError":"short-page","requested":wanted,"contentHeight":content,"height":view,"contentY":y}))
+    sys.exit(2)
+print(y)' "$1"
+}
+# Tab and plugin changes publish their index before Qt positions a Column's
+# children. Wait on the fixture's measured range before its scroll assertion.
+page_scroll_ready() {
+  scroll_value contentHeight height | py_reply 'import json,sys; d=json.load(sys.stdin); print(d[0]-d[1] >= int(sys.argv[1]))' "$1"
+}
+# The short-page control consumes the setup category and its nonzero status.
+page_scroll_short_control() {
+  local got status=0
+  got="$(page_scrolled 300)" || status=$?
+  if [[ $status -ne 2 ]]; then printf 'unexpected-status=%s reading=%s\n' "$status" "$got"; return; fi
+  printf '%s\n' "$got" | py_reply 'import json,sys; print(json.load(sys.stdin).get("setupError", "missing-category"))'
+}
 expect_poll "an opened page shows Settings and nothing of Details" "0 drawn absent" page_shown
 expect "a plugin with settings draws no line that it has none" absent settings_label "This plugin has no other settings."
 settings_details
@@ -98,15 +126,42 @@ expect_poll "the window's rows show the bare fixture enabled after its page's re
 expect "the window opens the Jarvis page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.jarvis
 expect_poll "the Jarvis page opens on Settings" 0 settings_tab
 expect_poll "control: the disabled Jarvis page, with settings to change, draws the hint to turn it on" drawn enabled_hint Jarvis
-type_keys -k Tab -k Tab || fail "tabbing to the Jarvis page's strip failed"
-expect_poll "the Jarvis page's strip holds the keyboard" "$strip_focused" page_focus
-expect "the Jarvis page's Settings overflow by the scroll the row gives them" 300 page_scrolled 300
+# The short fixture reaches the same scroll reader, which must refuse it
+# as setup rather than report a product failure or accept a clamped zero.
+expect "the window opens the short page control" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.bare
+expect_poll "the short page control opens on Settings" 0 settings_tab
+expect "control: insufficient page content is a setup error" short-page page_scroll_short_control
+
+# Both pages get their length from this row's own manifest content. The
+# service copy has no capabilities or host-dependent data.
+scroll_fixture="$home/.config/vgshell/plugins/acme.settings-scroll"
+mkdir -- "$scroll_fixture"
+cp -- "$repo/scripts/smoke/fixtures/plugins/acme.bare/Service.qml" "$scroll_fixture/Service.qml"
+python3 - "$repo/scripts/smoke/fixtures/plugins/acme.bare/manifest.json" "$scroll_fixture/manifest.json" <<'PYSCROLL'
+import json,sys
+from pathlib import Path
+manifest=json.loads(Path(sys.argv[1]).read_text())
+manifest.update(id="acme.settings-scroll",name="Scroll fixture",
+    description="\n".join("Details fixture line %s" % n for n in range(40)),
+    requirements=[],settings={"field%s" % n:False for n in range(40)},
+    schema={"field%s" % n:{"type":"boolean","label":"Fixture field %s" % n} for n in range(40)})
+with Path(sys.argv[2]).open("x") as file:
+    json.dump(manifest,file)
+PYSCROLL
+rescan "a rescan picks the row-owned scroll fixture"
+expect "the window opens the scroll fixture" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.settings-scroll
+expect_poll "the scroll fixture opens on Settings" 0 settings_tab
+type_keys -k Tab -k Tab || fail "tabbing to the scroll fixture's strip failed"
+expect_poll "the scroll fixture's strip holds the keyboard" "$strip_focused" page_focus
+expect_poll "the fixture's Settings take the row's scroll: fixture content is ready" True page_scroll_ready 300
+expect "the fixture's Settings take the row's scroll" 300 page_scrolled 300
 type_keys -k Right || fail "sending Right to the scrolled page's strip failed"
-expect_poll "Right shows the Jarvis page's Details" 1 settings_tab
+expect_poll "Right shows the fixture's Details" 1 settings_tab
 expect_poll "a page change returns the body to its top" '[0]' page_top
-expect "the Jarvis page's Details overflow by the scroll the row gives them" 300 page_scrolled 300
+expect_poll "the fixture's Details take the row's scroll: fixture content is ready" True page_scroll_ready 300
+expect "the fixture's Details take the row's scroll" 300 page_scrolled 300
 type_keys -k Left || fail "sending Left to the scrolled page's strip failed"
-expect_poll "Left shows the Jarvis page's Settings" 0 settings_tab
+expect_poll "Left shows the fixture's Settings" 0 settings_tab
 expect_poll "the page change back returns the body to its top" '[0]' page_top
 
 open_rows() { settings_rows | py_reply 'import json,sys; ids=("acme.probe","vgs.gallery","vgs.devtools","vgs.themes"); print(json.dumps({r["id"]: r["opens"] for r in json.load(sys.stdin) if r["id"] in ids}, sort_keys=True))'; }
@@ -646,7 +701,7 @@ expect_poll "the Settings plug left every bar" True gear_gone
 # Control of the page rows: a copy of the Settings plugin whose page opens
 # on Details, drops the return to the top and forwards no key to its
 # pages. The same readers read the fixture's page open on Details, Ctrl+Tab
-# from the back button leave the Jarvis page where it was, and that page
+# from the back button leave the scroll fixture where it was, and that page
 # keep the scroll the row gave it across a page change.
 expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.settings')
 page_copy="$home/.config/vgshell/plugins/vgs.settings"
@@ -669,19 +724,22 @@ then ok "the page control opens on Details, drops the return to the top and forw
 rescan "a rescan picks the page control"
 settings_page_open acme.probe
 expect_poll "control: a page copy that opens on Details reads Details" "1 absent drawn" page_shown
-expect "control: the copy opens the Jarvis page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.jarvis
-expect_poll "control: the copy's Jarvis page opens on Details too" 1 settings_tab
+expect "control: the copy opens the scroll fixture" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.settings-scroll
+expect_poll "control: the copy's scroll fixture opens on Details too" 1 settings_tab
 type_keys -M ctrl -k Tab -m ctrl || fail "control: sending Ctrl+Tab to the copy's back button failed"
 type_keys -k Tab -k Tab || fail "control: tabbing to the copy's strip failed"
 expect_poll "control: the copy's strip holds the keyboard" "$strip_focused" page_focus
 expect "control: a page that forwards no key leaves Ctrl+Tab from the back button unanswered" 1 settings_tab
+expect_poll "control: the copy's Details take the row's scroll: fixture content is ready" True page_scroll_ready 300
 expect "control: the copy's Details take the row's scroll" 300 page_scrolled 300
 type_keys -k Left || fail "control: sending Left to the copy's strip failed"
 expect_poll "control: Left shows the copy's Settings" 0 settings_tab
+expect_poll "control: the copy's Settings content is ready" True page_scroll_ready 300
 expect "control: a page that drops the return keeps its scroll across the page change" '[300]' page_top
 settings_page_close acme.probe
 rm -rf -- "${page_copy:?}"
-rescan "a rescan drops the page control"
+rm -rf -- "${scroll_fixture:?}"
+rescan "a rescan drops the page control and scroll fixture"
 
 # The dispatch queue, driven through the fixture's compositor capability.
 # Every queue row ends on workspace 2 and is reset to workspace 1 without
