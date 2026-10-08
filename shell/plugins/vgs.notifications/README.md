@@ -28,7 +28,7 @@ Screenshots come from `scripts/readme-shots.sh` in the nested sandbox, with the 
 | Setting | What it changes |
 | --- | --- |
 | Notification duration | The minimum time a normal notification stays on screen. |
-| Position | The screen edge where notifications show: top or bottom, at the left, in the centre or at the right. The newest notification is nearest that edge. |
+| Position | Where notifications show on each screen: top or bottom, at the left, center or right. The newest notification is nearest that edge. |
 | Slack photos | Whether sender photos load from connected Slack workspaces. |
 | Slack custom emoji | Whether custom emoji show in Slack notifications. |
 

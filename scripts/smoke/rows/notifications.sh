@@ -2325,18 +2325,23 @@ expect_poll "the Settings window is gone after the photo setup rows" 0 window_co
 # judges one reading with NEWEST the newest card's summary and OLDER the
 # one before it: `placed`, or the kinds of defect it found on any screen:
 # `screens` for a stack missing from a screen, `unread` for a screen
-# without both cards, `across` and `edge` for the newest card off the gaps
-# Appearance.js sets from the side and from the edge, and `order` for the
-# card before it on the edge's side of it.
+# without both cards, `across` and `edge` for the newest card more than a
+# pixel off the one visible gap, `place_gap`, from the side it is placed
+# at (or off the centre) and from the bar or the bottom edge, and `order`
+# for the card before it on the edge's side of it. The gap is the stack's
+# edge gap plus a slot's card gap from Appearance.js, 13 px with the
+# shipped table; the shadow room and the scroll tail add nothing to it.
 note_stack_tail="$(look_at stack.tail)" || fail "the notification stack tail token is unreadable"
+note_scrollbar_wide="$(look_at scrollbar.wide)" || fail "the notification scrollbar wide token is unreadable"
+place_gap=$((note_stack_top + note_card_gap))
 place_count=19
 place_verdict() { # WANT NEWEST OLDER CARDS WINDOWS
-  python3 - "$1" "$4" "$5" "$note_stack_top" "$note_stack_pad" "$note_stack_tail" "$note_card_gap" "$monitors" "$2" "$3" <<'PY'
+  python3 - "$1" "$4" "$5" "$place_gap" "$monitors" "$2" "$3" <<'PY'
 import json, sys
 
 want, cards, windows = sys.argv[1], json.loads(sys.argv[2]), json.loads(sys.argv[3])
-edge, pad, tail, gap = map(float, sys.argv[4:8])
-screens, newest, older = int(sys.argv[8]), sys.argv[9], sys.argv[10]
+gap = float(sys.argv[4])
+screens, newest, older = int(sys.argv[5]), sys.argv[6], sys.argv[7]
 vertical, _, across = want.partition("-")
 bad = set()
 sizes = {w["screen"]: (w["width"], w["height"]) for w in windows}
@@ -2349,13 +2354,13 @@ for screen, (width, height) in sizes.items():
         continue
     x, y, w, h = mine[newest]
     older_y = mine[older][1]
-    off = {"left": x - (edge + pad), "right": width - x - w - (edge + pad), "": x + w / 2 - width / 2}[across]
+    off = {"left": x - gap, "right": width - x - w - gap, "center": x + w / 2 - width / 2}[across]
     if abs(off) > 1:
         bad.add("across")
     if vertical == "top":
-        off, ordered = y - (edge + gap), older_y > y
+        off, ordered = y - gap, older_y > y
     else:
-        off, ordered = height - y - h - (edge + tail + gap), older_y < y
+        off, ordered = height - y - h - gap, older_y < y
     if abs(off) > 1:
         bad.add("edge")
     if not ordered:
@@ -2371,6 +2376,56 @@ placed_at() { # WANT NEWEST OLDER
   place_verdict "$1" "$2" "$3" "$cards" "$windows"
 }
 place_last=("Place $place_count" "Place $((place_count - 1))")
+# place_planted WANT SIDE_GAP EDGE_GAP WINDOWS: a reading of the two last
+# Place cards on every screen of WINDOWS, the newest SIDE_GAP from the side
+# WANT names (centred for -center) and EDGE_GAP from its top or bottom,
+# the one before it a card further in.
+place_planted() { # WANT SIDE_GAP EDGE_GAP WINDOWS
+  python3 - "$@" "$note_card_width" "${place_last[@]}" <<'PY'
+import json, sys
+
+want, side, edge, windows, width_card = sys.argv[1], float(sys.argv[2]), float(sys.argv[3]), json.loads(sys.argv[4]), float(sys.argv[5])
+newest, older = sys.argv[6], sys.argv[7]
+vertical, _, across = want.partition("-")
+h, step = 60, 70
+out = []
+for win in windows:
+    width, height = win["width"], win["height"]
+    x = {"left": side, "right": width - side - width_card, "center": (width - width_card) / 2}[across]
+    y = edge if vertical == "top" else height - edge - h
+    nearer = step if vertical == "top" else -step
+    out.append([win["screen"], [x, y, width_card, h], {"summary": newest}])
+    out.append([win["screen"], [x, y + nearer, width_card, h], {"summary": older}])
+print(json.dumps(out))
+PY
+}
+# place_bar_room: `on-screen` when, on every screen, the stack's slim bar,
+# its thumb as wide as it gets centred in its box, lies inside the layer;
+# else `off-screen`, or `unread` without a bar on each screen.
+place_bar_verdict() { # BARS WINDOWS
+  python3 - "$1" "$2" "$note_scrollbar_wide" "$monitors" <<'PY'
+import json, sys
+
+bars, windows, wide, screens = json.loads(sys.argv[1]), json.loads(sys.argv[2]), float(sys.argv[3]), int(sys.argv[4])
+sizes = {w["screen"]: w["width"] for w in windows}
+found = {s: r for s, r, v in bars if v["objectName"] == "notificationScrollBar" and v["visible"]}
+if len(sizes) != screens or set(found) != set(sizes):
+    print("unread")
+    sys.exit()
+for screen, (x, y, w, h) in found.items():
+    centre = x + w / 2
+    if centre - wide / 2 < -0.5 or centre + wide / 2 > sizes[screen] + 0.5:
+        print("off-screen")
+        sys.exit()
+print("on-screen")
+PY
+}
+place_bars() { ipc smoke layerItems vgs.notifications SlimScrollBar objectName,visible; }
+place_bar_room() {
+  local bars windows
+  bars="$(place_bars)" && windows="$(place_windows)" || return
+  place_bar_verdict "$bars" "$windows"
+}
 position_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"vgs.notifications","key":"position"}'; }
 position_read() { position_field | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[sys.argv[1]]))' "$1"; }
 choose_position() { ipc smoke invokeInstance window vgs.settings chooseField "{\"id\":\"vgs.notifications\",\"key\":\"position\",\"index\":$1}"; }
@@ -2384,9 +2439,58 @@ expect_poll "the nineteen Place toasts show" "$place_count" note_status onScreen
 expect_poll "every screen's stack runs past its screen" "$monitors" overflowing_screens
 hover 1 1 || fail "resting the pointer on the bar failed"
 expect "the notifications' Settings page opens for Position" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
-expect_poll "the page draws Position as a list of the six edges" '["top-left", "top", "top-right", "bottom-left", "bottom", "bottom-right"]' position_read model
-expect "Position starts at the top" '"top"' position_read value
-geometry expect_poll "the default stack sits at the top, centred, the newest card first" placed placed_at top "${place_last[@]}"
+expect_poll "the page draws Position as a list of the six edges" '["top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right"]' position_read model
+expect "Position starts at the top center" '"top-center"' position_read value
+# The page keeps the Slack section in view under the Settings group that
+# holds Position, at the harness's screen size: slack_heading_verdict reads
+# the page's items, as descendantGeometry gives them, and answers whether
+# the Slack group's heading lies inside the scroll view that clips it,
+# `in-view`, `above` or `below`, or `absent` without a shown heading.
+slack_heading_verdict() { # ITEMS
+  python3 - "$1" <<'PY'
+import json, sys
+
+items = json.loads(sys.argv[1])
+head = next((i for i in items if i["type"] == "SectionHeader" and i["text"] == "Slack" and i["visible"]), None)
+if head is None:
+    print("absent")
+    sys.exit()
+at = head["parent"]
+while at >= 0 and items[at]["type"] not in ("ScrollArea", "QQuickFlickable"):
+    at = items[at]["parent"]
+if at < 0:
+    print("absent")
+    sys.exit()
+view_y, view_h = items[at]["box"][1], items[at]["box"][3]
+y, h = head["box"][1], head["box"][3]
+print("above" if y < view_y - 0.5 else "below" if y + h > view_y + view_h + 0.5 else "in-view")
+PY
+}
+slack_heading() {
+  local items
+  items="$(ipc smoke descendantGeometry window vgs.settings)" || return
+  slack_heading_verdict "$items"
+}
+geometry expect_poll "the Notifications page shows the Slack heading in view below Position" in-view slack_heading
+# The control: the same reading with the heading one pixel past the view's
+# lower edge.
+slack_heading_below() { # ITEMS
+  python3 - "$1" <<'PY'
+import json, sys
+
+items = json.loads(sys.argv[1])
+head = next(i for i in items if i["type"] == "SectionHeader" and i["text"] == "Slack" and i["visible"])
+at = head["parent"]
+while items[at]["type"] not in ("ScrollArea", "QQuickFlickable"):
+    at = items[at]["parent"]
+head["box"][1] = items[at]["box"][1] + items[at]["box"][3] - head["box"][3] + 1
+print(json.dumps(items))
+PY
+}
+slack_items="$(ipc smoke descendantGeometry window vgs.settings)" || fail "the Notifications page's items are unreadable"
+slack_items_below="$(slack_heading_below "$slack_items")" || fail "planting the Slack heading below the view failed"
+expect "control: a Slack heading one pixel past the view's lower edge reads below" below slack_heading_verdict "$slack_items_below"
+geometry expect_poll "the default stack sits at the top center, $place_gap px under the bar, the newest card first" placed placed_at top-center "${place_last[@]}"
 # The control: the default stack, fixed at the top centre, fails every
 # other position's verdict for the rule that position changes.
 place_kept_cards="$(place_cards)" && place_kept_windows="$(place_windows)" || fail "the top stack's reading failed"
@@ -2394,20 +2498,50 @@ place_controls=(
   "top-left|across"
   "top-right|across"
   "bottom-left|across edge order"
-  "bottom|edge order"
+  "bottom-center|edge order"
   "bottom-right|across edge order"
 )
 for control in "${place_controls[@]}"; do
   IFS='|' read -r place place_want <<<"$control"
   expect "control: a stack fixed at the top fails $place" "$place_want" place_verdict "$place" "${place_last[@]}" "$place_kept_cards" "$place_kept_windows"
 done
-place_names=(top-left top top-right bottom-left bottom bottom-right)
+# The controls of the gap rule, on planted readings over the real layer
+# windows: the newest card $place_gap px from each edge passes every
+# position, and the placement before the one gap, the card past the
+# shadow room (stack.edge plus stack.pad) from a side and past the scroll
+# tail and the slot's gap from the bottom, fails each position whose gap
+# it widened.
+place_names=(top-left top-center top-right bottom-left bottom-center bottom-right)
+for place in "${place_names[@]}"; do
+  expect "control: a card $place_gap px from each edge passes $place" placed place_verdict "$place" "${place_last[@]}" "$(place_planted "$place" "$place_gap" "$place_gap" "$place_kept_windows")" "$place_kept_windows"
+done
+place_wide_side=$((note_stack_top + note_stack_pad))
+place_wide_bottom=$((note_stack_top + note_stack_tail + note_card_gap))
+place_wide_controls=(
+  "top-left|$place_gap|across"
+  "top-right|$place_gap|across"
+  "bottom-left|$place_wide_bottom|across edge"
+  "bottom-center|$place_wide_bottom|edge"
+  "bottom-right|$place_wide_bottom|across edge"
+)
+for control in "${place_wide_controls[@]}"; do
+  IFS='|' read -r place place_edge place_want <<<"$control"
+  expect "control: the shadow-room placement fails $place" "$place_want" place_verdict "$place" "${place_last[@]}" "$(place_planted "$place" "$place_wide_side" "$place_edge" "$place_kept_windows")" "$place_kept_windows"
+done
 for i in "${!place_names[@]}"; do
   place="${place_names[$i]}"
   expect "choosing Position $place in the list is allowed" chosen choose_position "$i"
   expect_poll "the configuration holds Position $place" "\"$place\"" position_read value
-  geometry expect_poll "every screen's stack moves to $place, the newest card at its edge" placed placed_at "$place" "${place_last[@]}"
+  geometry expect_poll "every screen's stack moves to $place, the newest card $place_gap px from its edges" placed placed_at "$place" "${place_last[@]}"
+  if [[ $place == *-right ]]; then
+    geometry expect_poll "the slim bar beside the $place stack stays on every screen" on-screen place_bar_room
+  fi
 done
+# The control of the bar rule: the bar read at the right edge, moved out
+# by its own thumb's width, leaves the screen.
+place_kept_bars="$(place_bars)" && place_kept_windows="$(place_windows)" || fail "the right stack's bar reading failed"
+place_bars_out="$(python3 -c 'import json,sys; print(json.dumps([[s, [r[0] + float(sys.argv[2]), r[1], r[2], r[3]], v] for s, r, v in json.loads(sys.argv[1])]))' "$place_kept_bars" "$note_scrollbar_wide")"
+expect "control: a bar moved out by its thumb's width is off the screen" off-screen place_bar_verdict "$place_bars_out" "$place_kept_windows"
 # At bottom-right, the last position chosen, a card arriving grows the
 # overflowing stack at its end, which the view holds in view, and its
 # leaving gives the end back to the card before it.
@@ -2442,8 +2576,8 @@ expect_poll "the restored scroll frame is built" True record_exists vgs.notifica
 geometry expect_poll "the restored bottom stack holds the newest card at the edge" placed placed_at bottom-right "${place_last[@]}"
 expect "the Settings page opens again for Position" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
 expect_poll "the page shows Position bottom-right" '"bottom-right"' position_read value
-expect "choosing Position top again is allowed" chosen choose_position 1
-geometry expect_poll "the stack is back at the top with the newest card in view" placed placed_at top "${place_last[@]}"
+expect "choosing Position top-center again is allowed" chosen choose_position 1
+geometry expect_poll "the stack is back at the top center with the newest card in view" placed placed_at top-center "${place_last[@]}"
 expect "the Settings window closes after the Position checks" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone after the Position checks" 0 window_count Plugins
 notes dismiss-all >/dev/null

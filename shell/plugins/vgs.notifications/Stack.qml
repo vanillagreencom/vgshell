@@ -24,14 +24,27 @@ Item {
     // A bottom position lays the cards out from the bottom edge, which the
     // slots read for their gap and their entrance.
     readonly property bool fromBottom: position.startsWith("bottom")
-    readonly property string side: position.endsWith("-left") ? "left" : position.endsWith("-right") ? "right" : "centre"
+    readonly property string side: position.endsWith("-left") ? "left" : position.endsWith("-right") ? "right" : "center"
+    // The visible gap between the nearest card and each edge the stack is
+    // placed at, the same at the top, the bottom and the sides: the top
+    // gap the stack keeps plus the gap a slot keeps beside its card. The
+    // column's box carries room past the card, for the cards' shadows at
+    // the sides and the scroll tail and a slot's gap under a bottom stack's
+    // newest card, so the box sits that much past the edge: off the
+    // surface, where nothing draws. The slim bar beside a right stack's
+    // cards stays on the surface while scrollbar.gap plus half of
+    // scrollbar.width and of scrollbar.wide fits in this gap.
+    readonly property real gap: look.stack.edge + look.card.gap
+    readonly property real sideInset: gap - look.stack.pad
+    readonly property real topInset: gap - look.card.gap
+    readonly property real bottomInset: gap - look.card.gap - look.stack.tail
 
     ColumnLayout {
         id: column
-        x: stack.side === "left" ? stack.look.stack.edge
-            : stack.side === "right" ? stack.width - width - stack.look.stack.edge
+        x: stack.side === "left" ? stack.sideInset
+            : stack.side === "right" ? stack.width - width - stack.sideInset
             : Math.round((stack.width - width) / 2)
-        y: stack.fromBottom ? stack.height - height - stack.look.stack.edge : stack.look.stack.edge
+        y: stack.fromBottom ? stack.height - height - stack.bottomInset : stack.topInset
         // Each slot carries its own gap, scaled by its morph, so the rows
         // close up smoothly when one goes.
         spacing: 0
@@ -39,7 +52,8 @@ Item {
         CardScroll {
             id: scroll
             look: stack.look
-            maxHeight: stack.height - stack.look.stack.edge - stack.look.stack.far
+            // A scrolling stack leaves `far` at the edge across from its own.
+            maxHeight: stack.height - stack.look.stack.far - (stack.fromBottom ? stack.bottomInset : stack.topInset)
             fromEnd: stack.fromBottom
             scrollObjectName: "notificationScrollBar"
             Layout.alignment: Qt.AlignHCenter

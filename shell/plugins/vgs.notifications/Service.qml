@@ -35,8 +35,7 @@ Item {
     // number from 2 to 30.
     readonly property int normalLifetime: shell === null ? 0 : shell.settings.duration * 1000
     // Where every screen's stack sits, the `position` setting: one of the
-    // schema's options, top or bottom, then -left, -right or nothing for
-    // centred.
+    // schema's options, top or bottom, then -left, -center or -right.
     readonly property string position: shell === null ? "" : shell.settings.position
     readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
     property bool registered: false
