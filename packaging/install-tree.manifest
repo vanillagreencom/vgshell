@@ -139,6 +139,7 @@ f share/vgshell/shell/Ui/controls/TimeChipList.qml
 f share/vgshell/shell/Ui/controls/TimeField.qml
 f share/vgshell/shell/Ui/controls/TitleButton.qml
 f share/vgshell/shell/Ui/controls/ToggleButton.qml
+f share/vgshell/shell/Ui/controls/ValueSourceRow.qml
 f share/vgshell/shell/Ui/controls/WeekdayChipGroup.qml
 f share/vgshell/shell/Ui/feedback/AvatarFace.qml
 f share/vgshell/shell/Ui/feedback/AvatarGroup.qml
@@ -469,6 +470,8 @@ f share/vgshell/shell/plugins/vgs.lock/Service.qml
 f share/vgshell/shell/plugins/vgs.lock/bin/sleep-watch
 f share/vgshell/shell/plugins/vgs.lock/manifest.json
 f share/vgshell/shell/plugins/vgs.lock/pam/vgs-lock
+f share/vgshell/shell/plugins/vgs.motion/Pane.qml
+f share/vgshell/shell/plugins/vgs.motion/manifest.json
 f share/vgshell/shell/plugins/vgs.mouse/MouseControls.qml
 f share/vgshell/shell/plugins/vgs.mouse/MouseLogic.js
 f share/vgshell/shell/plugins/vgs.mouse/Pane.qml
@@ -611,6 +614,8 @@ f share/vgshell/shell/plugins/vgs.tray/TrayLogic.js
 f share/vgshell/shell/plugins/vgs.tray/TrayMenu.qml
 f share/vgshell/shell/plugins/vgs.tray/Widget.qml
 f share/vgshell/shell/plugins/vgs.tray/manifest.json
+f share/vgshell/shell/plugins/vgs.ui/Pane.qml
+f share/vgshell/shell/plugins/vgs.ui/manifest.json
 f share/vgshell/shell/plugins/vgs.updates/NormalizeCheck.js
 f share/vgshell/shell/plugins/vgs.updates/Service.qml
 f share/vgshell/shell/plugins/vgs.updates/UpdatesLogic.js
@@ -655,6 +660,8 @@ f share/vgshell/shell/plugins/vgs.webapps/WebApps.js
 f share/vgshell/shell/plugins/vgs.webapps/fallback.svg
 f share/vgshell/shell/plugins/vgs.webapps/files.sh
 f share/vgshell/shell/plugins/vgs.webapps/manifest.json
+f share/vgshell/shell/plugins/vgs.windows/Pane.qml
+f share/vgshell/shell/plugins/vgs.windows/manifest.json
 f share/vgshell/shell/shell.qml
 f share/vgshell/themes/catalog/BACKGROUNDS-ATTRIBUTION.md
 f share/vgshell/themes/catalog/THEMES-ATTRIBUTION.md

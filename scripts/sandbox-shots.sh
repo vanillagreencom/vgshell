@@ -20,7 +20,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, plugin-messages, traffic, ai-usage, sysmon or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, plugin-messages, traffic, ai-usage, sysmon, appearance or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -31,7 +31,9 @@
 # panels is the Agent Warden panel, the Updates window and the
 # themes panel over planted status or packages, the themes panel's
 # apply held and answered by a stand-in
-# runner that changes no theme; devtools is the Dev Tools window; system
+# runner that changes no theme; devtools is the Dev Tools window;
+# appearance is the System window's Appearance group, Motion, Windows and
+# UI, each Set by theme, then Windows with a corner radius of 12; system
 # is the System window as it opens with no System section enabled, then
 # System → Displays over the device fakes and two monitors when the tree
 # ships it, and
@@ -224,7 +226,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|plugin-messages|traffic|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
+    sysmon|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|plugin-messages|traffic|ai-usage|devtools|system|appearance|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -347,6 +349,7 @@ scene_ships() {
     traffic) ships_plugin vgs.traffic vgs.settings ;;
     devtools) ships_plugin vgs.devtools ;;
     system) ships_plugin vgs.system ;;
+    appearance) ships_plugin vgs.system vgs.motion vgs.windows vgs.ui ;;
     network) ships_plugin vgs.system vgs.network ;;
     vpn) ships_plugin vgs.system vgs.vpn ;;
     bluetooth) ships_plugin vgs.system vgs.bluetooth ;;
@@ -3182,6 +3185,50 @@ focus_open_settings_dialog() { ipc smoke dialogCard "$settings_kind" vgs.setting
 
 # Network reads S08's mock and command stand-ins. Its pane is a real
 # System section, so this shot includes the holder's sidebar and inset.
+# The Appearance group of the System window: Motion, Windows and UI,
+# appearance-<mode>-<section>, each enabled for its shot and Set by theme,
+# then Windows with a user corner radius of 12 in shell.json,
+# appearance-<mode>-windows-radius, which reaches the window itself and
+# its flyout radius. Each section is disabled again, and the user file goes
+# back as the scene found it.
+appearance_radius() { ipc smoke themeValue popover.radius; }
+scene_appearance() { # MODE
+  local user="$home/.config/vgshell/shell.json" saved="$sandbox/shell-before-appearance-shot.json" id
+  expect "enabling vgs.system for the Appearance shots is allowed" ok ipc shell setPluginEnabled vgs.system true
+  for id in vgs.motion vgs.windows vgs.ui; do
+    expect "enabling $id for its shot is allowed" ok ipc shell setPluginEnabled "$id" true
+    expect "System → $id summons" ok ipc shell summon window vgs.system "{\"pane\":\"$id\"}"
+    expect_poll "System → $id is shown" "[\"$id\"]" window_panes
+    expect "the System window's root takes the focus for $id" focused ipc smoke invokeInstance window vgs.system focusInstance ""
+    park_pointer
+    take "appearance-$1-${id#vgs.}"
+  done
+  cp -- "$user" "$saved"
+  python3 - "$user" <<'PY' || fail "the user file took no corner radius"
+import json, os, sys
+path = sys.argv[1]
+config = json.load(open(path))
+config.setdefault("appearance", {})["windowRadius"] = 12
+with open(path + ".tmp", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".tmp", path)
+PY
+  expect "the configuration reloads with a corner radius" ok ipc shell reloadConfig
+  expect_poll "the flyout radius follows the corner radius, 12 * 0.75" 9 appearance_radius
+  expect "System → Windows summons with the corner radius" ok ipc shell summon window vgs.system '{"pane":"vgs.windows"}'
+  expect_poll "System → Windows is shown with the corner radius" '["vgs.windows"]' window_panes
+  expect "the System window's root takes the focus for the corner radius" focused ipc smoke invokeInstance window vgs.system focusInstance ""
+  park_pointer
+  take "appearance-$1-windows-radius"
+  cp -- "$saved" "$user.next" && mv -T -- "$user.next" "$user" || fail "the user file is put back after the Appearance shots"
+  expect "the configuration reloads as the Appearance shots found it" ok ipc shell reloadConfig
+  expect "the System window hides after the Appearance shots" ok ipc shell hide window vgs.system
+  expect_poll "the System window is gone after the Appearance shots" hidden system_shown
+  for id in vgs.motion vgs.windows vgs.ui; do
+    expect "disabling $id after its shot is allowed" ok ipc shell setPluginEnabled "$id" false
+  done
+}
+
 scene_network() { # MODE
   devices_ready network-shot || return 0
   device_reply systemctl 0 $'LoadState=loaded\nActiveState=active' show --property=LoadState --property=ActiveState NetworkManager.service

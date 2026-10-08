@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.motion",
+  "name": "Motion",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Set how the shell and your windows move.",
+  "license": "MIT",
+  "icon": "wand-sparkles",
+  "kinds": ["pane"],
+  "entryPoints": { "pane": "Pane.qml" },
+  "capabilities": ["appearance", "hyprland", "tui"],
+  "pane": { "group": "Appearance", "order": 10 }
+}
