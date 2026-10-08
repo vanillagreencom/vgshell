@@ -749,9 +749,9 @@ automations_stand_ins_restore() { # STUB
 # lock on stderr, for the token probe. Every token starts xoxp-smoke-.
 # `store` and `clear`, as the core's SecretWriter runs them for the
 # Settings page's Connect and Disconnect (D061), set the account's state to
-# `present` and `absent`, append their argv to $shim/secret-tool.calls, and
-# a store keeps its stdin, the secret, byte for byte in
-# $shim/secret-tool.stdin.<account>.
+# `present` and `absent`. A store keeps stdin, the secret, byte for byte in
+# $shim/secret-tool.stdin.<account>, and records its call only after stdin
+# reaches EOF. A reader that sees the store call sees the whole secret.
 # slack_states STATES: the states file rewritten from STATES, lines joined
 # by `;`. secret_tool_stand_in STATES: the stand-in written, with STATES.
 slack_states() { tr ';' '\n' <<<"$1" >"$shim/secret-tool.states"; }
@@ -763,9 +763,9 @@ states="$shim/secret-tool.states"
 set_state() { { grep -v -F -x -e "\$1 present" -e "\$1 absent" -e "\$1 locked" "\$states" || true; printf '%s %s\\n' "\$1" "\$2"; } >"\$states.next" && mv -f -- "\$states.next" "\$states"; }
 if [[ \${1:-} == store ]]; then
   [[ \${2:-} == --label=* && \${3:-} == service && \${4:-} == vgs-notifications && \${5:-} == account && \$# -eq 6 ]] || exit 1
-  printf '%s\\n' "\$*" >>"$shim/secret-tool.calls"
   cat >"$shim/secret-tool.stdin.\$6"
   set_state "\$6" present
+  printf '%s\\n' "\$*" >>"$shim/secret-tool.calls"
   exit 0
 fi
 if [[ \${1:-} == clear ]]; then
