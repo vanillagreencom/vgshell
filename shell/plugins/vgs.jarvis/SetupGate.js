@@ -38,9 +38,9 @@ var TODO = {
     "brain=account-unavailable": "The chosen AI model cannot be used. Add a key or sign in, then choose it below.",
     "brain=model-required": "The chosen AI model cannot be used. Choose another AI model below.",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Open Accounts to check them.",
-    "speech=live-account-unselected": "Choose a GPT-Live key in Voice below, or save one with Add key under Setup at the top of this page.",
+    "speech=live-account-unselected": "Add an OpenAI key under Setup at the top of this page.",
     "speech=live-account-unreadable": "Jarvis could not read your GPT-Live key. Use Accounts in Setup to check it.",
-    "speech=live-key-required": "Use Add key under Setup at the top of this page to save an OpenAI key for GPT-Live, then choose the key in Voice.",
+    "speech=live-key-required": "Add an OpenAI key under Setup at the top of this page.",
     "speech=local-not-ready": "Local voice did not start. Set it up again."
 };
 var STEP_TODO = { brain: "The chosen AI model cannot be used. Add a key or sign in, then choose it below." };
