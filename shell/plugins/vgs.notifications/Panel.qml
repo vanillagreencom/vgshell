@@ -267,6 +267,7 @@ FocusScope {
         InboxHeader {
             id: header
             look: root.look
+            settingsHost: root.parent
             mode: root.mode
             subtitle: root.subtitle
             silenced: root.silenced

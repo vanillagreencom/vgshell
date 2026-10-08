@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Ui
 
 // The panel's header over the stack while the Inbox or the History is open:
 // its title and subtitle, the Silence switch, Mark read (Inbox) or Clear
@@ -9,6 +10,7 @@ Item {
     id: header
 
     required property var look
+    required property Item settingsHost
     property string mode: "inbox"
     property string subtitle: ""
     property bool silenced: false
@@ -64,6 +66,17 @@ Item {
             font.family: header.look.font.family
             font.pixelSize: header.look.text.subtitle.size
         }
+    }
+
+    IconButton {
+        objectName: "notificationSettingsGear"
+        anchors.left: titles.right
+        anchors.leftMargin: header.look.header.controlsGap
+        anchors.verticalCenter: titles.verticalCenter
+        size: "sm"
+        iconName: "settings"
+        label: "Settings"
+        onClicked: header.settingsHost.openSettingsPage()
     }
 
     Row {

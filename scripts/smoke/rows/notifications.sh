@@ -5,7 +5,7 @@
 # through the probe, its state file, the compositor and the lending record.
 # No owner data reaches it: every notification here is made up. The row ends
 # with the plugin disabled and every registration released.
-# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 note_state="$home/.local/state/vgshell/notifications/state.json"
@@ -1582,6 +1582,57 @@ expect "the inbox shortcut toggles the panel" ok hypr dispatch 'hl.dsp.global("v
 expect_poll "the shortcut opened the inbox" '"inbox"' read_notes panelMode
 expect "the shortcut closes it again" ok hypr dispatch 'hl.dsp.global("vgs.notifications:inbox")'
 expect_poll "the shortcut closed the inbox" '""' read_notes panelMode
+
+# The header gear uses the summon host's Settings route. Read the actual
+# open page after a pointer click and after Tab and Enter. An invisible
+# gear in the sandbox copy turns the same pointer assertion red.
+drawer_settings_page() { ipc smoke readInstance window vgs.settings page; }
+drawer_settings_click() {
+  local rect x y
+  rect="$(ipc smoke labelledGeometry panel vgs.notifications IconButton Settings)" || return
+  [[ $rect == \[* ]] || { echo gear-absent; return; }
+  summon_drawn panel vgs.notifications || return
+  read -r x y < <(panel_point "$rect" - -) || return
+  hover "$((x + 1))" "$y" && click "$x" "$y" || return
+  drawer_settings_page
+}
+drawer_settings_focus() { ipc smoke readMatchingDescendant panel vgs.notifications IconButton label Settings activeFocus; }
+expect "the inbox opens for its Settings gear" ok notes inbox
+expect_poll "the Settings gear's drawer is open" '"inbox"' read_notes panelMode
+expect "the pointer gear opens Settings on Notifications" '"vgs.notifications"' drawer_settings_click
+expect_poll "the Settings window holds the Notifications page" '"vgs.notifications"' drawer_settings_page
+settings_page_close vgs.notifications
+expect "the inbox opens for its keyboard Settings gear" ok notes inbox
+expect_poll "the keyboard gear starts on the notification list" True panel_focus_on_list
+for _ in $(seq 1 5); do
+  type_keys -k Tab || fail "Tab to the Settings gear failed"
+  [[ $(drawer_settings_focus) == true ]] && break
+done
+expect "Tab reaches the Settings gear" true drawer_settings_focus
+type_keys -k Return || fail "Enter on the Settings gear failed"
+expect_poll "Enter opens Settings on Notifications" '"vgs.notifications"' drawer_settings_page
+settings_page_close vgs.notifications
+header_qml="$repo/shell/plugins/vgs.notifications/InboxHeader.qml"
+cp -- "$header_qml" "$sandbox/InboxHeader.qml.kept"
+python3 - "$header_qml" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+needle = '        objectName: "notificationSettingsGear"\n'
+assert text.count(needle) == 1, "the settings gear occurs once"
+path.write_text(text.replace(needle, needle + '        visible: false\n'))
+PY
+rescan "a rescan builds the drawer without a visible gear"
+expect_poll "the control notification service is built" True record_exists vgs.notifications
+expect "the control drawer opens" ok notes inbox
+expect_poll "the control drawer is open" '"inbox"' read_notes panelMode
+drawer_settings_control() { (failures=0; behaviour_failures=0; expect "the pointer gear opens Settings on Notifications" '"vgs.notifications"' drawer_settings_click >"$sandbox/drawer-settings-control.log"; echo "$failures"); }
+expect "control: removing the gear turns the Settings assertion red" 1 drawer_settings_control
+expect "the control never opens a Settings page" absent drawer_settings_page
+expect "the control drawer closes" ok notes close
+cp -- "$sandbox/InboxHeader.qml.kept" "$header_qml"
+rescan "a rescan restores the drawer gear"
+expect_poll "the restored notification service is built" True record_exists vgs.notifications
 
 # The inbox's content against the panel's own box, the size the panel asks
 # for: the header, the card list, its scroll bar and the key hints inside
