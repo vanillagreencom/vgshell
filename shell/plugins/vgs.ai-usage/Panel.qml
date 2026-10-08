@@ -7,7 +7,7 @@ import "UsageView.js" as View
 // Each signed-in and visible account in a card of its own: the provider,
 // the account's email and one row per limit with its time to reset. Full
 // view adds a meter under each limit and the provider detail fields the
-// helper received, and each card says how long ago its figures were read.
+// helper received. The footer shows when the shared check last completed.
 // The pane is at most half its output's height. Opening the panel reads
 // nothing: Check now asks the service for a new check, and the panel draws
 // status alone.
@@ -17,6 +17,7 @@ Item {
     property Item initialFocus: refreshButton
     readonly property var usage: shell === null || shell.status.values.usage === undefined ? null : shell.status.values.usage
     readonly property var rows: View.panel(usage, Time.now.getTime(), shell === null ? null : shell.settings)
+    readonly property string checked: View.checkedText(usage === null ? null : usage.readAt, Time.now.getTime())
     readonly property bool fullView: shell !== null && shell.settings.view !== "compact"
     // The output the panel's popup window occupies, a ShellScreen whose
     // height is logical, or null before the panel has a window.
@@ -86,7 +87,6 @@ Item {
                     }
                 }
                 Label { visible: text !== ""; role: "hint"; text: modelData.account }
-                Label { visible: text !== ""; role: "hint"; text: modelData.checked }
                 Label { visible: root.fullView && text !== ""; role: "hint"; text: modelData.detail }
                 Label {
                     width: parent.width
@@ -164,12 +164,21 @@ Item {
         }
 
         footer: [
-            Button {
-                id: refreshButton
-                variant: "secondary"
-                text: "Check now"
-                iconName: "refresh-cw"
-                onClicked: root.refresh()
+            Row {
+                spacing: Theme.stack.inline
+                Button {
+                    id: refreshButton
+                    variant: "secondary"
+                    text: "Check now"
+                    iconName: "refresh-cw"
+                    onClicked: root.refresh()
+                }
+                Label {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: text !== ""
+                    role: "hint"
+                    text: root.checked
+                }
             }
         ]
     }

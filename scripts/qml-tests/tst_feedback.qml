@@ -114,13 +114,13 @@ Item {
             compare(label.y + label.baselineOffset, Math.round(label.y + label.baselineOffset), "a whole-pixel baseline");
             fuzzyCompare(label.y + label.capCentre, badge.height / 2, 0.5);
             fuzzyCompare(label.x, Theme.badge.size.sm.paddingX, 0.5);
-            fuzzyCompare(badge.width - (label.x + label.opticalWidth), Theme.badge.size.sm.paddingX + Theme.badge.paddingEnd, 0.5);
+            fuzzyCompare(badge.width - (label.x + label.opticalWidth), Theme.badge.size.sm.paddingX, 0.5);
             const icon = badgeIconItem(badgeIcon);
             const iconLabel = badgeLabel(badgeIcon);
             fuzzyCompare(icon.y + icon.height / 2, badgeIcon.height / 2, 1);
             compare(iconLabel.y + iconLabel.baselineOffset, Math.round(iconLabel.y + iconLabel.baselineOffset), "a whole-pixel baseline");
             fuzzyCompare(iconLabel.y + iconLabel.capCentre, badgeIcon.height / 2, 0.5);
-            fuzzyCompare(badgeIcon.width, 2 * Theme.badge.size.sm.paddingX + icon.width + Theme.badge.gap + iconLabel.opticalWidth + Theme.badge.paddingEnd, 0.5);
+            fuzzyCompare(badgeIcon.width, 2 * Theme.badge.size.sm.paddingX + icon.width + Theme.badge.gap + iconLabel.opticalWidth, 0.5);
         }
 
         // A package name keeps its case: the default badge draws capitals,
@@ -135,7 +135,7 @@ Item {
             compare(badgeVerbatim.height, Theme.badge.size.sm.height);
             compare(label.y + label.baselineOffset, Math.round(label.y + label.baselineOffset), "a whole-pixel baseline");
             fuzzyCompare(label.y + label.capCentre, badgeVerbatim.height / 2, 0.5);
-            fuzzyCompare(badgeVerbatim.width - (label.x + label.opticalWidth), Theme.badge.size.sm.paddingX + Theme.badge.paddingEnd, 0.5);
+            fuzzyCompare(badgeVerbatim.width - (label.x + label.opticalWidth), Theme.badge.size.sm.paddingX, 0.5);
         }
 
         function test_kbd_sizes_to_its_text() {

@@ -643,8 +643,6 @@ var TOKENS = {
             md: { height: length("{size.control.sm}"), paddingX: length("{space.md}") }
         },
         gap: length("{space.xs}"),
-        // Tracked capitals need more room after the label than before an icon.
-        paddingEnd: length(3),
         tone: {
             // A step above a raised surface, so a neutral chip keeps a
             // fill beside a toned one on every container.

@@ -758,7 +758,8 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         const failedRun = View.merge(first, null, NOW + 2);
         assert.deepEqual(plainOf(failedRun.accounts.map(row => [row.state, row.windows.length, row.readAt])), [["stale", 1, NOW], ["stale", 1, NOW]],
             "a failed run keeps each account's read time");
-        assert.equal(failedRun.readAt, NOW);
+        assert.equal(failedRun.readAt, NOW + 2, "a failed check still completed");
+        assert.equal(View.merge(null, null, NOW + 2).readAt, NOW + 2, "a failed first check still completed");
 
         // A limited read, the endpoint turning away a frequent read, keeps
         // the last figures with the time they were read, reads limited and
@@ -794,7 +795,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         assert.deepEqual(plainOf([limitedFirst.accounts[0].state, limitedFirst.accounts[0].windows, limitedFirst.accounts[0].readAt]),
             ["limited", [], null], "a limited first read holds no figures");
         const limitedEmpty = View.panel(limitedFirst, NOW)[0];
-        assert.deepEqual([limitedEmpty.note, limitedEmpty.noteTone, limitedEmpty.checked], [View.LIMITED_NOTE, "normal", ""],
+        assert.deepEqual([limitedEmpty.note, limitedEmpty.noteTone], [View.LIMITED_NOTE, "normal"],
             "a limited account with no figures draws a plain note");
         assert.deepEqual(shown(limitedFirst), [true, 79, "normal"], "a limited account adds no share");
         assert.equal(tip(limitedFirst, NOW), tip(View.merge(null, reading("signed-out", []), NOW), NOW), "a limited account with no figures adds nothing to the tooltip");
@@ -807,34 +808,22 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         const erroredRead = View.panel(failedRead, NOW + 1)[0];
         assert.deepEqual([erroredRead.state, erroredRead.note, erroredRead.noteTone], ["stale", View.STALE_NOTE, "warning"],
             "a server error still reads stale");
-        // Each card says how long ago its figures were read: nothing with
-        // none, one text through the first minute, a new one after it, and
-        // its own account's read time. Kept figures, limited or stale, name
-        // their own age in a form of their own.
-        for (const kept of [false, true]) {
-            const age = (readAt, ms) => View.checkedText(readAt, readAt === null ? NOW : readAt + ms, kept);
-            assert.equal(age(null, 0), "", "no figures, no age");
-            assert.notEqual(age(NOW, 0), "", "figures have an age");
-            assert.equal(age(NOW, 59000), age(NOW, 0), "the first minute reads as one");
-            assert.notEqual(age(NOW, 60000), age(NOW, 59000), "a minute on reads anew");
-            assert.notEqual(age(NOW, 4 * 60000), age(NOW, 2 * HOUR), "minutes and hours read apart");
-        }
-        for (const ms of [0, 10 * 60000])
-            assert.notEqual(View.checkedText(NOW, NOW + ms, true), View.checkedText(NOW, NOW + ms, false), "kept figures name their age apart");
-        const ages = View.panel(limitedRead, NOW + 9 * 60000 + 30000).map(r => r.checked);
-        assert.deepEqual(ages, [View.checkedText(NOW, NOW + 9 * 60000 + 30000, true), View.checkedText(NOW + 5 * 60000, NOW + 9 * 60000 + 30000, false)],
-            "a card's age is its own account's read time");
-        assert.notEqual(ages[0], ages[1]);
-        // First read at NOW, a limited one ten minutes on: the limited card
-        // is ten minutes old in the kept form, not as old as the attempt.
+        // One age represents the completed helper batch, including a
+        // partial batch whose kept figures have an earlier read time.
+        const age = (readAt, ms) => View.checkedText(readAt, readAt === null ? NOW : readAt + ms);
+        assert.equal(age(null, 0), "");
+        assert.notEqual(age(NOW, 0), "");
+        assert.equal(age(NOW, 59000), age(NOW, 0));
+        assert.notEqual(age(NOW, 60000), age(NOW, 59000));
+        assert.notEqual(age(NOW, 4 * 60000), age(NOW, 2 * HOUR));
+        assert.equal(age(NOW, 2 * HOUR), age(NOW, 2 * HOUR + 59000));
         const tenOn = NOW + 10 * 60000;
-        const limitedTen = View.panel(View.merge(first, reading("limited", []), tenOn), tenOn)[0];
-        assert.equal(limitedTen.checked, View.checkedText(NOW, tenOn, true), "a limited card's age is its last figures' read time");
-        assert.notEqual(limitedTen.checked, View.checkedText(tenOn, tenOn, true), "a limited card's age is not the attempt's");
-        assert.notEqual(limitedTen.checked, View.checkedText(NOW, tenOn, false), "a limited card's age takes the kept form");
-        const staleTen = View.panel(View.merge(first, reading("failed", []), tenOn), tenOn)[0];
-        assert.deepEqual([staleTen.state, staleTen.checked], ["stale", View.checkedText(NOW, tenOn, true)], "a stale card's age takes the kept form");
-        assert.equal(View.panel(first, tenOn)[0].checked, View.checkedText(NOW, tenOn, false), "an ok card's age takes the checked form");
+        const limitedTen = View.merge(first, reading("limited", []), tenOn);
+        assert.notEqual(View.checkedText(limitedTen.readAt, tenOn), View.checkedText(limitedTen.accounts[0].readAt, tenOn));
+        assert.equal(limitedTen.accounts[0].readAt, NOW);
+        assert.equal(View.checkedText(limitedTen.readAt, tenOn), age(NOW, 0));
+        assert.equal(View.panel(limitedTen, tenOn)[0].note, View.LIMITED_NOTE);
+        assert.equal(View.panel(View.merge(first, reading("failed", []), tenOn), tenOn)[0].note, View.STALE_NOTE);
         const never = View.merge(null, reading("failed", []), NOW);
         assert.deepEqual(plainOf(never.accounts[0].windows), [], "a failed first read holds no window");
         assert.deepEqual(shown(View.merge(null, { accounts: [never.accounts[0]], partial: "" }, NOW)), [true, null, "normal"],
@@ -912,15 +901,14 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         assert.deepEqual(plainOf([pool.note, pool.windows.map(w => [w.name, w.text, w.started])]), ["", [["credits", "0 of 300", true]]],
             "a credit pool at 0 used keeps its allowance");
 
-        // The account line: the email or login, else the folder's label,
-        // never the default folder's or the AI Gateway's.
+        // The account line is only the reported email or login.
         const nameless = View.merge(null, { accounts: [
             { id: "claude-n", provider: "claude", label: "n", email: "", state: "expired", windows: [] },
             { id: "claude-d", provider: "claude", label: "default", email: "", state: "expired", windows: [] },
             { id: "copilot-w", provider: "copilot", label: "work", email: "octo-user", state: "failed", windows: [] },
             { id: "gateway-x", provider: "gateway", label: "AI Gateway", email: "", state: "failed", windows: [] }], partial: "" }, NOW);
         assert.deepEqual(View.panel(nameless, NOW).map(r => [r.id, r.account]),
-            [["claude-n", "n"], ["claude-d", ""], ["copilot-w", "octo-user"], ["gateway-x", ""]]);
+            [["claude-n", ""], ["claude-d", ""], ["copilot-w", "octo-user"], ["gateway-x", ""]]);
 
         const copilot = View.merge(null, { accounts: [{ id: "copilot-a", provider: "copilot", label: "work", email: "octo-user",
             state: "ok", credits: { unit: "credits", used: 45225, granted: 1000000, monthUsed: 362327 },
@@ -995,6 +983,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         const cards = View.panel(usage, NOW, { sort: "provider" });
         assert.deepEqual(cards.map(r => [r.id, r.api]), [["claude-a", false], ["codex-b", false], ["codex-api", true], ["copilot-z", false], ["gateway-api", true]]);
         assert.equal(cards.find(r => r.id === "codex-api").note, View.NO_PLAN);
+        assert.equal(cards.find(r => r.id === "codex-api").account, "", "an API key without an email has no account line");
         for (const provider of new Set(cards.map(card => card.provider))) {
             const source = View.logo(provider, "#ffabcdef");
             assert.ok(source.startsWith("data:image/svg+xml,"));
@@ -1039,21 +1028,13 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     await control("read-time-unset", "UsageView.js", 'return accountCopy(row, { readAt: row.state === "ok" ? now : null });',
         "return accountCopy(row, { readAt: null });", views);
     await control("run-read-time-dropped", "UsageView.js", "var copy = accountCopy(row, { readAt: row.readAt });", "var copy = accountCopy(row);", views);
+    await control("failed-check-time-kept", "UsageView.js", "}), readAt: now, gatewayKey: previous.gatewayKey", "}), readAt: previous.readAt, gatewayKey: previous.gatewayKey", views);
+    await control("first-failed-check-time-absent", "UsageView.js", "return { accounts: [], readAt: now, gatewayKey: null };", "return { accounts: [], readAt: null, gatewayKey: null };", views);
     await control("limited-warned", "UsageView.js", 'noteTone: warning !== "" ? "warning" : "normal"',
         'noteTone: warning !== "" || row.state === "limited" ? "warning" : "normal"', views);
     await control("limited-signed-out", "UsageView.js", 'return row.state === "ok" || row.state === "stale" || row.state === "limited"; }))',
         'return row.state === "ok" || row.state === "stale"; }))', views);
-    await control("checked-minute-floor", "UsageView.js", 'return seconds < 60 ? "Checked just now"', 'return seconds < 1 ? "Checked just now"', views);
-    await control("checked-absent", "UsageView.js", '            checked: checkedText(row.readAt, now, row.state === "limited" || row.state === "stale"),\n', '            checked: "",\n', views);
-    await control("limited-age-from-attempt", "UsageView.js", 'checked: checkedText(row.readAt, now, row.state === "limited" || row.state === "stale"),',
-        'checked: checkedText(row.state === "limited" ? usage.readAt : row.readAt, now, row.state === "limited" || row.state === "stale"),', views);
-    await control("limited-age-checked-form", "UsageView.js", 'checked: checkedText(row.readAt, now, row.state === "limited" || row.state === "stale"),',
-        'checked: checkedText(row.readAt, now, row.state === "stale"),', views);
-    await control("stale-age-checked-form", "UsageView.js", 'checked: checkedText(row.readAt, now, row.state === "limited" || row.state === "stale"),',
-        'checked: checkedText(row.readAt, now, row.state === "limited"),', views);
-    await control("kept-form-ignored", "UsageView.js",
-        '    if (kept) return seconds < 60 ? "Figures from under a minute ago" : "Figures from " + Commons.Duration.format(seconds, 1) + " ago";\n', "", views);
-    await control("kept-minute-floor", "UsageView.js", 'if (kept) return seconds < 60 ?', 'if (kept) return seconds < 1 ?', views);
+    await control("checked-minute-floor", "UsageView.js", 'return seconds < 60 ? "Last checked just now"', 'return seconds < 1 ? "Last checked just now"', views);
     await control("plan-kept", "UsageView.js", 'email: row.email || "",\n        state: row.state,', 'email: row.email || "", plan: row.plan || "",\n        state: row.state,', views);
     await control("warning-boundary", "UsageView.js", 'used >= WARNING_PERCENT ? "warning"', 'used > WARNING_PERCENT ? "warning"', views);
     await control("lowest-share", "UsageView.js", "    return Math.max.apply(null, peaks);", "    return Math.min.apply(null, peaks);", views);
@@ -1080,9 +1061,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     await control("unused-limits-drawn", "UsageView.js", "windows: idle ? [] : row.windows.map(", "windows: row.windows.map(", views);
     await control("not-started-percent", "UsageView.js", 'return item.name === "credits" || item.usedPercent > 0 || ', "return true || ", views);
     await control("pool-unused", "UsageView.js", 'return item.name !== "credits" && item.usedPercent === 0;', "return item.usedPercent === 0;", views);
-    await control("account-line-unlabelled", "UsageView.js",
-        '    if (row.email !== "") return row.email;\n    return row.label === "default" || row.provider === "gateway" ? "" : row.label;',
-        "    return row.email;", views);
+    await control("account-folder-fallback", "UsageView.js", "    return row.email;", "    return row.email || row.label;", views);
     await control("credits-raw", "UsageView.js", '    return (whole < 0 ? "-" : "") + grouped(String(Math.abs(whole)));', "    return String(n);", views);
 
     // The sign-in TUIs run each tool's own login, through the presentation

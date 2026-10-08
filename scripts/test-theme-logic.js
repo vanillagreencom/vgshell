@@ -165,7 +165,6 @@ const DEFAULTS = [
     ["badge.size.sm.paddingX", 6],
     ["badge.size.md.height", 24],
     ["badge.gap", 4],
-    ["badge.paddingEnd", 3],
     ["badge.size.md.paddingX", 8],
     ["sectionHeader.paddingBottom", 8],
     ["codeLine.padding", 8],
@@ -1017,7 +1016,7 @@ const GRID_EXCEPTIONS = [
     [/(^border\.|\.border$|[bB]orderWidth$|^divider\.thickness$|^focusRing\.width$|^titleButton\.underline$|^rowAction\.underline(Hover)?$|^tabs\.indicator$|^segmented\.indicator$|^avatarGroup\.ringWidth$|^hyprland\.border\.size$)/, "strokes"],
     [/^(icon\.size\.|button\.size\.[^.]+\.icon$|rowAction\.icon$|slider\.handle$|radio\.dot$)/, "indicator and icon drawing sizes"],
     [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap|rowAction\.underlineGap|carousel\.sliceName\.shadowOffset)$/, "2 px steps inside one component"],
-    [/^(badge\.paddingEnd|textField\.paddingX)$/, "optical insets inside one component"],
+    [/^textField\.paddingX$/, "optical insets inside one component"],
     [/^(space\.sm|badge\.size\.sm\.paddingX|kbd\.paddingX|tooltip\.paddingY)$/, "6 px padding inside a chip, a key cap or a tooltip"],
     [/^motion\./, "motion distances"],
     [/\.blur$/, "blur radii"]

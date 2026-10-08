@@ -169,7 +169,7 @@ Item {
             same(() => gapOf(item.contentItem), Theme.listItem.iconGap, "list item icon gap");
             same(() => gapOf(entry.contentItem), gap, "menu item icon gap");
             same(() => badgeGap(badge), Theme.badge.gap, "badge icon gap");
-            same(() => badge.implicitWidth, 2 * badge.sidePadding + badge.children.find(child => child.role === "label").opticalWidth + Theme.icon.size.xs + Theme.badge.gap + Theme.badge.paddingEnd, "badge optical width");
+            same(() => badge.implicitWidth, 2 * badge.sidePadding + badge.children.find(child => child.role === "label").opticalWidth + Theme.icon.size.xs + Theme.badge.gap, "badge optical width");
             same(() => check.contentItem.leftPadding - check.indicator.width, gap, "checkbox gap");
         }
 
@@ -177,7 +177,6 @@ Item {
             compare(Theme.control.paddingX, 12);
             compare(Theme.control.gap, 8);
             compare(Theme.badge.gap, 4);
-            compare(Theme.badge.paddingEnd, 3);
             compare(Theme.row.paddingX, 12);
             compare(Theme.field.paddingX, 0);
             compare(Theme.listItem.iconGap, 12);

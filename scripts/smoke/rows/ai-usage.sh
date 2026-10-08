@@ -8,7 +8,7 @@
 # to each request. It reads the Settings page's Sign in per tool, withheld
 # while that tool is missing, whose TUI the stand-in terminal records; the
 # widget's share, tone and hidden state; the panel's rows, notes, figure
-# ages, reset times and height cap, half its output's logical height; that
+# shared check age, reset times and height cap, half its output's logical height; that
 # opening the panel publishes no read and sends the endpoint no request;
 # the panel's Settings gear, which always-on Plugins gives every panel,
 # clicked with the nested pointer, which opens the Settings window on AI Usage's page and closes the panel;
@@ -156,13 +156,27 @@ usage_gear_shown() { local box; box="$(usage_gear)" || return; if [[ $box == \[*
 usage_gear_click() { local box; box="$(usage_gear)" || return 1; usage_click gear "$box"; }
 usage_check_now_click() { local box; box="$(ipc smoke itemGeometry panel vgs.ai-usage Button "Check now")" || return 1; usage_click "Check now" "$box"; }
 usage_settings_page() { ipc smoke readInstance window vgs.settings page; }
-# Each card's state, whether it holds no note, the note's tone and whether
-# it says how long ago its figures were read.
-usage_panel_notes() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["state"], r["note"] == "", r["noteTone"], r["checked"] != ""] for r in json.load(sys.stdin)]))'; }
+# Each card's state, whether it holds no note and the note's tone.
+usage_panel_notes() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["state"], r["note"] == "", r["noteTone"]] for r in json.load(sys.stdin)]))'; }
 usage_panel_rows() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["label"], r["email"], [[w["name"], w["percent"], w["tone"]] for w in r["windows"]]] for r in json.load(sys.stdin)]))'; }
 
 usage_panel_details() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["label"], [[d["label"], d["value"]] for d in r["details"]]] for r in json.load(sys.stdin)]))'; }
 usage_panel_view() { ipc smoke readInstance panel vgs.ai-usage fullView; }
+usage_panel_checked() {
+  local age button
+  age="$(ipc smoke readInstance panel vgs.ai-usage checked)" \
+    && button="$(ipc smoke itemGeometry panel vgs.ai-usage Button "Check now")" || return
+  ipc smoke descendantGeometry panel vgs.ai-usage | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+age=json.loads(sys.argv[1])
+bx,by,bw,bh=json.loads(sys.argv[2])
+labels=[r for r in rows if r["type"]=="Label" and r.get("text")==age and r["visible"]]
+matched=age!="" and len(labels)==1 and labels[0].get("role")=="hint"
+if matched:
+    x,y,w,h=labels[0]["box"]
+    matched=x>=bx+bw and abs((y+h/2)-(by+bh/2))<1
+print("matched" if matched else "missing")' "$age" "$button"
+}
 # The mounted card Images, in card order, must load the mark for each
 # listed provider with the shared text colour and icon size.
 usage_panel_marks() {
@@ -306,7 +320,7 @@ expect "the read changed no credential file" kept usage_credentials_kept
 expect_poll "the service is idle before the panel opens" idle usage_idle
 usage_before_panel="$(usage_read_at)" || usage_before_panel=0
 usage_sent_before_panel="$(usage_requests)"
-usage_notes_ok='[["claude", "ok", true, "normal", true], ["codex", "ok", true, "normal", true]]'
+usage_notes_ok='[["claude", "ok", true, "normal"], ["codex", "ok", true, "normal"]]'
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget failed"
 expect_poll "the widget opens its panel" '[["claude", "default", "", [["five_hour", 42, "success"], ["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"]]], ["codex", "default", "person@example.invalid", [["five_hour", 27, "success"], ["seven_day", 64, "warning"]]]]' usage_panel_rows
 expect_poll "the panel's reset times are the stand-ins'" matched usage_panel_resets
@@ -314,11 +328,12 @@ expect "the full panel is selected by default" true usage_panel_view
 expect "the full panel carries provider details" '[["claude", "default", [["Extra usage", "$123.45 of $500.00"]]], ["codex", "default", [["Codex credits", "12,345 available"]]]]' usage_panel_details
 summon_drawn panel vgs.ai-usage || fail "the panel never drew a frame"
 expect_poll "every listed provider card loads its theme-colour mark" matched usage_panel_marks
+expect_poll "one shared check age sits beside Check now in small text" matched usage_panel_checked
 expect_poll "each usage value and progress fill share their theme tier" matched usage_panel_colours
 usage_panel_box() { ipc smoke instanceGeometry panel vgs.ai-usage | py_reply 'import json,sys; r=json.load(sys.stdin); print(r[2] > 0 and r[3] > 0)'; }
 expect "the panel has a size" True usage_panel_box
 expect_poll "the panel's height cap is half its output's height" matched usage_panel_cap
-expect "each card holds no note and says how long ago it was read" "$usage_notes_ok" usage_panel_notes
+expect "each card holds no note" "$usage_notes_ok" usage_panel_notes
 expect "opening the panel publishes no read" "readAt=$usage_before_panel" usage_read_after "$usage_before_panel"
 expect "opening the panel sends the endpoint no request" none usage_requests_since "$usage_sent_before_panel"
 expect "AI Usage's panel hides" ok ipc shell hide panel vgs.ai-usage
@@ -446,7 +461,7 @@ usage_credentials_before="$(usage_credentials)"
 expected_errors+=('ai-usage: account=claude-[0-9a-f]+ limited=http-429')
 usage_figures='[["ok", [["five_hour", 42], ["seven_day", 83], ["seven_day_fable", 12]]]]'
 usage_kept='[["limited", [["five_hour", 42], ["seven_day", 83], ["seven_day_fable", 12]]]]'
-usage_notes_limited='[["claude", "limited", false, "normal", true], ["codex", "ok", true, "normal", true]]'
+usage_notes_limited='[["claude", "limited", false, "normal"], ["codex", "ok", true, "normal"]]'
 usage_mode limited
 usage_refresh "the first read under the limit"
 expect "the first read under the limit is served" "$usage_figures" usage_windows claude
@@ -462,6 +477,7 @@ expect "the panel's Check now sends the endpoint one request" "requests=+1" usag
 expect "a Check now inside the limit keeps the figures, marked limited" "$usage_kept" usage_windows claude
 expect "a Check now inside the limit keeps the figures' read time" "$usage_claude_read_at" usage_account_read_at claude
 expect_poll "the limited card draws a plain note and no warning" "$usage_notes_limited" usage_panel_notes
+expect_poll "the partial batch keeps one shared check age beside Check now" matched usage_panel_checked
 expect "the Check now panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the Check now panel is gone" absent usage_panel
 usage_sent_before_cycles="$(usage_requests)"
@@ -507,7 +523,7 @@ expect_poll "a failed request keeps the last figures, marked stale" "$usage_stal
 expect_poll "the widget keeps the stale share" '[true, true, 83, "warning"]' usage_widget_state
 expect "the failed read changed no credential file" kept usage_credentials_kept
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage on stale figures failed"
-expect_poll "the stale card warns that its figures may be old" '[["claude", "stale", false, "warning", true], ["codex", "ok", true, "normal", true]]' usage_panel_notes
+expect_poll "the stale card warns that its figures may be old" '[["claude", "stale", false, "warning", true], ["codex", "ok", true, "normal"]]' usage_panel_notes
 expect "the stale panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the stale panel is gone" absent usage_panel
 # A refused token reads expired, with the expired warning.
@@ -515,7 +531,7 @@ usage_mode refused
 usage_refresh "a refused Claude token"
 expect "a refused token reads expired with no figures" '[["expired", []]]' usage_windows claude
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage on an expired sign-in failed"
-expect_poll "the expired card warns" '[["claude", "expired", false, "warning", false], ["codex", "ok", true, "normal", true]]' usage_panel_notes
+expect_poll "the expired card warns" '[["claude", "expired", false, "warning", false], ["codex", "ok", true, "normal"]]' usage_panel_notes
 expect "the expired panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the expired panel is gone" absent usage_panel
 # A helper copy that reads a failed request as 0 % fails that reading: its
@@ -572,6 +588,15 @@ expect_poll "the gateway card draws its published Vercel mark" True usage_gatewa
 expect_poll "every listed provider keeps its theme-colour mark with the API card" matched usage_panel_marks
 expect "the API card panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the API card panel is gone" absent usage_panel
+usage_edit "$usage_panel_qml" 'text: root.checked' 'text: ""' || fail "the absent check age control edit failed"
+rescan "the absent check age control is scanned"
+usage_refresh "the absent check age control"
+click_centre "$(bar_key)" vgs.ai-usage || fail "opening the absent check age control failed"
+summon_drawn panel vgs.ai-usage || fail "the absent check age control never drew a frame"
+expect "an absent shared age fails its footer reading" 1 usage_control "$usage_dir/check-age-control.log" "shared age must draw" matched usage_panel_checked
+expect "the absent check age panel hides" ok ipc shell hide panel vgs.ai-usage
+expect_poll "the absent check age panel is gone" absent usage_panel
+cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
 usage_edit "$usage_panel_qml" 'visible: modelData.api;' 'visible: false;' || fail "the hidden API chip control edit failed"
 rescan "the hidden API chip control is scanned"
 usage_refresh "the hidden API chip control"

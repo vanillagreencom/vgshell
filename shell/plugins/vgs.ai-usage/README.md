@@ -9,7 +9,7 @@ Images come from `scripts/readme-shots.sh` in the nested sandbox.
 ## Features
 
 - One number for your visible accounts in the bar: by default the highest share of a plan limit used. It turns to the warning colour at 80 % used.
-- A card for each visible account, with the provider and the account's email. Copilot gives no email, so its card shows the GitHub login.
+- A card for each visible account, with the provider and the account's email. Copilot gives no email, so its card shows the GitHub login. An account with no email or login shows no account line.
 - Sort cards by provider, email or the most room left in their limits. Accounts with no reported limit come last when sorted by room.
 - Provider marks identify the cards. An API account carries an [API] chip. Codex API accounts show that they have no plan limits.
 - Limit values use the theme's success, warning and danger colours as their used share grows.
@@ -23,7 +23,7 @@ Images come from `scripts/readme-shots.sh` in the nested sandbox.
 - Filters for providers and hidden accounts.
 - The bar item stays hidden until you sign in to one of the visible tools. A click opens the panel.
 - When a check fails, the panel keeps the last figures and says that they may be old.
-- Each card shows how long ago its figures were read. When Claude limits how often usage can be read, the card keeps the last figures and says so, and the next check tries again. After a limit resets, the card says that the kept figures may be old.
+- Last checked beside Check now shows how long ago the shared check completed. When Claude limits how often usage can be read, the card keeps the last figures and says so, and the next check tries again. After a limit resets, the card says that the kept figures may be old.
 - AI Usage never changes a tool's sign-in.
 
 ## Settings
