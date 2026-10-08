@@ -496,10 +496,15 @@ Singleton {
         }));
         // Before the first scan no id is known, so none is reported unknown.
         const unknown = scanned ? Logic.unknownIds(Config.effective, manifests) : [];
+        const unknownSettings = scanned ? Logic.unknownSettings(Config.effective, manifests).map(row => ({
+            kind: "unknown-settings", id: row.id, keys: row.keys,
+            dir: manifests[row.id].__sourceDir,
+            error: "Saved settings for " + row.id + " are ignored: " + row.keys.map(key => JSON.stringify(key)).join(", ") + ". Remove these fields from this plugin's entries in shell.json."
+        })) : [];
         const watchError = coreWatchError === "" ? [] : [{ dir: Quickshell.shellDir, error: coreWatchError }];
         const extra = hyprlandProblems.map(p => ({ dir: p.dir, error: p.error }))
             .concat(menu.conflicts.map(c => ({ dir: manifests[c.plugin].__sourceDir, error: menuConflictText(c) })));
-        return JSON.stringify({ plugins: rows, errors: errors.concat(extra, watchError), collisions: collisions, unknown: unknown, scanError: scanError, scanned: scanned, config: { ready: Config.ready, shipped: Config.shippedState, user: Config.userState } });
+        return JSON.stringify({ plugins: rows, errors: errors.concat(extra, watchError, unknownSettings), collisions: collisions, unknown: unknown, scanError: scanError, scanned: scanned, config: { ready: Config.ready, shipped: Config.shippedState, user: Config.userState } });
     }
 
     Component.onCompleted: {

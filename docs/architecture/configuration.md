@@ -30,6 +30,7 @@ One file stops delivering shipped defaults the moment a user edits it, and a dee
 ### Unknown ids
 
 - Do keep an id that `plugins` or `disabledPlugins` lists and no discovered plugin has, as a removed plugin leaves behind, in the file, and report it through `PluginLogic.unknownIds`. `scripts/test-plugin-logic.js`, `scripts/test-vgshell-plugin-list.sh` and `scripts/smoke/rows/configuration.sh` pin it.
+- Do keep saved setting keys a discovered plugin's manifest no longer declares in the file, but read no value from them. Report every such key except entry reserved keys through `PluginLogic.unknownSettings`, in one notice per plugin with the fix: remove the fields from its configuration entries. `scripts/test-plugin-logic.js` and `scripts/smoke/rows/configuration.sh` pin it.
 
 ### Theme file
 

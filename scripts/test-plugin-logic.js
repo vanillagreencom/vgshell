@@ -5,6 +5,7 @@
 // row or control fails.
 "use strict";
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { load } = require("../bin/lib/qml-library.js");
 
@@ -28,7 +29,7 @@ function report(name, got, want) {
 function suite(ctx, check) {
     const bar = { schemaVersion: 1, id: "vgs.bar", name: "Bar", version: "0.1.0", author: "VGS", description: "d", kinds: ["bar"], entryPoints: { bar: "Bar.qml" } };
     const clock = { schemaVersion: 1, id: "vgs.clock", name: "Clock", version: "0.1.0", author: "VGS", description: "d", kinds: ["bar-widget"], entryPoints: { "bar-widget": "Widget.qml" }, defaultSection: "center" };
-    const svc = { schemaVersion: 1, id: "acme.svc", name: "S", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" } };
+    const svc = { schemaVersion: 1, id: "acme.svc", name: "S", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, settings: { x: 0 } };
 
     // validateManifest: one row per rule, defect planted in `patch`. A refusal
     // row pins the start of the error text, so a neighbouring rule catching the
@@ -432,7 +433,7 @@ function suite(ctx, check) {
     const manifests = {};
     for (const raw of [bar, clock, svc]) manifests[raw.id] = ctx.validateManifest(raw, "/p").manifest;
     manifests["vgs.workspaces"] = ctx.validateManifest(Object.assign({}, clock, { id: "vgs.workspaces", defaultSection: "left" }), "/p").manifest;
-    manifests["vgs.svc"] = ctx.validateManifest(Object.assign({}, svc, { id: "vgs.svc" }), "/p").manifest;
+    manifests["vgs.svc"] = ctx.validateManifest(Object.assign({}, svc, { id: "vgs.svc", settings: {} }), "/p").manifest;
     manifests["acme.bar"] = ctx.validateManifest(Object.assign({}, bar, { id: "acme.bar" }), "/p").manifest;
     manifests["vgs.barpanel"] = ctx.validateManifest(Object.assign({}, bar, { id: "vgs.barpanel", kinds: ["bar", "panel"], entryPoints: { bar: "Bar.qml", panel: "P.qml" } }), "/p").manifest;
     const noSection = Object.assign({}, clock, { id: "acme.widget", settings: { size: 3, tags: ["a"] } });
@@ -506,6 +507,10 @@ function suite(ctx, check) {
     check("settingsFor ignores a layout entry for the plugins target", ctx.settingsFor(ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.both", label: "row" }] }), manifests["acme.both"], "plugins", { id: "acme.both", label: "entry" }), { label: "row" });
     check("settingsFor does not alias the entry", (() => { const e = { id: "acme.widget", tags: ["z"] }; const s2 = ctx.settingsFor(shipped, manifests["acme.widget"], "layout", e); s2.tags.push("y"); return e.tags; })(), ["z"]);
     check("settingsFor refuses a kind passed where a target belongs", (() => { try { ctx.settingsFor(shipped, manifests["acme.widget"], "bar-widget", { id: "acme.widget" }); return "returned"; } catch (e) { return e.message.split(":")[0]; } })(), "settingsFor");
+    for (const target of ["plugins", "layout"]) {
+        const entry = { id: "acme.widget", size: 0, retired: "unused", keys: { toggle: "SUPER+A" } };
+        check("settingsFor ignores undeclared and reserved keys in " + target, ctx.settingsFor({ plugins: [entry] }, manifests["acme.widget"], target, entry), { size: 0, tags: ["a"] });
+    }
     check("managerSettings shows a placed widget its first layout entry", ctx.managerSettings(ctx.effectiveConfig(shipped, { bar: { id: "vgs.bar", layout: { left: [], center: [{ id: "acme.both", label: "entry" }], right: [] } }, plugins: [{ id: "acme.both", label: "row" }] }), manifests["acme.both"]), { label: "entry" });
     check("managerSettings shows an unplaced widget-plus-service its plugins row", ctx.managerSettings(ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.both", label: "row" }] }), manifests["acme.both"]), { label: "row" });
     check("managerSettings shows a service its plugins row", ctx.managerSettings(ctx.effectiveConfig(shipped, { plugins: [{ id: "acme.svc", x: 2 }] }), manifests["acme.svc"]), { x: 2 });
@@ -977,6 +982,25 @@ function suite(ctx, check) {
         check("unknownIds: " + name, ctx.unknownIds(config, manifests), want);
     }
 
+    const unknownSettingRows = [
+        ["reserved keys and declared defaults need no notice", { plugins: [{ id: "acme.widget", size: 0, tags: [], keys: {} }] }, []],
+        ["a retired bar field is named", { plugins: [{ id: "vgs.bar", left: ["workspaces"] }] }, [{ id: "vgs.bar", keys: ["left"] }]],
+        ["all entries share one notice per plugin", { plugins: [{ id: "acme.widget", old: 1 }, { id: "vgs.bar", right: [] }], bar: { layout: { left: [{ id: "acme.widget", old: 2 }], center: [{ id: "acme.widget", retired: 3 }], right: [{ id: "acme.widget", last: 4 }] } } }, [{ id: "acme.widget", keys: ["last", "old", "retired"] }, { id: "vgs.bar", keys: ["right"] }]],
+        ["disabled plugins still name retired keys", { disabledPlugins: ["vgs.bar"], plugins: [{ id: "vgs.bar", center: [] }] }, [{ id: "vgs.bar", keys: ["center"] }]],
+        ["unknown ids use their separate report", { plugins: [{ id: "acme.gone", retired: 1 }] }, []],
+        ["prototype names are undeclared", { plugins: [JSON.parse('{"id":"vgs.bar","constructor":1,"__proto__":2}')] }, [{ id: "vgs.bar", keys: ["__proto__", "constructor"] }]],
+        ["an empty file names nothing", {}, []],
+    ];
+    for (const [name, config, want] of unknownSettingRows) {
+        const before = JSON.stringify(config);
+        check("unknownSettings: " + name, ctx.unknownSettings(config, manifests), want);
+        check("unknownSettings keeps the saved file: " + name, JSON.stringify(config), before);
+    }
+    const unreadValue = { id: "vgs.bar" };
+    Object.defineProperty(unreadValue, "retired", { enumerable: true, get() { throw new Error("undeclared value read"); } });
+    check("unknownSettings never reads an undeclared value", ctx.unknownSettings({ plugins: [unreadValue] }, manifests), [{ id: "vgs.bar", keys: ["retired"] }]);
+    check("settingsFor never reads an undeclared value", ctx.settingsFor({ plugins: [unreadValue] }, manifests["vgs.bar"], "plugins", null), {});
+
     // surfacePlacement rows: [name, kind, settings, want subset]
     const placementRows = [
         ["an overlay fills its screen on the overlay layer", "overlay", {}, { anchors: { top: true, bottom: true, left: true, right: true }, exclusion: "ignore", layer: "overlay", placement: "fill" }],
@@ -1185,6 +1209,8 @@ suite(load(LOGIC), report);
 // judge's own place in a temporary tree, beside the icon set, the
 // package-manager table and the Hyprland layer's table it imports.
 const CONTROLS = [
+    ["saved undeclared settings are reported", "(Array.isArray(config.plugins) ? config.plugins : []).forEach(report);", "[].forEach(report);"],
+    ["saved undeclared settings never reach an instance", "Object.keys(manifest.settings).forEach(function (k) { if (hasOwn(entry, k)) out[k] = entry[k]; });", "Object.keys(entry).forEach(function (k) { if (ENTRY_RESERVED_KEYS.indexOf(k) === -1) out[k] = entry[k]; });"],
     ["session is a known capability", '"lock", "session",', '"lock", ("session" && "planted"),'],
     ["session is not exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"].concat(["session"]);'],
     ["the Bluetooth agent is exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "panes"];'],
@@ -1470,8 +1496,7 @@ const CONTROLS = [
     ["a notify title ends the options", 'return argv.concat(["--", judged.title, message]);', 'return argv.concat([judged.title, message]);'],
 ];
 
-fs.mkdirSync(path.join(__dirname, "..", "tmp"), { recursive: true });
-const temp = fs.mkdtempSync(path.join(__dirname, "..", "tmp", "plugin-logic-control-"));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-logic-control-"));
 try {
     fs.mkdirSync(path.join(temp, "shell", "Core"), { recursive: true });
     fs.mkdirSync(path.join(temp, "shell", "Commons"), { recursive: true });

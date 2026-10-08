@@ -3505,8 +3505,8 @@ function settingTargetOf(kind) {
 // caller passes; for "plugins" it is the plugins[] row with the plugin's
 // id, and `layoutEntry` is not read. A caller holding an instance's kind
 // passes settingTargetOf(kind). Keys the entry sets win, but for the keys
-// ENTRY_RESERVED_KEYS names, which are no setting. The result is a fresh
-// object with neither.
+// ENTRY_RESERVED_KEYS names, which are no setting. An undeclared key is
+// ignored and unknownSettings reports it. The result is a fresh object.
 function settingsFor(config, manifest, target, layoutEntry) {
     var out = {};
     Object.keys(manifest.settings).forEach(function (k) { out[k] = manifest.settings[k]; });
@@ -3514,7 +3514,9 @@ function settingsFor(config, manifest, target, layoutEntry) {
     if (target === "layout") entry = layoutEntry;
     else if (target === "plugins") entry = pluginRow(config, manifest.id);
     else throw new Error("settingsFor: target " + JSON.stringify(target) + " is not one of " + SETTING_TARGETS.join(", "));
-    return clone(copyEntrySettings(out, entry));
+    if (isPlainObject(entry))
+        Object.keys(manifest.settings).forEach(function (k) { if (hasOwn(entry, k)) out[k] = entry[k]; });
+    return clone(out);
 }
 
 // Copy each key of configuration entry ENTRY into TARGET, but for the keys
@@ -3708,6 +3710,25 @@ function unknownIds(config, manifests) {
     report("disabledPlugins", Array.isArray(config.disabledPlugins) ? config.disabledPlugins : []);
     report("plugins", (Array.isArray(config.plugins) ? config.plugins : []).map(function (entry) { return entry.id; }));
     return out;
+}
+
+// Saved settings no discovered manifest declares, grouped by plugin across
+// plugins[] and every layout entry. Reserved keys are not settings. Unknown
+// ids have their own report; disabled plugins still report their saved keys.
+// No value is read and no configuration entry is changed.
+function unknownSettings(config, manifests) {
+    var byId = Object.create(null);
+    function report(entry) {
+        if (!hasOwn(manifests, entry.id)) return;
+        Object.keys(entry).forEach(function (key) {
+            if (ENTRY_RESERVED_KEYS.indexOf(key) !== -1 || hasOwn(manifests[entry.id].settings, key)) return;
+            if (!hasOwn(byId, entry.id)) byId[entry.id] = [];
+            if (byId[entry.id].indexOf(key) === -1) byId[entry.id].push(key);
+        });
+    }
+    (Array.isArray(config.plugins) ? config.plugins : []).forEach(report);
+    SECTIONS.forEach(function (section) { sectionEntries(config, section).forEach(report); });
+    return Object.keys(byId).sort().map(function (id) { return { id: id, keys: byId[id].sort() }; });
 }
 
 // The widgets each bar section shows: the layout entries whose plugin is
