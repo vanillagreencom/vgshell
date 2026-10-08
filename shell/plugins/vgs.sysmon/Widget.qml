@@ -17,7 +17,7 @@ BarWidget {
     visible: setting("showCpu", true) || setting("showMemory", true) || (setting("showGpu", true) && gpu !== null)
 
     function percent(value) { return typeof value === "number" ? Math.round(value) + "%" : "--"; }
-    function degrees(value) { return typeof value === "number" ? Math.round(value) + "°" : "--"; }
+    function degrees(value) { return Logic.degrees(value, setting("temperatureUnit", "Celsius")); }
     function gb(value) { return typeof value === "number" ? (value / 1073741824).toFixed(1) + " GB" : "--"; }
     function tone(value, warning, danger) {
         const state = Logic.tone(value, warning, danger);
@@ -48,8 +48,9 @@ BarWidget {
             iconName: "cpu"
             text: root.percent(root.cpu.use)
             reservedText: "100%"
-            count: root.setting("cpuTemperature", false) ? root.degrees(root.cpu.temperature) : ""
-            reservedCount: "100°"
+            count: root.setting("cpuTemperature", false) ? "/" + root.degrees(root.cpu.temperature) : ""
+            compactCount: true
+            reservedCount: root.setting("temperatureUnit", "Celsius") === "Fahrenheit" ? "/212°" : "/100°"
             tone: root.tone(root.cpu.use, 60, 80)
             textTone: Theme.bar.foreground
             countTone: root.tone(root.cpu.temperature, 70, 85)
@@ -77,7 +78,7 @@ BarWidget {
             text: root.percent(root.gpu && root.gpu.state === "asleep" ? null : root.gpu ? root.gpu.use : null)
             reservedText: "100%"
             count: root.setting("gpuTemperature", false) ? root.degrees(root.gpu && root.gpu.state !== "asleep" ? root.gpu.temperature : null) : ""
-            reservedCount: "100°"
+            reservedCount: root.setting("temperatureUnit", "Celsius") === "Fahrenheit" ? "212°" : "100°"
             countTone: root.tone(root.gpu ? root.gpu.temperature : null, 65, 80)
             tooltip: root.gpu ? root.gpu.name + " · " + (root.gpu.state === "asleep" ? "Asleep" : root.percent(root.gpu.use) + " · " + root.degrees(root.gpu.temperature)) : "GPU"
             onClicked: root.toggle()

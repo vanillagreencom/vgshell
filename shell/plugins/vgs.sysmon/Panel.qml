@@ -31,7 +31,7 @@ FocusScope {
     Component.onDestruction: close()
     function setting(name, fallback) { return shell !== null && shell.settings[name] !== undefined ? shell.settings[name] : fallback; }
     function percent(value) { return typeof value === "number" ? Math.round(value) + "%" : "--"; }
-    function degrees(value) { return typeof value === "number" ? Math.round(value) + "°" : "--"; }
+    function degrees(value) { return Logic.degrees(value, setting("temperatureUnit", "Celsius")); }
     function gb(value) { return typeof value === "number" ? (value / 1073741824).toFixed(1) + " GB" : "--"; }
     function tone(value, warning, danger) { const state = Logic.tone(value, warning, danger); return state === "normal" ? "accent" : state; }
     function seeAll() {
@@ -57,8 +57,9 @@ FocusScope {
                 Button { visible: root.btopPresent; width: parent.width; text: "See all"; iconName: "external-link"; variant: "tertiary"; onClicked: root.seeAll() }
             }
         ]
-        GroupList {
+        Column {
             width: layout.contentWidth
+            spacing: Theme.stack.section
             Reading {
                 width: parent.width
                 visible: root.setting("showCpu", true)

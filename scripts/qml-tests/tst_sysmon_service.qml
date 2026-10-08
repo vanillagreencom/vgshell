@@ -35,7 +35,7 @@ Item {
         function init() {
             root.publications = []; paths = []; cpuReads = 0;
             directories = {}; fixtureFiles = {}; listedPaths = [];
-            const scope = { settings: { gpu: "", refreshSeconds: 10 }, requirements: { missing: [] },
+            const scope = { settings: { gpu: "", cpuSensor: "automatic", refreshSeconds: 10 }, requirements: { missing: [] },
                 status: { set: function (key, value) { root.publications = root.publications.concat([{ key: key, value: value }]); return "ok"; } } };
             service = createTemporaryObject(serviceComponent, root, { registered: true, shell: scope });
             verify(service !== null);
@@ -75,6 +75,35 @@ Item {
             fail("the finite read queue did not complete");
         }
         function readingsCount() { return root.publications.filter(row => row.key === "readings").length; }
+        function test_discovered_cpu_sensor_selection() {
+            directories = { "/sys/class/hwmon": ["/sys/class/hwmon/hwmon7", "/sys/class/hwmon/hwmon8"],
+                "/sys/class/hwmon/hwmon7": ["/sys/class/hwmon/hwmon7/temp1_input", "/sys/class/hwmon/hwmon7/temp2_input"],
+                "/sys/class/thermal": ["/sys/class/thermal/thermal_zone0", "/sys/class/thermal/thermal_zone1"] };
+            fixtureFiles = { "/sys/class/hwmon/hwmon7/name": "k10temp\n", "/sys/class/hwmon/hwmon8/name": "amdgpu\n",
+                "/sys/class/hwmon/hwmon7/temp1_label": "Tctl\n", "/sys/class/hwmon/hwmon7/temp2_label": "Tccd1\n",
+                "/sys/class/hwmon/hwmon7/temp1_input": "54000", "/sys/class/hwmon/hwmon7/temp2_input": "63000",
+                "/sys/class/thermal/thermal_zone0/type": "x86_pkg_temp\n", "/sys/class/thermal/thermal_zone1/type": "x86_pkg_temp\n" };
+            service.discover(); drain("suspended");
+            const choices = root.publications.filter(row => row.key === "cpuSensors").pop().value;
+            verify(PluginLogic.statusWrite({ status: { cpuSensors: { type: "choices" } } }, {}, "cpuSensors", choices).ok);
+            compare(choices.filter(row => row.value === "thermal:x86_pkg_temp").length, 1);
+            verify(listedPaths.indexOf("/sys/class/hwmon/hwmon8") === -1, "GPU sensors stay outside the CPU path");
+            open(); drain("active");
+            compare(service.readings.cpu.temperature, 54);
+            const selected = service.cpuSensors.find(row => row.path === "/sys/class/hwmon/hwmon7/temp2_input");
+            service.shell = Object.assign({}, service.shell, { settings: { gpu: "", cpuSensor: selected.value, refreshSeconds: 10 } });
+            service.tick(); drain("active");
+            compare(service.readings.cpu.temperature, 63);
+            const model = PluginLogic.settingChoices({ schema: { cpuSensor: { optionsFrom: "cpuSensors" } } }, { cpuSensors: choices }, { cpuSensor: "automatic" }).cpuSensor;
+            service.shell = Object.assign({}, service.shell, { settings: { gpu: "", cpuSensor: model[0].value, refreshSeconds: 10 } });
+            service.tick(); drain("active");
+            compare(service.readings.cpu.temperature, 54, "the Settings first-offered choice selects the automatic sensor");
+            paths = [];
+            service.shell = Object.assign({}, service.shell, { settings: { gpu: "", cpuSensor: "/etc/passwd", refreshSeconds: 10 } });
+            service.tick(); drain("active");
+            compare(service.readings.cpu.temperature, null);
+            compare(JSON.stringify(paths), JSON.stringify(["/proc/stat", "/proc/meminfo"]));
+        }
         function test_graphics_status_copy_data() {
             return [{ tag: "absent", driver: "", text: "Not found", hint: "No supported graphics card found.", tone: "info" },
                 { tag: "supported-nvidia", driver: "nvidia", text: "Available", tone: "ok" }];

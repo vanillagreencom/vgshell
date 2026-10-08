@@ -70,6 +70,39 @@ function chooseCpuTemperature(devices, thermalZones) {
     return zone ? zone.path : null;
 }
 
+function cpuTemperatureSensors(devices, thermalZones) {
+    const sensors = [{ value: "automatic", label: "Automatic", path: chooseCpuTemperature(devices, thermalZones) || "" }];
+    function add(value, label, path) {
+        const duplicate = sensors.find(row => row.value === value);
+        // Multiple CPU packages can report the same core label. Keep one
+        // choice, but never redirect an explicit selection to another chip.
+        if (duplicate) { duplicate.path = ""; duplicate.label = label + " (more than one sensor)"; }
+        else sensors.push({ value: value, label: label, path: path });
+    }
+    devices.forEach(device => device.temperatures.forEach(sensor => {
+        const channel = sensor.path.substring(sensor.path.lastIndexOf("/") + 1).replace(/_input$/, "");
+        const name = device.name === "coretemp" ? "Intel CPU" : "AMD CPU";
+        const label = sensor.label || channel;
+        add("hwmon:" + device.name + ":" + channel + ":" + label, name + " · " + label, sensor.path);
+    }));
+    thermalZones.forEach(zone => {
+        if (zone.type === "") return;
+        add("thermal:" + zone.type, zone.type === "x86_pkg_temp" ? "CPU package" : zone.type.replace(/_/g, " "), zone.path);
+    });
+    return sensors;
+}
+
+function selectedCpuTemperature(sensors, configured) {
+    // Settings offers an empty value for its first published choice.
+    const sensor = configured === "" ? sensors[0] : sensors.find(row => row.value === configured);
+    return sensor ? sensor.path : "";
+}
+
+function degrees(value, unit) {
+    if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+    return Math.round(unit === "Fahrenheit" ? value * 9 / 5 + 32 : value) + "°";
+}
+
 function amdGpu(files) {
     const use = number(files.use);
     return { use: use !== null && use <= 100 ? use : null,

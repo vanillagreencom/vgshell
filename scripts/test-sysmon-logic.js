@@ -56,6 +56,24 @@ function suite(logic) {
         [[device("k10temp", "Tccd1", "/wrong")], [], null],
         [[], [], null]
     ]) assert.equal(logic.chooseCpuTemperature(devices, zones), want);
+    const sensors = logic.cpuTemperatureSensors([core, zen, k10], thermal);
+    assert.equal(logic.selectedCpuTemperature(sensors, "automatic"), "/hwmon7/temp2_input");
+    assert.equal(logic.selectedCpuTemperature(sensors, ""), "/hwmon7/temp2_input");
+    for (const sensor of sensors) assert.equal(logic.selectedCpuTemperature(sensors, sensor.value), sensor.path);
+    for (const configured of [undefined, "removed", "/etc/passwd", "/hwmon7/temp2_input"])
+        assert.equal(logic.selectedCpuTemperature(sensors, configured), "");
+    const renumbered = logic.cpuTemperatureSensors([device("k10temp", "Tctl", "/hwmon99/temp2_input")], []);
+    const key = sensors.find(sensor => sensor.path === k10.temperatures[0].path).value;
+    assert.equal(logic.selectedCpuTemperature(renumbered, key), "/hwmon99/temp2_input");
+    const duplicated = logic.cpuTemperatureSensors([core, device("coretemp", "Package id 0", "/hwmon88/temp1_input")], thermal.concat(thermal));
+    assert.equal(new Set(duplicated.map(sensor => sensor.value)).size, duplicated.length);
+    assert.equal(logic.selectedCpuTemperature(duplicated, sensors.find(sensor => sensor.path === core.temperatures[0].path).value), "");
+    assert.equal(logic.selectedCpuTemperature(duplicated, "automatic"), "/hwmon5/temp1_input");
+    assert.equal(logic.selectedCpuTemperature(logic.cpuTemperatureSensors([], []), "automatic"), "");
+    assert.equal(logic.cpuTemperatureSensors([], [{ type: "", path: "/missing" }]).some(sensor => sensor.path === "/missing"), false);
+    for (const [value, unit, want] of [[0, "Celsius", "0°"], [0, "Fahrenheit", "32°"],
+        [54, "Celsius", "54°"], [54, "Fahrenheit", "129°"], [-40, "Fahrenheit", "-40°"],
+        [null, "Fahrenheit", "--"], [NaN, "Celsius", "--"]]) assert.equal(logic.degrees(value, unit), want);
     for (const [raw, want] of [["54000\n", 54], ["0", 0], ["-5000", -5], ["[N/A]", null], ["", null], ["4x", null]])
         assert.equal(logic.temperature(raw), want);
     for (const [raw, want] of [["0", 0], ["3.5\n", 3.5], ["", null], [undefined, null], ["[N/A]", null], ["N/A", null], ["-1", null], ["4x", null]])
@@ -102,7 +120,11 @@ if (!process.env.SYS_MON_LOGIC_PATH) {
             ["cpu-backwards", "value < previous.counters[index]", "false"],
             ["hwmon-label", 'label: "Tctl"', 'label: "Tccd1"'],
             ["amd-temperature-unit", "value / 1000", "value"],
-            ["nvidia-memory-unit", "vramUsed: used === null ? null : used * 1048576", "vramUsed: used === null ? null : used"]
+            ["nvidia-memory-unit", "vramUsed: used === null ? null : used * 1048576", "vramUsed: used === null ? null : used"],
+            ["cpu-sensor-missing", 'return sensor ? sensor.path : "";', 'return sensor ? sensor.path : configured;'],
+            ["cpu-sensor-first-offer", 'const sensor = configured === "" ? sensors[0] : sensors.find(row => row.value === configured);', "const sensor = sensors.find(row => row.value === configured);"],
+            ["cpu-sensor-duplicate", 'duplicate.path = "";', 'duplicate.path = path;'],
+            ["fahrenheit-conversion", "value * 9 / 5 + 32", "value"]
         ]) {
             assert.equal(source.split(needle).length - 1, matchCount, name + " mutation match count");
             const changed = source.split(needle).join(replacement);

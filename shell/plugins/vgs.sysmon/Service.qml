@@ -13,7 +13,7 @@ Item {
     readonly property bool polling: poller.running
     property bool discovered: false
     property var devices: []
-    property string cpuTemperaturePath: ""
+    property var cpuSensors: []
     property var previousCpu: null
     property var readings: ({ cpu: {}, memory: {}, gpu: null })
     property bool cycleBusy: false
@@ -25,6 +25,7 @@ Item {
     property bool queryEnding: false
     property var gpuResult: null
     readonly property string chosenGpu: shell === null ? "" : shell.settings.gpu
+    readonly property string cpuTemperaturePath: Logic.selectedCpuTemperature(cpuSensors, shell === null ? "" : shell.settings.cpuSensor)
     readonly property bool nvidiaPresent: shell !== null && shell.requirements.missing.indexOf("nvidia-smi") === -1
 
     function read(path, done) {
@@ -84,7 +85,8 @@ Item {
         let pending = 3;
         function finish() {
             if (--pending !== 0) return;
-            cpuTemperaturePath = Logic.chooseCpuTemperature(hwmon, thermal) || "";
+            cpuSensors = Logic.cpuTemperatureSensors(hwmon, thermal);
+            shell.status.set("cpuSensors", cpuSensors.map(sensor => ({ value: sensor.value, label: sensor.label })));
             devices = Logic.orderGpus(cards);
             publishChoices();
             if (!nvidiaPresent && devices.some(card => card.driver === "nvidia")) shell.requirements.offer(["nvidia-smi"]);

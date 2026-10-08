@@ -8,5 +8,10 @@ Item {
         if (shell === null || registered) return;
         registered = true;
         shell.ipc.handle("lease", () => "ok");
+        shell.status.set("cpuSensors", [
+            { value: "automatic", label: "Automatic" },
+            { value: "hwmon:k10temp:temp1:Tctl", label: "AMD CPU · Tctl" },
+            { value: "hwmon:k10temp:temp2:Tccd1", label: "AMD CPU · Tccd1" }
+        ]);
     }
 }

@@ -28,10 +28,11 @@ T.AbstractButton {
 
     property string iconName: ""
     property string count: ""
-    // TextMetrics.advanceWidth keeps these slots independent of the current
-    // reading. Empty reservations retain the label's natural width.
+    // Reserve unused reading width after both labels, so short values keep
+    // the same icon gap. https://quickshell.org/docs/v0.3.1/guide/size-position
     property string reservedText: ""
     property string reservedCount: ""
+    property bool compactCount: false
     property color textTone: foreground
     property color countTone: foreground
     property bool spinning: false
@@ -89,25 +90,33 @@ T.AbstractButton {
             }
             TextMetrics { id: textWidth; font: textLabel.font; text: root.reservedText }
             TextMetrics { id: countWidth; font: countLabel.font; text: root.reservedCount }
-            Label {
-                id: textLabel
-                role: "bar"
-                visible: root.text !== ""
-                width: root.reservedText === "" ? implicitWidth : Math.ceil(textWidth.advanceWidth)
-                horizontalAlignment: Text.AlignRight
-                text: root.text
-                color: root.textTone
-                y: topForCapCenter(row.height)
-            }
-            Label {
-                id: countLabel
-                role: "bar"
-                visible: root.count !== ""
-                width: root.reservedCount === "" ? implicitWidth : Math.ceil(countWidth.advanceWidth)
-                horizontalAlignment: Text.AlignRight
-                text: root.count
-                color: root.countTone
-                y: topForCapCenter(row.height)
+            Item {
+                visible: root.text !== "" || root.count !== ""
+                width: Math.max(values.implicitWidth,
+                    (root.text === "" ? 0 : root.reservedText === "" ? textLabel.implicitWidth : Math.ceil(textWidth.advanceWidth))
+                    + (root.count === "" ? 0 : root.reservedCount === "" ? countLabel.implicitWidth : Math.ceil(countWidth.advanceWidth))
+                    + (root.text !== "" && root.count !== "" ? values.spacing : 0))
+                height: values.implicitHeight
+                Row {
+                    id: values
+                    spacing: root.compactCount ? 0 : root.spacing
+                    Label {
+                        id: textLabel
+                        role: "bar"
+                        visible: root.text !== ""
+                        text: root.text
+                        color: root.textTone
+                        y: topForCapCenter(row.height)
+                    }
+                    Label {
+                        id: countLabel
+                        role: "bar"
+                        visible: root.count !== ""
+                        text: root.count
+                        color: root.countTone
+                        y: topForCapCenter(row.height)
+                    }
+                }
             }
         }
     }

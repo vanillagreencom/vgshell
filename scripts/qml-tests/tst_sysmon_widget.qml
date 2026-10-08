@@ -11,6 +11,7 @@ Item {
     property var leaseCalls: []
     QtObject { id: status; property var values: ({}) }
     Component { id: widgetComponent; Sysmon.Widget {} }
+    Component { id: panelComponent; Sysmon.Panel {} }
 
     TestCase {
         id: tests
@@ -25,7 +26,7 @@ Item {
                 gpu: gpu === undefined ? { id: "gpu", name: "Fixture GPU", state: "awake", use: use, temperature: 42 } : gpu };
         }
         function scope() {
-            return { status: status,
+            return { status: status, settings: {}, requirements: { missing: ["btop"] },
                 ipc: { call: function (method, argument) {
                     root.leaseCalls = root.leaseCalls.concat([[method, argument]]);
                     return "ok";
@@ -92,15 +93,52 @@ Item {
             widget.settings = { showCpu: true, showMemory: true, showGpu: true,
                 cpuTemperature: true, gpuTemperature: true, showSwap: true, memoryUnit: "used" };
             const readings = items();
-            compare(readings[0].count, "54°");
+            compare(readings[0].text + readings[0].count, "5%/54°");
             compare(readings[1].text, "1.0 GB");
             compare(readings[1].count, "· 0%");
             compare(readings[2].count, "42°");
             status.values = { readings: sample(null) };
             const empty = sample(null); empty.cpu.temperature = null; empty.gpu.temperature = null;
             status.values = { readings: empty };
-            compare(readings[0].count, "--");
+            compare(readings[0].count, "/--");
             compare(readings[2].count, "--");
+        }
+        function test_fahrenheit_readings_keep_celsius_tones() {
+            widget.settings = { showCpu: true, showGpu: true, cpuTemperature: true,
+                gpuTemperature: true, temperatureUnit: "Fahrenheit" };
+            const value = sample(12); value.cpu.temperature = 70; value.gpu.temperature = 65;
+            status.values = { readings: value };
+            const readings = items();
+            compare(readings[0].text + readings[0].count, "12%/158°");
+            compare(readings[2].count, "149°");
+            compare(readings[0].countTone, Qt.color(Theme.color.warning));
+            compare(readings[2].countTone, Qt.color(Theme.color.warning));
+            verify(readings[0].tooltip.indexOf("158°") !== -1);
+            verify(readings[2].tooltip.indexOf("149°") !== -1);
+            wait(0);
+            const width = widget.implicitWidth;
+            status.values = { readings: sample(100) };
+            wait(0);
+            compare(widget.implicitWidth, width);
+        }
+        function test_panel_converts_cpu_and_gpu_details() {
+            const facade = scope(); facade.settings = { temperatureUnit: "Fahrenheit" };
+            const panel = createTemporaryObject(panelComponent, root, { shell: facade });
+            verify(panel !== null);
+            const found = [];
+            function walk(node) {
+                for (const child of node.children) {
+                    if (child.details !== undefined && child.title !== undefined && child.iconName !== undefined) found.push(child);
+                    walk(child);
+                }
+            }
+            walk(panel);
+            verify(found.find(item => item.iconName === "cpu").details[0].indexOf("129°") !== -1);
+            verify(found.find(item => item.iconName === "gpu").details[1].indexOf("108°") !== -1);
+            const reading = sample(5); reading.cpu.temperature = null; reading.gpu.temperature = null;
+            status.values = { readings: reading };
+            verify(found.find(item => item.iconName === "cpu").details[0].indexOf("--") !== -1);
+            verify(found.find(item => item.iconName === "gpu").details[1].indexOf("--") !== -1);
         }
         function test_production_tone_boundaries_data() {
             const rules = [

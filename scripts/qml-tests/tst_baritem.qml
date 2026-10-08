@@ -130,16 +130,22 @@ Item {
             reserved.text = "5%"; reserved.count = "9°";
             wait(0);
             const width = reserved.width;
-            const textWidth = labels(reserved)[0].width;
-            const countWidth = labels(reserved)[1].width;
             reserved.text = "100%";
             wait(0);
             compare(reserved.width, width);
-            compare(labels(reserved)[0].width, textWidth);
             reserved.count = "100°";
             wait(0);
             compare(reserved.width, width);
-            compare(labels(reserved)[1].width, countWidth);
+        }
+
+        function test_reservations_follow_the_drawn_reading() {
+            reserved.iconName = "cpu"; reserved.text = "5%"; reserved.count = "/9°"; reserved.compactCount = true;
+            const found = labels(reserved), glyph = firstIcon(reserved);
+            tryVerify(() => Math.abs(found[0].mapToItem(reserved, 0, 0).x - glyph.mapToItem(reserved, glyph.width, 0).x - Theme.bar.item.iconGap) <= 0.5, 1000, "the drawn reading follows the icon after layout");
+            fuzzyCompare(found[0].mapToItem(reserved, 0, 0).x - glyph.mapToItem(reserved, glyph.width, 0).x, Theme.bar.item.iconGap, 0.5);
+            fuzzyCompare(found[1].mapToItem(reserved, 0, 0).x, found[0].mapToItem(reserved, found[0].width, 0).x, 0.5);
+            verify(found[1].mapToItem(reserved, found[1].width, 0).x < reserved.width - reserved.rightPadding);
+            reserved.iconName = ""; reserved.compactCount = false;
         }
 
         function test_text_and_count_take_separate_tones() {

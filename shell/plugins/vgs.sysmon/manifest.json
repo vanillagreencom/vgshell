@@ -58,7 +58,9 @@
     "memoryUnit": "percent",
     "showSwap": false,
     "gpu": "",
-    "refreshSeconds": 2
+    "refreshSeconds": 2,
+    "temperatureUnit": "Celsius",
+    "cpuSensor": "automatic"
   },
   "status": {
     "readings": {
@@ -73,6 +75,10 @@
       "type": "state",
       "label": "Graphics card",
       "group": "Readings"
+    },
+    "cpuSensors": {
+      "type": "choices",
+      "label": "CPU temperature sensors"
     }
   },
   "schema": {
@@ -129,6 +135,23 @@
       "max": 10,
       "step": 1,
       "unit": "seconds",
+      "group": "Readings"
+    },
+    "temperatureUnit": {
+      "type": "enum",
+      "label": "Temperature unit",
+      "options": [
+        "Celsius",
+        "Fahrenheit"
+      ],
+      "description": "Sets the unit for CPU and GPU temperatures.",
+      "group": "Readings"
+    },
+    "cpuSensor": {
+      "type": "string",
+      "label": "CPU temperature sensor",
+      "optionsFrom": "cpuSensors",
+      "description": "Automatic keeps the CPU sensor selected by the system.",
       "group": "Readings"
     }
   },
