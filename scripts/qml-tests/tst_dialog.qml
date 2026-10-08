@@ -113,7 +113,7 @@ Item {
         function card(of) { return of.children[0]; }
         function pane(of) { return of.children[1]; }
         function titleLabel(of) { return pane(of).children[0].children[0]; }
-        function messageLabel(of) { return pane(of).children[0].children[4].children[0]; }
+        function messageLabel(of) { return pane(of).children[0].children[4].contentItem.children[0]; }
         function footer(of) { return pane(of).children[4].children[0]; }
         function headerSlot(of) { return pane(of).children[2]; }
         function footerSlot(of) { return pane(of).children[4]; }

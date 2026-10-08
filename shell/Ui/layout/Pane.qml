@@ -43,7 +43,7 @@ Item {
     property string titleRole: container === "window" ? "windowTitle" : "h3"
     property int titleWrapMode: Text.NoWrap
     property alias titleContent: titleSlot.data
-    property alias subtitle: subtitleSlot.data
+    property alias subtitle: subtitleColumn.data
     property bool switchShown: false
     property bool switchChecked: false
     property bool switchEnabled: true
@@ -132,15 +132,17 @@ Item {
     // assembled System check reaches. Keep the binding in the slot so
     // child removal does not call the destroyed Pane.
     component Slot: Item {
-        implicitHeight: childrenRect.height
+        property Item contentItem: this
+        implicitHeight: contentItem === null ? 0 : contentItem.childrenRect.height
         implicitWidth: {
+            if (contentItem === null) return 0;
             let widest = 0;
-            for (const child of children) widest = Math.max(widest, child.implicitWidth);
+            for (const child of contentItem.children) widest = Math.max(widest, child.implicitWidth);
             return widest;
         }
     }
 
-    implicitWidth: Math.max(hasTitle ? Math.max(titleLabel.implicitWidth, titleSlot.implicitWidth, root.slotWidth(subtitleSlot)) + switchRoom + gearRoom : 0, headerSlot.implicitWidth > 0 ? headerSlot.implicitWidth + gearRoom : 0, bodyColumn.implicitWidth, footerSlot.implicitWidth) + 2 * contentInset
+    implicitWidth: Math.max(hasTitle ? Math.max(titleLabel.implicitWidth, titleSlot.implicitWidth, subtitleSlot.implicitWidth) + switchRoom + gearRoom : 0, headerSlot.implicitWidth > 0 ? headerSlot.implicitWidth + gearRoom : 0, bodyColumn.implicitWidth, footerSlot.implicitWidth) + 2 * contentInset
     implicitHeight: fitToContent ? cappedHeight : uncappedHeight
 
     ClearingInset {
@@ -246,19 +248,23 @@ Item {
 
         // Implicit sizes flow from children; widths flow from the pane:
         // https://quickshell.org/docs/v0.3.1/guide/size-position/.
-        Item {
+        Slot {
             id: titleSlot
             width: parent.width - root.gearRoom
             height: root.titleRowHeight
-            implicitHeight: childrenRect.height
-            implicitWidth: root.slotWidth(titleSlot)
         }
 
-        Column {
+        Slot {
             id: subtitleSlot
             y: root.titleRowHeight + root.subtitleGap
             width: parent.width - root.gearRoom
-            spacing: Theme.row.lineGap
+            height: implicitHeight
+            contentItem: subtitleColumn
+            Column {
+                id: subtitleColumn
+                width: parent.width
+                spacing: Theme.row.lineGap
+            }
         }
     }
 

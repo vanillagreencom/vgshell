@@ -65,10 +65,25 @@ Item {
             return [
                 { tag: "header", variant: "header" },
                 { tag: "description", variant: "description" },
+                { tag: "stacked descriptions", variant: "description-stack" },
                 { tag: "bare body", variant: "body" },
                 { tag: "custom title", variant: "custom" },
                 { tag: "theme title space", variant: "description", titleSpace: 2 }
             ].concat(compactCases(["header", "description", "body"]));
+        }
+
+        function test_slot_measure_owner_can_be_destroyed_while_slot_survives() {
+            const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 300; title: "Title"; Item { height: 20 } }', root);
+            const slot = titleBlock(made).children[4];
+            const measured = Qt.createQmlObject('import QtQuick\nItem { Rectangle { width: 70; height: 24; implicitWidth: 70 } }', slot);
+            slot.contentItem = measured;
+            compare(slot.implicitWidth, 70);
+            compare(slot.implicitHeight, 24);
+            measured.destroy();
+            tryCompare(slot, "contentItem", null);
+            compare(slot.implicitWidth, 0);
+            compare(slot.implicitHeight, 0);
+            made.destroy();
         }
 
         function test_pane_title_block_gap(data) {
@@ -76,8 +91,10 @@ Item {
             const title = data.variant === "custom"
                 ? 'titleContent: [ Label { text: "Custom title"; role: "h3" } ]'
                 : 'title: "Title"';
-            const description = data.variant === "description"
-                ? 'subtitle: [ Label { text: "Description"; role: "body"; width: parent.width } ]' : "";
+            const description = data.variant === "description-stack"
+                ? 'subtitle: [ Label { text: "First description"; role: "body"; width: parent.width }, Label { text: "Second description with a wider intrinsic text measure"; role: "body"; width: parent.width } ]'
+                : data.variant === "description"
+                    ? 'subtitle: [ Label { text: "Description"; role: "body"; width: parent.width } ]' : "";
             const header = data.variant === "header"
                 ? 'header: [ Label { text: "Header"; role: "body"; width: parent.width } ]' : "";
             const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 300; fitToContent: true; '
@@ -89,13 +106,22 @@ Item {
             waitForRendering(made);
             verify(Theme.stack.titleSpace >= bodyLine.lineBox, "the title space contains a drawn body line");
             const block = titleBlock(made);
+            compare(block.children[3].contentItem, block.children[3], "the title Slot measures itself");
+            compare(headerSlot(made).contentItem, headerSlot(made), "the header Slot measures itself");
             const next = data.variant === "header" ? headerSlot(made) : marker;
             compare(itemTop(next, made) - (itemTop(block, made) + block.height), Theme.stack.titleSpace);
-            if (data.variant === "description") {
+            if (data.variant === "description" || data.variant === "description-stack") {
                 const subtitle = block.children[4];
                 compare(subtitle.y - made.titleRowHeight, Theme.row.lineGap);
                 verify(subtitle.implicitHeight > 0);
                 compare(block.height, made.titleRowHeight + Theme.row.lineGap + subtitle.implicitHeight);
+                const descriptions = subtitle.contentItem.children;
+                compare(descriptions.length, data.variant === "description-stack" ? 2 : 1);
+                compare(subtitle.implicitWidth, Math.max(...descriptions.map(item => item.implicitWidth)));
+                if (descriptions.length === 2) {
+                    compare(descriptions[1].y - (descriptions[0].y + descriptions[0].height), Theme.row.lineGap);
+                    compare(subtitle.implicitHeight, descriptions[0].height + Theme.row.lineGap + descriptions[1].height);
+                }
             }
             made.destroy();
         }

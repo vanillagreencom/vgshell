@@ -56,6 +56,8 @@ mutations=(
   "the title uses the old gap before a header|layout/Pane.qml|readonly property real titleToHeaderGap: hasTitle && titleBlockHeight > 0 && headerSlotImplicitHeight > 0 ? Theme.stack.titleSpace : 0|readonly property real titleToHeaderGap: hasTitle && titleBlockHeight > 0 && headerSlotImplicitHeight > 0 ? Theme.row.lineGap : 0|tst_title_space.qml"
   "the title uses the old gap before a body|layout/Pane.qml|readonly property real headerBodyGap: hasTitle && headerSlotImplicitHeight === 0 ? Theme.stack.titleSpace : gap|readonly property real headerBodyGap: gap|tst_title_space.qml"
   "the description separates from its title|layout/Pane.qml|readonly property real subtitleGap: titleRowHeight > 0 && subtitleHeight > 0 ? Theme.row.lineGap : 0|readonly property real subtitleGap: titleRowHeight > 0 && subtitleHeight > 0 ? Theme.stack.titleSpace : 0|tst_title_space.qml"
+  "a surviving slot dereferences its destroyed measure height|layout/Pane.qml|implicitHeight: contentItem === null ? 0 : contentItem.childrenRect.height|implicitHeight: contentItem.childrenRect.height|tst_title_space.qml"
+  "a surviving slot dereferences its destroyed measure width|layout/Pane.qml|if (contentItem === null) return 0;|{}|tst_title_space.qml"
   "a plain parent binding can exceed the input maximum|controls/InputWidth.qml|Math.max(target.minimumWidth, Math.min(target.maximumWidth, target.width))|target.width|tst_inputwidth.qml"
   "QR accepts a non-square matrix|foundation/QrMatrix.qml|row.length !== found.length|false|tst_qrmatrix.qml"
   "QR accepts nonbinary modules|foundation/QrMatrix.qml|!/^[01]+$/.test(row)|false|tst_qrmatrix.qml"
