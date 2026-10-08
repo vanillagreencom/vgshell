@@ -100,6 +100,7 @@ mutations=(
   "notification mask paints no fade|../plugins/vgs.notifications/CardScroll.qml|maskEnabled: true|maskEnabled: false|tst_notification_scroll.qml"
   "notification top edge never fades|../plugins/vgs.notifications/CardScroll.qml|GradientStop { position: 0; color: root.maskColor(view.atYBeginning ? 1 : 0) }|GradientStop { position: 0; color: root.maskColor(1) }|tst_notification_scroll.qml"
   "key hint shadow is absent|feedback/KeyHints.qml|shadowEnabled: true|shadowEnabled: false|tst_layout.qml"
+  "key hint words use muted text|feedback/KeyHints.qml|color: Theme.keyHints.foreground|color: Theme.text.hint.color|tst_layout.qml"
   "key hint shadow has the same tone as its text|feedback/KeyHints.qml|shadowColor: Theme.keyHints.shadow|shadowColor: hintLabel.color|tst_layout.qml"
   "a plain parent binding can exceed the input maximum|controls/InputWidth.qml|Math.max(target.minimumWidth, Math.min(target.maximumWidth, target.width))|target.width|tst_inputwidth.qml"
   "QR accepts a non-square matrix|foundation/QrMatrix.qml|row.length !== found.length|false|tst_qrmatrix.qml"

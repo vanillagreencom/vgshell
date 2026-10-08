@@ -5,7 +5,7 @@
 # through the probe, its state file, the compositor and the lending record.
 # No owner data reaches it: every notification here is made up. The row ends
 # with the plugin disabled and every registration released.
-# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/Ui/feedback/KeyHints.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js bin/lib/qml-library.js
+# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/Ui/feedback/KeyHints.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js bin/lib/qml-library.js themes/catalog/flexoki-light/theme.json
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 note_state="$home/.local/state/vgshell/notifications/state.json"
@@ -2595,14 +2595,9 @@ expect_poll "the Settings window is gone after the Position checks" 0 window_cou
 notes dismiss-all >/dev/null
 expect_poll "the Place toasts are gone" 0 layer_count vgs:layer
 
-# A layer flag is not a painted card. Read the nested output inside a
-# notification title that lies wholly above the bottom fade band. Only
-# the card title supplies the known opaque ink; neither the header nor the
-# wallpaper can satisfy this sample. The PNG reader above accepts both
-# Qt item RGBA grabs and the compositor RGB captures this check consumes.
 # Sample opaque glyph pixels and the adjacent painted halo in the real
 # compositor capture. ThemeLogic remains the only contrast judge.
-fade_hint_sample_value() { # PNG BACKGROUND ITEMS SURFACE COLOURS OUTPUT_WIDTH OUTPUT_HEIGHT
+fade_hint_sample_value() { # PNG BACKGROUND ITEMS SURFACE COLOURS SHADOW OUTPUT_WIDTH OUTPUT_HEIGHT
   python3 -c "$png_rgba_py"'
 image, background = png_rgba(sys.argv[1]), png_rgba(sys.argv[2])
 if isinstance(image,str) or isinstance(background,str): print("png-unreadable"); sys.exit()
@@ -2610,7 +2605,8 @@ iw,ih,rows=image
 bw,bh,back=background
 if (iw,ih)!=(bw,bh): print("background-size-mismatch"); sys.exit()
 items,surface,colours=map(json.loads,sys.argv[3:6])
-sx,sy=iw/float(sys.argv[6]),ih/float(sys.argv[7])
+sx,sy=iw/float(sys.argv[7]),ih/float(sys.argv[8])
+shadow=bytes.fromhex(json.loads(sys.argv[6])[-6:])
 labels=[i for i in items if i.get("role")=="hint" and i.get("text") in ("dismiss","actions") and i["visible"]]
 if len(labels)!=2 or len(colours)!=2: print("hint-labels-unreadable"); sys.exit()
 samples=[]
@@ -2622,7 +2618,8 @@ for label,ink in zip(labels,colours):
     right,bottom=math.floor((surface[0]+x+w)*sx),math.floor((surface[1]+y+h)*sy)
     if not (3<=left<right<=iw-3 and 3<=top<bottom<=ih-3): print("hint-outside-output"); sys.exit()
     px=lambda x,y:rows[y][4*x:4*x+3]
-    cores={(x,y) for y in range(top,bottom) for x in range(left,right) if px(x,y)==colour}
+    cores={(x,y) for y in range(top,bottom) for x in range(left,right) if px(x,y)==colour and
+           max(abs(colour[c]-back[y][4*x+c]) for c in range(3))>=3}
     pairs=[]
     for x,y in sorted(cores):
         # The nearest non-glyph pixel changed from the bare wallpaper is
@@ -2634,7 +2631,9 @@ for label,ink in zip(labels,colours):
                 hx,hy=x+dx,y+dy
                 halo=px(hx,hy)
                 if max(abs(a-b) for a,b in zip(halo,colour))<32: continue
-                if max(abs(halo[c]-back[hy][4*hx+c]) for c in range(3))<3: continue
+                bare=back[hy][4*hx:4*hx+3]
+                if max(abs(halo[c]-bare[c]) for c in range(3))<3: continue
+                if sum((halo[c]-bare[c])*(shadow[c]-bare[c]) for c in range(3))<=0: continue
                 nearby.append((dx*dx+dy*dy,hx,hy,list(halo)))
         if nearby:
             distance=min(p[0] for p in nearby)
@@ -2644,30 +2643,37 @@ for label,ink in zip(labels,colours):
 print(json.dumps({"samples":samples}))
 ' "$@"
 }
-fade_hint_contrast_value() { # SAMPLE_JSON
-  node - "$repo" "$1" <<'JS_HINT'
+fade_hint_contrast_value() { # SAMPLE_JSON [coverage]
+  node - "$repo" "$1" "${2:-contrast}" <<'JS_HINT'
 const {load}=require(process.argv[2]+"/bin/lib/qml-library.js");
 const logic=load(process.argv[2]+"/shell/Commons/ThemeLogic.js");
 const sample=JSON.parse(process.argv[3]);
 const rgb=values=>({r:values[0]/255,g:values[1]/255,b:values[2]/255,a:1});
 const readings=sample.samples.map(s=>{
   const ratios=s.pairs.map(p=>logic.contrastRatio(rgb(p.textRGB),rgb(p.haloRGB))).sort((a,b)=>a-b);
+  const glyphPixels=new Set(s.pairs.map(p=>p.textPixel.join(",")));
+  const haloPixels=new Set(s.pairs.map(p=>p.haloPixel.join(",")));
+  const columns=s.pairs.map(p=>p.textPixel[0]);
   return {text:s.text,ink:s.ink,box:s.box,corePixels:s.corePixels,pairs:ratios.length,
+    measuredTextPixels:glyphPixels.size,haloPixels:haloPixels.size,
+    columnSpan:columns.length?Math.max(...columns)-Math.min(...columns)+1:0,
     minimum:ratios[0]??null,lowerDecile:ratios[Math.floor(ratios.length/10)]??null,
     median:ratios[Math.floor(ratios.length/2)]??null};
 });
 console.error("notification-hint-contrast: "+JSON.stringify(readings));
-console.log(readings.length===2 && readings.every(s=>s.corePixels>=20 && s.pairs>=20 && s.lowerDecile>=4.5)?"True":"False");
+const covered=readings.length===2 && readings.every(s=>s.measuredTextPixels>=20 && s.haloPixels>=20 && s.columnSpan>=s.box[2]/2);
+console.log(covered && (process.argv[4]==="coverage" || readings.every(s=>s.minimum>=4.5))?"True":"False");
 JS_HINT
 }
 fade_hint_sample() { # PNG
-  local items surface colours
+  local items surface colours shadow
   items="$(ipc smoke descendantGeometry panel vgs.notifications)" || return
   surface="$(surface_box vgs:panel)" || return
   # Breadth-first descendants list the floating words before chip labels.
-  colours="$(ipc smoke itemColours panel vgs.notifications KeyHints Label | py_reply '''import json,sys; rows=json.load(sys.stdin); print(json.dumps(rows[0][:2]) if len(rows)==1 else "unread")''')" || return
+  colours="$(ipc smoke itemColours panel vgs.notifications KeyHints Label | py_reply 'import json,sys; rows=json.load(sys.stdin); print(json.dumps(rows[0][:2]) if len(rows)==1 else "unread")')" || return
+  shadow="$(ipc smoke themeValue keyHints.shadow)" || return
   fade_output "$1" || return
-  fade_hint_sample_value "$1" "$fade_background" "$items" "$surface" "$colours" "$mon_w" "$mon_h"
+  fade_hint_sample_value "$1" "$fade_background" "$items" "$surface" "$colours" "$shadow" "$mon_w" "$mon_h"
 }
 fade_hint_drawn() { # PNG
   local sample
@@ -2675,6 +2681,9 @@ fade_hint_drawn() { # PNG
   [[ $sample == \{* ]] || { printf "%s\n" "$sample"; return; }
   fade_hint_contrast_value "$sample"
 }
+# A layer flag is not a painted card. Read the nested output inside a
+# notification title wholly above the fade. Neither the header nor the
+# wallpaper can supply this sample's known opaque title ink.
 fade_card_ink_value() { # PNG ITEMS VIEW SURFACE INK BAND OUTPUT_WIDTH OUTPUT_HEIGHT
   python3 -c "$png_rgba_py"'
 items, view, surface = map(json.loads, sys.argv[2:5])
@@ -2831,7 +2840,8 @@ done
 expect_poll "the pixel probe has its long list" True has_row live "Fade probe 12"
 for fade_mode in dark light; do
   if [[ $fade_mode == light ]]; then
-    write_theme '{"schemaVersion":1,"name":"fade-light","tokens":{"scheme":{"mode":"light"}}}'
+    fade_light_theme="$(cat "$repo/themes/catalog/flexoki-light/theme.json")" || fail "the light hint theme is unreadable"
+    write_theme "$fade_light_theme"
     expect_poll "the pixel probe uses light ink" '"#ff2a2a2a"' look_at text.foreground
   else
     write_theme '{"schemaVersion":1,"name":"vgs","tokens":{}}'
@@ -2864,6 +2874,7 @@ PY_HINT_MUTANT
   fade_open_mid
   fade_muted_sample="$(fade_hint_sample "$sandbox/fade-muted-hints-$fade_mode.png")"
   printf "%s\n" "$fade_muted_sample" >"$sandbox/fade-muted-hints-$fade_mode.json"
+  render expect "the muted $fade_mode control still draws both measured words" True fade_hint_contrast_value "$fade_muted_sample" coverage
   fade_muted_control() {
     (failures=0; behaviour_failures=0; render expect "the floating words contrast with their painted halo" True fade_hint_contrast_value "$fade_muted_sample" >"$sandbox/fade-muted-hints-$fade_mode-control.log"; echo "$failures")
   }

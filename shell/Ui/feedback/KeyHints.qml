@@ -45,6 +45,8 @@ Row {
                 id: hintLabel
                 role: "hint"
                 color: Theme.keyHints.foreground
+                font.weight: Theme.keyHints.weight
+                font.variableAxes: ({ wght: Theme.keyHints.weight })
                 y: topForCapCenter(Math.max(Theme.kbd.height, caps.implicitHeight))
                 text: pair.modelData.text
                 layer.enabled: visible

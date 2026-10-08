@@ -186,6 +186,7 @@ const DEFAULTS = [
     ["keyHints.shadow", "#000000ff"],
     ["keyHints.shadowOpacity", 1],
     ["keyHints.foreground", "#d7d7d9ff"],
+    ["keyHints.weight", 600],
     ["keyHints.blur", 4],
     ["keyHints.shadowOffset", 0],
     ["tooltip.paddingX", 8],
