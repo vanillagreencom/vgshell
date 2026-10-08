@@ -1869,6 +1869,8 @@ type_keys -k Left -k Right -k Right -k Space || fail "sending Left, Right and Sp
 expect_poll "Space on a selected pill delivers its action" 1 delivered "$keyboard_first_id" reply
 expect_poll "Space on a selected pill removes its row" none key_of "Keyboard first"
 type_keys -k Tab || fail "sending Tab to the notification header failed"
+expect_poll "Tab reaches the Settings gear before Silence" true drawer_settings_focus
+type_keys -k Tab || fail "sending Tab to the Silence switch failed"
 expect_poll "Tab reaches the Silence switch" Silence panel_focus_name
 type_keys -k Space || fail "sending Space to the Silence switch failed"
 expect_poll "Space toggles Silence from the keyboard" true state_at dnd
