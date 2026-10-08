@@ -369,6 +369,113 @@ PY
   expect_widgets "the original placed widget returns after the fresh profile" '["acme.tick"]'
 fi
 
+# Exercise the shipped positive-width Network hide route and a private
+# Tick size producer in the same mounted section. All four entries stay
+# present; the reader measures boxes and the real drop geometry.
+bar_participation_state() {
+  python3 - "$bar_participation_profile" "$home/.config/vgshell/shell.json" "$1" <<'PY'
+import json,os,sys
+config=json.load(open(sys.argv[1])); state=sys.argv[3]
+for entry in config["bar"]["layout"]["center"]:
+    if entry["id"]=="vgs.network": entry["showDisconnected"]=state!="hidden"
+    if entry["id"]=="acme.tick": entry["format"]=state
+with open(sys.argv[2]+".tmp","w") as out: json.dump(config,out)
+os.replace(sys.argv[2]+".tmp",sys.argv[2])
+PY
+}
+bar_participation() {
+  local snapshot
+  snapshot="$(ipc smoke barParticipationGeometry "$(bar_key)")" || return 1
+  py_reply 'import json,sys
+data=json.load(sys.stdin); state=sys.argv[1]; errors=[]
+if not isinstance(data,dict): print("absent"); sys.exit()
+sections=data.get("sections",[])
+center=next((s for s in sections if s["section"]=="center"),None)
+if center is None: print("missing-center"); sys.exit()
+rows=center["entries"]; ids=[r["id"] for r in rows]
+want=["vgs.bar/left-workspaces","vgs.network","acme.tick","vgs.bar/center-clock"]
+if ids!=want or any(not r["present"] or r["box"] is None for r in rows):
+    print("membership"); sys.exit()
+by={r["id"]:r for r in rows}; network=by["vgs.network"]; tick=by["acme.tick"]
+if network["visible"]!=(state!="hidden") or network["box"][2]<=0 or network["box"][3]<=0: errors.append("producer")
+if not tick["visible"] or (tick["box"][2]==0)!=(state=="zero-width") or (tick["box"][3]==0)!=(state=="zero-height"): errors.append("producer")
+drawn=[r for r in rows if r["id"]!="vgs.network" or state!="hidden"]
+drawn=[r for r in drawn if r["id"]!="acme.tick" or state not in ("zero-width","zero-height")]
+gap=center["gap"]; width=sum(r["box"][2] for r in drawn)+(len(drawn)-1)*gap
+if abs(center["width"]-width)>0.5: errors.append("width")
+x=0
+for row in drawn:
+    if abs(row["box"][0]-x)>0.5: errors.append("position"); break
+    x+=row["box"][2]+gap
+drop=center["drop"]
+if abs(drop["width"]-width)>0.5 or [w["locator"]["id"] for w in drop["widgets"]]!=[r["id"] for r in drawn]: errors.append("drop")
+if data["shown"]!=(sys.argv[2]=="shown") or data["windowVisible"]!=(sys.argv[2]=="shown"): errors.append("window")
+print(json.dumps(sorted(set(errors))))' "$1" "${2:-shown}" <<<"$snapshot"
+}
+bar_participation_fault() {
+  bar_participation "$1" | py_reply 'import json,sys; errors=json.load(sys.stdin); print(isinstance(errors,list) and {"width","position","drop"}<=set(errors) and "producer" not in errors and "window" not in errors)'
+}
+bar_participation_saved="$sandbox/bar-participation-saved.json"
+bar_participation_profile="$sandbox/bar-participation-profile.json"
+bar_participation_tick="$home/.config/vgshell/plugins/acme.tick/Widget.qml"
+cp -- "$home/.config/vgshell/shell.json" "$bar_participation_saved"
+cp -- "$bar_participation_tick" "$sandbox/bar-participation-tick.qml"
+stop_shell
+python3 - "$bar_participation_saved" "$bar_participation_profile" "$bar_participation_tick" <<'PY'
+import json,pathlib,sys
+config=json.load(open(sys.argv[1])); owned={"vgs.bar/left-workspaces","vgs.network","acme.tick","vgs.bar/center-clock"}
+for section in config["bar"]["layout"]:
+    config["bar"]["layout"][section]=[e for e in config["bar"]["layout"][section] if e["id"] not in owned]
+config["bar"]["layout"]["center"]=[{"id":i} for i in ("vgs.bar/left-workspaces","vgs.network","acme.tick","vgs.bar/center-clock")]
+config["disabledPlugins"]=[i for i in config["disabledPlugins"] if i!="vgs.network"]
+with open(sys.argv[2],"w") as out: json.dump(config,out)
+path=pathlib.Path(sys.argv[3]); source=path.read_text()
+for old,new in (("    implicitWidth: 20", "    implicitWidth: format === \"zero-width\" ? 0 : 20"),
+                ("    implicitHeight: barSize", "    implicitHeight: format === \"zero-height\" ? 0 : barSize")):
+    assert source.count(old)==1
+    source=source.replace(old,new)
+path.write_text(source)
+PY
+bar_participation_state shown
+start_shell "$repo" "$sandbox/bar-participation.log" || fail "the participation shell starts"
+geometry expect_poll "all shown entries occupy their exact width and gaps" '[]' bar_participation shown
+bar_participation_snapshot="$(ipc smoke rememberBarWidgets "$(bar_key)")" || fail "participation cannot read mounted objects"
+expect "participation remembers every test object" True py_reply 'import json,sys; ids=json.load(sys.stdin); print({"acme.tick","vgs.bar/center-clock","vgs.bar/left-workspaces","vgs.network"}<=set(ids) and len(ids)==len(set(ids)))' <<<"$bar_participation_snapshot"
+for bar_participation_case in hidden zero-width zero-height; do
+  bar_participation_state "$bar_participation_case"
+  geometry expect_poll "$bar_participation_case leaves no width, neighbour gap or drop target" '[]' bar_participation "$bar_participation_case"
+  expect "$bar_participation_case retains every mounted object" '[]' ipc smoke barWidgetIdentities
+  bar_participation_state shown
+  geometry expect_poll "shown geometry returns after $bar_participation_case" '[]' bar_participation shown
+done
+expect "the mapped bar hides through its shipped toggle" ok ipc vgs.bar invoke toggle ''
+expect_poll "the hidden window retains section geometry" '[]' bar_participation shown hidden
+expect "the hidden bar keeps its mounted objects" '[]' ipc smoke barWidgetIdentities
+expect "the hidden bar reveals through its shipped toggle" ok ipc vgs.bar invoke toggle ''
+geometry expect_poll "the revealed bar restores drawn geometry" '[]' bar_participation shown
+expect "the revealed bar keeps its mounted objects" '[]' ipc smoke barWidgetIdentities
+expect "participation releases the object snapshot" ok ipc smoke forgetBarWidgets
+stop_shell
+for bar_participation_case in hidden zero-width zero-height; do
+  case "$bar_participation_case" in
+    hidden) bar_participation_mutant='return item.width > 0 && item.height > 0;' ;;
+    zero-width) bar_participation_mutant='return item.visible && item.height > 0;' ;;
+    zero-height) bar_participation_mutant='return item.visible && item.width > 0;' ;;
+  esac
+  if copy_tree "bar-participation-$bar_participation_case" \
+    && edit_tree "bar-participation-$bar_participation_case" shell/Core/Plugins.qml 'return item.visible && item.width > 0 && item.height > 0;' "$bar_participation_mutant"; then
+    bar_participation_state "$bar_participation_case"
+    start_shell "$sandbox/tree-bar-participation-$bar_participation_case" "$sandbox/bar-participation-$bar_participation_case.log" || fail "the participation control starts"
+    geometry expect_poll "control: $bar_participation_case fails width, neighbour gaps and drop geometry" True bar_participation_fault "$bar_participation_case"
+    stop_shell
+  fi
+done
+cp -- "$sandbox/bar-participation-tick.qml" "$bar_participation_tick"
+cp -- "$bar_participation_saved" "$home/.config/vgshell/shell.json.tmp"
+mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
+start_shell "$repo" "$sandbox/bar-participation-restored.log" || fail "the shell returns after participation controls"
+expect_widgets "participation restores the original mounted fixture" '["acme.tick"]'
+
 # Restore Row's transition writes in a disposable bar. The same cold
 # descendant reader must reject the removed vertical-centering binding.
 bar_alignment_misplaced() {

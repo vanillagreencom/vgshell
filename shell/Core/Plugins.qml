@@ -305,7 +305,7 @@ Singleton {
         const sectionPoint = container.mapToItem(null, 0, 0);
         const widgets = [];
         for (const entry of mount.sections[section].entries) {
-            if (entry.widget === null || (barDrag !== null && entry.locator.id === barDrag.id && entry.locator.section === barDrag.from.section && entry.locator.nth === barDrag.from.nth))
+            if (entry.widget === null || !barItemParticipates(entry.widget) || (barDrag !== null && entry.locator.id === barDrag.id && entry.locator.section === barDrag.from.section && entry.locator.nth === barDrag.from.nth))
                 continue;
             const point = entry.widget.mapToItem(null, 0, 0);
             widgets.push({ x: point.x, width: entry.widget.width, locator: entry.locator });
@@ -526,6 +526,14 @@ Singleton {
         positionBar(hostKey, null);
     }
 
+    // Item.visible is effective visibility, not Qt's private explicitVisible.
+    // BarHost hides the window through barShown, leaving the Item tree alive.
+    // Shipped Keyboard/Tray can have zero width; Network/Updates can hide
+    // with positive width. Neither kind contributes width or a neighbour gap.
+    function barItemParticipates(item) {
+        return item.visible && item.width > 0 && item.height > 0;
+    }
+
     // One owner binds both coordinates. Qt 6.11 Row transitions generate
     // constant x and y actions; TransitionManager writes an unanimated y
     // through QQmlProperty, removing its centering binding. Row's direct
@@ -542,8 +550,11 @@ Singleton {
                 const at = drag.before === null ? items.length : entries.findIndex(entry => Logic.locatorEquals(drag.before, entry.locator.id, entry.locator.section, entry.locator.nth));
                 items.splice(at < 0 ? items.length : at, 0, drag.gap);
             }
-            container.implicitWidth = Qt.binding(() => items.reduce((width, item) => width + item.width, 0)
-                + Math.max(0, items.length - 1) * container.spacing);
+            container.implicitWidth = Qt.binding(() => {
+                const participating = items.filter(item => barItemParticipates(item));
+                return participating.reduce((width, item) => width + item.width, 0)
+                    + Math.max(0, participating.length - 1) * container.spacing;
+            });
             let changed = false;
             const current = container.children.filter(item => items.indexOf(item) !== -1);
             for (let i = 0; i < items.length; ++i) {
@@ -558,7 +569,8 @@ Singleton {
                 item.width = Qt.binding(() => item.implicitWidth || (drag !== null && item === drag.gap ? drag.item.width : 0));
                 item.height = Qt.binding(() => item.implicitHeight || (drag !== null && item === drag.gap ? drag.item.height : 0));
                 const before = items.slice(0, i);
-                item.x = Qt.binding(() => before.reduce((x, previous) => x + previous.width + container.spacing, 0));
+                item.x = Qt.binding(() => before.filter(previous => barItemParticipates(previous))
+                    .reduce((x, previous) => x + previous.width + container.spacing, 0));
                 item.y = Qt.binding(() => (container.height - item.height) / 2);
             }
         }
