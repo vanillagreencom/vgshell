@@ -489,7 +489,7 @@ Singleton {
 
     // Before the first scan no manifest is known. Both reports consume
     // this list so Settings and the command show the same notice once.
-    readonly property var unknownSettingErrors: scanned ? Logic.unknownSettings(Config.effective, manifests).map(row => ({
+    readonly property var unknownSettingErrors: scanned ? Logic.unknownSettings(Config.user === null ? {} : Config.user, manifests).map(row => ({
         kind: "unknown-settings", id: row.id, keys: row.keys,
         dir: manifests[row.id].__sourceDir,
         error: manifests[row.id].name + " has old settings it no longer uses: " + row.keys.map(key => JSON.stringify(key)).join(", ") + "."

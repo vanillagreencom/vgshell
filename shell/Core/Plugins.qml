@@ -717,7 +717,7 @@ Singleton {
     // keys from saved entries. Loading configuration never removes them.
     function clearOldSettings(id) {
         if (!Registry.has(id)) return "unknown: " + id;
-        const notice = Logic.unknownSettings(Config.user, Registry.manifests).find(row => row.id === id);
+        const notice = Logic.unknownSettings(Config.user === null ? {} : Config.user, Registry.manifests).find(row => row.id === id);
         if (notice === undefined) return "ok";
         const m = Registry.manifests[id];
         let user = Config.user;

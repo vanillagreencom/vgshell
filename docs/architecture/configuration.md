@@ -24,7 +24,7 @@ One file stops delivering shipped defaults the moment a user edits it, and a dee
 - Never build anything before the configuration is ready: the shipped file has loaded once and the user file has settled, so a bar never draws from the user file alone. Gap: no row starts the shell with the user file unsettled.
 - Never write the user file unless it is `loaded` or `absent`, so an unparseable, unreadable or malformed file is never overwritten unread. After the disk refuses a write, refuse every write until the file is read again.
 - Do answer `ok` only once the file holds the edit. `scripts/smoke/rows/style.sh` stops the shell as a toggle answers and reads the file.
-- Never drop a key the shell does not read; a write carries every other key untouched. `scripts/test-plugin-logic.js` pins it for the `PluginLogic` edit functions; gap: nothing checks a write outside them.
+- Remove a key the shell does not read only when the user requests its removal; a write carries every unrelated key untouched. `scripts/test-plugin-logic.js` pins it for the `PluginLogic` edit functions; gap: nothing checks a write outside them.
 - Do read a file again when an edit lands during a read, through `WatchedFile`, so the last edit is the one the configuration holds. `scripts/qml-tests/tst_watched_file.qml` pins it.
 
 ### Unknown ids

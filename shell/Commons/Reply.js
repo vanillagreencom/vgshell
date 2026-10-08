@@ -9,9 +9,8 @@ function isOk(reply) {
 // Display only. Plugins, Config and PluginLogic keep their reply contracts;
 // Registry keeps build failures and launcher row conflicts, and
 // HyprlandLayer keeps shortcut problems. Registry's saved-setting notice
-// is already user text; preserve its plugin, field names and fix.
+// is already user text and is displayed by its typed Settings caller.
 var MESSAGES = [
-    [/^.+ has old settings it no longer uses: .+\.$/, function (match) { return match[0]; }],
     [/^unknown: /, "This plugin is no longer available. Close Plugins and open it again."],
     [/^refused: user-config=pending(?: |$)/, "VGS is loading your settings. Try again shortly."],
     [/^refused: user-config=(?:unparseable|malformed)(?: |$)/, "Your saved settings are invalid. VGS kept the last working settings."],

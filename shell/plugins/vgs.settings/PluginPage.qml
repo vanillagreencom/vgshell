@@ -225,9 +225,10 @@ FocusScope {
                 model: page.row === null ? [] : page.row.errors
                 Label {
                     required property string modelData
+                    readonly property bool oldSetting: page.row !== null && page.row.oldSettings !== null && modelData === page.row.oldSettings.error
                     role: "hint"
-                    text: Reply.line(modelData)
-                    color: page.row.oldSettings !== null && modelData === page.row.oldSettings.error ? Theme.color.warning : Theme.color.danger
+                    text: oldSetting ? modelData : Reply.line(modelData)
+                    color: oldSetting ? Theme.color.warning : Theme.color.danger
                     width: body.width
                     wrapMode: Text.Wrap
                 }
