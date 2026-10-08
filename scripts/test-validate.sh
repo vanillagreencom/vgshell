@@ -620,7 +620,7 @@ cases=(
   "jarvis-playback-config|scripts/fixtures/jarvis/playback.conf|offline|node scripts/test-jarvis-daemon.js"$'\nnode scripts/test-jarvis-playback-pipewire.js\n'"$repo_plan"
   "jarvis-audio-fixture|scripts/fixtures/jarvis/audio-tool.py|offline|node scripts/test-jarvis-browser.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\n'"$jarvis_audio_rows$repo_plan"
   "jarvis-accounts-suite|scripts/test-jarvis-accounts.js|offline|node scripts/test-jarvis-accounts.js"$'\n'"$repo_plan"
-  "jarvis-sign-in-terminal|shell/plugins/vgs.jarvis/tui/sign-in.sh|cli|node scripts/test-jarvis-files.js"$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-secrets.js\nnode scripts/test-jarvis-accounts-tui.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-sign-in-terminal|shell/plugins/vgs.jarvis/tui/sign-in.sh|cli|node scripts/test-jarvis-files.js"$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-secrets.js\nnode scripts/test-jarvis-accounts-tui.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"$'\nscripts/test-tui-gum-colours.sh'
   "jarvis-accounts-tui-suite|scripts/test-jarvis-accounts-tui.js|offline|node scripts/test-jarvis-accounts-tui.js"$'\n'"$repo_plan"
   "jarvis-account-verify-suite|scripts/test-jarvis-account-verify.js|offline|node scripts/test-jarvis-account-verify.js"$'\n'"$repo_plan"
   "jarvis-accounts-fixture|scripts/fixtures/jarvis/accounts-world.js|offline|node scripts/test-jarvis-daemon.js"$'\n'"$jarvis_accounts_rows$repo_plan"
