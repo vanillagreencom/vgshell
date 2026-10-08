@@ -534,7 +534,7 @@ cases=(
   "power-logic|shell/plugins/vgs.power/PowerLogic.js|logic|node scripts/test-power-logic.js"
   "duration-shared|shell/Commons/Duration.js|logic|node scripts/test-duration.js"$'\nnode scripts/test-automations-logic.js\nnode scripts/test-automations-view-logic.js\nnode scripts/test-agent-warden-view.js\nnode scripts/test-agent-warden-notices.js'
   "nmcli-shared|shell/Commons/Nmcli.js|logic|node scripts/test-network-logic.js"$'\nnode scripts/test-vpn-logic.js'
-  "vpn-import|shell/plugins/vgs.vpn/tui/import-wireguard.sh|cli|scripts/test-vpn-import.sh"$'\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "vpn-import|shell/plugins/vgs.vpn/tui/import-wireguard.sh|cli|scripts/test-vpn-import.sh"$'\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"$'\nscripts/test-tui-gum-colours.sh'
   "network-logic|shell/plugins/vgs.network/NetworkLogic.js|logic|node scripts/test-network-logic.js"
   "network-body|shell/plugins/vgs.network/NetworkBody.qml|logic|node scripts/test-network-logic.js"
   "network-share|shell/plugins/vgs.network/bin/share-qr|logic|python3 scripts/test-network-share.py"
