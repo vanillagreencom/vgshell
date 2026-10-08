@@ -664,8 +664,8 @@ rm -f -- "$capture_state/signal"
 expect "capture starts another owned recording" ok ipc vgs.capture invoke record ''
 expect_poll "the second recording is active" recording capture_phase
 # The old cursor teardown collapsed the widget to its inherited Loader's
-# width. Keep that defect in a disposable copy to prove the stop reading
-# rejects a click that cannot reach the button.
+# width. Keep that defect in a disposable copy to prove the width readback
+# rejects it.
 capture_cursor_control="$(mktemp -d "$sandbox/capture-cursor-control.XXXXXX")"
 python3 - "$sandbox/capture-cursor.qml" "$capture_cursor_control/Item.qml" <<'PY'
 from pathlib import Path
@@ -683,13 +683,33 @@ expect "control: the cursor teardown copy builds" ok ipc smoke popupLoad capture
 expect_poll "control: the cursor copy takes its input width" 160 capture_cursor_width
 expect "control: the cursor teardown copy is released" ok ipc smoke popupDrop capture-cursor-control
 expect_poll "control: the inherited child fails the restored-width readback" False capture_widget_width_restored
-click_centre "$(bar_key)" vgs.capture || fail "control: the collapsed recording widget could not be clicked"
-expect "control: the collapsed widget fails the idle stop readback" recording capture_phase
-expect "control: the missed click leaves the owned recorder running" True capture_recorder_left
-expect "control: the missed click fails the finalized-file readback" False capture_recorded
 expect "the correct cursor teardown builds after its control" ok ipc smoke popupLoad capture-cursor "$sandbox/capture-cursor.qml" "$(bar_key)" vgs.capture '{}'
 expect_poll "the restored cursor fixture takes its input width" 160 capture_cursor_width
 capture_cursor_release
+# A disposable copy lays a mouse area over the whole widget, so the click
+# lands on the shield and never reaches the button. The stop readings must
+# fail on that click.
+capture_cursor_shield="$(mktemp -d "$sandbox/capture-cursor-shield.XXXXXX")"
+python3 - "$sandbox/capture-cursor.qml" "$capture_cursor_shield/Item.qml" <<'PY'
+from pathlib import Path
+import sys
+source, control = map(Path, sys.argv[1:])
+original = source.read_text()
+before = "    HoverHandler { id: pointer; cursorShape: Qt.PointingHandCursor }\n"
+after = before + "    MouseArea { anchors.fill: parent }\n"
+assert original.count(before) == 1, "click shield control match"
+changed = original.replace(before, after)
+assert changed != original
+control.write_text(changed)
+PY
+expect "control: the click shield copy builds" ok ipc smoke popupLoad capture-cursor-shield "$capture_cursor_shield/Item.qml" "$(bar_key)" vgs.capture '{}'
+expect_poll "control: the shield copy takes its input width" 160 capture_cursor_width
+click_centre "$(bar_key)" vgs.capture || fail "control: the shielded recording widget could not be clicked"
+expect "control: the shielded click fails the idle stop readback" recording capture_phase
+expect "control: the shielded click leaves the owned recorder running" True capture_recorder_left
+expect "control: the shielded click fails the finalized-file readback" False capture_recorded
+expect "control: the click shield copy is released" ok ipc smoke popupDrop capture-cursor-shield
+expect_poll "the shield copy's teardown restores the capture button's width" True capture_widget_width_restored
 click_centre "$(bar_key)" vgs.capture || fail "the recording widget could not be clicked"
 expect_poll "clicking the recording widget stops capture" idle capture_phase
 expect_poll "the widget stop finalizes the owned recorder's file" True capture_recorded
