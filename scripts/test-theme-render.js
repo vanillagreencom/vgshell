@@ -1634,21 +1634,26 @@ function verifyClaudeWords(render) {
                 return Math.min(logic.contrastRatio(foreground, candidate), logic.contrastRatio(candidate, background));
             });
             const optimum = Math.max(...candidates);
-            if (Math.abs(score - optimum) > Number.EPSILON * 16)
+            const optimumFill = claudeTints[index][candidates.indexOf(optimum)];
+            if (Math.abs(score - optimum) > Number.EPSILON * 16 || fill !== optimumFill)
                 failures.push({ kind: "claude-word-optimum", theme: pkg.name, role, score, optimum });
             const rgb = [colour.r, colour.g, colour.b];
             const others = rgb.filter((_, channel) => channel !== primary);
             if (!(rgb[primary] > others[0] && others[0] === others[1] && (others[0] === 0 || rgb[primary] === 1)))
                 failures.push({ kind: "claude-word-hue", theme: pkg.name, role, fill });
             const line = logic.contrastRatio(colour, logic.parseColor(document.overrides[lineKey]));
-            if (line === 1) failures.push({ kind: "claude-word-line", theme: pkg.name, role, fill });
-            return { role, fill, word, count, sidebarCount: logic.contrastRatio(colour, sidebar), line, optimum };
+            const dimmedLine = logic.contrastRatio(colour, logic.parseColor(document.overrides[lineKey + "Dimmed"]));
+            for (const [field, ratio] of [[lineKey, line], [lineKey + "Dimmed", dimmedLine]]) {
+                if (ratio < 3) failures.push({ kind: "claude-word-line", theme: pkg.name, role, field, ratio, floor: 3 });
+            }
+            return { role, fill, word, count, sidebarCount: logic.contrastRatio(colour, sidebar), line, dimmedLine, optimum };
         });
         assert.deepEqual(failures, []);
         metrics.push({ theme: pkg.name, mode: document.base, pairs,
             minimum: Math.min(...pairs.map(pair => Math.min(pair.word, pair.count))),
             sidebarMinimum: Math.min(...pairs.map(pair => Math.min(pair.word, pair.sidebarCount))),
             lineMinimum: Math.min(...pairs.map(pair => pair.line)),
+            dimmedLineMinimum: Math.min(...pairs.map(pair => pair.dimmedLine)),
             continuousBound: Math.sqrt(logic.contrastRatio(foreground, background)) });
     }
     return metrics;
@@ -1664,12 +1669,17 @@ const claudeControls = [
     ["separate role hues", '[["diffAddedWord", 1], ["diffRemovedWord", 0]]',
         '[["diffAddedWord", 1], ["diffRemovedWord", 1]]', "claude-word-hue"],
     ["word highlight differs from line", 'document.overrides[key] = "#" + logic.formatColor(chosen).slice(1, 7);',
-        'document.overrides[key] = document.overrides[key === "diffAddedWord" ? "diffAdded" : "diffRemoved"];', "claude-word-line"]
+        'document.overrides[key] = document.overrides[key === "diffAddedWord" ? "diffAdded" : "diffRemoved"];', "claude-word-optimum"],
+    ["normal and dimmed word-line floor", "    claudeLines(logic, input, document);", "", "claude-word-line"]
 ];
 try {
     for (const [label, needle, replacement, kind] of claudeControls) {
         assert.equal(claudeSource.split(needle).length, 2, label);
-        const mutant = claudeSource.replace(needle, replacement);
+        // Word mutants can make the line floor impossible. Isolate their
+        // typed word assertions from that dependent production refusal.
+        const source = kind === "claude-word-line" ? claudeSource :
+            claudeSource.replace("    claudeLines(logic, input, document);", "");
+        const mutant = source.replace(needle, replacement);
         assert.notEqual(mutant, claudeSource);
         const file = path.join(claudeScratch, label.replaceAll(" ", "-") + ".js");
         fs.writeFileSync(file, mutant, { flag: "wx" });
@@ -1679,7 +1689,7 @@ try {
 } finally {
     fs.rmSync(claudeScratch, { recursive: true, force: true });
 }
-console.log(`test-theme-render: claude-word packages=${claudeMetrics.length} modes=dark,light controls=${claudeControls.length} minimum=${Math.min(...claudeMetrics.map(theme => theme.minimum))} sidebar-minimum=${Math.min(...claudeMetrics.map(theme => theme.sidebarMinimum))} line-minimum=${Math.min(...claudeMetrics.map(theme => theme.lineMinimum))}`);
+console.log(`test-theme-render: claude-word packages=${claudeMetrics.length} modes=dark,light controls=${claudeControls.length} minimum=${Math.min(...claudeMetrics.map(theme => theme.minimum))} sidebar-minimum=${Math.min(...claudeMetrics.map(theme => theme.sidebarMinimum))} line-minimum=${Math.min(...claudeMetrics.map(theme => theme.lineMinimum))} dimmed-line-minimum=${Math.min(...claudeMetrics.map(theme => theme.dimmedLineMinimum))}`);
 
 // RGB channel separation is a numerical distinction check. The owner judges
 // appearance in real terminal pictures. Rose Pine's main ANSI blue/brightblack

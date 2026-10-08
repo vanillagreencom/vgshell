@@ -119,11 +119,31 @@ let bad = 0;
 const note = message => { console.log(message); bad++; };
 const equals = (label, got, want) => { if (got !== want) note(label + " got=" + got + " want=" + want); };
 const claude = JSON.parse(fs.readFileSync(path.join(live, "claude.json"), "utf8")).overrides;
+// Independent half-byte threshold enumeration pins the first feasible
+// RGB line tint after an actual apply, without the renderer's bisection.
+const claudeLine = (original, word) => {
+    const start = [1, 3, 5].map(at => channel(original, at));
+    const endpoint = values.scheme.mode === "dark" ? 0 : 255;
+    const colour = mix => "#" + start.map(byte => byteHex(Math.round(byte + (endpoint - byte) * mix))).join("");
+    const meets = tint => logic.contrastRatio(logic.parseColor(word), logic.parseColor(tint)) >= 3;
+    if (meets(original)) return original;
+    const thresholds = new Set([0, 1]);
+    for (const byte of start) {
+        const distance = Math.abs(endpoint - byte);
+        for (let step = 0; step < distance; step++) thresholds.add((step + 0.5) / distance);
+    }
+    const ordered = [...thresholds].sort((a, b) => a - b);
+    for (let index = 1; index < ordered.length; index++) {
+        const tint = colour((ordered[index - 1] + ordered[index]) / 2);
+        if (meets(tint)) return tint;
+    }
+    return colour(1);
+};
 const claudeWant = {
-    diffAdded: token("color.successSubtle"),
-    diffRemoved: token("color.dangerSubtle"),
-    diffAddedDimmed: token("color.surfaceHover"),
-    diffRemovedDimmed: token("color.surfaceHover"),
+    diffAdded: claudeLine(token("color.successSubtle"), claude.diffAddedWord),
+    diffRemoved: claudeLine(token("color.dangerSubtle"), claude.diffRemovedWord),
+    diffAddedDimmed: claudeLine(token("color.surfaceHover"), claude.diffAddedWord),
+    diffRemovedDimmed: claudeLine(token("color.surfaceHover"), claude.diffRemovedWord),
     background: slot("color6"),
     clawd_body: token("color.accent"),
     clawd_background: token("color.onAccent"),
