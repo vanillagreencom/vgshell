@@ -144,9 +144,10 @@ cp -- "$repo/bin/vgshell-sudo-grant" "$sudo_half"
 chmod 755 "$sudo_half"
 : >"$sudo_calls"
 sudo_listing none
-printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>%q\nif [ "$*" = "-n -l -l" ]; then\n  if [ -f %q ]; then cat %q; exit 0; fi\n  echo "sudo: a password is required" >&2\n  exit 1\nfi\nprintf "%%s\\n" "sudo $*" >>%q\nexit 1\n' \
-  "$sudo_calls" "$sudo_list" "$sudo_list" "$auth_log" | sentinel_stand_over "$sudo_bin/sudo"
-expect "the tree's sudo is the row's stand-in" replaced sentinel_of "$sudo_bin/sudo"
+# The grant runs it with the tree's PATH, so it names cat by its path.
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>%q\nif [ "$*" = "-n -l -l" ]; then\n  if [ -f %q ]; then %q %q; exit 0; fi\n  echo "sudo: a password is required" >&2\n  exit 1\nfi\nprintf "%%s\\n" "sudo $*" >>%q\nexit 1\n' \
+  "$sudo_calls" "$sudo_list" "$(command -v cat)" "$sudo_list" "$auth_log" | sentinel_stand_over "$sudo_bin/sudo"
+expect "the tree's sudo is the row's stand-in" row bash -c 'grep -q -F -- "$1" "$2" && echo row || echo other' _ "$sudo_calls" "$sudo_bin/sudo"
 
 terminal_stand_in
 terminal_ready "sudo"
