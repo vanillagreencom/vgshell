@@ -2425,7 +2425,7 @@ assert.equal(neovimTarget.ok, true);
 function neovimStyles(text) {
     text = text.replace(/\r\n/g, "\n");
     const styles = new Map();
-    for (const [, group, body] of text.matchAll(/hl\("([^"]+)", \{([^\n]*?)\}\)/g)) {
+    for (const [, group, body] of text.matchAll(/hl\("([^"]+)", \{([^\n]*)\}\)/g)) {
         const spec = {};
         for (const [, key, value, flag, number] of body.matchAll(/(\w+) = (?:("[^"\n]*")|(true|false)|(\d+))/g))
             spec[key] = value === undefined ? (flag === undefined ? Number(number) : flag === "true") : JSON.parse(value);
@@ -2467,13 +2467,17 @@ function verifyNeovim(template) {
     // Role provenance is checked on the source. These fixed expressions use
     // each package's palette; no catalogue-specific value enters the target.
     for (const [group, role, floor] of [["DiffAdd", "success", 0.08], ["DiffDelete", "danger", 0.08],
-        ["DiffChange", "warning", 0.08], ["DiffText", "warning", 0.16]]) {
+        ["DiffText", "warning", 0.16]]) {
         const fill = /^#@\{mix\(\{color.background\}, \{palette\.(\w+)\}, ([\d.]+)\)\}$/.exec(sourceStyles.get(group)?.bg);
         if (fill === null || fill[1] !== role)
             faults.push({ kind: "neovim-diff-palette", group, role });
         else if (Number(fill[2]) < floor)
             faults.push({ kind: "neovim-diff-fill", group, amount: Number(fill[2]), floor });
     }
+    // Modified lines use the page's existing raised surface. The warning
+    // tint belongs to modified words, which remain a separate state.
+    if (sourceStyles.get("DiffChange")?.bg !== "#@{color.surfaceRaised}")
+        faults.push({ kind: "neovim-diff-neutral", group: "DiffChange" });
     for (const { pkg, shipped } of selectionPackages) {
         const rendered = selectionRender.renderTarget(logic, TOKENS, neovimTarget.target,
             new Map([["neovim.lua", template]]), { values: pkg.values,
@@ -2504,7 +2508,7 @@ function verifyNeovim(template) {
         for (const group of ["SpellBad", "SpellCap", "SpellLocal", "SpellRare",
             "DiagnosticUnderlineError", "DiagnosticUnderlineWarn", "DiagnosticUnderlineInfo", "DiagnosticUnderlineHint", "DiagnosticUnderlineOk"])
             pair(group, "sp", pkg.values.color.background, 3);
-        for (const group of ["Folded", "WinBar", "WinBarNC", "PmenuSbar", "FloatShadow", "FloatShadowThrough"]) {
+        for (const group of ["Folded", "WinBar", "WinBarNC", "PmenuSbar", "FloatShadow", "FloatShadowThrough", "DiffChange"]) {
             const fill = logic.parseColor(styles.get(group)?.bg);
             if (fill === null) continue;
             const pageEnd = pkg.values.scheme.mode === "dark" ? "#000000" : "#ffffff";
@@ -2512,6 +2516,8 @@ function verifyNeovim(template) {
             if (logic.contrastRatio(fill, logic.parseColor(pageEnd)) > logic.contrastRatio(fill, logic.parseColor(otherEnd)))
                 faults.push({ kind: "neovim-neutral-direction", package: pkg.name, group });
         }
+        if (styles.get("DiffChange").bg === styles.get("Normal").bg)
+            faults.push({ kind: "neovim-diff-line-state", package: pkg.name, group: "DiffChange" });
         const directory = styles.get("Directory");
         const title = styles.get("Title");
         if (directory !== undefined && title !== undefined) {
@@ -2551,7 +2557,13 @@ const neovimControls = [
     ["neovim-title-directory-weight", 'hl("Directory", { fg = "#@{color.info}" })', 'hl("Directory", { fg = "#@{color.info}", bold = true })'],
     ["neovim-token-color", 'hl("Title", { fg = "#@{color.success}", bold = true })', 'hl("Title", { fg = "#99ff99", bold = true })'],
     ["neovim-diff-role-state", 'bg = "#@{mix({color.background}, {palette.danger}, 0.18)}", bold = true', 'bg = "#@{mix({color.background}, {palette.danger}, 0.18)}"', "DiffDelete"],
-    ["neovim-diff-role-state", 'bg = "#@{mix({color.background}, {palette.warning}, 0.22)}", italic = true', 'bg = "#@{mix({color.background}, {palette.warning}, 0.22)}"'],
+    ["neovim-diff-role-state", 'bg = "#@{color.surfaceRaised}", italic = true', 'bg = "#@{color.surfaceRaised}"'],
+    ["neovim-diff-neutral", 'hl("DiffChange", { fg = "#@{contrast({color.surfaceRaised})}", bg = "#@{color.surfaceRaised}", italic = true })',
+        'hl("DiffChange", { fg = "#@{contrast(mix({color.background}, {palette.warning}, 0.22))}", bg = "#@{mix({color.background}, {palette.warning}, 0.22)}", italic = true })', "DiffChange"],
+    ["neovim-neutral-direction", 'hl("DiffChange", { fg = "#@{contrast({color.surfaceRaised})}", bg = "#@{color.surfaceRaised}", italic = true })',
+        'hl("DiffChange", { fg = "#@{contrast({color.text})}", bg = "#@{color.text}", italic = true })', "DiffChange"],
+    ["neovim-diff-line-state", 'hl("DiffChange", { fg = "#@{contrast({color.surfaceRaised})}", bg = "#@{color.surfaceRaised}", italic = true })',
+        'hl("DiffChange", { fg = "#@{contrast({color.background})}", bg = "#@{color.background}", italic = true })', "DiffChange"],
     ["neovim-coverage", 'hl("Directory", { fg = "#@{color.info}" })', ""],
     ["neovim-contrast", 'hl("Folded", { fg = "#@{color.textMuted}"', 'hl("Folded", { fg = "#@{color.surface}"'],
     ["neovim-contrast", 'hl("PmenuThumb", { bg = "#@{color.textMuted}" })', 'hl("PmenuThumb", { bg = "#@{color.surface}" })', "PmenuThumb"],
