@@ -47,7 +47,7 @@ var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];
 // editor; `min`, `max` and `step` bound a number's control; `group` names
 // the section heading the entry is drawn under. Pads.js judges a `list`.
 var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];
-var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "info", "options", "optionsFrom", "presets", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults"];
+var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "hintFrom", "info", "options", "optionsFrom", "presets", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults"];
 var NUMBER_BOUND_KEYS = ["min", "max", "step"];
 var PRESET_KEYS = ["value", "label"];
 var PRESET_LABEL_MAX = 40;
@@ -394,6 +394,18 @@ function schemaError(schema, settings, status) {
             return at + ".label must be a non-empty string";
         if (entry.description !== undefined && typeof entry.description !== "string")
             return at + ".description must be a string when present";
+        // A field reads the existing manager status row's live hint (D037).
+        // An unreported state has no hint; a fixed description cannot mask it.
+        if (entry.hintFrom !== undefined) {
+            if (typeof entry.hintFrom !== "string" || !STATUS_KEY_PATTERN.test(entry.hintFrom))
+                return at + ".hintFrom must name a status key";
+            if (!hasOwn(status, entry.hintFrom) || status[entry.hintFrom].type !== "state" || status[entry.hintFrom].hidden === true)
+                return at + ".hintFrom must name a displayed state status entry";
+            if (entry.description !== undefined)
+                return at + " must not declare both description and hintFrom";
+            if (entry.type === "list")
+                return at + ".hintFrom needs a flat setting";
+        }
         var schemaInfo = infoError(entry.info, at);
         if (schemaInfo !== "")
             return schemaInfo;

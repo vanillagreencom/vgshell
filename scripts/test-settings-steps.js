@@ -112,6 +112,17 @@ const ROWS = [
 ];
 
 function verify(logic) {
+    const hintSpec = { hintFrom: "warden" };
+    for (const [label, values, want] of [
+        ["discovery pending", {}, ""],
+        ["no supported card", { warden: { tone: "info", text: "Not found", hint: "No supported graphics card found." } }, "No supported graphics card found."],
+        ["supported card", { warden: { tone: "ok", text: "Available", hint: "" } }, ""]
+    ]) {
+        same(logic.settingHint(hintSpec, producer.statusRows(MANIFEST, values, [])), want, "settingHint: " + label);
+    }
+    same(logic.settingHint(hintSpec, []), "", "a disabled or removed state gives no live hint");
+    same(logic.settingHint({ description: "Fixed guidance" }, []), "Fixed guidance", "existing fixed descriptions still draw");
+    same(logic.settingHint({}, []), "", "a field without guidance draws none");
     for (const [label, key, values, want] of ENTRIES) {
         const row = producer.statusRows(MANIFEST, values, []).find(entry => entry.key === key);
         same(logic.statusStep(row), want, label);
@@ -154,6 +165,7 @@ verify(load(file));
 // Each control removes one rule from a copy of the logic and keeps the
 // text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["a live hint is drawn", 'return entry === undefined || entry.report !== "reported" ? "" : entry.hint;', 'return "";'],
     ["a declared action is always offered", "entry.action !== null && entry.action.offered", "entry.action !== null"],
     ["a present requirement still offers its install", "return requirement.state === \"missing\";", "return true;"],
     ["the Setup section takes every group", "return entry.group === SETUP_GROUP;", "return true;"],

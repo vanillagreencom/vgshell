@@ -278,6 +278,49 @@ Item {
             verify(gap.edited, "and the edit");
         }
 
+        function test_plugin_page_live_hint_and_details_message() {
+            const original = root.pageRow;
+            const manifest = { status: { graphics: { type: "state", label: "Graphics card", group: "Readings" } } };
+            function update(values) {
+                root.pageRow = Object.assign({}, original, {
+                    schema: { showGpu: { type: "boolean", label: "GPU", group: "Readings", hintFrom: "graphics" } },
+                    settings: { showGpu: true }, binds: [],
+                    status: PluginLogic.statusRows(manifest, values, [])
+                });
+            }
+            update({});
+            const page = createTemporaryObject(pluginPageComponent, root);
+            verify(page !== null);
+            const field = () => descendants(page).find(child => child instanceof SettingField && child.key === "showGpu");
+            tryVerify(() => field() !== undefined);
+            compare(field().hintText, "", "discovery pending has no missing-card hint");
+            update({ graphics: { text: "Not found", tone: "info", hint: "No supported graphics card found." } });
+            tryVerify(() => field().hintText === "No supported graphics card found.");
+            const hint = descendants(field()).find(child => child.role === "hint" && child.text === "No supported graphics card found.");
+            verify(hint !== undefined && hint.visible, "the GPU switch shows its live message");
+            const toggle = descendants(field()).find(child => child instanceof Switch);
+            verify(toggle !== undefined);
+            verify(hint.mapToItem(field(), 0, 0).y >= toggle.mapToItem(field(), 0, toggle.height).y, "the hint sits below the switch");
+            const tabs = descendants(page).find(child => child instanceof TabPages);
+            verify(tabs !== undefined);
+            tabs.currentIndex = 1;
+            const status = () => descendants(page).find(child => child instanceof StatusRow && child.entry !== null && child.entry.key === "graphics");
+            tryVerify(() => status() !== undefined);
+            const chip = descendants(status()).find(child => child instanceof Badge && child.text === "Not found");
+            const message = descendants(status()).find(child => child.role === "hint" && child.text === "No supported graphics card found.");
+            verify(chip !== undefined && chip.visible, "Details chip says Not found");
+            verify(message !== undefined && message.visible, "Details shows the full message");
+            // The tab's Columns position their children after it becomes visible.
+            tryVerify(() => message.mapToItem(status(), 0, 0).y >= chip.mapToItem(status(), 0, chip.height).y, 1000, "the full message sits beneath the chip");
+            tabs.currentIndex = 0;
+            update({ graphics: { text: "Available", tone: "ok", hint: "" } });
+            tryVerify(() => field().hintText === "", 1000, "a supported card removes the hint");
+            verify(!descendants(field()).some(child => child.role === "hint" && child.visible && child.text === "No supported graphics card found."));
+            update({});
+            tryVerify(() => field().hintText === "", 1000, "cleared status removes the hint");
+            root.pageRow = original;
+        }
+
         function test_enter_writes_the_field_it_is_pressed_in() {
             editor(gap).forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_Return);

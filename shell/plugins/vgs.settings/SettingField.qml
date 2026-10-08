@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
+import "Steps.js" as Steps
 
 // Draw the least-effort editor for one schema entry. Booleans use Switch.
 // Enums of at most three options use SegmentedControl because each choice
@@ -29,6 +30,7 @@ Column {
     property var spec: ({})
     property var value
     property var choices: []
+    property var status: []
     property bool editable: true
     property var edits: null
     property bool customChosen: false
@@ -40,7 +42,7 @@ Column {
     readonly property int selectedPresetIndex: presetIndex(value)
     readonly property bool customVisible: allowCustom && (customChosen || selectedPresetIndex < 0)
     readonly property string labelText: spec.label !== undefined ? String(spec.label) : key
-    readonly property string hintText: spec.description !== undefined ? String(spec.description) : ""
+    readonly property string hintText: Steps.settingHint(spec, status)
     readonly property string infoText: spec.info !== undefined ? String(spec.info) : ""
     // What the configuration holds, as a text editor shows it.
     readonly property string heldText: value === undefined ? "" : String(value)

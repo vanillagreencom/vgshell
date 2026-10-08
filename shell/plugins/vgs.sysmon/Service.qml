@@ -88,7 +88,7 @@ Item {
             devices = Logic.orderGpus(cards);
             publishChoices();
             if (!nvidiaPresent && devices.some(card => card.driver === "nvidia")) shell.requirements.offer(["nvidia-smi"]);
-            shell.status.set("graphics", { text: devices.length ? "Available" : "No supported graphics card found.", tone: devices.length ? "ok" : "info" });
+            shell.status.set("graphics", devices.length ? { text: "Available", tone: "ok" } : { text: "Not found", hint: "No supported graphics card found.", tone: "info" });
             discovered = true;
             if (leaseCount > 0) tick();
         }

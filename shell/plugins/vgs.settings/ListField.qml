@@ -22,6 +22,7 @@ Column {
     // One { field: Select model } per item, in order: the manager row's
     // `settingChoices` for this key.
     property var choices: []
+    property var status: []
     property bool editable: true
     property var edits: null
     signal apply(var value)
@@ -100,6 +101,7 @@ Column {
                         spec: root.spec.items[modelData]
                         value: itemGroup.modelData[modelData]
                         choices: root.choices[itemGroup.index] === undefined || root.choices[itemGroup.index][modelData] === undefined ? [] : root.choices[itemGroup.index][modelData]
+                        status: root.status
                         editable: root.editable
                         edits: root.edits
                         onApply: v => root.setField(itemGroup.modelData.name, modelData, v)

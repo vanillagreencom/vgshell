@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import qs.Core
 import "../../shell/plugins/vgs.sysmon" as Sysmon
 
 // The existing FileView and Process stand-ins complete production callbacks
@@ -74,6 +75,23 @@ Item {
             fail("the finite read queue did not complete");
         }
         function readingsCount() { return root.publications.filter(row => row.key === "readings").length; }
+        function test_graphics_status_copy_data() {
+            return [{ tag: "absent", driver: "", text: "Not found", hint: "No supported graphics card found.", tone: "info" },
+                { tag: "supported-nvidia", driver: "nvidia", text: "Available", tone: "ok" }];
+        }
+        function test_graphics_status_copy(data) {
+            compare(root.publications.filter(row => row.key === "graphics").length, 0, "discovery pending reports no missing card");
+            if (data.driver !== "") {
+                directories = { "/sys/class/drm": ["/sys/class/drm/card1"] };
+                fixtureFiles["/sys/class/drm/card1/device/uevent"] = "DRIVER=nvidia\nPCI_SLOT_NAME=0000:01:00.0\n";
+            }
+            service.discover(); drain("suspended");
+            const graphics = root.publications.filter(row => row.key === "graphics");
+            compare(graphics.length, 1);
+            const accepted = PluginLogic.statusWrite({ status: { graphics: { type: "state" } } }, {}, "graphics", graphics[0].value);
+            verify(accepted.ok, "the production status judge accepts the graphics payload");
+            compare(JSON.stringify(graphics[0].value), JSON.stringify({ text: data.text, hint: data.hint, tone: data.tone }));
+        }
         function test_last_lease_stops_timer_and_cancels_pending_reads() {
             open();
             tryCompare(file, "live", "read");

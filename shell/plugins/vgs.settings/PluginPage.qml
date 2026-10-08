@@ -481,6 +481,7 @@ FocusScope {
                                     spec: page.row.schema[modelData]
                                     value: page.row.settings[modelData]
                                     choices: page.row.settingChoices[modelData] || []
+                                    status: page.row.status
                                     editable: page.editable
                                     edits: unsaved
                                     onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
@@ -508,6 +509,7 @@ FocusScope {
                                 spec: page.row.schema[listSection.modelData]
                                 value: page.row.settings[listSection.modelData]
                                 choices: page.row.settingChoices[listSection.modelData] || []
+                                status: page.row.status
                                 editable: page.editable
                                 edits: unsaved
                                 onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }

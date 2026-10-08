@@ -98,7 +98,7 @@ FIELDS = (
 EXEMPT = (
     ("schemaVersion",), ("id",), ("version",), ("license",), ("icon",), ("kinds",), ("entryPoints",),
     ("capabilities",), ("systemSteps",), ("settings",), ("defaultSection",), ("pane", "order"), ("appearance",), ("alwaysOn",),
-    ("schema", "*", "type"), ("schema", "*", "optionsFrom"), ("schema", "*", "defaults"), ("schema", "*", "presets", "*", "value"), ("schema", "*", "allowCustom"), ("schema", "*", "format"), ("schema", "*", "unit"), ("schema", "*", "min"), ("schema", "*", "max"), ("schema", "*", "step"),
+    ("schema", "*", "type"), ("schema", "*", "optionsFrom"), ("schema", "*", "hintFrom"), ("schema", "*", "defaults"), ("schema", "*", "presets", "*", "value"), ("schema", "*", "allowCustom"), ("schema", "*", "format"), ("schema", "*", "unit"), ("schema", "*", "min"), ("schema", "*", "max"), ("schema", "*", "step"),
     ("status", "*", "type"), ("status", "*", "hidden"),
     ("status", "*", "action", "tui"), ("status", "*", "action", "install"), ("status", "*", "action", "system"),
     ("status", "*", "actions", "*", "tui"), ("status", "*", "actions", "*", "install"), ("status", "*", "actions", "*", "system"),

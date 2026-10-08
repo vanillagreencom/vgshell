@@ -24,6 +24,14 @@ function requirementApplies(requirement) {
 // The words a `presence` value reads as on the page.
 var PRESENCE_WORDS = { present: "Present", absent: "Absent", locked: "Locked", unavailable: "Unavailable", unsafe: "Unsafe" };
 
+// A schema field's guidance: its fixed description, or the live hint of
+// its declared state row. Discovery and disabled plugins report no state.
+function settingHint(spec, status) {
+    if (spec.hintFrom === undefined) return spec.description === undefined ? "" : spec.description;
+    var entry = status.find(function (row) { return row.key === spec.hintFrom; });
+    return entry === undefined || entry.report !== "reported" ? "" : entry.hint;
+}
+
 // What a page draws of ENTRY, one row of PluginLogic.statusRows, or null
 // for a row whose entry left the manager row: { label, hint, info,
 // offered, tone, text, lines, muted, items }, `offered` its step's
