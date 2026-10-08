@@ -1121,7 +1121,7 @@ function verifyAlacrittyColors(template, packages = selectionPackages) {
             if (boundaryRatio < 3) shortfalls.push({ kind: "alacritty-boundary", package: pkg.name, role, ratio: boundaryRatio, floor: 3 });
             metrics.push({ package: pkg.name, mode: pkg.values.scheme.mode, role,
                 foreground: pair.foreground, background: pair.background, textRatio, boundaryRatio });
-            if (role === "search.matches" || role === "footer_bar") {
+            if (role === "search.matches" || role === "footer_bar" || role === "hints.end") {
                 const surface = logic.parseColor(pkg.values.color.surface);
                 const opposite = logic.contrastColor(base);
                 const distance = endpoint => Math.hypot(background.r - endpoint.r,
@@ -1136,7 +1136,7 @@ function verifyAlacrittyColors(template, packages = selectionPackages) {
         }
         for (const role of ["hints.start", "hints.end"]) {
             const pair = pairs.get(role);
-            if (pair.foreground === colors.primary.foreground) {
+            if (pair.foreground === colors.primary.foreground && pair.background === colors.primary.background) {
                 shortfalls.push({ kind: "alacritty-hint-distinct", package: pkg.name, role });
             }
         }
@@ -1161,7 +1161,7 @@ try {
     };
     const controls = ALACRITTY_ROLES.flatMap(role => {
         const fill = role === "search.focused_match" || role === "hints.start" ? "#@{color.accent}" :
-            role === "hints.end" ? "#@{color.textMuted}" : "#@{mix({color.background}, contrast({color.background}), 0.45)}";
+            "#@{mix({color.background}, contrast({color.background}), 0.45)}";
         return [
             { kind: "alacritty-text", role, template: sectionPair(alacrittyTemplate, role, fill, fill) },
             { kind: "alacritty-boundary", role, template: sectionPair(alacrittyTemplate, role,
@@ -1173,7 +1173,7 @@ try {
             "#@{contrast(mix({color.background}, contrast({color.background}), 0.45))}",
             "#@{mix({color.background}, contrast({color.background}), 0.45)}") });
     // Restore ordinary text colours: contrast still passes, but the
-    // hint foreground loses its distinction from the labelled text.
+    // hint label loses its distinction from ordinary terminal text.
     for (const role of ["hints.start", "hints.end"]) {
         controls.push({ kind: "alacritty-hint-distinct", role,
             template: sectionPair(alacrittyTemplate, role, "#@{palette.foreground}", "#@{color.background}") });
@@ -1183,7 +1183,7 @@ try {
     ]) {
         const packages = selectionPackages.filter(({ pkg }) => pkg.name === name);
         assert.equal(packages.length, 1);
-        for (const role of ["search.matches", "footer_bar"]) {
+        for (const role of ["search.matches", "footer_bar", "hints.end"]) {
             controls.push({ kind: "alacritty-surface-direction", role, packages,
                 template: sectionPair(alacrittyTemplate, role, foreground, background) });
             controls.push({ kind: "alacritty-boundary", role, packages,

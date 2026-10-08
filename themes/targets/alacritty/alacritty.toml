@@ -25,8 +25,8 @@ foreground = "#@{color.onAccent}"
 background = "#@{color.accent}"
 
 [colors.hints.end]
-foreground = "#@{color.background}"
-background = "#@{color.textMuted}"
+foreground = "#@{contrast(mix({color.background}, contrast({color.background}), 0.45))}"
+background = "#@{mix({color.background}, contrast({color.background}), 0.45)}"
 
 [colors.footer_bar]
 foreground = "#@{contrast(mix({color.background}, contrast({color.background}), 0.45))}"
