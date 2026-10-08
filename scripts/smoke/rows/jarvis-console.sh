@@ -21,6 +21,18 @@ cp -- "$jarvis_console_backend" "$sandbox/jarvis-console-backend-before"
 cp -- "$jarvis_console_engine" "$sandbox/jarvis-console-engine-before"
 jarvis_console_resolve_binds_by_sym() { hypr -j getoption input:resolve_binds_by_sym | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v.get("bool"), v["set"]]))'; }
 jarvis_console_option_before="$(jarvis_console_resolve_binds_by_sym)"
+jarvis_console_keyboards() {
+  hypr -j devices | py_reply 'import json,sys; print(json.dumps(sorted(k["name"] for k in json.load(sys.stdin)["keyboards"])))'
+}
+jarvis_console_keyboards_before="$(jarvis_console_keyboards)"
+jarvis_console_keyboard_check() {
+  expect_poll "the console row restores its starting keyboard devices" "$jarvis_console_keyboards_before" jarvis_console_keyboards
+}
+jarvis_console_keyboard_control() {
+  (failures=0 behaviour_failures=0
+   jarvis_console_keyboard_check >"$sandbox/jarvis-console-keyboard-control.log"
+   echo "$failures")
+}
 
 jarvis_console_state() { # FIELD
   ipc smoke jarvisProcess | py_reply '
@@ -73,14 +85,6 @@ jarvis_console_focus_control() {
    expect_poll "the console text field has focus" true jarvis_console_text_field_focused >"$sandbox/jarvis-console-focus-control.log"
    echo "$failures")
 }
-jarvis_console_remove_requirement_shims() {
-  local command
-  if declare -p jarvis_requirement_standins >/dev/null 2>&1; then
-    for command in "${jarvis_requirement_standins[@]}"; do
-      rm -f -- "${shim:?}/$command"
-    done
-  fi
-}
 jarvis_console_requirement_shims() {
   python3 - "$shim" "${jarvis_requirement_standins[@]}" <<'PY'
 import json, pathlib, sys
@@ -88,22 +92,6 @@ shim = pathlib.Path(sys.argv[1])
 print(json.dumps([name for name in sys.argv[2:] if (shim / name).exists()]))
 PY
 }
-jarvis_console_cleanup() {
-  hold_stop_keyboard || true
-  ipc smoke holdMarkerStop >/dev/null || true
-  cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"
-  cp -- "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
-  cp -- "$sandbox/jarvis-console-backend-before" "$jarvis_console_backend"
-  cp -- "$sandbox/jarvis-console-engine-before" "$jarvis_console_engine"
-  cp -- "$sandbox/jarvis-console-config-before.json" "$jarvis_console_config"
-  cp -- "$sandbox/jarvis-console-lua-before" "$jarvis_console_lua"
-  jarvis_console_remove_requirement_shims
-  ipc shell reloadConfig >/dev/null 2>&1 || true
-  hypr reload config-only >/dev/null 2>&1 || true
-  rm -f -- "${jarvis_console_plugin:?}/backend/scripted-fixture.js" "${home:?}/.local/state/vgshell/jarvis/mute.json"
-}
-trap jarvis_console_cleanup EXIT
-
 printf '%s\n' \
   'hl.config({ input = { resolve_binds_by_sym = true } })' \
   'hl.bind("code:67", hl.dsp.global("smoke:hold-marker"), { description = "smoke:hold-marker", ignore_mods = true })' >>"$jarvis_console_lua"
@@ -230,3 +218,11 @@ expect "the console row restores ChainedEngine.js" same python3 -c 'import filec
 expect "the console row leaves no Jarvis mute state" False python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_disable
 jarvis_notice_close
+# Rows share the harness process. Waiting for EXIT keeps this keyboard
+# alive in later rows and replaces the harness's sandbox teardown.
+expect "control: retaining the console keyboard fails the device cleanup check" 1 jarvis_console_keyboard_control
+sed 's/^/  CONTROL  /' "$sandbox/jarvis-console-keyboard-control.log"
+hold_stop_keyboard
+expect "the console row releases its ordering marker" ok ipc smoke holdMarkerStop
+expect_poll "the console row leaves no ordering marker" 0 hold_native smoke:hold-marker
+jarvis_console_keyboard_check
