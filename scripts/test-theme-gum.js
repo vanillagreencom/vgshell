@@ -10,7 +10,8 @@
 // must export `vgshell-theme-judge gum-default`'s environment: every
 // background key of the template and the three base colours present and
 // empty, so gum keeps the terminal's own, the selection foregrounds the
-// pinned vgs accent, and a header foreground empty.
+// pinned vgs accent with their styles bold and no other style bold, and a
+// header foreground empty.
 //
 // With no gum.env and a judge that fails, or one that prints a line the
 // rule rejects, present warns with its keyed line, exports no colour and
@@ -19,8 +20,9 @@
 //
 // The controls: a copy of the template whose last value is a `$(...)`
 // command must fail the check, with nothing run; a copy of the presenter
-// without its no-gum.env branch, and a stand-in judge that hands back the
-// full vgs render, must each fail the absent row. The judge's verb must
+// without its no-gum.env branch, a stand-in judge that hands back the full
+// vgs render, and one that hands back the no-theme environment without its
+// bold lines, must each fail the absent row. The judge's verb must
 // refuse a gum target with two files, planted in a copy of the themes
 // directory beside a copy of the judge.
 "use strict";
@@ -105,6 +107,12 @@ const presented = (root, text, bin = presenter) => {
 // foregrounds that take it with no theme applied.
 const VGS_ACCENT = "#ff5a36";
 const SELECTION = ["GUM_CHOOSE_CURSOR_FOREGROUND", "GUM_CONFIRM_SELECTED_FOREGROUND", "GUM_INPUT_PROMPT_FOREGROUND"];
+// The selection styles drawn bold with no theme applied: each a style gum
+// 2.0.2 reads, since gum refuses a <stem>_BOLD value it cannot parse
+// (`--cursor.bold: bool value must be ...`), checked on 2026-10-07.
+const BOLD_STEMS = ["GUM_CONFIRM_PROMPT", "GUM_CONFIRM_SELECTED", "GUM_INPUT_PROMPT", "GUM_CHOOSE_CURSOR",
+    "GUM_CHOOSE_SELECTED", "GUM_FILTER_PROMPT", "GUM_FILTER_MATCH", "GUM_FILTER_INDICATOR", "GUM_FILTER_SELECTED_PREFIX",
+    "GUM_TABLE_SELECTED", "GUM_SPIN_SPINNER", "GUM_FILE_SELECTED", "GUM_PAGER_MATCH", "GUM_PAGER_MATCH_HIGH", "GUM_LOG_LEVEL"];
 
 // Hand-written from themes/<dir>/theme.json: a line each for the base
 // colours, and the library's four.
@@ -137,6 +145,8 @@ try {
         for (const key of emptied) assert.equal(env.get(key), "", `no gum.env: ${key} is ${env.get(key)}, not empty`);
         for (const key of SELECTION) assert.equal(env.get(key), VGS_ACCENT, `no gum.env: ${key} is ${env.get(key)}, not the accent`);
         assert.equal(env.get("GUM_CHOOSE_HEADER_FOREGROUND"), "", "no gum.env: the choose header has a colour");
+        const bolds = [...env].filter(([key]) => key.endsWith("_BOLD")).map(([key, value]) => key + "=" + value).sort();
+        assert.deepEqual(bolds, BOLD_STEMS.map(stem => stem + "_BOLD=true").sort(), "no gum.env: the bold keys");
     };
     absent(presenter);
 
@@ -164,6 +174,15 @@ try {
     const full = presenterTree("full", presenterText, `process.stdout.write(${JSON.stringify(rendered(defaults, template))});\n`);
     assert.throws(() => absent(full), /no gum\.env: \S*BACKGROUND is #[0-9a-f]{6}, not empty/,
         "control: the full vgs render passed the absent row");
+
+    // Control: a judge whose environment has no bold line fails the absent
+    // row at its bold keys.
+    const judged = spawnSync(process.execPath, [judge, "gum-default"], { encoding: "utf8", env: { PATH: childPath, HOME: root } });
+    assert.equal(judged.status, 0, judged.stderr);
+    const unbold = judged.stdout.split("\n").filter(line => !/^[^=]*_BOLD=/.test(line)).join("\n");
+    assert.notEqual(unbold, judged.stdout);
+    const plain = presenterTree("unbold", presenterText, `process.stdout.write(${JSON.stringify(unbold)});\n`);
+    assert.throws(() => absent(plain), /no gum\.env: the bold keys/, "control: a no-theme environment without bold passed the absent row");
 
     // A judge that fails, or prints a line the rule rejects: the keyed
     // warning, no colour, and the command's own exit code. Each tree holds a
@@ -208,7 +227,7 @@ try {
         "control: the check passed a gum.env line holding $(...)");
     assert.equal(fs.existsSync(planted), false, "control: present ran the planted line");
 
-    console.log(`test-theme-gum: ok packages=${EXPECTED.length} lines=${lines} controls=3`);
+    console.log(`test-theme-gum: ok packages=${EXPECTED.length} lines=${lines} controls=4`);
 } finally {
     fs.rmSync(root, { recursive: true, force: true });
 }

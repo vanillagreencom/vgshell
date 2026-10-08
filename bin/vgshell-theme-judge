@@ -123,8 +123,9 @@
 //       no apply has written gum.env: the shipped gum target's one file,
 //       rendered against the shipped `vgs` package, with only the
 //       selection kept. A *_FOREGROUND key whose template value is
-//       `@{color.accent}` or `@{color.onAccent}` gets the accent, and so
-//       does VGS_TUI_ACCENT, the logo's; every other gum key is printed
+//       `@{color.accent}` or `@{color.onAccent}` gets the accent and its
+//       stem's _BOLD=true after it, and VGS_TUI_ACCENT, the logo's, keeps
+//       the accent; every other gum key is printed
 //       empty, `KEY=`, which drops gum's own default so the terminal's
 //       background and text show; the other VGS_TUI_ keys are left out, so
 //       the library uses the terminal's ANSI colours. Exit 0 with the lines
@@ -447,11 +448,13 @@ function renderDefault(judged, defaults) {
 const GUM_TARGET = "gum";
 const SELECTION_TOKENS = ["color.accent", "color.onAccent"];
 const SELECTION_SUFFIX = "_FOREGROUND";
+const BOLD_SUFFIX = "_BOLD";
 const LIBRARY_PREFIX = "VGS_TUI_";
 const LIBRARY_ACCENT = "VGS_TUI_ACCENT";
 
 // The gum template TEXT reduced to the no-theme environment, still a
-// template: a selection foreground takes the accent, VGS_TUI_ACCENT stays,
+// template: a selection foreground takes the accent and its stem is bold,
+// VGS_TUI_ACCENT stays,
 // the other VGS_TUI_ lines go and every other key is emptied. Refuses
 // under KEY a line that is no KEY=VALUE or whose placeholder is
 // unterminated.
@@ -465,7 +468,7 @@ function selectionTemplate(text, key) {
         if (name === LIBRARY_ACCENT) return [line];
         if (name.startsWith(LIBRARY_PREFIX)) return [];
         if (name.endsWith(SELECTION_SUFFIX) && names.length === 1 && SELECTION_TOKENS.includes(names[0]))
-            return [name + "=#@{color.accent}"];
+            return [name + "=#@{color.accent}", name.slice(0, -SELECTION_SUFFIX.length) + BOLD_SUFFIX + "=true"];
         return [name + "="];
     }).join("\n");
 }

@@ -21,8 +21,8 @@
 #   vgs_tui_choose|input|filter [GUM_ARG...]
 #                                    gum choose, input or filter
 #   vgs_tui_gum_env ARRAY            set ARRAY to NAME=VALUE for each exported
-#                                    colour variable gum reads, an empty value,
-#                                    gum's no colour, included, and TERM and
+#                                    colour or bold variable gum reads, an empty
+#                                    colour, gum's no colour, included, and TERM and
 #                                    COLORTERM: the words a script that runs gum
 #                                    under `env -i` hands gum, so it keeps the
 #                                    presenter's colours and the terminal's
@@ -59,12 +59,15 @@
 _vgs_tui_hex='[0123456789abcdefABCDEF]'
 _vgs_tui_lower='[abcdefghijklmnopqrstuvwxyz0123456789]'
 _vgs_tui_upper='[ABCDEFGHIJKLMNOPQRSTUVWXYZ]'
-# The colour variables gum reads, an unanchored alternation: the one rule
-# for what bin/vgshell-tui present accepts from gum.env, beside its own
-# VGS_TUI_ names, and for what vgs_tui_gum_env hands gum. Only colours: a
-# GUM_ behaviour option from the session, such as GUM_CONFIRM_TIMEOUT,
-# could answer a prompt for the user.
-_vgs_tui_gum_names="GUM_($_vgs_tui_upper|_)+_(FOREGROUND|BACKGROUND)|FOREGROUND|BACKGROUND|BORDER_FOREGROUND"
+# The style variables gum reads, each an unanchored alternation: its colour
+# names, whose value is #rrggbb or empty, and its bold names, whose value
+# is true. One rule for what bin/vgshell-tui present accepts from gum.env,
+# beside its own VGS_TUI_ names, and for what vgs_tui_gum_env hands gum.
+# Only styles: a GUM_ behaviour option from the session, such as
+# GUM_CONFIRM_TIMEOUT, could answer a prompt for the user.
+_vgs_tui_gum_colours="GUM_($_vgs_tui_upper|_)+_(FOREGROUND|BACKGROUND)|FOREGROUND|BACKGROUND|BORDER_FOREGROUND"
+_vgs_tui_gum_bolds="GUM_($_vgs_tui_upper|_)+_BOLD"
+_vgs_tui_gum_names="$_vgs_tui_gum_colours|$_vgs_tui_gum_bolds"
 
 # The SGR escape that selects colour HEX (#rrggbb) as the foreground, or the
 # ANSI colour FALLBACK (30-37) when HEX is not one.

@@ -150,6 +150,20 @@ empty_value_row() { # BIN
   grep -qxF "CONFIRM=" "$tmp/out" && grep -qxF "ACCENT=#FF5A36" "$tmp/out" && test ! -s "$tmp/err"
 }
 check "an empty gum.env value is exported empty beside the others, with no warning" empty_value_row "$subject"
+# A bold name takes true alone: gum refuses to start on a bold value it
+# cannot read, and only true is ever written.
+bold_rows() { # BIN
+  local accepted rejected
+  printf '%s\n' "GUM_CHOOSE_CURSOR_BOLD=true" "VGS_TUI_ACCENT=#FF5A36" >"$gum_env"
+  plain_run "$1" present --presentation plain -- printenv GUM_CHOOSE_CURSOR_BOLD
+  accepted="$plain_status:$(cat "$tmp/out"):$(err_first)"
+  printf '%s\n' "VGS_TUI_ACCENT=#FF5A36" "GUM_CHOOSE_CURSOR_BOLD=yes" >"$gum_env"
+  plain_run "$1" present --presentation plain -- envdump
+  rejected="$(grep -cxF "ACCENT=unset" "$tmp/out"):$(err_first)"
+  rm -f -- "$gum_env"
+  [[ $accepted == "0:true:" && $rejected == "1:vgshell-tui: gum-env=rejected line=2 path=$gum_env" ]]
+}
+check "a bold name is exported with true and refused with yes" bold_rows "$subject"
 on_tty "$subject" present -- exits 0
 # The accent wraps the logo: the clear, the accent's truecolor escape and the
 # first line run together, and the reset follows the last line.
@@ -163,6 +177,8 @@ bad_lines=(
   "GUM_CONFIRM_PROMPT_FOREGROUND=#aabbcc; touch $tmp/planted"
   "GUM_CONFIRM_PROMPT_FOREGROUND=\$(touch $tmp/planted)"
   "gum_confirm_prompt_foreground=#aabbcc"
+  "FOREGROUND=true"
+  "GUM_CONFIRM_PROMPT_BOLD=#aabbcc"
   "export GUM_CONFIRM_PROMPT_FOREGROUND=#aabbcc"
   " GUM_CONFIRM_PROMPT_FOREGROUND=#aabbcc"
   ""
@@ -879,8 +895,13 @@ check "the any-plugin-marker mutant closes the failed window on another plugin's
 wait "$failed_pid" || :
 rm -f -- "${rdir:?}"/acme.*@*.json
 
-control colour-only-line vgshell-tui 'gum_line="^([^=]+)=(#$_vgs_tui_hex{6})?\$"' 'gum_line="^([^=]+)=(#$_vgs_tui_hex{6})\$"'
+control colour-only-line vgshell-tui 'gum_colour_line="^($_vgs_tui_gum_colours|VGS_TUI_$_vgs_tui_upper+)=(#$_vgs_tui_hex{6})?\$"' \
+  'gum_colour_line="^($_vgs_tui_gum_colours|VGS_TUI_$_vgs_tui_upper+)=(#$_vgs_tui_hex{6})\$"'
 check "the colour-only-line mutant fails the empty value row" test "$(empty_value_row "$control_bin" && echo green || echo red)" == red
+control no-bold-line vgshell-tui '    if [[ $line =~ $gum_colour_line || $line =~ $gum_bold_line ]]; then' '    if [[ $line =~ $gum_colour_line ]]; then'
+check "the no-bold-line mutant fails the bold rows" test "$(bold_rows "$control_bin" && echo green || echo red)" == red
+control any-bold-value vgshell-tui 'gum_bold_line="^($_vgs_tui_gum_bolds)=true\$"' 'gum_bold_line="^($_vgs_tui_gum_bolds)=[^=]*\$"'
+check "the any-bold-value mutant fails the bold rows" test "$(bold_rows "$control_bin" && echo green || echo red)" == red
 
 control shell-string vgshell-tui 'else "${argv[@]}"; fi' 'else bash -c "${argv[*]}"; fi'
 rm -f -- "$tmp/argv"

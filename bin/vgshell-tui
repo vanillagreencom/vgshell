@@ -45,15 +45,16 @@
 # does not end in .json, so the shell's record listing skips it. Before the
 # command runs it exports:
 #   - each line of ${XDG_STATE_HOME:-~/.local/state}/vgshell/theme/gum.env, which
-#     is parsed and never sourced: every line must be KEY=#rrggbb, or
-#     KEY= for no colour, which drops gum's own default for that key, KEY
-#     matching gum_key below, or no line is exported and a warning names
+#     is parsed and never sourced: every line must be a colour name of
+#     gum_colour_line below with #rrggbb, or empty for no colour, which
+#     drops gum's own default for that key, or a bold name of
+#     gum_bold_line with true, or no line is exported and a warning names
 #     the first bad line. With no gum.env, as before any theme apply, the
 #     lines are `vgshell-theme-judge gum-default`'s, under the same rule:
-#     the shipped vgs accent on the selection and no colour elsewhere, so
-#     gum keeps the terminal's own background and text; when the judge
-#     fails, present warns `vgshell-tui: gum-env=default-unavailable
-#     exit=<n>` and exports none;
+#     the shipped vgs accent and bold on the selection and no colour
+#     elsewhere, so gum keeps the terminal's own background and text;
+#     when the judge fails, present warns `vgshell-tui:
+#     gum-env=default-unavailable exit=<n>` and exports none;
 #   - VGS_TUI_LIB, this checkout's bin/lib/tui.sh, and VGS_TUI_LOGO, its
 #     bin/lib/logo.txt;
 #   - with --plugin, VGS_PLUGIN_ID and VGS_PLUGIN_DIR, a private copy of the
@@ -139,10 +140,12 @@ gum_env="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/theme/gum.env"
 source "$lib"
 
 # The one rule a gum.env line passes: a colour name gum reads, the
-# library's rule, or one of the library's own VGS_TUI_ colours. Classes are
-# spelled out, since a range follows the user's locale.
-gum_key="^($_vgs_tui_gum_names|VGS_TUI_$_vgs_tui_upper+)\$"
-gum_line="^([^=]+)=(#$_vgs_tui_hex{6})?\$"
+# library's rule, or one of the library's own VGS_TUI_ colours, with
+# #rrggbb or nothing; or a bold name gum reads with true, since gum refuses
+# to start on any other bold value. Classes are spelled out, since a range
+# follows the user's locale.
+gum_colour_line="^($_vgs_tui_gum_colours|VGS_TUI_$_vgs_tui_upper+)=(#$_vgs_tui_hex{6})?\$"
+gum_bold_line="^($_vgs_tui_gum_bolds)=true\$"
 # The names an exit record's file is made from, and the app-id and title it
 # carries: the header states each rule.
 record_key_rule="^$_vgs_tui_lower($_vgs_tui_lower|[.-])*/$_vgs_tui_lower($_vgs_tui_lower|[.-])*\$"
@@ -309,7 +312,7 @@ export_gum_lines() { # SOURCE
   local line n=0 keys=() values=() i
   while IFS= read -r line || [[ -n $line ]]; do
     n=$((n + 1))
-    if [[ $line =~ $gum_line ]] && [[ ${BASH_REMATCH[1]} =~ $gum_key ]]; then
+    if [[ $line =~ $gum_colour_line || $line =~ $gum_bold_line ]]; then
       keys+=("${line%%=*}")
       values+=("${line#*=}")
     else
@@ -320,8 +323,8 @@ export_gum_lines() { # SOURCE
   for i in "${!keys[@]}"; do export "${keys[i]}=${values[i]}"; done
 }
 
-# Exports gum.env's colours, or with no gum.env the judge's no-theme
-# environment: the shipped vgs accent on the selection only. A judge that
+# Exports gum.env's styles, or with no gum.env the judge's no-theme
+# environment: the shipped vgs accent and bold on the selection only. A judge that
 # cannot render it warns and exports none, so the command still runs.
 export_gum_env() {
   local text status=0
