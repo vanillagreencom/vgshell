@@ -139,8 +139,16 @@ const claudeWant = {
 };
 for (const [key, want] of Object.entries(claudeWant)) equals("claude." + key, claude[key], want);
 const gemini = JSON.parse(fs.readFileSync(path.join(live, "gemini.json"), "utf8"));
-equals("gemini.background.diff.added", gemini.background.diff.added, token("color.successSubtle"));
-equals("gemini.background.diff.removed", gemini.background.diff.removed, token("color.dangerSubtle"));
+for (const role of ["added", "removed"]) {
+    const fill = gemini.background.diff[role];
+    const ratio = logic.contrastRatio(logic.parseColor(gemini.text.primary), logic.parseColor(fill));
+    if (ratio < 4.5) note(JSON.stringify({ kind: "gemini-diff-contrast", role, ratio, floor: 4.5 }));
+    // This fixture's success is green and danger is red. The two diff
+    // roles retain that direction after the template adjusts their fills.
+    const green = channel(fill, 3), red = channel(fill, 1);
+    if (!(role === "added" ? green > red : red > green))
+        note(JSON.stringify({ kind: "gemini-diff-role", role }));
+}
 const opencode = JSON.parse(fs.readFileSync(path.join(live, "opencode.json"), "utf8")).theme;
 const opencodeWant = {
     diffAddedBg: token("color.successSubtle"),
@@ -266,7 +274,7 @@ unset THEME_BIN
 hex6='^#[0-9a-f]{6}$'
 check "Claude's theme is dark-based JSON whose overrides are all hex6" python3 -c 'import json,re,sys; t = json.load(open(sys.argv[1])); o = t["overrides"]; sys.exit(0 if t["name"] == "vgs" and t["base"] == "dark" and o["claude"] == "#111111" and o["inverseText"] == "#000000" and len(o) == 72 and all(re.match(sys.argv[2], v) for v in o.values()) else 1)' "$live/claude.json" "$hex6"
 check "Codex's theme is a TextMate plist whose colours are all hex6" python3 -c 'import plistlib,re,sys; t = plistlib.load(open(sys.argv[1], "rb")); colours = [v for s in t["settings"] for v in s["settings"].values()]; h = [s["settings"]["foreground"] for s in t["settings"] if s.get("scope") == "markup.heading, entity.name.section"]; sys.exit(0 if t["name"] == "vgs" and h == ["#111111"] and all(re.match(sys.argv[2], v) for v in colours) else 1)' "$live/codex.tmTheme" "$hex6"
-check "Gemini's theme is a custom JSON theme with the accent" python3 -c 'import json,sys; t = json.load(open(sys.argv[1])); sys.exit(0 if t["type"] == "custom" and t["text"]["accent"] == "#111111" and t["background"]["primary"] == "#000000" and t["ui"]["gradient"][1] == "#a855f7" else 1)' "$live/gemini.json"
+check "Gemini's theme is a custom JSON theme with the accent" python3 -c 'import json,sys; t = json.load(open(sys.argv[1])); sys.exit(0 if t["type"] == "custom" and t["text"]["accent"] == "#111111" and t["background"]["primary"] == "#000000" and isinstance(t["ui"]["focus"], str) and isinstance(t["DarkGray"], str) and "border" not in t else 1)' "$live/gemini.json"
 check "Hermes's skin names itself vgs" grep -qxF -- 'name: vgs' "$live/hermes.yaml"
 check "every Hermes colour is a double-quoted hex6" python3 -c 'import re,sys; l = open(sys.argv[1]).read().split("colors:\n")[1].splitlines(); sys.exit(0 if len(l) == 30 and all(re.fullmatch(r"  [a-z_]+: \"#[0-9a-f]{6}\"", x) for x in l) and "  banner_title: \"#111111\"" in l else 1)' "$live/hermes.yaml"
 check "oh-my-pi's theme holds its 67 colours and 3 export colours as hex6" python3 -c 'import json,re,sys; t = json.load(open(sys.argv[1])); c = t["colors"]; e = t["export"]; sys.exit(0 if t["name"] == "vgs" and len(c) == 67 and sorted(e) == ["cardBg", "infoBg", "pageBg"] and c["accent"] == "#111111" and c["statusLineModel"] == "#111111" and all(re.match(sys.argv[2], v) for v in list(c.values()) + list(e.values())) else 1)' "$live/omp.json" "$hex6"
@@ -281,7 +289,7 @@ tree_control codex-diff-pin themes/targets/codex/codex.tmTheme '<string>#@{color
 apply_json "the Codex pin mutant applies" 0 dusk
 check "the Codex pin mutant fails the role pins" test "$(agent_theme_pins "$tree" "$live" >/dev/null; echo $?)" == 1
 unset THEME_BIN
-tree_control gemini-diff-pin themes/targets/gemini/gemini.json '"added": "#@{color.successSubtle}"' '"added": "#@{color.dangerSubtle}"'
+tree_control gemini-diff-pin themes/targets/gemini/gemini.json '"added": "#@{mix(mix({color.background}, {color.success}, 0.12), contrast({color.text}), 0.15)}"' '"added": "#@{mix(mix({color.background}, {color.danger}, 0.12), contrast({color.text}), 0.15)}"'
 apply_json "the Gemini pin mutant applies" 0 dusk
 check "the Gemini pin mutant fails the role pins" test "$(agent_theme_pins "$tree" "$live" >/dev/null; echo $?)" == 1
 unset THEME_BIN
