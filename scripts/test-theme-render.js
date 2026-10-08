@@ -973,9 +973,9 @@ const KITTY_TEXT = [
 const KITTY_BOUNDARIES = ["active_border_color", "inactive_border_color", "bell_border_color"];
 const KITTY_CANVAS = ["inactive_tab_background", "tab_bar_background", "tab_bar_margin_color"];
 const KITTY_MARKS = [
-    { role: "mark1_background", source: "accent", anchor: 0.3, page: 0.56 },
-    { role: "mark2_background", source: "warning", anchor: 0.9, page: 0.04 },
-    { role: "mark3_background", source: "info", anchor: 0.3, page: 0.24 }
+    { role: "mark1_background", source: "accent", page: 0.52 },
+    { role: "mark2_background", source: "warning", page: 0.14 },
+    { role: "mark3_background", source: "info", page: 0.04 }
 ];
 const KITTY_MARK_PAIRS = [
     ["mark1_background", "mark2_background"],
@@ -1073,15 +1073,12 @@ const KITTY_DIFFERENCE_REFERENCES = [
 for (const row of KITTY_DIFFERENCE_REFERENCES)
     assert.ok(Math.abs(kittyDeltaE(row.slice(0, 3), row.slice(3, 6)) - row[6]) <= 0.00005, JSON.stringify(row));
 
-function kittyTint(pkg, { source, anchor, page }) {
+function kittyTint(pkg, { source, page }) {
     const seed = logic.parseColor(pkg.values.color[source]);
-    const plain = logic.parseColor(pkg.values.palette.foreground);
     const canvas = logic.parseColor(pkg.values.palette.background);
     const tint = { a: 1 };
-    for (const channel of ["r", "g", "b"]) {
-        const anchored = seed[channel] + (plain[channel] - seed[channel]) * anchor;
-        tint[channel] = anchored + (canvas[channel] - anchored) * page;
-    }
+    for (const channel of ["r", "g", "b"])
+        tint[channel] = seed[channel] + (canvas[channel] - seed[channel]) * page;
     return logic.formatColor(tint).slice(0, 7);
 }
 
@@ -1121,7 +1118,8 @@ function verifyKittyStyles(template) {
             if (!colors.has(role) || !colors.has(peer)) return null;
             const ratio = logic.contrastRatio(colors.get(role), colors.get(peer));
             const difference = kittyDifference(colors.get(role), colors.get(peer));
-            const metric = { kind, theme: pkg.name, role, peer, ratio, difference, contrastFloor: 3, differenceFloor: 15 };
+            const metric = { kind, theme: pkg.name, role, peer, fill: fields.get(role), peerFill: fields.get(peer),
+                ratio, difference, contrastFloor: 3, differenceFloor: 15 };
             if (ratio < 3 && difference < 15) shortfalls.push(metric);
             return metric;
         };
@@ -1138,7 +1136,7 @@ function verifyKittyStyles(template) {
             const expected = kittyTint(pkg, mark);
             if (fields.get(mark.role) !== expected)
                 shortfalls.push({ kind: "kitty-mark-tint", theme: pkg.name, role: mark.role, source: mark.source,
-                    actual: fields.get(mark.role), expected, anchor: mark.anchor, page: mark.page });
+                    actual: fields.get(mark.role), expected, page: mark.page });
         }
         for (const role of KITTY_CANVAS) {
             if (colors.has(role) && fields.get(role) !== fields.get("background"))
