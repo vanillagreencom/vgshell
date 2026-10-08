@@ -74,7 +74,7 @@ FocusScope {
         if (next === promptKey) return;
         password.text = "";
         promptKey = next;
-        if (next !== "") Qt.callLater(() => password.forceActiveFocus(Qt.ShortcutFocusReason));
+        if (next !== "") Qt.callLater(() => password.forceActiveFocus(Qt.OtherFocusReason));
     }
     function answered(reply) {
         localProblem = reply === "ok" ? "" : reply === "busy" ? "A network change is still in progress." : "The network action is unavailable.";

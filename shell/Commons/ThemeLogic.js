@@ -614,6 +614,9 @@ function accept(tokens, text) {
     var result = resolve(tokens, stated.overrides);
     if (!result.ok)
         return result;
+    var bodyLine = Math.round(result.values.text.body.size * result.values.text.body.lineHeight);
+    if (result.values.stack.titleSpace < bodyLine)
+        return refusal("title-space", "stack.titleSpace", "min=" + bodyLine + " value=" + result.values.stack.titleSpace);
     return { ok: true, name: document.name, values: result.values };
 }
 

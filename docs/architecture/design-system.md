@@ -61,7 +61,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 - Never ship a click area without a keyboard path, or a focusable item without a focus indicator. `scripts/check-keyboard.py` refuses both, and `vgs-plugin check` runs it on a plugin tree.
 - Do mark `// keyboard-path: <how>` or `// focus-indicator: <what>` only where a present mechanism supplies it; the marker exempts nothing missing. Review holds it.
 - Do make a composite one Tab stop whose arrows move through `KeyNav`, and never let an arrow run an action. Review holds it; `scripts/test-key-nav-logic.js` pins `KeyNav`.
-- Do let hosts own Escape and initial focus. Give a surface initial focus on its primary input, else its list, else its body, and never on an action that installs, removes or changes the system. Keep the focus reason so key-opened surfaces show their focus ring. Review holds it.
+- Do let hosts own Escape and initial focus. Give a surface initial focus on its primary input, else its list, else its body, and never on an action that installs, removes or changes the system. Initial focus lands on the primary input, list or body with no ring. The ring appears after a keyboard navigation key. Review holds it.
 - Never give the bar keyboard focus, except the focus grab that holds a widget drag until its release; a widget action has a global shortcut or a launcher path. Gap: no check reads the bar window's keyboard focus.
 - Never give a passive layer the keyboard; the inbox is a toast's keyboard path. `scripts/smoke/rows/layers.sh` pins the layer host.
 
@@ -74,6 +74,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 
 ### Layout
 
+- Do put each surface title in the shared `Pane` title slot. Keep its subtitle or description with the title. Leave `Theme.stack.titleSpace`, at least one body line, after the whole title block. Never add a private title margin.
 - Do put a pending-changes row in the shared `Pane` footer, pinned to the bottom of the System or Shell & Plugins panel. Never put it in the scrolling body; review holds it.
 - Do use a centred modal for a timed trial or a confirmation the user must see, such as Keep/Revert. Never use an inline card; review holds it.
 - Do compose `Pane` for every window, dialog, panel, popover and overlay, and never write a second inset. Align boxed children and unboxed text to its content edge. `scripts/qml-tests/tst_pane.qml` pins the box.

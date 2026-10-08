@@ -35,7 +35,10 @@ Scope {
                 const item = slot.instance;
                 if (item === null) return;
                 const target = item.initialFocus !== undefined && item.initialFocus !== null ? item.initialFocus : item;
-                if (typeof target.forceActiveFocus === "function") target.forceActiveFocus(Qt.ShortcutFocusReason);
+                if (typeof target.forceActiveFocus === "function") {
+                    target.forceActiveFocus(Qt.OtherFocusReason);
+                    if ("focusReason" in target) target.focusReason = Qt.OtherFocusReason;
+                }
             }
 
             PluginSlot {

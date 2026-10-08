@@ -4,13 +4,15 @@ import qs.Ui
 
 // One inset box for a container: an optional title row, optional header
 // slot, scrolling body and optional footer all start at the same content
-// edge. A non-empty `title` draws the shared dropdown title as h3 and can
+// edge. A non-empty `title` draws in the container's title role and can
 // put a feature switch at the row's end; plugins pass the switch's state
 // and action, and the switch stays beside the Settings gear when one
 // shows. A switch that controls less than the title names, such as Wi-Fi
 // under Network, carries its `switchName` as a hint label at its left, so
 // it does not read as switching off the whole feature. The header slot stays below that row, so a plugin can add a
-// sentence without owning the dropdown title pattern. The scroll bar lives
+// sentence without owning the dropdown title pattern. `titleContent` holds
+// a title with inline controls; `subtitle` stays with that title before the
+// shared title space. The scroll bar lives
 // in the right inset strip, outside the body's content width, so content
 // never moves when it overflows. The footer stays outside the scrolling
 // body, so its actions stay in view while the body scrolls. While the body
@@ -38,6 +40,10 @@ Item {
     property real gap: container === "window" ? Theme.stack.section : Theme.stack.group
     property real bodySpacing: container === "window" ? Theme.stack.page : Theme.stack.group
     property string title: ""
+    property string titleRole: container === "window" ? "windowTitle" : "h3"
+    property int titleWrapMode: Text.NoWrap
+    property alias titleContent: titleSlot.data
+    property alias subtitle: subtitleSlot.data
     property bool switchShown: false
     property bool switchChecked: false
     property bool switchEnabled: true
@@ -80,21 +86,25 @@ Item {
     }
     readonly property real gearRoom: gear.item ? gear.item.width + Theme.stack.inline : 0
     readonly property Item headerSwitch: switchLoader.item
-    readonly property bool hasTitle: title !== ""
+    readonly property bool hasTitle: title !== "" || titleSlot.children.some(child => child.visible)
     readonly property bool switchLabelShown: switchLoader.item !== null && switchName !== title
     readonly property real switchLabelRoom: switchLabelShown ? switchLabel.implicitWidth + Theme.stack.inline : 0
     readonly property real switchRoom: switchLoader.item ? switchLoader.item.width + Theme.stack.inline + switchLabelRoom : 0
-    readonly property real titleRowHeight: hasTitle ? Math.max(titleLabel.implicitHeight, switchLoader.item ? switchLoader.item.height : 0, gear.item ? gear.item.height : 0) : 0
+    readonly property real titleRowHeight: hasTitle ? Math.max(title !== "" ? titleLabel.implicitHeight : 0, titleSlot.implicitHeight, switchLoader.item ? switchLoader.item.height : 0, gear.item ? gear.item.height : 0) : 0
+    readonly property real subtitleHeight: subtitleSlot.implicitHeight
+    readonly property real subtitleGap: titleRowHeight > 0 && subtitleHeight > 0 ? Theme.row.lineGap : 0
+    readonly property real titleBlockHeight: titleRowHeight + subtitleGap + subtitleHeight
     readonly property real headerSlotImplicitHeight: headerSlot.children.length > 0 ? headerSlot.implicitHeight : 0
-    readonly property real titleToHeaderGap: titleRowHeight > 0 && headerSlotImplicitHeight > 0 ? Theme.row.lineGap : 0
+    readonly property real titleToHeaderGap: hasTitle && titleBlockHeight > 0 && headerSlotImplicitHeight > 0 ? Theme.stack.titleSpace : 0
     // The header's width: the content width less the gear and its gap
     // while the gear shows.
     readonly property real headerWidth: Math.max(0, contentWidth - gearRoom)
     readonly property real bodyContentHeight: bodyColumn.implicitHeight
-    readonly property real headerHeight: hasTitle ? titleRowHeight + titleToHeaderGap + headerSlotImplicitHeight : Math.max(headerSlotImplicitHeight, gear.item ? gear.item.height : 0)
+    readonly property real headerHeight: hasTitle ? titleBlockHeight + titleToHeaderGap + headerSlotImplicitHeight : Math.max(subtitleHeight + (subtitleHeight > 0 && headerSlotImplicitHeight > 0 ? gap : 0) + headerSlotImplicitHeight, gear.item ? gear.item.height : 0)
     readonly property real footerHeight: footerSlot.children.length > 0 ? footerSlot.implicitHeight : 0
     readonly property bool contentBelowHeader: bodyContentHeight > 0 || footerHeight > 0
-    readonly property real headerGap: headerHeight > 0 && contentBelowHeader ? gap : 0
+    readonly property real headerBodyGap: hasTitle && headerSlotImplicitHeight === 0 ? Theme.stack.titleSpace : gap
+    readonly property real headerGap: headerHeight > 0 && contentBelowHeader ? headerBodyGap : 0
     readonly property real footerGap: footerHeight > 0 && bodyContentHeight > 0 ? gap : 0
     readonly property real uncappedHeight: 2 * contentInset + headerHeight + headerGap + bodyContentHeight + footerGap + footerHeight
     readonly property real cappedHeight: maximumHeight > 0 ? Math.min(uncappedHeight, maximumHeight) : uncappedHeight
@@ -110,7 +120,7 @@ Item {
     // its cap without a binding loop and without overflowing.
     readonly property real bodyRoom: {
         const limit = fitToContent ? (maximumHeight > 0 ? maximumHeight : Infinity) : height;
-        return Math.max(0, limit - 2 * contentInset - headerHeight - footerHeight - (headerHeight > 0 ? gap : 0) - (footerHeight > 0 ? gap : 0));
+        return Math.max(0, limit - 2 * contentInset - headerHeight - footerHeight - (headerHeight > 0 ? headerBodyGap : 0) - (footerHeight > 0 ? gap : 0));
     }
     readonly property alias scrollArea: scroll
 
@@ -130,7 +140,7 @@ Item {
         }
     }
 
-    implicitWidth: Math.max(hasTitle ? titleLabel.implicitWidth + switchRoom + gearRoom : 0, headerSlot.implicitWidth > 0 ? headerSlot.implicitWidth + gearRoom : 0, bodyColumn.implicitWidth, footerSlot.implicitWidth) + 2 * contentInset
+    implicitWidth: Math.max(hasTitle ? Math.max(titleLabel.implicitWidth, titleSlot.implicitWidth, root.slotWidth(subtitleSlot)) + switchRoom + gearRoom : 0, headerSlot.implicitWidth > 0 ? headerSlot.implicitWidth + gearRoom : 0, bodyColumn.implicitWidth, footerSlot.implicitWidth) + 2 * contentInset
     implicitHeight: fitToContent ? cappedHeight : uncappedHeight
 
     ClearingInset {
@@ -190,22 +200,24 @@ Item {
         x: root.contentInset
         y: root.contentInset
         width: root.contentWidth
-        height: root.titleRowHeight
-        visible: root.hasTitle
+        height: root.titleBlockHeight
+        visible: root.hasTitle || titleSlot.children.length > 0 || subtitleSlot.children.length > 0
 
         Label {
             id: titleLabel
-            role: "h3"
+            role: root.titleRole
+            visible: root.title !== ""
+            wrapMode: root.titleWrapMode
             text: root.title
             width: Math.max(0, parent.width - root.switchRoom - root.gearRoom)
-            y: topForCapCenter(parent.height)
+            y: root.titleWrapMode === Text.NoWrap ? topForCapCenter(root.titleRowHeight) : 0
             elide: Text.ElideRight
         }
 
         Loader {
             id: switchLoader
             x: root.switchX(item)
-            y: item ? Math.round((parent.height - item.height) / 2) : 0
+            y: item ? Math.round((root.titleRowHeight - item.height) / 2) : 0
             active: root.hasTitle && root.switchShown
             sourceComponent: Switch {
                 size: "sm"
@@ -228,8 +240,25 @@ Item {
             text: root.switchName
             visible: root.switchLabelShown
             x: switchLoader.x - Theme.stack.inline - width
-            y: topForCapCenter(parent.height)
+            y: topForCapCenter(root.titleRowHeight)
             Accessible.ignored: true
+        }
+
+        // Implicit sizes flow from children; widths flow from the pane:
+        // https://quickshell.org/docs/v0.3.1/guide/size-position/.
+        Item {
+            id: titleSlot
+            width: parent.width - root.gearRoom
+            height: root.titleRowHeight
+            implicitHeight: childrenRect.height
+            implicitWidth: root.slotWidth(titleSlot)
+        }
+
+        Column {
+            id: subtitleSlot
+            y: root.titleRowHeight + root.subtitleGap
+            width: parent.width - root.gearRoom
+            spacing: Theme.row.lineGap
         }
     }
 
@@ -254,7 +283,7 @@ Item {
     Slot {
         id: headerSlot
         x: root.contentInset
-        y: root.contentInset + root.titleRowHeight + root.titleToHeaderGap
+        y: root.contentInset + root.titleBlockHeight + root.titleToHeaderGap + (!root.hasTitle && root.subtitleHeight > 0 && root.headerSlotImplicitHeight > 0 ? root.gap : 0)
         width: root.headerWidth
         height: root.hasTitle ? root.headerSlotImplicitHeight : root.headerHeight
     }

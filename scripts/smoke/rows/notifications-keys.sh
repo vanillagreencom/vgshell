@@ -378,18 +378,10 @@ python3 - "$nk_panel" <<'PY'
 import sys
 path = sys.argv[1]
 text = open(path).read()
-room = "readonly property real hintRoom: hintRow.visible ? look.header.gap + hintRow.Layout.topMargin + hintRow.implicitHeight : 0"
-footer = '''            }
-        }
-
-        KeyHints {
-            id: hintRow
-            Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: root.look.card.width
-            Layout.topMargin: root.look.card.gap
-            visible: root.rows.length > 0
-'''
-in_list = '''
+room = "readonly property real hintRoom: hintRow.visible ? look.header.gap + look.card.gap + hintRow.implicitHeight : 0"
+footer = "\n        footer: [\n"
+list_end = "                    }\n                }\n            }\n        }\n"
+in_list = '''                    }
                 KeyHints {
                     id: hintRow
                     Layout.preferredWidth: root.look.card.width
@@ -399,15 +391,17 @@ in_list = '''
                         { key: "Left/Right", text: "actions" }
                     ]
                 }
+                }
             }
         }
 '''
 assert text.count(room) == 1, "the hints' room under the list occurs once"
-assert text.count(footer) == 1, "the hints under the list occur once"
-text = text.replace(room, "readonly property real hintRoom: 0")
+assert text.count(footer) == 1, "the hints' footer occurs once"
 head, tail = text.split(footer)
-tail = tail.split("        }\n", 1)[1]
-open(path, "w").write(head + in_list + tail)
+assert head.endswith(list_end), "the list ends immediately before the footer"
+head = head[:-len(list_end)] + in_list
+text = head + "    }\n}\n"
+open(path, "w").write(text.replace(room, "readonly property real hintRoom: 0"))
 PY
 rescan "a rescan reads the in-list hints panel copy"
 expect "enabling the notifications beside the in-list hints copy is allowed" ok ipc shell setPluginEnabled vgs.notifications true
@@ -451,9 +445,9 @@ python3 - "$nk_panel" <<'PY'
 import sys
 path = sys.argv[1]
 text = open(path).read()
-needle = "            Layout.fillHeight: true\n            Layout.minimumHeight: 0\n            Layout.maximumHeight: listScroll.implicitHeight\n"
+needle = "            height: Math.min(implicitHeight, column.bodyRoom)\n"
 assert text.count(needle) == 1, "the list's room under the header occurs once"
-open(path, "w").write(text.replace(needle, ""))
+open(path, "w").write(text.replace(needle, "            height: implicitHeight\n"))
 PY
 rescan "a rescan reads the whole-height list copy"
 expect "enabling the notifications beside the whole-height list copy is allowed" ok ipc shell setPluginEnabled vgs.notifications true

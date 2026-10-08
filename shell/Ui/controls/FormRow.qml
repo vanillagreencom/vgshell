@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
 
@@ -76,10 +77,14 @@ Item {
     Label {
         id: labelText
         objectName: "fieldLabel"
-        activeFocusOnTab: root.labelTooltip !== "" && visible
-        readonly property bool visualFocus: activeFocus
-        Tooltip { text: root.labelTooltip }
-        FocusRing { target: labelText; outside: true }
+        readonly property bool visualFocus: labelFocus.visualFocus
+        T.Control {
+            id: labelFocus
+            anchors.fill: parent
+            activeFocusOnTab: root.labelTooltip !== "" && visible
+            Tooltip { text: root.labelTooltip }
+        }
+        FocusRing { target: labelFocus; outside: true }
         role: "label"
         text: root.label
         visible: root.labelColumn

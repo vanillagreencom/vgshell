@@ -206,6 +206,44 @@ FocusScope {
             // Window destruction can clear mountBox before this binding stops.
             footer: mountBox !== null && mountBox.mounted !== null && mountBox.mounted.footer !== null ? [mountBox.mounted.footer] : []
 
+            titleContent: [
+                Item {
+                    id: heading
+                    width: parent.width
+                    visible: root.row !== null
+                    implicitHeight: Math.max(icon.implicitHeight, title.implicitHeight, placed.implicitHeight)
+
+                    Icon {
+                        id: icon
+                        name: root.row === null ? "" : root.row.icon
+                        size: Theme.icon.size.lg
+                        color: Theme.color.text
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Label {
+                        id: title
+                        role: "windowTitle"
+                        text: root.row === null ? "" : root.row.name
+                        x: icon.width + Theme.control.gap
+                        width: Math.max(0, (placed.visible ? placed.x - Theme.control.gap : parent.width) - x)
+                        elide: Text.ElideRight
+                        y: topForCapCenter(heading.height)
+                    }
+                    Switch {
+                        id: placed
+                        text: "Show in bar"
+                        visible: root.row !== null && root.row.hasWidget
+                        checked: root.row !== null && root.row.placed
+                        x: parent.width - width
+                        anchors.verticalCenter: parent.verticalCenter
+                        onToggled: {
+                            checked = Qt.binding(() => root.row !== null && root.row.placed);
+                            root.togglePlaced(root.paneId);
+                        }
+                    }
+                }
+            ]
+
             header: [
                 Column {
                     width: page.contentWidth
@@ -220,41 +258,6 @@ FocusScope {
                         wrapMode: Text.Wrap
                     }
 
-                    Item {
-                        id: heading
-                        width: parent.width
-                        visible: root.row !== null
-                        implicitHeight: Math.max(icon.implicitHeight, title.implicitHeight, placed.implicitHeight)
-
-                        Icon {
-                            id: icon
-                            name: root.row === null ? "" : root.row.icon
-                            size: Theme.icon.size.lg
-                            color: Theme.color.text
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                        Label {
-                            id: title
-                            role: "windowTitle"
-                            text: root.row === null ? "" : root.row.name
-                            x: icon.width + Theme.control.gap
-                            width: Math.max(0, (placed.visible ? placed.x - Theme.control.gap : parent.width) - x)
-                            elide: Text.ElideRight
-                            y: topForCapCenter(heading.height)
-                        }
-                        Switch {
-                            id: placed
-                            text: "Show in bar"
-                            visible: root.row !== null && root.row.hasWidget
-                            checked: root.row !== null && root.row.placed
-                            x: parent.width - width
-                            anchors.verticalCenter: parent.verticalCenter
-                            onToggled: {
-                                checked = Qt.binding(() => root.row !== null && root.row.placed);
-                                root.togglePlaced(root.paneId);
-                            }
-                        }
-                    }
                 }
             ]
 

@@ -104,11 +104,11 @@ FocusScope {
         anchors.fill: parent
         container: "window"
 
-        header: [
+        title: "Jarvis console"
+        subtitle: [
             Column {
                 width: layout.contentWidth
                 spacing: Theme.row.lineGap
-                Label { role: "windowTitle"; text: "Jarvis console" }
                 Label {
                     width: parent.width
                     role: "hint"

@@ -1654,7 +1654,9 @@ items = [i for i in json.loads(lines[1]) if i["visible"]]
 def first(pred):
     return next((i for i in items if pred(i)), None)
 header = first(lambda i: i["type"] == "InboxHeader")
-view = first(lambda i: i["type"] == "QQuickFlickable")
+views = [i for i in items if i["type"] == "QQuickFlickable"]
+# Pane owns the outer scroll frame; CardScroll owns the last nested view.
+view = views[-1] if views else None
 cards = [i for i in items if i["type"] == "NotificationCard"]
 hints = first(lambda i: i["type"] == "KeyHints")
 if header is None or view is None or hints is None or not cards:

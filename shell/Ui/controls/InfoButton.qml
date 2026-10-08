@@ -23,13 +23,13 @@ IconButton {
     property bool returnWasVisual: false
     property bool returning: false
 
-    function openInfo(reason) {
+    function openInfo() {
         if (info === "") return;
         const made = ensurePopup();
         if (made === null) return;
         returnWasVisual = visualFocus;
         returning = true;
-        made.open(reason === undefined ? Qt.TabFocusReason : reason);
+        made.open();
     }
 
     function closeInfo() {
@@ -63,7 +63,7 @@ IconButton {
         old.destroy();
     }
 
-    onClicked: openInfo(visualFocus ? Qt.ShortcutFocusReason : Qt.MouseFocusReason)
+    onClicked: openInfo()
     onInfoChanged: if (info === "") destroyPopup()
     Component.onDestruction: destroyPopup()
 

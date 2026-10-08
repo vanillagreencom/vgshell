@@ -121,7 +121,7 @@ FocusScope {
             if (!shift) change("delete", current);
             else if (total > 0) {
                 confirming = true;
-                confirm.forceActiveFocus(Qt.ShortcutFocusReason);
+                confirm.forceActiveFocus(Qt.OtherFocusReason);
             }
             return true;
         }

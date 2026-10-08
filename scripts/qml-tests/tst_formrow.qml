@@ -54,6 +54,14 @@ Item {
     }
 
     FormRow { id: roled; y: 840; width: 420; label: "Speed"; warning: "Overridden"; warningRole: "tooltip"; Switch { size: "sm" } }
+    FormRow {
+        id: explainedLabel
+        y: 860
+        width: 420
+        label: "Shortcut"
+        labelTooltip: "Change its keyboard shortcut."
+        Label { role: "value"; text: "Available" }
+    }
 
     TestCase {
         name: "formrow"
@@ -78,6 +86,19 @@ Item {
         function messageBottom(row, item) {
             const message = messageOf(row);
             return message.mapToItem(item, 0, message.height).y;
+        }
+
+        function test_label_focus_uses_qt_keyboard_state() {
+            const label = labelOf(explainedLabel);
+            const control = label.children.find(child => child.visualFocus !== undefined);
+            const ring = label.children.find(child => String(child).indexOf("FocusRing") === 0);
+            control.forceActiveFocus(Qt.OtherFocusReason);
+            compare(control.activeFocus, true);
+            compare(ring.visible, false);
+            keyClick(Qt.Key_Tab);
+            keyClick(Qt.Key_Backtab);
+            compare(control.activeFocus, true);
+            compare(ring.visible, true);
         }
 
         function test_a_row_is_the_row_height_with_a_label_column() {

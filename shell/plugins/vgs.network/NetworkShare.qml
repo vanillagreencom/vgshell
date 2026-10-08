@@ -24,7 +24,7 @@ FocusScope {
     Component.onCompleted: {
         helper.command = ["python3", helperPath, target.interface, target.name, target.security];
         helper.running = true;
-        Qt.callLater(() => closeButton.forceActiveFocus(Qt.ShortcutFocusReason));
+        Qt.callLater(() => closeButton.forceActiveFocus(Qt.OtherFocusReason));
     }
     Process {
         id: helper
@@ -35,11 +35,16 @@ FocusScope {
             root.shareState = code === 0 && output.text !== "" ? { kind: "ready", data: output.text } : { kind: "failed", data: "" };
         }
     }
-    Column {
+    Pane {
         id: content
         width: root.width
-        spacing: Theme.stack.group
-        Label { width: parent.width; role: "bodyStrong"; text: root.target === null ? "Share Wi-Fi" : root.target.name; wrapMode: Text.Wrap }
+        container: "panel"
+        fitToContent: true
+        padding: 0
+        cornerRadius: 0
+        title: root.target === null ? "Share Wi-Fi" : root.target.name
+        titleRole: "bodyStrong"
+        titleWrapMode: Text.Wrap
         Label { width: parent.width; role: "hint"; text: root.shareState.kind === "loading" ? "Creating QR code…" : root.shareState.kind === "failed" ? "This network could not be shared. NetworkManager may require access to its saved password." : "Scan to join this network."; wrapMode: Text.Wrap }
         QrMatrix {
             id: matrix

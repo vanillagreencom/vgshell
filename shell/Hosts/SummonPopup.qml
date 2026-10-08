@@ -59,8 +59,8 @@ PopupWindow {
     }
     onAnchorItemChanged: if (anchorItem === null) dismissed()
 
-    function focusInitial(reason) {
-        slot.focusInitial(reason);
+    function focusInitial() {
+        slot.focusInitial();
     }
 
     // The height from the anchor's bottom edge to the output's bottom, less
@@ -131,7 +131,7 @@ PopupWindow {
             Keys.onEscapePressed: popup.dismissed()
             onBuilt: instance => {
                 popup.built(instance);
-                slot.focusInitial(Qt.MouseFocusReason);
+                slot.focusInitial();
             }
             onBuildFailed: key => popup.dismissed()
         }

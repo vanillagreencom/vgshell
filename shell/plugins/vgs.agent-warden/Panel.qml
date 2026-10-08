@@ -106,7 +106,7 @@ Item {
         maximumHeight: Theme.size.panel.maxHeight
         title: "Agents"
 
-        header: [
+        subtitle: [
             Label {
                 width: layout.headerWidth
                 role: "body"

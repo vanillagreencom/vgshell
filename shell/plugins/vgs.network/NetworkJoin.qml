@@ -36,7 +36,7 @@ FocusScope {
         pending = false;
     }
     Component.onDestruction: clear()
-    Component.onCompleted: Qt.callLater(() => initialFocus.forceActiveFocus(Qt.ShortcutFocusReason))
+    Component.onCompleted: Qt.callLater(() => initialFocus.forceActiveFocus(Qt.OtherFocusReason))
 
     function submit() {
         if (!canSubmit || shell === null) return;
@@ -51,11 +51,16 @@ FocusScope {
             helper => { helper.write(secret); helper.stdinEnabled = false; }, root.finish);
         if (reply !== "ok") { pending = false; result = { kind: reply === "busy" ? "busy" : "unavailable" }; notice = reply === "busy" ? "A network change is still in progress." : "The network action is unavailable."; }
     }
-    Column {
+    Pane {
         id: content
         width: root.width
-        spacing: Theme.stack.group
-        Label { width: parent.width; role: "bodyStrong"; text: root.target === null ? "Other Network" : "Join " + root.target.name; wrapMode: Text.Wrap }
+        container: "panel"
+        fitToContent: true
+        padding: 0
+        cornerRadius: 0
+        title: root.target === null ? "Other Network" : "Join " + root.target.name
+        titleRole: "bodyStrong"
+        titleWrapMode: Text.Wrap
         Label {
             width: parent.width
             role: "hint"

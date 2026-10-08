@@ -16,7 +16,7 @@
 # WAYLAND_DISPLAY and XDG_RUNTIME_DIR included, plus grim.
 #
 
-# SCENE is gallery, settings, wide-settings, focus, plugin-pages, manager, launcher,
+# SCENE is gallery, settings, wide-settings, focus, focus-open, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
 # keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, plugin-messages, traffic, ai-usage, sysmon or theme-previews. settings takes the
@@ -221,7 +221,7 @@ while [[ $# -gt 0 ]]; do
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|gallery|settings|wide-settings|focus|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|plugin-messages|traffic|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
+    sysmon|gallery|settings|wide-settings|focus|focus-open|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|plugin-messages|traffic|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -317,6 +317,7 @@ scene_ships() {
     wide-settings) ships_plugin vgs.system vgs.displays vgs.mouse vgs.sound ;;
     gallery) ships_plugin vgs.gallery ;;
     focus) ships_plugin vgs.gallery vgs.settings ;;
+    focus-open) ships_plugin vgs.settings vgs.network vgs.system ;;
     launcher|notifications) ships_plugin "vgs.$1" ;;
     automations) ships_plugin vgs.automations ;;
     screensaver) ships_plugin vgs.screensaver ;;
@@ -3069,6 +3070,68 @@ close_notices() {
   done
   expect_poll "Escape closed every requirement notice" null notice_shown
 }
+# Initial focus and the title block on a Settings dialog, an anchored
+# Network panel and the join form. Posed shots preserve the keyboard ring
+# before and after Tab, including when --rev reads the old focus policy.
+scene_focus-open() { # MODE
+  expect "Settings opens for the title and focus comparison" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "Settings maps for the comparison" 1 settings_count
+  expect "the comparison opens its fixture page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin acme.probe
+  expect_poll "the comparison fixture page is shown" '"acme.probe"' settings_page
+  local edit_box
+  edit_box="$(ipc smoke invokeInstance "$settings_kind" vgs.settings holdField '{"id":"acme.probe","key":"gap","text":"12"}')" || edit_box="unread"
+  [[ $edit_box == \[* ]] || fail "the comparison Gap field took no edit: $edit_box"
+  expect "Back raises the comparison dialog" "refused: unsaved=acme.probe" ipc smoke invokeInstance "$settings_kind" vgs.settings back ''
+  expect_poll "the comparison dialog is shown" True focus_open_settings_dialog
+  park_pointer
+  take_posed "focus-open-$1-settings-dialog-opened"
+  type_keys -k Tab || fail "Tab in the Settings comparison dialog failed"
+  park_pointer
+  take_posed "focus-open-$1-settings-dialog-tab"
+  ipc smoke invokeInstance "$settings_kind" vgs.settings answer discard >/dev/null || fail "the comparison dialog could not discard its synthetic edit"
+  settings_close
+
+  devices_ready focus-open-shot || return 0
+  device_reply systemctl 0 $'LoadState=loaded\nActiveState=active' show --property=LoadState --property=ActiveState NetworkManager.service
+  device_reply nmcli 0 'org.freedesktop.NetworkManager.network-control:yes' -t -f PERMISSION,VALUE general permissions
+  expect "the comparison prepares fake Wi-Fi" ok python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" prepare
+  expect "Network enables for the comparison" ok ipc shell setPluginEnabled vgs.network true
+  expect "Network refreshes its comparison replies" ok ipc vgs.network invoke refresh ''
+  expect_poll "Network has comparison permission" '"allowed"' ipc smoke readInstance service vgs.network access
+  expect_poll "Network has its comparison service" '"running"' ipc smoke readInstance service vgs.network serviceState
+  expect "System enables for the comparison" ok ipc shell setPluginEnabled vgs.system true
+  expect "Network is placed for the anchored comparison" ok ipc shell setPluginPlaced vgs.network true
+  expect_poll "the network widget is built for the comparison" True record_exists vgs.network
+  click_centre "$(bar_key)" vgs.network || fail "the comparison network widget did not open its panel"
+  expect_poll "the comparison network panel is shown" shown network_shot_panel
+  park_pointer
+  take_posed "focus-open-$1-network-panel-opened"
+  type_keys -k Tab || fail "Tab in the network comparison panel failed"
+  park_pointer
+  take_posed "focus-open-$1-network-panel-tab"
+  expect "the comparison network panel closes" ok ipc shell hide panel vgs.network
+
+  expect "the comparison opens Network in System" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+  expect_poll "the comparison Network pane mounts" shown network_shot_shown
+  expect_poll "the comparison Network pane reads the saved mock" '[["VGS Smoke Wi-Fi", "Wpa2Psk", true]]' network_shot_names
+  expect "the comparison reveals Other Network" scrolled network_shot_other_reveal
+  click_in 'window:System Settings' window vgs.network Button 'Other Network…' || fail "the comparison Other Network form did not open"
+  expect_poll "the comparison join input owns focus" true ipc smoke activeFocusWithin window vgs.network NetworkJoin
+  park_pointer
+  take_posed "focus-open-$1-network-join-opened"
+  type_keys -k Tab || fail "Tab in the network join comparison failed"
+  park_pointer
+  take_posed "focus-open-$1-network-join-tab"
+  expect "the comparison System window closes" ok ipc shell hide window vgs.system
+  expect "the comparison forgets its saved fake profile" ok ipc vgs.network invoke action '{"kind":"forget","key":"[\"wlan0\",\"VGS Smoke Wi-Fi\"]"}'
+  expect_poll "the comparison releases its saved fake profile" False network_shot_known
+  expect "Network disables after the comparison" ok ipc shell setPluginEnabled vgs.network false
+  expect "System disables after the comparison" ok ipc shell setPluginEnabled vgs.system false
+  device_reply_clear nmcli
+  device_reply_clear systemctl
+}
+focus_open_settings_dialog() { ipc smoke dialogCard "$settings_kind" vgs.settings | py_reply 'import json,sys; print(json.load(sys.stdin)["shown"])'; }
+
 # Network reads S08's mock and command stand-ins. Its pane is a real
 # System section, so this shot includes the holder's sidebar and inset.
 scene_network() { # MODE
@@ -3580,6 +3643,7 @@ for scene in "${scenes[@]}"; do
     theme-previews) need_setup launcher; need_setup panels; need_setup bar; need_setup ai-usage ;;
     tooltips) need_setup launcher; need_setup panels; need_setup bar; need_setup tooltips ;;
     focus) need_setup settings ;;
+    focus-open) need_setup settings; need_setup network ;;
     narrow) for s in launcher panels bar devtools dialog notifications gallery; do need_setup "$s"; done
       ! scene_ships lock || need_setup lock ;;
     *) need_setup "$scene" ;;

@@ -93,6 +93,17 @@ Item {
             compare(missing.activeFocusOnTab, false);
         }
 
+        function test_initial_focus_has_no_ring_and_tab_shows_it() {
+            linked.forceActiveFocus(Qt.OtherFocusReason);
+            const ring = linked.children.find(child => String(child).indexOf("FocusRing") === 0);
+            compare(linked.activeFocus, true);
+            compare(ring.visible, false);
+            keyClick(Qt.Key_Tab);
+            keyClick(Qt.Key_Backtab);
+            compare(linked.activeFocus, true);
+            compare(ring.visible, true);
+        }
+
         function test_clicked_signal_activates() {
             linked.clicked();
             compare(activated.count, 1);

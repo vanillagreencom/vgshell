@@ -65,7 +65,7 @@ FocusScope {
         container: "window"
         bodySpacing: 0
 
-        header: [
+        titleContent: [
             PageHeader {
                 width: layout.contentWidth
                 text: "Automations"

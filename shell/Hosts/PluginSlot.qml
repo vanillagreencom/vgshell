@@ -29,8 +29,6 @@ FocusScope {
     // Call the instance's close() before destroying it: a summoned kind's
     // host sets it, so a plugin closed by hide or by being disabled hears it.
     property bool closeOnUnload: false
-    property Item pendingFocusTarget: null
-    property int pendingFocusReason: Qt.OtherFocusReason
     property var releaseInputSurface: null
     readonly property var inputWindow: slot.Window.window
     onInputWindowChanged: {
@@ -59,45 +57,14 @@ FocusScope {
         return typeof target.forceActiveFocus === "function" ? target : slot;
     }
 
-    function keyFocusReason(reason) {
-        return reason === Qt.ShortcutFocusReason || reason === Qt.TabFocusReason || reason === Qt.BacktabFocusReason;
-    }
-
-    function applyPendingFocus() {
-        if (pendingFocusTarget === null) return;
-        const target = pendingFocusTarget;
-        const reason = pendingFocusReason;
-        pendingFocusTarget = null;
-        pendingFocusReason = Qt.OtherFocusReason;
-        target.forceActiveFocus(reason);
-    }
-
-    // A keyboard summon focuses only once the window is active: a focus
-    // forced before then reports the activation reason, not the summon's.
-    function focusInitial(reason) {
-        pendingFocusTarget = null;
-        pendingFocusReason = Qt.OtherFocusReason;
+    // Qt's no-keyboard reason keeps initial focus without a visible ring.
+    // It also needs no deferred target across window activation or unload.
+    // https://doc.qt.io/qt-6/qml-qtquick-item.html#forceActiveFocus-method
+    function focusInitial() {
         const target = focusTarget();
-        const window = slot.Window.window;
-        if (!keyFocusReason(reason) || (window !== null && window.active)) {
-            target.forceActiveFocus(reason);
-            return;
-        }
-        pendingFocusTarget = target;
-        pendingFocusReason = reason;
-    }
-
-    Connections {
-        id: windowFocusConnection
-        target: slot.Window.window
-        function onActiveChanged() {
-            if (windowFocusConnection.target.active) slot.applyPendingFocus();
-        }
-    }
-
-    function clearPendingFocus() {
-        pendingFocusTarget = null;
-        pendingFocusReason = Qt.OtherFocusReason;
+        target.forceActiveFocus(Qt.OtherFocusReason);
+        // Qt keeps a focused Control's previous reason when focus stays put.
+        if ("focusReason" in target) target.focusReason = Qt.OtherFocusReason;
     }
 
     // Open the manager's window at the Settings page of `settingsPage`,
@@ -117,7 +84,6 @@ FocusScope {
     }
 
     function unload() {
-        clearPendingFocus();
         if (instance !== null) {
             if (closeOnUnload) {
                 try {

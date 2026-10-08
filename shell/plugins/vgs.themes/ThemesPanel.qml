@@ -295,12 +295,7 @@ Item {
         fitToContent: true
         maximumHeight: Theme.size.panel.maxHeight
 
-        header: [
-            Label {
-                role: "h3"
-                text: "Themes"
-            }
-        ]
+        title: "Themes"
 
         // In the item that holds the theme rows alone, so the pointer on
         // the wallpaper buttons is off the list.

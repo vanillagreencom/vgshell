@@ -48,7 +48,7 @@ Item {
     function reset() {
         error = "";
         input.text = request === null && renaming !== "" ? renaming : "";
-        Qt.callLater(() => { if (root.shown) dialog.forceActiveFocus(Qt.TabFocusReason); });
+        Qt.callLater(() => { if (root.shown) dialog.forceActiveFocus(Qt.OtherFocusReason); });
     }
 
     function accept() {

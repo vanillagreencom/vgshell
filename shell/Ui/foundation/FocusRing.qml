@@ -1,11 +1,12 @@
 import QtQuick
 import qs.Commons
 
-// The ring a control draws while it has keyboard focus. It shows for
-// `visualFocus`, which Qt raises for keyboard focus and not for a click,
-// so a pointer user never sees it. A target without `visualFocus`, such as
-// a text input or a plain item, shows it for `activeFocus`, since an input
-// with the caret is focused however it got there.
+// Qt Controls expose visualFocus; TextField and TextArea expose focusReason.
+// Qt 6.11 Item has neither (installed QtQuick/plugins.qmltypes), so plain
+// focusable content uses a QtQuick.Templates.Control for the same state.
+// https://doc.qt.io/qt-6/qml-qtquick-controls-control.html#visualFocus-prop
+// Initial focus keeps its caret without a ring. Keyboard navigation gives
+// the target Tab, Backtab or Shortcut focus before its ring appears.
 //
 // It has two placements. A box control, whose shape holds its label or
 // content, such as a button, a field or a bar item, draws the ring on its
@@ -46,9 +47,11 @@ Rectangle {
     // on a square target.
     readonly property real ringRadius: targetRadius === 0 ? 0 : Math.max(0, targetRadius + extent)
 
+    readonly property bool keyboardFocus: [Qt.TabFocusReason, Qt.BacktabFocusReason, Qt.ShortcutFocusReason].indexOf(target.focusReason) !== -1
+
     anchors.fill: parent
     anchors.margins: -extent
-    visible: target.focusPreview === true || (("visualFocus" in target) ? target.visualFocus : target.activeFocus)
+    visible: target.focusPreview === true || (("visualFocus" in target) ? target.visualFocus : target.activeFocus && keyboardFocus)
     color: "transparent"
     border.color: drawnColor
     border.width: Theme.focusRing.width

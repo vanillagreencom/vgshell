@@ -335,9 +335,9 @@ Item {
 
         function test_header_slot_sits_under_the_title_row() {
             const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 240; container: "panel"; fitToContent: true; title: "Agents"; header: [ Label { role: "body"; text: "Agent Warden is starting."; width: parent.width } ]\nItem { width: parent.width; height: 20 } }', root, "titleWithHeader");
-            compare(headerSlot(made).y, made.contentInset + titleRow(made).height + Theme.row.lineGap);
+            compare(headerSlot(made).y, made.contentInset + titleRow(made).height + Theme.stack.titleSpace);
             compare(headerSlot(made).children[0].text, "Agent Warden is starting.");
-            compare(made.headerHeight, titleRow(made).height + Theme.row.lineGap + headerSlot(made).implicitHeight);
+            compare(made.headerHeight, titleRow(made).height + Theme.stack.titleSpace + headerSlot(made).implicitHeight);
             made.destroy();
         }
 

@@ -71,15 +71,12 @@ FocusScope {
         anchors.fill: parent
         container: "window"
 
-        header: [
+        title: "Updates"
+        subtitle: [
             Column {
                 width: layout.contentWidth
                 spacing: Theme.row.lineGap
 
-                Label {
-                    role: "windowTitle"
-                    text: "Updates"
-                }
                 Row {
                     width: parent.width
                     spacing: Theme.control.gap

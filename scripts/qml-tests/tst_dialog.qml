@@ -7,7 +7,7 @@ import qs.Ui
 import qs.Unit
 
 // Dialog: the card, the title and the message drawn from the `dialog`
-// tokens; the accept action focused first with a ring, or the action
+// tokens; the accept action focused first without a ring, or the action
 // marked `focused`; Enter and Return
 // pressing the focused action or the accept action, Escape rejecting; Tab
 // and Shift+Tab, in either form a keymap reports it, cycling the enabled
@@ -112,9 +112,8 @@ Item {
 
         function card(of) { return of.children[0]; }
         function pane(of) { return of.children[1]; }
-        function headerColumn(of) { return pane(of).children[2].children[0]; }
-        function titleLabel(of) { return headerColumn(of).children[0]; }
-        function messageLabel(of) { return headerColumn(of).children[1]; }
+        function titleLabel(of) { return pane(of).children[0].children[0]; }
+        function messageLabel(of) { return pane(of).children[0].children[4].children[0]; }
         function footer(of) { return pane(of).children[4].children[0]; }
         function headerSlot(of) { return pane(of).children[2]; }
         function footerSlot(of) { return pane(of).children[4]; }
@@ -127,7 +126,7 @@ Item {
             compare(String(card(dialog).border.color), String(Qt.color(Theme.dialog.border)));
             compare(card(dialog).radius, Theme.dialog.radius);
             compare(pane(dialog).contentInset, Theme.dialog.padding);
-            compare(headerColumn(dialog).spacing, Theme.dialog.gap);
+            compare(pane(dialog).subtitleGap, Theme.row.lineGap);
             compare(titleLabel(dialog).role, Theme.dialog.titleRole);
             compare(titleLabel(dialog).text, "Download wallpapers?");
             compare(messageLabel(dialog).role, Theme.dialog.bodyRole);
@@ -135,7 +134,7 @@ Item {
             compare(pane(dialog).scrollArea.rightInset, pane(dialog).contentInset);
         }
 
-        function test_accept_action_takes_the_focus_with_a_ring() {
+        function test_accept_action_takes_initial_focus_without_a_ring() {
             const [notNow, download] = dialog.buttons();
             dialog.forceActiveFocus();
             compare(download.activeFocus, true);
@@ -147,8 +146,26 @@ Item {
             dialog.forceActiveFocus();
             compare(download.activeFocus, true);
             compare(notNow.activeFocus, false);
-            compare(download.visualFocus, true);
+            compare(download.visualFocus, false);
+            compare(ring(download).visible, false);
+            keyClick(Qt.Key_Tab);
+            compare(edit.activeFocus, true);
+            keyClick(Qt.Key_Tab);
+            compare(notNow.activeFocus, true);
+            compare(ring(notNow).visible, true);
+        }
+
+        function test_repeated_initial_focus_clears_the_existing_keyboard_reason() {
+            const [notNow, download] = dialog.buttons();
+            dialog.forceActiveFocus();
+            keyClick(Qt.Key_Backtab);
+            keyClick(Qt.Key_Tab);
+            compare(download.activeFocus, true);
             compare(ring(download).visible, true);
+            dialog.focusInitial();
+            compare(download.activeFocus, true);
+            compare(download.visualFocus, false);
+            compare(ring(download).visible, false);
         }
 
         function test_enter_and_return_accept_and_escape_rejects() {
@@ -457,8 +474,8 @@ Item {
             for (const ofDialog of [emptyBody, hiddenBody]) {
                 const p = pane(ofDialog);
                 compare(p.bodyContentHeight, 0);
-                compare(footerSlot(ofDialog).y, headerSlot(ofDialog).y + headerSlot(ofDialog).height + p.gap);
-                compare(ofDialog.implicitHeight, 2 * p.contentInset + p.headerHeight + p.gap + p.footerHeight);
+                compare(footerSlot(ofDialog).y, p.contentInset + p.headerHeight + Theme.stack.titleSpace);
+                compare(ofDialog.implicitHeight, 2 * p.contentInset + p.headerHeight + Theme.stack.titleSpace + p.footerHeight);
             }
         }
 

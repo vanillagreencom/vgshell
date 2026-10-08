@@ -83,8 +83,12 @@ Item {
             const ring = plain.background.children[plain.background.children.length - 1];
             compare(String(plain.outline), String(Qt.color(Theme.textField.borderColor)));
             compare(ring.visible, false);
-            plain.forceActiveFocus();
+            plain.forceActiveFocus(Qt.OtherFocusReason);
             compare(String(plain.outline), String(Qt.color(Theme.textField.focus)));
+            compare(ring.visible, false);
+            keyClick(Qt.Key_Tab);
+            keyClick(Qt.Key_Backtab);
+            compare(plain.activeFocus, true);
             compare(ring.visible, true);
             compare(String(ring.border.color), String(Qt.color(Theme.focusRing.color)));
             plain.error = true;

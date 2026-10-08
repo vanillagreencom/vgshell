@@ -418,7 +418,7 @@ expect "the tooltip ends with the check's time" True widget_tip_last
 expect "the Updates window is closed before the keyboard path" ok ipc shell hide window vgs.updates
 expect "the updates shortcut opens the window" ok hypr dispatch 'hl.dsp.global("vgs.updates:toggle")'
 updates_keyboard "the shortcut's keys"
-expect_poll "the shortcut opens with a visible focus ring in view" '[true, true, true]' updates_focused
+expect_poll "the shortcut opens with primary focus and no ring" '[false, false, true]' updates_focused
 forget_record
 type_keys -k Left || fail "sending Left to the updates row control failed"
 type_keys -k Space || fail "sending Space to expand the first updates row failed"
@@ -430,7 +430,7 @@ expect_poll "Return on the source Update button opens the source update TUI" '["
 expect_run_end "the keyboard source Update run ends" vgs.updates/update-source
 expect_poll "the service is idle after the keyboard source update run" idle updates_idle
 fresh_updates "the Update everything keyboard path"
-expect_poll "the reopened Updates window starts with a visible focus ring in view" '[true, true, true]' updates_focused
+expect_poll "the reopened Updates window starts without a ring" '[false, false, true]' updates_focused
 forget_record
 type_keys -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Tab -k Return || fail "sending Tab and Return to Update everything failed"
 expect_poll "Return on Update everything opens the update TUI with no argument" '["update.sh"]' launched

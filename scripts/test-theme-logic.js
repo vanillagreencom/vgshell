@@ -79,6 +79,7 @@ const DEFAULTS = [
     ["text.body.size", 15],
     // Line boxes on the 4 px grid: 15 * 1.6 = 24, 16 * 1.5 = 24, 18 * 1.333 = 24, 20 * 1.4 = 28.
     ["text.body.lineHeight", 1.6],
+    ["stack.titleSpace", 24],
     ["text.h3.lineHeight", 1.5],
     ["text.windowTitle.lineHeight", 1.333],
     ["text.h2.lineHeight", 1.4],
@@ -353,7 +354,9 @@ const ACCEPTED = [
     { tokens: { radius: { sm: 6, md: 12 } }, want: [["menu.radius", 12], ["menu.item.radius", 12], ["listItem.radius", 6]] },
     // A group list's hairline is a tenth of the foreground: 0.1 * 255 = 25.5, 0x1a.
     { tokens: { palette: { foreground: "#ffffff" } }, want: [["groupList.divider", "#ffffff1a"]] },
-    { tokens: { font: { size: 16 } }, want: [["text.body.size", 16], ["text.hint.size", 14]] },
+    { tokens: { font: { size: 16 } }, want: [["text.body.size", 16], ["text.hint.size", 14], ["stack.titleSpace", 26]] },
+    { tokens: { text: { body: { lineHeight: 2 } } }, want: [["stack.titleSpace", 30]] },
+    { tokens: { stack: { titleSpace: 32 } }, want: [["stack.titleSpace", 32]] },
     { tokens: { motion: { scale: 0 } }, want: [["motion.duration.fast", 0], ["motion.duration.slow", 0], ["motion.list.travel.duration", 0], ["motion.list.enter.duration", 0], ["motion.list.stagger", 0], ["motion.list.rise", 6]] },
     // The list motion follows the scale steps it names: fast at 60 travels
     // 60, and slow at 400 enters mul(400, 1.2) = 480.
@@ -441,7 +444,9 @@ const REFUSED = [
     { tokens: { bar: { active: "#ff5a3680" } }, reason: "contrast-translucent", token: "bar.onActive" },
     { tokens: { motion: { easing: { standard: "bouncy" } } }, reason: "option", token: "motion.easing.standard" },
     { tokens: { scheme: { mode: "dim" } }, reason: "option", token: "scheme.mode" },
-    { tokens: { dialog: { titleRole: "shout" } }, reason: "option", token: "dialog.titleRole" }
+    { tokens: { dialog: { titleRole: "shout" } }, reason: "option", token: "dialog.titleRole" },
+    { tokens: { stack: { titleSpace: 4 } }, reason: "title-space", token: "stack.titleSpace" },
+    { tokens: { stack: { titleSpace: 24 }, font: { size: 20 } }, reason: "title-space", token: "stack.titleSpace" }
 ];
 
 // A plugin's own table and its light overrides, the shape a plugin's
@@ -1018,7 +1023,8 @@ const CONTROLS = [
     ["readability translucency", "var ratio = text === null || surface === null || text.a < 1 || surface.a < 1\n            ? null\n            : contrastRatio(text, surface);", "var ratio = contrastRatio(text, surface);"],
     ["boundary roles", "    \"checkbox.borderColor\",\n", ""],
     ["boundary pairs", "    [\"toggle.knobOff\", \"toggle.off\"],\n", ""],
-    ["boundary floor", "var BOUNDARY_FLOOR = 3;", "var BOUNDARY_FLOOR = 1;"]
+    ["boundary floor", "var BOUNDARY_FLOOR = 3;", "var BOUNDARY_FLOOR = 1;"],
+    ["title space below body line", "if (result.values.stack.titleSpace < bodyLine)", "if (false)"]
 ];
 
 const source = fs.readFileSync(judgeFile, "utf8");

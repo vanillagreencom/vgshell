@@ -37,7 +37,7 @@ FocusScope {
         container: "window"
         bodySpacing: Theme.stack.group
 
-        header: [
+        titleContent: [
             PageHeader {
                 width: layout.contentWidth
                 text: page.draft.saved ? "Edit automation" : "New automation"

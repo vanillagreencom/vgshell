@@ -15,6 +15,8 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 Item {
     id: root
 
+    property alias title: pane.title
+    property alias subtitle: pane.subtitle
     default property alias content: body.data
     readonly property bool opened: window.visible
     readonly property Item anchorItem: parent
@@ -32,11 +34,11 @@ Item {
     }
     Component.onDestruction: share(false)
 
-    function open(reason) {
+    function open() {
         window.visible = true;
         Qt.callLater(() => {
-            if (!focusFirst(scope, reason === undefined ? Qt.TabFocusReason : reason))
-                scope.forceActiveFocus(reason === undefined ? Qt.TabFocusReason : reason);
+            if (!focusFirst(scope, Qt.OtherFocusReason))
+                scope.forceActiveFocus(Qt.OtherFocusReason);
         });
     }
     function close() { window.visible = false; }
@@ -50,6 +52,7 @@ Item {
             if (child.visible === false || child.enabled === false) continue;
             if (KeyNavLogic.canTabFocus(child)) {
                 child.forceActiveFocus(reason);
+                if ("focusReason" in child) child.focusReason = reason;
                 return true;
             }
             if (focusFirst(child, reason)) return true;

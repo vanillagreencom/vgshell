@@ -44,11 +44,11 @@ Item {
         container: "window"
         Component.onCompleted: scrollArea.keyboardScroll = true
 
-        header: [
+        title: "VGS Components"
+        subtitle: [
             Column {
                 width: layout.contentWidth
                 spacing: Theme.row.lineGap
-                Label { role: "windowTitle"; text: "VGS Components" }
                 Label { role: "hint"; color: Theme.color.textMuted; text: "Preview controls with the " + Theme.name + " theme."; width: parent.width; wrapMode: Text.Wrap }
             }
         ]
@@ -398,12 +398,8 @@ Item {
                         Popover {
                             id: popover
                             width: Theme.size.panel.sm
-                            Column {
-                                width: parent.width
-                                spacing: Theme.row.lineGap
-                                Label { role: "bodyStrong"; text: "A popover" }
-                                Label { role: "hint"; text: "This opens below the button." }
-                            }
+                            title: "A popover"
+                            subtitle: Label { role: "hint"; width: parent.width; text: "This opens below the button." }
                         }
                         Tooltip { text: "Opens a popover under this button" }
                     }

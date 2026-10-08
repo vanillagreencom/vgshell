@@ -108,16 +108,22 @@ FocusScope {
 
     // Hand the focus to the action marked `focused`, else the accept action,
     // else the first enabled action.
-    function focusInitial(reason) {
+    function focusInitial() {
         const enabled = buttons().filter(button => button.enabled);
         const first = buttons()[focusIndex !== -1 ? focusIndex : acceptIndex];
         const target = first !== undefined && first.enabled ? first : enabled[0];
-        if (target !== undefined) target.forceActiveFocus(reason === undefined ? Qt.TabFocusReason : reason);
+        if (target !== undefined) {
+            target.forceActiveFocus(Qt.OtherFocusReason);
+            target.focusReason = Qt.OtherFocusReason;
+        }
     }
 
     // Hand the focus to the initial focus item, else the accept action.
     function takeFocus() {
-        if (initialFocus !== null && initialFocus.enabled) initialFocus.forceActiveFocus();
+        if (initialFocus !== null && initialFocus.enabled) {
+            initialFocus.forceActiveFocus();
+            if ("focusReason" in initialFocus) initialFocus.focusReason = Qt.OtherFocusReason;
+        }
         else focusInitial();
     }
 
@@ -249,27 +255,17 @@ FocusScope {
         gap: Theme.dialog.gap
         bodySpacing: Theme.dialog.gap
 
-        header: [
-            Column {
+        title: root.title
+        titleRole: Theme.dialog.titleRole
+        titleWrapMode: Text.Wrap
+        subtitle: [
+            Label {
+                id: messageLabel
+                role: Theme.dialog.bodyRole
+                text: root.message
+                visible: text !== ""
                 width: parent.width
-                spacing: Theme.dialog.gap
-
-                Label {
-                    id: titleLabel
-                    role: Theme.dialog.titleRole
-                    text: root.title
-                    visible: text !== ""
-                    width: parent.width
-                    wrapMode: Text.Wrap
-                }
-                Label {
-                    id: messageLabel
-                    role: Theme.dialog.bodyRole
-                    text: root.message
-                    visible: text !== ""
-                    width: parent.width
-                    wrapMode: Text.Wrap
-                }
+                wrapMode: Text.Wrap
             }
         ]
 

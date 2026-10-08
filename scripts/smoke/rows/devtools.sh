@@ -109,7 +109,7 @@ scroll_bottom() { local r; r="$(ipc smoke scrollTo window vgs.devtools 100000)" 
 launcher_state() { [[ -f $home/.local/bin/$1 ]] && sed -n 2p "$home/.local/bin/$1" || echo absent; }
 devtools_tui_state() { ipc shell lent | py_reply 'import json,sys; t=json.load(sys.stdin)["tui"]; print("present" if any(k.startswith("vgs.devtools/") for k in list(t["runs"].keys()) + t["pending"]) else "absent")'; }
 devtools_focus_moved_from_search() {
-  ipc smoke focused window vgs.devtools | py_reply 'import json,sys; row=json.load(sys.stdin); print("search" if row == ["TextField", "Search tools", True, True, True] else "moved")'
+  ipc smoke focused window vgs.devtools | py_reply 'import json,sys; row=json.load(sys.stdin); print("search" if row == ["TextField", "Search tools", False, False, True] else "moved")'
 }
 select_devtools_tab() {
   local wanted="$1" n

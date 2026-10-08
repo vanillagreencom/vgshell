@@ -84,16 +84,12 @@ FocusScope {
         anchors.fill: parent
         container: "window"
 
+        title: root.title
         header: [
             Column {
                 width: layout.contentWidth
                 spacing: Theme.stack.group
 
-                Label {
-                    role: "windowTitle"
-                    text: root.title
-                    width: parent.width
-                }
                 Label {
                     role: "hint"
                     text: root.notice

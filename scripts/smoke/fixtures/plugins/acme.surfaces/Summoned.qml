@@ -34,6 +34,11 @@ Item {
         focusPolicy: Qt.StrongFocus
         background: Item { FocusRing { target: focusTarget } }
     }
+    Button {
+        text: "Next"
+        x: 120
+        y: 80
+    }
     Item {
         id: container
         x: 40

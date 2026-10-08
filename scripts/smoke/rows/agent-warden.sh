@@ -495,7 +495,7 @@ click "$warden_outside_x" "$warden_outside_y" || fail "the press outside the Age
 expect_poll "a press on the desktop closes the shortcut's Agent Warden panel" hidden warden_panel_shown
 expect_poll "the closed Agent Warden panel leaves no panel layer" 0 layer_count vgs:panel
 expect "the Agent Warden shortcut opens the panel" ok hypr dispatch 'hl.dsp.global("vgs.agent-warden:toggle")'
-expect_poll "the shortcut opens on the primary button with a visible focus ring" '["Set up", true, true, true]' warden_focused
+expect_poll "the shortcut focuses the primary button without a ring" '["Set up", false, false, true]' warden_focused
 forget_record
 type_keys -k Down || fail "sending Down to the Agent Warden control failed"
 expect "control: Down on the primary button runs no TUI" absent recorded_tail

@@ -49,7 +49,7 @@ Item {
                 busy: root.busy
                 onAccepted: root.accepted()
                 onRejected: root.rejected()
-                Component.onCompleted: forceActiveFocus(Qt.TabFocusReason)
+                Component.onCompleted: forceActiveFocus(Qt.OtherFocusReason)
             }
         }
     }

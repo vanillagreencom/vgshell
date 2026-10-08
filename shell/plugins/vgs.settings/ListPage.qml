@@ -84,36 +84,39 @@ FocusScope {
         container: "window"
         bodySpacing: 0
 
+        titleContent: [
+            PageHeader {
+                width: layout.contentWidth
+                text: page.panel.title
+
+                trailing: [
+                    Row {
+                        spacing: Theme.stack.inline
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        Button {
+                            id: add
+                            text: "Add plugin"
+                            iconName: "circle-plus"
+                            variant: "secondary"
+                            onClicked: page.panel.addPlugin()
+                        }
+                        Button {
+                            text: "Reset VGS"
+                            iconName: "rotate-ccw"
+                            variant: "secondary"
+                            onClicked: page.panel.resetVgs()
+                        }
+                    }
+                ]
+            }
+        ]
+
         header: [
             Column {
                 width: layout.contentWidth
                 spacing: Theme.stack.group
 
-                PageHeader {
-                    width: layout.contentWidth
-                    text: page.panel.title
-
-                    trailing: [
-                        Row {
-                            spacing: Theme.stack.inline
-                            anchors.verticalCenter: parent.verticalCenter
-
-                            Button {
-                                id: add
-                                text: "Add plugin"
-                                iconName: "circle-plus"
-                                variant: "secondary"
-                                onClicked: page.panel.addPlugin()
-                            }
-                            Button {
-                                text: "Reset VGS"
-                                iconName: "rotate-ccw"
-                                variant: "secondary"
-                                onClicked: page.panel.resetVgs()
-                            }
-                        }
-                    ]
-                }
                 Label {
                     role: "hint"
                     text: page.panel.notice

@@ -20,25 +20,20 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         y: Theme.dialog.margin
         width: Math.min(parent.width - 2 * Theme.dialog.margin, Theme.dialog.width)
-        height: content.implicitHeight + 2 * Theme.dialog.padding
+        height: content.implicitHeight
         radius: Theme.dialog.radius
         color: Theme.dialog.background
         border.width: Theme.border.thin
         border.color: Theme.dialog.border
 
-        Column {
+        Pane {
             id: content
             anchors.fill: parent
-            anchors.margins: Theme.dialog.padding
-            spacing: Theme.dialog.gap
-
-            Label {
-                width: parent.width
-                role: Theme.dialog.titleRole
-                text: "Keep these display settings?"
-                wrapMode: Text.Wrap
-            }
-
+            container: "dialog"
+            fitToContent: true
+            title: "Keep these display settings?"
+            titleRole: Theme.dialog.titleRole
+            titleWrapMode: Text.Wrap
             Label {
                 width: parent.width
                 role: Theme.dialog.bodyRole

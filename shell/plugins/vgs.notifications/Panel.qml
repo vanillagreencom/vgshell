@@ -30,12 +30,12 @@ FocusScope {
 
     // As wide as the column: the cards with their side room, where the
     // scroll bar sits, wider than the header they sit under.
-    implicitWidth: column.implicitWidth
-    readonly property real panelMaxHeight: look.header.height + look.header.gap + look.panel.rowCap * (look.card.maxHeight + look.card.gap) + look.stack.tail
+    implicitWidth: Math.max(header.implicitWidth, listScroll.implicitWidth) + 2 * column.contentInset
+    readonly property real panelMaxHeight: 2 * column.contentInset + look.header.height + column.headerBodyGap + look.panel.rowCap * (look.card.maxHeight + look.card.gap) + look.stack.tail
     // The key hints sit under the list, outside its scroll, and the list
     // gives up their room within the panel's cap.
-    readonly property real hintRoom: hintRow.visible ? look.header.gap + hintRow.Layout.topMargin + hintRow.implicitHeight : 0
-    implicitHeight: Math.min(look.header.height + look.header.gap + listFrame.implicitHeight + hintRoom, panelMaxHeight)
+    readonly property real hintRoom: hintRow.visible ? look.header.gap + look.card.gap + hintRow.implicitHeight : 0
+    implicitHeight: Math.min(2 * column.contentInset + column.headerHeight + column.headerBodyGap + listScroll.implicitHeight + hintRoom, panelMaxHeight)
 
     onCurrentIndexChanged: {
         if (refreshing) return;
@@ -259,57 +259,55 @@ FocusScope {
         if (selectedHoverKey !== "") setHover(selectedHoverKey, true);
     }
 
-    ColumnLayout {
+    Pane {
         id: column
         anchors.fill: parent
-        spacing: look.header.gap
+        container: "panel"
+        padding: 0
+        cornerRadius: 0
+        gap: root.look.header.gap
 
-        InboxHeader {
-            id: header
-            look: root.look
-            settingsHost: root.parent
-            mode: root.mode
-            subtitle: root.subtitle
-            silenced: root.silenced
-            textColumn: listScroll.textColumn
-            shown: true
-            Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: implicitWidth
-            Layout.preferredHeight: implicitHeight
-            onSilenceRequested: on => {
-                root.call("silence", on ? "on" : "off");
-                root.refresh();
+        titleContent: [
+            InboxHeader {
+                id: header
+                look: root.look
+                settingsHost: root.parent
+                mode: root.mode
+                subtitle: root.subtitle
+                silenced: root.silenced
+                textColumn: listScroll.textColumn
+                shown: true
+                width: implicitWidth
+                x: (parent.width - width) / 2
+                onSilenceRequested: on => {
+                    root.call("silence", on ? "on" : "off");
+                    root.refresh();
+                }
+                onClearRequested: {
+                    root.call("clear-history", "");
+                    root.refresh();
+                }
+                onMarkReadRequested: root.call("mark-read", "")
+                onModeRequested: nextMode => {
+                    root.call("panel-opened", nextMode);
+                    root.refresh();
+                }
             }
-            onClearRequested: {
-                root.call("clear-history", "");
-                root.refresh();
-            }
-            onMarkReadRequested: root.call("mark-read", "")
-            onModeRequested: nextMode => {
-                root.call("panel-opened", nextMode);
-                root.refresh();
-            }
-        }
+        ]
 
         Item {
             id: listFrame
-            Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: listScroll.implicitWidth
-            Layout.preferredHeight: listScroll.implicitHeight
-            // A room shorter than the panel asks for leaves the list what
-            // is under the header, and it scrolls inside that; a fixed
-            // height would run it past the panel's bottom.
-            Layout.fillHeight: true
-            Layout.minimumHeight: 0
-            Layout.maximumHeight: listScroll.implicitHeight
-            implicitHeight: Layout.preferredHeight
+            width: listScroll.implicitWidth
+            x: (parent.width - width) / 2
+            implicitHeight: listScroll.implicitHeight
+            height: Math.min(implicitHeight, column.bodyRoom)
 
             CardScroll {
                 id: listScroll
                 anchors.fill: parent
                 scrollObjectName: "notificationPanelScrollBar"
                 look: root.look
-                maxHeight: root.panelMaxHeight - header.height - root.look.header.gap - root.hintRoom
+                maxHeight: root.panelMaxHeight - 2 * column.contentInset - column.headerHeight - column.headerBodyGap - root.hintRoom
 
                 Label {
                     Layout.preferredWidth: root.look.card.width
@@ -410,16 +408,23 @@ FocusScope {
             }
         }
 
-        KeyHints {
-            id: hintRow
-            Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: root.look.card.width
-            Layout.topMargin: root.look.card.gap
-            visible: root.rows.length > 0
-            hints: [
-                { key: "Delete", text: "dismiss" },
-                { key: "Left/Right", text: "actions" }
-            ]
-        }
+        footer: [
+            Item {
+                width: column.contentWidth
+                implicitHeight: hintRow.visible ? root.look.card.gap + hintRow.implicitHeight : 0
+                height: implicitHeight
+                KeyHints {
+                    id: hintRow
+                    width: root.look.card.width
+                    x: (parent.width - width) / 2
+                    y: root.look.card.gap
+                    visible: root.rows.length > 0
+                    hints: [
+                        { key: "Delete", text: "dismiss" },
+                        { key: "Left/Right", text: "actions" }
+                    ]
+                }
+            }
+        ]
     }
 }

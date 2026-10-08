@@ -171,7 +171,7 @@ FocusScope {
         container: "window"
         bodySpacing: 0
 
-        header: [
+        titleContent: [
             PageHeader {
                 id: titleHeader
                 width: parent.width

@@ -31,7 +31,7 @@ FocusScope {
     function open(payloadJson) {
         problem = "";
         Qt.callLater(() => {
-            if (profileControl.visible) profileControl.forceActiveFocus(Qt.TabFocusReason);
+            if (profileControl.visible) profileControl.forceActiveFocus(Qt.OtherFocusReason);
         });
     }
     function close() {}
@@ -57,12 +57,7 @@ FocusScope {
         fitToContent: true
         maximumHeight: Theme.size.panel.maxHeight
 
-        header: [
-            Label {
-                role: "h3"
-                text: "Power"
-            }
-        ]
+        title: "Power"
 
         Column {
             width: layout.contentWidth

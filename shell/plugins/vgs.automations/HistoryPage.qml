@@ -48,7 +48,7 @@ FocusScope {
         container: "window"
         bodySpacing: Theme.stack.group
 
-        header: [
+        titleContent: [
             PageHeader {
                 width: layout.contentWidth
                 text: "History"

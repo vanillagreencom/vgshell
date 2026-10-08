@@ -211,17 +211,17 @@ FocusScope {
         shell.manager.rescan();
         // A summon of the page already shown leaves nothing.
         if (page !== "" && payload.plugin === page) {
-            show(page, Qt.ShortcutFocusReason);
+            show(page, Qt.OtherFocusReason);
             return;
         }
         leave(() => {
             sliding = false;
             notice = "";
-            if (payload.plugin === undefined) showList(Qt.ShortcutFocusReason);
+            if (payload.plugin === undefined) showList(Qt.OtherFocusReason);
             else if (rowOf(payload.plugin) === null) {
-                showList(Qt.ShortcutFocusReason);
+                showList(Qt.OtherFocusReason);
                 notice = "No plugin named " + payload.plugin + " is available.";
-            } else show(payload.plugin, Qt.ShortcutFocusReason);
+            } else show(payload.plugin, Qt.OtherFocusReason);
             Qt.callLater(() => { root.sliding = true; });
         });
     }

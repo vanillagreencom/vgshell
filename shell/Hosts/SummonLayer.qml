@@ -51,8 +51,8 @@ PanelWindow {
     }
     Component.onDestruction: if (keyboardRelease !== null) keyboardRelease()
 
-    function focusInitial(reason) {
-        slot.focusInitial(reason);
+    function focusInitial() {
+        slot.focusInitial();
     }
 
     // keyboard-path: Escape closes the summon through the slot below

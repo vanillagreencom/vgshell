@@ -1,9 +1,10 @@
 import QtQuick
+import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
 import "DisplaysLogic.js" as Logic
 
-FocusScope {
+T.Control {
     id: root
 
     property var outputs: []
@@ -11,7 +12,6 @@ FocusScope {
     property var draftRules: ({})
     property string selected: ""
     property bool locked: false
-    property bool focusPreview: false
     signal selectedChangedByUser(string identifier)
     signal moved(var rules)
     signal identify(string identifier)
@@ -32,7 +32,6 @@ FocusScope {
     activeFocusOnTab: true
     Accessible.name: "Display arrangement"
     Keys.onPressed: event => {
-        focusPreview = true;
         if (locked || selected === "") return;
         const amount = event.modifiers & Qt.ShiftModifier ? bigStep : step;
         let dx = 0, dy = 0;
@@ -47,6 +46,7 @@ FocusScope {
         } else {
             return;
         }
+        root.focusReason = Qt.ShortcutFocusReason;
         event.accepted = true;
         root.moved(Logic.nudgeGroup(outputs, savedRules, draftRules, selected, dx, dy));
     }
@@ -56,7 +56,7 @@ FocusScope {
         radius: Theme.radius.md
         color: Theme.color.surface
         border.width: Theme.border.thin
-        border.color: root.activeFocus ? Theme.color.focus : Theme.color.border
+        border.color: root.visualFocus ? Theme.color.focus : Theme.color.border
         // A tile dragged past the edge draws nothing outside the box.
         clip: true
 
@@ -118,7 +118,6 @@ FocusScope {
                     enabled: !root.locked
                     onPressed: {
                         root.forceActiveFocus(Qt.MouseFocusReason);
-                        root.focusPreview = false;
                         root.select(tile.modelData.identifier);
                         const point = mapToItem(root, mouse.x, mouse.y);
                         tile.pressX = point.x;
@@ -159,6 +158,5 @@ FocusScope {
 
     FocusRing {
         target: root
-        visible: root.focusPreview
     }
 }

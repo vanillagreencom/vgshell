@@ -143,10 +143,7 @@ Item {
                 question = kind;
                 facts = root.frame.describe();
                 dialogWindow.visible = true;
-                Qt.callLater(() => {
-                    if (kind === "remove") dialog.focusInitial(Qt.MouseFocusReason);
-                    else dialog.forceActiveFocus(Qt.TabFocusReason);
-                });
+                Qt.callLater(() => dialog.forceActiveFocus(Qt.OtherFocusReason));
             }
 
             // The dialog's share of OverlayState, taken as Popover takes its own.

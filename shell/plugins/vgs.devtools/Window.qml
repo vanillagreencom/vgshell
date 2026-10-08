@@ -41,7 +41,7 @@ Item {
         }
         tabs.currentIndex = 0;
         problem = "";
-        if (targetRow === "") Qt.callLater(() => search.forceActiveFocus(Qt.ShortcutFocusReason));
+        if (targetRow === "") Qt.callLater(() => search.forceActiveFocus(Qt.OtherFocusReason));
         summoned();
     }
     function close() {}
@@ -85,11 +85,11 @@ Item {
         bodySpacing: root.look.window.sectionGap
         Component.onCompleted: scrollArea.keyboardScroll = true
 
-        header: Column {
+        title: "Dev Tools"
+        subtitle: Column {
             width: pane.contentWidth
             spacing: root.look.row.lineGap
 
-            Label { role: "windowTitle"; text: "Dev Tools" }
             Label { width: parent.width; role: "hint"; text: ViewLogic.summary(root.catalog); elide: Text.ElideRight }
             Repeater {
                 model: ViewLogic.runningLines(root.tuiState)
@@ -173,7 +173,7 @@ Item {
                                     if (root.targetRow !== modelData.key) return;
                                     Qt.callLater(() => {
                                         pane.scrollArea.reveal(toolRow);
-                                        toolRow.forceActiveFocus(Qt.ShortcutFocusReason);
+                                        toolRow.forceActiveFocus(Qt.OtherFocusReason);
                                     });
                                 }
                                 Component.onCompleted: focusIfTarget()

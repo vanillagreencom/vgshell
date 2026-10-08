@@ -29,7 +29,7 @@ Scope {
     property var requests: ({})
     // id -> the built instance, set when its slot builds.
     property var instances: ({})
-    // id -> function(reason) that focuses that instance's host slot.
+    // id -> function() that focuses that instance's host slot.
     property var focusers: ({})
     // id -> the error open() threw, read by summon.
     property var openErrors: ({})
@@ -46,7 +46,7 @@ Scope {
             requests = next;
             const error = callOpen(id, instances[id], payloadJson);
             if (error === "") {
-                focusOpen(id, next[id]);
+                focusOpen(id);
                 return "ok";
             }
             drop(id);
@@ -127,12 +127,8 @@ Scope {
         return false;
     }
 
-    function focusReason(request) {
-        return request && request.anchored ? Qt.MouseFocusReason : Qt.ShortcutFocusReason;
-    }
-
-    function focusOpen(id, request) {
-        if (PluginLogic.hasOwn(focusers, id)) focusers[id](focusReason(request));
+    function focusOpen(id) {
+        if (PluginLogic.hasOwn(focusers, id)) focusers[id]();
     }
 
     function rememberFocuser(id, focus) {
@@ -185,8 +181,8 @@ Scope {
                     kind: host.kind
                     request: entry.request
                     onBuilt: instance => {
-                        host.rememberFocuser(entry.modelData, reason => focusInitial(reason));
-                        if (host.built(entry.modelData, instance)) focusInitial(host.focusReason(entry.request));
+                        host.rememberFocuser(entry.modelData, () => focusInitial());
+                        if (host.built(entry.modelData, instance)) focusInitial();
                     }
                     onDismissed: Qt.callLater(() => host.drop(entry.modelData))
                 }
@@ -199,8 +195,8 @@ Scope {
                     kind: host.kind
                     request: entry.request
                     onBuilt: instance => {
-                        host.rememberFocuser(entry.modelData, reason => focusInitial(reason));
-                        if (host.built(entry.modelData, instance)) focusInitial(host.focusReason(entry.request));
+                        host.rememberFocuser(entry.modelData, () => focusInitial());
+                        if (host.built(entry.modelData, instance)) focusInitial();
                     }
                     onDismissed: Qt.callLater(() => host.drop(entry.modelData))
                 }
@@ -213,8 +209,8 @@ Scope {
                     kind: host.kind
                     request: entry.request
                     onBuilt: instance => {
-                        host.rememberFocuser(entry.modelData, reason => focusInitial(reason));
-                        if (host.built(entry.modelData, instance)) focusInitial(host.focusReason(entry.request));
+                        host.rememberFocuser(entry.modelData, () => focusInitial());
+                        if (host.built(entry.modelData, instance)) focusInitial();
                     }
                     onDismissed: Qt.callLater(() => host.drop(entry.modelData))
                 }
