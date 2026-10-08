@@ -2687,9 +2687,27 @@ except (OSError,ValueError): print("unreadable")
     *) echo 'notification-capture: geometry-reader=unreadable' >&2; return 1 ;;
   esac
 }
+# Home and hover change the action reservation before text wrapping and
+# card heights finish. Observe the whole layout after the view rests,
+# before either matched image, rather than accepting a moving first box.
+fade_capture_layout() { # ITEMS_FILE
+  local previous="$1-previous.json" view same
+  ipc smoke descendantGeometry panel vgs.notifications >"$previous" || return
+  smoke_poll_tries 200
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    view="$(view_at_rest panel vgs.notifications "Fade probe 12")" || return
+    [[ $view == \{* ]] || { printf 'notification-capture: layout-view=%s\n' "$view" >&2; return 1; }
+    ipc smoke descendantGeometry panel vgs.notifications >"$1" || return
+    same="$(fade_capture_geometry_same "$previous" "$1")" || return
+    [[ $same != True ]] || return 0
+    cp -- "$1" "$previous" || return
+  done
+  echo 'notification-capture: layout=unsettled' >&2
+  return 1
+}
 fade_hint_sample() { # PNG [REFERENCE_JSON]
   local items="${1%.png}-items.json" surface background captured=0 restored_sample geometry_same restore_geometry="${1%.png}-restored-items.json"
-  ipc smoke descendantGeometry panel vgs.notifications >"$items" || return
+  fade_capture_layout "$items" || return
   surface="$(surface_box vgs:panel)" || return
   fade_output "$1" || return
   background="${1%.png}-background.png"
@@ -2794,9 +2812,13 @@ fade_wheel_end() {
   fade_scroll_state
 }
 fade_open_mid() {
+  hover 1 1 || return
   expect "the pixel probe inbox opens" ok notes inbox
   expect_poll "the pixel probe inbox holds its list focus" True panel_focus_on_list
+  expect_poll "the pixel probe inbox selects its newest card" "Fade probe 12" panel_selected_summary
   for _ in $(seq 1 8); do type_keys -k Down || fail "the pixel probe Down key failed"; done
+  expect_poll "the pixel probe selects its mid-scroll card" "Fade probe 4" panel_selected_summary
+  expect_poll "the pixel probe pointer rests outside its cards" False fade_state_hovered
   geometry expect_poll "the pixel probe list is at mid-scroll" mid fade_scroll_state
   summon_drawn panel vgs.notifications || fail "the pixel probe panel drew no frame"
 }
@@ -2848,8 +2870,8 @@ fade_output() { # PNG
 }
 fade_gap_sample() {
   local items="$sandbox/fade-gap-current-items.json" view surface restored_sample restored_ink geometry_same restore_geometry="$sandbox/fade-gap-restored-items.json"
+  fade_capture_layout "$items" || return
   view="$(view_at_rest panel vgs.notifications "Fade probe 12")" || return
-  ipc smoke descendantGeometry panel vgs.notifications >"$items" || return
   surface="$(surface_box vgs:panel)" || return
   fade_output "$sandbox/fade-gap-current.png" || return
   local background="$sandbox/fade-gap-background.png" capture_rc=0
@@ -2907,11 +2929,16 @@ fade_pressed_hint_pair() { # PNG
   printf '%s\n' "$sample"
 }
 fade_hint_states() { # MODE
-  local state sample x y
+  local state sample x y prior_failures
   for state in top-end mid-scroll bottom-end hover pressed keyboard-focus notification-colours; do
+    prior_failures="$failures"
+    hover 1 1 || return
+    expect_poll "the $1 $state pointer rests outside its cards" False fade_state_hovered
     type_keys -k Home || return
+    expect_poll "the $1 $state Home selects its newest card" "Fade probe 12" panel_selected_summary
     if [[ $state != top-end ]]; then
       for _ in $(seq 1 8); do type_keys -k Down || return; done
+      expect_poll "the $1 $state selects its mid-scroll card" "Fade probe 4" panel_selected_summary
       geometry expect_poll "the $1 $state card passes beside the hints" mid fade_scroll_state
     fi
     case "$state" in
@@ -2924,6 +2951,7 @@ fade_hint_states() { # MODE
         type_keys -k Right || return
         expect_poll "the $1 state focuses a real card action" 0 ipc smoke readInstance panel vgs.notifications actionIndex ;;
     esac
+    [[ $failures == "$prior_failures" ]] || return 1
     if [[ $state == pressed ]]; then
       sample="$(fade_pressed_hint_pair "$sandbox/fade-hints-$1-$state.png")" || return
     else
