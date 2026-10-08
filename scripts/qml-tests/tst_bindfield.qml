@@ -122,8 +122,17 @@ Item {
             tryCompare(tip, "opened", true);
             mouseMove(root, root.width - 1, root.height - 1);
             tryCompare(tip, "opened", false);
-            label.forceActiveFocus(Qt.TabFocusReason);
-            tryCompare(tip, "opened", true);
+            root.Window.window.requestActivate();
+            const focused = [];
+            const record = () => { if (tip.opened) focused.push(tip.text); };
+            tip.openedChanged.connect(record);
+            try {
+                label.forceActiveFocus(Qt.TabFocusReason);
+                tryVerify(() => focused.length > 0, 2000);
+            } finally {
+                tip.openedChanged.disconnect(record);
+            }
+            compare(focused[0], tip.text);
             input(row).forceActiveFocus(Qt.TabFocusReason);
             tryCompare(tip, "opened", false);
             const plain = descendant(later, item => item.objectName === "fieldLabel");

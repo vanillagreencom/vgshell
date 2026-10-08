@@ -172,7 +172,7 @@ Item {
             const prompt = descendant(field, item => item.text === "Unbound" && item.visible);
             verify(prompt !== null);
             compare(prompt.font.pixelSize, Theme.text.kbd.size);
-            compare(prompt.color, Theme.textField.placeholder);
+            compare(prompt.color, Qt.color(Theme.textField.placeholder));
             field.keys = ["SUPER+M"];
         }
 

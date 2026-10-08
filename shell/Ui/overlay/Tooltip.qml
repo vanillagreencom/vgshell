@@ -26,8 +26,8 @@ Item {
     // The handlers live on the anchor, made once it is known: a handler
     // declared with a parent binding crashes the engine while the parent
     // is still null.
-    property var hover: null
-    property var press: null
+    property HoverHandler hover: null
+    property TapHandler press: null
     // A press on the item since the pointer last entered it.
     property bool pressedHere: false
     readonly property Component hoverComponent: Component { HoverHandler { onHoveredChanged: if (!hovered) root.pressedHere = false } }

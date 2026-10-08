@@ -95,7 +95,7 @@ Item {
             return descendants(of).find(child => child.anchorItem === of && child.details !== undefined);
         }
         function tooltipTitle(of) {
-            const window = tooltipOf(of).resources.find(child => child.anchor !== undefined);
+            const window = tooltipOf(of).tracker.popup;
             return descendants(window.contentItem).find(child => child.objectName === "tooltipTitle");
         }
         function rest(of) {

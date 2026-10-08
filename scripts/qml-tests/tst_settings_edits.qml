@@ -231,22 +231,31 @@ Item {
         }
 
         function test_settings_bind_explanation_uses_the_shared_label_tooltip() {
-            const original = keyRow.bind;
-            keyRow.bind = Object.assign({}, original, { info: "Open the window." });
+            const field = disposableKey.createObject(root, { width: 420, z: 1,
+                bind: { shortcut: "spare", key: "SUPER+N", default: "SUPER+N", description: "Spare", info: "Open the window." } });
             compare(UnitTheme.override({ tooltip: { delay: 20 } }), "ok");
-            const label = descendants(keyRow).find(item => item.objectName === "fieldLabel");
+            const label = descendants(field).find(item => item.objectName === "fieldLabel");
             const tip = descendants(label).find(item => String(item).indexOf("Tooltip") === 0);
-            verify(!descendants(keyRow).some(item => String(item).indexOf("InfoButton") === 0));
+            verify(!descendants(field).some(item => String(item).indexOf("InfoButton") === 0));
             compare(tip.text, "Open the window.");
             mouseMove(label, label.width / 2, label.height / 2);
             tryCompare(tip, "opened", true);
             mouseMove(root, root.width - 1, root.height - 1);
             tryCompare(tip, "opened", false);
-            label.forceActiveFocus(Qt.TabFocusReason);
-            tryCompare(tip, "opened", true);
+            root.Window.window.requestActivate();
+            const focused = [];
+            const record = () => { if (tip.opened) focused.push(tip.text); };
+            tip.openedChanged.connect(record);
+            try {
+                label.forceActiveFocus(Qt.TabFocusReason);
+                tryVerify(() => focused.length > 0, 2000);
+            } finally {
+                tip.openedChanged.disconnect(record);
+            }
+            compare(focused[0], tip.text);
             elsewhere.forceActiveFocus(Qt.TabFocusReason);
             tryCompare(tip, "opened", false);
-            keyRow.bind = original;
+            field.destroy();
         }
 
         function test_a_typed_text_waits_and_joins_the_set() {
