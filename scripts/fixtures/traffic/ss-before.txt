@@ -1,0 +1,12 @@
+ESTAB 0 0 192.168.1.2:4000 93.184.216.34:443 users:(("Browser",pid=42,fd=8)) uid:1000 ino:10 sk:1
+	cubic bytes_sent:1900 bytes_acked:1000 bytes_received:2000
+ESTAB 0 0 [2001:db8::2]:4001 [2001:db8:1::3]:443 users:(("Browser",pid=44,fd=9)) uid:1000 ino:11 sk:2
+	cubic bytes_sent:100 bytes_acked:50 bytes_received:100
+ESTAB 0 0 192.168.1.2:4002 93.184.216.34:443 uid:0 ino:12 sk:3
+	cubic bytes_acked:90000 bytes_received:80000
+ESTAB 0 0 127.0.0.1:4003 127.0.0.2:9000 users:(("Local",pid=45,fd=10)) ino:13
+	bytes_acked:40000 bytes_received:40000
+ESTAB 0 0 [::1]:4004 [::1]:9001 users:(("Local",pid=45,fd=11)) ino:14
+	bytes_acked:40000 bytes_received:40000
+TIME-WAIT 0 0 192.168.1.2:4999 93.184.216.34:443 ino:0
+	

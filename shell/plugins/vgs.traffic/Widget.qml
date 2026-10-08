@@ -7,6 +7,13 @@ BarWidget {
     id: root
     readonly property var traffic: shell === null ? ({}) : shell.status.values.traffic || ({})
     readonly property string showMode: setting("show", "both")
+    property bool leased: false
+    function hold() {
+        if (shell !== null && !leased) leased = shell.ipc.call("lease", JSON.stringify({ id: String(root), open: true, kind: "widget" })) === "ok";
+    }
+    onShellChanged: hold()
+    onTrafficChanged: hold()
+    Component.onDestruction: if (leased && shell !== null) shell.ipc.call("lease", JSON.stringify({ id: String(root), open: false }))
     implicitWidth: button.implicitWidth
     implicitHeight: barSize
 
@@ -35,13 +42,13 @@ BarWidget {
                     visible: root.showMode !== "upload"
                     spacing: Theme.row.lineGap
                     Label { role: "bar"; text: "↓"; color: Theme.color.accent }
-                    Label { role: "bar"; text: Logic.formatRate(root.traffic.down); width: Math.max(rateSize.width, implicitWidth) }
+                    Label { role: "bar"; text: Logic.formatRate(root.traffic.down); font.capitalization: Font.MixedCase; width: Math.max(rateSize.width, implicitWidth) }
                 }
                 Row {
                     visible: root.showMode !== "download"
                     spacing: Theme.row.lineGap
                     Label { role: "bar"; text: "↑"; color: Theme.color.accent }
-                    Label { role: "bar"; text: Logic.formatRate(root.traffic.up); width: Math.max(rateSize.width, implicitWidth) }
+                    Label { role: "bar"; text: Logic.formatRate(root.traffic.up); font.capitalization: Font.MixedCase; width: Math.max(rateSize.width, implicitWidth) }
                 }
             }
         }

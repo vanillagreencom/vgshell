@@ -1,0 +1,6 @@
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+ enp5s0: 7000 1 0 0 0 0 0 0 5000 1 0 0 0 0 0 0
+ wlan0: 2000 1 0 0 0 0 0 0 3600 1 0 0 0 0 0 0
+ lo: 300000 1 0 0 0 0 0 0 300000 1 0 0 0 0 0 0
+ wg0: 19000 1 0 0 0 0 0 0 28000 1 0 0 0 0 0 0

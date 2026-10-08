@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1, "id": "acme.capture", "name": "Capture step",
+  "version": "0.1.0", "author": "acme", "description": "Capture system step smoke fixture",
+  "icon": "shield-check", "kinds": ["service"],
+  "entryPoints": { "service": "Service.qml" }, "capabilities": ["status", "system"],
+  "systemSteps": ["bandwhich-capture"],
+  "status": {
+    "capture": { "type": "state", "label": "Traffic capture", "action": { "label": "Allow", "system": "bandwhich-capture" } }
+  }
+}

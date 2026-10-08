@@ -30,6 +30,7 @@ Item {
         if (shell === null || registered) return;
         registered = true;
         shell.ipc.handle("scene", state => root.publish(state));
+        shell.ipc.handle("lease", arg => "ok");
         publish("apps");
     }
 }

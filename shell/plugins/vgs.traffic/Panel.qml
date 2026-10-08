@@ -24,20 +24,29 @@ Item {
         if (traffic.state === "ready" && traffic.other !== undefined) apps.push({ name: "Other traffic", down: traffic.other.down, up: traffic.other.up, connections: null, other: true });
         return apps;
     }
-    readonly property string emptyText: traffic.state === "measuring" || traffic.state === undefined ? "Measuring network traffic…" : search.text !== "" ? "No matching apps" : "No network activity"
+    readonly property string emptyText: traffic.state === "unknown" ? "Traffic could not be read" : traffic.state === "measuring" || traffic.state === undefined ? "Measuring network traffic…" : search.text !== "" ? "No matching apps" : "No network activity"
     readonly property bool emptyShown: traffic.state !== "ready" || (search.text !== "" && rows.every(row => row.other))
     implicitWidth: Theme.size.window.width
     implicitHeight: layout.implicitHeight
 
-    function open(payloadJson) { search.text = ""; current = -1; }
-    function close() {}
+    property bool leased: false
+    function open(payloadJson) {
+        search.text = ""; current = -1;
+        if (shell !== null && !leased) leased = shell.ipc.call("lease", JSON.stringify({ id: String(root), open: true, kind: "panel" })) === "ok";
+    }
+    function close() {
+        if (leased && shell !== null) shell.ipc.call("lease", JSON.stringify({ id: String(root), open: false }));
+        leased = false;
+    }
+    Component.onDestruction: close()
     function sort(key) {
         ascending = sortKey === key ? !ascending : key === "name";
         sortKey = key;
     }
     function seeAll() {
         const reply = capture.action ? shell.status.act("capture") : shell.tui.run("bandwhich");
-        if (reply !== "ok") console.warn("traffic: see-all " + reply);
+        if (reply !== "ok" && reply !== "refused: tui=bandwhich reason=busy") console.warn("traffic: see-all " + reply);
+        return reply;
     }
 
     Surface { anchors.fill: parent }
@@ -67,7 +76,7 @@ Item {
         }
         TextField {
             id: search
-            width: layout.contentWidth
+            width: Math.min(layout.contentWidth, Theme.size.panel.md)
             leadingIcon: "search"
             placeholderText: "Search apps"
             Keys.onEscapePressed: event => {
@@ -161,7 +170,7 @@ Item {
                 height: visible ? implicitHeight : 0
                 spacing: Theme.stack.inline
                 Label { width: parent.width; visible: !!root.capture.action; text: "See all needs traffic capture access"; role: "hint" }
-                Button { width: parent.width; text: root.capture.action ? "Allow" : "See all"; variant: "tertiary"; iconName: root.capture.action ? "shield-check" : "external-link"; onClicked: root.seeAll() }
+                Button { width: parent.width; text: root.capture.action ? "Allow" : "See all"; enabled: root.capture.action || root.capture.tone === "ok"; variant: "tertiary"; iconName: root.capture.action ? "shield-check" : "external-link"; onClicked: root.seeAll() }
             }
         ]
     }

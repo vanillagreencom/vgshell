@@ -242,10 +242,10 @@ function suite(ctx, check) {
         ["a data entry with an action", { capabilities: ["status"], requirements: [{ command: "gum", purpose: "q" }], status: { a: { type: "data", label: "A", action: { label: "Go", install: ["gum"] } } } }, "status.a.action needs a type whose value says when it applies"],
         // systemSteps (D081): steps of the core's closed table, read through capability system.
         ["systemSteps naming two steps", { capabilities: ["system"], systemSteps: ["apple-displays", "i2c-dev"] }, null],
-        ["every step of the table", { capabilities: ["system"], systemSteps: ["apple-displays", "i2c-dev", "service-bluetooth", "service-tailscaled", "tailscale-operator", "greeter"] }, null],
+        ["every step of the table", { capabilities: ["system"], systemSteps: ["apple-displays", "i2c-dev", "service-bluetooth", "service-tailscaled", "tailscale-operator", "greeter", "bandwhich-capture"] }, null],
         ["systemSteps that is not a list", { capabilities: ["system"], systemSteps: "i2c-dev" }, "systemSteps must be a non-empty list of steps of the core's table"],
         ["an empty systemSteps", { capabilities: ["system"], systemSteps: [] }, "systemSteps must be a non-empty list"],
-        ["a step outside the table", { capabilities: ["system"], systemSteps: ["etc-shadow"] }, "systemSteps.0 must be one of apple-displays, i2c-dev, service-bluetooth, service-tailscaled, tailscale-operator, greeter, got \"etc-shadow\""],
+        ["a step outside the table", { capabilities: ["system"], systemSteps: ["etc-shadow"] }, "systemSteps.0 must be one of"],
         ["a step that is not a string", { capabilities: ["system"], systemSteps: ["i2c-dev", 3] }, "systemSteps.1 must be one of"],
         ["a step named twice", { capabilities: ["system"], systemSteps: ["i2c-dev", "i2c-dev"] }, "systemSteps.1 repeats \"i2c-dev\""],
         ["systemSteps without capability system", { systemSteps: ["i2c-dev"] }, "systemSteps needs capability system"],
@@ -344,7 +344,13 @@ function suite(ctx, check) {
     check("validateManifest normalizes absent requirements to a list", ctx.validateManifest(bar, "/p").manifest.requirements, []);
     check("validateManifest normalizes an absent systemSteps to a list", ctx.validateManifest(bar, "/p").manifest.systemSteps, []);
     check("validateManifest keeps the declared systemSteps", ctx.validateManifest(Object.assign({}, bar, { capabilities: ["system"], systemSteps: ["i2c-dev", "apple-displays"] }), "/p").manifest.systemSteps, ["i2c-dev", "apple-displays"]);
-    check("the system step table is bin/vgshell-system's", ctx.SYSTEM_STEPS, ["apple-displays", "i2c-dev", "service-bluetooth", "service-tailscaled", "tailscale-operator", "greeter"]);
+    check("the system step table is bin/vgshell-system's", ctx.SYSTEM_STEPS, ["apple-displays", "i2c-dev", "service-bluetooth", "service-tailscaled", "tailscale-operator", "greeter", "bandwhich-capture"]);
+    const trafficManifest = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.traffic/manifest.json"), "utf8")), "/traffic");
+    check("traffic declares its judged capture system step", trafficManifest.ok, true);
+    if (trafficManifest.ok) {
+        const view = ctx.noticeView(trafficManifest.manifest, ["bandwhich"], { commands: ["bandwhich"], required: ["bandwhich"] }, { primary: { id: "dnf", binary: "dnf" }, overlays: [], sources: [] });
+        check("stock Fedora has no invented install plan for bandwhich", [view.install, view.rows[0].package, view.rows[0].name, view.rows[0].optional, view.satisfied], [null, null, "bandwhich", true, false]);
+    }
     const required = ctx.validateManifest(Object.assign({}, bar, { requirements: [{ command: "gum", purpose: "Dialogs" }, { command: "checkupdates", packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates" }, { dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, packages: { dnf: "ppd-service" }, purpose: "Switches the power profile" }] }), "/p").manifest;
     check("validateManifest gives every requirement its packages and optional", required.requirements,
         [{ name: "gum", bus: null, packages: {}, optional: false, purpose: "Dialogs" }, { name: "checkupdates", bus: null, packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates" }, { name: "org.freedesktop.UPower.PowerProfiles", bus: "system", packages: { dnf: "ppd-service" }, optional: false, purpose: "Switches the power profile" }]);

@@ -39,7 +39,10 @@
 # reads undeclared and starts no terminal, its control.
 # rows/auth-sentinel.sh, the last row, reads the log empty. Every reading
 # is expect_poll's: 25 reads 0.2 s apart.
-# inputs: scripts/smoke/fixtures/plugins/acme.system/* shell/Core/SystemSteps.qml bin/vgshell-system bin/vgshell config/system/* scripts/smoke/fixtures/devices/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.status/* bin/vgshell-tui bin/lib/tui.sh shell/Core/PluginLogic.js scripts/smoke/rows/device-fakes.sh
+# acme.capture exercises the bandwhich-capture state, scoped Allow, the
+# core/system launch and re-probe after run completion and plugin scans.
+# Its getcap and setcap stand-ins read and write fixture text only.
+# inputs: scripts/smoke/fixtures/plugins/acme.system/* scripts/smoke/fixtures/plugins/acme.capture/* scripts/smoke/fixtures/system/capture/* shell/Core/SystemSteps.qml bin/vgshell-system bin/vgshell config/system/* scripts/smoke/fixtures/devices/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.status/* bin/vgshell-tui bin/lib/tui.sh shell/Core/PluginLogic.js scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 devices_ready system-steps || return 0
 if ! command -v unshare >/dev/null 2>&1 || ! unshare -r true 2>/dev/null; then
@@ -56,7 +59,7 @@ system_question="Run these commands as root?"
 expect "the sandbox copy's system steps resolve in the fakes' tree" prefixed devices_system_tree
 system_hidraw_mode="$(stat -c %a -- "$system_hidraw")" || { fail "system steps: the HID fake planted no hidraw0"; return 0; }
 chmod 0000 "$system_hidraw"
-printf '#!/bin/sh\nout="$(%q "$@")" || exit $?\nprintf "%%s\\n" "$out" | sed "s/^%s /0 /"\n' "$(command -v stat)" "$(id -u)" >"$system_bin/stat"
+printf '#!/bin/sh\nfor last; do :; done\nif [ "$1 $2" = "-c %%u %%a" ]; then\n case %q in "$last"/*) echo "0 755"; exit 0 ;; esac\n [ "$last" = / ] && { echo "0 755"; exit 0; }\nfi\nout="$(%q "$@")" || exit $?\nprintf "%%s\\n" "$out" | sed "s/^%s /0 /"\n' "$system_root/" "$(command -v stat)" "$(id -u)" >"$system_bin/stat"
 chmod 755 "$system_bin/stat"
 cp -- "$shim/sudo" "$system_bin/sudo"
 for unit in bluetooth.service tailscaled.service greetd.service; do
@@ -73,7 +76,7 @@ system_dir="$home/.config/vgshell/plugins/acme.system"
 mkdir -p "$system_dir"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.system/." "$system_dir/"
 system_core() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["system"]["steps"]["apple-displays"]; print(s["state"] + " " + s["reason"])'; }
-system_holders() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["holders"].get("system", [])))'; }
+system_holders() { ipc shell lent | py_reply 'import json,sys; print(json.dumps([p for p in json.load(sys.stdin)["holders"].get("system", []) if p == "acme.system"]))'; }
 system_lent() { ipc smoke readInstance service acme.system systemState | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin), sort_keys=True))'; }
 system_status() { ipc smoke readInstance service acme.system statusValues 2>/dev/null | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
 
@@ -158,6 +161,70 @@ expect "the manager refuses Allow while the fixture is disabled" "refused: actio
 expect "the refused disabled act started no terminal" absent recorded
 settings_page_close acme.system
 chmod "$system_hidraw_mode" "$system_hidraw"
+
+# No host program named bandwhich, getcap or setcap enters this tree.
+system_capture_dir="$home/.config/vgshell/plugins/acme.capture"
+mkdir -p "$system_capture_dir"
+cp -R "$repo/scripts/smoke/fixtures/plugins/acme.capture/." "$system_capture_dir/"
+cp -- "$repo/scripts/smoke/fixtures/system/capture/"* "$system_bin/"
+chmod 0755 "$system_bin/bandwhich" "$system_bin/getcap" "$system_bin/setcap"
+system_capture_core() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["system"]["steps"]["bandwhich-capture"]; print(s["state"] + " " + s["reason"])'; }
+system_capture_lent() { ipc smoke readInstance service acme.capture systemState | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin), sort_keys=True))'; }
+system_capture_status() { ipc smoke readInstance service acme.capture statusValues | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
+system_capture_act() { ipc smoke invokeInstance service acme.capture statusAct "$1"; }
+rescan "rescan after adding the capture fixture answers ok"
+expect "enabling the capture fixture is allowed" ok ipc shell setPluginEnabled acme.capture true
+expect_poll "the capture fixture's service is built" True record_exists acme.capture
+expect_poll "capture with no grant reads needed" "needed capture-needed" system_capture_core
+expect_poll "capture lends its declared step alone" '{"bandwhich-capture": {"reason": "capture-needed", "state": "needed"}}' system_capture_lent
+settings_page_open acme.capture
+expect_poll "a needed capture step offers Allow" '[["capture", "Allow", true]]' offered_actions acme.capture
+hold_runs
+forget_record
+expect "the capture fixture's Allow answers ok" ok system_capture_act capture
+expect_poll "capture Allow hands the core TUI the closed-table step" \
+  "$(core_words core/system "System setup" org.vgs.tui system apply bandwhich-capture)" recorded
+: >"$system_calls"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>%q\ncase "$1" in -k|-n) exit 0 ;; esac\n[ "$1" = -- ] && shift\nexec %q -r "$@"\n' \
+  "$system_calls" "$(command -v unshare)" | sentinel_stand_over "$system_bin/sudo"
+system_capture_command() {
+  local status=0
+  "${sandbox_env[@]}" "${shell_start_words[@]}" SHELL="$BASH" script -qec "$(printf '%q ' "$repo/bin/vgshell" system "$1" bandwhich-capture)" /dev/null \
+    </dev/null >"$sandbox/capture-$1.out" 2>&1 || status=$?
+  tr -d '\r' <"$sandbox/capture-$1.out" | tail -n 1
+  return "$status"
+}
+expect "capture apply grants the fixture binary" "ok system=bandwhich-capture state=ready" system_capture_command apply
+expect "capture apply ran only the closed-table grant" 1 grep -cxF -- "-- $system_bin/setcap cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin+ep $system_bin/bandwhich" "$system_calls"
+sentinel_restore "$system_bin/sudo"
+expect "capture apply restored the sudo sentinel" sentinel sentinel_of "$system_bin/sudo"
+expect "capture stays needed until the core run ends" "needed capture-needed" system_capture_core
+release_runs
+expect_run_end "the capture core/system run ends" core/system
+expect_poll "capture re-probes ready after its run ends" "ready granted" system_capture_core
+expect_poll "capture readiness withdraws Allow" '[["capture", "Allow", false]]' offered_actions acme.capture
+forget_record
+expect "a ready capture refuses Allow" "refused: action=capture reason=not-offered" system_capture_act capture
+expect "a refused capture action starts no terminal" absent recorded
+# A package upgrade removes its capabilities. A partial three-cap grant
+# still needs Allow when the next scan ends.
+printf 'cap_dac_read_search,cap_net_admin,cap_net_raw=ep\n' >"$system_bin/bandwhich.caps"
+expect "capture stays ready until a scan ends" "ready granted" system_capture_core
+rescan "rescan after a package upgrade answers ok"
+expect_poll "capture re-probes a partial grant as needed" "needed capture-needed" system_capture_core
+expect_poll "capture publishes Allow after a package upgrade" '{"capture": {"tone": "warning", "text": "needed capture-needed", "action": true}}' system_capture_status
+chmod 0775 "$system_bin/bandwhich"
+rescan "rescan after making the fixture binary writable answers ok"
+expect_poll "an untrusted capture binary reads denied" "denied install-untrusted" system_capture_core
+expect_poll "an untrusted capture binary offers no Allow" '[["capture", "Allow", false]]' offered_actions acme.capture
+chmod 0755 "$system_bin/bandwhich"
+rm -f -- "$system_bin/bandwhich"
+rescan "rescan after removing the capture binary answers ok"
+expect_poll "capture without bandwhich reads absent" "absent bandwhich-missing" system_capture_core
+expect_poll "an absent capture step offers no Allow" '[["capture", "Allow", false]]' offered_actions acme.capture
+expect "disabling the capture fixture is allowed" ok ipc shell setPluginEnabled acme.capture false
+settings_page_close acme.capture
+rm -f -- "$system_bin/getcap" "$system_bin/setcap" "$system_bin/bandwhich.caps" "$system_bin/capture.calls"
 device_reply_clear systemctl
 device_reply_clear gum
 device_reply_clear udevadm

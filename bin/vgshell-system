@@ -21,6 +21,10 @@
 #   tailscale-operator   `tailscale set --operator=<the caller's own login name>`; a
 #                        login name outside `[a-z_][a-z0-9_-]*$?` reads this step
 #                        unknown, reason user-unsupported
+#   bandwhich-capture    grant cap_sys_ptrace, cap_dac_read_search, cap_net_raw
+#                        and cap_net_admin, effective and permitted, on the
+#                        resolved, root-owned bandwhich binary; undo removes
+#                        the grant only from the same recorded binary
 #   greeter              write /etc/greetd/vgshell.toml, a greetd configuration whose
 #                        greeter, the first account of `greeter` and `_greetd`
 #                        that exists, runs Hyprland with
@@ -185,7 +189,8 @@ dev="$prefix/dev"
 boot_id_file="$prefix/proc/sys/kernel/random/boot_id"
 
 # The closed table, in the order status prints it.
-steps=(apple-displays i2c-dev service-bluetooth service-tailscaled tailscale-operator greeter)
+steps=(apple-displays i2c-dev service-bluetooth service-tailscaled tailscale-operator greeter bandwhich-capture)
+capture_caps=cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin
 
 # Character classes spelled out: a range follows the collation of the
 # caller's locale, which this script keeps for gum.
@@ -372,6 +377,75 @@ probe_tailscale_operator() {
   elif [[ -z $operator ]]; then set_probe needed operator-unset
   else set_probe denied operator-other
   fi
+}
+
+# The resolved binary and its parents must be root's and writable by no
+# other account. A writable parent would let that account replace the
+# binary between the question and the root command.
+capture_binary() {
+  local found dir
+  found="$(command -v bandwhich)" || { set_probe absent bandwhich-missing; return 1; }
+  capture_path="$(readlink -f -- "$found")" || { set_probe unknown path-unreadable; return 1; }
+  [[ -f $capture_path && -x $capture_path ]] || { set_probe unknown path-unreadable; return 1; }
+  dir="$capture_path"
+  while :; do
+    trusted "${dir:-/}" || { set_probe denied install-untrusted; return 1; }
+    [[ -n $dir ]] || break
+    dir="${dir%/*}"
+  done
+}
+
+probe_bandwhich_capture() {
+  local output clause names flags action operation name cap clauses=() members=()
+  local -A granted=()
+  capture_binary || return 0
+  detect_system || { set_probe unknown system-undetected; return; }
+  if [[ $detected_system == nix ]]; then set_probe needed capture-needed; return; fi
+  command -v getcap >/dev/null || { set_probe unknown getcap-missing; return; }
+  output="$(getcap -n -- "$capture_path" 2>/dev/null)" || { set_probe unknown getcap-failed; return; }
+  [[ -n $output ]] || { set_probe needed capture-needed; return; }
+  [[ $output == "$capture_path "* && $output != *$'\n'* ]] || { set_probe unknown capabilities-unreadable; return; }
+  output="${output#"$capture_path "}"
+  # cap_to_text clauses act in order, with = resetting the named sets.
+  # -n exposes a namespace root id, whose grant is not global. libcap's
+  # manuals: https://man7.org/linux/man-pages/man7/cap_text_formats.7.html
+  # and https://man7.org/linux/man-pages/man8/getcap.8.html
+  if [[ $output == *' [rootid='* ]]; then set_probe needed capture-needed; return; fi
+  read -r -a clauses <<<"$output"
+  for clause in "${clauses[@]}"; do
+    names="${clause%%[=+-]*}"
+    action="${clause#"$names"}"
+    if [[ -z $names && $action == =* || $names == all ]]; then names="$capture_caps"
+    else
+      [[ $names =~ ^cap_[abcdefghijklmnopqrstuvwxyz0123456789_]+(,cap_[abcdefghijklmnopqrstuvwxyz0123456789_]+)*$ ]] || { set_probe unknown capabilities-unreadable; return; }
+    fi
+    IFS=, read -r -a members <<<"$names"
+    [[ -n $action ]] || { set_probe unknown capabilities-unreadable; return; }
+    while [[ -n $action ]]; do
+      [[ $action =~ ^([=+-])([epi]*)(.*)$ ]] || { set_probe unknown capabilities-unreadable; return; }
+      operation="${BASH_REMATCH[1]}" flags="${BASH_REMATCH[2]}" action="${BASH_REMATCH[3]}"
+      [[ $operation == = || -n $flags ]] || { set_probe unknown capabilities-unreadable; return; }
+      for name in "${members[@]}"; do
+        case "$operation" in
+          =) granted[$name]="$flags" ;;
+          +) granted[$name]="${granted[$name]-}$flags" ;;
+          -)
+            for cap in e p i; do
+              if [[ $flags == *"$cap"* ]]; then
+                granted[$name]="${granted[$name]-}"
+                granted[$name]="${granted[$name]//"$cap"/}"
+              fi
+            done
+            ;;
+        esac
+      done
+    done
+  done
+  IFS=, read -r -a members <<<"$capture_caps"
+  for cap in "${members[@]}"; do
+    [[ ${granted[$cap]-} == *e* && ${granted[$cap]-} == *p* ]] || { set_probe needed capture-needed; return; }
+  done
+  set_probe ready granted
 }
 
 # Sets compositor to the greeter compositor's command words as the greeter
@@ -617,6 +691,7 @@ probe() { # STEP
     service-bluetooth|service-tailscaled) unit_of "$1"; probe_service "$unit" ;;
     tailscale-operator) probe_tailscale_operator ;;
     greeter) probe_greeter ;;
+    bandwhich-capture) probe_bandwhich_capture ;;
     *) refuse 1 "internal=probe step=$1" "the step table has no probe for it" ;;
   esac
 }
@@ -655,6 +730,9 @@ nixos_snippet() { # STEP
     service-bluetooth) printf 'hardware.bluetooth.enable = true;\n' ;;
     service-tailscaled) printf 'services.tailscale.enable = true;\n' ;;
     tailscale-operator) printf 'services.tailscale.extraSetFlags = [ "--operator=%s" ];\n' "$user" ;;
+    bandwhich-capture)
+      printf 'security.wrappers.bandwhich = {\n  source = "${pkgs.bandwhich}/bin/bandwhich";\n  owner = "root";\n  group = "root";\n  capabilities = "%s+ep";\n};\n' "$capture_caps"
+      ;;
     greeter)
       # The greeter runs the VGS package, never this script's own tree, so
       # the store keeps it while the configuration names it.
@@ -688,6 +766,7 @@ read_record() { # STEP
     service-*) allowed=' uid enabled started boot ' ;;
     tailscale-operator) allowed=' uid operator previous ' ;;
     greeter) allowed=' uid config pam dropin enabled target deferred dropin-dir greeter-dir theme-dir copy-dir state-dir ' ;;
+    bandwhich-capture) allowed=' uid binary hash ' ;;
     *) refuse 1 "internal=record step=$1" ;;
   esac
   while IFS= read -r line || [[ -n $line ]]; do
@@ -696,7 +775,8 @@ read_record() { # STEP
     [[ $allowed == *" $key "* && -z ${record[$key]+set} ]] || refuse 1 "record=malformed path=$file"
     case "$key" in
       uid) [[ $value =~ ^$digit+$ ]] ;;
-      rule|config|pam|dropin) [[ $value =~ ^$hex{64}$ ]] ;;
+      rule|config|pam|dropin|hash) [[ $value =~ ^$hex{64}$ ]] ;;
+      binary) [[ $value == /* && $value != *$'\r'* ]] ;;
       loaded|enabled|started|*-dir) [[ $value == 1 ]] ;;
       boot|deferred) [[ $value =~ ^($hex|-){36}$ ]] ;;
       target) [[ $value =~ ^($lower|$digit|[@._:-])+\.target$ ]] ;;
@@ -826,6 +906,26 @@ apply_tailscale_operator() {
   program tailscale tailscale
   record_put tailscale-operator "uid=$uid"$'\n'"operator=$user"$'\n'"previous="
   cmd "$tailscale" set "--operator=$user"
+}
+
+apply_bandwhich_capture() {
+  local setcap
+  capture_binary || refuse 1 "state=$probe_state reason=$probe_reason step=bandwhich-capture"
+  read_record bandwhich-capture || true
+  program setcap setcap
+  sha256_of "$capture_path"
+  record_put bandwhich-capture "uid=$uid"$'\n'"binary=$capture_path"$'\n'"hash=$sum"
+  cmd "$setcap" "$capture_caps+ep" "$capture_path"
+}
+
+undo_bandwhich_capture() {
+  local setcap
+  capture_binary || refuse 1 "state=$probe_state reason=$probe_reason step=bandwhich-capture"
+  sha256_of "$capture_path"
+  [[ $capture_path == "${record[binary]-}" && $sum == "${record[hash]-}" ]] || refuse 1 "record=binary-changed step=bandwhich-capture"
+  program setcap setcap
+  cmd "$setcap" -r "$capture_path"
+  record_drop bandwhich-capture
 }
 
 # Writes TEXT as DEST through a dotted name in the same directory, renamed
@@ -1002,6 +1102,7 @@ plan() { # VERB STEP
     service-bluetooth|service-tailscaled) "$1_service" "$2" ;;
     tailscale-operator) "$1_tailscale_operator" ;;
     greeter) "$1_greeter" ;;
+    bandwhich-capture) "$1_bandwhich_capture" ;;
     *) refuse 1 "internal=plan step=$2" ;;
   esac
 }

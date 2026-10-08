@@ -1,0 +1,3 @@
+#!/bin/sh
+# The capture system step only resolves this fixture. It captures nothing.
+exit 64

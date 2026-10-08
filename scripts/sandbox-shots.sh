@@ -3602,9 +3602,9 @@ for scene in "${setups[@]}"; do
 import json, sys
 path = sys.argv[1]
 manifest = json.load(open(path))
-manifest["kinds"].append("service")
+if "service" not in manifest["kinds"]: manifest["kinds"].append("service")
 manifest["entryPoints"]["service"] = "Service.qml"
-manifest["capabilities"].append("ipc")
+if "ipc" not in manifest["capabilities"]: manifest["capabilities"].append("ipc")
 manifest["tui"] = {"capture": {"script": "tui/allow.sh", "title": "Allow traffic capture"}, "bandwhich": {"script": "tui/allow.sh", "title": "All network traffic"}}
 manifest["status"]["capture"]["action"] = {"label": "Allow", "tui": "capture"}
 json.dump(manifest, open(path, "w"))

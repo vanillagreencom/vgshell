@@ -151,6 +151,25 @@ EOF
 # greetd and start-hyprland are only found; no row runs them.
 printf '#!/bin/sh\nexit 64\n' >"$bin/greetd"
 printf '#!/bin/sh\nexit 64\n' >"$bin/start-hyprland"
+# These stand-ins store capability text beside the fixture binary. They
+# never read or write security.capability, and bandwhich never captures.
+cat >"$bin/getcap" <<EOF
+#!/bin/sh
+[ -e "$tmp/getcap-fail" ] && exit 1
+for last; do :; done
+[ -s "$tmp/capture-caps" ] || exit 0
+printf '%s %s\n' "\$last" "\$(cat "$tmp/capture-caps")"
+EOF
+cat >"$bin/setcap" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$tmp/setcap.log"
+[ -e "$records/bandwhich-capture" ] || exit 64
+[ -e "$tmp/setcap-fail" ] && exit 1
+case "\$1" in
+  -r) : >"$tmp/capture-caps" ;;
+  *) printf '%s\n' 'cap_dac_read_search,cap_net_admin,cap_net_raw,cap_sys_ptrace=ep' >"$tmp/capture-caps" ;;
+esac
+EOF
 # modprobe i2c-dev registers the class and the display adapter's node,
 # readable while $tmp/i2c-rule exists; -r takes both away.
 cat >"$bin/modprobe" <<EOF
@@ -187,6 +206,7 @@ read -r st <"$tmp/gum-answer"
 exit "\$st"
 EOF
 chmod +x "$bin"/stat "$bin"/sudo "$bin"/udevadm "$bin"/systemctl "$bin"/modprobe "$bin"/tailscale "$bin"/gum "$bin"/getent "$bin"/greetd "$bin"/start-hyprland
+chmod +x "$bin/getcap" "$bin/setcap"
 
 # SOURCE's `prefix=` line, which must occur once, names the tree.
 place() { # SOURCE
@@ -220,7 +240,9 @@ fresh() {
   : >"$tmp/operator"
   rm -f -- "$tmp"/{sudo.log,udevadm.log,systemctl.log,modprobe.log,tailscale.log,gum.log,gum-hook,foreign,sudo-exit,udev-fail,other-rule,i2c-rule,tailscaled-down,before-tree,after-tree,no-greeter,getent-fail,owners,greeter-name}
   printf '0\n' >"$tmp/gum-answer"
+  rm -f -- "$bin/bandwhich" "$tmp/capture-caps" "$tmp/getcap-fail" "$tmp/setcap-fail" "$tmp/setcap.log"
 }
+capture_fixture() { printf '#!/bin/sh\nexit 64\n' >"$bin/bandwhich"; chmod 0755 "$bin/bandwhich"; }
 caller="$tmp/caller"; mkdir -p "$caller"
 ln -s -- "$node_bin" "$caller/node"
 nixos_path="$tmp/nixos-path"; mkdir -p "$nixos_path"
@@ -280,7 +302,7 @@ last_out_is() { test "$(tail -n 1 "$tmp/out")" == "$1"; }
 sudo_calls() { cat -- "$tmp/sudo.log" 2>/dev/null; }
 no_sudo() { test ! -e "$tmp/sudo.log"; }
 state_json() { # STATE-REASON per step, table order
-  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"greeter":{"state":"%s","reason":"%s"}}}' "$@"
+  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"}}}' "$@"
 }
 step_state() { # STEP: the state status --json reads for it
   "${row_env[@]}" "$vgs/bin/vgshell" system status --json </dev/null 2>/dev/null |
@@ -554,6 +576,98 @@ check "undo never resets an operator it did not set" test "$(sudo_calls)" == "$(
 check "the other operator stays" test "$(cat "$tmp/operator")" == someone
 fresh; printf 'someone' >"$tmp/operator"
 run "apply refuses another user's operator" 1 "vgs-system: refused: state=denied reason=operator-other step=tailscale-operator" apply tailscale-operator
+
+# bandwhich capture: the real helper probes the resolved binary, requires
+# every grant, records before setcap and uses only the isolated stand-ins.
+capture_want=cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin+ep
+capture_all=cap_dac_read_search,cap_net_admin,cap_net_raw,cap_sys_ptrace=ep
+fresh
+check "capture without bandwhich reads absent" test "$(step_state bandwhich-capture)" == "absent bandwhich-missing"
+run "capture refuses apply without bandwhich" 1 "vgs-system: refused: state=absent reason=bandwhich-missing step=bandwhich-capture" apply bandwhich-capture
+capture_fixture
+check "capture with no capabilities reads needed" test "$(step_state bandwhich-capture)" == "needed capture-needed"
+for caps in \
+  cap_dac_read_search,cap_net_admin,cap_net_raw=ep \
+  cap_sys_ptrace,cap_net_admin,cap_net_raw=ep \
+  cap_sys_ptrace,cap_dac_read_search,cap_net_raw=ep \
+  cap_sys_ptrace,cap_dac_read_search,cap_net_admin=ep \
+  cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin=p \
+  cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin=e \
+  '=ep cap_net_admin-p' \
+  '=ep cap_net_admin=' \
+  'cap_dac_read_search,cap_net_admin,cap_net_raw,cap_sys_ptrace=ep [rootid=1000]'; do
+  printf '%s\n' "$caps" >"$tmp/capture-caps"
+  check "capture rejects incomplete or namespaced grants [$caps]" test "$(step_state bandwhich-capture)" == "needed capture-needed"
+done
+printf '%s\n' "$capture_all" >"$tmp/capture-caps"
+check "capture with every effective and permitted grant reads ready" test "$(step_state bandwhich-capture)" == "ready granted"
+for caps in '=ep' 'all=ep' 'cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin=p+e-i'; do
+  printf '%s\n' "$caps" >"$tmp/capture-caps"
+  check "capture reads all granted capability text forms [$caps]" test "$(step_state bandwhich-capture)" == "ready granted"
+done
+run "capture already granted runs nothing" 0 "" apply bandwhich-capture
+check "a ready capture apply runs no sudo" no_sudo
+printf 'cap_net_raw=ep cap_sys_ptrace,cap_dac_read_search,cap_net_admin=ep\n' >"$tmp/capture-caps"
+check "capture reads capabilities in multiple groups" test "$(step_state bandwhich-capture)" == "ready granted"
+printf '%s %s\n' "$uid" "$bin/bandwhich" >"$tmp/owners"
+check "a bandwhich binary not owned by root reads denied" test "$(step_state bandwhich-capture)" == "denied install-untrusted"
+run "capture refuses an untrusted binary" 1 "vgs-system: refused: state=denied reason=install-untrusted step=bandwhich-capture" apply bandwhich-capture
+check "an untrusted capture apply runs no sudo" no_sudo
+rm -f -- "$tmp/owners"
+for mode in 0775 0777; do
+  chmod "$mode" "$bin/bandwhich"
+  check "a writable bandwhich binary reads denied [$mode]" test "$(step_state bandwhich-capture)" == "denied install-untrusted"
+done
+chmod 0755 "$bin/bandwhich"; chmod 0775 "$bin"
+check "a writable parent of bandwhich reads denied" test "$(step_state bandwhich-capture)" == "denied install-untrusted"
+chmod 0755 "$bin"
+touch "$tmp/getcap-fail"
+check "a failed getcap reads unknown" test "$(step_state bandwhich-capture)" == "unknown getcap-failed"
+rm -f -- "$tmp/getcap-fail"
+printf 'unrecognized\n' >"$tmp/capture-caps"
+check "an unreadable capability report reads unknown" test "$(step_state bandwhich-capture)" == "unknown capabilities-unreadable"
+fresh; capture_fixture
+tree_snapshot >"$tmp/before-tree"
+run "capture with no terminal stops at its question" 2 "*" apply bandwhich-capture
+tree_snapshot >"$tmp/after-tree"
+check "capture before consent writes nothing" untouched
+check "capture before consent runs no sudo" no_sudo
+run_tty "capture apply grants the resolved binary" 0 apply bandwhich-capture
+check "capture apply shows the capability command before asking" out_has "  sudo $(p setcap) $(printf '%q' "$capture_want") $bin/bandwhich"
+check "capture records before the stand-in grants capabilities" test "$(sudo_calls)" == "$(session \
+  "-- $(p install) -d -m 0755 -o root -g root -- $records" \
+  "-- $(p tee) -- $records/.bandwhich-capture" \
+  "-- $(p mv) -fT -- $records/.bandwhich-capture $records/bandwhich-capture" \
+  "-- $(p setcap) $capture_want $bin/bandwhich")"
+check "capture reports ready after its command" last_out_is "ok system=bandwhich-capture state=ready"
+check "capture records the caller and binary identity" test "$(cat "$records/bandwhich-capture")" == "$(printf 'uid=%s\nbinary=%s\nhash=%s' "$uid" "$bin/bandwhich" "$(sha256sum "$bin/bandwhich" | cut -d ' ' -f1)")"
+rm -f -- "$tmp/sudo.log"
+run_tty "capture undo removes its grant" 0 undo bandwhich-capture
+check "capture undo runs setcap -r then drops the record" test "$(sudo_calls)" == "$(session \
+  "-- $(p setcap) -r $bin/bandwhich" \
+  "-- $(p rm) -f -- $records/bandwhich-capture")"
+check "capture after undo needs its grant" test "$(step_state bandwhich-capture)" == "needed capture-needed"
+fresh; capture_fixture; touch "$tmp/setcap-fail"
+run_tty "a failed capture grant fails apply" 1 apply bandwhich-capture
+check "a failed capture grant leaves its record" test -e "$records/bandwhich-capture"
+check "a failed capture grant remains needed" test "$(step_state bandwhich-capture)" == "needed capture-needed"
+fresh; capture_fixture
+run_tty "capture apply before a package replacement" 0 apply bandwhich-capture
+printf '# replacement\n' >>"$bin/bandwhich"; : >"$tmp/capture-caps"; rm -f -- "$tmp/sudo.log"
+check "a package replacement drops capture readiness" test "$(step_state bandwhich-capture)" == "needed capture-needed"
+run "undo preserves a replacement binary" 1 "vgs-system: refused: record=binary-changed step=bandwhich-capture" undo bandwhich-capture
+check "a replacement undo runs no sudo" no_sudo
+run_tty "capture applies to the package replacement" 0 apply bandwhich-capture
+check "the replacement capture grant reads ready" test "$(step_state bandwhich-capture)" == "ready granted"
+fresh; capture_fixture; printf '%s\n' "$capture_all" >"$tmp/capture-caps"
+run_nixos "capture on NixOS uses the configuration" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
+check "capture on NixOS reads nixos" out_has '"bandwhich-capture":{"state":"nixos","reason":"capture-needed"}'
+run_nixos "capture apply on NixOS prints a wrapper" 0 "" "$nixos_path:$caller:/usr/bin:/bin" apply bandwhich-capture
+check "the NixOS wrapper grants every capability" out_has "  capabilities = \"$capture_want\";"
+check "the NixOS wrapper uses the package binary" out_has '  source = "${pkgs.bandwhich}/bin/bandwhich";'
+check "capture on NixOS writes nothing" untouched
+check "capture on NixOS runs no sudo" no_sudo
+check "capture on NixOS asks nothing" test ! -e "$tmp/gum.log"
 
 # greeter: VGS's own greetd configuration, PAM service and drop-in, the
 # theme, theme copy and state directories, then greetd enabled and never
@@ -992,5 +1106,45 @@ check "the greeter-dirs-blind mutant removes a directory VGS did not make" test 
 control greeter-account-blind '    owned_by "$greeter_copy" "$uid" || { set_probe denied other-account; return; }' '    true || { set_probe denied other-account; return; }'
 mkdir -p "$greeter_dir/theme/vgshell"; printf '1234 %s\n' "$greeter_dir/theme/vgshell" >"$tmp/owners"
 check "the greeter-account-blind mutant reads another account's theme copy directory needed" test "$(step_state greeter)" == "needed not-set-up"
+
+# These assertions use the same state contract as the probe rows above.
+# A mutant must make that contract fail, not merely produce some output.
+capture_contract() { test "$(step_state bandwhich-capture)" == "$1"; }
+capture_control_rejected() {
+  local status=0
+  capture_contract "$1" || status=$?
+  printf 'control: capture=%s expected=%s exit=%s\n' "$2" "$1" "$status"
+  test "$status" == 1
+}
+control capture-three-caps 'capture_caps=cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin' 'capture_caps=cap_dac_read_search,cap_net_raw,cap_net_admin'
+capture_fixture; printf 'cap_dac_read_search,cap_net_admin,cap_net_raw=ep\n' >"$tmp/capture-caps"
+check "the three-cap mutant fails the needed contract" capture_control_rejected "needed capture-needed" three-caps
+control capture-flags '    [[ ${granted[$cap]-} == *e* && ${granted[$cap]-} == *p* ]] ||' '    [[ -n ${granted[$cap]+set} ]] ||'
+capture_fixture; printf 'cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin=p\n' >"$tmp/capture-caps"
+check "the flag-blind mutant fails the effective-grant contract" capture_control_rejected "needed capture-needed" flags
+control capture-ready '  IFS=, read -r -a members <<<"$capture_caps"
+  for cap in' '  set_probe needed capture-needed; return
+  IFS=, read -r -a members <<<"$capture_caps"
+  for cap in'
+capture_fixture; printf '%s\n' "$capture_all" >"$tmp/capture-caps"
+check "the ready mutant fails the ready contract" capture_control_rejected "ready granted" ready
+control capture-absent 'found="$(command -v bandwhich)" || { set_probe absent bandwhich-missing; return 1; }' 'found="$(command -v bandwhich)" || { set_probe needed capture-needed; return 1; }'
+check "the absent mutant fails the absent contract" capture_control_rejected "absent bandwhich-missing" absent
+control capture-trust '    trusted "${dir:-/}" || { set_probe denied install-untrusted; return 1; }' '    true || { set_probe denied install-untrusted; return 1; }'
+capture_fixture; printf '%s %s\n' "$uid" "$bin/bandwhich" >"$tmp/owners"
+check "the trust mutant fails the ownership contract" capture_control_rejected "denied install-untrusted" owner
+rm -f -- "$tmp/owners"; chmod 0775 "$bin/bandwhich"
+check "the trust mutant fails the writable binary contract" capture_control_rejected "denied install-untrusted" mode
+chmod 0755 "$bin/bandwhich"; chmod 0775 "$bin"
+check "the trust mutant fails the writable parent contract" capture_control_rejected "denied install-untrusted" parent
+chmod 0755 "$bin"
+control capture-nixos '  if [[ $detected_system == nix ]]; then set_probe needed capture-needed; return; fi' '  if false; then set_probe needed capture-needed; return; fi'
+capture_fixture; printf '%s\n' "$capture_all" >"$tmp/capture-caps"
+run_nixos "the capture NixOS mutant's status" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
+capture_nixos_contract() { out_has '"bandwhich-capture":{"state":"nixos","reason":"capture-needed"}'; }
+capture_nixos_rejected=0
+capture_nixos_contract || capture_nixos_rejected=$?
+printf 'control: capture=nixos expected=nixos exit=%s\n' "$capture_nixos_rejected"
+check "the NixOS mutant fails the configuration contract" test "$capture_nixos_rejected" == 1
 
 rows_done "$suite"

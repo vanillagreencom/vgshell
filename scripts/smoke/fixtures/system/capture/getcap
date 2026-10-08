@@ -1,0 +1,9 @@
+#!/bin/sh
+# Capability text belongs to this disposable tree, never a host xattr.
+set -eu
+base=${0%/*}
+for binary; do :; done
+[ "$binary" = "$base/bandwhich" ] || exit 64
+[ -s "$base/bandwhich.caps" ] || exit 0
+caps=$(cat -- "$base/bandwhich.caps") || exit $?
+printf '%s %s\n' "$binary" "$caps"

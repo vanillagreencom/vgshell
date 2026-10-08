@@ -1,0 +1,13 @@
+#!/bin/sh
+# Record argv and update fixture text. No capability syscall occurs.
+set -eu
+base=${0%/*}
+[ "$#" = 2 ] && [ "$2" = "$base/bandwhich" ] || exit 64
+printf '%s\n' "$*" >>"$base/capture.calls"
+case $1 in
+  -r) : >"$base/bandwhich.caps" ;;
+  cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin+ep)
+    printf 'cap_dac_read_search,cap_net_admin,cap_net_raw,cap_sys_ptrace=ep\n' >"$base/bandwhich.caps"
+    ;;
+  *) exit 64 ;;
+esac

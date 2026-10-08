@@ -1,19 +1,166 @@
 {
-  "schemaVersion": 1, "id": "vgs.traffic", "name": "Network Traffic", "version": "0.1.0", "author": "VanillaGreen",
-  "description": "See network speed and traffic per app.", "license": "MIT", "icon": "arrow-down-up",
-  "kinds": ["bar-widget", "panel"], "entryPoints": { "bar-widget": "Widget.qml", "panel": "Panel.qml" },
-  "capabilities": ["status", "surfaces", "tui"], "defaultSection": "right",
-  "requirements": [
-    { "command": "ss", "packages": { "pacman": "iproute2", "apt": "iproute2", "dnf": "iproute", "xbps": "iproute2", "emerge": "sys-apps/iproute2", "nix": "iproute2" }, "optional": false, "purpose": "Reads TCP traffic for your apps" },
-    { "command": "bandwhich", "packages": { "pacman": "bandwhich" }, "optional": true, "purpose": "See all shows traffic for every app and protocol" }
+  "schemaVersion": 1,
+  "id": "vgs.traffic",
+  "name": "Network Traffic",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "See network speed and traffic per app.",
+  "license": "MIT",
+  "icon": "arrow-down-up",
+  "kinds": [
+    "bar-widget",
+    "panel",
+    "service"
   ],
-  "settings": { "show": "both", "refreshSeconds": 2 },
+  "entryPoints": {
+    "bar-widget": "Widget.qml",
+    "panel": "Panel.qml",
+    "service": "Service.qml"
+  },
+  "capabilities": [
+    "status",
+    "surfaces",
+    "tui",
+    "ipc",
+    "requirements",
+    "system",
+    "shortcut"
+  ],
+  "defaultSection": "right",
+  "requirements": [
+    {
+      "command": "ss",
+      "packages": {
+        "pacman": "iproute2",
+        "apt": "iproute2",
+        "dnf": "iproute",
+        "xbps": "iproute2",
+        "emerge": "sys-apps/iproute2",
+        "nix": "iproute2"
+      },
+      "optional": false,
+      "purpose": "Reads TCP traffic for your apps"
+    },
+    {
+      "command": "bandwhich",
+      "packages": {
+        "pacman": "bandwhich",
+        "apt": "bandwhich",
+        "xbps": "bandwhich",
+        "emerge": "net-analyzer/bandwhich",
+        "nix": "bandwhich"
+      },
+      "optional": true,
+      "purpose": "See all shows traffic for every app and protocol"
+    },
+    {
+      "command": "readlink",
+      "packages": {
+        "pacman": "coreutils",
+        "apt": "coreutils",
+        "dnf": "coreutils",
+        "xbps": "coreutils",
+        "emerge": "sys-apps/coreutils",
+        "nix": "coreutils"
+      },
+      "optional": false,
+      "purpose": "Finds physical network interfaces so traffic is counted once"
+    },
+    {
+      "command": "getcap",
+      "packages": {
+        "pacman": "libcap",
+        "apt": "libcap2-bin",
+        "dnf": "libcap",
+        "xbps": "libcap-progs",
+        "emerge": "sys-libs/libcap",
+        "nix": "libcap"
+      },
+      "optional": true,
+      "purpose": "Checks whether See all has traffic capture access"
+    },
+    {
+      "command": "setcap",
+      "packages": {
+        "pacman": "libcap",
+        "apt": "libcap2-bin",
+        "dnf": "libcap",
+        "xbps": "libcap-progs",
+        "emerge": "sys-libs/libcap",
+        "nix": "libcap"
+      },
+      "optional": true,
+      "purpose": "Allows the Traffic capture setup step to grant access"
+    }
+  ],
+  "settings": {
+    "show": "both",
+    "refreshSeconds": 2
+  },
   "schema": {
-    "show": { "type": "enum", "label": "Show in bar", "options": ["both", "download", "upload"], "group": "Display" },
-    "refreshSeconds": { "type": "number", "label": "Refresh interval", "min": 1, "max": 10, "step": 1, "unit": "seconds", "group": "Readings" }
+    "show": {
+      "type": "enum",
+      "label": "Show in bar",
+      "options": [
+        "both",
+        "download",
+        "upload"
+      ],
+      "group": "Display"
+    },
+    "refreshSeconds": {
+      "type": "number",
+      "label": "Refresh interval",
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "unit": "seconds",
+      "group": "Readings"
+    }
   },
   "status": {
-    "traffic": { "type": "data", "label": "Traffic" },
-    "capture": { "type": "state", "label": "Traffic capture", "hint": "See all shows every app and protocol.", "info": "See all shows every app and protocol. Allowing it lets every account on this computer see network traffic through bandwhich." }
+    "traffic": {
+      "type": "data",
+      "label": "Traffic"
+    },
+    "capture": {
+      "type": "state",
+      "label": "Traffic capture",
+      "hint": "See all shows every app and protocol.",
+      "info": "See all shows every app and protocol. Allowing it lets every account on this computer see network traffic through bandwhich.",
+      "action": {
+        "label": "Allow traffic capture",
+        "system": "bandwhich-capture"
+      }
+    }
+  },
+  "systemSteps": [
+    "bandwhich-capture"
+  ],
+  "tui": {
+    "bandwhich": {
+      "script": "tui/bandwhich.sh",
+      "title": "All network traffic",
+      "size": "wide",
+      "requires": [
+        "bandwhich"
+      ]
+    }
+  },
+  "hyprland": {
+    "binds": [
+      {
+        "shortcut": "open",
+        "key": null,
+        "info": "Opens or closes the network traffic view."
+      }
+    ]
+  },
+  "menu": {
+    "network-traffic": {
+      "label": "Network Traffic",
+      "icon": "arrow-down-up",
+      "shortcut": "open"
+    }
   }
 }
