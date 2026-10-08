@@ -7,8 +7,9 @@ import "Appearance.js" as Appearance
 import "NotificationLogic.js" as Logic
 
 // The notification service: every desktop notification the core's server
-// receives becomes a glass toast at the top of every screen, and leaves
-// into the history when it expires, is dismissed, closed by its sender or
+// receives becomes a glass toast on every screen, at the edge the `position`
+// setting names, and leaves into the history when it expires, is dismissed,
+// closed by its sender or
 // let go by a full stack, unless its sender marked it transient. The Inbox shows what arrived since the last Mark
 // read, the History everything kept; while either is open the toasts stay
 // and do not expire. Opening a toast or an inbox row runs its primary
@@ -33,6 +34,10 @@ Item {
     // seconds; the manifest's default and the schema's bounds make it a
     // number from 2 to 30.
     readonly property int normalLifetime: shell === null ? 0 : shell.settings.duration * 1000
+    // Where every screen's stack sits, the `position` setting: one of the
+    // schema's options, top or bottom, then -left, -right or nothing for
+    // centred.
+    readonly property string position: shell === null ? "" : shell.settings.position
     readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
     property bool registered: false
     property var layerRelease: null

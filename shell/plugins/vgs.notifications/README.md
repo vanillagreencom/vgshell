@@ -1,6 +1,6 @@
 # Notifications
 
-Notifications shows application notifications at the top of each screen and keeps them in a panel to read later. Silence keeps new notifications in History without showing them on screen.
+Notifications shows application notifications on each screen and keeps them in a panel to read later. Silence keeps new notifications in History without showing them on screen.
 
 ![Three notifications on screen](../../../docs/images/plugins/vgs.notifications-toasts.webp)
 
@@ -28,6 +28,7 @@ Screenshots come from `scripts/readme-shots.sh` in the nested sandbox, with the 
 | Setting | What it changes |
 | --- | --- |
 | Notification duration | The minimum time a normal notification stays on screen. |
+| Position | The screen edge where notifications show: top or bottom, at the left, in the centre or at the right. The newest notification is nearest that edge. |
 | Slack photos | Whether sender photos load from connected Slack workspaces. |
 | Slack custom emoji | Whether custom emoji show in Slack notifications. |
 

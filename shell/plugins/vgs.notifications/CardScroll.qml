@@ -4,12 +4,26 @@ import qs.Commons
 import qs.Ui
 
 // Shared scroll frame for notification cards. The stack and the panel use
-// the same text column, overflow rule and slim bar.
+// the same text column, overflow rule and slim bar. The cards sit in a
+// one-column grid, in child order unless a card names its `Layout.row`:
+// Qt 6.11's GridLayout puts a child with a row at that row as given and
+// fills the rest in order (QQuickGridLayout::insertLayoutItems), and it
+// lays them out at polish, once a Repeater has renumbered every card.
 Item {
     id: root
 
     required property var look
     property real maxHeight: 0
+    // Whether the view holds its place from the content's end rather than
+    // its start: a bottom stack, whose newest card is the last. As the
+    // content or the view changes size the view keeps its distance from
+    // the end, `endGap`, as a top stack keeps its distance from the start,
+    // so a newest card in view stays in view. A change of side shows the
+    // newest card again.
+    property bool fromEnd: false
+    property real endGap: 0
+    // While holdEnd writes the view's place, which that write must not move.
+    property bool holding: false
     property string scrollObjectName: "notificationScrollBar"
     default property alias content: cards.data
     readonly property real textColumn: Math.ceil(Inset.clearing(look.card.pad, look.radius.full, look.card.width, look.card.maxHeight, look.radius.clearance, look.card.pad))
@@ -18,6 +32,22 @@ Item {
 
     implicitWidth: cards.implicitWidth + look.stack.pad * 2
     implicitHeight: Math.min(cards.implicitHeight + look.stack.tail, maxHeight)
+
+    onFromEndChanged: {
+        if (!fromEnd) {
+            view.contentY = 0;
+            return;
+        }
+        endGap = 0;
+        holdEnd();
+    }
+
+    function holdEnd() {
+        if (!fromEnd) return;
+        holding = true;
+        view.contentY = Math.max(0, view.contentHeight - view.height - endGap);
+        holding = false;
+    }
 
     function motionStep(duration, curve) {
         return { duration: duration, easing: Easing.BezierSpline, curve: [curve.x1, curve.y1, curve.x2, curve.y2, 1, 1] };
@@ -33,12 +63,20 @@ Item {
         acceptedButtons: Qt.NoButton
         clip: true
         TouchpadScroll { view: view }
+        onContentHeightChanged: root.holdEnd()
+        onHeightChanged: root.holdEnd()
+        // A scroll by the user moves the place the view holds, and so does
+        // the view's own return inside its bounds, which Qt 6.11's
+        // setContentHeight runs before contentHeightChanged
+        // (QQuickFlickable::setContentHeight), so it reads the new height.
+        onContentYChanged: if (root.fromEnd && !root.holding) root.endGap = Math.max(0, contentHeight - height - contentY)
 
-        ColumnLayout {
+        GridLayout {
             id: cards
             x: root.look.stack.pad
             width: root.look.card.width
-            spacing: 0
+            columns: 1
+            rowSpacing: 0
         }
     }
 

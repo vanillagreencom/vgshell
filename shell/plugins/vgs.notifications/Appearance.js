@@ -127,12 +127,15 @@ var TOKENS = {
     },
 
     stack: {
-        // The stack's gap below the reserved space, the room left for the
-        // cards' side shadows, and the scroll room under the last card.
-        top: length(5),
+        // The stack's gap from each screen edge its position places it at,
+        // the room left for the cards' side shadows, the scroll room after
+        // the last card, and the least room a scrolling stack leaves at
+        // the screen edge across from its own. The screen edges are those
+        // of the space other layers do not reserve.
+        edge: length(5),
         pad: length(40),
         tail: length(24),
-        bottom: length(12)
+        far: length(12)
     },
 
     card: {

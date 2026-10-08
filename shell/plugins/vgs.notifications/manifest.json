@@ -31,6 +31,7 @@
     "duration": 8,
     "customEmoji": true,
     "slackPhotos": false,
+    "position": "top",
     "placement": "top"
   },
   "schema": {
@@ -43,6 +44,12 @@
       "max": 30,
       "step": 1,
       "unit": "seconds"
+    },
+    "position": {
+      "type": "enum",
+      "label": "Position",
+      "description": "Choose where notifications show on each screen. Top and bottom are centred.",
+      "options": ["top-left", "top", "top-right", "bottom-left", "bottom", "bottom-right"]
     },
     "customEmoji": {
       "type": "boolean",

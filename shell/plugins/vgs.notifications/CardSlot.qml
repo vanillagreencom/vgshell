@@ -3,7 +3,9 @@ import QtQuick.Layouts
 
 // One toast row of the stack on one screen. The card morphs in from a dot
 // and collapses back into one when it leaves. The service owns the row, its
-// lifetime and its end.
+// lifetime and its end. In a stack at the top the row's gap is above the
+// card and the dot drops in from above; at the bottom the gap is below it
+// and the dot rises from below.
 Item {
     id: slot
 
@@ -13,6 +15,7 @@ Item {
     // Null once the service or the stack is gone, while the host destroys
     // this copy; every binding on it checks for that.
     readonly property var service: host ? host.service : null
+    readonly property bool rising: host ? host.fromBottom : false
     required property var look
     // The stack's text column, which the card's text starts on.
     required property real textColumn
@@ -36,8 +39,9 @@ Item {
     implicitHeight: look.card.gap * stretch + face.height + drop
 
     // The container transform: `stretch` morphs the dot into the capsule,
-    // `drop` lowers the dot into place, `squash` flattens it for a beat as
-    // it lands, and `hover` lifts it while the pointer is on it.
+    // `drop`, from minus card.drop to nothing, brings the dot in from the
+    // stack's edge, `squash` flattens it for a beat as it lands, and
+    // `hover` lifts it while the pointer is on it.
     property real stretch: 0
     property real drop: 0
     property real squash: 0
@@ -100,7 +104,7 @@ Item {
         key: slot.key
         textColumn: slot.textColumn
         anchors.horizontalCenter: parent.horizontalCenter
-        y: slot.look.card.gap * slot.stretch + slot.drop - slot.look.card.lift * slot.hover
+        y: (slot.rising ? -slot.drop : slot.look.card.gap * slot.stretch + slot.drop) - slot.look.card.lift * slot.hover
         width: slot.look.card.dot * (1 + slot.look.card.squashWide * slot.squash) + (face.card.fullWidth - slot.look.card.dot) * slot.stretch
         height: slot.look.card.dot * (1 - slot.look.card.squashFlat * slot.squash) + (face.card.fullHeight - slot.look.card.dot) * slot.stretch
         app: slot.app
