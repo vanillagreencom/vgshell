@@ -156,8 +156,8 @@ Item {
             const clear = buttonLabelled(field, "Unbind");
             compare(keyboard.button, null);
             compare(clear.button, null);
-            const width = box(field).width;
             waitForItemPolished(keyboard.parent);
+            const width = box(field).width;
             mouseMove(keyboard);
             tryVerify(() => keyboard.button !== null && clear.button !== null);
             compare(keyboard.button.tooltip, "Type the keys");
