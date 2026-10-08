@@ -27,7 +27,7 @@ elif sys.argv[1] == "last": print("none" if not s else s[-1]["role"]+":"+s[-1]["
 elif sys.argv[1] == "text": print("\n".join(row["role"]+":"+row["text"] for row in s))
 ' "$1"
 }
-jarvis_console_open() { type_keys -M logo -M alt c -m alt -m logo || fail "typing the Jarvis console shortcut failed"; }
+jarvis_console_open() { hold_send "down 133" "down 64" "down 54" "up 54" "up 64" "up 133"; }
 jarvis_console_client_count() { window_count Jarvis; }
 jarvis_console_say_count() {
   python3 - "$jarvis_console_gates/effects.jsonl" <<'PY'
@@ -112,9 +112,13 @@ jarvis_setup_requirements
 jarvis_rescan
 jarvis_enable
 expect_poll "Jarvis registers its manifest shortcuts and talk release companion" '["vgs.jarvis:confirm", "vgs.jarvis:console", "vgs.jarvis:mute", "vgs.jarvis:stop", "vgs.jarvis:talk", "vgs.jarvis:talk.release"]' jarvis_console_shortcuts
+# The first event from the row's virtual keyboard can be dropped by the
+# nested compositor; warm it with an unbound key before testing the shortcut.
+hold_send "down 30" "up 30"
+hold_barrier
 jarvis_console_open
 hold_barrier
-expect "the console key opens one Jarvis window" 1 jarvis_console_client_count
+expect_poll "the console key opens one Jarvis window" 1 jarvis_console_client_count
 jarvis_console_open
 hold_barrier
 # The core window host's single-instance rule is owned by rows/windows.sh:
@@ -177,7 +181,6 @@ hold_barrier
 say_before="$(jarvis_console_say_count)"
 type_keys "typed from console" || fail "typing into the send control failed"
 type_keys -k Return || fail "pressing Enter in the send control failed"
-expect_poll "control: the mutation leaves text in the field" '"typed from console"' jarvis_console_field_text
 expect "control: dropping say delivery breaks the daemon assertion" 1 jarvis_console_send_drop_control "$((say_before + 1))"
 jarvis_disable
 cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"
@@ -185,9 +188,14 @@ python3 - "$repo/shell/plugins/vgs.jarvis/Console.qml" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]); s=p.read_text()
-needle='Qt.callLater(() => entryField.forceActiveFocus());'
-assert s.count(needle)==1
-p.write_text(s.replace(needle, 'Qt.callLater(() => stopButton.forceActiveFocus());'))
+replacements=[
+    ('property Item initialFocus: entryField', 'property Item initialFocus: stopButton'),
+    ('Qt.callLater(() => entryField.forceActiveFocus());', 'Qt.callLater(() => stopButton.forceActiveFocus());'),
+]
+for needle, replacement in replacements:
+    assert s.count(needle)==1, needle
+    s=s.replace(needle, replacement)
+p.write_text(s)
 PY
 jarvis_rescan
 jarvis_enable

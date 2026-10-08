@@ -65,6 +65,10 @@ FocusScope {
         return "Jarvis did not send the message";
     }
 
+    function expectedRefusal(reply) {
+        return reply === "refused: jarvis=not-ready" || reply.indexOf("refused: say=") === 0;
+    }
+
     function sendMessage() {
         if (shell === null || entryField.text.trim() === "") return;
         const reply = shell.ipc.call("say", entryField.text);
@@ -73,7 +77,7 @@ FocusScope {
             problem = "";
         } else {
             problem = refusalReply(reply);
-            console.warn("jarvis console: " + reply);
+            if (!expectedRefusal(reply)) console.warn("jarvis console: " + reply);
         }
     }
 
