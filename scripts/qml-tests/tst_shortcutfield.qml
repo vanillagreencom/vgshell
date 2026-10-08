@@ -157,11 +157,13 @@ Item {
             compare(keyboard.button, null);
             compare(clear.button, null);
             const width = box(field).width;
+            waitForItemPolished(keyboard.parent);
             mouseMove(keyboard);
             tryVerify(() => keyboard.button !== null && clear.button !== null);
             compare(keyboard.button.tooltip, "Type the keys");
             compare(clear.button.tooltip, "Unbind");
             compare(box(field).width, width);
+            waitForItemPolished(keyboard.parent);
             mouseClick(keyboard.button);
             compare(field.typing, true);
             column.visible = false;
@@ -230,11 +232,17 @@ Item {
 
         function test_return_space_enter_and_click_begin() {
             const keyboard = buttonLabelled(field, "Type the keys");
+            waitForItemPolished(keyboard.parent);
             mouseMove(keyboard);
             tryVerify(() => keyboard.button !== null);
             keyboard.button.forceActiveFocus(Qt.TabFocusReason);
             before.forceActiveFocus(Qt.TabFocusReason);
-            for (const start of [() => keyClick(Qt.Key_Return), () => keyClick(Qt.Key_Space), () => keyClick(Qt.Key_Enter), () => mouseClick(box(field))]) {
+            for (const start of [
+                { name: "Return", activate: () => keyClick(Qt.Key_Return) },
+                { name: "Space", activate: () => keyClick(Qt.Key_Space) },
+                { name: "Enter", activate: () => keyClick(Qt.Key_Enter) },
+                { name: "click", activate: () => mouseClick(box(field)) }
+            ]) {
                 capture.holder = null;
                 capture.calls = [];
                 // A FocusScope restores its last focused child, which can
@@ -242,9 +250,10 @@ Item {
                 // https://doc.qt.io/qt-6.8/qtquick-input-focus.html
                 box(field).forceActiveFocus(Qt.TabFocusReason);
                 verify(box(field).activeFocus);
-                start();
-                compare(JSON.stringify(capture.calls), '["begin"]');
-                compare(field.capturing, true);
+                waitForItemPolished(box(field).parent);
+                start.activate();
+                compare(JSON.stringify(capture.calls), '["begin"]', start.name);
+                compare(field.capturing, true, start.name);
             }
         }
 
