@@ -107,19 +107,105 @@ type_keys -k Escape || fail "typing Escape to close the two-output screensaver f
 expect_poll "two-output covers are gone after keyboard input" 0 layer_count vgs:cover
 expect "the nested compositor removes the screensaver focus monitor" ok hypr output remove "$screensaver_output"
 expect_poll "the removed screensaver monitor is gone" "$base_outputs" output_count
+ss_cover_host="cover:$(hypr -j monitors | py_reply 'import json,sys; print(json.load(sys.stdin)[0]["name"])')"
+hover 20 20 || fail "resting the pointer before the screensaver failed"
 expect "on demand starts for pointer dismissal" ok ipc vgs.screensaver invoke start ''
-expect_poll "cover maps before pointer motion" "$(output_count)" cover_count
-hover 20 20 || fail "initial hover failed"
-sleep 0.2
+expect_poll "cover is showing before pointer motion" true ipc smoke readInstance "$ss_cover_host" vgs.screensaver shown
+expect_poll "cover has the pointer entry position" true ipc smoke readInstance "$ss_cover_host" vgs.screensaver pointerReady
 hover 240 240 || fail "motion hover failed"
-for _ in $(seq 1 50); do
-  [[ "$(layer_count vgs:cover)" == 0 ]] && { ok "cover is gone after pointer motion"; break; }
-  sleep 0.2
+expect_poll "cover is gone after the first pointer motion" 0 cover_count
+expect "pointer dismissal stops the screensaver" Off state_text
+
+# Hold a disposable cover mapped while its typed shown property is false.
+# This reproduces the old layer-only wait without depending on scheduling.
+# Both copies use Cover.qml's real MouseArea; only the old copy drops the
+# entry baseline. No ttfx subprocess runs in these input-only controls.
+ss_pointer_dir="$repo/shell/plugins/vgs.screensaver/PointerControls"
+mkdir -p -- "$ss_pointer_dir"
+python3 - "$repo/shell/plugins/vgs.screensaver" "$ss_pointer_dir" <<'PYPOINTER'
+from pathlib import Path
+import sys
+source, controls = map(Path, sys.argv[1:])
+text = (source / 'Cover.qml').read_text()
+baseline = '''        pointerReady = shown && pointer.containsMouse;
+        if (pointerReady) {
+            firstX = pointer.mouseX;
+            firstY = pointer.mouseY;
+        }'''
+entered = '''        onEntered: {
+            if (!root.shown) return;
+            root.firstX = mouseX;
+            root.firstY = mouseY;
+            root.pointerReady = true;
+        }
+'''
+assert text.count(baseline) == 1 and text.count(entered) == 1
+old = text.replace(baseline, '        pointerReady = false;').replace(entered, '')
+assert old != text
+for name, cover in [('current', text), ('old', old)]:
+    directory = controls / name
+    directory.mkdir()
+    needle = '        id: pointer\n'
+    assert cover.count(needle) == 1
+    (directory / 'Cover.qml').write_text(cover.replace(needle, needle + '        objectName: "screensaverPointer"\n'))
+    for sibling in ['ScreensaverLogic.js', 'logo.txt']:
+        (directory / sibling).write_bytes((source / sibling).read_bytes())
+PYPOINTER
+for ss_pointer_case in current old; do
+  cat >"$ss_pointer_dir/$ss_pointer_case/Control.qml" <<'QMLPOINTER'
+import QtQuick
+import Quickshell
+import Quickshell.Wayland
+
+PanelWindow {
+    id: control
+    required property var reference
+    property string requestedState: "Off"
+    property int stops: 0
+    readonly property bool shown: cover.shown
+    readonly property bool pointerReady: cover.pointerReady
+    readonly property real firstX: cover.firstX
+    readonly property var pointer: Array.from(cover.children).find(child => child.objectName === "screensaverPointer")
+    readonly property real pointerX: pointer === undefined ? -1 : pointer.mouseX
+    screen: reference.screen
+    anchors { top: true; bottom: true; left: true; right: true }
+    exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.namespace: "vgs:screensaver-motion-control"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+    visible: stops === 0
+    function showCover() { requestedState = "Running"; }
+    Cover {
+        id: cover
+        anchors.fill: parent
+        shell: ({ status: { values: { state: { text: control.requestedState } } },
+            session: { locked: false }, requirements: { missing: ["ttfx"] },
+            settings: { effect: "planted", frameRate: 30 },
+            ipc: { call: () => { control.stops += 1; } } })
+    }
+}
+QMLPOINTER
+  hover 10 10 || fail "$ss_pointer_case: resting the control pointer failed"
+  expect "the $ss_pointer_case pointer control builds" ok ipc smoke popupLoad "ss-pointer-$ss_pointer_case" "$ss_pointer_dir/$ss_pointer_case/Control.qml" "$ss_cover_host" vgs.screensaver '{"reference":"@instance"}'
+  expect_poll "$ss_pointer_case: the old wait sees a mapped layer" 1 layer_count vgs:screensaver-motion-control
+  expect "$ss_pointer_case: the mapped cover is not showing" false ipc smoke popupRead "ss-pointer-$ss_pointer_case" shown
+  hover 20 20 || fail "$ss_pointer_case: pre-showing motion failed"
+  expect_poll "$ss_pointer_case: pre-showing motion reached the cover" 20 ipc smoke popupRead "ss-pointer-$ss_pointer_case" pointerX
+  expect "$ss_pointer_case: motion before showing keeps the cover" 0 ipc smoke popupRead "ss-pointer-$ss_pointer_case" stops
+  expect "$ss_pointer_case: the cover starts showing" ok ipc smoke popupCall "ss-pointer-$ss_pointer_case" showCover
+  expect_poll "$ss_pointer_case: the typed cover state is showing" true ipc smoke popupRead "ss-pointer-$ss_pointer_case" shown
+  hover 240 240 || fail "$ss_pointer_case: first showing motion failed"
+  if [[ $ss_pointer_case == current ]]; then
+    expect_poll "the first real motion after showing dismisses the cover" 0 layer_count vgs:screensaver-motion-control
+    expect "the first real motion calls stop once" 1 ipc smoke popupRead ss-pointer-current stops
+  else
+    expect_poll "control: the second old-wait move only sets the baseline" 240 ipc smoke popupRead ss-pointer-old firstX
+    expect "control: the old layer-only wait fails pointer dismissal" 1 layer_count vgs:screensaver-motion-control
+    expect "control: the old input handler never calls stop" 0 ipc smoke popupRead ss-pointer-old stops
+  fi
+  expect "the $ss_pointer_case pointer control is released" ok ipc smoke popupDrop "ss-pointer-$ss_pointer_case"
 done
-if [[ "$(layer_count vgs:cover)" != 0 ]]; then
-  fail "cover is gone after pointer motion"
-  ipc vgs.screensaver invoke stop '' >/dev/null || true
-fi
+rm -r -- "${ss_pointer_dir:?}"
 art_dir="$home/.config/vgshell"
 mkdir -p -- "$art_dir"
 fixture="$sandbox/screensaver-fixture.png"

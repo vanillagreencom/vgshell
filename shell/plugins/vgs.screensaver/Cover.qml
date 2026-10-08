@@ -34,7 +34,14 @@ Item {
     }
 
     onShownChanged: {
-        pointerReady = false;
+        // Qt hover coordinates are valid while containsMouse is true:
+        // https://doc.qt.io/qt-6/qml-qtquick-mousearea.html#mouseX-prop
+        // Keep the entry position so the first real move can dismiss.
+        pointerReady = shown && pointer.containsMouse;
+        if (pointerReady) {
+            firstX = pointer.mouseX;
+            firstY = pointer.mouseY;
+        }
         clearRows();
         pendingFrame = "";
         exitState = Logic.createExitState();
@@ -205,10 +212,17 @@ Item {
     // pointer-cursor-exempt: the whole cover dismisses the screensaver and hides the cursor, not a control
     // keyboard-path: any key dismisses the cover
     MouseArea {
+        id: pointer
         anchors.fill: parent
         hoverEnabled: true
         acceptedButtons: Qt.AllButtons
         cursorShape: Qt.BlankCursor
+        onEntered: {
+            if (!root.shown) return;
+            root.firstX = mouseX;
+            root.firstY = mouseY;
+            root.pointerReady = true;
+        }
         onPressed: mouse => {
             mouse.accepted = true;
             root.stop();
