@@ -770,13 +770,23 @@ function tmuxSlots(logic, input) {
 // Each stack is ordered from the page upward. One scale applies to every
 // layer, so quantization cannot give related fills independent caps. Check
 // the encoded bytes the application receives, including text compositing.
-// A cell's midpoint is safe from its half-byte rounding boundaries.
-function strongestReadableScale(logic, page, text, stacks, cap) {
+// RECEIVES names those bytes: "tints", each layer's alpha byte, which the
+// application composes over its page, or "fill", the composite the template
+// writes as opaque bytes. A cell's midpoint is safe from its half-byte
+// rounding boundaries.
+function strongestReadableScale(logic, page, text, stacks, cap, receives) {
     const over = (top, below) => ({
         r: top.r * top.a + below.r * (1 - top.a),
         g: top.g * top.a + below.g * (1 - top.a),
         b: top.b * top.a + below.b * (1 - top.a), a: 1
     });
+    const drawn = fill => {
+        switch (receives) {
+        case "tints": return fill;
+        case "fill": return logic.parseColor(logic.formatColor(fill));
+        }
+        throw new Error("theme-render: strongestReadableScale: unknown bytes " + receives);
+    };
     const cuts = new Set([0, cap]);
     for (const { alpha } of stacks.flat()) {
         for (let byte = 0; byte < 255; byte++) {
@@ -793,7 +803,8 @@ function strongestReadableScale(logic, page, text, stacks, cap) {
                 const tint = logic.parseColor(logic.formatColor({ ...colour, a: alpha * scale }));
                 fill = over(tint, fill);
             }
-            return logic.contrastRatio(over(text, fill), fill) >= logic.READABILITY_FLOOR;
+            const cell = drawn(fill);
+            return logic.contrastRatio(over(text, cell), cell) >= logic.READABILITY_FLOOR;
         });
         if (readable) return scale;
     }
@@ -823,7 +834,7 @@ function editorHighlightTemplate(logic, input, text) {
         [{ colour: danger, alpha: 0.12 }],
         [{ colour: danger, alpha: 0.12 }, { colour: danger, alpha: 0.24 }],
         [{ colour: warning, alpha: 0.12 }]
-    ], 1);
+    ], 1, "tints");
     if (scale === null) return null;
     if (scale === 1) return text;
     for (const [key, role, alpha] of [
@@ -846,6 +857,40 @@ function editorHighlightTemplate(logic, input, text) {
         const desired = "#@{alpha({color." + role + "}, " + alpha + ")}";
         if (document.colors[key] === desired)
             document.colors[key] = "#@{alpha({color." + role + "}, " + alpha * scale + ")}";
+    }
+    return JSON.stringify(document, null, 2) + "\n";
+}
+
+// Claude Code 2.1.289 draws the diff's +N -N counts in diffAddedWord and
+// diffRemovedWord on the page, and fills changed words with the same keys
+// under its own diff text, #f8f8f2 on a dark base and #333333 on a light
+// one, whatever overrides.text says (the app contract saved in
+// tmp/claude-app-contract-VGS-1049.json). One colour has both roles, so the
+// authored Word recipe is raised to the strongest strength at which that
+// text still reads, which moves the counts as far from the page as the
+// words allow. Each amount is written as the byte the cap judged, so for
+// opaque roles the rendered mix is the fill strongestReadableScale measured.
+function claudeWordTemplate(logic, input, text) {
+    let document;
+    try {
+        document = JSON.parse(text);
+    } catch (e) {
+        return text;
+    }
+    if (!logic.isPlainObject(document.overrides)) return text;
+    const strengths = [0.14, 0.22121734137238014];
+    const roles = [["diffAddedWord", "success"], ["diffRemovedWord", "danger"]];
+    const page = logic.parseColor(input.values.color.background);
+    const diffText = logic.parseColor(input.values.scheme.mode === "dark" ? "#f8f8f2" : "#333333");
+    const scale = strongestReadableScale(logic, page, diffText, roles.map(([, role]) => [
+        { colour: logic.parseColor(input.values.palette[role]), alpha: strengths[0] },
+        { colour: logic.parseColor(input.values.color[role]), alpha: strengths[1] }
+    ]), 1 / strengths[1], "fill");
+    if (scale === null) return null;
+    const recipe = (role, [inner, outer]) => "#@{mix(mix({color.background},{palette." + role + "}," + inner + "),{color." + role + "}," + outer + ")}";
+    for (const [key, role] of roles) {
+        if (document.overrides[key] === recipe(role, strengths))
+            document.overrides[key] = recipe(role, strengths.map(alpha => Math.round(alpha * scale * 255) / 255));
     }
     return JSON.stringify(document, null, 2) + "\n";
 }
@@ -885,6 +930,10 @@ function renderTarget(logic, tokens, target, templates, input) {
             throw new Error("theme-render: renderTarget: template " + file.template + " of target " + target.name + " was not read");
         if (target.name === "vscode" && file.destination === "vscode.json") {
             text = editorHighlightTemplate(logic, input, text);
+            if (text === null) return refused("readability", "template=" + file.template);
+        }
+        if (target.name === "claude" && file.destination === "claude.json") {
+            text = claudeWordTemplate(logic, input, text);
             if (text === null) return refused("readability", "template=" + file.template);
         }
         const template = parseTemplate(text);
