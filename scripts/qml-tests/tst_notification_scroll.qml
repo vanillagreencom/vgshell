@@ -61,19 +61,31 @@ Item {
         }
 
         function test_endpoint_continuity_data() {
+            // Qt MultiEffect applies smoothstep to the mask alpha. Cubic
+            // distance easing gives 0.84375, 0.5 and 0.15625 mask alpha at
+            // quarter, half and three-quarter distances. The second
+            // smoothstep paints approximately 238, 128 and 17 over black.
+            // These bounds allow the edge pixel footprint but exclude
+            // both an opaque edge and an immediate full fade.
             const distances = [
                 { fraction: 0, minimum: 255, maximum: 255 },
                 { fraction: 0.001, minimum: 254, maximum: 255 },
-                { fraction: 0.25, minimum: 212, maximum: 222 },
+                { fraction: 0.25, minimum: 232, maximum: 246 },
                 { fraction: 0.5, minimum: 125, maximum: 138 },
-                { fraction: 0.75, minimum: 38, maximum: 52 },
+                { fraction: 0.75, minimum: 10, maximum: 28 },
                 { fraction: 1, minimum: 0, maximum: 8 }
             ];
-            return [true, false].flatMap(top => distances.map(distance => ({
-                tag: (top ? "top " : "bottom ") + distance.fraction,
-                top: top, fraction: distance.fraction,
-                minimum: distance.minimum, maximum: distance.maximum
-            })));
+            const rows = [];
+            for (const top of [true, false]) {
+                for (const distance of distances) {
+                    rows.push({
+                        tag: (top ? "top " : "bottom ") + distance.fraction,
+                        top: top, fraction: distance.fraction,
+                        minimum: distance.minimum, maximum: distance.maximum
+                    });
+                }
+            }
+            return rows;
         }
 
         function test_endpoint_continuity(row) {
