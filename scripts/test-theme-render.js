@@ -1882,6 +1882,129 @@ function verifyEditorStyles(render, template) {
 }
 const editorPackages = verifyEditorStyles(require(rendererFile));
 const vscodeTemplate = fs.readFileSync(path.join(repo, "themes/targets/vscode/vscode.json"), "utf8");
+const EDITOR_CAPPED = [
+    ["arc-blueberry", "#3cec851e", "#3cec853c", "#1f5a42ff", 4.523595968058844],
+    ["archwave", "#5ffbf118", "#5ffbf131", "#2d4d62ff", 4.533803398530332],
+    ["catppuccin-frappe", "#a6d18918", "#a6d1892f", "#4f5d57ff", 4.527183928649377],
+    ["catppuccin-latte", "#2f751f18", "#2f751f2f", "#e6b6c3ff", 4.503366436583388],
+    ["catppuccin-macchiato", "#a6da951d", "#a6da953b", "#4d6057ff", 4.516611866783376],
+    ["everforest", "#a7c08016", "#a7c0802c", "#4b574cff", 4.500550874143418],
+    ["gruvbox", "#a9b6651b", "#a9b66535", "#4e513aff", 4.51870249791055],
+    ["gruvy-glass", "#a9b6651b", "#a9b66535", "#4e513aff", 4.51870249791055],
+    ["matte-black", "#ffc1071e", "#ffc1073c", "#5f4b0eff", 4.522322312647188],
+    ["moon-orbit", "#b791a809", "#b791a813", "#3c344bff", 4.500425103315417],
+    ["pmndrs", "#5de4c712", "#5de4c725", "#294749ff", 4.519121371926564],
+    ["rose-pine", "#28698319", "#28698331", "#c1ced0ff", 4.513675057056383],
+    ["tokyo-night", "#9ece6a17", "#9ece6a2f", "#3c4938ff", 4.509302303501117],
+    ["tokyo-night-moon", "#c3e88d1c", "#c3e88d37", "#535f50ff", 4.512165401500568],
+    ["tokyo-night-storm", "#9ece6a1c", "#9ece6a38", "#495b49ff", 4.535801280060513],
+    ["vice-city", "#00ff881a", "#00ff8835", "#075135ff", 4.543039568109135],
+    ["x-1632", "#a6a8961a", "#a6a89635", "#515353ff", 4.503157426942376]
+];
+
+function verifyEditorCaps(render, report = false) {
+    const dir = path.join(repo, "themes/targets/vscode");
+    const target = render.acceptTarget(logic, "vscode", fs.readFileSync(path.join(dir, "target.json"), "utf8")).target;
+    const templates = new Map(target.files.map(file => [file.template, fs.readFileSync(path.join(dir, file.template), "utf8")]));
+    const recipe = JSON.parse(vscodeTemplate).colors;
+    const lineKeys = Object.keys(recipe).filter(key => recipe[key].endsWith(", 0.12)}"));
+    const wordKeys = Object.keys(recipe).filter(key => recipe[key].endsWith(", 0.24)}"));
+    assert.ok(lineKeys.includes("merge.commonContentBackground"));
+    assert.ok(wordKeys.includes("diffEditor.removedTextBackground"));
+    // Enumerate feasible integer-byte pairs independently of the renderer's
+    // scale intervals. A pair belongs only where both rounding ranges meet.
+    const cells = [];
+    for (let line = 0; line <= 31; line++) for (let word = 0; word <= 61; word++) {
+        const lower = Math.max(0, (line - 0.5) / 30.6, (word - 0.5) / 61.2);
+        const upper = Math.min(1, (line + 0.5) / 30.6, (word + 0.5) / 61.2);
+        if (lower < upper) cells.push({ line, word });
+    }
+    const capped = [];
+    const names = ["vgs", ...JSON.parse(fs.readFileSync(path.join(repo, "themes/catalog/index.json"))).entries.map(entry => entry.name)];
+    for (const name of names) {
+        const pkgDir = path.join(repo, "themes", name === "vgs" ? "vgs" : "catalog/" + name);
+        const pkg = logic.acceptPackage(TOKENS, { directoryName: name,
+            themeJson: fs.readFileSync(path.join(pkgDir, "theme.json"), "utf8"),
+            terminalJson: fs.readFileSync(path.join(pkgDir, "terminal.json"), "utf8"), shipped: name === "vgs" });
+        assert.equal(pkg.ok, true);
+        const input = { values: pkg.values, slots: pkg.terminal, curated: new Map(), installed: name !== "vgs" };
+        const result = render.renderTarget(logic, TOKENS, target, templates, input);
+        assert.equal(result.ok, true);
+        const bytes = result.files.find(file => file.destination === "vscode.json").bytes;
+        assert.equal(result.version, render.extensionVersion(bytes));
+        const colors = JSON.parse(bytes.toString()).colors;
+        const line = parseInt(colors["diffEditor.insertedLineBackground"].slice(-2), 16);
+        const word = parseInt(colors["diffEditor.insertedTextBackground"].slice(-2), 16);
+        assert.ok(word > line, JSON.stringify({ name, kind: "tint-order", line, word }));
+        for (const key of lineKeys) assert.equal(parseInt(colors[key].slice(-2), 16), line, JSON.stringify({ name, kind: "common-cap", key }));
+        for (const key of wordKeys) assert.equal(parseInt(colors[key].slice(-2), 16), word, JSON.stringify({ name, kind: "common-cap", key }));
+        for (const key of [...lineKeys, ...wordKeys]) {
+            const role = /\{color\.([^}]+)\}/.exec(recipe[key])[1];
+            assert.equal(colors[key].slice(0, 7), pkg.values.color[role].slice(0, 7));
+        }
+        for (const key of ["merge.currentHeaderBackground", "merge.incomingHeaderBackground", "merge.commonHeaderBackground", "mergeEditor.conflictingLines.background"])
+            assert.equal(colors[key].slice(-2), "12", key);
+        assert.equal(colors["editorGutter.addedSecondaryBackground"].slice(-2), "66");
+        const page = logic.parseColor(colors["editor.background"]), foreground = logic.parseColor(colors["editor.foreground"]);
+        const pairs = [["success", "diffEditor.insertedTextBackground", "diffEditor.insertedLineBackground"],
+            ["danger", "diffEditor.removedTextBackground", "diffEditor.removedLineBackground"],
+            ["warning", "merge.commonContentBackground"]];
+        const metrics = cell => pairs.map(([role, surface, below]) => {
+            const colour = logic.parseColor(pkg.values.color[role]);
+            let fill = over({ ...colour, a: cell.line / 255 }, page);
+            if (below !== undefined) fill = over({ ...colour, a: cell.word / 255 }, fill);
+            return { key: "editor.foreground", surface, ...(below === undefined ? {} : { below }),
+                fill: logic.formatColor(fill), ratio: logic.contrastRatio(over(foreground, fill), fill) };
+        });
+        const selected = cells.findIndex(cell => cell.line === line && cell.word === word);
+        assert.ok(selected >= 0, JSON.stringify({ name, kind: "coupled-cell", line, word }));
+        const current = metrics(cells[selected]);
+        assert.deepEqual(current.filter(pair => pair.ratio < 4.5).map(pair => ({ name, kind: "contrast", ...pair })), []);
+        const stronger = cells.slice(selected + 1).map(cell => ({ ...cell, failures: metrics(cell).filter(pair => pair.ratio < 4.5) }));
+        assert.deepEqual(stronger.filter(cell => cell.failures.length === 0).map(cell => ({ name, kind: "strongest-cap", ...cell })), []);
+        if (line !== 31 || word !== 61) {
+            const minimum = current.reduce((first, next) => next.ratio < first.ratio ? next : first);
+            capped.push([name, colors["diffEditor.insertedLineBackground"], colors["diffEditor.insertedTextBackground"], minimum.fill, minimum.ratio]);
+            assert.ok(stronger[0].failures.length > 0);
+            if (report) console.log("test-theme-render: editor-cap " + JSON.stringify({ name, line: colors["diffEditor.insertedLineBackground"], word: colors["diffEditor.insertedTextBackground"], removedLine: colors["diffEditor.removedLineBackground"], removedWord: colors["diffEditor.removedTextBackground"], warningLine: colors["merge.commonContentBackground"], minimum, immediateStronger: stronger[0] }));
+        }
+        if (name === "moon-orbit") {
+            // An unrelated target receives the original strengths. The shared
+            // cap rule is reusable; its current caller owns its recipe only.
+            const plain = { ...target, name: "cap-probe", files: [{ template: "vscode.json", destination: "cap-probe.json" }], wiring: null };
+            const untouched = render.renderTarget(logic, TOKENS, plain, templates, input);
+            assert.equal(untouched.ok, true);
+            const raw = JSON.parse(untouched.files[0].bytes.toString()).colors;
+            assert.equal(raw["diffEditor.insertedLineBackground"].slice(-2), "1f");
+            assert.equal(raw["diffEditor.insertedTextBackground"].slice(-2), "3d");
+        }
+    }
+    assert.deepEqual(capped, EDITOR_CAPPED);
+    const failed = render.renderTarget(logic, TOKENS, target, templates, {
+        values: { ...probe.values, color: { ...probe.values.color, text: "#111111ff", background: "#111111ff", success: "#111111ff", danger: "#111111ff", warning: "#111111ff" } },
+        slots: defaults.terminal, curated: new Map(), installed: true
+    });
+    assert.equal(failed.ok, false);
+    assert.equal(failed.reason, "readability");
+}
+verifyEditorCaps(require(rendererFile), true);
+
+function verifyEditorWarningCap(render) {
+    const dir = path.join(repo, "themes/targets/vscode");
+    const target = render.acceptTarget(logic, "vscode", fs.readFileSync(path.join(dir, "target.json"), "utf8")).target;
+    const templates = new Map(target.files.map(file => [file.template, fs.readFileSync(path.join(dir, file.template), "utf8")]));
+    const result = render.renderTarget(logic, TOKENS, target, templates, {
+        values: { ...probe.values, color: { ...probe.values.color, text: "#888888ff", background: "#111111ff", success: "#111111ff", danger: "#111111ff", warning: "#ffffffff" } },
+        slots: defaults.terminal, curated: new Map(), installed: true
+    });
+    assert.equal(result.ok, true);
+    const colors = JSON.parse(result.files.find(file => file.destination === "vscode.json").bytes.toString()).colors;
+    const fill = over(logic.parseColor(colors["merge.commonContentBackground"]), logic.parseColor(colors["editor.background"]));
+    const ratio = logic.contrastRatio(logic.parseColor(colors["editor.foreground"]), fill);
+    assert.deepEqual(ratio < 4.5 ? [{ kind: "contrast", key: "editor.foreground", surface: "merge.commonContentBackground", ratio }] : [], []);
+    assert.equal(colors["merge.commonContentBackground"].slice(-2), colors["diffEditor.insertedLineBackground"].slice(-2));
+}
+verifyEditorWarningCap(require(rendererFile));
 const editorControls = [
     ["link without its rest colour", '    "textLink.foreground": "#@{color.accent}",\n', "", "coverage", "textLink.foreground"],
     ["link rest text on the editor fill", '"textLink.foreground": "#@{color.accent}"', '"textLink.foreground": "#@{color.background}"', "contrast", "textLink.foreground", "editor.background"],
@@ -1889,22 +2012,22 @@ const editorControls = [
     ["link without its active colour", '    "textLink.activeForeground": "#@{color.accentHover}",\n', "", "coverage", "textLink.activeForeground"],
     ["active link text on the editor fill", '"textLink.activeForeground": "#@{color.accentHover}"', '"textLink.activeForeground": "#@{color.background}"', "contrast", "textLink.activeForeground", "editor.background"],
     ["active link text on the sidebar fill", '"textLink.activeForeground": "#@{color.accentHover}"', '"textLink.activeForeground": "#@{color.surface}"', "contrast", "textLink.activeForeground", "sideBar.background"],
-    ["diff without its insertion fill", '    "diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07352941176470588)}",\n', "", "coverage", "diffEditor.insertedTextBackground"],
+    ["diff without its insertion fill", '    "diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.24)}",\n', "", "coverage", "diffEditor.insertedTextBackground"],
     ["Git without its conflict color", '    "gitDecoration.conflictingResourceForeground": "#@{color.warning}",\n', "", "coverage", "gitDecoration.conflictingResourceForeground"],
     ["Git text on the sidebar fill", '"gitDecoration.addedResourceForeground": "#@{color.success}"', '"gitDecoration.addedResourceForeground": "#@{color.surface}"', "contrast", "gitDecoration.addedResourceForeground", "sideBar.background"],
-    ["diff line stronger than the changed word", '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.03676470588235294)}"', '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.3)}"', "tint-order", "diffEditor.insertedLineBackground", "diffEditor.insertedTextBackground"],
-    ["opaque diff word hides decorations", '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07352941176470588)}"', '"diffEditor.insertedTextBackground": "#@{color.success}"', "opacity", "diffEditor.insertedTextBackground"],
-    ["changed text on its own fill", '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07352941176470588)}"', '"diffEditor.insertedTextBackground": "#@{color.text}"', "contrast", "editor.foreground", "diffEditor.insertedTextBackground"],
-    ["coupled highlight exceeds the global bound", [
-        '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.03676470588235294)}"',
-        '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07352941176470588)}"'
+    ["diff line stronger than the changed word", '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.12)}"', '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.3)}"', "tint-order", "diffEditor.insertedLineBackground", "diffEditor.insertedTextBackground"],
+    ["opaque diff word hides decorations", '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.24)}"', '"diffEditor.insertedTextBackground": "#@{color.success}"', "opacity", "diffEditor.insertedTextBackground"],
+    ["changed text on its own fill", '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.24)}"', '"diffEditor.insertedTextBackground": "#@{color.text}"', "contrast", "editor.foreground", "diffEditor.insertedTextBackground"],
+    ["an uncapped fill exceeds its readable bound", [
+        '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.12)}"',
+        '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.24)}"'
     ], [
         '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.037745098039215684)}"',
         '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07549019607843137)}"'
     ], "contrast", "editor.foreground", "diffEditor.insertedTextBackground"],
     ["word fill includes the underlying line", [
-        '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.03676470588235294)}"',
-        '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.07352941176470588)}"'
+        '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.12)}"',
+        '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.24)}"'
     ], [
         '"diffEditor.insertedLineBackground": "#@{alpha({color.success}, 0.06)}"',
         '"diffEditor.insertedTextBackground": "#@{alpha({color.success}, 0.14)}"'
@@ -2104,6 +2227,15 @@ for (const role of ALACRITTY_ROLES) {
 // Each control removes one rule's behaviour from a copy of the renderer and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["editor cap applies before rendering", "text = editorHighlightTemplate(logic, input, text);", "text = text;", verifyEditorStyles],
+    ["editor cap includes the underlying line", "fill = over(tint, fill);", "fill = over(tint, page);", verifyEditorStyles],
+    ["editor cap keeps the contrast floor", "return logic.contrastRatio(over(text, fill), fill) >= logic.READABILITY_FLOOR;", "return true;", verifyEditorStyles],
+    ["editor cap uses encoded alpha bytes", "const tint = logic.parseColor(logic.formatColor({ ...colour, a: alpha * scale }));", "const tint = { ...colour, a: alpha * scale };", verifyEditorCaps],
+    ["editor cap selects the strongest cell", "if (readable) return scale;", "if (readable) return scale === cap ? scale : scale * 0.95;", verifyEditorCaps],
+    ["editor cap includes standalone warning lines", "        [{ colour: warning, alpha: 0.12 }]", "        []", verifyEditorWarningCap],
+    ["editor cap is common to line and word", 'document.colors[key] = "#@{alpha({color." + role + "}, " + alpha * scale + ")}";', 'document.colors[key] = "#@{alpha({color." + role + "}, " + alpha * (alpha === 0.12 ? 1 : scale) + ")}";', verifyEditorStyles],
+    ["editor cap caller leaves other targets", 'if (target.name === "vscode" && file.destination === "vscode.json") {', 'if (true) {', verifyEditorCaps],
+    ["editor cap refuses an unreadable zero tint", "if (scale === null) return null;", "if (scale === null) return text;", verifyEditorCaps],
     ["expression package references", "value: logic.valueAt(input.values, node.path)", "value: leaf.value"],
     ["expression refuses invalid input", 'return result.ok ? result.values.result : undefined;', 'return result.ok ? result.values.result : "#ff00ffff";'],
     ["editors target detects per editor", "if (document.detect.length !== 0) return refused", "if (false) return refused"],
@@ -2308,12 +2440,22 @@ try {
         const mutant = path.join(temp, `theme-render-${index}.js`);
         fs.writeFileSync(mutant, source.replace(needle, () => replacement));
         let failed = false;
+        let failure;
         try {
             surface(require(mutant));
         } catch (e) {
             failed = true;
+            failure = e;
         }
         assert.ok(failed, `control "${label}": the suite passed on a renderer without that rule`);
+        if (label.startsWith("editor cap")) {
+            assert.equal(failure.code, "ERR_ASSERTION");
+            const typed = Array.isArray(failure.actual) ? failure.actual.filter(row => row && typeof row.kind === "string") : [];
+            if (label === "editor cap selects the strongest cell") assert.ok(typed.some(row => row.kind === "strongest-cap"));
+            if (label === "editor cap is common to line and word") assert.ok(typed.some(row => row.kind === "tint-order"));
+            if (label === "editor cap includes standalone warning lines") assert.ok(typed.some(row => row.kind === "contrast" && row.surface === "merge.commonContentBackground"));
+            console.log("test-theme-render: cap-control " + JSON.stringify({ label, rejected: true, assertion: failure.code, categories: [...new Set(typed.map(row => row.kind))] }));
+        }
     });
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });

@@ -682,6 +682,89 @@ function tmuxSlots(logic, input) {
     return { ...input.slots, color8: logic.formatColor(chosen) };
 }
 
+// Each stack is ordered from the page upward. One scale applies to every
+// layer, so quantization cannot give related fills independent caps. Check
+// the encoded bytes the application receives, including text compositing.
+// A cell's midpoint is safe from its half-byte rounding boundaries.
+function strongestReadableScale(logic, page, text, stacks, cap) {
+    const over = (top, below) => ({
+        r: top.r * top.a + below.r * (1 - top.a),
+        g: top.g * top.a + below.g * (1 - top.a),
+        b: top.b * top.a + below.b * (1 - top.a), a: 1
+    });
+    const cuts = new Set([0, cap]);
+    for (const { alpha } of stacks.flat()) {
+        for (let byte = 0; byte < 255; byte++) {
+            const boundary = (byte + 0.5) / (255 * alpha);
+            if (boundary > 0 && boundary < cap) cuts.add(boundary);
+        }
+    }
+    const ordered = [...cuts].sort((a, b) => a - b);
+    const candidates = [cap, ...ordered.slice(1).map((upper, index) => (ordered[index] + upper) / 2).reverse()];
+    for (const scale of candidates) {
+        const readable = stacks.every(stack => {
+            let fill = page;
+            for (const { colour, alpha } of stack) {
+                const tint = logic.parseColor(logic.formatColor({ ...colour, a: alpha * scale }));
+                fill = over(tint, fill);
+            }
+            return logic.contrastRatio(over(text, fill), fill) >= logic.READABILITY_FLOOR;
+        });
+        if (readable) return scale;
+    }
+    return null;
+}
+
+// The template owns the desired strengths. Adjust only its authored recipe;
+// unrelated or broken template values still reach the ordinary renderer and
+// its coverage, opacity and contrast checks. Headers and secondary marks
+// have separate roles and never enter this common cap.
+function editorHighlightTemplate(logic, input, text) {
+    let document;
+    try {
+        document = JSON.parse(text);
+    } catch (e) {
+        return text;
+    }
+    if (!logic.isPlainObject(document.colors)) return text;
+    const page = logic.parseColor(input.values.color.background);
+    const foreground = logic.parseColor(input.values.color.text);
+    const success = logic.parseColor(input.values.color.success);
+    const danger = logic.parseColor(input.values.color.danger);
+    const warning = logic.parseColor(input.values.color.warning);
+    const scale = strongestReadableScale(logic, page, foreground, [
+        [{ colour: success, alpha: 0.12 }],
+        [{ colour: success, alpha: 0.12 }, { colour: success, alpha: 0.24 }],
+        [{ colour: danger, alpha: 0.12 }],
+        [{ colour: danger, alpha: 0.12 }, { colour: danger, alpha: 0.24 }],
+        [{ colour: warning, alpha: 0.12 }]
+    ], 1);
+    if (scale === null) return null;
+    if (scale === 1) return text;
+    for (const [key, role, alpha] of [
+        ["diffEditor.insertedLineBackground", "success", 0.12],
+        ["diffEditorGutter.insertedLineBackground", "success", 0.12],
+        ["diffEditor.removedLineBackground", "danger", 0.12],
+        ["diffEditorGutter.removedLineBackground", "danger", 0.12],
+        ["merge.currentContentBackground", "success", 0.12],
+        ["merge.incomingContentBackground", "danger", 0.12],
+        ["merge.commonContentBackground", "warning", 0.12],
+        ["mergeEditor.change.background", "success", 0.12],
+        ["mergeEditor.changeBase.background", "danger", 0.12],
+        ["mergeEditor.conflict.input1.background", "success", 0.12],
+        ["mergeEditor.conflict.input2.background", "danger", 0.12],
+        ["diffEditor.insertedTextBackground", "success", 0.24],
+        ["diffEditor.removedTextBackground", "danger", 0.24],
+        ["mergeEditor.change.word.background", "success", 0.24],
+        ["mergeEditor.changeBase.word.background", "danger", 0.24]
+    ]) {
+        const desired = "#@{alpha({color." + role + "}, " + alpha + ")}";
+        if (document.colors[key] === desired)
+            document.colors[key] = "#@{alpha({color." + role + "}, " + alpha * scale + ")}";
+    }
+    return JSON.stringify(document, null, 2) + "\n";
+}
+
 // Render every file of an accepted TARGET. TEMPLATES maps each template name
 // the target names to its text. INPUT carries the package's resolved token
 // `values`, the terminal `slots` terminalSource chose, `curated`, a Map
@@ -711,9 +794,13 @@ function renderTarget(logic, tokens, target, templates, input) {
     const order = target.files.filter(file => file.destination === versionFrom).concat(target.files.filter(file => file.destination !== versionFrom));
     let version;
     for (const file of order) {
-        const text = templates.get(file.template);
+        let text = templates.get(file.template);
         if (typeof text !== "string")
             throw new Error("theme-render: renderTarget: template " + file.template + " of target " + target.name + " was not read");
+        if (target.name === "vscode" && file.destination === "vscode.json") {
+            text = editorHighlightTemplate(logic, input, text);
+            if (text === null) return refused("readability", "template=" + file.template);
+        }
         const template = parseTemplate(text);
         if (!template.ok) return refused("placeholder", "template=" + file.template + " unterminated=" + template.at);
         let out = "";
