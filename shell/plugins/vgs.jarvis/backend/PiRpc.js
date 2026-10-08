@@ -107,11 +107,11 @@ function event(message) {
         if (!STOPS.includes(message.message.stopReason)) fail("stop-reason");
         return { kind: "reply-end", stop: message.message.stopReason };
     }
-    // durationMs is absent when the tool did not run (https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md,
-    // "Tool execution events"), as for a name the model made up.
-    case "tool_execution_end":
+    // Judged as a tool starts, before it can act, whether or not it then
+    // runs (https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md,
+    // "Tool execution events").
+    case "tool_execution_start":
         if (!string(message.toolCallId) || !string(message.toolName)) fail("message");
-        if (message.durationMs === undefined) return { kind: "other" };
         return { kind: "tool", bridge: message.toolName.startsWith(TOOL_PREFIX) };
     case "agent_settled":
         if (typeof message.aborted !== "boolean") fail("message");

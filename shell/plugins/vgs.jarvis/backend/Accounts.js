@@ -400,11 +400,11 @@ class Accounts {
                     item.models = await PiHarness.models({ directory: item.source.directory, env: this.env, runtime: this.runtime });
                     item.state = { kind: item.models.length === 0 ? "found" : "signed-in" };
                 } catch (error) {
-                    const key = /^jarvis: brain=(pi-[a-z0-9-]+)(?: |$)/.exec(error.message);
-                    if (key === null) throw error;
+                    // One setup's failed read leaves the other accounts listed.
+                    const key = /^jarvis: brain=(pi-[a-z0-9-]+)(?: |$)/.exec(error?.message ?? "");
                     // setpriv exits 127 when it finds no pi to run.
-                    item.state = { kind: "unavailable", reason: /^jarvis: brain=pi-exited code=127 /.test(error.message)
-                        ? "command-missing" : key[1] };
+                    item.state = { kind: "unavailable", reason: key === null ? "pi-models-failed"
+                        : /^jarvis: brain=pi-exited code=127 /.test(error.message) ? "command-missing" : key[1] };
                 }
             }));
     }

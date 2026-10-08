@@ -6,17 +6,21 @@
 // PiHarness.models, PiHarness.probe and one PiHarness conversation (a turn
 // with one bridge tool call, then a cancelled turn), with a scratch
 // PI_CODING_AGENT_DIR whose models.json named one loopback stand-in model
-// server, so no account, network or paid request was used. Scratch paths
-// read /scratch and system prompts are cut.
+// server, whose mcp.json named a user-level MCP server and whose extensions
+// folder held an extension, so no account, network or paid request was
+// used. Besides Pi's lines it holds each run's argv, the tools each model
+// request offered, whether the user-level server's environment held the
+// bridge token and whether the extension loaded. Scratch paths read
+// /scratch and system prompts are cut.
 // It speaks the RPC subset Jarvis uses on stdio and replays a scenario the
 // test writes to $XDG_STATE_HOME/pi-scenario.json:
 //   { crash: "handshake", hang: "handshake", refuse: command type (answered
 //     success false), models: [model], state: {get_state data},
 //     reply: "text" (any prompt), turns: [[step, ...], ...], leak: true }
-// A step is {text} (one text_delta), {tool: {name, durationMs?}} (a tool's
-// execution events), {mcp: {tool, arguments}} (a tools/call through the
-// server cwd/.pi/mcp.json names, tools/list first, then its execution
-// events), {dialog: method} (waits for the answer), {notice: text}, {abort:
+// A step is {text} (one text_delta), {tool: {name, durationMs?, hold?}} (a
+// tool's execution events; hold never ends the tool), {mcp: {tool, arguments}} (a tools/call through the
+// server cwd/.pi/mcp.json names, with its environment, tools/list first,
+// then its execution events), {dialog: method} (waits for the answer), {notice: text}, {abort:
 // true} (waits for abort), {stop: reason} (the reply's message_end and the
 // settled run), {exit: code} or {raw: bytes}. With leak, the key in
 // $PI_CODING_AGENT_DIR/auth.json goes into every field Jarvis must leave
@@ -45,7 +49,8 @@ const read = file => fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
 const prompt = args.includes("--system-prompt") ? args[args.indexOf("--system-prompt") + 1] : null;
 fs.appendFileSync(path.join(state, "pi-calls"), JSON.stringify({ args, env: process.env, cwd: process.cwd(), pid: process.pid,
     parent: process.ppid, deathsig, instructions: prompt === null ? null : read(prompt),
-    mcp: read(path.join(process.cwd(), ".pi/mcp.json")) }) + "\n");
+    mcp: read(path.join(process.cwd(), ".pi/mcp.json")),
+    mcpMode: fs.existsSync(path.join(process.cwd(), ".pi/mcp.json")) ? fs.statSync(path.join(process.cwd(), ".pi/mcp.json")).mode & 0o777 : null }) + "\n");
 if (args[0] !== "--mode" || args[1] !== "rpc") process.exit(9);
 const scenario = JSON.parse(fs.readFileSync(path.join(state, "pi-scenario.json"), "utf8"));
 const recorded = fs.readFileSync(path.join(state, "pi-recorded.ndjson"), "utf8").trim().split("\n").map(line => JSON.parse(line));
@@ -76,9 +81,10 @@ function settle(isAborted, stop) {
     write({ type: "agent_end", messages: [], willRetry: false });
     write({ type: "agent_settled", aborted: isAborted });
 }
-function tool(name, durationMs, result) {
+async function tool(name, durationMs, result, hold) {
     const toolCallId = "call_" + uiId++;
     write({ type: "tool_execution_start", toolCallId, toolName: name, args: {} });
+    if (hold) { keepalive(); await new Promise(() => {}); }
     write({ type: "tool_execution_end", toolCallId, toolName: name, isError: false,
         result: result ?? { content: [{ type: "text", text: key ?? "done" }] }, ...(durationMs === undefined ? {} : { durationMs }) });
 }
@@ -87,13 +93,11 @@ function dialog(method) {
     return new Promise(resolve => { answers.set(id, resolve); write({ type: "extension_ui_request", id, method, title: "fixture" }); });
 }
 
-// A minimal MCP client of the bridge server .pi/mcp.json names, with its
-// ${NAME} values read from this program's environment, as Pi expands them.
+// A minimal MCP client of the bridge server .pi/mcp.json names, started as
+// Pi starts a server: this program's environment plus the server's env.
 async function mcp(call) {
     const server = JSON.parse(fs.readFileSync(path.join(process.cwd(), ".pi/mcp.json"), "utf8")).mcpServers.vgs_jarvis;
-    const env = Object.fromEntries(Object.entries(server.env).map(([name, value]) =>
-        [name, value.replace(/^\$\{([A-Z_]+)\}$/, (_, variable) => process.env[variable] ?? "")]));
-    const child = cp.spawn(server.command, server.args, { env: { ...process.env, ...env }, stdio: ["pipe", "pipe", "inherit"] });
+    const child = cp.spawn(server.command, server.args, { env: { ...process.env, ...server.env }, stdio: ["pipe", "pipe", "inherit"] });
     let tail = "";
     const waiting = new Map();
     child.stdout.setEncoding("utf8");
@@ -116,14 +120,14 @@ async function mcp(call) {
     const result = await request(3, "tools/call", { name: call.tool, arguments: call.arguments });
     child.stdin.end();
     log("mcp", { tools: tools.result?.tools?.map(entry => entry.name) ?? null, result });
-    tool("mcp__vgs_jarvis__" + call.tool, 5, result.result);
+    await tool("mcp__vgs_jarvis__" + call.tool, 5, result.result);
 }
 
 async function turn(steps) {
     write({ type: "agent_start" });
     for (const step of steps) {
         if (step.text !== undefined) write({ type: "message_update", usage: {}, assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: step.text } });
-        else if (step.tool) tool(step.tool.name, step.tool.durationMs);
+        else if (step.tool) await tool(step.tool.name, step.tool.durationMs, undefined, step.tool.hold);
         else if (step.mcp) await mcp(step.mcp);
         else if (step.dialog) log("answer", await dialog(step.dialog));
         else if (step.notice) write({ type: "extension_ui_request", id: "ui-" + uiId++, method: "notify", message: key ?? step.notice });

@@ -122,6 +122,15 @@ world(async () => {
         finally { clearTimeout(timer); }
         return events;
     }
+    // A probe or model read bounded by the test, so a lost deadline fails its case.
+    async function bounded(promise, ms = 8000) {
+        let timer;
+        try {
+            return await Promise.race([promise, new Promise((resolve, reject) => {
+                timer = setTimeout(() => reject(new assert.AssertionError({ message: "no outcome within the test bound" })), ms);
+            })]);
+        } finally { clearTimeout(timer); }
+    }
     function copied(folder, edits) {
         const copy = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "copy-"));
         fs.mkdirSync(path.join(copy, "backend"));
@@ -177,10 +186,14 @@ world(async () => {
             const server = JSON.parse(call.mcp).mcpServers;
             assert.deepEqual(Object.keys(server), ["vgs_jarvis"]);
             assert.equal(server.vgs_jarvis.exposure, "direct");
-            assert.deepEqual(server.vgs_jarvis.env, { VGS_JARVIS_TOOLS_SOCKET: "${VGS_JARVIS_TOOLS_SOCKET}",
-                VGS_JARVIS_TOOLS_TOKEN: "${VGS_JARVIS_TOOLS_TOKEN}" }, "mcp.json names the bridge's variables, never their values");
-            assert.match(call.env.VGS_JARVIS_TOOLS_TOKEN, /^[0-9a-f]{64}$/);
-            assert.equal(JSON.stringify(call.args).includes(call.env.VGS_JARVIS_TOOLS_TOKEN), false, "the token stays out of argv");
+            assert.deepEqual(Object.keys(server.vgs_jarvis.env).sort(), ["VGS_JARVIS_TOOLS_SOCKET", "VGS_JARVIS_TOOLS_TOKEN"]);
+            const token = server.vgs_jarvis.env.VGS_JARVIS_TOOLS_TOKEN;
+            assert.match(token, /^[0-9a-f]{64}$/);
+            assert.equal(call.mcpMode, 0o600, "only the user reads the bridge's server entry");
+            // Pi starts the user's own MCP servers with its environment.
+            for (const name of ["VGS_JARVIS_TOOLS_TOKEN", "VGS_JARVIS_TOOLS_SOCKET"])
+                assert.equal(Object.hasOwn(call.env, name), false, name + " stays out of Pi's environment");
+            assert.equal(JSON.stringify([call.args, call.env]).includes(token), false, "the token stays out of argv and environment");
             assert.deepEqual(await drain(w.say("more")), [{ kind: "text", text: "Again." }, { kind: "done", reason: "stop" }]);
             const commands = read("pi-log").filter(row => row.direction === "in").map(row => row.message.type);
             assert.deepEqual(commands, ["set_auto_compaction", "prompt", "prompt"]);
@@ -188,6 +201,28 @@ world(async () => {
             assert.deepEqual(received("prompt").map(m => m.message), ["hi", "more"]);
             assert.equal(read("pi-calls").length, 1, "one program per conversation");
             validWrites();
+        },
+        // The lockdown as a real Pi 1.1.0 run recorded it: the argv this
+        // brain writes now is the recorded argv, under which the model was
+        // offered only the bridge's tools (none without the bridge), the
+        // user's own MCP server ran without the bridge's token and the
+        // user's own extension did not load.
+        async lockdown(folder) {
+            const recordedRows = fs.readFileSync(path.join(state, "pi-recorded.ndjson"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+            const recordedArgs = flow => recordedRows.find(row => row.flow === flow && row.direction === "argv").line.slice(0, -1);
+            scenario({ turns: [[{ stop: "stop" }]] });
+            const w = make(folder);
+            await drain(w.say("x"));
+            assert.deepEqual(program().args.slice(0, -1), recordedArgs("turn"), "the turn's argv is the recorded one");
+            const Harness = require(path.join(folder, "backend/PiHarness.js"));
+            scenario({ reply: "OK" });
+            await Harness.probe({ directory: account, env, runtime: path.join(process.env.JARVIS_TEST_ROOT, "lockdown"), model: "", text: "x" });
+            assert.deepEqual(program().args.slice(0, -1), recordedArgs("bare"), "the probe's argv is the recorded one");
+            const offered = flow => recordedRows.filter(row => row.flow === flow && row.direction === "model-request").map(row => row.line.tools);
+            assert.ok(offered("turn").length > 0 && offered("turn").every(tools => tools.length > 0 && tools.every(name => name.startsWith("mcp__vgs_jarvis__"))));
+            assert.deepEqual(offered("bare"), [[]]);
+            assert.deepEqual(recordedRows.find(row => row.direction === "user-server").line, { tokenSeen: false, bridgeTokenSeen: true });
+            assert.deepEqual(recordedRows.find(row => row.direction === "user-extension").line, { loaded: false });
         },
         // A model chosen in the menu is set before the first prompt.
         async model(folder) {
@@ -229,14 +264,10 @@ world(async () => {
             assert.equal(mcp.tools.some(name => name.startsWith("harness_")), false, "no harness row is offered");
             assert.deepEqual(mcp.result.result, { content: [{ type: "text", text: "[]" }], isError: false });
         },
-        // A tool other than the bridge's that ran ends the conversation; a
-        // name the model made up, which did not run, does not.
+        // A tool other than the bridge's ends the conversation as it starts,
+        // before it can act.
         async builtin(folder) {
-            scenario({ turns: [[{ tool: { name: "made_up" } }, chunk("Fine."), { stop: "stop" }]] });
-            const ok = make(folder);
-            assert.deepEqual(await drain(ok.say("x")), [{ kind: "text", text: "Fine." }, { kind: "done", reason: "stop" }]);
-            for (const owner of owners.splice(0)) owner();
-            scenario({ turns: [[chunk("Running."), { tool: { name: "bash", durationMs: 3 } }, { stop: "stop" }]] });
+            scenario({ turns: [[chunk("Running."), { tool: { name: "bash", hold: true } }]] });
             const w = make(folder);
             await assert.rejects(drain(w.say("run")), { message: "jarvis: brain=pi-builtin" });
             await until(() => livePrograms().length === 0, "the tripwire leaves no program");
@@ -305,6 +336,18 @@ world(async () => {
                 await noProgramOrDir(w.runtime, "hung handshake");
             } finally { killLivePrograms(); }
         },
+        // A close during the handshake ends the turn cancelled and leaves nothing.
+        async closeHandshake(folder) {
+            scenario({ hang: "handshake", turns: [[{ stop: "stop" }]] });
+            // The opening program ends at its handshake bound.
+            const w = make(shortBounds(folder));
+            const pending = drain(w.say("x"));
+            pending.catch(() => {});
+            await until(() => program() !== undefined, "the program starts handshaking");
+            w.brain.close();
+            await assert.rejects(pending, { message: "jarvis: brain=cancelled" });
+            await noProgramOrDir(w.runtime, "close during handshake");
+        },
         async lineSize(folder) {
             scenario({ turns: [[{ raw: 8 * 1024 * 1024 }]] });
             const w = make(folder);
@@ -363,7 +406,7 @@ world(async () => {
             await assert.rejects(probe(), { message: "jarvis: brain=pi-stop-error" });
             const short = require(path.join(shortBounds(folder), "backend/PiHarness.js"));
             scenario({ turns: [[chunk("slow"), { abort: true }]] });
-            await assert.rejects(short.probe({ directory: account, env, runtime, model: "", text: "x" }), { message: "jarvis: brain=pi-probe-deadline" });
+            await assert.rejects(bounded(short.probe({ directory: account, env, runtime, model: "", text: "x" })), { message: "jarvis: brain=pi-probe-deadline" });
             await noProgramOrDir(runtime, "hung probe");
             validWrites();
         },
@@ -383,7 +426,7 @@ world(async () => {
             assert.deepEqual(program().args.slice(LOCKDOWN.length, -2), ["--no-approve", "--no-tools", "--no-mcp"]);
             const short = require(path.join(shortBounds(folder), "backend/PiHarness.js"));
             scenario({ hang: "handshake" });
-            await assert.rejects(short.models({ directory: account, env, runtime }), { message: /^jarvis: brain=pi-(closed|exited code=null signal=SIGKILL)$/ });
+            await assert.rejects(bounded(short.models({ directory: account, env, runtime })), { message: /^jarvis: brain=pi-(closed|exited code=null signal=SIGKILL)$/ });
             killLivePrograms();
             validWrites();
         },
@@ -414,6 +457,10 @@ world(async () => {
                 "the release record precedes the program's prompt");
             assert.deepEqual(received("prompt").map(m => m.message), ["Reply OK."]);
             assert.equal(read("pi-calls").some(call => call.args[0] === "auth"), false, "no Pi credential command runs");
+            // A Pi that answers nothing keeps its keyed cause.
+            scenario({ reply: " " });
+            judge.discover();
+            assert.deepEqual(await judge.verify(pi.id, "user"), { kind: "unavailable", reason: "pi-no-reply" });
             // A setup that lists no model is found, and offers none.
             scenario({ models: [] });
             judge.discover();
@@ -443,7 +490,7 @@ world(async () => {
         // status, audit record, state file or helper output.
         async credential(folder) {
             const runtime = path.join(process.env.JARVIS_TEST_ROOT, "credential-runtime");
-            scenario({ leak: true, turns: [[{ notice: "n" }, chunk("Hi."), { tool: { name: "made_up" } }, { stop: "stop" }],
+            scenario({ leak: true, turns: [[{ notice: "n" }, chunk("Hi."), { tool: { name: "mcp__vgs_jarvis__fixture", durationMs: 1 } }, { stop: "stop" }],
                 [chunk("x"), { stop: "error" }]] });
             const w = make(folder);
             const seen = [];
@@ -494,20 +541,21 @@ world(async () => {
         let controls = 0;
         const H = "backend/PiHarness.js", R = "backend/PiRpc.js", A = "backend/Accounts.js";
         for (const [name, relative, edits, row] of [
-            ["tools-allowlist", H, [['"--tools", Pi.TOOL_PREFIX + "*"', '"--tools", "*"']], "turn"],
-            ["extensions-off", H, [['"--no-extensions", ', ""]], "turn"],
-            ["context-files", H, [['"--no-context-files", ', ""]], "turn"],
+            ["tools-allowlist", H, [['"--tools", Pi.TOOL_PREFIX + "*"', '"--tools", "*"']], "lockdown"],
+            ["extensions-off", H, [['"--no-extensions", ', ""]], "lockdown"],
+            ["context-files", H, [['"--no-context-files", ', ""]], "lockdown"],
             ["account-folder", H, [["PI_CODING_AGENT_DIR: directory", "PI_CODING_AGENT_DIR: env.HOME"]], "turn"],
-            ["token-file", H, [['[name, "${" + name + "}"]', "[name, bridge.env[name]]"]], "turn"],
+            ["token-environment", H, [["extra: { PI_CODING_AGENT_DIR: directory }", "extra: { PI_CODING_AGENT_DIR: directory, ...(bridge === null ? {} : bridge.env) }"]], "turn"],
             ["system-prompt", H, [["fs.writeFileSync(prompt, instructions,", 'fs.writeFileSync(prompt, "",']], "turn"],
             ["no-compaction", H, [["await p.call(id => Pi.noCompaction(id));", ""]], "turn"],
             ["set-model", H, [['if (model !== "") await p.call(id => Pi.setModel(id, Pi.model(model)));', ""]], "model"],
             ["model-shape", H, [['if (model !== "") Pi.model(model);', ""]], "model"],
             ["release-empty", H, [['if (labels.length === 0) fail("release-empty");', ""]], "release"],
             ["bridge-launch", H, [["instructions,\n                bridge: launch }", "instructions,\n                bridge: null }"]], "bridge"],
-            ["tripwire", H, [["if (e.bridge) break;", "break;"]], "builtin"],
+            ["tripwire", H, [['if (e.kind === "tool" && !e.bridge && session !== null) {', "if (false) {"]], "builtin"],
             ["tripwire-ends", H, [["session.program.abort(error);", ""]], "builtin"],
-            ["ran-only", R, [["if (message.durationMs === undefined) return { kind: \"other\" };", ""]], "builtin"],
+            ["start-judged", R, [['case "tool_execution_start":', 'case "tool_execution_end":']], "builtin"],
+            ["error-message-unread", R, [['return { kind: "reply-end", stop: message.message.stopReason };', 'return { kind: "reply-end", stop: message.message.errorMessage ?? message.message.stopReason };']], "credential"],
             ["stop-complete", H, [['current.stop === "stop" ? { kind: "complete" }', 'current.stop !== null ? { kind: "complete" }']], "stops"],
             ["abort-sent", H, [["session.program.call(id => Pi.abort(id)).catch(() => {});", ""]], "cancel"],
             ["dialog-cancel", H, [['case "dialog": current.program.write(Pi.cancelDialog(id)); return;', 'case "dialog": return;']], "dialog"],
@@ -517,17 +565,16 @@ world(async () => {
             ["directory-removal", H, [["    await session.program.close();\n    fs.rmSync(session.cwd, { recursive: true, force: true });",
                 "    await session.program.close();"]], "close"],
             ["bridge-close", H, [["launch?.close();", ""]], "close"],
+            ["close-cancel", H, [["            active?.cancel();\n            launch?.close();", "            launch?.close();"]], "closeHandshake"],
             ["context-limit", H, [['if (turns >= TURNS) throw new Error("jarvis: brain=context-limit");', ""]], "limit"],
-            ["probe-bare", H, [['const BARE = Object.freeze(["--no-approve", "--no-tools", "--no-mcp"]);', "const BARE = TURN;"]], "probe"],
+            ["probe-bare", H, [['const BARE = Object.freeze(["--no-approve", "--no-tools", "--no-mcp"]);', 'const BARE = Object.freeze(["--no-approve", "--no-mcp"]);']], "lockdown"],
             ["probe-reply", H, [['if (run.reply.trim() === "") fail("no-reply");', ""]], "probe"],
             ["probe-stop", H, [['if (run.aborted || run.stop !== "stop")', "if (run.aborted)"]], "probe"],
             ["probe-timer", H, [['timer = setTimeout(() => reject(new Error("jarvis: brain=pi-" + key + "-deadline")), deadline);', ""]], "probe"],
             ["menu-selected", R, [["const ordered = selected === null ? all", "const ordered = true ? all"]], "models"],
-            ["menu-bound", R, [[".slice(0, MODELS));", "));"]], "models"],
+            ["menu-bound", R, [["\n        .slice(0, MODELS));", ");"]], "models"],
             ["menu-fits", R, [["ordered.filter((m, i) => fits(m) && ", "ordered.filter((m, i) => "]], "models"],
             ["menu-narrow", R, [["return Object.freeze({ provider: value.provider, id: value.id });", "return Object.freeze({ ...value });"]], "credential"],
-            ["refusal-unread", "backend/HarnessProgram.js", [["else call.reject(refused(call, value));", "else call.reject(new Error(JSON.stringify(value)));"]], "credential"],
-            ["failure-narrow", R, [[": { kind: \"failure\", id: message.id, command: message.command };", ": { kind: \"failure\", id: message.id, command: message.command, error: message.error };"]], "credential"],
             ["stderr-dropped", "backend/HarnessProgram.js", [["child.stderr.resume();", "child.stderr.on(\"data\", chunk => process.stderr.write(chunk));"]], "credential"],
             ["environment-scrub", "backend/HarnessProgram.js", [["env: { ...childEnvironment(env), ...extra }", "env: { ...env, ...extra }"]], "credential"],
             ["models-state", A, [['item.state = { kind: item.models.length === 0 ? "found" : "signed-in" };', ""]], "accounts"],
@@ -535,11 +582,11 @@ world(async () => {
                 "await judge.readEmails();\n        value = judge.status();"]], "credential"],
             ["choice-model", A, [['const model = candidate.provider === "pi" && id.startsWith(account + "/") ? piModel(id.slice(account.length + 1)) : "";',
                 'const model = "";']], "accounts"],
-            ["choice-label", A, [['" / " + PiRpc.reference(model)).slice(0, 60)', ').slice(0, 60)']], "accounts"],
+            ["choice-label", A, [['" / " + PiRpc.reference(model)).slice(0, 60)', '" / " + model.id).slice(0, 60)']], "accounts"],
             ["handoff-route", A, [['case "pi":', 'case "pi-removed":']], "accounts"],
             ["handoff-audit", A, [["release.start(() => PiHarness.probe(", "(send => send())(() => PiHarness.probe("]], "accounts"],
-            ["command-missing", A, [['? "command-missing" : key[1]', ': key[1]']], "absent"],
-            ["harness-reason", A, [["(?:harness|codex|copilot|pi)-", "(?:harness|codex|copilot)-"]], "absent"],
+            ["command-missing", A, [['? "command-missing" : key[1]', '? key[1] : key[1]']], "absent"],
+            ["harness-reason", A, [["(?:harness|codex|copilot|pi)-", "(?:harness|codex|copilot)-"]], "accounts"],
             ["account-row", "AccountProviders.js", [['{ id: "pi", label: "Pi", kind: "cli", command: null },', ""]], "accounts"],
             ["engine-driver", "backend/ChainedEngine.js", [['"pi-rpc": PiHarness, ', ""]], "limit"]
         ]) {

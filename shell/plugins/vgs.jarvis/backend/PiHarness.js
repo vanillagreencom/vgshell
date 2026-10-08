@@ -3,10 +3,11 @@
 // reaches its providers with its own setup and Jarvis never reads a
 // credential. Jarvis hands it released text only. Pi's only tools are the
 // bridge's, named in a private working folder's .pi/mcp.json, and a tool
-// of any other name that runs ends the conversation. PiRpc is the protocol
-// judge. Residual: Pi still connects the MCP servers the user configured in
-// that folder; their tools are not declared to the model and the tripwire
-// refuses them.
+// of any other name that starts ends the conversation. PiRpc is the protocol
+// judge. Residual: Pi still starts the MCP servers the user configured in
+// that folder, with Pi's environment; their tools are not declared to the
+// model, the tripwire refuses them, and the bridge's token is not in that
+// environment.
 // Contract: docs/architecture/jarvis.md § Adapters.
 "use strict";
 const fs = require("node:fs");
@@ -43,9 +44,11 @@ function fail(code) { throw new Error("jarvis: brain=pi-" + code); }
 /**
  * One Pi program in a fresh private folder under runtime, its system prompt
  * replaced by instructions and, with bridge, the bridge as its one MCP
- * server. The bridge's variables travel only in the program's environment;
- * mcp.json names them. model, a "provider/id" reference or "", is set before
- * the first turn. hooks: {event(event), request(id, request, session)},
+ * server. The bridge's variables travel only in that folder's 0600
+ * mcp.json, never in Pi's environment: Pi starts the user's own MCP servers
+ * with its environment (seen in a Pi 1.1.0 run), and the token would reach
+ * them. model, a "provider/id" reference or "", is set before the first
+ * turn. hooks: {event(event), request(id, request, session)},
  * and ended(error).
  */
 async function open({ directory, env, runtime, model, instructions, bridge }, hooks) {
@@ -58,13 +61,12 @@ async function open({ directory, env, runtime, model, instructions, bridge }, ho
         fs.writeFileSync(prompt, instructions, { flag: "wx", mode: 0o600 });
         if (bridge !== null) {
             fs.mkdirSync(path.join(cwd, ".pi"), { mode: 0o700 });
-            const server = { command: bridge.command, args: [...bridge.args], exposure: "direct",
-                env: Object.fromEntries(Object.keys(bridge.env).map(name => [name, "${" + name + "}"])) };
+            const server = { command: bridge.command, args: [...bridge.args], exposure: "direct", env: { ...bridge.env } };
             fs.writeFileSync(path.join(cwd, ".pi", "mcp.json"), JSON.stringify({ mcpServers: { [Pi.SERVER]: server } }),
                 { flag: "wx", mode: 0o600 });
         }
         p = Harness.program({ name: "pi", argv: ["pi", ...LOCKDOWN, ...(bridge === null ? BARE : TURN), "--system-prompt", prompt],
-            env, extra: { PI_CODING_AGENT_DIR: directory, ...(bridge === null ? {} : bridge.env) }, cwd,
+            env, extra: { PI_CODING_AGENT_DIR: directory }, cwd,
             accept: Pi.accept, lineBytes: Pi.LINE_BYTES,
             refused: call => new Error("jarvis: brain=pi-refused command=" + call.method) }, value => {
             if (value.kind === "notification") hooks.event(value.event);
@@ -153,19 +155,20 @@ function create({ provider, model, recipients, account, gen, harness }) {
     }
 
     function event(e) {
+        // A tool other than the bridge's is one the lockdown did not remove,
+        // whichever turn it starts in.
+        if (e.kind === "tool" && !e.bridge && session !== null) {
+            const error = new Error("jarvis: brain=pi-builtin");
+            ended ??= error;
+            session.program.abort(error);
+            return;
+        }
         const turn = running;
         if (turn === null || session === null) return;
         switch (e.kind) {
         case "text": turn.push({ kind: "text", text: e.text }); break;
         case "reply-end": turn.stop = e.stop; break;
-        case "tool": {
-            if (e.bridge) break;
-            // A tool other than the bridge's is one the lockdown did not remove.
-            const error = new Error("jarvis: brain=pi-builtin");
-            ended ??= error;
-            session.program.abort(error);
-            break;
-        }
+        case "tool": break;
         case "settled": running = null; turn.settled(e.aborted); break;
         case "other": break;
         default: fail("event-kind");
@@ -204,7 +207,11 @@ function create({ provider, model, recipients, account, gen, harness }) {
                 current.requested = true;
                 running = current;
                 Pi.started(await opened.program.call(id => Pi.prompt(id, text)));
-            } catch (error) { current.fault(error); }
+            } catch (error) {
+                // A refused prompt starts no run for Pi to settle.
+                if (running === current) running = null;
+                current.fault(error);
+            }
         }
         active = current;
         return Object.freeze({ release, events });
