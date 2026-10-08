@@ -27,7 +27,7 @@
       "options": ["local", "gpt-live"],
       "description": "Local stays on this computer. GPT-Live sends your voice to OpenAI.",
       "info": "Changing this ends the conversation." },
-    "voiceAccount": { "type": "string", "label": "GPT-Live key", "group": "Voice", "optionsFrom": "voiceAccounts",
+    "voiceAccount": { "type": "string", "label": "GPT-Live key", "group": "Voice", "optionsFrom": "voiceAccounts", "placeholder": "Choose a key",
       "description": "Your OpenAI key for GPT-Live. With one key, Jarvis picks it. Get a key at platform.openai.com/api-keys." },
     "brain": { "type": "string", "label": "AI model", "group": "AI model", "optionsFrom": "brains", "placeholder": "Choose a model",
       "description": "The AI that answers you: an API key you added, or an app you are signed in to." },
