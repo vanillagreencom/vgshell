@@ -80,6 +80,7 @@ Recommends:     cronie
 Recommends:     ddcutil
 Recommends:     glibc-common
 Recommends:     greetd
+Recommends:     libcap
 Recommends:     polkit
 Recommends:     tailscale
 Recommends:     xorg-x11-xinit
