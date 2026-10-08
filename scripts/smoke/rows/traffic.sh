@@ -185,13 +185,22 @@ expect "nothing is signalled before the answer" 0 traffic_kills
 click_item popup:panel vgs.traffic "" "" Button Kill || fail "Traffic Kill answer failed"
 expect_poll "Kill sends SIGTERM to the row's process" "-TERM $traffic_child" traffic_last_kill
 expect_poll "the panel learns the request was sent" '{"name": "Player", "state": "sent"}' traffic_ending
+# The question opens with Cancel focused: Return cancels, and Tab then
+# Return presses Kill.
+click_item panel vgs.traffic ListItem Player || fail "Traffic cancelled Kill row click failed"
+expect_poll "the cancelled Kill row's actions open" true traffic_menu_open
+click_item popup:panel vgs.traffic "" "" MenuItem Kill || fail "Traffic cancelled Kill click failed"
+expect_poll "the cancelled Kill asks first" true traffic_popup_reads Label "Kill Player?"
+type_keys -k Return
+expect_poll "Return presses the focused Cancel" false traffic_popup_reads Label "Kill Player?"
+expect "a cancelled Kill runs no kill" 1 traffic_kills
 : >"$traffic_dir/kill-fail"
 click_item panel vgs.traffic ListItem Player || fail "Traffic failing Kill row click failed"
 expect_poll "the failing Kill row's actions open" true traffic_menu_open
 click_item popup:panel vgs.traffic "" "" MenuItem Kill || fail "Traffic failing Kill click failed"
 expect_poll "the failing Kill asks first" true traffic_popup_reads Label "Kill Player?"
-click_item popup:panel vgs.traffic "" "" Button Kill || fail "Traffic failing Kill answer failed"
-expect_poll "a second Kill runs one more kill" 2 traffic_kills
+type_keys -k Tab -k Return
+expect_poll "Tab and Return press Kill" 2 traffic_kills
 expect_poll "a failed kill reaches the panel" '{"name": "Player", "state": "failed"}' traffic_ending
 rm -- "${traffic_dir:?}/kill-fail"
 kill "$traffic_child" 2>/dev/null || true

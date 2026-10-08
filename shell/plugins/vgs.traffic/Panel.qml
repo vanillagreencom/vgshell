@@ -284,6 +284,41 @@ Item {
         }
     }
 
+    // The one card of an Inspect or a Kill: the popover draws the frame,
+    // and this its title, message, content and actions, flush right. The
+    // popover focuses the first action as it opens, Tab moves between the
+    // actions, and Escape or a press outside closes it.
+    component ActionCard: Column {
+        id: card
+        property string title: ""
+        property string message: ""
+        property string cancelText: ""
+        default property alias content: body.data
+        signal cancelled()
+        signal killed()
+        width: parent.width
+        spacing: Theme.dialog.gap
+        Label { width: parent.width; role: Theme.dialog.titleRole; text: card.title; textFormat: Text.PlainText; wrapMode: Text.Wrap }
+        Label { width: parent.width; role: Theme.dialog.bodyRole; text: card.message; textFormat: Text.PlainText; wrapMode: Text.Wrap }
+        Column {
+            id: body
+            width: parent.width
+            spacing: Theme.stack.row
+            visible: children.length > 0
+        }
+        Item {
+            width: parent.width
+            implicitHeight: actions.implicitHeight
+            Row {
+                id: actions
+                anchors.right: parent.right
+                spacing: Theme.dialog.actionGap
+                Button { text: card.cancelText; variant: "tertiary"; onClicked: card.cancelled() }
+                Button { text: "Kill"; variant: "danger"; onClicked: card.killed() }
+            }
+        }
+    }
+
     Component {
         id: inspectView
         Popover {
@@ -293,16 +328,13 @@ Item {
             width: OverlayState.widthFor(anchorItem, Theme.dialog.width)
             Component.onCompleted: Qt.callLater(() => open(request.byKey ? Qt.TabFocusReason : Qt.MouseFocusReason))
             onOpenedChanged: if (!opened) Qt.callLater(root.settle, request)
-            Dialog {
-                width: pop.width
-                modal: true
-                availableHeight: pop.availableHeight
+            ActionCard {
                 title: pop.app.name
                 message: (pop.app.pids.length === 1 ? "1 process" : pop.app.pids.length + " processes") + ", "
                     + (pop.app.connectionCount === 1 ? "1 connection" : pop.app.connectionCount + " connections")
-                actions: [{ label: "Close", role: "cancel", focused: true }, { label: "Kill", role: "accept", variant: "danger" }]
-                onRejected: pop.close()
-                onAccepted: {
+                cancelText: "Close"
+                onCancelled: pop.close()
+                onKilled: {
                     pop.request.next = "kill";
                     pop.close();
                 }
@@ -359,15 +391,12 @@ Item {
             width: OverlayState.widthFor(anchorItem, Theme.dialog.width)
             Component.onCompleted: Qt.callLater(() => open(request.byKey ? Qt.TabFocusReason : Qt.MouseFocusReason))
             onOpenedChanged: if (!opened) Qt.callLater(root.settle, request)
-            Dialog {
-                width: pop.width
-                modal: true
-                availableHeight: pop.availableHeight
+            ActionCard {
                 title: "Kill " + pop.app.name + "?"
                 message: pop.app.name + " gets a request to quit. Work it did not save can be lost."
-                actions: [{ label: "Cancel", role: "cancel", focused: true }, { label: "Kill", role: "accept", variant: "danger" }]
-                onRejected: pop.close()
-                onAccepted: {
+                cancelText: "Cancel"
+                onCancelled: pop.close()
+                onKilled: {
                     root.kill(pop.app);
                     pop.close();
                 }
