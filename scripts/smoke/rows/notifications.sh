@@ -130,7 +130,7 @@ def team(id, names, account, colour, users):
     for uid, user_names, rgb in users:
         photo = folder / "users" / (uid + ".png")
         photo.write_bytes(png(*rgb))
-        listed.append({"id": uid, "names": user_names, "photo": file_url(photo)})
+        listed.append({"id": uid, "names": user_names, "photo": file_url(photo), "bot": False})
     (folder / "team.json").write_text(json.dumps({"id": id, "names": names, "icon": file_url(folder / "workspace.png"), "account": account, "generatedAt": now, "downloadFailed": 0}) + "\n")
     (folder / "users.json").write_text(json.dumps({"users": listed}) + "\n")
 

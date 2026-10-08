@@ -534,7 +534,7 @@ function slackPhotos(text) {
             var userNames = uniqueNames(user.names);
             if (userNames.length === 0) continue;
             var photo = slackPhotoFileUrl(user.photo);
-            users.push({ id: user.id, names: userNames, photo: photo });
+            users.push({ id: user.id, names: slackUserNames(userNames, user.bot === true), photo: photo });
         }
         var icon = slackPhotoFileUrl(team.icon);
         teams.push({ id: team.id, names: names, icon: icon, users: users, account: team.account });
@@ -668,6 +668,14 @@ function emojiSegments(styled, lookup) {
 
 function slackPhotoFileUrl(value) {
     return typeof value === "string" && /^file:\/\/\/[^\s?#]+\.png\?v=[0-9a-f]{16}$/.test(value) ? value : "";
+}
+
+// The names a cached user's face matches. Slack's desktop notification
+// labels some of a bot's posts "<name> (bot)", so a bot also goes by each
+// name with that label.
+function slackUserNames(names, bot) {
+    if (!bot) return names;
+    return uniqueNames(names.concat(names.map(function (n) { return n + " (bot)"; })));
 }
 
 function uniqueNames(names) {

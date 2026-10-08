@@ -5,7 +5,8 @@
 // team. It proves each workspace's token fills its own team's cache, a
 // workspace without a token keeps none, a
 // token for another team is refused, each team keeps its own freshness and
-// failure hold, the cache keeps users/ apart and leaves names it does
+// failure hold, the cache keeps users/ apart, records which users are
+// bots and fetches a team again whose record does not, leaves names it does
 // not own, no token reaches argv,
 // a file or a log line, and without --photos, the Slack photos extra off,
 // no token is looked up, Slack is asked nothing and the photos are swept.
@@ -78,6 +79,7 @@ function serve(req, res) {
             res.end(JSON.stringify({ ok: true, members: [
                 { id: "U" + team + "A", name: "ada", real_name: "Ada Lovelace", profile: { display_name: "Ada", real_name: "Ada Lovelace", image_48: `http://127.0.0.1:${port}/images/${team}/ada.png` } },
                 { id: "U" + team + "G", name: "grace", real_name: "Grace Hopper", profile: { display_name: "Grace", real_name: "Grace Hopper", image_48: `http://127.0.0.1:${port}/images/${team}/grace.png` } },
+                { id: "U" + team + "F", name: "flagship", is_bot: true, profile: { real_name: "flagship" } },
                 { id: "U" + team + "M", name: "mallory", real_name: "Mallory", profile: { display_name: "Mallory", image_48: "https://evil.example/mallory.png" } },
                 { id: "../x", name: "bad", profile: { display_name: "Bad" } }
             ], response_metadata: { next_cursor: "" } }));
@@ -216,7 +218,10 @@ exit 1
     assert.deepEqual(teamIds(both), [["T1", "slack:T1"], ["T2", "slack:T2"]], "two workspaces with two tokens produce photos for both");
     assert.deepEqual(callsSince(since), [["T1", "team.info"], ["T1", "users.list"], ["T2", "team.info"], ["T2", "users.list"]], "each token asks for its own team");
     assert.deepEqual(both.teams[1].names, ["globex", "Globex Inc"]);
-    assert.equal(both.teams[0].users.length, 3, "only safe synthetic users are stored");
+    assert.equal(both.teams[0].users.length, 4, "only safe synthetic users are stored");
+    const cachedUsers = JSON.parse(fs.readFileSync(path.join(cache, "T1", "users.json"), "utf8")).users;
+    assert.deepEqual(cachedUsers.map(u => [u.id, u.bot]), [["UT1A", false], ["UT1F", true], ["UT1G", false], ["UT1M", false]], "users.json records which users are bots");
+
     assert.match(both.teams[0].icon, VERSIONED, "the workspace icon URL is versioned by content");
     for (const team of both.teams) {
         assert.match(team.users[0].photo, VERSIONED, "each team's photo URL is versioned by content");
@@ -235,6 +240,17 @@ exit 1
     since = world.calls.length;
     assert.deepEqual(teamIds(await runJson(cache, ["T1", "T2"])), [["T1", "slack:T1"], ["T2", "slack:T2"]], "fresh caches are reused");
     assert.deepEqual(callsSince(since), [], "fresh caches avoid another API call");
+
+    // A users.json whose users do not each record whether they are bots is
+    // not the helper's record: the team is fetched again.
+    const usersFile = path.join(cache, "T2", "users.json");
+    const unmarked = JSON.parse(fs.readFileSync(usersFile, "utf8"));
+    delete unmarked.users[1].bot;
+    fs.writeFileSync(usersFile, JSON.stringify(unmarked));
+    since = world.calls.length;
+    await runJson(cache, ["T1", "T2"]);
+    assert.deepEqual(callsSince(since), [["T2", "team.info"], ["T2", "users.list"]], "a users.json without bot is fetched again");
+    assert.equal(JSON.parse(fs.readFileSync(usersFile, "utf8")).users.every(u => typeof u.bot === "boolean"), true, "the refetch records bot for every user");
 
     // A missing token for one workspace drops that workspace alone.
     store({ "slack:T1": "xoxp-acme-4f2a" });
@@ -382,6 +398,8 @@ function controls() {
         ["Authorization header", '"header = \\"Authorization: Bearer " + token.replace(/"/g, "") + "\\""', '"header = \\"Authorization: ******\\""', /error=invalid_auth/],
         ["fresh cache", "if (fresh(record, entry.account)) {", "if (false && fresh(record, entry.account)) {", /fresh caches avoid another API call/],
         ["failure backoff", "if (held(accounts[entry.account])) {", "if (false && held(accounts[entry.account])) {", /the API-failure backoff avoids another API call|a recent failure is held/],
+        ["a bot is recorded", "const bot = user.is_bot === true;", "const bot = false;", /users.json records which users are bots/],
+        ["a users.json without bot is not the helper's", 'typeof user.bot === "boolean"', "true", /a users.json without bot is fetched again/],
         ["safe user id", "const id = safeSegment(user && user.id);", "const id = user && user.id || \"\";", /only safe synthetic users are stored/],
         ["team id argv", "if (safeSegment(id) === \"\") usage(", "if (false) usage(", /refused argv exits 2: a team id with a slash/],
         ["team mismatch", "if (safeSegment(info && info.id) !== id) {", "if (false) {", /the mismatched team is refused|team=mismatch/],

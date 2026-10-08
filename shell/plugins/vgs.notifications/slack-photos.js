@@ -20,10 +20,10 @@ const MAX_CACHE_BYTES = 10 * 1024 * 1024;
 const API_DEFAULT = "https://slack.com/api";
 // A team's directory, <root>/<team id>/, holds these names, each the
 // helper's: team.json, the team's names, icon, the account that served it
-// and when; workspace.png; users.json, each cached user's id, names and
-// photo; and users/, one <user id>.png per photo. The team sweep deletes
-// only these names and its own temporary files. Custom emoji
-// (slack-emoji.js) sit in the directory beside them.
+// and when; workspace.png; users.json, each cached user's id, names,
+// photo and whether it is a bot; and users/, one <user id>.png per photo.
+// The team sweep deletes only these names and its own temporary files.
+// Custom emoji (slack-emoji.js) sit in the directory beside them.
 const TEAM_FILES = ["team.json", "users.json", "workspace.png"];
 const USERS_DIR = "users";
 // The root holds accounts.json, each account's last failure, and one
@@ -292,13 +292,14 @@ function userRecord(user, usersDir, budget, stats) {
     const profile = user && user.profile && typeof user.profile === "object" ? user.profile : {};
     const names = uniqueNames([profile.display_name, profile.real_name, user.real_name, user.name]);
     if (names.length === 0) return null;
+    const bot = user.is_bot === true;
     let photo = "";
     const wanted = path.join(usersDir, id + ".png");
     if (budget.remaining > 0 && typeof profile.image_48 === "string") {
         const downloaded = downloadImage(profile.image_48, wanted);
         if (downloaded === "failed") stats.downloadFailed += 1;
         if (downloaded === "failed") photo = keepExistingImage(wanted, budget, path.basename(wanted));
-        if (downloaded !== "saved") return { id, names, photo };
+        if (downloaded !== "saved") return { id, names, photo, bot };
         const size = fs.statSync(wanted).size;
         if (size <= budget.remaining) {
             budget.remaining -= size;
@@ -308,7 +309,7 @@ function userRecord(user, usersDir, budget, stats) {
             fs.rmSync(wanted, { force: true });
         }
     }
-    return { id, names, photo };
+    return { id, names, photo, bot };
 }
 
 function remove(file) {
@@ -359,6 +360,7 @@ function readTeam(root, id) {
     const users = readJson(path.join(dir, "users.json"));
     if (!team || team.id !== id || team.account !== "slack:" + id || !Array.isArray(team.names) || typeof team.icon !== "string") return null;
     if (!isNumber(team.generatedAt) || !isNumber(team.downloadFailed) || !users || !Array.isArray(users.users)) return null;
+    if (!users.users.every(user => user !== null && typeof user === "object" && typeof user.bot === "boolean")) return null;
     return { id, names: team.names, icon: team.icon, users: users.users, account: team.account, generatedAt: team.generatedAt, downloadFailed: team.downloadFailed };
 }
 

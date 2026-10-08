@@ -473,6 +473,26 @@ function verify(logic) {
     same(logic.slackFaceImages(group, teams, "", ""), ["file:///cache/T1/users/U1.png?v=abcdef0123456789", "", ""], "with no workspace a face takes the photo of the one team holding the name, and none when two do");
     const direct = logic.enrich("Slack", "slack", "", "New message from Ada", "hi");
     same(logic.slackFaceImages(direct, [{ id: "T1", names: ["acme"], icon: "", users: [{ id: "U1", names: ["Ada"], photo: "file:///first.png?v=1111111111111111" }, { id: "U2", names: ["ADA"], photo: "file:///second.png?v=2222222222222222" }], account: "slack:T1" }], "", "acme"), ["file:///first.png?v=1111111111111111"], "the first duplicate name owns the photo");
+    // Slack labels some of a bot's posts "<name> (bot)": a cached bot's
+    // photo answers to both, and a person's photo to its own names alone.
+    const flagshipPhoto = "file:///cache/T1/users/UF.png?v=f1a9f1a9f1a9f1a9";
+    const flagshipCache = bot => ({ status: "loaded", teams: [{ id: "T1", names: ["acme"], icon: "", users: [Object.assign({ id: "UF", names: ["flagship"], photo: flagshipPhoto }, bot)], account: "slack:T1" }, { id: "T2", names: ["globex"], icon: "", users: [], account: "slack:T2" }] });
+    const labelled = logic.enrich("Slack", "slack", "", "[acme] in bradm-master", "flagship (bot): VGS-1046: 1 group tabs");
+    const plain = logic.enrich("Slack", "slack", "", "[acme] in bradm-master", "flagship: The VM move is ready");
+    const unlabelled = name => logic.enrich("", "", "", "New message in bradm-master", "app.slack.com\n\n" + name + ": hi");
+    for (const [label, bot, wantLabelled] of [
+        ["a bot", { bot: true }, flagshipPhoto],
+        ["a person", { bot: false }, "file:///sender.png"],
+        ["a user with no bot field", {}, "file:///sender.png"]
+    ]) {
+        const read = logic.slackPhotos(JSON.stringify(flagshipCache(bot)));
+        assert.equal(read.ok, true, "a cache holding " + label + " is accepted");
+        same(read.teams[0].users.map(u => Object.keys(u).sort()), [["id", "names", "photo"]], "the reduced user of " + label + " keeps its shape");
+        same(logic.slackFaceImages(labelled, read.teams, "file:///sender.png", "acme"), [wantLabelled], "the (bot) face of " + label);
+        same(logic.slackFaceImages(plain, read.teams, "file:///sender.png", "acme"), [flagshipPhoto], "the plain face of " + label);
+        assert.equal(logic.slackWorkspaceFor(unlabelled("flagship (bot)"), [], read.teams), wantLabelled === flagshipPhoto ? "acme" : "", "the workspace of the (bot) face of " + label);
+        assert.equal(logic.slackWorkspaceFor(unlabelled("flagship"), [], read.teams), "acme", "the workspace of the plain face of " + label);
+    }
     assert.equal(logic.slackWorkspaceIcon(teams, "acme"), "file:///cache/T1/workspace.png?v=0123456789abcdef");
     assert.equal(logic.slackWorkspaceIcon(teams, ""), "", "no workspace has no icon");
 
@@ -823,6 +843,8 @@ const CONTROLS = [
     ["the one team holding the sender", "return holders.length === 1 ? holders[0].names[0] : \"\";", "return holders.length > 0 ? holders[0].names[0] : \"\";"],
     ["Slack photo per face", "if (fold(workspace) !== \"\") photo = hasOwn(map, key) ? map[key] : \"\";", "if (fold(workspace) !== \"\") photo = \"\";"],
     ["a named workspace the cache lacks has no photos", "if (fold(workspace) !== \"\") photo =", "if (team !== null) photo ="],
+    ["a bot also goes by its (bot) name", 'names.concat(names.map(function (n) { return n + " (bot)"; }))', "names"],
+    ["only a bot goes by a (bot) name", "slackUserNames(userNames, user.bot === true)", "slackUserNames(userNames, true)"],
     ["a face with no workspace takes the one holder's photo", "var only = holders.length === 1 ? slackUserPhotoMap(holders[0]) : {};", "var only = holders.length > 0 ? slackUserPhotoMap(holders[0]) : {};"],
     ["copies come from two clients", "r.rule === message.rule && r.source !== message.source &&", "r.rule === message.rule &&"],
     ["copies arrive within the window", "&& Math.abs(message.at - r.at) <= DUPLICATE_WINDOW) return r;", ") return r;"],
