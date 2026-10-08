@@ -658,17 +658,27 @@ expect "the page takes no mouse button again" 1 ipc smoke setViewButtons window 
 # moves it Qt's own step, 72 px. The control turns the page's touchpad
 # scroll off through the probe, and the same swipe then moves the page Qt's
 # one pixel per pixel. Each starts from the page's top, which a long swipe
-# up reaches.
+# up reaches. They run on the row's scroll fixture, whose forty fields
+# leave the swipe the room view_swipe asks for, seven times its length, at
+# the window's height (size.window.tallHeightShare); the probe fixture's
+# page is shorter than that past the window. The Tab row after them reads
+# the probe fixture's page again.
+swipe_text="Fixture field 0"
+expect "the window opens the scroll fixture for the touchpad rows" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.settings-scroll
+swipe_view_kind() { ipc smoke viewHolding window vgs.settings "$swipe_text" | py_reply 'import json,sys; print(json.load(sys.stdin)["type"])'; }
+expect_poll "the scroll fixture's first field lies in the page's ScrollArea for the touchpad rows" ScrollArea swipe_view_kind
 settings_travel() {
-  view_travel window:Plugins window vgs.settings Layout swipe -2000 0 >/dev/null || return 1
+  view_travel window:Plugins window vgs.settings "$swipe_text" swipe -2000 0 >/dev/null || return 1
   "$@"
 }
-settings_swipe() { settings_travel view_swipe window:Plugins window vgs.settings Layout 40; }
+settings_swipe() { settings_travel view_swipe window:Plugins window vgs.settings "$swipe_text" 40; }
 expect "a two-finger swipe moves the page as far as it moves a GTK list" as-gtk settings_swipe
-expect "control: the probe turns the page's touchpad scroll off" true ipc smoke setViewTouchpad window vgs.settings Layout false
+expect "control: the probe turns the page's touchpad scroll off" true ipc smoke setViewTouchpad window vgs.settings "$swipe_text" false
 expect "control: the same swipe then moves the page one pixel per pixel" as-qt settings_swipe
-expect "the page's touchpad scroll is on again" false ipc smoke setViewTouchpad window vgs.settings Layout true
-expect "a wheel notch moves the page Qt's step" 72 settings_travel view_travel window:Plugins window vgs.settings Layout wheel 1 80
+expect "the page's touchpad scroll is on again" false ipc smoke setViewTouchpad window vgs.settings "$swipe_text" true
+expect "a wheel notch moves the page Qt's step" 72 settings_travel view_travel window:Plugins window vgs.settings "$swipe_text" wheel 1 80
+expect "the window opens the fixture's page again for the Tab row" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
+expect_poll "the page draws the fixture's fields again for the Tab row" '[9, 0]' page_fields
 # Tab until the page scrolls, each focused item read in view. The control's
 # drag can leave a flick running, so the page first holds one position for
 # two readings 0.1 s apart, for up to 3 s.
