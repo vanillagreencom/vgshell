@@ -5,13 +5,12 @@
 // HarnessGate. CodexAppServer is the protocol judge.
 // Contract: docs/architecture/jarvis.md § Adapters.
 "use strict";
-const cp = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const Codex = require("./CodexAppServer.js");
+const Harness = require("./HarnessProgram.js");
 const Policy = require("./Policy.js");
 const Private = require("./Private.js");
-const { childEnvironment } = require("./Secrets.js");
 
 // The plan's context bound in user turns, as the wire brains keep it. Past it
 // the brain refuses with the wire brains' key, which the engine ends cleanly on.
@@ -19,93 +18,17 @@ const TURNS = 40;
 // A program that never finishes its handshake is ended; the account's own
 // configuration loads and its MCP servers start inside this bound.
 const HANDSHAKE_MS = 30000;
-// After its stdin closes the program has this long to exit before KILL.
-const CLOSE_MS = 2000;
 // One Verify turn: a bound on a stalled provider, not a latency budget.
 const PROBE_MS = 60000;
 const PROBE_INSTRUCTIONS = "Answer in one word.";
 
 function fail(code) { throw new Error("jarvis: brain=codex-" + code); }
 
-/**
- * Start the program and own its JSON-RPC connection. listener receives each
- * narrowed {kind: "notification", event} and {kind: "request", id, request},
- * and once {kind: "ended", error}. Every child, including setpriv's exec of
- * codex, ends with the daemon.
- */
+// The program under the shared harness shape, with its account directory.
 function program({ directory, env, cwd }, listener) {
-    const child = cp.spawn("setpriv", ["--pdeathsig", "KILL", "--", "codex", "app-server", "--listen", "stdio://"], {
-        cwd, env: { ...childEnvironment(env), CODEX_HOME: directory }, stdio: ["pipe", "pipe", "pipe"] });
-    const calls = new Map();
-    let next = 1;
-    let tail = "";
-    let ended = null;
-    const exited = new Promise(resolve => child.once("close", resolve));
-
-    function end(error) {
-        if (ended !== null) return;
-        ended = error;
-        for (const call of calls.values()) call.reject(error);
-        calls.clear();
-        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-        listener({ kind: "ended", error });
-    }
-    child.on("error", error => end(new Error("jarvis: brain=codex-start cause=" + (error.code ?? "unknown"))));
-    child.on("close", (code, signal) => end(new Error("jarvis: brain=codex-exited code=" + code + " signal=" + signal)));
-    child.stdin.on("error", () => {});
-    // The program's log can hold conversation text; it is read and dropped.
-    child.stderr.resume();
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", chunk => {
-        if (ended !== null) return;
-        tail += chunk;
-        try {
-            let index;
-            while (ended === null && (index = tail.indexOf("\n")) >= 0) {
-                const line = tail.slice(0, index);
-                tail = tail.slice(index + 1);
-                receive(Codex.accept(line));
-            }
-            if (Buffer.byteLength(tail) >= Codex.LINE_BYTES) fail("line-size");
-        } catch (error) { end(error); }
-    });
-
-    function receive(value) {
-        switch (value.kind) {
-        case "response": case "failure": {
-            const call = calls.get(value.id);
-            if (call === undefined) fail("response-id");
-            calls.delete(value.id);
-            if (value.kind === "response") call.resolve(value.result);
-            else call.reject(new Error("jarvis: brain=codex-refused method=" + call.method + " code=" + value.code));
-            return;
-        }
-        case "notification": case "request": listener(value); return;
-        default: fail("message-kind");
-        }
-    }
-    function write(message) {
-        if (ended === null) child.stdin.write(JSON.stringify(message) + "\n");
-    }
-    return {
-        /** Send build(id) and resolve with the program's result. */
-        call(build) {
-            if (ended !== null) return Promise.reject(ended);
-            const id = next++;
-            const message = build(id);
-            return new Promise((resolve, reject) => {
-                calls.set(id, { method: message.method, resolve, reject });
-                write(message);
-            });
-        },
-        write,
-        /** Close stdin, the program's lease; KILL it if it outlives CLOSE_MS. */
-        close() {
-            if (ended === null) child.stdin.end();
-            const timer = setTimeout(() => end(new Error("jarvis: brain=codex-closed")), CLOSE_MS);
-            return exited.then(() => clearTimeout(timer));
-        }
-    };
+    return Harness.program({ name: "codex", argv: ["codex", "app-server", "--listen", "stdio://"], env,
+        extra: { CODEX_HOME: directory }, cwd, accept: Codex.accept, lineBytes: Codex.LINE_BYTES,
+        refused: (call, value) => new Error("jarvis: brain=codex-refused method=" + call.method + " code=" + value.code) }, listener);
 }
 
 /**
@@ -269,109 +192,41 @@ function create({ model, recipients, account, gen, harness }) {
     function send(turn, grants = []) {
         usable();
         if (instructions === null) fail("not-started");
-        if (turn?.kind !== "user") fail("turn");
-        if (!Array.isArray(turn.items) || turn.items.length === 0 || (turn.images ?? []).length !== 0) fail("turn");
+        const { text, labels, release } = Harness.release(turn, recipients, grants, fail);
         if (turns >= TURNS) throw new Error("jarvis: brain=context-limit");
-        const sent = [], withheld = new Set(), needed = new Set();
-        const text = turn.items.map(item => {
-            if (!item || typeof item.content !== "string") fail("item-text");
-            const decision = Policy.release(item, recipients, grants);
-            if (decision.kind === "send") sent.push(item);
-            else if (decision.kind === "ask") for (const label of decision.needed) needed.add(label);
-            else for (const label of decision.labels) withheld.add(label);
-            return decision.content;
-        }).join("\n\n");
-        const labels = [...new Set(sent.flatMap(item => item.labels))];
-        const release = Object.freeze({ withheld: Object.freeze([...withheld]), needed: Object.freeze([...needed]),
-            labels: Object.freeze(labels) });
 
-        const queue = [];
-        let wake = () => {};
-        let state = { kind: "unstarted" };
-        let acknowledged;
-        const finished = new Promise(resolve => { acknowledged = resolve; });
         // requested: turn/start is written, so only the program's completion
         // acknowledges a cancel.
-        const current = { id: null, requested: false, items: new Map(), waiters: new Map(), text: new Map(),
-            push(value) { queue.push(value); wake(); },
-            complete(status) {
-                if (state.kind === "streaming") state = status === "completed" ? { kind: "complete" }
-                    : status === "interrupted" ? { kind: "cancelled" } : { kind: "failed", error: new Error("jarvis: brain=codex-turn-" + status) };
+        const current = { id: null, requested: false, items: new Map(), waiters: new Map(), text: new Map() };
+        const { handle, events } = Harness.stream({ run, detach: () => { if (active === current) active = null; },
+            interrupt() {
+                if (current.id !== null && session !== null)
+                    session.program.call(id => Codex.turnInterrupt(id, session.thread, current.id)).catch(() => {});
+                return current.requested;
+            },
+            settled() {
                 for (const waiter of current.waiters.values()) waiter({ status: "unknown" });
                 current.waiters.clear();
-                wake();
-                acknowledged();
-            },
-            fault(error) {
-                if (state.kind === "streaming") state = { kind: "failed", error };
-                wake();
-                acknowledged();
-            },
-            cancel() {
-                switch (state.kind) {
-                case "unstarted": state = { kind: "cancelled" }; acknowledged(); break;
-                case "streaming":
-                    state = { kind: "cancelling" };
-                    if (current.id !== null && session !== null)
-                        session.program.call(id => Codex.turnInterrupt(id, session.thread, current.id)).catch(() => {});
-                    else if (!current.requested) acknowledged();
-                    wake();
-                    break;
-                default: break;
-                }
-                return finished.then(() => { if (active === current) active = null; });
-            } };
+            } });
+        Object.assign(current, { push: handle.push, fault: handle.fault, cancel: handle.cancel,
+            complete(status) {
+                handle.finish(status === "completed" ? { kind: "complete" } : status === "interrupted" ? { kind: "cancelled" }
+                    : { kind: "failed", error: new Error("jarvis: brain=codex-turn-" + status) });
+            } });
 
         async function run() {
             try {
                 if (labels.length === 0) fail("release-empty");
                 const opened = await ensure();
-                if (state.kind !== "streaming") return;
+                if (handle.state() !== "streaming") return;
                 turns++;
                 current.requested = true;
                 const id = Codex.turnId(await opened.program.call(n => Codex.turnStart(n, opened.thread, text)));
                 if (current.id === null) current.id = id;
                 else if (current.id !== id) fail("turn-id");
-                if (state.kind === "cancelling") opened.program.call(n => Codex.turnInterrupt(n, opened.thread, id)).catch(() => {});
+                if (handle.state() === "cancelling") opened.program.call(n => Codex.turnInterrupt(n, opened.thread, id)).catch(() => {});
             } catch (error) { current.fault(error); }
         }
-        const events = {
-            [Symbol.asyncIterator]() { return this; },
-            async next() {
-                if (state.kind === "unstarted") {
-                    state = { kind: "streaming" };
-                    run();
-                }
-                for (;;) {
-                    if (queue.length !== 0 && state.kind !== "cancelled" && state.kind !== "cancelling")
-                        return { value: queue.shift(), done: false };
-                    switch (state.kind) {
-                    case "streaming": break;
-                    case "complete":
-                        state = { kind: "ended" };
-                        if (active === current) active = null;
-                        return { value: { kind: "done", reason: "stop" }, done: false };
-                    case "cancelled": case "cancelling":
-                        state = { kind: "ended" };
-                        if (active === current) active = null;
-                        throw new Error("jarvis: brain=cancelled");
-                    case "failed": {
-                        const error = state.error;
-                        state = { kind: "ended" };
-                        if (active === current) active = null;
-                        throw error;
-                    }
-                    case "ended": return { value: undefined, done: true };
-                    default: throw new Error("jarvis: brain=turn-state");
-                    }
-                    await new Promise(resolve => { wake = resolve; });
-                }
-            },
-            async return() {
-                await current.cancel();
-                return { value: undefined, done: true };
-            }
-        };
         active = current;
         return Object.freeze({ release, events });
     }

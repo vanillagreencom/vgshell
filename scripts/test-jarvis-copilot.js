@@ -189,8 +189,9 @@ world(async () => {
     }
     const shortBounds = folder => copied(folder, { "backend/CopilotHarness.js": [
         ["const HANDSHAKE_MS = 30000;", "const HANDSHAKE_MS = 20;"],
-        ["const CLOSE_MS = 2000;", "const CLOSE_MS = 20;"],
         ["const PROBE_MS = 60000;", "const PROBE_MS = 20;"]
+    ], "backend/HarnessProgram.js": [
+        ["const CLOSE_MS = 2000;", "const CLOSE_MS = 20;"]
     ] });
 
     const CASES = {
@@ -373,8 +374,9 @@ world(async () => {
         async closeHandshake(folder) {
             const folderCopy = copied(folder, { "backend/CopilotHarness.js": [
                 ["const HANDSHAKE_MS = 30000;", "const HANDSHAKE_MS = 1000;"],
-                ["const CLOSE_MS = 2000;", "const CLOSE_MS = 20;"],
                 ["const PROBE_MS = 60000;", "const PROBE_MS = 20;"]
+            ], "backend/HarnessProgram.js": [
+                ["const CLOSE_MS = 2000;", "const CLOSE_MS = 20;"]
             ] });
             scenario({ hang: "handshake", turns: [[{ stop: "end_turn" }]] });
             const w = make(folderCopy);
@@ -536,8 +538,9 @@ world(async () => {
         async probeHang(folder) {
             const probeCopy = copied(folder, { "backend/CopilotHarness.js": [
                 ["const HANDSHAKE_MS = 30000;", "const HANDSHAKE_MS = 1000;"],
-                ["const CLOSE_MS = 2000;", "const CLOSE_MS = 200;"],
                 ["const PROBE_MS = 60000;", "const PROBE_MS = 20;"]
+            ], "backend/HarnessProgram.js": [
+                ["const CLOSE_MS = 2000;", "const CLOSE_MS = 200;"]
             ] });
             const Harness = require(path.join(probeCopy, "backend/CopilotHarness.js"));
             const runtime = path.join(process.env.JARVIS_TEST_ROOT, "probe-hang");
@@ -584,13 +587,13 @@ world(async () => {
             console.log("case=" + name + " passed");
         }
         let controls = 0;
-        const H = "backend/CopilotHarness.js";
+        const H = "backend/CopilotHarness.js", S = "backend/HarnessProgram.js";
         for (const [name, relative, edits, row] of [
-            ["environment-scrub", H, [["env: { ...childEnvironment(env), [p.variable]", "env: { ...env, [p.variable]"]], "turn"],
+            ["environment-scrub", S, [["env: { ...childEnvironment(env), ...extra }", "env: { ...env, ...extra }"]], "turn"],
             ["account-home", H, [["[p.variable]: directory", "[p.variable]: env.HOME"]], "turn"],
             ["available-tools", H, [['"--available-tools", Copilot.SERVER + "/*",', ""]], "turn"],
-            ["providers-config", H, [[", COPILOT_PROVIDERS_CONFIG: providersConfig", ""]], "turn"],
-            ["parent-death", H, [['"--pdeathsig", "KILL"', '"--pdeathsig", "clear"']], "turn"],
+            ["providers-config", H, [[', COPILOT_PROVIDERS_CONFIG: path.join(cwd, "no-providers", "providers.json")', ""]], "turn"],
+            ["parent-death", S, [['"--pdeathsig", "KILL"', '"--pdeathsig", "clear"']], "turn"],
             ["denied-kind", H, [['"--deny-tool", "shell", "write", "read",', '"--deny-tool", "shell", "write",']], "turn"],
             ["custom-instructions", H, [['"--no-custom-instructions", ', ""]], "turn"],
             ["builtin-mcps", H, [['"--disable-builtin-mcps", ', ""]], "turn"],
@@ -599,12 +602,12 @@ world(async () => {
             ["signed-out-key", H, [["value.code === -32000 ? ", "false ? "]], "handshake"],
             ["handshake-timer", H, [["const timer = setTimeout(() => child.close(), HANDSHAKE_MS);", "const timer = null;"]], "handshakeHang"],
             ["close-handshake", H, [["active?.cancel();", ""]], "closeHandshake"],
-            ["unterminated-line", H, [['if (Buffer.byteLength(tail) >= Copilot.LINE_BYTES) fail("line-size");', ""]], "lineSize"],
+            ["unterminated-line", S, [['if (Buffer.byteLength(tail) >= lineBytes) fail("line-size");', ""]], "lineSize"],
             ["event-session", H, [["e.sessionId !== session.id || ", ""]], "foreignSession"],
             ["bridge-launch", H, [["model,\n                bridge: launch }", "model,\n                bridge: null }"]], "bridge"],
             ["instructions-first", H, [["const texts = turns === 0 ? [instructions, text] : [text];", "const texts = [text];"]], "turn"],
             ["instructions-once", H, [["const texts = turns === 0 ? [instructions, text] : [text];", "const texts = [instructions, text];"]], "turn"],
-            ["release", H, [["const decision = Policy.release(item, recipients, grants);",
+            ["release", S, [["const decision = Policy.release(item, recipients, grants);",
                 "const decision = { kind: \"send\", content: item.content };"]], "release"],
             ["release-empty", H, [['if (labels.length === 0) fail("release-empty");', ""]], "release"],
             ["gate-routing", H, [["gate.ask(gen, Copilot.proposal(", "({ ask: (gen, proposal, port) => port.accept() }).ask(gen, Copilot.proposal("]], "allowed"],
@@ -615,9 +618,9 @@ world(async () => {
             ["builtin-asked", H, [["turn.asked.has(call.id) || !RAN", "!RAN"]], "refused"],
             ["builtin-pending", H, [[" || !RAN.includes(merged.status)) return;", ") return;"]], "allowed"],
             ["builtin-ends", H, [["session.program.abort(error);", ""]], "builtin"],
-            ["cancel-pending", H, [["for (const cancelled of [...current.pending.values()]) cancelled();\n                        session.program.write",
+            ["cancel-pending", H, [["for (const cancelled of [...current.pending.values()]) cancelled();\n                session.program.write",
                 "session.program.write"]], "cancel"],
-            ["cancel-notify", H, [["session.program.write(Copilot.cancel(session.id));", "acknowledged();"]], "cancel"],
+            ["cancel-notify", H, [["session.program.write(Copilot.cancel(session.id));\n                return true;", "return false;"]], "cancel"],
             ["bridge-close", H, [["launch?.close();", ""]], "close"],
             ["directory-removal", H, [["    await session.program.close();\n    fs.rmSync(session.cwd, { recursive: true, force: true });",
                 "    await session.program.close();"]], "close"],
