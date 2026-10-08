@@ -881,9 +881,23 @@ QML
 disp_lifetime_read() { ipc smoke popupRead displays-bar-lifetime evidence; }
 disp_lifetime_state() { disp_lifetime_read | py_reply 'import json,sys; print(json.load(sys.stdin)["state"])'; }
 disp_lifetime_ack() { disp_lifetime_read | py_reply 'import json,sys; state=json.load(sys.stdin); print(state["lossSeen"] and state["retired"] and state["state"]=="retired-turn-complete")'; }
-disp_lifetime_read_visible() { disp_lifetime_read | py_reply 'import json,sys; print(json.load(sys.stdin)["visibleAfterRetirement"])'; }
+disp_lifetime_read_visible() { disp_lifetime_read | py_reply 'import json,sys
+value=json.load(sys.stdin)["visibleAfterRetirement"]
+if type(value) is not bool: sys.exit("visibility evidence is not a boolean")
+print(value)'; }
 disp_bar_hidden_check() {
-  expect "the removed bar never reopens after its instance retires" False disp_lifetime_read_visible
+  local visible
+  # ipc_call can return 69. An unavailable or invalid read is not proof
+  # that the old host reopens: only a valid boolean can reach the assertion.
+  if visible="$(disp_lifetime_read_visible)"; then
+    case $visible in
+      True|False) ;;
+      *) printf 'visibility evidence is unavailable or invalid: [%s]\n' "$visible" >&2; return 69 ;;
+    esac
+  else
+    return "$?"
+  fi
+  expect "the removed bar never reopens after its instance retires" False printf '%s\n' "$visible"
 }
 expect "the existing probe owns the removed bar lifetime observer on the surviving bar" ok \
   ipc smoke popupLoad displays-bar-lifetime "$disp_lifetime_dir/BarLifetime.qml" "bar:$disp_main" vgs.bar "{\"output\":\"$disp_output\"}"
@@ -898,11 +912,32 @@ expect_poll "the removed monitor's bar surface is gone" "$monitors" bar_count
 disp_removal_check() { expect "removing the display preserves clients and focus through later turns" True disp_windows_preserved "$disp_windows_before"; }
 disp_removal_control() {
   (failures=0 behaviour_failures=0
-   disp_bar_hidden_check >"$sandbox/displays-removal-control.log" 2>&1
+   if disp_bar_hidden_check >"$sandbox/displays-removal-control.log" 2>&1; then
+     echo "$failures"
+   else
+     return "$?"
+   fi)
+}
+disp_reader_failure_control() { # CASE REPLY STATUS
+  local reader_case="$1" reader_reply="$2" reader_status="$3"
+  (failures=0 behaviour_failures=0
+   disp_lifetime_read_visible() { printf '%s' "$reader_reply"; return "$reader_status"; }
+   expect "the old-host assertion must reject unreadable evidence" 1 disp_removal_control \
+     >"$sandbox/displays-reader-$reader_case.log" 2>&1
    echo "$failures")
 }
+for disp_reader_case in ipc empty invalid; do
+  case $disp_reader_case in
+    ipc) disp_reader_reply=True; disp_reader_status=69 ;;
+    empty) disp_reader_reply=''; disp_reader_status=0 ;;
+    invalid) disp_reader_reply=None; disp_reader_status=0 ;;
+  esac
+  expect "control: $disp_reader_case visibility evidence fails the parent row" 1 \
+    disp_reader_failure_control "$disp_reader_case" "$disp_reader_reply" "$disp_reader_status"
+  sed 's/^/  CONTROL  /' "$sandbox/displays-reader-$disp_reader_case.log"
+done
 expect_poll "the native visibility observer acknowledges the completed screen-loss turn" True disp_lifetime_ack
-disp_bar_hidden_check
+disp_bar_hidden_check || fail "the removed bar visibility evidence could not be read"
 disp_removal_check
 expect "the existing probe releases the fixed bar lifetime observer" ok ipc smoke popupDrop displays-bar-lifetime
 # Reproduce the same owner boundary on the complete old host. The
