@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Layouts
 import qs.Commons
 import qs.Ui
@@ -57,6 +58,23 @@ Item {
         return { duration: duration, easing: Easing.BezierSpline, curve: [curve.x1, curve.y1, curve.x2, curve.y2, 1, 1] };
     }
 
+    // Sample the look's cubic curve in space, rather than time. The mask
+    // changes only content alpha, so the wallpaper receives no colour band.
+    function fadePoint(t) {
+        const curve = look.motion.curve.standard;
+        const back = 1 - t;
+        const x = 3 * back * back * t * curve.x1 + 3 * back * t * t * curve.x2 + t * t * t;
+        const y = 3 * back * back * t * curve.y1 + 3 * back * t * t * curve.y2 + t * t * t;
+        const span = Math.min(look.stack.tail, view.height) / Math.max(1, view.height);
+        return { position: 1 - span + span * x, alpha: 1 - y };
+    }
+
+    function maskColor(alpha) {
+        const color = Qt.color(root.look.text.foreground);
+        color.a = alpha;
+        return color;
+    }
+
     Flickable {
         id: view
         anchors.fill: parent
@@ -66,6 +84,17 @@ Item {
         interactive: contentHeight > height
         acceptedButtons: Qt.NoButton
         clip: true
+        // Qt's Item layer effect consumes a texture-backed mask's alpha
+        // (doc.qt.io/qt-6/qml-qtquick-effects-multieffect.html). Hidden
+        // ancestors disable both layers with their scroll frame.
+        layer.enabled: root.visible && height > 0 && !atYEnd
+        layer.smooth: true
+        layer.effect: MultiEffect {
+            maskEnabled: true
+            maskSource: fadeMask
+            maskThresholdMin: 0.5
+            maskSpreadAtMin: 1
+        }
         TouchpadScroll { view: view }
         onContentHeightChanged: root.holdEnd()
         onHeightChanged: root.holdEnd()
@@ -85,10 +114,26 @@ Item {
         }
     }
 
+    Rectangle {
+        id: fadeMask
+        anchors.fill: view
+        visible: false
+        layer.enabled: view.layer.enabled
+        layer.smooth: true
+        gradient: Gradient {
+            GradientStop { position: 0; color: root.maskColor(1) }
+            GradientStop { position: root.fadePoint(0).position; color: root.maskColor(1) }
+            GradientStop { position: root.fadePoint(0.25).position; color: root.maskColor(root.fadePoint(0.25).alpha) }
+            GradientStop { position: root.fadePoint(0.5).position; color: root.maskColor(root.fadePoint(0.5).alpha) }
+            GradientStop { position: root.fadePoint(0.75).position; color: root.maskColor(root.fadePoint(0.75).alpha) }
+            GradientStop { position: 1; color: root.maskColor(0) }
+        }
+    }
+
     SlimScrollBar {
         id: scrollbar
         objectName: root.scrollObjectName
-        parent: view
+        parent: root
         flickable: view
         x: cards.x + cards.width + root.look.scrollbar.gap
         width: root.look.scrollbar.width
