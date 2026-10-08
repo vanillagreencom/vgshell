@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Drive scripts/smoke/mode-hold.sh, the mode a row holds on a nested
 # output, with no sandbox. A stub hypr stands in for the nested
-# compositor: a reload answers the case's reply and, when it is
+# compositor: each batch command returns its own reply. A reload answers
+# the case's reply and, when it is
 # `ok`, records the rule from the hold file. `hypr -j monitors` lists
 # WAYLAND-1 at the mode and scale the case plans for the reloads so far,
 # so the real monitor_rule, reload reader and mode_scale_of run. A stub sleep keeps the
@@ -48,6 +49,7 @@ source "$2"
 stub_dir="$3"; stub_reply="$4"; stub_call="$6"
 IFS=, read -r -a stub_plan <<<"$5"
 mode_hold_file="$stub_dir/monitor-hold.lua"
+rt_dir="$stub_dir"
 ok() { printf "ok %s\n" "$*"; }
 sleep() { :; }
 py_reply() { python3 -c "$@"; }
@@ -56,15 +58,25 @@ py_reply() { python3 -c "$@"; }
 # as the host'\''s configure leaves it. The last entry stands for every
 # later rule. Before any rule, the output reads its own mode at scale 1.
 hypr() {
-  local rules=0 reading rule
+  local rules=0 reading rule command separator="" commands=()
   [[ -f $stub_dir/rules ]] && rules="$(wc -l <"$stub_dir/rules")"
   if [[ $1 == --batch ]]; then
-    if [[ $stub_reply == config-error ]]; then
-      printf "ok\n\n\n[\"invalid rule\"]\n"
-    else
-      printf "%s\n\n\n[]\n" "$stub_reply"
-    fi
-    [[ $stub_reply != ok ]] || tail -n 1 "$mode_hold_file" >>"$stub_dir/rules"
+    IFS=";" read -r -a commands <<<"$2"
+    for command in "${commands[@]}"; do
+      command="${command#"${command%%[![:space:]]*}"}"
+      command="${command%"${command##*[![:space:]]}"}"
+      printf "%s" "$separator"
+      case "$command" in
+        "reload config-only")
+          if [[ $stub_reply == config-error ]]; then printf "ok"; else printf "%s" "$stub_reply"; fi
+          [[ $stub_reply != ok ]] || tail -n 1 "$mode_hold_file" >>"$stub_dir/rules" ;;
+        j/configerrors)
+          if [[ $stub_reply == config-error ]]; then printf "[\"invalid rule\"]"; else printf "[]"; fi ;;
+        *) return 1 ;;
+      esac
+      separator=$'\''\n\n\n'\''
+    done
+    printf "\n"
     return 0
   fi
   if [[ $1 == eval ]]; then
@@ -86,7 +98,10 @@ hypr() {
 }
 status=0
 case "$stub_call" in
-  hold-after-failure) fail "product failure"; hold_mode "the case" WAYLAND-1 3510x1866 2 ;;
+  hold-after-behaviour|hold-after-geometry|hold-after-render)
+    row_class="${stub_call#hold-after-}"
+    fail "product failure"
+    hold_mode "the case" WAYLAND-1 3510x1866 2 ;;
   take-missing) take_mode WAYLAND-1 3510x1866 2 || status=$? ;;
   release-only) release_mode "the release" WAYLAND-1 3510x1866 2 ;;
   hold) hold_mode "the case" WAYLAND-1 3510x1866 2 ;;
@@ -153,7 +168,9 @@ printf "result status=%s failures=%s resets=%s held=[%s] window=[%s] state=%s fi
 # The output reads 1755x933 at scale 1 before any rule, the size a taken
 # hold records as the host window's.
 cases=(
-  "an unavailable mode preserves an earlier product failure|hold-after-failure|ok|1755x933 scale=1.5|qml-smoke: failed=1|3"
+  "an unavailable mode preserves an earlier product failure|hold-after-behaviour|ok|1755x933 scale=1.5|qml-smoke: failed=1|3"
+  "an unavailable mode preserves an earlier geometry failure|hold-after-geometry|ok|1755x933 scale=1.5|qml-smoke: failed=1|3"
+  "an unavailable mode preserves an earlier render failure|hold-after-render|ok|1755x933 scale=1.5|qml-smoke: failed=1|3"
   "a hold that cannot take a readable mode stops unmeasured|hold|ok|1755x933 scale=1.5|qml-smoke: status=not-measured nested-output=mode-unavailable output=WAYLAND-1 want=[3510x1866 scale=2] attempts=3 got=[1755x933 scale=1.5]|3"
   "a release that cannot take its base stops unmeasured|release-only|ok|1700x900 scale=1|qml-smoke: status=not-measured nested-output=mode-unavailable output=WAYLAND-1 want=[3510x1866 scale=2] attempts=3 got=[1700x900 scale=1]|3"
   "an unreadable output fails instead of being excused|hold|ok|unreadable|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|3"
@@ -295,7 +312,9 @@ mutate() {
 controls=(
   "configuration errors are accepted|[[ \$reply != '[]' ]]|[[ \$reply == never ]]|configuration errors fail instead of being excused"
   "an unreadable output is excused|[[ \$got != unreadable ]]|true|an unreadable output fails instead of being excused"
-  "an unavailable mode excuses an earlier product failure|if [[ \$behaviour_failures -gt 0 ]]; then|if false; then|an unavailable mode preserves an earlier product failure"
+  "an unavailable mode excuses an earlier product failure|if [[ \$failures -gt 0 ]]; then|if false; then|an unavailable mode preserves an earlier product failure"
+  "an unavailable mode checks only earlier behaviour failures|if [[ \$failures -gt 0 ]]; then|if [[ \$behaviour_failures -gt 0 ]]; then|an unavailable mode preserves an earlier geometry failure"
+  "mode application omits configuration reload|reload config-only ; j/configerrors|j/configerrors|a hold the output takes at once is held"
   "take_mode defers mode application until a frame|reply=\"\$(hypr_reload_errors)\"|reply=\"\$(output_mode \"\$output\" \"\$mode\" \"\$scale\")\"|a hold the output takes at once is held"
   "an unavailable mode uses a product failure|  exit 77|  return 0|a hold that cannot take a readable mode stops unmeasured"
   "an unreadable hold file is excused|if [[ ! -r \$mode_hold_file ]]; then|if false; then|an unreadable hold file fails before reload"

@@ -123,11 +123,12 @@ take_mode() {
 }
 # mode_unavailable OUTPUT WANT READING: stop before a product check uses
 # geometry from a readable output that could not take its requested mode.
-# scripts/main-run.sh consumes status=not-measured; no FAIL line is emitted.
+# scripts/main-run.sh consumes status=not-measured; no new FAIL line is
+# emitted. Earlier failures keep the closing verdict's classification.
 mode_unavailable() {
-  if [[ $behaviour_failures -gt 0 ]]; then
+  if [[ $failures -gt 0 ]]; then
     printf 'qml-smoke: nested-output=mode-unavailable output=%s want=[%s] %s\n' "$1" "$2" "$3"
-    smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets" || exit $?
+    smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets" "$rt_dir"/hypr/*/hyprland.log || exit $?
   fi
   printf 'qml-smoke: status=not-measured nested-output=mode-unavailable output=%s want=[%s] %s\n' "$1" "$2" "$3"
   exit 77
