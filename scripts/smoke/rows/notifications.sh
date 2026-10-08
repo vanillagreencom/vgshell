@@ -5,7 +5,7 @@
 # through the probe, its state file, the compositor and the lending record.
 # No owner data reaches it: every notification here is made up. The row ends
 # with the plugin disabled and every registration released.
-# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui
+# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/controls/Select.qml shell/Core/Plugins.qml
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 note_state="$home/.local/state/vgshell/notifications/state.json"
@@ -2317,20 +2317,21 @@ expect_poll "the Settings window is gone after the photo setup rows" 0 window_co
 
 # Position: the Settings list writes each of the six edges and every
 # screen's stack moves there at once, the newest card nearest the edge. The
-# stack holds twenty critical cards, which stay until dismissed and run past
-# the screen, so a bottom stack must also hold its end in view. The pointer
-# rests on the bar, where no card can lift under it. place_verdict judges
-# one reading: `placed`, or the kinds of defect it found on any screen:
+# stack holds nineteen critical cards, which stay until dismissed and run
+# past the screen, so a bottom stack must also hold its end in view; one
+# more card arrives and leaves at a bottom position without letting the
+# oldest go, as a twenty-first would (NotificationLogic.LIVE_MAX). The
+# pointer rests on the bar, where no card can lift under it. place_verdict
+# judges one reading with NEWEST the newest card's summary and OLDER the
+# one before it: `placed`, or the kinds of defect it found on any screen:
 # `screens` for a stack missing from a screen, `unread` for a screen
-# without both newest cards, `across` and `edge` for the newest card off
-# the gaps Appearance.js sets from the side and from the edge, and `order`
-# for the card before it on the edge's side of it.
+# without both cards, `across` and `edge` for the newest card off the gaps
+# Appearance.js sets from the side and from the edge, and `order` for the
+# card before it on the edge's side of it.
 note_stack_tail="$(look_at stack.tail)" || fail "the notification stack tail token is unreadable"
-place_count=20
-place_newest="Place $place_count"
-place_older="Place $((place_count - 1))"
-place_verdict() { # WANT CARDS WINDOWS
-  python3 - "$1" "$2" "$3" "$note_stack_top" "$note_stack_pad" "$note_stack_tail" "$note_card_gap" "$monitors" "$place_newest" "$place_older" <<'PY'
+place_count=19
+place_verdict() { # WANT NEWEST OLDER CARDS WINDOWS
+  python3 - "$1" "$4" "$5" "$note_stack_top" "$note_stack_pad" "$note_stack_tail" "$note_card_gap" "$monitors" "$2" "$3" <<'PY'
 import json, sys
 
 want, cards, windows = sys.argv[1], json.loads(sys.argv[2]), json.loads(sys.argv[3])
@@ -2364,11 +2365,12 @@ PY
 }
 place_cards() { ipc smoke layerItems vgs.notifications NotificationCard summary; }
 place_windows() { ipc smoke layerWindows vgs.notifications; }
-placed_at() { # WANT
+placed_at() { # WANT NEWEST OLDER
   local cards windows
   cards="$(place_cards)" && windows="$(place_windows)" || return
-  place_verdict "$1" "$cards" "$windows"
+  place_verdict "$1" "$2" "$3" "$cards" "$windows"
 }
+place_last=("Place $place_count" "Place $((place_count - 1))")
 position_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"vgs.notifications","key":"position"}'; }
 position_read() { position_field | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[sys.argv[1]]))' "$1"; }
 choose_position() { ipc smoke invokeInstance window vgs.settings chooseField "{\"id\":\"vgs.notifications\",\"key\":\"position\",\"index\":$1}"; }
@@ -2378,13 +2380,13 @@ expect_poll "no toast is left before the Position checks" 0 layer_count vgs:laye
 for n in $(seq 1 "$place_count"); do
   notify smoke-app 0 "Place $n" "A card that stays until it is dismissed" '[]' '{"urgency": <byte 2>}' 0 >/dev/null
 done
-expect_poll "the twenty Place toasts show" "$place_count" note_status onScreen
+expect_poll "the nineteen Place toasts show" "$place_count" note_status onScreen
 expect_poll "every screen's stack runs past its screen" "$monitors" overflowing_screens
 hover 1 1 || fail "resting the pointer on the bar failed"
 expect "the notifications' Settings page opens for Position" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
 expect_poll "the page draws Position as a list of the six edges" '["top-left", "top", "top-right", "bottom-left", "bottom", "bottom-right"]' position_read model
 expect "Position starts at the top" '"top"' position_read value
-geometry expect_poll "the default stack sits at the top, centred, the newest card first" placed placed_at top
+geometry expect_poll "the default stack sits at the top, centred, the newest card first" placed placed_at top "${place_last[@]}"
 # The control: the default stack, fixed at the top centre, fails every
 # other position's verdict for the rule that position changes.
 place_kept_cards="$(place_cards)" && place_kept_windows="$(place_windows)" || fail "the top stack's reading failed"
@@ -2397,17 +2399,51 @@ place_controls=(
 )
 for control in "${place_controls[@]}"; do
   IFS='|' read -r place place_want <<<"$control"
-  expect "control: a stack fixed at the top fails $place" "$place_want" place_verdict "$place" "$place_kept_cards" "$place_kept_windows"
+  expect "control: a stack fixed at the top fails $place" "$place_want" place_verdict "$place" "${place_last[@]}" "$place_kept_cards" "$place_kept_windows"
 done
 place_names=(top-left top top-right bottom-left bottom bottom-right)
 for i in "${!place_names[@]}"; do
   place="${place_names[$i]}"
   expect "choosing Position $place in the list is allowed" chosen choose_position "$i"
   expect_poll "the configuration holds Position $place" "\"$place\"" position_read value
-  geometry expect_poll "every screen's stack moves to $place, the newest card at its edge" placed placed_at "$place"
+  geometry expect_poll "every screen's stack moves to $place, the newest card at its edge" placed placed_at "$place" "${place_last[@]}"
 done
+# At bottom-right, the last position chosen, a card arriving grows the
+# overflowing stack at its end, which the view holds in view, and its
+# leaving gives the end back to the card before it.
+notify smoke-app 0 "Place arriving" "A card that arrives at the bottom" '[]' '{"urgency": <byte 2>}' 0 >/dev/null
+geometry expect_poll "a card arriving at the bottom shows at the edge, in view" placed placed_at bottom-right "Place arriving" "Place $place_count"
+expect "dismissing the arriving card is allowed" ok notes dismiss-latest
+geometry expect_poll "after it leaves the card before it is back at the edge" placed placed_at bottom-right "${place_last[@]}"
+expect "the Settings window closes before the end-hold control" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone before the end-hold control" 0 window_count Plugins
+# The control: a copy of the scroll frame that holds the end only when the
+# view changes size, not when the content grows, leaves a card arriving at
+# the bottom below the view.
+scroll_qml="$repo/shell/plugins/vgs.notifications/CardScroll.qml"
+cp -- "$scroll_qml" "$sandbox/CardScroll.qml.kept"
+python3 - "$scroll_qml" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+needle = "        onContentHeightChanged: root.holdEnd()\n"
+assert text.count(needle) == 1, "the hold on content growth occurs once"
+open(path, "w").write(text.replace(needle, ""))
+PY
+rescan "a rescan builds the scroll frame that does not hold the end on growth"
+expect_poll "the copy without the hold on growth is built" True record_exists vgs.notifications
+expect_poll "the copy restores the Place toasts" "$place_count" note_status onScreen
+notify smoke-app 0 "Place unheld" "A card that arrives under the control" '[]' '{"urgency": <byte 2>}' 0 >/dev/null
+geometry expect_poll "control: without the hold a card arriving at the bottom is off the edge" edge placed_at bottom-right "Place unheld" "Place $place_count"
+expect "dismissing the control's card is allowed" ok notes dismiss-latest
+cp -- "$sandbox/CardScroll.qml.kept" "$scroll_qml"
+rescan "a rescan restores the scroll frame"
+expect_poll "the restored scroll frame is built" True record_exists vgs.notifications
+geometry expect_poll "the restored bottom stack holds the newest card at the edge" placed placed_at bottom-right "${place_last[@]}"
+expect "the Settings page opens again for Position" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
+expect_poll "the page shows Position bottom-right" '"bottom-right"' position_read value
 expect "choosing Position top again is allowed" chosen choose_position 1
-geometry expect_poll "the stack is back at the top with the newest card in view" placed placed_at top
+geometry expect_poll "the stack is back at the top with the newest card in view" placed placed_at top "${place_last[@]}"
 expect "the Settings window closes after the Position checks" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone after the Position checks" 0 window_count Plugins
 notes dismiss-all >/dev/null

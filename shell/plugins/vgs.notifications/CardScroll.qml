@@ -18,8 +18,12 @@ Item {
     // its start: a bottom stack, whose newest card is the last. As the
     // content or the view changes size the view keeps its distance from
     // the end, `endGap`, as a top stack keeps its distance from the start,
-    // so a newest card in view stays in view. A change of side shows the
-    // newest card again.
+    // so a newest card in view stays in view. While the user scrolls the
+    // view is left to move and the hold catches up when the move ends:
+    // Qt 6.11's setContentY resets the view's timeline and ends its
+    // movement (QQuickFlickable::setContentY), which would stop a wheel
+    // step or a flick each frame a card grows or shrinks. A change of side
+    // shows the newest card again.
     property bool fromEnd: false
     property real endGap: 0
     // While holdEnd writes the view's place, which that write must not move.
@@ -43,7 +47,7 @@ Item {
     }
 
     function holdEnd() {
-        if (!fromEnd) return;
+        if (!fromEnd || view.moving || view.flicking) return;
         holding = true;
         view.contentY = Math.max(0, view.contentHeight - view.height - endGap);
         holding = false;
@@ -65,6 +69,7 @@ Item {
         TouchpadScroll { view: view }
         onContentHeightChanged: root.holdEnd()
         onHeightChanged: root.holdEnd()
+        onMovementEnded: root.holdEnd()
         // A scroll by the user moves the place the view holds, and so does
         // the view's own return inside its bounds, which Qt 6.11's
         // setContentHeight runs before contentHeightChanged

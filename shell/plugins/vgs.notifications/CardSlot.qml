@@ -40,8 +40,11 @@ Item {
 
     // The container transform: `stretch` morphs the dot into the capsule,
     // `drop`, from minus card.drop to nothing, brings the dot in from the
-    // stack's edge, `squash` flattens it for a beat as it lands, and
-    // `hover` lifts it while the pointer is on it.
+    // stack's edge: at the top it lowers the dot inside the slot, whose top
+    // stays put; at the bottom the slot's top moves with it and its bottom
+    // stays put, so the dot rises with the slot's growth alone. `squash`
+    // flattens the dot for a beat as it lands, and `hover` lifts it while
+    // the pointer is on it.
     property real stretch: 0
     property real drop: 0
     property real squash: 0
@@ -104,7 +107,7 @@ Item {
         key: slot.key
         textColumn: slot.textColumn
         anchors.horizontalCenter: parent.horizontalCenter
-        y: (slot.rising ? -slot.drop : slot.look.card.gap * slot.stretch + slot.drop) - slot.look.card.lift * slot.hover
+        y: (slot.rising ? 0 : slot.look.card.gap * slot.stretch + slot.drop) - slot.look.card.lift * slot.hover
         width: slot.look.card.dot * (1 + slot.look.card.squashWide * slot.squash) + (face.card.fullWidth - slot.look.card.dot) * slot.stretch
         height: slot.look.card.dot * (1 - slot.look.card.squashFlat * slot.squash) + (face.card.fullHeight - slot.look.card.dot) * slot.stretch
         app: slot.app
