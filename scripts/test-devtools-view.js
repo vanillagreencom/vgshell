@@ -17,6 +17,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const dir = path.join(__dirname, "..", "shell", "plugins", "vgs.devtools");
 const file = path.join(dir, "ViewLogic.js");
 const windowFile = path.join(dir, "Window.qml");
+const serviceFile = path.join(dir, "Service.qml");
 const Catalog = load(path.join(dir, "CatalogLogic.js"));
 const PluginLogic = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
 const realCatalog = JSON.parse(fs.readFileSync(path.join(dir, "catalog.json"), "utf8"));
@@ -342,6 +343,60 @@ verify(load(file));
 const windowSource = fs.readFileSync(windowFile, "utf8");
 verifySettingHandler(load(file), windowSource);
 
+// Execute the service's shipped publish function. The status capability is
+// the boundary: repeated answers must cause no writes, and a refusal must
+// not suppress a later retry.
+function verifyPublication(logic, text) {
+    const declaration = text.match(/    function publish\(\) \{[\s\S]*?\n    \}/);
+    assert.ok(declaration, "the service has a publish function");
+    const writes = [], refusals = new Set();
+    const context = vm.createContext({
+        ViewLogic: logic, answers: { catalog: ok(list({ agents: [row({})] })) },
+        published: {}, showInLauncher: true,
+        shell: { status: { set(key, value) {
+            writes.push([key, JSON.parse(JSON.stringify(value))]);
+            return refusals.has(key) ? "refused: status=" + key + " reason=size" : "ok";
+        } } }, console: { warn() {} }
+    });
+    vm.runInContext(declaration[0], context, { filename: serviceFile });
+    const publish = () => vm.runInContext("publish()", context);
+    publish();
+    assert.ok(writes.some(([key, value]) => key === "installed" && value === 0), "the first report reaches status");
+    writes.length = 0;
+    context.answers = JSON.parse(JSON.stringify(context.answers));
+    publish();
+    same(writes, [], "a fresh copy of identical answers causes no status writes");
+    context.answers.catalog.value.sections.agents[0].installed = true;
+    publish();
+    assert.ok(writes.some(([key, value]) => key === "installed" && value === 1), "a changed install count reaches status");
+    assert.ok(writes.some(([key, value]) => key === "catalog" && value.tools.value.sections.agents[0].installed === true), "the changed catalog reaches status");
+    writes.length = 0;
+    context.showInLauncher = false;
+    publish();
+    same(writes, [["launcherRows", []]], "a launcher setting publishes its changed value alone");
+    writes.length = 0;
+    refusals.add("installed");
+    context.answers.catalog.value.sections.agents[0].installed = false;
+    publish();
+    writes.length = 0;
+    refusals.delete("installed");
+    publish();
+    same(writes, [["installed", 0]], "an unchanged refused value is retried");
+    writes.length = 0;
+    publish();
+    same(writes, [], "the accepted retry is retained");
+}
+const serviceSource = fs.readFileSync(serviceFile, "utf8");
+verifyPublication(load(file), serviceSource);
+const publicationControls = [
+    ['identical publication', '            if (published[key] === text) continue;\n', ''],
+    ['refused publication', 'if (reply === "ok") next[key] = text;', 'if (true) next[key] = text;']
+];
+for (const [label, needle, replacement] of publicationControls) {
+    assert.equal(serviceSource.split(needle).length, 2, label + ": exact control match");
+    assert.throws(() => verifyPublication(load(file), serviceSource.replace(needle, replacement)), assert.AssertionError, label + ": the production defect must fail the assertions");
+}
+
 // Each control removes one rule from a copy of the logic and keeps the
 // text around it. The suite must fail on every copy.
 const CONTROLS = [
@@ -410,4 +465,4 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-devtools-view: ok failures=${FAILURES.length} answers=${ANSWERS.length} controls=${CONTROLS.length} setting-replies=${SETTING_REPLIES.length} caller-controls=1`);
+console.log(`test-devtools-view: ok failures=${FAILURES.length} answers=${ANSWERS.length} controls=${CONTROLS.length} setting-replies=${SETTING_REPLIES.length} caller-controls=1 publication-controls=${publicationControls.length}`);

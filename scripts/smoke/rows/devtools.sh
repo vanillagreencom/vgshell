@@ -30,6 +30,9 @@
 # summon unfocused, and a copy of the plugin whose service ignores a run's
 # end and a change of the scan's missing commands leaves the list as it
 # was after each.
+# The keyboard install reading also reports host CPU pressure over its
+# timed idle read as run_end_contention.cpu_some_pct (null if unavailable).
+# The ceiling and 0.2 s poll interval remain expect_run_end's in harness.sh.
 # inputs: shell/plugins/vgs.devtools/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.requires/* shell/Core/Notices.qml shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml bin/vgshell VERSION config/requirements.json bin/lib/qml-library.js scripts/smoke/rows/status.sh bin/vgshell-tui scripts/smoke/rows/settings.sh scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/controls/RowAction.qml
 set -euo pipefail
 devtools_stand_ins
@@ -232,7 +235,12 @@ expect_poll "Return on the focused Install hands the install TUI the row's id" "
 expect_poll "the shell reads the Dev Tools window without the keyboard while the run's terminal holds it" false window_keyboard vgs.devtools
 release_runs
 expect_poll "the keyboard install run's presenter exits" moved ended_record_moved vgs.devtools/install "$install_before"
+devtools_idle_cpu_start="$(cpu_some_us)"
+devtools_idle_start="$(now_ms)"
 expect_run_end "the keyboard install run ends" vgs.devtools/install
+devtools_idle_ms=$(( $(now_ms) - devtools_idle_start ))
+devtools_idle_cpu_pct="$(cpu_some_pct "$devtools_idle_cpu_start" "$(cpu_some_us)" "$devtools_idle_ms")"
+printf '  run_end_contention={"cpu_some_pct":%s}\n' "${devtools_idle_cpu_pct/unmeasured/null}"
 # The run's terminal took the keyboard; Escape waits until Hyprland hands
 # it back to the window, or it reaches whatever holds it meanwhile.
 expect_poll "the Dev Tools window holds the keyboard again after the run" true keyboard_back
