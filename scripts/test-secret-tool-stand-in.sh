@@ -19,8 +19,9 @@ fi
 # non-directory answer never reaches rm -rf.
 tmp="$(mktemp -d)" || { echo "test-secret-tool-stand-in: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $tmp && ! -L $tmp ]] || { echo "test-secret-tool-stand-in: scratch=not-a-directory value=[$tmp]" >&2; exit 1; }
-tmp="$(cd -- "$tmp" && pwd -P)"
 trap 'rm -rf -- "${tmp:?}"' EXIT
+resolved="$(cd -- "$tmp" && pwd -P)" || { echo "test-secret-tool-stand-in: scratch=resolve-failed value=[$tmp]" >&2; exit 1; }
+tmp="$resolved"
 mkdir -p -- "$tmp/home"
 test_env=(env -i PATH="$PATH" HOME="$tmp/home" LC_ALL=C TMPDIR="$tmp")
 
@@ -171,8 +172,11 @@ if [[ -s $extracted ]]; then
     control_problem=""
     if order_check control "$mutant" no-record; then
       fail "control: main-order mutant stayed green"
-    else
+    elif [[ $control_problem == store-call-before-stdin-eof ]]; then
       ok "control: main-order mutant goes red: $control_problem"
+    else
+      # Only the order check's own key proves it caught the planted defect.
+      fail "control: main-order mutant went red for another cause: $control_problem"
     fi
   else
     fail "control: store branch edit did not match exactly once"
