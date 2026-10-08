@@ -7,6 +7,7 @@ set -euo pipefail
 jarvis_console_config="$home/.config/vgshell/shell.json"
 jarvis_console_lua="$home/.config/hypr/hyprland.lua"
 jarvis_console_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
+jarvis_console_qml="$repo/shell/plugins/vgs.jarvis/Console.qml"
 jarvis_console_backend="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
 jarvis_console_plugin="$repo/shell/plugins/vgs.jarvis"
 jarvis_console_gates="$sandbox/jarvis-console-gates"
@@ -14,6 +15,7 @@ jarvis_key_gates="$jarvis_console_gates"
 cp -- "$jarvis_console_config" "$sandbox/jarvis-console-config-before.json"
 cp -- "$jarvis_console_lua" "$sandbox/jarvis-console-lua-before"
 cp -- "$jarvis_console_service" "$sandbox/jarvis-console-service-before"
+cp -- "$jarvis_console_qml" "$sandbox/jarvis-console-qml-before"
 cp -- "$jarvis_console_backend" "$sandbox/jarvis-console-backend-before"
 jarvis_console_resolve_binds_by_sym() { hypr -j getoption input:resolve_binds_by_sym | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v.get("bool"), v["set"]]))'; }
 jarvis_console_option_before="$(jarvis_console_resolve_binds_by_sym)"
@@ -88,6 +90,7 @@ jarvis_console_cleanup() {
   hold_stop_keyboard || true
   ipc smoke holdMarkerStop >/dev/null || true
   cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"
+  cp -- "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
   cp -- "$sandbox/jarvis-console-backend-before" "$jarvis_console_backend"
   cp -- "$sandbox/jarvis-console-config-before.json" "$jarvis_console_config"
   cp -- "$sandbox/jarvis-console-lua-before" "$jarvis_console_lua"
@@ -184,7 +187,7 @@ type_keys -k Return || fail "pressing Enter in the send control failed"
 expect "control: dropping say delivery breaks the daemon assertion" 1 jarvis_console_send_drop_control "$((say_before + 1))"
 jarvis_disable
 cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"
-python3 - "$repo/shell/plugins/vgs.jarvis/Console.qml" <<'PY'
+python3 - "$jarvis_console_qml" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]); s=p.read_text()
@@ -205,6 +208,7 @@ expect "control: moving focus off the field breaks the keyboard-path assertion" 
 jarvis_disable
 cp -- "$sandbox/jarvis-console-backend-before" "$jarvis_console_backend"
 cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"
+cp -- "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
 rm -f -- "${jarvis_console_plugin:?}/backend/scripted-fixture.js" "${home:?}/.local/state/vgshell/jarvis/mute.json"
 jarvis_rescan
 cp -- "$sandbox/jarvis-console-config-before.json" "$jarvis_console_config"
@@ -212,11 +216,12 @@ cp -- "$sandbox/jarvis-console-lua-before" "$jarvis_console_lua"
 expect "restore the Jarvis console shell configuration" ok ipc shell reloadConfig
 expect "restore the Jarvis console keyboard configuration" ok hypr reload config-only
 expect "the console row restores symbolic bind resolution" "$jarvis_console_option_before" jarvis_console_resolve_binds_by_sym
+jarvis_restore_requirements
+expect "the console row removes its requirement shims" '[]' jarvis_console_requirement_shims
 jarvis_enable
 expect_poll "the restored stock daemon remains unconfigured" session jarvis_session unconfigured
 expect "the console row leaves no scripted fixture" False python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$jarvis_console_plugin/backend/scripted-fixture.js"
+expect "the console row restores Console.qml" same python3 -c 'import filecmp,sys; print("same" if filecmp.cmp(sys.argv[1], sys.argv[2], shallow=False) else "different")' "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
 expect "the console row leaves no Jarvis mute state" False python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_disable
-jarvis_restore_requirements
-expect "the console row removes its requirement shims" '[]' jarvis_console_requirement_shims
 jarvis_notice_close
