@@ -972,11 +972,10 @@ const KITTY_TEXT = [
 ];
 const KITTY_BOUNDARIES = ["active_border_color", "inactive_border_color", "bell_border_color"];
 const KITTY_CANVAS = ["inactive_tab_background", "tab_bar_background", "tab_bar_margin_color"];
-const KITTY_STATES = [
-    ["active_tab_background", "inactive_tab_background"],
-    ["mark1_background", "background"],
-    ["mark2_background", "background"],
-    ["mark3_background", "background"]
+const KITTY_MARKS = [
+    { role: "mark1_background", source: "accent", anchor: 0.3, page: 0.56 },
+    { role: "mark2_background", source: "warning", anchor: 0.9, page: 0.04 },
+    { role: "mark3_background", source: "info", anchor: 0.3, page: 0.24 }
 ];
 const KITTY_MARK_PAIRS = [
     ["mark1_background", "mark2_background"],
@@ -987,18 +986,103 @@ const KITTY_FIELDS = [...new Set([
     ...KITTY_TEXT.flat(), ...KITTY_BOUNDARIES, ...KITTY_CANVAS
 ])];
 
-// For neutral sRGB, CIEDE2000 reduces to |delta L*| / S_L.
-// Sharma et al., equations 18 and 22:
+// sRGB to CIELAB under D65. Keep colour difference separate from WCAG
+// luminance: its XYZ matrix and transfer breakpoint belong to the metric.
+function kittyLab(color) {
+    const linear = value => value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+    const r = linear(color.r), g = linear(color.g), b = linear(color.b);
+    const f = value => value > 0.008856 ? Math.cbrt(value) : 7.787 * value + 16 / 116;
+    const x = f((0.412424 * r + 0.357579 * g + 0.180464 * b) / 0.95047);
+    const y = f(0.212656 * r + 0.715158 * g + 0.0721856 * b);
+    const z = f((0.0193324 * r + 0.119193 * g + 0.950444 * b) / 1.08883);
+    return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+}
+
+// CIEDE2000, unit weighting factors, Sharma et al. equations 2-22.
 // https://www.hajim.rochester.edu/ece/sites/gsharma/ciede2000/ciede2000noteCRNA.pdf
-function kittyMarkDifference(a, b) {
-    if ([a, b].some(color => color.r !== color.g || color.g !== color.b)) return null;
-    const lightness = color => {
-        const y = logic.luminance(color);
-        return y > Math.pow(6 / 29, 3) ? 116 * Math.cbrt(y) - 16 : Math.pow(29 / 3, 3) * y;
-    };
-    const first = lightness(a), second = lightness(b);
-    const offset = (first + second) / 2 - 50;
-    return Math.abs(first - second) / (1 + 0.015 * offset * offset / Math.sqrt(20 + offset * offset));
+function kittyDeltaE([l1, a1, b1], [l2, a2, b2]) {
+    const radians = degrees => degrees * Math.PI / 180;
+    const cos = degrees => Math.cos(radians(degrees));
+    const sin = degrees => Math.sin(radians(degrees));
+    const chroma = (a, b) => Math.hypot(a, b);
+    const initialMean = (chroma(a1, b1) + chroma(a2, b2)) / 2;
+    const compensation = 0.5 * (1 - Math.sqrt(initialMean ** 7 / (initialMean ** 7 + 25 ** 7)));
+    const adjustedA1 = (1 + compensation) * a1, adjustedA2 = (1 + compensation) * a2;
+    const c1 = chroma(adjustedA1, b1), c2 = chroma(adjustedA2, b2);
+    const hue = (a, b) => a === 0 && b === 0 ? 0 : (Math.atan2(b, a) * 180 / Math.PI + 360) % 360;
+    const h1 = hue(adjustedA1, b1), h2 = hue(adjustedA2, b2);
+    let deltaHue = h2 - h1;
+    if (c1 * c2 === 0) deltaHue = 0;
+    else if (deltaHue > 180) deltaHue -= 360;
+    else if (deltaHue < -180) deltaHue += 360;
+    let meanHue = (h1 + h2) / 2;
+    if (c1 * c2 === 0) meanHue = h1 + h2;
+    else if (Math.abs(h1 - h2) > 180) meanHue += h1 + h2 < 360 ? 180 : -180;
+    const meanL = (l1 + l2) / 2, meanC = (c1 + c2) / 2;
+    const t = 1 - 0.17 * cos(meanHue - 30) + 0.24 * cos(2 * meanHue) +
+        0.32 * cos(3 * meanHue + 6) - 0.20 * cos(4 * meanHue - 63);
+    const offset = meanL - 50;
+    const sl = 1 + 0.015 * offset * offset / Math.sqrt(20 + offset * offset);
+    const sc = 1 + 0.045 * meanC, sh = 1 + 0.015 * meanC * t;
+    const rotation = -2 * Math.sqrt(meanC ** 7 / (meanC ** 7 + 25 ** 7)) *
+        sin(60 * Math.exp(-(((meanHue - 275) / 25) ** 2)));
+    const dl = (l2 - l1) / sl, dc = (c2 - c1) / sc;
+    const dh = 2 * Math.sqrt(c1 * c2) * sin(deltaHue / 2) / sh;
+    return Math.sqrt(dl * dl + dc * dc + dh * dh + rotation * dc * dh);
+}
+const kittyDifference = (a, b) => kittyDeltaE(kittyLab(a), kittyLab(b));
+
+// Published supplementary data covers neutral colours, hue wrapping and
+// the discontinuity near opposite hues, not only the original examples.
+const KITTY_DIFFERENCE_REFERENCES = [
+    [50.0, 2.6772, -79.7751, 50.0, 0.0, -82.7485, 2.0425],
+    [50.0, 3.1571, -77.2803, 50.0, 0.0, -82.7485, 2.8615],
+    [50.0, 2.8361, -74.02, 50.0, 0.0, -82.7485, 3.4412],
+    [50.0, -1.3802, -84.2814, 50.0, 0.0, -82.7485, 1.0],
+    [50.0, -1.1848, -84.8006, 50.0, 0.0, -82.7485, 1.0],
+    [50.0, -0.9009, -85.5211, 50.0, 0.0, -82.7485, 1.0],
+    [50.0, 0.0, 0.0, 50.0, -1.0, 2.0, 2.3669],
+    [50.0, -1.0, 2.0, 50.0, 0.0, 0.0, 2.3669],
+    [50.0, 2.49, -0.001, 50.0, -2.49, 0.0009, 7.1792],
+    [50.0, 2.49, -0.001, 50.0, -2.49, 0.001, 7.1792],
+    [50.0, 2.49, -0.001, 50.0, -2.49, 0.0011, 7.2195],
+    [50.0, 2.49, -0.001, 50.0, -2.49, 0.0012, 7.2195],
+    [50.0, -0.001, 2.49, 50.0, 0.0009, -2.49, 4.8045],
+    [50.0, -0.001, 2.49, 50.0, 0.001, -2.49, 4.8045],
+    [50.0, -0.001, 2.49, 50.0, 0.0011, -2.49, 4.7461],
+    [50.0, 2.5, 0.0, 50.0, 0.0, -2.5, 4.3065],
+    [50.0, 2.5, 0.0, 73.0, 25.0, -18.0, 27.1492],
+    [50.0, 2.5, 0.0, 61.0, -5.0, 29.0, 22.8977],
+    [50.0, 2.5, 0.0, 56.0, -27.0, -3.0, 31.903],
+    [50.0, 2.5, 0.0, 58.0, 24.0, 15.0, 19.4535],
+    [50.0, 2.5, 0.0, 50.0, 3.1736, 0.5854, 1.0],
+    [50.0, 2.5, 0.0, 50.0, 3.2972, 0.0, 1.0],
+    [50.0, 2.5, 0.0, 50.0, 1.8634, 0.5757, 1.0],
+    [50.0, 2.5, 0.0, 50.0, 3.2592, 0.335, 1.0],
+    [60.2574, -34.0099, 36.2677, 60.4626, -34.1751, 39.4387, 1.2644],
+    [63.0109, -31.0961, -5.8663, 62.8187, -29.7946, -4.0864, 1.263],
+    [61.2901, 3.7196, -5.3901, 61.4292, 2.248, -4.962, 1.8731],
+    [35.0831, -44.1164, 3.7933, 35.0232, -40.0716, 1.5901, 1.8645],
+    [22.7233, 20.0904, -46.694, 23.0331, 14.973, -42.5619, 2.0373],
+    [36.4612, 47.858, 18.3852, 36.2715, 50.5065, 21.2231, 1.4146],
+    [90.8027, -2.0831, 1.441, 91.1528, -1.6435, 0.0447, 1.4441],
+    [90.9257, -0.5406, -0.9208, 88.6381, -0.8985, -0.7239, 1.5381],
+    [6.7747, -0.2908, -2.4247, 5.8714, -0.0985, -2.2286, 0.6377],
+    [2.0776, 0.0795, -1.135, 0.9033, -0.0636, -0.5514, 0.9082]
+];
+for (const row of KITTY_DIFFERENCE_REFERENCES)
+    assert.ok(Math.abs(kittyDeltaE(row.slice(0, 3), row.slice(3, 6)) - row[6]) <= 0.00005, JSON.stringify(row));
+
+function kittyTint(pkg, { source, anchor, page }) {
+    const seed = logic.parseColor(pkg.values.color[source]);
+    const plain = logic.parseColor(pkg.values.palette.foreground);
+    const canvas = logic.parseColor(pkg.values.palette.background);
+    const tint = { a: 1 };
+    for (const channel of ["r", "g", "b"]) {
+        const anchored = seed[channel] + (plain[channel] - seed[channel]) * anchor;
+        tint[channel] = anchored + (canvas[channel] - anchored) * page;
+    }
+    return logic.formatColor(tint).slice(0, 7);
 }
 
 function verifyKittyStyles(template) {
@@ -1017,7 +1101,7 @@ function verifyKittyStyles(template) {
             .filter(line => line.trim() !== "" && !line.trimStart().startsWith("#"))
             .map(line => line.trim().split(/\s+/)));
         const colors = new Map();
-        for (const field of ["background", ...KITTY_FIELDS]) {
+        for (const field of ["background", "foreground", ...KITTY_FIELDS]) {
             const color = logic.parseColor(fields.get(field));
             if (color === null) shortfalls.push({ kind: "kitty-field", theme: pkg.name, role: field });
             else colors.set(field, color);
@@ -1032,14 +1116,30 @@ function verifyKittyStyles(template) {
         };
         KITTY_TEXT.forEach(([role, peer]) => contrast("kitty-text", role, peer, 4.5));
         KITTY_BOUNDARIES.forEach(role => contrast("kitty-boundary", role, "background", 3));
-        KITTY_STATES.forEach(([role, peer]) => contrast("kitty-state", role, peer, 3));
-        const differences = KITTY_MARK_PAIRS.map(([role, peer]) => {
+        contrast("kitty-state", "active_tab_background", "inactive_tab_background", 3);
+        const distinguish = (kind, role, peer) => {
             if (!colors.has(role) || !colors.has(peer)) return null;
-            const difference = kittyMarkDifference(colors.get(role), colors.get(peer));
-            const metric = { kind: "kitty-mark-distinction", theme: pkg.name, role, peer, difference, floor: 15 };
-            if (difference === null || difference < metric.floor) shortfalls.push(metric);
+            const ratio = logic.contrastRatio(colors.get(role), colors.get(peer));
+            const difference = kittyDifference(colors.get(role), colors.get(peer));
+            const metric = { kind, theme: pkg.name, role, peer, ratio, difference, contrastFloor: 3, differenceFloor: 15 };
+            if (ratio < 3 && difference < 15) shortfalls.push(metric);
             return metric;
-        });
+        };
+        const differences = KITTY_MARK_PAIRS.map(([role, peer]) => distinguish("kitty-mark-distinction", role, peer));
+        for (const mark of KITTY_MARKS) {
+            distinguish("kitty-mark-canvas", mark.role, "background");
+            if (!colors.has(mark.role) || !colors.has("foreground")) continue;
+            const fillLuminance = logic.luminance(colors.get(mark.role));
+            const plainLuminance = logic.luminance(colors.get("foreground"));
+            const mode = pkg.values.scheme.mode;
+            if (!(mode === "light" ? fillLuminance > plainLuminance : fillLuminance < plainLuminance))
+                shortfalls.push({ kind: "kitty-mark-page", theme: pkg.name, role: mark.role,
+                    fillLuminance, plainLuminance, mode, fill: fields.get(mark.role), plain: fields.get("foreground") });
+            const expected = kittyTint(pkg, mark);
+            if (fields.get(mark.role) !== expected)
+                shortfalls.push({ kind: "kitty-mark-tint", theme: pkg.name, role: mark.role, source: mark.source,
+                    actual: fields.get(mark.role), expected, anchor: mark.anchor, page: mark.page });
+        }
         for (const role of KITTY_CANVAS) {
             if (colors.has(role) && fields.get(role) !== fields.get("background"))
                 shortfalls.push({ kind: "kitty-canvas", theme: pkg.name, role });
@@ -1049,43 +1149,63 @@ function verifyKittyStyles(template) {
             shortfalls.push({ kind: "kitty-focus", theme: pkg.name, role: "active_border_color" });
         return { theme: pkg.name, mode: pkg.values.scheme.mode, fields: Object.fromEntries(fields), ratios, differences };
     });
-    assert.deepEqual(shortfalls, []);
     assert.ok(metrics.some(metric => metric.mode === "dark"));
     assert.ok(metrics.some(metric => metric.mode === "light"));
-    return metrics;
+    return { metrics, shortfalls };
 }
 
-const kittyMetrics = verifyKittyStyles(kittyTemplate);
+const kittyBaseline = verifyKittyStyles(kittyTemplate);
 const kittyControls = [
     ...KITTY_FIELDS.map(role => ({ kind: "kitty-field", role, remove: true })),
     ...KITTY_TEXT.map(([role, peer]) => ({ kind: "kitty-text", role, peer })),
     ...KITTY_BOUNDARIES.map(role => ({ kind: "kitty-boundary", role, peer: "background" })),
-    ...KITTY_STATES.map(([role, peer]) => ({ kind: "kitty-state", role, peer })),
+    { kind: "kitty-state", role: "active_tab_background", peer: "inactive_tab_background" },
+    ...KITTY_MARKS.map(({ role }) => ({ kind: "kitty-mark-canvas", role, peer: "background" })),
     ...KITTY_MARK_PAIRS.map(([role, peer]) => ({ kind: "kitty-mark-distinction", role, peer })),
+    ...KITTY_MARKS.map(({ role }) => ({ kind: "kitty-mark-page", role, peer: "foreground" })),
+    ...KITTY_MARKS.map(({ role, source }) => ({ kind: "kitty-mark-tint", role, source,
+        wrongSource: source === "warning" ? "info" : "warning" })),
     ...KITTY_CANVAS.map(role => ({ kind: "kitty-canvas", role, peer: "active_tab_background" })),
     { kind: "kitty-focus", role: "active_border_color", peer: "inactive_border_color" }
 ];
 const kittyScratch = fs.mkdtempSync(path.join(os.tmpdir(), "kitty-style-control-"));
 try {
     for (const [index, control] of kittyControls.entries()) {
+        const sameRule = shortfall => shortfall.kind === control.kind && shortfall.role === control.role &&
+            (control.kind !== "kitty-mark-distinction" || shortfall.peer === control.peer);
+        const baselinePassed = new Set(kittyBaseline.metrics.map(metric => metric.theme)
+            .filter(theme => !kittyBaseline.shortfalls.some(shortfall => shortfall.theme === theme && sameRule(shortfall))));
+        assert.ok(baselinePassed.size > 0, `no baseline pass for ${JSON.stringify(control)}`);
         const lines = kittyTemplate.split("\n");
         const matches = lines.filter(line => line.startsWith(control.role + " "));
         assert.equal(matches.length, 1, control.role);
-        const replacement = control.remove ? "" : control.role + " " +
-            lines.find(line => line.startsWith(control.peer + " ")).slice(control.peer.length + 1);
+        let replacement = "";
+        if (!control.remove) {
+            replacement = control.kind === "kitty-mark-tint"
+                ? matches[0].replace(`{color.${control.source}}`, `{color.${control.wrongSource}}`)
+                : control.role + " " + lines.find(line => line.startsWith(control.peer + " ")).slice(control.peer.length + 1);
+        }
         const mutant = lines.map(line => line === matches[0] ? replacement : line).join("\n");
         assert.notEqual(mutant, kittyTemplate);
         const file = path.join(kittyScratch, `${index}.conf`);
         fs.writeFileSync(file, mutant, { flag: "wx" });
-        assert.throws(() => verifyKittyStyles(fs.readFileSync(file, "utf8")),
-            error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
-                error.actual.some(shortfall => shortfall.kind === control.kind && shortfall.role === control.role &&
-                    (control.kind !== "kitty-mark-distinction" || shortfall.peer === control.peer)));
+        const newFailures = verifyKittyStyles(fs.readFileSync(file, "utf8")).shortfalls
+            .filter(shortfall => sameRule(shortfall) && baselinePassed.has(shortfall.theme));
+        assert.throws(() => assert.deepEqual(newFailures, []),
+            error => error instanceof assert.AssertionError && Array.isArray(error.actual) && error.actual.length > 0);
     }
 } finally {
     fs.rmSync(kittyScratch, { recursive: true, force: true });
 }
-console.log(`test-theme-render: kitty packages=${kittyMetrics.length} fields=${KITTY_FIELDS.length} text-floor=4.5 boundary-floor=3 state-floor=3 mark-difference-floor=15 mark-difference-min=${Math.min(...kittyMetrics.flatMap(metric => metric.differences.map(pair => pair.difference)))} controls=${kittyControls.length}`);
+const kittyFailingThemes = new Set(kittyBaseline.shortfalls.map(shortfall => shortfall.theme));
+const kittyMarkTextMinimum = Math.min(...kittyBaseline.metrics.flatMap(metric => metric.ratios
+    .filter(ratio => ratio.kind === "kitty-text" && ratio.role.startsWith("mark"))
+    .map(ratio => ratio.ratio)));
+console.log(`test-theme-render: kitty packages=${kittyBaseline.metrics.length} fields=${KITTY_FIELDS.length} text-floor=4.5 boundary-floor=3 mark-contrast-or-difference=3,15 passing=${kittyBaseline.metrics.length - kittyFailingThemes.size} controls=${kittyControls.length} references=${KITTY_DIFFERENCE_REFERENCES.length} mark-text-minimum=${kittyMarkTextMinimum}`);
+for (const shortfall of kittyBaseline.shortfalls) console.log(`test-theme-render: kitty-shortfall ${JSON.stringify(shortfall)}`);
+// Keep baseline misses red after controls prove new failures on passing
+// theme/rule combinations. No known-theme exception changes this verdict.
+assert.deepEqual(kittyBaseline.shortfalls, []);
 
 // Helix reads jump labels as a dedicated style. Parse rendered TOML with
 // Python's standard parser, as the editor-entry suite does for this target.
