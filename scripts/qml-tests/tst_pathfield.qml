@@ -10,6 +10,11 @@ Item {
     width: 480
     height: 160
     PathField { id: path; width: 460; placeholderText: "Choose a folder" }
+    Rectangle {
+        x: expected.x; y: expected.y
+        width: expected.width; height: expected.height
+        color: Theme.textField.background
+    }
     Label { id: expected; role: "item"; textFormat: Text.PlainText; y: 80 }
     TextMetrics { id: metrics; elide: Text.ElideLeft }
 
@@ -44,9 +49,11 @@ Item {
             expected.font = display.font;
             expected.width = display.width;
             expected.text = metrics.elidedText;
-            verify(waitForRendering(display));
-            verify(waitForRendering(expected));
-            verify(grabImage(display).equals(grabImage(expected)), "the drawn path has an ellipsis and its last folder");
+            const position = display.mapToItem(root, 0, 0);
+            expected.x = position.x - Math.floor(position.x);
+            expected.y = 80 + position.y - Math.floor(position.y);
+            tryVerify(() => grabImage(display).equals(grabImage(expected)), 5000,
+                      "the drawn path has an ellipsis and its last folder");
             editor.forceActiveFocus();
             tryCompare(display, "visible", false);
             compare(editor.color, Qt.color(Theme.color.text));
