@@ -63,7 +63,7 @@ FormRow {
 
     function messageText(kind) {
         switch (kind) {
-        case "config": return "Your Hyprland config sets this to " + formatValue(hyprlandConfigValue);
+        case "config": return "Hyprland config sets " + formatValue(hyprlandConfigValue);
         case "overridden": return "Overridden by your Hyprland config";
         case "theme": return "Set by theme";
         case "user": return "The theme sets " + formatValue(themeValue);
