@@ -8,20 +8,23 @@
 # listPlugins and the service's build record. Pointer checks drag real
 # widgets, cancel with Escape, prove a still click stays a click, and prove
 # a drag cancels the widget's own click. Outside the bar a drag goes on: a
-# drag out and back drops where it returns, a release near the bar drops at
-# the slot nearest along the bar, also with a window holding the keyboard,
-# and a release far from it asks to remove the widget, with Cancel focused
-# and no focus ring; Cancel and Escape put it back and write nothing, and
-# Remove leaves it unplaced as Hide does. Controls run a copy whose move
-# ignores the index, a copy whose drag capture is missing, a copy whose
-# BarWidget cannot drag, a copy with the old cancel of a release outside
-# the bar, a copy without the frame's focus grab and a copy whose remove
-# question takes the keyboard's focus reason once its window is active.
-# The row restores the user file byte for byte, so rows after it find the
-# fixture placed as before. The
-# disabled widget the refusals name is acme.tick, disabled for them and
-# enabled again.
-# inputs: shell/plugins/vgs.bar/* config/shell.json scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Hosts/BarHost.qml shell/shell.qml shell/Ui/BarWidget.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/overlay/DismissScope.qml scripts/smoke/pointer/click.c scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh scripts/smoke/rows/sources.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/capabilities.sh shell/Commons/Tokens.js
+# drag out and back drops where it returns, a release just inside one bar
+# height of the bar drops at the slot nearest along the bar, also with a
+# window holding the keyboard, Escape on a drag held far below writes
+# nothing, and a release just past that line asks to remove the widget,
+# with Cancel focused and no focus ring; Cancel and Escape put it back and
+# write nothing, and Remove leaves it unplaced as Hide does. After a drop
+# on an empty workspace, and after the question closes, the bar holds no
+# keyboard. Controls run a copy whose move ignores the index, a copy whose
+# drag capture is missing, a copy whose BarWidget cannot drag, a copy with
+# the old cancel of a release outside the bar, a copy whose grab leaves
+# the bar's keyboard interactivity alone, a copy with neither the focus
+# grab nor that step, and a copy whose remove question takes the
+# keyboard's focus reason once its window is active. The row restores the
+# user file byte for byte, so rows after it find the fixture placed as
+# before. The disabled widget the refusals name is acme.tick, disabled for
+# them and enabled again.
+# inputs: shell/plugins/vgs.bar/* config/shell.json scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Hosts/BarHost.qml shell/shell.qml shell/Ui/BarWidget.qml shell/Ui/feedback/Dialog.qml shell/Ui/controls/Button.qml shell/Commons/Theme.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/overlay/DismissScope.qml scripts/smoke/pointer/click.c scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh scripts/smoke/rows/sources.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/capabilities.sh shell/Commons/Tokens.js
 set -euo pipefail
 placement_file="$home/.config/vgshell/shell.json"
 placement_saved="$sandbox/shell-before-placement.json"
@@ -182,14 +185,33 @@ placement_below() {
 placement_bar_left_inside() {
   surface_box vgs:bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x + w / 6, y + h / 2))'
 }
-# Below the left third of the bar: half a bar height down is near the bar
-# and drops (Plugins.dragEnd), three bar heights down is far and asks.
+# Below the left third of the bar, on either side of the line
+# Plugins.dragEnd draws one bar height outside it: 4 px short of it is near
+# and drops, 4 px past it is far and asks.
 placement_bar_below_left() {
-  surface_box vgs:bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x + w / 6, y + h + h / 2))'
+  surface_box vgs:bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x + w / 6, y + h + h - 4))'
 }
 placement_bar_far_left() {
-  surface_box vgs:bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x + w / 6, y + h + 3 * h))'
+  surface_box vgs:bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x + w / 6, y + h + h + 4))'
 }
+# The key capture's begin count, and `released` once a capture begun after
+# SINCE has ended: a bar drag's capture ends at its release or cancel, after
+# which the drop has written or the cancel has written nothing.
+# `left` once the bar's window no longer holds the keyboard, polled as
+# expect_poll polls, or `kept` at the bound: the drag's focus grab hands the
+# bar the keyboard until the release.
+placement_keyboard_left() {
+  local at
+  smoke_poll_tries 200 1
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    at="$(ipc smoke windowFocused "$(bar_key)" acme.probe)" || return 1
+    [[ $at == false ]] && { echo left; return; }
+    sleep 0.2
+  done
+  echo kept
+}
+placement_capture_generation() { ipc smoke keyCaptureState | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
+placement_capture_released() { ipc smoke keyCaptureState | py_reply 'import json,sys; g,c=json.load(sys.stdin); print("released" if g > int(sys.argv[1]) and not c else "held")' "$1"; }
 # placement_drag_path ID X Y [X Y ...]: a real drag from widget ID's centre
 # that first moves inside the bar, so the drag starts there, then passes
 # each point and releases at the last.
@@ -606,16 +628,19 @@ placement_near_drop() {
   read -r below_x below_y < <(placement_bar_below_left) || fail "the point below the left third of the bar is unreadable"
   placement_drag_path acme.probe "$below_x" "$below_y" || fail "dragging the fixture below the bar failed"
 }
+expect "no window holds the keyboard for the empty-workspace drop" '[]' active_window
 placement_near_drop
 expect_poll "a drag released near below the bar's left third drops after workspaces in the file" "$placement_want_pointer_left" placement_order
 geometry expect_poll "a drag released near below the bar's left third draws the fixture after workspaces" "$placement_drawn_pointer_left" placement_visual_order
 expect_poll "the near drop releases keyboard capture" default key_submap
+expect "the bar gives the keyboard back after an empty-workspace drop" left placement_keyboard_left
 expect "the outside snapshot includes every widget" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.bar/left-workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
 placement_leave_return() {
   read -r far_x far_y < <(placement_bar_far_left) || fail "the point far below the bar is unreadable"
   read -r tick_x tick_y < <(placement_before acme.tick acme.probe) || fail "the point before tick is unreadable"
   placement_drag_path acme.probe "$far_x" "$far_y" "$tick_x" "$tick_y" || fail "the drag out of the bar and back failed"
 }
+expect "no window holds the keyboard for the empty-workspace drag out and back" '[]' active_window
 placement_leave_return
 expect_poll "a drag that leaves the bar and returns drops before tick in the file" "$placement_want_before" placement_order
 geometry expect_poll "a drag that leaves the bar and returns draws the fixture before tick" "$placement_drawn_before" placement_visual_order
@@ -625,10 +650,10 @@ placement_far_ask
 expect_poll "the remove question opens with Cancel focused" '["Button","Cancel",false]' ipc smoke popupFocus "$(bar_key)" acme.probe
 expect "the remove question writes nothing while it asks" unchanged placement_same_as "$sandbox/shell-before-outside-drop.json"
 expect_poll "the far release releases keyboard capture" default key_submap
-expect "the remove question still draws no focus ring once its window holds the keyboard" '["Button","Cancel",false]' ipc smoke popupFocus "$(bar_key)" acme.probe
 type_keys -k Return || fail "Return on the remove question failed"
 expect_poll "Return on the focused Cancel closes the remove question" false ipc smoke readInstance "$(bar_key)" acme.probe frameDialogOpen
 expect_poll "Cancel ends the held drag" absent ipc smoke barDragGeometry "$(bar_key)"
+expect "the bar gives the keyboard back after the remove question closes" left placement_keyboard_left
 expect "Cancel leaves the user file as it was" unchanged placement_same_as "$sandbox/shell-before-outside-drop.json"
 geometry expect_poll "Cancel puts the fixture back before tick" "$placement_drawn_before" placement_visual_order
 placement_far_ask
@@ -664,6 +689,12 @@ placement_drag_escape acme.probe "$tick_x" "$tick_y" vgs:passthrough || fail "ho
 expect_poll "Escape during a drag ends frame dragging after release" false ipc smoke readInstance "$(bar_key)" acme.probe frameDragging
 expect_poll "Escape during a drag keeps the rendered order" "$placement_drawn_after" placement_visual_order
 expect "Escape during a drag leaves the user file as it was" unchanged placement_same_as "$sandbox/shell-before-escape-drop.json"
+read -r far_x far_y < <(placement_bar_far_left) || fail "the point far below the bar is unreadable before Escape"
+placement_drag_escape acme.probe "$far_x" "$far_y" vgs:passthrough || fail "holding a drag far below the bar and pressing Escape failed"
+expect_poll "Escape on a drag held far below ends frame dragging after release" false ipc smoke readInstance "$(bar_key)" acme.probe frameDragging
+expect "Escape on a drag held far below asks nothing" false ipc smoke readInstance "$(bar_key)" acme.probe frameDialogOpen
+expect "Escape on a drag held far below leaves the user file as it was" unchanged placement_same_as "$sandbox/shell-before-escape-drop.json"
+geometry expect_poll "Escape on a drag held far below keeps the rendered order" "$placement_drawn_after" placement_visual_order
 hypr_lua_restore placement || fail "placement puts the harness hyprland.lua back"
 expect "the nested instance reloads the harness hyprland.lua" ok hypr reload config-only
 tick_clicks_before="$(ipc smoke readInstance "$(bar_key)" acme.tick clicks)" || fail "the tick click count is unreadable"
@@ -673,8 +704,10 @@ tick_clicks_before="$(ipc smoke readInstance "$(bar_key)" acme.tick clicks)" || 
 tick_cancels_before="$(ipc smoke readInstance "$(bar_key)" acme.tick cancels)" || fail "the tick cancel count is unreadable before a drag"
 cp -- "$placement_file" "$sandbox/shell-before-tick-drag.json"
 read -r below_x below_y < <(placement_below acme.tick) || fail "the point below acme.tick is unreadable"
+tick_capture="$(placement_capture_generation)" || fail "the key capture count is unreadable before the tick drag"
 placement_drag_widget acme.tick "$below_x" "$below_y" || fail "dragging acme.tick failed"
-expect_poll "a near drop under acme.tick's own slot writes nothing" unchanged placement_same_as "$sandbox/shell-before-tick-drag.json"
+expect_poll "the tick drag's release ends its capture" released placement_capture_released "$tick_capture"
+expect "a near drop under acme.tick's own slot writes nothing" unchanged placement_same_as "$sandbox/shell-before-tick-drag.json"
 expect "a drag that starts on acme.tick emits no click" "$tick_clicks_before" ipc smoke readInstance "$(bar_key)" acme.tick clicks
 expect "a drag that starts on acme.tick cancels its MouseArea" "$((tick_cancels_before + 1))" ipc smoke readInstance "$(bar_key)" acme.tick cancels
 placement_right_click acme.probe || fail "right clicking the fixture failed"
@@ -753,27 +786,50 @@ if copy_tree placement-outside-cancel-control \
   start_shell "$sandbox/tree-placement-outside-cancel-control" "$sandbox/placement-outside-cancel-control.log" || fail "the outside cancel control shell starts"
   expect "control: the fixture starts after the center widget" ok ipc shell movePluginWidget acme.probe center 2
   expect_poll "control: the near drop starts from after the center widget" "$placement_want_after" placement_order
+  control_capture="$(placement_capture_generation)" || fail "control: the key capture count is unreadable"
   placement_near_drop
-  expect_poll "control: the old outside cancel makes the near drop keep the file order" "$placement_want_after" placement_order
-  expect_poll "control: the cancelled near drop releases keyboard capture" default key_submap
+  expect_poll "control: the cancelled near drop's release ends its capture" released placement_capture_released "$control_capture"
+  expect "control: the old outside cancel makes the near drop keep the file order" "$placement_want_after" placement_order
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$repo" "$sandbox/placement-outside-cancel-restored.log" || fail "the shell starts again after the outside cancel control"
 fi
 
-# Without the frame's focus grab Hyprland ends the press at the bar's edge
-# on the sandbox's empty workspace, so the drag out and back reads red.
+# A grab that leaves the bar's keyboard interactivity alone leaves the bar
+# holding the keyboard after the release on an empty workspace.
+if copy_tree placement-keyboard-control \
+  && edit_tree placement-keyboard-control shell/Core/Plugins.qml '        barPressGrab.layer.keyboardFocus = WlrKeyboardFocus.OnDemand;' ''; then
+  stop_shell
+  cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$sandbox/tree-placement-keyboard-control" "$sandbox/placement-keyboard-control.log" || fail "the keyboard control shell starts"
+  expect "control: the fixture starts after the center widget" ok ipc shell movePluginWidget acme.probe center 2
+  expect_poll "control: the near drop starts from after the center widget" "$placement_want_after" placement_order
+  expect "control: no window holds the keyboard" '[]' active_window
+  placement_near_drop
+  expect_poll "control: the near drop still lands after workspaces" "$placement_want_pointer_left" placement_order
+  expect "control: without the interactivity step the bar keeps the keyboard" kept placement_keyboard_left
+  stop_shell
+  cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$repo" "$sandbox/placement-keyboard-restored.log" || fail "the shell starts again after the keyboard control"
+fi
+
+# Without the focus grab and the OnDemand interactivity, either of which
+# gives the bar the keyboard that Hyprland's held-button rule asks for,
+# Hyprland ends the press at the bar's edge on the sandbox's empty
+# workspace, so the drag out and back reads red.
 if copy_tree placement-grab-control \
-  && edit_tree placement-grab-control shell/Core/Plugins.qml '        barPressGrab.active = true;' '        barPressGrab.active = false;'; then
+  && edit_tree placement-grab-control shell/Core/Plugins.qml '        barPressGrab.active = true;' '        barPressGrab.active = false;' \
+  && edit_tree placement-grab-control shell/Core/Plugins.qml '        barPressGrab.layer.keyboardFocus = WlrKeyboardFocus.OnDemand;' ''; then
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$sandbox/tree-placement-grab-control" "$sandbox/placement-grab-control.log" || fail "the grab control shell starts"
   expect "control: the fixture starts after workspaces" ok ipc shell movePluginWidget acme.probe left 1
   expect_poll "control: the drag out and back starts after workspaces" "$placement_want_pointer_left" placement_order
+  control_capture="$(placement_capture_generation)" || fail "control: the key capture count is unreadable"
   placement_leave_return
+  expect_poll "control: the lost press ends its capture" released placement_capture_released "$control_capture"
   control_order="$(placement_order)" || fail "control: the order after the drag out and back is unreadable"
   if [[ $control_order != "$placement_want_before" ]]; then ok "control: without the focus grab the drag out and back reads red"; else fail "control: without the focus grab the drag out and back still dropped before tick"; fi
-  expect_poll "control: the lost press releases keyboard capture" default key_submap
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$repo" "$sandbox/placement-grab-restored.log" || fail "the shell starts again after the grab control"

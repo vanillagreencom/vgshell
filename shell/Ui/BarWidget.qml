@@ -10,8 +10,8 @@ import qs.Ui
 // and a drag read and call: `describe()` answers { name, keys, stops,
 // builtin, owner }, `hide()` takes the widget out of every bar section,
 // `dragStart`, `dragMove` and `dragEnd` take the drag's points, and
-// `dragCancel()` puts back a widget whose remove question closed without
-// Remove.
+// `dragCancel()` ends a remove question, putting the widget back where the
+// drag found it.
 //
 // Every widget gets the same right-click menu, with no code in the plugin:
 // Hide, then the entries the widget hands in `frameActions`, each

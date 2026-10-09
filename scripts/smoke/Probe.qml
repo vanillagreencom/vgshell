@@ -1322,6 +1322,12 @@ Scope {
             root.rememberedBarHost = "";
             return "ok";
         }
+        // The key capture's begin count and whether a control holds it, as
+        // [generation, capturing]: a bar drag begins one capture and its
+        // release or cancel ends it, so a row waits for both.
+        function keyCaptureState(): string {
+            return root.json([Capabilities.keyCapture.generation, Capabilities.keyCapture.capturing]);
+        }
         function barDragGeometry(hostKey: string): string {
             const drag = Plugins.barDrag;
             if (drag === null || drag.hostKey !== hostKey) return "absent";

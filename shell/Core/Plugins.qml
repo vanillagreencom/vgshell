@@ -2,6 +2,7 @@ pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Wayland
 import qs.Commons
 import "PluginLogic.js" as Logic
 import "Lifetime.js" as Lifetime
@@ -53,7 +54,8 @@ Singleton {
     // release far outside the bar asks whether to remove it.
     property var barDrag: null
     // The focus grab that holds a bar widget drag's press, or null. It ends
-    // with the press, not with the drag, and dies with the widget.
+    // with the press, or with the remove question that release opened, not
+    // with the drag, and dies with the widget.
     property QtObject barPressGrab: null
 
     // The source revisions of every instance the core built, which a scan
@@ -277,10 +279,9 @@ Singleton {
             dragCancel: () => root.cancelRemoveAsk(item)
         };
     }
-    // A drag takes the keyboard through the window-free key capture and
-    // leaves the bar's keyboard interactivity as it is: Hyprland v0.56.2
-    // ends a held press when a layer surface's keyboard interactivity
-    // changes.
+    // A drag takes the keys through the window-free key capture: making a
+    // layer surface's keyboard interactivity exclusive ends a held press
+    // (Hyprland v0.56.2 LayerSurface.cpp onCommit, releaseAllMouseButtons).
     Component { id: gapComponent; Item {} }
     // Hyprland v0.56.2 keeps a held press on the bar while the pointer is
     // outside it only when some surface holds the keyboard; on an empty
@@ -288,15 +289,34 @@ Singleton {
     // (InputManager.cpp mouseMoveUnified, Seat.cpp sendLeave; a
     // WAYLAND_DEBUG trace in the nested sandbox shows both). A grab of the
     // bar window keeps the pointer on the bar, so the drag reads the motion
-    // and the release outside, and hands the bar the keyboard until the
-    // press ends: Quickshell 0.3.1 HyprlandFocusGrab, a
+    // and the release outside: Quickshell 0.3.1 HyprlandFocusGrab, a
     // hyprland_focus_grab_v1 object and no window. It lists the bar's own
     // window, which a reparent of the widget does not empty, and outlives
     // an Escape that cancels the drag, since a grab that ends while the
     // button is held on an empty workspace makes Hyprland release it. A
     // first motion that leaves the bar before the drag starts still loses
     // the press.
-    Component { id: pressGrabComponent; HyprlandFocusGrab {} }
+    // The grab hands the bar the keyboard, and with no window to return it
+    // to Hyprland leaves it there after the grab ends (trace: no
+    // wl_keyboard.leave). So the bar's interactivity is OnDemand from the
+    // drag's start, which keeps the press (trace), until the object goes,
+    // and then None: a focused layer that drops from OnDemand to None loses
+    // the keyboard (LayerSurface.cpp onCommit; trace: wl_keyboard.leave
+    // right after). OnDemand alone also hands a layer under the pointer the
+    // keyboard on its next motion unless input:follow_mouse is 3
+    // (mouseMoveUnified), which keeps the press as well; the grab holds it
+    // whatever follow_mouse says. After a release that asks to remove the
+    // widget the object stays, its grab ended, until the question closes:
+    // None at that release dismissed the question's popup at once in the
+    // nested sandbox (placement.sh).
+    Component {
+        id: pressGrabComponent
+        HyprlandFocusGrab {
+            property QtObject layer: null
+            property QtObject owner: null
+            Component.onDestruction: if (layer !== null) layer.keyboardFocus = WlrKeyboardFocus.None
+        }
+    }
 
     function endPressGrab() {
         if (barPressGrab === null) return;
@@ -315,7 +335,9 @@ Singleton {
         const origin = item.mapToItem(bar, 0, 0);
         const gap = gapComponent.createObject(bar, { width: item.width, height: item.height });
         endPressGrab();
-        barPressGrab = pressGrabComponent.createObject(item, { windows: [bar.QsWindow.window] });
+        const window = bar.QsWindow.window;
+        barPressGrab = pressGrabComponent.createObject(item, { windows: [window], layer: window.WlrLayershell, owner: item });
+        barPressGrab.layer.keyboardFocus = WlrKeyboardFocus.OnDemand;
         barPressGrab.active = true;
         barDrag = { hostKey: hostKey, id: id, item: item, gap: gap, held: true,
             offset: { x: point.pressX - origin.x, y: point.pressY - origin.y },
@@ -370,10 +392,13 @@ Singleton {
     // release more than one bar height (Theme.bar.height) outside the bar
     // asks; a nearer one drops.
     function dragEnd(hostKey, point) {
-        endPressGrab();
+        if (barPressGrab !== null) barPressGrab.active = false;
         const drag = barDrag;
         if (drag !== null && drag !== undefined) Capabilities.keyCapture.end(drag.item, "commit");
-        if (drag === null || drag.hostKey !== hostKey || !drag.held || !Logic.hasOwn(mounts, hostKey)) return "none";
+        if (drag === null || drag.hostKey !== hostKey || !drag.held || !Logic.hasOwn(mounts, hostKey)) {
+            endPressGrab();
+            return "none";
+        }
         const bar = mounts[hostKey].row.instance;
         const outside = Math.max(0, -point.x, point.x - bar.width, -point.y, point.y - bar.height);
         if (outside > Theme.bar.height) {
@@ -383,6 +408,7 @@ Singleton {
             barDrag = Object.assign({}, drag, { held: false });
             return "ask";
         }
+        endPressGrab();
         // Keep the gap until the synchronous write publishes its order.
         // Reconcile then puts the held instance into that same place.
         barDrag = null;
@@ -396,10 +422,12 @@ Singleton {
         return "drop";
     }
 
-    // The remove question about `item` closed without Remove: its widget
-    // goes back to the place it was dragged from. A held drag stays.
+    // The remove question about `item` closed: its widget goes back to the
+    // place it was dragged from, and the bar gives back the keyboard. A
+    // held drag stays.
     function cancelRemoveAsk(item) {
         if (barDrag !== null && barDrag.item === item && !barDrag.held) cancelBarDrag();
+        if (barPressGrab !== null && barPressGrab.owner === item && !barPressGrab.active) endPressGrab();
     }
 
     // What the widget frame's Hide and Remove dialogs say about entry `id`,
