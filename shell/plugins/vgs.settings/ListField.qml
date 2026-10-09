@@ -11,7 +11,8 @@ import qs.Ui
 // through the manager's set-setting path, so the configuration's judge
 // sees each change and a refused one leaves the drawn list as it was.
 // `edits` is the page's set of unsaved edits, which each item field joins
-// while its text editor holds one.
+// while its text editor holds one. A field's description link reaches
+// the page through `openLink`.
 Column {
     id: root
 
@@ -26,6 +27,7 @@ Column {
     property bool editable: true
     property var edits: null
     signal apply(var value)
+    signal openLink(string url)
 
     readonly property var items: Array.isArray(value) ? value : []
     readonly property var fields: spec.items === undefined ? [] : Object.keys(spec.items)
@@ -105,6 +107,7 @@ Column {
                         editable: root.editable
                         edits: root.edits
                         onApply: v => root.setField(itemGroup.modelData.name, modelData, v)
+                        onOpenLink: url => root.openLink(url)
                     }
                 }
             }

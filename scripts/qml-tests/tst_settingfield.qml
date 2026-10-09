@@ -8,9 +8,12 @@ import "../../shell/plugins/vgs.settings"
 Item {
     id: root
     width: 480
-    height: 480
+    height: 640
 
     property var applied: []
+    // The private opener: the addresses the fields' description links
+    // asked the page to open, in order. No browser starts.
+    property var opened: []
 
     SettingField {
         id: field
@@ -59,6 +62,39 @@ Item {
         SettingField { id: lastDescribed; key: "last"; spec: ({ type: "boolean", label: "Last", description: "Ends the column." }); value: true }
     }
 
+    // A key field whose description carries a link at its start, so a
+    // click at the line's start lands on it, and a custom field whose
+    // description carries one too. The error field's line is an error,
+    // which carries no link.
+    Column {
+        id: linkRows
+        y: 360
+        width: 420
+        spacing: Theme.stack.row
+        SettingField {
+            id: keyLinked
+            key: "voiceAccount"
+            spec: ({ type: "boolean", label: "GPT-Live key", description: "OpenAI API keys gives you a key.", link: { text: "OpenAI API keys", url: "https://platform.openai.com/api-keys" } })
+            value: true
+            onOpenLink: url => root.opened.push(url)
+        }
+        SettingField {
+            id: customLinked
+            key: "unit"
+            spec: ({ type: "string", label: "Unit", description: "Units listed at the unit guide.", link: { text: "unit guide", url: "https://example.org/units" }, allowCustom: true, presets: [{ value: "kB" }] })
+            value: "MiB"
+            onOpenLink: url => root.opened.push(url)
+        }
+        Field {
+            id: erred
+            width: 420
+            label: "Erred"
+            hint: "Get one at the key page."
+            hintLink: "key page"
+            error: "That key was refused."
+        }
+    }
+
     TestCase {
         name: "settingfield"
         when: windowShown
@@ -66,6 +102,7 @@ Item {
         function init() {
             UnitTheme.reset();
             root.applied = [];
+            root.opened = [];
             field.value = "HH:mm";
             picked.value = "";
             Time.now = new Date(2026, 8, 30, 20, 34, 0);
@@ -88,6 +125,52 @@ Item {
             tryVerify(() => customDescribed.y - lineBottom(described, "How often it checks.") === Theme.stack.group, 1000, "the field after a description");
             compare(following.y - lineBottom(customDescribed, "The unit it shows."), Theme.stack.group, "the field after a custom field's description");
             compare(settingRows.height, lineBottom(lastDescribed, "Ends the column."), "the column's end after its last field");
+        }
+
+        function linkOf(item) {
+            return descendants(item).find(child => child.hoveredLink !== undefined && child.visible);
+        }
+
+        function test_a_description_link_opens_its_address_by_pointer() {
+            const link = linkOf(keyLinked);
+            verify(link !== undefined, "the description draws through a link text");
+            compare(link.text, "OpenAI API keys gives you a key.");
+            verify(link.linked, "the link's words are a link");
+            mouseClick(link, 4, link.height / 2);
+            compare(root.opened, ["https://platform.openai.com/api-keys"], "a click opens the address");
+            mouseClick(link, link.width - 4, link.height / 2);
+            compare(root.opened, ["https://platform.openai.com/api-keys"], "a click past the link's words opens nothing");
+        }
+
+        function test_a_description_link_opens_its_address_by_keyboard() {
+            const link = linkOf(keyLinked);
+            verify(link.activeFocusOnTab, "the link is a Tab stop");
+            link.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            keyClick(Qt.Key_Enter);
+            compare(root.opened, ["https://platform.openai.com/api-keys", "https://platform.openai.com/api-keys"], "Return and Enter open the address");
+        }
+
+        function test_a_custom_field_description_link_opens_its_address() {
+            verify(customLinked.customVisible, "the custom field shows");
+            const link = linkOf(customLinked);
+            verify(link !== undefined && link.linked, "the custom field's description draws its link");
+            link.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            compare(root.opened, ["https://example.org/units"]);
+        }
+
+        function test_a_field_without_a_link_draws_none() {
+            const link = linkOf(described);
+            verify(link !== undefined, "a description draws through a link text");
+            verify(!link.linked, "a description without a link draws none");
+            verify(!link.activeFocusOnTab, "and takes no Tab stop");
+        }
+
+        function test_an_error_line_carries_no_link() {
+            const link = linkOf(erred);
+            compare(link.text, "That key was refused.");
+            verify(!link.linked, "the error line draws no link");
         }
 
         function selectOf(item) {

@@ -6,6 +6,9 @@ import qs.Ui
 // the body, `label` above it (or beside it when `inline` holds, in a
 // FormRow, which owns the key/value row's geometry), `hint` under it, and
 // `error` in the hint's place in the error colour while it is set.
+// `hintLink`, when set, names words of the hint drawn as a link, which
+// the pointer, Return, Enter and Space activate through
+// `hintLinkActivated`; the error line carries none.
 // `lines` are further lines of the value, each in the value role, between
 // the control and the hint, such as what a setup step still needs. Form
 // feedback is this plain sentence-case line; a chip, a fill or capitals
@@ -26,6 +29,7 @@ Column {
     property string info: ""
     property string labelTooltip: ""
     property string error: ""
+    property string hintLink: ""
     property var lines: []
     property bool inline: Theme.field.inline
     default property alias control: controlRow.control
@@ -35,6 +39,7 @@ Column {
     readonly property real bodyWidth: width - leftPadding - rightPadding
     readonly property real valueX: leftPadding + controlRow.valueX
     readonly property bool subText: lines.length > 0 || hintLine.text !== ""
+    signal hintLinkActivated()
 
     leftPadding: Theme.field.paddingX
     rightPadding: Theme.field.paddingX
@@ -94,15 +99,17 @@ Column {
         readonly property real linesHeight: root.lines.length > 0 ? subLines.implicitHeight + (hintLine.text !== "" ? Theme.field.gap : 0) : 0
         height: Math.max(0, linesHeight + (hintLine.text !== "" ? hintLine.implicitHeight : 0) - slack)
 
-        Label {
+        LinkText {
             id: hintLine
             role: "hint"
             text: root.error !== "" ? root.error : root.hint
+            link: root.error !== "" ? "" : root.hintLink
             color: root.error !== "" ? Theme.color.danger : Theme.text.hint.color
             x: controlRow.valueX
             y: hintSlot.linesHeight - hintSlot.slack
             width: parent.width - x
             wrapMode: Text.Wrap
+            onActivated: root.hintLinkActivated()
         }
 
         Column {
