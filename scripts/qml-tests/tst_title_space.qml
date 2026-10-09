@@ -58,7 +58,7 @@ Item {
         }
 
         function test_default_gap_has_two_drawn_body_lines() {
-            const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 300; fitToContent: true; title: "Title"; Item { objectName: "bodyMarker"; height: 20 } }', root);
+            const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 300; fitToContent: true; title: "Title"; Item { objectName: "bodyMarker"; width: parent.width; height: 20 } }', root);
             waitForRendering(made);
             const block = titleBlock(made);
             const marker = findChild(made, "bodyMarker");
@@ -66,7 +66,7 @@ Item {
             made.destroy();
         }
         function test_untitled_description_keeps_existing_body_gap() {
-            const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 300; fitToContent: true; subtitle: [ Label { text: "Description"; role: "body" } ]; Item { objectName: "bodyMarker"; height: 20 } }', root);
+            const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 300; fitToContent: true; subtitle: [ Label { text: "Description"; role: "body"; width: parent.width } ]\nItem { objectName: "bodyMarker"; width: parent.width; height: 20 } }', root);
             waitForRendering(made);
             const block = titleBlock(made);
             const marker = findChild(made, "bodyMarker");

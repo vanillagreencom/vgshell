@@ -253,25 +253,32 @@ Item {
         }
 
         function test_an_initial_focus_field_takes_the_focus_and_answers() {
-            const [cancel, authenticate] = prompt.buttons();
-            prompt.forceActiveFocus();
-            compare(secret.activeFocus, true);
-            keyClick(Qt.Key_S);
-            keyClick(Qt.Key_E);
-            compare(secret.text, "se");
-            compare(authenticate.activeFocus, false);
-            keyClick(Qt.Key_Return);
-            compare(promptAccepts.count, 1);
-            compare(secret.activeFocus, true);
-            keyClick(Qt.Key_Escape);
-            compare(promptRejects.count, 1);
-            // A click moves the focus to an action; the next showing gives it
-            // back to the field.
-            mouseClick(cancel);
-            compare(cancel.activeFocus, true);
-            outside.forceActiveFocus();
-            prompt.forceActiveFocus();
-            compare(secret.activeFocus, true);
+            // The enlarged title gap places the separate chooser over this
+            // card's actions. Hide it while this prompt receives the click.
+            chooser.visible = false;
+            try {
+                const [cancel, authenticate] = prompt.buttons();
+                prompt.forceActiveFocus();
+                compare(secret.activeFocus, true);
+                keyClick(Qt.Key_S);
+                keyClick(Qt.Key_E);
+                compare(secret.text, "se");
+                compare(authenticate.activeFocus, false);
+                keyClick(Qt.Key_Return);
+                compare(promptAccepts.count, 1);
+                compare(secret.activeFocus, true);
+                keyClick(Qt.Key_Escape);
+                compare(promptRejects.count, 1);
+                // A click moves the focus to an action; the next showing gives it
+                // back to the field.
+                mouseClick(cancel);
+                compare(cancel.activeFocus, true);
+                outside.forceActiveFocus();
+                prompt.forceActiveFocus();
+                compare(secret.activeFocus, true);
+            } finally {
+                chooser.visible = true;
+            }
         }
 
         function test_tab_cycles_through_the_initial_focus_field() {
