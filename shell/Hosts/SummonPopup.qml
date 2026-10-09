@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtQml.Models
 import Quickshell
 import qs.Core
@@ -18,6 +19,8 @@ PopupWindow {
     readonly property Item anchorItem: request ? request.anchor : null
     readonly property Item returnFocusItem: request && request.returnFocus ? request.returnFocus : null
     readonly property bool returnFocusWasVisual: !!(request && request.returnFocusWasVisual)
+    property bool closing: false
+    property real motionProgress: 0
     signal built(var instance)
     signal dismissed()
 
@@ -45,6 +48,7 @@ PopupWindow {
     // Input reaches only the drawn card: a press on the room below it lands
     // on what lies under the popup, outside the grab, which dismisses it.
     mask: Region { item: sized }
+    Component.onCompleted: Qt.callLater(() => setMotion(1, false))
     onVisibleChanged: {
         if (!visible) {
             if (returnFocusWasVisual && returnFocusItem !== null && returnFocusItem.forceActiveFocus !== undefined) {
@@ -57,10 +61,34 @@ PopupWindow {
             dismissed();
         }
     }
-    onAnchorItemChanged: if (anchorItem === null) dismissed()
+    onAnchorItemChanged: if (anchorItem === null) requestDismiss()
 
     function focusInitial() {
         slot.focusInitial();
+    }
+
+    function setMotion(target, dismissAfter) {
+        flyoutMotion.stop();
+        if (Theme.motion.flyout.travel.duration <= 0) {
+            motionProgress = target;
+            if (dismissAfter) finishDismiss();
+            return;
+        }
+        flyoutMotion.to = target;
+        flyoutMotion.dismissAfter = dismissAfter;
+        flyoutMotion.duration = Theme.motion.flyout.travel.duration;
+        flyoutMotion.easing.type = Theme.motion.flyout.travel.easing;
+        flyoutMotion.start();
+    }
+
+    function requestDismiss() {
+        if (closing) return;
+        closing = true;
+        setMotion(0, true);
+    }
+
+    function finishDismiss() {
+        visible = false;
     }
 
     // The height from the anchor's bottom edge to the output's bottom, less
@@ -92,6 +120,11 @@ PopupWindow {
     function followAnchor() {
         console.info("summon popup: anchor updated for " + pluginId);
         anchor.updateAnchor();
+        const window = contentItem ? contentItem.Window.window : null;
+        // Quickshell sends xdg_popup.reposition during the popup's polish;
+        // Qt needs QQuickWindow.update() to commit a frame when only the
+        // anchor changed.
+        if (window !== null) window.update();
     }
     readonly property var anchorChain: {
         const chain = [];
@@ -109,14 +142,27 @@ PopupWindow {
             function onHeightChanged() { popup.followAnchor(); }
             function onRotationChanged() { popup.followAnchor(); }
             function onScaleChanged() { popup.followAnchor(); }
-            function onVisibleChanged() { if (!target.visible) popup.dismissed(); }
+            function onVisibleChanged() { if (!target.visible) popup.requestDismiss(); }
         }
+    }
+
+    NumberAnimation {
+        id: flyoutMotion
+        target: popup
+        property: "motionProgress"
+        from: popup.motionProgress
+        property bool dismissAfter: false
+        onStopped: if (dismissAfter && popup.closing && popup.motionProgress === 0) popup.finishDismiss()
     }
 
     SurfaceHeight {
         id: sized
         room: Math.min(popup.roomBelow(), popup.room.height)
         target: slot.instance ? Math.max(1, Math.min(slot.instance.implicitHeight, sized.room > 0 ? sized.room : popup.room.height)) : 1
+        opacity: popup.motionProgress
+        transform: Translate {
+            y: -Theme.motion.flyout.slide * (1 - popup.motionProgress)
+        }
 
         PluginSlot {
             id: slot
@@ -128,12 +174,12 @@ PopupWindow {
             closeOnUnload: true
             anchors.fill: parent
             focus: true
-            Keys.onEscapePressed: popup.dismissed()
+            Keys.onEscapePressed: popup.requestDismiss()
             onBuilt: instance => {
                 popup.built(instance);
                 slot.focusInitial();
             }
-            onBuildFailed: key => popup.dismissed()
+            onBuildFailed: key => popup.requestDismiss()
         }
     }
 }

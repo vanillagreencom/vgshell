@@ -21,12 +21,13 @@ marker = "    function geometry() { const p = mapToGlobal(0, 0); return JSON.str
 assert text.count(marker) == 1, "geometry must occur once"
 text = text.replace(marker, marker + "    function smokeMarkerGeometry() { const p = smokeMarker.mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, smokeMarker.width, smokeMarker.height]); }\n", 1)
 marker = "    T.Control {\n"
-insert = '''    Item {
+insert = '''    Rectangle {
         id: smokeMarker
         x: 4
         y: 84
         width: 24
         height: 24
+        color: "#ff00ff"
         MouseArea {
             anchors.fill: parent
             acceptedButtons: Qt.AllButtons
@@ -97,12 +98,13 @@ expect_poll "Escape closes an IPC panel the plugin leaves unaccepted" 0 layer_co
 
 summon_noescape="$repo/shell/Hosts/SummonPopupNoEscape.qml"
 summon_copy="$repo/shell/Hosts/SummonPopupNoGrab.qml"
+summon_no_commit="$repo/shell/Hosts/SummonPopupNoCommit.qml"
 layer_copy="$repo/shell/Hosts/SummonLayerNoCatch.qml"
 python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_noescape" <<'PYEDIT'
 import pathlib, sys
 source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 text = source.read_text()
-old = "        Keys.onEscapePressed: popup.dismissed()\n"
+old = "        Keys.onEscapePressed: popup.requestDismiss()\n"
 assert text.count(old) == 1, "the SummonPopup Escape handler must occur once"
 target.write_text(text.replace(old, ""))
 PYEDIT
@@ -112,6 +114,20 @@ source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 text = source.read_text()
 assert text.count("    grabFocus: true\n") == 1, "the SummonPopup grab must occur once"
 target.write_text(text.replace("    grabFocus: true\n", "    grabFocus: false\n"))
+PYEDIT
+python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_no_commit" <<'PYEDIT'
+import pathlib, sys
+source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+text = source.read_text()
+old = "        if (window !== null) window.update();\n"
+assert text.count(old) == 1, "the SummonPopup commit request must occur once"
+marker = "    property real motionProgress: 0\n"
+assert text.count(marker) == 1, "the SummonPopup motion state must occur once"
+text = text.replace(marker, marker + "    property bool skipCommit: false\n", 1)
+marker = "    function finishDismiss() {\n        visible = false;\n    }\n"
+assert text.count(marker) == 1, "the SummonPopup finishDismiss function must occur once"
+text = text.replace(marker, marker + "\n    function disableCommit() { skipCommit = true; }\n", 1)
+target.write_text(text.replace(old, "        if (!skipCommit && window !== null) window.update();\n"))
 PYEDIT
 python3 - "$repo/shell/Hosts/SummonLayer.qml" "$layer_copy" <<'PYEDIT'
 import pathlib, sys
@@ -306,6 +322,91 @@ expect "the capped source window closes" ok ipc shell hide window acme.surfaces
 # one that would not fit is the compositor's to slide, and the row asserts
 # only that it stays on the screen and under its anchor.
 popup_geometry() { ipc smoke invokeInstance "$1" acme.surfaces geometry ''; }
+popup_marker_geometry() { ipc smoke invokeInstance "$1" acme.surfaces smokeMarkerGeometry ''; }
+popup_marker_box() {
+  local socket
+  socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return 1
+  shot_grim "$socket" "$rt_dir" -o "$screen_name" -t ppm - | python3 -c '
+import sys
+data = sys.stdin.buffer.read().split(b"\n", 3)
+if len(data) != 4 or data[0] != b"P6" or data[2] != b"255":
+    print("unreadable")
+    sys.exit()
+w, h = map(int, data[1].split())
+pixels = data[3]
+if len(pixels) != w * h * 3:
+    print("unreadable")
+    sys.exit()
+xs, ys = [], []
+for i in range(0, len(pixels), 3):
+    r, g, b = pixels[i], pixels[i + 1], pixels[i + 2]
+    if r >= 240 and g <= 32 and b >= 240:
+        p = i // 3
+        xs.append(p % w)
+        ys.append(p // w)
+if not xs:
+    print("absent")
+else:
+    print("[%d,%d,%d,%d]" % (min(xs), min(ys), max(xs) - min(xs) + 1, max(ys) - min(ys) + 1))
+'
+}
+popup_marker_follows() {
+  local actual expected
+  actual="$(popup_marker_box)" || return 1
+  expected="$(popup_marker_geometry panel)" || return 1
+  python3 - "$actual" "$expected" <<'PY'
+import json, sys
+try:
+    actual = json.loads(sys.argv[1])
+    expected = json.loads(sys.argv[2])
+except Exception:
+    print("marker=%s expected=%s" % (sys.argv[1], sys.argv[2]))
+    sys.exit()
+same = len(actual) == 4 and len(expected) == 4 and all(abs(actual[i] - expected[i]) <= 1 for i in range(4))
+print("followed" if same else "marker=%s expected=%s" % (actual, expected))
+PY
+}
+popup_motion_state() {
+  local value
+  value="$(ipc smoke popupRead "$1" motionProgress)" || return 1
+  python3 - "$value" <<'PY'
+import sys
+try:
+    value = float(sys.argv[1])
+except ValueError:
+    print(sys.argv[1])
+    sys.exit()
+if value <= 0:
+    print("closed")
+elif value < 1:
+    print("moving")
+else:
+    print("rest")
+PY
+}
+install_tail_widget() {
+  local tail="$home/.config/vgshell/plugins/acme.surfaces-tail"
+  mkdir -p "$tail"
+  cp -R "$repo/scripts/smoke/fixtures/plugins/acme.surfaces/." "$tail/"
+  python3 - "$tail/manifest.json" <<'PY'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+d = json.loads(p.read_text())
+d["id"] = "acme.surfaces-tail"
+d["name"] = "Surfaces tail"
+d["kinds"] = ["bar-widget"]
+d["entryPoints"] = {"bar-widget": "Widget.qml"}
+d.pop("capabilities", None)
+p.write_text(json.dumps(d))
+PY
+  rescan "the tail widget fixture is scanned for the flyout follow re-layout"
+  expect "enabling the tail widget fixture is allowed" ok ipc shell setPluginEnabled acme.surfaces-tail true
+}
+remove_tail_widget() {
+  expect "hiding the tail widget fixture is allowed" ok ipc shell setPluginPlaced acme.surfaces-tail false
+  rm -rf -- "$home/.config/vgshell/plugins/acme.surfaces-tail"
+  rescan "the tail widget fixture is removed after the flyout follow check"
+}
 placed_below() { # POPUP_KIND ANCHOR_HOST ANCHOR_FUNCTION [WINDOW_X WINDOW_Y]
   local actual anchor
   actual="$(popup_geometry "$1")" || return
@@ -325,6 +426,13 @@ PY
 panel_origin() { layers_of vgs:panel | py_reply 'import json,sys; l=json.load(sys.stdin)[0]; print(l[0], l[1])'; }
 expect "the widget summons its panel under itself" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces summonHere ''
 geometry expect_poll "the popup panel sits under its widget" placed placed_below panel "bar:$screen_name" geometry
+render expect_poll "the compositor shows the panel marker where Qt maps it" followed popup_marker_follows
+flyout_follow_check() { render expect_poll "the compositor flyout follows the widget after another right-section widget is added" followed popup_marker_follows; }
+anchor_updates="$(log_lines 'summon popup: anchor updated for acme\.surfaces')" || fail "instance log unreadable: $instance_log"
+install_tail_widget
+expect_log "the host updates the popup's anchor for the bar re-layout" "$((anchor_updates + 1))" 'summon popup: anchor updated for acme\.surfaces'
+flyout_follow_check
+remove_tail_widget
 expect "the anchored panel received the widget's payload" '"{\"from\":\"widget\"}"' ipc smoke readInstance panel acme.surfaces lastPayload
 expect "the anchored panel uses no layer surface" 0 layer_count vgs:panel
 expect_poll "the anchored panel focuses initialFocus without a ring" '["Control", "Initial focus", false, false, true]' surface_focused panel
@@ -354,6 +462,42 @@ expect "hiding the parent panel is allowed" ok ipc shell hide panel acme.surface
 expect "the rightmost widget opens a menu" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces menuHere '{}'
 geometry expect_poll "the menu at the screen edge stays fully on screen" placed placed_below menu "bar:$screen_name" geometry
 expect "hiding the edge menu is allowed" ok ipc shell hide menu acme.surfaces
+
+surface_motion_theme="$home/.config/vgshell/theme.json"
+surface_motion_had_theme=false
+if [[ -f $surface_motion_theme ]]; then
+  cp -- "$surface_motion_theme" "$sandbox/surface-motion-theme.json"
+  surface_motion_had_theme=true
+fi
+printf '%s\n' '{"schemaVersion":1,"name":"surface-motion","tokens":{"motion":{"scale":4}}}' >"$surface_motion_theme.tmp"
+mv -T -- "$surface_motion_theme.tmp" "$surface_motion_theme"
+expect_poll "the flyout motion duration is slowed for the motion check" 400 ipc smoke themeValue motion.flyout.travel.duration
+expect "the probe builds the SummonPopup copy for motion" ok ipc smoke popupLoad summon-motion "$repo/shell/Hosts/SummonPopup.qml" "bar:$screen_name" acme.surfaces '{"pluginId":"acme.surfaces","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
+expect "the motion copy's panel takes a payload" '' ipc smoke invokeInstance panel acme.surfaces open '{}'
+expect "the motion copy opens with a fade-slide in progress" moving popup_motion_state summon-motion
+expect_poll "the motion copy reaches rest after opening" rest popup_motion_state summon-motion
+expect "the motion copy starts closing" ok ipc smoke popupCall summon-motion requestDismiss
+expect_poll "the motion copy closes with a fade-slide in progress" moving popup_motion_state summon-motion
+expect_poll "the motion copy releases its popup after closing" false ipc smoke popupRead summon-motion visible
+expect "the probe drops the motion copy" ok ipc smoke popupDrop summon-motion
+expect_poll "the motion copy's panel leaves the build records" absent ipc smoke readInstance panel acme.surfaces opened
+printf '%s\n' '{"schemaVersion":1,"name":"surface-motion-off","tokens":{"motion":{"scale":0}}}' >"$surface_motion_theme.tmp"
+mv -T -- "$surface_motion_theme.tmp" "$surface_motion_theme"
+expect_poll "motion scale 0 stills the flyout duration" 0 ipc smoke themeValue motion.flyout.travel.duration
+expect "the probe builds the SummonPopup copy for motion off" ok ipc smoke popupLoad summon-motion-off "$repo/shell/Hosts/SummonPopup.qml" "bar:$screen_name" acme.surfaces '{"pluginId":"acme.surfaces","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
+expect "the motion-off copy's panel takes a payload" '' ipc smoke invokeInstance panel acme.surfaces open '{}'
+expect_poll "the motion-off copy opens at rest" rest popup_motion_state summon-motion-off
+expect "the motion-off copy starts closing" ok ipc smoke popupCall summon-motion-off requestDismiss
+expect_poll "motion scale 0 closes the copy at once" false ipc smoke popupRead summon-motion-off visible
+expect "the probe drops the motion-off copy" ok ipc smoke popupDrop summon-motion-off
+expect_poll "the motion-off copy's panel leaves the build records" absent ipc smoke readInstance panel acme.surfaces opened
+if [[ $surface_motion_had_theme == true ]]; then
+  cp -- "$sandbox/surface-motion-theme.json" "$surface_motion_theme.tmp"
+  mv -T -- "$surface_motion_theme.tmp" "$surface_motion_theme"
+else
+  rm -f -- "$surface_motion_theme"
+fi
+expect_poll "the original flyout motion duration returns after the motion check" 100 ipc smoke themeValue motion.flyout.travel.duration
 
 # An anchored surface takes a focus grab, so a click outside it closes it
 # and calls the plugin's close(). The clicks go through the nested
@@ -390,6 +534,20 @@ expect "the widget opens an anchored panel" ok ipc smoke invokeInstance "bar:$sc
 expect_poll "the panel is open before the outside click" 1 ipc smoke readInstance panel acme.surfaces opened
 click "$((mon_w / 2))" "$((mon_h / 2))" || fail "the click outside the panel failed"
 expect_poll "the outside click closes an anchored panel too" absent ipc smoke readInstance panel acme.surfaces opened
+
+expect "the probe builds the SummonPopup copy without the forced commit" ok ipc smoke popupLoad summon-no-commit "$summon_no_commit" "bar:$screen_name" acme.surfaces '{"pluginId":"acme.surfaces","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
+expect "the no-commit copy's panel takes a payload" '' ipc smoke invokeInstance panel acme.surfaces open '{}'
+expect_poll "the no-commit copy is shown" true ipc smoke popupRead summon-no-commit visible
+expect "the no-commit copy commits its first frame" ok ipc smoke popupCall summon-no-commit followAnchor
+render expect_poll "the no-commit copy starts with its marker where Qt maps it" followed popup_marker_follows
+expect "the no-commit copy disables its forced commit after the first frame" ok ipc smoke popupCall summon-no-commit disableCommit
+install_tail_widget
+flyout_follow_control() { (failures=0 behaviour_failures=0; flyout_follow_check >"$sandbox/flyout-follow-control.log"; echo "$failures"); }
+expect "control: a popup without the forced commit fails the same compositor follow assertion" 1 flyout_follow_control
+sed 's/^/  CONTROL  /' "$sandbox/flyout-follow-control.log"
+remove_tail_widget
+expect "the probe drops the no-commit copy" ok ipc smoke popupDrop summon-no-commit
+expect_poll "the no-commit copy's panel leaves the build records" absent ipc smoke readInstance panel acme.surfaces opened
 
 # Replacing an open plugin runs open() on the replacement. A refusal must
 # remove its surface just as a refusal during the first summon does.

@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtQml.Models
 
 // Keeps a popup window with the item it opened from. The compositor places
@@ -21,7 +22,13 @@ QtObject {
     }
 
     function follow() {
-        if (popup.visible) popup.anchor.updateAnchor();
+        if (!popup.visible) return;
+        popup.anchor.updateAnchor();
+        const window = popup.contentItem ? popup.contentItem.Window.window : null;
+        // Quickshell sends xdg_popup.reposition during the popup's polish;
+        // Qt needs QQuickWindow.update() to commit a frame when only the
+        // anchor changed.
+        if (window !== null) window.update();
     }
 
     readonly property Instantiator watchers: Instantiator {

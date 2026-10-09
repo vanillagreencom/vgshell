@@ -247,6 +247,10 @@ var TOKENS = {
         // launcher's card motion: `slow` and a fifth, on the standard curve.
         surface: {
             resize: { duration: duration("mul({motion.duration.slow}, 1.2)"), easing: easing("{motion.easing.standard}") }
+        },
+        flyout: {
+            travel: { duration: duration("{motion.duration.fast}"), easing: easing("{motion.easing.standard}") },
+            slide: length("{space.lg}")
         }
     },
 
