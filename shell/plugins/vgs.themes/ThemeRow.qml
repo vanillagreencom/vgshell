@@ -136,7 +136,11 @@ Column {
                             anchors.verticalCenter: parent.verticalCenter
                         }
                     }
-                    KeyCaps { visible: root.secondaryShortcutShown; shortcut: "ALT+D" }
+                    Row {
+                        visible: root.secondaryShortcutShown
+                        spacing: Theme.space.xxs
+                        KeyCaps { shortcut: "ALT+D" }
+                    }
                     Row {
                         visible: root.swatch !== null
                         spacing: Theme.stack.row
