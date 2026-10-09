@@ -355,8 +355,8 @@ Item {
             const panelPane = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 240; height: 160; container: "panel"; header: [ Item { width: 10; height: 20 } ]\nItem { width: parent.width; height: 20 } }', root, "panelPane");
             compare(windowPane.gap, Theme.stack.section);
             compare(panelPane.gap, Theme.stack.group);
-            compare(scroll(windowPane).y + windowPane.ringRoom - (headerSlot(windowPane).y + headerSlot(windowPane).height), Theme.stack.section);
-            compare(scroll(panelPane).y + panelPane.ringRoom - (headerSlot(panelPane).y + headerSlot(panelPane).height), Theme.stack.group);
+            compare(scroll(windowPane).y + windowPane.ringRoom - (headerSlot(windowPane).y + headerSlot(windowPane).height), Math.max(Theme.stack.section, windowPane.contentInset + Theme.divider.thickness + windowPane.ringRoom));
+            compare(scroll(panelPane).y + panelPane.ringRoom - (headerSlot(panelPane).y + headerSlot(panelPane).height), Math.max(Theme.stack.group, panelPane.contentInset + Theme.divider.thickness + panelPane.ringRoom));
             windowPane.destroy();
             panelPane.destroy();
         }
@@ -528,14 +528,12 @@ Item {
             made.destroy();
         }
 
-        // The body's room at the cap: 300 less 12 inset twice, the 20 px
-        // header, the 30 px footer and a 12 px gap after the header and
-        // before the footer is 300 - 24 - 20 - 30 - 24 = 202. A body that
-        // takes it fills the pane to its cap and does not scroll.
+        // The body fills the cap after the bar insets, divider and focus
+        // ring room. It does not overflow because its gaps match the layout.
         function test_a_body_sized_from_its_room_fills_the_pane_to_its_cap() {
             const made = filled.createObject(root);
-            compare(made.bodyRoom, 202);
-            tryCompare(made, "bodyContentHeight", 202);
+            compare(made.bodyRoom, 192);
+            tryCompare(made, "bodyContentHeight", 192);
             compare(made.height, 300);
             verify(!made.scrollArea.overflowing, "the filled body does not scroll");
             compare(made.scrollArea.interactive, false);
@@ -637,6 +635,44 @@ Item {
             tryCompare(made, "contentInset", Theme.scrollArea.gutter);
             compare(made.contentInset, Theme.scrollArea.gutter);
             made.destroy();
+        }
+
+        // AI Usage, Settings SaveBar and Dialog all use these shared slots.
+        function test_sticky_bars_have_equal_line_and_container_padding_data() {
+            return [
+                { tag: "window", container: "window" },
+                { tag: "panel", container: "panel" },
+                { tag: "dialog", container: "dialog" },
+                { tag: "popover", container: "popover" },
+                { tag: "overlay", container: "overlay" },
+                { tag: "custom look", container: "panel", padding: 31, line: 3 },
+                { tag: "small padding", container: "panel", padding: 4, line: 2 }
+            ];
+        }
+
+        function test_sticky_bars_have_equal_line_and_container_padding(data) {
+            const made = createTemporaryObject(scrolledPanel, root, { container: data.container });
+            if (data.padding !== undefined) made.padding = data.padding;
+            if (data.line !== undefined) made.dividerWidth = data.line;
+            waitForRendering(made);
+            const view = scroll(made);
+            verify(view.overflowing);
+            view.contentY = Math.min(20, (view.contentHeight - view.height) / 2);
+            const head = headerSlot(made);
+            const foot = footerSlot(made);
+            const headLine = divider(made);
+            const footLine = footerDivider(made);
+            verify(headLine.visible && footLine.visible);
+            const headBottom = head.mapToItem(made, 0, head.height).y;
+            const footTop = foot.mapToItem(made, 0, 0).y;
+            const headToEdge = head.mapToItem(made, 0, 0).y;
+            const footToEdge = made.boxHeight - foot.mapToItem(made, 0, foot.height).y;
+            compare(headLine.y - headBottom, headToEdge, "header line padding equals top padding");
+            compare(footTop - (footLine.y + footLine.height), footToEdge, "footer line padding equals bottom padding");
+            compare(headToEdge, head.x, "header vertical and side padding match");
+            compare(footToEdge, made.width - foot.x - foot.width, "footer vertical and side padding match");
+            verify(headLine.y + headLine.height <= view.y, "the header line clears the focus-ring viewport");
+            verify(footLine.y >= view.y + view.height, "the footer line clears the focus-ring viewport");
         }
 
         // Both dividers, shown at once, are one line: the divider's 1 px

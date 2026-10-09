@@ -104,8 +104,11 @@ Item {
     readonly property real footerHeight: footerSlot.children.length > 0 ? footerSlot.implicitHeight : 0
     readonly property bool contentBelowHeader: bodyContentHeight > 0 || footerHeight > 0
     readonly property real headerBodyGap: hasTitle && headerSlotImplicitHeight === 0 ? Theme.stack.titleSpace : gap
-    readonly property real headerGap: headerHeight > 0 && contentBelowHeader ? headerBodyGap : 0
-    readonly property real footerGap: footerHeight > 0 && bodyContentHeight > 0 ? gap : 0
+    // A sticky bar keeps the container inset between its content and its
+    // line. Leave the viewport's ring room on the other side of that line.
+    readonly property real stickyGap: contentInset + dividerWidth + ringRoom
+    readonly property real headerGap: headerHeight > 0 && contentBelowHeader ? (bodyContentHeight > 0 ? Math.max(headerBodyGap, stickyGap) : headerBodyGap) : 0
+    readonly property real footerGap: footerHeight > 0 && bodyContentHeight > 0 ? Math.max(gap, stickyGap) : 0
     readonly property real uncappedHeight: 2 * contentInset + headerHeight + headerGap + bodyContentHeight + footerGap + footerHeight
     readonly property real cappedHeight: maximumHeight > 0 ? Math.min(uncappedHeight, maximumHeight) : uncappedHeight
     // The height the box lays out in: a fitted pane's capped height, or
@@ -120,7 +123,7 @@ Item {
     // its cap without a binding loop and without overflowing.
     readonly property real bodyRoom: {
         const limit = fitToContent ? (maximumHeight > 0 ? maximumHeight : Infinity) : height;
-        return Math.max(0, limit - 2 * contentInset - headerHeight - footerHeight - (headerHeight > 0 ? headerBodyGap : 0) - (footerHeight > 0 ? gap : 0));
+        return Math.max(0, limit - 2 * contentInset - headerHeight - footerHeight - (headerHeight > 0 ? Math.max(headerBodyGap, stickyGap) : 0) - (footerHeight > 0 ? Math.max(gap, stickyGap) : 0));
     }
     readonly property alias scrollArea: scroll
 
@@ -343,13 +346,13 @@ Item {
 
     Rule {
         id: headerDivider
-        y: root.contentInset + root.headerHeight + Math.round((root.headerGap - height) / 2)
+        y: root.contentInset + root.headerHeight + root.contentInset
         visible: root.headerHeight > 0 && scroll.contentY > 0
     }
 
     Rule {
         id: footerDivider
-        y: footerSlot.y - root.footerGap + Math.round((root.footerGap - height) / 2)
+        y: footerSlot.y - root.contentInset - height
         visible: root.footerHeight > 0 && !root.cardGrowing && scroll.contentY + scroll.height < scroll.contentHeight - 1
     }
 }

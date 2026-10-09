@@ -70,7 +70,7 @@ Item {
             waitForRendering(made);
             const block = titleBlock(made);
             const marker = findChild(made, "bodyMarker");
-            compare(itemTop(marker, made) - (itemTop(block, made) + block.height), Theme.stack.group);
+            compare(itemTop(marker, made) - (itemTop(block, made) + block.height), Math.max(Theme.stack.group, made.contentInset + Theme.divider.thickness + made.ringRoom));
             made.destroy();
         }
 
@@ -126,7 +126,7 @@ Item {
             compare(block.children[3].contentItem, block.children[3], "the title Slot measures itself");
             compare(headerSlot(made).contentItem, headerSlot(made), "the header Slot measures itself");
             const next = data.variant === "header" ? headerSlot(made) : marker;
-            compare(itemTop(next, made) - (itemTop(block, made) + block.height), Theme.stack.titleSpace);
+            compare(itemTop(next, made) - (itemTop(block, made) + block.height), data.variant === "header" ? Theme.stack.titleSpace : Math.max(Theme.stack.titleSpace, made.contentInset + Theme.divider.thickness + made.ringRoom));
             if (data.variant === "description" || data.variant === "description-stack") {
                 const subtitle = block.children[4];
                 compare(subtitle.y - made.titleRowHeight, Theme.row.lineGap);
@@ -164,7 +164,7 @@ Item {
             verify(Theme.stack.titleSpace >= bodyLine.lineBox, "the title space contains a drawn body line");
             const next = data.body ? findChild(made, "bodyMarker") : pane.children[4];
             const block = titleBlock(pane);
-            compare(itemTop(next, pane) - (itemTop(block, pane) + block.height), Theme.stack.titleSpace);
+            compare(itemTop(next, pane) - (itemTop(block, pane) + block.height), data.body ? Math.max(Theme.stack.titleSpace, pane.contentInset + Theme.divider.thickness + pane.ringRoom) : Theme.stack.titleSpace);
             compare(block.children[4].implicitHeight > 0, data.message !== "");
             made.destroy();
         }

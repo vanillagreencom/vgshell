@@ -91,6 +91,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 ### Layout
 
 - Do put each surface title in the shared `Pane` title slot. Keep its subtitle or description with the title. Leave `Theme.stack.titleSpace`, at least one body line, after the whole title block. Never add a private title margin.
+- Do give a sticky header or footer equal padding on every side. The space between its line and its content equals the space between its content and the container edge. Use the shared `Pane` geometry or the container's padding token, never a separate bar offset. `scripts/qml-tests/tst_pane.qml` pins the rule.
 - Do put a pending-changes row in the shared `Pane` footer, pinned to the bottom of the System or Shell & Plugins panel. Never put it in the scrolling body; review holds it.
 - Do use a centred modal for a timed trial or a confirmation the user must see, such as Keep/Revert. Never use an inline card; review holds it.
 - Do compose `Pane` for every window, dialog, panel, popover and overlay, and never write a second inset. Align boxed children and unboxed text to its content edge. `scripts/qml-tests/tst_pane.qml` pins the box.

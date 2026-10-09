@@ -50,6 +50,9 @@ fi
 # path. The replacement keeps the text around the
 # behaviour and removes the behaviour. A field holds no `|`, the separator.
 mutations=(
+  "a sticky header keeps half-gap padding|layout/Pane.qml|y: root.contentInset + root.headerHeight + root.contentInset|y: root.contentInset + root.headerHeight + Math.round((root.headerGap - height) / 2)|tst_pane.qml"
+  "a sticky footer keeps half-gap padding|layout/Pane.qml|y: footerSlot.y - root.contentInset - height|y: footerSlot.y - root.footerGap + Math.round((root.footerGap - height) / 2)|tst_pane.qml"
+  "a sticky divider covers the viewport's ring room|layout/Pane.qml|readonly property real stickyGap: contentInset + dividerWidth + ringRoom|readonly property real stickyGap: contentInset + dividerWidth|tst_pane.qml"
   "System Monitor paints no detail text|../plugins/vgs.sysmon/Reading.qml|            role: \"hint\"|            role: \"hint\"; opacity: 0|tst_sysmon_widget.qml"
   "System Monitor replaces detail rows on each sample|../plugins/vgs.sysmon/Reading.qml|model: root.details.length|model: root.details|tst_sysmon_widget.qml"
   "System Monitor freezes detail values|../plugins/vgs.sysmon/Reading.qml|text: root.details[index]|text: \"stale\"|tst_sysmon_widget.qml"
@@ -428,8 +431,8 @@ mutations=(
   "the pane ignores the container radius|layout/Pane.qml|radius: root.cornerRadius|radius: 0|tst_pane.qml"
   "the pane ignores the dialog component padding|layout/Pane.qml|case \"dialog\": return Theme.dialog.padding;|case \"dialog\": return Theme.inset.dialog;|tst_pane.qml"
   "a slot reads its children's laid-out boxes|layout/Pane.qml|widest = Math.max(widest, child.implicitWidth);|widest = Math.max(widest, child.x + child.width);|tst_pane.qml"
-  "the body's room keeps no gap before the footer|layout/Pane.qml| - (footerHeight > 0 ? gap : 0));|);|tst_pane.qml"
-  "the body's room keeps no gap after the header|layout/Pane.qml| - (headerHeight > 0 ? headerBodyGap : 0) - | - |tst_pane.qml"
+  "the body's room keeps no gap before the footer|layout/Pane.qml| - (footerHeight > 0 ? Math.max(gap, stickyGap) : 0));|);|tst_pane.qml"
+  "the body's room keeps no gap after the header|layout/Pane.qml| - (headerHeight > 0 ? Math.max(headerBodyGap, stickyGap) : 0) - | - |tst_pane.qml"
   "a non-expandable disclosure keeps chevron room|layout/Disclosure.qml|                visible: root.expandable|                visible: true|tst_disclosure.qml"
   "a list item trailing row stops before the edge|layout/ListItem.qml|x: parent.width - width|x: parent.width - width - Theme.listItem.gap|tst_disclosure.qml"
   "a selected card without a wallpaper names no theme|../plugins/vgs.themes/ThemeCard.qml|root.expanded && root.backdrop) && !(root.expanded && picture.visible)|false) && !(root.expanded && picture.visible)|tst_themecard.qml"
@@ -445,7 +448,7 @@ mutations=(
   "the body's room ignores the footer|layout/Pane.qml| - headerHeight - footerHeight - | - headerHeight - |tst_pane.qml"
   "an overlay pane takes the panel inset|layout/Pane.qml|case \"overlay\": return Theme.inset.overlay;|case \"overlay\": return Theme.surface.padding;|tst_pane.qml"
   "an overlay pane clears a corner it does not draw|layout/Pane.qml|case \"overlay\": return 0;|case \"overlay\": return Theme.surface.radius;|tst_pane.qml"
-  "the pane drops the gap between a header and footer without a body|layout/Pane.qml|readonly property real headerGap: headerHeight > 0 && contentBelowHeader ? headerBodyGap : 0|readonly property real headerGap: headerHeight > 0 && bodyContentHeight > 0 ? headerBodyGap : 0|tst_pane.qml"
+  "the pane drops the gap between a header and footer without a body|layout/Pane.qml|readonly property real headerGap: headerHeight > 0 && contentBelowHeader ? (bodyContentHeight > 0 ? Math.max(headerBodyGap, stickyGap) : headerBodyGap) : 0|readonly property real headerGap: headerHeight > 0 && bodyContentHeight > 0 ? Math.max(headerBodyGap, stickyGap) : 0|tst_pane.qml"
   "the pane does not cap fitted content|layout/Pane.qml|readonly property real cappedHeight: maximumHeight > 0 ? Math.min(uncappedHeight, maximumHeight) : uncappedHeight|readonly property real cappedHeight: uncappedHeight|tst_pane.qml"
   "the pane's footer sits on the body|layout/Pane.qml|y: scroll.y + scroll.height - root.ringRoom + root.footerGap|y: scroll.y + scroll.height - root.ringRoom|tst_pane.qml"
   "the pane puts an external footer in its scrolling body|layout/Pane.qml|property alias footer: footerSlot.data|property alias footer: bodyColumn.data|tst_pane.qml"

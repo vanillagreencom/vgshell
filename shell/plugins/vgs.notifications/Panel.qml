@@ -33,11 +33,11 @@ FocusScope {
     // As wide as the column: the cards with their side room, where the
     // scroll bar sits, wider than the header they sit under.
     implicitWidth: Math.max(header.implicitWidth, listScroll.implicitWidth) + 2 * column.contentInset
-    readonly property real panelMaxHeight: 2 * column.contentInset + look.header.height + column.headerBodyGap + look.panel.rowCap * (look.card.maxHeight + look.card.gap) + look.stack.tail
+    readonly property real panelMaxHeight: 2 * column.contentInset + look.header.height + Math.max(column.headerBodyGap, column.stickyGap) + look.panel.rowCap * (look.card.maxHeight + look.card.gap) + look.stack.tail
     // The key hints sit under the list, outside its scroll, and the list
     // gives up their room within the panel's cap.
-    readonly property real hintRoom: hintRow.visible ? look.header.gap + look.card.gap + hintRow.implicitHeight : 0
-    implicitHeight: Math.min(2 * column.contentInset + column.headerHeight + column.headerBodyGap + listScroll.implicitHeight + hintRoom, panelMaxHeight)
+    readonly property real hintRoom: hintRow.visible ? Math.max(look.header.gap, column.stickyGap) + hintRow.implicitHeight : 0
+    implicitHeight: Math.min(2 * column.contentInset + column.headerHeight + Math.max(column.headerBodyGap, column.stickyGap) + listScroll.implicitHeight + hintRoom, panelMaxHeight)
 
     onCurrentIndexChanged: {
         if (refreshing) return;
@@ -310,7 +310,7 @@ FocusScope {
                 anchors.fill: parent
                 scrollObjectName: "notificationPanelScrollBar"
                 look: root.look
-                maxHeight: root.panelMaxHeight - 2 * column.contentInset - column.headerHeight - column.headerBodyGap - root.hintRoom
+                maxHeight: root.panelMaxHeight - 2 * column.contentInset - column.headerHeight - Math.max(column.headerBodyGap, column.stickyGap) - root.hintRoom
 
                 Label {
                     Layout.preferredWidth: root.look.card.width
@@ -414,13 +414,12 @@ FocusScope {
         footer: [
             Item {
                 width: column.contentWidth
-                implicitHeight: hintRow.visible ? root.look.card.gap + hintRow.implicitHeight : 0
+                implicitHeight: hintRow.visible ? hintRow.implicitHeight : 0
                 height: implicitHeight
                 KeyHints {
                     id: hintRow
                     width: root.look.card.width
                     x: (parent.width - width) / 2
-                    y: root.look.card.gap
                     visible: root.rows.length > 0
                     hints: [
                         { key: "Delete", text: "dismiss" },

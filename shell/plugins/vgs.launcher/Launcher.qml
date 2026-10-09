@@ -1091,7 +1091,7 @@ Item {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.top: parent.bottom
-                    anchors.topMargin: root.look.header.dividerOffset
+                    anchors.topMargin: card.contentInset
                     anchors.leftMargin: -root.look.card.padding
                     anchors.rightMargin: -root.look.card.padding
                     height: root.look.glass.hairlineWidth

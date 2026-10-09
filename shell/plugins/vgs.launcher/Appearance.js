@@ -127,9 +127,7 @@ var TOKENS = {
         glyphInset: length(10),
         textGap: length(12),
         textInset: length(10),
-        buttonInset: length(2),
-        // round(gap / 2) - 1, the hairline's place in the gap.
-        dividerOffset: length(17)
+        buttonInset: length(2)
     },
 
     search: {
