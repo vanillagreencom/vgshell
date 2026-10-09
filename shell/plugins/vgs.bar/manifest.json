@@ -9,21 +9,29 @@
   "icon": "panel-top",
   "kinds": [
     "bar",
-    "service"
+    "service",
+    "panel"
   ],
   "entryPoints": {
     "bar": "Bar.qml",
-    "service": "Service.qml"
+    "service": "Service.qml",
+    "panel": "Calendar.qml"
   },
   "capabilities": [
     "builtins",
     "compositor",
     "configure",
     "ipc",
-    "shortcut"
+    "run",
+    "shortcut",
+    "surfaces"
+  ],
+  "requirements": [
+    { "command": "gio", "packages": { "pacman": "glib2", "dnf": "glib2", "nix": "glib" }, "optional": false, "purpose": "Opens a calendar day in the default browser" }
   ],
   "settings": {
     "clockFormat": "ddd d MMM  HH:mm",
+    "calendarUrl": "https://calendar.google.com/calendar/r/day/{year}/{month}/{day}",
     "hidden": false
   },
   "schema": {
@@ -42,6 +50,16 @@
         { "value": "h:mm AP" },
         { "value": "yyyy-MM-dd HH:mm" },
         { "value": "ddd d MMM" }
+      ]
+    },
+    "calendarUrl": {
+      "type": "string",
+      "label": "Calendar",
+      "description": "The web calendar a click on a day in the clock's calendar opens. A custom address takes {year}, {month} and {day}",
+      "allowCustom": true,
+      "presets": [
+        { "value": "https://calendar.google.com/calendar/r/day/{year}/{month}/{day}", "label": "Google Calendar" },
+        { "value": "https://outlook.live.com/calendar/0/view/day/{year}/{month}/{day}", "label": "Outlook" }
       ]
     },
     "hidden": {

@@ -1719,28 +1719,6 @@ Scope {
         function popupItemGeometry(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string): string {
             return root.geometry(root.popupItem(hostKey, id, scopeType, scopeText, type, text));
         }
-        // Every shown item whose objectName is NAME inside the open overlays
-        // of an instance, in tree order, as [[x, y, width, height] in screen
-        // coordinates, { property: value }] for each property named in the
-        // comma list; a colour reads as its #aarrggbb name. "absent" when
-        // the instance is.
-        function popupItems(hostKey: string, id: string, name: string, properties: string): string {
-            const item = root.instance(hostKey, id);
-            if (item === null) return "absent";
-            const names = properties === "" ? [] : properties.split(",");
-            const out = [];
-            for (const owner of root.descendants(item)) {
-                const popup = owner.tracker !== undefined && owner.tracker !== null ? owner.tracker.popup : null;
-                if (popup === null || popup === undefined || !popup.visible) continue;
-                for (const child of root.descendants(popup.contentItem).filter(c => c.objectName === name && root.visibleInTree(c))) {
-                    const values = {};
-                    for (const key of names) values[key] = child[key] !== null && typeof child[key] === "object" && "hslHue" in child[key] ? child[key].toString() : child[key];
-                    const at = child.mapToGlobal(0, 0);
-                    out.push([[Math.round(at.x), Math.round(at.y), Math.round(child.width), Math.round(child.height)], values]);
-                }
-            }
-            return root.json(out);
-        }
         function popupItemHovered(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string): string {
             const found = root.popupItem(hostKey, id, scopeType, scopeText, type, text);
             return found === null ? "absent" : String(found.hovered === true);

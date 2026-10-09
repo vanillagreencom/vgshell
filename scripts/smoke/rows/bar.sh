@@ -1,4 +1,4 @@
-# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* config/shell.json shell/Core/PluginLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.sudo/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/IconButton.qml shell/Ui/overlay/Popover.qml shell/Ui/overlay/DismissScope.qml shell/Ui/overlay/AnchorTracker.qml shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json shell/Core/Capabilities.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Commons/Tokens.js
+# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* config/shell.json shell/Core/PluginLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.sudo/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/SummonPopup.qml shell/Commons/DesktopLaunch.js shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json shell/Core/Capabilities.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Commons/Tokens.js
 set -euo pipefail
 expect "instance guard accepts the runner's shell" true ipc shell guarded
 
@@ -114,41 +114,57 @@ PY
 }
 geometry expect_poll "the workspace pills and the clock share the bar's centre" '[]' bar_alignment
 
-# The clock's calendar: a click on the clock opens it on this month, Left
-# and Right and its month buttons switch the month, and Escape or a second
-# click on the clock closes it. The reading is the drawn title, the count
-# of day cells, the days whose cell takes the accent fill and the cells
-# off the bar's screen: Qt's month grid holds 42 days for every month, so
-# the calendar keeps one height, and today is marked in its own month
-# alone. calendar_want names the reading for the month OFFSET from this
-# one, with today's day unless a second argument replaces it. The sandbox
-# runs in the C locale, whose month names are English.
+bar_font_family() { ipc smoke readInstance "$(bar_key)" vgs.bar fontFamily; }
+expect "the bar API names the family of the bar role" '"JetBrains Mono"' bar_font_family
+expect "the core built the bar, its placed widget and the vgs.themes background per screen, the vgs.bar, vgs.themes and always-on vgs.settings services once each, and no built-in" "$((3 * monitors + 3))" builds
+# The clock's calendar, the bar's panel: a click on the clock opens it on
+# this month, Left and Right and its month buttons switch the month, a
+# click on a day opens that day in the default web calendar and closes it,
+# and Escape or a second click on the clock closes it. The reading is the
+# drawn title, the count of day buttons and the days whose button takes
+# the primary fill: Qt's month grid holds 42 days for every month, so the
+# calendar keeps one height, and today is marked in its own month alone.
+# calendar_off counts the day buttons off the bar's screen. calendar_want
+# names the reading for the month OFFSET from this one, with today's day
+# unless a second argument replaces it. The sandbox runs in the C locale,
+# whose month names are English.
 calendar_want() { # OFFSET [TODAY]
   python3 -c 'import datetime,sys
 t=datetime.date.today(); n=t.year*12+t.month-1+int(sys.argv[1])
 names="January February March April May June July August September October November December".split()
 mark=sys.argv[2] if len(sys.argv)>2 else (str(t.day) if sys.argv[1]=="0" else "none")
-print("%s %d cells=42 today=%s off=0" % (names[n%12], n//12, mark))' "$@"
+print("%s %d cells=42 today=%s" % (names[n%12], n//12, mark))' "$@"
 }
 calendar_read() {
-  local key title days accent bar_box
-  key="$(bar_key)" || return
-  title="$(ipc smoke popupItems "$key" vgs.bar/center-clock calendarTitle text)" || return
-  days="$(ipc smoke popupItems "$key" vgs.bar/center-clock calendarDay text,color)" || return
-  accent="$(ipc smoke themeValue color.accent)" || return
-  bar_box="$(ipc smoke instanceGeometry "$key" vgs.bar)" || return
-  python3 - "$title" "$days" "$accent" "$bar_box" <<'PY'
+  local labels days fill
+  labels="$(ipc smoke itemValues panel vgs.bar Label objectName,text)" || return
+  days="$(ipc smoke itemValues panel vgs.bar Button text,fill)" || return
+  fill="$(ipc smoke themeValue button.variant.primary.background)" || return
+  python3 - "$labels" "$days" "$fill" <<'PY'
 import json, sys
-title, days, accent, bar = (json.loads(a) for a in sys.argv[1:])
-if not title:
+if sys.argv[1] == "absent" or sys.argv[2] == "absent":
     print("closed")
     sys.exit()
+labels, days, fill = (json.loads(a) for a in sys.argv[1:])
 def opaque(colour):
     colour = str(colour).lower()
     return colour[-6:] if len(colour) == 7 or colour[1:3] == "ff" else None
-marked = [values["text"] for _, values in days if opaque(values["color"]) == opaque(accent)]
-off = [values["text"] for box, values in days if box[0] < bar[0] or box[0] + box[2] > bar[0] + bar[2] or box[1] < bar[1]]
-print("%s cells=%d today=%s off=%d" % (title[0][1]["text"], len(days), ",".join(marked) or "none", len(off)))
+title = [label["text"] for label in labels if label["objectName"] == "calendarTitle"]
+marked = [day["text"] for day in days if opaque(day["fill"]) == opaque(fill)]
+print("%s cells=%d today=%s" % (title[0] if title else "untitled", len(days), ",".join(marked) or "none"))
+PY
+}
+calendar_off() {
+  local rows bar_box
+  rows="$(ipc smoke descendantGeometry panel vgs.bar)" || return
+  bar_box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar)" || return
+  python3 - "$rows" "$bar_box" <<'PY'
+import json, sys
+if sys.argv[1] == "absent":
+    print("closed")
+    sys.exit()
+rows, bar = (json.loads(a) for a in sys.argv[1:])
+print(len([1 for r in rows if r["type"] == "Button" and (r["box"][0] < bar[0] or r["box"][0] + r["box"][2] > bar[0] + bar[2] or r["box"][1] < bar[1])]))
 PY
 }
 clock_click() {
@@ -157,27 +173,58 @@ clock_click() {
   read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x + w / 2), int(y + h / 2))' "$box") || return
   click "$x" "$y" && echo ok
 }
+# A click at the centre of BOX, a [x, y, w, h] reading, or no click when
+# the box is absent.
+calendar_click_box() {
+  local x y
+  [[ $1 == \[* ]] || return 1
+  read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x + w / 2), int(y + h / 2))' "$1") || return
+  click "$x" "$y" && echo ok
+}
 calendar_keys() { type_keys "$@" && echo ok; }
-calendar_button() { click_item "popup:$(bar_key)" vgs.bar/center-clock "" "" IconButton "$1" && echo ok; }
+# The controls run on a shell just started, whose bar can take a click
+# before the compositor maps it, so they open the same panel through the
+# core's summon, which the clock's click asks for too.
+calendar_summon() { ipc shell summon panel vgs.bar '{}'; }
+calendar_button() { calendar_click_box "$(ipc smoke labelledGeometry panel vgs.bar IconButton "$1")"; }
+calendar_day() { calendar_click_box "$(ipc smoke itemGeometry panel vgs.bar Button "$1")"; }
 expect "a click on the clock reaches it" ok clock_click
-geometry expect_poll "the calendar opens on this month with today marked" "$(calendar_want 0)" calendar_read
+expect_poll "the calendar opens on this month with today marked" "$(calendar_want 0)" calendar_read
 expect "Right reaches the calendar" ok calendar_keys -k Right
-geometry expect_poll "Right shows the next month with no day marked" "$(calendar_want 1)" calendar_read
+expect_poll "Right shows the next month with no day marked" "$(calendar_want 1)" calendar_read
 expect "Left twice reaches the calendar" ok calendar_keys -k Left -k Left
-geometry expect_poll "Left twice shows the previous month with no day marked" "$(calendar_want -1)" calendar_read
+expect_poll "Left twice shows the previous month with no day marked" "$(calendar_want -1)" calendar_read
 expect "Next month is pressed" ok calendar_button "Next month"
-geometry expect_poll "Next month returns to this month with today marked" "$(calendar_want 0)" calendar_read
+expect_poll "Next month returns to this month with today marked" "$(calendar_want 0)" calendar_read
 expect "Previous month is pressed" ok calendar_button "Previous month"
-geometry expect_poll "Previous month shows the previous month" "$(calendar_want -1)" calendar_read
+expect_poll "Previous month shows the previous month" "$(calendar_want -1)" calendar_read
 expect "a second click on the clock reaches it" ok clock_click
 expect_poll "a second click on the clock closes the calendar" closed calendar_read
 expect "a third click on the clock reaches it" ok clock_click
-geometry expect_poll "the calendar opens on this month again" "$(calendar_want 0)" calendar_read
+expect_poll "the calendar opens on this month again" "$(calendar_want 0)" calendar_read
 expect "Escape reaches the calendar" ok calendar_keys -k Escape
 expect_poll "Escape closes the calendar" closed calendar_read
+# A day opens through `gio open`, which the shell resolves through the
+# stand-in directory first: this stand-in logs its arguments, so no
+# browser starts. With no stand-in the row clicks no day.
+calendar_gio_calls="$sandbox/calendar-gio.calls"
+: >"$calendar_gio_calls"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>%q\n' "$calendar_gio_calls" >"$shim/gio.next" \
+  && chmod 755 "$shim/gio.next" && mv -T -- "$shim/gio.next" "$shim/gio"
+expect "the shell resolves gio to the calendar's stand-in" "$shim/gio" shell_resolves gio
+if [[ $(shell_resolves gio) == "$shim/gio" ]]; then
+  calendar_day_want="$(python3 -c 'import datetime; t=datetime.date.today(); print("open https://calendar.google.com/calendar/r/day/%d/%d/15" % (t.year, t.month))')"
+  expect "a click on the clock opens the calendar for a day" ok clock_click
+  expect_poll "the calendar is open on this month for a day" "$(calendar_want 0)" calendar_read
+  expect "the 15th is pressed" ok calendar_day 15
+  expect_poll "the 15th opens that day in Google Calendar" "$calendar_day_want" cat "$calendar_gio_calls"
+  expect_poll "a day that opened closes the calendar" closed calendar_read
+fi
+rm -f -- "${shim:?}/gio"
 # The clock at the left and at the right end of the bar, written into the
 # user file as the Settings layout editor writes a move; the file is put
-# back after.
+# back after. The calendar centres under the clock and slides to stay on
+# the screen.
 calendar_saved="$sandbox/calendar-shell.json"
 cp -- "$home/.config/vgshell/shell.json" "$calendar_saved"
 calendar_place() { # left|right
@@ -212,16 +259,14 @@ for calendar_section in left right; do
   calendar_place "$calendar_section"
   geometry expect_poll "the clock moves to the $calendar_section end" "$calendar_section" clock_third
   expect "a click on the clock at the $calendar_section end reaches it" ok clock_click
-  geometry expect_poll "at the $calendar_section end the calendar stays on the bar's screen" "$(calendar_want 0)" calendar_read
+  expect_poll "at the $calendar_section end the calendar opens on this month" "$(calendar_want 0)" calendar_read
+  geometry expect_poll "at the $calendar_section end every day stays on the bar's screen" 0 calendar_off
   expect "Escape reaches the calendar at the $calendar_section end" ok calendar_keys -k Escape
   expect_poll "Escape closes the calendar at the $calendar_section end" closed calendar_read
 done
 cp -- "$calendar_saved" "$home/.config/vgshell/shell.json.tmp"
 mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
 geometry expect_poll "the clock returns to the centre" center clock_third
-bar_font_family() { ipc smoke readInstance "$(bar_key)" vgs.bar fontFamily; }
-expect "the bar API names the family of the bar role" '"JetBrains Mono"' bar_font_family
-expect "the core built the bar, its placed widget and the vgs.themes background per screen, the vgs.bar, vgs.themes and always-on vgs.settings services once each, and no built-in" "$((3 * monitors + 3))" builds
 
 # Disable only lists the id: the layout entry and its settings stay, so
 # re-enabling restores the exact screen. The effective configuration is
@@ -907,10 +952,32 @@ expect_poll "the restored profile holds no spacer" "$spacer_none" spacer_layout
 # that passed above.
 stop_shell
 if copy_tree calendar-unmarked \
-  && edit_tree calendar-unmarked shell/plugins/vgs.bar/Clock.qml 'color: today ? Theme.color.accent : "transparent"' 'color: "transparent"'; then
+  && edit_tree calendar-unmarked shell/plugins/vgs.bar/Calendar.qml 'variant: today ? "primary" : "ghost"' 'variant: "ghost"'; then
   start_shell "$sandbox/tree-calendar-unmarked" "$sandbox/calendar-unmarked.log" || fail "the unmarked calendar control starts"
-  expect "control: a click on the clock reaches it" ok clock_click
-  geometry expect_poll "control: a calendar that marks no day reads no today" "$(calendar_want 0 none)" calendar_read
+  expect "control: the calendar opens" ok calendar_summon
+  expect_poll "control: a calendar that marks no day reads no today" "$(calendar_want 0 none)" calendar_read
   stop_shell
 fi
+# Today's day falls among another month's days on some dates only, so a
+# tree whose today is the 1st of this month proves the in-month rule on
+# every date: the previous month's grid always ends with this month's
+# first days. Its control drops the rule and marks that day.
+for calendar_case in first first-unguarded; do
+  copy_tree "calendar-$calendar_case" \
+    && edit_tree "calendar-$calendar_case" shell/plugins/vgs.bar/Calendar.qml 'readonly property int todayDay: Time.now.getDate()' 'readonly property int todayDay: 1' \
+    || continue
+  if [[ $calendar_case == first-unguarded ]]; then
+    edit_tree "calendar-$calendar_case" shell/plugins/vgs.bar/Calendar.qml 'readonly property bool today: inMonth && year' 'readonly property bool today: year' || continue
+  fi
+  start_shell "$sandbox/tree-calendar-$calendar_case" "$sandbox/calendar-$calendar_case.log" || fail "the $calendar_case calendar tree starts"
+  expect "$calendar_case: the calendar opens" ok calendar_summon
+  expect_poll "$calendar_case: the calendar marks the 1st of this month" "$(calendar_want 0 1)" calendar_read
+  expect "$calendar_case: Previous month is pressed" ok calendar_button "Previous month"
+  if [[ $calendar_case == first ]]; then
+    expect_poll "the previous month leaves this month's 1st unmarked among its days" "$(calendar_want -1 none)" calendar_read
+  else
+    expect_poll "control: without the in-month rule the previous month marks this month's 1st" "$(calendar_want -1 1)" calendar_read
+  fi
+  stop_shell
+done
 start_shell "$repo" "$sandbox/calendar-restored.log" || fail "the shell returns after the calendar control"
