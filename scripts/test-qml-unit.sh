@@ -388,6 +388,7 @@ mutations=(
   "the scroll area keeps its gutter under the bar over rows|layout/ScrollArea.qml|contentWidth: width - 2 * focusInset - (barOverContent ? 0 : rightInset)|contentWidth: width - rightInset|tst_overlays.qml"
   "the scroll area leaves no gutter|layout/ScrollArea.qml|contentWidth: width - 2 * focusInset - (barOverContent ? 0 : rightInset)|contentWidth: width|tst_scroll.qml"
   "the scroll area's gutter comes and goes with the overflow|layout/ScrollArea.qml|contentWidth: width - 2 * focusInset - (barOverContent ? 0 : rightInset)|contentWidth: overflowing ? width - rightInset : width|tst_scroll.qml"
+  "the scroll area draws no cue over content clipped below|layout/ScrollArea.qml|visible: root.cueBelow|visible: false|tst_scroll.qml"
   "the scroll area drops content height while its ancestor is hidden|layout/ScrollArea.qml|if (!child.visible && root.visible) continue;|if (!child.visible) continue;|tst_scroll.qml"
   "keyboard scroll ring ignores tab focus|layout/ScrollArea.qml|target: keyboardFocus|target: root|tst_scroll.qml"
   "keyboard scroll ring touches content at its previous inset placement|layout/ScrollArea.qml|keyboardScroll ? Theme.focusRing.width + Theme.focusRing.offset : 0|0|tst_scroll.qml"

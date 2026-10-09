@@ -21,7 +21,12 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // the item under the pointer, which selects text where text is selectable.
 // It takes the wheel and a touch only while its content overflows, so a
 // touch on an area that fits reaches what lies under it, such as a scrim
-// that closes a full-screen view.
+// that closes a full-screen view. While the content overflows, an edge cue,
+// a shade `space.lg` deep from the shadow colour `hyprland.shadow.color`,
+// lies over each edge where content is clipped: the bottom while content
+// continues below the view, the top while content is scrolled under it,
+// `cueBelow` and `cueAbove`. Unlike the bar it never fades, so a page cut
+// at the window's edge says so at rest; it takes no input.
 Flickable {
     id: root
 
@@ -36,6 +41,9 @@ Flickable {
     readonly property real focusInset: keyboardScroll ? Theme.focusRing.width + Theme.focusRing.offset : 0
     readonly property real measuredContentHeight: measureContentHeight()
     readonly property bool overflowing: scrollBar.needed
+    // Under half a pixel of clipped content is float noise, as for the bar.
+    readonly property bool cueAbove: overflowing && !barHeld && contentY >= 0.5
+    readonly property bool cueBelow: overflowing && !barHeld && contentHeight - height - contentY >= 0.5
     readonly property alias bar: scrollBar
     readonly property Item focusProxy: keyboardFocus
 
@@ -146,6 +154,28 @@ Flickable {
         focusPolicy: root.keyboardScroll ? Qt.StrongFocus : Qt.NoFocus
         activeFocusOnTab: root.keyboardScroll
         Keys.onPressed: event => { event.accepted = root.handleScrollKey(event); }
+    }
+
+    // The edge cues lie over the content and under the bar, whose z is 1.
+    Rectangle {
+        parent: root
+        anchors { left: contentClip.left; right: contentClip.right; top: contentClip.top }
+        height: Theme.space.lg
+        visible: root.cueAbove
+        gradient: Gradient {
+            GradientStop { position: 0; color: Theme.hyprland.shadow.color }
+            GradientStop { position: 1; color: "transparent" }
+        }
+    }
+    Rectangle {
+        parent: root
+        anchors { left: contentClip.left; right: contentClip.right; bottom: contentClip.bottom }
+        height: Theme.space.lg
+        visible: root.cueBelow
+        gradient: Gradient {
+            GradientStop { position: 0; color: "transparent" }
+            GradientStop { position: 1; color: Theme.hyprland.shadow.color }
+        }
     }
 
     ScrollBar {

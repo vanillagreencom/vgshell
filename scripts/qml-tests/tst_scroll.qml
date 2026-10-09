@@ -12,7 +12,9 @@ import qs.Unit
 // of the track; dragging the thumb scrolls the content with it and a press
 // on the track pages; it shows while hovered or scrolling and fades to
 // `scrollArea.idleOpacity` after `scrollArea.fadeDelay`. A select's long
-// list keeps the gutter clear at each entry's end, under the bar.
+// list keeps the gutter clear at each entry's end, under the bar. An
+// overflowing area draws a lasting edge cue at each edge where content is
+// clipped, and none while its content fits.
 Item {
     id: root
     width: 400
@@ -145,6 +147,31 @@ Item {
             verify(Theme.scrollArea.gutter <= Theme.inset.window, "the default gutter fits in the window inset");
             verify(inset.bar.x >= inset.contentWidth, "bar starts at " + inset.bar.x + ", content ends at " + inset.contentWidth);
             verify(inset.bar.x + inset.bar.width <= inset.width, "bar ends inside the scroll area");
+        }
+
+        // The drawn edge cues of AREA as { above, below }: its gradient
+        // shades over the content clip's top and bottom edges.
+        function cues(area) {
+            const shades = area.children.filter(child => child.gradient !== undefined && child.gradient !== null);
+            compare(shades.length, 2, "the area holds a top and a bottom cue");
+            const top = area.focusInset;
+            const bottom = area.height - area.focusInset;
+            const above = shades.find(child => child.y === top);
+            const below = shades.find(child => child.y + child.height === bottom);
+            verify(above !== undefined && below !== undefined && above !== below, "one cue lies on each edge of the view");
+            return { above: above, below: below };
+        }
+
+        function test_an_edge_cue_marks_each_clipped_edge() {
+            const drawn = cues(area);
+            compare([area.cueAbove, area.cueBelow, drawn.above.visible, drawn.below.visible], [false, true, false, true], "at the top only the bottom cue shows");
+            verify(drawn.below.height > 0 && drawn.below.width > 0, "the bottom cue has a size");
+            area.contentY = 40;
+            compare([area.cueAbove, area.cueBelow, drawn.above.visible, drawn.below.visible], [true, true, true, true], "midway both cues show");
+            area.contentY = area.contentHeight - area.height;
+            compare([area.cueAbove, area.cueBelow, drawn.above.visible, drawn.below.visible], [true, false, true, false], "at the end only the top cue shows");
+            const fits = cues(short);
+            compare([short.cueAbove, short.cueBelow, fits.above.visible, fits.below.visible], [false, false, false, false], "content that fits shows no cue");
         }
 
         function test_the_thumb_is_the_view_share_and_never_below_the_minimum() {
