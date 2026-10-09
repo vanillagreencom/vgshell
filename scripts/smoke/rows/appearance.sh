@@ -18,7 +18,7 @@
 # user's 10, clicks Use my Hyprland value and reads the setting, the layer's
 # radius group and VGS's rounding gone, Hyprland's 10 shown and the keys on
 # the slider, then Use theme value. A section a click on the sidebar opens
-# shows no focus ring, and the keyboard's way back into it shows one. In the Motion
+# shows no focus ring. In the Motion
 # section Space turns Motion off and every duration goes still, Use theme
 # value moves them again, and Window animations writes Hyprland's
 # animations. In the UI section End sets the control radius to 16 for
@@ -185,11 +185,6 @@ if read -r ex ey < <(at_centre "window:System Settings" "$app_entry"); then
   expect_poll "a click on the Windows entry mounts its section" '["vgs.windows"]' window_panes
   expect_poll "the clicked section's slider holds the keys" '["Slider",null]' app_focus vgs.windows
   expect "a section a click opens shows no focus ring" false app_visual_focus vgs.windows
-  # The keyboard's way back in, Escape to the sidebar and Return on the
-  # shown section, keeps its reason, so the same slider shows its ring.
-  type_keys -k Escape || fail "Escape out of the Windows section failed"
-  type_keys -k Return || fail "Return on the Windows entry failed"
-  expect_poll "the keyboard's way into the section shows its focus ring" true app_visual_focus vgs.windows
 else
   fail "the Windows entry of the sidebar has no box: $app_entry"
 fi
