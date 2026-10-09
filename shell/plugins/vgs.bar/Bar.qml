@@ -32,7 +32,7 @@ Item {
     readonly property var familyLabels: ({ gap: "Gap", separator: "Separator" })
     // The family of registration `name`, or "" for a fixed builtin.
     function familyOf(name) {
-        const match = /^([a-z]+)-[1-9][0-9]*$/.exec(name);
+        const match = /^([a-z][a-z0-9]*)-[1-9][0-9]*$/.exec(name);
         return match !== null && builtinFamilies.indexOf(match[1]) !== -1 ? match[1] : "";
     }
     function builtinLabel(name) {
@@ -43,8 +43,7 @@ Item {
     readonly property string builtinKey: JSON.stringify(
         ["left", "center", "right"].reduce((entries, section) => entries.concat(widgetLayout[section]), [])
             .filter(entry => shell !== null && entry.id.indexOf(shell.manifest.id + "/") === 0)
-            .map(entry => shell === null ? "" : entry.id.slice(shell.manifest.id.length + 1))
-            .filter(name => builtinNames.indexOf(name) !== -1 || familyOf(name) !== ""))
+            .map(entry => shell === null ? "" : entry.id.slice(shell.manifest.id.length + 1)))
 
     // ListModel.move keeps Repeater delegates alive across section changes:
     // https://doc.qt.io/qt-6/qml-qtqml-models-listmodel.html#move-method.
