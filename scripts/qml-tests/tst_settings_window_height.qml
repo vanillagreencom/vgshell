@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import Quickshell.Hyprland
 import qs.Commons
 import qs.Core
 import qs.Ui
@@ -14,16 +15,23 @@ import "../../shell/plugins/vgs.settings"
 // measured with its rows. A page past the cap takes the cap and scrolls.
 // While the window shows, a page change asks the compositor for the
 // window's client and resizes it to that height, keeping its width; the
-// dispatch's effect is read back in the settings smoke row. The shell here
-// stands in for the window's capabilities: a manager whose rows the test
-// names, a screen of a fixed size, a key capture and a compositor whose
-// window reads the test answers.
+// dispatch's effect is read back in the settings smoke row. The resize
+// keeps to the room of the screen the client is on, which a page change
+// finds by the name of the client's monitor. The shell here stands in for
+// the window's capabilities: a manager whose rows the test names, the
+// screen the window opened on, of a fixed size, beside the screen of the
+// client's monitor, a key capture and a compositor whose window reads the
+// test answers; the Hyprland stand-in reserves that monitor's top 40 px.
 Item {
     id: root
     width: 1200
     height: 1200
 
-    readonly property var screen: ({ width: 1920, height: 1080 })
+    // The screen the window opened on, which Hyprland reserves nothing of,
+    // and the screen of the client's monitor, which each window state the
+    // test answers sets.
+    readonly property var screen: ({ name: "DP-1", x: 0, y: 0, width: 1920, height: 1080 })
+    property var monitorScreen: null
 
     // One manager row, as the manager lists it, with FIELDS over a plugin
     // that has nothing to set.
@@ -123,18 +131,22 @@ Item {
         function client(fields) {
             return Object.assign({ class: "org.vgs.shell", title: "Plugins", mapped: true, address: "0xb", monitor: 3, floating: true, fullscreen: 0, at: [70, 60], size: [512, 300] }, fields);
         }
-        // The state of CLIENTS, as Hyprland's j/clients, on one monitor at
-        // scale 2, unrotated, whose top 40 px are reserved: a work area from
-        // y 40 to BOTTOM, 1000 unless given; MONITOR's fields go over it.
-        function state(clients, bottom, monitor) {
-            const screen = Object.assign({ id: 3, x: 0, y: 0, width: 3200, height: 2 * (bottom === undefined ? 1000 : bottom), scale: 2, transform: 0, reserved: [0, 40, 0, 0] }, monitor);
-            return { ok: true, clients: clients, monitors: [screen] };
+        // The state of CLIENTS, as Hyprland's j/clients, on monitor DP-3,
+        // whose screen is BOTTOM tall, 1000 unless given, with SCREEN's
+        // fields over it, and whose top 40 px are reserved: a work area from
+        // the screen's y + 40 to its y + BOTTOM. Quickshell hands the
+        // reserved list over as a Qt sequence, an array-like that is no
+        // Array.
+        function state(clients, bottom, screen) {
+            root.monitorScreen = Object.assign({ name: "DP-3", x: 0, y: 0, width: 1600, height: bottom === undefined ? 1000 : bottom }, screen);
+            Hyprland.monitors = { "DP-3": { lastIpcObject: { reserved: { length: 4, 0: 0, 1: 40, 2: 0, 3: 0 } } } };
+            return { ok: true, clients: clients, monitors: [{ id: 3, name: "DP-3" }] };
         }
-        // Answer every waiting read with state(CLIENTS, BOTTOM, MONITOR).
-        function answer(clients, bottom, monitor) {
+        // Answer every waiting read with state(CLIENTS, BOTTOM, SCREEN).
+        function answer(clients, bottom, screen) {
             const waiting = reads;
             reads = [];
-            for (const done of waiting) done(state(clients, bottom, monitor));
+            for (const done of waiting) done(state(clients, bottom, screen));
         }
     }
 
@@ -143,7 +155,7 @@ Item {
         readonly property var manager: fakeManager
         readonly property var compositor: fakeCompositor
         readonly property var manifest: ({ id: "vgs.settings", name: "Plugins" })
-        readonly property var screens: ({ current: root.screen })
+        readonly property var screens: ({ current: root.screen, get all() { return root.monitorScreen === null ? [root.screen] : [root.screen, root.monitorScreen]; } })
         readonly property var shortcut: ({ capture: null })
     }
 
@@ -173,6 +185,8 @@ Item {
             fakeCompositor.reads = [];
             fakeCompositor.calls = [];
             fakeCompositor.sync = null;
+            root.monitorScreen = null;
+            Hyprland.monitors = {};
         }
 
         // The list page and its pane.
@@ -332,10 +346,11 @@ Item {
             compare(fakeCompositor.calls, [["resize", "0xb", 512, height], ["move", "0xb", 70, data.y(bottom, height)]]);
         }
 
-        // On a rotated monitor the work area's height is the mode's width:
-        // a 2560 x 1440 mode turned by transform 1 is 2560 px tall, so a
-        // window at y 1500 has room for Details below it and keeps its place.
-        function test_a_rotated_monitor_bounds_by_its_logical_height() {
+        // The client's own monitor bounds it, not the screen the window
+        // opened on: a client dragged to a 1440 px monitor stacked below
+        // the 1080 px one keeps its place there, where the opening screen's
+        // room would have moved it back up.
+        function test_a_window_on_another_monitor_keeps_to_that_monitor() {
             const window = opened('{"plugin":"acme.detailed"}');
             const p = parts(window);
             fakeCompositor.reads = [];
@@ -343,9 +358,25 @@ Item {
             waitForRendering(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
             const height = window.mapHeight;
-            verify(1500 + height <= 2560 && 1500 + height > 1440, "Details fits under 2560 and not under 1440: " + height);
-            fakeCompositor.answer([fakeCompositor.client({ at: [70, 1500], size: [512, height - 200] })], undefined, { width: 2560, height: 1440, scale: 1, transform: 1 });
-            compare(fakeCompositor.calls, [["resize", "0xb", 512, height], ["move", "0xb", 70, 1500]]);
+            const at = 1080 + 60;
+            verify(at + height > 1080 - Theme.size.window.gutter, "Details at y " + at + " passes the opening screen's room: " + height);
+            verify(at + height <= 1080 + 1440 - Theme.size.window.gutter, "Details at y " + at + " fits the lower monitor's room: " + height);
+            fakeCompositor.answer([fakeCompositor.client({ at: [70, at], size: [512, height - 200] })], 1440, { y: 1080 });
+            compare(fakeCompositor.calls, [["resize", "0xb", 512, height], ["move", "0xb", 70, at]]);
+        }
+
+        // A client whose monitor no screen of the shell names is left alone,
+        // with a warning that names the monitor.
+        // expected-log: settings: resize screen=none monitor=DP-3 -- the test hands a monitor no screen names on purpose
+        function test_a_client_on_no_known_screen_is_left_alone() {
+            const window = opened('{"plugin":"acme.detailed"}');
+            const p = parts(window);
+            fakeCompositor.reads = [];
+            p.tabs.currentIndex = 1;
+            waitForRendering(window);
+            tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
+            fakeCompositor.answer([fakeCompositor.client({ size: [512, window.mapHeight - 200] })], undefined, { name: "HDMI-A-1" });
+            compare(fakeCompositor.calls, []);
         }
 
         // A tiled or fullscreen Plugins window is the user's layout: a page
