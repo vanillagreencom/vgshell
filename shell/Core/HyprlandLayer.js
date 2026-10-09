@@ -147,7 +147,9 @@ var APPLIED_GROUPS = ["borders", "radius", "motion"];
 // OPTIONS, and `member`, the shell.json `appearance` member that decides
 // the group (ThemeLogic.APPEARANCE, whose `hyprland` names the same group;
 // scripts/test-hyprland-layer.js holds the two equal). Kept out of
-// OPTIONS, which a manifest may map a setting to.
+// OPTIONS, which a manifest may map a setting to. The nested Hyprland
+// v0.56.2 answered `getoption` in this dot form for all three
+// (scripts/smoke/rows/appearance.sh, 2026-10-08).
 var APPEARANCE_PATHS = {
     borders: { path: "general.border_size", type: "int", member: "borderWidth" },
     radius: { path: "decoration.rounding", type: "int", member: "windowRadius" },
