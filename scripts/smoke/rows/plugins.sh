@@ -132,12 +132,12 @@ json.dump(d, open(p + ".tmp", "w"), indent=2)
 os.replace(p + ".tmp", p)
 PY
   expect_poll "the built-in clock received the bar's changed setting" '"HH:mm:ss"' read_clock format
-  clock_last="$(ipc smoke textOf "$(bar_key)" vgs.bar/center-clock)" || fail "clock text unreadable before seconds poll"
+  clock_last="$(ipc smoke readDescendant "$(bar_key)" vgs.bar/center-clock BarItem text)" || fail "clock text unreadable before seconds poll"
   clock_first="$clock_last"
   clock_changes=0
   clock_deadline=$(( $(now_ms) + 15000 ))
   while ((clock_changes < 2 && $(now_ms) < clock_deadline)); do
-    if clock_now="$(ipc smoke textOf "$(bar_key)" vgs.bar/center-clock)" && [[ $clock_now != "$clock_last" ]]; then
+    if clock_now="$(ipc smoke readDescendant "$(bar_key)" vgs.bar/center-clock BarItem text)" && [[ $clock_now != "$clock_last" ]]; then
       clock_changes=$((clock_changes + 1))
       clock_last="$clock_now"
     fi
