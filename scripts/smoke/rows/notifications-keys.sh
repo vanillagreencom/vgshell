@@ -325,14 +325,14 @@ nk_presses "after Escape"
 type_keys -k Escape || fail "sending the last Escape to the inbox failed"
 expect_poll "the last Escape closes the inbox" closed inbox_shown
 
-# The long inbox is one panel page: the history is emptied first, so the
-# list ends at its fortieth card and turning it to its end adds no page.
+# The panel lists every kept notification, so the history is emptied
+# first and the long inbox lists its forty cards alone.
 notes dismiss-all >/dev/null # `none` once every toast's clock ran out
 expect_poll "no toast shows before the long inbox" 0 note_status onScreen
 expect "clearing the history before the long inbox is allowed" ok notes clear-history
 expect_poll "the history is empty before the long inbox" 0 note_status history
 expect "the long inbox's toasts leave the screen" 0 long_inbox_rows
-expect_poll "the long inbox is one panel page" 40 note_status history
+expect_poll "the long inbox holds its forty cards alone" 40 note_status history
 geometry expect "a long inbox opened by the key eight times shows its first card whole each time" fits long_inbox_cut nk_press
 ok "long inbox readings: $(long_inbox_readings)"
 geometry expect "the long inbox list reaches the panel bottom at both scroll ends" "top=fits end=fits" long_inbox_ends nk_press

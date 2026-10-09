@@ -22,17 +22,6 @@ FocusScope {
     property bool silenced: false
     property var rows: []
     readonly property int rowCount: rows.length
-    // Whether the service keeps rows past the page shown; the list asks for
-    // the next page when a key moves onto its last row, or when the user
-    // moved its view to its end. A refresh replaces every card, and the
-    // content can stand shorter than the view while they are built, which
-    // reads as the view at its end with nobody having moved it: so the
-    // view counts only while the content overflows it, the view has left
-    // its top and no refresh runs.
-    property bool more: false
-    readonly property bool listAtEnd: !refreshing && listScroll.flickable.contentHeight > listScroll.flickable.height
-        && listScroll.flickable.contentY > 0 && listScroll.flickable.atYEnd
-    onListAtEndChanged: if (listAtEnd) showMore()
     property int currentIndex: 0
     property int actionIndex: -1
     property string selectedKey: ""
@@ -138,7 +127,6 @@ FocusScope {
             mode = state.mode === "history" ? "history" : "inbox";
             subtitle = String(state.subtitle || "");
             silenced = state.silenced === true;
-            more = state.more === true;
             refreshing = true;
             rows = Array.isArray(state.rows) ? state.rows : [];
             const kept = indexOfKey(previousKey);
@@ -150,13 +138,9 @@ FocusScope {
             if (selectedKey !== previousKey || actionIndex >= actionsOf(currentIndex).length) actionIndex = -1;
             refreshing = false;
             updateSelectionHover();
-            // A selection that kept its row and place keeps the view where
-            // it is, so a page added at the list's end leaves a scrolled
-            // view at the rows the user scrolled to.
-            if (selectedKey !== previousKey || currentIndex !== previousIndex) nav.reveal(currentIndex);
+            nav.reveal(currentIndex);
         } catch (e) {
             console.warn("notifications panel: state " + e.message);
-            more = false;
             refreshing = true;
             rows = [];
             currentIndex = -1;
@@ -203,12 +187,6 @@ FocusScope {
         refreshing = false;
         updateSelectionHover();
         nav.reveal(currentIndex);
-    }
-
-    function showMore() {
-        if (!opened || !more) return;
-        call("panel-more", "");
-        refresh();
     }
 
     function rowAt(index) {
@@ -387,10 +365,7 @@ FocusScope {
                             const row = root.rowAt(index);
                             return row === null ? "" : row.summary;
                         }
-                        onMoved: index => {
-                            root.selectIndex(index);
-                            if (index === root.rows.length - 1) root.showMore();
-                        }
+                        onMoved: index => root.selectIndex(index)
                         onActivated: index => root.actionIndex >= 0 ? root.pressAction() : root.openSelected()
                         onRemoved: index => root.dismissSelected()
                         onCrossed: delta => root.moveAction(delta)

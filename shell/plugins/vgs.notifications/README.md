@@ -12,7 +12,7 @@ Screenshots come from `scripts/readme-shots.sh` in the nested sandbox, with the 
 
 - Super+N opens and closes the panel. Escape closes it too.
 - Unread shows the notifications received since the last Mark read. History shows the saved ones.
-- History keeps every notification that leaves the screen for 24 hours. Clear history or a restart of the computer removes them sooner. Scroll to the end of the list to show older ones.
+- History keeps every notification that leaves the screen for 24 hours, at most the newest 100, and shows every one. Clear history or a restart of the computer removes them sooner.
 - Mark read marks the current notifications as read and closes the panel. Clear history removes the saved ones.
 - Silence keeps new notifications in History without showing them on screen.
 - A normal notification stays on screen for at least the Notification duration. A critical one stays until closed. Pointing at a notification pauses its timer.

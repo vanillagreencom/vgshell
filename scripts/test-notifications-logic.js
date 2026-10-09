@@ -77,7 +77,7 @@ const STATE_REFUSED = [
     ["a Silence that is no boolean", stateText({ dnd: "on" }), "dnd want=boolean"],
     ["a read cutoff that is no number", stateText({ readBefore: "0" }), "readBefore want=number"],
     ["a history that is no list", stateText({ history: {} }), "history want=list"],
-    ["a history past its limit", stateText({ history: Array.from({ length: 721 }, (_, i) => stored(1000 + i, i)) }), "history length=721 want<=720"],
+    ["a history past its limit", stateText({ history: Array.from({ length: 101 }, (_, i) => stored(1000 + i, i)) }), "history length=101 want<=100"],
     ["a live list past its limit", stateText({ live: Array.from({ length: 21 }, (_, i) => stored(1000 + i, i)) }), "live length=21 want<=20"],
     ["an entry that is no object", stateText({ history: [3] }), "history.0 want=object"],
     ["an entry with an unknown key", stateText({ history: [stored(5, 1, { extra: 1 })] }), "history.0.extra unknown"],
@@ -300,15 +300,16 @@ function verify(logic) {
     same(logic.clockFields({ remaining: 400, since: 1000 }), { deadline: 1400 });
     assert.equal("deadline" in plan.expired[1], false, "an expired entry leaves its deadline behind");
 
-    // History: newest first, each key once, 720 at most, none 24 hours old.
+    // History: newest first, each key once, a hundred at most, none 24
+    // hours old.
     const AGE = 24 * 3600 * 1000;
     const pushed = logic.pushHistory([stored(10, 1), stored(5, 2)], [stored(10, 1, { summary: "again" }), stored(20, 3, { deadline: 5 })], 1000);
     same(pushed.history.map(e => [e.key, e.summary]), [["20-3", "s3"], ["10-1", "again"], ["5-2", "s2"]]);
     assert.equal("deadline" in pushed.history[0], false, "the history keeps no deadline");
-    const full = Array.from({ length: 720 }, (_, i) => stored(10000 - i, i));
+    const full = Array.from({ length: 100 }, (_, i) => stored(10000 - i, i));
     const over = logic.pushHistory(full, [stored(20000, 5000)], 20000);
-    same([over.history.length, over.history[0].key, over.history[719].key, over.dropped.map(e => e.key)], [720, "20000-5000", "9282-718", ["9281-719"]], "the oldest goes past the limit");
-    same(logic.pushHistory(full.slice(0, 719), [stored(20000, 5000)], 20000).history.length, 720, "the history holds 720");
+    same([over.history.length, over.history[0].key, over.history[99].key, over.dropped.map(e => e.key)], [100, "20000-5000", "9902-98", ["9901-99"]], "the oldest goes past the limit");
+    same(logic.pushHistory(full.slice(0, 99), [stored(20000, 5000)], 20000).history.length, 100, "the history holds a hundred");
     // Age: an entry exactly 24 hours old at `now` is gone, one a
     // millisecond younger stays.
     const at = 5 * AGE;
@@ -321,7 +322,7 @@ function verify(logic) {
     assert.equal(logic.historyDue([]), null, "an empty history is due no prune");
 
     // Panels: the inbox after the cutoff, the history whole, neither with an
-    // entry 24 hours old; forty a page, a page more at the list's end.
+    // entry 24 hours old.
     const kept = Array.from({ length: 60 }, (_, i) => stored(600 - i, i));
     same(logic.panelRows(kept, "inbox", 590, 1000).map(e => e.timestamp), [600, 599, 598, 597, 596, 595, 594, 593, 592, 591]);
     same(logic.panelRows(kept, "history", 590, 1000).length, 60);
@@ -329,13 +330,6 @@ function verify(logic) {
     same(logic.panelRows([], "inbox", 0, 1000), []);
     same(logic.panelRows(kept, "history", 0, 590 + AGE).map(e => e.timestamp), [600, 599, 598, 597, 596, 595, 594, 593, 592, 591], "the history panel leaves out an entry 24 hours old");
     same(logic.panelRows(kept, "inbox", 595, 590 + AGE).map(e => e.timestamp), [600, 599, 598, 597, 596], "the inbox leaves out an entry 24 hours old");
-    const paged = logic.panelRows(Array.from({ length: 85 }, (_, i) => stored(1000 - i, i)), "history", 0, 1000);
-    for (const [pages, shown, more] of [[1, 40, true], [2, 80, true], [3, 85, false], [4, 85, false]]) {
-        const page = logic.panelPage(paged, pages);
-        same([page.rows.length, page.rows[0].timestamp, page.more], [shown, 1000, more], `a panel ${pages} pages deep`);
-    }
-    same(logic.panelPage([], 1), { rows: [], more: false }, "an empty panel has no more");
-    same(logic.panelPage(paged.slice(0, 40), 1).more, false, "one whole page has no more");
     for (const [mode, count, state, want] of [["inbox", 0, "loaded", "No unread notifications"], ["history", 0, "absent", "No saved notifications"], ["inbox", 1, "loaded", "1 notification"], ["history", 3, "loaded", "3 notifications"], ["inbox", 2, "corrupt", "Saved history is damaged"], ["history", 2, "unreadable", "Saved history cannot be read"], ["inbox", 2, "pending", "Loading saved history"], ["history", 2, "future-private-reason", "Saved history is unavailable"]])
         assert.equal(logic.panelSubtitle(mode, count, state), want, `subtitle ${mode} ${count} ${state}`);
 
@@ -376,10 +370,6 @@ function verify(logic) {
         assert.equal(logic.heldAfterLeave(reason, transient), want, `held after ${reason} transient=${transient}`);
     same(logic.heldPastHistory(["a", "b", "c", "d"], [stored(1, 1, { key: "a" })], [stored(2, 2, { key: "c" })]), ["b", "d"], "held past the history");
     same(logic.heldPastHistory([], [], []), [], "nothing held");
-    // The newest hundred history entries and the toasts on screen keep
-    // their notifications; the 101st entry on lets its go, entry kept.
-    const deep = Array.from({ length: 102 }, (_, i) => stored(5000 - i, i));
-    same(logic.heldPastHistory(["live", deep[0].key, deep[99].key, deep[100].key, deep[101].key], [stored(6000, 1, { key: "live" })], deep), [deep[100].key, deep[101].key], "held past the newest hundred");
 
     // The sender's windows: [label, windows, entry, addresses]. Those of
     // its desktop entry, else of its name, case folded; for a browser's web
@@ -831,7 +821,7 @@ const CONTROLS = [
     ["clock fields", "return clock.since === null ? { remaining: clock.remaining } : { deadline: clock.since + clock.remaining };", "return { deadline: clock.since + clock.remaining };"],
     ["history newest first", "merged.sort(function (a, b) { return b.timestamp - a.timestamp; });", ""],
     ["history cut", "return { history: young.slice(0, HISTORY_MAX), dropped: young.slice(HISTORY_MAX).concat(aged) };", "return { history: young, dropped: aged };"],
-    ["history cap", "var HISTORY_MAX = 720;", "var HISTORY_MAX = 100;"],
+    ["history cap", "var HISTORY_MAX = 100;", "var HISTORY_MAX = 720;"],
     ["age prune", "return entry.timestamp > now - HISTORY_AGE;", "return true;"],
     ["an entry exactly a day old goes", "return entry.timestamp > now - HISTORY_AGE;", "return entry.timestamp >= now - HISTORY_AGE;"],
     ["a push prunes by age", "var young = pruneHistory(merged, now);", "var young = merged;"],
@@ -839,9 +829,6 @@ const CONTROLS = [
     ["an empty history is due no prune", "if (history.length === 0) return null;", ""],
     ["inbox cutoff", '(mode !== "inbox" || e.timestamp > readBefore)', "true"],
     ["a panel leaves out an aged entry", 'return youngAt(e, now) && (mode', 'return (mode'],
-    ["panel page", "return { rows: rows.slice(0, limit), more: rows.length > limit };", "return { rows: rows, more: false };"],
-    ["a panel page is forty rows", "var limit = pages * PANEL_ROWS_MAX;", "var limit = PANEL_ROWS_MAX;"],
-    ["more rows past the page", "more: rows.length > limit", "more: false"],
     ["evict non-critical first", "if (rows[i].urgency !== URGENCY.critical) return rows[i].key;", ""],
     ["Show without actions", 'if (list.length === 0 && canRaise) list.push({ id: "open", label: "Show" });', ""],
     ["an open delivers its primary action", 'var id = c === "open" ? primaryAction(offered) :', 'var id = c === "open" ? "" :'],
@@ -858,8 +845,6 @@ const CONTROLS = [
     ["an invoked notification is closed on the server", 'if (reason === "invoke") return "dismiss";', 'if (reason === "invoke") return transient ? "dismiss" : "keep";'],
     ["a dismissal closes", 'if (reason === "dismiss") return "dismiss";', 'if (reason === "dismiss") return "keep";'],
     ["a held key past the history", "return keys.filter(function (k) { return !stored[k]; });", "return [];"],
-    ["held past the newest HELD_MAX", "for (var j = 0; j < history.length && j < HELD_MAX; j++)", "for (var j = 0; j < history.length; j++)"],
-    ["HELD_MAX is a hundred", "var HELD_MAX = 100;", "var HELD_MAX = 720;"],
     ["a held toast on screen stays", "for (var i = 0; i < live.length; i++) stored[live[i].key] = true;", ""],
     ["the sender's windows by name", "if (named.length > 0) return named.map(windowAddress);", ""],
     ["every window of the name", "if (named.length > 0) return named.map(windowAddress);", "if (named.length > 0) return [windowAddress(named[0])];"],

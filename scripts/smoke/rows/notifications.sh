@@ -1529,6 +1529,21 @@ expect "the probe counts exactly the forty visible emoji inbox rows" 40 inbox_im
 # (tst_slimscrollbar.qml).
 note_scroll_bars() { ipc smoke readDescendant panel vgs.notifications SlimScrollBar visible | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(json.dumps([False if t == "absent" else json.loads(t)]))'; }
 expect_poll "the forty-card history shows its scroll bar" '[true]' note_scroll_bars
+# The full history: sixty more make the hundred the history keeps, and the
+# History panel shows every one within the forty-card budget, read the same
+# way from the history call.
+expect "the forty-card history closes" ok notes close
+expect_poll "the forty-card history closed" '""' read_notes panelMode
+for i in $(seq 41 100); do notify_now "[acme] in inbox $i"; done
+expect_poll "the hundred emoji notifications are in the history" 100 note_status history
+cpu_start="$(cpu_some_us)"
+start="$(date +%s%3N)"
+notes history >/dev/null
+latency_since "the full history latency reader" "$start" 100 inbox_images
+full_history_ms="$latency_ms"
+printf '        latency_full_history_ms=%s budget_ms=%s cpu_some_pct=%s\n' "$full_history_ms" "$emoji_inbox_budget_ms" "$(cpu_some_pct "$cpu_start" "$(cpu_some_us)" "$(( $(date +%s%3N) - start ))")"
+expect "a history of a hundred cards appears within the forty-card budget" True within_budget "$full_history_ms" "$emoji_inbox_budget_ms"
+expect "the probe counts every one of the hundred emoji history rows" 100 inbox_images
 expect "the emoji inbox closes" ok notes close
 expect_poll "the emoji inbox closed" '""' read_notes panelMode
 expect "clearing the emoji history is allowed" ok notes clear-history
@@ -1586,7 +1601,7 @@ expect_poll "the layer goes with the last toast" 0 layer_count vgs:layer
 kept="$(note_status history)"
 expect "the inbox opens over IPC" ok notes inbox
 expect_poll "the panel is the inbox" '"inbox"' read_notes panelMode
-expect_poll "the inbox lists the kept notifications, forty at most" "$(( kept < 40 ? kept : 40 ))" panel_count
+expect_poll "the inbox lists every kept notification" "$kept" panel_count
 expect_poll "the inbox panel surface opens" 1 layer_count vgs:panel
 notify smoke-app 0 "While open" "" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
 expect_poll "a toast arriving with the panel open is listed" True has_row live "While open"
@@ -1606,7 +1621,7 @@ expect "the inbox opens again" ok notes inbox
 expect_poll "an inbox after Mark read is caught up" '"No unread notifications"' panel_subtitle
 expect "the history panel opens" ok notes history
 kept="$(note_status history)"
-expect_poll "the history lists what is kept" "$(( kept < 40 ? kept : 40 ))" panel_count
+expect_poll "the history lists every kept notification" "$kept" panel_count
 click_pill "Clear history" || fail "the click on Clear history failed"
 expect_poll "Clear history empties the stored history" 0 history_count
 expect_poll "its rows leave the panel" '[]' row_summaries panel
@@ -2088,55 +2103,31 @@ expect "control: a plain command-line notification under Silence is kept" True i
 expect "control: a transient notification under Silence is kept" True in_history "Quiet transient"
 expect "a malformed Silence argument is refused" 'refused: silence="loud" want=on|off|toggle' notes silence loud
 
-# The history keeps a bulk past two panel pages whole, the 720 it holds at
-# most being NotificationLogic's, which its suite pins. The panel shows a
-# page of forty, a page more as its list's view is turned to its end, with
-# the view left where it was, and the rest once a key moves onto its last
-# row. The history is emptied first, so the transient entry above, which
-# holds no notification, leaves the held count to the bulk.
+# The history keeps a hundred, newest first, the oldest going first past
+# them, and the History panel lists every kept entry. The history is
+# emptied first, so the transient entry above, which holds no
+# notification, leaves the held count to the bulk.
 expect "clearing the history before the bulk is allowed" ok notes clear-history
 expect_poll "the history is empty before the bulk" 0 history_count
-for i in $(seq 1 85); do notify smoke-bulk 0 "Bulk $i" "" '[]' '{}' 0 >/dev/null; done
-expect_poll "the history keeps the whole bulk" 85 history_count
-expect "the newest is first" '"Bulk 85"' state_at history.0.summary
-expect "the oldest is kept" True in_history "Bulk 1"
+for i in $(seq 1 105); do notify smoke-bulk 0 "Bulk $i" "" '[]' '{}' 0 >/dev/null; done
+expect_poll "the history keeps the newest hundred" 100 history_count
+expect "the newest is first" '"Bulk 105"' state_at history.0.summary
+expect "the oldest went" False in_history "Bulk 5"
+expect "the oldest kept is the sixth" True in_history "Bulk 6"
+# With a hundred kept, one more keeps a hundred: the oldest kept goes and
+# the new one stays.
+notify smoke-bulk 0 "Bulk 106" "" '[]' '{}' 0 >/dev/null
+expect_poll "control: the hundred-and-first is kept" True in_history "Bulk 106"
+expect "control: the hundred-and-first keeps a hundred" 100 history_count
+expect "control: the hundred-and-first lets the oldest kept go" False in_history "Bulk 6"
+expect "the next oldest stays" True in_history "Bulk 7"
 # The notifications held for the history are bounded by it: none outlives
-# its entry, so at most the kept bulk and the toasts on screen are held.
+# its entry, so at most the kept hundred and the toasts on screen are held.
 held_within_history() { notes status | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["held"] <= d["history"] + d["onScreen"] and d["held"] >= d["history"])'; }
-expect_poll "the held notifications are the kept bulk and the toasts on screen at most" True held_within_history
+expect_poll "the held notifications are the kept hundred and the toasts on screen at most" True held_within_history
 panel_total="$(( $(note_status history) + $(note_status onScreen) ))"
-expect "the bulk and the toasts on screen fill a third page" True python3 -c 'import sys; print(80 < int(sys.argv[1]) <= 120)' "$panel_total"
 expect "the history panel opens on the full history" ok notes history
-expect_poll "the full history panel shows its first page of forty rows" 40 panel_count
-expect_poll "the full history panel selects its newest row" "Bulk 85" panel_selected_summary
-# panel_wheel_end: the history panel's list, the view holding the newest
-# bulk card, turned ten notches down at its centre once at rest; prints the
-# panel's row count.
-panel_wheel_end() {
-  local view rect x y
-  view="$(view_at_rest panel vgs.notifications "Bulk 85")" || return
-  [[ $view == \{* ]] || { echo "$view"; return 0; }
-  rect="$(py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["box"]))' <<<"$view")" || return
-  read -r x y < <(at_centre vgs:panel "$rect") || return
-  hover "$x" "$y" && wheel "$x" "$y" 10 || return
-  panel_count
-}
-# panel_view_y: the history panel's list view once at rest, `scrolled` past
-# its top or `top`, else view_at_rest's words.
-panel_view_y() {
-  local view
-  view="$(view_at_rest panel vgs.notifications "Bulk 85")" || return
-  [[ $view == \{* ]] || { echo "$view"; return 0; }
-  py_reply 'import json,sys; print("scrolled" if json.load(sys.stdin)["contentY"] > 0 else "top")' <<<"$view"
-}
-wait_for "control: turning the list to its end shows a page more" 80 60 panel_wheel_end
-expect "the wheel left the selection on the newest row" "Bulk 85" panel_selected_summary
-expect "control: the view keeps its place once the page is added" scrolled panel_view_y
-expect "the page the wheel added leaves the rest for End" 80 panel_count
-expect_poll "the full history panel holds the keyboard on its list" True panel_focus_on_list
-type_keys -k End || fail "sending End to the history panel failed"
-expect_poll "control: End onto the last row shows the rest" "$panel_total" panel_count
-hover "$((mon_w - 5))" "$((mon_h - 5))" || fail "moving the pointer off the history panel failed"
+expect_poll "control: the History panel lists every kept entry and the toasts on screen" "$panel_total" panel_count
 expect "the panel closes over IPC" ok notes close
 expect_poll "the panel closed" '""' read_notes panelMode
 

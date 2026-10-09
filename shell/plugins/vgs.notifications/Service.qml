@@ -12,10 +12,11 @@ import "NotificationLogic.js" as Logic
 // setting names, and leaves into the history whatever takes it off the
 // screen: it expires, is dismissed, is opened or acted on, is closed by its
 // sender or is let go by a full stack, transient or not. The history keeps
-// it until the user clears it, the machine starts again or it is a day old
-// (Store). The Inbox shows what arrived since the last Mark read, the
-// History everything kept, a page at a time; while either is open the
-// toasts stay and do not expire. Opening a toast or an inbox row runs its
+// it until the user clears it, the machine starts again, it is a day old
+// or a hundred newer ones are kept (Store, NotificationLogic.HISTORY_MAX).
+// The Inbox lists what arrived since the last Mark read, the History
+// everything kept; while either is open the toasts stay and do not expire.
+// Opening a toast or an inbox row runs its
 // primary action, the sender's default, else its first; a pill runs its
 // own. Each is delivered while the service still holds the notification,
 // brings the sender's window into view (NotificationLogic.choicePlan) and
@@ -64,8 +65,7 @@ Item {
     // its history entry can still open (NotificationLogic.heldAfterLeave),
     // until that entry goes, the user dismisses or acts on it or its sender
     // closes it.
-    // At most one per toast on screen and per one of the newest
-    // NotificationLogic.HELD_MAX history entries (heldPastHistory).
+    // At most one per stored entry, so the history's limit bounds them.
     // `links` are the [signal, handler] pairs connected to it, disconnected
     // when the service lets go of it.
     property var held: ({})
@@ -102,10 +102,6 @@ Item {
     property int shownCount: 0
     readonly property bool silenced: store.dnd
     property int panelRevision: 0
-    // How many pages of rows the open panel shows (NotificationLogic.panelPage):
-    // one when it opens or changes mode, a page more each time its list
-    // reaches its end while more are kept.
-    property int panelPages: 1
 
     // The exit's and the entrance's whole length, as CardSlot.qml plays
     // them with glass or without (NotificationLogic.toastMotion).
@@ -252,7 +248,6 @@ Item {
         shell.ipc.handle("panel-closed", () => { root.panelClosed(); return "ok"; });
         shell.ipc.handle("panel-focused", arg => { root.panelFocused = arg === "on"; root.settle(); return "ok"; });
         shell.ipc.handle("panel-state", () => JSON.stringify(root.panelSnapshot()));
-        shell.ipc.handle("panel-more", () => root.morePanel());
         shell.ipc.handle("hover", arg => root.hoverFromPanel(arg));
         shell.ipc.handle("choose", arg => root.chooseFromPanel(arg));
         shell.ipc.handle("silence", arg => {
@@ -831,7 +826,6 @@ Item {
         const next = mode === "history" ? "history" : "inbox";
         if (panelMode === next) return;
         panelMode = next;
-        panelPages = 1;
         settle();
         bumpPanel();
     }
@@ -891,14 +885,6 @@ Item {
         return entries;
     }
 
-    // The panel's list reached its end: a page more while more are kept.
-    function morePanel() {
-        if (!panelOpen || !Logic.panelPage(panelEntries(), panelPages).more) return "none";
-        panelPages += 1;
-        bumpPanel();
-        return "ok";
-    }
-
     function panelRow(entry) {
         const enrichment = Logic.enrich(entry.app, entry.desktopEntry, entry.appIcon, entry.summary, entry.body);
         const workspace = workspaceOf(enrichment);
@@ -913,17 +899,13 @@ Item {
         return out;
     }
 
-    // The panel's header and its page of rows; the subtitle counts every
-    // row it lists, shown or not yet.
     function panelSnapshot() {
         const entries = panelEntries();
-        const page = Logic.panelPage(entries, panelPages);
         return {
             mode: panelMode === "history" ? "history" : "inbox",
             subtitle: Logic.panelSubtitle(panelMode === "" ? "inbox" : panelMode, entries.length, store.status),
             silenced: store.dnd,
-            more: page.more,
-            rows: page.rows.map(panelRow)
+            rows: entries.map(panelRow)
         };
     }
 
@@ -959,8 +941,7 @@ Item {
     }
 
     // Close, as `how` says, every held notification whose entry the store
-    // no longer keeps, trimmed off the history's end or cleared with it, or
-    // whose entry fell past the newest HELD_MAX, which keeps its entry.
+    // no longer keeps, trimmed off the history's end or cleared with it.
     function releaseUnstored(how) {
         for (const key of Logic.heldPastHistory(Object.keys(held), store.live, store.history)) unlink(key, how);
     }

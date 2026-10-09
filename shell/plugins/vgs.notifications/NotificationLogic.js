@@ -5,9 +5,8 @@
 // notification body may render, which notifications Silence lets through,
 // how long a toast lives, the state file's shape and its judge, the image
 // copies an entry owns, what a restart restores, what a start after a reboot
-// clears, what the history keeps and for how long, what a panel page shows,
-// which toast a full stack lets go, which actions a card
-// offers, what opening it does and which window that raises, which
+// clears, what the history keeps and for how long, what a panel shows,
+// which toast a full stack lets go, which actions a card offers, what opening it does and which window that raises, which
 // notifications the service keeps holding for the history, the paused and
 // running clocks of the toasts on screen, the per-application rules that
 // read a sender's workspace and people, the Slack token rows, photo and
@@ -17,20 +16,13 @@
 
 // Every notification that leaves the screen goes into the history, which
 // keeps it until the user clears it, the machine starts again (fromBoot) or
-// it is HISTORY_AGE old. HISTORY_MAX only bounds the file: the busiest hour
-// of the owner's state.json read on 2026-10-09 (100 kept from 04:59Z to
-// 20:30Z, the old cap full) held 30, kept for 24 hours. The Inbox and the
-// History panel show PANEL_ROWS_MAX rows a page and grow by a page at their
-// list's end (panelPage). LIVE_MAX toasts show at once: a newer one lets the
-// oldest non-critical toast go into the history.
-var HISTORY_MAX = 720;
+// it is HISTORY_AGE old, and the Inbox and the History panel list every
+// entry they show. LIVE_MAX toasts show at once: a newer one lets the oldest
+// non-critical toast go into the history.
+// The owner's decision of 2026-10-09: past HISTORY_MAX the oldest goes first.
+var HISTORY_MAX = 100;
 var HISTORY_AGE = 24 * 3600 * 1000;
-var PANEL_ROWS_MAX = 40;
 var LIVE_MAX = 20;
-// The service holds the notification of at most the newest HELD_MAX history
-// entries, beside the toasts on screen: a held notification keeps a
-// sender's raw image data in memory for as long as it is held.
-var HELD_MAX = 100;
 // Text a sender supplies is stored up to these lengths, so the state file
 // holds at most (HISTORY_MAX + LIVE_MAX) entries of bounded size.
 var SUMMARY_MAX = 512;
@@ -1305,13 +1297,6 @@ function panelRows(history, mode, readBefore, now) {
     return history.filter(function (e) { return youngAt(e, now) && (mode !== "inbox" || e.timestamp > readBefore); });
 }
 
-// The rows a panel opened `pages` pages deep shows of `rows`, PANEL_ROWS_MAX
-// a page, and whether more are kept: { rows, more }.
-function panelPage(rows, pages) {
-    var limit = pages * PANEL_ROWS_MAX;
-    return { rows: rows.slice(0, limit), more: rows.length > limit };
-}
-
 // The panel's subtitle under its title.
 function panelSubtitle(mode, count, storeState) {
     switch (storeState) {
@@ -1399,14 +1384,13 @@ function heldAfterLeave(reason, transient) {
     return null;
 }
 
-// The held keys the service lets go: neither a toast on screen nor among
-// the newest HELD_MAX history entries. An entry past them stays in the
-// history with no live actions, as one restored after a restart does.
-// `live` and `history` are the stored entries, the history newest first.
+// The held keys whose entries are no longer stored: neither a toast on
+// screen nor in the history, so nothing can reach them. `live` and
+// `history` are the stored entries.
 function heldPastHistory(keys, live, history) {
     var stored = {};
     for (var i = 0; i < live.length; i++) stored[live[i].key] = true;
-    for (var j = 0; j < history.length && j < HELD_MAX; j++) stored[history[j].key] = true;
+    for (var j = 0; j < history.length; j++) stored[history[j].key] = true;
     return keys.filter(function (k) { return !stored[k]; });
 }
 
