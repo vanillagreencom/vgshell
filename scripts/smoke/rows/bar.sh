@@ -609,14 +609,15 @@ spacer_point() {
 bar=json.loads(sys.argv[1]); sec=json.load(sys.stdin); s=sys.argv[2]; room=8
 x=sec[0]+sec[2]+room if s=="left" else sec[0]-room
 low,high={"left":(0,1),"center":(1,2),"right":(2,3)}[s]
-print("%d %d" % (x,bar[1]+bar[3]/2) if bar[0]+bar[2]*low/3<x<bar[0]+bar[2]*high/3 else "crowded")' "$bar" "$1" <<<"$sec"
+if not bar[0]+bar[2]*low/3<x<bar[0]+bar[2]*high/3: sys.exit("spacer_point: refused: section=%s crowded" % s)
+print("%d %d" % (x,bar[1]+bar[3]/2))' "$bar" "$1" <<<"$sec"
 }
 spacer_read() { ipc smoke readInstance "$(bar_key)" vgs.bar "$1"; }
 spacer_entries() { spacer_read spacerMenuEntries | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 # spacer_add SECTION KIND: the right click and the menu entry for KIND.
 spacer_add() {
   local x y
-  read -r x y < <(spacer_point "$1") || { fail "no empty point in the $1 section"; return 1; }
+  read -r x y < <(spacer_point "$1") && [[ $x =~ ^-?[0-9]+$ && $y =~ ^-?[0-9]+$ ]] || { fail "no empty point in the $1 section"; return 1; }
   hover "$((x + 1))" "$y" && right_click "$x" "$y" || { fail "the right click on the empty $1 bar failed"; return 1; }
   expect_poll "a right click on the empty $1 bar opens the add menu" true spacer_read spacerMenuOpen
   expect "the add menu holds its two entries" 2 spacer_entries
@@ -688,8 +689,9 @@ spacer_added='{"left": ["vgs.bar/separator-1", "vgs.bar/gap-1"], "center": ["vgs
 expect_poll "each kind lands in each section where it was added" "$spacer_added" spacer_layout
 expect "the user file holds the added spacers" "$spacer_added" spacer_user
 expect_builtins "every bar registers each spacer once beside the fixed builtins" '["vgs.bar/center-clock","vgs.bar/gap-1","vgs.bar/gap-2","vgs.bar/gap-3","vgs.bar/left-workspaces","vgs.bar/separator-1","vgs.bar/separator-2","vgs.bar/separator-3"]'
-# The drawn order holds the same members; within left the spacers end
-# the section, within centre and right they start it.
+# The drawn order holds the same members; every section draws a spacer,
+# within left the spacers end the section, within centre and right they
+# start it.
 spacer_edges() {
   local key records ids id rows="" box
   key="$(bar_key)" && records="$(ipc shell built)" || return 1
@@ -711,7 +713,7 @@ for line in sys.stdin:
 ids={s:[i for _,i in sorted(v)] for s,v in order.items()}
 spacer=lambda i: re.match(sys.argv[1],i) is not None
 n={s:len([i for i in v if spacer(i)]) for s,v in ids.items()}
-print(all(spacer(i) for i in ids["left"][len(ids["left"])-n["left"]:]) and all(spacer(i) for s in ("center","right") for i in ids[s][:n[s]]))' "$spacer_pattern" <<<"$rows"
+print(all(n.values()) and all(spacer(i) for i in ids["left"][len(ids["left"])-n["left"]:]) and all(spacer(i) for s in ("center","right") for i in ids[s][:n[s]]))' "$spacer_pattern" <<<"$rows"
 }
 geometry expect_poll "the added spacers draw at the drop places with their token sizes" True spacer_drawn "$spacer_added"
 geometry expect_poll "left spacers end their section, centre and right ones start theirs" True spacer_edges
