@@ -92,29 +92,6 @@ Scope {
             themeLatency[stage] = Date.now() - themeLatency.started;
     }
 
-    // A GUI-thread gap of beatMs plus stallMs or longer between two beats
-    // while a reading waits for its frame: [ms from the reading's start to
-    // the gap's start, its length]. A blocked thread and a busy one read
-    // alike, and a shorter gap is not seen.
-    readonly property int beatMs: 4
-    readonly property int stallMs: 12
-    property double lastBeat: 0
-    Timer {
-        interval: root.beatMs
-        repeat: true
-        running: root.themeLatency !== null && root.themeLatency.kind !== "step" && root.themeLatency.drawn === undefined
-        onRunningChanged: root.lastBeat = Date.now()
-        onTriggered: {
-            const now = Date.now();
-            const reading = root.themeLatency;
-            if (reading !== null && now - root.lastBeat >= root.beatMs + root.stallMs) {
-                if (reading.stalls === undefined) reading.stalls = [];
-                reading.stalls.push([root.lastBeat - reading.started, now - root.lastBeat]);
-            }
-            root.lastBeat = now;
-        }
-    }
-
     // The theme file's change as the shell's own watcher sees it, beside
     // ThemeSource's watcher of the same file.
     FileView {

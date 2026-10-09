@@ -19,7 +19,7 @@
 # Wallpaper keeps its 150 ms bound.
 # Each theme change prints a split line, the ms of each part of the change
 # (latency_split), and each reading keeps the probe's marks, its frame
-# starts and presents, the GUI thread's gaps and the probe's own ms.
+# starts and presents and the probe's own ms.
 # inputs: shell/plugins/vgs.themes/* shell/Core/ThemeRunner.qml shell/Commons/Theme* shell/Ui/layout/CardCarousel.qml themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/ThemeLatencyProbe.qml scripts/smoke/theme-latency-stamps.js scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 # Exercise the actual QML reader under Node with controlled presented frames.
@@ -50,7 +50,7 @@ function item(type, children = []) {
 function reader(text) {
     let clock = 10;
     const context = vm.createContext({ root: { themeLatency: null }, Theme: { name: 'latency' }, Plugins: { built: { overlay: [] } }, Image, Date: { now: () => clock++ } });
-    for (const name of ['typeName', 'descendants', 'browserParts', 'visibleInTree', 'desktopExposed', 'backgroundReady', 'selectedCard', 'cardPicture', 'selectedPictureReady', 'latencyFrame', 'readFrame', 'frameLog']) vm.runInContext(declaration(text, name), context);
+    for (const name of ['typeName', 'descendants', 'browserParts', 'catalogWaiting', 'visibleInTree', 'desktopExposed', 'backgroundReady', 'selectedCard', 'cardPicture', 'selectedPictureReady', 'latencyFrame', 'readFrame', 'frameLog']) vm.runInContext(declaration(text, name), context);
     context.root.selectedPictureReady = context.selectedPictureReady;
     context.begin = (kind, want, background = '') => { context.root.themeLatency = { kind, want, background, started: 0, jobs: [] }; };
     return context;
@@ -99,6 +99,22 @@ function verify(text) {
     assert.equal(c.root.themeLatency.drawn, undefined, 'a bar frame before the theme publishes must not complete it');
     c.Theme.name = 'latency'; c.latencyFrame(bar, 'bar');
     assert.equal(typeof c.root.themeLatency.drawn, 'number', 'a wallpaper frame drawn before the theme publishes must count');
+    // A warm open waits for every catalog card, then for each visible
+    // card's picture.
+    const openPicture = new Image('file:///a.jpg', Image.Loading), openCard = item('ThemeCard', [openPicture]);
+    openCard.current = true; openCard.picture = 'file:///a.jpg'; openCard.modelData = { name: 'a' };
+    const openView = item('ThemeView', [openCard]);
+    Object.assign(openView, { cards: [], packages: [], entries: [{ name: 'a' }, { name: 'b' }], shownCards: [{ name: 'a' }], activeFocus: true });
+    const openBrowser = item('Browser', [openView]);
+    c.begin('open', 'warm');
+    c.latencyFrame(openBrowser, 'overlay');
+    assert.equal(c.root.themeLatency.drawn, undefined, 'a warm open must wait for a catalog entry with no card');
+    assert.equal(c.root.themeLatency.waits[c.root.themeLatency.waits.length - 1][1], 'cards');
+    openView.entries = [{ name: 'a' }]; c.latencyFrame(openBrowser, 'overlay');
+    assert.equal(c.root.themeLatency.drawn, undefined, 'a warm open must wait for a loading picture');
+    assert.equal(c.root.themeLatency.waits[c.root.themeLatency.waits.length - 1][1], 'pictures=1');
+    openPicture.status = Image.Ready; c.latencyFrame(openBrowser, 'overlay');
+    assert.equal(typeof c.root.themeLatency.drawn, 'number', 'a warm open completes once every visible picture is ready');
     c.begin('step', '');
     const picture = new Image('file:///a.jpg'), card = item('ThemeCard', [picture]), browser = item('Browser', [card]);
     card.current = true; card.picture = 'file:///a.jpg';
@@ -131,13 +147,15 @@ const controls = [
     ['a low picture is not full', '&& !picture.low && reading.full[key]', '&& reading.full[key]'],
     ['an unmeasured file is low', 'size === undefined || size[0]', 'size !== undefined && size[0]'],
     ['bar waits for the published theme', '            if (Theme.name !== reading.want) return;\n            if (kind === "bar")', '            if (kind === "bar")'],
+    ['warm open waits for pictures', 'if (!shown.some(image => image.status === Image.Ready)) pending++;', 'if (!shown.some(image => image.status === Image.Ready)) ;'],
+    ['warm open waits for every card', 'if (view.shownCards.length !== Object.keys(names).length) return "cards";', ''],
     ['wallpaper frame before the publish', '            if (kind === "background" && descendants(item).some(child => child instanceof Image && child.status === Image.Ready && String(child.source).split("?")[0] === reading.background)) reading.backgroundFrame = frameTime - reading.started;\n            if (Theme.name !== reading.want) return;\n', '            if (Theme.name !== reading.want) return;\n            if (kind === "background" && descendants(item).some(child => child instanceof Image && child.status === Image.Ready && String(child.source).split("?")[0] === reading.background)) reading.backgroundFrame = frameTime - reading.started;\n']
 ];
 for (const [label, needle, replacement] of controls) {
     assert.equal(source.split(needle).length, 2, label + ': exact control match');
     assert.throws(() => verify(source.replace(needle, replacement)), { name: 'AssertionError' }, label + ': reader without this rule must fail');
 }
-console.log('theme-latency-reader: ok controls=9 browser-held=refused wallpaper-loading=refused retained-live=refused selected-missing=refused selected-low=refused low-full=refused unmeasured-low=refused bar-unpublished=refused wallpaper-before-publish=refused');
+console.log('theme-latency-reader: ok controls=11 browser-held=refused wallpaper-loading=refused retained-live=refused selected-missing=refused selected-low=refused low-full=refused unmeasured-low=refused bar-unpublished=refused wallpaper-before-publish=refused open-pictures=refused open-cards=refused');
 JS
 
 cp -- "$repo/scripts/smoke/ThemeLatencyProbe.qml" "$repo/shell/ThemeLatencyProbe.qml"
@@ -234,7 +252,7 @@ latency_report() {
     expect "$1 rejects a reading over its bound" over latency_verdict "$planted" "$bound"
   fi
   printf 'theme-latency: reading=%s value=%s\n' "$1" "$value"
-  [[ $1 != theme ]] || printf 'theme-latency: split=%s\n' "$(printf '%s' "$value" | py_reply 'import json,sys; x=json.load(sys.stdin); print(json.dumps(dict(x["split"], drawn=x.get("drawn"), wallReady=x.get("wallReady"), hyprReloaded=x.get("hyprReloaded"), probeMs=x.get("probeMs"), stalls=x.get("stalls",[]), frames=x.get("frames",{}))))')"
+  [[ $1 != theme ]] || printf 'theme-latency: split=%s\n' "$(printf '%s' "$value" | py_reply 'import json,sys; x=json.load(sys.stdin); print(json.dumps(dict(x["split"], drawn=x.get("drawn"), wallReady=x.get("wallReady"), hyprReloaded=x.get("hyprReloaded"), probeMs=x.get("probeMs"), frames=x.get("frames",{}))))')"
   printf 'theme-latency: load=%s cpu_some_pct=%s pressure_window_ms=%s\n' "$latency_load" "$pressure" "$((end_ms - latency_window_start))"
 }
 latency_pressure_start() {
