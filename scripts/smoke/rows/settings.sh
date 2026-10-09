@@ -24,20 +24,18 @@ expect "the window opens the fixture's page" ok ipc smoke invokeInstance window 
 expect_poll "the page draws the fixture's fields again" '[9, 0]' page_fields
 
 # A setting description's link opens its address through the desktop open
-# route by the pointer and by Return. The row stands a `gio` that records
-# its argv in the shell's stand-in directory, so no browser starts and
-# nothing leaves the sandbox. The description line spans the field's
+# route by the pointer and by Return. `gio open` reaches the device fakes'
+# stand-in (scripts/smoke/devices.sh), which records its argv, so no
+# browser starts and nothing leaves the sandbox; the row reads the calls
+# made since it began. The description line spans the field's
 # value column while its words, the link's alone, start at its left edge,
 # so the pointer goes 8 px into the line and clicks once the link reads
 # it on its words. Two Tabs from the Gap field's editor, focused with its
 # own value so no edit begins, pass the Compact switch to the link.
-link_argv="$sandbox/gio-argv"
-cat >"$shim/gio" <<EOF
-#!/bin/sh
-printf '%s\n' "\$*" >>$(printf %q "$link_argv")
-EOF
-chmod 755 "$shim/gio"
-link_opens() { if [[ -f $link_argv ]]; then python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1]).read().splitlines()))' "$link_argv"; else echo '[]'; fi; }
+expect "the shell resolves gio to the device stand-in" "$shim/gio" shell_resolves gio
+link_before="$(device_calls gio | py_reply 'import json,sys; print(len(json.load(sys.stdin)))')" || link_before=0
+device_reply gio 0 "" open https://example.invalid/compact
+link_opens() { device_calls gio | py_reply 'import json,sys; print(json.dumps([" ".join(c) for c in json.load(sys.stdin)[int(sys.argv[1]):]]))' "$link_before"; }
 link_focus() { ipc smoke focused window vgs.settings | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[:2]))'; }
 link_click() {
   local rect last="" x y
@@ -64,7 +62,6 @@ type_keys -k Tab -k Tab || fail "tabbing from the Gap field to the Compact guide
 expect_poll "the Compact guide link is the Tab stop after the Compact switch" '["LinkText", "Compact guide"]' link_focus
 type_keys -k Return || fail "pressing Return on the Compact guide link failed"
 expect_poll "Return on a description link opens its address" '["open https://example.invalid/compact", "open https://example.invalid/compact"]' link_opens
-rm -f -- "${shim:?}/gio" "${link_argv:?}"
 
 # The plugin page's two pages (TabPages): an opened page shows Settings and
 # draws nothing of Details. A click on the Details tab shows Details alone
