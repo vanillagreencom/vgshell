@@ -57,12 +57,12 @@ Item {
             }
         }
 
-        function test_default_gap_has_two_drawn_body_lines() {
+        function test_default_gap_has_one_and_a_fifth_drawn_body_lines() {
             const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 300; fitToContent: true; title: "Title"; Item { objectName: "bodyMarker"; width: parent.width; height: 20 } }', root);
             waitForRendering(made);
             const block = titleBlock(made);
             const marker = findChild(made, "bodyMarker");
-            compare(itemTop(marker, made) - (itemTop(block, made) + block.height), 2 * bodyLine.lineBox);
+            compare(itemTop(marker, made) - (itemTop(block, made) + block.height), Math.ceil(1.2 * bodyLine.lineBox));
             made.destroy();
         }
         function test_untitled_description_keeps_existing_body_gap() {

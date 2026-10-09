@@ -82,7 +82,7 @@ const DEFAULTS = [
     ["text.body.size", 15],
     // Line boxes on the 4 px grid: 15 * 1.6 = 24, 16 * 1.5 = 24, 18 * 1.333 = 24, 20 * 1.4 = 28.
     ["text.body.lineHeight", 1.6],
-    ["stack.titleSpace", 2],
+    ["stack.titleSpace", 1.2],
     ["text.h3.lineHeight", 1.5],
     ["text.windowTitle.lineHeight", 1.333],
     ["text.h2.lineHeight", 1.4],
@@ -379,8 +379,8 @@ const ACCEPTED = [
     { tokens: { radius: { sm: 6, md: 12 } }, want: [["menu.radius", 12], ["menu.item.radius", 12], ["listItem.radius", 6]] },
     // A group list's hairline is a tenth of the foreground: 0.1 * 255 = 25.5, 0x1a.
     { tokens: { palette: { foreground: "#ffffff" } }, want: [["groupList.divider", "#ffffff1a"]] },
-    { tokens: { font: { size: 16 } }, want: [["text.body.size", 16], ["text.hint.size", 14], ["stack.titleSpace", 2]] },
-    { tokens: { text: { body: { lineHeight: 2 } } }, want: [["stack.titleSpace", 2]] },
+    { tokens: { font: { size: 16 } }, want: [["text.body.size", 16], ["text.hint.size", 14], ["stack.titleSpace", 1.2]] },
+    { tokens: { text: { body: { lineHeight: 2 } } }, want: [["stack.titleSpace", 1.2]] },
     { tokens: { stack: { titleSpace: "mul(1, 2)" } }, want: [["stack.titleSpace", 2]] },
     { tokens: { motion: { scale: 0 } }, want: [["motion.duration.fast", 0], ["motion.duration.slow", 0], ["motion.list.travel.duration", 0], ["motion.list.enter.duration", 0], ["motion.list.stagger", 0], ["motion.list.rise", 6]] },
     // The list motion follows the scale steps it names: fast at 60 travels
