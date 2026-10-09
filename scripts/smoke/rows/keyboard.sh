@@ -1,7 +1,7 @@
 # vgs.keyboard's real editor, layer options and bar click in the nested
 # sandbox. The direct-hyprctl widget control changes the keymap but fails
 # the widget's source contract: only the core owns the transport.
-# inputs: shell/plugins/vgs.keyboard/* shell/plugins/vgs.system/* shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Ui/layout/DeviceList.qml shell/Ui/layout/DeviceRow.qml shell/Ui/controls/Select.qml shell/Ui/controls/Button.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Slider.qml shell/Ui/controls/TextField.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonLayer.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js scripts/smoke/Probe.qml scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.keyboard/* shell/plugins/vgs.system/* shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Ui/layout/DeviceList.qml shell/Ui/layout/DeviceRow.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/RowActions.qml shell/Ui/feedback/LinkText.qml shell/Ui/controls/Select.qml shell/Ui/controls/Button.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Slider.qml shell/Ui/controls/TextField.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonLayer.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js scripts/smoke/Probe.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 keyboard_file="$home/.config/vgshell/shell.json"
 keyboard_saved="$sandbox/shell-before-keyboard.json"
@@ -267,6 +267,73 @@ keyboard_editor_keys 'compose:ralt,grp:alt_shift_toggle' || { keyboard_restore; 
 keyboard_editor_keys -k Return || { keyboard_restore; return 0; }
 expect_poll "custom modifiers are saved" '["compose:ralt,grp:alt_shift_toggle", "compose:ralt,grp:alt_shift_toggle"]' keyboard_saved_value options
 expect_poll "custom modifiers reach Hyprland" '"compose:ralt,grp:alt_shift_toggle"' keyboard_option input:kb_options str
+# The same checks must reject a row whose action leaves the VGS value saved.
+keyboard_source_row() { ipc smoke readMatchingDescendant window vgs.keyboard KeyboardRow setting repeatRate "$1"; }
+# Shared rows each construct a hidden action. Follow the actual focus item,
+# rather than the first objectName match, which can be a hidden sibling.
+keyboard_source_focus() {
+  for _ in $(seq 1 40); do
+    [[ $(ipc smoke activeFocusItem window vgs.keyboard) == '["RowAction","Use my Hyprland value"]' ]] && return 0
+    keyboard_editor_keys -k Tab || return 1
+  done
+  fail "keyboard-input: status=source-action-unreachable"
+  return 1
+}
+keyboard_source_warning() { keyboard_source_row warning | py_reply 'import json,sys; print("shown" if json.load(sys.stdin) else "hidden")'; }
+keyboard_source_check() {
+  expect "the mapped row draws its Hyprland config warning" shown keyboard_source_warning
+  expect "the mapped row action clears every saved repeat rate" '["absent", "absent"]' keyboard_saved_value repeatRate
+}
+hypr_lua_save keyboard-source
+printf '%s\n' 'hl.config({ input = { repeat_rate = 31 } })' >>"$home/.config/hypr/hyprland.lua"
+expect "the Keyboard source config reloads" ok hypr reload config-only
+expect_poll "the mapped row reads the configured repeat rate" 31 keyboard_source_row hyprlandConfigValue
+expect "the mapped row identifies its config warning" '"config"' keyboard_source_row messageKind
+expect "the mapped row offers Use my Hyprland value" true keyboard_source_row offersHyprlandValue
+expect "the mapped row draws its Hyprland config warning" shown keyboard_source_warning
+keyboard_source_focus || { keyboard_restore; return 0; }
+keyboard_editor_keys -k space || { keyboard_restore; return 0; }
+expect_poll "the mapped row action clears every saved repeat rate" '["absent", "absent"]' keyboard_saved_value repeatRate
+expect_poll "the configured repeat rate applies after the action" 31 keyboard_option input:repeat_rate int
+expect_poll "the mapped slider shows Hyprland's repeat rate" 31 ipc smoke readMatchingDescendant window vgs.keyboard Slider objectName repeatRate value
+expect_poll "the action returns focus to the repeat slider" true ipc smoke readMatchingDescendant window vgs.keyboard Slider objectName repeatRate activeFocus
+expect_poll "the mapped row hides its Hyprland action after the edit" false keyboard_source_row offersHyprlandValue
+expect "the Keyboard source pane closes before its control" ok ipc shell hide window vgs.system
+expect "Keyboard disables before its source control" ok ipc shell setPluginEnabled vgs.keyboard false
+mkdir -p "$keyboard_copy"
+cp -R "$repo/shell/plugins/vgs.keyboard/." "$keyboard_copy/"
+python3 - "$keyboard_copy/KeyboardControls.qml" "$keyboard_file" <<'PYSOURCE'
+import json,os,pathlib,sys
+path=pathlib.Path(sys.argv[1]);text=path.read_text()
+old='        onUseHyprlandValue: root.useHyprlandValue(setting)'
+assert text.count(old)==1
+path.write_text(text.replace(old,'        onUseHyprlandValue: {}'))
+path=sys.argv[2];doc=json.load(open(path))
+for row in doc.get("plugins",[]):
+    if row.get("id")=="vgs.keyboard":row["repeatRate"]=200
+for entries in doc.get("bar",{}).get("layout",{}).values():
+    for row in entries:
+        if row.get("id")=="vgs.keyboard":row["repeatRate"]=200
+json.dump(doc,open(path+".tmp","w"));os.replace(path+".tmp",path)
+PYSOURCE
+rescan "rescan discovers the Keyboard source control"
+expect "the source control values reload" ok ipc shell reloadConfig
+expect "Keyboard enables for its source control" ok ipc shell setPluginEnabled vgs.keyboard true
+expect "the source control pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.keyboard"}'
+expect_poll "the source control still reaches the configured row" 31 keyboard_source_row hyprlandConfigValue
+keyboard_source_focus || { keyboard_restore; return 0; }
+keyboard_editor_keys -k space || { keyboard_restore; return 0; }
+keyboard_source_control() { (failures=0 behaviour_failures=0; keyboard_source_check >"$sandbox/keyboard-source-control.log"; echo "$failures"); }
+expect "control: omitting unset fails the same source checks" 1 keyboard_source_control
+keyboard_control_log <"$sandbox/keyboard-source-control.log"
+expect "the source control pane closes" ok ipc shell hide window vgs.system
+expect "Keyboard disables after its source control" ok ipc shell setPluginEnabled vgs.keyboard false
+rm -rf -- "${keyboard_copy:?}"
+rescan "rescan removes the Keyboard source control"
+hypr_lua_restore keyboard-source || fail "the Keyboard source config restores"
+expect "the Keyboard config reloads after its source control" ok hypr reload config-only
+expect "Keyboard enables after its source control" ok ipc shell setPluginEnabled vgs.keyboard true
+expect "the Keyboard pane reopens after its source control" ok ipc shell summon window vgs.system '{"pane":"vgs.keyboard"}'
 expect "the Keyboard pane closes before the control" ok ipc shell hide window vgs.system
 expect "the Keyboard panel opens" ok ipc shell summon panel vgs.keyboard '{}'
 expect_poll "the Keyboard panel is built" 1 keyboard_panels

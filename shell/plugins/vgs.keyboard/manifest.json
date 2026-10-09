@@ -24,7 +24,8 @@
     "surfaces",
     "configure",
     "hyprland",
-    "run"
+    "run",
+    "tui"
   ],
   "defaultSection": "right",
   "pane": {

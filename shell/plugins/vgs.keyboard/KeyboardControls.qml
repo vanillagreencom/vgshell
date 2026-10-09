@@ -15,7 +15,7 @@ Column {
     property var catalogStatus: ({ state: "pending", layouts: [] })
     property string catalogKey: ""
     readonly property var catalog: catalogStatus.layouts
-    readonly property var sources: shell === null ? [] : Logic.sources(shell.settings.layouts, shell.settings.variants, shell.hyprland.devices)
+    readonly property var sources: shell === null ? [] : Logic.sources(layoutSource.shownValue || "", variantSource.shownValue || "", shell.hyprland.devices)
     readonly property var variants: catalog.length === 0 ? [] : [{ code: "", name: "Default" }].concat(catalog[Math.min(layoutChoice, catalog.length - 1)].variants)
     readonly property Item firstFocus: sourceList.count > 0 ? sourceList : layoutPicker
     spacing: Theme.stack.group
@@ -67,10 +67,27 @@ Column {
         }
     }
 
-    function warning(key) {
-        if (shell === null) return "";
-        const path = shell.manifest.hyprland.options[key];
-        return shell.hyprland.overridden !== null && shell.hyprland.overridden.indexOf(path) !== -1 ? "Another setting overrides this value." : "";
+    function useHyprlandValue(key) {
+        const reply = shell.configure.unset(key);
+        problem = reply === "ok" ? "" : "VGS could not save this setting.";
+        if (reply !== "ok") console.warn("keyboard: configure " + reply);
+    }
+
+    function openHyprlandConfig() {
+        const reply = shell.tui.edit("hypr/hyprland.lua");
+        if (reply !== "ok") console.warn("keyboard: edit " + reply);
+    }
+
+    component KeyboardRow: ValueSourceRow {
+        property string setting: ""
+
+        width: parent.width
+        hyprland: root.shell === null ? null : root.shell.hyprland
+        path: root.shell === null ? "" : root.shell.manifest.hyprland.options[setting] || ""
+        source: hyprlandValue !== undefined ? "hyprland" : "user"
+        userValue: root.shell === null ? undefined : root.shell.settings[setting]
+        onUseHyprlandValue: root.useHyprlandValue(setting)
+        onOpenHyprlandConfig: root.openHyprlandConfig()
     }
 
     SectionHeader { width: parent.width; text: "Input Sources"; description: "Add a layout and choose its variant. The list sets the switch order." }
@@ -78,21 +95,38 @@ Column {
     Column {
         width: parent.width
         spacing: Theme.stack.row
-        DeviceList {
-            id: sourceList
-            objectName: "inputSources"
-            width: parent.width
-            rows: Logic.sourceRows(root.sources, root.catalog)
-            removable: root.sources.length > 1
-            menuOf: row => [
-                { key: "up", text: "Move up", iconName: "arrow-up" },
-                { key: "down", text: "Move down", iconName: "arrow-down" },
-                { key: "remove", text: "Remove", iconName: "trash" }
-            ].filter(entry => (entry.key !== "up" || Number(row.key) > 0)
-                && (entry.key !== "down" || Number(row.key) < root.sources.length - 1)
-                && (entry.key !== "remove" || root.sources.length > 1))
-            onChose: (key, entry) => root.editSource(key, entry)
-            onRemoved: key => root.editSource(key, "remove")
+        KeyboardRow {
+            id: layoutSource
+            setting: "layouts"
+            label: "Input sources"
+            labelColumn: false
+            DeviceList {
+                id: sourceList
+                objectName: "inputSources"
+                width: parent.width
+                rows: Logic.sourceRows(root.sources, root.catalog)
+                removable: root.sources.length > 1
+                menuOf: row => [
+                    { key: "up", text: "Move up", iconName: "arrow-up" },
+                    { key: "down", text: "Move down", iconName: "arrow-down" },
+                    { key: "remove", text: "Remove", iconName: "trash" }
+                ].filter(entry => (entry.key !== "up" || Number(row.key) > 0)
+                    && (entry.key !== "down" || Number(row.key) < root.sources.length - 1)
+                    && (entry.key !== "remove" || root.sources.length > 1))
+                onChose: (key, entry) => root.editSource(key, entry)
+                onRemoved: key => root.editSource(key, "remove")
+            }
+        }
+        KeyboardRow {
+            id: variantSource
+            setting: "variants"
+            label: "Variants"
+            Label {
+                width: parent.width
+                role: "value"
+                text: Logic.sourceRows(root.sources, root.catalog).map(row => row.secondary).join(", ")
+                wrapMode: Text.Wrap
+            }
         }
 
         Label {
@@ -146,7 +180,6 @@ Column {
                 else root.problem = "VGS could not save this setting.";
             }
         }
-        Label { visible: root.warning("layouts") !== ""; width: parent.width; role: "hint"; text: root.warning("layouts"); wrapMode: Text.Wrap }
     }
 
     SectionHeader { width: parent.width; text: "Key Repeat"; description: "Set how a held key repeats." }
@@ -157,19 +190,20 @@ Column {
         spacing: Theme.stack.row
         Repeater {
             model: [{ key: "repeatRate", label: "Repeat rate", maximum: 200, unit: "/s" }, { key: "repeatDelay", label: "Repeat delay", maximum: 2000, unit: "ms" }]
-            FormRow {
+            KeyboardRow {
                 id: repeatRow
                 required property var modelData
                 width: root.width
                 label: modelData.label
-                warning: root.warning(modelData.key)
+                setting: modelData.key
+                formatValue: value => value + " " + modelData.unit
                 Item {
                     width: parent.width
                     implicitHeight: repeatSlider.implicitHeight
                     function commit() {
                         const wanted = Math.round(repeatSlider.value);
-                        repeatSlider.value = Qt.binding(() => root.shell === null ? 0 : root.shell.settings[repeatRow.modelData.key]);
-                        if (root.shell !== null && wanted !== root.shell.settings[repeatRow.modelData.key]) root.setValue(repeatRow.modelData.key, wanted);
+                        repeatSlider.value = Qt.binding(() => root.shell === null ? 0 : repeatRow.shownValue);
+                        if (root.shell !== null && wanted !== repeatSlider.value) root.setValue(repeatRow.modelData.key, wanted);
                     }
                     Slider {
                         id: repeatSlider
@@ -179,7 +213,7 @@ Column {
                         to: repeatRow.modelData.maximum
                         stepSize: 1
                         snapMode: T.Slider.SnapAlways
-                        value: root.shell === null ? 0 : root.shell.settings[repeatRow.modelData.key]
+                        value: root.shell === null ? 0 : repeatRow.shownValue
                         onMoved: if (!pressed) parent.commit()
                         onPressedChanged: if (!pressed) parent.commit()
                     }
@@ -194,17 +228,17 @@ Column {
     Column {
         width: parent.width
         spacing: Theme.stack.row
-        FormRow {
-            width: parent.width
+        KeyboardRow {
+            id: optionsSource
+            setting: "options"
             label: "Modifier keys"
-            warning: root.warning("options")
             Select {
                 objectName: "modifierPicker"
                 readonly property var presets: root.shell === null ? [] : root.shell.manifest.schema.options.presets
                 model: presets.concat([{ label: "Custom…", value: null }])
                 textRole: "label"
                 currentIndex: {
-                    const found = presets.findIndex(row => root.shell !== null && row.value === root.shell.settings.options);
+                    const found = presets.findIndex(row => root.shell !== null && row.value === optionsSource.shownValue);
                     return found < 0 ? presets.length : found;
                 }
                 onActivated: index => {
@@ -214,26 +248,27 @@ Column {
             }
         }
         Field {
-            visible: root.customOptions || (root.shell !== null && !root.shell.manifest.schema.options.presets.some(row => row.value === root.shell.settings.options))
+            visible: root.customOptions || (root.shell !== null && !root.shell.manifest.schema.options.presets.some(row => row.value === optionsSource.shownValue))
             width: parent.width
             label: "Custom options"
             hint: "Separate XKB option names with commas."
             TextField {
                 objectName: "customOptions"
                 width: parent.width
-                text: root.shell === null ? "" : root.shell.settings.options
+                text: root.shell === null ? "" : optionsSource.shownValue
                 onEditingFinished: root.setValue("options", text)
             }
         }
-        FormRow {
-            width: parent.width
+        KeyboardRow {
+            id: numlockSource
+            setting: "numlockByDefault"
             label: "Startup Num Lock"
-            warning: root.warning("numlockByDefault")
+            formatValue: value => value ? "On" : "Off"
             Switch {
-                checked: root.shell !== null && root.shell.settings.numlockByDefault
+                checked: root.shell !== null && numlockSource.shownValue === true
                 onToggled: {
                     const wanted = checked;
-                    checked = Qt.binding(() => root.shell !== null && root.shell.settings.numlockByDefault);
+                    checked = Qt.binding(() => root.shell !== null && numlockSource.shownValue === true);
                     root.setValue("numlockByDefault", wanted);
                 }
             }
