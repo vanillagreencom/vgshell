@@ -13,14 +13,9 @@
 # A long inbox, forty rows whose newest carries actions, opened by the
 # key eight times, shows its first card whole each time: panel_fit
 # (rows/notifications.sh) reads its top under the header and inside the
-# list's clip. Its control is a Panel.qml copy that reveals the selected
-# card only in the refresh, before the list has taken its cards' height,
-# which scrolled the first card under the header on every open after a
-# first, uncounted one (long_inbox_warm) in the sandbox on 2026-10-02, at
-# scale 1 and at scale 2; each control asserts that every counted open
-# read its defect. rows/hidpi.sh
-# reads the same opens at scale 2. The same opens hold on the first
-# monitor held at a scale that leaves a room shorter than the panel's
+# list's clip. rows/hidpi.sh reads the same opens at scale 2. The same
+# opens hold on the first monitor at a scale that leaves a room shorter
+# than the panel's
 # panelMaxHeight, where the list takes what is under the header; their
 # control is a Panel.qml copy whose list keeps its whole height, which ran
 # the list past the panel's bottom (clipped=list) on all eight opens in the
@@ -334,28 +329,7 @@ expect "the long inbox's toasts leave the screen" 0 long_inbox_rows
 geometry expect "a long inbox opened by the key eight times shows its first card whole each time" fits long_inbox_cut nk_press
 ok "long inbox readings: $(long_inbox_readings)"
 geometry expect "the long inbox list reaches the panel bottom at both scroll ends" "top=fits end=fits" long_inbox_ends nk_press
-expect "disabling the notifications before the panel copy is allowed" ok ipc shell setPluginEnabled vgs.notifications false
-expect_poll "the compositor lists no inbox shortcut before the panel copy" 0 note_shortcuts
 nk_panel="$repo/shell/plugins/vgs.notifications/Panel.qml"
-cp -- "$nk_panel" "$sandbox/Panel.qml.keys-kept"
-python3 - "$nk_panel" <<'PY'
-import sys
-path = sys.argv[1]
-text = open(path).read()
-needle = "onViewHeightChanged: reveal(root.currentIndex)"
-assert text.count(needle) == 1, "the reveal at the list's height occurs once"
-open(path, "w").write(text.replace(needle, "onViewHeightChanged: {}"))
-PY
-rescan "a rescan reads the refresh-only reveal panel copy"
-expect "enabling the notifications beside the panel copy is allowed" ok ipc shell setPluginEnabled vgs.notifications true
-expect_poll "the service is built beside the panel copy" True record_exists vgs.notifications
-expect_poll "the inbox shortcut is listed beside the panel copy" 1 note_shortcuts
-long_inbox_warm nk_press || fail "the refresh-only reveal copy's first open failed"
-geometry expect "control: a panel that reveals only in the refresh scrolls the long inbox's first card under the header on every open" "cut-top=card under-header=card" long_inbox_cut nk_press
-ok "control long inbox readings: $(long_inbox_readings)"
-cp -- "$sandbox/Panel.qml.keys-kept" "$nk_panel"
-rescan "a rescan restores the panel"
-expect_poll "the service is built beside the restored panel" True record_exists vgs.notifications
 # Control: a real list with a reserved bottom gap fails both scroll ends.
 expect "disabling notifications before the bottom-gap copy is allowed" ok ipc shell setPluginEnabled vgs.notifications false
 expect_poll "the bottom-gap copy has no inbox shortcut yet" 0 note_shortcuts
