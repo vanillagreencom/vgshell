@@ -14,12 +14,45 @@
 # reason naming it. Dispatches asked for back to back run in order behind one
 # process, the queue has a bound, and a process that cannot start does not
 # stop the queue.
-# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml shell/Ui/controls/RowAction.qml
+# A setting description's link opens its address through the desktop open
+# route, by the pointer and by Return, into a stand-in that records it.
+# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Field.qml shell/Ui/feedback/LinkText.qml shell/Commons/DesktopLaunch.js
 set -euo pipefail
 click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
 expect_poll "the gear's click opens the Settings window" open settings_open
 expect "the window opens the fixture's page" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
 expect_poll "the page draws the fixture's fields again" '[9, 0]' page_fields
+
+# A setting description's link opens its address through the desktop open
+# route by the pointer and by Return. The row stands a `gio` that records
+# its argv in the shell's stand-in directory, so no browser starts and
+# nothing leaves the sandbox. The fixture's Compact description is its
+# link's words alone, so a click at its centre lands on the link. Two Tabs
+# from the Gap field's editor pass the Compact switch to the link.
+link_argv="$sandbox/gio-argv"
+cat >"$shim/gio" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>$(printf %q "$link_argv")
+EOF
+chmod 755 "$shim/gio"
+link_opens() { if [[ -f $link_argv ]]; then python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1]).read().splitlines()))' "$link_argv"; else echo '[]'; fi; }
+link_focus() { page_focus | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[:2]))'; }
+link_click() {
+  local rect x y
+  rect="$(ipc smoke windowGeometry window vgs.settings "$1" "$2")" || return 1
+  [[ $rect == \[* ]] || { echo "link_click: no $1 $2: $rect" >&2; return 1; }
+  read -r x y < <(at_centre window:Plugins "$rect") || return 1
+  hover "$((x + 1))" "$y" || return 1
+  click "$x" "$y"
+}
+link_click LinkText "Compact guide" || fail "the click on the Compact guide link failed"
+expect_poll "a click on a description link opens its address" '["open https://example.invalid/compact"]' link_opens
+link_click TextField 4 || fail "the click on the Gap field failed"
+type_keys -k Tab -k Tab || fail "tabbing from the Gap field to the Compact guide link failed"
+expect_poll "the Compact guide link is the Tab stop after the Compact switch" '["LinkText", "Compact guide"]' link_focus
+type_keys -k Return || fail "pressing Return on the Compact guide link failed"
+expect_poll "Return on a description link opens its address" '["open https://example.invalid/compact", "open https://example.invalid/compact"]' link_opens
+rm -f -- "${shim:?}/gio" "${link_argv:?}"
 
 # The plugin page's two pages (TabPages): an opened page shows Settings and
 # draws nothing of Details. A click on the Details tab shows Details alone
