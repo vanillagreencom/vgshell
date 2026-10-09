@@ -240,8 +240,9 @@ var READABILITY_PAIRS = [
 ];
 // An input that shows its state by its outline or indicator must meet WCAG
 // 2.2 SC 1.4.11 non-text contrast, 3:1: each boundary and selected
-// indicator on each resting surface, each switch knob on its track, and
-// the chosen segment's mark on its segment and on the track.
+// indicator on each resting surface, each switch knob on its track, the
+// chosen segment's mark on its segment and on the track, and the bar's
+// separator line on the bar.
 var BOUNDARY_ROLES = [
     "checkbox.borderColor",
     "radio.borderColor",
@@ -256,7 +257,8 @@ var BOUNDARY_PAIRS = [
     ["toggle.knobOn", "toggle.on"],
     ["checkbox.mark", "checkbox.checked"],
     ["segmented.indicatorColor", "segmented.selected"],
-    ["segmented.indicatorColor", "segmented.background"]
+    ["segmented.indicatorColor", "segmented.background"],
+    ["bar.spacer.line", "bar.background"]
 ];
 var BOUNDARY_FLOOR = 3;
 

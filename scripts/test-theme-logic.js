@@ -157,6 +157,7 @@ const DEFAULTS = [
     // knob on it is the white that contrasts with it best.
     ["color.borderControl", "#888888ff"],
     ["checkbox.borderColor", "#888888ff"],
+    ["bar.spacer.line", "#888888ff"],
     ["toggle.off", "#747474ff"],
     ["toggle.knobOff", "#ffffffff"],
     ["toggle.size.sm.width", 28],
@@ -577,7 +578,7 @@ const READABILITY_ROLES = ["color.text", "color.textHeading", "color.textMuted",
 const READABILITY_SURFACES = ["color.background", "color.surface", "color.surfaceRaised", "color.surfaceSunken"];
 const BOUNDARY_ROLES = ["checkbox.borderColor", "radio.borderColor", "textField.borderColor", "toggle.off", "checkbox.checked", "radio.checked", "toggle.on"];
 const READABILITY_PAIRS = [["segmented.foreground", "segmented.background"], ["segmented.selectedForeground", "segmented.selected"]];
-const BOUNDARY_PAIRS = [["toggle.knobOff", "toggle.off"], ["toggle.knobOn", "toggle.on"], ["checkbox.mark", "checkbox.checked"], ["segmented.indicatorColor", "segmented.selected"], ["segmented.indicatorColor", "segmented.background"]];
+const BOUNDARY_PAIRS = [["toggle.knobOff", "toggle.off"], ["toggle.knobOn", "toggle.on"], ["checkbox.mark", "checkbox.checked"], ["segmented.indicatorColor", "segmented.selected"], ["segmented.indicatorColor", "segmented.background"], ["bar.spacer.line", "bar.background"]];
 const truncateRatio = value => Math.floor(value * 100) / 100;
 const plain = value => JSON.parse(JSON.stringify(value));
 
@@ -627,6 +628,13 @@ function verify(judge) {
     const knobFailure = judge.accept(TOKENS, document({ toggle: { knobOff: "{toggle.off}" } }));
     assert.equal(knobFailure.ok, true, knobFailure.ok ? "" : judge.refusalLine(knobFailure));
     assert.deepEqual(plain(judge.readabilityShortfalls(knobFailure.values)), [{ text: "toggle.knobOff", surface: "toggle.off", ratio: 1, floor: 3 }]);
+    // A bar separator in the divider colour falls under the 3:1 floor on
+    // the bar, and so does one on a bar whose own fill a theme matches to it.
+    for (const bar of [{ spacer: { line: "{color.border}" } }, { background: "{color.borderControl}" }]) {
+        const separatorFailure = judge.accept(TOKENS, document({ bar }));
+        assert.equal(separatorFailure.ok, true, separatorFailure.ok ? "" : judge.refusalLine(separatorFailure));
+        assert.deepEqual(plain(judge.readabilityShortfalls(separatorFailure.values).map(row => [row.text, row.surface, row.floor])), [["bar.spacer.line", "bar.background", 3]], JSON.stringify(bar));
+    }
     // A segmented control's text the colour of the fill it sits on falls
     // under the 4.5:1 floor, and a chosen segment's mark the colour of its
     // segment or of the track under the 3:1 floor.
@@ -986,6 +994,7 @@ const CONTROLS = [
     ["readability translucency", "var ratio = text === null || surface === null || text.a < 1 || surface.a < 1\n            ? null\n            : contrastRatio(text, surface);", "var ratio = contrastRatio(text, surface);"],
     ["boundary roles", "    \"checkbox.borderColor\",\n", ""],
     ["boundary pairs", "    [\"toggle.knobOff\", \"toggle.off\"],\n", ""],
+    ["bar separator pair", ",\n    [\"bar.spacer.line\", \"bar.background\"]", ""],
     ["boundary floor", "var BOUNDARY_FLOOR = 3;", "var BOUNDARY_FLOOR = 1;"]
 ];
 
