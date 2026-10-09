@@ -5,7 +5,9 @@ import qs.Ui
 Item {
     id: root
     width: 420
-    height: 160
+    height: 280
+
+    function labelOf(item) { return item.children[0]; }
 
     LinkText {
         id: linked
@@ -33,13 +35,30 @@ Item {
         text: "VGS opens the cited file."
         link: "hyprland.lua"
     }
+    // Prose with its link inside one line, and the same prose in a width
+    // that wraps the link onto its second line.
+    LinkText {
+        id: inline
+        y: 160
+        width: 360
+        text: "Read the notes in hyprland.lua today."
+        link: "hyprland.lua"
+    }
+    LinkText {
+        id: wrapped
+        y: 200
+        width: prefix.advanceWidth + 10
+        wrapMode: Text.Wrap
+        text: "Read the notes in hyprland.lua today."
+        link: "hyprland.lua"
+    }
+    TextMetrics { id: prefix; font: labelOf(inline).font; text: "Read the notes in " }
+    TextMetrics { id: words; font: labelOf(inline).font; text: "hyprland.lua" }
     SignalSpy { id: activated; target: linked; signalName: "activated" }
 
     TestCase {
         name: "linktext"
         when: windowShown
-
-        function labelOf(item) { return item.children[0]; }
 
         function init() {
             activated.clear();
@@ -73,6 +92,34 @@ Item {
             keyClick(Qt.Key_Enter);
             keyClick(Qt.Key_Space);
             compare(activated.count, 3);
+        }
+
+        function descendants(item) {
+            const found = [];
+            for (const child of item.children) found.push(child, ...descendants(child));
+            return found;
+        }
+
+        function ringOf(item) {
+            return descendants(item).find(child => child.target === item && child.border !== undefined);
+        }
+
+        function test_focus_ring_goes_round_the_link_words() {
+            for (const [item, line, x] of [[inline, 0, prefix.advanceWidth], [wrapped, 1, 0]]) {
+                const box = item.linkBox;
+                const lineBox = labelOf(item).lineBox;
+                compare(box.y, line * lineBox, "the words' line");
+                compare(box.height, lineBox, "one line box tall");
+                fuzzyCompare(box.x, x, 1, "the words' start");
+                fuzzyCompare(box.width, words.advanceWidth, 1, "the words' width");
+                item.forceActiveFocus(Qt.TabFocusReason);
+                const ring = ringOf(item);
+                verify(ring !== undefined && ring.visible, "the focused link draws its ring");
+                const at = ring.mapToItem(item, 0, 0);
+                fuzzyCompare(at.x, box.x - ring.extent, 0.5, "the ring's left beside the words");
+                fuzzyCompare(ring.width, box.width + 2 * ring.extent, 0.5, "the ring as wide as the words and its gap");
+                verify(ring.width < item.width, "the ring leaves the prose outside it");
+            }
         }
 
         function test_pointer_activates_only_the_link() {
