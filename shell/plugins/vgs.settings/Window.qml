@@ -121,8 +121,14 @@ FocusScope {
 
     // Resize the shown window to implicitHeight, read once Hyprland answers
     // and the shown page is laid out, so the last change wins. Hyprland
-    // owns a mapped window's size; the settings smoke row reads the resize
-    // back. The window is the one client
+    // owns a mapped window's size, and its floating resize keeps the
+    // window's centre, not its corner (v0.56.2
+    // src/layout/algorithm/floating/default/DefaultFloatingAlgorithm.cpp:198-203,
+    // resizeTarget), so a move to the old top-left follows each resize,
+    // through the same queue: the top-left stays unless the grown window
+    // would pass the bottom of its monitor's work area, when it rises by
+    // that overflow alone, never above the work area's top; x never
+    // changes. The settings smoke row reads both back. The window is the one client
     // of the shell's app-id, `org.vgs.shell`, which shell.qml's AppId pragma
     // and HyprlandLayer.APP_WINDOW own and a plugin cannot import, titled
     // with this plugin's name, as the window host titles it.
@@ -139,9 +145,25 @@ FocusScope {
                 console.warn("settings: resize clients=" + own.length + " title=" + root.title);
                 return;
             }
-            if (own[0].size[1] === root.implicitHeight) return;
-            const reply = shell.compositor.resizeWindow(own[0].address, own[0].size[0], root.implicitHeight);
-            if (!Reply.isOk(reply)) console.warn("settings: resize " + reply);
+            const client = own[0];
+            const height = root.implicitHeight;
+            if (client.size[1] === height) return;
+            // Hyprland's j/monitors: x, y, width and height in pixels at
+            // `scale`, and `reserved` as [left, top, right, bottom].
+            const screens = state.monitors.filter(m => m.id === client.monitor);
+            if (screens.length !== 1) {
+                console.warn("settings: resize monitors=" + screens.length + " id=" + client.monitor);
+                return;
+            }
+            const m = screens[0];
+            const y = Math.max(Math.ceil(m.y + m.reserved[1]), Math.min(client.at[1], Math.floor(m.y + m.height / m.scale - m.reserved[3] - height)));
+            const resized = shell.compositor.resizeWindow(client.address, client.size[0], height);
+            if (!Reply.isOk(resized)) {
+                console.warn("settings: resize " + resized);
+                return;
+            }
+            const moved = shell.compositor.moveWindow(client.address, client.at[0], y);
+            if (!Reply.isOk(moved)) console.warn("settings: move " + moved);
         });
     }
 
