@@ -125,7 +125,7 @@ shared_holder
 tinst "follow waits for another theme command's shared hold" "$cfg" "$rt_empty" 0 "$(follow_line current fern unchanged)" "" theme follow
 wait "$holder" || fail "the shared holder ended with status $?"
 check "the follow blocked on the shared hold" test -e "$tmp/waiter"
-tree_control follow-wait bin/vgshell 'follow_lock_wait_s=10' 'follow_lock_wait_s=0'
+tree_control follow-wait bin/vgshell 'theme_lock_wait_s=10' 'theme_lock_wait_s=0'
 shared_holder
 tinst "the no-wait mutant refuses a follow under a shared hold as busy" "$cfg" "$rt_empty" 75 "" "vgshell: refused: follow=applied reason=busy" theme follow
 : >"$tmp/release"
@@ -136,7 +136,7 @@ unset THEME_BIN
 # busy mutant copies in turn.
 exec 7>>"$cfg/vgshell/theme.lock"
 flock 7
-tree_control follow-wait-1 bin/vgshell 'follow_lock_wait_s=10' 'follow_lock_wait_s=1'
+tree_control follow-wait-1 bin/vgshell 'theme_lock_wait_s=10' 'theme_lock_wait_s=1'
 tinst "follow while the theme lock is held past the wait is refused as busy" "$cfg" "$rt_empty" 75 "" "vgshell: refused: follow=applied reason=busy" theme follow
 tree="$tmp/tree-follow-wait-1" judge_control busy 'const key = "follow=applied reason";' 'const key = "follow=applied reason"; lock = "held";'
 tinst "the busy mutant follows under the held lock" "$cfg" "$rt_empty" 0 "$(follow_line current fern unchanged)" "" theme follow

@@ -118,8 +118,8 @@
 # line, `[{ id, behind, head, upstream, error }]` with full commit ids,
 # `[]` when nothing is installed; when error is set the other three are
 # null. Error rows still exit 0. `theme outdated` holds the theme lock
-# shared: a second outdated runs beside it, and it is refused with
-# outdated=themes reason=busy while any other theme command holds the lock.
+# shared: a second outdated runs beside it. It waits up to 10 s for an
+# exclusive holder, then refuses with outdated=themes reason=busy.
 #
 # Theme packages are the shipped themes/<name>/ and the installed
 # ${XDG_CONFIG_HOME:-~/.config}/vgshell/themes/<name>/; an installed package
@@ -1604,6 +1604,7 @@ plugin_probe() { # ID
 }
 
 user_themes="$config_home/vgshell/themes"
+theme_lock_wait_s=10
 
 # Hold the theme lock on descriptor 9 until this process exits, so no apply
 # reads a package while add, update or remove changes it, and no two of
@@ -1809,7 +1810,7 @@ theme_probe() { # NAME
 # under a shared hold of the theme lock.
 theme_outdated() { # FORMAT
   local names=()
-  theme_lock_hold "outdated=themes" -s -n
+  theme_lock_hold "outdated=themes" -s -w "$theme_lock_wait_s"
   mapfile -d '' -t names < <(node "$theme_judge" checkouts "$config_home/vgshell")
   wait "$!" || exit $?
   outdated_rows theme_probe "${names[@]}"
@@ -2601,8 +2602,7 @@ case "$cmd" in
         # chance until the next scan, while a holder such as `theme
         # outdated` from a vgs.updates check, or an apply, is short; past
         # the wait the follow is refused busy.
-        follow_lock_wait_s=10
-        theme_lock_verdict -w "$follow_lock_wait_s"
+        theme_lock_verdict -w "$theme_lock_wait_s"
         exec node "$theme_judge" follow "$format" "$config_home/vgshell" "$state_home/vgshell" "$verdict"
         ;;
       background)
