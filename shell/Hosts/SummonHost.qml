@@ -35,6 +35,8 @@ Scope {
     property var closers: ({})
     // id -> function() that cancels that close motion for a new open.
     property var reopeners: ({})
+    // id -> function() that reads whether an anchored popup is closing.
+    property var closingReaders: ({})
     // id -> the error open() threw, read by summon.
     property var openErrors: ({})
 
@@ -45,10 +47,10 @@ Scope {
     // anchor is the item whose window owns the popup.
     function summon(id, payloadJson, origin) {
         if (PluginLogic.hasOwn(instances, id)) {
-            const wasClosing = !!(requests[id] && requests[id].closing);
             const next = Object.assign({}, requests);
-            next[id] = Object.assign({}, requests[id], { payloadJson: payloadJson, closing: false });
+            next[id] = Object.assign({}, requests[id], { payloadJson: payloadJson });
             requests = next;
+            const wasClosing = PluginLogic.hasOwn(closingReaders, id) && closingReaders[id]();
             if (wasClosing && PluginLogic.hasOwn(reopeners, id)) reopeners[id]();
             const error = callOpen(id, instances[id], payloadJson);
             if (error === "") {
@@ -67,8 +69,7 @@ Scope {
             anchored: !!(origin && origin.anchor),
             screen: screen,
             returnFocus: origin && origin.returnFocus ? origin.returnFocus : null,
-            returnFocusWasVisual: !!(origin && origin.returnFocusWasVisual),
-            closing: false
+            returnFocusWasVisual: !!(origin && origin.returnFocusWasVisual)
         };
         requests = next;
         openIds = openIds.concat([id]);
@@ -87,9 +88,6 @@ Scope {
         const instance = instances[id];
         if (instance && typeof instance.holdsHide === "function" && instance.holdsHide()) return "refused: held=" + id;
         if (PluginLogic.hasOwn(closers, id)) {
-            const next = Object.assign({}, requests);
-            next[id] = Object.assign({}, requests[id], { closing: true });
-            requests = next;
             closers[id]();
             return "ok";
         }
@@ -109,7 +107,7 @@ Scope {
     }
 
     function toggle(id, payloadJson, origin) {
-        if (PluginLogic.hasOwn(instances, id) && requests[id] && requests[id].closing)
+        if (PluginLogic.hasOwn(instances, id) && PluginLogic.hasOwn(closingReaders, id) && closingReaders[id]())
             return summon(id, payloadJson, origin);
         return PluginLogic.hasOwn(instances, id) ? hide(id) : summon(id, payloadJson, origin);
     }
@@ -153,13 +151,16 @@ Scope {
         focusers = next;
     }
 
-    function rememberHostClose(id, close, reopen) {
+    function rememberHostClose(id, close, reopen, isClosing) {
         const nextClosers = Object.assign({}, closers);
         nextClosers[id] = close;
         closers = nextClosers;
         const nextReopeners = Object.assign({}, reopeners);
         nextReopeners[id] = reopen;
         reopeners = nextReopeners;
+        const nextClosingReaders = Object.assign({}, closingReaders);
+        nextClosingReaders[id] = isClosing;
+        closingReaders = nextClosingReaders;
     }
 
     function drop(id) {
@@ -176,6 +177,9 @@ Scope {
         const nextReopeners = Object.assign({}, reopeners);
         delete nextReopeners[id];
         reopeners = nextReopeners;
+        const nextClosingReaders = Object.assign({}, closingReaders);
+        delete nextClosingReaders[id];
+        closingReaders = nextClosingReaders;
         const nextErrors = Object.assign({}, openErrors);
         delete nextErrors[id];
         openErrors = nextErrors;
@@ -228,7 +232,7 @@ Scope {
                     request: entry.request
                     onBuilt: instance => {
                         host.rememberFocuser(entry.modelData, () => focusInitial());
-                        host.rememberHostClose(entry.modelData, () => popupSurface.closeFromHost(), () => popupSurface.reopenFromHost());
+                        host.rememberHostClose(entry.modelData, () => popupSurface.closeFromHost(), () => popupSurface.reopenFromHost(), () => popupSurface.closing);
                         if (host.built(entry.modelData, instance)) focusInitial();
                     }
                     onDismissed: Qt.callLater(() => {

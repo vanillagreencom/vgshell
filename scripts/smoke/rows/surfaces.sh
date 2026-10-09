@@ -26,9 +26,15 @@ text = path.read_text()
 marker = "    property string lastPayload: \"\"\n"
 assert text.count(marker) == 1, "lastPayload must occur once"
 text = text.replace(marker, marker + "    property int smokePressMarks: 0\n", 1)
+marker = "    property int smokePressMarks: 0\n"
+assert text.count(marker) == 1, "smokePressMarks must occur once"
+text = text.replace(marker, marker + "    property int smokeCloseMarks: 0\n", 1)
 marker = "    function geometry() { const p = mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, width, height]); }\n"
 assert text.count(marker) == 1, "geometry must occur once"
 text = text.replace(marker, marker + "    function smokeMarkerGeometry() { const p = smokeMarker.mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, smokeMarker.width, smokeMarker.height]); }\n", 1)
+marker = "    function close() {\n"
+assert text.count(marker) == 1, "close function must occur once"
+text = text.replace(marker, marker + "        smokeCloseMarks += 1;\n", 1)
 marker = "    T.Control {\n"
 insert = '''    Rectangle {
         id: smokeMarker
@@ -129,6 +135,7 @@ expect_poll "Escape closes an IPC panel the plugin leaves unaccepted" 0 layer_co
 summon_noescape="$repo/shell/Hosts/SummonPopupNoEscape.qml"
 summon_copy="$repo/shell/Hosts/SummonPopupNoGrab.qml"
 summon_no_commit="$repo/shell/Hosts/SummonPopupNoCommit.qml"
+summon_input_copy="$repo/shell/Hosts/SummonPopupInputEnabled.qml"
 layer_copy="$repo/shell/Hosts/SummonLayerNoCatch.qml"
 python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_noescape" <<'PYEDIT'
 import pathlib, sys
@@ -158,6 +165,14 @@ marker = "    function finishDismiss() {\n        visible = false;\n    }\n"
 assert text.count(marker) == 1, "the SummonPopup finishDismiss function must occur once"
 text = text.replace(marker, marker + "\n    function disableCommit() { skipCommit = true; }\n", 1)
 target.write_text(text.replace(old, "        if (!skipCommit && window !== null) window.update();\n"))
+PYEDIT
+python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_input_copy" <<'PYEDIT'
+import pathlib, sys
+source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+text = source.read_text()
+old = "        enabled: !popup.closing\n"
+assert text.count(old) == 1, "the SummonPopup closing input guard must occur once"
+target.write_text(text.replace(old, ""))
 PYEDIT
 python3 - "$repo/shell/Hosts/SummonLayer.qml" "$layer_copy" <<'PYEDIT'
 import pathlib, sys
@@ -217,12 +232,20 @@ layer_press() {
 # copy NAME and the panel layers mapped, as `<dismissals> <layers>`.
 layer_copy_state() { printf '%s %s\n' "$(ipc smoke summonLayerDismissals "$1")" "$(layer_count vgs:panel)"; }
 smoke_marks() { ipc smoke readInstance panel acme.surfaces smokePressMarks; }
+smoke_close_marks() { ipc smoke readInstance panel acme.surfaces smokeCloseMarks; }
 smoke_marker_press() {
   local box layer x y
   box="$(ipc smoke invokeInstance panel acme.surfaces smokeMarkerGeometry '')" || return 1
   [[ $box == \[* ]] || { echo "$box"; return 1; }
   layer="$(surface_box vgs:panel)" || return 1
   read -r x y < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); l=json.loads(sys.argv[2]); print(int(l[0] + b[0] + b[2] / 2), int(l[1] + b[1] + b[3] / 2))' "$box" "$layer") || return 1
+  click "$x" "$y" >/dev/null && echo ok
+}
+popup_marker_press() {
+  local box x y
+  box="$(ipc smoke invokeInstance panel acme.surfaces smokeMarkerGeometry '')" || return 1
+  [[ $box == \[* ]] || { echo "$box"; return 1; }
+  read -r x y < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); print(int(b[0] + b[2] / 2), int(b[1] + b[3] / 2))' "$box") || return 1
   click "$x" "$y" >/dev/null && echo ok
 }
 expect "a panel summons for the outside press on the desktop" ok ipc shell summon panel acme.surfaces "{\"closeMarker\":\"$sandbox/closed-by-desktop-press\"}"
@@ -414,6 +437,22 @@ else:
     print("rest")
 PY
 }
+popup_fade_slide_state() {
+  local progress opacity y
+  progress="$(ipc smoke popupRead "$1" motionProgress)" || return 1
+  opacity="$(ipc smoke popupRead "$1" cardOpacity)" || return 1
+  y="$(ipc smoke popupRead "$1" cardTranslateY)" || return 1
+  python3 - "$progress" "$opacity" "$y" <<'PY'
+import sys
+try:
+    progress, opacity, y = map(float, sys.argv[1:4])
+except ValueError:
+    print("progress=%s opacity=%s y=%s" % tuple(sys.argv[1:4]))
+    raise SystemExit
+moving = 0 < progress < 1 and 0 <= opacity < 1 and y < 0
+print("moving" if moving else "progress=%.3f opacity=%.3f y=%.3f" % (progress, opacity, y))
+PY
+}
 install_tail_widget() {
   local tail="$home/.config/vgshell/plugins/acme.surfaces-tail"
   mkdir -p "$tail"
@@ -505,38 +544,61 @@ expect_poll "the flyout motion duration is slowed for the motion check" 400 ipc 
 expect "the widget toggles its panel open for host-close motion" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces toggleHere "{\"closeMarker\":\"$sandbox/closed-by-toggle-motion\"}"
 expect_poll "the host-close panel is open before toggle close" 1 ipc smoke readInstance panel acme.surfaces opened
 expect "the widget toggle starts the host-close motion" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces toggleHere '{}'
-expect_poll "toggle close called the panel's close() before the motion" yes marker "$sandbox/closed-by-toggle-motion"
 expect "toggle close keeps the panel instance during the motion" 1 ipc smoke readInstance panel acme.surfaces opened
+expect "toggle close called the panel's close() once" 1 smoke_close_marks
 expect "a widget toggle during close reopens the same panel" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces toggleHere "{\"closeMarker\":\"$sandbox/closed-by-ipc-motion\"}"
 expect_poll "toggle during close calls open() on the same panel" 2 ipc smoke readInstance panel acme.surfaces opened
+expect_poll "toggle close called the panel's close() before the motion" yes marker "$sandbox/closed-by-toggle-motion"
 expect "IPC hide starts the host-close motion" ok ipc shell hide panel acme.surfaces
 expect_poll "IPC hide called the panel's close() before the motion" yes marker "$sandbox/closed-by-ipc-motion"
 expect "IPC hide keeps the panel instance during the motion" 2 ipc smoke readInstance panel acme.surfaces opened
 expect_poll "IPC hide destroys the panel after the close motion" absent ipc smoke readInstance panel acme.surfaces opened
+expect "the widget opens a panel for Escape-close reopen" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces summonHere ''
+expect_poll "the Escape-close panel opens" 1 ipc smoke readInstance panel acme.surfaces opened
+type_keys -k Escape || fail "sending Escape to the slowed panel failed"
+expect "Escape close called close() exactly once" 1 smoke_close_marks
+expect "summon during Escape close reopens the panel" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces summonHere ''
+expect_poll "summon during Escape close keeps the panel open" 2 ipc smoke readInstance panel acme.surfaces opened
+type_keys -k Escape || fail "sending Escape to the slowed panel for toggle failed"
+expect "toggle during Escape close reopens the panel" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces toggleHere '{}'
+expect_poll "toggle during Escape close keeps the panel open" 3 ipc smoke readInstance panel acme.surfaces opened
+expect "the panel closes before popup copy checks" ok ipc shell hide panel acme.surfaces
+expect_poll "the panel is gone before popup copy checks" absent ipc smoke readInstance panel acme.surfaces opened
 expect "the probe builds the SummonPopup copy for motion" ok ipc smoke popupLoad summon-motion "$repo/shell/Hosts/SummonPopup.qml" "bar:$screen_name" acme.surfaces '{"pluginId":"acme.surfaces","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
 expect "the motion copy's panel takes a payload" '' ipc smoke invokeInstance panel acme.surfaces open '{}'
 expect_poll "the motion copy is shown before its motion is read" true ipc smoke popupRead summon-motion visible
-expect "the motion copy opens with a fade-slide in progress" moving popup_motion_state summon-motion
+expect "the motion copy opens with a fade and slide in progress" moving popup_fade_slide_state summon-motion
 expect_poll "the motion copy reaches rest after opening" rest popup_motion_state summon-motion
+expect "the motion copy marker starts untouched" 0 smoke_marks
 expect "the motion copy starts closing" ok ipc smoke popupCall summon-motion requestDismiss
-expect_poll "the motion copy closes with a fade-slide in progress" moving popup_motion_state summon-motion
+expect "pressing the closing motion copy marker sends no plugin input" ok popup_marker_press
+expect "the closing motion copy marker remains untouched" 0 smoke_marks
+expect_poll "the motion copy closes with a fade and slide in progress" moving popup_fade_slide_state summon-motion
 expect_poll "the motion copy releases its popup after closing" false ipc smoke popupRead summon-motion visible
 expect "the probe drops the motion copy" ok ipc smoke popupDrop summon-motion
 expect_poll "the motion copy's panel leaves the build records" absent ipc smoke readInstance panel acme.surfaces opened
+expect "the probe builds the input-control popup copy" ok ipc smoke popupLoad summon-input-control "$summon_input_copy" "bar:$screen_name" acme.surfaces '{"pluginId":"acme.surfaces","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
+expect "the input-control copy's panel takes a payload" '' ipc smoke invokeInstance panel acme.surfaces open '{}'
+expect_poll "the input-control copy is shown" true ipc smoke popupRead summon-input-control visible
+expect "the input-control copy starts closing" ok ipc smoke popupCall summon-input-control requestDismiss
+expect "control: without the input guard the closing marker press reaches the plugin" ok popup_marker_press
+expect "control: the unguarded closing marker press increments the marker" 1 smoke_marks
+expect "the probe drops the input-control copy" ok ipc smoke popupDrop summon-input-control
+expect_poll "the input-control copy's panel leaves the build records" absent ipc smoke readInstance panel acme.surfaces opened
 printf '%s\n' '{"schemaVersion":1,"name":"surface-motion-off","tokens":{"motion":{"scale":0}}}' >"$surface_motion_theme.tmp"
 mv -T -- "$surface_motion_theme.tmp" "$surface_motion_theme"
 expect_poll "motion scale 0 stills the flyout duration" 0 ipc smoke themeValue motion.flyout.travel.duration
 expect "the widget opens a panel for the motion-off host close" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces summonPayload "{\"closeMarker\":\"$sandbox/closed-by-motion-off\"}"
-expect_poll "the motion-off host panel opens" 1 ipc smoke readInstance panel acme.surfaces opened
+expect "the motion-off host panel opens at once" 1 ipc smoke readInstance panel acme.surfaces opened
 expect "IPC hide closes immediately when motion is off" ok ipc shell hide panel acme.surfaces
 expect_poll "motion off called close() before the immediate destroy" yes marker "$sandbox/closed-by-motion-off"
-expect_poll "motion off destroys the host panel at once" absent ipc smoke readInstance panel acme.surfaces opened
+expect "motion off destroys the host panel at once" absent ipc smoke readInstance panel acme.surfaces opened
 expect "the probe builds the SummonPopup copy for motion off" ok ipc smoke popupLoad summon-motion-off "$repo/shell/Hosts/SummonPopup.qml" "bar:$screen_name" acme.surfaces '{"pluginId":"acme.surfaces","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
 expect "the motion-off copy's panel takes a payload" '' ipc smoke invokeInstance panel acme.surfaces open '{}'
 expect_poll "the motion-off copy is shown before its motion is read" true ipc smoke popupRead summon-motion-off visible
-expect_poll "the motion-off copy opens at rest" rest popup_motion_state summon-motion-off
+expect "the motion-off copy opens at rest" rest popup_motion_state summon-motion-off
 expect "the motion-off copy starts closing" ok ipc smoke popupCall summon-motion-off requestDismiss
-expect_poll "motion scale 0 closes the copy at once" false ipc smoke popupRead summon-motion-off visible
+expect "motion scale 0 closes the copy at once" false ipc smoke popupRead summon-motion-off visible
 expect "the probe drops the motion-off copy" ok ipc smoke popupDrop summon-motion-off
 expect_poll "the motion-off copy's panel leaves the build records" absent ipc smoke readInstance panel acme.surfaces opened
 if [[ $surface_motion_had_theme == true ]]; then

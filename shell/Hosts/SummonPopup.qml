@@ -21,6 +21,8 @@ PopupWindow {
     readonly property bool returnFocusWasVisual: !!(request && request.returnFocusWasVisual)
     property bool closing: false
     property real motionProgress: 0
+    readonly property real cardOpacity: sized.opacity
+    readonly property real cardTranslateY: cardOffset.y
     signal built(var instance)
     signal dismissed()
 
@@ -174,8 +176,10 @@ PopupWindow {
         id: sized
         room: Math.min(popup.roomBelow(), popup.room.height)
         target: slot.instance ? Math.max(1, Math.min(slot.instance.implicitHeight, sized.room > 0 ? sized.room : popup.room.height)) : 1
+        enabled: !popup.closing
         opacity: popup.motionProgress
         transform: Translate {
+            id: cardOffset
             y: -Theme.motion.flyout.slide * (1 - popup.motionProgress)
         }
 
