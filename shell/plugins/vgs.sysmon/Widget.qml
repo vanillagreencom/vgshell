@@ -20,6 +20,9 @@ BarWidget {
 
     function percent(value) { return typeof value === "number" ? Math.round(value) + "%" : "--"; }
     function degrees(value) { return Logic.degrees(value, setting("temperatureUnit", "Celsius")); }
+    // The widest form of each reading, which its BarItem holds.
+    readonly property string percentSample: percent(100)
+    readonly property string degreesSample: degrees(100)
     function gb(value) { return typeof value === "number" ? (value / 1073741824).toFixed(1) + " GB" : "--"; }
     function holdLease() {
         if (shell === null || leased) return;
@@ -47,6 +50,8 @@ BarWidget {
             caption: root.captions ? "CPU" : ""
             text: root.percent(root.cpu.use)
             count: root.setting("cpuTemperature", false) ? root.degrees(root.cpu.temperature) : ""
+            textSample: root.percentSample
+            countSample: root.degreesSample
             separator: "/"
             textLevel: Logic.tone(root.cpu.use, 60, 80)
             countLevel: Logic.tone(root.cpu.temperature, 70, 85)
@@ -60,6 +65,9 @@ BarWidget {
             caption: root.captions ? "RAM" : ""
             text: root.setting("memoryUnit", "percent") === "used" ? root.gb(root.memory.used) : root.percent(root.memory.use)
             count: root.setting("showSwap", false) ? root.percent(root.memory.swapUse) : ""
+            // Used memory never exceeds the total.
+            textSample: root.setting("memoryUnit", "percent") === "used" ? root.gb(root.memory.total) : root.percentSample
+            countSample: root.percentSample
             separator: "/"
             textLevel: Logic.tone(root.memory.use, 75, 90)
             tooltip: "Memory " + root.gb(root.memory.used) + " of " + root.gb(root.memory.total)
@@ -72,6 +80,8 @@ BarWidget {
             caption: root.captions ? "GPU" : ""
             text: root.percent(root.gpu && root.gpu.state === "asleep" ? null : root.gpu ? root.gpu.use : null)
             count: root.setting("gpuTemperature", false) ? root.degrees(root.gpuTemperature) : ""
+            textSample: root.percentSample
+            countSample: root.degreesSample
             separator: "/"
             countLevel: Logic.tone(root.gpuTemperature, 65, 80)
             tooltip: root.gpu ? root.gpu.name + " · " + (root.gpu.state === "asleep" ? "Asleep" : root.percent(root.gpu.use) + " · " + root.degrees(root.gpu.temperature)) : "GPU"

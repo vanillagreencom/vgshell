@@ -15,9 +15,13 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // icon or caption draws in the most severe level of the values shown, so
 // it turns red exactly when a value beside it does. A `separator` draws
 // flush between text and count in `bar.item.separator`, never a state
-// colour; without one the two keep the item gap. The item is as wide as
-// what it draws and reserves no room after it; the `bar` role is mono, so
-// a reading's width moves only with its character count. The item is
+// colour; without one the two keep the item gap. A reading that changes,
+// `text` with `textSample` or `count` with `countSample`, is a `Reading`:
+// it holds the width of its sample, the widest form it takes, and draws
+// right aligned in it, so spare room sits before the number, inside the
+// item, and the item keeps its width as the reading changes. A reading
+// without a sample is as wide as it draws. The item is as wide as its
+// padding and what it draws, and reserves no room after it. The item is
 // never narrower than it is tall, and an item that draws an icon alone is
 // square, its icon centred. The tooltip reads `tooltip` as its title and
 // `tooltipDetails` as its quieter detail lines. `active` fills it with
@@ -26,6 +30,30 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // click, hover and focus, and the ring shows for keyboard focus.
 T.AbstractButton {
     id: root
+
+    // A bar reading that changes: `sample` is the widest form it takes.
+    // It holds the width the sample lays out to in its own font and draws
+    // right aligned in it, so the held room sits before the number. An
+    // empty sample holds nothing. An unshown Text measures the sample, not
+    // TextMetrics: a Text's width counts a last glyph's ink past its
+    // advance, which TextMetrics.advanceWidth leaves out ("100%" in the bar
+    // role lays out 33.56 px wide against an advance of 32.56 px, read
+    // under scripts/qml-unit.sh on 2026-10-08), so an advance would hold
+    // a pixel less than the sample shown takes.
+    component Reading: Label {
+        id: reading
+        property string sample: ""
+        role: "bar"
+        horizontalAlignment: Text.AlignRight
+        width: Math.max(implicitWidth, sampleSize.implicitWidth)
+
+        Text {
+            id: sampleSize
+            visible: false
+            font: reading.font
+            text: reading.sample
+        }
+    }
 
     readonly property real minimumWidth: Theme.control.minWidth
     readonly property real maximumWidth: Theme.control.maxWidth
@@ -36,6 +64,9 @@ T.AbstractButton {
 
     property string iconName: ""
     property string count: ""
+    // The widest form of `text` and of `count`, held by their Readings.
+    property string textSample: ""
+    property string countSample: ""
     property string caption: ""
     property string separator: ""
     // "normal", "warning" or "danger".
@@ -113,9 +144,9 @@ T.AbstractButton {
                 id: values
                 visible: root.text !== "" || root.count !== ""
                 spacing: root.separator !== "" ? 0 : root.spacing
-                Label {
+                Reading {
                     id: textLabel
-                    role: "bar"
+                    sample: root.textSample
                     visible: root.text !== ""
                     text: root.text
                     color: root.levelColor(root.textLevel)
@@ -128,9 +159,9 @@ T.AbstractButton {
                     color: Theme.bar.item.separator
                     y: topForCapCenter(row.height)
                 }
-                Label {
+                Reading {
                     id: countLabel
-                    role: "bar"
+                    sample: root.countSample
                     visible: root.count !== ""
                     text: root.count
                     color: root.levelColor(root.countLevel)

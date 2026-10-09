@@ -10,12 +10,15 @@ import qs.Unit
 // the item's tone; a value draws its level's colour and the icon or its
 // caption the most severe level shown; the separator draws its own token;
 // the item is as wide as its padding and what it draws, with no room
-// after the reading; `active` fills it with `bar.active`;
+// after the reading; a reading with a sample is as wide as its sample and
+// draws right aligned in it, so its glyphs end where the same reading
+// without held room ends and the item keeps its right padding; `active`
+// fills it with `bar.active`;
 // hover and press fill it with their own tokens; a click emits `clicked`.
 Item {
     id: root
     width: 300
-    height: 160
+    height: 260
 
     BarItem { id: icon; iconName: "settings"; label: "Settings"; onClicked: root.clicks += 1 }
     BarItem { id: counted; iconName: "shield"; count: "12"; tone: "#ff0000"; y: 40 }
@@ -23,6 +26,9 @@ Item {
     BarItem { id: spinner; iconName: "refresh-cw"; spinning: true; y: 120 }
     BarItem { id: tooltipItem; iconName: "settings"; label: "Settings"; tooltip: "Open settings"; tooltipDetails: ["Pinned in the bar"]; x: 80 }
     property int clicks: 0
+    // The held readings draw red on black here, below every other item.
+    Rectangle { id: canvas; y: 160; width: root.width; height: 100; color: "black" }
+    Component { id: heldCase; BarItem { tone: "#ff0000" } }
     Component { id: readingCase; BarItem { x: 150 } }
     Component {
         id: tooltipCase
@@ -157,6 +163,62 @@ Item {
             compare(item.width, item.implicitWidth);
             const last = found[found.length - 1];
             tryVerify(() => item.width - item.rightPadding - last.mapToItem(item, last.width, 0).x < 1, 1000, "the reading ends at the right padding");
+        }
+
+        // The rightmost column of `img`, a grab of the root, holding ink
+        // inside `item`'s box, -1 when none does.
+        function inkRight(img, item) {
+            const at = item.mapToItem(root, 0, 0);
+            for (let x = Math.min(img.width, Math.ceil(at.x + item.width)) - 1; x >= Math.max(0, Math.floor(at.x)); x--)
+                for (let y = Math.max(0, Math.floor(at.y)); y < Math.min(img.height, Math.ceil(at.y + item.height)); y++)
+                    if (img.red(x, y) > 64) return x;
+            return -1;
+        }
+        // The blank between the last ink inside `item` and its box's right
+        // edge.
+        function trailing(img, item) {
+            const ink = inkRight(img, item);
+            verify(ink >= 0, "\"" + item.text + "\" draws");
+            return item.mapToItem(root, item.width, 0).x - (ink + 1);
+        }
+
+        // `held` holds a sample, `wide` shows the sample's text with no
+        // sample, and `bare` shows the held reading with no sample: the
+        // held item is as wide as `wide`, and each held value and the item
+        // end their ink where `bare` ends it.
+        function test_a_held_reading_draws_right_aligned_data() {
+            return [
+                { tag: "text", held: { text: "5%", textSample: "100%" }, wide: { text: "100%" }, bare: { text: "5%" } },
+                { tag: "count", held: { iconName: "cpu", text: "5%", count: "9°", countSample: "100°", separator: "/" },
+                    wide: { iconName: "cpu", text: "5%", count: "100°", separator: "/" }, bare: { iconName: "cpu", text: "5%", count: "9°", separator: "/" } },
+                { tag: "both", held: { iconName: "cpu", text: "5%", textSample: "100%", count: "9°", countSample: "100°", separator: "/" },
+                    wide: { iconName: "cpu", text: "100%", count: "100°", separator: "/" }, bare: { iconName: "cpu", text: "5%", count: "9°", separator: "/" } },
+                { tag: "spaced-count", held: { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%" },
+                    wide: { caption: "RAM", text: "12.0 GB", count: "100%" }, bare: { caption: "RAM", text: "1.0 GB", count: "9%" } }
+            ];
+        }
+
+        function test_a_held_reading_draws_right_aligned(data) {
+            mouseMove(root, root.width - 1, 0);
+            const step = Theme.bar.item.height + 4;
+            const held = createTemporaryObject(heldCase, canvas, data.held);
+            const bare = createTemporaryObject(heldCase, canvas, Object.assign({ y: step }, data.bare));
+            const wide = createTemporaryObject(heldCase, canvas, Object.assign({ y: 2 * step }, data.wide));
+            verify(held !== null && bare !== null && wide !== null);
+            verify(3 * step <= canvas.height, "the three items fit the canvas");
+            tryVerify(() => wide.implicitWidth > bare.implicitWidth, 1000, "the wide reading lays out");
+            tryCompare(held, "width", wide.width, 1000, "the held item is as wide as its sample shown");
+            verify(waitForRendering(canvas));
+            const img = grabImage(root);
+            compare(img.width, root.width, "the root grabs at one pixel a point");
+            const values = item => labels(item).filter(label => label.text === data.held.text || label.text === data.held.count);
+            const heldValues = values(held), bareValues = values(bare);
+            compare(heldValues.length, [data.held.text, data.held.count].filter(value => value !== undefined).length);
+            compare(bareValues.length, heldValues.length);
+            for (let index = 0; index < heldValues.length; index++)
+                verify(Math.abs(trailing(img, heldValues[index]) - trailing(img, bareValues[index])) <= 1,
+                    "\"" + heldValues[index].text + "\" ends at the right of its held width");
+            verify(Math.abs(trailing(img, held) - trailing(img, bare)) <= 1, "the held reading ends at the right padding");
         }
 
         function test_the_separated_reading_follows_the_icon() {

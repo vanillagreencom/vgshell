@@ -13,6 +13,16 @@ Item {
     QtObject { id: status; property var values: ({}) }
     Component { id: widgetComponent; Sysmon.Widget {} }
     Component { id: panelComponent; Sysmon.Panel {} }
+    Component {
+        id: stripComponent
+        Row {
+            property alias widget: held
+            property alias sibling: after
+            spacing: Theme.bar.gap
+            Sysmon.Widget { id: held }
+            BarItem { id: after; iconName: "settings"; label: "Settings" }
+        }
+    }
 
     TestCase {
         id: tests
@@ -46,7 +56,7 @@ Item {
             if (widget !== null) { widget.destroy(); widget = null; }
             wait(0);
         }
-        function items() {
+        function items(node) {
             const found = [];
             function walk(node) {
                 for (const child of node.children) {
@@ -54,7 +64,7 @@ Item {
                     walk(child);
                 }
             }
-            walk(widget);
+            walk(node === undefined ? widget : node);
             return found;
         }
         function shown() { return items().filter(item => item.visible).map(item => item.iconName); }
@@ -97,10 +107,11 @@ Item {
             return walk(item.contentItem);
         }
         // The expected width adds the padding to the icon and the drawn
-        // labels' own widths, so room kept past the reading turns it red.
+        // labels' widths, each the width its reading holds, so room kept
+        // past the reading turns it red.
         function drawnWidth(item) {
             let content = (item.iconName === "" ? 0 : Theme.bar.item.icon) + Theme.bar.item.iconGap;
-            for (const label of drawn(item)) content += label.implicitWidth;
+            for (const label of drawn(item)) content += label.width;
             return item.leftPadding + Math.ceil(content) + item.rightPadding;
         }
         function allReadings() {
@@ -124,21 +135,40 @@ Item {
                 tryVerify(() => item.implicitWidth === drawnWidth(item), 1000, item.label + " keeps no room after its reading");
             }
         }
-        function test_width_moves_only_with_the_character_count() {
-            widget.settings = allReadings();
-            const cpu = items()[0];
-            tryVerify(() => cpu.implicitWidth === drawnWidth(cpu), 1000, "the CPU item lays out its reading");
-            const five = cpu.implicitWidth;
-            status.values = { readings: sample(7) };
-            compare(cpu.text, "7%");
-            verify(waitForRendering(widget));
-            compare(cpu.implicitWidth, five, "a reading with the same character count keeps its width");
-            status.values = { readings: sample(100) };
-            compare(cpu.text, "100%");
-            tryVerify(() => cpu.implicitWidth === drawnWidth(cpu), 1000, "the CPU item lays out its longer reading");
-            const advance = drawn(cpu)[0].implicitWidth / cpu.text.length;
-            verify(advance > 0);
-            fuzzyCompare(cpu.implicitWidth - five, 2 * advance, 1, "two more characters widen the item by two advances");
+        // Each reading going from its short form to its widest: the item
+        // keeps its width, so no item after it and no widget after the
+        // System Monitor moves.
+        function test_a_reading_change_moves_no_other_widget_data() {
+            const memory = { memoryUnit: "used" };
+            return [
+                { tag: "cpu-use", index: 0, change: (value, use) => { value.cpu.use = use; }, from: 9, to: 100, texts: ["9%/54°", "100%/54°"] },
+                { tag: "cpu-temperature", index: 0, change: (value, degrees) => { value.cpu.temperature = degrees; }, from: 9, to: 100, texts: ["5%/9°", "5%/100°"] },
+                { tag: "cpu-fahrenheit", index: 0, settings: { temperatureUnit: "Fahrenheit" }, change: (value, degrees) => { value.cpu.temperature = degrees; }, from: 9, to: 100, texts: ["5%/48°", "5%/212°"] },
+                { tag: "memory-use", index: 1, change: (value, use) => { value.memory.use = use; }, from: 9, to: 100, texts: ["9%/0%", "100%/0%"] },
+                { tag: "swap", index: 1, change: (value, use) => { value.memory.swapUse = use; }, from: 9, to: 100, texts: ["5%/9%", "5%/100%"] },
+                { tag: "memory-used", index: 1, settings: memory, change: (value, gb) => { value.memory.used = gb * 1073741824; value.memory.total = 12 * 1073741824; }, from: 1, to: 12, texts: ["1.0 GB/0%", "12.0 GB/0%"] },
+                { tag: "gpu-use", index: 2, change: (value, use) => { value.gpu.use = use; }, from: 9, to: 100, texts: ["9%/42°", "100%/42°"] }
+            ];
+        }
+        function test_a_reading_change_moves_no_other_widget(data) {
+            const strip = createTemporaryObject(stripComponent, root);
+            verify(strip !== null);
+            strip.widget.settings = Object.assign(allReadings(), data.settings || {});
+            const reading = value => { const found = sample(5); data.change(found, value); return { readings: found }; };
+            status.values = reading(data.from);
+            strip.widget.shell = scope();
+            const shownItems = items(strip.widget);
+            compare(drawnText(shownItems[data.index]), data.texts[0]);
+            verify(waitForRendering(strip));
+            const width = shownItems[data.index].width;
+            const after = shownItems.slice(data.index + 1).map(item => item.x);
+            const sibling = strip.sibling.x;
+            status.values = reading(data.to);
+            compare(drawnText(shownItems[data.index]), data.texts[1]);
+            verify(waitForRendering(strip));
+            compare(shownItems[data.index].width, width, "the changed item keeps its width");
+            compare(JSON.stringify(shownItems.slice(data.index + 1).map(item => item.x)), JSON.stringify(after), "no item after it moves");
+            compare(strip.sibling.x, sibling, "the widget after the System Monitor does not move");
         }
         function test_widget_spaces_its_items_by_the_bar_gap_data() {
             return [
