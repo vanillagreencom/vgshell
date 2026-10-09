@@ -64,7 +64,7 @@ expect "Settings enables for the sharing setup path" ok ipc shell setPluginEnabl
 expect_poll "Settings is built for the setup path" True record_exists vgs.settings
 expect "Settings opens Capture's page" ok ipc shell summon window vgs.settings '{"plugin":"vgs.capture"}'
 expect_poll "Settings shows Capture's page" '"vgs.capture"' ipc smoke readInstance window vgs.settings page
-expect_poll "Settings offers the sharing setup action" true ipc smoke readMatchingDescendant window vgs.settings Button text "Set up screen sharing" enabled
+expect_poll "Settings offers the sharing setup action" true ipc smoke readMatchingDescendant window vgs.settings RowAction text "Set up screen sharing" enabled
 expect "Settings hides after its setup route assertion" ok ipc shell hide window vgs.settings
 expect "ordinary Capture Open summons its controls" ok ipc shell summon window vgs.capture '{}'
 expect_poll "ordinary Capture Open selects the capture controls" false share_read sharing
