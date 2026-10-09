@@ -94,6 +94,7 @@ Item {
         }
         const failing = Object.keys(next).filter(url => next[url].status === Image.Error);
         const tokens = Logic.tokens(segments, imageSize, failing.concat(Logic.imageUrls(segments).filter(url => next[url] === undefined)));
+        const drewImages = imageMode;
         imageMode = Logic.hasImage(tokens);
         if (imageMode) {
             drawn.wrapMode = Text.Wrap;
@@ -106,7 +107,18 @@ Item {
             drawn.text = result.markup;
             cutShort = result.cut;
         } else {
-            measurer.text = "";
+            // Qt 6.12.0 (qquicktext.cpp: QQuickText::setText and
+            // QQuickTextPrivate::setupTextLayout) frees a Text's inline
+            // images when its text changes, but drops them from its list
+            // of drawn images only in a layout that positions images,
+            // which an empty text never reaches. The finish of an image
+            // still loading, such as the failure that runs this rebuild,
+            // or a device-pixel-ratio change then reads the freed images.
+            // So a Text that held images first takes a space, which draws
+            // nothing; the measurer is hidden and unread here, and the
+            // drawn text's elision is still image mode's none.
+            measurer.text = " ";
+            if (drewImages) drawn.text = " ";
             drawn.wrapMode = Text.WordWrap;
             drawn.elide = Text.ElideRight;
             drawn.text = Logic.join(tokens, tokens.length);

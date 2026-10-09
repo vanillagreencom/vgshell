@@ -30,8 +30,11 @@
 # core files the tests drive beside stand-in Registry, Capabilities and
 # Compositor singletons, the last recording the key capture's requests, and
 # a stand-in Quickshell.Hyprland supplies GlobalShortcut and a Hyprland
-# singleton whose events a test emits. Nothing under the repository is
-# written.
+# singleton whose events a test emits. Beside UnitTheme, qs.Unit holds
+# UnitPaths, the directory of the module under test, and UnitQt, whose
+# VERSION is the runner's Qt version as the qmlformat beside the runner
+# reports it, or null when that read fails. Nothing under the repository
+# is written.
 #
 # A test file fails on any warning or error it logs, console.warn and
 # console.error included, unless a declaration in that file expects it:
@@ -143,7 +146,15 @@ printf 'module qs.Core\nTuiRecords 1.0 TuiRecords.qml\nThemeRunner 1.0 ThemeRunn
 cp -- "$tests/stand-ins/UnitTheme.qml" "$imports/qs/Unit/UnitTheme.qml"
 # Where the module under test is, for the test that reads its qmldir.
 printf '.pragma library\nvar UI_DIR = %s;\n' "$(python3 -c 'import json, sys; print(json.dumps("file://" + sys.argv[1]))' "$ui")" >"$imports/qs/Unit/UnitPaths.js"
-printf 'module qs.Unit\nsingleton UnitTheme 1.0 UnitTheme.qml\nUnitPaths 1.0 UnitPaths.js\n' >"$imports/qs/Unit/qmldir"
+# The runner's Qt version, from the qmlformat Qt installs beside it, or
+# null when that read fails, so a test that branches on it fails.
+qt_version=null
+if version_line="$(env -i LC_ALL=C.UTF-8 "$(dirname -- "$(readlink -f -- "$runner")")/qmlformat" --version 2>/dev/null)" \
+  && [[ $version_line =~ ^qmlformat\ ([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+  qt_version="\"${BASH_REMATCH[1]}\""
+fi
+printf '.pragma library\nvar VERSION = %s;\n' "$qt_version" >"$imports/qs/Unit/UnitQt.js"
+printf 'module qs.Unit\nsingleton UnitTheme 1.0 UnitTheme.qml\nUnitPaths 1.0 UnitPaths.js\nUnitQt 1.0 UnitQt.js\n' >"$imports/qs/Unit/qmldir"
 for file in Singleton.qml Scope.qml PopupWindow.qml Edges.qml PopupAdjustment.qml Quickshell.qml QsWindow.qml DesktopEntries.qml ScriptModel.qml LazyLoader.qml Variants.qml; do
   cp -- "$tests/stand-ins/$file" "$imports/Quickshell/$file"
 done

@@ -484,12 +484,21 @@ Item {
 
         // Each broken card is named once and left empty, and the carousel
         // still steps.
-        // expected-log: Setting initial properties failed: Rectangle does not have a property called decodeSize -- missingSize takes no decodeSize, on purpose
         // expected-log: Required property extra was not initialized -- extraRequired requires a property the carousel never sets, on purpose
         function test_a_delegate_that_cannot_build_leaves_its_card_empty() {
+            // Qt below 6.12 warns once per card that missingSize has no
+            // decodeSize to set; 6.12.0 sets an initial property the object
+            // lacks as no error (qqmlcomponent.cpp,
+            // QQmlComponentPrivate::setInitialProperty). A VERSION of null
+            // throws here rather than pick a branch.
+            const qt = UnitQt.VERSION.split(".").map(Number);
+            const warnsOfMissingSize = qt[0] < 6 || (qt[0] === 6 && qt[1] < 12);
             for (const broken of [missingSize, extraRequired]) {
-                for (let i = 0; i < 3; i++)
+                for (let i = 0; i < 3; i++) {
                     ignoreWarning(new RegExp("^CardCarousel: no content index=" + i + ";"));
+                    if (broken === missingSize && warnsOfMissingSize)
+                        ignoreWarning(/: Setting initial properties failed: Rectangle does not have a property called decodeSize$/);
+                }
                 const made = small.createObject(root, { delegate: broken });
                 tryVerify(() => rail(made).visible, 1000, "the rail settles");
                 compare(slots(made).filter(s => s.children[0].item !== null).length, 3);

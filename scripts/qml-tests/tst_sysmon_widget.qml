@@ -392,6 +392,12 @@ Item {
             status.values = { readings: sample(5, null) };
             compare(asleep.visible, false);
         }
+        // A hover or a click that changes nothing visible draws no frame
+        // on Qt 6.12, so the wait first asks the window for one.
+        function rendered(item) {
+            root.Window.window.update();
+            return waitForRendering(item);
+        }
         function test_panel_reading_hover_and_click_keep_geometry_focus_and_scroll() {
             const facade = scope(); facade.requirements.missing = [];
             facade.tui = { run: () => "ok" }; facade.surfaces.hide = () => "ok";
@@ -407,10 +413,10 @@ Item {
             const boxes = readings.map(item => [item.y, item.height, item.childrenRect.height]);
             for (const reading of readings) {
                 mouseMove(reading, reading.width / 2, reading.height / 2);
-                verify(waitForRendering(panel));
+                verify(rendered(panel));
                 compare(JSON.stringify(readings.map(item => [item.y, item.height, item.childrenRect.height])), JSON.stringify(boxes), "hover adds no layout row");
                 mouseClick(reading, reading.width / 2, reading.height / 2);
-                verify(waitForRendering(panel));
+                verify(rendered(panel));
                 compare(root.Window.window.activeFocusItem, originalFocus, "a reading click leaves keyboard focus in the body");
                 compare(pane.scrollArea.contentY, originalScroll, "a reading click does not scroll");
                 verify(!descendants(reading).some(item => item instanceof FocusRing && item.visible), "a reading click draws no focus ring");

@@ -157,6 +157,19 @@ Item {
             verify(drawn(item).text.indexOf("<img") === -1);
         }
 
+        // A body emptied while its image loads, with another holder keeping
+        // the load, outlives that load's finish and draws nothing.
+        // expected-log: Cannot open: -- the missing fixture image fails to load on purpose
+        function test_a_text_emptied_while_its_image_loads_draws_nothing() {
+            const segments = [{ markup: "x " }, { image: root.missing, alt: ":gone:" }];
+            const keeper = make(segments, 1);
+            const item = make(segments, 1);
+            verify(drawn(item).text.indexOf("<img") !== -1, "the text names the image while it loads");
+            item.segments = [];
+            tryVerify(() => drawn(keeper).text.indexOf(":gone:") !== -1, 3000, "the load finished");
+            compare(drawn(item).text, "");
+        }
+
         function test_the_pool_shares_an_image_and_lets_it_go_with_its_last_holder() {
             const segments = [{ image: root.red, alt: ":red:" }];
             const first = make(segments, 1);

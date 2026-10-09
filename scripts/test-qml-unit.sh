@@ -56,6 +56,8 @@ mutations=(
   "System Monitor paints no detail text|../plugins/vgs.sysmon/Reading.qml|            role: \"hint\"|            role: \"hint\"; opacity: 0|tst_sysmon_widget.qml"
   "System Monitor replaces detail rows on each sample|../plugins/vgs.sysmon/Reading.qml|model: root.details.length|model: root.details|tst_sysmon_widget.qml"
   "System Monitor freezes detail values|../plugins/vgs.sysmon/Reading.qml|text: root.details[index]|text: \"stale\"|tst_sysmon_widget.qml"
+  "a hovered System Monitor reading grows a row|../plugins/vgs.sysmon/Reading.qml|    spacing: Theme.stack.row|    spacing: Theme.stack.row; HoverHandler { id: hoverRow } Item { width: 1; height: 10; visible: hoverRow.hovered }|tst_sysmon_widget.qml"
+  "a System Monitor reading click takes keyboard focus|../plugins/vgs.sysmon/Reading.qml|    spacing: Theme.stack.row|    spacing: Theme.stack.row; TapHandler { onTapped: root.forceActiveFocus() }|tst_sysmon_widget.qml"
   "accepted navigation keeps the initial reason|foundation/KeyNav.qml|if (keyboard === true) Logic.focusNavigation(focusTarget);|if (false) Logic.focusNavigation(focusTarget);|tst_navigation_focus.qml"
   "a programmatic movement gains a keyboard reason|foundation/KeyNav.qml|if (keyboard === true) Logic.focusNavigation(focusTarget);|Logic.focusNavigation(focusTarget);|tst_navigation_focus.qml"
   "a forwarded navigator marks another focus owner|foundation/KeyNavLogic.js|target.activeFocus && \"focusReason\" in target|\"focusReason\" in target|tst_navigation_focus.qml"
