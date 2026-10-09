@@ -69,8 +69,6 @@ run_setup "$home1"
 config1="$home1/.config/voxtype/config.toml"
 if [[ $status == 0 && -f $config1 ]]; then ok "setup copies default config when absent"; else fail "setup copy: status=$status err=$(cat "$TMP_ROOT/err")"; fi
 if grep -q 'Download and set up the parakeet-tdt-0.6b-v3 speech model?' "$TMP_ROOT/out" && ! grep -q 'base.en\|size unknown' "$TMP_ROOT/out"; then ok "setup confirm names the copied default model and no guessed size"; else fail "setup confirm text: $(cat "$TMP_ROOT/out")"; fi
-if [[ -f $home1/.config/voxtype/sounds/bloop/start.wav && -f $home1/.config/voxtype/sounds/bloop/stop.wav && -f $home1/.config/voxtype/sounds/bloop/error.wav ]]; then ok "setup copies the bloop sounds"; else fail "setup did not copy every sound"; fi
-if grep -q "__VGS_VOICE_BLOOP_THEME__" "$config1"; then fail "setup left the sound placeholder in config"; else ok "setup writes the absolute sound path"; fi
 order="$(grep -E 'sudo voxtype setup onnx --enable|voxtype setup (--download --model parakeet-tdt-0.6b-v3 --no-post-install|systemd)|systemctl --user restart voxtype' "$TMP_ROOT/calls" | paste -sd '|' -)"
 want='sudo voxtype setup onnx --enable|voxtype setup --download --model parakeet-tdt-0.6b-v3 --no-post-install|voxtype setup systemd|systemctl --user restart voxtype'
 if [[ $order == "$want" ]]; then ok "setup calls sudo engine, download, systemd and restart in order"; else fail "setup order: got [$order]"; fi
@@ -113,7 +111,7 @@ open(sys.argv[2], 'w').write(source.replace(needle, 'if true; then'))
 PY
 chmod 755 "$control"
 run_setup "$home2" "$control"
-if [[ -L $home2/.config/voxtype/config.toml ]]; then fail "control symlink rewrite: setup still left the symlink"; else ok "control symlink rewrite turns the symlink case red"; fi
+if [[ -L $home2/.config/voxtype/config.toml && $(cat "$TMP_ROOT/dotfiles/config.toml") == 'kept=1' ]]; then fail "control symlink rewrite: setup still left the symlinked config untouched"; else ok "control symlink rewrite turns the symlink case red"; fi
 
 control="$TMP_ROOT/setup-nosudo.sh"
 python3 - "$plugin/tui/setup.sh" "$control" <<'PY'

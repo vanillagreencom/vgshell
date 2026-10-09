@@ -20,7 +20,7 @@ var KINDS = ["bar-widget", "bar", "panel", "overlay", "menu", "window", "pane", 
 
 // Capabilities the core can hand a plugin. A manifest naming another one is
 // refused. Capabilities.qml maps each name to its provider.
-var CAPABILITIES = ["compositor", "configure", "idle", "ipc", "lock", "session", "notifications", "polkit", "run", "screens", "screencopy", "shortcut", "surfaces", "builtins", "manager", "panes", "notify", "theme", "layers", "status", "tui", "system", "requirements", "doctor", "secrets", "hyprland", "bluetoothAgent", "monitors", "sudo", "appearance"];
+var CAPABILITIES = ["compositor", "configure", "idle", "ipc", "lock", "session", "notifications", "polkit", "run", "screens", "screencopy", "shortcut", "surfaces", "builtins", "manager", "panes", "notify", "theme", "layers", "status", "tui", "system", "requirements", "doctor", "secrets", "hyprland", "bluetoothAgent", "monitors", "sudo", "appearance", "sounds", "soundSettings"];
 
 // A plugin's system notification, shell.notify.send. The tones and the
 // icon grammar are the ones the `x-vgs-tone` and `x-vgs-icon` hints take
@@ -83,9 +83,34 @@ var PLACEMENTS = ["top-left", "top", "top-right", "left", "center", "right", "bo
 var PANE_KEYS = ["group", "order"];
 var PANE_GROUP_MAX = 60;
 
+// A manifest's `sounds` key: the events the plugin has a sound for, each a
+// NAME_PATTERN name over SOUND_EVENT_KEYS. `label` names the event on the
+// Sounds page and `description` says when it sounds. `default` is what the
+// event plays until the user chooses: an id of SOUNDS, or SOUND_OFF for
+// none. An event with `own` is one the plugin sounds itself, through an
+// audio path the core's player cannot serve; `own` names that sound in the
+// page's picker, and such an event's value is SOUND_OWN or SOUND_OFF.
+var SOUND_EVENT_KEYS = ["label", "description", "default", "own"];
+var SOUND_OFF = "";
+var SOUND_OWN = "own";
+// The sounds the core ships, each shell/assets/sounds/<file>, in the order
+// the Sounds page offers them. A manifest's default and the user's choice
+// name one by `id`.
+var SOUNDS = [
+    { id: "chime", label: "Chime", file: "chime.wav" },
+    { id: "ping", label: "Ping", file: "ping.wav" },
+    { id: "pop", label: "Pop", file: "pop.wav" },
+    { id: "bloop-up", label: "Bloop up", file: "bloop-up.wav" },
+    { id: "bloop-down", label: "Bloop down", file: "bloop-down.wav" },
+    { id: "bloop-low", label: "Bloop low", file: "bloop-low.wav" }
+];
+// At most this many players run at once, so a burst of events cannot stack
+// processes without bound.
+var SOUND_RUNS_MAX = 4;
+
 // Every key a manifest may carry. An unknown key is refused, so a misspelt
 // key fails loudly instead of being carried and ignored.
-var MANIFEST_KEYS = ["schemaVersion", "id", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "systemSteps", "settings", "schema", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "alwaysOn"];
+var MANIFEST_KEYS = ["schemaVersion", "id", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "systemSteps", "settings", "schema", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn"];
 
 // What one entry of a manifest's `requirements`, and of the core's own
 // config/requirements.json, may carry: an external command the plugin runs
@@ -268,7 +293,9 @@ var CONFIG_VERSION = 1;
 // `manager` is an object whose `id` is a string (managerId); `appearance`
 // is an object, whose members ThemeLogic.appearanceRefusal judges where
 // the theme resolves them, so one bad member shows as Set by theme and
-// blocks no other key. A key outside that set is carried untouched. Config.qml runs this judge
+// blocks no other key; `sounds` is an object of plugin ids, each an object
+// of event names to strings, the user's sound choices, each judged where
+// it is read (soundValue). A key outside that set is carried untouched. Config.qml runs this judge
 // on every parsed file and reports a defect as the file's state, so no
 // malformed row is dropped on the way to the screen.
 function configError(config) {
@@ -336,6 +363,21 @@ function configError(config) {
     }
     if (config.appearance !== undefined && !isPlainObject(config.appearance))
         return "appearance must be an object";
+    if (config.sounds !== undefined) {
+        if (!isPlainObject(config.sounds))
+            return "sounds must be an object";
+        var soundIds = Object.keys(config.sounds);
+        for (var d = 0; d < soundIds.length; d++) {
+            var chosen = config.sounds[soundIds[d]];
+            if (!isPlainObject(chosen))
+                return "sounds." + soundIds[d] + " must be an object";
+            var events = Object.keys(chosen);
+            for (var v = 0; v < events.length; v++) {
+                if (typeof chosen[events[v]] !== "string")
+                    return "sounds." + soundIds[d] + "." + events[v] + " must be a string";
+            }
+        }
+    }
     if (config.welcome !== undefined) {
         if (!isPlainObject(config.welcome))
             return "welcome must be an object";
@@ -853,6 +895,56 @@ function paneError(pane, kinds) {
         return "pane.group must be a printable line of 1 to " + PANE_GROUP_MAX + " characters";
     if (typeof pane.order !== "number" || !isFinite(pane.order))
         return "pane.order must be a finite number";
+    return "";
+}
+
+// The entry of SOUNDS with ID, or null.
+function soundOf(id) {
+    for (var i = 0; i < SOUNDS.length; i++)
+        if (SOUNDS[i].id === id) return SOUNDS[i];
+    return null;
+}
+
+// Whether VALUE is one the sound event ENTRY takes: SOUND_OFF, and
+// SOUND_OWN for an event the plugin sounds itself, else an id of SOUNDS.
+function soundValueFits(entry, value) {
+    if (value === SOUND_OFF) return true;
+    return entry.own !== undefined ? value === SOUND_OWN : soundOf(value) !== null;
+}
+
+// The first defect of a manifest's `sounds` key, or "": a non-empty object
+// of events, each named by NAME_PATTERN and holding only SOUND_EVENT_KEYS,
+// with a printable `label`, an optional printable `description` and `own`,
+// and a `default` the event takes (soundValueFits). The key needs
+// capability `sounds`, which hands the plugin its events' choices and the
+// core's player, and the capability needs the key.
+function soundsError(sounds, capabilities) {
+    if (!isPlainObject(sounds) || Object.keys(sounds).length === 0)
+        return "sounds must be a non-empty object";
+    if (capabilities.indexOf("sounds") === -1)
+        return "sounds needs capability sounds";
+    var names = Object.keys(sounds);
+    for (var i = 0; i < names.length; i++) {
+        var at = "sounds." + names[i];
+        var event = sounds[names[i]];
+        if (!NAME_PATTERN.test(names[i]))
+            return "sounds has malformed event name " + JSON.stringify(names[i]);
+        if (!isPlainObject(event))
+            return at + " must be an object";
+        var keys = Object.keys(event);
+        for (var k = 0; k < keys.length; k++) {
+            if (SOUND_EVENT_KEYS.indexOf(keys[k]) === -1)
+                return at + " has unknown key " + JSON.stringify(keys[k]);
+        }
+        if (!isPrintableLine(event.label, STATUS_LABEL_MAX))
+            return at + ".label must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters";
+        if (event.description !== undefined && !isPrintableLine(event.description, STATUS_HINT_MAX))
+            return at + ".description must be a printable line of 1 to " + STATUS_HINT_MAX + " characters when present";
+        if (event.own !== undefined && !isPrintableLine(event.own, STATUS_LABEL_MAX))
+            return at + ".own must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters when present";
+        if (typeof event["default"] !== "string" || !soundValueFits(event, event["default"]))
+            return at + ".default must be " + (event.own !== undefined ? JSON.stringify(SOUND_OWN) : "a sound of the core's set") + " or \"\", got " + JSON.stringify(event["default"]);
+    }
     return "";
 }
 
@@ -3342,7 +3434,7 @@ function menuActivation(rows, registered, key, item, valuesByPlugin) {
 // `sourceDir` is recorded on the manifest so entry points resolve later.
 // A normalized manifest always carries `capabilities` and `requirements`
 // (arrays, the latter's entries normalRequirements' shape), `settings`,
-// `schema`, `status` and `tui` (objects, `tui` normalTui's shape),
+// `schema`, `status`, `sounds` and `tui` (objects, `tui` normalTui's shape),
 // `menu` (an object, {} when undeclared),
 // `defaultSection` only when declared, and
 // `hyprland` only when declared, as { binds, layerRules, appearance,
@@ -3499,6 +3591,13 @@ function validateManifest(raw, sourceDir) {
     } else if (capabilities.indexOf("secrets") !== -1) {
         return { ok: false, error: "capability secrets needs a secrets declaration" };
     }
+    if (raw.sounds !== undefined) {
+        var badSounds = soundsError(raw.sounds, capabilities);
+        if (badSounds !== "")
+            return { ok: false, error: badSounds };
+    } else if (capabilities.indexOf("sounds") !== -1) {
+        return { ok: false, error: "capability sounds needs a sounds declaration" };
+    }
     var manifest = clone(raw);
     manifest.capabilities = capabilities.slice();
     manifest.requirements = normalRequirements(requirements);
@@ -3507,6 +3606,7 @@ function validateManifest(raw, sourceDir) {
     manifest.settings = clone(settings);
     manifest.schema = clone(schema);
     manifest.status = raw.status === undefined ? {} : clone(raw.status);
+    manifest.sounds = raw.sounds === undefined ? {} : clone(raw.sounds);
     if (raw.pane !== undefined) manifest.pane = clone(raw.pane);
     manifest.systemSteps = raw.systemSteps === undefined ? [] : raw.systemSteps.slice();
     if (raw.hyprland !== undefined) {
@@ -4436,6 +4536,113 @@ function withAppearance(user, effective, key, value) {
     if (Object.keys(appearance).length > 0) out.appearance = appearance;
     else delete out.appearance;
     return out;
+}
+
+// What EVENT of MANIFEST sounds under CONFIG: the user's choice,
+// config.sounds[<id>][<event>], where it is one the event takes, else the
+// manifest's default. A stored id the core's set no longer holds reads as
+// the default, as an Appearance member the theme refuses reads as Set by
+// theme: one stale choice silences no event and blocks no other key.
+function soundValue(config, manifest, event) {
+    var entry = manifest.sounds[event];
+    var chosen = isPlainObject(config) && isPlainObject(config.sounds) && isPlainObject(config.sounds[manifest.id])
+        ? config.sounds[manifest.id][event] : undefined;
+    return soundValueFits(entry, chosen) ? chosen : entry["default"];
+}
+
+// MANIFEST's own events under CONFIG, { event: value }: what capability
+// `sounds` lends the plugin, so one that sounds an event itself reads
+// whether the user turned it off.
+function soundChoices(config, manifest) {
+    var out = {};
+    Object.keys(manifest.sounds).forEach(function (event) { out[event] = soundValue(config, manifest, event); });
+    return out;
+}
+
+// The Sounds page's rows: every event of every enabled plugin, plugins by
+// name then id, a plugin's events in its manifest's order. Each row is
+// { id, plugin, icon, event, label, description, own, value, fallback }:
+// `own` the name of the plugin's own sound or "", `value` what the event
+// sounds now and `fallback` its manifest default.
+function soundRows(config, manifests, defaultBarId) {
+    var rows = [];
+    Object.keys(manifests).filter(function (id) {
+        return Object.keys(manifests[id].sounds).length > 0 && isEnabled(config, manifests[id], defaultBarId);
+    }).sort(function (a, b) {
+        var left = manifests[a].name, right = manifests[b].name;
+        if (left !== right) return left < right ? -1 : 1;
+        return a < b ? -1 : a > b ? 1 : 0;
+    }).forEach(function (id) {
+        var manifest = manifests[id];
+        Object.keys(manifest.sounds).forEach(function (event) {
+            var entry = manifest.sounds[event];
+            rows.push({
+                id: id, plugin: manifest.name, icon: pluginIcon(manifest), event: event, label: entry.label,
+                description: entry.description === undefined ? "" : entry.description,
+                own: entry.own === undefined ? "" : entry.own,
+                value: soundValue(config, manifest, event), fallback: entry["default"]
+            });
+        });
+    });
+    return rows;
+}
+
+// The one keyed line a refused sound request answers:
+// `refused: sound=<event> reason=<reason>`, a name NAME_PATTERN does not
+// admit written as JSON so the line stays one line.
+function soundRefusal(event, reason) {
+    return "refused: sound=" + (typeof event === "string" && NAME_PATTERN.test(event) ? event : JSON.stringify(event)) + " reason=" + reason;
+}
+
+// A plugin's play of its own EVENT under CONFIG: { ok: true, sound } with
+// the id of SOUNDS to play, or { ok: false, answer }: `off` when the user,
+// or the manifest's default, sets none, `reason=undeclared` for an event
+// the manifest does not declare and `reason=own` for one the plugin sounds
+// itself, which the core has no file for.
+function soundRequest(config, manifest, event) {
+    if (typeof event !== "string" || !hasOwn(manifest.sounds, event))
+        return { ok: false, answer: soundRefusal(event, "undeclared") };
+    if (manifest.sounds[event].own !== undefined)
+        return { ok: false, answer: soundRefusal(event, "own") };
+    var value = soundValue(config, manifest, event);
+    return value === SOUND_OFF ? { ok: false, answer: "off" } : { ok: true, sound: value };
+}
+
+// The Sounds page's choice of VALUE for EVENT of MANIFEST, null for an id
+// no enabled plugin has: { ok: true, user } with the user file to write, or
+// { ok: false, answer }. A value equal to the manifest's default removes
+// the choice, so the user file holds only what the user changed. The user
+// `sounds` key replaces the shipped one whole, so it is seeded from
+// EFFECTIVE's; a plugin's object left empty is removed, and the key with
+// the last one.
+function soundEdit(user, effective, manifest, id, event, value) {
+    if (manifest === null)
+        return { ok: false, answer: "unknown: " + id };
+    if (typeof event !== "string" || !hasOwn(manifest.sounds, event))
+        return { ok: false, answer: soundRefusal(event, "undeclared") };
+    if (!soundValueFits(manifest.sounds[event], value))
+        return { ok: false, answer: soundRefusal(event, "value") };
+    var out = isPlainObject(user) ? clone(user) : {};
+    if (out.version === undefined) out.version = CONFIG_VERSION;
+    var sounds = isPlainObject(out.sounds) ? out.sounds
+        : isPlainObject(effective) && isPlainObject(effective.sounds) ? clone(effective.sounds) : {};
+    var own = isPlainObject(sounds[id]) ? sounds[id] : {};
+    if (value === manifest.sounds[event]["default"]) delete own[event];
+    else own[event] = value;
+    if (Object.keys(own).length > 0) sounds[id] = own;
+    else delete sounds[id];
+    if (Object.keys(sounds).length > 0) out.sounds = sounds;
+    else delete out.sounds;
+    return { ok: true, user: out };
+}
+
+// The player's argv for SOUND, an id of SOUNDS, whose file is under
+// DIRECTORY: pw-play with the Notification media role, so the session's
+// policy treats it as an event sound and not as music. null for an id the
+// set does not hold.
+function soundArgv(directory, sound) {
+    var entry = soundOf(sound);
+    return entry === null ? null : ["pw-play", "--media-role", "Notification", directory + "/" + entry.file];
 }
 
 // The user-file change that removes one setting of one plugin from each of

@@ -1,0 +1,16 @@
+{
+    "schemaVersion": 1,
+    "id": "acme.sounds",
+    "name": "Sound events",
+    "version": "0.1.0",
+    "author": "Smoke",
+    "description": "Declares sound events, plays them and sets their sounds through the sounds and soundSettings capabilities",
+    "kinds": ["service"],
+    "entryPoints": { "service": "Service.qml" },
+    "capabilities": ["sounds", "soundSettings"],
+    "sounds": {
+        "ping": { "label": "Ping", "description": "Plays when the row pings.", "default": "chime" },
+        "quiet": { "label": "Quiet", "default": "" },
+        "tone": { "label": "Tone", "own": "Acme tone", "default": "own" }
+    }
+}

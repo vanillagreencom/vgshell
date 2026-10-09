@@ -6,7 +6,6 @@ source "$VGS_TUI_LIB"
 plugin_dir="${VGS_PLUGIN_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)}"
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/voxtype"
 config_file="$config_dir/config.toml"
-sounds_dir="$config_dir/sounds/bloop"
 
 json_value() {
   python3 -c 'import json,sys
@@ -32,13 +31,8 @@ print("yes" if any(isinstance(row, dict) and row.get("name") == engine and row.g
 copy_defaults_if_absent() {
   if [[ ! -e $config_file && ! -L $config_file ]]; then
     vgs_tui_step "Copying Voice defaults"
-    mkdir -p -- "$config_dir" "$sounds_dir"
-    cp -- "$plugin_dir/sounds/bloop/start.wav" "$sounds_dir/start.wav"
-    cp -- "$plugin_dir/sounds/bloop/stop.wav" "$sounds_dir/stop.wav"
-    cp -- "$plugin_dir/sounds/bloop/error.wav" "$sounds_dir/error.wav"
+    mkdir -p -- "$config_dir"
     cp -- "$plugin_dir/config.toml" "$config_file"
-    absolute_sounds="$(cd -- "$sounds_dir" && pwd -P)"
-    sed -i "s#__VGS_VOICE_BLOOP_THEME__#$absolute_sounds#g" "$config_file"
   fi
 }
 

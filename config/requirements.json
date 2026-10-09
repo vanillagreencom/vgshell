@@ -54,6 +54,12 @@
     "purpose": "Draws the package pickers inside floating TUIs"
   },
   {
+    "command": "pw-play",
+    "packages": { "pacman": "pipewire-audio", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire" },
+    "optional": false,
+    "purpose": "Plays the sound of each event you set in Sounds"
+  },
+  {
     "command": "bluetoothctl",
     "packages": { "pacman": "bluez-utils", "apt": "bluez", "dnf": "bluez", "xbps": "bluez", "emerge": "net-wireless/bluez", "nix": "bluez" },
     "optional": true,

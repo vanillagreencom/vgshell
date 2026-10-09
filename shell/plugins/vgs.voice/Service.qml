@@ -19,6 +19,9 @@ Item {
     property string activeVerb: ""
     property var recordCompletion: null
     property string dictation: "idle"
+    // Whether the running status follower has printed a line. Its first
+    // line is the state it found, not a change the user made.
+    property bool statusRead: false
     // Whether the service itself stopped the status follower or the bridge,
     // or is being destroyed: an exit it did not ask for is logged and acted on.
     property bool statusStopping: false
@@ -125,8 +128,15 @@ Item {
         return value;
     }
 
+    // A sound event of the manifest's `sounds`, through the core's player.
+    function play(event) {
+        const reply = shell.sounds.play(event);
+        if (["ok", "off", "busy"].indexOf(reply) === -1) console.warn("voice: sound " + reply);
+    }
+
     function startStatus() {
         if (!voxtypePresent || statusProcess.running) return;
+        statusRead = false;
         statusProcess.command = ["setpriv", "--pdeathsig", "TERM", "--", "voxtype", "status", "--follow", "--extended", "--format", "json"];
         statusProcess.running = true;
     }
@@ -137,8 +147,11 @@ Item {
             console.warn("voice: status=line reason=" + parsed.reason);
             return;
         }
+        const sound = statusRead ? VoiceLogic.soundFor(dictation, parsed.state) : "";
+        statusRead = true;
         lastStatus = parsed;
         publishDictation(parsed.state);
+        if (sound !== "") play(sound);
         publish("model", VoiceLogic.modelData(parsed, setupValue));
     }
 
@@ -307,8 +320,10 @@ Item {
         onExited: (code, status) => { root.recordCompletion = { code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
-            if (root.recordCompletion === null || root.recordCompletion.code !== 0 || root.recordCompletion.status !== 0)
+            if (root.recordCompletion === null || root.recordCompletion.code !== 0 || root.recordCompletion.status !== 0) {
                 console.error("voice: record=" + root.activeVerb + " failed=" + JSON.stringify(root.recordCompletion) + "\n" + recordErr.text.trim());
+                if (!root.closing) root.play("error");
+            }
             if (root.pendingVerb !== "") {
                 const next = root.pendingVerb;
                 root.pendingVerb = "";

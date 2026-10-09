@@ -38,6 +38,9 @@ Item {
     readonly property var requirementsRevision: shell === null ? -1 : shell.requirements.revision
     readonly property bool locked: lockObservation()
     readonly property var effectiveKeys: shell === null ? null : shell.shortcut.keys
+    // Whether the daemon plays its tones: the user's choice for the
+    // manifest's `feedback` sound event, which the Sounds page sets.
+    readonly property bool feedbackSounds: shell !== null && shell.sounds.choices.feedback !== ""
     // The daemon judges one floating task at a time from this run state.
     property var taskPrompts: []
     property var taskResponse: null
@@ -83,6 +86,7 @@ Item {
         else hello();
     }
     onLockedChanged: hello()
+    onFeedbackSoundsChanged: hello()
     onEffectiveKeysChanged: hello()
     onTaskTuiRunningChanged: sendTuiState()
     onIndicatorPresentedChanged: {
@@ -192,7 +196,7 @@ Item {
         const home = Quickshell.env("HOME");
         const message = {
             v: 1, type: "hello", gen: sessionState === null ? 0 : sessionState.gen,
-            settings: shell.settings,
+            settings: Object.assign({}, shell.settings, { sounds: feedbackSounds }),
             directories: {
                 state: Paths.stateDir + "/jarvis",
                 data: (Quickshell.env("XDG_DATA_HOME") || home + "/.local/share") + "/vgshell/jarvis",

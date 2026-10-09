@@ -9,17 +9,15 @@
   "icon": "mic",
   "kinds": ["bar-widget", "service", "window"],
   "entryPoints": { "bar-widget": "Widget.qml", "service": "Service.qml", "window": "Console.qml" },
-  "capabilities": ["compositor", "configure", "ipc", "requirements", "run", "session", "status", "notify", "tui", "shortcut", "layers", "hyprland", "surfaces", "screens"],
+  "capabilities": ["compositor", "configure", "ipc", "requirements", "run", "session", "status", "notify", "tui", "shortcut", "layers", "hyprland", "surfaces", "screens", "sounds"],
   "defaultSection": "right",
-  "settings": { "mode": "hold", "sounds": true, "microphone": "", "speaker": "", "brain": "", "taskTerminal": "auto", "cloudVision": "ask",
+  "settings": { "mode": "hold", "microphone": "", "speaker": "", "brain": "", "taskTerminal": "auto", "cloudVision": "ask",
     "voiceProvider": "local", "voiceAccount": "",
     "privateWindows": "1password, bitwarden, keepass, proton pass, enpass, pinentry, seahorse, private browsing, incognito" },
   "schema": {
     "mode": { "type": "enum", "label": "Talk mode", "group": "Listening",
       "options": ["hold", "toggle", "always"],
       "description": "Hold: Jarvis takes what you said when you let go of the Talk key. Toggle: the conversation stays open until you press Talk again. Always: say Hey Jarvis, then your request; Talk listens at once. Always needs the local voice and keeps the microphone open on this computer." },
-    "sounds": { "type": "boolean", "label": "Feedback sounds", "group": "Audio",
-      "description": "A short sound tells you when to speak. Another sound tells you when the AI is still working." },
     "microphone": { "type": "string", "label": "Microphone", "group": "Audio", "optionsFrom": "microphones" },
     "speaker": { "type": "string", "label": "Speaker", "group": "Audio", "optionsFrom": "speakers",
       "description": "Half duplex: Jarvis closes its microphone while speech plays. Talk interrupts speech." },
@@ -42,6 +40,10 @@
       "presets": [ { "value": "1password, bitwarden, keepass, proton pass, enpass, pinentry, seahorse, private browsing, incognito", "label": "Password managers and private browsing" }, { "value": "", "label": "None" } ],
       "allowCustom": true,
       "description": "Comma-separated words. A window whose class or title contains one is painted black before a screenshot leaves Jarvis. This is limited protection: a title cannot reliably identify private browsing." }
+  },
+  "sounds": {
+    "feedback": { "label": "Feedback sounds", "own": "Jarvis tones", "default": "own",
+      "description": "A short sound tells you when to speak. Another sound tells you when the AI is still working." }
   },
   "hyprland": {
     "binds": [

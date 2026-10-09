@@ -16,6 +16,8 @@ const LAYER = path.join(__dirname, "..", "shell", "Core", "HyprlandLayer.js");
 const SETTING_VALUES = path.join(__dirname, "..", "shell", "Commons", "SettingValues.js");
 // The core's own requirements, judged by the function a manifest's are.
 const CORE_REQUIREMENTS = path.join(__dirname, "..", "config", "requirements.json");
+// The sounds the core ships, which PluginLogic.SOUNDS names.
+const SOUND_DIR = path.join(__dirname, "..", "shell", "assets", "sounds");
 
 let failures = 0;
 function report(name, got, want) {
@@ -1280,6 +1282,120 @@ function suite(ctx, check) {
     }
     check("withAppearance does not alias the user file", (() => { const u = { appearance: { motion: true } }; ctx.withAppearance(u, {}, "motion", false); return u; })(), { appearance: { motion: true } });
 
+    // Sound events: a manifest's `sounds` key, shell.json `sounds`, and
+    // the requests the sound service makes of the judge.
+    const sounding = (sounds, patch) => Object.assign({}, svc, { capabilities: ["sounds"], sounds: sounds }, patch || {});
+    const ping = { label: "Ping", default: "chime" };
+    // [name, manifest, want]: null passes, else the start of the refusal.
+    const soundManifestRows = [
+        ["a sound event passes", sounding({ ping: ping }), null],
+        ["an event that is off by default passes", sounding({ ping: { label: "Ping", description: "Plays on a ping.", default: "" } }), null],
+        ["an event the plugin sounds itself passes", sounding({ tone: { label: "Tone", own: "Acme tone", default: "own" } }), null],
+        ["an own event that is off by default passes", sounding({ tone: { label: "Tone", own: "Acme tone", default: "" } }), null],
+        ["sounds not an object", sounding([ping]), "sounds must be a non-empty object"],
+        ["sounds with no event", sounding({}), "sounds must be a non-empty object"],
+        ["sounds without the capability", sounding({ ping: ping }, { capabilities: [] }), "sounds needs capability sounds"],
+        ["the capability without sounds", Object.assign({}, svc, { capabilities: ["sounds"] }), "capability sounds needs a sounds declaration"],
+        ["a malformed event name", sounding({ "Ping!": ping }), "sounds has malformed event name \"Ping!\""],
+        ["an event that is no object", sounding({ ping: "chime" }), "sounds.ping must be an object"],
+        ["an event with an unknown key", sounding({ ping: Object.assign({ file: "x.wav" }, ping) }), "sounds.ping has unknown key \"file\""],
+        ["an event without a label", sounding({ ping: { default: "chime" } }), "sounds.ping.label must be a printable line"],
+        ["an event with a two-line description", sounding({ ping: Object.assign({ description: "a\nb" }, ping) }), "sounds.ping.description must be a printable line"],
+        ["an own name that is empty", sounding({ tone: { label: "Tone", own: "", default: "own" } }), "sounds.tone.own must be a printable line"],
+        ["an event without a default", sounding({ ping: { label: "Ping" } }), "sounds.ping.default must be a sound of the core's set or \"\", got undefined"],
+        ["a default the core's set lacks", sounding({ ping: { label: "Ping", default: "gong" } }), "sounds.ping.default must be a sound of the core's set or \"\", got \"gong\""],
+        ["a default that is a file path", sounding({ ping: { label: "Ping", default: "/usr/share/sounds/x.oga" } }), "sounds.ping.default must be a sound of the core's set"],
+        ["a core sound as an own event's default", sounding({ tone: { label: "Tone", own: "Acme tone", default: "chime" } }), "sounds.tone.default must be \"own\" or \"\", got \"chime\""],
+        ["own as a played event's default", sounding({ ping: { label: "Ping", default: "own" } }), "sounds.ping.default must be a sound of the core's set"],
+    ];
+    for (const [name, raw, want] of soundManifestRows) {
+        const r = ctx.validateManifest(raw, "/p");
+        check("validateManifest sounds: " + name, r.ok ? null : r.error.slice(0, want === null ? 0 : want.length), want);
+    }
+    check("validateManifest normalizes absent sounds to an object", ctx.validateManifest(svc, "/p").manifest.sounds, {});
+    check("soundSettings is a known capability and not exclusive", [ctx.validateManifest(Object.assign({}, svc, { capabilities: ["soundSettings"] }), "/p").ok, ctx.EXCLUSIVE_CAPABILITIES.indexOf("soundSettings")], [true, -1]);
+    // The table against the tree: every sound names a shipped file, and
+    // every shipped file is a sound a choice can name.
+    const soundFiles = fs.readdirSync(SOUND_DIR).sort();
+    check("every sound of the set names a shipped file, and every shipped file is in the set", ctx.SOUNDS.map(s => s.file).sort(), soundFiles);
+    check("the set holds a sound", soundFiles.length > 0, true);
+    check("sound ids are unique and none is the own value", [new Set(ctx.SOUNDS.map(s => s.id)).size, ctx.SOUNDS.some(s => s.id === ctx.SOUND_OWN || s.id === ctx.SOUND_OFF)], [ctx.SOUNDS.length, false]);
+
+    const soundConfigRows = [
+        ["sound choices pass", { sounds: { "acme.svc": { ping: "pop", tone: "" } } }, ""],
+        ["a choice the core's set lacks passes the file", { sounds: { "acme.svc": { ping: "gong" } } }, ""],
+        ["sounds not an object", { sounds: ["pop"] }, "sounds must be an object"],
+        ["a plugin's choices not an object", { sounds: { "acme.svc": "pop" } }, "sounds.acme.svc must be an object"],
+        ["a choice that is no string", { sounds: { "acme.svc": { ping: false } } }, "sounds.acme.svc.ping must be a string"],
+    ];
+    for (const [name, config, want] of soundConfigRows) check("configError: " + name, ctx.configError(config), want);
+
+    const noisy = ctx.validateManifest(sounding({ ping: ping, quiet: { label: "Quiet", description: "Plays rarely.", default: "" }, tone: { label: "Tone", own: "Acme tone", default: "own" } }), "/p").manifest;
+    const chosen = choices => ({ plugins: [{ id: "acme.svc" }], sounds: { "acme.svc": choices } });
+    // soundValue rows: [name, config, event, want]
+    const soundValueRows = [
+        ["the manifest's default sounds with no choice", {}, "ping", "chime"],
+        ["an event that is off by default stays off", {}, "quiet", ""],
+        ["the user's sound replaces the default", chosen({ ping: "pop" }), "ping", "pop"],
+        ["the user's off replaces the default", chosen({ ping: "" }), "ping", ""],
+        ["the user turns an off event on", chosen({ quiet: "ping" }), "quiet", "ping"],
+        ["a choice the set lacks reads as the default", chosen({ ping: "gong" }), "ping", "chime"],
+        ["a choice that is no string reads as the default", chosen({ ping: 3 }), "ping", "chime"],
+        ["another plugin's choice does not apply", { sounds: { "acme.other": { ping: "pop" }, "acme.svc": { quiet: "ping" } } }, "ping", "chime"],
+        ["an own event keeps its own sound", {}, "tone", "own"],
+        ["an own event is turned off", chosen({ tone: "" }), "tone", ""],
+        ["a core sound is no choice for an own event", chosen({ tone: "pop" }), "tone", "own"],
+        ["own is no choice for a played event", chosen({ ping: "own" }), "ping", "chime"],
+    ];
+    for (const [name, config, event, want] of soundValueRows) check("soundValue: " + name, ctx.soundValue(config, noisy, event), want);
+    check("soundChoices: every event of the plugin under the user's choices", ctx.soundChoices(chosen({ ping: "pop", tone: "" }), noisy), { ping: "pop", quiet: "", tone: "" });
+
+    // soundRequest rows: [name, config, event, want]
+    const soundRequestRows = [
+        ["a declared event plays its sound", {}, "ping", { ok: true, sound: "chime" }],
+        ["the user's sound plays", chosen({ ping: "bloop-up" }), "ping", { ok: true, sound: "bloop-up" }],
+        ["an event that is off answers off", chosen({ ping: "" }), "ping", { ok: false, answer: "off" }],
+        ["an undeclared event is refused", {}, "gong", { ok: false, answer: "refused: sound=gong reason=undeclared" }],
+        ["a name that is no string is refused on one line", {}, { a: "\n" }, { ok: false, answer: "refused: sound={\"a\":\"\\n\"} reason=undeclared" }],
+        ["an inherited name is no event", {}, "constructor", { ok: false, answer: "refused: sound=constructor reason=undeclared" }],
+        ["an event the plugin sounds itself is refused", {}, "tone", { ok: false, answer: "refused: sound=tone reason=own" }],
+    ];
+    for (const [name, config, event, want] of soundRequestRows) check("soundRequest: " + name, ctx.soundRequest(config, noisy, event), want);
+
+    // soundEdit rows: [name, user, effective, event, value, want]
+    const soundEditRows = [
+        ["a choice is written into a new file", null, {}, "ping", "pop", { ok: true, user: { version: 1, sounds: { "acme.svc": { ping: "pop" } } } }],
+        ["off is written", null, {}, "ping", "", { ok: true, user: { version: 1, sounds: { "acme.svc": { ping: "" } } } }],
+        ["a choice joins the plugin's others and leaves other keys", { version: 1, plugins: [{ id: "a.b" }], sounds: { "acme.svc": { quiet: "ping" }, "acme.other": { x: "pop" } } }, {}, "ping", "pop", { ok: true, user: { version: 1, plugins: [{ id: "a.b" }], sounds: { "acme.svc": { quiet: "ping", ping: "pop" }, "acme.other": { x: "pop" } } } }],
+        ["the user key is seeded from the effective one", null, { sounds: { "acme.other": { x: "pop" } } }, "ping", "pop", { ok: true, user: { version: 1, sounds: { "acme.other": { x: "pop" }, "acme.svc": { ping: "pop" } } } }],
+        ["the default removes the choice alone", { sounds: { "acme.svc": { ping: "pop", quiet: "ping" } } }, {}, "ping", "chime", { ok: true, user: { sounds: { "acme.svc": { quiet: "ping" } }, version: 1 } }],
+        ["the default of the plugin's last choice removes its object", { version: 1, sounds: { "acme.svc": { ping: "pop" }, "acme.other": { x: "pop" } } }, {}, "ping", "chime", { ok: true, user: { version: 1, sounds: { "acme.other": { x: "pop" } } } }],
+        ["the default of the last choice removes the key", { version: 1, sounds: { "acme.svc": { ping: "pop" } } }, {}, "ping", "chime", { ok: true, user: { version: 1 } }],
+        ["an own event is turned off", null, {}, "tone", "", { ok: true, user: { version: 1, sounds: { "acme.svc": { tone: "" } } } }],
+        ["a sound the set lacks is refused", null, {}, "ping", "gong", { ok: false, answer: "refused: sound=ping reason=value" }],
+        ["a value that is no string is refused", null, {}, "ping", true, { ok: false, answer: "refused: sound=ping reason=value" }],
+        ["a core sound for an own event is refused", null, {}, "tone", "pop", { ok: false, answer: "refused: sound=tone reason=value" }],
+        ["an undeclared event is refused", null, {}, "gong", "pop", { ok: false, answer: "refused: sound=gong reason=undeclared" }],
+    ];
+    for (const [name, user, effective, event, value, want] of soundEditRows) check("soundEdit: " + name, ctx.soundEdit(user, effective, noisy, "acme.svc", event, value), want);
+    check("soundEdit: an id no enabled plugin has is unknown", ctx.soundEdit(null, {}, null, "acme.gone", "ping", "pop"), { ok: false, answer: "unknown: acme.gone" });
+    check("soundEdit does not alias the user file", (() => { const u = { sounds: { "acme.svc": { ping: "pop" } } }; ctx.soundEdit(u, {}, noisy, "acme.svc", "ping", ""); return u; })(), { sounds: { "acme.svc": { ping: "pop" } } });
+
+    const soundManifests = Object.create(null);
+    soundManifests["acme.svc"] = noisy;
+    soundManifests["acme.zed"] = ctx.validateManifest(Object.assign({}, svc, { id: "acme.zed", name: "Alpha", icon: "bell", capabilities: ["sounds"], sounds: { beep: { label: "Beep", default: "pop" } } }), "/p").manifest;
+    soundManifests["acme.mute"] = ctx.validateManifest(Object.assign({}, svc, { id: "acme.mute", name: "Mute" }), "/p").manifest;
+    soundManifests["acme.off"] = ctx.validateManifest(Object.assign({}, svc, { id: "acme.off", name: "Off", capabilities: ["sounds"], sounds: { beep: { label: "Beep", default: "pop" } } }), "/p").manifest;
+    const soundConfig = { plugins: [{ id: "acme.svc" }, { id: "acme.zed" }, { id: "acme.mute" }], sounds: { "acme.svc": { ping: "" } } };
+    check("soundRows: enabled plugins by name, each event in manifest order, with what it sounds", ctx.soundRows(soundConfig, soundManifests, "vgs.bar"), [
+        { id: "acme.zed", plugin: "Alpha", icon: "bell", event: "beep", label: "Beep", description: "", own: "", value: "pop", fallback: "pop" },
+        { id: "acme.svc", plugin: "S", icon: "package", event: "ping", label: "Ping", description: "", own: "", value: "", fallback: "chime" },
+        { id: "acme.svc", plugin: "S", icon: "package", event: "quiet", label: "Quiet", description: "Plays rarely.", own: "", value: "", fallback: "" },
+        { id: "acme.svc", plugin: "S", icon: "package", event: "tone", label: "Tone", description: "", own: "Acme tone", value: "own", fallback: "own" },
+    ]);
+    check("soundArgv: the player, the event role and the sound's file", ctx.soundArgv("/s/assets/sounds", "bloop-low"), ["pw-play", "--media-role", "Notification", "/s/assets/sounds/bloop-low.wav"]);
+    check("soundArgv: a sound the set lacks has no argv", ctx.soundArgv("/s", "gong"), null);
+
     check("withKey does not alias the user file", (() => { const u = { plugins: [{ id: "acme.keys", keys: { toggle: "SUPER+K" } }] }; ctx.withKey(u, keyed, "toggle", null, {}); return u.plugins[0]; })(), { id: "acme.keys", keys: { toggle: "SUPER+K" } });
 
     // bindRows: the key in effect, the manifest's key, the registered description and the manifest's explanation.
@@ -1488,7 +1604,7 @@ const CONTROLS = [
     ["monitors is not exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "monitors", "panes"];'],
     ["panes is exclusive", 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];', 'var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent"];'],
     ["monitors is a capability", "\"hyprland\", \"bluetoothAgent\", \"monitors\", ", "\"hyprland\", \"bluetoothAgent\", "],
-    ["appearance is a capability", "\"sudo\", \"appearance\"];", "\"sudo\"];"],
+    ["appearance is a capability", "\"sudo\", \"appearance\", \"sounds\"", "\"sudo\", \"sounds\""],
     ["appearance is an object", "if (config.appearance !== undefined && !isPlainObject(config.appearance))", "if (false)"],
     ["an appearance value is set", "else appearance[key] = clone(value);", "else appearance[key] = undefined;"],
     ["an appearance unset removes the member", "if (value === undefined) delete appearance[key];", "if (false) delete appearance[key];"],
@@ -1722,7 +1838,7 @@ const CONTROLS = [
     ["a third-party plugin of another kind is enabled by its row", "return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? \"first-party\" : \"row\";", "return \"first-party\";"],
     ["a first-party plugin of another kind is enabled unlisted", "return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? \"first-party\" : \"row\";", "return \"row\";"],
     ["moving reads enablement from isEnabled", "placed && !isEnabled(config, manifest, defaultBarId)", "placed && (Array.isArray(config.disabledPlugins) ? config.disabledPlugins : []).indexOf(manifest.id) !== -1"],
-    ["alwaysOn is a manifest key", "\"secrets\", \"alwaysOn\"];", "\"secrets\"];"],
+    ["alwaysOn is a manifest key", "\"sounds\", \"alwaysOn\"];", "\"sounds\"];"],
     ["alwaysOn is a boolean", "if (typeof raw.alwaysOn !== \"boolean\")", "if (false)"],
     ["alwaysOn needs the first-party rule", "if (raw.alwaysOn && enablementRule(raw) !== \"first-party\")", "if (false)"],
     ["an alwaysOn plugin is enabled whatever the configuration lists", "if (manifest.alwaysOn === true)\n        return true;", ""],
@@ -1780,6 +1896,45 @@ const CONTROLS = [
     ["a notify message escapes <", '.replace(/</g, "&lt;")', ''],
     ["a notify message escapes >", '.replace(/>/g, "&gt;");', ';'],
     ["a notify title ends the options", 'return argv.concat(["--", judged.title, message]);', 'return argv.concat([judged.title, message]);'],
+    ["sounds is a manifest key", '"secrets", "sounds", "alwaysOn"];', '"secrets", "alwaysOn"];'],
+    ["sounds is a capability", '"appearance", "sounds", "soundSettings"];', '"appearance", "soundSettings"];'],
+    ["soundSettings is a capability", '"appearance", "sounds", "soundSettings"];', '"appearance", "sounds"];'],
+    ["sounds is a non-empty object", "if (!isPlainObject(sounds) || Object.keys(sounds).length === 0)", "if (false)"],
+    ["sounds holds an event", "if (!isPlainObject(sounds) || Object.keys(sounds).length === 0)", "if (!isPlainObject(sounds))"],
+    ["sounds needs its capability", 'if (capabilities.indexOf("sounds") === -1)\n        return "sounds needs capability sounds";', ""],
+    ["the sounds capability needs the key", '} else if (capabilities.indexOf("sounds") !== -1) {', "} else if (false) {"],
+    ["a sound event name is judged", 'if (!NAME_PATTERN.test(names[i]))\n            return "sounds has malformed event name "', 'if (false)\n            return "sounds has malformed event name "'],
+    ["a sound event is an object", 'if (!isPlainObject(event))\n            return at + " must be an object";', ""],
+    ["a sound event's keys are known", "if (SOUND_EVENT_KEYS.indexOf(keys[k]) === -1)", "if (false)"],
+    ["a sound event has a label", "if (!isPrintableLine(event.label, STATUS_LABEL_MAX))", "if (false)"],
+    ["a sound event's description is one line", "if (event.description !== undefined && !isPrintableLine(event.description, STATUS_HINT_MAX))", "if (false)"],
+    ["an own sound has a name", "if (event.own !== undefined && !isPrintableLine(event.own, STATUS_LABEL_MAX))", "if (false)"],
+    ["a sound event's default is judged", 'if (typeof event["default"] !== "string" || !soundValueFits(event, event["default"]))', "if (false)"],
+    ["a played event takes a sound of the set alone", "return entry.own !== undefined ? value === SOUND_OWN : soundOf(value) !== null;", "return entry.own !== undefined ? value === SOUND_OWN : typeof value === \"string\";"],
+    ["an own event takes its own sound alone", "return entry.own !== undefined ? value === SOUND_OWN : soundOf(value) !== null;", "return value === SOUND_OWN || soundOf(value) !== null;"],
+    ["off is a value every event takes", "if (value === SOUND_OFF) return true;", ""],
+    ["a manifest carries its sounds", "manifest.sounds = raw.sounds === undefined ? {} : clone(raw.sounds);", ""],
+    ["config sounds is an object", 'if (!isPlainObject(config.sounds))\n            return "sounds must be an object";', ""],
+    ["a plugin's sound choices are an object", 'if (!isPlainObject(chosen))\n                return "sounds." + soundIds[d] + " must be an object";', ""],
+    ["a sound choice is a string", 'if (typeof chosen[events[v]] !== "string")', "if (false)"],
+    ["a sound choice that fits replaces the default", 'return soundValueFits(entry, chosen) ? chosen : entry["default"];', 'return entry["default"];'],
+    ["a sound choice that does not fit reads as the default", 'return soundValueFits(entry, chosen) ? chosen : entry["default"];', 'return chosen !== undefined ? chosen : entry["default"];'],
+    ["a sound choice is the plugin's own", "? config.sounds[manifest.id][event] : undefined;", "? config.sounds[Object.keys(config.sounds)[0]][event] : undefined;"],
+    ["sound rows list enabled plugins alone", "return Object.keys(manifests[id].sounds).length > 0 && isEnabled(config, manifests[id], defaultBarId);", "return Object.keys(manifests[id].sounds).length > 0;"],
+    ["sound rows sort by plugin name", "var left = manifests[a].name, right = manifests[b].name;\n        if (left !== right) return left < right ? -1 : 1;", "var left = manifests[a].name, right = manifests[b].name;"],
+    ["a sound row carries what the event sounds now", "value: soundValue(config, manifest, event), fallback: entry[\"default\"]", "value: entry[\"default\"], fallback: entry[\"default\"]"],
+    ["an undeclared sound event is not played", "if (typeof event !== \"string\" || !hasOwn(manifest.sounds, event))\n        return { ok: false, answer: soundRefusal(event, \"undeclared\") };\n    if (manifest.sounds[event].own !== undefined)", "if (typeof event !== \"string\" || manifest.sounds[event] === undefined)\n        return { ok: false, answer: soundRefusal(event, \"undeclared\") };\n    if (manifest.sounds[event].own !== undefined)"],
+    ["an own sound event is not played by the core", "if (manifest.sounds[event].own !== undefined)\n        return { ok: false, answer: soundRefusal(event, \"own\") };", ""],
+    ["an event that is off plays nothing", "return value === SOUND_OFF ? { ok: false, answer: \"off\" } : { ok: true, sound: value };", "return { ok: true, sound: value };"],
+    ["a sound refusal stays one line", "(typeof event === \"string\" && NAME_PATTERN.test(event) ? event : JSON.stringify(event)) + \" reason=\" + reason;", "event + \" reason=\" + reason;"],
+    ["a sound edit of an unknown plugin is refused", "if (manifest === null)\n        return { ok: false, answer: \"unknown: \" + id };\n    if (typeof event !== \"string\" || !hasOwn(manifest.sounds, event))\n        return { ok: false, answer: soundRefusal(event, \"undeclared\") };\n    if (!soundValueFits", "if (typeof event !== \"string\" || !hasOwn(manifest.sounds, event))\n        return { ok: false, answer: soundRefusal(event, \"undeclared\") };\n    if (!soundValueFits"],
+    ["a sound edit judges its value", "if (!soundValueFits(manifest.sounds[event], value))\n        return { ok: false, answer: soundRefusal(event, \"value\") };", ""],
+    ["a sound edit equal to the default removes the choice", "if (value === manifest.sounds[event][\"default\"]) delete own[event];\n    else own[event] = value;", "own[event] = value;"],
+    ["a plugin's empty sound choices are removed", "if (Object.keys(own).length > 0) sounds[id] = own;\n    else delete sounds[id];", "sounds[id] = own;"],
+    ["an empty sounds key is removed", "if (Object.keys(sounds).length > 0) out.sounds = sounds;\n    else delete out.sounds;", "out.sounds = sounds;"],
+    ["the sounds key is seeded from the effective one", ": isPlainObject(effective) && isPlainObject(effective.sounds) ? clone(effective.sounds) : {};", ": {};"],
+    ["a sound plays with the event role", '["pw-play", "--media-role", "Notification", directory + "/" + entry.file]', '["pw-play", directory + "/" + entry.file]'],
+    ["a sound the set lacks has no argv", 'return entry === null ? null : ["pw-play"', 'return entry === null ? ["pw-play"] : ["pw-play"'],
     ["a side view takes the drop over it", "x >= view.x && x < view.x + view.width) section = side;", "false) section = side;"],
     ["a scrolled section slots among its shown widgets", "widgets = widgets.filter(function (widget) { return widget.x >= low && widget.x + widget.width <= high; });", ""],
     ["a drop past the shown widgets lands before the hidden next", "var target = slot < widgets.length ? widgets[slot] : next;", "var target = slot < widgets.length ? widgets[slot] : null;"],

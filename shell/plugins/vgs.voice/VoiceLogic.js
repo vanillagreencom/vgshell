@@ -33,6 +33,14 @@ function stateOf(raw) {
     return STATES.indexOf(raw) === -1 ? "idle" : raw;
 }
 
+// The sound event a change of dictation state from PREVIOUS to NEXT
+// raises, or "": `start` as recording begins and `stop` as it ends. A
+// daemon that stopped ended no dictation the user asked to end.
+function soundFor(previous, next) {
+    if (next === "recording") return previous === "recording" ? "" : "start";
+    return previous === "recording" && next !== "stopped" ? "stop" : "";
+}
+
 function parseStatus(line) {
     var data = parseJson(line, null);
     if (!isObject(data)) return { ok: false, reason: "json" };

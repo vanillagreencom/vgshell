@@ -25,7 +25,8 @@
     "surfaces",
     "status",
     "tui",
-    "secrets"
+    "secrets",
+    "sounds"
   ],
   "settings": {
     "duration": 8,
@@ -94,6 +95,9 @@
     { "command": "convert", "packages": { "pacman": "imagemagick", "apt": "imagemagick", "dnf": "ImageMagick", "xbps": "ImageMagick", "emerge": "media-gfx/imagemagick", "nix": "imagemagick" }, "optional": false, "purpose": "Prepares Slack emoji and photos for display." },
     {"command": "gum", "packages": {"pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum"}, "optional": true, "purpose": "Shows the Slack photo setup steps."}
   ],
+  "sounds": {
+    "notification": { "label": "New notification", "description": "Plays when a notification shows on screen.", "default": "" }
+  },
   "appearance": "Appearance.js",
   "hyprland": {
     "binds": [

@@ -20,7 +20,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, plugin-messages, traffic, ai-usage, sysmon, appearance or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, plugin-messages, traffic, ai-usage, sysmon, appearance, sounds or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, and captures
@@ -34,7 +34,10 @@
 # runner that changes no theme; devtools is the Dev Tools window;
 # appearance is the System window's Appearance group, Motion, Windows, UI
 # and, where the tree ships it, Fonts, each Set by theme, then Windows with
-# a corner radius of 12; system
+# a corner radius of 12; sounds,
+# taken only when named, is its Sounds section over the events of
+# Notifications, Voice and Jarvis, then with a picker's list open and with
+# one event turned off; system
 # is the System window as it opens with no System section enabled, then
 # System → Displays over the device fakes and two monitors when the tree
 # ships it, and
@@ -227,7 +230,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|plugin-messages|traffic|ai-usage|devtools|system|appearance|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
+    sysmon|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|plugin-messages|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -351,6 +354,7 @@ scene_ships() {
     devtools) ships_plugin vgs.devtools ;;
     system) ships_plugin vgs.system ;;
     appearance) ships_plugin vgs.system vgs.motion vgs.windows vgs.ui ;;
+    sounds) ships_plugin vgs.system vgs.sounds vgs.notifications vgs.voice vgs.jarvis ;;
     network) ships_plugin vgs.system vgs.network ;;
     vpn) ships_plugin vgs.system vgs.vpn ;;
     bluetooth) ships_plugin vgs.system vgs.bluetooth ;;
@@ -417,6 +421,11 @@ fi
 # Voice's Set up runs over stand-ins alone, so the shell finds no host
 # voxtype or bridge.
 if [[ " ${scenes[*]} " == *" voice-setup "* ]]; then
+  shell_hidden_commands+=(voxtype voxtype-audio-bridge)
+fi
+# The Sounds section lists Voice's events with Voice enabled, which needs
+# no voxtype, so the shell finds no host voxtype or bridge to start.
+if [[ " ${scenes[*]} " == *" sounds "* && " ${scenes[*]} " != *" voice-setup "* ]]; then
   shell_hidden_commands+=(voxtype voxtype-audio-bridge)
 fi
 # AI Usage reads the sign-ins through stand-ins alone, so the shell finds no
@@ -3231,6 +3240,68 @@ PY
     ships_plugin "$id" || continue
     expect "disabling $id after its shot is allowed" ok ipc shell setPluginEnabled "$id" false
   done
+}
+
+# The Sounds section of the System window over the sound events of
+# Notifications, Voice and Jarvis, each enabled for the shots, Jarvis once
+# its daemon answers: sounds-<mode>-list, every event with the sound it
+# plays; sounds-<mode>-picker, the New notification picker's list open on
+# Off and the core's sounds; and sounds-<mode>-off, Dictation stops turned
+# off in shell.json. The player is the harness's pw-play stand-in and no
+# shot presses Test, so nothing sounds. Jarvis is disabled again, and the
+# user file, with every other enablement, goes back as the scene found it.
+sounds_row() { ipc smoke readMatchingDescendant window vgs.sounds FormRow label "$1" "$2"; }
+sounds_picker_open() { ipc smoke readMatchingDescendant window vgs.sounds Select currentText "$1" listOpen; }
+scene_sounds() { # MODE
+  local user="$home/.config/vgshell/shell.json" saved="$sandbox/shell-before-sounds-shot.json" id box px py voice_found
+  voice_found="$(plugin_enabled vgs.voice)" || voice_found=unread
+  cp -- "$user" "$saved"
+  for id in vgs.system vgs.sounds vgs.notifications vgs.voice vgs.jarvis; do
+    expect "enabling $id for the Sounds shots is allowed" ok ipc shell setPluginEnabled "$id" true
+  done
+  expect_poll "the Jarvis daemon answers hello before the Sounds shots" ready jarvis_started
+  # Jarvis requires wlrctl, which the shell finds absent, so enabling it
+  # raises its requirement notice, which closes before the shots.
+  for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
+  close_notices
+  expect "System → Sounds summons" ok ipc shell summon window vgs.system '{"pane":"vgs.sounds"}'
+  expect_poll "System → Sounds is shown" '["vgs.sounds"]' window_panes
+  expect_poll "the section lists Jarvis's own sound" 1 sounds_row "Feedback sounds" chosen
+  expect_poll "the section lists the notification sound, off" 0 sounds_row "New notification" chosen
+  expect_poll "the section lists a dictation sound" 4 sounds_row "Dictation starts" chosen
+  expect "the System window's root takes the focus for the Sounds list" focused ipc smoke invokeInstance window vgs.system focusInstance ""
+  take "sounds-$1-list"
+  box="$(ipc smoke scopedWindowGeometry window vgs.sounds FormRow "New notification" Select Off)" || box=""
+  if read -r px py < <(at_centre "window:System Settings" "$box"); then
+    hover "$px" "$py" || fail "hovering the New notification picker failed"
+    click "$px" "$py" || fail "clicking the New notification picker failed"
+    expect_poll "the New notification picker's list is open" true sounds_picker_open Off
+    take_posed "sounds-$1-picker"
+    type_keys -k Escape || fail "Escape on the open picker failed"
+    expect_poll "the New notification picker's list is closed" false sounds_picker_open Off
+  else
+    fail "the New notification picker has no box: $box"
+  fi
+  python3 - "$user" <<'PY' || fail "the user file took no sound choice"
+import json, os, sys
+path = sys.argv[1]
+config = json.load(open(path))
+config.setdefault("sounds", {}).setdefault("vgs.voice", {})["stop"] = ""
+with open(path + ".tmp", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".tmp", path)
+PY
+  expect "the configuration reloads with Dictation stops off" ok ipc shell reloadConfig
+  expect_poll "the Dictation stops row shows Off" 0 sounds_row "Dictation stops" chosen
+  expect "the System window's root takes the focus for the off event" focused ipc smoke invokeInstance window vgs.system focusInstance ""
+  take "sounds-$1-off"
+  expect "the System window hides after the Sounds shots" ok ipc shell hide window vgs.system
+  expect_poll "the System window is gone after the Sounds shots" hidden system_shown
+  expect "disabling vgs.jarvis after the Sounds shots is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "vgs.jarvis is gone after the Sounds shots" absent ipc smoke jarvisProcess
+  cp -- "$saved" "$user.next" && mv -T -- "$user.next" "$user" || fail "the user file is put back after the Sounds shots"
+  expect "the configuration reloads as the Sounds shots found it" ok ipc shell reloadConfig
+  expect_poll "Voice's enablement is as the Sounds shots found it" "$voice_found" plugin_enabled vgs.voice
 }
 
 scene_network() { # MODE

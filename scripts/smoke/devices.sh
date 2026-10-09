@@ -19,6 +19,8 @@
 #   record. A row that needs a stand-in to answer its own way stands over
 #   it with sentinel_stand_over and puts it back with sentinel_restore,
 #   as with the authentication sentinels.
+#   pw-play, the core's sound player, stands in too: it records the file
+#   it was asked to play and exits 0, so no row sounds a speaker.
 #   The Chromium-family browsers stand in too, so a link a row opens in a
 #   browser profile starts no browser (shell/Commons/DesktopLaunch.js).
 # - bluez drives the planted adapter as BlueZ would, bluez_follow makes
@@ -47,7 +49,7 @@ devices_hid_log="$devices_dir/hid-fake.calls"
 devices_fixtures="$repo/scripts/smoke/fixtures/devices"
 devices_env_words=(PIPEWIRE_RUNTIME_DIR="$rt_dir" VGS_DEV_ROOT="$devices_dev_root"
   VGS_SYSFS_ROOT="$devices_sysfs_root" VGS_HID_FAKE="$devices_hid_socket")
-device_stand_in_names=(rfkill tailscale ddcutil brightnessctl nmcli pactl bluetoothctl systemctl udevadm modprobe xdg-open gum
+device_stand_in_names=(rfkill tailscale ddcutil brightnessctl nmcli pactl pw-play bluetoothctl systemctl udevadm modprobe xdg-open gum
   chromium google-chrome-stable brave vivaldi-stable microsoft-edge-stable)
 mkdir -p -- "$devices_dir/calls" "$devices_dir/replies"
 

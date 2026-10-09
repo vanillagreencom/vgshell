@@ -230,6 +230,24 @@ Singleton {
             set: (key, value) => root.appearanceWrite(key, value, ThemeLogic.appearanceRefusal(key, value)),
             unset: key => root.appearanceWrite(key, undefined, Logic.hasOwn(ThemeLogic.APPEARANCE, key) ? "" : ThemeLogic.appearanceRefusal(key, undefined))
         }),
+        // The plugin's own sound events (manifest `sounds`): `play` sounds
+        // one through the core's player and answers `ok`, `off`, `busy` or
+        // the keyed refusal; `choices` is what each event sounds under the
+        // user's choices, bindable, for a plugin that sounds one itself.
+        sounds: ctx => ({
+            play: event => Sounds.play(ctx, event),
+            get choices() { return Sounds.choicesOf(ctx.id); }
+        }),
+        // The Sounds page's authority over every enabled plugin's events:
+        // the rows, the sounds a choice may name, the one write of
+        // shell.json `sounds`, and a sound played on request. `choose`
+        // answers `ok` once the file holds the choice.
+        soundSettings: ctx => ({
+            get events() { return Sounds.rows; },
+            get library() { return Sounds.library; },
+            choose: (id, event, value) => Sounds.choose(id, event, value),
+            test: sound => Sounds.test(sound)
+        }),
         // `missing`: the plugin's own requirement commands the last scan did
         // not find, in declaration order, a copy per read; bindable.
         requirements: ctx => ({
@@ -516,6 +534,7 @@ Singleton {
             sudo: sudoGrant.record(),
             bluetoothAgent: bluetoothAgent.record(),
             notices: Notices.record(),
+            sounds: Sounds.record(),
             hyprland: hyprlandState.record(),
             monitors: monitorState.record()
         });

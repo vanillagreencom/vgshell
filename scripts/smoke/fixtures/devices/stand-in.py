@@ -35,6 +35,8 @@ from files a row plants under STATE.
   marks device ADDRESS of the BlueZ mock's hci0 paired, as BlueZ does once
   the agent's answer completes bonding; past the last step it records
   stdin until EOF.
+- pw-play, the core's sound player, exits 0 after its record: it plays
+  nothing, and its caller reads no answer but its exit.
 - Any other call answers from STATE/replies/NAME.json, a list of
   {"argv", "stdout", "stderr", "status"} rows, the row whose argv equals
   the call's. device_reply keeps one row per argv and replaces older rows.
@@ -218,6 +220,8 @@ def main():
     append(os.path.join(state, "calls", name + ".calls"), argv)
     if name == "rfkill":
         rfkill(state, argv)
+        return
+    if name == "pw-play":
         return
     script = os.path.join(state, "replies", "bluetoothctl.transcript.json")
     agent = len(argv) == 2 and argv[0] == "--agent"

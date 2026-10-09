@@ -98,6 +98,18 @@ function verify(logic) {
     ["a run that never ended shows nothing", null, { running: true, code: null, endedAt: null }, false],
   ];
   for (const [name, seen, setup, want] of finishedRows) assert.equal(logic.setupFinished(seen, setup), want, `setupFinished: ${name}`);
+
+  // soundFor: [name, the state before, the state now, the sound event].
+  const soundRows = [
+    ["recording begins from idle", "idle", "recording", "start"],
+    ["recording begins while the last words are recognised", "transcribing", "recording", "start"],
+    ["recording goes on", "recording", "recording", ""],
+    ["recording ends in recognition", "recording", "transcribing", "stop"],
+    ["recording ends with nothing to recognise", "recording", "idle", "stop"],
+    ["a daemon that stopped ends no dictation", "recording", "stopped", ""],
+    ["recognition ends", "transcribing", "idle", ""],
+  ];
+  for (const [name, previous, next, want] of soundRows) assert.equal(logic.soundFor(previous, next), want, `soundFor: ${name}`);
 }
 
 verify(load(file));
@@ -122,6 +134,9 @@ const controls = [
   ["a past run's end at startup shows", "return seen !== undefined && ", "return "],
   ["a failed run shows", " && setup.code === 0;", ";"],
   ["a seen end shows again", " && setup.endedAt !== seen", ""],
+  ["recording that goes on starts again", "return previous === \"recording\" ? \"\" : \"start\";", "return \"start\";"],
+  ["every change to recording's end stops", "return previous === \"recording\" && next !== \"stopped\" ? \"stop\" : \"\";", "return next !== \"stopped\" ? \"stop\" : \"\";"],
+  ["a stopped daemon sounds a stop", "return previous === \"recording\" && next !== \"stopped\" ? \"stop\" : \"\";", "return previous === \"recording\" ? \"stop\" : \"\";"],
   ["stream model wins", "var model = setup && setup.model ? setup.model : status && status.model ? status.model : DEFAULT_MODEL;", "var model = status && status.model ? status.model : setup && setup.model ? setup.model : DEFAULT_MODEL;"]
 ];
 const source = fs.readFileSync(file, "utf8");

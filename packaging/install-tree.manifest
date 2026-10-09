@@ -92,6 +92,7 @@ f share/vgshell/shell/Core/SecretWriter.qml
 f share/vgshell/shell/Core/ServiceGate.qml
 f share/vgshell/shell/Core/SessionLock.qml
 f share/vgshell/shell/Core/ShortcutRegistry.qml
+f share/vgshell/shell/Core/Sounds.qml
 f share/vgshell/shell/Core/SudoGrant.qml
 f share/vgshell/shell/Core/SystemSteps.qml
 f share/vgshell/shell/Core/ThemeRunner.qml
@@ -217,6 +218,12 @@ f share/vgshell/shell/assets/fonts/InterVariable-OFL.txt
 f share/vgshell/shell/assets/fonts/InterVariable.ttf
 f share/vgshell/shell/assets/fonts/JetBrainsMono-OFL.txt
 f share/vgshell/shell/assets/fonts/JetBrainsMono-Variable.ttf
+f share/vgshell/shell/assets/sounds/bloop-down.wav
+f share/vgshell/shell/assets/sounds/bloop-low.wav
+f share/vgshell/shell/assets/sounds/bloop-up.wav
+f share/vgshell/shell/assets/sounds/chime.wav
+f share/vgshell/shell/assets/sounds/ping.wav
+f share/vgshell/shell/assets/sounds/pop.wav
 f share/vgshell/shell/greeter.qml
 f share/vgshell/shell/plugins/vgs.agent-warden/Notices.js
 f share/vgshell/shell/plugins/vgs.agent-warden/Panel.qml
@@ -573,6 +580,8 @@ f share/vgshell/shell/plugins/vgs.sound/SoundControls.qml
 f share/vgshell/shell/plugins/vgs.sound/SoundLogic.js
 f share/vgshell/shell/plugins/vgs.sound/Widget.qml
 f share/vgshell/shell/plugins/vgs.sound/manifest.json
+f share/vgshell/shell/plugins/vgs.sounds/Pane.qml
+f share/vgshell/shell/plugins/vgs.sounds/manifest.json
 f share/vgshell/shell/plugins/vgs.sudo/SudoView.js
 f share/vgshell/shell/plugins/vgs.sudo/Widget.qml
 f share/vgshell/shell/plugins/vgs.sudo/manifest.json
@@ -646,9 +655,6 @@ f share/vgshell/shell/plugins/vgs.voice/config.toml
 f share/vgshell/shell/plugins/vgs.voice/manifest.json
 f share/vgshell/shell/plugins/vgs.voice/shaders/plasma.frag
 f share/vgshell/shell/plugins/vgs.voice/shaders/plasma.frag.qsb
-f share/vgshell/shell/plugins/vgs.voice/sounds/bloop/error.wav
-f share/vgshell/shell/plugins/vgs.voice/sounds/bloop/start.wav
-f share/vgshell/shell/plugins/vgs.voice/sounds/bloop/stop.wav
 f share/vgshell/shell/plugins/vgs.voice/tui/configure.sh
 f share/vgshell/shell/plugins/vgs.voice/tui/model.sh
 f share/vgshell/shell/plugins/vgs.voice/tui/setup.sh
