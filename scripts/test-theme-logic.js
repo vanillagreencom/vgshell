@@ -111,6 +111,9 @@ const DEFAULTS = [
     ["bar.item.paddingX", 8],
     ["inset.cornerStep", 4],
     ["bar.item.gap", 4],
+    // The bar separator: alpha(#d7d7d9, 0.2), 255 * 0.2 = 51, a 12 px line.
+    ["bar.spacer.line", "#d7d7d933"],
+    ["bar.spacer.height", 12],
     // The control and row rhythm, Radix Themes' button sizes on the 4 px
     // unit: 24, 32 and 40 px controls with mul(4, 2) = 8, mul(4, 3) = 12
     // and mul(4, 4) = 16 a side and mul(4, 1) = 4, 8 and mul(4, 3) = 12
@@ -157,7 +160,6 @@ const DEFAULTS = [
     // knob on it is the white that contrasts with it best.
     ["color.borderControl", "#888888ff"],
     ["checkbox.borderColor", "#888888ff"],
-    ["bar.spacer.line", "#888888ff"],
     ["toggle.off", "#747474ff"],
     ["toggle.knobOff", "#ffffffff"],
     ["toggle.size.sm.width", 28],
@@ -578,7 +580,7 @@ const READABILITY_ROLES = ["color.text", "color.textHeading", "color.textMuted",
 const READABILITY_SURFACES = ["color.background", "color.surface", "color.surfaceRaised", "color.surfaceSunken"];
 const BOUNDARY_ROLES = ["checkbox.borderColor", "radio.borderColor", "textField.borderColor", "toggle.off", "checkbox.checked", "radio.checked", "toggle.on"];
 const READABILITY_PAIRS = [["segmented.foreground", "segmented.background"], ["segmented.selectedForeground", "segmented.selected"]];
-const BOUNDARY_PAIRS = [["toggle.knobOff", "toggle.off"], ["toggle.knobOn", "toggle.on"], ["checkbox.mark", "checkbox.checked"], ["segmented.indicatorColor", "segmented.selected"], ["segmented.indicatorColor", "segmented.background"], ["bar.spacer.line", "bar.background"]];
+const BOUNDARY_PAIRS = [["toggle.knobOff", "toggle.off"], ["toggle.knobOn", "toggle.on"], ["checkbox.mark", "checkbox.checked"], ["segmented.indicatorColor", "segmented.selected"], ["segmented.indicatorColor", "segmented.background"]];
 const truncateRatio = value => Math.floor(value * 100) / 100;
 const plain = value => JSON.parse(JSON.stringify(value));
 
@@ -628,13 +630,6 @@ function verify(judge) {
     const knobFailure = judge.accept(TOKENS, document({ toggle: { knobOff: "{toggle.off}" } }));
     assert.equal(knobFailure.ok, true, knobFailure.ok ? "" : judge.refusalLine(knobFailure));
     assert.deepEqual(plain(judge.readabilityShortfalls(knobFailure.values)), [{ text: "toggle.knobOff", surface: "toggle.off", ratio: 1, floor: 3 }]);
-    // A bar separator in the divider colour falls under the 3:1 floor on
-    // the bar, and so does one on a bar whose own fill a theme matches to it.
-    for (const bar of [{ spacer: { line: "{color.border}" } }, { background: "{color.borderControl}" }]) {
-        const separatorFailure = judge.accept(TOKENS, document({ bar }));
-        assert.equal(separatorFailure.ok, true, separatorFailure.ok ? "" : judge.refusalLine(separatorFailure));
-        assert.deepEqual(plain(judge.readabilityShortfalls(separatorFailure.values).map(row => [row.text, row.surface, row.floor])), [["bar.spacer.line", "bar.background", 3]], JSON.stringify(bar));
-    }
     // A segmented control's text the colour of the fill it sits on falls
     // under the 4.5:1 floor, and a chosen segment's mark the colour of its
     // segment or of the track under the 3:1 floor.
@@ -873,15 +868,44 @@ function verifyStatusText(table) {
     }
 }
 verifyStatusText(TOKENS);
-const tokenFile = path.join(repo, "shell/Commons/Tokens.js");
-const tokenSource = fs.readFileSync(tokenFile, "utf8");
-const statusNeedle = 'color("contrast({color." + name + "})")';
-assert.equal(tokenSource.split(statusNeedle).length, 2);
-const tokenControlDir = fs.mkdtempSync(path.join(repo, "tmp/status-token-control-"));
+
+// The bar separator the owner set: a 12 px line in the bar's text colour
+// at 20% alpha, 0x33 of 0xff, in the default theme and every shipped one.
+function verifyBarSeparator(table) {
+    const judge = load(judgeFile);
+    const themes = [["vgs", judge.defaults(table)]];
+    const index = judge.acceptCatalogIndex(table, fs.readFileSync(path.join(repo, "themes/catalog/index.json"), "utf8"));
+    assert.equal(index.ok, true);
+    assert.ok(index.entries.some(entry => entry.name === "flexoki-light"), "the shipped catalog lists flexoki-light");
+    for (const entry of index.entries)
+        themes.push([entry.name, judge.accept(table, fs.readFileSync(path.join(repo, "themes/catalog", entry.name, "theme.json"), "utf8"))]);
+    for (const [name, result] of themes) {
+        assert.equal(result.ok, true, name);
+        const line = at(result.values, "bar.spacer.line");
+        assert.equal(line.slice(0, 7), at(result.values, "bar.foreground").slice(0, 7), `${name} bar.spacer.line colour`);
+        assert.ok(Math.abs(parseInt(line.slice(7), 16) - 0x33) <= 1, `${name} bar.spacer.line alpha ${line}`);
+        assert.equal(at(result.values, "bar.spacer.height"), 12, `${name} bar.spacer.height`);
+    }
+}
+verifyBarSeparator(TOKENS);
+
+// Each token control edits a copy of the shipped table, and the verifier
+// it names must fail on that copy.
+const tokenSource = fs.readFileSync(path.join(repo, "shell/Commons/Tokens.js"), "utf8");
+const TOKEN_CONTROLS = [
+    ["status text on its fill", 'color("contrast({color." + name + "})")', 'color("contrast({palette." + name + "})")', verifyStatusText],
+    ["bar separator colour", 'line: color("alpha({bar.foreground}, 0.2)")', 'line: color("alpha({bar.foreground}, 0.4)")', verifyBarSeparator],
+    ["bar separator height", 'height: length(12),\n            line:', 'height: length("{icon.size.md}"),\n            line:', verifyBarSeparator]
+];
+fs.mkdirSync(path.join(repo, "tmp"), { recursive: true });
+const tokenControlDir = fs.mkdtempSync(path.join(repo, "tmp", "token-control-"));
 try {
-    const mutant = path.join(tokenControlDir, "Tokens.js");
-    fs.writeFileSync(mutant, tokenSource.replace(statusNeedle, 'color("contrast({palette." + name + "})")'));
-    assert.throws(() => verifyStatusText(load(mutant).TOKENS), { code: "ERR_ASSERTION" });
+    for (const [label, needle, replacement, verifier] of TOKEN_CONTROLS) {
+        assert.equal(tokenSource.split(needle).length, 2, `token control "${label}": the text to replace must occur once`);
+        const mutant = path.join(tokenControlDir, "Tokens.js");
+        fs.writeFileSync(mutant, tokenSource.replace(needle, () => replacement));
+        assert.throws(() => verifier(load(mutant).TOKENS), { code: "ERR_ASSERTION" }, `token control "${label}": the suite passed on that table`);
+    }
 } finally {
     fs.rmSync(tokenControlDir, { recursive: true, force: true });
 }
@@ -994,12 +1018,10 @@ const CONTROLS = [
     ["readability translucency", "var ratio = text === null || surface === null || text.a < 1 || surface.a < 1\n            ? null\n            : contrastRatio(text, surface);", "var ratio = contrastRatio(text, surface);"],
     ["boundary roles", "    \"checkbox.borderColor\",\n", ""],
     ["boundary pairs", "    [\"toggle.knobOff\", \"toggle.off\"],\n", ""],
-    ["bar separator pair", ",\n    [\"bar.spacer.line\", \"bar.background\"]", ""],
     ["boundary floor", "var BOUNDARY_FLOOR = 3;", "var BOUNDARY_FLOOR = 1;"]
 ];
 
 const source = fs.readFileSync(judgeFile, "utf8");
-fs.mkdirSync(path.join(repo, "tmp"), { recursive: true });
 const temp = fs.mkdtempSync(path.join(repo, "tmp", "theme-logic-control-"));
 try {
     for (const [label, needle, replacement] of CONTROLS) {
@@ -1061,4 +1083,4 @@ function gridShortfalls(values) {
     assert.equal(offGrid.ok, true, "the browser grid control document is accepted");
     assert.deepEqual(gridShortfalls(offGrid.values), ["carousel.expandedHeight=475", "carousel.overlap=30"], "control: the carousel's off-grid card height and overlap are named");
 }
-console.log(`test-theme-logic: ok documents=${ACCEPTED.length + REFUSED.length} controls=${CONTROLS.length}`);
+console.log(`test-theme-logic: ok documents=${ACCEPTED.length + REFUSED.length} controls=${CONTROLS.length + TOKEN_CONTROLS.length}`);

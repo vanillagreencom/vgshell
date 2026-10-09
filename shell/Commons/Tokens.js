@@ -1002,14 +1002,14 @@ var TOKENS = {
         },
         // A gap or a separator the user adds from the bar's menu: the gap's
         // empty width, the room either side of the separator's line, and
-        // the line's height and colour. The owner set 15 and 5 px. The line
-        // takes the input boundary's colour, the role built to hold the 3:1
-        // boundary floor on the background.
+        // the line's height and colour. The owner set 15 and 5 px, the line
+        // about 30% shorter than the bar's 16 px icon, which the 4 px grid
+        // makes 12, and its colour at 20% of the bar's text.
         spacer: {
             gap: length(15),
             inset: length(5),
-            height: length("{icon.size.md}"),
-            line: color("{color.borderControl}")
+            height: length(12),
+            line: color("alpha({bar.foreground}, 0.2)")
         }
     }
 };

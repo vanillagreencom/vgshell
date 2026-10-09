@@ -585,9 +585,11 @@ fi
 # widget dragged to the click would drop. Each kind is added in every
 # section through the real pointer and keys, read back from the effective
 # layout and the drawn boxes, kept across a restart, dragged into another
-# section and removed through its frame menu's first entry. The control
-# runs a copy whose core catalogue leaves out the bar's families: the
-# entry is written but never drawn, so the drawn reader fails.
+# section and removed through its frame menu's first entry. The first
+# control runs a copy whose core catalogue leaves out the bar's families:
+# the entry is written but never drawn, so the drawn reader fails. The
+# second runs a copy whose separator line sits at the bar's top in the
+# input boundary colour, and the drawn reader names both faults.
 spacer_saved="$sandbox/bar-spacer-saved.json"
 cp -- "$home/.config/vgshell/shell.json" "$spacer_saved"
 spacer_pattern='^vgs\.bar/(gap|separator)-[1-9][0-9]*$'
@@ -627,27 +629,37 @@ spacer_add() {
 # The drawn spacers per section, in x order, and every box that breaks
 # its size: a gap `bar.spacer.gap` wide, a separator its line plus
 # `bar.spacer.inset` a side, the line `divider.thickness` by
-# `bar.spacer.height` at the bar's vertical centre, each inside its section.
+# `bar.spacer.height` (`:line`), centred on the bar within 1 px
+# (`:centre`), in `bar.foreground` at 0x33 alpha within 1 (`:colour`),
+# each inside its section.
 spacer_rendered() {
-  local key records ids id rows="" section box tokens
-  key="$(bar_key)" && records="$(ipc shell built)" || return 1
+  local key records ids id rows="" section box tokens text
+  key="$(bar_key)" && records="$(ipc shell built)" && box="$(ipc smoke instanceGeometry "$key" vgs.bar)" || return 1
+  rows+="bar $box"$'\n'
   ids="$(py_reply 'import json,re,sys; print(" ".join(r["id"] for r in json.load(sys.stdin)[sys.argv[1]] if re.match(sys.argv[2],r["id"])))' "$key" "$spacer_pattern" <<<"$records")" || return 1
   for section in left center right; do
     box="$(ipc smoke barSectionGeometry "$key" "$section")" || return 1
     rows+="$section $box"$'\n'
   done
   for id in $ids; do
+    box="$(ipc smoke itemColours "$key" "$id" BarWidget QQuickRectangle)" || return 1
+    rows+="$id:colour $box"$'\n'
     box="$(ipc smoke descendantGeometry "$key" "$id")" || return 1
     rows+="$id $box"$'\n'
   done
-  tokens="$(for t in bar.spacer.gap bar.spacer.inset bar.spacer.height divider.thickness; do ipc smoke themeValue "$t" || exit 1; done | paste -sd ' ')" || return 1
+  tokens="$(for t in bar.spacer.gap bar.spacer.inset bar.spacer.height divider.thickness; do ipc smoke themeValue "$t" || exit 1; done | paste -sd ' ')" \
+    && text="$(ipc smoke themeValue bar.foreground)" || return 1
   py_reply 'import json,sys
 gap,inset,height,thick=[float(v) for v in sys.argv[1].split()]
-sections={}; drawn={"left":[],"center":[],"right":[]}; errors=[]
+# themeValue writes the Qt form #aarrggbb, itemColours #rrggbbaa.
+text=json.loads(sys.argv[2])[3:].lower()
+sections={}; drawn={"left":[],"center":[],"right":[]}; errors=[]; bar=None; colours={}
 for line in sys.stdin:
     if not line.strip(): continue
     ident,value=line.split(" ",1); value=json.loads(value) if value[:1] in "[{" else None
+    if ident=="bar": bar=value; continue
     if ident in drawn: sections[ident]=value; continue
+    if ident.endswith(":colour"): colours[ident[:-7]]=value; continue
     if not value: errors.append(ident+":absent"); continue
     box=value[0]["box"]
     home=[s for s,b in sections.items() if b and box[0]>=b[0]-1 and box[0]+box[2]<=b[0]+b[2]+1 and box[2]>0]
@@ -660,8 +672,15 @@ for line in sys.stdin:
         want=2*inset+thick
         if abs(box[2]-want)>0.5 or len(lines)!=1: errors.append(ident+":separator"); continue
         l=lines[0]["box"]
-        if abs(l[0]-box[0]-inset)>0.5 or abs(l[2]-thick)>0.5 or abs(l[3]-height)>0.5 or abs(l[1]+l[3]/2-(box[1]+box[3]/2))>1: errors.append(ident+":line")
-print(json.dumps({"drawn":{s:[i for _,i in sorted(v)] for s,v in drawn.items()},"errors":errors}))' "$tokens" <<<"$rows"
+        if abs(l[0]-box[0]-inset)>0.5 or abs(l[2]-thick)>0.5 or abs(l[3]-height)>0.5: errors.append(ident+":line")
+        if not bar or abs(l[1]+l[3]/2-(bar[1]+bar[3]/2))>1: errors.append(ident+":centre")
+        drew=[c for item in colours.get(ident) or [] for c in item]
+        if len(drew)!=1 or drew[0][1:7].lower()!=text or abs(int(drew[0][7:9],16)-0x33)>1: errors.append(ident+":colour")
+print(json.dumps({"drawn":{s:[i for _,i in sorted(v)] for s,v in drawn.items()},"errors":errors}))' "$tokens" "$text" <<<"$rows"
+}
+# spacer_faults ID: the kinds of size error the drawn reader finds on ID.
+spacer_faults() {
+  spacer_rendered | py_reply 'import json,sys; print(json.dumps(sorted(e.split(":")[-1] for e in json.load(sys.stdin)["errors"] if e.rsplit(":",1)[0]==sys.argv[1])))' "$1"
 }
 # spacer_drawn WANT_LAYOUT_JSON: True when the drawn spacers match WANT
 # with no size errors.
@@ -760,6 +779,15 @@ if copy_tree bar-spacer-control \
     echo False
   }
   geometry expect "control: the drawn reader rejects a separator the catalogue leaves out" False spacer_ever_drawn '{"left": ["vgs.bar/separator-1"], "center": [], "right": []}'
+  stop_shell
+fi
+if copy_tree bar-separator-control \
+  && edit_tree bar-separator-control shell/plugins/vgs.bar/Builtin.qml 'anchors.verticalCenter: parent.verticalCenter' 'y: 0' \
+  && edit_tree bar-separator-control shell/plugins/vgs.bar/Builtin.qml 'color: Commons.Theme.bar.spacer.line' 'color: Commons.Theme.color.borderControl'; then
+  start_shell "$sandbox/tree-bar-separator-control" "$sandbox/bar-separator-control.log" || fail "the separator control shell starts"
+  # The first control leaves its separator in the user file.
+  [[ "$(spacer_holds vgs.bar/separator-1)" == True ]] || spacer_add left separator
+  geometry expect_poll "control: the drawn reader names a separator off the bar's centre and in another colour" '["centre", "colour"]' spacer_faults vgs.bar/separator-1
   stop_shell
 fi
 cp -- "$spacer_saved" "$home/.config/vgshell/shell.json.tmp"
