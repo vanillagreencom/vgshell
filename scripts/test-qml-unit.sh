@@ -714,7 +714,7 @@ mutations=(
   "link text marks no link occurrences|feedback/LinkText.qml|return parts.join(anchor);|return escaped;|tst_linktext.qml"
   "link text clicked signal activates nothing|feedback/LinkText.qml|onClicked: activated()|onClicked: {}|tst_linktext.qml"
   "link text takes no Tab focus|feedback/LinkText.qml|activeFocusOnTab: linked|activeFocusOnTab: false|tst_linktext.qml"
-  "link text rings its whole text|feedback/LinkText.qml|readonly property rect linkBox: linked && twin.length === text.length ? wordsBox(|readonly property rect linkBox: false ? wordsBox(|tst_linktext.qml"
+  "link text rings its whole text|feedback/LinkText.qml|readonly property rect linkBox: linked && twin.length === text.length && run[1] <= text.length ? wordsBox(|readonly property rect linkBox: false ? wordsBox(|tst_linktext.qml"
   "link text rings its words on the first line|feedback/LinkText.qml|return Qt.rect(from.x, lineOf(from) * lineBox, right - from.x, lineBox);|return Qt.rect(from.x, 0, right - from.x, lineBox);|tst_linktext.qml"
   "link text's ring starts at the text's left edge|feedback/LinkText.qml|        x: root.linkBox.x + inset|        x: inset|tst_linktext.qml"
   "link text's ring reaches its full extent beside the words|feedback/LinkText.qml|Math.min(Theme.focusRing.offset + Theme.focusRing.width, spaceGlyph.advanceWidth - 1)|Theme.focusRing.offset + Theme.focusRing.width|tst_linktext.qml"
