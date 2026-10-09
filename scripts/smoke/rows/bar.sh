@@ -531,7 +531,10 @@ if devices_ready bar; then
   mkdir -p -- "$fresh_history"
   cp -a -- "$devices_dir/calls" "$fresh_history/calls"
   cp -a -- "$shim" "$fresh_history/shim"
-  fresh_paths=("$dev_state" "$home/.local/state/vgshell/updates/status.json")
+  # What the default set's services write and a later row reads as it found
+  # it: notes_on (harness.sh) takes the notifications' directory, even
+  # empty, for saved state and then keeps what its row wrote.
+  fresh_paths=("$dev_state" "$home/.local/state/vgshell/updates/status.json" "$home/.local/state/vgshell/notifications")
   for fresh_i in "${!fresh_paths[@]}"; do
     if [[ -e ${fresh_paths[fresh_i]} ]]; then cp -a -- "${fresh_paths[fresh_i]}" "$fresh_history/state-$fresh_i"; fi
   done

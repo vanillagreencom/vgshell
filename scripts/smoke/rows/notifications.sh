@@ -1934,6 +1934,12 @@ open(path, 'w').write(text.replace(needle, 'if (false && Logic.hasOwn(silencedRe
 PY_IMAGE_CONTROL
 rescan "the pending-image control service is built"
 expect_poll "the pending-image control service is ready" True record_exists vgs.notifications
+# That rescan rebuilt the plugin under the open inbox. The summon host opens
+# the new panel before the new service's store has read its file and
+# registered `panel-state`, so the panel's first reads are answered
+# `unknown: panel-state`: it waits for the service's state and logs nothing.
+expect_poll "the inbox rebuilt under its service lists its rows again" True has_row panel "Quiet while open"
+expect "the rebuilt inbox logged no state warning while its service started" 0 log_lines 'notifications panel: state '
 
 pending_image_case() { # SUMMARY CONTROL
   local summary="$1" control="$2" key pattern setup_failures

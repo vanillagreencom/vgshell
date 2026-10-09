@@ -119,9 +119,7 @@ sudo_click() { click_centre "$(bar_key)" vgs.sudo || fail "sudo: the click on th
 # sends whether or not the shell already holds the notification name.
 cp -- "$home/.config/vgshell/shell.json" "$sudo_config"
 sudo_notifications_were="$(plugin_enabled vgs.notifications)"
-if [[ $sudo_notifications_were == False ]]; then
-  expect "enabling vgs.notifications for the lock's notices is allowed" ok ipc shell setPluginEnabled vgs.notifications true
-fi
+if [[ $sudo_notifications_were == False ]]; then notes_on "sudo"; fi
 [[ ! -e $shim/notify-send ]] || mv -- "$shim/notify-send" "$sandbox/sudo-row.notify-send.saved"
 rm -f -- "$sudo_sent"
 cat >"$shim/notify-send" <<EOF
@@ -258,8 +256,6 @@ expect "the tree's sudo is the sentinel again" sentinel sentinel_of "$sudo_bin/s
 rm -f -- "$sudo_half" "$sudo_list" "$sudo_calls"
 rm -f -- "$shim/notify-send"
 [[ ! -e $sandbox/sudo-row.notify-send.saved ]] || mv -- "$sandbox/sudo-row.notify-send.saved" "$shim/notify-send"
-if [[ $sudo_notifications_were == False ]]; then
-  expect "disabling vgs.notifications after the lock's notices is allowed" ok ipc shell setPluginEnabled vgs.notifications false
-fi
+if [[ $sudo_notifications_were == False ]]; then notes_off "sudo"; fi
 user_config_restore "$sudo_config"
 expect "the row reached no authentication" "$sudo_auth_before" auth_count

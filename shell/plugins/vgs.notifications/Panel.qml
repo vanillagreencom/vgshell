@@ -111,6 +111,14 @@ FocusScope {
     function refresh() {
         if (shell === null) return;
         const raw = call("panel-state", "");
+        // The core answers `unknown: panel-state` while the service holds no
+        // handler (PluginLogic.ipcAnswer). The service registers its
+        // handlers once its store has read the state file, and a rescan
+        // that rebuilds the plugin under an open inbox opens the new panel
+        // before that. The service writes panelRevision in the turn it
+        // registers, which refreshes this panel with the state (read in the
+        // notifications smoke row, where the inbox stays open over a rescan).
+        if (raw === "unknown: panel-state") return;
         try {
             const state = JSON.parse(raw);
             const previousKey = selectedKey;
