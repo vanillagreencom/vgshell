@@ -295,7 +295,8 @@ Item {
         // area's bound, and a client one pixel past the page by that
         // rounding is left alone.
         function test_a_grown_window_stays_on_its_monitor_data() {
-            // bottom: the work area's bottom, its top being 40; at: the
+            // bottom: the monitor's bottom, its top 40 px reserved, so the
+            // window keeps from y 40 + gutter to bottom - gutter; at: the
             // client's y before; from: the client's height before, as a
             // step from the expected height `to`, the page's own unless at
             // the bound; overflows: whether at + the page's height passes
@@ -303,7 +304,7 @@ Item {
             // the height asked; null when nothing is asked.
             return [
                 { tag: "rises by its overflow", bottom: 1000, at: 480, from: -200, to: 0, bound: false, overflows: true, y: (bottom, height) => bottom - height },
-                { tag: "moves down to the work area's top", bottom: 2000, at: 10, from: -200, to: 0, bound: false, overflows: false, y: () => 40 },
+                { tag: "moves down to the work area's top", bottom: 2000, at: 10, from: -200, to: 0, bound: false, overflows: false, y: () => 40 + Theme.size.window.gutter },
                 { tag: "takes the work area at its top", bottom: 300, at: 480, from: -100, to: 0, bound: true, overflows: true, y: (bottom, height) => bottom - height },
                 { tag: "an odd step asks one pixel more", bottom: 2000, at: 480, from: -101, to: 1, bound: false, overflows: false, y: () => 480 },
                 { tag: "an odd step at the bound asks one pixel less", bottom: 300, at: 480, from: -101, to: -1, bound: true, overflows: true, y: (bottom, height) => bottom - height },
@@ -317,16 +318,18 @@ Item {
             p.tabs.currentIndex = 1;
             waitForRendering(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
-            const page = data.bound ? data.bottom - 40 : window.mapHeight;
-            verify(data.bound ? window.mapHeight > page : window.mapHeight < data.bottom - 40, "the fixture's Details " + (data.bound ? "runs past" : "fits") + " the work area: " + window.mapHeight);
-            compare(data.at + page > data.bottom, data.overflows, "the window at y " + data.at + " " + (data.overflows ? "passes" : "stays above") + " the work area's bottom");
+            const gutter = Theme.size.window.gutter;
+            const bottom = data.bottom - gutter;
+            const page = data.bound ? bottom - 40 - gutter : window.mapHeight;
+            verify(data.bound ? window.mapHeight > page : window.mapHeight < bottom - 40 - gutter, "the fixture's Details " + (data.bound ? "runs past" : "fits") + " the work area: " + window.mapHeight);
+            compare(data.at + page > bottom, data.overflows, "the window at y " + data.at + " " + (data.overflows ? "passes" : "stays above") + " the work area's bottom less the gutter");
             fakeCompositor.answer([fakeCompositor.client({ at: [70, data.at], size: [512, page + data.from] })], data.bottom);
             if (data.to === null) {
                 compare(fakeCompositor.calls, []);
                 return;
             }
             const height = page + data.to;
-            compare(fakeCompositor.calls, [["resize", "0xb", 512, height], ["move", "0xb", 70, data.y(data.bottom, height)]]);
+            compare(fakeCompositor.calls, [["resize", "0xb", 512, height], ["move", "0xb", 70, data.y(bottom, height)]]);
         }
 
         // On a rotated monitor the work area's height is the mode's width:

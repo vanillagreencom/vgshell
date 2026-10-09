@@ -21,9 +21,12 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // the item under the pointer, which selects text where text is selectable.
 // It takes the wheel and a touch only while its content overflows, so a
 // touch on an area that fits reaches what lies under it, such as a scrim
-// that closes a full-screen view. While the content overflows, an edge cue,
-// a shade `space.lg` deep from the shadow colour `hyprland.shadow.color`,
-// lies over each edge where content is clipped: the bottom while content
+// that closes a full-screen view. While the content overflows, an edge cue
+// lies over each edge where content is clipped: a shade `space.lg` deep
+// that fades the content into the surface, toward `color.scrim`, the
+// background colour at partial alpha, so it reads on light and dark
+// themes alike, and a `divider.thickness` hairline in `color.borderStrong`
+// along the clipped edge. It marks the bottom while content
 // continues below the view, the top while content is scrolled under it,
 // `cueBelow` and `cueAbove`. Unlike the bar it never fades, so a page cut
 // at the window's edge says so at rest; it takes no input.
@@ -163,8 +166,13 @@ Flickable {
         height: Theme.space.lg
         visible: root.cueAbove
         gradient: Gradient {
-            GradientStop { position: 0; color: Theme.hyprland.shadow.color }
+            GradientStop { position: 0; color: Theme.color.scrim }
             GradientStop { position: 1; color: "transparent" }
+        }
+        Rectangle {
+            anchors { left: parent.left; right: parent.right; top: parent.top }
+            height: Theme.divider.thickness
+            color: Theme.color.borderStrong
         }
     }
     Rectangle {
@@ -174,7 +182,12 @@ Flickable {
         visible: root.cueBelow
         gradient: Gradient {
             GradientStop { position: 0; color: "transparent" }
-            GradientStop { position: 1; color: Theme.hyprland.shadow.color }
+            GradientStop { position: 1; color: Theme.color.scrim }
+        }
+        Rectangle {
+            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+            height: Theme.divider.thickness
+            color: Theme.color.borderStrong
         }
     }
 

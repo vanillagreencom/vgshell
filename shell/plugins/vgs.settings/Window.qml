@@ -167,9 +167,13 @@ FocusScope {
                 return;
             }
             const m = screens[0];
-            const top = Math.ceil(m.y + m.reserved[1]);
+            // Hyprland draws the window's border outside its box, so the
+            // work area keeps `size.window.gutter` free at its top and
+            // bottom, as the window host's room does (OverlayState.room).
+            const gutter = Theme.size.window.gutter;
+            const top = Math.ceil(m.y + m.reserved[1] + gutter);
             const tall = m.transform % 2 === 1 ? m.width : m.height;
-            const bottom = Math.floor(m.y + tall / m.scale - m.reserved[3]);
+            const bottom = Math.floor(m.y + tall / m.scale - m.reserved[3] - gutter);
             // The work area bounds the height too, so a page never asks for
             // more than fits under the bar, though the host may map taller.
             let height = Math.min(root.mapHeight, bottom - top);
