@@ -24,8 +24,10 @@ import qs.Ui
 // interior (ListMask), so a row scrolled part way past an edge stays inside
 // the curve. The control draws like a text field; the template owns its
 // click, hover and focus. With nothing to choose the list never opens, so
-// no popup repeats what the closed control says; with `emptyText` set, the
-// control reads that text dimmed. With entries to choose,
+// no popup repeats what the closed control says, and nothing promises it
+// will: the pointer stays the arrow and the chevron draws in the disabled
+// text colour. With `emptyText` set, the control reads that text dimmed.
+// With entries to choose,
 // none chosen (`currentIndex` outside the model) and `placeholderText` set,
 // the control reads that text dimmed, and the list opens with no entry
 // highlighted; Down then moves to the first entry.
@@ -43,6 +45,7 @@ T.AbstractButton {
     property int currentIndex: 0
     property string textRole: ""
     readonly property int count: Array.isArray(model) ? model.length : 0
+    readonly property bool opens: count > 0
     readonly property string currentText: textAt(currentIndex)
     readonly property bool listOpen: list.visible
     property bool counted: false
@@ -83,7 +86,7 @@ T.AbstractButton {
     }
 
     function openList() {
-        if (count === 0) return;
+        if (!opens) return;
         // The cursor lands on the choice rather than travelling from where
         // the last opening left it.
         plate.disarm();
@@ -106,7 +109,9 @@ T.AbstractButton {
     leftPadding: sidePadding
     rightPadding: sidePadding + Theme.icon.size.sm + Theme.textField.gap
     hoverEnabled: true
-    PointerCursor {}
+    // A disabled HoverHandler is never hovered, so Qt takes no cursor from
+    // it and the arrow of the surface under the control shows.
+    PointerCursor { enabled: root.opens }
     focusPolicy: Qt.StrongFocus
     opacity: enabled ? 1 : Theme.opacity.disabled
     Accessible.name: showsEmpty ? emptyText : showsPlaceholder ? placeholderText : currentText
@@ -134,7 +139,7 @@ T.AbstractButton {
     indicator: Icon {
         name: "chevron-down"
         size: Theme.icon.size.sm
-        color: Theme.textField.icon
+        color: root.opens ? Theme.textField.icon : Theme.color.textDisabled
         x: root.width - width - root.sidePadding
         y: (root.height - height) / 2
     }

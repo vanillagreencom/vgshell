@@ -8,7 +8,8 @@ import qs.Unit
 // closes and counts in OverlayState, a menu moves its highlight and
 // triggers by key and closes on a trigger but that of an entry that opens a
 // submenu, which draws a chevron, or keeps the menu open, a select chooses by index and
-// reads its text role, an empty select opens no list from a key or a click, a tooltip opens after the delay while the pointer
+// reads its text role, an empty select opens no list from a key or a click
+// and shows neither the hand nor a chevron in its resting colour, a tooltip opens after the delay while the pointer
 // rests and not under an open overlay. A menu
 // taller than its maximum scrolls with the highlight kept in view, jumps
 // to the entry whose text starts with the letters typed, opens on its
@@ -877,6 +878,25 @@ Item {
             compare(emptySelect.listOpen, false, "openList leaves the empty select closed");
             compare(OverlayState.open, 0);
             compare(emptySelect.activeFocus, true, "the empty select keeps the keyboard");
+            // Nothing promises the click that does nothing: the pointer stays
+            // the arrow and the chevron draws in the disabled text colour,
+            // while a select with entries keeps the hand and its icon colour.
+            verify(!Qt.colorEqual(Theme.color.textDisabled, Theme.textField.icon), "the disabled colour differs from the chevron's");
+            compare(showsHand(emptySelect), false, "the empty select shows the arrow");
+            verify(Qt.colorEqual(emptySelect.indicator.color, Theme.color.textDisabled), "the empty select's chevron draws disabled");
+            compare(showsHand(select), true, "a select with entries shows the hand");
+            verify(Qt.colorEqual(select.indicator.color, Theme.textField.icon), "a select with entries draws its chevron in its icon colour");
+            mouseMove(root, root.width - 1, root.height - 1);
+        }
+
+        // Qt takes the cursor over an item from a handler of the item that
+        // sets a cursor shape and is hovered; with none, the arrow shows.
+        function showsHand(item) {
+            mouseMove(item, item.width / 2, item.height / 2);
+            for (const child of item.data) {
+                if (child instanceof HoverHandler && child.cursorShape === Qt.PointingHandCursor && child.hovered) return true;
+            }
+            return false;
         }
 
         function test_select_keys_move_the_choice_while_closed() {
