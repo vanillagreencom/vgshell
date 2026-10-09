@@ -220,14 +220,18 @@ function approvalId(value) {
 }
 
 // The engine's failing setup steps (ChainedEngine select): at most one keyed
-// cause per step, speech before brain; none while the engine is ready.
-var SETUP_STEPS = ["speech", "brain"];
+// cause per step, the home folder, then speech, then brain; none while the
+// engine is ready. The home step's cause is the folder's own, `home=`, or
+// its text's, `guidance=`.
+var SETUP_STEPS = ["home", "speech", "brain"];
+var SETUP_CAUSE_STEPS = { home: "home", guidance: "home", speech: "speech", brain: "brain" };
 function setupCauses(value) {
     if (!Array.isArray(value)) return false;
     var last = -1;
     for (var i = 0; i < value.length; i++) {
         var match = typeof value[i] === "string" ? /^([a-z]+)=[a-z0-9-]{1,60}$/.exec(value[i]) : null;
-        var step = match === null ? -1 : SETUP_STEPS.indexOf(match[1]);
+        var step = match === null || !Object.prototype.hasOwnProperty.call(SETUP_CAUSE_STEPS, match[1]) ? -1
+            : SETUP_STEPS.indexOf(SETUP_CAUSE_STEPS[match[1]]);
         if (step <= last) return false;
         last = step;
     }
@@ -249,7 +253,7 @@ function accept(line, direction) {
     case "hello":
         if (direction !== "shell") fail("direction-hello");
         keys(message, ["v", "type", "gen", "settings", "directories", "revision", "locked", "keys"], "hello");
-        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount"], "settings");
+        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");
         if (!["local", "realtime"].includes(message.settings.voiceProvider) || typeof message.settings.voiceAccount !== "string"
                 || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings.voiceAccount)) fail("voice-settings");
         if (typeof message.settings.sounds !== "boolean") fail("sounds");
@@ -259,6 +263,9 @@ function accept(line, direction) {
         if (CLOUD_VISION.indexOf(message.settings.cloudVision) === -1) fail("cloud-vision");
         if (typeof message.settings.privateWindows !== "string"
                 || !/^[^\x00-\x1f\x7f]{0,1024}$/.test(message.settings.privateWindows)) fail("private-windows");
+        // Home.js judges the folder the text names; the wire bounds the text.
+        if (typeof message.settings.home !== "string"
+                || !/^[^\x00-\x1f\x7f]{0,4096}$/.test(message.settings.home)) fail("home-setting");
         for (var setting of ["microphone", "speaker"])
             if (typeof message.settings[setting] !== "string"
                     || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings[setting])) fail("device-setting");

@@ -2,8 +2,8 @@
 
 // What the Jarvis bar widget shows, pure so scripts/test-jarvis-widget.js
 // runs it under node: the one judge from the status the service publishes
-// (`daemon`, `detail`, `audio` and the Setup steps `setupVoice` and
-// `setupModel`) to the widget's state, icon, tone and tooltip. A fault
+// (`daemon`, `detail`, `audio` and the Setup steps `setupHome`,
+// `setupVoice` and `setupModel`) to the widget's state, icon, tone and tooltip. A fault
 // reads in plain words with what to do (faultText), which the bubble also
 // shows; its keyed reason is in the service's log. The first matching
 // rule wins:
@@ -159,6 +159,19 @@ function offered(step) {
     return step.action === true || typeof step.action === "string";
 }
 
+// Whether the daemon refuses the home folder the user chose: the step
+// SetupGate publishes only then, the first in the engine's order, which
+// offers no action and says what to change.
+function homeRefused(values) {
+    var home = values.setupHome;
+    return !!home && home.tone === "warning" && typeof home.hint === "string" && home.hint !== "";
+}
+
+// What the bar says of a refused home folder: its step's own words.
+function homeText(values) {
+    return values.setupHome.text + ". Open Settings > Jarvis. " + values.setupHome.hint;
+}
+
 // What the bar says while the gate is down unconfigured: the first
 // required step VALUES still holds to do, as SetupGate offers its action.
 function unconfiguredText(values) {
@@ -222,6 +235,8 @@ function view(values) {
     if (state === null) return look("off", daemon === null ? GATE_TEXT.starting : "Jarvis: " + daemon.text, muteOn);
     if (muteOn) return look("muted", "Jarvis is muted", muteOn);
     var down = gateDown(state.gate);
+    // No voice or setup state reads over a home folder the daemon refuses.
+    if (down && state.gate.reason === "unconfigured" && homeRefused(values)) return look("off", homeText(values), muteOn);
     if ((!down || state.gate.reason === "unconfigured") && voiceLoading(values))
         return look("loading", "Jarvis is loading its voice", muteOn);
     if (down) {

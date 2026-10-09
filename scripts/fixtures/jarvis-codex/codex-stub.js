@@ -119,10 +119,18 @@ function handle(message) {
         respond({ ...reply("patch", line => line.id === 1), codexHome: process.env.CODEX_HOME });
         return;
     case "initialized": return;
-    case "config/read":
+    case "config/read": {
         cwd = message.params.cwd;
-        respond({ config: { mcp_servers: scenario.servers ?? {} }, origins: {} });
+        // The working directory's own .codex/config.toml is a layer of the
+        // effective configuration, as Codex reads a trusted project's
+        // (developers.openai.com/codex/config-reference): its MCP server
+        // tables join the account's.
+        const project = path.join(cwd, ".codex/config.toml");
+        const layer = !fs.existsSync(project) ? {} : Object.fromEntries([...fs.readFileSync(project, "utf8")
+            .matchAll(/^\[mcp_servers\.([A-Za-z0-9_-]+)\]$/gm)].map(match => [match[1], { command: "fixture-project-server" }]));
+        respond({ config: { mcp_servers: { ...layer, ...(scenario.servers ?? {}) } }, origins: {} });
         return;
+    }
     case "thread/start": {
         servers = message.params.config.mcp_servers;
         const value = reply("patch", line => line.id === 2);

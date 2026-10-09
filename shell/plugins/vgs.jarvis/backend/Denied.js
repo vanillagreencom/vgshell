@@ -80,10 +80,14 @@ function resolve(file, follow = true) {
  * Build one protected-root snapshot from trusted XDG/installation roots.
  * accountRoots holds the explicit and hand-added account roots
  * (Accounts.js::accountRoots); the account name rule protects the rest.
+ * homeRoots holds the knowledge paths of the user's Jarvis home folder
+ * (Home.js::protectedPaths), none while no home is chosen: a model changes
+ * what Jarvis knows through no file tool, shell command or harness approval.
  * Each consumer rebuilds this snapshot immediately before it acts.
  */
-function create({ home, config, data, state, runtime, install, accountRoots }) {
+function create({ home, config, data, state, runtime, install, accountRoots, homeRoots }) {
     if (!Array.isArray(accountRoots)) throw new Error("jarvis: paths=account-roots");
+    if (!Array.isArray(homeRoots)) throw new Error("jarvis: paths=home-roots");
     const realHome = resolve(home);
     if (!realHome.exists || !fs.statSync(realHome.path).isDirectory()) throw new Error("jarvis: paths=home");
     // The account name rule counts depth below each physical base.
@@ -123,7 +127,7 @@ function create({ home, config, data, state, runtime, install, accountRoots }) {
     const protectedPaths = credential.concat([
         path.join(config, "vgshell"), path.join(data, "vgshell"), path.join(state, "vgshell"),
         path.join(runtime, "vgshell"), install
-    ]);
+    ], homeRoots);
     const execution = [
         [home, ".profile"], [home, ".bash_profile"], [home, ".bash_login"], [home, ".bashrc"],
         [home, ".zprofile"], [home, ".zshrc"], [home, ".zshenv"], [home, ".xprofile"],

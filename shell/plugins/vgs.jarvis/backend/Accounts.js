@@ -781,7 +781,7 @@ class Accounts {
     }
 
     /**
-     * The page's account facts: each account's label, presence and the
+     * The page's account facts: each account's label, provider, presence and the
      * typed facts AccountStatus.js words its hint from, whether Sign in
      * serves it (a signed-out account of a provider with a sign-in), the
      * brain choices, and the search's found count and partial reason. No
@@ -802,7 +802,7 @@ class Accounts {
             case "unavailable": value = "unavailable"; break;
             default: fail("state=unknown");
             }
-            return { label: (row.label + " / " + item.label).slice(0, 60), value, state: item.state.kind,
+            return { label: (row.label + " / " + item.label).slice(0, 60), value, provider: item.provider, state: item.state.kind,
                 source: item.source.kind, plan: item.plan || "", email: item.email || "",
                 mismatch: item.identity.kind === "mismatch", signIn: out && Array.isArray(row.signIn) };
         });

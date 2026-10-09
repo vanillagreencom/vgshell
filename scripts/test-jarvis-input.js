@@ -333,14 +333,14 @@ async function helpEvidence() {
     fs.mkdirSync(dir);
     fs.writeFileSync(path.join(dir, "input.md"), "Fixture guidance\n");
     const check = module => {
-        const owner = module.create(dir); assert.deepEqual(owner.topics, ["input"]);
+        const owner = module.create(dir); assert.deepEqual(owner.topics(), ["input"]);
         let result; owner.start({ id: "help", args: { topic: "input" } }, value => { result = value; });
         assert.deepEqual(result, { outcome: "completed", content: "Fixture guidance" });
         owner.start({ id: "help", args: { topic: "windows" } }, value => { result = value; });
         assert.equal(result.outcome, "failed");
     };
     check(Help);
-    await mutant(path.join(backend, "ComputerHelp.js"), "help-uninstalled", 'if (!topics.includes(topic)) throw new Error("help-topic-unavailable");', ';', module => {
+    await mutant(path.join(backend, "ComputerHelp.js"), "help-uninstalled", 'if (!shipped.includes(topic)) throw new Error("help-topic-unavailable");', ';', module => {
         const owner = module.create(dir); let result;
         owner.start({ id: "help", args: { topic: "windows" } }, value => { result = value; });
         assert.equal(result.content, "help-read:help-topic-unavailable");

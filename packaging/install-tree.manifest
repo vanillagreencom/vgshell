@@ -370,6 +370,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/backend/Files.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Guidance.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/HarnessGate.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/HarnessProgram.js
+f share/vgshell/shell/plugins/vgs.jarvis/backend/Home.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Input.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/LocalSpeech.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Mcp.js

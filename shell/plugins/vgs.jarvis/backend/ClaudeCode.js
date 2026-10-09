@@ -137,7 +137,10 @@ function messageOf(line) {
 
 /**
  * The child's whole environment: the daemon's paths, the account's directory
- * and the vendor's switch for its nonessential traffic. Nothing else passes.
+ * and the vendor's switches for its nonessential traffic and its own memory:
+ * what Jarvis knows lives in the user's home folder, never in the account's
+ * auto memory (code.claude.com/docs/en/memory, CLAUDE_CODE_DISABLE_AUTO_MEMORY).
+ * Nothing else passes.
  */
 function environmentOf(environment, directory) {
     const result = { LANG: "C.UTF-8" };
@@ -145,6 +148,7 @@ function environmentOf(environment, directory) {
         if (typeof environment[name] === "string" && environment[name] !== "") result[name] = environment[name];
     result.CLAUDE_CONFIG_DIR = directory;
     result.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
+    result.CLAUDE_CODE_DISABLE_AUTO_MEMORY = "1";
     return result;
 }
 

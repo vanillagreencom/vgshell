@@ -14,6 +14,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Mute stays on across restarts and blocks talk input.
 - A listening bubble whose orb and text let clicks reach the application below.
 - Always talk mode: say Hey Jarvis to start a request. The word is heard by the local voice on this computer; nothing reaches the AI model until you speak after it. While Jarvis waits for the word its bubble shows a still orb.
+- A home folder you choose for what Jarvis knows: your instructions, skills, memory and state. Every AI model uses them the same way, and no AI model can change your instructions, skills or memory.
 - An AI model from an API key you added, or from an app you are signed in to, such as Claude Code, Codex, GitHub Copilot or Pi with its own providers.
 - Local voice: speech to text and spoken replies on your computer, with no network access, after Set up local voice.
 - Realtime voice with a saved OpenAI key. OpenAI hears you and speaks the reply. The selected AI model answers each request through Jarvis's action and release checks.
@@ -45,6 +46,10 @@ Setup actions are buttons on the Jarvis page in Plugins or rows in the launcher'
 
 The shell's requirement notice installs a missing tool in one click.
 
+Home folder shows in Setup only when Jarvis cannot use the folder you chose, and says what to change.
+
+With a GitHub Copilot account, Setup shows Copilot Memory. GitHub keeps that memory in your account, so only you can turn it off: open [GitHub Copilot settings](https://github.com/settings/copilot/features) and set Copilot Memory to Disabled. Jarvis keeps what it learns in your home folder.
+
 ## Settings
 
 | Setting | What it changes |
@@ -54,10 +59,29 @@ The shell's requirement notice installs a missing tool in one click.
 | Voice provider | Local runs voice on this computer. Realtime sends microphone audio and released results to OpenAI. Changing it ends the conversation. |
 | Realtime key | A saved OpenAI key the Realtime voice uses. Add key opens hidden key input and stores the key in your desktop keyring. Get the key at [OpenAI API keys](https://platform.openai.com/api-keys). |
 | AI model | The AI that answers you: an API key you added, or an app you are signed in to. It lists only the choices Jarvis can use. An app with more than one account shows each by its sign-in email. |
+| Home folder | The folder for what Jarvis knows. None leaves Jarvis with what VGS ships. Changing it ends the conversation. |
 | Task terminal | Where a coding task opens. Auto uses tmux when it is installed, so several tasks run at once, and the floating terminal otherwise. |
 | Screen to cloud | Whether a screenshot or its text goes to an AI outside this computer. Ask withholds it unless granted for the conversation, Allow sends it, Never withholds it. When the AI and the voice both run on this computer, they always receive it. |
 | Private windows | Comma-separated words. A window whose class or title contains one is painted black before a screenshot leaves Jarvis. A title cannot always show private browsing. |
 
 The keys are under Keys on the same page. Show in bar puts the bar icon back after Hide.
+
+## Home folder
+
+Choose a folder under Home folder. Jarvis adds the entries the folder lacks and changes no file it finds. It never follows a link in the folder, and it does not start with a folder that has a link in place of an entry below.
+
+| Entry | What it holds |
+| --- | --- |
+| `AGENTS.md` | Your instructions for Jarvis: who it is and how it talks. Every AI model gets this text at the start of a conversation. Keep it under 8 KB. |
+| `CLAUDE.md` | One line that points Claude Code at `AGENTS.md`, for your own Claude Code session in this folder. |
+| `skills/base/` | The place for the skills VGS provides. |
+| `skills/own/` | Your own skills. A skill is a Markdown file, or a folder with a `SKILL.md` file. Every AI model gets each skill's name and first line, or its `description`, and reads the skill itself when it needs it. Keep each under 16 KB. |
+| `memory/` | The place for memory notes: `MEMORY.md` and `inbox/`. Jarvis does not read them yet. |
+| `state/` | Work in progress. This is the one part of the folder that Jarvis's file tools can change. |
+| `.claude/settings.json`, `.codex/config.toml` | Settings that turn off Claude Code's and Codex's own memory for your own session in this folder. |
+
+The folder gives Jarvis knowledge, never permission. A skill that says an action needs no question changes nothing: Jarvis still asks before it deletes a file, runs a command or sends something.
+
+The AI models never run inside this folder. A setting, hook or server that you keep there for your own tools does not run in Jarvis. Each app's own memory is off while Jarvis uses the app.
 
 Jarvis asks the Realtime voice to speak each sentence of a result exactly. Jarvis counts formatting violations in the transcript of what the voice said. This check does not control the audio OpenAI makes.

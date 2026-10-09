@@ -4,7 +4,9 @@ import qs.Ui
 
 // One read-only line of a Status row: `label` beside its value, the line's
 // one-click setup step (D061) as a RowAction right after the value, or
-// under it where the two do not fit one line, and `hint` under them. The value is a
+// under it where the two do not fit one line, and `hint` under them, the
+// words of it `hintLink` names drawn as a link that emits
+// `hintLinkActivated`. The value is a
 // Badge reading `text` in `tone`, with one more Badge of that tone under it for each of `lines`,
 // each no wider than the value column, eliding a text too long for it; with
 // `tone` "", `text` as one line in the value role, the label's pair,
@@ -24,6 +26,7 @@ Column {
 
     property string label: ""
     property string hint: ""
+    property string hintLink: ""
     property string info: ""
     property string tone: ""
     property string text: ""
@@ -41,6 +44,7 @@ Column {
     readonly property bool stepShown: (actionLabel !== "" && actionOffered) || access !== ""
 
     signal act()
+    signal hintLinkActivated()
     signal storeSecret(string value)
     signal clearSecret()
 
@@ -68,6 +72,8 @@ Column {
         info: line.info
         inline: true
         hint: line.valued ? line.hint : ""
+        hintLink: line.hintLink
+        onHintLinkActivated: line.hintLinkActivated()
         error: line.error
         // The step stands right after the value, centred on the value's
         // first line, its chip or its text, while the two fit the value

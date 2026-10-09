@@ -225,6 +225,12 @@ if (require.main === module) {
         fs.writeFileSync(path.join(env.XDG_STATE_HOME, "codex-mode"), "found");
         fs.writeFileSync(path.join(env.XDG_STATE_HOME, "ports-mode"), "absent");
     }
+    // "copilot" adds a GitHub Copilot folder with its sign-in marker;
+    // Copilot has no status command to run.
+    if (mode === "copilot") {
+        fs.mkdirSync(path.join(env.HOME, ".copilot"));
+        fs.writeFileSync(path.join(env.HOME, ".copilot/config.json"), "{}\n");
+    }
     const directory = path.join(env.XDG_STATE_HOME, "vgshell/jarvis");
     fs.mkdirSync(directory, { recursive: true });
     if (mode === "failed") fs.writeFileSync(path.join(directory, "accounts.json"), "broken");

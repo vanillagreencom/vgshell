@@ -7,7 +7,8 @@ import "Steps.js" as Steps
 // One Status row of a plugin's page, drawn from one entry of its manager
 // row's `status` (PluginLogic.statusRows) as StatusLines: the entry's label
 // beside its value, the entry's hint and, while its step applies
-// (Steps.js), its action. A presence
+// (Steps.js), its action; the words of the hint the entry's `link` names
+// open that address through `openLink`. A presence
 // or a state draws as a Badge in the tone the entry carries, a state's
 // further lines each as a Badge of that tone under it, and its hint, the
 // state's sentence where the state carries one, wrapped under them; a
@@ -34,6 +35,8 @@ GroupList {
     // The plugin's `secrets` label, which a Connect's field asks for.
     property string secretLabel: ""
 
+    signal openLink(string url)
+
     // The panel's last refusal or failure of this row's entry, or of
     // ACCOUNT's secret in it, "" for none and while the page is torn down,
     // when `panel` is already null.
@@ -52,6 +55,8 @@ GroupList {
         width: row.width
         label: row.view.label
         hint: row.view.hint
+        hintLink: row.view.link === null ? "" : row.view.link.text
+        onHintLinkActivated: row.openLink(row.view.link.url)
         info: row.view.info
         tone: row.view.tone
         text: row.view.text

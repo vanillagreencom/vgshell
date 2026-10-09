@@ -166,6 +166,24 @@ world(async () => {
         .map(name => path.join(directory, name)).filter(file => fs.lstatSync(file).isFile()).map(file => fs.readFileSync(file, "utf8"));
 
     const CASES = {
+        // A Jarvis home folder that names its own MCP server reaches no
+        // program: Pi runs in its private folder, reads the bridge's entry
+        // alone, and no tool but the bridge's starts.
+        async home(folder) {
+            const home = path.join(process.env.JARVIS_TEST_ROOT, "home-" + ++serial);
+            fs.mkdirSync(path.join(home, ".pi"), { recursive: true });
+            fs.writeFileSync(path.join(home, ".pi/mcp.json"), JSON.stringify({ mcpServers: { home_server: { command: "false", args: [] } } }));
+            env.FIXTURE_JARVIS_HOME = home;
+            try {
+                scenario({ turns: [[chunk("Ok."), { stop: "stop" }]] });
+                const w = make(folder);
+                assert.deepEqual(await drain(w.say("hi")), [{ kind: "text", text: "Ok." }, { kind: "done", reason: "stop" }]);
+                const call = program();
+                assert.equal(path.dirname(call.cwd), w.runtime, "the program runs in its private folder");
+                assert.deepEqual(Object.keys(JSON.parse(call.mcp).mcpServers), ["vgs_jarvis"], "the home's server is not read");
+                assert.equal(Object.hasOwn(call.env, "FIXTURE_JARVIS_HOME"), false);
+            } finally { delete env.FIXTURE_JARVIS_HOME; }
+        },
         // The lockdown argv, the scrubbed environment, the bridge as the one
         // MCP server, compaction off before the first prompt and streamed text.
         async turn(folder) {
@@ -545,6 +563,7 @@ world(async () => {
             ["extensions-off", H, [['"--no-extensions", ', ""]], "lockdown"],
             ["context-files", H, [['"--no-context-files", ', ""]], "lockdown"],
             ["account-folder", H, [["PI_CODING_AGENT_DIR: directory", "PI_CODING_AGENT_DIR: env.HOME"]], "turn"],
+            ["home-folder", H, [["extra: { PI_CODING_AGENT_DIR: directory }, cwd,", "extra: { PI_CODING_AGENT_DIR: directory }, cwd: env.FIXTURE_JARVIS_HOME,"]], "home"],
             ["token-environment", H, [["extra: { PI_CODING_AGENT_DIR: directory }", "extra: { PI_CODING_AGENT_DIR: directory, ...(bridge === null ? {} : bridge.env) }"]], "turn"],
             ["system-prompt", H, [["fs.writeFileSync(prompt, instructions,", 'fs.writeFileSync(prompt, "",']], "turn"],
             ["no-compaction", H, [["await p.call(id => Pi.noCompaction(id));", ""]], "turn"],

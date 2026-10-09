@@ -13,6 +13,7 @@
   "defaultSection": "right",
   "settings": { "mode": "hold", "microphone": "", "speaker": "", "brain": "", "taskTerminal": "auto", "cloudVision": "ask",
     "voiceProvider": "local", "voiceAccount": "",
+    "home": "",
     "privateWindows": "1password, bitwarden, keepass, proton pass, enpass, pinentry, seahorse, private browsing, incognito" },
   "schema": {
     "mode": { "type": "enum", "label": "Talk mode", "group": "Listening",
@@ -30,6 +31,10 @@
       "link": { "text": "OpenAI API keys", "url": "https://platform.openai.com/api-keys" } },
     "brain": { "type": "string", "label": "AI model", "group": "AI model", "optionsFrom": "brains", "placeholder": "Choose a model",
       "description": "The AI that answers you: an API key you added, or an app you are signed in to." },
+    "home": { "type": "string", "label": "Home folder", "group": "Home",
+      "presets": [{ "value": "", "label": "None" }, { "value": "~/Jarvis", "label": "~/Jarvis" }], "allowCustom": true,
+      "description": "One folder for what Jarvis knows: your instructions in AGENTS.md, skills, memory and state. Every AI model uses them.",
+      "info": "Jarvis adds the files the folder lacks and changes none it finds. Changing the folder ends the conversation." },
     "taskTerminal": { "type": "enum", "label": "Task terminal", "group": "Tasks",
       "options": ["auto", "tmux", "floating"],
       "description": "Where a coding task's terminal opens. Auto uses tmux when it is installed, which runs several tasks at once; the floating terminal shows one task at a time." },
@@ -117,13 +122,17 @@
     "tasks": { "type": "count", "label": "Coding tasks", "hint": "Coding tasks whose agent is starting or running." },
     "input": {"type": "state", "label": "Desktop input", "hint": "Protected layer rectangles include pass-through gaps. Unrecognized applications refuse input.", "action": {"label": "Check input", "tui": "setup-input"}},
     "setup": { "type": "state", "label": "Setup", "group": "Setup", "hint": "Jarvis needs an AI model and the selected voice provider. The browser and input are optional." },
+    "setupHome": { "type": "state", "label": "Home folder", "group": "Setup", "hint": "Jarvis reads your instructions and skills from the home folder." },
     "setupSignIn": { "type": "state", "label": "Sign in", "group": "Setup", "hint": "Use a Claude Code, Codex or GitHub Copilot account, then select it as the AI model below.", "action": { "label": "Sign in", "tui": "sign-in" } },
     "claude": { "type": "state", "label": "Claude Code", "group": "AI model", "action": { "label": "Install Claude Code", "install": ["claude"] } },
     "codex": { "type": "state", "label": "Codex", "group": "AI model", "action": { "label": "Install Codex", "install": ["codex"] } },
     "setupModel": { "type": "state", "label": "AI model", "group": "Setup", "hint": "Jarvis uses the AI model to answer you.", "actions": { "key": { "label": "Add key", "tui": "add-key" }, "signIn": { "label": "Sign in", "tui": "sign-in" } } },
     "setupVoice": { "type": "state", "label": "Voice", "group": "Setup", "hint": "Jarvis uses the selected voice provider to hear you and speak.", "action": { "label": "Set up local voice", "tui": "setup-local" } },
     "setupBrowser": { "type": "state", "label": "Browser", "group": "Setup", "hint": "Set up the browser so Jarvis can use websites for you.", "action": { "label": "Set up browser", "tui": "setup-browser" } },
-    "setupInput": { "type": "state", "label": "Input", "group": "Setup", "hint": "Check input so Jarvis can type and click for you.", "action": { "label": "Check input", "tui": "setup-input" } }
+    "setupInput": { "type": "state", "label": "Input", "group": "Setup", "hint": "Check input so Jarvis can type and click for you.", "action": { "label": "Check input", "tui": "setup-input" } },
+    "copilotMemory": { "type": "state", "label": "Copilot Memory", "group": "Setup",
+      "hint": "Open GitHub Copilot settings and set Copilot Memory to Disabled. Jarvis keeps what it learns in your home folder, and Copilot also keeps memories in your GitHub account.",
+      "link": { "text": "GitHub Copilot settings", "url": "https://github.com/settings/copilot/features" } }
   },
   "tui": {
     "sign-in": { "script": "tui/sign-in.sh", "title": "Sign in to Jarvis AI", "requires": ["gum", "node"],

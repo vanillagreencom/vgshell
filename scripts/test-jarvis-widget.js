@@ -226,6 +226,17 @@ function verify(view) {
         assert.equal(got.tooltip.startsWith(status.setupVoice.text), true);
         assert.equal(got.tooltip.includes(status.setupVoice.hint), true, "the widget carries the published recovery explanation");
     }
+    // A refused home folder is what the bar names, before a step still to
+    // do and over a voice that still loads.
+    for (const causes of [["home=link", "brain=unselected"], ["guidance=home-too-large", "speech=local-loading"]]) {
+        const status = SetupGate.readiness({ kind: "answered", causes });
+        const got = view.view(up(down("unconfigured"), status));
+        assert.deepEqual([got.state, got.icon, got.tone], ["off", "power-off", "neutral"], causes[0]);
+        assert.equal(got.tooltip.includes(status.setupHome.hint), true, causes[0] + ": the widget says what to change in the home folder");
+    }
+    // A home folder step with nothing to ask leaves the other steps their words.
+    const idle = view.view(up(down("unconfigured"), { ...SetupGate.readiness({ kind: "answered", causes: ["brain=unselected"] }), setupHome: { tone: "ok", text: "Done", hint: "fixture" } }));
+    assert.equal(idle.tooltip.includes("fixture"), false);
 }
 
 verify(load(path.join(dir, "WidgetView.js")));
@@ -236,6 +247,8 @@ const CONTROLS = [
     ["memory explanation discarded", 'return step.text + ". Open Settings > Jarvis. " + step.hint;', 'return GATE_TEXT.unconfigured;'],
     ["checking setup reads off", 'state.gate.reason === "unconfigured" && setupChecking(values)', 'state.gate.reason === "unconfigured" && false'],
     ["checking hides an offered setup action", '!step || offered(step) ||', '!step ||'],
+    ["a refused home folder reads as another step", 'if (down && state.gate.reason === "unconfigured" && homeRefused(values)) return look("off", homeText(values), muteOn);', ''],
+    ["a home folder step with nothing to ask reads refused", 'return !!home && home.tone === "warning" && ', 'return !!home && '],
     ["missing requirements read checking", '(step.tone !== "info" && step.tone !== "ok")', 'false'],
     ["done steps read checking", 'return checking;', 'return true;'],
     ["cleared prompt retains a record", "if (hold === null) return null;", "if (hold === null) return {};"],

@@ -1206,7 +1206,7 @@ world(async () => {
         let releaseReply;
         const heldReply = new Promise(resolve => { releaseReply = resolve; });
         try {
-            send({ type: "hello", settings: { sounds: false, mode: "hold", microphone: "", speaker: "", brain, taskTerminal: "auto",
+            send({ type: "hello", settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain, taskTerminal: "auto",
                 cloudVision: "ask", privateWindows: "", voiceProvider: "realtime", voiceAccount: live }, directories, locked: false,
                 keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } });
             await wait(() => last()?.gate.kind === "up", "the configured Realtime voice raises the daemon gate");

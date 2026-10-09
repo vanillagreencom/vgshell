@@ -78,6 +78,20 @@ if (script.auditDirectory !== undefined) {
 }
 // Without --strict-mcp-config the user's own configuration adds its server.
 if (flags.get("--strict-mcp-config") !== true) servers["fixture-user-server"] = { type: "stdio", command: "false", args: [] };
+// The project setting source reads the working directory's own settings,
+// and without --strict-mcp-config its .mcp.json, as the real program does
+// (code.claude.com/docs/en/settings, "Settings files"). A hook is recorded,
+// never run.
+const projectSettings = path.join(process.cwd(), ".claude/settings.json");
+if ((flags.get("--setting-sources") ?? "user,project,local").split(",").includes("project") && fs.existsSync(projectSettings)) {
+    record("events.jsonl", { kind: "project-settings", file: projectSettings });
+    const hooksOff = JSON.parse(flags.get("--settings") ?? "{}").disableAllHooks === true;
+    for (const group of hooksOff ? [] : JSON.parse(fs.readFileSync(projectSettings, "utf8")).hooks?.SessionStart ?? [])
+        for (const hook of group.hooks) record("events.jsonl", { kind: "hook", command: hook.command });
+}
+const projectServers = path.join(process.cwd(), ".mcp.json");
+if (flags.get("--strict-mcp-config") !== true && fs.existsSync(projectServers))
+    Object.assign(servers, JSON.parse(fs.readFileSync(projectServers, "utf8")).mcpServers);
 const session = "fixture-session";
 let uuid = 0;
 const id = () => "fixture-uuid-" + ++uuid;

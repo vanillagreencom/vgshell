@@ -132,7 +132,7 @@ var DBUS_NAME_PART = /^[A-Za-z_-][A-Za-z0-9_-]*$/;
 // Settings window draws every other type unless the entry is `hidden`;
 // `choices` feeds a setting's Select instead of a Status row.
 var STATUS_TYPES = ["presence", "presenceList", "state", "text", "count", "time", "data", "choices", "launcherRows"];
-var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "hidden", "action", "actions"];
+var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "link", "hidden", "action", "actions"];
 // A status key names a value in `shell.status.values`, so it is a plain
 // identifier.
 var STATUS_KEY_PATTERN = /^[a-z][A-Za-z0-9]*$/;
@@ -471,7 +471,7 @@ function schemaError(schema, settings, status) {
         var schemaInfo = infoError(entry.info, at);
         if (schemaInfo !== "")
             return schemaInfo;
-        var schemaLink = linkError(entry, at);
+        var schemaLink = linkError(entry, at, "description");
         if (schemaLink !== "")
             return schemaLink;
         var listBad = Pads.listEntryError(entry, at, status, schemaError);
@@ -591,10 +591,11 @@ function infoError(info, at) {
     return info === undefined || isPrintableLine(info, INFO_MAX) ? "" : at + ".info must be a printable line of 1 to " + INFO_MAX + " characters when present";
 }
 
-// The first defect of a flat schema entry's optional `link`, or "": an
-// object of `text`, words its description holds, and `url`, an address
+// The first defect of an entry's optional `link`, or "": an object of
+// `text`, words the entry's FIELD holds, a flat schema entry's
+// `description` or a status entry's `hint`, and `url`, an address
 // LINK_URL_PATTERN admits.
-function linkError(entry, at) {
+function linkError(entry, at, field) {
     var link = entry.link;
     if (link === undefined)
         return "";
@@ -609,8 +610,8 @@ function linkError(entry, at) {
         return at + ".link needs a flat setting";
     if (!isPrintableLine(link.text, LINK_TEXT_MAX))
         return at + ".link.text must be a printable line of 1 to " + LINK_TEXT_MAX + " characters";
-    if (typeof entry.description !== "string" || entry.description.indexOf(link.text) === -1)
-        return at + ".link.text must be words of its description";
+    if (typeof entry[field] !== "string" || entry[field].indexOf(link.text) === -1)
+        return at + ".link.text must be words of its " + field;
     if (typeof link.url !== "string" || link.url.length > LINK_URL_MAX || !LINK_URL_PATTERN.test(link.url))
         return at + ".link.url must be an https address of at most " + LINK_URL_MAX + " characters";
     return "";
@@ -619,11 +620,12 @@ function linkError(entry, at) {
 // The first defect of a manifest's `status` key, or "". An object keyed by
 // status key (STATUS_KEY_PATTERN), each entry naming a type from
 // STATUS_TYPES and a printable `label`, with an optional printable `group`
-// and `hint`, an optional `action` statusActionError admits, and an
-// optional boolean `hidden`. A `state` entry may declare `actions` in
+// and `hint`, an optional `link` linkError admits, words of the hint that
+// open an https address, an optional `action` statusActionError admits, and
+// an optional boolean `hidden`. A `state` entry may declare `actions` in
 // place of `action`: an object of two or more named actions. A `data`
-// entry is never drawn, so it carries none of `group`, `hint`, `hidden`,
-// `action` or `actions`. A plugin publishes status
+// entry is never drawn, so it carries none of `group`, `hint`, `link`,
+// `hidden`, `action` or `actions`. A plugin publishes status
 // only through its `status` capability, so the key needs the capability,
 // and the capability needs at least one entry. TUI is the manifest's `tui`
 // key or undefined, REQUIREMENTS its judged `requirements` list, SYSTEM
@@ -660,6 +662,9 @@ function statusError(status, capabilities, tui, requirements, system) {
         var statusInfo = infoError(entry.info, at);
         if (statusInfo !== "")
             return statusInfo;
+        var statusLink = linkError(entry, at, "hint");
+        if (statusLink !== "")
+            return statusLink;
         if (entry.hidden !== undefined && typeof entry.hidden !== "boolean")
             return at + ".hidden must be a boolean when present";
         if (entry.action !== undefined && entry.actions !== undefined)
@@ -679,7 +684,7 @@ function statusError(status, capabilities, tui, requirements, system) {
                 return badAction;
         }
         if (entry.type === "data" || entry.type === "launcherRows") {
-            var drawn = ["group", "hint", "info", "hidden", "action", "actions"];
+            var drawn = ["group", "hint", "info", "link", "hidden", "action", "actions"];
             for (var d = 0; d < drawn.length; d++) {
                 if (entry[drawn[d]] !== undefined)
                     return at + "." + drawn[d] + " needs a type Settings draws; " + entry.type + " is never drawn";
@@ -1319,8 +1324,9 @@ function tuiWithheldReason(lacking) {
 // The Status rows the plugin manager shows for a plugin: one per entry
 // statusDisplayable admits whose `state` value is not hidden (statusStateHidden),
 // in manifest key order, as { key, type, label,
-// group, hint, info, action, report, value, tone }. `group`, `hint` and
-// `info` are "" when the manifest omits them. `action` is
+// group, hint, info, link, action, report, value, tone }. `group`, `hint` and
+// `info` are "" when the manifest omits them, and `link`, the words of the
+// declared hint that open an https address, null. `action` is
 // statusRowAction's: null for an entry without one, else { label, offered },
 // `offered` false while unreported. `report` is `reported` with the published `value`
 // (statusRowValue) and its `tone`, or `unreported` with `value` null and
@@ -1350,6 +1356,7 @@ function statusRows(manifest, values, missing) {
             group: entry.group === undefined ? "" : entry.group,
             hint: hint,
             info: entry.info === undefined ? "" : entry.info,
+            link: entry.link === undefined ? null : { text: entry.link.text, url: entry.link.url },
             action: statusRowAction(entry, value, lacking),
             report: reported ? "reported" : "unreported",
             value: reported ? statusRowValue(entry.type, value) : null,

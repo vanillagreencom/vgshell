@@ -339,7 +339,9 @@ FocusScope {
                         // as a RowAction beside it, the chip no wider than
                         // the value column less that action, eliding a long
                         // state; then its lines and its hint under the
-                        // value, as a field draws them.
+                        // value, as a field draws them, the words of the
+                        // hint its entry's `link` names opening that
+                        // address.
                         // Unkeyed, so each status write draws the entry
                         // anew.
                         Column {
@@ -359,6 +361,8 @@ FocusScope {
                                     inline: true
                                     lines: view.lines
                                     hint: view.hint
+                                    hintLink: view.link === null ? "" : view.link.text
+                                    onHintLinkActivated: page.panel.openLink(page.row.id, view.link.url)
                                     // A Row places only its visible
                                     // children, so a row with no action
                                     // draws as the chip alone.
@@ -649,6 +653,7 @@ FocusScope {
                                         width: statusRows.width
                                         entry: page.statusEntry(modelData)
                                         panel: page.panel
+                                        onOpenLink: url => { if (page !== null && page.row !== null) page.panel.openLink(page.row.id, url); }
                                         pluginId: page.row === null ? "" : page.row.id
                                         secretLabel: page.row === null ? "" : page.row.secretLabel
                                     }

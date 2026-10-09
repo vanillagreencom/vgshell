@@ -27,7 +27,7 @@ function requirementValue(command, missing) {
 // summary and one entry per setup step. The required steps come only from
 // the causes the daemon publishes, ChainedEngine's one readiness judge, by
 // the step each cause names; the optional ones from their own readers.
-var REQUIRED = { speech: "setupVoice", brain: "setupModel" };
+var REQUIRED = { home: "setupHome", guidance: "setupHome", speech: "setupVoice", brain: "setupModel" };
 // The hint a required step still to do shows in place of its declared one,
 // by its cause: what the step's own action does not already say. A cause
 // named nowhere here takes its step's hint below; a step with none there,
@@ -51,6 +51,18 @@ function setupActs(cause) {
     return cause.indexOf("speech=live-") !== 0 && cause !== "speech=always-local-voice";
 }
 var STEP_TODO = { brain: "The chosen AI model cannot be used. Add a key or sign in, then choose it below." };
+// The home folder step shows only while the daemon refuses the folder the
+// user chose, with what to change, by its cause; any other cause of the
+// folder or its text takes HOME_STEP_TODO. Its entry declares no action:
+// the user changes the folder or the setting.
+var HOME_TODO = {
+    "home=link": "The home folder has a link where Jarvis keeps a file or a folder. Remove the link, or choose another folder in Settings > Home.",
+    "home=path": "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Home.",
+    "guidance=home-too-large": "AGENTS.md in the home folder is too long. Make it shorter than 8 KB.",
+    "guidance=home-skills-too-large": "The home folder has more skills than Jarvis can list. Remove the skills you do not use."
+};
+var HOME_STEP_TODO = "Jarvis cannot use the home folder. Check that you can open and change it, or choose another folder in Settings > Home.";
+var HOME_READY = { hidden: true };
 var DONE = { tone: "ok", text: "Done", action: false };
 var CHECKING = { tone: "info", text: "Checking", action: false };
 var LOADING = { tone: "info", text: "Loading", action: false };
@@ -103,20 +115,25 @@ function modelStep(value, keys, access) {
 // The summary and required step values for ANSWER: { kind: "checking" }
 // while the daemon has not answered, { kind: "stopped" } once it stopped
 // for good, or { kind: "answered", causes } from its status, as { setup,
-// setupVoice, setupModel }.
+// setupHome, setupVoice, setupModel }.
 function readiness(answer) {
     switch (answer.kind) {
     case "checking":
-        return { setup: CHECKING_SUMMARY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };
+        return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };
     case "stopped":
         return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },
-            setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };
+            setupHome: HOME_READY, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };
     case "answered":
         var out = { setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" } : { tone: "warning", text: "Not ready" },
-            setupVoice: DONE, setupModel: noAction(DONE) };
+            setupHome: HOME_READY, setupVoice: DONE, setupModel: noAction(DONE) };
         answer.causes.forEach(function (cause) {
             var step = cause.slice(0, cause.indexOf("="));
             if (!Object.prototype.hasOwnProperty.call(REQUIRED, step)) throw new Error("jarvis-setup: cause=" + cause + " names no step");
+            if (REQUIRED[step] === "setupHome") {
+                out.setupHome = { tone: "warning", text: "To do",
+                    hint: Object.prototype.hasOwnProperty.call(HOME_TODO, cause) ? HOME_TODO[cause] : HOME_STEP_TODO };
+                return;
+            }
             if (cause === "speech=local-loading") {
                 out.setupVoice = LOADING;
                 if (answer.causes.length === 1) out.setup = LOADING_SUMMARY;
@@ -134,6 +151,15 @@ function readiness(answer) {
         return out;
     }
     throw new Error("jarvis-setup: answer=" + JSON.stringify(answer.kind) + " unexpected");
+}
+
+// The Copilot Memory row for ACCOUNTS, the account list's items: shown
+// while a GitHub Copilot account is found signed in or unchecked. GitHub
+// keeps Copilot Memory in the account, where only the user can turn it off;
+// its entry's hint and link say where (D075).
+function copilotMemory(accounts) {
+    return accounts.some(function (account) { return account.provider === "copilot" && account.value === "present"; })
+        ? { tone: "info", text: "Your step" } : { hidden: true };
 }
 
 // The optional steps, by their status key. Their guidance is declared by

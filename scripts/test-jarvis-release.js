@@ -10,7 +10,10 @@ world(() => {
     const remote = { kind: "network", provider: "brain", account: "fixture", origin: "https://brain.example" };
     const loopback = { ...remote, origin: "http://127.0.0.1:11434" };
     const cloudSpeech = { ...remote, provider: "voice", origin: "https://voice.example" };
-    const sources = ["speech", "desktop", "clipboard", "file", "screen", "web", "command", "agent"];
+    const sources = ["speech", "desktop", "home", "clipboard", "file", "screen", "web", "command", "agent"];
+    // What leaves with no grant: the user's own words, VGS's own reports and
+    // the text of the user's home folder (D105).
+    const ungranted = ["speech", "desktop", "home"];
     const sets = [
         ["local", loopback, [local]],
         ["cloud-brain", remote, [local]],
@@ -28,7 +31,7 @@ world(() => {
         if (name !== "local" && source === "screen") {
             if (vision === "never") kind = "withhold";
             else if (vision === "ask" && !granted) kind = "ask";
-        } else if (name !== "local" && !["speech", "desktop"].includes(source) && profile !== "trusted" && !granted) kind = "ask";
+        } else if (name !== "local" && !ungranted.includes(source) && profile !== "trusted" && !granted) kind = "ask";
         const result = logic.release(value, recipients, grants);
         assert.equal(result.kind, kind, [profile, vision, name, source, granted].join(" "));
         if (kind === "send") assert.equal(result.content, value.content);
@@ -56,7 +59,16 @@ world(() => {
     assert.deepEqual(nested.labels, sources, "recursive summaries retain all labels");
     const grantedWithoutScreen = [{ recipients: selected, labels: sources.filter(source => source !== "screen") }];
     assert.deepEqual(Policy.release(combined, selected, grantedWithoutScreen),
-        { kind: "ask", content: "[withheld: speech content, desktop content, clipboard content, file text, screen content, web content, command content, agent content]", labels: sources, needed: ["screen"] });
+        { kind: "ask", content: "[withheld: speech content, desktop content, home content, clipboard content, file text, screen content, web content, command content, agent content]", labels: sources, needed: ["screen"] });
+    // D105: home text carries the one label home. It is released to the
+    // conversation's recipients under every profile with no grant, it taints
+    // no turn, and a summary that mixes it keeps what its other labels need.
+    const homeText = Policy.item("home persona", ["home"]);
+    for (const profile of ["cautious", "standard", "trusted"])
+        assert.deepEqual(Policy.release(homeText, select(Policy, profile)), { kind: "send", content: "home persona", labels: ["home"] }, profile);
+    const homeTaint = logic => assert.deepEqual(logic.observe({ kind: "clean" }, "home"), { kind: "clean" });
+    homeTaint(Policy);
+    assert.deepEqual(Policy.release(Policy.summary("mixed", [homeText, fileText]), selected).needed, ["file"]);
     const bytes = Buffer.from("PRIVATE image");
     const labelled = Policy.item(bytes, ["screen"]);
     bytes.fill(0);
@@ -149,7 +161,8 @@ world(() => {
         logic => cell(logic, "standard", "ask", "cloud-speech", loopback, [cloudSpeech], "file", false));
     control("local-send", 'if (selected.offline) return { kind: "send", ...current };', 'if (false) return { kind: "send", ...current };',
         logic => cell(logic, "standard", "never", "local", loopback, [local], "screen", false));
-    for (const source of ["speech", "desktop"])
+    control("home-taint", 'const TAINT_SOURCES = ["file", "screen", "web", "agent"];', 'const TAINT_SOURCES = ["file", "screen", "web", "agent", "home"];', homeTaint);
+    for (const source of ungranted)
         control("provider-" + source, `source === "${source}"`, "false",
             logic => cell(logic, "standard", "ask", "both", remote, [cloudSpeech], source, false));
     control("screen-never", 'selected.cloudVision === "never"', "false",

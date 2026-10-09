@@ -83,7 +83,7 @@ function rig(kit, server, options = {}) {
     const router = Router.create({ session: Session, state: () => runner.state, dispatch: e => runner.dispatch(e), audit,
         context: () => ({ profile: "standard", locked: false, denied: options.actionApproval ? Denied.create({
             home: process.env.HOME, config: process.env.XDG_CONFIG_HOME, data: process.env.XDG_DATA_HOME,
-            state: process.env.XDG_STATE_HOME, runtime: process.env.XDG_RUNTIME_DIR, install: kit.folder, accountRoots: []
+            state: process.env.XDG_STATE_HOME, runtime: process.env.XDG_RUNTIME_DIR, install: kit.folder, accountRoots: [], homeRoots: []
         }) : null }),
         result: value => runner.ports.brain.outcome(value) });
     Object.assign(ports, router.ports);
@@ -117,7 +117,8 @@ function rig(kit, server, options = {}) {
     engine = kit.Engine.create({ session: Session, state: () => runner.state, audit, router, accounts,
         policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => faults.push(reason),
         captionLimit: options.captionLimit ?? Protocol.TRANSCRIPT_CHARS, dispatch: e => runner.dispatch(e), clock: runnerClock,
-        directories: options.directories, configured, tasks: tasks?.port ?? null });
+        directories: options.directories, configured, tasks: tasks?.port ?? null,
+        ...(options.home === undefined ? {} : { home: options.home }) });
     ports.release = engine.release;
     const actionApproval = ports.approval;
     const daemonSource = fs.readFileSync(path.join(kit.folder, "backend/jarvisd.js"), "utf8");
@@ -414,7 +415,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     child.stdin.on("error", e => { if (e.code !== "EPIPE") throw e; });
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = (locked = false) => send({ type: "hello", locked,
-        settings: { sounds: false, mode: "hold", microphone: "", speaker: "", brain: ending === "brain" ? "" : "fixture-account", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", cloudVision: "ask", privateWindows: "bitwarden" },
+        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: ending === "brain" ? "" : "fixture-account", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", cloudVision: "ask", privateWindows: "bitwarden" },
         keys: { talk: null, mute: null, stop: null, confirm: null, console: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     const intent = name => send({ type: "intent", intent: name });
     const before = server.requests.length;
@@ -569,7 +570,7 @@ async function alwaysTalk(server, ending = "ready", edits = []) {
     child.stdin.on("error", e => { if (e.code !== "EPIPE") throw e; });
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = () => send({ type: "hello", locked: false,
-        settings: { sounds: false, mode: "always", microphone: "", speaker: "", brain: "fixture-account", taskTerminal: "auto",
+        settings: { home: "", sounds: false, mode: "always", microphone: "", speaker: "", brain: "fixture-account", taskTerminal: "auto",
             voiceProvider: ending === "refused" ? "realtime" : "local", voiceAccount: "", cloudVision: "ask", privateWindows: "bitwarden" },
         keys: { talk: null, mute: null, stop: null, confirm: null, console: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     hello();
@@ -843,6 +844,39 @@ async function cases(kit, server, only = null) {
         assert.deepEqual(control.spoken, []);
         assert.deepEqual(w.faults, []);
     }, { sounds: true });
+
+    // The home folder's text follows the shipped guidance in the brain's
+    // instructions and is read again at each conversation's first turn; a
+    // text that outgrew its bound since the setup answer fails that turn
+    // with its cause, and no request leaves without the whole persona.
+    const homeFolder = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "home-"));
+    for (const set of ["base", "own"]) fs.mkdirSync(path.join(homeFolder, "skills", set), { recursive: true });
+    fs.writeFileSync(path.join(homeFolder, "skills/own/alpha.md"), "# Alpha skill\n");
+    fs.writeFileSync(path.join(homeFolder, "AGENTS.md"), "HOME-MARKER-ONE\n");
+    await run("home-text", async w => {
+        // One whole exchange, then the conversation's end: the system text its first request carried.
+        const exchange = async words => {
+            const before = await say(w, utterance(words));
+            const body = await requested(w, before + 1, words + ": the request reaches the server");
+            server.replies.push(text("Ok."));
+            await until(() => w.s().turn.kind === "none", words + ": the reply completes");
+            await playOut(w);
+            w.runner.dispatch({ type: "stop" });
+            await until(() => w.s().conversation.kind === "ended" && w.s().playback.kind === "idle", words + ": the conversation ends");
+            assert.equal(body.messages[0].role, "system");
+            return body.messages[0].content;
+        };
+        const first = await exchange("Hello.");
+        assert.deepEqual(["HOME-MARKER-ONE", "- own/alpha: Alpha skill"].map(line => first.includes(line)), [true, true]);
+        fs.writeFileSync(path.join(homeFolder, "AGENTS.md"), "HOME-MARKER-TWO\n");
+        const next = await exchange("Again.");
+        assert.deepEqual([next.includes("HOME-MARKER-ONE"), next.includes("HOME-MARKER-TWO")], [false, true], "the last edit is the one a brain gets");
+        fs.writeFileSync(path.join(homeFolder, "AGENTS.md"), "x".repeat(8193));
+        const third = await say(w, utterance("Once more."));
+        await settled(() => w.s().fault.kind !== "none", () => w.server.requests.length > third, "the oversized text fails the turn");
+        assert.equal(w.s().fault.reason, "guidance=home-too-large");
+        assert.equal(w.server.requests.length, third, "no request leaves without the whole persona");
+    }, { home: () => ({ kind: "ready", path: homeFolder }) });
 
     // Partials draw; the final alone reaches the brain. Brain text reaches
     // speech only through Speakable, and a played reply adds no context.
@@ -1768,6 +1802,27 @@ function selection(Engine) {
         causes: ["speech=fixture-off"] }, "a row not set up keeps its own cause and Settings path");
     assert.deepEqual(configure({ mode: "always" }, accepted(resolved), true, true), { kind: "ready" });
     assert.deepEqual(configure({ mode: "toggle" }, accepted(resolved), true), { kind: "ready" });
+    // The home folder's step leads the two: a folder the daemon refused, or
+    // whose text no brain can take whole, holds the engine with its cause
+    // first; no home, or a home that reads whole, adds none.
+    const homes = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "homes-"));
+    const homeAt = (name, agents) => {
+        for (const set of ["base", "own"]) fs.mkdirSync(path.join(homes, name, "skills", set), { recursive: true });
+        fs.writeFileSync(path.join(homes, name, "AGENTS.md"), agents);
+        return { kind: "ready", path: path.join(homes, name) };
+    };
+    const withHome = (home, settings, ready) => {
+        Fixture.reset({ ready });
+        return Engine.create({ accounts: () => ({ secrets: null, choose: accepted(resolved) }), captionLimit: 1, home: () => home })
+            .configure({ brain: "a", ...settings });
+    };
+    for (const home of [{ kind: "none" }, homeAt("whole", "persona")]) assert.deepEqual(withHome(home, {}, true), { kind: "ready" }, home.kind);
+    for (const [home, cause] of [[{ kind: "refused", cause: "home=link" }, "home=link"], [homeAt("large", "x".repeat(8193)), "guidance=home-too-large"]]) {
+        assert.deepEqual(withHome(home, {}, true), { kind: "unconfigured", cause, causes: [cause] }, cause);
+        assert.deepEqual(withHome(home, { brain: "" }, false), { kind: "unconfigured", cause, causes: [cause, "speech=fixture-off", "brain=unselected"] },
+            cause + " leads every other step's cause");
+    }
+    assert.throws(() => withHome({ kind: "other" }, {}, true), { message: "jarvis: engine=home-state" });
     // A subscription's program chooses its own model; its account names its directory.
     for (const [provider, directory] of [["codex", "/home/fixture/.codex"], ["claude", "/home/fixture/.claude"]])
         assert.deepEqual(configure({}, accepted({ id: "c", provider, label: "default",
@@ -1794,6 +1849,11 @@ world(async () => {
         selection(Fixture.copy(root).Engine);
         for (const [name, needle, replacement = ""] of [
             ["speech-first", "const failing = [speech, brain]", "const failing = [brain, speech]"],
+            ["home-step", "            plan = heldByHome(plan, home());\n"],
+            ["home-refused", 'case "refused": cause = home.cause; break;', 'case "refused": break;'],
+            ["home-text-judged", 'try { Guidance.compose("chained", "local", LANGUAGE, home.path); }', "try { void home.path; }"],
+            ["home-first", 'causes: [cause, ...(plan.kind === "ready" ? [] : plan.causes)]', 'causes: [...(plan.kind === "ready" ? [] : plan.causes), cause]'],
+            ["home-state", 'default: fail("home-state");', "default: break;"],
             ["every-cause", "causes: failing.map(step => step.cause)", "causes: [failing[0].cause]"],
             ["first-speech-cause", 'if (speech.cause === "speech=no-adapter") speech = answer;'],
             ["accounts-unreadable", 'return unconfigured("brain=accounts-unreadable", error.message);'],
@@ -1810,6 +1870,15 @@ world(async () => {
             controls++;
         }
         await cases(Fixture.copy(root), server);
+        for (const [name, needle, replacement] of [
+            ["home-text-stale", "c.guidance = folder === null ? c.plan.brain.guidance : c.plan.brain.guidance.withHome(folder);", "c.guidance = c.plan.brain.guidance;"],
+            ["home-text-cut", '                    done("brain-failed", { reason: keyed(error) });\n                    return;\n', "                    c.guidance = c.plan.brain.guidance;\n"]
+        ]) {
+            await assert.rejects(() => cases(Fixture.copy(root, [[needle, replacement]]), server, "home-text"), assert.AssertionError,
+                name + " must turn home-text red");
+            console.log("control=" + name + " detected");
+            controls++;
+        }
         await daemonSpeech(server);
         await daemonSpeech(server, [], "ready", "brain-failed");
         await daemonSpeech(server, [], "not-ready");

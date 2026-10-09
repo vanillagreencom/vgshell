@@ -90,6 +90,35 @@ function select(settings, accounts, directories) {
     return { kind: "ready", speech, brain: brain.brain };
 }
 
+// A home folder's own keyed cause, or null for any other failure.
+function homeCause(error) {
+    return /^jarvis: (home=[a-z-]{1,60}|guidance=home-[a-z-]{1,50})$/.exec(error?.message ?? "")?.[1] ?? null;
+}
+
+/**
+ * The plan with the home folder's step judged before its own. home is the
+ * daemon's judgement of the folder the user chose. A folder the daemon
+ * refused, or whose text no brain can take whole, holds the engine with its
+ * cause first: Jarvis never answers without the persona the user chose.
+ */
+function heldByHome(plan, home) {
+    let cause = null;
+    switch (home.kind) {
+    case "none": break;
+    case "refused": cause = home.cause; break;
+    case "ready":
+        try { Guidance.compose("chained", "local", LANGUAGE, home.path); }
+        catch (error) {
+            cause = homeCause(error);
+            if (cause === null) throw error;
+        }
+        break;
+    default: fail("home-state");
+    }
+    if (cause === null) return plan;
+    return { ...unconfigured(cause), causes: [cause, ...(plan.kind === "ready" ? [] : plan.causes)] };
+}
+
 // Always mode listens for the wake word on this computer, so it needs a row
 // that spots it locally; any other voice would stream the room to a provider.
 function selectSpeech(settings, accounts, directories) {
@@ -162,9 +191,11 @@ function selectBrain(settings, accounts) {
  * and a function answering the runtime directory. tasks is the coding-task
  * port a relay turn needs: held() lists the held prompts, answer(task,
  * prompt, value) answers one, and interrupted(gen, ask), released(gen, ask)
- * and withheld(gen, text, ask) report back to TaskVoice.
+ * and withheld(gen, text, ask) report back to TaskVoice. home answers the
+ * daemon's judgement of the user's home folder: {kind: "none"}, {kind:
+ * "ready", path} or {kind: "refused", cause}.
  */
-function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, log = () => {} }) {
+function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, log = () => {}, home = () => ({ kind: "none" }) }) {
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
     let plan = unconfigured("engine=starting");
     let conversation = null;
@@ -173,6 +204,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     let idleAt = null;
     let daemonSpeech = null;
     let speechState = { kind: "new" };
+    const homePath = () => { const judged = home(); return judged.kind === "ready" ? judged.path : null; };
 
     function configuration() {
         if (plan.kind !== "ready") return plan;
@@ -232,13 +264,13 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // late holds at most one call: the router runs one action at a time.
         // relay is the held prompt the user's next words answer, or null;
         // retried is that prompt once it was asked again after unjudged words.
-        const c = { gen, plan, recipients, net, speech: null, brain: null, owner: null, grants: [], heard: null, relay: null, retried: null,
+        const c = { gen, plan, recipients, net, speech: null, brain: null, guidance: null, owner: null, grants: [], heard: null, relay: null, retried: null,
             decisions: new Set(), releasePending: null, late: new Map(), results: [], turn: null, last: null,
             feedback: null, collection: null, unbound: null, rev: 0, quiet: Promise.resolve(), live: null };
         try {
             if (plan.speech.id === "openai-realtime") {
                 c.live = Realtime.create({ provider: plan.speech.provider, clock, captionLimit,
-                    log, conversation: e => ({ net, key: plan.speech.key, language: LANGUAGE,
+                    log, conversation: e => ({ net, key: plan.speech.key, language: LANGUAGE, home: homePath(),
                         grants: () => c.grants, transfer: (item, start) => transfer(c, e, item, start) }) });
                 c.speech = { close: () => c.live.port.release() };
             } else {
@@ -654,7 +686,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         const call = turn.calls.find(value => !turn.answers.has(value.id));
         if (call === undefined) {
             turn.phase = "streaming";
-            const after = c.plan.brain.guidance.afterToolResult;
+            const after = c.guidance.afterToolResult;
             void respond(c, turn, { kind: "tool-results", ...(after === null ? {} : { instructions: after }),
                 results: turn.calls.map(value => ({ id: value.id, ...turn.answers.get(value.id) })) });
             return;
@@ -795,10 +827,20 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 }
             }
             if (c.brain === null) {
+                // The home text is read at each conversation's first turn, so
+                // the user's last edit is the one a brain gets. A text that
+                // outgrew its bound since the setup answer fails this turn.
+                const folder = homePath();
+                try { c.guidance = folder === null ? c.plan.brain.guidance : c.plan.brain.guidance.withHome(folder); }
+                catch (error) {
+                    if (homeCause(error) === null) throw error;
+                    done("brain-failed", { reason: keyed(error) });
+                    return;
+                }
                 c.brain = DRIVERS[c.plan.brain.provider.driver].create({ provider: c.plan.brain.provider,
                     model: c.plan.brain.model, net: c.net, recipients: c.recipients, key: c.plan.brain.key,
                     account: c.plan.brain.account, gen: c.gen, harness });
-                c.brain.start({ instructions: c.plan.brain.guidance.instructions, tools: router.offer() });
+                c.brain.start({ instructions: c.guidance.instructions, tools: router.offer() });
                 c.owner = e.owner;
             } else if (c.owner !== e.owner) fail("brain-owner");
             if (c.turn !== null) fail("brain-busy");
@@ -926,6 +968,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         /** Select setup admission; healthy loading can accept bounded capture. */
         configure(settings) {
             plan = select(settings, accounts, directories);
+            plan = heldByHome(plan, home());
             if (plan.kind === "ready" && plan.speech.lifetime === "daemon") {
                 // A completed setup publication can repair an initial
                 // refusal. Ordinary hellos leave that runtime unloaded.

@@ -26,11 +26,17 @@ const reference = { type: "string", pattern: "^@e[1-9][0-9]*$(?![\\s\\S])" };
 const objectValue = { type: "object" };
 const absolutes = { type: "array", minItems: 0, items: absolute };
 const anyText = { type: "string", minLength: 0, pattern: "^[^\\u0000]*$" };
+// The help files VGS ships, and a skill of the user's home folder as
+// "<set>/<name>" (Home.js lists them). The router offers a brain the topics
+// present; this rule only bounds what a call may name.
+const HELP_TOPICS = Object.freeze(["windows", "apps", "input", "clipboard", "media", "notify", "files", "shell", "vision", "browser"]);
+const HOME_TOPIC = "(base|own)/([A-Za-z0-9][A-Za-z0-9_-]{0,47})";
+const helpTopic = { type: "string", pattern: "^(?:" + HELP_TOPICS.join("|") + "|" + HOME_TOPIC.replace(/\(/g, "(?:") + ")$(?![\\s\\S])" };
 
 // Each row owns its argument shape, effect, executor, requirement and output
 // source. Executors may add a row only with a test and a real consumer.
 const TABLE = {
-    "help": { sentence: "Read help for {topic}", effect: "read", executor: "guidance", command: null, schema: { topic: oneOf(["windows", "apps", "input", "clipboard", "media", "notify", "files", "shell", "vision", "browser"]) } },
+    "help": { sentence: "Read help for {topic}", effect: "read", executor: "guidance", command: null, schema: { topic: helpTopic } },
     "windows.list": { sentence: "List windows", effect: "read", executor: "windows", command: "hyprctl", schema: {} },
     "windows.focus": { sentence: "Focus window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowId } },
     "windows.reveal": { sentence: "Reveal window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowId } },
@@ -171,9 +177,17 @@ function refine(call) {
         }
         if (call.args.network) effect = "external";
     }
+    // Home text keeps its own label, whichever tool hands it to a brain.
+    if (call.id === "help" && homeTopic(call.args.topic) !== null) refined = { ...row, source: "home" };
     return { kind: "call", call: freeze(structuredClone(call)), effect, executor: row.executor,
         command: row.command, alternatives: row.alternatives || [], paths: row.paths || [], input: refined.input || null, source: refined.source || null,
         unconfined: row.unconfined === true };
+}
+
+/** The {set, name} a home skill topic names, or null for any other value. */
+function homeTopic(value) {
+    const match = typeof value === "string" ? new RegExp("^" + HOME_TOPIC + "$(?![\\s\\S])").exec(value) : null;
+    return match === null ? null : { set: match[1], name: match[2] };
 }
 
 // The one model-facing spelling of a tool id, shared by the wire brains and
@@ -211,4 +225,4 @@ for (const row of Object.values(TABLE)) {
 }
 freeze(TABLE);
 freeze(BROWSER);
-module.exports = { TABLE, BROWSER, refine, wireNames };
+module.exports = { TABLE, BROWSER, HELP_TOPICS, refine, wireNames, homeTopic };

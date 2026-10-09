@@ -60,6 +60,9 @@ const READINESS = [
 // Each step's action once done: the voice step's boolean; the AI model's
 // manifest entry declares named actions, so its value carries none.
 const DONE_ACTION = { setupVoice: false, setupModel: undefined };
+// The home folder's causes: Home.js's and Guidance.js's. One without a hint
+// of its own takes the step's.
+const HOME_CAUSES = ["home=link", "home=path", "home=unwritable", "guidance=home-too-large", "guidance=home-skills-too-large"];
 // Each brain cause asks for its own action.
 const BRAIN_CAUSES = ["brain=unselected", "brain=account-unavailable", "brain=model-required", "brain=accounts-unreadable", "brain=signed-out"];
 // The TUI each of the AI model's named actions opens, from the manifest.
@@ -178,7 +181,8 @@ function verifyVoiceConsumers(gate, pageSource) {
 function verifyReadiness(gate) {
     for (const [label, answer, tone, todo, declared, model] of READINESS) {
         const got = plain(gate.readiness(answer));
-        assert.deepEqual(Object.keys(got).sort(), ["setup", "setupModel", "setupVoice"], label);
+        assert.deepEqual(Object.keys(got).sort(), ["setup", "setupHome", "setupModel", "setupVoice"], label);
+        assert.deepEqual(got.setupHome, { hidden: true }, label + ": the home folder step stays off the page");
         assert.equal(got.setup.tone, tone, label + ": the summary");
         assert.equal(got.setup.action, undefined, label + ": the summary offers no step");
         for (const key of ["setupVoice", "setupModel"]) {
@@ -225,7 +229,29 @@ function verifyReadiness(gate) {
     }
     // A stopped daemon runs no check: its steps claim none and offer none.
     const stopped = plain(gate.readiness({ kind: "stopped" }));
-    assert.deepEqual(Object.keys(stopped).sort(), ["setup", "setupModel", "setupVoice"], "stopped");
+    assert.deepEqual(Object.keys(stopped).sort(), ["setup", "setupHome", "setupModel", "setupVoice"], "stopped");
+    assert.deepEqual([stopped.setupHome, checking.setupHome], [{ hidden: true }, { hidden: true }], "no home folder step without an answer");
+    // A refused home folder is the one step to do, with what to change and
+    // no action of its own; the voice and the AI model stay done.
+    const homeHints = HOME_CAUSES.map(cause => {
+        const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
+        assert.deepEqual([got.setup.tone, got.setupHome.tone, got.setupHome.action, got.setupHome.lines, got.setupVoice.tone, got.setupModel.tone],
+            ["warning", "warning", undefined, undefined, "ok", "ok"], cause);
+        assert.equal(typeof got.setupHome.hint === "string" && got.setupHome.hint !== "" && !/=/.test(got.setupHome.hint), true,
+            cause + ": a plain hint, no keyed cause on screen");
+        return got.setupHome.hint;
+    });
+    assert.equal(new Set(homeHints).size, HOME_CAUSES.length, "each home cause says its own hint");
+    // The Copilot Memory row shows for a usable GitHub Copilot account alone.
+    const account = (provider, value) => ({ provider, value });
+    for (const [label, accounts, shown] of [
+        ["no account", [], false], ["another app", [account("claude", "present")], false],
+        ["a signed-out Copilot", [account("copilot", "signed-out")], false],
+        ["a Copilot account", [account("codex", "present"), account("copilot", "present")], true]]) {
+        const got = plain(gate.copilotMemory(accounts));
+        assert.deepEqual([got.hidden === true, got.tone], shown ? [false, "info"] : [true, undefined], label);
+        assert.equal(got.action, undefined, label + ": the user's step runs on GitHub, with no action here");
+    }
     assert.equal(stopped.setup.tone, "danger", "stopped: the summary");
     assert.deepEqual([stopped.setup.lines, typeof stopped.setup.hint], [undefined, "string"], "stopped: the summary says why as its hint");
     for (const key of ["setupVoice", "setupModel"])
@@ -252,7 +278,16 @@ function verifyReadiness(gate) {
     const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
     const answers = READINESS.map(row => row[1]).concat([{ kind: "checking" }, { kind: "stopped" },
         { kind: "answered", causes: ["speech=local-memory-insufficient"] },
-        { kind: "answered", causes: ["speech=local-memory-unavailable"] }]);
+        { kind: "answered", causes: ["speech=local-memory-unavailable"] }], HOME_CAUSES.map(cause => ({ kind: "answered", causes: [cause] })));
+    for (const accounts of [[], [{ provider: "copilot", value: "present" }]])
+        assert.equal(judge.statusWrite(manifest, {}, "copilotMemory", plain(gate.copilotMemory(accounts))).ok, true, "the manifest judge accepts copilotMemory");
+    // The row's link is words of its declared hint, to GitHub alone.
+    const memory = judge.statusRows(manifest, { copilotMemory: plain(gate.copilotMemory([{ provider: "copilot", value: "present" }])) }, [])
+        .find(entry => entry.key === "copilotMemory");
+    assert.equal(memory.hint.includes(memory.link.text) && new URL(memory.link.url).hostname === "github.com", true);
+    assert.equal(settings.statusView(memory, String).link.url, memory.link.url, "Settings draws the row's link");
+    assert.equal(judge.statusRows(manifest, { copilotMemory: plain(gate.copilotMemory([])) }, []).some(entry => entry.key === "copilotMemory"), false,
+        "no Copilot account, no row");
     for (const answer of answers)
         for (const [key, value] of Object.entries(plain(gate.readiness(answer))))
             assert.equal(judge.statusWrite(manifest, {}, key, value).ok, true, "the manifest judge accepts " + key + " for " + JSON.stringify(answer));
@@ -337,14 +372,21 @@ const CONTROLS = [
     ["Always mode offers the local install action", ' && cause !== "speech=always-local-voice";', ";"],
     ["Always mode has no hint of its own", '    "speech=always-local-voice": ', '    "speech=always-local-voice-unused": '],
     ["a cause marks no step", "out[REQUIRED[step]] = hint === undefined", "void (hint === undefined)"],
-    ["a cause marks the other step", 'var REQUIRED = { speech: "setupVoice", brain: "setupModel" };', 'var REQUIRED = { speech: "setupModel", brain: "setupVoice" };'],
+    ["a cause marks the other step", 'speech: "setupVoice", brain: "setupModel" };', 'speech: "setupModel", brain: "setupVoice" };'],
+    ["a home cause marks no step", 'if (REQUIRED[step] === "setupHome") {', 'if (false) {'],
+    ["a home text cause marks the voice step", 'guidance: "setupHome", ', 'guidance: "setupVoice", '],
+    ["the home causes share one hint", "hint: Object.prototype.hasOwnProperty.call(HOME_TODO, cause) ? HOME_TODO[cause] : HOME_STEP_TODO };", "hint: HOME_STEP_TODO };"],
+    ["the home folder step always shows", "var HOME_READY = { hidden: true };", 'var HOME_READY = { tone: "ok", text: "Done" };'],
+    ["the home folder step offers an action", 'out.setupHome = { tone: "warning", text: "To do",', 'out.setupHome = { tone: "warning", text: "To do", action: true,'],
+    ["any account shows Copilot Memory", 'account.provider === "copilot" && ', ""],
+    ["a signed-out Copilot shows Copilot Memory", ' && account.value === "present"; })', "; })"],
     ["the brain causes share one hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = STEP_TODO[step];"],
     ["an unknown cause has no hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = TODO[cause];"],
     ["local voice repeats its action as its hint", "var STEP_TODO = { brain:", 'var STEP_TODO = { speech: "fixture repeat", brain:'],
     ["a step to do draws its hint as a line", ': { tone: "warning", text: "To do", hint: hint, action: action };', ': { tone: "warning", text: "To do", lines: [hint], action: action };', "nothing set up: setupModel"],
     ["a stopped summary draws its reason as a line", 'hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." }', 'lines: ["Jarvis stopped after a problem. Turn Jarvis off and on again."] }'],
     ["causes leave the summary ready", 'setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
-    ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };', 'return { setup: CHECKING_SUMMARY, setupVoice: DONE, setupModel: noAction(DONE) };'],
+    ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: CHECKING, setupModel: noAction(CHECKING) };', 'return { setup: CHECKING_SUMMARY, setupHome: HOME_READY, setupVoice: DONE, setupModel: noAction(DONE) };'],
     ["an optional step reads done when not ok", 'if (value.tone === "ok") return DONE;', "if (true) return DONE;"],
     ["an optional step drops its action", "action: value.action === true };", "action: false };"],
     ["the checking summary offers a step", "return { setup: CHECKING_SUMMARY,", "return { setup: CHECKING,"],

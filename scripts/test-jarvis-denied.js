@@ -289,6 +289,40 @@ world(() => {
         mutant(file, name, needle, replacement, check);
         controls++;
     }
+    // The Jarvis home folder (D105): no path role reaches what Jarvis knows,
+    // its folder is no workspace and no tree to delete, and state/ stays
+    // the model's to write. Two levels below HOME, so the account name rule
+    // names none of its entries.
+    const jarvis = path.join(home, "work/jarvis");
+    for (const name of ["skills/own", "memory/inbox", "state", ".claude", ".codex"]) fs.mkdirSync(path.join(jarvis, name), { recursive: true });
+    for (const name of ["AGENTS.md", "CLAUDE.md", "memory/MEMORY.md", ".claude/settings.json", ".codex/config.toml", "state/handoff.md"])
+        fs.writeFileSync(path.join(jarvis, name), "synthetic\n");
+    const homeRoots = require(path.join(tree, "shell/plugins/vgs.jarvis/backend/Home.js")).protectedPaths(jarvis);
+    const homeOptions = { ...options, homeRoots };
+    fs.symlinkSync(jarvis, path.join(project, "jarvis-alias"));
+    function homeGuard(judge) {
+        for (const name of ["AGENTS.md", "CLAUDE.md", "skills", "skills/own/new.md", "memory", "memory/MEMORY.md", "memory/inbox/note.md",
+            ".claude", ".claude/settings.json", ".codex", ".codex/config.toml"])
+            for (const role of ["read", "tree-read", "write", "move", "remove", "workspace"])
+                refused(judge, path.join(jarvis, name), role, "protected-path");
+        for (const role of ["tree-read", "write", "move", "remove", "workspace"]) refused(judge, jarvis, role, "protected-path");
+        refused(judge, path.join(project, "jarvis-alias/AGENTS.md"), "write", "protected-path");
+        const handoff = path.join(jarvis, "state/handoff.md");
+        for (const role of ["read", "write", "move", "remove"]) allowed(judge, handoff, role);
+        allowed(judge, path.join(jarvis, "state/new.md"), "write", path.join(jarvis, "state/new.md"), false);
+        allowed(judge, path.join(jarvis, "state"), "workspace");
+        allowed(judge, jarvis, "read");
+        assert.equal(judge.inspectPaths([[handoff, "move"], [path.join(jarvis, "AGENTS.md"), "write"]]).reason, "protected-path");
+        assert.equal(judge.inspectPaths([[handoff, "move"], [path.join(jarvis, "state/kept.md"), "write"]]).kind, "paths");
+        for (const root of homeRoots) assert.equal(judge.masks.includes(root), true, root + " is masked from a sandboxed command");
+        assert.equal(judge.masks.some(root => root === path.join(jarvis, "state") || root === jarvis), false, "state stays in a command's reach");
+    }
+    homeGuard(Denied.create(homeOptions));
+    allowed(denied, path.join(jarvis, "AGENTS.md"), "write");
+    assert.throws(() => Denied.create({ ...options, homeRoots: undefined }), { message: "jarvis: paths=home-roots" });
+    control("home-roots", "    ], homeRoots);", "    ], []);", logic => homeGuard(logic.create(homeOptions)));
+    control("home-list", "if (!Array.isArray(homeRoots))", "if (false && !Array.isArray(homeRoots))",
+        logic => assert.throws(() => logic.create({ ...options, homeRoots: undefined }), { message: "jarvis: paths=home-roots" }));
     control("descendants", 'within(target.path, root)\n', 'false\n',
         logic => refused(logic.create(options), path.join(ssh, "sentinel"), "read", "protected-path"));
     control("ancestors", '(ancestor && within(root, target.path))',

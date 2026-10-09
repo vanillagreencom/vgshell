@@ -46,6 +46,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     const ChainedEngine = require("./ChainedEngine.js");
     const { Accounts, accountRoots } = require("./Accounts.js");
     const Denied = require("./Denied.js");
+    const Home = require("./Home.js");
     const { load } = require(path.join(process.argv[3], "bin/lib/qml-library.js"));
     const { commandFile, onPath } = require(path.join(process.argv[3], "bin/lib/judge-files.js"));
     const Protocol = load(path.join(__dirname, "../JarvisProtocol.js"));
@@ -73,6 +74,27 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     let voice = null;
     let bridge = null;
     let gate = null;
+    // The user's home folder as the last hello judged it: path is the folder
+    // the setting names, or null, and state what the engine and help read.
+    let homeFolder = { path: null, state: { kind: "none" } };
+
+    // Each hello names the folder again and creates what it lacks; a refused
+    // folder holds the engine with its keyed cause, and its knowledge paths
+    // stay protected while the setting names it.
+    function judgeHome(setting) {
+        let folder = null;
+        try {
+            folder = Home.resolve(setting, process.env.HOME);
+            if (folder === null) return { path: null, state: { kind: "none" } };
+            Home.layout(folder);
+            return { path: folder, state: { kind: "ready", path: folder } };
+        } catch (error) {
+            const cause = /^jarvis: (home=[a-z-]{1,60})$/.exec(error.message)?.[1];
+            if (cause === undefined) throw error;
+            process.stderr.write("jarvis: " + cause + "\n");
+            return { path: folder, state: { kind: "refused", cause } };
+        }
+    }
 
     function configured(configuration) {
         if (ending) return;
@@ -149,6 +171,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
             data: process.env.XDG_DATA_HOME || path.join(home, ".local/share"),
             state: process.env.XDG_STATE_HOME || path.join(home, ".local/state"),
             runtime: process.env.XDG_RUNTIME_DIR, install: path.dirname(__dirname),
+            homeRoots: homeFolder.path === null ? [] : Home.protectedPaths(homeFolder.path),
             accountRoots: accountRoots(context.directories.state, process.env) };
     }
 
@@ -413,7 +436,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         if (record.commands.length > 0)
                             write({ v: 1, type: "input-ready", gen: runner.state.gen, revision: context.revision, commands: record.commands });
                     });
-                    browser = Browser.install({ router, environment: process.env });
+                    browser = Browser.install({ router, environment: process.env,
+                        home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });
                     files = Files.install({ router, denied, clock });
                     const routerSync = runner.ports.tools.sync;
                     runner.ports.tools.sync = state => {
@@ -468,7 +492,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                             },
                             interrupted: (gen, ask) => voice.interrupted(gen, ask), released: (gen, ask) => voice.released(gen, ask),
                             withheld: (gen, text, ask) => voice.withheld(gen, text, ask) },
-                        directories: context.directories });
+                        directories: context.directories, home: () => homeFolder.state });
                     const actionApproval = runner.ports.approval;
                     runner.ports.approval = {
                         show: e => { if (e.purpose === "action") actionApproval.show(e); },
@@ -484,8 +508,9 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     audio.playbackSource = engine.playbackSource;
                 }
                 if (first && readMute()) runner.dispatch({ type: "mute" });
-                // Every hello judges the engine again; the status carries each
-                // failing setup step's cause for the shell's setup view.
+                // Every hello judges the home and the engine again; the status
+                // carries each failing setup step's cause for the shell's setup view.
+                homeFolder = judgeHome(context.settings.home);
                 const configuration = engine.configure(context.settings);
                 configured(configuration);
                 if (first) void audio.discover().catch(error => {

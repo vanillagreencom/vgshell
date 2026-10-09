@@ -28,7 +28,7 @@ const MANIFEST = {
         token: { type: "presence", label: "Token", action: { label: "Set up token", tui: "setup" } },
         warden: { type: "state", label: "Warden", group: "Setup", action: { label: "Set up", tui: "setup" } },
         bare: { type: "state", label: "Bare", action: { label: "Fix", tui: "setup" } },
-        pending: { type: "count", label: "Pending" },
+        pending: { type: "count", label: "Pending", hint: "Read the vendor page.", link: { text: "vendor page", url: "https://vendor.example/pending" } },
         accounts: { type: "presenceList", label: "Accounts" }
     }
 };
@@ -154,8 +154,10 @@ function verify(logic) {
     }
     // statusView: what a line draws of a state, with its lines.
     same(logic.statusView(producer.statusRows(MANIFEST, { warden: { tone: "ok", text: "Ready", lines: ["v1"] } }, []).find(e => e.key === "warden"), String),
-        { label: "Warden", hint: "", info: "", offered: false, tone: "success", text: "Ready", lines: ["v1"], muted: false, items: [] }, "a reported state draws its text, tone and lines");
+        { label: "Warden", hint: "", info: "", link: null, offered: false, tone: "success", text: "Ready", lines: ["v1"], muted: false, items: [] }, "a reported state draws its text, tone and lines");
     same(logic.statusView(producer.statusRows(MANIFEST, {}, []).find(e => e.key === "warden"), String).text, "Not reported", "an unreported entry reads Not reported");
+    same(logic.statusView(producer.statusRows(MANIFEST, { pending: 2 }, []).find(e => e.key === "pending"), String).link,
+        { text: "vendor page", url: "https://vendor.example/pending" }, "a line draws its entry's link");
     const requirements = producer.requirementRows({ requirements: producer.normalRequirements(MANIFEST.requirements) }, ["acme-tool"]);
     same(requirements.map(logic.requirementApplies), [true, false], "the install step applies to the missing requirement alone");
 }
@@ -165,6 +167,7 @@ verify(load(file));
 // Each control removes one rule from a copy of the logic and keeps the
 // text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["a line drops its entry's link", "info: entry.info, link: entry.link, offered:", "info: entry.info, link: null, offered:"],
     ["a live hint is drawn", 'return entry === undefined || entry.report !== "reported" ? "" : entry.hint;', 'return "";'],
     ["a declared action is always offered", "entry.action !== null && entry.action.offered", "entry.action !== null"],
     ["a present requirement still offers its install", "return requirement.state === \"missing\";", "return true;"],

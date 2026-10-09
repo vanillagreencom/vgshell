@@ -234,6 +234,38 @@ world(async () => {
         for (const [id, args] of everyTool(row[1])) await deniedRow(require(file), row, id, args);
         assert.equal(read(row[1]), "beta protected secret\n", row[0] + " untouched");
     }
+    // The Jarvis home folder (D105): the write, move and delete tools refuse
+    // what Jarvis knows and leave every byte, a new knowledge file is not
+    // made, and state/ takes all three.
+    const jarvis = path.join(home, "work/jarvis");
+    const knowledge = ["AGENTS.md", "CLAUDE.md", "skills/own/alpha.md", "memory/MEMORY.md", "memory/inbox/note.md", ".claude/settings.json", ".codex/config.toml"];
+    const homeRoots = require(path.join(backend, "Home.js")).protectedPaths(jarvis);
+    const homeGate = async (Files, judge = Denied) => {
+        for (const name of [...knowledge, "state/handoff.md"]) {
+            fs.mkdirSync(path.dirname(path.join(jarvis, name)), { recursive: true });
+            fs.writeFileSync(path.join(jarvis, name), "home knowledge\n");
+        }
+        const gated = () => make(Files, () => judge.create({ ...options, homeRoots }));
+        const handoff = path.join(jarvis, "state/handoff.md");
+        for (const name of knowledge) {
+            const target = path.join(jarvis, name);
+            for (const [id, args] of [["files.write", { path: target, text: "model text" }], ["files.move", { from: target, to: path.join(jarvis, "state/taken") }],
+                ["files.move", { from: handoff, to: target }], ["files.delete", { path: target }]])
+                await expectRun("home-" + name + "-" + id, gated(), id, args, "failed", /^Refused: protected-path for /);
+            assert.equal(read(target), "home knowledge\n", name + " keeps every byte");
+        }
+        for (const folder of ["skills", "memory", ".claude", ".codex", "."])
+            await expectRun("home-folder-" + folder, gated(), "files.delete", { path: path.join(jarvis, folder) }, "failed", /^Refused: protected-path for /);
+        await expectRun("home-new-skill", gated(), "files.write", { path: path.join(jarvis, "skills/own/planted.md"), text: "model text" },
+            "failed", /^Refused: protected-path for /);
+        assert.equal(fs.existsSync(path.join(jarvis, "skills/own/planted.md")), false);
+        await expectRun("home-state-write", gated(), "files.write", { path: path.join(jarvis, "state/log.md"), text: "progress" }, "completed");
+        assert.equal(read(path.join(jarvis, "state/log.md")), "progress");
+        await expectRun("home-state-move", gated(), "files.move", { from: path.join(jarvis, "state/log.md"), to: path.join(jarvis, "state/log-2.md") }, "completed");
+        await expectRun("home-state-delete", gated(), "files.delete", { path: path.join(jarvis, "state/log-2.md") }, "completed");
+        assert.deepEqual(fs.readdirSync(path.join(jarvis, "state")), ["handoff.md"]);
+    };
+    await homeGate(require(file));
     assert.equal(read(path.join(t, "notes.txt")), "alpha\nBeta line\n");
     // A lexical reading of the last one names t/secret; the judge resolves
     // the link first. A removal and a move judge a final link as the link,
@@ -779,6 +811,8 @@ world(async () => {
         brokenSnapshot);
     await control("move-landing", [["if (landsNamed(source.path, destination.path))", "if (false && landsNamed(source.path, destination.path))"]],
         (Files, folder) => landing(Files, require(path.join(folder, "Denied.js"))), path.join(backend, "Denied.js"));
+    await control("home-knowledge", [["    ], homeRoots);", "    ], []);"]],
+        (Files, folder) => homeGate(Files, require(path.join(folder, "Denied.js"))), path.join(backend, "Denied.js"));
     await control("dotfile-link-target", [["if (accountLinkTargets().some(", "if (false && accountLinkTargets().some("]],
         (Files, folder) => dotfileTarget(Files, require(path.join(folder, "Denied.js"))), path.join(backend, "Denied.js"));
     await control("walk-nofollow", [["O_RDONLY | O_DIRECTORY | O_NOFOLLOW); }", "O_RDONLY | O_DIRECTORY); }"]], walkRace,
@@ -906,7 +940,7 @@ world(async () => {
             ["config", path.join(roots.config, "vgshell", "shell.json")], ["install", path.join(folder, "VERSION")]];
         try {
             child.stdin.write(JSON.stringify({ v: 1, type: "hello", gen: 0, revision: "a".repeat(64), locked: false,
-                settings: { sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", cloudVision: "ask", privateWindows: "" },
+                settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", cloudVision: "ask", privateWindows: "" },
                 directories: { state, data: path.join(process.env.JARVIS_TEST_ROOT, name + "-data"),
                     runtime: path.join(process.env.JARVIS_TEST_ROOT, name + "-run") },
                 keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } }) + "\n");

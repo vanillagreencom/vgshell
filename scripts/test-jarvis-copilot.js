@@ -210,6 +210,7 @@ world(async () => {
             for (const flag of ["--acp", "--stdio", "--no-custom-instructions", "--disable-builtin-mcps", "--disallow-temp-dir", "--no-ask-user", "--no-auto-update"])
                 assert.ok(call.args.includes(flag), flag);
             assert.equal(call.args.some(arg => /allow-all|yolo|autopilot/.test(arg)), false, "no standing grant");
+            assert.equal(call.args.includes("--enable-memory"), false, "Copilot's own memory is never turned on");
             assert.equal(call.args.slice(0, 4).join(" "), "--acp --stdio --no-auto-update --no-custom-instructions");
             assert.equal(call.deathsig, 9, "setpriv keeps the program tied to the daemon");
             assert.equal(call.env.COPILOT_HOME, account, "the account's own directory");
@@ -595,6 +596,8 @@ world(async () => {
             ["providers-config", H, [[', COPILOT_PROVIDERS_CONFIG: path.join(cwd, "no-providers", "providers.json")', ""]], "turn"],
             ["parent-death", S, [['"--pdeathsig", "KILL"', '"--pdeathsig", "clear"']], "turn"],
             ["denied-kind", H, [['"--deny-tool", "shell", "write", "read",', '"--deny-tool", "shell", "write",']], "turn"],
+            ["native-memory", H, [['"read", "url", "memory",', '"read", "url",']], "turn"],
+            ["memory-enabled", H, [['"--no-ask-user",', '"--no-ask-user", "--enable-memory",']], "turn"],
             ["custom-instructions", H, [['"--no-custom-instructions", ', ""]], "turn"],
             ["builtin-mcps", H, [['"--disable-builtin-mcps", ', ""]], "turn"],
             ["model-flag", H, [['...(model === "" ? [] : ["--model", model])', "...[]"]], "model"],

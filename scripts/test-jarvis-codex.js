@@ -208,6 +208,28 @@ world(async () => {
             assert.deepEqual(received("turn/start").map(m => m.params.input[0].text), ["hi"]);
             validWrites();
         },
+        // A Jarvis home folder whose .codex/config.toml names an MCP server
+        // reaches no thread: the program and its thread run in the private
+        // folder, whose configuration is the one read, and Codex's own
+        // memory stays off.
+        async home(folder) {
+            const home = path.join(process.env.JARVIS_TEST_ROOT, "home-" + ++serial);
+            fs.mkdirSync(path.join(home, ".codex"), { recursive: true });
+            fs.writeFileSync(path.join(home, ".codex/config.toml"), "[mcp_servers.home_server]\ncommand = \"false\"\n");
+            env.FIXTURE_JARVIS_HOME = home;
+            try {
+                scenario({ turns: [[delta("Ok."), { complete: "completed" }]] });
+                const w = make(folder);
+                assert.deepEqual(await drain(w.say("hi")), [{ kind: "text", text: "Ok." }, { kind: "done", reason: "stop" }]);
+                const call = program();
+                const [config] = received("config/read"), [start] = received("thread/start");
+                assert.deepEqual([call.cwd, config.params.cwd, start.params.cwd].map(file => path.dirname(file)), [w.runtime, w.runtime, w.runtime],
+                    "the program, its configuration read and its thread stay in the private folder");
+                assert.deepEqual(Object.keys(start.params.config.mcp_servers), ["vgs_jarvis"], "the home's server is neither read nor named");
+                assert.equal(start.params.config.features.memories, false, "Codex's own memory is off for the thread");
+                assert.equal(Object.hasOwn(call.env, "FIXTURE_JARVIS_HOME"), false);
+            } finally { delete env.FIXTURE_JARVIS_HOME; }
+        },
         // Only released content reaches the program; a file needs a grant.
         async release(folder) {
             scenario({ turns: [[{ complete: "completed" }]] });
@@ -597,6 +619,10 @@ world(async () => {
             ["message-dedupe", "backend/CodexHarness.js", [['const remainder = e.item.text.slice(prior.value.length);', 'const remainder = e.item.text;']], "completedText"],
             ["environment-scrub", "backend/HarnessProgram.js", [["env: { ...childEnvironment(env), ...extra }", "env: { ...env, ...extra }"]], "turn"],
             ["account-home", "backend/CodexHarness.js", [["CODEX_HOME: directory }", "CODEX_HOME: env.HOME }"]], "turn"],
+            ["home-program", "backend/CodexHarness.js", [["extra: { CODEX_HOME: directory }, cwd,", "extra: { CODEX_HOME: directory }, cwd: env.FIXTURE_JARVIS_HOME,"]], "home"],
+            ["home-config", "backend/CodexHarness.js", [["Codex.configRead(id, cwd)", "Codex.configRead(id, env.FIXTURE_JARVIS_HOME)"]], "home"],
+            ["home-thread", "backend/CodexHarness.js", [["Codex.threadStart(id, { cwd, model,", "Codex.threadStart(id, { cwd: env.FIXTURE_JARVIS_HOME, model,"]], "home"],
+            ["native-memory", "backend/CodexAppServer.js", [['"plugins", "memories", "goals"', '"plugins", "goals"']], "home"],
             ["feature-check", "backend/CodexHarness.js", [["Codex.features(await p.call(id => Codex.featureList(id, thread)));", ""]], "turn"],
             ["feature-judged", "backend/CodexHarness.js", [["Codex.features(await p.call(id => Codex.featureList(id, thread)));",
                 "await p.call(id => Codex.featureList(id, thread));"]], "lockdown"],

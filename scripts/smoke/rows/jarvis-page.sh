@@ -4,7 +4,8 @@
 # found and in a partial search whose row names Accounts, and the AI model
 # setting reads its empty text, closed, beside Add key; without a command
 # only Accounts needs, the search row offers Install requirements and Add
-# key stays offered. No latency budget.
+# key stays offered. With a Copilot account, and only then, Setup shows the
+# Copilot Memory step and its link to GitHub. No latency budget.
 # Poll once per nested IPC round trip. Only J09's process double and the
 # allow-listed TUI fixtures run here.
 # inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/Capabilities.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh
@@ -155,6 +156,52 @@ expect_poll "without ss every text that names Add key or Accounts has the button
 mv -- "$sandbox/page-ss" "$page_ss"
 rescan "the page rescans with ss back"
 expect_poll "with ss back the partial search offers Accounts" '["Accounts", true, "warning"]' page_offered accountSearch
+# Copilot Memory lives in the GitHub account, where only the user can turn
+# it off: the Setup section shows that step, with its link to GitHub and no
+# action of its own, only while a Copilot account is found. The accounts
+# screen's end reads the accounts again.
+page_copilot() { status_rows vgs.jarvis | py_reply '
+import json,sys
+rows=[r for r in json.load(sys.stdin) if r["key"] == "copilotMemory"]
+print(json.dumps([[r["group"], r["report"], r["tone"], r["link"]["url"], r["link"]["text"] in r["hint"], r["action"]] for r in rows]))
+'; }
+expect_poll "with no Copilot account the page draws no Copilot Memory row" '[]' page_copilot
+printf 'copilot\n' >"$sandbox/jarvis-world/account-mode"
+page_open accountSearch accounts "Jarvis accounts"
+expect_poll "with a Copilot account Setup shows Copilot Memory and its link to GitHub" '[["Setup", "reported", "info", "https://github.com/settings/copilot/features", true, null]]' page_copilot
+# A click on the row's link opens GitHub's page through the desktop open
+# route. `gio open` reaches the device fakes' stand-in, which records its
+# argv, so no browser starts. The hint line's box is read until two reads
+# 100 ms apart agree; the link's words follow the hint's first word, so the
+# pointer steps along the line's first row until the link reads it.
+page_link="GitHub Copilot settings"
+page_hint="$(status_row vgs.jarvis copilotMemory | py_reply 'import json,sys; print(json.load(sys.stdin)["hint"])')" || page_hint=unread
+page_link_before="$(device_calls gio | py_reply 'import json,sys; print(len(json.load(sys.stdin)))')" || page_link_before=0
+device_reply gio 0 "" open https://github.com/settings/copilot/features
+page_link_opens() { device_calls gio | py_reply 'import json,sys; print(json.dumps([" ".join(c) for c in json.load(sys.stdin)[int(sys.argv[1]):]]))' "$page_link_before"; }
+page_link_click() {
+  local rect last="" x y step
+  for _ in $(seq 1 50); do
+    rect="$(ipc smoke windowGeometry window vgs.settings LinkText "$page_hint")" || return 1
+    [[ $rect == \[* && $rect == "$last" ]] && break
+    last="$rect"
+    sleep 0.1
+  done
+  [[ $rect == \[* && $rect == "$last" ]] || { echo "page_link_click: no still hint line: $rect" >&2; return 1; }
+  for step in $(seq 1 20); do
+    read -r x y < <(at_centre window:Plugins "$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); print(json.dumps([r[0] + 8 * int(sys.argv[2]), r[1], 2, 16]))' "$rect" "$step")") || return 1
+    hover "$x" "$y" || return 1
+    sleep 0.1
+    [[ "$(ipc smoke readMatchingDescendant window vgs.settings LinkText link "$page_link" hoveredLink)" == true ]] && { click "$x" "$y"; return; }
+  done
+  echo "page_link_click: the pointer found no link words on the hint line" >&2
+  return 1
+}
+page_link_click || fail "the click on the Copilot Memory link failed"
+expect_poll "a click on the Copilot Memory link opens GitHub's Copilot settings" '["open https://github.com/settings/copilot/features"]' page_link_opens
+printf 'none\n' >"$sandbox/jarvis-world/account-mode"
+page_open accountSearch accounts "Jarvis accounts"
+expect_poll "without the Copilot account the row leaves the page" '[]' page_copilot
 settings_page_close vgs.jarvis
 
 cp -- "$sandbox/page-add-key-original" "$page_tuis/add-key.sh"

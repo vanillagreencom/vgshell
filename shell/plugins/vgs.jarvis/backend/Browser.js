@@ -303,8 +303,12 @@ function create({ environment, commandMs = COMMAND_MS, log = null }) {
     return Object.freeze({ record, close, guidance, verify, download });
 }
 
-/** Register only a setup-verified driver and browser. Help uses the same owner. */
-function install({ router, environment }) {
+/**
+ * Register only a setup-verified driver and browser. Help uses the same
+ * owner; home() answers the Jarvis home folder its skills are read from, or
+ * null.
+ */
+function install({ router, environment, home = () => null }) {
     let registered = false;
     let current = null;
     let generation = null;
@@ -330,7 +334,7 @@ function install({ router, environment }) {
         start(call, done) {
             try { done({ outcome: "completed", content: owner().guidance() }); }
             catch (error) { done({ outcome: "failed", content: error.message }); }
-        } });
+        } }, home);
     router.register("guidance", guidance);
     function register() {
         if (registered || closed) return;

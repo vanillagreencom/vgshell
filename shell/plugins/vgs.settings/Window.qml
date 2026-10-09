@@ -442,7 +442,7 @@ FocusScope {
         return keep(id, shell.manager.open(id));
     }
 
-    // Open `url`, the address of a setting description's link, which the
+    // Open `url`, the address of a setting description's or a status hint's link, which the
     // manager judged https (PluginLogic.linkError), in the default browser
     // through the desktop open route. Plugin `id`'s page shows the reply.
     function openLink(id, url) {

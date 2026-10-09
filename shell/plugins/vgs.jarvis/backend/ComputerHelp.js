@@ -1,27 +1,57 @@
-// One on-demand owner for installed computer-family help. Families add one
-// regular Markdown file. Browser readiness adds its provider to this same owner.
+// One on-demand owner for help: the computer-family files VGS installs, one
+// regular Markdown file per family, and the skills of the user's Jarvis home
+// folder, read through Home.js. Browser readiness adds its provider to this
+// same owner.
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
 const Tools = require("./Tools.js");
+const Home = require("./Home.js");
 const ROOT = path.join(__dirname, "skills/computer");
 const LIMIT = 8192;
-function create(root = ROOT, browser = null) {
-    const topics = Tools.TABLE.help.schema.properties.topic.enum.filter(topic => {
+// A home skill may fill the router's whole result (ToolRouter RESULT_BYTES).
+const SKILL_LIMIT = 16 * 1024;
+/**
+ * create(root, browser, home) builds the guidance executor. home() answers
+ * the home folder's path, or null while none is usable.
+ */
+function create(root = ROOT, browser = null, home = () => null) {
+    const shipped = Tools.HELP_TOPICS.filter(topic => {
         try { return fs.lstatSync(path.join(root, topic + ".md")).isFile(); }
         catch (error) { if (error.code === "ENOENT") return false; throw error; }
     });
-    return { commands: [], topics, timeoutMs: browser === null ? 2000 : browser.timeoutMs, cancellable: false,
-        // The router retains this list; verified readiness extends its offer once.
+    // A home whose skills cannot be listed offers none; Guidance.compose
+    // reports that home to the setup view.
+    function skills(folder) {
+        if (folder === null) return [];
+        try { return Home.skills(folder).skills.map(skill => skill.topic); }
+        catch (error) {
+            if (/^jarvis: home=/.test(error.message)) return [];
+            throw error;
+        }
+    }
+    return { commands: [], timeoutMs: browser === null ? 2000 : browser.timeoutMs, cancellable: false,
+        // Read at each offer: the user adds a skill without a restart.
+        topics: () => shipped.concat(skills(home())),
+        // Verified readiness extends the offer once.
         enableBrowser() {
             if (browser === null) throw new Error("help-browser-unavailable");
-            if (!topics.includes("browser")) topics.push("browser");
+            if (!shipped.includes("browser")) shipped.push("browser");
         },
         start(call, done) {
             let fd;
             try {
                 const topic = call.args.topic;
-                if (!topics.includes(topic)) throw new Error("help-topic-unavailable");
+                if (Tools.homeTopic(topic) !== null) {
+                    const folder = home();
+                    if (folder === null) throw new Error("help-topic-unavailable");
+                    const body = Home.skill(folder, topic, SKILL_LIMIT);
+                    if (body.kind !== "text") throw new Error("help-file-too-large");
+                    if (body.text.trim() === "") throw new Error("help-file-empty");
+                    done({ outcome: "completed", content: body.text.trim() });
+                    return;
+                }
+                if (!shipped.includes(topic)) throw new Error("help-topic-unavailable");
                 if (topic === "browser" && browser !== null) { browser.start(call, done); return; }
                 fd = fs.openSync(path.join(root, topic + ".md"), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
                 if (!fs.fstatSync(fd).isFile()) throw new Error("help-file-invalid");

@@ -12,7 +12,10 @@ const PROFILES = {
     standard: { read: "allow", reversible: "allow", input: "application", persistent: "allow", exec: "confirm", external: "confirm", destructive: "physical" },
     trusted: { read: "allow", reversible: "allow", input: "allow", persistent: "allow", exec: "allow", external: "confirm", destructive: "physical" }
 };
-const SOURCES = Object.freeze(["speech", "desktop", "clipboard", "file", "screen", "web", "command", "agent"]);
+// "home" is the text of the user's Jarvis home folder, which only the user
+// and VGS write (Denied.js refuses a model's write to it): it taints no turn
+// and needs no grant (D105).
+const SOURCES = Object.freeze(["speech", "desktop", "home", "clipboard", "file", "screen", "web", "command", "agent"]);
 const TAINT_SOURCES = ["file", "screen", "web", "agent"];
 const recipientSets = new WeakSet();
 
@@ -96,7 +99,7 @@ function release(value, selected, grants = []) {
     if (current.labels.includes("screen") && selected.cloudVision === "never")
         return { kind: "withhold", content: marker, labels: current.labels };
     const missing = current.labels.filter(source => {
-        if (source === "speech" || source === "desktop") return false;
+        if (source === "speech" || source === "desktop" || source === "home") return false;
         if (source === "screen" && selected.cloudVision === "allow") return false;
         if (source !== "screen" && selected.profile === "trusted") return false;
         return !grants.some(grant => grant.recipients === selected && grant.labels.includes(source));

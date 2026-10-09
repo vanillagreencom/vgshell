@@ -144,6 +144,8 @@ function create({ session, state, dispatch, context, audit, result }) {
      * They call synchronous authorize(input) after preparation replies and
      * immediately before delivery. Other executors need no preparation callback.
      * Optional available() must return literal true at offer, route and start.
+     * The guidance executor's optional topics() lists the help topics it can
+     * read now, each one the help row's own rule admits.
      */
     function register(id, executor) {
         if (closed || registry.has(id) || !Object.values(Tools.TABLE).some(row => row.executor === id)
@@ -152,8 +154,7 @@ function create({ session, state, dispatch, context, audit, result }) {
                 || !executor.commands.every(command => typeof command === "string")
                 || (executor.cancellable && typeof executor.cancel !== "function")
                 || (executor.observe !== undefined && typeof executor.observe !== "function")
-                || (executor.topics !== undefined && (id !== "guidance" || !Array.isArray(executor.topics)
-                    || !executor.topics.every(topic => Tools.TABLE.help.schema.properties.topic.enum.includes(topic))))
+                || (executor.topics !== undefined && (id !== "guidance" || typeof executor.topics !== "function"))
                 || (executor.available !== undefined && typeof executor.available !== "function"))
             throw new Error("jarvis: router=executor");
         registry.set(id, Object.freeze({ ...executor, commands: Object.freeze(executor.commands.slice()) }));
@@ -171,8 +172,12 @@ function create({ session, state, dispatch, context, audit, result }) {
         return Object.entries(Tools.TABLE).filter(([, row]) => row.proposer === undefined && available(row) !== null)
             .map(([id, row]) => {
                 const parameters = structuredClone(row.schema);
-                if (id === "help" && registry.get("guidance").topics !== undefined)
-                    parameters.properties.topic.enum = registry.get("guidance").topics.slice();
+                if (id === "help" && registry.get("guidance").topics !== undefined) {
+                    const topics = registry.get("guidance").topics();
+                    if (!Array.isArray(topics) || !topics.every(topic => Tools.refine({ id, args: { topic } }).kind === "call"))
+                        throw new Error("jarvis: router=help-topics");
+                    parameters.properties.topic = { type: "string", enum: topics };
+                }
                 return { id, description: row.sentence, parameters };
             });
     }

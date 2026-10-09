@@ -8,7 +8,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const { freshSuite } = require("./fixtures/jarvis/prepare.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.jarvis/JarvisProtocol.js");
 const Protocol = load(file);
-const hello = { v: 1, type: "hello", gen: 0, settings: { sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "",
+const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "",
     cloudVision: "ask", privateWindows: "bitwarden, incognito" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
@@ -175,6 +175,8 @@ const cases = [
     ["status-causes-order", changed(status, { causes: ["brain=unselected", "speech=local-not-set-up"] }), "daemon", "causes"],
     ["status-causes-twice", changed(status, { causes: ["brain=unselected", "brain=account-unavailable"] }), "daemon", "causes"],
     ["status-causes-step", changed(status, { causes: ["voice=local-not-set-up"] }), "daemon", "causes"],
+    ["status-causes-home-order", changed(status, { causes: ["speech=local-not-set-up", "home=link"] }), "daemon", "causes"],
+    ["status-causes-home-twice", changed(status, { causes: ["home=link", "guidance=home-too-large"] }), "daemon", "causes"],
     ["status-causes-key", changed(status, { causes: ["speech=Not set up"] }), "daemon", "causes"],
     ["status-causes-text", changed(status, { causes: [7] }), "daemon", "causes"],
     ["state-direction", JSON.stringify(state), "shell", "direction-state"],
@@ -226,6 +228,9 @@ const cases = [
     ["live-account-type", changed(hello, { settings: { ...hello.settings, voiceAccount: true } }), "shell", "voice-settings"],
     ["live-account-control", changed(hello, { settings: { ...hello.settings, voiceAccount: "key\n" } }), "shell", "voice-settings"],
     ["live-account-size", changed(hello, { settings: { ...hello.settings, voiceAccount: "x".repeat(201) } }), "shell", "voice-settings"],
+    ["home-type", changed(hello, { settings: { ...hello.settings, home: 7 } }), "shell", "home-setting"],
+    ["home-control", changed(hello, { settings: { ...hello.settings, home: "~/Jarvis\n" } }), "shell", "home-setting"],
+    ["home-size", changed(hello, { settings: { ...hello.settings, home: "x".repeat(4097) } }), "shell", "home-setting"],
     ["missing-cloud-vision", changed(hello, { settings: { ...hello.settings, cloudVision: undefined } }), "shell", "shape-settings"],
     ["private-windows-type", changed(hello, { settings: { ...hello.settings, privateWindows: ["bitwarden"] } }), "shell", "private-windows"],
     ["private-windows-control", changed(hello, { settings: { ...hello.settings, privateWindows: "bitwarden\nvault" } }), "shell", "private-windows"],
@@ -262,7 +267,8 @@ for (const brain of ["", "cli:saved-unavailable-id"])
     assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, brain } }), "shell").settings.brain, brain);
 for (const daemon of ["ready", "locked"])
     assert.equal(Protocol.accept(changed(status, { daemon }), "daemon").daemon, daemon);
-for (const causes of [[], ["speech=local-not-set-up"], ["brain=unselected"], ["speech=local-not-ready", "brain=account-unavailable"]])
+for (const causes of [[], ["speech=local-not-set-up"], ["brain=unselected"], ["speech=local-not-ready", "brain=account-unavailable"],
+    ["home=link", "speech=local-not-set-up", "brain=unselected"], ["guidance=home-too-large", "brain=unselected"]])
     assert.equal(JSON.stringify(Protocol.accept(changed(status, { causes }), "daemon").causes), JSON.stringify(causes));
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(state), "daemon")), JSON.stringify(state));
 for (const name of ["talk-down", "talk-up", "mute", "stop"])
@@ -440,8 +446,8 @@ try {
         ["hello-direction", 'if (direction !== "shell") fail("direction-hello");', 'if (false) fail("direction-hello");', "hello-direction"],
         ["status-direction", 'if (direction !== "daemon") fail("direction-status");', 'if (false) fail("direction-status");', "status-direction"],
         ["shape", 'fail("shape-" + name);', ';', "hello-shape"],
-        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount"], "settings");',
-            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount"], "settings");', "extra-setting"],
+        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
+            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");', "extra-setting"],
         ["brain-type", 'typeof message.settings.brain !== "string"', 'false', "brain-setting"],
         ["sounds-type", 'if (typeof message.settings.sounds !== "boolean") fail("sounds");', 'void message;', "sounds-type"],
         ["directory", 'if (!directory(message.directories[name])) fail("directory-" + name);', 'if (false) fail("directory-" + name);', "directory"],
@@ -454,6 +460,11 @@ try {
         ["causes-twice", "if (step <= last) return false;", "if (step < last || step < 0) return false;", "status-causes-twice"],
         ["causes-step", "if (step <= last) return false;", "if (step < last) return false;", "status-causes-step"],
         ["causes-key", "/^([a-z]+)=[a-z0-9-]{1,60}$/", "/^([a-z]+)=.{1,60}$/", "status-causes-key"],
+        ["causes-home-order", 'var SETUP_STEPS = ["home", "speech", "brain"];', 'var SETUP_STEPS = ["speech", "home", "brain"];', "status-causes-home-order"],
+        ["causes-home-text", 'guidance: "home", speech', 'guidance: "speech", speech', "status-causes-home-twice"],
+        ["home-type", 'typeof message.settings.home !== "string"', "false", "home-type"],
+        ["home-control", "/^[^\\x00-\\x1f\\x7f]{0,4096}$/", "/^[^]{0,4096}$/", "home-control"],
+        ["home-size", "/^[^\\x00-\\x1f\\x7f]{0,4096}$/", "/^[^\\x00-\\x1f\\x7f]*$/", "home-size"],
         ["type", 'fail("type");', 'break;', "type"],
         ["state-direction", 'if (direction !== "daemon") fail("direction-state");', 'if (false) fail("direction-state");', "state-direction"],
         ["state-seq", 'if (!Number.isSafeInteger(message.seq) || message.seq < 1) fail("sequence");', 'if (false) fail("sequence");', "state-seq"],
@@ -502,8 +513,8 @@ try {
     ];
     for (const [name, needle, replacement, example, matches] of guards)
         control(name, needle, replacement, logic => rejected(logic, cases.find(row => row[0] === example)), matches);
-    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount"], "settings");',
-        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount"], "settings");',
+    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
+        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
         logic => {
             for (const row of cases.filter(row => row[0].startsWith("echo-setting-"))) rejected(logic, row);
         });

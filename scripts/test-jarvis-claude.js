@@ -26,7 +26,7 @@ const ARGV = ["-p", "--input-format", "stream-json", "--output-format", "stream-
     "--allowedTools", "mcp__vgs-jarvis", "--permission-mode", "dontAsk",
     "--settings", "{\"disableAllHooks\":true}", "--setting-sources", "project", "--disable-slash-commands",
     "--no-session-persistence"];
-const ENVIRONMENT = ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "CLAUDE_CONFIG_DIR", "HOME", "LANG", "PATH",
+const ENVIRONMENT = ["CLAUDE_CODE_DISABLE_AUTO_MEMORY", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "CLAUDE_CONFIG_DIR", "HOME", "LANG", "PATH",
     "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME"];
 // Keys, tokens and a runner pid planted in the environment handed to the
 // adapter and to Verify; none may reach the vendor program.
@@ -118,7 +118,8 @@ world(async () => {
         const harness = ClaudeCode.create({ model: options.model ?? "", recipients,
             account: { kind: "cli", directory: a.directory }, gen: runner.state.gen,
             harness: { bridge: { open: async value => { opened = await bridge.open(value); return opened; } },
-                env: { ...process.env, ...PLANTED }, runtime: () => runtime }, clock });
+                env: { ...process.env, ...PLANTED, ...(options.home === undefined ? {} : { FIXTURE_JARVIS_HOME: options.home }) },
+                runtime: () => runtime }, clock });
         owners.push(async () => { await harness.close(); bridge.close(); audit.close(); for (const timer of timers) clearTimeout(timer.handle); });
         harness.start({ instructions: "Fixture guidance.", tools: options.tools ?? router.offer() });
         const w = { runner, router, bridge, audit, rows, starts, answers, brain, timers, harness, Policy, recipients, runtime, account: a,
@@ -228,6 +229,7 @@ world(async () => {
             assert.deepEqual(Object.keys(call.env).filter(name => !["PWD", "SHLVL", "_"].includes(name)).sort(), ENVIRONMENT);
             assert.equal(call.env.CLAUDE_CONFIG_DIR, w.account.directory);
             assert.equal(call.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, "1");
+            assert.equal(call.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, "1", "the account's own memory is off at launch");
             // The signal fires when the parent dies: the parent must be the daemon.
             assert.equal(call.parent, process.pid, "the program's parent is the daemon");
             assert.equal(call.deathsig, 9, "the program dies with the daemon");
@@ -244,6 +246,24 @@ world(async () => {
             assert.deepEqual(inputs[0], { type: "user", message: { role: "user",
                 content: [{ type: "text", text: "open the window list" }] }, parent_tool_use_id: null });
             assert.deepEqual(w.account.events().filter(event => event.kind === "refused"), []);
+        }],
+        ["private-folder", async folder => {
+            // A Jarvis home folder that holds its own Claude settings with a
+            // hook and its own MCP server: the program never runs there, so
+            // it reads neither, and its init lists the bridge alone.
+            const home = path.join(process.env.JARVIS_TEST_ROOT, "home-" + ++serial);
+            fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
+            fs.writeFileSync(path.join(home, ".claude/settings.json"),
+                JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: "fixture-home-hook" }] }] } }));
+            fs.writeFileSync(path.join(home, ".mcp.json"), JSON.stringify({ mcpServers: { "fixture-home-server": { type: "stdio", command: "false", args: [] } } }));
+            const w = await make(folder, { turns: [[{ text: "Fixture." }]] }, { home });
+            assert.equal((await w.read(w.say("fixture"))).reason, "stop", "the init named no tool or server but the bridge's");
+            const [call] = w.account.calls();
+            assert.equal(path.dirname(path.dirname(call.cwd)), w.runtime, "the program runs in its private folder");
+            assert.deepEqual(fs.readdirSync(call.cwd), []);
+            assert.deepEqual(w.account.events().filter(event => event.kind === "project-settings" || event.kind === "hook"), [],
+                "the home's settings and hook reach no program");
+            assert.equal(Object.hasOwn(call.env, "FIXTURE_JARVIS_HOME"), false);
         }],
         ["gate", async folder => {
             const w = await make(folder, { turns: [[{ tool: "windows_list", arguments: {} }, ...say("Two windows.")]] });
@@ -646,6 +666,8 @@ world(async () => {
             ["no-session-files", ', "--no-session-persistence"', "", "replay"],
             ["no-user-settings", '"--setting-sources", "project",', "", "replay"],
             ["token-file", '"--mcp-config", config,', '"--mcp-config", fs.readFileSync(config, "utf8"),', "replay"],
+            ["native-memory", 'result.CLAUDE_CODE_DISABLE_AUTO_MEMORY = "1";', "", "replay"],
+            ["private-folder", "{ cwd, env: childEnvironment, stdio:", "{ cwd: environment.FIXTURE_JARVIS_HOME, env: childEnvironment, stdio:", "private-folder"],
             ["environment", "for (const name of ENVIRONMENT)", "for (const name of Object.keys(environment))", "replay"],
             ["environment-key", '"XDG_CACHE_HOME", "XDG_RUNTIME_DIR"];', '"XDG_CACHE_HOME", "XDG_RUNTIME_DIR", "ANTHROPIC_API_KEY"];', "replay"],
             ["parent-death", '"setpriv", ["--pdeathsig", "KILL", "--", COMMAND,', "COMMAND, [", "replay"],

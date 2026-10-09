@@ -62,6 +62,7 @@ Item {
             if (shell.status.set("accounts", accounts) !== "ok" || shell.status.set("brains", value.brains) !== "ok"
                 || shell.status.set("voiceAccounts", value.voiceAccounts) !== "ok"
                 || shell.status.set("accountSearch", search) !== "ok"
+                || shell.status.set("copilotMemory", Gate.copilotMemory(value.accounts)) !== "ok"
                 || shell.status.set("setupSignIn", { tone: "info", text: "Optional", action: true }) !== "ok") throw new Error("status");
             // voiceAccounts already contains only present OpenAI key references.
             // configure.set uses the core writer for every entry the service reads.
@@ -76,6 +77,7 @@ Item {
             console.warn(reason);
             const replies = [shell.status.set("accounts", []), shell.status.set("brains", []), shell.status.set("voiceAccounts", []),
                 shell.status.set("accountSearch", Words.searchValue({ kind: "failed", reason: reason })),
+                shell.status.set("copilotMemory", Gate.copilotMemory([])),
                 shell.status.set("setupSignIn", { tone: "info", text: "Optional", action: true })];
             if (replies.some(reply => reply !== "ok")) throw new Error("jarvis-accounts: status=refused");
         }

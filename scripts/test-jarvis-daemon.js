@@ -15,7 +15,7 @@ const { instrument: instrumentDesktop } = require("./fixtures/jarvis/desktop-dri
 const tree = path.resolve(__dirname, "..");
 const daemon = path.join(tree, "shell/plugins/vgs.jarvis/backend/jarvisd.js");
 const source = fs.readFileSync(daemon, "utf8");
-const hello = { v: 1, type: "hello", gen: 0, settings: { sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "",
+const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "",
     cloudVision: "ask", privateWindows: "bitwarden" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
@@ -188,6 +188,48 @@ async function inside() {
         await assert.rejects(() => check(copy), assert.AssertionError, name + " must turn red");
         controls++;
     }
+    // The home folder a hello names: the daemon makes what it lacks, and a
+    // folder it refuses, or whose text is over its bound, leads the status
+    // causes with its own keyed cause.
+    async function homeStatus(file) {
+        const base = fs.realpathSync(process.env.HOME);
+        const answer = async setting => {
+            const child = cp.spawn("node", [file, "--tree", tree], { env: {
+                PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
+                XDG_DATA_HOME: process.env.XDG_DATA_HOME
+            }, stdio: ["pipe", "pipe", "pipe"] });
+            let out = "", err = "";
+            child.stdout.on("data", data => { out += data; });
+            child.stderr.on("data", data => { err += data; });
+            const closed = once(child, "close");
+            const timeout = setTimeout(() => child.kill("SIGKILL"), 3000);
+            try {
+                child.stdin.end(JSON.stringify({ ...hello, settings: { ...hello.settings, home: setting } }) + "\n");
+                assert.deepEqual(await closed, [0, null], err);
+            } finally { clearTimeout(timeout); if (child.exitCode === null) child.kill("SIGKILL"); }
+            const status = out.trim().split("\n").map(line => JSON.parse(line)).filter(frame => frame.type === "status");
+            assert.equal(status.length, 1);
+            return [status[0].causes, err.trim()];
+        };
+        const others = reply(false, 0).causes;
+        fs.rmSync(path.join(base, "home-made"), { recursive: true, force: true });
+        assert.deepEqual(await answer("~/home-made"), [others, ""], "a new home holds nothing back");
+        assert.deepEqual(["AGENTS.md", "CLAUDE.md", "skills/base", "skills/own", "memory/MEMORY.md", "memory/inbox", "state",
+            ".claude/settings.json", ".codex/config.toml"].filter(name => !fs.existsSync(path.join(base, "home-made", name))), [], "the layout is made");
+        fs.writeFileSync(path.join(base, "home-made/AGENTS.md"), "x".repeat(8193));
+        assert.deepEqual(await answer("~/home-made"), [["guidance=home-too-large", ...others], ""]);
+        fs.rmSync(path.join(base, "home-linked"), { recursive: true, force: true });
+        fs.mkdirSync(path.join(base, "home-linked"));
+        fs.symlinkSync(path.join(base, "home-made"), path.join(base, "home-linked/skills"));
+        assert.deepEqual(await answer("~/home-linked"), [["home=link", ...others], "jarvis: home=link"]);
+        assert.deepEqual(await answer("/etc/vgs-jarvis-home"), [["home=path", ...others], "jarvis: home=path"]);
+        assert.equal(fs.existsSync("/etc/vgs-jarvis-home"), false);
+        cases++;
+    }
+    await homeStatus(daemon);
+    await control("home-layout", "            Home.layout(folder);\n", "", homeStatus);
+    await control("home-refusal", 'return { path: folder, state: { kind: "refused", cause } };', 'return { path: folder, state: { kind: "none" } };', homeStatus);
+    await control("home-engine", "directories: context.directories, home: () => homeFolder.state });", "directories: context.directories });", homeStatus);
     await control("reply-wire", "requests.reply(message);", "void message;", unknownReply);
     await control("hyprctl-environment", 'const environment = { PATH: process.env.PATH || "/usr/bin:/bin", LANG: "C.UTF-8" };',
         'const environment = { ...process.env, LANG: "C.UTF-8" };', probe);

@@ -33,15 +33,16 @@ function settingHint(spec, status) {
 }
 
 // What a page draws of ENTRY, one row of PluginLogic.statusRows, or null
-// for a row whose entry left the manager row: { label, hint, info,
-// offered, tone, text, lines, muted, items }, `offered` its step's
+// for a row whose entry left the manager row: { label, hint, info, link,
+// offered, tone, text, lines, muted, items }, `link` the words of the hint
+// that open an address, { text, url } or null, `offered` its step's
 // (statusStep), `tone` "" for a value drawn as text, `lines` a state's
 // further lines and `items` a presence list's items with the `key` each
 // keeps across writes (itemsKeyed). TIME_TEXT spells a `time` value for
 // people. An entry the plugin has not published reads "Not reported".
 function statusView(entry, timeText) {
-    if (entry === null) return { label: "", hint: "", info: "", offered: false, tone: "", text: "", lines: [], muted: true, items: [] };
-    var out = { label: entry.label, hint: entry.hint, info: entry.info, offered: statusStep(entry).offered, tone: "", text: "Not reported", lines: [], muted: true, items: [] };
+    if (entry === null) return { label: "", hint: "", info: "", link: null, offered: false, tone: "", text: "", lines: [], muted: true, items: [] };
+    var out = { label: entry.label, hint: entry.hint, info: entry.info, link: entry.link, offered: statusStep(entry).offered, tone: "", text: "Not reported", lines: [], muted: true, items: [] };
     if (entry.report !== "reported") return out;
     out.muted = false;
     out.tone = entry.tone;
