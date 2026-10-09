@@ -249,9 +249,40 @@ Singleton {
         onTriggered: root.readState()
     }
 
+    // A layer surface's map or unmap changes the area Hyprland reserves for
+    // exclusive layers, the bar's above all (BarHost's exclusiveZone; the
+    // bar unmaps while hidden), which OverlayState.room reads from
+    // Quickshell's monitor objects. Quickshell 0.3.1 re-reads j/monitors on
+    // connect, `configreloaded`, a monitor's arrival or removal and some
+    // workspace events, never on a layer event (src/wayland/hyprland/ipc/
+    // connection.cpp, HyprlandIpc::onEvent), so the core asks for that read
+    // here, on Quickshell's own request socket. Quickshell drops the ask
+    // while a read is in flight (HyprlandIpc::refreshMonitors), and that
+    // read may have been answered before the layer changed, so the first
+    // monitor update after a layer event asks once more; Quickshell clears
+    // its in-flight mark before it updates the monitors, so that ask is
+    // sent. A bar height change with no map or unmap is read at the next
+    // layer event or `configreloaded`; a theme's bar height is in the
+    // Hyprland layer's TUI margins (HyprlandLayer.qml tuiMargins), so its
+    // change rewrites the layer, whose reload posts `configreloaded`.
+    property bool layersMoved: false
+
+    Connections {
+        target: Hyprland.focusedMonitor
+        function onLastIpcObjectChanged() {
+            if (!root.layersMoved) return;
+            root.layersMoved = false;
+            Hyprland.refreshMonitors();
+        }
+    }
+
     Connections {
         target: Hyprland
         function onRawEvent(event) {
+            if (event.name === "openlayer" || event.name === "closelayer") {
+                root.layersMoved = true;
+                Hyprland.refreshMonitors();
+            }
             if (root.revealing === null || !revealWait.running) return;
             const seen = Dispatch.revealEvent(root.revealing.addresses, event.name, event.data);
             if (seen.by === "sender") {

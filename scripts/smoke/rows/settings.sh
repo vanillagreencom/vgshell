@@ -21,10 +21,65 @@
 # The window takes the shown page's height on each page or tab change at
 # its top-left corner, and every listed plugin's Details ends inside it or
 # shows the scroll area's bottom edge cue.
-# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Field.qml shell/Ui/feedback/LinkText.qml shell/Commons/DesktopLaunch.js shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.bar/* shell/Commons/Paths.qml shell/Ui/controls/Select.qml scripts/smoke/fixtures/browsers/* scripts/smoke/rows/bar.sh shell/plugins/*/manifest.json
+# The plugin list, the tallest page, maps with its frame inside the work
+# area under the bar, which the box the room gave without the reserved
+# area, the control, does not.
+# inputs: shell/Ui/overlay/OverlayState.qml shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Field.qml shell/Ui/feedback/LinkText.qml shell/Commons/DesktopLaunch.js shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.bar/* shell/Commons/Paths.qml shell/Ui/controls/Select.qml scripts/smoke/fixtures/browsers/* scripts/smoke/rows/bar.sh shell/plugins/*/manifest.json
 set -euo pipefail
 click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
 expect_poll "the gear's click opens the Settings window" open settings_open
+
+# The window opens on the plugin list, the tallest page, which the window
+# host maps up to the room OverlayState gives the screen: the work area
+# Hyprland leaves under the bar less the window gutter a side. Hyprland
+# centres a floating window on its monitor's work area (v0.56.2
+# DefaultFloatingAlgorithm.cpp, newTarget), so the window's frame stays
+# below the bar. The control hands the judge the box the room gave before
+# it read the reserved area: the monitor's height less the gutter a side,
+# centred as Hyprland centres it, which draws its frame under the bar.
+# plugins_monitor: the Plugins window's monitor in logical pixels, as
+# {"y", "height", "top", "bottom"}: its position, its height (the mode's
+# width on an odd transform) and its reserved top and bottom edges.
+plugins_monitor() {
+  local monitor
+  monitor="$(window_of Plugins monitor)" || return
+  [[ $monitor == \[* ]] || { printf 'monitor-%s\n' "$monitor"; return; }
+  hypr -j monitors | py_reply 'import json,sys; m=[m for m in json.load(sys.stdin) if m["id"] == json.loads(sys.argv[1])[0]]; print(json.dumps({"y": m[0]["y"], "height": (m[0]["width"] if m[0]["transform"] % 2 == 1 else m[0]["height"]) / m[0]["scale"], "top": m[0]["reserved"][1], "bottom": m[0]["reserved"][3]}) if len(m) == 1 else "monitors=%d" % len(m))' "$monitor"
+}
+# frame_room [BOX]: `inside` when the Plugins window's frame, its box grown
+# by the border Hyprland draws on each side, lies at or below its monitor's
+# work-area top and at or above the monitor's bottom edge less the reserved
+# bottom, else `under-bar` when the frame's top is above the work-area top,
+# else `past-bottom`. BOX, as [x, y, w, h], stands in for the client's box,
+# for the control.
+frame_room() {
+  local box mon border
+  if [[ $# -gt 0 ]]; then box="$1"; else box="$(one_window Plugins)" || return; fi
+  [[ $box == \[* ]] || { printf 'client-%s\n' "$box"; return; }
+  mon="$(plugins_monitor)" || return
+  [[ $mon == \{* ]] || { printf '%s\n' "$mon"; return; }
+  border="$(hypr -j getoption general:border_size | py_reply 'import json,sys; print(json.load(sys.stdin)["int"])')" || return
+  [[ $border =~ ^[0-9]+$ ]] || { printf 'border-%s\n' "$border"; return; }
+  printf '%s\n' "$box" | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); m=json.loads(sys.argv[1]); b=int(sys.argv[2]); top=m["y"] + m["top"]; print("inside" if y - b >= top and y + h + b <= m["y"] + m["height"] - m["bottom"] else "under-bar" if y - b < top else "past-bottom")' "$mon" "$border"
+}
+# old_room_box: the Plugins client's x and width, at the height the room
+# gave without the reserved area, the monitor's height less the gutter a
+# side, centred on the work area's middle as Hyprland centres it.
+old_room_box() {
+  local box mon gutter
+  box="$(one_window Plugins)" || return
+  [[ $box == \[* ]] || { printf 'client-%s\n' "$box"; return; }
+  mon="$(plugins_monitor)" || return
+  [[ $mon == \{* ]] || { printf '%s\n' "$mon"; return; }
+  gutter="$(ipc smoke themeValue size.window.gutter)" || return
+  [[ $gutter =~ ^[0-9]+$ ]] || { printf 'gutter-%s\n' "$gutter"; return; }
+  printf '%s\n' "$box" | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); m=json.loads(sys.argv[1]); g=int(sys.argv[2]); tall=m["height"] - 2 * g; middle=m["y"] + m["top"] + (m["height"] - m["top"] - m["bottom"]) / 2; print(json.dumps([x, middle - tall / 2, w, tall]))' "$mon" "$gutter"
+}
+plugins_monitor_reserves_top() { plugins_monitor | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["top"] > 0))'; }
+expect_poll "the plugin list maps with its frame below the bar and above the bottom edge" inside frame_room
+expect "the bar reserves a top edge on the window's monitor" true plugins_monitor_reserves_top
+old_box="$(old_room_box)" || old_box=unread
+expect "control: the list sized without the reserved area draws its frame under the bar" under-bar frame_room "$old_box"
 expect "the window opens the fixture's page" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
 expect_poll "the page draws the fixture's fields again" '[9, 0]' page_fields
 
@@ -212,8 +267,8 @@ expect_poll "the page change back returns the body to its top" '[0]' page_top
 # fit_state: the Plugins client as [x, y, w, h], its height target, the
 # window's mapHeight within its monitor's work area less the window
 # gutter at its top and bottom, whose height is the mode's width on an odd
-# transform, as Window.qml reads it, and where the
-# shown page ends (Probe paneEnd), as one object; a state word while one is
+# transform, read from j/monitors apart from Window.qml's room, and where
+# the shown page ends (Probe paneEnd), as one object; a state word while one is
 # absent.
 fit_state() {
   local client target monitor gutter area

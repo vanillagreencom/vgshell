@@ -11,8 +11,8 @@ import "Memory.js" as Memory
 // it (docs/architecture/overview.md § Hosts and capabilities). The window host builds the window as a Hyprland window titled
 // System Settings. It asks to be `size.panel.sm` wider than
 // `size.window.width`, the sidebar's width beside a page as wide as a
-// Settings page, or the monitor's width less `size.window.gutter` a side
-// when that is less, and `size.window.heightShare` of the monitor's height
+// Settings page, or the width of the room its screen leaves
+// (OverlayState.room) when that is less, and `size.window.heightShare` of the monitor's height
 // tall, read from the screen its `screens` capability gives.
 //
 // The detail draws the section's icon and name, and a "Show in bar" switch

@@ -1,6 +1,7 @@
 pragma Singleton
 import QtQuick
 import Quickshell
+import Quickshell.Hyprland
 import qs.Commons
 
 // Which overlays are open, for the tooltip policy: a tooltip does not open
@@ -26,14 +27,35 @@ QtObject {
         return window === null || window === undefined ? null : window.screen;
     }
 
-    // The room an output leaves a surface: its width and height less
-    // `size.window.gutter` a side, or no bound without an output. Every
-    // overlay, summoned popup and window that sizes itself to its output
-    // reads it here.
+    // The room an output leaves a surface, as { x, y, width, height } in
+    // the output's own logical pixels: its work area, the output less the
+    // edges Hyprland reserves for exclusive layers such as the bar, less
+    // `size.window.gutter` a side; no bound without an output. Hyprland
+    // centres a floating window on that work area (v0.56.2
+    // src/layout/algorithm/floating/default/DefaultFloatingAlgorithm.cpp,
+    // newTarget), so a window no taller than this room maps below the bar.
+    // The reserved edges are j/monitors' `reserved`, [left, top, right,
+    // bottom], from Quickshell's monitor object, whose lastIpcObject "is not
+    // updated unless the monitor object is fetched again from Hyprland"
+    // (https://quickshell.org/docs/v0.3.1/types/Quickshell.Hyprland/HyprlandMonitor);
+    // Compositor fetches it again as a layer surface opens or closes, and a
+    // binding that calls this follows lastIpcObjectChanged. Before Quickshell
+    // has read the monitor, nothing is known reserved and the room is the
+    // whole output less the gutter. Every overlay, summoned popup and window
+    // that sizes itself to its output reads it here.
     function room(output) {
-        if (output === null || output === undefined) return { width: Infinity, height: Infinity };
+        if (output === null || output === undefined) return { x: 0, y: 0, width: Infinity, height: Infinity };
+        const monitor = Hyprland.monitorFor(output);
+        const ipc = monitor === null || monitor === undefined ? null : monitor.lastIpcObject;
+        const listed = ipc !== null && ipc !== undefined ? ipc.reserved : undefined;
+        const reserved = Array.isArray(listed) && listed.length === 4 && listed.every(n => typeof n === "number" && isFinite(n)) ? listed : [0, 0, 0, 0];
         const gutter = 2 * Theme.size.window.gutter;
-        return { width: Math.max(1, output.width - gutter), height: Math.max(1, output.height - gutter) };
+        return {
+            x: reserved[0] + gutter / 2,
+            y: reserved[1] + gutter / 2,
+            width: Math.max(1, output.width - reserved[0] - reserved[2] - gutter),
+            height: Math.max(1, output.height - reserved[1] - reserved[3] - gutter)
+        };
     }
 
     // The widest an overlay anchored to `item` may draw: `cap`, and never

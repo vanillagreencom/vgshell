@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import Quickshell.Hyprland
 import qs.Commons
 import qs.Ui
 import qs.Unit
@@ -87,7 +88,7 @@ Item {
         name: "overlays"
         when: windowShown
 
-        function init() { tip.shown = false; longTip.shown = false; detailsTip.shown = false; host.enabled = true; host.visible = true; UnitTheme.reset(); popover.close(); menu.close(); nested.close(); select.choose(0); root.triggered = -1; }
+        function init() { tip.shown = false; longTip.shown = false; detailsTip.shown = false; host.enabled = true; host.visible = true; UnitTheme.reset(); popover.close(); menu.close(); nested.close(); select.choose(0); root.triggered = -1; Hyprland.monitors = {}; }
 
         function tooltipDelay(of) {
             return of.resources.find(child => child.running !== undefined && child.interval === Theme.tooltip.delay);
@@ -178,11 +179,25 @@ Item {
         // An output's room is its size less `size.window.gutter` a side;
         // with no output there is no bound, and an overlay keeps its cap.
         function test_an_output_leaves_its_room() {
-            const room = OverlayState.room({ width: 480, height: 720 });
-            compare(room.width, 480 - 2 * Theme.size.window.gutter);
-            compare(room.height, 720 - 2 * Theme.size.window.gutter);
+            const gutter = Theme.size.window.gutter;
+            const output = { name: "one", width: 480, height: 720 };
+            const room = OverlayState.room(output);
+            compare(room.width, 480 - 2 * gutter);
+            compare(room.height, 720 - 2 * gutter);
+            compare(room.x, gutter);
+            compare(room.y, gutter);
             compare(OverlayState.room(null).width, Infinity);
             compare(OverlayState.widthFor(null, 360), 360);
+            // A monitor Quickshell has not read yet reserves nothing.
+            Hyprland.monitors = { one: { lastIpcObject: {} } };
+            compare(OverlayState.room(output).height, 720 - 2 * gutter);
+            Hyprland.monitors = { one: { lastIpcObject: { reserved: [12, 40, 6, 10] } } };
+            const reserved = OverlayState.room(output);
+            compare(reserved.x, 12 + gutter);
+            compare(reserved.y, 40 + gutter);
+            compare(reserved.width, 480 - 12 - 6 - 2 * gutter);
+            compare(reserved.height, 720 - 40 - 10 - 2 * gutter);
+            Hyprland.monitors = {};
         }
 
         function test_menu_width_follows_its_widest_entry() {
