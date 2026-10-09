@@ -48,7 +48,8 @@ mouse_option() { hypr -j getoption "$1" | py_reply 'import json,sys; v=json.load
 mouse_placed() { bar_widget_ids | py_reply 'import json,sys; print(any("vgs.mouse" in ids for ids in json.load(sys.stdin)))'; }
 mouse_text_count() { ipc smoke itemTextCount window vgs.mouse "$1" "$2"; }
 # The key/value rows of the pane that show a message, whatever it says: for
-# each shown, non-empty hint line directly under a row, the types of that
+# each shown, non-empty message line, in the tooltip role the Mouse rows
+# give it, directly under a row, the types of that
 # row's controls among Slider, Switch and SegmentedControl, as a JSON list.
 # A chip's label is no message.
 mouse_messages() { ipc smoke descendantGeometry window vgs.mouse | py_reply '
@@ -60,7 +61,7 @@ def under(index, row):
             return True
         index = items[index]["parent"]
     return False
-rows = [i["parent"] for i in items if i["type"] in ("Label", "LinkText") and i.get("role") == "hint" and i["visible"] and i.get("text") and items[i["parent"]].get("name") == "fieldRow"]
+rows = [i["parent"] for i in items if i["type"] in ("Label", "LinkText") and i.get("role") == "tooltip" and i["visible"] and i.get("text") and items[i["parent"]].get("name") == "fieldRow"]
 print(json.dumps([sorted({c["type"] for n, c in enumerate(items) if c["type"] in ("Slider", "Switch", "SegmentedControl") and under(n, row)}) for row in rows]))'; }
 # The user's values the pane's controls hold from the `hyprland` capability.
 mouse_user_values() { ipc smoke readDescendant window vgs.mouse MouseControls userValues; }
@@ -89,7 +90,7 @@ if not found:
     print("absent"); sys.exit(0)
 row = row_of(found[0])
 action = items[found[0]]["box"]
-message = next(i["box"] for i in items if i["type"] in ("Label", "LinkText") and i.get("role") == "hint" and i["visible"] and i.get("text") and i["parent"] == row)
+message = next(i["box"] for i in items if i["type"] in ("Label", "LinkText") and i.get("role") == "tooltip" and i["visible"] and i.get("text") and i["parent"] == row)
 if message[2] > 0 and action[1] >= message[1] + message[3]: print("under")
 elif message[2] > 0 and action[1] < message[1] + message[3] and action[0] >= message[0] + message[2]: print("beside")
 else: print("action=%s message=%s" % (action, message))'; }
