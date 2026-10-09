@@ -1101,7 +1101,7 @@ mutations=(
   "the settings window passes its cap|../plugins/vgs.settings/Window.qml|Math.min(maxHeight, Math.ceil(|Math.min(Infinity, Math.ceil(|tst_settings_window_height.qml"
   "the settings window keeps the cap on the list|../plugins/vgs.settings/Window.qml|page === \"\" ? list.fitHeight : detail.fitHeight|page === \"\" ? maxHeight : detail.fitHeight|tst_settings_window_height.qml"
   "the list's fit ignores its rows|../plugins/vgs.settings/ListPage.qml|readonly property real fitHeight: layout.uncappedHeight|readonly property real fitHeight: layout.uncappedHeight - layout.bodyContentHeight|tst_settings_window_height.qml"
-  "a plugin page's fit ignores its hidden tab|../plugins/vgs.settings/PluginPage.qml|Math.max(settingsPage.height, detailsPage.height)|(tabs.currentPage === null ? 0 : tabs.currentPage.height)|tst_settings_window_height.qml"
+  "a plugin page's fit takes its taller tab|../plugins/vgs.settings/PluginPage.qml|tabs.currentPage.height) + settingsPage.height|tabs.currentPage.height) + Math.max(settingsPage.height, detailsPage.height)|tst_settings_window_height.qml"
   "tiles keep their own widths|controls/TileGroup.qml|width: root.tileWidth|width: implicitWidth|tst_tilegroup.qml"
   "the arrows choose no tile|controls/TileGroup.qml|onMoved: index => root.choose(index)|onMoved: index => {}|tst_tilegroup.qml"
   "the chosen tile rings in its accent|controls/TileGroup.qml|ringColor: Theme.tileGroup.focus|ringColor: Theme.tileGroup.selectedBorder|tst_tilegroup.qml"

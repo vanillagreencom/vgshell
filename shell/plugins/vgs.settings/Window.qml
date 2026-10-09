@@ -7,8 +7,8 @@ import qs.Ui
 // Hyprland window titled Plugins, which Hyprland floats, centres, frames
 // and focuses like any other window. It asks to be `size.window.width`
 // wide, or the monitor's width less `size.window.gutter` a side when that
-// is less, and as tall as the page it opens on, a plugin page's taller
-// tab or the list, up to `size.window.tallHeightShare` of the monitor's
+// is less, and as tall as the page it opens on, a plugin page's Settings
+// tab, which it opens on, or the list, up to `size.window.tallHeightShare` of the monitor's
 // height, or its height less the gutter a side when that is less, read
 // from the screen its `screens` capability gives. The size holds while
 // pages change, since Hyprland would move a resized window. The pages fill

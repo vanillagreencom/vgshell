@@ -9,10 +9,10 @@ import "../../shell/plugins/vgs.settings"
 // on, up to a cap, the share of the screen's height
 // `size.window.tallHeightShare` names, or the screen less
 // `size.window.gutter` a side when that is less. A plugin page is measured
-// on the taller of its Settings and Details tabs, so the taller tab fits
-// its view with no room below and no scroll, and a tab change keeps the
-// height; the list is measured with its rows. A page past the cap takes
-// the cap and scrolls. The shell here stands in for the window's
+// on its Settings tab, which it opens on, so Settings fits its view with
+// no room below and no scroll, a taller Details scrolls, and a tab change
+// keeps the height; the list is measured with its rows. A page past the
+// cap takes the cap and scrolls. The shell here stands in for the window's
 // capabilities: a manager whose rows the test names, a screen of a fixed
 // size and a key capture.
 Item {
@@ -160,11 +160,10 @@ Item {
         function test_a_short_page_takes_its_content_height() {
             const window = opened('{"plugin":"acme.short"}');
             const p = parts(window);
-            p.tabs.currentIndex = p.settings.height >= p.details.height ? 0 : 1;
-            waitForRendering(window);
+            compare(p.tabs.currentIndex, 0, "the page opens on Settings");
             verify(window.implicitHeight < cap(), "a short page opens under the cap: " + window.implicitHeight + " < " + cap());
-            compare(window.implicitHeight, Math.ceil(p.pane.uncappedHeight), "the window is the pane's content and chrome on the taller tab");
-            verify(fits(p.page.scrollArea), "the taller tab fills its view: view " + p.page.scrollArea.height + ", content " + p.page.scrollArea.contentHeight);
+            compare(window.implicitHeight, Math.ceil(p.pane.uncappedHeight), "the window is the pane's content and chrome on Settings");
+            verify(fits(p.page.scrollArea), "Settings fills its view: view " + p.page.scrollArea.height + ", content " + p.page.scrollArea.contentHeight);
             verify(!p.page.scrollArea.overflowing, "a short page does not scroll");
         }
 
@@ -176,20 +175,20 @@ Item {
             verify(p.page.scrollArea.overflowing, "a long page scrolls");
         }
 
-        function test_the_taller_details_tab_sets_the_height() {
+        function test_a_taller_details_tab_scrolls_in_the_settings_height() {
             const window = opened('{"plugin":"acme.detailed"}');
             const p = parts(window);
             compare(p.tabs.currentIndex, 0, "the page opens on Settings");
-            verify(!p.details.visible, "the Details tab is hidden while Settings shows");
-            verify(p.details.height > p.settings.height, "Details measures taller while hidden: " + p.details.height + " > " + p.settings.height);
+            verify(p.details.height > p.settings.height, "Details is the taller tab: " + p.details.height + " > " + p.settings.height);
             const height = window.implicitHeight;
             verify(height < cap(), "the page fits under the cap");
-            const room = p.page.scrollArea.height - p.page.scrollArea.contentHeight;
-            fuzzyCompare(room, p.details.height - p.settings.height, 1, "Settings leaves Details' extra height below it");
+            compare(height, Math.ceil(p.pane.uncappedHeight), "the window is the pane's content and chrome on Settings");
+            verify(fits(p.page.scrollArea), "Settings fills its view: view " + p.page.scrollArea.height + ", content " + p.page.scrollArea.contentHeight);
             p.tabs.currentIndex = 1;
             waitForRendering(window);
             compare(window.implicitHeight, height, "a tab change keeps the height");
-            verify(fits(p.page.scrollArea), "Details fills its view: view " + p.page.scrollArea.height + ", content " + p.page.scrollArea.contentHeight);
+            verify(p.page.scrollArea.contentHeight > p.page.scrollArea.height, "Details runs past its view: content " + p.page.scrollArea.contentHeight + ", view " + p.page.scrollArea.height);
+            verify(p.page.scrollArea.overflowing, "Details scrolls");
             p.tabs.currentIndex = 0;
             waitForRendering(window);
             compare(window.implicitHeight, height, "a return to Settings keeps the height");
