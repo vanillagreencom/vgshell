@@ -17,6 +17,25 @@ import "Commons/ThemeLogic.js" as ThemeLogic
 Scope {
     id: root
     property var rememberedBarWidgets: []
+    // Scoped install observations. Millisecond stamps come from Date.now;
+    // they separate core state changes from the row's IPC observer cost.
+    property string runTraceKey: ""
+    property var runTraceEvents: []
+    readonly property var runTraceState: runTraceKey === "" ? null : Capabilities.tuis.stateOf({ id: runTraceKey.split("/")[0], manifest: { tui: { [runTraceKey.split("/")[1]]: {} } } })
+    onRunTraceStateChanged: {
+        if (runTraceState !== null) root.traceRun("core-read", runTraceState[runTraceKey.split("/")[1]]);
+    }
+    function traceRun(stage, value) {
+        if (runTraceKey !== "") runTraceEvents = runTraceEvents.concat([{ stage: stage, at: Date.now(), value: value }]);
+    }
+    Connections {
+        target: PluginStatus
+        function onRecordsChanged() { root.traceRun("status-write", PluginStatus.serial); }
+    }
+    Connections {
+        target: Capabilities.tuis
+        function onPendingChanged() { root.traceRun("pending", Capabilities.tuis.pending.map(p => p.key)); }
+    }
     property string rememberedBarHost: ""
     property var rememberedNetworkDevice: null
     property Item rememberedNetworkShare: null
@@ -177,6 +196,7 @@ Scope {
     Connections {
         target: Registry
         function onScanFinished() {
+            root.traceRun("scan-end", Registry.requirementsRevision);
             root.note(["scan"]);
             Qt.callLater(() => root.note(["scan-turn-end"]));
         }
@@ -880,6 +900,17 @@ Scope {
 
     IpcHandler {
         target: "smoke"
+        function beginRunTrace(key: string): string {
+            root.runTraceEvents = [];
+            root.runTraceKey = key;
+            return "ok";
+        }
+        function endRunTrace(): string {
+            const events = root.runTraceEvents;
+            root.runTraceKey = "";
+            root.runTraceEvents = [];
+            return root.json(events);
+        }
         function pageChars(): int { return IpcPages.replyChars; }
         // The shell process's value of an environment variable after its
         // pragmas, "" when unset: Quickshell.env reads the process

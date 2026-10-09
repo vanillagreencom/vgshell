@@ -52,7 +52,11 @@
 # motion scale, each fail the assertion they break. Every window, output,
 # setting, theme and copy the display part changes is put back; it reuses
 # the Voice client above. States and frames poll once per IPC round trip;
-# no latency budget is claimed.
+# no latency budget is claimed. The install reading prints the presenter's
+# end stamp, the core's record read, status writes, scan completion and IPC
+# observer window in milliseconds. Date.now has millisecond resolution;
+# endedAt precedes the presenter's atomic rename. Host load and CPU pressure
+# cover the idle observer. The ceiling and poll interval are harness.sh's.
 # inputs: shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 
@@ -836,10 +840,37 @@ expect_poll "Install hands the terminal voxtype-bin through the AUR helper" "$(c
 expect_poll "the notice records its install running" '["vgs.voice", ["voxtype", "voxtype-audio-bridge"], ["voxtype", "voxtype-audio-bridge"], true]' notice_shown
 voice_engine_installed
 forget_record
+expect "the install stage observer starts" ok ipc smoke beginRunTrace core/requirements-install
+voice_idle_start="$(now_ms)"
+voice_idle_cpu_start="$(cpu_some_us)"
 release_runs
 expect_run_end "the voxtype install run ends" core/requirements-install
+voice_idle_end="$(now_ms)"
+voice_idle_pct="$(cpu_some_pct "$voice_idle_cpu_start" "$(cpu_some_us)" "$((voice_idle_end - voice_idle_start))")"
 expect_poll "the scan after the install closes the notice" null notice_shown
 expect_poll "the closed notice opens Set up on its own" "$(words vgs.voice/setup tui/setup.sh)" recorded_tail
+voice_idle_trace="$(ipc smoke endRunTrace)" || fail "the install stages are unreadable"
+if ! python3 - "$rt_dir/vgshell/tui" "$voice_idle_trace" "$voice_idle_start" "$voice_idle_end" "$voice_idle_pct" "$(cat /proc/loadavg)" <<'PY_STAGES'
+import datetime, glob, json, sys
+try:
+    records = glob.glob(sys.argv[1] + "/core@requirements-install@*.ended.json")
+    if len(records) != 1:
+        raise ValueError("ended-record-unavailable")
+    else:
+        record = json.load(open(records[0]))
+        ended = round(datetime.datetime.fromisoformat(record["endedAt"].replace("Z", "+00:00")).timestamp() * 1000)
+        events = json.loads(sys.argv[2])
+        if not any(event["stage"] == "core-read" and event["value"]["endedAt"] == record["endedAt"] and not event["value"]["running"] for event in events):
+            raise ValueError("core-ended-stage-unavailable")
+        stages = [{"stage": event["stage"], "after_end_ms": event["at"] - ended, "value": event["value"]} for event in events]
+        print("  run_end_stages=" + json.dumps({"run": record["run"], "presenter_end_ms": ended,
+            "observer_start_after_end_ms": int(sys.argv[3]) - ended, "observer_end_after_end_ms": int(sys.argv[4]) - ended, "stages": stages}))
+    print("  run_end_contention=" + json.dumps({"cpu_some_pct": None if sys.argv[5] == "unmeasured" else float(sys.argv[5]), "loadavg": sys.argv[6].split()[:3]}))
+except (OSError, ValueError, TypeError, KeyError) as error:
+    print("run-end-stages: unreadable=" + str(error), file=sys.stderr)
+    sys.exit(1)
+PY_STAGES
+then fail "the install stages could not be read"; fi
 expect "nothing waits on a notice once Set up opened" '{}' voice_resumes
 expect_run_end "the setup run ends" vgs.voice/setup
 expect_poll "the setup run that ended with code 0 shows one Voice card" 1 voice_cards

@@ -8,6 +8,8 @@
 # plugin drops its record from the lending record, a write through a
 # provider the core retired does not bring it back, and the rebuilt service
 # publishes again from nothing; a new source revision drops the record too.
+# Repeating an accepted value or an absent-key clear keeps the revision.
+# A disposable core copy without that skip fails the same revision check.
 # The row ends with the fixture disabled and its screen removed, so the
 # later rows' bars and lending records hold nothing of it. rows/settings.sh
 # enables it again to read its Status rows.
@@ -18,6 +20,11 @@ mkdir -p "$status_dir"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.status/." "$status_dir/"
 publish() { ipc acme.status invoke "$1" "${2:-}"; }
 read_status() { ipc smoke readInstance "$1" acme.status "$2"; }
+status_unchanged_assertion() {
+  (failures=0 behaviour_failures=0
+   expect "unchanged accepted values keep their revision" "$1" read_status service statusRevision >"$sandbox/status-unchanged-assertion.log"
+   echo "$failures")
+}
 # The fixture's entry in the lending record's status records, or null.
 lent_status() { ipc shell lent | py_reply 'import json,sys; r=json.load(sys.stdin)["status"].get("acme.status"); print(json.dumps(r if r is None else [r[k] for k in sys.argv[1:]]))' "$@"; }
 bar_keys() { ipc shell built | py_reply 'import json,sys; print(" ".join(sorted(k for k in json.load(sys.stdin) if k.startswith("bar:"))))'; }
@@ -75,6 +82,11 @@ expect "declared data is published" ok publish detail
 expect_poll "every instance reads the four writes" '{"token": "present", "pending": 3, "check": {"tone": "warning", "text": "Two sources failed"}, "lastCheck": 1790650695194, "detail": {"items": [1, 2]}}' agreed statusValues
 settled_revision() { agreed statusRevision | python3 -c 'import sys; t=sys.stdin.read().strip(); print(int(t) - int(sys.argv[1]) if t.lstrip("-").isdigit() else t)' "$first_revision"; }
 expect "every instance reads one revision, four writes on" 4 settled_revision
+status_unchanged_revision="$(read_status service statusRevision)" || fail "the accepted revision is unreadable"
+expect "an unchanged count is accepted" ok publish set 'pending=3'
+expect "an unchanged object is accepted" ok publish detail
+expect "clearing an absent declared key is accepted" ok publish set 'quiet=null'
+expect "unchanged accepted values keep their revision" 0 status_unchanged_assertion "$status_unchanged_revision"
 expect "every widget reads the data the service published" '[1,2]' read_status "$(bar_key)" detailItems
 expect "the lending record lists the published keys" '[["check", "detail", "lastCheck", "pending", "token"]]' lent_status keys
 
@@ -133,6 +145,22 @@ status_control_restore() {
   stop_shell || :
   start_shell "$repo" "$sandbox/status-restored-qs.log" || fail "the status controls restore the repository shell"
 }
+
+if copy_tree status-repeated-write && edit_tree status-repeated-write shell/Core/PluginStatus.qml \
+    'if (current !== null && JSON.stringify(current.values) === JSON.stringify(result.values)) return "ok";' \
+    'if (false && current !== null && JSON.stringify(current.values) === JSON.stringify(result.values)) return "ok";'; then
+  stop_shell || :
+  if start_shell "$sandbox/tree-status-repeated-write" "$sandbox/status-repeated-write-qs.log"; then
+    expect "control: enabling the repeated-write fixture is allowed" ok ipc shell setPluginEnabled acme.status true
+    expect_poll "control: the repeated-write service is built" True record_exists acme.status
+    expect "control: the first count is accepted" ok publish set 'pending=3'
+    status_control_revision="$(read_status service statusRevision)" || fail "the control revision is unreadable"
+    expect "control: the repeated count is accepted" ok publish set 'pending=3'
+    expect "control: removing the skip fails the unchanged revision assertion" 1 status_unchanged_assertion "$status_control_revision"
+    expect "control: disabling the repeated-write fixture is allowed" ok ipc shell setPluginEnabled acme.status false
+  fi
+  status_control_restore
+fi
 
 if copy_tree status-live-values && edit_tree status-live-values shell/Core/PluginStatus.qml \
     'return Logic.hasOwn(records, id) ? Logic.frozenJson(records[id].values) : empty;' \

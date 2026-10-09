@@ -17,10 +17,10 @@ Singleton {
     // that wrote the record, the serial of its last write, the published
     // values and their size. `values` never leaves this file: valuesOf
     // hands out copies. Replaced whole on every change,
-    // so a binding on a plugin's values re-evaluates once per write.
+    // so a binding on a plugin's values re-evaluates once per value change.
     property var records: ({})
-    // Rises by one on every accepted write, across plugins, so no two
-    // writes share a serial and a dropped record's serial never returns.
+    // Rises by one on every accepted value change, across plugins, so no
+    // two changes share a serial and a dropped record's serial never returns.
     property int serial: 0
 
     readonly property var empty: Object.freeze({})
@@ -82,6 +82,9 @@ Singleton {
         const current = Logic.hasOwn(records, ctx.id) && records[ctx.id].revision === revision ? records[ctx.id] : null;
         const result = Logic.statusWrite(ctx.manifest, current === null ? {} : current.values, key, value);
         if (!result.ok) return result.error;
+        // TUI record reads and requirement scans can repeat a service's
+        // accepted values. Keep their serial and bindings unchanged.
+        if (current !== null && JSON.stringify(current.values) === JSON.stringify(result.values)) return "ok";
         serial += 1;
         const next = Object.assign({}, records);
         next[ctx.id] = Object.freeze({ revision: revision, serial: serial, values: result.values, bytes: result.bytes });
@@ -93,7 +96,7 @@ Singleton {
     // deep-frozen copy made for this read, since the engine lets a frozen
     // array be written in place, so a reader that changes
     // an array changes only its own copy. A binding that calls this
-    // re-evaluates on every write.
+    // re-evaluates on every value change.
     function valuesOf(id) {
         return Logic.hasOwn(records, id) ? Logic.frozenJson(records[id].values) : empty;
     }
