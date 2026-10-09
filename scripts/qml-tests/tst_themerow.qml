@@ -97,9 +97,11 @@ Item {
             const below = item(own).mapToItem(rows.parent, item(own).leftPadding, item(own).height + Theme.stack.row);
             detached.x = below.x;
             detached.y = below.y;
-            expectFail("", "the action below the item is outside its padding", TestCase.Continue);
+            // Qt Quick Test's expectFailContinue reaches both planted checks.
+            // https://doc.qt.io/qt-6/qml-qttest-testcase.html#expectFailContinue-method
+            expectFailContinue("", "the action below the item is outside its padding");
             verify(inside(detached, item(own)));
-            expectFail("", "the detached action is nearer the next theme", TestCase.Continue);
+            expectFailContinue("", "the detached action is nearer the next theme");
             verify(nearerOwnName(detached));
         }
     }
