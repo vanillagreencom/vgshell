@@ -158,7 +158,11 @@ Item {
         }
 
         // A body emptied while its image loads, with another holder keeping
-        // the load, outlives that load's finish and draws nothing.
+        // the load, outlives that load's finish and draws nothing. Only a
+        // crash fails it, and only on Qt 6.12.0: with all of ImageText's
+        // plain-mode spaces reverted it crashes, but with one removed it
+        // crashes only when freed memory is poisoned. On Qt 6.11.2 no
+        // ImageText edit reddens it.
         // expected-log: Cannot open: -- the missing fixture image fails to load on purpose
         function test_a_text_emptied_while_its_image_loads_draws_nothing() {
             const segments = [{ markup: "x " }, { image: root.missing, alt: ":gone:" }];
