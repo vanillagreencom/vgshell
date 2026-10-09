@@ -314,7 +314,7 @@ expect "the fixture publishes a count" ok ipc acme.status invoke set 'pending=3'
 expect "the fixture publishes a time" ok ipc acme.status invoke set "lastCheck=$fixture_time"
 expect "the fixture publishes data" ok ipc acme.status invoke detail ''
 expect "the window opens the status fixture's page" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.status
-expect_poll "the status fixture's Settings page heads its one settings section" '["Settings"]' section_names
+expect_poll "the status fixture's ungrouped setting has no section heading" '[]' section_names
 settings_details
 expect_poll "the manager row lists each drawn entry in manifest order, with its value and tone" "$(python3 -c 'import json,sys; print(json.dumps([["Token", "reported", "present", "success"], ["Check", "reported", {"tone": "warning", "text": "Two sources failed"}, "warning"], ["Pending", "reported", 3, ""], ["Last check", "reported", int(sys.argv[1]), ""], ["Note", "unreported", None, ""]]))' "$fixture_time")" status_of acme.status
 expect_poll "the page draws the ungrouped entries, then each group's, read-only, and no command for the present token" '[["Check", "Two sources failed"], ["Last check", "time"], ["Note", "Not reported"], ["Token", "Present", "Needed for the fixture'"'"'s sync"], ["Pending", "3"]]' drawn_status_timeless

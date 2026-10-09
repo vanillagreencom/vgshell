@@ -455,13 +455,19 @@ FocusScope {
                             width: body.width
                             title: section.modelData.group
 
-                            SettingField {
-                                visible: section.modelData.builtin !== null
-                                pluginId: visible ? section.modelData.builtin.id : ""
-                                spec: ({ type: "boolean", label: "Show on the bar" })
-                                value: visible && section.modelData.builtin.placed
-                                editable: page.editable
-                                onApply: v => { if (page !== null && page.row !== null) page.panel.writePlacement(pluginId, v, page.row.id); }
+                            Repeater {
+                                model: ScriptModel {
+                                    values: section.modelData.builtin === null ? [] : [section.modelData.builtin]
+                                    objectProp: "id"
+                                }
+                                SettingField {
+                                    required property var modelData
+                                    pluginId: modelData.id
+                                    spec: ({ type: "boolean", label: "Show on the bar" })
+                                    value: modelData.placed
+                                    editable: page.editable
+                                    onApply: v => { if (page !== null && page.row !== null) page.panel.writePlacement(pluginId, v, page.row.id); }
+                                }
                             }
 
                             Repeater {
