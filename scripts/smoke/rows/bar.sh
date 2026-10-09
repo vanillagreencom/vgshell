@@ -1027,7 +1027,7 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
     zone_focus "control: a zone deaf to focus leaves the focused widget hidden" False
   fi
   zone_width 1900
-  if zone_control drop shell/Core/Plugins.qml 'const point = entry.widget.mapToItem(null, 0, 0);' 'const point = entry.widget.mapToItem(container, 0, 0);'; then
+  if zone_control drop shell/Core/Plugins.qml 'const x = sectionPoint.x + restX(placed.slice(0, placed.indexOf(entry.widget)), container.spacing);' 'const x = restX(placed.slice(0, placed.indexOf(entry.widget)), container.spacing);'; then
     zone_drop "control: a drop that reads the section's own places" vgs.launcher past control
     geometry expect_poll "control: the drop lands elsewhere than under the pointer" True zone_layout_elsewhere vgs.launcher
   fi
