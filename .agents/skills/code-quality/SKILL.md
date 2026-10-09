@@ -30,7 +30,6 @@ Kendex workflow policy VGS keeps (KEN-3470):
 - The VGS estimate scale, in implementation, planned and review-created issues and review findings: 1 means hours, 2 half a day, 3 a day, 4 two to three days, 5 a week or more. The numeric field keeps this consumer-defined meaning. Reassess the estimate when implementation changes the scope. (DV17, ORCH-M22, RV20)
 - A worktree or Pi session in an explicitly recorded orch lane leaves kendex refresh and apply to the overseer in the base checkout after merge; an ordinary linked worktree keeps its own project resolution and complete drift repair guidance, and a linked Git directory alone is not a lane record. After an authorized documentation rewrite changes kendex-owned inputs, use that refresh and verification route and respect a launched lane's refresh restriction. (hook-session-drift-check-04, pi-hooks-M01, DW22)
 - Never kill a process by its name or argv pattern. Kill a PID recorded when you launched that process, or, on Linux, read /proc/PID/cwd and kill that PID only when the path is inside your own worktree; the /proc route is an alternative, not an extra condition on the recorded PID. (hook-block-argv-kill-03)
-
 <!-- kendex:shared-instructions:end -->
 
 Quickshell rules for this shell. They add to the rules above.
@@ -41,7 +40,6 @@ Quickshell rules for this shell. They add to the rules above.
 - A smoke row goes under `scripts/smoke/rows/` and follows the `scripts/qml-smoke.sh` header's shape: the ceiling, the machine and date it was measured on, and the poll interval of each latency reading. A new check's row goes in `scripts/validate` with its control (D100).
 - One judge per decision: `shell/Core/PluginLogic.js` for manifests, configuration merging and enablement; `shell/Core/Dispatch.js` for every Hyprland request. A script that needs one of those answers runs the file under node.
 - The testing method is in `docs/architecture/validation.md`; a row's `# inputs:` line and the check that holds it are in `scripts/AGENTS.md`.
-
 <!-- kendex:project-instructions:end -->
 
 # Code Quality
