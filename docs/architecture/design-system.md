@@ -95,6 +95,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 
 - Do put each surface title in the shared `Pane` title slot. Keep its subtitle or description with the title. Leave `Theme.stack.titleSpace`, at least one body line, after the whole title block. Never add a private title margin.
 - Do give a sticky footer equal padding on every side. Keep a sticky header's divider outside the body's viewport. Use the shared `Pane` geometry or the container's padding token, never a separate bar offset. `scripts/qml-tests/tst_pane.qml` pins the rule.
+- Do mark a scrolled body under a sticky header, or over a sticky footer, with the `Pane` divider alone: one line from frame to frame. A `ScrollArea` draws its own edge line only on an edge no `Pane` divider marks. Never draw a line under a sticky header in a surface, a nested `ScrollArea`'s edge line included; scroll the body in the `Pane`. `test_one_line_marks_each_scrolled_edge` in `scripts/qml-tests/tst_pane.qml` pins it.
 - Do put a pending-changes row in the shared `Pane` footer, pinned to the bottom of the System or Shell & Plugins panel. Never put it in the scrolling body; review holds it.
 - Do use a centred modal for a timed trial or a confirmation the user must see, such as Keep/Revert. Never use an inline card; review holds it.
 - Do compose `Pane` for every window, dialog, panel, popover and overlay, and never write a second inset. Align boxed children and unboxed text to its content edge. `scripts/qml-tests/tst_pane.qml` pins the box.

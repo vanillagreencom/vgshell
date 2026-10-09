@@ -91,7 +91,8 @@ FocusScope {
     }
 
     function followEnd() {
-        transcript.contentY = Math.max(0, transcript.contentHeight - transcript.height);
+        const view = layout.scrollArea;
+        view.contentY = Math.max(0, view.contentHeight - view.height);
     }
 
     onTranscriptRowsChanged: Qt.callLater(followEnd)
@@ -103,6 +104,9 @@ FocusScope {
         id: layout
         anchors.fill: parent
         container: "window"
+        // The transcript is the pane's body, so the pane's one divider
+        // marks it scrolled under the title and over the composer.
+        Component.onCompleted: scrollArea.keyboardScroll = true
 
         title: "Jarvis console"
         subtitle: [
@@ -119,48 +123,40 @@ FocusScope {
             }
         ]
 
-        ScrollArea {
-            id: transcript
+        Column {
             width: layout.contentWidth
-            height: Math.max(Theme.size.control.lg, layout.height - layout.headerHeight - composer.height - Theme.stack.group - Theme.stack.group)
-            keyboardScroll: true
-            contentPadding: Theme.focusRing.width + Theme.focusRing.offset
+            spacing: Theme.stack.row
 
-            Column {
-                width: transcript.contentWidth
-                spacing: Theme.stack.row
+            // Conversation rows are read-only transcript entries. They
+            // take no selection, so this list has no ListCursor.
+            Repeater {
+                model: root.transcriptRows
+                Column {
+                    required property var modelData
+                    width: layout.contentWidth
+                    spacing: Theme.row.lineGap
 
-                // Conversation rows are read-only transcript entries. They
-                // take no selection, so this list has no ListCursor.
-                Repeater {
-                    model: root.transcriptRows
-                    Column {
-                        required property var modelData
-                        width: transcript.contentWidth
-                        spacing: Theme.row.lineGap
-
-                        Label {
-                            width: parent.width
-                            role: "label"
-                            text: root.speaker(modelData.role)
-                            color: Theme.color.textMuted
-                            elide: Text.ElideRight
-                        }
-                        Label {
-                            width: parent.width
-                            role: modelData.role === "user" ? "bodyStrong" : "body"
-                            text: String(modelData.text)
-                            wrapMode: Text.Wrap
-                            color: modelData.stage === "partial" ? Theme.color.textMuted : Theme.color.text
-                        }
+                    Label {
+                        width: parent.width
+                        role: "label"
+                        text: root.speaker(modelData.role)
+                        color: Theme.color.textMuted
+                        elide: Text.ElideRight
+                    }
+                    Label {
+                        width: parent.width
+                        role: modelData.role === "user" ? "bodyStrong" : "body"
+                        text: String(modelData.text)
+                        wrapMode: Text.Wrap
+                        color: modelData.stage === "partial" ? Theme.color.textMuted : Theme.color.text
                     }
                 }
-                EmptyState {
-                    width: transcript.contentWidth
-                    visible: root.transcriptRows.length === 0
-                    iconName: "message-circle"
-                    text: "No conversation yet. Type a message to start."
-                }
+            }
+            EmptyState {
+                width: layout.contentWidth
+                visible: root.transcriptRows.length === 0
+                iconName: "message-circle"
+                text: "No conversation yet. Type a message to start."
             }
         }
 
@@ -191,7 +187,7 @@ FocusScope {
                         Keys.onReturnPressed: event => { root.sendMessage(); event.accepted = true; }
                         Keys.onEnterPressed: event => { root.sendMessage(); event.accepted = true; }
                         Keys.onPressed: event => {
-                            if ((event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown) && transcript.handleScrollKey(event)) event.accepted = true;
+                            if ((event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown) && layout.scrollArea.handleScrollKey(event)) event.accepted = true;
                         }
                     }
                     Button {

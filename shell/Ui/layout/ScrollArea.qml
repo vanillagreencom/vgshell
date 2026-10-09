@@ -29,7 +29,11 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // along the clipped edge. It marks the bottom while content
 // continues below the view, the top while content is scrolled under it,
 // `cueBelow` and `cueAbove`. Unlike the bar it never fades, so a page cut
-// at the window's edge says so at rest; it takes no input.
+// at the window's edge says so at rest; it takes no input. The hairline
+// spans the viewport alone, so a holder that draws its own line on an
+// edge, as Pane's divider under a sticky header and over a sticky footer
+// does, turns this one off there with `cueLineAbove` or `cueLineBelow`;
+// the shade stays.
 Flickable {
     id: root
 
@@ -39,6 +43,8 @@ Flickable {
     // grows toward its content: the bar stays hidden for that overflow.
     property bool barHeld: false
     property bool keyboardScroll: false
+    property bool cueLineAbove: true
+    property bool cueLineBelow: true
     property real contentPadding: 0
     readonly property real clipPadding: keyboardScroll && keyboardFocus.visualFocus ? contentPadding : 0
     readonly property real focusInset: keyboardScroll ? Theme.focusRing.width + Theme.focusRing.offset : 0
@@ -173,6 +179,7 @@ Flickable {
             anchors { left: parent.left; right: parent.right; top: parent.top }
             height: Theme.divider.thickness
             color: Theme.color.borderStrong
+            visible: root.cueLineAbove
         }
     }
     Rectangle {
@@ -188,6 +195,7 @@ Flickable {
             anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
             height: Theme.divider.thickness
             color: Theme.color.borderStrong
+            visible: root.cueLineBelow
         }
     }
 
