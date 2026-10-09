@@ -220,7 +220,7 @@ appearance_members() { ipc shell listShellConfig | py_reply 'import json,sys; pr
 # Give shell.json `appearance` the JSON object VALUES, `{}` for none.
 set_appearance() { python3 "$repo/scripts/smoke/fixtures/appearance-edit.py" "$user_config" "$1"; }
 own_hyprland='{"borderWidth": "hyprland", "windowRadius": "hyprland"}'
-own_motion='{"borderWidth": "hyprland", "windowAnimations": true, "windowRadius": "hyprland"}' 
+own_motion='{"borderWidth": "hyprland", "windowAnimations": true, "windowRadius": "hyprland"}'
 inbox_mode() { ipc smoke readInstance service vgs.notifications panelMode; }
 press_super() { type_keys -M logo -k "$1" -m logo; }
 # Give plugins rows the `keys` JSON maps: { id: keys }, replaced whole.
