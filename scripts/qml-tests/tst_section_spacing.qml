@@ -9,7 +9,8 @@ import "../../shell/plugins/vgs.settings"
 // the lowest row of ink above the heading to its capitals' top row is
 // `stack.heading` on the System monitor, Capture and Displays pages, built
 // from their shipped manifests, whatever row ends the section above: a
-// switch, a select, a segmented control, a slider or a help line. A
+// switch, a select, a segmented control, a slider or a help line, one
+// with descenders or one without (Capture's Text heading). A
 // section spaced by its box, as before `stack.heading`, is the control the
 // reading must refuse.
 Item {
@@ -17,9 +18,8 @@ Item {
     width: 520
     height: 1800
 
-    // A help line's ink ends at its descenders, which the layout places at
-    // the font's descent; a glyph's antialiased edge differs from it by up
-    // to a pixel each side.
+    // The layout reads a glyph's ink from the font's tight box; its
+    // antialiased edge differs from it by up to a pixel.
     readonly property int tolerance: 1
     readonly property var pages: ["vgs.sysmon", "vgs.capture", "vgs.displays"]
 

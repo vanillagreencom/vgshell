@@ -15,10 +15,13 @@ import qs.Commons
 // a box centre with the baseline on a whole device pixel of the label's own
 // screen, since a whole pixel spans two device pixels on a 2x screen.
 // `capTop()` is how far below the label top the first line's capitals
-// start, and `inkBelow()` how far above its bottom edge the last line's
-// ink ends: its baseline in capitals, else its descent. Lines of one label
-// share one line box, so the last baseline is the first one
-// `baselineOffset` places, moved down by every line box but the last.
+// start, and `inkBelow(lastLine)` how far above its bottom edge the last
+// line's ink ends: its glyphs' lowest ink (FontMetrics.tightBoundingRect,
+// whose origin is the baseline) for a one-line label or a caller that
+// names the last line's text, else the baseline in capitals and the
+// descent in mixed case. Lines of one label share one line box, so the
+// last baseline is the first one `baselineOffset` places, moved down by
+// every line box but the last.
 Text {
     id: root
 
@@ -51,9 +54,12 @@ Text {
         return baselineOffset - metrics.capitalHeight;
     }
 
-    function inkBelow() {
+    function inkBelow(lastLine) {
         const lines = Math.max(1, lineCount);
-        return height - baselineOffset - contentHeight * (lines - 1) / lines - (typography.uppercase ? 0 : metrics.descent);
+        const known = lastLine !== undefined ? lastLine : lines === 1 ? text : null;
+        const ink = known === null ? null : metrics.tightBoundingRect(typography.uppercase ? known.toUpperCase() : known);
+        const below = ink !== null ? Math.max(0, ink.y + ink.height) : typography.uppercase ? 0 : metrics.descent;
+        return height - baselineOffset - contentHeight * (lines - 1) / lines - below;
     }
 
     function topForCapCenter(boxHeight) {
