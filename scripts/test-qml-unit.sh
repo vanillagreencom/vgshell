@@ -221,6 +221,7 @@ mutations=(
   "a bind row's field names no shortcut|controls/BindField.qml|shortcut: String(root.bind.shortcut)|shortcut: \"\"|tst_bindfield.qml"
   "a bind row hides its capture's answer|controls/BindField.qml|readonly property var found: input.found|readonly property var found: null|tst_bindfield.qml"
   "a read-only bind row edits|controls/BindField.qml|editable: root.editable|editable: true|tst_bindfield.qml"
+  "a shown hint action takes no room|controls/ShortcutField.qml|implicitHeight: column.implicitHeight|implicitHeight: column.implicitHeight - hintActionRow.height|tst_bindfield.qml"
   "a bind row drops its caller's actions|controls/BindField.qml|property alias actions: input.actions|property var actions: []|tst_bindfield.qml"
   "a bind row drops its caller's hint actions|controls/BindField.qml|property alias hintActions: input.hintActions|property var hintActions: []|tst_bindfield.qml"
   "an empty hint action line hides what it waits on|controls/ShortcutField.qml|id: hintActionRow|id: hintActionRow; visible: visibleChildren.length > 0|tst_bindfield.qml"

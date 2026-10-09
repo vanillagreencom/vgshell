@@ -226,6 +226,10 @@ Item {
             tryVerify(() => field.implicitHeight <= hint.mapToItem(field, 0, 0).y + hint.height + 1, 1000, "a line with no shown action takes no room");
             fix.visible = true;
             tryVerify(() => fix.mapToItem(field, 0, 0).y >= hint.mapToItem(field, 0, 0).y + hint.height, 1000, "an action shown again draws under the hint");
+            // The line's room comes back only once its Flow lays out again,
+            // which moves the label below; a later hover aimed at the label
+            // before that ends outside it.
+            tryVerify(() => field.implicitHeight >= fix.mapToItem(field, 0, 0).y + fix.height, 1000, "an action shown again takes its room");
         }
     }
 }
