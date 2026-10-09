@@ -77,20 +77,23 @@ def mid_y(r): return r["box"][1] + r["box"][3] / 2
 def check(name, got, want):
     if not near(got, want): out.append("%s=%.2f want=%.2f" % (name, got, want))
 def children(rows, i, kind): return [c for c in rows if c["parent"] == i and c["type"] == kind]
-def within(rows, i, kind):
+# A bar item draws its text and count as Readings (BarItem.qml), Labels
+# that hold a sample width.
+text_types = ("Label", "Reading")
+def within(rows, i, kinds):
     found, frontier = [], [i]
     while frontier:
         at = frontier.pop()
         for j, c in enumerate(rows):
             if c["parent"] == at:
                 frontier.append(j)
-                if c["type"] == kind and c.get("visible", True): found.append(c)
+                if c["type"] in kinds and c.get("visible", True): found.append(c)
     return found
 centre = bar[1] + bar[3] / 2
 for name, rows in (("workspaces", ws), ("clock", clock)):
-    roles = sorted({str(r.get("role")) for r in rows if r["type"] == "Label"})
+    roles = sorted({str(r.get("role")) for r in rows if r["type"] in text_types})
     if roles != ["bar"]: out.append("%s roles=%s" % (name, roles))
-pills = sorted(((r, [l for l in within(ws, i, "Label") if l["box"][2] > 0]) for i, r in enumerate(ws) if r["type"] == "BarItem"), key=lambda p: p[0]["box"][0])
+pills = sorted(((r, [l for l in within(ws, i, text_types) if l["box"][2] > 0]) for i, r in enumerate(ws) if r["type"] == "BarItem"), key=lambda p: p[0]["box"][0])
 if len(pills) != 3: out.append("workspaces pills=%d want=3" % len(pills))
 if not any(pill["box"][2] > floor + 1 for pill, _ in pills): out.append("workspaces wide=0")
 for n, (pill, labels) in enumerate(pills):
