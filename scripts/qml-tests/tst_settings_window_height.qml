@@ -103,7 +103,13 @@ Item {
         // asked for, in order.
         property var reads: []
         property var calls: []
-        function readWindows(done) { reads = reads.concat([done]); }
+        // A window state each read takes at once, or null to hold reads
+        // until answer().
+        property var sync: null
+        function readWindows(done) {
+            if (sync !== null) done(sync);
+            else reads = reads.concat([done]);
+        }
         function resizeWindow(address, width, height) {
             calls = calls.concat([["resize", address, width, height]]);
             return "ok";
@@ -112,14 +118,23 @@ Item {
             calls = calls.concat([["move", address, x, y]]);
             return "ok";
         }
-        // Answer every waiting read with CLIENTS, as Hyprland's j/clients,
-        // on one monitor at scale 2 whose top 40 px are reserved: a work
-        // area from y 40 to BOTTOM, 1000 unless given.
-        function answer(clients, bottom) {
+        // The floating Plugins client, as one j/clients entry, with FIELDS
+        // over it.
+        function client(fields) {
+            return Object.assign({ class: "org.vgs.shell", title: "Plugins", mapped: true, address: "0xb", monitor: 3, floating: true, fullscreen: 0, at: [70, 60], size: [512, 300] }, fields);
+        }
+        // The state of CLIENTS, as Hyprland's j/clients, on one monitor at
+        // scale 2, unrotated, whose top 40 px are reserved: a work area from
+        // y 40 to BOTTOM, 1000 unless given; MONITOR's fields go over it.
+        function state(clients, bottom, monitor) {
+            const screen = Object.assign({ id: 3, x: 0, y: 0, width: 3200, height: 2 * (bottom === undefined ? 1000 : bottom), scale: 2, transform: 0, reserved: [0, 40, 0, 0] }, monitor);
+            return { ok: true, clients: clients, monitors: [screen] };
+        }
+        // Answer every waiting read with state(CLIENTS, BOTTOM, MONITOR).
+        function answer(clients, bottom, monitor) {
             const waiting = reads;
             reads = [];
-            const monitors = [{ id: 3, x: 0, y: 0, width: 3200, height: 2 * (bottom === undefined ? 1000 : bottom), scale: 2, reserved: [0, 40, 0, 0] }];
-            for (const done of waiting) done({ ok: true, clients: clients, monitors: monitors });
+            for (const done of waiting) done(state(clients, bottom, monitor));
         }
     }
 
@@ -157,6 +172,7 @@ Item {
             fakeManager.plugins = root.fewRows;
             fakeCompositor.reads = [];
             fakeCompositor.calls = [];
+            fakeCompositor.sync = null;
         }
 
         // The list page and its pane.
@@ -239,7 +255,7 @@ Item {
             p.tabs.currentIndex = 1;
             waitForRendering(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
-            const client = (title, appClass, address, height) => ({ class: appClass, title: title, mapped: true, address: address, monitor: 3, at: [70, 60], size: [512, height] });
+            const client = (title, appClass, address, height) => fakeCompositor.client({ class: appClass, title: title, address: address, size: [512, height] });
             // An even step from Details' height, so the resize asks for it exactly.
             const before = window.implicitHeight - 2 * Math.floor((window.implicitHeight - settingsHeight) / 2);
             fakeCompositor.answer([client("Plugins", "kitty", "0xa", before), client("Plugins", "org.vgs.shell", "0xb", before), client("Other", "org.vgs.shell", "0xc", before)]);
@@ -267,28 +283,31 @@ Item {
             const wanted = Math.min(room, Math.ceil(p.pane.uncappedHeight));
             verify(wanted > cap(), "the long page runs past the cap: " + wanted + " > " + cap());
             compare(window.implicitHeight, cap(), "the window's own request stays at the cap");
-            fakeCompositor.answer([{ class: "org.vgs.shell", title: "Plugins", mapped: true, address: "0xb", monitor: 3, at: [70, 60], size: [512, wanted - 600] }], 2000);
+            fakeCompositor.answer([fakeCompositor.client({ size: [512, wanted - 600] })], 2000);
             compare(fakeCompositor.calls, [["resize", "0xb", 512, wanted], ["move", "0xb", 70, 60]], "the window takes the long page's height, up to the room");
         }
 
         // The work area bounds a grown window: one that would pass its
-        // bottom rises by the overflow alone, and a page taller than the
-        // area takes the area's height at its top. Hyprland's resize moves
-        // the box by half the height's change, so an odd change asks one
-        // pixel more, or one less at the area's bound, and a client one
-        // pixel past the page by that rounding is left alone.
+        // bottom rises by the overflow alone, one above its top moves down
+        // to it, and a page taller than the area takes the area's height at
+        // its top. Hyprland's resize moves the box by half the height's
+        // change, so an odd change asks one pixel more, or one less at the
+        // area's bound, and a client one pixel past the page by that
+        // rounding is left alone.
         function test_a_grown_window_stays_on_its_monitor_data() {
-            // bottom: the work area's bottom, its top being 40; from: the
-            // client's height before, as a step from the expected height
-            // `to`, the page's own unless at the bound; y: the top-left's y
-            // after, from y 480, given the room left above the area's bottom;
-            // null when nothing is asked.
+            // bottom: the work area's bottom, its top being 40; at: the
+            // client's y before; from: the client's height before, as a
+            // step from the expected height `to`, the page's own unless at
+            // the bound; overflows: whether at + the page's height passes
+            // the bottom; y: the top-left's y after, given the bottom and
+            // the height asked; null when nothing is asked.
             return [
-                { tag: "rises by its overflow", bottom: 1000, from: -200, to: 0, bound: false, y: bottom => bottom },
-                { tag: "takes the work area at its top", bottom: 300, from: -100, to: 0, bound: true, y: bottom => bottom },
-                { tag: "an odd step asks one pixel more", bottom: 2000, from: -101, to: 1, bound: false, y: () => 480 },
-                { tag: "an odd step at the bound asks one pixel less", bottom: 300, from: -101, to: -1, bound: true, y: bottom => bottom },
-                { tag: "one pixel past by rounding is left alone", bottom: 2000, from: 1, to: null, bound: false, y: null }
+                { tag: "rises by its overflow", bottom: 1000, at: 480, from: -200, to: 0, bound: false, overflows: true, y: (bottom, height) => bottom - height },
+                { tag: "moves down to the work area's top", bottom: 2000, at: 10, from: -200, to: 0, bound: false, overflows: false, y: () => 40 },
+                { tag: "takes the work area at its top", bottom: 300, at: 480, from: -100, to: 0, bound: true, overflows: true, y: (bottom, height) => bottom - height },
+                { tag: "an odd step asks one pixel more", bottom: 2000, at: 480, from: -101, to: 1, bound: false, overflows: false, y: () => 480 },
+                { tag: "an odd step at the bound asks one pixel less", bottom: 300, at: 480, from: -101, to: -1, bound: true, overflows: true, y: (bottom, height) => bottom - height },
+                { tag: "one pixel past by rounding is left alone", bottom: 2000, at: 480, from: 1, to: null, bound: false, overflows: false, y: null }
             ];
         }
         function test_a_grown_window_stays_on_its_monitor(data) {
@@ -300,13 +319,70 @@ Item {
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
             const page = data.bound ? data.bottom - 40 : window.mapHeight;
             verify(data.bound ? window.mapHeight > page : window.mapHeight < data.bottom - 40, "the fixture's Details " + (data.bound ? "runs past" : "fits") + " the work area: " + window.mapHeight);
-            fakeCompositor.answer([{ class: "org.vgs.shell", title: "Plugins", mapped: true, address: "0xb", monitor: 3, at: [70, 480], size: [512, page + data.from] }], data.bottom);
+            compare(data.at + page > data.bottom, data.overflows, "the window at y " + data.at + " " + (data.overflows ? "passes" : "stays above") + " the work area's bottom");
+            fakeCompositor.answer([fakeCompositor.client({ at: [70, data.at], size: [512, page + data.from] })], data.bottom);
             if (data.to === null) {
                 compare(fakeCompositor.calls, []);
                 return;
             }
             const height = page + data.to;
-            compare(fakeCompositor.calls, [["resize", "0xb", 512, height], ["move", "0xb", 70, Math.min(480, data.y(data.bottom - height))]]);
+            compare(fakeCompositor.calls, [["resize", "0xb", 512, height], ["move", "0xb", 70, data.y(data.bottom, height)]]);
+        }
+
+        // On a rotated monitor the work area's height is the mode's width:
+        // a 2560 x 1440 mode turned by transform 1 is 2560 px tall, so a
+        // window at y 1500 has room for Details below it and keeps its place.
+        function test_a_rotated_monitor_bounds_by_its_logical_height() {
+            const window = opened('{"plugin":"acme.detailed"}');
+            const p = parts(window);
+            fakeCompositor.reads = [];
+            p.tabs.currentIndex = 1;
+            waitForRendering(window);
+            tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
+            const height = window.mapHeight;
+            verify(1500 + height <= 2560 && 1500 + height > 1440, "Details fits under 2560 and not under 1440: " + height);
+            fakeCompositor.answer([fakeCompositor.client({ at: [70, 1500], size: [512, height - 200] })], undefined, { width: 2560, height: 1440, scale: 1, transform: 1 });
+            compare(fakeCompositor.calls, [["resize", "0xb", 512, height], ["move", "0xb", 70, 1500]]);
+        }
+
+        // A tiled or fullscreen Plugins window is the user's layout: a page
+        // change sends it nothing.
+        function test_a_tiled_or_fullscreen_window_is_left_alone_data() {
+            return [
+                { tag: "tiled", fields: { floating: false } },
+                { tag: "fullscreen", fields: { fullscreen: 1 } }
+            ];
+        }
+        function test_a_tiled_or_fullscreen_window_is_left_alone(data) {
+            const window = opened('{"plugin":"acme.detailed"}');
+            const p = parts(window);
+            fakeCompositor.reads = [];
+            p.tabs.currentIndex = 1;
+            waitForRendering(window);
+            tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
+            fakeCompositor.answer([fakeCompositor.client(Object.assign({ size: [512, window.mapHeight - 200] }, data.fields))]);
+            compare(fakeCompositor.calls, []);
+        }
+
+        // A read answered in the turn of the tab change, before a frame
+        // lays the page out, still takes the new tab's height: fitWindow
+        // lays the shown page out before it reads the height.
+        function test_a_read_in_the_tab_change_turn_takes_the_new_tab_height() {
+            const window = opened('{"plugin":"acme.detailed"}');
+            const p = parts(window);
+            p.tabs.currentIndex = 1;
+            waitForRendering(window);
+            const details = window.mapHeight;
+            p.tabs.currentIndex = 0;
+            waitForRendering(window);
+            verify(window.mapHeight < details, "Details is the taller tab: " + window.mapHeight + " < " + details);
+            fakeCompositor.calls = [];
+            fakeCompositor.sync = fakeCompositor.state([fakeCompositor.client({ size: [512, details - 200] })], 2000);
+            p.tabs.currentIndex = 1;
+            window.fitWindow();
+            const calls = fakeCompositor.calls;
+            fakeCompositor.sync = null;
+            compare(calls, [["resize", "0xb", 512, details], ["move", "0xb", 70, 60]]);
         }
 
         function test_a_short_list_takes_its_content_height() {

@@ -154,8 +154,13 @@ FocusScope {
                 return;
             }
             const client = own[0];
-            // Hyprland's j/monitors: x, y, width and height in pixels at
-            // `scale`, and `reserved` as [left, top, right, bottom].
+            // A tiled or fullscreen window is the user's layout choice.
+            if (client.floating !== true || client.fullscreen !== 0) return;
+            // Hyprland's j/monitors: x, y, width and height in the mode's
+            // pixels at `scale`, before an odd `transform` swaps width and
+            // height (MonitorLogic.sideSwapped, HyprlandLayer.js:807, which
+            // a plugin cannot import), and `reserved` as [left, top, right,
+            // bottom].
             const screens = state.monitors.filter(m => m.id === client.monitor);
             if (screens.length !== 1) {
                 console.warn("settings: resize monitors=" + screens.length + " id=" + client.monitor);
@@ -163,7 +168,8 @@ FocusScope {
             }
             const m = screens[0];
             const top = Math.ceil(m.y + m.reserved[1]);
-            const bottom = Math.floor(m.y + m.height / m.scale - m.reserved[3]);
+            const tall = m.transform % 2 === 1 ? m.width : m.height;
+            const bottom = Math.floor(m.y + tall / m.scale - m.reserved[3]);
             // The work area bounds the height too, so a page never asks for
             // more than fits under the bar, though the host may map taller.
             let height = Math.min(root.mapHeight, bottom - top);

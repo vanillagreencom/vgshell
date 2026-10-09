@@ -210,8 +210,9 @@ expect_poll "the page change back returns the body to its top" '[0]' page_top
 # Details reading with the window at its Settings height and no cue, as
 # with neither the resize nor the cue: the judge reads it cut.
 # fit_state: the Plugins client as [x, y, w, h], its height target, the
-# window's mapHeight within its monitor's work area, and where the shown
-# page ends (Probe paneEnd), as one object; a state word while one is
+# window's mapHeight within its monitor's work area, whose height is the
+# mode's width on an odd transform, as Window.qml reads it, and where the
+# shown page ends (Probe paneEnd), as one object; a state word while one is
 # absent.
 fit_state() {
   local client target monitor area
@@ -221,7 +222,7 @@ fit_state() {
   [[ $target =~ ^[0-9]+$ ]] || { printf 'target-%s\n' "$target"; return; }
   monitor="$(window_of Plugins monitor)" || return
   [[ $monitor == \[* ]] || { printf 'monitor-%s\n' "$monitor"; return; }
-  area="$(hypr -j monitors | py_reply 'import json,math,sys; m=[m for m in json.load(sys.stdin) if m["id"] == json.loads(sys.argv[1])[0]]; print(math.floor(m[0]["y"] + m[0]["height"] / m[0]["scale"] - m[0]["reserved"][3]) - math.ceil(m[0]["y"] + m[0]["reserved"][1]) if len(m) == 1 else "monitors=%d" % len(m))' "$monitor")" || return
+  area="$(hypr -j monitors | py_reply 'import json,math,sys; m=[m for m in json.load(sys.stdin) if m["id"] == json.loads(sys.argv[1])[0]]; print(math.floor(m[0]["y"] + (m[0]["width"] if m[0]["transform"] % 2 == 1 else m[0]["height"]) / m[0]["scale"] - m[0]["reserved"][3]) - math.ceil(m[0]["y"] + m[0]["reserved"][1]) if len(m) == 1 else "monitors=%d" % len(m))' "$monitor")" || return
   [[ $area =~ ^[0-9]+$ ]] || { printf 'area-%s\n' "$area"; return; }
   ipc smoke paneEnd window vgs.settings | py_reply 'import json,sys; print(json.dumps({"client": json.loads(sys.argv[1]), "target": min(int(sys.argv[2]), int(sys.argv[3])), "end": json.load(sys.stdin)}))' "$client" "$target" "$area"
 }
