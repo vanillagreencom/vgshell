@@ -282,7 +282,7 @@ Item {
                 Field { label: "Command"; hint: "Multi-line command text"; width: parent.width; TextArea { width: parent.width; text: "echo hello\nprintf '%s\\n' done" } }
                 Field { label: "Date"; hint: "A keyboard picker"; width: parent.width; DateField { date: "2026-01-05" } }
                 Field { label: "Time"; hint: "Use Up and Down to change the minutes"; width: parent.width; TimeField { text: "09:00" } }
-                Field { label: "Folder"; hint: "A directory picker"; width: parent.width; PathField { path: ""; placeholderText: "Choose a folder" } }
+                Field { label: "Folder"; hint: "A directory picker"; width: parent.width; PathField { width: parent.width; path: ""; placeholderText: "Choose a folder" } }
                 Field { label: "Shortcut"; hint: "Key caps and a typed combo; the Settings Keys rows also capture pressed keys"; width: parent.width; ShortcutField { id: shortcutSample; width: parent.width; keys: ["SUPER+SPACE"]; onTyped: text => shortcutSample.keys = text === "" ? [] : [text.toUpperCase()]; onCleared: shortcutSample.keys = [] } }
                 BindField { id: bindSample; width: parent.width; hint: "A plugin bind: what it does beside its key"; bind: ({ shortcut: "toggle", key: "SUPER+SPACE", default: "SUPER+SPACE", description: "Open or close the launcher" }); onApplyKey: key => bindSample.bind = Object.assign({}, bindSample.bind, { key: key === null ? null : key.toUpperCase() }) }
                 Field { label: "Weekdays"; hint: "Choose the days for a schedule"; width: parent.width; WeekdayChipGroup { selected: ["mon", "wed", "fri"] } }

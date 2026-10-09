@@ -292,6 +292,7 @@ mutations=(
   "path placeholder overlaps Browse|controls/TextField.qml|width: Math.max(0, root.width - root.leftPadding - root.rightPadding)|width: root.width|tst_automation_controls.qml"
   "path text overlaps Browse|controls/TextField.qml|rightPadding: sidePadding + (trailing.width > 0 ? Math.max(0, trailing.width - trailing.glyphEnd) + Theme.textField.gap : 0)|rightPadding: sidePadding|tst_automation_controls.qml"
   "path placeholder ignores its caller|controls/PathField.qml|property alias placeholderText: field.placeholderText|property string placeholderText: \"\"|tst_automation_controls.qml"
+  "an unfocused path draws without an ellipsis|controls/PathField.qml|elide: Text.ElideLeft|elide: Text.ElideNone|tst_pathfield.qml"
   "path field opens the wrong folder|controls/PathField.qml|function openFolder(value) { currentFolder = clean(value); errorMessage = \"\"; }|function openFolder(value) { currentFolder = homePath(); errorMessage = \"\"; }|tst_automation_controls.qml"
   "path field breaks the path binding|controls/PathField.qml|displayPath = chosen;|path = chosen; displayPath = chosen;|tst_automation_controls.qml"
   "path field judges missing folders by status|controls/PathField.qml| && folderStatus !== FolderListModel.Null||tst_automation_controls.qml"

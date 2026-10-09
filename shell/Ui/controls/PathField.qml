@@ -95,6 +95,7 @@ Item {
         id: field
         anchors.fill: parent
         text: root.displayPath
+        color: activeFocus ? Theme.color.text : "transparent"
         error: root.error || !root.valid
         onTextEdited: {
             root.displayPath = text;
@@ -105,6 +106,21 @@ Item {
             root.changed(text);
         }
         actions: [ Button { text: "Browse"; size: "sm"; variant: "secondary"; onClicked: picker.toggle() } ]
+    }
+
+    // TextInput scrolls to its caret. Qt Text elides within an explicit
+    // width instead (doc.qt.io/qt-6/qml-qtquick-text.html#elide-prop).
+    Label {
+        role: "item"
+        text: field.text
+        textFormat: Text.PlainText
+        font: field.font
+        opacity: field.opacity
+        visible: !field.activeFocus && field.text !== ""
+        x: field.leftPadding
+        width: Math.max(0, field.width - field.leftPadding - field.rightPadding)
+        anchors.verticalCenter: field.verticalCenter
+        elide: Text.ElideLeft
     }
 
     Popover {
