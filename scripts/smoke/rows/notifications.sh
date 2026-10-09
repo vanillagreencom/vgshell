@@ -1941,23 +1941,19 @@ expect_poll "the pending-image control service is ready" True record_exists vgs.
 expect_poll "the inbox rebuilt under its service lists its rows again" True has_row panel "Quiet while open"
 expect "the rebuilt inbox logged no state warning while its service started" 0 log_lines 'notifications panel: state '
 
-pending_image_case() { # SUMMARY CONTROL
-  local summary="$1" control="$2" key pattern setup_failures
-  rm -f -- "${image_entered:?}"
-  expect "$summary: Silence stays on" on notes silence on
-  expect "$summary: the inbox opens before the copy" ok notes panel
-  notify smoke-chat 0 "$summary" "" '[]' "{\"image-path\": <\"$home/avatar.png\">}" 0 >/dev/null
-  expect_poll "$summary: the helper reaches the copy barrier" True test_file "$image_entered"
-  # Store.changed queues its file write with Qt.callLater. A running copy
-  # does not prove that write finished: the VGS-1071 final run read no entry
-  # here and tested none-image despite logging the real pending-image warning.
-  setup_failures="$failures"
+# pending_image_key SUMMARY: the key of SUMMARY's saved history entry, in
+# pending_key. Store.changed queues its file write with Qt.callLater, so a
+# running copy does not prove that write finished: the VGS-1071 final run
+# read no entry here and tested none-image despite logging the real
+# pending-image warning. It waits for the entry and returns 1 with that
+# wait's failure when none is saved, or 2 when the saved entry is not the
+# fixture's; pending_key is empty then.
+pending_image_key() { # SUMMARY
+  local summary="$1" before="$failures"
+  pending_key=""
   expect_poll "$summary: the saved history contains the pending notification" True in_history "$summary"
-  if ((failures > setup_failures)); then
-    if [[ -e $image_entered ]]; then printf 'release\n' >"$image_gate"; fi
-    return
-  fi
-  if ! key="$(note_state_py 'import json,re,sys
+  if ((failures > before)); then return 1; fi
+  if ! pending_key="$(note_state_py 'import json,re,sys
 entries = [e for e in json.load(open(sys.argv[1]))["history"] if e["summary"] == sys.argv[2]]
 if len(entries) != 1: sys.exit("pending-image-entry: count=" + str(len(entries)))
 entry = entries[0]
@@ -1965,11 +1961,28 @@ key = entry.get("key")
 if not isinstance(key, str) or re.fullmatch(r"[0-9]+-[0-9]+", key) is None: sys.exit("pending-image-entry: invalid-key")
 if entry.get("app") != "smoke-chat" or entry.get("image") != "file://" + sys.argv[3] + "/" + key + "-image": sys.exit("pending-image-entry: wrong-fixture")
 print(key)' "$summary" "$note_images" 2>"$sandbox/pending-image-key.stderr")"; then
+    pending_key=""
     fail "$summary: the saved pending-image entry is invalid"
     cat -- "$sandbox/pending-image-key.stderr"
+    return 2
+  fi
+}
+# Control: nothing sent this summary, so no history entry holds it. The key
+# step ends at its wait, with one failure, and hands back no key.
+pending_key_control() { (failures=0; behaviour_failures=0; step=0; pending_image_key "Pending image never sent" >"$sandbox/pending-image-key-control.log" || step=$?; echo "$failures $step [$pending_key]"); }
+expect "control: a summary with no history entry fails at the key wait and yields no key" "1 1 []" pending_key_control
+pending_image_case() { # SUMMARY CONTROL
+  local summary="$1" control="$2" key pattern
+  rm -f -- "${image_entered:?}"
+  expect "$summary: Silence stays on" on notes silence on
+  expect "$summary: the inbox opens before the copy" ok notes panel
+  notify smoke-chat 0 "$summary" "" '[]' "{\"image-path\": <\"$home/avatar.png\">}" 0 >/dev/null
+  expect_poll "$summary: the helper reaches the copy barrier" True test_file "$image_entered"
+  if ! pending_image_key "$summary"; then
     if [[ -e $image_entered ]]; then printf 'release\n' >"$image_gate"; fi
     return
   fi
+  key="$pending_key"
   expect "$summary: the saved image does not exist at the barrier" False test_file "$note_images/$key-image"
   expect "$summary: the inbox refreshes while the copy waits" ok notes panel
   pattern="MediaSlot\\.qml.*Cannot open: file://.*/$key-image"
