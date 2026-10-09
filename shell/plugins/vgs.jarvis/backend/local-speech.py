@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local speech sidecar: speech to text and text to speech for the daemon.
+"""Local speech sidecar: wake word, speech to text and text to speech for the daemon.
 
 LocalSpeech.js starts it as the selected runtime's interpreter, inside a
 private network namespace, as `python -I local-speech.py --state DIR --data DIR
@@ -9,12 +9,14 @@ under it, and loads only after setup's readiness judge answers ready.
 Wire, both directions: frames of a u32be header length, a u32be payload length,
 a UTF-8 JSON object header and the payload bytes. Audio is float32 little-endian
 mono. Ids are positive integers; each new request takes a larger id.
-  in:  {type:"listen", id, detect}; {type:"audio", id} + 16 kHz samples;
+  in:  {type:"listen", id, detect}; {type:"wake", id}; {type:"audio", id} + 16 kHz samples;
        {type:"end", id}; {type:"abort", id};
        {type:"speak", id} + one sentence's UTF-8 text
   out: {type:"ready"} once; {type:"partial", id, text, rev}; {type:"final", id, text};
-       {type:"audio", id} + samples;
+       {type:"woke", id}; {type:"audio", id} + samples;
        {type:"spoken", id, rate}; {type:"failed", id?, cause}
+A wake request spots the keyword in its audio and answers woke once; it has no
+end, only abort. One listen or wake request is open at a time.
 A failed frame without an id ends the sidecar. A message for an utterance the
 sidecar already answered crossed that answer and is dropped. Stdin EOF exits 0;
 the runtime not ready exits 77; a protocol violation exits 65; other failures 1.
@@ -135,7 +137,7 @@ def detect(vad, samples, waveform):
 class Speech:
     """The loaded models of one tier and the input bound of its recognizer."""
 
-    def __init__(self, recognizer, bound, vad, tts, rate, waveform, captions, turn):
+    def __init__(self, recognizer, bound, vad, tts, rate, waveform, captions, turn, spotter, keywords):
         self.recognizer = recognizer
         self.bound = bound
         self.vad = vad
@@ -144,6 +146,8 @@ class Speech:
         self.waveform = waveform
         self.captions = captions
         self.turn = turn
+        self.spotter = spotter
+        self.keywords = keywords
 
     def transcribe(self, samples):
         """Decode each chunk on a fresh stream, in order; join the texts once.
@@ -237,6 +241,28 @@ class Utterance:
         return partial, ended
 
 
+class Wake:
+    """One wake capture on one keyword stream; its state is the stream's, so
+    memory stays fixed however long the capture runs."""
+
+    def __init__(self, speech):
+        self.speech = speech
+        # None is a keyword the model cannot encode, as measure-local's probe reads it.
+        self.stream = speech.spotter.create_stream(speech.keywords)
+        if self.stream is None:
+            raise Failed("wake-keywords")
+
+    def push(self, received):
+        """Whether the keyword ended in these samples."""
+        spotter = self.speech.spotter
+        self.stream.accept_waveform(RATE, self.speech.waveform(received))
+        while spotter.is_ready(self.stream):
+            spotter.decode_stream(self.stream)
+            if spotter.get_result(self.stream):
+                return True
+        return False
+
+
 def little(samples):
     """Wire samples are little-endian whatever the host order."""
     if sys.byteorder != "little":
@@ -284,7 +310,7 @@ def send(writer, header, payload=b""):
 
 
 # The keys each inbound type carries, and whether it carries a payload.
-SHAPES = {"listen": ({"type", "id", "detect"}, False),
+SHAPES = {"listen": ({"type", "id", "detect"}, False), "wake": ({"type", "id"}, False),
           "audio": ({"type", "id"}, True), "end": ({"type", "id"}, False),
           "abort": ({"type", "id"}, False), "speak": ({"type", "id"}, True)}
 
@@ -306,6 +332,14 @@ def serve(reader, writer, speech):
             if not fresh or type(header["detect"]) is not bool or utterances:
                 raise Protocol("listen=invalid")
             utterances[ident] = Utterance(speech, header["detect"])
+            continue
+        if kind == "wake":
+            if not fresh or utterances:
+                raise Protocol("wake=invalid")
+            try:
+                utterances[ident] = Wake(speech)
+            except Failed as failure:
+                send(writer, {"type": "failed", "id": ident, "cause": str(failure)})
             continue
         if kind == "speak":
             try:
@@ -335,6 +369,17 @@ def serve(reader, writer, speech):
                 raise Protocol("audio=partial-sample")
             received = array("f")
             received.frombytes(payload)
+            if isinstance(utterances[ident], Wake):
+                try:
+                    woke = utterances[ident].push(little(received))
+                except (RuntimeError, ValueError):
+                    utterances.pop(ident)
+                    send(writer, {"type": "failed", "id": ident, "cause": "wake-failed"})
+                    continue
+                if woke:
+                    utterances.pop(ident)
+                    send(writer, {"type": "woke", "id": ident})
+                continue
             try:
                 partial, ended = utterances[ident].push(little(received))
                 if partial is not None:
@@ -345,6 +390,8 @@ def serve(reader, writer, speech):
             except Failed as failure:
                 utterances.pop(ident, None)
                 send(writer, {"type": "failed", "id": ident, "cause": str(failure)})
+        elif isinstance(utterances[ident], Wake):
+            raise Protocol("end=wake")
         else:
             samples = utterances.pop(ident).samples
             try:
@@ -373,19 +420,19 @@ def hold(state):
 
 
 def roles(artifacts, tier):
-    """The tier's recognizer, voice activity model and voice, one each."""
+    """The tier's recognizer, voice activity, caption, turn, wake and voice models, one each."""
     found = {}
     for artifact in artifacts:
         engine = artifact["engine"]
         role = ("stt" if engine in SPEECH_TO_TEXT else "tts" if engine in TEXT_TO_SPEECH
                 else "vad" if engine == "silero" else "captions" if engine == "nemotron"
-                else "turn" if engine == "smart-turn" else None)
+                else "turn" if engine == "smart-turn" else "wake" if engine == "wake" else None)
         if role is None:
             continue
         if role in found:
             raise RuntimeError(f"tier=duplicate-role role={role} tier={tier}")
         found[role] = artifact
-    if set(found) != {"stt", "tts", "vad", "captions", "turn"}:
+    if set(found) != {"stt", "tts", "vad", "captions", "turn", "wake"}:
         raise RuntimeError(f"tier=missing-role tier={tier}")
     return found
 
@@ -414,9 +461,10 @@ def load(setup, state, data):
         models = {role: judge.load(artifact, data / "models", provider, np, sherpa) for role, artifact in chosen.items()}
     def turn(samples):
         return judge.infer(chosen["turn"], models["turn"], np.frombuffer(samples, dtype=np.float32), "", value, np)["probability"]
+    # The keyword is the one setup's probe decoded with this model.
     return Speech(models["stt"], chosen["stt"].get("maxInputSamples"), models["vad"], models["tts"],
                   chosen["tts"]["outputSampleRate"], lambda samples: np.frombuffer(samples, dtype=np.float32),
-                  models["captions"], turn)
+                  models["captions"], turn, models["wake"], value["fixture"]["wakeTokens"])
 
 
 def main():

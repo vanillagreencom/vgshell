@@ -185,9 +185,51 @@ class Captions:
         return stream.text
 
 
-def speech(m, segments, bound, recognizer=None, voice=None, rate=22050, captions=None, turn=lambda s: 1.0):
+class Spotter:
+    """Keyword-stream API double: the keyword ends once AT samples were fed,
+    one ready decode per feed; None for keywords it cannot encode."""
+
+    def __init__(self, at=None, encodes=True):
+        self.at, self.encodes = at, encodes
+        self.streams = []
+
+    def create_stream(self, keywords):
+        if not self.encodes:
+            return None
+
+        class Stream:
+            samples = 0
+            ready = False
+            decoded = 0
+
+            def accept_waveform(self, rate, samples):
+                if rate != 16000:
+                    raise AssertionError("spotter rate")
+                self.samples += len(samples)
+                self.ready = True
+
+        stream = Stream()
+        stream.keywords = keywords
+        self.streams.append(stream)
+        return stream
+
+    def is_ready(self, stream):
+        return stream.ready
+
+    def decode_stream(self, stream):
+        stream.ready = False
+        stream.decoded = stream.samples
+
+    def get_result(self, stream):
+        return "HEY_JARVIS" if self.at is not None and stream.decoded >= self.at else ""
+
+
+KEYWORDS = "▁HE Y ▁JA R V IS @HEY_JARVIS"
+
+
+def speech(m, segments, bound, recognizer=None, voice=None, rate=22050, captions=None, turn=lambda s: 1.0, spotter=None):
     return m.Speech(recognizer or Recognizer(), bound, Vad(segments), voice or Voice(rate), rate, lambda s: s,
-                    captions or Captions(), turn)
+                    captions or Captions(), turn, spotter or Spotter(), KEYWORDS)
 
 
 def frame(header, payload=b""):
@@ -215,7 +257,7 @@ def serve(m, messages, model):
     highest = 0
     for message in messages:
         header = message[0]
-        if header["id"] > highest and header["type"] not in ("listen", "speak"):
+        if header["id"] > highest and header["type"] not in ("listen", "speak", "wake"):
             explicit.append(({"type": "listen", "id": header["id"], "detect": False},))
         highest = max(highest, header["id"])
         explicit.append(message)
@@ -384,6 +426,34 @@ def streaming_cases(m):
         raise AssertionError(f"silence {output}")
 
 
+def wake_cases(m):
+    # The keyword ends in the second block: one woke, no transcript, and the
+    # stream saw only the samples sent until then.
+    spotter = Spotter(at=6000)
+    model = speech(m, [(0, 16000)], 80000, spotter=spotter)
+    out = serve(m, [({"type": "wake", "id": 1},), ({"type": "audio", "id": 1}, floats(4000)),
+                    ({"type": "audio", "id": 1}, floats(4000)), ({"type": "audio", "id": 1}, floats(4000))], model)
+    if [h for h, _ in out] != [{"type": "woke", "id": 1}]:
+        raise AssertionError(f"woke {out}")
+    if len(spotter.streams) != 1 or spotter.streams[0].samples != 8000 or spotter.streams[0].keywords != KEYWORDS:
+        raise AssertionError("one keyword stream, fed until the word")
+    # No keyword: an abort ends the request unanswered, audio crossing the
+    # abort is dropped, and a listen may follow.
+    out = serve(m, [({"type": "wake", "id": 2},), ({"type": "audio", "id": 2}, floats(4000)),
+                    ({"type": "abort", "id": 2},), ({"type": "audio", "id": 2}, floats(4)),
+                    ({"type": "listen", "id": 3, "detect": False},), ({"type": "end", "id": 3},)],
+                speech(m, [], 80000, spotter=Spotter()))
+    if [h for h, _ in out] != [{"type": "final", "id": 3, "text": ""}]:
+        raise AssertionError(f"no keyword {out}")
+    # A keyword the model cannot encode fails the request, not the sidecar.
+    out = serve(m, [({"type": "wake", "id": 4},), ({"type": "audio", "id": 4}, floats(4)),
+                    ({"type": "listen", "id": 5, "detect": False},), ({"type": "end", "id": 5},)],
+                speech(m, [], 80000, spotter=Spotter(encodes=False)))
+    if [h for h, _ in out] != [{"type": "failed", "id": 4, "cause": "wake-keywords"},
+                               {"type": "final", "id": 5, "text": ""}]:
+        raise AssertionError(f"keywords {out}")
+
+
 def bound_case(m):
     m.UTTERANCE_SAMPLES = 10
     out = serve(m, [({"type": "audio", "id": 1}, floats(8)), ({"type": "audio", "id": 1}, floats(8)),
@@ -413,6 +483,14 @@ VIOLATIONS = [
     ("invalid detection", [frame({"type": "listen", "id": 1, "detect": "toggle"})], "listen=invalid"),
     ("overlapping captures", [frame({"type": "listen", "id": 1, "detect": True}),
                               frame({"type": "listen", "id": 2, "detect": True})], "listen=invalid"),
+    ("wake beside a capture", [frame({"type": "listen", "id": 1, "detect": True}),
+                               frame({"type": "wake", "id": 2})], "wake=invalid"),
+    ("capture beside a wake", [frame({"type": "wake", "id": 1}),
+                               frame({"type": "listen", "id": 2, "detect": True})], "listen=invalid"),
+    ("reused wake id", [frame({"type": "wake", "id": 2}), frame({"type": "abort", "id": 2}),
+                        frame({"type": "wake", "id": 2})], "wake=invalid"),
+    ("wake with a key", [frame({"type": "wake", "id": 1, "detect": True})], "message=invalid type=wake"),
+    ("wake ended", [frame({"type": "wake", "id": 1}), frame({"type": "end", "id": 1})], "end=wake"),
 ]
 
 
@@ -518,7 +596,7 @@ def roles_case(m):
         raise AssertionError("tier discovery is broken: no small tier")
     for tier, row in value["tiers"].items():
         chosen = m.roles([by_id[n] for n in row["artifacts"]], tier)
-        if set(chosen) != {"stt", "tts", "vad", "captions", "turn"}:
+        if set(chosen) != {"stt", "tts", "vad", "captions", "turn", "wake"} or chosen["wake"]["id"] != "wake":
             raise AssertionError(f"{tier}: {chosen}")
     try:
         m.roles([by_id["moonshine"], by_id["parakeet"], by_id["piper"], by_id["silero"]], "x")
@@ -600,6 +678,15 @@ CONTROLS = [
     ("setup lock", "fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)", "fcntl.flock(lock, fcntl.LOCK_UN)",
      readiness_cases),
     ("one role each", "if role in found:", "if False:", roles_case),
+    ("wake role", 'else "wake" if engine == "wake" else None', "else None", roles_case),
+    ("woke once", '                    utterances.pop(ident)\n                    send(writer, {"type": "woke", "id": ident})',
+     '                    send(writer, {"type": "woke", "id": ident})', wake_cases),
+    ("wake answered", 'send(writer, {"type": "woke", "id": ident})', "pass", wake_cases),
+    ("spotter fed", "self.stream.accept_waveform(RATE, self.speech.waveform(received))", "pass", wake_cases),
+    ("keyword encoded", 'raise Failed("wake-keywords")', "pass", wake_cases),
+    ("wake alone", '            if not fresh or utterances:\n                raise Protocol("wake=invalid")',
+     '            if not fresh:\n                raise Protocol("wake=invalid")', violation_cases),
+    ("wake has no end", 'raise Protocol("end=wake")', "continue", violation_cases),
     ("memory admission", 'judge.admit(ready["memory"], provider)', 'False and judge.admit(ready["memory"], provider)', admission_case),
     ("load serialization", 'with judge.loading(data / "models"):', 'if True:', admission_case),
 ]
@@ -660,6 +747,7 @@ class LocalSpeech(unittest.TestCase):
     def test_wire(self):
         m = load()
         wire_cases(m)
+        wake_cases(m)
         violation_cases(m)
         bound_case(load())
 
