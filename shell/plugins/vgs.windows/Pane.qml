@@ -10,7 +10,8 @@ import qs.Ui
 // slider runs between the bounds the `appearance` capability lends for its
 // value, the judge's own. VGlass is on or off for every glass surface, or each surface's
 // own choice, Hyprland's windows being one such surface; the Windows switch
-// shows the state Theme.glassOn gives them.
+// shows the state Theme.glassOn gives them, and the Glow switch, open only
+// while that state is on, adds a glow to the focused window.
 FocusScope {
     id: root
 
@@ -160,6 +161,23 @@ FocusScope {
                         const wanted = checked;
                         checked = Qt.binding(() => Theme.glassOn(root.valueOf("windowGlass") === true));
                         root.answer(wanted ? root.shell.appearance.set("windowGlass", true) : root.shell.appearance.unset("windowGlass"));
+                    }
+                }
+            }
+
+            FormRow {
+                width: parent.width
+                label: "Glow"
+                info: "On: Hyprland draws a soft glow inside your focused window in your theme's colours while Windows glass is on. Off: Hyprland keeps the glow from your own Hyprland config."
+                Switch {
+                    size: "sm"
+                    Accessible.name: "Glow"
+                    enabled: Theme.glassOn(root.valueOf("windowGlass") === true)
+                    checked: root.valueOf("windowGlow") === true
+                    onToggled: {
+                        const wanted = checked;
+                        checked = Qt.binding(() => root.valueOf("windowGlow") === true);
+                        root.answer(wanted ? root.shell.appearance.set("windowGlow", true) : root.shell.appearance.unset("windowGlow"));
                     }
                 }
             }

@@ -24,3 +24,4 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 | Border width | The window border, from 0 to 20 px. Use my Hyprland value also keeps your own border colours. |
 | VGlass | Each surface decides, On for every glass surface or Off for every glass surface: the launcher, notifications and your windows. Without glass a surface draws as a plain panel. |
 | Windows | Whether Hyprland draws your windows with glass while each surface decides. |
+| Glow | Whether Hyprland draws a soft glow inside your focused window while Windows glass is on. |

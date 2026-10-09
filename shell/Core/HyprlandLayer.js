@@ -141,7 +141,7 @@ var APPEARANCE_DEFAULTS = { noGaps: false };
 // The theme's groups, which a user's own line would replace: they are
 // applied after the configuration, each while the theme's `groups` says
 // so, which the user's Appearance values decide (ThemeLogic.APPEARANCE).
-var APPLIED_GROUPS = ["borders", "radius", "motion", "glass"];
+var APPLIED_GROUPS = ["borders", "radius", "motion", "glass", "glow"];
 // The option of each applied group a user's Appearance row shows, by the
 // path `hyprctl getoption` and `hl.get_config` read and its type, as for
 // OPTIONS, and `member`, the shell.json `appearance` member that decides
@@ -151,13 +151,15 @@ var APPLIED_GROUPS = ["borders", "radius", "motion", "glass"];
 // v0.56.2 answered `getoption` in this dot form for the first three
 // (scripts/smoke/rows/appearance.sh, 2026-10-08). Window glass reads the
 // active opacity, not the blur switch: Hyprland's blur is on by default,
-// so only the opacity, 1 by default, tells the written group apart.
-// scripts/smoke/rows/appearance.sh reads it back.
+// so only the opacity, 1 by default, tells the written group apart. Window
+// glow reads its switch, off by default.
+// scripts/smoke/rows/appearance.sh reads both back.
 var APPEARANCE_PATHS = {
     borders: { path: "general.border_size", type: "int", member: "borderWidth" },
     radius: { path: "decoration.rounding", type: "int", member: "windowRadius" },
     motion: { path: "animations.enabled", type: "bool", member: "windowAnimations" },
-    glass: { path: "decoration.active_opacity", type: "float", member: "windowGlass" }
+    glass: { path: "decoration.active_opacity", type: "float", member: "windowGlass" },
+    glow: { path: "decoration.glow.enabled", type: "bool", member: "windowGlow" }
 };
 
 // The getoption type of PATH, an OPTIONS or APPEARANCE_PATHS path, or null
@@ -428,6 +430,27 @@ function glassLines(theme) {
     ];
 }
 
+// Window glow, Hyprland 0.56.2's `decoration.glow`: a glow inside the
+// focused window, from the theme's hyprland.glow tokens, a gradient from
+// `color` to `colorEnd` at `angle`, and `inactive` for the other windows.
+function glowLines(theme) {
+    var glow = theme.hyprland.glow;
+    return [
+        "-- Theme appearance: window glow.",
+        "hl.config({",
+        "    decoration = {",
+        "        glow = {",
+        "            enabled = true,",
+        "            range = " + luaNumber(glow.range) + ",",
+        "            render_power = " + luaNumber(glow.renderPower) + ",",
+        "            color = { colors = { \"" + hyprColour("hyprland.glow.color", glow.color) + "\", \"" + hyprColour("hyprland.glow.colorEnd", glow.colorEnd) + "\" }, angle = " + luaNumber(glow.angle) + " },",
+        "            color_inactive = \"" + hyprColour("hyprland.glow.inactive", glow.inactive) + "\",",
+        "        },",
+        "    },",
+        "})"
+    ];
+}
+
 // No window gaps: zero inner and outer gaps on every workspace. Workspace
 // rules, not `general` gaps, so a user's own `general.gaps_*` after the
 // loading line leaves the switch in force; the empty selector matches every
@@ -475,6 +498,7 @@ function appearanceValue(group, theme) {
     case "radius": return theme.hyprland.window.radius;
     case "motion": return !(theme.motionScale === 0 || theme.hyprland.motion.preset === "none");
     case "glass": return theme.glass.opacity;
+    case "glow": return true;
     }
     throw new Error("HyprlandLayer: applied group " + JSON.stringify(group) + " is not one of " + APPLIED_GROUPS.join(", "));
 }
@@ -1239,7 +1263,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     var switches = groupSwitches(sections);
     var applied = [];
     var groups = [];
-    var groupLines = { borders: function () { return borderLines(theme, themeName); }, radius: function () { return radiusLines(theme, highestScale); }, motion: function () { return motionLines(theme); }, glass: function () { return glassLines(theme); } };
+    var groupLines = { borders: function () { return borderLines(theme, themeName); }, radius: function () { return radiusLines(theme, highestScale); }, motion: function () { return motionLines(theme); }, glass: function () { return glassLines(theme); }, glow: function () { return glowLines(theme); } };
     var appearance = [];
     APPLIED_GROUPS.forEach(function (group) {
         if (theme.groups === null || typeof theme.groups !== "object" || typeof theme.groups[group] !== "boolean")

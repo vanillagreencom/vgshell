@@ -271,6 +271,17 @@ var TOKENS = {
         shadow: {
             // Mix toward black before alpha so light themes keep a dark shadow.
             color: color("alpha(mix({palette.background}, #000000, 0.72), 0.55)")
+        },
+        // Window glow: dark colours tinted toward the scheme, never the
+        // bright accent, and a high range at render power 4 so rounded
+        // corners do not clip it. Transparent while inactive: focus only.
+        glow: {
+            color: color("mix({palette.background}, {palette.accent}, 0.18)"),
+            colorEnd: color("mix({palette.background}, {palette.foreground}, 0.1)"),
+            angle: number(90, 0, 360),
+            inactive: color("alpha({palette.background}, 0)"),
+            range: length(40, 0, 100),
+            renderPower: length(4, 1, 4)
         }
     },
 

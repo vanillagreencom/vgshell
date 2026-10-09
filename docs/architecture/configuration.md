@@ -35,7 +35,7 @@ One file stops delivering shipped defaults the moment a user edits it, and a dee
 ### Theme file
 
 - Do judge `theme.json` with `ThemeLogic.accept` alone. An absent file publishes the defaults; a file that becomes unreadable or that the judge refuses is logged and leaves the last accepted theme.
-- Never merge a user layer over the applied theme. A lasting change is an edited copy installed as its own package ([D025](../decisions/D025-no-theme-override-layer.md)). The one exception is shell.json `appearance`: corner radius, border width, control radius, motion, the glass choice and window glass, never a colour, which `ThemeLogic.withAppearance` resolves over the theme ([D104](../decisions/D104-appearance-values-over-the-theme.md)). `scripts/test-theme-logic.js` pins it.
+- Never merge a user layer over the applied theme. A lasting change is an edited copy installed as its own package ([D025](../decisions/D025-no-theme-override-layer.md)). The one exception is shell.json `appearance`: corner radius, border width, control radius, motion, the glass choice, window glass and window glow, never a colour, which `ThemeLogic.withAppearance` resolves over the theme ([D104](../decisions/D104-appearance-values-over-the-theme.md)). `scripts/test-theme-logic.js` pins it.
 - Do write `appearance` only through capability `appearance`, after `ThemeLogic.appearanceRefusal` judges the value; `PluginLogic.configError` judges the key's shape alone, so one bad member shows as Set by theme and blocks no other key. `scripts/test-plugin-logic.js` and `scripts/smoke/rows/appearance.sh` pin both.
 
 ## The canonical example

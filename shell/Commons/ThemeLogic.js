@@ -1061,7 +1061,10 @@ var APPEARANCE = {
     glass: { type: "choice", options: ["on", "off"], unset: "surface" },
     // Hyprland's own windows as one surface's choice: unset leaves window
     // decoration to the user's Hyprland config.
-    windowGlass: { type: "flag", only: true, hyprland: "glass", unset: "hyprland" }
+    windowGlass: { type: "flag", only: true, hyprland: "glass", unset: "hyprland" },
+    // A glow inside the focused window while window glass is on; unset
+    // leaves the glow to the user's Hyprland config.
+    windowGlow: { type: "flag", only: true, hyprland: "glow", unset: "hyprland" }
 };
 
 // Whether a surface whose own VGlass choice is OPTIN draws glass under
@@ -1152,6 +1155,8 @@ function withAppearance(tokens, theme, user) {
     // Window glass is Hyprland's windows taking glass as a surface does,
     // their own choice being `windowGlass`.
     hyprland.glass = glassOn(values, values.windowGlass === true);
+    // Glow follows window glass: off whenever window glass is off.
+    hyprland.glow = hyprland.glass && values.windowGlow === true;
     var moving = hasOwn(values, "motion") ? values.motion : themeScale > 0;
     if (!moving && hasOwn(values, "motion"))
         stated[MOTION_SCALE] = 0;
