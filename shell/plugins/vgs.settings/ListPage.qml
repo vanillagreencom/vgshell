@@ -27,9 +27,23 @@ FocusScope {
         return panel.plugins.filter(p => wanted === "" || [p.name, p.id, p.description].some(t => String(t).toLowerCase().indexOf(wanted) !== -1));
     }
     readonly property alias scrollArea: layout.scrollArea
-    // The height the list takes unscrolled: its heading, its rows and the
-    // window's insets.
-    readonly property real fitHeight: layout.uncappedHeight
+    // The height the list takes unscrolled with every row: its heading,
+    // its rows and the window's insets. The search filter never sizes the
+    // window: a filtered list keeps the height it last had with an empty
+    // search, the height the window host maps it at, since the search is
+    // empty when the list is built.
+    readonly property real fitHeight: query === "" ? layout.uncappedHeight : fullHeight
+    property real fullHeight: 0
+
+    // RestoreNone keeps the last value while `when` is false
+    // (https://doc.qt.io/qt-6/qml-qtqml-binding.html#restoreMode-prop).
+    Binding {
+        target: page
+        property: "fullHeight"
+        value: layout.uncappedHeight
+        when: page.query === ""
+        restoreMode: Binding.RestoreNone
+    }
     readonly property alias initialFocus: search
 
     Keys.onPressed: event => { event.accepted = handleKey(event); }

@@ -319,6 +319,24 @@ Item {
             verify(!p.page.scrollArea.overflowing, "a short list does not scroll");
         }
 
+        // The search filter never sizes the window: a filtered list keeps
+        // the height of the list with every row.
+        function test_a_filtered_list_keeps_the_full_list_height() {
+            const window = opened('{}');
+            const p = listParts(window);
+            const full = p.page.fitHeight;
+            const drawn = p.pane.uncappedHeight;
+            compare(full, drawn, "the unfiltered list's height is its drawn height");
+            p.page.query = "short";
+            waitForRendering(window);
+            verify(p.pane.uncappedHeight < drawn, "the filter draws fewer rows: " + p.pane.uncappedHeight + " < " + drawn);
+            compare(p.page.fitHeight, full, "the filtered list keeps the full list's height");
+            compare(window.implicitHeight, Math.ceil(full), "the window asks for the full list's height");
+            p.page.query = "";
+            waitForRendering(window);
+            compare(p.page.fitHeight, full);
+        }
+
         function test_a_long_list_takes_the_cap_and_scrolls() {
             fakeManager.plugins = root.manyRows;
             const window = opened('{}');

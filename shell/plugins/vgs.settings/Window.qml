@@ -167,10 +167,14 @@ FocusScope {
             // The work area bounds the height too, so a page never asks for
             // more than fits under the bar, though the host may map taller.
             let height = Math.min(root.mapHeight, bottom - top);
-            // resizeTarget moves the box by half the height's change, so an
-            // odd change leaves a half pixel the configure rounds to one
-            // more pixel (909 asked, 910 drawn in the settings smoke row);
-            // an odd change asks one pixel more, or one less at the bound.
+            // A workaround for Hyprland's centre-keeping floating resize,
+            // which moves the box by half the height's change (v0.56.2
+            // DefaultFloatingAlgorithm.cpp:198-203): an odd change leaves a
+            // half pixel the configure rounds to one more pixel (909 asked,
+            // 910 drawn in the settings smoke row), so an odd change asks
+            // one pixel more, or one less at the bound. It ends when
+            // Hyprland resizes a floating window at its corner or rounds
+            // the box itself.
             if ((height - client.size[1]) % 2 !== 0) height += height < bottom - top ? 1 : -1;
             if (client.size[1] === height) return;
             const y = Math.max(top, Math.min(client.at[1], bottom - height));
