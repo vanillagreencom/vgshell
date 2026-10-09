@@ -24,7 +24,7 @@ import "Steps.js" as Steps
 // screen the manifest lists, which opens it through the manager: a screen
 // an offered status action opens first, with the action's label, then the
 // others (Steps.setupButtons), one settings section
-// per schema group (entries without a group first, under `Settings`), one
+// per schema group (entries without a group have no heading), one
 // section per `list` entry, titled with its label, and the Keys section,
 // then, for a plugin of kind `pane` while a panes holder is enabled, a
 // button named for the holder that opens the plugin's page there. A
@@ -85,23 +85,24 @@ FocusScope {
     // Whether a field of the page holds an unsaved edit.
     readonly property bool dirty: unsaved.edited
 
-    // The schema's keys by section: [{ group, keys }], entries without a
-    // group first under "", then each group in the order its first entry
-    // appears. The manifest's key order is the schema's. A `list` entry
+    // Built-in placement and same-named schema fields share one section.
+    // Ungrouped fields follow built-ins, then each group in the order its
+    // first entry appears. The manifest's key order is the schema's. A `list` entry
     // has its own section, `lists`.
     readonly property var sections: {
         if (row === null) return [];
-        const out = [{ group: "", keys: [] }];
+        const out = row.builtins.map(builtin => ({ group: builtin.name, keys: [], builtin: builtin }));
+        out.push({ group: "", keys: [], builtin: null });
         for (const key of Object.keys(row.schema).filter(key => row.schema[key].type !== "list")) {
             const group = row.schema[key].group === undefined ? "" : row.schema[key].group;
             let section = out.find(s => s.group === group);
             if (section === undefined) {
-                section = { group: group, keys: [] };
+                section = { group: group, keys: [], builtin: null };
                 out.push(section);
             }
             section.keys.push(key);
         }
-        return out.filter(s => s.keys.length > 0);
+        return out.filter(s => s.builtin !== null || s.keys.length > 0);
     }
 
     readonly property var lists: row === null ? [] : Object.keys(row.schema).filter(key => row.schema[key].type === "list")
@@ -317,26 +318,6 @@ FocusScope {
                         wrapMode: Text.Wrap
                     }
 
-                    Repeater {
-                        model: ScriptModel {
-                            values: page.row === null ? [] : page.row.builtins
-                            objectProp: "id"
-                        }
-                        Section {
-                            id: builtinSection
-                            required property var modelData
-                            width: body.width
-                            title: modelData.name
-                            SettingField {
-                                pluginId: builtinSection.modelData.id
-                                spec: ({ type: "boolean", label: "Show on the bar" })
-                                value: builtinSection.modelData.placed
-                                editable: page.editable
-                                onApply: v => { if (page !== null && page.row !== null) page.panel.writePlacement(pluginId, v, page.row.id); }
-                            }
-                        }
-                    }
-
                     // The plugin's own setup screens, each a TUI its
                     // manifest lists, opened through the manager as a status
                     // step is, under the state they set up. A keyed model
@@ -472,7 +453,16 @@ FocusScope {
                             id: section
                             required property var modelData
                             width: body.width
-                            title: section.modelData.group === "" ? "Settings" : section.modelData.group
+                            title: section.modelData.group
+
+                            SettingField {
+                                visible: section.modelData.builtin !== null
+                                pluginId: visible ? section.modelData.builtin.id : ""
+                                spec: ({ type: "boolean", label: "Show on the bar" })
+                                value: visible && section.modelData.builtin.placed
+                                editable: page.editable
+                                onApply: v => { if (page !== null && page.row !== null) page.panel.writePlacement(pluginId, v, page.row.id); }
+                            }
 
                             Repeater {
                                 model: ScriptModel {

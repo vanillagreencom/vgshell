@@ -341,6 +341,31 @@ Item {
             releasePage(page, original);
         }
 
+        function test_builtin_and_matching_schema_group_share_one_section() {
+            const original = root.pageRow;
+            root.pageRow = Object.assign({}, original, {
+                builtins: [{ id: "acme.unit-clock", name: "Clock", placed: true }],
+                schema: {
+                    format: { type: "boolean", label: "Format", group: "Clock" },
+                    hidden: { type: "boolean", label: "Hidden", group: "Bar" },
+                    plain: { type: "boolean", label: "Plain" }
+                },
+                settings: { format: true, hidden: false, plain: true }, binds: []
+            });
+            const page = createTemporaryObject(pluginPageComponent, root);
+            verify(page !== null);
+            const sections = () => descendants(page).filter(item => item instanceof Section);
+            tryVerify(() => sections().some(item => item.title === "Clock"));
+            const clockSections = sections().filter(item => item.title === "Clock");
+            compare(clockSections.length, 1, "same-named groups draw one heading");
+            const fields = descendants(clockSections[0]).filter(item => item instanceof SettingField);
+            verify(fields.some(item => item.pluginId === "acme.unit-clock" && item.visible));
+            verify(fields.some(item => item.key === "format" && item.visible));
+            verify(sections().some(item => item.title === "Bar" && descendants(item).some(child => child.key === "hidden")));
+            verify(sections().some(item => item.title === "" && descendants(item).some(child => child.key === "plain")));
+            releasePage(page, original);
+        }
+
         function test_enter_writes_the_field_it_is_pressed_in() {
             editor(gap).forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_Return);

@@ -10,7 +10,7 @@ BarWidget {
 
     implicitWidth: item.implicitWidth
     implicitHeight: barSize
-    frameActions: [{ label: "Open terminal", action: root.openTerminal }]
+    frameActions: [{ label: "Open terminal", icon: "terminal", action: root.openTerminal }]
 
     function open() {
         if (root.shell === null) return;

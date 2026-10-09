@@ -47,7 +47,7 @@ BarWidget {
     visible: shown
     implicitWidth: shown ? pinnedRow.x + pinnedRow.implicitWidth : 0
     implicitHeight: barSize
-    frameActions: [{ label: "Manage tray icons", action: () => Qt.callLater(manage.open) }]
+    frameActions: [{ label: "Manage tray icons", icon: "list", action: () => Qt.callLater(manage.open) }]
 
     // The drawer and the arrow: the pointer resting anywhere on them keeps
     // the drawer open. The drawer's icons slide in from the arrow's side.

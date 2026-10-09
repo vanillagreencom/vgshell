@@ -9,8 +9,8 @@ BarWidget {
     implicitWidth: visible ? button.implicitWidth : 0
     implicitHeight: barSize
     frameActions: [
-        { label: "Keyboard Controls", action: () => widget.toggleControls() },
-        { label: "Keyboard Settings", action: () => shell.surfaces.summon("pane", "{}") }
+        { label: "Keyboard Controls", icon: "keyboard", action: () => widget.toggleControls() },
+        { label: "Keyboard Settings", icon: "settings", action: () => shell.surfaces.summon("pane", "{}") }
     ]
 
     // Only this plugin's revision changes refresh its snapshot. QML's

@@ -47,6 +47,7 @@
       "type": "string",
       "label": "Clock format",
       "description": "How the bar's clock shows the date and time",
+      "group": "Clock",
       "format": "datetime",
       "allowCustom": true,
       "presets": [
@@ -64,6 +65,7 @@
       "type": "string",
       "label": "Calendar",
       "description": "The web calendar a click on a day opens; a custom address takes {year}, {month} and {day}",
+      "group": "Clock",
       "allowCustom": true,
       "presets": [
         { "value": "https://calendar.google.com/calendar/r/day/{year}/{month}/{day}", "label": "Google Calendar" },
@@ -74,12 +76,14 @@
       "type": "string",
       "label": "Open with",
       "description": "The browser and profile a click on a day opens your calendar in",
+      "group": "Clock",
       "optionsFrom": "browserProfiles"
     },
     "hidden": {
       "type": "boolean",
       "label": "Hide top bar",
-      "description": "Hide the bar on every screen and give its space to windows"
+      "description": "Hide the bar on every screen and give its space to windows",
+      "group": "Bar"
     }
   },
   "status": {

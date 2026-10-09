@@ -16,7 +16,7 @@ import qs.Ui
 //
 // Every widget gets the same right-click menu, with no code in the plugin:
 // Hide, then the entries the widget hands in `frameActions`, each
-// { label, action }, which a click or Enter runs, then Settings. Settings
+// { label, icon, action }, which a click or Enter runs, then Settings. Settings
 // opens Plugins on the owning plugin's page through the same link as a
 // pane's gear; a builtin opens its bar's page. The entry is absent when
 // the plugin has no Settings page. A builtin hides at once; its Settings >
@@ -39,7 +39,7 @@ Item {
     property string moduleName: ""
     property var settings: ({})
     property var frame: null
-    // The widget's own menu entries after Hide, each { label, action }.
+    // The widget's own menu entries after Hide, each { label, icon, action }.
     property var frameActions: []
     // The first entry's text and icon. It runs Hide; a builtin the user
     // added from the bar's own menu names it as a removal.
@@ -193,6 +193,7 @@ Item {
                         required property var modelData
                         required property int index
                         text: modelData.label
+                        iconName: modelData.icon
                         // Read from the list itself: a model entry is a copy
                         // that need not keep the function.
                         onTriggered: root.frameActions[index].action()

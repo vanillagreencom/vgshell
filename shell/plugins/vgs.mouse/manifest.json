@@ -26,7 +26,7 @@
     "touchpadEnabled": true
   },
   "schema": {
-    "sensitivity": { "type": "number", "label": "Pointer speed", "description": "How fast the pointer moves", "min": -1, "max": 1, "step": 0.05, "unit": "×", "group": "Pointer" },
+    "sensitivity": { "type": "number", "label": "Pointer speed", "description": "Speed offset from -1 to 1; 0 keeps the default speed", "min": -1, "max": 1, "step": 0.05, "group": "Pointer" },
     "accelProfile": { "type": "enum", "label": "Acceleration", "description": "How pointer speed changes while you move", "options": ["adaptive", "flat"], "group": "Pointer" },
     "naturalScroll": { "type": "boolean", "label": "Natural scroll", "description": "Move content in the same direction as your fingers", "group": "Pointer" },
     "leftHanded": { "type": "boolean", "label": "Left-handed", "description": "Swap the main and secondary mouse buttons", "group": "Pointer" },
