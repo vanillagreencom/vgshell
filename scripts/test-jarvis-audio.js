@@ -50,6 +50,18 @@ async function capture(w) {
         "fixture descendant actually holds its lock");
 }
 
+// Always mode's wake capture reads the microphone but publishes no level.
+async function armedLevels(Implementation) {
+    const w = setup(Implementation);
+    try {
+        w.dispatch("snapshot", { locked: false, engine: "chained", configured: true,
+            settings: { microphone: "", speaker: "", mode: "always" } });
+        await until(() => w.runner.state.capture.kind === "open" && w.runner.state.capture.mode === "armed", "wake capture opens");
+        await until(() => w.frames() >= 15, "wake capture PCM");
+        assert.deepEqual(w.levels, [], "a wake capture publishes no level");
+    } finally { w.runner.close(); await w.audio.close("test-end"); }
+}
+
 async function trigger(Implementation, type) {
     const w = setup(Implementation);
     try {
@@ -130,6 +142,7 @@ async function inside() {
         } finally { w.runner.close(); await w.audio.close("test-end"); }
     }
     await desktopDefaults();
+    await armedLevels(Audio);
     for (const type of ["mute", "locked", "unknown", "indicator", "provider", "lease"])
         await trigger(Audio, type);
     const retired = setup();
@@ -535,6 +548,8 @@ async function inside() {
             assert.ok(w.levels[1].at - w.levels[0].at >= 1000 / 30);
         } finally { w.runner.close(); await w.audio.close("test-end"); }
     });
+    await control("armed-level", 'if (e.mode !== "armed") this.reportLevel(e.gen, "capture", pcm);',
+        'this.reportLevel(e.gen, "capture", pcm);', armedLevels);
     await control("env-scrub", "this.environment = {};", "this.environment = { ...environment };", async impl => {
         const w = setup(impl);
         try {

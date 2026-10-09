@@ -27,7 +27,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manif
 assert.deepEqual(Object.keys(manifest.settings).sort(), ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount"].sort());
 assert.deepEqual([manifest.settings.cloudVision, manifest.schema.cloudVision.options], ["ask", ["ask", "allow", "never"]]);
 assert.equal(typeof manifest.settings.privateWindows, "string");
-assert.deepEqual(manifest.schema.mode.options, ["hold", "toggle"]);
+assert.deepEqual(manifest.schema.mode.options, ["hold", "toggle", "always"]);
 assert.deepEqual(manifest.schema.taskTerminal.options, ["auto", "tmux", "floating"]);
 assert.deepEqual(manifest.tui.task, { script: "tui/task.sh", title: "Jarvis coding task", presentation: "plain" });
 assert.deepEqual(manifest.status.tasks.type, "count");

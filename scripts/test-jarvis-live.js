@@ -980,7 +980,7 @@ world(async () => {
         ];
         for (const [name, needle, replacement, check] of mutations) await control(name, needle, replacement, check);
         for (const [name, needle, replacement, scenario] of [
-            ["daemon-live-selection", 'settings.voiceProvider === "gpt-live"', "false", "action"],
+            ["daemon-live-selection", 'if (settings.voiceProvider === "gpt-live") {', "if (false) {", "action"],
             ["daemon-commentary", "c.live.commentary(turn.delegation, item);", "void item;", "action"],
             ["daemon-router-tools", "tools: router.offer()", "tools: []", "action"],
             ["daemon-router-approval", "router.route(call, { gen: turn.gen, op: turn.op });", "void call;", "action"],

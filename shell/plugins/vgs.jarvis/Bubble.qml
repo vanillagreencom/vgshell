@@ -77,7 +77,9 @@ Item {
         : service.shell.status.values.transcript || null
     // The user's words while they arrive, then Jarvis's for this conversation.
     // The status keeps an ended conversation's caption until the next one.
-    readonly property string words: state === null || root.hold !== null ? ""
+    // Waiting for the word shows no words: a reply left on screen could
+    // stand there until the next request, however long that is.
+    readonly property string words: state === null || root.hold !== null || phase === "armed" ? ""
         : fault !== null ? fault.action
         : state.turn.kind === "collecting" ? state.turn.partial
         : caption !== null && caption.gen === state.gen ? caption.text : ""

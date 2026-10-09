@@ -346,7 +346,9 @@ class Audio {
                     return;
                 }
                 if (!feed.write(pcm)) owner.child.stdout.pause();
-                this.reportLevel(e.gen, "capture", pcm);
+                // A wake capture can wait all day for a word that is not
+                // speech to Jarvis yet; its room sound publishes no level.
+                if (e.mode !== "armed") this.reportLevel(e.gen, "capture", pcm);
             });
             feed.on("drain", () => { if (!owner.stopping) owner.child.stdout.resume(); });
             owner.closed.then(() => {
