@@ -83,7 +83,7 @@ function valueText(key, value) {
 // the overridden line.
 function warningText(paths, values, options, key) {
     var value = userValue(values, options, key);
-    if (value !== undefined) return "Your Hyprland config sets this to " + valueText(key, value);
+    if (value !== undefined) return "Hyprland config sets " + valueText(key, value);
     return overriddenText(paths, options, key);
 }
 

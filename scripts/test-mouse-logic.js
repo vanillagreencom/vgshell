@@ -107,7 +107,7 @@ const CONTROLS = [
     ["a false user value is a value", `return userValue(values, options, key) !== undefined;`, `return !!userValue(values, options, key);`],
     ["a switch value reads on or off", `if (typeof value === "boolean") return value ? "on" : "off";`, `if (typeof value === "boolean") return String(value);`],
     ["pointer speed reads as its row does", `return key === "sensitivity" ? pointerSpeedText(value) : factorText(value);`, `return factorText(value);`],
-    ["the user's value takes the line", `if (value !== undefined) return "Your Hyprland config sets this to " + valueText(key, value);`, `if (value) return "Your Hyprland config sets this to " + valueText(key, value);`],
+    ["the user's value takes the line", `if (value !== undefined) return "Hyprland config sets " + valueText(key, value);`, `if (value) return "Hyprland config sets " + valueText(key, value);`],
     ["a row with no user value keeps the overridden line", `    return overriddenText(paths, options, key);\n}\n\nfunction pointerSpeedText`, `    return "";\n}\n\nfunction pointerSpeedText`],
     ["the row reads Hyprland's value while VGS sets none", `if (values !== null && values !== undefined && path !== undefined && Object.prototype.hasOwnProperty.call(values, path)) return values[path];`, ``],
     ["the value is found by the setting's option path", `Object.prototype.hasOwnProperty.call(values, path)) return values[path];`, `Object.prototype.hasOwnProperty.call(values, key)) return values[key];`],

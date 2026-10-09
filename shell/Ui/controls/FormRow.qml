@@ -9,7 +9,8 @@ import qs.Ui
 // one-line label is placed by capital height, a two-line label is centred,
 // and the control is centred by its box. A label too long for its column
 // wraps to a second line before it elides. `warning` is the row's message:
-// `hint` text under the value column, `field.gap` below the row box and
+// text in the role `warningRole` names, `hint` unless set, under the value
+// column, `field.gap` below the row box and
 // wrapped to the column, in the colour `warningTone` names, `warning`,
 // `danger` or `muted`. `warningLink`, when set, names the substring of
 // `warning` that opens a cited file through `warningLinkActivated`. The
@@ -39,6 +40,7 @@ Item {
     property string warning: ""
     property string warningLink: ""
     property string warningTone: "warning"
+    property string warningRole: "hint"
     property string info: ""
     property string labelTooltip: ""
     property bool labelColumn: true
@@ -109,7 +111,7 @@ Item {
 
     LinkText {
         id: message
-        role: "hint"
+        role: root.warningRole
         text: root.warning
         link: root.warningLink
         color: root.toneColor(root.warningTone)

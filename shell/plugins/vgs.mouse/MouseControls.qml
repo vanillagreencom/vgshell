@@ -46,7 +46,10 @@ Column {
         if (answer !== "ok") console.warn("mouse: edit " + answer);
     }
 
+    // The line naming the user's value draws 1 px under `hint`, in the
+    // 12 px sans role, so it fits beside its action on one line.
     component MouseFormRow: FormRow {
+        warningRole: "tooltip"
         warningLink: warning === "" ? "" : "Hyprland config"
         onWarningLinkActivated: root.openHyprlandConfig()
     }
