@@ -62,7 +62,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 - Do mark `// keyboard-path: <how>` or `// focus-indicator: <what>` only where a present mechanism supplies it; the marker exempts nothing missing. Review holds it.
 - Do make a composite one Tab stop whose arrows move through `KeyNav`, and never let an arrow run an action. Review holds it; `scripts/test-key-nav-logic.js` pins `KeyNav`.
 - Do let hosts own Escape and initial focus. Give a surface initial focus on its primary input, else its list, else its body, and never on an action that installs, removes or changes the system. Keep the focus reason so key-opened surfaces show their focus ring. Review holds it.
-- Never give the bar keyboard focus; a widget action has a global shortcut or a launcher path. Gap: no check reads the bar window's keyboard focus.
+- Never give the bar keyboard focus, except the focus grab that holds a widget drag until its release; a widget action has a global shortcut or a launcher path. Gap: no check reads the bar window's keyboard focus.
 - Never give a passive layer the keyboard; the inbox is a toast's keyboard path. `scripts/smoke/rows/layers.sh` pins the layer host.
 
 ### Motion

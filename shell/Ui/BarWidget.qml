@@ -7,8 +7,11 @@ import qs.Ui
 // after it builds the widget: `shell` (the widget's own scoped object),
 // `bar` (the bar API), `moduleName` (the plugin id), `settings` (the
 // manifest defaults under the widget's layout entry) and `frame`, what Hide
-// reads and calls: `describe()` answers { name, keys, stops, builtin } and `hide()`
-// takes the widget out of every bar section.
+// and a drag read and call: `describe()` answers { name, keys, stops,
+// builtin, owner }, `hide()` takes the widget out of every bar section,
+// `dragStart`, `dragMove` and `dragEnd` take the drag's points, and
+// `dragCancel()` puts back a widget whose remove question closed without
+// Remove.
 //
 // Every widget gets the same right-click menu, with no code in the plugin:
 // Hide, then the entries the widget hands in `frameActions`, each
@@ -17,8 +20,13 @@ import qs.Ui
 // which says how to bring the widget back, shows the shortcuts that keep
 // working, and says when hiding also turns the plugin off. Cancel holds the
 // focus, so Enter and Escape change nothing; a press outside closes it too.
-// The menu and the dialog are built on the first right click and released
-// once both are closed, so a widget at rest holds neither.
+// A drag released far outside the bar asks in the same dialog whether to
+// remove the widget from the bar, which is what Hide does; every other
+// answer puts the widget back where the drag found it. That dialog opens
+// from the pointer, so Cancel holds the focus with no focus ring.
+// The menu and the dialog are built on the first right click or that
+// release and released once both are closed, so a widget at rest holds
+// neither.
 Item {
     id: root
 
@@ -92,13 +100,12 @@ Item {
             if (active) {
                 root.frame.dragStart(root.dragPoint());
             }
-            else {
-                if (root.frame !== null) {
-                    const p = root.dragPoint();
-                    // Release commits the last preview; displaced neighbours
-                    // must not select a new slot without pointer motion.
-                    root.frame.dragEnd(p);
-                }
+            // Release commits the last preview; displaced neighbours
+            // must not select a new slot without pointer motion.
+            else if (root.frame !== null && root.frame.dragEnd(root.dragPoint()) === "ask") {
+                frameUi.active = true;
+                frameUi.item.asking = true;
+                Qt.callLater(frameUi.item.ask, "remove");
             }
         }
         onActiveTranslationChanged: if (active) root.frame.dragMove(root.dragPoint())
@@ -121,19 +128,25 @@ Item {
             readonly property bool menuOpened: hideMenu.opened
             readonly property bool dialogOpened: dialogWindow.visible
             readonly property var menuEntries: hideMenu.opened ? hideMenu.items().map(entry => entry.text) : []
-            // Hide was chosen and the dialog has not opened yet.
+            // Hide or a far drop was chosen and the dialog has not opened yet.
             property bool asking: false
+            // What the dialog asks: "hide" from the menu, "remove" from a drop.
+            property string question: "hide"
             // What the open dialog says, read from `frame` when it opens.
-            property var facts: ({ name: "", keys: [], stops: false })
+            property var facts: ({ name: "", keys: [], stops: false, builtin: false, owner: "" })
 
             function openMenu() { hideMenu.open(); }
 
-            function askHide() {
+            function ask(kind) {
                 asking = false;
                 if (root.frame === null) return;
+                question = kind;
                 facts = root.frame.describe();
                 dialogWindow.visible = true;
-                Qt.callLater(() => dialog.forceActiveFocus(Qt.TabFocusReason));
+                Qt.callLater(() => {
+                    if (kind === "remove") dialog.focusInitial(Qt.MouseFocusReason);
+                    else dialog.forceActiveFocus(Qt.TabFocusReason);
+                });
             }
 
             // The dialog's share of OverlayState, taken as Popover takes its own.
@@ -146,7 +159,11 @@ Item {
             Component.onDestruction: share(false)
 
             onMenuOpenedChanged: if (!menuOpened) Qt.callLater(frameUi.release)
-            onDialogOpenedChanged: if (!dialogOpened) Qt.callLater(frameUi.release)
+            onDialogOpenedChanged: {
+                if (dialogOpened) return;
+                if (question === "remove" && root.frame !== null) root.frame.dragCancel();
+                Qt.callLater(frameUi.release);
+            }
 
             Menu {
                 id: hideMenu
@@ -162,7 +179,7 @@ Item {
                             return;
                         }
                         ui.asking = true;
-                        Qt.callLater(ui.askHide);
+                        Qt.callLater(ui.ask, "hide");
                     }
                 }
                 Repeater {
@@ -200,11 +217,13 @@ Item {
                     Dialog {
                         id: dialog
                         anchors.fill: parent
-                        title: "Hide " + ui.facts.name + "?"
-                        message: ui.facts.stops
+                        title: ui.question === "remove" ? "Remove " + ui.facts.name + " from the bar?" : "Hide " + ui.facts.name + "?"
+                        message: ui.facts.builtin
+                            ? ui.facts.name + " leaves the bar. To show it again, turn on Show on the bar under " + ui.facts.name + " on the " + ui.facts.owner + " page in Plugins."
+                            : ui.facts.stops
                             ? ui.facts.name + " leaves the bar. To show it again, turn on Enabled on its page in Plugins. Hiding it also turns it off."
                             : ui.facts.name + " leaves the bar. To show it again, turn on Show in bar on its page in Plugins."
-                        actions: [{ label: "Cancel", role: "cancel", focused: true }, { label: "Hide", role: "accept", variant: "danger" }]
+                        actions: [{ label: "Cancel", role: "cancel", focused: true }, { label: ui.question === "remove" ? "Remove" : "Hide", role: "accept", variant: "danger" }]
                         onAccepted: {
                             dialogWindow.visible = false;
                             const reply = root.frame.hide();

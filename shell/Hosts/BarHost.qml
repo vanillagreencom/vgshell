@@ -47,11 +47,6 @@ Item {
             // while a removed output migrates its windows (VGS-1104 smoke).
             visible: host.screenPresent && PluginLogic.barShown(slot.instance)
 
-            // pointer-cursor-exempt: it reads the pointer leaving the bar and sets no cursor
-            HoverHandler {
-                onHoveredChanged: if (!hovered) Plugins.barLeft(host.hostKey)
-            }
-
             PluginSlot {
                 id: slot
                 kind: "bar"
@@ -62,9 +57,6 @@ Item {
                 anchors.fill: parent
                 onBuildFailed: key => host.brokenKey = key
             }
-
-
-
         }
     }
 }

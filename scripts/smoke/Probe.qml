@@ -1717,6 +1717,22 @@ Scope {
             const found = root.popupItem(hostKey, id, scopeType, scopeText, type, text);
             return found === null ? "absent" : String(found.hovered === true);
         }
+        // The focused item inside an instance's open overlay as [type,
+        // text, visualFocus], "no-focus" when an overlay is open and none
+        // of its items holds the focus, or "absent".
+        function popupFocus(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            for (const owner of root.descendants(item)) {
+                const popup = owner.tracker !== undefined && owner.tracker !== null ? owner.tracker.popup : null;
+                if (popup === null || popup === undefined || !popup.visible) continue;
+                const focused = root.descendants(popup.contentItem).filter(child => child.activeFocus);
+                if (focused.length === 0) return "no-focus";
+                const target = focused[focused.length - 1];
+                return root.json([root.typeName(target), String(target.text !== undefined ? target.text : ""), target.visualFocus === true]);
+            }
+            return "absent";
+        }
         function scopedWindowGeometry(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string): string {
             const found = root.scopedItem(hostKey, id, scopeType, scopeText, type, text);
             return found === null ? "absent" : root.json(root.windowBox(found));

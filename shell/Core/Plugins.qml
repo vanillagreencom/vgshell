@@ -1,6 +1,8 @@
 pragma Singleton
 import QtQuick
 import Quickshell
+import Quickshell.Hyprland
+import qs.Commons
 import "PluginLogic.js" as Logic
 import "Lifetime.js" as Lifetime
 
@@ -47,9 +49,12 @@ Singleton {
     // names survive the destruction of the screen objects they identify.
     property var failedBuilds: Object.create(null)
     // Null, or the current bar-widget drag target for one bar host.
+    // `held` is true while the press holds the widget and false while a
+    // release far outside the bar asks whether to remove it.
     property var barDrag: null
-    // A released drag waiting one turn for its bar's pointer leave, or null.
-    property var barDrop: null
+    // The focus grab that holds a bar widget drag's press, or null. It ends
+    // with the press, not with the drag, and dies with the widget.
+    property QtObject barPressGrab: null
 
     // The source revisions of every instance the core built, which a scan
     // keeps on disk while the instance lives.
@@ -268,13 +273,37 @@ Singleton {
             hide: () => root.setPlaced(id, false),
             dragStart: point => root.dragStart(hostKey, id, locator, item, point),
             dragMove: point => root.dragMove(hostKey, point),
-            dragEnd: point => root.dragEnd(hostKey, point)
+            dragEnd: point => root.dragEnd(hostKey, point),
+            dragCancel: () => root.cancelRemoveAsk(item)
         };
     }
     // A drag takes the keyboard through the window-free key capture and
-    // leaves the bar's keyboard focus as it is: Hyprland v0.56.2 ends a held
-    // press when a layer surface's keyboard interactivity changes.
+    // leaves the bar's keyboard interactivity as it is: Hyprland v0.56.2
+    // ends a held press when a layer surface's keyboard interactivity
+    // changes.
     Component { id: gapComponent; Item {} }
+    // Hyprland v0.56.2 keeps a held press on the bar while the pointer is
+    // outside it only when some surface holds the keyboard; on an empty
+    // workspace it sends the bar the release and the leave at its edge
+    // (InputManager.cpp mouseMoveUnified, Seat.cpp sendLeave; a
+    // WAYLAND_DEBUG trace in the nested sandbox shows both). A grab of the
+    // bar window keeps the pointer on the bar, so the drag reads the motion
+    // and the release outside, and hands the bar the keyboard until the
+    // press ends: Quickshell 0.3.1 HyprlandFocusGrab, a
+    // hyprland_focus_grab_v1 object and no window. It lists the bar's own
+    // window, which a reparent of the widget does not empty, and outlives
+    // an Escape that cancels the drag, since a grab that ends while the
+    // button is held on an empty workspace makes Hyprland release it. A
+    // first motion that leaves the bar before the drag starts still loses
+    // the press.
+    Component { id: pressGrabComponent; HyprlandFocusGrab {} }
+
+    function endPressGrab() {
+        if (barPressGrab === null) return;
+        barPressGrab.active = false;
+        barPressGrab.destroy();
+        barPressGrab = null;
+    }
 
     function dragStart(hostKey, id, locator, item, point) {
         cancelBarDrag();
@@ -285,7 +314,10 @@ Singleton {
         const bar = mount.row.instance;
         const origin = item.mapToItem(bar, 0, 0);
         const gap = gapComponent.createObject(bar, { width: item.width, height: item.height });
-        barDrag = { hostKey: hostKey, id: id, item: item, gap: gap,
+        endPressGrab();
+        barPressGrab = pressGrabComponent.createObject(item, { windows: [bar.QsWindow.window] });
+        barPressGrab.active = true;
+        barDrag = { hostKey: hostKey, id: id, item: item, gap: gap, held: true,
             offset: { x: point.pressX - origin.x, y: point.pressY - origin.y },
             from: Object.assign({ id: id }, locator), section: locator.section, before: null, index: 0 };
         // Visual parenting keeps the QObject and its pointer grab alive;
@@ -313,8 +345,10 @@ Singleton {
         return { x: sectionPoint.x, width: container.width, widgets: widgets };
     }
 
+    // Outside the bar too the slot is the nearest one along the bar:
+    // barDropTarget reads the pointer's x alone.
     function dragMove(hostKey, point) {
-        if (barDrag === null || barDrag.hostKey !== hostKey || !Logic.hasOwn(mounts, hostKey)) return;
+        if (barDrag === null || barDrag.hostKey !== hostKey || !barDrag.held || !Logic.hasOwn(mounts, hostKey)) return;
         const mount = mounts[hostKey];
         const sections = {};
         for (const section of Logic.SECTIONS)
@@ -330,46 +364,51 @@ Singleton {
         }
     }
 
-    // A release outside the bar writes nothing. Hyprland ends the press at
-    // the bar's edge when the pointer leaves the bar, so that release lands
-    // inside; the bar's leave, the window Leave event Qt Wayland makes of
-    // wl_pointer.leave, follows it before a deferred call runs, so the drop
-    // waits one turn and barLeft cancels it.
+    // The release of a drag: "drop" writes the previewed slot, "ask" keeps
+    // the widget over its preview gap while the frame asks whether to
+    // remove it, and "none" answers a release with no drag on this bar. A
+    // release more than one bar height (Theme.bar.height) outside the bar
+    // asks; a nearer one drops.
     function dragEnd(hostKey, point) {
+        endPressGrab();
         const drag = barDrag;
         if (drag !== null && drag !== undefined) Capabilities.keyCapture.end(drag.item, "commit");
-        if (drag === null || drag.hostKey !== hostKey || !Logic.hasOwn(mounts, hostKey)) return;
+        if (drag === null || drag.hostKey !== hostKey || !drag.held || !Logic.hasOwn(mounts, hostKey)) return "none";
         const bar = mounts[hostKey].row.instance;
-        if (point.x < 0 || point.y < 0 || point.x >= bar.width || point.y >= bar.height) { cancelBarDrag(); return; }
-        const drop = drag;
-        barDrop = drop;
-        Qt.callLater(() => {
-            if (barDrop !== drop) return;
-            barDrop = null;
-            // Keep the gap until the synchronous write publishes its order.
-            // Reconcile then puts the held instance into that same place.
-            barDrag = null;
-            drop.gap.destroy();
-            drop.item.z = 0;
-            const reply = moveWidget(drop.id, drop.section, drop.index, drop.from);
-            // An unchanged write publishes no order change. Restore the
-            // canonical parents after either result, including that drop.
-            positionBar(hostKey, null);
-            if (reply !== "ok") console.warn("plugins: move " + drop.id + " " + reply);
-        });
+        const outside = Math.max(0, -point.x, point.x - bar.width, -point.y, point.y - bar.height);
+        if (outside > Theme.bar.height) {
+            const place = drag.gap.mapToItem(bar, 0, 0);
+            drag.item.x = place.x;
+            drag.item.y = place.y;
+            barDrag = Object.assign({}, drag, { held: false });
+            return "ask";
+        }
+        // Keep the gap until the synchronous write publishes its order.
+        // Reconcile then puts the held instance into that same place.
+        barDrag = null;
+        drag.gap.destroy();
+        drag.item.z = 0;
+        const reply = moveWidget(drag.id, drag.section, drag.index, drag.from);
+        // An unchanged write publishes no order change. Restore the
+        // canonical parents after either result, including that drop.
+        positionBar(hostKey, null);
+        if (reply !== "ok") console.warn("plugins: move " + drag.id + " " + reply);
+        return "drop";
     }
 
-    // The pointer left bar `hostKey`: a drag released there is cancelled.
-    function barLeft(hostKey) {
-        if (barDrop !== null && barDrop.hostKey === hostKey) barDrop = null;
-        if (barDrag !== null && barDrag.hostKey === hostKey) cancelBarDrag();
+    // The remove question about `item` closed without Remove: its widget
+    // goes back to the place it was dragged from. A held drag stays.
+    function cancelRemoveAsk(item) {
+        if (barDrag !== null && barDrag.item === item && !barDrag.held) cancelBarDrag();
     }
 
-    // What the widget frame's Hide dialog says about entry `id`, read when it
-    // opens: { name, keys, stops, builtin }, `keys` the keys in effect of its bound
-    // shortcuts and `stops` true when hiding the widget also turns the
-    // plugin off (PluginLogic.enablementRule "widget"). A builtin has no
-    // independent settings or enablement; its wrapper supplies its label.
+    // What the widget frame's Hide and Remove dialogs say about entry `id`,
+    // read when one opens: { name, keys, stops, builtin, owner }, `keys` the
+    // keys in effect of its bound shortcuts and `stops` true when hiding the
+    // widget also turns the plugin off (PluginLogic.enablementRule
+    // "widget"). A builtin has no independent settings or enablement; its
+    // wrapper supplies its label, and `owner` names the plugin whose page
+    // shows it again.
     function frameFacts(id, item) {
         const owner = widgetOwner(id);
         const m = owner === null ? Registry.manifests[id] : owner;
@@ -378,7 +417,7 @@ Singleton {
             for (const row of Logic.bindRows(Config.effective, m, Capabilities.shortcutDescriptions))
                 for (const key of row.keys) keys.push(key);
         return { name: owner === null ? m.name : item.Accessible.name, keys: keys,
-            stops: owner === null && Logic.enablementRule(m) === "widget", builtin: owner !== null };
+            stops: owner === null && Logic.enablementRule(m) === "widget", builtin: owner !== null, owner: m.name };
     }
 
     // Destroy an instance the core built. A bar's mounted widgets go first,
@@ -578,7 +617,6 @@ Singleton {
         const drag = barDrag;
         if (drag === null) return;
         barDrag = null;
-        barDrop = null;
         Capabilities.keyCapture.end(drag.item, "cancel");
         drag.gap.destroy();
         drag.item.z = 0;
