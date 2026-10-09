@@ -265,14 +265,14 @@ current_grant() { # UID
   case "$status" in
     0) grant=indefinite; return ;;
     "$status_inactive") ;;
-    *) refuse 1 "grant=malformed path=$(permanent_path "$1")" "VGS did not write this rule, so VGS leaves it in place." ;;
+    *) refuse 1 "grant=malformed path=$(permanent_path "$1")" "VGS did not write this rule, so turning passwordless sudo on leaves it in place; turning it off removes it." ;;
   esac
   status=0
   read_grant "$1" || status=$?
   case "$status" in
     0) grant="deadline=$grant_deadline" ;;
     "$status_inactive") grant=none ;;
-    *) refuse 1 "grant=malformed path=$(rule_path "$1")" "VGS did not write this rule, so VGS leaves it in place." ;;
+    *) refuse 1 "grant=malformed path=$(rule_path "$1")" "VGS did not write this rule, so turning passwordless sudo on leaves it in place; turning it off removes it." ;;
   esac
 }
 
