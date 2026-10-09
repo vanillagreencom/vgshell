@@ -84,6 +84,10 @@ share_set_region() {
   share_args setRegion '{"args":["width",160]}'; share_args setRegion '{"args":["height",120]}'
 }
 share_click() { click_in window:Capture window vgs.capture "$1" "$2" || fail "share-picker: clicking $1 failed"; }
+# wtype's key goes to the surface that holds the keyboard. A request reads
+# new once the window's instance is built, before Hyprland maps the window
+# and hands it the keyboard, so a key waits for the picker's own focus.
+share_keyboard() { expect_poll "$1: the picker's page tabs have the keyboard" true ipc smoke readDescendant window vgs.capture Tabs activeFocus; }
 share_result() { ipc vgs.capture invoke share-result "{\"id\":\"$1\"}"; }
 # Count the request and preview objects VGS owns, separately from the
 # compositor's managed sessions, which have no public count API.
@@ -336,7 +340,7 @@ expect "control: a retained picker fails the same request and preview release ch
 sed 's/^/  CONTROL  /' "$share_world/held-owner-control.log"
 expect "control: an old request cannot satisfy a new caller" False share_new_request "$share_current_id" fixture
 rest_pointer || fail "share-picker: parking pointer for keyboard failed"
-expect_poll "the page tabs have the keyboard" true ipc smoke readDescendant window vgs.capture Tabs activeFocus
+share_keyboard keyboard
 share_tabs_width_check
 type_keys -k Right || fail "share-picker: Right failed"
 expect_poll "Right selects Windows" 1 share_read tab
@@ -378,7 +382,7 @@ expect_poll "the unchecked picker succeeds" 0 share_exit remember-off
 expect "the unchecked choice has no remember flag" "[SELECTION]/screen:$share_output" share_stdout remember-off
 for share_cancel in cancel escape; do
   share_launch "$share_cancel"
-  if [[ $share_cancel == cancel ]]; then share_click Button Cancel; else type_keys -k Escape || fail "share-picker: Escape failed"; fi
+  if [[ $share_cancel == cancel ]]; then share_click Button Cancel; else share_keyboard escape; type_keys -k Escape || fail "share-picker: Escape failed"; fi
   expect_poll "$share_cancel sends no selection" True share_cancelled "$share_cancel"
 done
 share_launch pending
@@ -656,6 +660,7 @@ share_stream_released app-quit
 share_owner_released app-quit
 share_app_start closed
 expect_poll "the close test opens a fresh picker" True share_new_request "$share_previous"
+share_keyboard app-picker-closed
 type_keys -k Escape || fail "share-picker: closing the application picker failed"
 expect_poll "the app receives picker-close cancellation" cancelled share_app_phase closed
 share_stream_released picker-closed
