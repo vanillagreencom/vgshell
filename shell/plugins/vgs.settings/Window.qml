@@ -314,6 +314,13 @@ FocusScope {
         return keep(id, shell.manager.open(id));
     }
 
+    // Open `url`, the address of a setting description's link, which the
+    // manager judged https (PluginLogic.linkError), in the default browser
+    // through the desktop open route. Plugin `id`'s page shows the reply.
+    function openLink(id, url) {
+        return keep(id, shell.run.detached(DesktopLaunch.open(url)));
+    }
+
     // Open the plugin's page in the panes holder over this window, as
     // Open does its surface.
     function openPane(id) {

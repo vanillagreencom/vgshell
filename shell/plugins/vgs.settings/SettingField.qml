@@ -21,7 +21,9 @@ import "Steps.js" as Steps
 // (EditSet), which the field joins while edited and tells of each write
 // of its text the manager accepted. A field that ends in a description or
 // an error line takes the room a Field takes under it, as its own last row
-// is last in this column and takes none.
+// is last in this column and takes none. A description's `link`, which
+// the manager judged an https address, draws as a link in it and asks the
+// page to open its address through `openLink`.
 Column {
     id: root
 
@@ -44,10 +46,12 @@ Column {
     readonly property string labelText: spec.label !== undefined ? String(spec.label) : key
     readonly property string hintText: Steps.settingHint(spec, status)
     readonly property string infoText: spec.info !== undefined ? String(spec.info) : ""
+    readonly property string linkText: spec.link !== undefined ? spec.link.text : ""
     // What the configuration holds, as a text editor shows it.
     readonly property string heldText: value === undefined ? "" : String(value)
     readonly property bool edited: editing(loader.item) || editing(customLoader.item)
     signal apply(var value)
+    signal openLink(string url)
 
     width: parent === null ? implicitWidth : parent.width
     spacing: Theme.field.gap
@@ -96,6 +100,7 @@ Column {
     }
     function displayNumber(v) { return spec.unit === undefined ? String(v) : SettingValues.quantityText(v, spec.unit); }
 
+    function openDescriptionLink() { openLink(spec.link.url); }
     function editing(editor) { return editor !== null && editor.edited === true; }
     function save() {
         for (const editor of [loader.item, customLoader.item]) if (editing(editor)) editor.save();
@@ -121,7 +126,9 @@ Column {
         label: root.labelText
         info: root.infoText
         hint: root.customVisible ? "" : root.hintText
+        hintLink: root.customVisible ? "" : root.linkText
         inline: true
+        onHintLinkActivated: root.openDescriptionLink()
 
         Loader {
             id: loader
@@ -141,6 +148,8 @@ Column {
         visible: root.customVisible
         label: ""
         hint: root.hintText
+        hintLink: root.linkText
+        onHintLinkActivated: root.openDescriptionLink()
         error: customLoader.item === null || customLoader.item.problemText === undefined ? "" : customLoader.item.problemText
         inline: true
 

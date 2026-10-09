@@ -485,6 +485,7 @@ FocusScope {
                                     editable: page.editable
                                     edits: unsaved
                                     onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
+                                    onOpenLink: url => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, url); }
                                 }
                             }
                         }
@@ -513,6 +514,7 @@ FocusScope {
                                 editable: page.editable
                                 edits: unsaved
                                 onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
+                                onOpenLink: url => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, url); }
                             }
                         }
                     }
