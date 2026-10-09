@@ -75,7 +75,7 @@ FocusScope {
     // focus loss and the active window arrive on two sockets in either
     // order, so both are read.
     property string heldWindow: ""
-    readonly property string activeWindow: Hyprland.activeToplevel === null ? "" : Hyprland.activeToplevel.address
+    readonly property string activeWindow: Hyprland.activeToplevel ? Hyprland.activeToplevel.address : ""
     onActiveWindowChanged: closeForWindow()
 
     onActiveFocusChanged: {
