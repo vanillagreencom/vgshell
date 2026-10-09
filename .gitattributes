@@ -18,4 +18,3 @@ scripts/fixtures/pkg/** -whitespace
 scripts/smoke/user-config.sh text eol=lf
 *.webp binary
 scripts/smoke/fixtures/sysmon/*.json text eol=lf
-scripts/smoke/fixtures/browsers/** text eol=lf
