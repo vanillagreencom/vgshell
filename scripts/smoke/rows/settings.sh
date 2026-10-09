@@ -16,7 +16,9 @@
 # stop the queue.
 # A setting description's link opens its address through the desktop open
 # route, by the pointer and by Return, into a stand-in that records it.
-# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Field.qml shell/Ui/feedback/LinkText.qml shell/Commons/DesktopLaunch.js shell/Ui/layout/SurfaceHeight.qml
+# The Bar's Open with select reads the browser profiles when it opens, and
+# a calendar day opens in the profile chosen.
+# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Field.qml shell/Ui/feedback/LinkText.qml shell/Commons/DesktopLaunch.js shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.bar/* shell/Commons/Paths.qml shell/Ui/controls/Select.qml scripts/smoke/fixtures/browsers/* scripts/smoke/rows/bar.sh
 set -euo pipefail
 click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
 expect_poll "the gear's click opens the Settings window" open settings_open
@@ -735,6 +737,84 @@ settings_tab_reveal() {
 }
 expect "Tab scrolls the page to bring each focused row into view" ok settings_tab_reveal
 rest_pointer || fail "moving the pointer off the Settings window failed"
+
+# Open with, on the Bar page: the select offers the default browser and
+# each profile of the Chromium-family browsers, which the bar's service
+# reads from each browser's `Local State` when the list opens. The fixture
+# configurations (scripts/smoke/fixtures/browsers/) are planted under the
+# sandbox's configuration only after the service's first read, so only a
+# read at the open can list them, and removed after. Every browser command
+# resolves to the device fakes' stand-in (scripts/smoke/devices.sh), which
+# records its argv, so the day the calendar opens in the chosen profile
+# starts no browser. The control is a copy of the bar whose service answers
+# the open without a read: the same listing then misses the profiles.
+open_with_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"vgs.bar","key":"openWith"}'; }
+open_with_listed() { open_with_field | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["list"]["open"], [c["label"] for c in d["model"]]]))'; }
+open_with_model() { open_with_field | py_reply 'import json,sys; print(json.dumps([[c["label"], c["value"]] for c in json.load(sys.stdin)["model"]]))'; }
+# Space on the select, focused as Tab focuses it, opens its list.
+open_with_open() {
+  [[ $(ipc smoke invokeInstance window vgs.settings focusField '{"id":"vgs.bar","key":"openWith"}') == focused ]] || { echo unfocused; return; }
+  type_keys -k space && echo ok
+}
+choose_open_with() { ipc smoke invokeInstance window vgs.settings chooseField "{\"id\":\"vgs.bar\",\"key\":\"openWith\",\"index\":$1}"; }
+user_open_with() { python3 -c 'import json,sys; print(json.dumps(next((r.get("openWith", "absent") for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"]=="vgs.bar"), "absent")))' "$home/.config/vgshell/shell.json"; }
+plant_browsers() { cp -R -- "$repo/scripts/smoke/fixtures/browsers/." "$home/.config/"; }
+remove_browsers() { rm -rf -- "${home:?}/.config/chromium" "${home:?}/.config/BraveSoftware"; }
+open_with_profiles='[true, ["Default browser", "Chromium: Person 1", "Chromium: Work", "Brave: Home"]]'
+expect "the window opens the Bar page for Open with" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.bar
+expect_poll "before any open the select offers the default browser alone" '[false, ["Default browser"]]' open_with_listed
+plant_browsers
+expect "Space opens the Open with list" ok open_with_open
+expect_poll "the open list reads each fixture profile, the default browser first" "$open_with_profiles" open_with_listed
+expect "each profile offers its browser and directory, the default browser the unset value" '[["Default browser", ""], ["Chromium: Person 1", "chromium/Default"], ["Chromium: Work", "chromium/Profile 1"], ["Brave: Home", "brave/Profile 2"]]' open_with_model
+expect "choosing Brave: Home is allowed" chosen choose_open_with 3
+expect_poll "the file stores the browser and its profile directory" '"brave/Profile 2"' user_open_with
+# A day of this month that is not today, through Google Calendar, the
+# default the row leaves the calendar on.
+expect "the shell resolves brave to the device stand-in" "$shim/brave" shell_resolves brave
+read -r open_with_day open_with_url < <(python3 -c 'import datetime
+t=datetime.date.today(); d=14 if t.day==15 else 15
+print(d, "https://calendar.google.com/calendar/r/day/%d/%d/%d" % (t.year, t.month, d))')
+open_with_before="$(device_calls brave | py_reply 'import json,sys; print(len(json.load(sys.stdin)))')"
+open_with_calls() { device_calls brave | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1]):]))' "$open_with_before"; }
+device_reply brave 0 "" "--profile-directory=Profile 2" "$open_with_url"
+expect "the calendar opens for a day in the chosen profile" ok calendar_summon
+expect_poll "the calendar shows this month" "$(calendar_want 0)" calendar_read
+expect "day $open_with_day is pressed" ok calendar_day "$open_with_day"
+expect_poll "day $open_with_day opens in Brave with its Home profile" "$(python3 -c 'import json,sys; print(json.dumps([["--profile-directory=Profile 2", sys.argv[1]]]))' "$open_with_url")" open_with_calls
+expect_poll "the calendar closes once the day opened" closed calendar_read
+device_reply_clear brave
+expect "choosing the default browser again is allowed" chosen choose_open_with 0
+expect_poll "the default browser stores the empty string" '""' user_open_with
+remove_browsers
+expect "Space opens the Open with list with no browser profile on disk" ok open_with_open
+expect_poll "with no Chromium-family profile the open list offers the default browser alone" '[true, ["Default browser"]]' open_with_listed
+type_keys -k Escape || fail "closing the Open with list failed"
+expect_poll "Escape closes the Open with list" '[false, ["Default browser"]]' open_with_listed
+expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.bar')
+open_with_copy="$home/.config/vgshell/plugins/vgs.bar"
+rm -rf -- "${open_with_copy:?}"
+cp -R -- "$repo/shell/plugins/vgs.bar" "$open_with_copy"
+if python3 -c 'import sys
+path, old, new = sys.argv[1:]
+text = open(path).read()
+if text.count(old) != 1: sys.exit("occurs %d times" % text.count(old))
+open(path, "w").write(text.replace(old, new))' "$open_with_copy/Service.qml" \
+  'handleRefresh("browserProfiles", () => root.readProfiles())' 'handleRefresh("browserProfiles", () => console.info("vgs.bar: profiles read=off"))'; then
+  ok "the Open with control answers the open without a read"
+else
+  fail "the Open with control could not be written"
+fi
+rescan "a rescan picks the Open with control"
+expect_poll "control: the copy's service publishes the default browser at its start" '[false, ["Default browser"]]' open_with_listed
+plant_browsers
+expect "control: Space opens the copy's Open with list" ok open_with_open
+expect_log "control: the copy's service answers the open" 1 'vgs\.bar: profiles read=off'
+expect "control: with the read off the open list misses the fixture profiles" '[true, ["Default browser"]]' open_with_listed
+type_keys -k Escape || fail "control: closing the Open with list failed"
+remove_browsers
+rm -rf -- "${open_with_copy:?}"
+rescan "a rescan drops the Open with control"
 
 expect "the gear closes the Settings window after the edit rows" ok ipc smoke invokeInstance "$(bar_key)" vgs.settings toggle ''
 expect_poll "the Settings window is gone after the edit rows" 0 window_count Plugins

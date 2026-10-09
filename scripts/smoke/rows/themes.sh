@@ -433,8 +433,8 @@ expect_poll "the themes TUI launcher is present" '"present"' lent tui.launcher
 # setup` says of the Chromium-family writer. The sandbox tree ships no
 # target, so the row reads not shipped until the row copies the chromium
 # target in and the service starts again. qml-smoke.sh hides the host's
-# writer from every sandbox shell, and the row stands a chromium in the
-# shell's own directory that runs nothing, so on any host the Settings page
+# writer from every sandbox shell, and chromium resolves to the device
+# fakes' stand-in (scripts/smoke/devices.sh), so on any host the Settings page
 # then offers Install browser theming, whose button opens the plugin's
 # browser-policy TUI. The stand-in terminal runs no plugin script
 # (scripts/test-themes-browser-policy-tui.sh runs this one), and the
@@ -456,9 +456,7 @@ settings_page_open vgs.themes
 settings_details
 expect_poll "a tree that ships no target reads browser theming not shipped" '"This version of VGS does not support browser themes"' browser_text
 expect "the manager refuses the install while no target ships" "refused: action=browserTheming reason=not-offered" settings_act vgs.themes browserTheming
-printf '#!/bin/sh\nexit 1\n' >"$shim/chromium"
-chmod 755 "$shim/chromium"
-expect "chromium resolves to the row's stand-in on the shell's PATH" "$shim/chromium" shell_resolves chromium
+expect "chromium resolves to the device stand-in on the shell's PATH" "$shim/chromium" shell_resolves chromium
 expect "the browser-policy writer is absent from the shell's PATH" none shell_resolves vgshell-browser-policy
 cp -R -- "$source_repo/themes/targets/chromium" "$repo/themes/targets/chromium"
 expect "the themes plugin is disabled to read the shipped target" ok ipc shell setPluginEnabled vgs.themes false
@@ -598,7 +596,6 @@ PY
     fail "the browser theming row reads $first_setup, so Install browser theming was not pressed"
     ;;
 esac
-unlink -- "${shim:?}/chromium"
 rm -r -- "${repo:?}/themes/targets/chromium"
 settings_page_close vgs.themes
 
