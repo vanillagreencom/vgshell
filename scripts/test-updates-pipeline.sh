@@ -16,8 +16,9 @@
 # reboot hook, and the stand-in findmnt names the mounted file systems.
 #
 # The review rows put stand-in agent CLIs on PATH, each recording its argv
-# but the prompt, the start directory it ran from, the packages.txt and
-# build files in the review directory named by the prompt, and writing the
+# but the prompt, the start directory it ran from, the packages.txt, build
+# files and install diffs in the review directory named by the prompt, and
+# writing the
 # verdict there. An agent writes its verdict only once the
 # pipeline's lock wait is recorded, or once the pipeline asked to go on
 # without one: a barrier on the stand-in flock's record, not a sleep. The
@@ -26,9 +27,9 @@
 # would, and writes the review directory's `ended` after it, as the
 # service's `done` does; `ipc-refuses` answers a refusal, and `ipc-ended`
 # writes `ended` alone, as a terminal that failed after the answer does.
-# The stand-in paru's -G writes a PKGBUILD per package, and the build files
-# a row put in $FIX/build-<package>. No row reaches a real agent or the
-# network.
+# The stand-in paru's -G saves each package under its base, as the real one
+# does, with a PKGBUILD and the build files a row put in $FIX/build-<base>.
+# No row reaches a real agent or the network.
 #
 # Each control runs a row against a copy of the plugin whose
 # tui/pipeline.sh drops one rule, and that row must fail.
@@ -66,14 +67,40 @@ stub() { # DIR NAME BODY
   chmod +x "$1/$2"
 }
 # vgshell answers each read from $FIX; pacman's plan names the elevator in
-# $FIX/elevator; `pkg detect` fails with 5 while $FIX/fail-detect exists;
-# `pkg run` fails with 9 for a manager $FIX/fail-<id> names, after a
-# coloured error line on stderr ending in a carriage return, and exits 130,
-# as a Ctrl-C ends it, for one $FIX/interrupt-<id> names; `plugin|theme
-# update` declines, as its [y/N] question does, for an id
-# $FIX/decline-<id> names; `pkg owner` answers only while $FIX/owner exists,
-# with a new version after its first answer when $FIX/owner-changes does.
-stub "$tree/bin" vgshell 'case "$1 $2" in
+# $FIX/elevator; `pkg detect` fails with 5 while $FIX/fail-detect exists.
+# `pkg run` for a manager ID: fails with 9 for $FIX/fail-<id>, after a
+# coloured error line on stderr ending in a carriage return; exits 130, as
+# a Ctrl-C ends it, for $FIX/interrupt-<id>; leaves pacman's question
+# unanswered on stderr, as a no does, for $FIX/decline-<id>, and before its
+# closing `rescan=` refusal for $FIX/decline-rescan-<id>; fails after a
+# question answered yes for $FIX/answered-<id>; ends on its closing
+# `rescan=` refusal after an error line for $FIX/rescan-<id>; and for
+# $FIX/hup-<id> hangs up the tee that copies its stderr, as a closed window
+# does, then writes a last error line. `plugin|theme update` for an ID
+# declines, as its [y/N] question answered no does, for $FIX/decline-<id>,
+# and refuses an offline fetch with git's message for $FIX/offline-<id>.
+# `pkg owner` answers only while $FIX/owner exists, with a new version
+# after its first answer when $FIX/owner-changes does.
+stub "$tree/bin" vgshell 'hup_tee() {
+  pipe="$(readlink /proc/$$/fd/2)" tee_pid="" i=0
+  while [ -z "$tee_pid" ] && [ "$i" -lt 100 ]; do
+    for f in /proc/[0-9]*/stat; do
+      read -r pid comm rest 2>/dev/null <"$f" || continue
+      [ "$comm" = "(tee)" ] && [ "$(readlink "/proc/$pid/fd/0" 2>/dev/null)" = "$pipe" ] && tee_pid="$pid"
+    done
+    [ -n "$tee_pid" ] || { sleep 0.02; i=$((i + 1)); }
+  done
+  kill -HUP "$tee_pid"
+  i=0
+  while [ "$i" -lt 20 ]; do
+    read -r pid comm state rest 2>/dev/null <"/proc/$tee_pid/stat" || break
+    [ "$state" != Z ] || break
+    sleep 0.05; i=$((i + 1))
+  done
+  printf "error: interrupted by a hangup\n" >&2
+  exit 1
+}
+case "$1 $2" in
   "plugin settings") cat "$FIX/settings.json" ;;
   "pkg detect") [ ! -e "$FIX/fail-detect" ] || exit 5; cat "$FIX/detect.json" ;;
   "pkg plan")
@@ -90,10 +117,16 @@ stub "$tree/bin" vgshell 'case "$1 $2" in
   "theme outdated") cat "$FIX/themes.json" ;;
   "pkg run")
     [ ! -e "$FIX/interrupt-$5" ] || exit 130
-    [ ! -e "$FIX/fail-$5" ] || { printf "\033[31merror:\033[0m failed to install crush\r\n" >&2; exit 9; } ;;
+    [ ! -e "$FIX/fail-$5" ] || { printf "\033[31merror:\033[0m failed to install crush\r\n" >&2; exit 9; }
+    [ ! -e "$FIX/decline-$5" ] || { printf ":: Proceed with installation? [Y/n] " >&2; exit 1; }
+    [ ! -e "$FIX/decline-rescan-$5" ] || { printf ":: Proceed with installation? [Y/n] vgshell: refused: rescan=refused\nthe plugin files changed; run vgshell ipc call shell rescanPlugins\n" >&2; exit 1; }
+    [ ! -e "$FIX/answered-$5" ] || { printf ":: Proceed with installation? [Y/n] error: failed to commit transaction (conflicting files)\n" >&2; exit 1; }
+    [ ! -e "$FIX/rescan-$5" ] || { printf "error: failed to commit transaction (conflicting files)\nvgshell: refused: rescan=refused\nthe plugin files changed; run vgshell ipc call shell rescanPlugins\n" >&2; exit 1; }
+    [ ! -e "$FIX/hup-$5" ] || hup_tee ;;
   "plugin update"|"theme update")
     for id; do :; done
-    [ ! -e "$FIX/decline-$id" ] || { printf "vgshell: update %s? [y/N] \nvgshell: refused: declined=%s\nthe checkout stays at its commit\n" "$id" "$id" >&2; exit 1; } ;;
+    [ ! -e "$FIX/decline-$id" ] || { printf "vgshell: update %s? [y/N] vgshell: refused: declined=%s\nthe checkout stays at its commit\n" "$id" "$id" >&2; exit 1; }
+    [ ! -e "$FIX/offline-$id" ] || { printf "vgshell: refused: fetch=%s\nfatal: unable to access https://example.org/acme.git/: Could not resolve host: example.org\n" "$id" >&2; exit 1; } ;;
   "pkg check")
     if [ -e "$FIX/check-$5.json" ]; then cat "$FIX/check-$5.json"
     else echo "[{\"source\":\"$5\",\"count\":0,\"packages\":[],\"checkedAt\":\"x\",\"error\":null}]"
@@ -139,11 +172,13 @@ stub "$snapper_dir" snapper 'case "$*" in
   *create*) [ ! -e "$FIX/fail-snapper" ] || exit 1 ;;
 esac'
 # pacman -Q answers $FIX/installed, and from its second answer on
-# $FIX/installed-after when that exists; pacman -Q NAME answers NAME's line
-# of $FIX/installed.
+# $FIX/installed-after when that exists, and fails while
+# $FIX/fail-pacman-q exists; pacman -Q NAME answers NAME's line of
+# $FIX/installed.
 stub "$stubs" pacman 'case "$1" in
   -Sl) cat "$FIX/sl-$2" ;;
   -Q)
+    [ ! -e "$FIX/fail-pacman-q" ] || [ -n "${2:-}" ] || exit 1
     if [ -n "${2:-}" ]; then
       while read -r n v; do [ "$n" != "$2" ] || { echo "$n $v"; exit 0; }; done <"$FIX/installed"
       exit 1
@@ -156,7 +191,7 @@ stub "$stubs" pacman 'case "$1" in
 esac'
 stub "$stubs" pacman-conf 'case "$1 ${3:-}" in
   "DBPath ") echo "$FIX/db/" ;;
-  "RootDir ") echo "$FIX/root/" ;;
+  "RootDir ") [ ! -e "$FIX/fail-rootdir" ] || exit 1; echo "$FIX/root/" ;;
   "--repo-list ") cat "$FIX/repos" ;;
   "--repo Server") cat "$FIX/server-$2" ;;
   "--repo SigLevel") [ ! -e "$FIX/siglevel-$2" ] || cat "$FIX/siglevel-$2" ;;
@@ -180,7 +215,7 @@ pwd >"$FIX/agent-cwd"
 review_dir="$(printf '%s\n' "$last" | sed -n 's|^The review directory is `\(.*\)`. The files below are in it\. Read and write paths relative to that directory\.$|\1|p' | sed -n '1p')"
 if [ -n "$review_dir" ]; then
   cat "$review_dir/packages.txt" >"$FIX/packages-seen" 2>/dev/null || :
-  for f in "$review_dir"/build/*/PKGBUILD "$review_dir"/build/*/install.diff; do [ ! -e "$f" ] || echo "${f#"$review_dir"/}"; done >"$FIX/build-seen"
+  for f in "$review_dir"/build/*/PKGBUILD "$review_dir"/install/*.diff; do [ ! -e "$f" ] || echo "${f#"$review_dir"/}"; done >"$FIX/build-seen"
 else
   : >"$FIX/packages-seen"
   : >"$FIX/build-seen"
@@ -207,18 +242,28 @@ stub "$stubs" pgrep '[ -e "$FIX/pids" ] || exit 1; cat "$FIX/pids"'
 stub "$stubs" uname "echo $kernel"
 stub "$stubs" systemctl ''
 # findmnt lists the mounted file system types in $FIX/fstypes, none when
-# it is absent.
-stub "$stubs" findmnt '[ ! -e "$FIX/fstypes" ] || cat "$FIX/fstypes"'
+# it is absent, and fails while $FIX/fail-findmnt exists.
+stub "$stubs" findmnt '[ ! -e "$FIX/fail-findmnt" ] || exit 1; [ ! -e "$FIX/fstypes" ] || cat "$FIX/fstypes"'
 # paru authorizes through sudo and fails with 7 while $FIX/fail-paru exists,
-# and with 130, as a Ctrl-C ends it, while $FIX/interrupt-paru does.
+# and with 130, as a Ctrl-C ends it, while $FIX/interrupt-paru does. Its -G
+# saves each package under its base, the one $FIX/base-<package> names,
+# else the package's own name, with a PKGBUILD, the files of
+# $FIX/build-<base>, links kept as links, and a .SRCINFO of the base and
+# the package when that holds none.
 stub "$stubs" paru 'if [ "$1" = -G ]; then shift; for p; do
-  mkdir -p "$p"; echo "pkgname=$p" >"$p/PKGBUILD"
-  for f in "$FIX/build-$p"/* "$FIX/build-$p"/.SRCINFO; do [ ! -e "$f" ] || cat "$f" >"$p/${f##*/}"; done
+  b="$p"; [ ! -e "$FIX/base-$p" ] || read -r b <"$FIX/base-$p"
+  mkdir -p "$b"; echo "pkgname=$p" >"$b/PKGBUILD"
+  for f in "$FIX/build-$b"/* "$FIX/build-$b"/.SRCINFO; do
+    if [ -L "$f" ]; then ln -sfn -- "$(readlink -- "$f")" "$b/${f##*/}"
+    elif [ -e "$f" ]; then cat "$f" >"$b/${f##*/}"
+    fi
+  done
+  [ -e "$b/.SRCINFO" ] || printf "pkgbase = %s\n\npkgname = %s\n" "$b" "$p" >"$b/.SRCINFO"
 done; exit 0; fi
 [ ! -e "$FIX/interrupt-paru" ] || { sudo /usr/bin/true; exit 130; }
 [ ! -e "$FIX/fail-paru" ] || { sudo /usr/bin/true; exit 7; }'
 stub "$stubs" less ''
-for tool in bash env readlink dirname mkdir chmod mv rm script flock sleep cat id sed tee diff; do
+for tool in bash env readlink dirname mkdir chmod mv rm script flock sleep cat id sed tee diff ln; do
   found="$(command -v "$tool")" || { echo "test-updates-pipeline: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$(readlink -f -- "$found")" "$tools/$tool"
 done
@@ -428,6 +473,87 @@ row_failure() {
   assert "a failed source asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check " "$tmp/seq")" == 1
   assert "a failed source is not a stopped run" out_lacks "The update stopped."
   assert "a failed source still asks to reboot after an upgraded kernel" has_call "gum confirm --affirmative=Reboot --negative=Later --default=false -- The run updated linux, which takes effect after a reboot. Reboot now?"
+}
+# The cause line VGS's own refusals leave, and a step the user said no to.
+# A fetch the plugin update refuses names git's message; `vgshell pkg
+# run`'s closing refusal leaves its manager's line; a line printed after a
+# question answered yes shares its line and is the cause alone; a question
+# left unanswered on stderr, as a no leaves pacman's, reads skipped.
+row_cause() {
+  reset_fix
+  touch "$fix/offline-acme.one"
+  pipeline update.sh
+  assert "an offline plugin update is listed with git's message" out_has "Plugin acme.one: failed, fatal: unable to access https://example.org/acme.git/: Could not resolve host: example.org"
+  assert "an offline plugin update ends the run with 1" test "$status" == 1
+  reset_fix
+  touch "$fix/rescan-flatpak"
+  pipeline update.sh
+  assert "pkg run's closing refusal leaves its manager's line as the cause" out_has "Flatpak: failed, error: failed to commit transaction (conflicting files)"
+  reset_fix
+  touch "$fix/answered-flatpak"
+  pipeline update.sh
+  assert "a failure after a question answered yes is listed without the question" out_has "Flatpak: failed, error: failed to commit transaction (conflicting files)"
+  reset_fix
+  touch "$fix/decline-pacman"
+  pipeline update.sh
+  assert "a system upgrade answered no reads skipped" out_has "System: skipped, you declined it"
+  assert "a system upgrade answered no leaves the exit 0" test "$status" == 0
+  reset_fix
+  touch "$fix/decline-rescan-pacman"
+  pipeline update.sh
+  assert "a question answered no before pkg run's closing refusal reads skipped" out_has "System: skipped, you declined it"
+}
+# After a failed or declined system upgrade the AUR step and the vgshell-git
+# rebuild build against the system it left, so they are skipped; every
+# other source still runs.
+row_system_failed() {
+  reset_fix
+  touch "$fix/fail-pacman"
+  pipeline update.sh
+  assert "a failed system upgrade ends the run with 1" test "$status" == 1
+  assert "a failed system upgrade runs no AUR step" no_call "vgshell pkg run upgrade --manager aur"
+  assert "a failed system upgrade lists the AUR skipped with its cause" out_has "AUR: skipped, the system upgrade failed, and AUR packages build against it"
+  assert "a later source installs after a failed system upgrade" out_has "mise: installed"
+  assert "a plugin updates after a failed system upgrade" out_has "Plugin acme.one: installed"
+  reset_fix
+  self_json package '"vgshell-git"' true
+  touch "$fix/owner" "$fix/owner-changes" "$fix/running" "$fix/fail-pacman"
+  pipeline update.sh
+  assert "a failed system upgrade rebuilds no vgshell-git" no_call "paru -S vgshell-git"
+  assert "a failed system upgrade lists the rebuild skipped" out_has "VGS package: skipped, the system upgrade failed, and AUR packages build against it"
+  reset_fix
+  touch "$fix/decline-pacman"
+  pipeline update.sh
+  assert "a declined system upgrade runs no AUR step" no_call "vgshell pkg run upgrade --manager aur"
+  assert "a declined system upgrade lists the AUR skipped with its cause" out_has "AUR: skipped, you declined the system upgrade, and AUR packages build against it"
+  assert "a later source installs after a declined system upgrade" out_has "mise: installed"
+}
+# A closed window hangs up the step's group; the tee that copies its
+# stderr ignores it, so the step's last line still reaches the terminal
+# and the cause, and the step is not killed by SIGPIPE.
+row_hangup() {
+  reset_fix
+  touch "$fix/hup-mise"
+  pipeline update.sh
+  assert "a hung-up step's last line is its cause" out_has "mise: failed, error: interrupted by a hangup"
+}
+# A read the reboot question needs that fails stays in the developer log
+# and warns once.
+row_reboot_unread() {
+  reset_fix
+  reboot_hook
+  printf 'linux 6.2-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\n' >"$fix/installed-after"
+  touch "$fix/fail-findmnt" "$fix/fail-rootdir"
+  pipeline update.sh
+  assert "a failed RootDir read stays in the developer log" diag_has "updates: reboot-hook=unread exit=1"
+  assert "a failed mounts read stays in the developer log" diag_has "updates: mounts=unread exit=1"
+  assert "two failed reboot reads warn once" test "$(grep -cF "Could not check which updates need a restart." "$tmp/out")" == 1
+  assert "a failed reboot read leaves the run successful" test "$status" == 0
+  reset_fix
+  touch "$fix/fail-pacman-q"
+  pipeline update.sh
+  assert "a failed package list stays in the developer log" diag_has "updates: installed=unread when=before"
+  assert "a failed package list warns" out_has "Could not check which updates need a restart."
 }
 # A step that fails outside the sources ends the run: the ERR trap prints
 # the recovery message.
@@ -950,15 +1076,77 @@ row_review_install() {
   printf 'chmod 2755 /opt/1Password/extra\n' >>"$fix/build-1password/1password.install"
   PIPE_PATH="$agents" pipeline update.sh
   assert "a changed install script is named changed to the agent" grep -qxF "install 1password changed" "$fix/packages-seen"
-  assert "a changed install script's diff is beside its build files" grep -qxF "build/1password/install.diff" "$fix/build-seen"
+  assert "a changed install script's diff is in the run's own directory" grep -qxF "install/1password.diff" "$fix/build-seen"
   assert "an added setgid line asks under a clean verdict" has_call "gum confirm --affirmative=Skip --negative=Install anyway -- Skip 1password, or install it anyway?"
   assert "an added setgid line is named above the question" out_has "1password: The install script adds: chmod 2755 /opt/1Password/extra"
   assert "a skipped changed script's package is kept out" has_call "vgshell pkg run upgrade --manager aur --ignore 1password"
 }
 
-row_full; row_trusted; row_snapshot; row_failure; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_orphans; row_yes
+# The fetched tree is untrusted: the diff is written outside it, so a link
+# the AUR repository planted is never written through, and an install
+# script that is a link, or that is not there, is not read and is flagged.
+row_review_install_links() {
+  reset_fix
+  onepassword_pending
+  printf 'chmod 2755 /opt/1Password/extra\n' >>"$fix/build-1password/1password.install"
+  printf 'mine\n' >"$fix/victim"
+  ln -s -- "$fix/victim" "$fix/build-1password/install.diff"
+  PIPE_PATH="$agents" pipeline update.sh
+  assert "a link planted in the build files is never written through" test "$(cat "$fix/victim")" == mine
+  assert "a changed script's diff is in the run's own directory" grep -qxF "install/1password.diff" "$fix/build-seen"
+  reset_fix
+  onepassword_pending
+  printf 'mine\n' >"$fix/secret"
+  ln -sf -- "$fix/secret" "$fix/build-1password/1password.install"
+  PIPE_PATH="$agents" pipeline update.sh
+  assert "an install script that is a link is named unread to the agent" grep -qxF "install 1password unread" "$fix/packages-seen"
+  assert "an install script that is a link is named above the question" out_has "1password: The install script is a link or not a regular file."
+  assert "an install script that is a link asks under a clean verdict" has_call "gum confirm --affirmative=Skip --negative=Install anyway -- Skip 1password, or install it anyway?"
+  reset_fix
+  onepassword_pending
+  rm -- "${fix:?}/build-1password/1password.install"
+  PIPE_PATH="$agents" pipeline update.sh
+  assert "an install script .SRCINFO names that is not there is named unread" grep -qxF "install 1password unread" "$fix/packages-seen"
+}
+# A split base, base-utils: its base section and two of its packages name
+# their own install scripts, and a third package takes the base's. Each
+# installed script is the old text; only b.install adds a setgid line.
+split_pending() { # NAME
+  printf '[{"source":"aur","count":1,"packages":[{"name":"%s","old":"1.0-1","new":"1.1-1"}],"checkedAt":"x","error":null}]\n' "$1" >"$fix/check-aur.json"
+  echo base-utils >"$fix/base-$1"
+  mkdir -p "$fix/build-base-utils" "$fix/db/local/a-utils-1.0-1" "$fix/db/local/b-utils-1.0-1"
+  printf 'pkgbase = base-utils\n\tpkgver = 1.1\n\tinstall = base.install\n\npkgname = a-utils\n\tinstall = a.install\n\npkgname = b-utils\n\tinstall = b.install\n\npkgname = c-utils\n' >"$fix/build-base-utils/.SRCINFO"
+  local old
+  old="$(printf 'post_install() {\n    true\n}')"
+  local file
+  for file in "$fix/build-base-utils/base.install" "$fix/build-base-utils/a.install" "$fix/db/local/a-utils-1.0-1/install" "$fix/db/local/b-utils-1.0-1/install"; do
+    printf '%s\n' "$old" >"$file"
+  done
+  printf '%s\nchmod 2755 /opt/b/extra\n' "$old" >"$fix/build-base-utils/b.install"
+  printf 'verdict clean\n' >"$fix/verdict"
+}
+row_review_split() {
+  reset_fix
+  split_pending b-utils
+  PIPE_PATH="$agents" pipeline update.sh
+  assert "a split package's own install script is judged" grep -qxF "install b-utils changed" "$fix/packages-seen"
+  assert "a split package's added setgid line asks" has_call "gum confirm --affirmative=Skip --negative=Install anyway -- Skip b-utils, or install it anyway?"
+  reset_fix
+  split_pending c-utils
+  PIPE_PATH="$agents" pipeline update.sh
+  assert "a split package with no install line of its own takes its base's" grep -qxF "install c-utils new" "$fix/packages-seen"
+  reset_fix
+  split_pending d-utils
+  PIPE_PATH="$agents" pipeline update.sh
+  assert "a package no fetched .SRCINFO names is named unread" grep -qxF "install d-utils unread" "$fix/packages-seen"
+  assert "a package no fetched .SRCINFO names is flagged" out_has "d-utils: Could not find the install script."
+  assert "a package no fetched .SRCINFO names asks" has_call "gum confirm --affirmative=Skip --negative=Install anyway -- Skip d-utils, or install it anyway?"
+}
+
+row_full; row_trusted; row_snapshot; row_failure; row_cause; row_system_failed; row_hangup; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
 row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_git; row_source; row_recheck_failure; row_log
 row_review_off; row_review_no_agent; row_review_none_pending; row_review_clean; row_review_start_stable; row_review_flagged; row_review_no_verdict; row_review_no_helper; row_review_custom; row_review_install
+row_review_install_links; row_review_split
 
 # Controls: each runs one row against a plugin copy whose FILE, relative
 # to the plugin and tui/pipeline.sh unless named, drops one rule, quietly,
@@ -983,7 +1171,23 @@ control no-recovery "trap '_updates_failed \$?' ERR" ':' row_stopped
 control no-reboot-check '  _updates_reboot "${_updates_core[@]}"' '  :' row_reboot
 control no-success-recheck '  _updates_recheck "$ended"' '  :' row_reboot
 control no-failure-recheck '  _updates_recheck failed' '  :' row_stopped
-control source-stops-run '{ "$@"; } 2> >(tee -a -- "$_updates_cause_file" >&2) || status=$?' '{ "$@"; } 2> >(tee -a -- "$_updates_cause_file" >&2)' row_failure
+control source-stops-run '"$_updates_cause_file" >&2) || status=$?' '"$_updates_cause_file" >&2)' row_failure
+control tee-hangs-up ">(trap '' HUP; exec tee" '>(exec tee' row_hangup
+control key-at-line-start '(^|[[:space:]])(vgshell|vgs-tui):' '(^)(vgshell|vgs-tui):' row_full
+control refusal-cause-held '    _updates_cause="${after:-$value}"' '    _updates_cause="$held"' row_cause
+control rescan-cause-after 'own="${tail:-$held}" _updates_cause="${held:-${after:-$value}}"' 'own="${tail:-$held}" _updates_cause="${after:-$value}"' row_cause
+control question-tail-ignored 'own="${tail:-$held}"' 'own="$held"' row_cause
+control question-unread 'if [[ $own =~' 'if false && [[ $own =~' row_cause
+control answered-question-kept 'then line="${BASH_REMATCH[2]}"; fi' 'then :; fi' row_cause
+control aur-after-failed-system 'if [[ -n $aur_blocked ]]; then' 'if false; then' row_system_failed
+control aur-after-declined-system '            declined) aur_blocked=' '            declined) ;; x) aur_blocked=' row_system_failed
+control reboot-read-silent '  vgs_tui_warn "Could not check which updates need a restart."' '  :' row_reboot_unread
+control reboot-warns-twice '  [[ $_updates_reboot_warned == 0 ]] || return 0' '  :' row_reboot_unread
+control diff-in-fetched-tree '>"$dir/install/$name.diff"' '>"$_updates_install_dir/install.diff"' row_review_install_links
+control install-link-read 'if [[ $file == */* || ! -f $new || -L $new ]]; then' 'if [[ $file == */* || ! -f $new ]]; then' row_review_install_links
+control srcinfo-first-install-line '            base) base_file="$value" ;;' '            *) [[ $own_set == 1 ]] || own_file="$value" own_set=1 ;;' row_review_split
+control srcinfo-base-ignored '            base) base_file="$value" ;;' '            base) ;;' row_review_split
+control unfound-reads-none '    if ! _updates_install_name "$dir/build" "$name"; then' '    if ! _updates_install_name "$dir/build" "$name"; then _updates_install_file="" _updates_install_dir=""; elif false; then' row_review_split
 control cause-keeps-escapes 'sed -E -e $'"'"'s/\e' 'sed -E -e $'"'"'s/NEVER\e' row_failure
 control failure-exits-0 '  [[ $ended == success ]] || exit 1' '  :' row_failure
 control interrupt-goes-on 'if [[ $status -eq 130 ]]; then' 'if false; then' row_interrupted

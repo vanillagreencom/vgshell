@@ -74,10 +74,12 @@
 # reported instead of asked, and the review's questions are still asked.
 # A source step (7 to 10 and 12) that fails records its cause, the last
 # line it printed on stderr, and the run goes on with the next; a run with
-# a failed step exits 1 after the reboot question. A step a Ctrl-C ended
-# ends the run with 130. Any other failing step ends the run: the ERR trap
-# prints `updates: failed exit=<n> log=<file>` and how to recover, and the
-# session's or the guard's EXIT trap drops the credential.
+# a failed step exits 1 after the reboot question. After a failed or
+# declined system step the AUR step and the vgshell-git rebuild are
+# skipped, since they build against the system that step left. A step a
+# Ctrl-C ended ends the run with 130. Any other failing step ends the run:
+# the ERR trap prints `updates: failed exit=<n> log=<file>` and how to
+# recover, and the session's or the guard's EXIT trap drops the credential.
 #
 # Every refusal prints `updates: refused: <key>=<value>` first. A bad
 # invocation exits 2; a held lock exits 75.
@@ -137,44 +139,65 @@ _updates_run() { # LABEL ARGV...
   (cd -- "$HOME" && "$@")
 }
 
-# The cause of a failed step from its stderr in FILE: the last line that
-# holds text once SGR escapes and carriage returns are gone, and that VGS
-# did not print. VGS prints a `vgshell: refused:` or `vgs-tui: refused:`
-# key line and the English after the last one, such as `vgshell pkg run`'s
-# rescan refusal after its steps. Sets _updates_cause, empty when no line
-# is left, and _updates_declined to 1 when a key line is the `declined=`
-# answer of `vgshell plugin|theme update`.
+# The cause of a failed step from its stderr in FILE, once SGR escapes and
+# carriage returns are gone. VGS prints a `vgshell: refused:` or `vgs-tui:
+# refused:` key line and English after it. A question with no newline can
+# precede the key on its line, as `vgshell plugin update`'s [y/N] does,
+# and that text is never a cause. With a key line the cause is the last
+# line after the last one, else its value, such as git's message after a
+# `fetch=` refusal. `vgshell pkg run`'s closing block, a `rescan=` refusal
+# after its steps, is the exception: there the cause is the last line the
+# steps printed before it. Without a key line it is the last line that
+# holds text, after any question answered on it. Sets _updates_cause, and
+# _updates_declined to 1 when the user said no: the `declined=` refusal of
+# `vgshell plugin|theme update`, or a step whose own text ends on a [Y/n]
+# or [y/N] question, as pacman and an AUR helper leave one answered no.
 _updates_cause_of() { # FILE
-  local line out last="" keyed=0 held=""
+  local line out last="" keyed=0 value="" held="" tail="" after="" own=""
   _updates_declined=0
   out="$(LC_ALL=C sed -E -e $'s/\e\\[[0-9;:?]*[ -/]*[@-~]//g' -e $'s/\r+$//' -e $'s/^.*\r//' -- "$1")"
   while IFS= read -r line; do
-    if [[ $line =~ ^(vgshell|vgs-tui):\ refused:\ (.*)$ ]]; then
-      [[ ${BASH_REMATCH[2]} != declined=* ]] || _updates_declined=1
-      keyed=1
-      held="$last"
+    if [[ $line =~ (^|[[:space:]])(vgshell|vgs-tui):\ refused:\ (.*)$ ]]; then
+      value="${BASH_REMATCH[3]}"
+      [[ $value != declined=* ]] || _updates_declined=1
+      tail="${line:0:${#line}-${#BASH_REMATCH[0]}}"
+      keyed=1 held="$last" after=""
     elif [[ -n ${line//[[:space:]]/} ]]; then
-      last="$line"
+      # An answer echoes on the terminal alone, so what the step printed
+      # after a question it asked shares the question's line.
+      if [[ $line =~ \[(Y/n|y/N)\]:?[[:space:]]+(.*[^[:space:]].*)$ ]]; then line="${BASH_REMATCH[2]}"; fi
+      last="$line" after="$line"
     fi
   done <<<"$out"
-  if [[ $keyed == 1 ]]; then _updates_cause="$held"; else _updates_cause="$last"; fi
+  if [[ $keyed == 0 ]]; then
+    own="$last" _updates_cause="$last"
+  elif [[ $value == rescan=* ]]; then
+    own="${tail:-$held}" _updates_cause="${held:-${after:-$value}}"
+  else
+    _updates_cause="${after:-$value}"
+  fi
+  if [[ $own =~ \[(Y/n|y/N)\]:?[[:space:]]*$ ]]; then _updates_declined=1; fi
 }
 
 # Runs one source step, ARGV, and adds its result to _updates_results as
-# `LABEL: <result>`: installed; skipped when it is a plugin or theme update
-# the user declined; failed with its cause line, else `exit <n>`. The run
-# goes on after a failure, so neither errexit nor the ERR trap sees it.
-# Its stderr reaches the terminal and the cause file both, and the tee is
-# waited for, so the file is whole when it is read; stdout and stdin stay
-# the terminal's, so a manager still asks its questions. A step a Ctrl-C
-# ended, 130, ends the run.
+# `LABEL: <result>`: installed; skipped when the user declined it; failed
+# with its cause line, else `exit <n>`. _updates_outcome is installed,
+# declined or failed. The run goes on after a failure, so neither errexit
+# nor the ERR trap sees it. Its stderr reaches the terminal and the cause
+# file both, and the tee is waited for, so the file is whole when it is
+# read; stdout and stdin stay the terminal's, so a manager still asks its
+# questions. The tee ignores the SIGHUP a closed window sends the group, so
+# the lines a step such as pacman writes on its way out still have a
+# reader instead of killing it by SIGPIPE before it unlocks its database.
+# A step a Ctrl-C ended, 130, ends the run.
 _updates_source() { # ID LABEL ARGV...
   local id="$1" label="$2" status=0
   shift 2
   : >"$_updates_cause_file"
-  { "$@"; } 2> >(tee -a -- "$_updates_cause_file" >&2) || status=$?
+  { "$@"; } 2> >(trap '' HUP; exec tee -a --output-error=warn -- "$_updates_cause_file" >&2) || status=$?
   wait "$!" || :
   if [[ $status -eq 0 ]]; then
+    _updates_outcome=installed
     _updates_results+=("$label: installed")
     return 0
   fi
@@ -184,9 +207,11 @@ _updates_source() { # ID LABEL ARGV...
   fi
   _updates_cause_of "$_updates_cause_file"
   if [[ $_updates_declined == 1 ]]; then
+    _updates_outcome=declined
     _updates_results+=("$label: skipped, you declined it")
     return 0
   fi
+  _updates_outcome=failed
   _updates_diagnostic "updates: failed source=$id exit=$status"
   _updates_results+=("$label: failed, ${_updates_cause:-exit $status}")
   _updates_failures=$((_updates_failures + 1))
@@ -349,28 +374,37 @@ _updates_recheck() {
   fi
 }
 
+# Logs DIAGNOSTIC, a read the reboot question needs that failed, and warns
+# once a run that the question may leave packages out.
+_updates_reboot_unread() { # DIAGNOSTIC
+  _updates_diagnostic "$1"
+  [[ $_updates_reboot_warned == 0 ]] || return 0
+  _updates_reboot_warned=1
+  vgs_tui_warn "Could not check which updates need a restart."
+}
+
 # Sets _updates_core to the packages of CHANGES, `upgrade <name>` and
 # `install <name>` lines, that need a reboot: the ones the CachyOS reboot
 # hook names, as its script judges them with the running kernel and the
 # mounted file systems (UpdatesLogic.rebootPackages through bin/facts
-# reboot). Without the hook none does. A read that fails is logged and
-# leaves the list empty, so the run still ends with its result.
+# reboot). Without the hook none does. A read that fails warns through
+# _updates_reboot_unread, and a failed judgement leaves the list empty, so
+# the run still ends with its result.
 _updates_reboot_packages() { # CHANGE...
   local root hook=- mounts="" facts key value status=0
   _updates_core=()
   if root="$(pacman-conf RootDir)"; then
     [[ ! -f ${root%/}/$_updates_reboot_hook ]] || hook="${root%/}/$_updates_reboot_hook"
   else
-    _updates_diagnostic "updates: reboot-hook=unread exit=$?"
+    _updates_reboot_unread "updates: reboot-hook=unread exit=$?"
   fi
-  mounts="$(findmnt -rno FSTYPE)" || { _updates_diagnostic "updates: mounts=unread exit=$?"; mounts=""; }
+  mounts="$(findmnt -rno FSTYPE)" || { _updates_reboot_unread "updates: mounts=unread exit=$?"; mounts=""; }
   facts="$({
     printf '%s\n' "$@"
     while read -r value; do [[ -z $value ]] || printf 'mounted %s\n' "$value"; done <<<"$mounts"
   } | _updates_facts reboot "$hook" /proc/version)" || status=$?
   if [[ $status -ne 0 ]]; then
-    _updates_diagnostic "updates: reboot-packages=failed exit=$status"
-    vgs_tui_warn "Could not check which updates need a restart."
+    _updates_reboot_unread "updates: reboot-packages=failed exit=$status"
     return 0
   fi
   while read -r key value; do
@@ -507,35 +541,79 @@ _updates_review_list() { # AUR REPO HELPER REBUILD
   done <<<"$facts"
 }
 
+# The fetched folder of NAME under BUILD and the install script its
+# .SRCINFO names. `<helper> -G` saves a folder per package base, so a
+# split package is found by the `pkgname` line of its base's .SRCINFO, and
+# its script is its own section's `install =` line, else the base
+# section's. Sets _updates_install_dir and _updates_install_file, empty
+# when the package has no script; 1 when no folder's .SRCINFO names NAME.
+# The fetched tree is untrusted, so a .SRCINFO that is a link is not read.
+_updates_install_name() { # BUILD NAME
+  local srcinfo key eq value section base_file own_file own_set found
+  for srcinfo in "$1"/*/.SRCINFO; do
+    [[ -f $srcinfo && ! -L $srcinfo ]] || continue
+    section="" base_file="" own_file="" own_set=0 found=0
+    while read -r key eq value; do
+      [[ $eq == = ]] || continue
+      case "$key" in
+        pkgbase) section=base ;;
+        pkgname) if [[ $value == "$2" ]]; then section=own found=1; else section=other; fi ;;
+        install)
+          case "$section" in
+            base) base_file="$value" ;;
+            own) own_file="$value" own_set=1 ;;
+          esac
+          ;;
+      esac
+    done <"$srcinfo"
+    [[ $found == 1 ]] || continue
+    _updates_install_dir="${srcinfo%/.SRCINFO}"
+    if [[ $own_set == 1 ]]; then _updates_install_file="$own_file"; else _updates_install_file="$base_file"; fi
+    return 0
+  done
+  return 1
+}
+
 # Each fetched AUR package's install script judged by its change against
 # the installed package's (UpdatesLogic.installScriptChange through
 # bin/facts install): `install <name> <state>` added to DIR/packages.txt,
-# a changed script's diff as build/<name>/install.diff, and a flag in
+# a changed script's diff as DIR/install/<name>.diff, in a directory the
+# run makes, never in the fetched tree, and a flag in
 # _updates_review_risks, `<name> <concern>`, per risky line the update
 # adds. The installed script is the copy in pacman's local database, under
 # the installed version or, for `?`, pacman -Q's; one that cannot be found
 # counts as absent, so the whole new script is judged. The new one is the
-# file the `install =` line of the package's .SRCINFO names.
+# file _updates_install_name finds, read only when it is a regular file
+# in the package's folder: a link could feed the agent any file of the
+# user's. A script that cannot be found or read is `unread`, with a flag.
 _updates_review_install() { # DIR
-  local dir="$1" db="" i name old out installed new file key eq value facts state status
+  local dir="$1" db="" i name old out installed new file key value facts state status
+  mkdir -m 700 -- "$dir/install"
   if ! db="$(pacman-conf DBPath)"; then _updates_diagnostic "updates: install-check query=dbpath reason=failed"; db=""; fi
   for i in "${!_updates_review_aur[@]}"; do
     name="${_updates_review_aur[i]}" old="${_updates_review_aur_old[i]}"
+    if ! _updates_install_name "$dir/build" "$name"; then
+      printf 'install %s unread\n' "$name" >>"$dir/packages.txt"
+      _updates_review_risks+=("$name Could not find the install script.")
+      continue
+    fi
+    file="$_updates_install_file" new=-
+    if [[ -n $file ]]; then
+      new="$_updates_install_dir/$file"
+      if [[ $file == */* || ! -f $new || -L $new ]]; then
+        printf 'install %s unread\n' "$name" >>"$dir/packages.txt"
+        _updates_review_risks+=("$name The install script is a link or not a regular file.")
+        continue
+      fi
+    fi
     if [[ $old == "?" ]]; then
       old=""
       if out="$(pacman -Q "$name" 2>/dev/null)"; then old="${out#* }"; fi
     fi
     installed=-
     if [[ -n $db && -n $old && -f ${db%/}/local/$name-$old/install ]]; then installed="${db%/}/local/$name-$old/install"; fi
-    file=""
-    if [[ -f $dir/build/$name/.SRCINFO ]]; then
-      while read -r key eq value; do
-        if [[ $key == install && $eq == = ]]; then file="$value"; break; fi
-      done <"$dir/build/$name/.SRCINFO"
-    fi
-    new=-
-    if [[ -n $file && -f $dir/build/$name/$file ]]; then new="$dir/build/$name/$file"; fi
     if ! facts="$(_updates_facts install "$installed" "$new")"; then
+      printf 'install %s unread\n' "$name" >>"$dir/packages.txt"
       _updates_review_risks+=("$name The install script could not be read.")
       continue
     fi
@@ -549,7 +627,7 @@ _updates_review_install() { # DIR
     printf 'install %s %s\n' "$name" "$state" >>"$dir/packages.txt"
     if [[ $state == changed ]]; then
       status=0
-      diff -u -- "$installed" "$new" >"$dir/build/$name/install.diff" || status=$?
+      diff -u -- "$installed" "$new" >"$dir/install/$name.diff" || status=$?
       # diff exits 1 when the files differ, and above 1 when it failed.
       [[ $status -le 1 ]] || _updates_diagnostic "updates: install-diff=failed package=$name exit=$status"
     fi
@@ -746,9 +824,10 @@ updates_main() {
   mv -f -- "$UPDATES_LOG_PART" "$_updates_log"
   _updates_pid=$BASHPID
   trap '_updates_failed $?' ERR
-  # The result list, the failed steps' count, and the file a source step's
-  # stderr is copied to: one file, since the lock holds one run at a time.
-  _updates_results=() _updates_failures=0
+  # The result list, the failed steps' count, whether a reboot read warned,
+  # and the file a source step's stderr is copied to: one file, since the
+  # lock holds one run at a time.
+  _updates_results=() _updates_failures=0 _updates_reboot_warned=0
   _updates_cause_file="$state/.step-stderr"
 
   # What the run acts on: the plugin's settings and the system's managers.
@@ -988,14 +1067,17 @@ updates_main() {
         [[ -z $name ]] || installed[$name]="$value"
       done <<<"$out"
     else
-      _updates_diagnostic "updates: installed=unread when=before"
+      _updates_reboot_unread "updates: installed=unread when=before"
     fi
   fi
   if _updates_in vgs "${run[@]}" && [[ $vgs_behind == true && ( $vgs_method == checkout || $vgs_method == curl ) ]]; then
     vgs_tui_step "Updating VGS"
     _updates_source vgs VGS "$_updates_vgshell" self update
   fi
-  local ignore=()
+  # An AUR build links against the system the system step left: after a
+  # failed or declined system upgrade, whose databases are already synced,
+  # the AUR step and the rebuild would be a partial upgrade.
+  local ignore=() aur_blocked=""
   for id in "${run[@]}"; do
     case "$id" in
       vgs|plugins|themes|aur) ;;
@@ -1003,6 +1085,12 @@ updates_main() {
         ignore=()
         if [[ $id == pacman && ${#_updates_skip_repo[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_repo[@]}"); fi
         _updates_source "$id" "${labels[$id]}" "$_updates_vgshell" pkg run upgrade --manager "$id" "${ignore[@]}"
+        if [[ $id == pacman ]]; then
+          case "$_updates_outcome" in
+            failed) aur_blocked="the system upgrade failed, and AUR packages build against it" ;;
+            declined) aur_blocked="you declined the system upgrade, and AUR packages build against it" ;;
+          esac
+        fi
         ;;
     esac
   done
@@ -1010,7 +1098,12 @@ updates_main() {
   if [[ ${#themes[@]} -gt 0 ]]; then _updates_update_each theme "${themes[@]}"; fi
   if [[ $session == 1 ]]; then vgs_tui_sudo_session end; fi
 
-  if [[ $rebuild == 1 ]] || _updates_in aur "${run[@]}"; then
+  local rebuild_run=0
+  if [[ $rebuild == 1 ]] && ! _updates_in vgshell-git "${_updates_skip_aur[@]}"; then rebuild_run=1; fi
+  if [[ -n $aur_blocked ]]; then
+    if _updates_in aur "${run[@]}"; then _updates_results+=("AUR: skipped, $aur_blocked"); fi
+    if [[ $rebuild_run == 1 ]]; then _updates_results+=("VGS package: skipped, $aur_blocked"); fi
+  elif [[ $rebuild == 1 ]] || _updates_in aur "${run[@]}"; then
     local guarded=0
     if command -v sudo >/dev/null; then
       vgs_tui_sudo_session guard
@@ -1027,7 +1120,7 @@ updates_main() {
         _updates_source aur AUR "$_updates_vgshell" pkg run upgrade --manager aur "${ignore[@]}"
       fi
     fi
-    if [[ $rebuild == 1 ]] && ! _updates_in vgshell-git "${_updates_skip_aur[@]}"; then
+    if [[ $rebuild_run == 1 ]]; then
       _updates_source vgshell-git "VGS package" _updates_run "Rebuilding VGS" "$aur_binary" -S vgshell-git
     fi
     if [[ $guarded == 1 ]]; then vgs_tui_sudo_session end; fi
@@ -1046,7 +1139,7 @@ updates_main() {
         fi
       done <<<"$out"
     else
-      _updates_diagnostic "updates: installed=unread when=after"
+      _updates_reboot_unread "updates: installed=unread when=after"
     fi
   fi
   if [[ ${#changes[@]} -gt 0 ]]; then _updates_reboot_packages "${changes[@]}"; fi

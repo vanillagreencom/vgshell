@@ -16,8 +16,9 @@ The review directory is `{review_dir}`. The files below are in it. Read and writ
   - `repo <repository> <package> <installed version> <new version>`: a package from a pacman repository that is not official.
   - `server <repository> <url>`: one server of that repository.
   - `siglevel <repository> <level>`: the signature level pacman applies to it.
-  - `install <package> <state>`: how the update changes the AUR package's install script against the installed package's: `none` (the update has no install script), `new` (the installed package has none), `unchanged` or `changed`.
-- `build/<package>/` holds each AUR package's build files, which the update fetched for you, and `install.diff`, the diff of a `changed` install script against the installed one.
+  - `install <package> <state>`: how the update changes the AUR package's install script against the installed package's: `none` (the update has no install script), `new` (the installed package has none), `unchanged`, `changed`, or `unread` (the update could not find or read the script).
+- `build/<folder>/` holds each AUR package's build files, which the update fetched for you. The folder is the package base, which for a split package differs from the package's name.
+- `install/<package>.diff` is the diff of a `changed` install script against the installed one.
 - `verdict` is the file you write last.
 
 ## Steps
@@ -26,7 +27,7 @@ The review directory is `{review_dir}`. The files below are in it. Read and writ
 2. Read each `PKGBUILD`. Report real supply-chain risk only:
    - a `source=()` entry from an unexpected or unofficial domain, or a download from an arbitrary host;
    - an obfuscated or encoded payload, a download piped to a shell, or base64 decoded into a shell;
-   - an install script judged only by its change, by its `install` line in `packages.txt`: for `unchanged`, do not flag the script, and say "Install script unchanged" in the package's line; for `changed`, read `build/<package>/install.diff` and flag only privileged or destructive work, a setuid or setgid bit or a write outside the build directory that the change adds or alters; for `new`, review the whole script. The update runs its own install script check as well, so you need not repeat it;
+   - an install script judged only by its change, by its `install` line in `packages.txt`: for `unchanged`, do not flag the script, and say "Install script unchanged" in the package's line; for `changed`, read `install/<package>.diff` and flag only privileged or destructive work, a setuid or setgid bit or a write outside the build directory that the change adds or alters; for `new` or `unread`, review the whole script the package's `.SRCINFO` names. The update runs its own install script check as well, so you need not repeat it;
    - a new change since the last build: compare each `PKGBUILD` with the copy the helper cached when it last built the package, `~/.cache/paru/clone/<package>/PKGBUILD` for paru and `~/.cache/yay/<package>/PKGBUILD` for yay, and look hardest at what changed.
 
    A version, `pkgver` or checksum bump and an ordinary build change are not concerns.
