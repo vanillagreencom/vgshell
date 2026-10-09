@@ -57,12 +57,15 @@ jobs:
         run: |
           # The tools the rows run; a row whose tool is missing exits 77.
           # ttf-dejavu gives Qt a default family, without which the QML unit
-          # tests measure text drawn in no font.
+          # tests measure text drawn in no font. xorg-server-xvfb and
+          # xorg-xauth give the MultiEffect unit test the X display that
+          # scripts/qml-unit.sh draws it on.
           pacman -Syu --noconfirm --needed \
             git base-devel nodejs python python-dbus python-numpy jq \
             qt6-declarative quickshell util-linux bubblewrap lua gnupg \
             libsecret sudo tmux fd fzf file glib2 xdg-utils imagemagick ffmpeg \
-            qt6-shadertools pipewire pipewire-audio ttf-dejavu
+            qt6-shadertools pipewire pipewire-audio ttf-dejavu \
+            xorg-server-xvfb xorg-xauth
           useradd --create-home ci
           # Ubuntu restricts user namespaces to processes an AppArmor profile
           # allows, and the container's processes run unconfined.
