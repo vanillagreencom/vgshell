@@ -719,6 +719,7 @@ mutations=(
   "link text's ring starts at the text's left edge|feedback/LinkText.qml|        x: root.linkBox.x + inset|        x: inset|tst_linktext.qml"
   "link text's ring reaches its full extent beside the words|feedback/LinkText.qml|Math.min(Theme.focusRing.offset + Theme.focusRing.width, spaceGlyph.advanceWidth - 1)|Theme.focusRing.offset + Theme.focusRing.width|tst_linktext.qml"
   "link text's box stops before the punctuation against it|feedback/LinkText.qml|        while (end < text.length && !/\\s/.test(text.charAt(end))) end++;|        end = end + 0;|tst_linktext.qml"
+  "link text measures a shorter text with the longer text's run|feedback/LinkText.qml|twin.length === text.length && run[1] <= text.length ? wordsBox(|twin.length === text.length ? wordsBox(|tst_linktext.qml"
   "the code line copies nothing|feedback/CodeLine.qml|clipboard.copy();|clipboard.deselect();|tst_codeline.qml"
   "the code line signals no copy|feedback/CodeLine.qml|root.copied();|root.confirming;|tst_codeline.qml"
   "the code line confirms no copy|feedback/CodeLine.qml|iconName: root.confirming ? \"check\" : \"copy\"|iconName: \"copy\"|tst_codeline.qml"

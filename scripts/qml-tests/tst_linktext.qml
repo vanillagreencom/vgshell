@@ -23,6 +23,13 @@ Item {
         link: "hyprland.lua"
     }
     LinkText {
+        id: changing
+        y: 280
+        width: 360
+        text: "Set by theme"
+        link: "Hyprland config"
+    }
+    LinkText {
         id: plain
         y: 80
         width: 360
@@ -170,6 +177,18 @@ Item {
                     verify(right <= rightStart - 1, "1 px clear of the word after: ring " + right + ", word start " + rightStart);
                 verify(ring.width < item.width, "the ring leaves the prose outside it");
             }
+        }
+
+        // A message that changes to a shorter one, as a row's does when
+        // its source changes, is measured only with its own link's run:
+        // a position past the new text logs a QTextCursor warning, which
+        // fails this file.
+        function test_a_shorter_text_is_measured_with_its_own_run() {
+            changing.text = "Overridden by your Hyprland config";
+            changing.text = "Set by your Hyprland config";
+            changing.text = "Hyprland config sets 10 px";
+            compare(changing.run, [0, 15]);
+            verify(changing.linkBox.width > 0 && changing.linkBox.x === 0, "the box is the link's at the text's start");
         }
 
         function test_pointer_activates_only_the_link() {

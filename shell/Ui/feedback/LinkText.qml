@@ -31,8 +31,10 @@ T.Control {
     // That run's box in this item: its x span on the line it is laid out
     // on, one label line box tall, once the twin holds the text. The
     // arguments name what the twin's layout depends on, since its
-    // positions are a function a binding cannot follow.
-    readonly property rect linkBox: linked && twin.length === text.length ? wordsBox(twin.contentWidth, twin.contentHeight, twin.lineCount, label.lineBox) : Qt.rect(0, 0, width, height)
+    // positions are a function a binding cannot follow. A new text
+    // reaches the twin before `run` follows it, so the box waits for a run
+    // that lies inside the text; the twin has no position past its end.
+    readonly property rect linkBox: linked && twin.length === text.length && run[1] <= text.length ? wordsBox(twin.contentWidth, twin.contentHeight, twin.lineCount, label.lineBox) : Qt.rect(0, 0, width, height)
     // How far the ring's outer edge lies beside the run: the standard
     // offset and width, cut to one space less a pixel.
     readonly property real ringReach: Math.min(Theme.focusRing.offset + Theme.focusRing.width, spaceGlyph.advanceWidth - 1)
