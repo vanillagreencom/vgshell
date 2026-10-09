@@ -8,7 +8,7 @@ import qs.Unit
 // closes and counts in OverlayState, a menu moves its highlight and
 // triggers by key and closes on a trigger but that of an entry that opens a
 // submenu, which draws a chevron, or keeps the menu open, a select chooses by index and
-// reads its text role, a tooltip opens after the delay while the pointer
+// reads its text role, an empty select opens no list from a key or a click, a tooltip opens after the delay while the pointer
 // rests and not under an open overlay. A menu
 // taller than its maximum scrolls with the highlight kept in view, jumps
 // to the entry whose text starts with the letters typed, opens on its
@@ -30,7 +30,7 @@ import qs.Unit
 Item {
     id: root
     width: 300
-    height: 200
+    height: 240
 
     Item { id: host; width: 60; height: 26
         Popover { id: popover; width: 120; Item { width: 100; height: 40 } }
@@ -76,6 +76,7 @@ Item {
     property int wanted: 0
     Select { id: bound; y: 120; model: ["one", "two", "three"]; currentIndex: root.wanted }
     Select { id: longSelect; y: 160; model: ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p"] }
+    Select { id: emptySelect; y: 200; model: []; emptyText: "Nothing to choose" }
     property int triggered: -1
     property int reached: 0
     MouseArea { id: under; x: 250; width: 50; height: 30; onPressed: root.reached += 1 }
@@ -856,6 +857,26 @@ Item {
             compare(select.listOpen, true);
             select.choose(0);
             compare(select.listOpen, false);
+        }
+
+        // With nothing to choose the closed control reads its empty text,
+        // and no key, click or call opens a list that would repeat it; the
+        // control keeps the keyboard.
+        function test_an_empty_select_opens_no_list() {
+            root.Window.window.requestActivate();
+            emptySelect.forceActiveFocus();
+            tryCompare(emptySelect, "activeFocus", true);
+            compare(emptySelect.contentItem.text, emptySelect.emptyText);
+            for (const key of [Qt.Key_Return, Qt.Key_Space, Qt.Key_Down]) {
+                keyClick(key);
+                compare(emptySelect.listOpen, false, "key " + key + " leaves the empty select closed");
+            }
+            mouseClick(emptySelect);
+            compare(emptySelect.listOpen, false, "a click leaves the empty select closed");
+            emptySelect.openList();
+            compare(emptySelect.listOpen, false, "openList leaves the empty select closed");
+            compare(OverlayState.open, 0);
+            compare(emptySelect.activeFocus, true, "the empty select keeps the keyboard");
         }
 
         function test_select_keys_move_the_choice_while_closed() {

@@ -63,7 +63,8 @@ function keyHint(row) {
 
 /**
  * The words for an account's state, state its kind and source its source's
- * kind: the setup terminal's Status column, and the start of accountHint.
+ * kind: the setup terminal's Status column, and the start of accountHint
+ * for a row that is not signed out.
  * Any other state reads as one that could not be checked.
  */
 function stateLabel(state, source) {
@@ -79,15 +80,19 @@ function stateLabel(state, source) {
 }
 
 /**
- * The hint of one account item from Accounts.status(): its state, source,
- * plan, email and whether the email disagrees with the folder name.
+ * The hint of one account item from Accounts.status(), "" for none: its
+ * state, source, plan, email and whether the email disagrees with the folder
+ * name. A signed-out row's badge already says so, so its hint names only a
+ * mismatch.
  */
 function accountHint(account) {
+    var mismatch = account.mismatch === true ? "The email does not match the folder name." : "";
+    if (account.value === "signed-out") return mismatch;
     var text = stateLabel(account.state, account.source);
     if (account.state === "signed-in")
         text += (account.plan !== "" ? ", " + account.plan + " plan" : "") + (account.email !== "" ? ", " + account.email : "");
     text += ".";
-    if (account.mismatch === true) text += " The email does not match the folder name.";
+    if (mismatch !== "") text += " " + mismatch;
     return text.slice(0, 200);
 }
 

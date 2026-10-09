@@ -1115,10 +1115,11 @@ world(async () => {
         for (const value of ["present", "absent", "locked"]) assert.equal(Words.keyHint(keyRow(value)), "", value);
         plain(Words.keyHint({ label: "fixture / test", value: "unavailable", hint: "jarvis-keys: busctl=failed" }));
         const hints = [];
+        const presence = state => state === "locked" || state === "unavailable" ? state : "present";
         for (const state of ["signed-in", "found", "unchecked", "verifying", "verified", "locked", "unavailable"])
             for (const source of ["cli", "variable", "keyring", "local"])
                 for (const mismatch of [false, true]) {
-                    const hint = Words.accountHint({ state, source, plan: "pro", email: "team@example.invalid", mismatch });
+                    const hint = Words.accountHint({ state, source, value: presence(state), plan: "pro", email: "team@example.invalid", mismatch });
                     plain(hint);
                     assert.ok(hint.length <= 200);
                     hints.push([state, source, mismatch, hint]);
@@ -1127,16 +1128,27 @@ world(async () => {
         assert.notEqual(hintOf("signed-in", "cli"), hintOf("found", "cli"), "signed in and found read apart");
         assert.notEqual(hintOf("found", "cli"), hintOf("unavailable", "cli"), "found and unavailable read apart");
         assert.notEqual(hintOf("unchecked", "cli"), hintOf("found", "cli"), "unchecked and found read apart");
-        for (const [state, source] of [["found", "cli"], ["locked", "keyring"]])
-            assert.notEqual(Words.accountHint({ state, source, plan: "", email: "", mismatch: true }),
-                Words.accountHint({ state, source, plan: "", email: "", mismatch: false }), "a mismatch is named");
+        // A signed-out row's badge says it is signed out, so its hint is
+        // empty unless the email disagrees with the folder name.
+        const signedOut = mismatch => Words.accountHint({ state: "found", source: "cli", value: "signed-out", plan: "", email: "", mismatch });
+        assert.equal(signedOut(false), "", "a signed-out row has no hint");
+        plain(signedOut(true));
+        for (const [state, source, value] of [["found", "cli", "present"], ["locked", "keyring", "locked"]])
+            assert.notEqual(Words.accountHint({ state, source, value, plan: "", email: "", mismatch: true }),
+                Words.accountHint({ state, source, value, plan: "", email: "", mismatch: false }), "a mismatch is named");
     };
     pageWords(plugin);
-    for (const account of store.status().accounts) plain(require(path.join(plugin, "AccountStatus.js")).accountHint(account));
+    for (const account of store.status().accounts) {
+        const hint = require(path.join(plugin, "AccountStatus.js")).accountHint(account);
+        if (account.value === "signed-out" && !account.mismatch) assert.equal(hint, "", account.label);
+        else plain(hint);
+    }
     cases++;
     await mutant("AccountStatus.js", "saved-list-offers-accounts",
         'return { tone: "danger", text: "Could not read your saved accounts", action: false };',
         'return { tone: "danger", text: "Could not read your saved accounts", action: true };', pageWords);
+    controls++;
+    await mutant("AccountStatus.js", "signed-out-hint-repeats-badge", 'if (account.value === "signed-out") return mismatch;', "", pageWords);
     controls++;
     await mutant("AccountStatus.js", "partial-reads-complete", 'if (outcome.partial === "entry-limit")', "if (false)", pageWords);
     controls++;

@@ -23,10 +23,9 @@ import qs.Ui
 // shows. Under a rounded corner the list is cut to the window's rounded
 // interior (ListMask), so a row scrolled part way past an edge stays inside
 // the curve. The control draws like a text field; the template owns its
-// click, hover and focus. With nothing to choose and `emptyText` set, the
-// control reads that text dimmed, and a click, Space or Enter opens one
-// dimmed line reading it, which takes no highlight and chooses nothing;
-// without `emptyText` an empty list does not open. With entries to choose,
+// click, hover and focus. With nothing to choose the list never opens, so
+// no popup repeats what the closed control says; with `emptyText` set, the
+// control reads that text dimmed. With entries to choose,
 // none chosen (`currentIndex` outside the model) and `placeholderText` set,
 // the control reads that text dimmed, and the list opens with no entry
 // highlighted; Down then moves to the first entry.
@@ -84,7 +83,7 @@ T.AbstractButton {
     }
 
     function openList() {
-        if (count === 0 && !showsEmpty) return;
+        if (count === 0) return;
         // The cursor lands on the choice rather than travelling from where
         // the last opening left it.
         plate.disarm();
@@ -115,11 +114,8 @@ T.AbstractButton {
     Keys.onPressed: event => { event.accepted = closedNav.handle(event); }
 
     property KeyNav closedNav: KeyNav {
-        // With nothing to choose, the one empty line is what Enter or Space
-        // opens; a move lands on it and choose() ignores an index past the
-        // model.
-        count: root.showsEmpty ? 1 : root.count
-        currentIndex: root.showsEmpty ? 0 : root.currentIndex
+        count: root.count
+        currentIndex: root.currentIndex
         wrap: false /* closed select */
         labelAt: index => root.textAt(index)
         onMoved: index => root.choose(index)
@@ -165,7 +161,7 @@ T.AbstractButton {
         color: "transparent"
         // The field's width, never wider than the output's room.
         implicitWidth: Math.max(1, OverlayState.widthFor(root, root.width))
-        implicitHeight: Math.max(1, Math.min(Theme.menu.maxHeight, root.showsEmpty ? emptyLine.height : entries.contentHeight) + 2 * root.listInset)
+        implicitHeight: Math.max(1, Math.min(Theme.menu.maxHeight, entries.contentHeight) + 2 * root.listInset)
         onVisibleChanged: root.share(visible)
 
         DismissScope {
@@ -285,20 +281,6 @@ T.AbstractButton {
                 anchors.fill: entries
                 frameWidth: list.width
                 frameHeight: list.height
-            }
-
-            Label {
-                id: emptyLine
-                visible: root.showsEmpty
-                role: "item"
-                text: root.emptyText
-                color: Theme.textField.placeholder
-                x: root.sidePadding
-                y: root.listInset
-                width: list.width - 2 * root.sidePadding
-                height: Theme.menu.item.height
-                verticalAlignment: Text.AlignVCenter
-                elide: Text.ElideRight
             }
         }
     }

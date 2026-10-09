@@ -2,10 +2,9 @@
 # and Accounts under the account list are offered and each opens its
 # terminal, every text that names one of them has it offered, with nothing
 # found and in a partial search whose row names Accounts, and the AI model
-# setting reads its empty text and opens on one empty line from a Space
-# press, beside Add key; without a command only Accounts needs, the search
-# row offers Install requirements and Add key stays offered. No latency
-# budget.
+# setting reads its empty text, closed, beside Add key; without a command
+# only Accounts needs, the search row offers Install requirements and Add
+# key stays offered. No latency budget.
 # Poll once per nested IPC round trip. Only J09's process double and the
 # allow-listed TUI fixtures run here.
 # inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/Capabilities.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh
@@ -132,64 +131,9 @@ printf 'none\n' >"$sandbox/jarvis-world/account-mode"
 jarvis_rescan
 expect_poll "the restored search finds nothing and offers Accounts" '["Accounts", true, "info"]' page_offered accountSearch
 
-# The open list as one empty line: open, no entry to choose, and one drawn
-# line reading the Select's own emptyText.
-page_empty_line() { py_reply 'import json,sys; d=json.load(sys.stdin); print("one-line" if d["open"] and d["entries"] == 0 and d["empty"] != "" and d["lines"] == [d["empty"]] else "no-line")'; }
-page_copy_line() { ipc smoke popupSelectList "$1" | page_empty_line; }
-# Copies of the shipped Select, one as shipped and one whose empty line
-# never draws, an empty popup. The type loader keeps the listing of a
-# directory it has read, so a .qml file written later beside the shipped
-# ones is refused as a file name case mismatch: the copies
-# go in a fresh folder under overlay/, named as the types they make, and
-# import the directories whose internal types the Select uses
-# (AnchorTracker and ListMask, ScrollBar and ListCursorRow, InputWidth). Each closes
-# with its drop before the next opens.
-page_copy_dir="$repo/shell/Ui/overlay/jarvis-page-copies"
-mkdir -- "$page_copy_dir"
-page_copies=("$page_copy_dir/SelectEmptyLine.qml" "$page_copy_dir/SelectNoEmptyLine.qml")
-python3 - "$repo/shell/Ui/controls/Select.qml" "${page_copies[@]}" <<'PY'
-import pathlib, sys
-source = pathlib.Path(sys.argv[1]).read_text()
-assert source.count("import qs.Ui\n") == 1
-copy = source.replace("import qs.Ui\n", "import qs.Ui\nimport \"..\"\nimport \"../../layout\"\nimport \"../../controls\" as Controls\n")
-assert copy.count("    InputWidth { target: root }") == 1
-copy = copy.replace("    InputWidth { target: root }", "    Controls.InputWidth { target: root }")
-needle = "            visible: root.showsEmpty\n"
-assert copy.count(needle) == 1
-pathlib.Path(sys.argv[2]).write_text(copy)
-pathlib.Path(sys.argv[3]).write_text(copy.replace(needle, "            visible: false\n"))
-PY
-page_props='{"emptyText":"None found yet"}'
-expect "the probe builds the shipped Select copy" ok ipc smoke popupLoad page-empty-line "${page_copies[0]}" window vgs.settings "$page_props"
-expect "the shipped copy opens with nothing to choose" ok ipc smoke popupCall page-empty-line openList
-expect_poll "the shipped copy draws one empty line" one-line page_copy_line page-empty-line
-expect "the probe drops the shipped copy" ok ipc smoke popupDrop page-empty-line
-expect "the probe builds the copy without the empty line" ok ipc smoke popupLoad page-no-line "${page_copies[1]}" window vgs.settings "$page_props"
-expect "the control copy opens with nothing to choose" ok ipc smoke popupCall page-no-line openList
-expect_poll "the control copy's list is open" true ipc smoke popupRead page-no-line listOpen
-page_line_control() {
-  (failures=0 behaviour_failures=0
-   expect "the open list must draw its empty line" one-line page_copy_line page-no-line >"$sandbox/jarvis-page-line-control.log"
-   echo "$failures")
-}
-expect "an empty popup breaks the empty-line read" 1 page_line_control
-expect "the probe drops the control copy" ok ipc smoke popupDrop page-no-line
-rm -- "${page_copies[@]}" && rmdir -- "$page_copy_dir" || fail "removing the Select copies failed"
-
 page_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"vgs.jarvis","key":"brain"}'; }
 page_field_state() { page_field | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["model"], d["value"], d["list"]["open"], d["list"]["empty"] != "" and d["shown"] == d["list"]["empty"]]))'; }
-page_field_line() { page_field | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["list"]))' | page_empty_line; }
 expect_poll "with nothing found the closed AI model setting reads its empty text" '[[], "", false, true]' page_field_state
-# The terminals the row opened held the keyboard, so a focus dispatch
-# hands it back to the Settings window before the field takes Qt's focus
-# and the key is typed.
-page_settings_address="$(window_address Plugins)" || page_settings_address=""
-[[ $page_settings_address == 0x* ]] || fail "the Settings window's address is unreadable: $page_settings_address"
-expect "a focus dispatch aimed at the Settings window answers ok" ok hypr dispatch "hl.dsp.focus({ window = \"address:$page_settings_address\" })"
-expect_poll "the Settings window has the keyboard" "[\"$shell_class\", \"Plugins\"]" active_window
-expect "the AI model setting takes the focus" focused ipc smoke invokeInstance window vgs.settings focusField '{"id":"vgs.jarvis","key":"brain"}'
-type_keys -k space || fail "Space on the AI model setting failed"
-expect_poll "the AI model setting draws one empty line" one-line page_field_line
 expect "Add key is offered beside it" '["Add key", true, "info"]' page_offered keyStore
 
 # Each step is withheld only for a command its own terminal needs. Every

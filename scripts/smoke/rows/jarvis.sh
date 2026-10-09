@@ -965,14 +965,14 @@ jarvis_rescan
 # The hint AccountStatus.js words for the fixture's Claude Code / team in
 # STATE: signed in on plan pro as team@example.invalid, whose folder name
 # names no identity, or found with neither. A found folder is signed out,
-# so its row reads signed-out.
+# so its row reads signed-out and carries no hint.
 jarvis_hint_of() { # STATE
   "$node_bin" -e '
 const words = require(process.argv[1]);
 const state = process.argv[2];
 process.stdout.write(words.accountHint(state === "signed-in"
-    ? { state, source: "cli", plan: "pro", email: "team@example.invalid", mismatch: false }
-    : { state, source: "cli", plan: "", email: "", mismatch: false }));' "$source_repo/shell/plugins/vgs.jarvis/AccountStatus.js" "$1"
+    ? { state, source: "cli", value: "present", plan: "pro", email: "team@example.invalid", mismatch: false }
+    : { state, source: "cli", value: "signed-out", plan: "", email: "", mismatch: false }));' "$source_repo/shell/plugins/vgs.jarvis/AccountStatus.js" "$1"
 }
 jarvis_account_hint() {
   local want
@@ -981,7 +981,7 @@ jarvis_account_hint() {
 import json,sys
 rows=json.load(sys.stdin)["status"].get("accounts", [])
 row=next((item for item in rows if item["label"] == "Claude Code / team"), None)
-ok=row is not None and row["value"] == ("signed-out" if sys.argv[2] == "found" else "present") and row["hint"] == sys.argv[1]
+ok=row is not None and row["value"] == ("signed-out" if sys.argv[2] == "found" else "present") and row.get("hint", "") == sys.argv[1]
 print("matched" if ok else "pending")
 ' "$want" "$1"
 }

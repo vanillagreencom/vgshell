@@ -56,7 +56,8 @@ Item {
             if (code !== 0) throw new Error("probe");
             const value = JSON.parse(output);
             modelAccess = Gate.accountAccess(value.accounts);
-            const accounts = value.accounts.map(item => ({ label: item.label, value: item.value, hint: Words.accountHint(item) }));
+            const accounts = value.accounts.map(item => Words.accountHint(item) === "" ? { label: item.label, value: item.value }
+                : { label: item.label, value: item.value, hint: Words.accountHint(item) });
             const search = Words.searchValue({ kind: "found", found: value.search.found, partial: value.search.partial });
             if (shell.status.set("accounts", accounts) !== "ok" || shell.status.set("brains", value.brains) !== "ok"
                 || shell.status.set("voiceAccounts", value.voiceAccounts) !== "ok"
