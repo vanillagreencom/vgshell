@@ -232,21 +232,27 @@ Singleton {
         }),
         // The plugin's own sound events (manifest `sounds`): `play` sounds
         // one through the core's player and answers `ok`, `off`, `busy` or
-        // the keyed refusal; `choices` is what each event sounds under the
-        // user's choices, bindable, for a plugin that sounds one itself.
+        // the keyed refusal; `choices` is what each event the core stores
+        // sounds under the user's choices, bindable, for a plugin that
+        // sounds one itself. `hold` registers the instance as the holder
+        // of a `held` event, whose value another program's file holds, and
+        // `report` states the value it read there.
         sounds: ctx => ({
             play: event => Sounds.play(ctx, event),
-            get choices() { return Sounds.choicesOf(ctx.id); }
+            get choices() { return Sounds.choicesOf(ctx.id); },
+            hold: (event, holder) => Sounds.hold(ctx, event, holder),
+            report: (event, value, problem) => Sounds.report(ctx, event, value, problem)
         }),
         // The Sounds page's authority over every enabled plugin's events:
-        // the rows, the sounds a choice may name, the one write of
-        // shell.json `sounds`, and a sound played on request. `choose`
-        // answers `ok` once the file holds the choice.
+        // the rows with the values each takes, the one write of shell.json
+        // `sounds`, a sound played on request, and `refresh`, which has
+        // every holder read its value again. `choose` answers `ok` once
+        // the file holds the choice or the event's holder took it.
         soundSettings: ctx => ({
             get events() { return Sounds.rows; },
-            get library() { return Sounds.library; },
             choose: (id, event, value) => Sounds.choose(id, event, value),
-            test: sound => Sounds.test(sound)
+            test: sound => Sounds.test(sound),
+            refresh: () => Sounds.refresh()
         }),
         // `missing`: the plugin's own requirement commands the last scan did
         // not find, in declaration order, a copy per read; bindable.

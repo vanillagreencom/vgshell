@@ -218,9 +218,6 @@ f share/vgshell/shell/assets/fonts/InterVariable-OFL.txt
 f share/vgshell/shell/assets/fonts/InterVariable.ttf
 f share/vgshell/shell/assets/fonts/JetBrainsMono-OFL.txt
 f share/vgshell/shell/assets/fonts/JetBrainsMono-Variable.ttf
-f share/vgshell/shell/assets/sounds/bloop-down.wav
-f share/vgshell/shell/assets/sounds/bloop-low.wav
-f share/vgshell/shell/assets/sounds/bloop-up.wav
 f share/vgshell/shell/assets/sounds/chime.wav
 f share/vgshell/shell/assets/sounds/ping.wav
 f share/vgshell/shell/assets/sounds/pop.wav
@@ -655,6 +652,9 @@ f share/vgshell/shell/plugins/vgs.voice/config.toml
 f share/vgshell/shell/plugins/vgs.voice/manifest.json
 f share/vgshell/shell/plugins/vgs.voice/shaders/plasma.frag
 f share/vgshell/shell/plugins/vgs.voice/shaders/plasma.frag.qsb
+f share/vgshell/shell/plugins/vgs.voice/sounds/bloop/error.wav
+f share/vgshell/shell/plugins/vgs.voice/sounds/bloop/start.wav
+f share/vgshell/shell/plugins/vgs.voice/sounds/bloop/stop.wav
 f share/vgshell/shell/plugins/vgs.voice/tui/configure.sh
 f share/vgshell/shell/plugins/vgs.voice/tui/model.sh
 f share/vgshell/shell/plugins/vgs.voice/tui/setup.sh

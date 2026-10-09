@@ -22,9 +22,6 @@ def verify(path: pathlib.Path):
     data = load(path)
     assert data["engine"] == "parakeet"
     assert data["osd"]["enabled"] is False
-    # VGS plays the dictation sounds (the manifest's `sounds`), so voxtype's
-    # own would play each a second time.
-    assert data["audio"]["feedback"]["enabled"] is False
     assert data["parakeet"]["model"] == "parakeet-tdt-0.6b-v3"
     assert "meeting" not in data
     replacements = data["text"]["replacements"]
@@ -41,7 +38,6 @@ scratch.mkdir(parents=True)
 try:
     controls = [
         ("osd", lambda text: text.replace("[osd]\nenabled = false", "[osd]\nenabled = true", 1)),
-        ("feedback", lambda text: text.replace("[audio.feedback]\nenabled = false", "[audio.feedback]\nenabled = true", 1)),
         ("engine", lambda text: text.replace('engine = "parakeet"', 'engine = "whisper"', 1)),
         ("required replacement", lambda text: text.replace('"Versel" = "Vercel"\n', "", 1)),
         ("forbidden replacement", lambda text: text.replace('[text.replacements]\n', '[text.replacements]\n"luxe" = "LUKS"\n', 1)),
@@ -60,4 +56,4 @@ try:
             raise AssertionError(f"control {label}: config check passed without the rule")
 finally:
     shutil.rmtree(scratch)
-print("test-voice-config: ok controls=5")
+print("test-voice-config: ok controls=4")

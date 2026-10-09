@@ -57,7 +57,27 @@
 # observer window in milliseconds. Date.now has millisecond resolution;
 # endedAt precedes the presenter's atomic rename. Host load and CPU pressure
 # cover the idle observer. The ceiling and poll interval are harness.sh's.
-# inputs: shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
+# Dictation sounds, the manifest's held sound event, whose value voxtype's
+# config holds: the stub voxtype answers `config get` from a file under the
+# sandbox and records each `config set`, the device stand-in systemctl
+# records the restart, and the config file the service looks at is under
+# the sandbox home, so no host file is read or written and no service
+# restarts. The row reads that Voice states voxtype's value to the Sounds
+# section and that its first read, and a choice of the value already
+# there, write and restart nothing; that Off chosen in the Sounds section
+# with the pointer and the keyboard runs one `config set`, one restart and
+# a read back; and each way a choice does not take effect, by its problem
+# key: a symbolic link, which stays a link, no config file, a refused
+# write, which restarts nothing, a failed restart, a value voxtype did not
+# keep, and a value that cannot be read. A value that is neither choice
+# and a choice made without voxtype start nothing.
+# Control run on 2026-10-09, host cachy, through this row on a source_tree
+# copy of the service whose holder answers the page's choice without
+# running it and whose choice does not ask for voxtype: "Off from the
+# Sounds section reaches voxtype's config and its read back" failed,
+# reading ["own",""], and "without voxtype a dictation sounds choice is
+# refused" failed, reading ok.
+# inputs: shell/Core/Sounds.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 
 voice_log="$sandbox/voice-record.log"
@@ -70,6 +90,13 @@ voice_bridge_log="$sandbox/voice-bridge.log"
 voice_bridge_drop="$sandbox/voice-bridge-drop"
 voice_theme="$home/.config/vgshell/theme.json"
 voice_stub="$shim/voxtype"
+voice_feedback="$sandbox/voice-feedback-value"
+voice_feedback_sets="$sandbox/voice-feedback-sets"
+voice_feedback_unreadable="$sandbox/voice-feedback-unreadable"
+voice_feedback_refused="$sandbox/voice-feedback-refused"
+voice_feedback_dropped="$sandbox/voice-feedback-dropped"
+printf 'true\n' >"$voice_feedback"
+: >"$voice_feedback_sets"
 voice_bridge_stub="$shim/voxtype-audio-bridge"
 printf '%s\n' '{"state":"recording","backend":"ONNX CPU","device":"default","model":"parakeet-tdt-0.6b-v3"}' >"$voice_states"
 : >"$voice_bridge_log"
@@ -85,6 +112,15 @@ case "\$*" in
   '--version') printf '%s\n' 'voxtype 1.1.0' ;;
   'config get engine --json') printf '%s\n' '{"value":"parakeet"}' ;;
   'config get parakeet.model --json') printf '%s\n' '{"value":"parakeet-tdt-0.6b-v3"}' ;;
+  'config get audio.feedback.enabled --json')
+    [[ -e "$voice_feedback_unreadable" ]] && { printf '%s\n' 'Error: Configuration error: Invalid config' >&2; exit 1; }
+    printf '{"file_value":%s,"key":"audio.feedback.enabled","value":%s}\n' "\$(cat "$voice_feedback")" "\$(cat "$voice_feedback")"
+    ;;
+  'config set audio.feedback.enabled true'|'config set audio.feedback.enabled false')
+    printf '%s\n' "\$*" >>"$voice_feedback_sets"
+    [[ -e "$voice_feedback_refused" ]] && { printf '%s\n' 'error: config editor: write: Permission denied (os error 13)' >&2; exit 1; }
+    [[ -e "$voice_feedback_dropped" ]] || printf '%s\n' "\$4" >"$voice_feedback"
+    ;;
   'info models --json')
     if [[ -e "$voice_installed" ]]; then
       printf '%s\n' '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":true,"downloadable":true,"download_arg":"parakeet-tdt-0.6b-v3"}],"default":"parakeet-tdt-0.6b-v3"}},"verified":true}'
@@ -486,6 +522,109 @@ expect "control: the same reader tells the mic from the info tone" differs voice
 expect_poll "the recording state reaches dictation status" '"recording"' ipc smoke readInstance service vgs.voice dictationStatus
 expect_poll "Set up is offered while the model is missing" True voice_setup_offered
 
+# Dictation sounds.
+expected_errors+=('WARN qml: voice: feedback wanted=("own"|""|null) problem=(link|no-config|write|restart|mismatch|unread) ')
+voice_config_dir="$home/.config/voxtype"
+voice_config="$voice_config_dir/config.toml"
+voice_dotfile="$sandbox/voice-dotfile-config.toml"
+# The value and the problem key the service last stated, once no run is in
+# flight: `running` until then.
+voice_feedback_state() {
+  local run
+  run="$(ipc smoke readInstance service vgs.voice feedbackRun)" || return
+  [[ $run == null ]] || { echo running; return; }
+  printf '[%s,%s]\n' "$(ipc smoke readInstance service vgs.voice feedbackValue)" "$(ipc smoke readInstance service vgs.voice feedbackProblem)"
+}
+voice_feedback_choose() { ipc smoke invokeInstance service vgs.voice chooseFeedback "$1"; }
+# How many `config set` calls the stub recorded and the last one, then how
+# many restarts of the voxtype service the systemctl stand-in recorded.
+voice_feedback_calls() {
+  printf '%s %s %s\n' "$(wc -l <"$voice_feedback_sets")" "$(tail -n 1 -- "$voice_feedback_sets" | awk '{ print $NF }')" \
+    "$(device_calls systemctl | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c == ["--user", "try-restart", "voxtype"]))')"
+}
+# The Dictation sounds row of the Sounds section: PROPERTY as JSON.
+voice_sound_row() { ipc smoke readMatchingDescendant window vgs.sounds FormRow label "Dictation sounds" "$1"; }
+voice_system_was="$(plugin_enabled vgs.system)" || fail "vgs.system's enabled state is unreadable"
+voice_page_was="$(plugin_enabled vgs.sounds)" || fail "vgs.sounds's enabled state is unreadable"
+device_reply systemctl 0 "" --user try-restart voxtype
+mkdir -p -- "$voice_config_dir"
+printf '%s\n' '[audio.feedback]' 'enabled = true' >"$voice_config"
+expect_poll "Voice states voxtype's dictation sounds value, with no problem" '["own",""]' voice_feedback_state
+expect "the first read writes nothing and restarts nothing" "0  0" voice_feedback_calls
+expect "a choice of the value voxtype holds is taken" ok voice_feedback_choose own
+expect_poll "the choice of the value voxtype holds ends as it began" '["own",""]' voice_feedback_state
+expect "a choice of the value voxtype holds writes nothing and restarts nothing" "0  0" voice_feedback_calls
+expect "a value that is neither choice is refused" 'refused: feedback="chime" reason=value' voice_feedback_choose chime
+expect "a refused value starts no run" '["own",""]' voice_feedback_state
+# Off, chosen in the Sounds section: a click opens the row's picker, Up
+# moves to Off and Return takes it.
+expect "enabling the System window for the Sounds section is allowed" ok ipc shell setPluginEnabled vgs.system true
+expect "enabling vgs.sounds for the Sounds section is allowed" ok ipc shell setPluginEnabled vgs.sounds true
+expect "the Sounds section summons for Voice" ok ipc shell summon window vgs.system '{"pane":"vgs.sounds"}'
+expect_poll "the Sounds section is mounted for Voice" '["vgs.sounds"]' window_panes
+expect_poll "the Dictation sounds row shows voxtype's value, its own tones" 1 voice_sound_row chosen
+voice_picker_box="$(ipc smoke scopedWindowGeometry window vgs.sounds FormRow "Dictation sounds" Select "Dictation tones")" || voice_picker_box=""
+if read -r voice_px voice_py < <(at_centre "window:System Settings" "$voice_picker_box"); then
+  hover "$voice_px" "$voice_py" || fail "hovering the Dictation sounds picker failed"
+  click "$voice_px" "$voice_py" || fail "clicking the Dictation sounds picker failed"
+  expect_poll "the click opens the Dictation sounds picker" true ipc smoke readMatchingDescendant window vgs.sounds Select currentText "Dictation tones" listOpen
+  type_keys -k Up -k Return || fail "choosing Off in the Dictation sounds picker failed"
+else
+  fail "the Dictation sounds picker has no box: $voice_picker_box"
+fi
+expect_poll "Off from the Sounds section reaches voxtype's config and its read back" '["",""]' voice_feedback_state
+expect "Off runs one config set of false and one restart" "1 false 1" voice_feedback_calls
+expect_poll "the Dictation sounds row shows Off" 0 voice_sound_row chosen
+expect "the Dictation sounds row shows its description, muted" '"muted"' voice_sound_row warningTone
+# A symbolic link is left as it is, and the row says why.
+printf '%s\n' 'kept=1' >"$voice_dotfile"
+rm -f -- "${voice_config:?}"
+ln -s -- "$voice_dotfile" "$voice_config"
+expect "a choice over a linked config is taken" ok voice_feedback_choose own
+expect_poll "a linked config keeps voxtype's value and names the link" '["","link"]' voice_feedback_state
+expect "a linked config is not written and nothing restarts" "1 false 1" voice_feedback_calls
+expect "the link is still a link to the same text" "link kept=1" bash -c '[[ -L $1 ]] && printf "link %s\n" "$(cat -- "$2")"' _ "$voice_config" "$voice_dotfile"
+expect_poll "the Dictation sounds row shows the problem in the warning tone" '"warning"' voice_sound_row warningTone
+# No config file.
+rm -f -- "${voice_config:?}"
+expect "a choice with no config file is taken" ok voice_feedback_choose own
+expect_poll "no config file keeps voxtype's value and names the missing file" '["","no-config"]' voice_feedback_state
+expect "no config file is written and nothing restarts" "1 false 1" voice_feedback_calls
+# A write voxtype refuses restarts nothing.
+printf '%s\n' '[audio.feedback]' 'enabled = false' >"$voice_config"
+touch -- "$voice_feedback_refused"
+expect "a choice voxtype refuses to write is taken" ok voice_feedback_choose own
+expect_poll "a refused write keeps voxtype's value and names the write" '["","write"]' voice_feedback_state
+expect "a refused write was asked once and restarts nothing" "2 true 1" voice_feedback_calls
+rm -f -- "${voice_feedback_refused:?}"
+# A restart that fails: the value is written, read back and the row says
+# the change waits.
+device_reply systemctl 5 "" --user try-restart voxtype
+expect "a choice whose restart fails is taken" ok voice_feedback_choose own
+expect_poll "a failed restart shows the written value and names the restart" '["own","restart"]' voice_feedback_state
+expect "a failed restart follows one more config set" "3 true 2" voice_feedback_calls
+device_reply systemctl 0 "" --user try-restart voxtype
+# A value voxtype did not keep.
+touch -- "$voice_feedback_dropped"
+expect "a choice voxtype does not keep is taken" ok voice_feedback_choose ""
+expect_poll "a value voxtype did not keep shows the value read back and names the mismatch" '["own","mismatch"]' voice_feedback_state
+rm -f -- "${voice_feedback_dropped:?}"
+# A value that cannot be read, as with a config voxtype cannot parse: the
+# Sounds section's refresh has Voice read it.
+touch -- "$voice_feedback_unreadable"
+expect "the System window hides before the Sounds section opens again" ok ipc shell hide window vgs.system
+expect_poll "the System window is gone before the Sounds section opens again" 0 window_count 'System Settings'
+expect "the Sounds section summons again for Voice" ok ipc shell summon window vgs.system '{"pane":"vgs.sounds"}'
+expect_poll "opening the Sounds section has Voice read a value it cannot read" '[null,"unread"]' voice_feedback_state
+expect_poll "the Dictation sounds row shows no choice" -1 voice_sound_row chosen
+rm -f -- "${voice_feedback_unreadable:?}"
+expect "the System window hides after the Sounds section" ok ipc shell hide window vgs.system
+expect_poll "the System window is gone after the Sounds section" 0 window_count 'System Settings'
+expect "vgs.sounds's enablement goes back to what Voice found" ok ipc shell setPluginEnabled vgs.sounds "$([[ $voice_page_was == True ]] && echo true || echo false)"
+expect "vgs.system's enablement goes back to what Voice found" ok ipc shell setPluginEnabled vgs.system "$([[ $voice_system_was == True ]] && echo true || echo false)"
+rm -rf -- "${voice_config_dir:?}" "${voice_dotfile:?}"
+voice_feedback_calls_before="$(voice_feedback_calls)" || fail "the dictation sounds calls are unreadable"
+
 open_toplevel "$sandbox/voice-client.log" smoke.voice-client "Voice client"
 voice_client_pid="$toplevel_pid"
 expect_poll "the Voice client has keyboard focus" '["smoke.voice-client", "Voice client"]' active_window
@@ -719,6 +858,9 @@ device_reply systemctl 3 inactive --user is-active voxtype
 
 expect "enabling Voice without voxtype is allowed" ok ipc shell setPluginEnabled vgs.voice true
 expect_poll "Voice without voxtype is built" True record_exists vgs.voice
+expect_poll "without voxtype Voice states no dictation sounds value and names voxtype" '[null,"missing"]' voice_feedback_state
+expect "without voxtype a dictation sounds choice is refused" 'refused: feedback="" reason=voxtype-missing' voice_feedback_choose ""
+expect "a choice refused without voxtype writes nothing and restarts nothing" "$voice_feedback_calls_before" voice_feedback_calls
 
 # openTui, the route of the launcher and Dev Tools, judges the screen's
 # `requires` as Set up's press does: Configure without voxtype raises the

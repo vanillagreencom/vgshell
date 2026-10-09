@@ -565,7 +565,7 @@ cases=(
   "settings-reply-shots|scripts/sandbox-shots.sh|logic|$settings_reply_row"
   "settings-reply-fixture|scripts/smoke/fixtures/plugins/acme.hyprland/manifest.json|logic|$settings_reply_row"
   "settings-reply-layer-binding|shell/Core/HyprlandLayer.qml|logic|"$'node scripts/test-hyprland-layer.js\n'"$settings_reply_row"
-  "settings-reply-producer|shell/Core/PluginLogic.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_reply_row"$'\n'"$settings_steps_row"
+  "settings-reply-producer|shell/Core/PluginLogic.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_reply_row"$'\n'"$settings_steps_row"$'\nnode scripts/test-voice-logic.js'
   "settings-reply-layer|shell/Core/HyprlandLayer.js|logic|$settings_core_prefix"$'node scripts/test-dispatch.js\n'"$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_reply_row"$'\n'"$settings_steps_row"
   "settings-reply-values|shell/Commons/SettingValues.js|logic|$settings_core_prefix"$'node scripts/test-setting-values.js\n'"$settings_theme_rows$settings_values_plugin_rows"$'node scripts/test-bluetooth-logic.js\nnode scripts/test-displays-logic.js\nnode scripts/test-jarvis-setup-gate.js\n'"$settings_reply_row"$'\n'"$settings_steps_row"
   "settings-reply-packages|shell/Core/PackageManagers.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_catalog_rows$settings_reply_row"$'\n'"$settings_steps_row"
@@ -599,6 +599,8 @@ cases=(
   "curl-installer-srcinfo|packaging/arch/vgshell/.SRCINFO|offline|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-vgshell-requirements.sh\nscripts/test-install-sh.sh\nscripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
   "recipe-all|packaging/arch/vgshell-git/.SRCINFO|all|$arch_recipe_plan"$'\nscripts/arch-packages.sh'
   "recipe-package|packaging/arch/vgshell/PKGBUILD|package|scripts/arch-packages.sh"
+  # The plugin logic table holds the core's sound table to the files.
+  "sound-file|shell/assets/sounds/pop.wav|logic|node scripts/test-plugin-logic.js"
   "requirements|config/requirements.json|offline|node scripts/test-plugin-logic.js"$'\nscripts/test-install-tree.sh\nnode scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-vgshell-requirements.sh\nscripts/test-install-sh.sh\nscripts/test-publish-aur.sh\npython3 scripts/check-user-commands.py\npython3 scripts/test-check-user-commands.py\n'"$repo_plan"
   "install-manifest|packaging/install-tree.manifest|offline|scripts/test-install-tree.sh"$'\nnode scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"$'\nscripts/test-validate.sh'
   "fedora-recipe|packaging/fedora/vgshell.spec|all|$fedora_plan"$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-install-sh.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"

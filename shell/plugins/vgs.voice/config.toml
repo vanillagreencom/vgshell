@@ -14,9 +14,10 @@ sample_rate = 16000
 max_duration_secs = 210
 pause_media = true
 
-# VGS plays the dictation sounds, which Sounds in System Settings sets.
 [audio.feedback]
-enabled = false
+enabled = true
+theme = "__VGS_VOICE_BLOOP_THEME__"
+volume = 0.70
 
 [whisper]
 model = "base.en"

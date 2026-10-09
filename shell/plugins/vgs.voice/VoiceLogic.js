@@ -33,14 +33,6 @@ function stateOf(raw) {
     return STATES.indexOf(raw) === -1 ? "idle" : raw;
 }
 
-// The sound event a change of dictation state from PREVIOUS to NEXT
-// raises, or "": `start` as recording begins and `stop` as it ends. A
-// daemon that stopped ended no dictation the user asked to end.
-function soundFor(previous, next) {
-    if (next === "recording") return previous === "recording" ? "" : "start";
-    return previous === "recording" && next !== "stopped" ? "stop" : "";
-}
-
 function parseStatus(line) {
     var data = parseJson(line, null);
     if (!isObject(data)) return { ok: false, reason: "json" };
@@ -178,4 +170,109 @@ function readyMessage(keys, spell) {
 // the instance started shows nothing.
 function setupFinished(seen, setup) {
     return seen !== undefined && setup.endedAt !== null && setup.endedAt !== seen && setup.code === 0;
+}
+
+// Dictation sounds are voxtype's own tones. Their one holder is voxtype's
+// config, `audio.feedback.enabled`, which a hand edit and voxtype's own
+// Configure screen also write, so the service reads the value there and
+// states it to the Sounds page (the manifest's held sound event). The
+// page's choice runs FEEDBACK_STAGES, one command each: read the value and
+// stop when it already is the choice, so nothing is written and nothing
+// restarts; read what the config file is; write through voxtype's own
+// `config set`; restart the voxtype user service; read the value back.
+var FEEDBACK_KEY = "audio.feedback.enabled";
+var FEEDBACK_ON = "own";
+var FEEDBACK_OFF = "";
+var FEEDBACK_STAGES = ["read", "kind", "write", "restart", "verify"];
+
+// What each problem of a feedback run tells the user on the event's row;
+// the key is the log's.
+var FEEDBACK_PROBLEMS = {
+    "": "",
+    "missing": "Voice needs voxtype. Install it on the Voice Settings page.",
+    "unread": "VGS could not read the voxtype settings.",
+    "no-config": "Voice is not set up. Use Set up on the Voice Settings page.",
+    "link": "Your voxtype config is a link to another file, so VGS did not change it. Use Configure on the Voice Settings page.",
+    "write": "VGS could not change the voxtype settings.",
+    "restart": "The change is saved. It applies when voxtype starts again.",
+    "mismatch": "voxtype did not keep the change."
+};
+
+// The value in the stdout of `voxtype config get audio.feedback.enabled
+// --json`, which voxtype 1.1.0 prints as { "file_value", "key", "value" }
+// with `value` the one in effect (host cachy, 2026-10-09): FEEDBACK_ON,
+// FEEDBACK_OFF, or null for anything else.
+function feedbackValue(text) {
+    var data = parseJson(text, null);
+    if (!isObject(data) || typeof data.value !== "boolean") return null;
+    return data.value ? FEEDBACK_ON : FEEDBACK_OFF;
+}
+
+// What the config file is, from the stdout of `stat --format=%f`, the raw
+// mode in hex: `file`, `link` for a symbolic link, else `none`. voxtype's
+// `config set` replaces a symbolic link with a regular file and leaves the
+// file it pointed at as it was (voxtype 1.1.0 in a scratch home, host
+// cachy, 2026-10-09), so a link is refused, as Configure warns of one.
+function fileKind(text) {
+    var type = parseInt(String(text).trim(), 16) & 0xf000;
+    return type === 0x8000 ? "file" : type === 0xa000 ? "link" : "none";
+}
+
+// The command of STAGE of a feedback run that wants WANTED, with the
+// config file at CONFIG_FILE. `try-restart` restarts a running daemon and
+// starts none the user stopped.
+function feedbackCommand(stage, wanted, configFile) {
+    switch (stage) {
+    case "read":
+    case "verify": return ["voxtype", "config", "get", FEEDBACK_KEY, "--json"];
+    case "kind": return ["stat", "--format=%f", "--", configFile];
+    case "write": return ["voxtype", "config", "set", FEEDBACK_KEY, wanted === FEEDBACK_ON ? "true" : "false"];
+    case "restart": return ["systemctl", "--user", "try-restart", "voxtype"];
+    }
+    throw new Error("voice: feedback stage " + JSON.stringify(stage) + " is not one of " + FEEDBACK_STAGES.join(", "));
+}
+
+// A feedback run that starts: WANTED is FEEDBACK_ON or FEEDBACK_OFF, the
+// page's choice, or null for a read alone.
+function feedbackRun(wanted) {
+    return { stage: "read", wanted: wanted, value: null, problem: "" };
+}
+
+// RUN after its stage's command ended with exit CODE and stdout OUT:
+// { stage, wanted, value, problem }, `stage` the next one or `done`,
+// `value` the last one read and `problem` a key of FEEDBACK_PROBLEMS.
+// CAN_RESTART is whether systemctl is found; without it the write stands
+// and the run says the change waits for voxtype's next start.
+function feedbackNext(run, code, out, canRestart) {
+    var next = { stage: "done", wanted: run.wanted, value: run.value, problem: run.problem };
+    switch (run.stage) {
+    case "read":
+        next.value = code === 0 ? feedbackValue(out) : null;
+        if (next.value === null) next.problem = "unread";
+        else if (run.wanted !== null && next.value !== run.wanted) next.stage = "kind";
+        return next;
+    case "kind":
+        var kind = code === 0 ? fileKind(out) : "none";
+        if (kind === "file") next.stage = "write";
+        else next.problem = kind === "link" ? "link" : "no-config";
+        return next;
+    case "write":
+        if (code !== 0) next.problem = "write";
+        else if (canRestart) next.stage = "restart";
+        else {
+            next.problem = "restart";
+            next.stage = "verify";
+        }
+        return next;
+    case "restart":
+        if (code !== 0) next.problem = "restart";
+        next.stage = "verify";
+        return next;
+    case "verify":
+        next.value = code === 0 ? feedbackValue(out) : null;
+        if (next.value === null) next.problem = "unread";
+        else if (next.value !== run.wanted) next.problem = "mismatch";
+        return next;
+    }
+    throw new Error("voice: feedback stage " + JSON.stringify(run.stage) + " is not one of " + FEEDBACK_STAGES.join(", "));
 }

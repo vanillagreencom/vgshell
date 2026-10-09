@@ -5,7 +5,17 @@
 # through the probe, its state file, the compositor and the lending record.
 # No owner data reaches it: every notification here is made up. The row ends
 # with the plugin disabled and every registration released.
-# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
+# The notification sound: with a sound chosen for the plugin's `notification`
+# event in the sandbox's shell.json, a notification that shows on screen
+# starts the player once with that sound's file, and one that Silence keeps
+# off the screen starts none. The player is the pw-play stand-in of
+# scripts/smoke/devices.sh, which records the file and plays nothing.
+# Control run on 2026-10-09, host cachy, through this row on a source_tree
+# copy of the service that plays the event for a silenced notification and
+# not for a shown one: "a shown notification starts one player" failed,
+# reading 0, and "a silenced notification starts no player" failed, reading
+# one player more.
+# inputs: shell/Core/Sounds.qml shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 note_state="$home/.local/state/vgshell/notifications/state.json"
@@ -1941,14 +1951,42 @@ type_keys -k Escape || fail "sending Escape after the keyboard path failed"
 expect_poll "Escape closes the keyboard inbox" '""' read_notes panelMode
 expect_poll "the keyboard path leaves no live rows" 0 note_status onScreen
 
+# The notification sound, with a sound chosen for the event.
+note_sound_config="$home/.config/vgshell/shell.json"
+note_sound_chosen() { ipc shell listShellConfig | py_reply 'import json,sys; print(json.load(sys.stdin).get("sounds", {}).get("vgs.notifications", {}).get("notification", "unset"))'; }
+note_sound_calls() { device_calls pw-play | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+note_sound_last() { device_calls pw-play | py_reply 'import json,os,sys; c=json.load(sys.stdin); print(os.path.basename(c[-1][-1]) if c else "none")'; }
+cp -- "$note_sound_config" "$sandbox/shell-before-notification-sound.json"
+python3 -c 'import json,os,sys
+path = sys.argv[1]
+config = json.load(open(path))
+config.setdefault("sounds", {}).setdefault("vgs.notifications", {})["notification"] = "pop"
+with open(path + ".next", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".next", path)' "$note_sound_config" || fail "the notification sound choice could not be written"
+expect "the notification sound choice is reloaded" ok ipc shell reloadConfig
+expect_poll "the shell reads the notification sound choice" pop note_sound_chosen
+note_sound_before="$(note_sound_calls)" || note_sound_before=unread
+note_sound_id="$(notify smoke-app 0 "Chirp" "" '[]' '{}' 0)" || fail "the notification with a sound was not sent"
+expect_poll "the notification with a sound shows on screen" True has_row live "Chirp"
+expect_poll "a shown notification starts one player" "$((note_sound_before + 1))" note_sound_calls
+expect "the player is handed the chosen sound's file" pop.wav note_sound_last
+close_note "$note_sound_id"
+expect_poll "the notification with a sound closes" 0 note_status onScreen
+
 # Silence: a notification goes into the history instead of the screen, bar
 # a critical one from the bare command line; one from the bare command line
 # that is not critical, and a transient one, go into the history too.
 expect "Silence turns on over IPC" on notes silence on
 expect_poll "Silence is stored" true state_at dnd
+note_sound_before="$(note_sound_calls)" || note_sound_before=unread
 notify smoke-app 0 "Quiet" "" '[]' '{}' 0 >/dev/null
 expect_poll "a silenced notification goes into the history" '"Quiet"' state_at history.0.summary
 expect "a silenced notification shows no toast" none key_of Quiet
+expect "a silenced notification starts no player" "$note_sound_before" note_sound_calls
+cp -- "$sandbox/shell-before-notification-sound.json" "$note_sound_config.next" && mv -T -- "$note_sound_config.next" "$note_sound_config"
+expect "the shell.json the sound part found is reloaded" ok ipc shell reloadConfig
+expect_poll "the shell reads no notification sound choice" unset note_sound_chosen
 # A sender that replaces a silenced notification, held for the history,
 # changes its summary and its body in one update: one new history entry
 # records it, and the service holds one reference for it in place of the

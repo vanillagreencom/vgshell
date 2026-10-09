@@ -11,6 +11,7 @@
     "sounds": {
         "ping": { "label": "Ping", "description": "Plays when the row pings.", "default": "chime" },
         "quiet": { "label": "Quiet", "default": "" },
-        "tone": { "label": "Tone", "own": "Acme tone", "default": "own" }
+        "tone": { "label": "Tone", "own": "Acme tone", "default": "own" },
+        "relay": { "label": "Relay", "description": "Plays when the relay clicks.", "own": "Acme relay", "held": true }
     }
 }

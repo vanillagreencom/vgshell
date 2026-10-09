@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell.Hyprland
 import Quickshell.Io
+import qs.Commons
 import qs.Ui
 import "VoiceLogic.js" as VoiceLogic
 
@@ -19,9 +20,16 @@ Item {
     property string activeVerb: ""
     property var recordCompletion: null
     property string dictation: "idle"
-    // Whether the running status follower has printed a line. Its first
-    // line is the state it found, not a change the user made.
-    property bool statusRead: false
+    // The dictation sounds run in flight (VoiceLogic.feedbackRun), null
+    // while none runs; the Sounds page's choice that waits for it to end,
+    // undefined for none; and what the last run read and ended with, a
+    // value of the sound event and a key of VoiceLogic.FEEDBACK_PROBLEMS.
+    property var feedbackRun: null
+    property var feedbackWaiting: undefined
+    property string feedbackDetail: ""
+    property var feedbackValue: null
+    property string feedbackProblem: ""
+    readonly property string configFile: Paths.configHome + "/voxtype/config.toml"
     // Whether the service itself stopped the status follower or the bridge,
     // or is being destroyed: an exit it did not ask for is logged and acted on.
     property bool statusStopping: false
@@ -65,6 +73,9 @@ Item {
             shell.shortcut.register("tap", "Tap a key to dictate", () => root.record("toggle"));
             shell.shortcut.register("talk", "Dictate while held", () => root.record("start"), () => root.record("stop"));
             shell.layers.show(osdLayer);
+            const held = shell.sounds.hold("feedback", { read: () => root.readFeedback(), choose: value => root.chooseFeedback(value) });
+            if (held !== "ok") console.error("voice: sounds " + held);
+            Qt.callLater(root.readFeedback);
         }
         if (voxtypePresent) Qt.callLater(root.startStatus);
         publishPresence();
@@ -72,6 +83,7 @@ Item {
     }
     onVoxtypePresentChanged: {
         publishPresence();
+        readFeedback();
         if (voxtypePresent) {
             root.startStatus();
             refreshSetup();
@@ -87,9 +99,11 @@ Item {
         refreshSetup();
     }
     onRequirementsRevisionChanged: refreshSetup()
+    // Configure and Set up can each change voxtype's config.
     onTuiStateChanged: {
         noteSetupEnd();
         refreshSetup();
+        readFeedback();
     }
     onBridgeWantedChanged: bridgeWanted ? startBridge() : stopBridge()
 
@@ -128,15 +142,65 @@ Item {
         return value;
     }
 
-    // A sound event of the manifest's `sounds`, through the core's player.
-    function play(event) {
-        const reply = shell.sounds.play(event);
-        if (["ok", "off", "busy"].indexOf(reply) === -1) console.warn("voice: sound " + reply);
+    // Read the dictation sounds value again and state it to the Sounds
+    // page, once this instance holds the event. A run in flight ends with
+    // what it read.
+    function readFeedback() {
+        if (registeredWith === null || closing) return;
+        if (!voxtypePresent) stateFeedback(null, "missing");
+        else if (feedbackRun === null) startFeedback(VoiceLogic.feedbackRun(null));
+    }
+
+    // The Sounds page's choice. Only its Off and its Dictation tones start
+    // a run, and only while voxtype is found; a choice made while a run is
+    // in flight waits for it, the latest one alone. The row shows the
+    // choice while the run applies it, then what the run read back.
+    function chooseFeedback(value) {
+        if (value !== VoiceLogic.FEEDBACK_ON && value !== VoiceLogic.FEEDBACK_OFF) return "refused: feedback=" + JSON.stringify(value) + " reason=value";
+        if (!voxtypePresent) return "refused: feedback=" + JSON.stringify(value) + " reason=voxtype-missing";
+        if (feedbackRun === null) startFeedback(VoiceLogic.feedbackRun(value));
+        else feedbackWaiting = value;
+        stateFeedback(value, "");
+        return "ok";
+    }
+
+    function startFeedback(run) {
+        feedbackRun = run;
+        feedbackProcess.command = VoiceLogic.feedbackCommand(run.stage, run.wanted, configFile);
+        feedbackProcess.running = true;
+    }
+
+    // The stage's command ended: CODE is its exit code, -1 when it did not
+    // start or was killed.
+    function stepFeedback(code, out, complaint) {
+        const next = VoiceLogic.feedbackNext(feedbackRun, code, out, systemctlPresent);
+        if (next.problem !== feedbackRun.problem)
+            feedbackDetail = "stage=" + feedbackRun.stage + " exit=" + code + " " + complaint.split("\n")[0].slice(0, 200);
+        if (next.stage !== "done") {
+            startFeedback(next);
+            return;
+        }
+        if (next.problem !== "") console.warn("voice: feedback wanted=" + JSON.stringify(next.wanted) + " problem=" + next.problem + " " + feedbackDetail);
+        feedbackRun = null;
+        feedbackDetail = "";
+        stateFeedback(next.value, next.problem);
+        const waiting = feedbackWaiting;
+        feedbackWaiting = undefined;
+        if (waiting !== undefined && voxtypePresent) {
+            startFeedback(VoiceLogic.feedbackRun(waiting));
+            stateFeedback(waiting, "");
+        }
+    }
+
+    function stateFeedback(value, problem) {
+        feedbackValue = value;
+        feedbackProblem = problem;
+        const reply = shell.sounds.report("feedback", value, VoiceLogic.FEEDBACK_PROBLEMS[problem]);
+        if (reply !== "ok") console.error("voice: sounds " + reply);
     }
 
     function startStatus() {
         if (!voxtypePresent || statusProcess.running) return;
-        statusRead = false;
         statusProcess.command = ["setpriv", "--pdeathsig", "TERM", "--", "voxtype", "status", "--follow", "--extended", "--format", "json"];
         statusProcess.running = true;
     }
@@ -147,11 +211,8 @@ Item {
             console.warn("voice: status=line reason=" + parsed.reason);
             return;
         }
-        const sound = statusRead ? VoiceLogic.soundFor(dictation, parsed.state) : "";
-        statusRead = true;
         lastStatus = parsed;
         publishDictation(parsed.state);
-        if (sound !== "") play(sound);
         publish("model", VoiceLogic.modelData(parsed, setupValue));
     }
 
@@ -320,15 +381,29 @@ Item {
         onExited: (code, status) => { root.recordCompletion = { code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
-            if (root.recordCompletion === null || root.recordCompletion.code !== 0 || root.recordCompletion.status !== 0) {
+            if (root.recordCompletion === null || root.recordCompletion.code !== 0 || root.recordCompletion.status !== 0)
                 console.error("voice: record=" + root.activeVerb + " failed=" + JSON.stringify(root.recordCompletion) + "\n" + recordErr.text.trim());
-                if (!root.closing) root.play("error");
-            }
             if (root.pendingVerb !== "") {
                 const next = root.pendingVerb;
                 root.pendingVerb = "";
                 root.record(next);
             }
+        }
+    }
+
+    // One stage of a dictation sounds run. voxtype reads its config from
+    // the session's own environment, and systemctl its user bus.
+    Process {
+        id: feedbackProcess
+        property var completion: null
+        stdout: StdioCollector { id: feedbackOut }
+        stderr: StdioCollector { id: feedbackErr }
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running || root.closing) return;
+            const code = completion === null || completion.status !== 0 ? -1 : completion.code;
+            completion = null;
+            root.stepFeedback(code, feedbackOut.text, feedbackErr.text.trim());
         }
     }
 

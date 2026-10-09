@@ -1,7 +1,7 @@
 # This row has no latency ceiling. It polls once per nested IPC round trip.
 # The real child runs inside J09, with synthetic audio commands and no
 # account, real audio or desktop endpoint.
-# inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
+# inputs: shell/Core/Sounds.qml shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 expected_errors+=('WARN qml: jarvis: stderr=.*Killed.*')
 expected_errors+=('WARN qml: jarvis: stderr=jarvis: node=21[.]0[.]0 need=22')
@@ -588,6 +588,70 @@ expect "removing Session publication breaks its real consumer assertion" 1 jarvi
 jarvis_disable
 cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
 jarvis_rescan
+
+# Feedback sounds: the choice for the manifest's `feedback` sound event,
+# shell.json `sounds`, which the Sounds page writes, reaches the service
+# and, in a new hello, the daemon, whose Session settings say whether its
+# tones play. Two disposable copies each fail the Off reading: a service
+# that does not read the choice, and one that reads it and sends no hello.
+jarvis_sounds_config="$home/.config/vgshell/shell.json"
+# The service's reading of the choice, then the published Session
+# settings' `sounds`, `pending` before a Session state is published.
+jarvis_sounds_sent() { ipc smoke jarvisProcess | py_reply 'import json,sys; d=json.load(sys.stdin)["status"].get("detail"); print("pending" if d is None else json.dumps(d["state"]["settings"].get("sounds")))'; }
+jarvis_sounds() {
+  local held sent
+  held="$(ipc smoke readInstance service vgs.jarvis feedbackSounds)" || return
+  sent="$(jarvis_sounds_sent)" || return
+  printf '%s %s\n' "$held" "$sent"
+}
+# The Off choice goes into the file as it is with Jarvis enabled, and
+# jarvis_sounds_back puts that file back.
+jarvis_sounds_off() {
+  cp -- "$jarvis_sounds_config" "$sandbox/shell-before-jarvis-sounds.json"
+  python3 -c 'import json,os,sys
+path = sys.argv[1]
+config = json.load(open(path))
+config.setdefault("sounds", {}).setdefault("vgs.jarvis", {})["feedback"] = ""
+with open(path + ".next", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".next", path)' "$jarvis_sounds_config" || fail "the Jarvis Off choice could not be written"
+  expect "the Jarvis Off choice is reloaded" ok ipc shell reloadConfig
+}
+jarvis_sounds_back() {
+  cp -- "$sandbox/shell-before-jarvis-sounds.json" "$jarvis_sounds_config.next" && mv -T -- "$jarvis_sounds_config.next" "$jarvis_sounds_config"
+  expect "the shell.json the Jarvis sound part found is reloaded" ok ipc shell reloadConfig
+}
+jarvis_sounds_assertion() {
+  (failures=0 behaviour_failures=0
+   expect_poll "the Off choice reaches the service and the daemon's Session settings" "false false" jarvis_sounds >"$sandbox/jarvis-sounds-control-assertions.log"
+   echo "$failures")
+}
+jarvis_sounds_control() { # LABEL NEEDLE REPLACEMENT
+  python3 -c 'import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+source = path.read_text()
+assert source.count(sys.argv[2]) == 1
+path.write_text(source.replace(sys.argv[2], sys.argv[3]))' "$jarvis_service" "$2" "$3" || fail "$1: the disposable service copy could not be written"
+  jarvis_rescan
+  jarvis_enable
+  expect_poll "$1: the daemon starts with feedback sounds on" true jarvis_sounds_sent
+  jarvis_sounds_off
+  expect "$1 breaks the Off reading" 1 jarvis_sounds_assertion
+  jarvis_sounds_back
+  jarvis_disable
+  cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
+  jarvis_rescan
+}
+jarvis_enable
+expect_poll "with no choice the service and the daemon have feedback sounds on" "true true" jarvis_sounds
+jarvis_sounds_off
+expect_poll "the Off choice reaches the service and the daemon's Session settings" "false false" jarvis_sounds
+jarvis_sounds_back
+expect_poll "without the choice the service and the daemon have feedback sounds on again" "true true" jarvis_sounds
+jarvis_disable
+jarvis_sounds_control "a service that does not read the choice" 'shell !== null && shell.sounds.choices.feedback !== ""' 'shell !== null'
+jarvis_sounds_control "a service that sends no hello on the choice" 'onFeedbackSoundsChanged: hello()' 'onFeedbackSoundsChanged: {}'
 
 # Keep the branch, but omit its status write. The real offers assertion fails
 # before any microphone or speaker can start.

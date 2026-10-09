@@ -423,8 +423,9 @@ fi
 if [[ " ${scenes[*]} " == *" voice-setup "* ]]; then
   shell_hidden_commands+=(voxtype voxtype-audio-bridge)
 fi
-# The Sounds section lists Voice's events with Voice enabled, which needs
-# no voxtype, so the shell finds no host voxtype or bridge to start.
+# The Sounds section reads Voice's dictation sounds from a voxtype
+# stand-in, so the shell finds no host voxtype or bridge to start or to
+# ask.
 if [[ " ${scenes[*]} " == *" sounds "* && " ${scenes[*]} " != *" voice-setup "* ]]; then
   shell_hidden_commands+=(voxtype voxtype-audio-bridge)
 fi
@@ -3246,16 +3247,29 @@ PY
 # Notifications, Voice and Jarvis, each enabled for the shots, Jarvis once
 # its daemon answers: sounds-<mode>-list, every event with the sound it
 # plays; sounds-<mode>-picker, the New notification picker's list open on
-# Off and the core's sounds; and sounds-<mode>-off, Dictation stops turned
-# off in shell.json. The player is the harness's pw-play stand-in and no
-# shot presses Test, so nothing sounds. Jarvis is disabled again, and the
-# user file, with every other enablement, goes back as the scene found it.
+# Off and the core's sounds; and sounds-<mode>-off, Jarvis's tones turned
+# off and the notification set to Chime in shell.json. Voice reads its
+# dictation sounds from a voxtype stand-in that answers the value alone,
+# tones on; no shot chooses a dictation value, so nothing is written and
+# no service restarts. The player is the harness's pw-play stand-in and no
+# shot presses Test, so nothing sounds. Jarvis is disabled again, the
+# stand-in is removed, and the user file, with every other enablement,
+# goes back as the scene found it.
 sounds_row() { ipc smoke readMatchingDescendant window vgs.sounds FormRow label "$1" "$2"; }
 sounds_picker_open() { ipc smoke readMatchingDescendant window vgs.sounds Select currentText "$1" listOpen; }
 scene_sounds() { # MODE
   local user="$home/.config/vgshell/shell.json" saved="$sandbox/shell-before-sounds-shot.json" id box px py voice_found
   voice_found="$(plugin_enabled vgs.voice)" || voice_found=unread
   cp -- "$user" "$saved"
+  cat >"$shim/voxtype" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  'status --follow --extended --format json') printf '{"state":"idle"}\n'; exec sleep infinity ;;
+  'config get audio.feedback.enabled --json') printf '{"file_value":true,"key":"audio.feedback.enabled","value":true}\n' ;;
+esac
+EOF
+  chmod 755 "$shim/voxtype"
+  rescan "the Sounds shots' voxtype stand-in is scanned"
   for id in vgs.system vgs.sounds vgs.notifications vgs.voice vgs.jarvis; do
     expect "enabling $id for the Sounds shots is allowed" ok ipc shell setPluginEnabled "$id" true
   done
@@ -3268,7 +3282,7 @@ scene_sounds() { # MODE
   expect_poll "System → Sounds is shown" '["vgs.sounds"]' window_panes
   expect_poll "the section lists Jarvis's own sound" 1 sounds_row "Feedback sounds" chosen
   expect_poll "the section lists the notification sound, off" 0 sounds_row "New notification" chosen
-  expect_poll "the section lists a dictation sound" 4 sounds_row "Dictation starts" chosen
+  expect_poll "the section lists voxtype's dictation tones" 1 sounds_row "Dictation sounds" chosen
   expect "the System window's root takes the focus for the Sounds list" focused ipc smoke invokeInstance window vgs.system focusInstance ""
   take "sounds-$1-list"
   box="$(ipc smoke scopedWindowGeometry window vgs.sounds FormRow "New notification" Select Off)" || box=""
@@ -3286,13 +3300,15 @@ scene_sounds() { # MODE
 import json, os, sys
 path = sys.argv[1]
 config = json.load(open(path))
-config.setdefault("sounds", {}).setdefault("vgs.voice", {})["stop"] = ""
+config.setdefault("sounds", {}).setdefault("vgs.jarvis", {})["feedback"] = ""
+config["sounds"].setdefault("vgs.notifications", {})["notification"] = "chime"
 with open(path + ".tmp", "w") as out:
     json.dump(config, out)
 os.replace(path + ".tmp", path)
 PY
-  expect "the configuration reloads with Dictation stops off" ok ipc shell reloadConfig
-  expect_poll "the Dictation stops row shows Off" 0 sounds_row "Dictation stops" chosen
+  expect "the configuration reloads with Jarvis's tones off" ok ipc shell reloadConfig
+  expect_poll "the Feedback sounds row shows Off" 0 sounds_row "Feedback sounds" chosen
+  expect_poll "the New notification row shows Chime" 1 sounds_row "New notification" chosen
   expect "the System window's root takes the focus for the off event" focused ipc smoke invokeInstance window vgs.system focusInstance ""
   take "sounds-$1-off"
   expect "the System window hides after the Sounds shots" ok ipc shell hide window vgs.system
@@ -3302,6 +3318,8 @@ PY
   cp -- "$saved" "$user.next" && mv -T -- "$user.next" "$user" || fail "the user file is put back after the Sounds shots"
   expect "the configuration reloads as the Sounds shots found it" ok ipc shell reloadConfig
   expect_poll "Voice's enablement is as the Sounds shots found it" "$voice_found" plugin_enabled vgs.voice
+  rm -f -- "${shim:?}/voxtype"
+  rescan "the Sounds shots' voxtype stand-in is removed"
 }
 
 scene_network() { # MODE

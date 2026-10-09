@@ -190,20 +190,11 @@
     }
   },
   "sounds": {
-    "start": {
-      "label": "Dictation starts",
-      "description": "Plays when Voice starts to record.",
-      "default": "bloop-up"
-    },
-    "stop": {
-      "label": "Dictation stops",
-      "description": "Plays when Voice stops recording.",
-      "default": "bloop-down"
-    },
-    "error": {
-      "label": "Dictation fails",
-      "description": "Plays when Voice cannot start or stop dictation.",
-      "default": "bloop-low"
+    "feedback": {
+      "label": "Dictation sounds",
+      "description": "A tone tells you when dictation starts, stops or fails.",
+      "own": "Dictation tones",
+      "held": true
     }
   },
   "appearance": "Appearance.js"

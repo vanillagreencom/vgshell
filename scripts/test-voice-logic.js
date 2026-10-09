@@ -99,17 +99,80 @@ function verify(logic) {
   ];
   for (const [name, seen, setup, want] of finishedRows) assert.equal(logic.setupFinished(seen, setup), want, `setupFinished: ${name}`);
 
-  // soundFor: [name, the state before, the state now, the sound event].
-  const soundRows = [
-    ["recording begins from idle", "idle", "recording", "start"],
-    ["recording begins while the last words are recognised", "transcribing", "recording", "start"],
-    ["recording goes on", "recording", "recording", ""],
-    ["recording ends in recognition", "recording", "transcribing", "stop"],
-    ["recording ends with nothing to recognise", "recording", "idle", "stop"],
-    ["a daemon that stopped ends no dictation", "recording", "stopped", ""],
-    ["recognition ends", "transcribing", "idle", ""],
+  // Dictation sounds. feedbackValue: [name, the stdout of `voxtype config
+  // get audio.feedback.enabled --json`, the value]; the first two are what
+  // voxtype 1.1.0 printed in a scratch home on host cachy on 2026-10-09.
+  const feedbackOn = '{\n  "file_value": true,\n  "key": "audio.feedback.enabled",\n  "value": true\n}\n';
+  const feedbackOff = '{\n  "file_value": null,\n  "key": "audio.feedback.enabled",\n  "value": false\n}\n';
+  const feedbackValueRows = [
+    ["tones on in the file", feedbackOn, "own"],
+    ["no config file and the default in effect", feedbackOff, ""],
+    ["no output", "", null],
+    ["a value that is no boolean", '{"value":"true"}', null],
+    ["an answer that is no object", "true", null],
   ];
-  for (const [name, previous, next, want] of soundRows) assert.equal(logic.soundFor(previous, next), want, `soundFor: ${name}`);
+  for (const [name, out, want] of feedbackValueRows) assert.equal(logic.feedbackValue(out), want, `feedbackValue: ${name}`);
+
+  // fileKind: [name, the stdout of `stat --format=%f`, the kind]; the three
+  // modes are what stat printed for a file, a symbolic link and a
+  // directory on host cachy on 2026-10-09.
+  const kindRows = [
+    ["a regular file", "81a4\n", "file"],
+    ["a symbolic link", "a1ff\n", "link"],
+    ["a directory", "41ed\n", "none"],
+    ["no output, as for a missing file", "", "none"],
+    ["text that is no mode", "regular file\n", "none"],
+  ];
+  for (const [name, out, want] of kindRows) assert.equal(logic.fileKind(out), want, `fileKind: ${name}`);
+
+  // feedbackCommand: each stage's argv, which voxtype, stat and systemctl
+  // read.
+  const get = ["voxtype", "config", "get", "audio.feedback.enabled", "--json"];
+  const commandRows = [
+    ["read", "", get],
+    ["verify", "", get],
+    ["kind", "", ["stat", "--format=%f", "--", "/h/.config/voxtype/config.toml"]],
+    ["write", "", ["voxtype", "config", "set", "audio.feedback.enabled", "false"]],
+    ["write", "own", ["voxtype", "config", "set", "audio.feedback.enabled", "true"]],
+    ["restart", "", ["systemctl", "--user", "try-restart", "voxtype"]],
+  ];
+  for (const [stage, wanted, want] of commandRows) same(logic.feedbackCommand(stage, wanted, "/h/.config/voxtype/config.toml"), want, `feedbackCommand: ${stage} for ${JSON.stringify(wanted)}`);
+  for (const stage of logic.FEEDBACK_STAGES) assert.ok(logic.feedbackCommand(stage, "", "/c").length > 0, `feedbackCommand: stage ${stage} has a command`);
+  assert.throws(() => logic.feedbackCommand("done", "", "/c"), "a stage outside the list has no command");
+  same(logic.feedbackRun(""), { stage: "read", wanted: "", value: null, problem: "" }, "a run starts by reading");
+
+  // feedbackNext: [name, the run, the exit code and stdout of its stage's
+  // command, whether systemctl is found, the run after].
+  const at = (stage, wanted, value, problem) => ({ stage: stage, wanted: wanted, value: value, problem: problem });
+  const nextRows = [
+    ["a read alone states the value and ends", at("read", null, null, ""), 0, feedbackOn, true, at("done", null, "own", "")],
+    ["a read alone that fails ends unread", at("read", null, null, ""), 1, "", true, at("done", null, null, "unread")],
+    ["a choice the config already holds writes nothing and restarts nothing", at("read", "", null, ""), 0, feedbackOff, true, at("done", "", "", "")],
+    ["a choice the config does not hold goes on to the file", at("read", "", null, ""), 0, feedbackOn, true, at("kind", "", "own", "")],
+    ["a choice over a value that cannot be read writes nothing", at("read", "", null, ""), 1, "", true, at("done", "", null, "unread")],
+    ["a regular config file is written", at("kind", "", "own", ""), 0, "81a4\n", true, at("write", "", "own", "")],
+    ["a symbolic link is left as it is", at("kind", "", "own", ""), 0, "a1ff\n", true, at("done", "", "own", "link")],
+    ["a missing config file is not written", at("kind", "own", "", ""), 1, "", true, at("done", "own", "", "no-config")],
+    ["a write restarts the service", at("write", "", "own", ""), 0, "", true, at("restart", "", "own", "")],
+    ["a write without systemctl says the change waits", at("write", "", "own", ""), 0, "", false, at("verify", "", "own", "restart")],
+    ["a failed write restarts nothing", at("write", "", "own", ""), 1, "", true, at("done", "", "own", "write")],
+    ["a restart is followed by the read back", at("restart", "", "own", ""), 0, "", true, at("verify", "", "own", "")],
+    ["a failed restart is named and the value is read back", at("restart", "", "own", ""), 5, "", true, at("verify", "", "own", "restart")],
+    ["the read back states the value", at("verify", "", "own", ""), 0, feedbackOff, true, at("done", "", "", "")],
+    ["the read back keeps a failed restart", at("verify", "", "own", "restart"), 0, feedbackOff, true, at("done", "", "", "restart")],
+    ["a read back of another value is a mismatch", at("verify", "", "own", ""), 0, feedbackOn, true, at("done", "", "own", "mismatch")],
+    ["a read back that fails is unread", at("verify", "", "own", ""), 1, "", true, at("done", "", null, "unread")],
+  ];
+  const problems = new Set(["missing"]);
+  for (const [name, run, code, out, canRestart, want] of nextRows) {
+    same(logic.feedbackNext(run, code, out, canRestart), want, `feedbackNext: ${name}`);
+    problems.add(want.problem);
+  }
+  assert.throws(() => logic.feedbackNext(at("done", "", "", ""), 0, "", true), "a run that ended has no next stage");
+  // Every problem a run ends with, and voxtype missing, has its line.
+  for (const problem of problems) assert.equal(typeof logic.FEEDBACK_PROBLEMS[problem], "string", `FEEDBACK_PROBLEMS has ${JSON.stringify(problem)}`);
+  same(Object.keys(logic.FEEDBACK_PROBLEMS).sort(), [...problems].sort(), "FEEDBACK_PROBLEMS holds no line a run cannot end with");
+  same(Object.keys(logic.FEEDBACK_PROBLEMS).filter(problem => (logic.FEEDBACK_PROBLEMS[problem] === "") !== (problem === "")), [], "each problem but none has a line");
 }
 
 verify(load(file));
@@ -134,9 +197,22 @@ const controls = [
   ["a past run's end at startup shows", "return seen !== undefined && ", "return "],
   ["a failed run shows", " && setup.code === 0;", ";"],
   ["a seen end shows again", " && setup.endedAt !== seen", ""],
-  ["recording that goes on starts again", "return previous === \"recording\" ? \"\" : \"start\";", "return \"start\";"],
-  ["every change to recording's end stops", "return previous === \"recording\" && next !== \"stopped\" ? \"stop\" : \"\";", "return next !== \"stopped\" ? \"stop\" : \"\";"],
-  ["a stopped daemon sounds a stop", "return previous === \"recording\" && next !== \"stopped\" ? \"stop\" : \"\";", "return previous === \"recording\" ? \"stop\" : \"\";"],
+  ["a read alone goes on to a write", "else if (run.wanted !== null && next.value !== run.wanted) next.stage = \"kind\";", "else if (next.value !== run.wanted) next.stage = \"kind\";"],
+  ["a choice the config holds is written again", "else if (run.wanted !== null && next.value !== run.wanted) next.stage = \"kind\";", "else if (run.wanted !== null) next.stage = \"kind\";"],
+  ["a value that cannot be read is written over", "if (next.value === null) next.problem = \"unread\";\n        else if (run.wanted !== null", "if (run.wanted === null && next.value === null) next.problem = \"unread\";\n        else if (run.wanted !== null"],
+  ["a symbolic link is written through", "if (kind === \"file\") next.stage = \"write\";", "if (kind !== \"none\") next.stage = \"write\";"],
+  ["a missing config file is written", "if (kind === \"file\") next.stage = \"write\";", "if (kind !== \"link\") next.stage = \"write\";"],
+  ["a link reads as a missing file", "else next.problem = kind === \"link\" ? \"link\" : \"no-config\";", "else next.problem = \"no-config\";"],
+  ["a link's mode reads as a file's", "return type === 0x8000 ? \"file\" : type === 0xa000 ? \"link\" : \"none\";", "return type === 0x8000 || type === 0xa000 ? \"file\" : \"none\";"],
+  ["a failed write restarts the service", "if (code !== 0) next.problem = \"write\";\n        else if (canRestart)", "if (canRestart)"],
+  ["a write without systemctl is silent", "next.problem = \"restart\";\n            next.stage = \"verify\";", "next.stage = \"verify\";"],
+  ["a failed restart is silent", "if (code !== 0) next.problem = \"restart\";\n        next.stage = \"verify\";", "next.stage = \"verify\";"],
+  ["a mismatch is silent", "else if (next.value !== run.wanted) next.problem = \"mismatch\";", ""],
+  ["a read back that fails is silent", "if (next.value === null) next.problem = \"unread\";\n        else if (next.value !== run.wanted)", "if (false) next.problem = \"unread\";\n        else if (next.value !== run.wanted)"],
+  ["the value in effect is not read", "return data.value ? FEEDBACK_ON : FEEDBACK_OFF;", "return FEEDBACK_ON;"],
+  ["a value that is no boolean is read", "if (!isObject(data) || typeof data.value !== \"boolean\") return null;", "if (!isObject(data)) return null;"],
+  ["off is written as on", "wanted === FEEDBACK_ON ? \"true\" : \"false\"", "\"true\""],
+  ["the restart starts a stopped daemon", "\"try-restart\"", "\"restart\""],
   ["stream model wins", "var model = setup && setup.model ? setup.model : status && status.model ? status.model : DEFAULT_MODEL;", "var model = status && status.model ? status.model : setup && setup.model ? setup.model : DEFAULT_MODEL;"]
 ];
 const source = fs.readFileSync(file, "utf8");
@@ -182,4 +258,24 @@ for (const name of ["setup", "configure", "model"]) {
   assert.throws(() => verifyRequirements(unrequired), `control unrequired ${name}: a manifest copy whose ${name} does not require voxtype passed`);
 }
 
-console.log(`test-voice-logic: ok controls=${controls.length + 3}`);
+// The dictation sounds event over the shipped manifest: the core takes each
+// value and each problem line the service states for it, and stores no
+// choice for it, so voxtype's config is the value's one holder.
+function verifyFeedback(raw) {
+  const manifest = pluginLogic.validateManifest(raw, path.dirname(manifestFile)).manifest;
+  const logic = load(file);
+  for (const value of [logic.FEEDBACK_ON, logic.FEEDBACK_OFF, null]) {
+    for (const problem of Object.keys(logic.FEEDBACK_PROBLEMS))
+      assert.equal(pluginLogic.soundReport(manifest, "feedback", value, logic.FEEDBACK_PROBLEMS[problem]).ok, true, `the core takes ${JSON.stringify(value)} with the ${JSON.stringify(problem)} line`);
+  }
+  for (const value of [logic.FEEDBACK_ON, logic.FEEDBACK_OFF])
+    same(pluginLogic.soundEdit({ version: 1 }, {}, manifest, "vgs.voice", "feedback", value), { ok: true, held: true }, `the choice ${JSON.stringify(value)} goes to Voice and writes no user file`);
+  same(pluginLogic.soundChoices({ sounds: { "vgs.voice": { feedback: "" } } }, manifest), {}, "the core lends Voice no stored choice");
+}
+verifyFeedback(shipped);
+const stored = JSON.parse(JSON.stringify(shipped));
+delete stored.sounds.feedback.held;
+stored.sounds.feedback.default = "own";
+assert.throws(() => verifyFeedback(stored), "control stored: a manifest copy whose dictation event the core stores passed");
+
+console.log(`test-voice-logic: ok controls=${controls.length + 4}`);
