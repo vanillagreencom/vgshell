@@ -74,11 +74,11 @@ function suite(lib, check) {
     check("options request: every part a getoption", asked.every(part => /^j\/getoption [a-z_]+(\.[a-z_]+)+$/.test(part)), true);
     check("options request: the written options and an unwritten one among them", ["input.sensitivity", "input.repeat_rate", "input.kb_layout", "input.touchpad.tap_to_click", "input.natural_scroll"].every(path => asked.indexOf("j/getoption " + path) !== -1), true);
     check("options request: not the device row", asked.indexOf("j/getoption device.touchpad.enabled") === -1, true);
-    check("options request: each Appearance path among them", ["general.border_size", "decoration.rounding", "animations.enabled"].every(path => asked.indexOf("j/getoption " + path) !== -1), true);
+    check("options request: each Appearance path among them", ["general.border_size", "decoration.rounding", "animations.enabled", "decoration.active_opacity"].every(path => asked.indexOf("j/getoption " + path) !== -1), true);
     // Hyprland's reply to the request: VALUES by path, Hyprland's default
     // for the rest, each part as getoption prints it, an empty string as
     // `[[EMPTY]]`.
-    const FIELD = { "general.border_size": "int", "decoration.rounding": "int", "input.sensitivity": "float", "input.scroll_factor": "float", "input.touchpad.scroll_factor": "float", "input.repeat_rate": "int", "input.repeat_delay": "int", "misc.vrr": "int",
+    const FIELD = { "general.border_size": "int", "decoration.rounding": "int", "decoration.active_opacity": "float", "input.sensitivity": "float", "input.scroll_factor": "float", "input.touchpad.scroll_factor": "float", "input.repeat_rate": "int", "input.repeat_delay": "int", "misc.vrr": "int",
         "input.kb_layout": "str", "input.kb_variant": "str", "input.kb_options": "str", "input.accel_profile": "str" };
     const replies = values => asked.map(part => part.slice("j/getoption ".length)).map(path => {
         const field = FIELD[path] || "bool";
@@ -92,8 +92,8 @@ function suite(lib, check) {
         ["an option Hyprland does not know", replies(typed).replace(getoption("input.kb_layout", "str", "us,de"), "no such option"), Object.keys(typed),
             { ok: true, values: { "input.sensitivity": 0.35, "input.repeat_rate": 40, "input.touchpad.tap_to_click": true, "input.natural_scroll": true }, unread: ["refused: options=unread path=input.kb_layout reply=\"no such option\""] }],
         ["an empty string option reads empty", replies(typed), ["input.kb_variant"], { ok: true, values: { "input.kb_variant": "" }, unread: [] }],
-        ["each Appearance option by its type", replies({ "decoration.rounding": 10, "general.border_size": 3, "animations.enabled": true }), ["decoration.rounding", "general.border_size", "animations.enabled"],
-            { ok: true, values: { "decoration.rounding": 10, "general.border_size": 3, "animations.enabled": true }, unread: [] }],
+        ["each Appearance option by its type", replies({ "decoration.rounding": 10, "general.border_size": 3, "animations.enabled": true, "decoration.active_opacity": 0.92 }), ["decoration.rounding", "general.border_size", "animations.enabled", "decoration.active_opacity"],
+            { ok: true, values: { "decoration.rounding": 10, "general.border_size": 3, "animations.enabled": true, "decoration.active_opacity": 0.92 }, unread: [] }],
         ["an Appearance reply of another type", replies(typed).replace(getoption("decoration.rounding", "int", 0), getoption("decoration.rounding", "bool", false)), ["decoration.rounding"], { ok: true, values: {}, unread: ["refused: options=unread path=decoration.rounding "] }],
         ["a reply of another type", replies(typed).replace(getoption("input.repeat_rate", "int", 40), getoption("input.repeat_rate", "float", 40)), ["input.repeat_rate"], { ok: true, values: {}, unread: ["refused: options=unread path=input.repeat_rate "] }],
         ["a reply for another option", replies(typed).replace(getoption("input.sensitivity", "float", 0.35), getoption("input.scroll_factor", "float", 0.35)), ["input.sensitivity"], { ok: true, values: {}, unread: ["refused: options=unread path=input.sensitivity "] }],
