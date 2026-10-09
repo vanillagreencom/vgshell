@@ -215,9 +215,7 @@ Scope {
                         host.rememberFocuser(entry.modelData, () => focusInitial());
                         if (host.built(entry.modelData, instance)) focusInitial();
                     }
-                    onDismissed: Qt.callLater(() => {
-                        if (!popupSurface.visible) host.drop(entry.modelData);
-                    })
+                    onDismissed: Qt.callLater(() => host.drop(entry.modelData))
                 }
             }
 
@@ -233,7 +231,10 @@ Scope {
                         host.rememberHostClose(entry.modelData, () => popupSurface.closeFromHost(), () => popupSurface.reopenFromHost());
                         if (host.built(entry.modelData, instance)) focusInitial();
                     }
-                    onDismissed: Qt.callLater(() => host.drop(entry.modelData))
+                    onDismissed: Qt.callLater(() => {
+                        // The queued drop must not destroy a popup a host reopen made visible again.
+                        if (!popupSurface.visible) host.drop(entry.modelData);
+                    })
                 }
             }
 
