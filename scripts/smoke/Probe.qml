@@ -1703,6 +1703,30 @@ Scope {
             const item = root.instance(hostKey, id);
             return item === null ? "absent" : root.json(root.titledPanes(item).map(pane => root.paneContentFacts(pane)));
         }
+        // Where the shown page ends in its window: the instance's implicit
+        // and drawn heights, the bottom of the last row of its one shown
+        // titled pane in window coordinates, with that row's texts, and the
+        // pane's scroll offset and edge cues; panes=<n> while another number
+        // of titled panes shows, as while a page slides.
+        function paneEnd(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            const panes = root.titledPanes(item);
+            if (panes.length !== 1) return "panes=" + panes.length;
+            const row = root.lastPaneRow(panes[0]);
+            if (row === null) return "no-row";
+            const box = root.windowBox(row);
+            const view = panes[0].scrollArea;
+            return root.json({
+                implicitHeight: item.implicitHeight,
+                height: item.height,
+                lastRowBottom: box[1] + box[3],
+                lastRowTexts: root.descendants(row).filter(child => child instanceof Text && child.visible && child.text !== "").map(child => child.text).slice(0, 4),
+                contentY: view.contentY,
+                cueAbove: view.cueAbove,
+                cueBelow: view.cueBelow
+            });
+        }
         function titledPaneScrollEnd(hostKey: string, id: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";

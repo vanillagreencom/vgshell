@@ -18,7 +18,10 @@
 # route, by the pointer and by Return, into a stand-in that records it.
 # The Bar's Open with select reads the browser profiles when it opens, and
 # a calendar day opens in the profile chosen.
-# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Field.qml shell/Ui/feedback/LinkText.qml shell/Commons/DesktopLaunch.js shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.bar/* shell/Commons/Paths.qml shell/Ui/controls/Select.qml scripts/smoke/fixtures/browsers/* scripts/smoke/rows/bar.sh
+# The window takes the shown page's height on each page or tab change at
+# its top-left corner, and every listed plugin's Details ends inside it or
+# shows the scroll area's bottom edge cue.
+# inputs: shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Field.qml shell/Ui/feedback/LinkText.qml shell/Commons/DesktopLaunch.js shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.bar/* shell/Commons/Paths.qml shell/Ui/controls/Select.qml scripts/smoke/fixtures/browsers/* scripts/smoke/rows/bar.sh shell/plugins/*/manifest.json
 set -euo pipefail
 click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
 expect_poll "the gear's click opens the Settings window" open settings_open
@@ -192,6 +195,81 @@ expect "the fixture's Details take the row's scroll" 300 page_scrolled 300
 type_keys -k Left || fail "sending Left to the scrolled page's strip failed"
 expect_poll "Left shows the fixture's Settings" 0 settings_tab
 expect_poll "the page change back returns the body to its top" '[0]' page_top
+
+# The window follows the shown page (VGS-1156): once it shows, a page or a
+# tab change resizes its Hyprland client to the page's height, at its width
+# and its top-left corner, and the window's content takes the client's
+# height, so no part of it is blank. VPN's Details is taller than its
+# Settings: the window grows on Details and returns on Settings. Then every
+# plugin the manager lists is judged on Details by one judge: its last row
+# ends inside the window, or the scroll area's bottom edge cue shows.
+# Jarvis's Details reaches the cap and reads the cue, and VPN's fits
+# without it, so the cue reads both ways. The control hands the judge VPN's
+# Details reading with the window at its Settings height and no cue, as
+# with neither the resize nor the cue: the judge reads it cut.
+# fit_state: the Plugins client as [x, y, w, h] and where the shown page
+# ends (Probe paneEnd), as one object; a state word while either is absent.
+fit_state() {
+  local client
+  client="$(one_window Plugins)" || return
+  [[ $client == \[* ]] || { printf 'client-%s\n' "$client"; return; }
+  ipc smoke paneEnd window vgs.settings | py_reply 'import json,sys; print(json.dumps({"client": json.loads(sys.argv[1]), "end": json.load(sys.stdin)}))' "$client"
+}
+# fit_settled: `settled` once the client is the window's implicit height
+# and the window's content is the client's height, else those three.
+fit_settled() { fit_state | py_reply 'import json,sys; d=json.load(sys.stdin); h=d["client"][3]; e=d["end"]; print("settled" if h == e["implicitHeight"] == e["height"] else json.dumps([h, e["implicitHeight"], e["height"]]))'; }
+# fit_judge READING [HEIGHT CUE]: one plugin's Details from its fit_state
+# READING: `fits` when its last row ends inside the window's height, `cued`
+# when it ends below it and the bottom cue shows, else `cut`. HEIGHT and
+# CUE stand in for the window's height and its cue, for the control.
+fit_judge() {
+  printf '%s\n' "$1" | py_reply '
+import json,sys
+d=json.load(sys.stdin)
+height=d["client"][3] if len(sys.argv) < 3 else float(sys.argv[1])
+cue=d["end"]["cueBelow"] if len(sys.argv) < 3 else sys.argv[2] == "true"
+print("fits" if d["end"]["lastRowBottom"] <= height else "cued" if cue else "cut")' "${@:2}"
+}
+fit_field() { printf '%s\n' "$1" | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d[sys.argv[1]][sys.argv[2]] if sys.argv[1] == "end" else d["client"][int(sys.argv[2])]))' "$2" "$3"; }
+# fit_change BEFORE AFTER: [same top-left, same width, taller] from BEFORE's
+# client to AFTER's.
+fit_change() { printf '%s\n' "$2" | py_reply 'import json,sys; a=json.loads(sys.argv[1])["client"]; b=json.load(sys.stdin)["client"]; print(json.dumps([a[:2] == b[:2], a[2] == b[2], b[3] > a[3]]))' "$1"; }
+fit_client() { fit_state | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["client"]))'; }
+expect "the window opens the VPN page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.vpn
+expect_poll "the VPN page opens on Settings" 0 settings_tab
+expect_poll "the window takes the VPN Settings height" settled fit_settled
+vpn_settings="$(fit_state)" || vpn_settings=unread
+[[ $vpn_settings == \{* ]] || fail "the window's VPN Settings reading: got $vpn_settings"
+settings_details
+expect_poll "the window takes the VPN Details height" settled fit_settled
+vpn_details="$(fit_state)" || vpn_details=unread
+[[ $vpn_details == \{* ]] || fail "the window's VPN Details reading: got $vpn_details"
+expect "VPN Details grows the window at its top-left and width" '[true, true, true]' fit_change "$vpn_settings" "$vpn_details"
+expect "VPN Details ends inside the grown window" fits fit_judge "$vpn_details"
+expect "VPN Details that fits shows no bottom cue" false fit_field "$vpn_details" end cueBelow
+expect "control: VPN Details at the Settings height without the cue is cut" cut fit_judge "$vpn_details" "$(fit_field "$vpn_settings" client 3)" false
+settings_tab_click Settings || fail "the click on VPN's Settings tab failed"
+expect_poll "VPN's Settings tab shows again" 0 settings_tab
+expect_poll "the window takes the VPN Settings height again" settled fit_settled
+vpn_settings_box="$(printf '%s\n' "$vpn_settings" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["client"]))')" || vpn_settings_box=unread
+expect "the window returns to the VPN Settings box" "$vpn_settings_box" fit_client
+fit_ids="$(settings_rows | py_reply 'import json,sys; print(" ".join(r["id"] for r in json.load(sys.stdin)))')" || fit_ids=""
+[[ " $fit_ids " == *" vgs.vpn "* && " $fit_ids " == *" vgs.jarvis "* ]] || fail "the manager lists VPN and Jarvis for the Details judge: got $fit_ids"
+jarvis_details=unread
+for fit_id in $fit_ids; do
+  expect "the window opens $fit_id's page for the Details judge" ok ipc smoke invokeInstance window vgs.settings openPlugin "$fit_id"
+  settings_details
+  expect_poll "the window takes $fit_id's Details height" settled fit_settled
+  fit_reading="$(fit_state)" || fit_reading=unread
+  [[ $fit_id == vgs.jarvis ]] && jarvis_details="$fit_reading"
+  fit_verdict="$(fit_judge "$fit_reading")" || fit_verdict=unread
+  case $fit_verdict in
+    fits|cued) ok "$fit_id Details ends inside the window or shows the bottom cue: $fit_verdict" ;;
+    *) fail "$fit_id Details ends inside the window or shows the bottom cue: $fit_verdict reading=$fit_reading" ;;
+  esac
+done
+expect "Jarvis Details runs past the capped window and shows the bottom cue" cued fit_judge "$jarvis_details"
+expect "Jarvis Details shows the bottom cue" true fit_field "$jarvis_details" end cueBelow
 
 open_rows() { settings_rows | py_reply 'import json,sys; ids=("acme.probe","vgs.gallery","vgs.devtools","vgs.themes"); print(json.dumps({r["id"]: r["opens"] for r in json.load(sys.stdin) if r["id"] in ids}, sort_keys=True))'; }
 open_button() { ipc smoke windowGeometry window vgs.settings Button Open | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
