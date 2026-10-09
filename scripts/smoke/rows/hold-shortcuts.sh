@@ -166,7 +166,7 @@ import pathlib, sys
 p = pathlib.Path(sys.argv[1])
 s = p.read_text()
 needle = 'description = "acme.hold:talk.release", release = true, non_consuming = true, transparent = true, ignore_mods = true'
-assert s.count(needle) == 2, "hold control: expected default and capture companions"
+assert s.count(needle) == 3, "hold control: expected default, capture and selection companions"
 changed = s.replace(needle, needle.replace("ignore_mods = true", "ignore_mods = false"))
 assert changed != s
 p.write_text(changed)
