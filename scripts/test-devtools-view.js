@@ -344,28 +344,31 @@ const windowSource = fs.readFileSync(windowFile, "utf8");
 verifySettingHandler(load(file), windowSource);
 
 // Execute the service's shipped publish function. The status capability is
-// the boundary: repeated answers must cause no writes, and a refusal must
-// not suppress a later retry.
+// the boundary: every snapshot reaches the shared publication owner, and
+// a refusal is reported without suppressing a later retry.
 function verifyPublication(logic, text) {
     const declaration = text.match(/    function publish\(\) \{[\s\S]*?\n    \}/);
     assert.ok(declaration, "the service has a publish function");
-    const writes = [], refusals = new Set();
+    const writes = [], warnings = [], refusals = new Set();
     const context = vm.createContext({
         ViewLogic: logic, answers: { catalog: ok(list({ agents: [row({})] })) },
-        published: {}, showInLauncher: true,
+        showInLauncher: true,
         shell: { status: { set(key, value) {
             writes.push([key, JSON.parse(JSON.stringify(value))]);
             return refusals.has(key) ? "refused: status=" + key + " reason=size" : "ok";
-        } } }, console: { warn() {} }
+        } } }, console: { warn(message) { warnings.push(message); } }
     });
     vm.runInContext(declaration[0], context, { filename: serviceFile });
     const publish = () => vm.runInContext("publish()", context);
     publish();
+    same(writes.map(([key]) => key), ["catalog", "checks", "mise", "installed", "launcherRows"], "every computed status key reaches the provider");
     assert.ok(writes.some(([key, value]) => key === "installed" && value === 0), "the first report reaches status");
+    const first = JSON.parse(JSON.stringify(writes));
     writes.length = 0;
     context.answers = JSON.parse(JSON.stringify(context.answers));
     publish();
-    same(writes, [], "a fresh copy of identical answers causes no status writes");
+    same(writes, first, "identical answers reach the shared publication owner");
+    writes.length = 0;
     context.answers.catalog.value.sections.agents[0].installed = true;
     publish();
     assert.ok(writes.some(([key, value]) => key === "installed" && value === 1), "a changed install count reaches status");
@@ -373,24 +376,29 @@ function verifyPublication(logic, text) {
     writes.length = 0;
     context.showInLauncher = false;
     publish();
-    same(writes, [["launcherRows", []]], "a launcher setting publishes its changed value alone");
+    same(writes.map(([key]) => key), ["catalog", "checks", "mise", "installed", "launcherRows"], "a launcher setting forwards the complete snapshot");
+    same(writes.find(([key]) => key === "launcherRows"), ["launcherRows", []], "a launcher setting forwards its changed value");
     writes.length = 0;
     refusals.add("installed");
     context.answers.catalog.value.sections.agents[0].installed = false;
     publish();
+    same(warnings, ["devtools: status refused: status=installed reason=size"], "the provider refusal is reported");
+    warnings.length = 0;
     writes.length = 0;
     refusals.delete("installed");
     publish();
-    same(writes, [["installed", 0]], "an unchanged refused value is retried");
+    assert.ok(writes.some(([key, value]) => key === "installed" && value === 0), "an unchanged refused value is retried");
+    const retry = JSON.parse(JSON.stringify(writes));
     writes.length = 0;
     publish();
-    same(writes, [], "the accepted retry is retained");
+    same(writes, retry, "the accepted retry still reaches the shared owner");
+    same(warnings, [], "accepted snapshots report no refusal");
 }
 const serviceSource = fs.readFileSync(serviceFile, "utf8");
 verifyPublication(load(file), serviceSource);
 const publicationControls = [
-    ['identical publication', '            if (published[key] === text) continue;\n', ''],
-    ['refused publication', 'if (reply === "ok") next[key] = text;', 'if (true) next[key] = text;']
+    ['provider delegation', 'const reply = shell.status.set(key, values[key]);', 'const reply = "ok";'],
+    ['refusal warning', 'if (reply !== "ok") console.warn("devtools: status " + reply);', 'if (false) console.warn("devtools: status " + reply);']
 ];
 for (const [label, needle, replacement] of publicationControls) {
     assert.equal(serviceSource.split(needle).length, 2, label + ": exact control match");

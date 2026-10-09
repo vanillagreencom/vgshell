@@ -54,10 +54,6 @@ Item {
     property var seenEnds: null
     // Each query's last answer, { value, error }, by name.
     property var answers: ({})
-    // Accepted status values, serialized by declared key. Rewriting an
-    // unchanged catalog makes every status reader copy it and lay it out
-    // again. The core retains these values for this service's lifetime.
-    property var published: ({})
     // When each query's last answer arrived, by name, in ms since the epoch.
     property var ended: ({})
 
@@ -139,15 +135,10 @@ Item {
     function publish() {
         const values = ViewLogic.statusValues(answers);
         values.launcherRows = ViewLogic.launcherRows(answers.catalog === undefined ? null : answers.catalog.value, showInLauncher, values.catalog);
-        const next = Object.assign({}, published);
         for (const key of Object.keys(values)) {
-            const text = JSON.stringify(values[key]);
-            if (published[key] === text) continue;
             const reply = shell.status.set(key, values[key]);
-            if (reply === "ok") next[key] = text;
-            else console.warn("devtools: status " + reply);
+            if (reply !== "ok") console.warn("devtools: status " + reply);
         }
-        published = next;
     }
 
     function launch(item) {
