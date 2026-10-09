@@ -22,7 +22,8 @@ Column {
 
     width: parent ? parent.width : implicitWidth
 
-    function capTop() { return text === "" ? 0 : topPadding + titleLabel.parent.y + titleLabel.y + titleLabel.capTop(); }
+    // The title row is the column's first, at its top padding.
+    function capTop() { return text === "" ? 0 : topPadding + titleLabel.y + titleLabel.capTop(); }
 
     topPadding: 0
     bottomPadding: description !== "" ? Theme.stack.group : Theme.sectionHeader.paddingBottom
