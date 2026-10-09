@@ -45,7 +45,7 @@ devices_hid_log="$devices_dir/hid-fake.calls"
 devices_fixtures="$repo/scripts/smoke/fixtures/devices"
 devices_env_words=(PIPEWIRE_RUNTIME_DIR="$rt_dir" VGS_DEV_ROOT="$devices_dev_root"
   VGS_SYSFS_ROOT="$devices_sysfs_root" VGS_HID_FAKE="$devices_hid_socket")
-device_stand_in_names=(rfkill tailscale ddcutil brightnessctl nmcli pactl bluetoothctl systemctl udevadm modprobe xdg-open gum)
+device_stand_in_names=(rfkill tailscale ddcutil brightnessctl nmcli pactl bluetoothctl systemctl udevadm modprobe xdg-open gio gum)
 mkdir -p -- "$devices_dir/calls" "$devices_dir/replies"
 
 # devices_write_stand_ins: every stand-in written into $shim, and rfkill's

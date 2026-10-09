@@ -250,6 +250,7 @@ f share/vgshell/shell/plugins/vgs.automations/tui/linger.sh
 f share/vgshell/shell/plugins/vgs.automations/tui/transcript.sh
 f share/vgshell/shell/plugins/vgs.bar/Bar.qml
 f share/vgshell/shell/plugins/vgs.bar/Builtin.qml
+f share/vgshell/shell/plugins/vgs.bar/Calendar.qml
 f share/vgshell/shell/plugins/vgs.bar/Clock.qml
 f share/vgshell/shell/plugins/vgs.bar/Service.qml
 f share/vgshell/shell/plugins/vgs.bar/Workspaces.qml

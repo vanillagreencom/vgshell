@@ -183,13 +183,13 @@ calendar_click_box() {
 }
 calendar_keys() { type_keys "$@" && echo ok; }
 # The controls run on a shell just started, whose bar can take a click
-# before the compositor maps it, so they open the same panel through the
-# core's summon, which the clock's click asks for too.
+# before the compositor maps it, so they build the same Calendar.qml through
+# the core's summon, unanchored in the layer host, not under the clock.
 calendar_summon() { ipc shell summon panel vgs.bar '{}'; }
-# Pointer input on a shell just started can be lost the same way, so the
-# control presses Left, the keyboard path, again, each press given 3 s,
-# only while the title still names this month: a second press never runs
-# after the first moved the month.
+# A key press can be lost before the new layer has the keyboard, so the
+# control presses Left again, each press given 3 s, only while the title
+# still names this month: a second press never runs after the first moved
+# the month.
 calendar_back() {
   local this _ i
   this="$(calendar_want 0 | cut -d' ' -f1,2)"
@@ -220,23 +220,27 @@ expect "a third click on the clock reaches it" ok clock_click
 expect_poll "the calendar opens on this month again" "$(calendar_want 0)" calendar_read
 expect "Escape reaches the calendar" ok calendar_keys -k Escape
 expect_poll "Escape closes the calendar" closed calendar_read
-# A day opens through `gio open`, which the shell resolves through the
-# stand-in directory first: this stand-in logs its arguments, so no
-# browser starts. With no stand-in the row clicks no day.
-calendar_gio_calls="$sandbox/calendar-gio.calls"
-: >"$calendar_gio_calls"
-printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>%q\n' "$calendar_gio_calls" >"$shim/gio.next" \
-  && chmod 755 "$shim/gio.next" && mv -T -- "$shim/gio.next" "$shim/gio"
-expect "the shell resolves gio to the calendar's stand-in" "$shim/gio" shell_resolves gio
+# A day opens through `gio open`, which the shell resolves to the device
+# fakes' stand-in (scripts/smoke/devices.sh), which records its argv, so no
+# browser starts; with gio resolving anywhere else the row clicks no day.
+# The day is in the next month and its number is not today's, so neither
+# today's month nor today's day stands in for the one clicked.
+expect "the shell resolves gio to the device stand-in" "$shim/gio" shell_resolves gio
 if [[ $(shell_resolves gio) == "$shim/gio" ]]; then
-  calendar_day_want="$(python3 -c 'import datetime; t=datetime.date.today(); print("open https://calendar.google.com/calendar/r/day/%d/%d/15" % (t.year, t.month))')"
+  calendar_gio_before="$(device_calls gio | py_reply 'import json,sys; print(len(json.load(sys.stdin)))')"
+  read -r calendar_pick calendar_day_want < <(python3 -c 'import datetime,json
+t=datetime.date.today(); n=t.year*12+t.month; d=14 if t.day==15 else 15
+print(d, json.dumps([["open", "https://calendar.google.com/calendar/r/day/%d/%d/%d" % (n//12, n%12+1, d)]]))')
+  calendar_gio_since() { device_calls gio | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1]):]))' "$calendar_gio_before"; }
+  device_reply gio 0 "" open "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])[0][1])' "$calendar_day_want")"
   expect "a click on the clock opens the calendar for a day" ok clock_click
   expect_poll "the calendar is open on this month for a day" "$(calendar_want 0)" calendar_read
-  expect "the 15th is pressed" ok calendar_day 15
-  expect_poll "the 15th opens that day in Google Calendar" "$calendar_day_want" cat "$calendar_gio_calls"
+  expect "Right reaches the calendar for a day" ok calendar_keys -k Right
+  expect_poll "the calendar shows the next month for a day" "$(calendar_want 1)" calendar_read
+  expect "day $calendar_pick of the next month is pressed" ok calendar_day "$calendar_pick"
+  expect_poll "day $calendar_pick opens that day of the next month in Google Calendar" "$calendar_day_want" calendar_gio_since
   expect_poll "a day that opened closes the calendar" closed calendar_read
 fi
-rm -f -- "${shim:?}/gio"
 # The clock at the left and at the right end of the bar, written into the
 # user file as the Settings layout editor writes a move; the file is put
 # back after. The calendar centres under the clock and slides to stay on

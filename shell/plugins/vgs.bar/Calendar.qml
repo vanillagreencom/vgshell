@@ -10,7 +10,9 @@ import qs.Ui
 // month, and Escape, a click outside or a second click on the clock close
 // it. A click on a day of the shown month opens that day in the web
 // calendar the `calendarUrl` setting names, through the default browser,
-// and closes the calendar. Qt's month grid model holds six weeks for every
+// and closes the calendar; Enter opens today, or the 1st of another shown
+// month. The day buttons take no Tab stop, so Tab moves between the two
+// month buttons alone. Qt's month grid model holds six weeks for every
 // month, 42 days, the days of the months around it drawn disabled, so the
 // calendar's height never changes (Qt's own Basic MonthGrid.qml lays its
 // `source` out as 6 rows of 7, qtdeclarative 6.11).
@@ -40,6 +42,11 @@ Item {
         const first = new Date(shownYear, shownMonth + delta, 1);
         shownYear = first.getFullYear();
         shownMonth = first.getMonth();
+    }
+    // Today in this month, else the shown month's 1st.
+    function openShownDay() {
+        const thisMonth = shownYear === todayYear && shownMonth === todayMonth;
+        openDay(shownYear, shownMonth, thisMonth ? todayDay : 1);
     }
     // MONTH counts from 0, as the grid does; the address counts from 1.
     function openDay(year, month, day) {
@@ -75,6 +82,8 @@ Item {
             // Left and Right reach the page from a focused button.
             Keys.onLeftPressed: root.showMonth(-1)
             Keys.onRightPressed: root.showMonth(1)
+            Keys.onReturnPressed: root.openShownDay()
+            Keys.onEnterPressed: root.openShownDay()
 
             Row {
                 width: parent.width
@@ -122,11 +131,12 @@ Item {
                 implicitHeight: 6 * page.cellHeight + 5 * spacing
                 spacing: Theme.space.xs
                 // Qt's month grid takes Tab focus by default
-                // (QQuickMonthGrid, qtdeclarative 6.11); its day buttons
-                // are the Tab stops, so it takes none.
+                // (QQuickMonthGrid, qtdeclarative 6.11); the calendar is
+                // one composite whose keys are the page's, so it takes none.
                 activeFocusOnTab: false
                 month: root.shownMonth
                 year: root.shownYear
+                // keyboard-path: Enter on the page opens today, or the 1st of the shown month
                 delegate: Button {
                     // The roles of Qt's month grid model.
                     required property int day
@@ -136,6 +146,7 @@ Item {
                     readonly property bool today: inMonth && year === root.todayYear && month === root.todayMonth && day === root.todayDay
 
                     size: "sm"
+                    focusPolicy: Qt.NoFocus
                     text: String(day)
                     variant: today ? "primary" : "ghost"
                     enabled: inMonth
