@@ -1180,7 +1180,7 @@ const TOKEN_CONTROLS = [
     ["bar scroll backdrop", 'backdrop: color("{bar.background}")', 'backdrop: color("{color.surface}")', verifyBarScroll]
 ];
 fs.mkdirSync(path.join(repo, "tmp"), { recursive: true });
-const tokenControlDir = fs.mkdtempSync(path.join(repo, "tmp", "token-control-"));
+const tokenControlDir = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "token-control-"));
 try {
     for (const [label, needle, replacement, verifier] of TOKEN_CONTROLS) {
         assert.equal(tokenSource.split(needle).length, 2, `token control "${label}": the text to replace must occur once`);

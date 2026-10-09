@@ -50,7 +50,8 @@ fi
 # path. The replacement keeps the text around the
 # behaviour and removes the behaviour. A field holds no `|`, the separator.
 mutations=(
-  "a sticky header keeps half-gap padding|layout/Pane.qml|y: root.contentInset + root.headerHeight + root.contentInset|y: root.contentInset + root.headerHeight + Math.round((root.headerGap - height) / 2)|tst_pane.qml"
+  "a sticky header keeps half-gap padding|layout/Pane.qml|y: root.contentInset + root.headerHeight + Math.min(root.contentInset, root.headerGap - root.ringRoom - height)|y: root.contentInset + root.headerHeight + Math.round((root.headerGap - height) / 2)|tst_pane.qml"
+  "a title divider covers its scrolling body|layout/Pane.qml|y: root.contentInset + root.headerHeight + Math.min(root.contentInset, root.headerGap - root.ringRoom - height)|y: root.contentInset + root.headerHeight + root.contentInset|tst_title_space.qml"
   "a sticky footer keeps half-gap padding|layout/Pane.qml|y: footerSlot.y - root.contentInset - height|y: footerSlot.y - root.footerGap + Math.round((root.footerGap - height) / 2)|tst_pane.qml"
   "a sticky divider covers the viewport's ring room|layout/Pane.qml|readonly property real stickyGap: contentInset + dividerWidth + ringRoom|readonly property real stickyGap: contentInset + dividerWidth|tst_pane.qml"
   "System Monitor paints no detail text|../plugins/vgs.sysmon/Reading.qml|            role: \"hint\"|            role: \"hint\"; opacity: 0|tst_sysmon_widget.qml"

@@ -83,6 +83,10 @@ Item {
             const marker = findChild(made, "bodyMarker");
             compare(itemTop(marker, made) - (itemTop(block, made) + block.height), Theme.stack.titleSpace);
             compare(made.bodyRoom, made.height - 2 * made.contentInset - made.headerHeight - Theme.stack.titleSpace);
+            made.scrollArea.contentY = 40;
+            const divider = made.children[5];
+            verify(divider.visible);
+            verify(divider.y + divider.height <= made.scrollArea.y);
             made.destroy();
         }
 

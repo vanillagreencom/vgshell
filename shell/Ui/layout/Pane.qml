@@ -347,7 +347,7 @@ Item {
 
     Rule {
         id: headerDivider
-        y: root.contentInset + root.headerHeight + root.contentInset
+        y: root.contentInset + root.headerHeight + Math.min(root.contentInset, root.headerGap - root.ringRoom - height)
         visible: root.headerHeight > 0 && scroll.contentY > 0
     }
 
