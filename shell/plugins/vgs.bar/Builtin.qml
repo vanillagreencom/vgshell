@@ -1,5 +1,5 @@
 import QtQuick
-import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Repeater stacks its delegates as siblings (Qt Quick Repeater reference).
@@ -36,23 +36,23 @@ Loader {
             Component {
                 id: gap
                 Item {
-                    implicitWidth: Theme.bar.spacer.gap
-                    implicitHeight: Theme.bar.height
+                    implicitWidth: Commons.Theme.bar.spacer.gap
+                    implicitHeight: Commons.Theme.bar.height
                 }
             }
             // A vertical line with the spacer's inset either side.
             Component {
                 id: separator
                 Item {
-                    implicitWidth: 2 * Theme.bar.spacer.inset + Theme.divider.thickness
-                    implicitHeight: Theme.bar.height
+                    implicitWidth: 2 * Commons.Theme.bar.spacer.inset + Commons.Theme.divider.thickness
+                    implicitHeight: Commons.Theme.bar.height
 
                     Rectangle {
-                        x: Theme.bar.spacer.inset
+                        x: Commons.Theme.bar.spacer.inset
                         anchors.verticalCenter: parent.verticalCenter
-                        width: Theme.divider.thickness
-                        height: Theme.bar.spacer.height
-                        color: Theme.bar.spacer.line
+                        width: Commons.Theme.divider.thickness
+                        height: Commons.Theme.bar.spacer.height
+                        color: Commons.Theme.bar.spacer.line
                     }
                 }
             }
