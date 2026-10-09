@@ -107,7 +107,8 @@ Item {
     // A sticky bar keeps the container inset between its content and its
     // line. Leave the viewport's ring room on the other side of that line.
     readonly property real stickyGap: contentInset + dividerWidth + ringRoom
-    readonly property real headerGap: headerHeight > 0 && contentBelowHeader ? (bodyContentHeight > 0 ? Math.max(headerBodyGap, stickyGap) : headerBodyGap) : 0
+    readonly property real bodyGap: hasTitle && headerSlotImplicitHeight === 0 ? headerBodyGap : Math.max(headerBodyGap, stickyGap)
+    readonly property real headerGap: headerHeight > 0 && contentBelowHeader ? (bodyContentHeight > 0 ? bodyGap : headerBodyGap) : 0
     readonly property real footerGap: footerHeight > 0 && bodyContentHeight > 0 ? Math.max(gap, stickyGap) : 0
     readonly property real uncappedHeight: 2 * contentInset + headerHeight + headerGap + bodyContentHeight + footerGap + footerHeight
     readonly property real cappedHeight: maximumHeight > 0 ? Math.min(uncappedHeight, maximumHeight) : uncappedHeight
@@ -123,7 +124,7 @@ Item {
     // its cap without a binding loop and without overflowing.
     readonly property real bodyRoom: {
         const limit = fitToContent ? (maximumHeight > 0 ? maximumHeight : Infinity) : height;
-        return Math.max(0, limit - 2 * contentInset - headerHeight - footerHeight - (headerHeight > 0 ? Math.max(headerBodyGap, stickyGap) : 0) - (footerHeight > 0 ? Math.max(gap, stickyGap) : 0));
+        return Math.max(0, limit - 2 * contentInset - headerHeight - footerHeight - (headerHeight > 0 ? bodyGap : 0) - (footerHeight > 0 ? Math.max(gap, stickyGap) : 0));
     }
     readonly property alias scrollArea: scroll
 

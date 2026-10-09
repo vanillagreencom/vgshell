@@ -396,7 +396,7 @@ var TOKENS = {
         page: length("{space.xl}"),
         section: length("{space.xxl}"),
         heading: length("{space.xxxl}"),
-        titleSpace: bodyLines(1.2),
+        titleSpace: bodyLines(1),
         inline: length("{space.md}")
     },
 

@@ -57,12 +57,12 @@ Item {
             }
         }
 
-        function test_default_gap_has_one_and_a_fifth_drawn_body_lines() {
+        function test_default_gap_has_one_drawn_body_line() {
             const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 300; fitToContent: true; title: "Title"; Item { objectName: "bodyMarker"; width: parent.width; height: 20 } }', root);
             waitForRendering(made);
             const block = titleBlock(made);
             const marker = findChild(made, "bodyMarker");
-            compare(itemTop(marker, made) - (itemTop(block, made) + block.height), Math.ceil(1.2 * bodyLine.lineBox));
+            compare(itemTop(marker, made) - (itemTop(block, made) + block.height), bodyLine.lineBox);
             made.destroy();
         }
         function test_untitled_description_keeps_existing_body_gap() {
@@ -71,6 +71,18 @@ Item {
             const block = titleBlock(made);
             const marker = findChild(made, "bodyMarker");
             compare(itemTop(marker, made) - (itemTop(block, made) + block.height), Math.max(Theme.stack.group, made.contentInset + Theme.divider.thickness + made.ringRoom));
+            made.destroy();
+        }
+
+        function test_titled_body_uses_title_space_below_a_large_sticky_inset() {
+            const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 300; height: 160; padding: 32; title: "Title"; Item { objectName: "bodyMarker"; width: parent.width; height: 400 } }', root);
+            waitForRendering(made);
+            verify(made.scrollArea.overflowing);
+            verify(made.stickyGap > Theme.stack.titleSpace);
+            const block = titleBlock(made);
+            const marker = findChild(made, "bodyMarker");
+            compare(itemTop(marker, made) - (itemTop(block, made) + block.height), Theme.stack.titleSpace);
+            compare(made.bodyRoom, made.height - 2 * made.contentInset - made.headerHeight - Theme.stack.titleSpace);
             made.destroy();
         }
 
@@ -126,7 +138,7 @@ Item {
             compare(block.children[3].contentItem, block.children[3], "the title Slot measures itself");
             compare(headerSlot(made).contentItem, headerSlot(made), "the header Slot measures itself");
             const next = data.variant === "header" ? headerSlot(made) : marker;
-            compare(itemTop(next, made) - (itemTop(block, made) + block.height), data.variant === "header" ? Theme.stack.titleSpace : Math.max(Theme.stack.titleSpace, made.contentInset + Theme.divider.thickness + made.ringRoom));
+            compare(itemTop(next, made) - (itemTop(block, made) + block.height), Theme.stack.titleSpace);
             if (data.variant === "description" || data.variant === "description-stack") {
                 const subtitle = block.children[4];
                 compare(subtitle.y - made.titleRowHeight, Theme.row.lineGap);
@@ -164,7 +176,7 @@ Item {
             verify(Theme.stack.titleSpace >= bodyLine.lineBox, "the title space contains a drawn body line");
             const next = data.body ? findChild(made, "bodyMarker") : pane.children[4];
             const block = titleBlock(pane);
-            compare(itemTop(next, pane) - (itemTop(block, pane) + block.height), data.body ? Math.max(Theme.stack.titleSpace, pane.contentInset + Theme.divider.thickness + pane.ringRoom) : Theme.stack.titleSpace);
+            compare(itemTop(next, pane) - (itemTop(block, pane) + block.height), Theme.stack.titleSpace);
             compare(block.children[4].implicitHeight > 0, data.message !== "");
             made.destroy();
         }

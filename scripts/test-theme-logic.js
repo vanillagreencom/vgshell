@@ -93,7 +93,7 @@ const DEFAULTS = [
     ["text.body.size", 15],
     // Line boxes on the 4 px grid: 15 * 1.6 = 24, 16 * 1.5 = 24, 18 * 1.333 = 24, 20 * 1.4 = 28.
     ["text.body.lineHeight", 1.6],
-    ["stack.titleSpace", 1.2],
+    ["stack.titleSpace", 1],
     ["text.h3.lineHeight", 1.5],
     ["text.windowTitle.lineHeight", 1.333],
     ["text.h2.lineHeight", 1.4],
@@ -392,8 +392,8 @@ const ACCEPTED = [
     { tokens: { radius: { sm: 6, md: 12 } }, want: [["menu.radius", 12], ["menu.item.radius", 12], ["listItem.radius", 6]] },
     // A group list's hairline is a tenth of the foreground: 0.1 * 255 = 25.5, 0x1a.
     { tokens: { palette: { foreground: "#ffffff" } }, want: [["groupList.divider", "#ffffff1a"]] },
-    { tokens: { font: { size: 16 } }, want: [["text.body.size", 16], ["text.hint.size", 14], ["stack.titleSpace", 1.2]] },
-    { tokens: { text: { body: { lineHeight: 2 } } }, want: [["stack.titleSpace", 1.2]] },
+    { tokens: { font: { size: 16 } }, want: [["text.body.size", 16], ["text.hint.size", 14], ["stack.titleSpace", 1]] },
+    { tokens: { text: { body: { lineHeight: 2 } } }, want: [["stack.titleSpace", 1]] },
     { tokens: { stack: { titleSpace: "mul(1, 2)" } }, want: [["stack.titleSpace", 2]] },
     { tokens: { motion: { scale: 0 } }, want: [["motion.duration.fast", 0], ["motion.duration.slow", 0], ["motion.list.travel.duration", 0], ["motion.list.enter.duration", 0], ["motion.list.stagger", 0], ["motion.list.rise", 6]] },
     // The list motion follows the scale steps it names: fast at 60 travels
@@ -1163,7 +1163,13 @@ verifyBarScroll(TOKENS);
 // Each token control edits a copy of the shipped table, and the verifier
 // it names must fail on that copy.
 const tokenSource = fs.readFileSync(path.join(repo, "shell/Commons/Tokens.js"), "utf8");
+function verifyTitleSpace(table) {
+    assert.equal(table.stack.titleSpace.type, "body-lines");
+    assert.equal(load(judgeFile).defaults(table).values.stack.titleSpace, 1);
+}
+verifyTitleSpace(TOKENS);
 const TOKEN_CONTROLS = [
+    ["title space", 'titleSpace: bodyLines(1)', 'titleSpace: bodyLines(1.2)', verifyTitleSpace],
     ["status text on its fill", 'color("contrast({color." + name + "})")', 'color("contrast({palette." + name + "})")', verifyStatusText],
     ["bar separator colour", 'line: color("alpha({bar.foreground}, 0.2)")', 'line: color("alpha({bar.foreground}, 0.4)")', verifyBarSeparator],
     ["bar separator height", 'height: length(12),\n            line:', 'height: length("{icon.size.md}"),\n            line:', verifyBarSeparator],
