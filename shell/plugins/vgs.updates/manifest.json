@@ -9,7 +9,8 @@
   "icon": "refresh-cw",
   "kinds": ["service", "bar-widget", "window"],
   "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "window": "Window.qml" },
-  "capabilities": ["ipc", "screens", "shortcut", "status", "surfaces", "tui"],
+  "capabilities": ["ipc", "screens", "shortcut", "status", "surfaces", "system", "tui"],
+  "systemSteps": ["reboot-notice"],
   "defaultSection": "right",
   "requirements": [
     { "command": "checkupdates", "packages": { "pacman": "pacman-contrib" }, "optional": false, "purpose": "Checks Arch system updates" },
@@ -85,6 +86,16 @@
     "checking": { "type": "data", "label": "Checking" },
     "sources": { "type": "data", "label": "Sources" },
     "reviewAgents": { "type": "choices", "label": "Review agents" },
-    "reviewAgent": { "type": "text", "label": "Review agent" }
+    "reviewAgent": { "type": "text", "label": "Review agent" },
+    "rebootNotice": {
+      "type": "state",
+      "label": "Reboot notice",
+      "hint": "Use the VGS reboot notice only adds /etc/pacman.d/hooks/cachyos-reboot-required.hook, which turns off the CachyOS notice, and Turn the CachyOS notice back on removes it.",
+      "info": "At the end of an update that changes the kernel or another package the CachyOS notice names, VGS asks to reboot. The CachyOS notice also shows after such an update. Use the VGS reboot notice only to get the VGS question alone.",
+      "actions": {
+        "vgsOnly": { "label": "Use the VGS reboot notice only", "system": "reboot-notice" },
+        "both": { "label": "Turn the CachyOS notice back on", "undo": "reboot-notice" }
+      }
+    }
   }
 }

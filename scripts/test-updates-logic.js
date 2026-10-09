@@ -2,8 +2,9 @@
 // Table-driven checks for vgs.updates pure decisions: probe normalization,
 // snapshot judging, status values, cadence, staleness, TUI end detection, the
 // review's agent and verdict, the install script change, the packages that
-// need a reboot, and what the bar widget and the window draw from the
-// published values.
+// need a reboot by the distribution's reboot hook, the reboot notice's
+// status, and what the bar widget and the window draw from the published
+// values.
 // Controls edit a copy of the logic and require this suite to fail.
 "use strict";
 const assert = require("node:assert/strict");
@@ -14,6 +15,43 @@ const { load } = require("../bin/lib/qml-library.js");
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.updates", "UpdatesLogic.js");
 const scratch = path.join(__dirname, "..", "tmp", "test-updates-logic-" + process.pid);
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), JSON.parse(JSON.stringify(want)), message || "");
+
+// The [Trigger] of CachyOS's reboot hook,
+// /usr/share/libalpm/hooks/cachyos-reboot-required.hook of cachyos-hooks.
+const REBOOT_HOOK = `[Trigger]
+Operation = Upgrade
+Type = Package
+Target = amd-ucode
+Target = intel-ucode
+Target = btrfs-progs
+Target = e2fsprogs
+Target = xfsprogs
+Target = cryptsetup
+Target = linux
+Target = linux-hardened
+Target = linux-lts
+Target = linux-zen
+Target = linux-firmware
+Target = linux-cachyos*
+Target = linux-cacule*
+Target = nvidia
+Target = nvidia-dkms
+Target = nvidia-*xx-dkms
+Target = nvidia-*xx
+Target = nvidia-*lts-dkms
+Target = nvidia*-lts
+Target = mesa
+Target = systemd*
+Target = wayland
+Target = egl-wayland
+Target = xf86-video-*
+Target = xorg-server*
+Target = xorg-fonts*
+Target = mkinitcpio*
+Target = booster*
+Target = dracut*
+Target = winesync-dkms
+`;
 
 function probe(value, status = 0, stderr = "") {
   return { status, stdout: typeof value === "string" ? value : JSON.stringify(value), stderr };
@@ -342,17 +380,67 @@ function verifyView(logic) {
   ];
   for (const [line, risky] of riskRows) same(logic.installScriptChange(null, line).risks, risky ? [line] : [], "install risk: " + line);
 
-  // [package names, the ones a reboot needs]
+  // The reboot question reads the distribution's reboot hook and applies
+  // its script's conditions: [name, hook, changes, running kernel, mounted
+  // file systems, the packages a reboot needs].
+  const up = names => names.map(name => ({ operation: "Upgrade", name }));
   const rebootRows = [
-    [["linux", "linux-zen", "linux-lts", "linux-cachyos"], ["linux", "linux-zen", "linux-lts", "linux-cachyos"]],
-    [["linux-headers", "linux-zen-headers", "linux-api-headers", "linux-docs"], []],
-    [["linux-firmware", "linux-firmware-intel", "intel-ucode", "amd-ucode"], ["linux-firmware", "linux-firmware-intel", "intel-ucode", "amd-ucode"]],
-    [["nvidia-open-dkms", "nvidia-utils", "mesa", "systemd", "systemd-libs", "wayland", "egl-wayland"], ["nvidia-open-dkms", "nvidia-utils", "mesa", "systemd", "systemd-libs", "wayland", "egl-wayland"]],
-    [["cryptsetup", "mkinitcpio", "dracut", "booster"], ["cryptsetup", "mkinitcpio", "dracut", "booster"]],
-    [["firefox", "mesa-utils", "systemd-sysvcompat", "wayland-protocols", "linuxx"], []],
-    [[], []]
+    ["the running kernel", REBOOT_HOOK, up(["linux-cachyos"]), "linux-cachyos", [], ["linux-cachyos"]],
+    ["another kernel, as the script's other branch", REBOOT_HOOK, up(["linux-lts"]), "linux-cachyos", [], ["linux-lts"]],
+    ["nvidia beside linux-cachyos", REBOOT_HOOK, up(["nvidia"]), "linux-cachyos", [], []],
+    ["nvidia beside linux", REBOOT_HOOK, up(["nvidia"]), "linux", [], ["nvidia"]],
+    ["nvidia-lts beside linux", REBOOT_HOOK, up(["nvidia-lts"]), "linux", [], []],
+    ["nvidia-lts beside linux-lts", REBOOT_HOOK, up(["nvidia-lts"]), "linux-lts", [], ["nvidia-lts"]],
+    ["linux-cachyos-nvidia beside linux-cachyos-lts", REBOOT_HOOK, up(["linux-cachyos-nvidia-open"]), "linux-cachyos-lts", [], ["linux-cachyos-nvidia-open"]],
+    ["linux-cachyos-nvidia beside linux-zen", REBOOT_HOOK, up(["linux-cachyos-nvidia-open"]), "linux-zen", [], []],
+    ["btrfs-progs with no btrfs mounted", REBOOT_HOOK, up(["btrfs-progs"]), "linux-cachyos", ["ext4", "tmpfs"], []],
+    ["btrfs-progs with btrfs mounted", REBOOT_HOOK, up(["btrfs-progs"]), "linux-cachyos", ["btrfs"], ["btrfs-progs"]],
+    ["xfsprogs with no xfs mounted", REBOOT_HOOK, up(["xfsprogs"]), "linux-cachyos", ["btrfs"], []],
+    ["xfsprogs with xfs mounted", REBOOT_HOOK, up(["xfsprogs"]), "linux-cachyos", ["xfs"], ["xfsprogs"]],
+    ["e2fsprogs with no ext4 mounted", REBOOT_HOOK, up(["e2fsprogs"]), "linux-cachyos", ["btrfs"], []],
+    ["e2fsprogs with ext4 mounted", REBOOT_HOOK, up(["e2fsprogs"]), "linux-cachyos", ["ext4"], ["e2fsprogs"]],
+    ["mesa", REBOOT_HOOK, up(["mesa"]), "linux-cachyos", [], ["mesa"]],
+    ["firefox", REBOOT_HOOK, up(["firefox"]), "linux-cachyos", [], []],
+    ["globbed targets, in the run's order", REBOOT_HOOK, up(["systemd-libs", "linux-headers", "nvidia-470xx", "mesa-utils", "xf86-video-amdgpu"]), "linux-cachyos", [], ["systemd-libs", "nvidia-470xx", "xf86-video-amdgpu"]],
+    ["a new package under an Upgrade trigger", REBOOT_HOOK, [{ operation: "Install", name: "linux-lts" }], "linux-cachyos", [], []],
+    ["no hook", null, up(["linux-cachyos", "mesa"]), "linux-cachyos", [], []],
+    ["an Install trigger", "[Trigger]\nOperation = Install\nType = Package\nTarget = linux*\n", [{ operation: "Install", name: "linux-lts" }, { operation: "Upgrade", name: "linux" }], "linux", [], ["linux-lts"]],
+    ["the last matching target decides", "[Trigger]\nOperation = Upgrade\nType = Package\nTarget = linux*\nTarget = !linux-*-headers\n", up(["linux-zen", "linux-zen-headers"]), "linux", [], ["linux-zen"]],
+    ["a Path trigger names no package", "[Trigger]\nOperation = Upgrade\nType = Path\nTarget = linux\n", up(["linux"]), "linux", [], []],
+    ["an action section names no target", "[Action]\nOperation = Upgrade\nTarget = linux\n", up(["linux"]), "linux", [], []]
   ];
-  for (const [names, want] of rebootRows) same(logic.rebootPackages(names), want, "reboot: " + names.join(" "));
+  for (const [name, hook, changes, kernel, mounted, want] of rebootRows) same(logic.rebootPackages(hook, changes, kernel, mounted), want, "reboot: " + name);
+  // [pattern, name, matches]: fnmatch(3) as alpm matches a Target.
+  const globRows = [
+    ["linux-cachyos*", "linux-cachyos-lts", true], ["linux-cachyos*", "linux-zen", false],
+    ["nvidia-*xx", "nvidia-470xx", true], ["nvidia-?70xx", "nvidia-470xx", true], ["nvidia-?xx", "nvidia-470xx", false],
+    ["xf86-video-[ai]*", "xf86-video-intel", true], ["xf86-video-[!ai]*", "xf86-video-intel", false], ["xf86-video-[^ai]*", "xf86-video-nouveau", true],
+    ["lib\\*", "lib*", true], ["lib\\*", "libx", false], ["a.b", "axb", false], ["a+", "aa", false]
+  ];
+  for (const [pattern, name, want] of globRows) assert.equal(logic.globMatch(pattern, name), want, "glob: " + pattern + " " + name);
+  // [/proc/version text, the running kernel's package]
+  const kernelRows = [
+    ["Linux version 7.2.9-1-cachyos (linux-cachyos@cachyos) (clang version 23.1.1, LLD 23.1.1) #1 SMP PREEMPT_DYNAMIC Sat, 03 Oct 2026 14:14:24 +0000", "linux-cachyos"],
+    ["Linux version 6.10.3-arch1-1 (linux@archlinux) (gcc (GCC) 14.2.1 20240805, GNU ld (GNU Binutils) 2.43.0) #1 SMP PREEMPT_DYNAMIC", "linux"],
+    ["Linux version 6.1.0", ""]
+  ];
+  for (const [text, want] of kernelRows) assert.equal(logic.kernelPackage(text), want, "kernel: " + text);
+  // [the reboot-notice step, the rebootNotice status value]
+  const noticeRows = [
+    [{ state: "absent", reason: "hook-missing" }, { hidden: true }],
+    [{ state: "unknown", reason: "unprobed" }, { hidden: true }],
+    [{ state: "needed", reason: "notice-on" }, { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" }],
+    [{ state: "ready", reason: "notice-off" }, { tone: "ok", text: "VGS only", action: "both" }],
+    [{ state: "denied", reason: "foreign-file" }, null],
+    [{ state: "unknown", reason: "probe-failed" }, null],
+    [null, null]
+  ];
+  for (const [step, want] of noticeRows) {
+    const value = logic.rebootNoticeValue(step);
+    if (want !== null) same(value, want, "reboot notice: " + JSON.stringify(step));
+    else same([value.hidden, value.action], [undefined, undefined], "reboot notice offers nothing: " + JSON.stringify(step));
+  }
+  same(logic.statusWrites({}, { rebootNotice: { hidden: true } }), [{ key: "rebootNotice", value: { hidden: true } }]);
 }
 
 verify(load(file));
@@ -405,7 +493,7 @@ const controls = [
   ["the review is off with its setting", "if (s.reviewThirdParty !== true) return", "if (false) return"],
   ["a command naming an absent agent is missing", "if (named !== null && found.indexOf(named.id) < 0) return", "if (false) return"],
   ["the review's end starts no check", "if (UNCHECKED_TUIS.indexOf(key) >= 0) continue;", ""],
-  ["the review statuses are written", '"sources", "reviewAgents", "reviewAgent"]', '"sources"]'],
+  ["the review statuses are written", '"sources", "reviewAgents", "reviewAgent", "rebootNotice"]', '"sources", "rebootNotice"]'],
   ["a CachyOS repository is official", "/^(core|extra|multilib|cachyos.*)$/", "/^(core|extra|multilib)$/"],
   ["a flag names a reviewed package", "reviewed.indexOf(m[1]) < 0 || ", ""],
   ["a clean verdict holds no flag", "if ((head[1] === \"clean\") !== (flags.length === 0))", "if (false)"],
@@ -421,12 +509,28 @@ const controls = [
   ["an encoded payload is a risk", "/\\bbase64\\b/,", ""],
   ["a pipe into a shell is a risk", "/\\| ?(?:sudo )?(?:ba|da|z)?sh\\b/,", ""],
   ["a removal of the root or a home is a risk", '/\\brm (?:-\\S+ )*(?:\\/\\*?|~\\S*|"?\\$HOME\\S*|\\/home\\S*|\\/root\\S*)(?: |$)/', "/$^/"],
-  ["a kernel needs a reboot", "/^linux(?!.*-(?:headers|docs)$)(?:-.+)?$/,", ""],
-  ["a kernel's headers need no reboot", "/^linux(?!.*-(?:headers|docs)$)(?:-.+)?$/,", "/^linux(?:-.+)?$/,"],
-  ["microcode needs a reboot", "/-ucode$/,", ""],
-  ["the NVIDIA driver needs a reboot", "/^nvidia/,", ""],
-  ["the session libraries need a reboot", "/^(?:mesa|systemd|systemd-libs|wayland|egl-wayland)$/,", ""],
-  ["the initramfs needs a reboot", "/^(?:cryptsetup|mkinitcpio|dracut|booster)$/", "/$^/"],
+  ["nvidia needs linux", 'if (name === "nvidia") return kernel === "linux";', 'if (name === "nvidia") return true;'],
+  ["nvidia-lts needs linux-lts", 'if (name === "nvidia-lts") return kernel === "linux-lts";', 'if (name === "nvidia-lts") return true;'],
+  ["linux-cachyos-nvidia needs linux-cachyos", 'return globMatch("linux-cachyos*", kernel);', "return true;"],
+  ["a file system tool needs its file system mounted", "return mounted.indexOf(FILESYSTEM_TOOLS[name]) !== -1;", "return true;"],
+  ["each file system tool serves its own file system", 'var FILESYSTEM_TOOLS = { "btrfs-progs": "btrfs", "xfsprogs": "xfs", "e2fsprogs": "ext4" };', 'var FILESYSTEM_TOOLS = {};'],
+  ["only the hook's targets need a reboot", "&& targetsMatch(trigger.targets, change.name);", ";"],
+  ["a trigger lists the run's operation", "return trigger.operations.indexOf(change.operation) !== -1 && targetsMatch", "return targetsMatch"],
+  ["only a Package trigger names packages", '.filter(function (trigger) { return trigger.type === "Package"; })', ""],
+  ["only a Trigger section holds targets", 'current = section[1] === "Trigger" ? { operations: [], type: "", targets: [] } : null;', 'current = { operations: [], type: "Package", targets: [] };'],
+  ["the last matching target decides", "for (var i = targets.length - 1; i >= 0; i--) {", "for (var i = 0; i < targets.length; i++) {"],
+  ["a ! target excludes", "if (globMatch(inverted ? targets[i].slice(1) : targets[i], name)) return !inverted;", "if (globMatch(inverted ? targets[i].slice(1) : targets[i], name)) return true;"],
+  ["a glob * matches any run", 'if (c === "*") { out += "[\\\\s\\\\S]*"; continue; }', 'if (c === "*") { out += "[\\\\s\\\\S]"; continue; }'],
+  ["a glob ? matches one character", 'if (c === "?") { out += "[\\\\s\\\\S]"; continue; }', 'if (c === "?") { out += "[\\\\s\\\\S]*"; continue; }'],
+  ["a glob bracket negates", 'out += "[" + (negated ? "^" : "")', 'out += "[" + ""'],
+  ["a glob \\ quotes", 'if (c === "\\\\" && i + 1 < pattern.length) { i++; out += pattern.charAt(i)', 'if (false) { i++; out += pattern.charAt(i)'],
+  ["a glob matches a literal literally", 'out += c.replace(/[\\\\^$.*+?()[\\]{}|\\/-]/g, "\\\\$&");\n    }', "out += c;\n    }"],
+  ["the kernel is read from /proc/version", 'return m === null ? "" : m[1];', 'return "";'],
+  ["an absent hook hides the reboot notice", 'if (state === "absent" || (state === "unknown"', 'if ((state === "unknown"'],
+  ["an unprobed step hides the reboot notice", '(state === "unknown" && step && step.reason === "unprobed")', "false"],
+  ["the CachyOS notice on offers VGS only", 'case "needed": return { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" };', 'case "needed": return { tone: "info", text: "CachyOS and VGS" };'],
+  ["VGS only offers both", 'case "ready": return { tone: "ok", text: "VGS only", action: "both" };', 'case "ready": return { tone: "ok", text: "VGS only", action: "vgsOnly" };'],
+  ["the reboot notice is written", '"reviewAgents", "reviewAgent", "rebootNotice"]', '"reviewAgents", "reviewAgent"]'],
   ["failed probe is reported", "if (!probe || probe.status !== 0) return { ok: false, error: commandError(name, probe || { status: null, stderr: \"\" }) };", "if (!probe || probe.status !== 0) return { ok: true, value: [] };"],
 ];
 

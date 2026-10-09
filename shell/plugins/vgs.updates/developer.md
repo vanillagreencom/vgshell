@@ -90,8 +90,9 @@ The service publishes these status keys:
 - `sources`: the source rows for the bar widget and the window.
 - `reviewAgent`: the agent that reviews third-party packages, in words: its name, `Custom:` and the edited command's first word, that the chosen agent is not installed, `None found`, or `Off`.
 - `reviewAgents`: the agents found on `PATH`, the choices of the `reviewAgent` setting.
+- `rebootNotice`: which reboot notices an update gives, read from the `reboot-notice` system step: hidden while CachyOS's reboot hook is absent, `CachyOS and VGS` with the action that turns the CachyOS notice off, or `VGS only` with the action that turns it back on.
 
-The Settings page shows `pending`, `lastCheck`, `checkState` and `reviewAgent` as read-only status. `checking` and `sources` are data for the widget and the window.
+The Settings page shows `pending`, `lastCheck`, `checkState`, `reviewAgent` and, while it is not hidden, `rebootNotice` as status. `checking` and `sources` are data for the widget and the window.
 
 The service finds the agents with `bin/facts agents` when it starts, after each check and when its settings change.
 

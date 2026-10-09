@@ -50,8 +50,13 @@
 //       installed package's install script and the update's, each a path
 //       or `-` when absent: `install none|new|unchanged|changed`, then
 //       `risk <line>` per risky line the change adds
-//   facts <loader> reboot           package names, one a line
-//       `reboot <name>` per name UpdatesLogic.rebootPackages keeps
+//   facts <loader> reboot <hook> <version>
+//                                   the run's changes, `upgrade <name>` or
+//                                   `install <name>`, and `mounted <type>`
+//                                   per mounted file system, one a line
+//       `reboot <name>` per changed package UpdatesLogic.rebootPackages
+//       keeps by the reboot hook at path HOOK, `-` when there is none,
+//       and the running kernel VERSION, a /proc/version path
 //
 // Every refusal is one line on stderr, `updates-facts: refused: <key>=<value>`,
 // and exit 2 for a bad invocation, 1 for an answer it cannot read. A value
@@ -215,7 +220,26 @@ case "install": {
     break;
 }
 case "reboot": {
-    for (const name of logic().rebootPackages(text().split("\n").filter(name => name !== ""))) line("reboot", name);
+    if (process.argv.length !== 6) refuse("reboot=want-hook-version", 2);
+    const read = file => {
+        try {
+            return fs.readFileSync(file, "utf8");
+        } catch (e) {
+            refuse("reboot=unreadable path=" + file + " error=" + e.code, 1);
+        }
+    };
+    const changes = [];
+    const mounted = [];
+    for (const entry of text().split("\n")) {
+        const m = /^(upgrade|install|mounted) (\S+)$/.exec(entry);
+        if (m === null) {
+            if (entry !== "") refuse("reboot=malformed", 1);
+        } else if (m[1] === "mounted") mounted.push(m[2]);
+        else changes.push({ operation: m[1] === "upgrade" ? "Upgrade" : "Install", name: m[2] });
+    }
+    const table = logic();
+    const hook = process.argv[4] === "-" ? null : read(process.argv[4]);
+    for (const name of table.rebootPackages(hook, changes, table.kernelPackage(read(process.argv[5])), mounted)) line("reboot", name);
     break;
 }
 default:

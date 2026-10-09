@@ -11,7 +11,9 @@
 # a row reads the order of every step and its argv. No row reaches a real
 # vgshell, package manager, sudo, doas, snapshot tool or live session. The reboot
 # rows stand a copied `sleep` in for Hyprland and remove its file while it
-# runs, so /proc names its executable deleted.
+# runs, so /proc names its executable deleted. The stand-in pacman-conf
+# names a RootDir in the fixture, where a reboot row puts the CachyOS
+# reboot hook, and the stand-in findmnt names the mounted file systems.
 #
 # The review rows put stand-in agent CLIs on PATH, each recording its argv
 # but the prompt, the start directory it ran from, the packages.txt and
@@ -154,6 +156,7 @@ stub "$stubs" pacman 'case "$1" in
 esac'
 stub "$stubs" pacman-conf 'case "$1 ${3:-}" in
   "DBPath ") echo "$FIX/db/" ;;
+  "RootDir ") echo "$FIX/root/" ;;
   "--repo-list ") cat "$FIX/repos" ;;
   "--repo Server") cat "$FIX/server-$2" ;;
   "--repo SigLevel") [ ! -e "$FIX/siglevel-$2" ] || cat "$FIX/siglevel-$2" ;;
@@ -203,6 +206,9 @@ stub "$stubs" df 'a=99999999999; [ ! -e "$FIX/avail" ] || read -r a <"$FIX/avail
 stub "$stubs" pgrep '[ -e "$FIX/pids" ] || exit 1; cat "$FIX/pids"'
 stub "$stubs" uname "echo $kernel"
 stub "$stubs" systemctl ''
+# findmnt lists the mounted file system types in $FIX/fstypes, none when
+# it is absent.
+stub "$stubs" findmnt '[ ! -e "$FIX/fstypes" ] || cat "$FIX/fstypes"'
 # paru authorizes through sudo and fails with 7 while $FIX/fail-paru exists,
 # and with 130, as a Ctrl-C ends it, while $FIX/interrupt-paru does.
 stub "$stubs" paru 'if [ "$1" = -G ]; then shift; for p; do
@@ -245,6 +251,48 @@ reset_fix() {
   self_json checkout null true
   printf '[{"id":"acme.one","behind":2,"head":"h","upstream":"u","error":null},{"id":"acme.two","behind":0,"head":"h","upstream":"h","error":null}]\n' >"$fix/plugins.json"
   printf '[{"id":"night","behind":1,"head":"h","upstream":"u","error":null}]\n' >"$fix/themes.json"
+}
+
+# The [Trigger] of CachyOS's reboot hook, cachyos-hooks'
+# /usr/share/libalpm/hooks/cachyos-reboot-required.hook, under the RootDir
+# the stand-in pacman-conf names.
+reboot_hook() {
+  mkdir -p "$fix/root/usr/share/libalpm/hooks"
+  cat >"$fix/root/usr/share/libalpm/hooks/cachyos-reboot-required.hook" <<'HOOK'
+[Trigger]
+Operation = Upgrade
+Type = Package
+Target = amd-ucode
+Target = intel-ucode
+Target = btrfs-progs
+Target = e2fsprogs
+Target = xfsprogs
+Target = cryptsetup
+Target = linux
+Target = linux-hardened
+Target = linux-lts
+Target = linux-zen
+Target = linux-firmware
+Target = linux-cachyos*
+Target = linux-cacule*
+Target = nvidia
+Target = nvidia-dkms
+Target = nvidia-*xx-dkms
+Target = nvidia-*xx
+Target = nvidia-*lts-dkms
+Target = nvidia*-lts
+Target = mesa
+Target = systemd*
+Target = wayland
+Target = egl-wayland
+Target = xf86-video-*
+Target = xorg-server*
+Target = xorg-fonts*
+Target = mkinitcpio*
+Target = booster*
+Target = dracut*
+Target = winesync-dkms
+HOOK
 }
 
 # Third-party updates: one AUR package, and beside linux from core one
@@ -367,6 +415,7 @@ row_snapshot() {
 # exits 1.
 row_failure() {
   reset_fix
+  reboot_hook
   touch "$fix/fail-mise"
   printf 'linux 6.2-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\n' >"$fix/installed-after"
   pipeline update.sh
@@ -412,20 +461,58 @@ row_reboot() {
   pipeline update.sh
   assert "a no does not reboot" test "$(grep -c '^systemctl' "$tmp/seq")" == 0
 }
-# The run's own upgrade list: pacman -Q before the first package step and
-# after the last.
+# The run's own upgrade list, pacman -Q before the first package step and
+# after the last, judged by the CachyOS reboot hook's targets and its
+# script's conditions.
 row_reboot_core() {
   reset_fix
+  reboot_hook
   printf 'linux 6.2-1\nlinux-headers 6.2-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\n' >"$fix/installed-after"
   pipeline update.sh
-  assert "an upgraded kernel asks to reboot, naming it" has_call "gum confirm --affirmative=Reboot --negative=Later --default=false -- The run updated linux, which takes effect after a reboot. Reboot now?"
+  assert "an upgraded kernel the hook names asks to reboot, naming it" has_call "gum confirm --affirmative=Reboot --negative=Later --default=false -- The run updated linux, which takes effect after a reboot. Reboot now?"
   assert "the installed packages are read before the first package step" before "pacman -Q" "vgshell pkg run upgrade --manager pacman"
   assert "the installed packages are read again after the last" before "vgshell pkg run upgrade --manager aur" "pacman -Q"
+  assert "the hook is read under pacman's RootDir" has_call "pacman-conf RootDir"
   assert "a reboot asked after an upgraded kernel reboots on a yes" test "$(tail -n 1 "$tmp/seq")" == "systemctl reboot"
   reset_fix
-  printf 'linux 6.1-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\nfoo 1-1\n' >"$fix/installed-after"
+  reboot_hook
+  printf 'linux 6.1-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\nfirefox 130-1\n' >"$fix/installed"
+  printf 'linux 6.1-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\nfirefox 131-1\nfoo 1-1\n' >"$fix/installed-after"
   pipeline update.sh
-  assert "nothing core upgraded asks no reboot" no_call "gum confirm --affirmative=Reboot"
+  assert "nothing the hook names upgraded asks no reboot" no_call "gum confirm --affirmative=Reboot"
+  # A new package the hook names is no upgrade, which its trigger lists.
+  reset_fix
+  reboot_hook
+  printf 'linux 6.1-1\nlinux-lts 6.6-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\n' >"$fix/installed-after"
+  pipeline update.sh
+  assert "a new kernel package asks no reboot" no_call "gum confirm --affirmative=Reboot"
+  # A file system tool needs a reboot only while its file system is mounted.
+  reset_fix
+  reboot_hook
+  printf 'linux 6.1-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\nbtrfs-progs 6.10-1\n' >"$fix/installed"
+  printf 'linux 6.1-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\nbtrfs-progs 6.11-1\n' >"$fix/installed-after"
+  printf 'ext4\ntmpfs\n' >"$fix/fstypes"
+  pipeline update.sh
+  assert "btrfs-progs with no btrfs mounted asks no reboot" no_call "gum confirm --affirmative=Reboot"
+  printf 'btrfs\ntmpfs\n' >"$fix/fstypes"
+  rm -f -- "${fix:?}/installed-asked"
+  pipeline update.sh
+  assert "btrfs-progs with btrfs mounted asks to reboot" has_call "gum confirm --affirmative=Reboot --negative=Later --default=false -- The run updated btrfs-progs, which takes effect after a reboot. Reboot now?"
+  # Without the hook no package needs a reboot.
+  reset_fix
+  printf 'linux 6.2-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\n' >"$fix/installed-after"
+  pipeline update.sh
+  assert "an upgraded kernel without the hook asks no reboot" no_call "gum confirm --affirmative=Reboot"
+  assert "a run without the hook ends successfully" test "$status" == 0
+  # A hook bin/facts cannot read is logged, and the run still ends.
+  reset_fix
+  reboot_hook
+  chmod 000 "$fix/root/usr/share/libalpm/hooks/cachyos-reboot-required.hook"
+  printf 'linux 6.2-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\n' >"$fix/installed-after"
+  pipeline update.sh
+  assert "an unreadable hook is logged" diag_has "updates: reboot-packages=failed exit=1"
+  assert "an unreadable hook leaves the run successful" test "$status" == 0
+  assert "an unreadable hook asks no reboot" no_call "gum confirm --affirmative=Reboot"
 }
 row_orphans() {
   reset_fix
@@ -893,7 +980,7 @@ control session-ignores-elevator 'if [[ $elevator == sudo ]]; then session=1; fi
 control snapshot-ignores-elevator '_updates_snapshot "$snapshot_tool" "$elevator" || status=$?' '_updates_snapshot "$snapshot_tool" sudo || status=$?' row_doas
 control rebuild-unguarded 'if [[ $upgrades == 1 || $rebuild == 1 ]]; then replaces=1; fi' 'if [[ $upgrades == 1 ]]; then replaces=1; fi' row_vgs_only
 control no-recovery "trap '_updates_failed \$?' ERR" ':' row_stopped
-control no-reboot-check '  _updates_reboot "${core[@]}"' '  :' row_reboot
+control no-reboot-check '  _updates_reboot "${_updates_core[@]}"' '  :' row_reboot
 control no-success-recheck '  _updates_recheck "$ended"' '  :' row_reboot
 control no-failure-recheck '  _updates_recheck failed' '  :' row_stopped
 control source-stops-run '{ "$@"; } 2> >(tee -a -- "$_updates_cause_file" >&2) || status=$?' '{ "$@"; } 2> >(tee -a -- "$_updates_cause_file" >&2)' row_failure
@@ -902,6 +989,11 @@ control failure-exits-0 '  [[ $ended == success ]] || exit 1' '  :' row_failure
 control interrupt-goes-on 'if [[ $status -eq 130 ]]; then' 'if false; then' row_interrupted
 control declined-fails 'if [[ $_updates_declined == 1 ]]; then' 'if false; then' row_full
 control reboot-ignores-upgrades 'if [[ $# -gt 0 ]]; then' 'if false; then' row_reboot_core
+control reboot-ignores-hook '[[ ! -f ${root%/}/$_updates_reboot_hook ]] || hook="${root%/}/$_updates_reboot_hook"' ':' row_reboot_core
+control reboot-ignores-targets '&& targetsMatch(trigger.targets, change.name);' ';' row_reboot_core UpdatesLogic.js
+control reboot-ignores-mounts "printf 'mounted %s\\n' \"\$value\"" ':' row_reboot_core
+control reboot-facts-stops-run '} | _updates_facts reboot "$hook" /proc/version)" || status=$?' '} | _updates_facts reboot "$hook" /proc/version)"' row_reboot_core
+control reboot-new-as-upgrade 'then changes+=("install $name")' 'then changes+=("upgrade $name")' row_reboot_core
 control install-anyway-ignored '      1) echo "Installing $name anyway." ;;' '      1) _updates_skip_aur+=("$name"); _updates_skip_repo+=("$name") ;;' row_review_flagged
 control skip-aur-installed 'if _updates_in "$name" "${_updates_review_aur[@]}"; then _updates_skip_aur+=("$name"); fi' ':' row_review_flagged
 control risks-unasked '        risk) _updates_review_risks+=("$name The install script adds: $value") ;;' '        risk) ;;' row_review_install

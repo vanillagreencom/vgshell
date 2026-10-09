@@ -42,12 +42,16 @@ Item {
     readonly property string loaderPath: Quickshell.shellDir + "/../bin/lib/qml-library.js"
     readonly property int currentIntervalMs: Logic.intervalMs(shell === null ? null : shell.settings)
     readonly property var currentTuiState: shell === null || shell.tui === undefined ? ({}) : shell.tui.state
+    // The reboot-notice system step, which the core probes again after its
+    // run in core/system and after each plugin scan.
+    readonly property var rebootStep: shell === null ? null : shell.system.state["reboot-notice"]
 
     onShellChanged: {
         start();
         detectAgents();
     }
     onCurrentIntervalMsChanged: schedule()
+    onRebootStepChanged: publishNow()
     // Only a run that ends after this instance first read the state starts
     // a check: `shell` arrives with every run an earlier instance saw end,
     // and this handler can run before onShellChanged does, so the first read
@@ -148,7 +152,8 @@ Item {
 
     function publishNow() {
         if (shell === null) return;
-        const values = Object.assign(Logic.publishValues(snapshot, checking, Date.now(), currentIntervalMs, checkFailure), Logic.reviewValues(shell.settings, agents));
+        const values = Object.assign(Logic.publishValues(snapshot, checking, Date.now(), currentIntervalMs, checkFailure), Logic.reviewValues(shell.settings, agents),
+            { rebootNotice: Logic.rebootNoticeValue(rebootStep) });
         const writes = Logic.statusWrites(reported, values);
         if (writes.length === 0) return;
         const next = Object.assign({}, reported);

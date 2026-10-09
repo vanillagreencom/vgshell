@@ -63,7 +63,11 @@
 # row's PATH, so the review directory's command names the stand-in agent
 # by its absolute path, as an edited review command may. The pipeline's
 # side of the review is scripts/test-updates-pipeline.sh's.
-# inputs: shell/plugins/vgs.updates/* shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/lib/qml-library.js shell/Core/PackageManagers.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml
+#
+# The reboot notice: the sandbox's system-step tree holds no CachyOS reboot
+# hook, so the reboot-notice step reads absent, the service publishes the
+# row hidden, and the Settings page draws only the four status rows.
+# inputs: shell/plugins/vgs.updates/* shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/vgshell-system bin/lib/qml-library.js shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml
 set -euo pipefail
 updates_dir="$home/.config/vgshell/plugins/vgs.updates"
 updates_state="$home/.local/state/vgshell/updates-smoke"
@@ -201,6 +205,7 @@ expect_poll "three reads start no check" STEADY checks_settle_at 1
 expect "the Settings window opens for the updates rows" ok ipc shell summon window vgs.settings '{}'
 expect_poll "the Settings window is open for the updates rows" open settings_open
 expect "the Settings window opens the updates page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.updates
+expect_poll "the reboot notice is hidden while its step reads absent" '{"hidden": true}' updates_field rebootNotice
 expect_poll "the Settings page reads the four status rows" '[["pending", "reported"], ["lastCheck", "reported"], ["checkState", "reported"], ["reviewAgent", "reported"]]' updates_status_rows
 expect_poll "the Settings page started no check" STEADY checks_settle_at 1
 expect "the Settings window closes" ok ipc shell hide window vgs.settings

@@ -60,10 +60,12 @@
 #  15. the result list: one line per source step, plugin, theme and
 #      skipped package, installed, skipped or failed with its cause
 #  16. a check request to refresh the widget and window
-#  17. a reboot question when the run upgraded a package
-#      UpdatesLogic.rebootPackages names, by pacman -Q before the first
-#      package step and after the last, or the kernel or the running
-#      Hyprland was replaced (tui.sh's vgs_tui_reboot_check)
+#  17. a reboot question when the run changed a package, by pacman -Q
+#      before the first package step and after the last, that the CachyOS
+#      reboot hook names under its script's conditions
+#      (UpdatesLogic.rebootPackages through bin/facts reboot), or the
+#      kernel or the running Hyprland was replaced (tui.sh's
+#      vgs_tui_reboot_check)
 #
 # The package steps are the package-manager table's own plans, read with
 # `vgshell pkg plan` and run with `vgshell pkg run`: they take no -y, so each
@@ -86,6 +88,10 @@ set -Eeuo pipefail
 # Character classes spelled out: the user's locale collates a range.
 _updates_digits='^[0123456789]+$'
 _updates_usage="usage: update.sh [-y] | update-source.sh <source> [-y]"
+# The CachyOS reboot hook, in the system hook directory pacman reads under
+# its RootDir; a link of that name in /etc/pacman.d/hooks, which the
+# reboot-notice system step makes, turns the hook off but not this read.
+_updates_reboot_hook=usr/share/libalpm/hooks/cachyos-reboot-required.hook
 
 _updates_diagnostic() { # RAW_LINE
   local dir
@@ -343,8 +349,37 @@ _updates_recheck() {
   fi
 }
 
+# Sets _updates_core to the packages of CHANGES, `upgrade <name>` and
+# `install <name>` lines, that need a reboot: the ones the CachyOS reboot
+# hook names, as its script judges them with the running kernel and the
+# mounted file systems (UpdatesLogic.rebootPackages through bin/facts
+# reboot). Without the hook none does. A read that fails is logged and
+# leaves the list empty, so the run still ends with its result.
+_updates_reboot_packages() { # CHANGE...
+  local root hook=- mounts="" facts key value status=0
+  _updates_core=()
+  if root="$(pacman-conf RootDir)"; then
+    [[ ! -f ${root%/}/$_updates_reboot_hook ]] || hook="${root%/}/$_updates_reboot_hook"
+  else
+    _updates_diagnostic "updates: reboot-hook=unread exit=$?"
+  fi
+  mounts="$(findmnt -rno FSTYPE)" || { _updates_diagnostic "updates: mounts=unread exit=$?"; mounts=""; }
+  facts="$({
+    printf '%s\n' "$@"
+    while read -r value; do [[ -z $value ]] || printf 'mounted %s\n' "$value"; done <<<"$mounts"
+  } | _updates_facts reboot "$hook" /proc/version)" || status=$?
+  if [[ $status -ne 0 ]]; then
+    _updates_diagnostic "updates: reboot-packages=failed exit=$status"
+    vgs_tui_warn "Could not check which updates need a restart."
+    return 0
+  fi
+  while read -r key value; do
+    if [[ $key == reboot ]]; then _updates_core+=("$value"); fi
+  done <<<"$facts"
+}
+
 # The reboot question, one confirmation, default Later: CORE are the
-# packages UpdatesLogic.rebootPackages kept of those the run upgraded, and
+# packages _updates_reboot_packages kept of those the run changed, and
 # tui.sh's check adds a replaced kernel or running Hyprland. Under -y the
 # reasons are printed instead.
 _updates_reboot() { # CORE...
@@ -998,24 +1033,23 @@ updates_main() {
     if [[ $guarded == 1 ]]; then vgs_tui_sudo_session end; fi
   fi
 
-  # The packages the run upgraded, a new version or a new name, and of
+  # The packages the run changed, a new version or a new name, and of
   # those the ones that need a reboot.
-  local upgraded=() core=()
+  local changes=()
+  _updates_core=()
   if [[ $listed == 1 ]]; then
     if out="$(pacman -Q)"; then
       while read -r name value; do
-        [[ -z $name || ( -n ${installed[$name]+set} && ${installed[$name]} == "$value" ) ]] || upgraded+=("$name")
+        if [[ -z $name ]]; then continue
+        elif [[ -z ${installed[$name]+set} ]]; then changes+=("install $name")
+        elif [[ ${installed[$name]} != "$value" ]]; then changes+=("upgrade $name")
+        fi
       done <<<"$out"
     else
       _updates_diagnostic "updates: installed=unread when=after"
     fi
   fi
-  if [[ ${#upgraded[@]} -gt 0 ]]; then
-    facts="$(printf '%s\n' "${upgraded[@]}" | _updates_facts reboot)"
-    while read -r key value; do
-      if [[ $key == reboot ]]; then core+=("$value"); fi
-    done <<<"$facts"
-  fi
+  if [[ ${#changes[@]} -gt 0 ]]; then _updates_reboot_packages "${changes[@]}"; fi
 
   if [[ $primary == pacman ]] && [[ $upgrades == 1 ]]; then _updates_orphans; fi
   if [[ -n $vgs_before ]] && [[ "$(_updates_vgs_package_version)" != "$vgs_before" ]] && "$_updates_vgshell" pid >/dev/null 2>&1; then
@@ -1028,6 +1062,6 @@ updates_main() {
   if [[ $_updates_failures -gt 0 ]]; then ended=failed; fi
   _updates_recheck "$ended"
   if [[ $ended == failed ]]; then vgs_tui_error "Some updates failed. The list above names each cause."; fi
-  _updates_reboot "${core[@]}"
+  _updates_reboot "${_updates_core[@]}"
   [[ $ended == success ]] || exit 1
 }

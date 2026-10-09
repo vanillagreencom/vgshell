@@ -4,7 +4,8 @@
 // status derivation, publish diffs, check cadence, failure retry and TUI run
 // end detection for the service, the third-party review's agent and verdict
 // for the service and the pipeline, the install script change and the
-// packages that need a reboot for the pipeline, and what the bar widget and
+// packages that need a reboot for the pipeline, the reboot notice's status
+// for the service, and what the bar widget and
 // the window draw from the published status. QML owns I/O and timers; bin/check owns
 // processes and disk.
 
@@ -278,7 +279,7 @@ function statusRecordBytes(values) {
 function statusWrites(previous, next) {
     var before = previous || {};
     var out = [];
-    var keys = ["pending", "lastCheck", "checkState", "checking", "sources", "reviewAgents", "reviewAgent"];
+    var keys = ["pending", "lastCheck", "checkState", "checking", "sources", "reviewAgents", "reviewAgent", "rebootNotice"];
     for (var i = 0; i < keys.length; i++) {
         var key = keys[i];
         if (next[key] === null || next[key] === undefined) continue;
@@ -562,29 +563,124 @@ function installScriptChange(installedText, newText) {
     return { state: state, risks: risks };
 }
 
-// The packages whose upgrade takes effect only after a reboot, each a
-// pattern over a package name.
-var REBOOT_PACKAGES = [
-    // a kernel and linux-firmware*, but not the headers or the docs
-    /^linux(?!.*-(?:headers|docs)$)(?:-.+)?$/,
-    // CPU microcode
-    /-ucode$/,
-    // the NVIDIA driver and its modules
-    /^nvidia/,
-    // libraries every session loads when it starts
-    /^(?:mesa|systemd|systemd-libs|wayland|egl-wayland)$/,
-    // the initramfs and what unlocks the disk in it
-    /^(?:cryptsetup|mkinitcpio|dracut|booster)$/
-];
+// Whether NAME matches PATTERN as fnmatch(3) with no flags matches it, the
+// way alpm matches a hook's `Target`: `*`, `?`, a bracket expression with
+// `!` or `^` to negate it, and `\` quoting the next character.
+function globMatch(pattern, name) {
+    var out = "";
+    for (var i = 0; i < pattern.length; i++) {
+        var c = pattern.charAt(i);
+        if (c === "*") { out += "[\\s\\S]*"; continue; }
+        if (c === "?") { out += "[\\s\\S]"; continue; }
+        if (c === "\\" && i + 1 < pattern.length) { i++; out += pattern.charAt(i).replace(/[\\^$.*+?()[\]{}|\/-]/g, "\\$&"); continue; }
+        if (c === "[") {
+            var j = i + 1;
+            if (pattern.charAt(j) === "!" || pattern.charAt(j) === "^") j++;
+            if (pattern.charAt(j) === "]") j++;
+            while (j < pattern.length && pattern.charAt(j) !== "]") j++;
+            if (j < pattern.length) {
+                var body = pattern.slice(i + 1, j);
+                var negated = body.charAt(0) === "!" || body.charAt(0) === "^";
+                if (negated) body = body.slice(1);
+                out += "[" + (negated ? "^" : "") + body.replace(/[\\\]\[^]/g, "\\$&") + "]";
+                i = j;
+                continue;
+            }
+        }
+        out += c.replace(/[\\^$.*+?()[\]{}|\/-]/g, "\\$&");
+    }
+    return new RegExp("^" + out + "$").test(name);
+}
 
-// The NAMES, packages a run upgraded, that a REBOOT_PACKAGES pattern
-// matches, in their order.
-function rebootPackages(names) {
-    return names.filter(function (name) {
-        for (var i = 0; i < REBOOT_PACKAGES.length; i++)
-            if (REBOOT_PACKAGES[i].test(name)) return true;
-        return false;
+// The `[Trigger]` sections of alpm hook TEXT (alpm-hooks(5)), each
+// { operations, type, targets }, the values of its `Operation`, `Type`
+// and `Target` lines; a `#` line is a comment.
+function hookTriggers(text) {
+    var triggers = [];
+    var current = null;
+    var lines = String(text).split("\n");
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (line === "" || line.charAt(0) === "#") continue;
+        var section = /^\[(.*)\]$/.exec(line);
+        if (section !== null) {
+            current = section[1] === "Trigger" ? { operations: [], type: "", targets: [] } : null;
+            if (current !== null) triggers.push(current);
+            continue;
+        }
+        var pair = /^(\w+)\s*=\s*(.*)$/.exec(line);
+        if (current === null || pair === null) continue;
+        if (pair[1] === "Operation") current.operations.push(pair[2]);
+        else if (pair[1] === "Type") current.type = pair[2];
+        else if (pair[1] === "Target") current.targets.push(pair[2]);
+    }
+    return triggers;
+}
+
+// Whether TARGETS, a trigger's patterns, match NAME as alpm judges them:
+// the last pattern that matches decides, and a `!` before it inverts it.
+function targetsMatch(targets, name) {
+    for (var i = targets.length - 1; i >= 0; i--) {
+        var inverted = targets[i].charAt(0) === "!";
+        if (globMatch(inverted ? targets[i].slice(1) : targets[i], name)) return !inverted;
+    }
+    return false;
+}
+
+// The running kernel's package name in /proc/version TEXT, the part the
+// CachyOS hook script reads with `\(\K.*(?=@.*\))`: from the first `(` to
+// the last `@` a `)` follows; "" when there is none.
+function kernelPackage(text) {
+    var m = /\((.*)(?=@.*\))/.exec(String(text));
+    return m === null ? "" : m[1];
+}
+
+// The file system each tool of the CachyOS hook script serves: an upgrade
+// of one needs a reboot only while such a file system is mounted.
+var FILESYSTEM_TOOLS = { "btrfs-progs": "btrfs", "xfsprogs": "xfs", "e2fsprogs": "ext4" };
+
+// The packages a run changed that the distribution's reboot hook names, by
+// the conditions its script applies, in their order. HOOK is the hook's
+// text, null without one, which names no package. CHANGES is each
+// { operation, name } of the run, `Upgrade` for a new version and
+// `Install` for a new package, matched against a `Package` trigger that
+// lists the operation. KERNEL is the running kernel's package name
+// (kernelPackage) and MOUNTED the mounted file system types. As
+// /usr/share/libalpm/scripts/cachyos-reboot-required decides: the running
+// kernel needs a reboot, as every name it matches does but these:
+// `nvidia` only on `linux`, `nvidia-lts` only on `linux-lts` and
+// `linux-cachyos-nvidia*` only on `linux-cachyos*`; a file system tool
+// only while its file system is mounted.
+function rebootPackages(hook, changes, kernel, mounted) {
+    var triggers = hook === null ? [] : hookTriggers(hook).filter(function (trigger) { return trigger.type === "Package"; });
+    return changes.filter(function (change) {
+        return triggers.some(function (trigger) {
+            return trigger.operations.indexOf(change.operation) !== -1 && targetsMatch(trigger.targets, change.name);
+        });
+    }).map(function (change) { return change.name; }).filter(function (name) {
+        if (name === "nvidia") return kernel === "linux";
+        if (name === "nvidia-lts") return kernel === "linux-lts";
+        if (globMatch("linux-cachyos-nvidia*", name)) return globMatch("linux-cachyos*", kernel);
+        if (hasOwn(FILESYSTEM_TOOLS, name)) return mounted.indexOf(FILESYSTEM_TOOLS[name]) !== -1;
+        return true;
     });
+}
+
+// The `rebootNotice` status value for the reboot-notice system step STEP,
+// { state, reason } as capability `system` lends it, or null: hidden
+// while the CachyOS hook is absent or before the first probe, else which
+// notices an update gives and the action that changes it, `vgsOnly` or
+// `both`.
+function rebootNoticeValue(step) {
+    var state = step ? step.state : "unknown";
+    if (state === "absent" || (state === "unknown" && step && step.reason === "unprobed")) return { hidden: true };
+    switch (state) {
+    case "needed": return { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" };
+    case "ready": return { tone: "ok", text: "VGS only", action: "both" };
+    case "denied": return { tone: "warning", text: "Set by another file",
+        hint: "A file VGS did not write is at /etc/pacman.d/hooks/cachyos-reboot-required.hook, and VGS does not change it." };
+    }
+    return { tone: "warning", text: "Could not be checked" };
 }
 
 // ---- What the bar widget and the window draw --------------------------------
