@@ -49,7 +49,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
   | Control radius | `button`, `textField` and `segmented` radius | 1 |
 
 - Never take a colour as an Appearance value; colours stay the theme's ([D025](../decisions/D025-no-theme-override-layer.md)). Review holds it.
-- Do draw a value that maps to a Hyprland option with `ValueSourceRow` ([D057](../decisions/D057-one-row-for-hyprland-mapped-values.md)). `scripts/qml-tests/tst_valuesourcerow.qml` pins its states. The Keyboard page's six such rows have not moved to it yet; they move in a follow-up item.
+- Do draw a value that maps to a Hyprland option with `ValueSourceRow` ([D057](../decisions/D057-one-row-for-hyprland-mapped-values.md)). `scripts/qml-tests/tst_valuesourcerow.qml` pins its states.
 
 ### Appearance
 

@@ -8,7 +8,7 @@
 
 **Research**: [VGS-1130](https://linear.app/vanillagreen/issue/VGS-1130), [VGS-1132](https://linear.app/vanillagreen/issue/VGS-1132)
 
-**Decision**: A Settings value that maps to a Hyprland option has three states, Set by theme, the user's value and Hyprland's own, and one shared component draws them: `ValueSourceRow` in `qs.Ui`. It reads Hyprland's value, the user's own configured value and an override from what capability `hyprland` lends, names the user's own Hyprland line with Use my Hyprland value, and offers Use theme value where the theme can set the value. Mouse and the Appearance pages use it, and no new page draws a second form. The Keyboard page's six rows that map to a Hyprland option have not moved yet: they still draw their own override line on plain form rows, and move to `ValueSourceRow` in a follow-up item.
+**Decision**: A Settings value that maps to a Hyprland option has three states, Set by theme, the user's value and Hyprland's own, and one shared component draws them: `ValueSourceRow` in `qs.Ui`. It reads Hyprland's value, the user's own configured value and an override from what capability `hyprland` lends, names the user's own Hyprland line with Use my Hyprland value, and offers Use theme value where the theme can set the value. Mouse and the Appearance pages use it; no page draws a second form.
 
 **Why**: The user must see in each row whether VGS, the theme or their own Hyprland config sets the value, and get back to their own config in one click. Two forms of that row drift: one names a source the other hides, or keeps the keys on an action that has hidden.
 
