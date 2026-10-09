@@ -18,7 +18,7 @@ var EVENTS = [
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
     "final", "say", "collect-failed", "brain-done", "brain-failed", "brain-ended", "cancelled", "play", "played",
     "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "deadline", "lease-ended",
-    "speak", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay"
+    "speak", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake"
 ];
 
 function initial() {
@@ -54,7 +54,8 @@ function indicatorWanted(s) {
     if (s.capture.kind !== "closed") return true;
     var phase = phaseOf(s);
     if (phase !== "idle" && phase !== "down") return true;
-    return canEngage(s) && s.conversation.kind !== "ended" && s.input.kind !== "released";
+    return canEngage(s) && (s.input.kind === "armed"
+        || s.conversation.kind !== "ended" && s.input.kind !== "released");
 }
 
 function operation(s) { return s.nextOp++; }
@@ -138,8 +139,23 @@ function canEngage(s) {
 
 function canCapture(s) {
     return canEngage(s) && s.indicator.kind === "shown"
-        && s.playback.kind === "idle"
-        && s.turn.kind !== "cancelling" && s.conversation.kind !== "ended" && s.input.kind !== "released";
+        && s.playback.kind === "idle" && s.turn.kind !== "cancelling" && s.input.kind !== "released"
+        && (s.conversation.kind !== "ended" || s.input.kind === "armed");
+}
+
+// Always mode listens for the wake word only while Jarvis is otherwise
+// idle: no turn, sound, action or held request, and never for a duplex
+// engine, whose capture streams to its provider. A wake capture is the
+// local chained engine's alone; it collects no utterance.
+function armedWanted(s) {
+    return s.settings.mode === "always" && s.engine.kind === "chained" && canEngage(s)
+        && s.turn.kind === "none" && s.playback.kind === "idle"
+        && s.approval.kind === "none" && s.action.kind === "none";
+}
+
+function closeArmed(s, effects) {
+    if ((s.capture.kind === "open" || s.capture.kind === "opening") && s.capture.mode === "armed")
+        closeCapture(s, effects);
 }
 
 function sayRefusal(s) {
@@ -187,7 +203,8 @@ function commitUserText(s, effects, text, at, rev) {
         s.gen += 1;
         s.conversation = { kind: "active" };
     }
-    if (s.input.kind === "held") s.input = { kind: "released" };
+    // Always mode takes one utterance per wake; the next waits for the word.
+    if (s.input.kind === "held" || s.settings.mode === "always") s.input = { kind: "released" };
     closeCapture(s, effects);
     userTranscript(s, effects, text, rev);
     think(s, effects, { text: text }, at);
@@ -215,6 +232,8 @@ function canSpeak(s) {
 }
 
 function reconcile(s, effects, at) {
+    if (s.input.kind === "armed" && !armedWanted(s)) s.input = { kind: "released" };
+    else if (s.input.kind === "released" && armedWanted(s)) s.input = { kind: "armed" };
     if (s.speech.kind === "open" && s.speech.reply.kind === "waiting" && canSpeak(s)) {
         s.playback = { kind: "playing", gen: s.gen, op: operation(s), source: s.speech.op,
             interruptible: true, admission: { kind: "waiting" }, deadline: at + PLAYBACK_TIMEOUT_MS };
@@ -234,7 +253,7 @@ function reconcile(s, effects, at) {
     if (s.turn.kind === "collecting" && s.capture.kind === "closing" && s.turn.deadline === null)
         s.turn.deadline = at + COLLECTION_TIMEOUT_MS;
     // The duplex voice model owns turn-taking; no utterance is collected.
-    if (s.engine.kind === "chained" && canCapture(s)
+    if (s.engine.kind === "chained" && canCapture(s) && s.input.kind !== "armed"
             && (s.capture.kind === "opening" || s.capture.kind === "open") && s.turn.kind === "none") {
         var collect = effect(s, effects, "collect", {});
         s.turn = { kind: "collecting", gen: collect.gen, op: collect.op, partial: "", deadline: at + COLLECTION_TIMEOUT_MS };
@@ -252,6 +271,8 @@ function start(s, effects, mode, at) {
         s.gen++;
         s.conversation = { kind: "active" };
     } else if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
+    // A wake capture feeds the spotter, not a transcription.
+    closeArmed(s, effects);
     s.input = { kind: mode };
     // Half duplex: the start sound drains before the microphone opens.
     // A held approval's answer starts capture without another prompt sound.
@@ -315,7 +336,8 @@ function toggle(s, effects, at) {
     recover(s, effects, at);
     if (!canEngage(s)) return;
     s.toggleAt = at;
-    if (s.conversation.kind === "ended" || s.input.kind === "released" && s.turn.kind === "none" && s.approval.kind === "none" && s.action.kind === "none") start(s, effects, "conversation", at);
+    if (s.conversation.kind === "ended" || (s.input.kind === "released" || s.input.kind === "armed")
+            && s.turn.kind === "none" && s.approval.kind === "none" && s.action.kind === "none") start(s, effects, "conversation", at);
     else end(s, effects, at, "toggle", false);
 }
 
@@ -397,7 +419,7 @@ function reduce(state, e) {
             }
             break;
         }
-        if (s.settings.mode === "toggle") { toggle(s, effects, e.at); break; }
+        if (s.settings.mode === "toggle" || s.settings.mode === "always") { toggle(s, effects, e.at); break; }
         if (s.input.kind === "held") break;
         recover(s, effects, e.at);
         interrupt(s, effects, e.at);
@@ -465,6 +487,12 @@ function reduce(state, e) {
         if (s.turn.kind === "collecting") s.turn = { kind: "none" };
         break;
     }
+    // The wake word opens a conversation as a Talk press does, with its
+    // start sound, through a fresh capture that collects the utterance.
+    case "wake":
+        if (!live(s, e, "capture", ["open"]) || s.capture.mode !== "armed") { stale(s); break; }
+        start(s, effects, "conversation", e.at);
+        break;
     case "capture-closed":
         if (!live(s, e, "capture", ["closing"])) { stale(s); break; }
         s.capture = { kind: "closed" };

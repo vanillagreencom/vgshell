@@ -13,7 +13,7 @@ const copy = value => JSON.parse(JSON.stringify(value));
 const events = ["snapshot", "indicator", "talk-down", "talk-up", "toggle", "mute", "unmute", "mute-toggle", "stop",
     "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial", "final", "say", "collect-failed", "brain-done",
     "brain-failed", "brain-ended", "cancelled", "play", "played", "flushed", "tool", "tool-done", "approval",
-    "shown", "confirm", "approval-cancel", "deadline", "lease-ended", "speak", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay"];
+    "shown", "confirm", "approval-cancel", "deadline", "lease-ended", "speak", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake"];
 assert.deepEqual(copy(Session.EVENTS), events, "every supported event enters the pair matrix");
 const snapshot = extra => ({ type: "snapshot", at: 0, locked: false, engine: "chained", configured: true,
     settings: {}, ...extra });
@@ -67,7 +67,116 @@ function duplexSpeaking(logic) {
     s = step(logic, s, callback("capture-closed", s.capture, 31)).state;
     return step(logic, s, callback("speak", s.speech, 32)).state;
 }
+// Always mode: the wake capture opens once the indicator shows.
+const always = { mode: "always" };
+function alwaysArmed(logic) {
+    let s = step(logic, logic.initial(), snapshot({ settings: always })).state;
+    s = step(logic, s, event("indicator", 1, { shown: true })).state;
+    return step(logic, s, callback("capture-opened", s.capture, 2)).state;
+}
+function alwaysListening(logic) {
+    let s = alwaysArmed(logic);
+    s = step(logic, s, callback("wake", s.capture, 10)).state;
+    s = step(logic, s, callback("capture-closed", s.capture, 11)).state;
+    return step(logic, s, callback("capture-opened", s.capture, 12)).state;
+}
+function alwaysThinking(logic) {
+    let s = alwaysListening(logic);
+    s = step(logic, s, callback("final", s.turn, 30, { text: "test" })).state;
+    return step(logic, s, callback("capture-closed", s.capture, 31)).state;
+}
 const table = [
+    ["always-arms", logic => {
+        const configured = step(logic, logic.initial(), snapshot({ settings: always })).state;
+        assert.deepEqual([configured.input.kind, configured.capture.kind, configured.conversation.kind], ["armed", "closed", "ended"]);
+        assert.equal(logic.indicatorWanted(configured), true, "a wake capture asks for its indicator first");
+        const shown = step(logic, configured, event("indicator", 1, { shown: true }));
+        assert.deepEqual(kinds(shown), ["capture-open"], "the wake capture collects no utterance");
+        assert.equal(shown.effects[0].mode, "armed");
+        assert.equal(shown.state.gen, configured.gen, "listening for the word starts no conversation");
+        const s = alwaysArmed(logic);
+        assert.equal(logic.phaseOf(s), "armed");
+        assert.equal(logic.validate(s), true);
+        for (const mode of ["hold", "toggle"])
+            assert.equal(step(logic, ready(logic), snapshot({ settings: { mode } })).state.input.kind, "released", mode + " never arms");
+    }],
+    ["always-wake", logic => {
+        const shown = logic => step(logic, step(logic, logic.initial(), snapshot({ settings: always })).state,
+            event("indicator", 1, { shown: true })).state;
+        const s = alwaysArmed(logic);
+        const woke = step(logic, s, callback("wake", s.capture, 10));
+        assert.deepEqual([woke.state.capture.kind, woke.state.input.kind, woke.state.conversation.kind],
+            ["closing", "conversation", "active"]);
+        assert.equal(woke.state.gen, s.gen + 1);
+        assert.equal(woke.effects.find(e => e.kind === "capture-close").target, s.capture.op);
+        const reopened = step(logic, woke.state, callback("capture-closed", woke.state.capture, 11));
+        assert.deepEqual(kinds(reopened), ["capture-open", "collect"]);
+        assert.equal(reopened.effects[0].mode, "conversation");
+        const sounds = step(logic, s, snapshot({ at: 5, settings: { ...always, sounds: true } })).state;
+        const cued = step(logic, step(logic, sounds, event("indicator", 6, { shown: true })).state, event("indicator", 6, { shown: true })).state;
+        const opened = step(logic, cued, callback("capture-opened", cued.capture, 7)).state;
+        assert.equal(step(logic, opened, callback("wake", opened.capture, 8)).state.playback.cue, "start", "the word is answered by the start sound");
+        for (const [label, before, owner] of [["old capture", woke.state, s.capture],
+            ["listening capture", alwaysListening(logic), alwaysListening(logic).capture],
+            ["opening capture", shown(logic), shown(logic).capture]]) {
+            const late = step(logic, before, callback("wake", owner, 20));
+            assert.deepEqual([late.state.stale, late.effects], [before.stale + 1, []], label + " wake is dropped and counted");
+        }
+    }],
+    ["always-one-utterance", logic => {
+        const s = alwaysListening(logic);
+        const final = step(logic, s, callback("final", s.turn, 30, { text: "test" }));
+        assert.deepEqual([final.state.input.kind, final.state.turn.kind, final.state.capture.kind], ["released", "thinking", "closing"]);
+        const closed = step(logic, final.state, callback("capture-closed", final.state.capture, 31));
+        assert.deepEqual([kinds(closed), closed.state.input.kind], [[], "released"], "no capture while the turn thinks");
+        const speaking = step(logic, closed.state, callback("play", closed.state.turn, 40, { interruptible: true })).state;
+        const done = step(logic, speaking, callback("brain-done", speaking.turn, 41)).state;
+        assert.equal(done.input.kind, "released", "no capture while Jarvis speaks");
+        const rearmed = step(logic, done, callback("played", done.playback, 42));
+        assert.deepEqual(kinds(rearmed), ["capture-open"]);
+        assert.deepEqual([rearmed.effects[0].mode, rearmed.state.input.kind, rearmed.state.conversation.kind, rearmed.state.gen],
+            ["armed", "armed", "active", s.gen], "the next word continues the conversation");
+    }],
+    ["always-disarms", logic => {
+        const s = alwaysArmed(logic);
+        for (const [label, e] of [["mute", event("mute", 20)], ["stop", event("stop", 20)],
+            ["lock", snapshot({ at: 20, locked: true, settings: always })], ["hold", snapshot({ at: 20, settings: { mode: "hold" } })],
+            ["duplex", snapshot({ at: 20, engine: "duplex", settings: always })]]) {
+            const r = step(logic, s, e);
+            assert.equal(r.state.capture.kind, "closing", label);
+            if (label === "stop") assert.equal(r.state.input.kind, "armed", "stop ends nothing Always mode waits for");
+            else assert.equal(r.state.input.kind, "released", label);
+            const closed = step(logic, r.state, callback("capture-closed", r.state.capture, 21));
+            assert.deepEqual(kinds(closed).filter(k => k === "capture-open").length, label === "stop" ? 1 : 0, label);
+        }
+        const failed = step(logic, s, callback("capture-failed", s.capture, 20, { reason: "provider-disconnected" })).state;
+        assert.deepEqual([failed.fault.kind, failed.input.kind], ["error", "released"], "a fault stops listening for the word");
+        const gone = step(logic, s, event("indicator", 20, { shown: false })).state;
+        assert.deepEqual([gone.capture.kind, gone.input.kind], ["closing", "armed"], "no indicator, no capture");
+        const typed = step(logic, s, event("say", 20, { text: "typed" })).state;
+        assert.deepEqual([typed.input.kind, typed.turn.kind, typed.capture.kind], ["released", "thinking", "closing"]);
+        const muting = step(logic, s, event("mute", 20)).state;
+        const muted = step(logic, muting, callback("capture-closed", muting.capture, 21)).state;
+        assert.equal(muted.mute.kind, "on");
+        assert.equal(step(logic, muted, event("unmute", 22)).state.input.kind, "armed", "unmute listens for the word again");
+    }],
+    ["always-talk", logic => {
+        const s = alwaysArmed(logic);
+        const pressed = step(logic, s, event("talk-down", 300));
+        assert.deepEqual([pressed.state.input.kind, pressed.state.capture.kind, pressed.state.conversation.kind],
+            ["conversation", "closing", "active"], "Talk listens now");
+        assert.deepEqual(step(logic, pressed.state, event("talk-up", 301)).state.input, pressed.state.input, "release changes nothing");
+        const listening = alwaysListening(logic);
+        const again = step(logic, listening, event("talk-down", 400)).state;
+        assert.deepEqual([again.conversation.kind, again.input.kind], ["ended", "armed"], "a second press ends it");
+        // After a turn the conversation stays open while the word is awaited.
+        let t = alwaysThinking(logic);
+        t = step(logic, t, callback("brain-done", t.turn, 40)).state;
+        t = step(logic, t, callback("capture-opened", t.capture, 41)).state;
+        assert.deepEqual([t.input.kind, t.conversation.kind], ["armed", "active"]);
+        const followUp = step(logic, t, event("talk-down", 500)).state;
+        assert.deepEqual([followUp.input.kind, followUp.gen], ["conversation", t.gen], "Talk continues the conversation");
+    }],
     ["final-caption", logic => {
         let s = listening(logic);
         const draft = step(logic, s, callback("partial", s.turn, 21, { text: "draft words" }));
@@ -1198,7 +1307,7 @@ const seeds = [ready(Session), listening(Session), thinking(Session), speaking(S
     step(Session, thinking(Session), event("cancel", 50)).state,
     step(Session, thinking(Session, true), callback("play", thinking(Session, true).turn, 40, { interruptible: true })).state,
     step(Session, acting(Session), callback("deadline", acting(Session).action, 140)).state,
-    duplexReady(Session), duplexListening(Session), duplexSpeaking(Session), between(Session)];
+    duplexReady(Session), duplexListening(Session), duplexSpeaking(Session), between(Session), alwaysArmed(Session), alwaysThinking(Session)];
 const pairEvents = events.map(type => ({ type, extra: {} })).concat([
     { type: "snapshot", extra: { locked: true } },
     { type: "snapshot", extra: { locked: null } },
@@ -1213,7 +1322,8 @@ function fixtureEvent(type, s, at) {
         "brain-done": "turn", "brain-failed": "turn", "brain-ended": "turn", cancelled: "turn", play: "turn",
         played: "playback", flushed: "playback", tool: "turn", "tool-done": "action",
         approval: "turn", shown: "approval", confirm: "approval", "approval-cancel": "approval", deadline: "turn",
-        speak: "speech", transcript: "speech", "speech-idle": "speech", "speech-failed": "speech", feedback: "turn", delegation: "speech"
+        speak: "speech", transcript: "speech", "speech-idle": "speech", "speech-failed": "speech", feedback: "turn", delegation: "speech",
+        wake: "capture"
     };
     const owner = s[regions[type]] || {};
     return { ...snapshot(), type, at, shown: true, text: "fixture", reason: "fixture", outcome: "completed",
@@ -1238,6 +1348,11 @@ function invariants(before, e, r) {
         assert.equal(s.playback.kind, "idle");
         if (s.engine.kind === "duplex") assert.equal(s.speech.kind, "open", "duplex capture has a speech session");
     }
+    if (s.input.kind === "armed") {
+        assert.deepEqual([s.settings.mode, s.engine.kind, s.turn.kind, s.playback.kind, s.action.kind, s.approval.kind],
+            ["always", "chained", "none", "idle", "none", "none"], "only an idle Always mode listens for the word");
+        assert.equal(Session.canEngage(s), true, "only an engaged Always mode listens for the word");
+    }
     for (const effect of r.effects) {
         assert.ok(Number.isSafeInteger(effect.op) && effect.op > 0);
         if (effect.kind === "tool-start") {
@@ -1247,6 +1362,7 @@ function invariants(before, e, r) {
         if (effect.kind === "playback-start") assert.equal(s.capture.kind, "closed");
         if (effect.kind === "tool-cancel") assert.notEqual(before.action.cancellation.kind, "unavailable");
         if (effect.kind === "collect") assert.equal(s.engine.kind, "chained");
+        if (effect.kind === "collect") assert.notEqual(s.input.kind, "armed", "a wake capture collects nothing");
         if (effect.kind === "speech-open") assert.equal(s.engine.kind, "duplex");
     }
 }
@@ -1442,7 +1558,7 @@ for (const seed of seeds) for (const a of pairEvents) for (const b of pairEvents
     }
     pairs++;
 }
-assert.equal(pairs, 18 * (events.length + 5) ** 2, "matrix discovery floor and exact event set");
+assert.equal(pairs, 20 * (events.length + 5) ** 2, "matrix discovery floor and exact event set");
 const createdPairs = createdPairMatrix(Session);
 
 const parent = path.resolve(__dirname, "../tmp");
@@ -1511,8 +1627,8 @@ try {
         ["caption-final-text", 'userTranscript(s, effects, text, rev);',
             'userTranscript(s, effects, s.turn.partial, rev);', "final-caption"],
         ["caption-silence", 'if (shown !== "") effect', 'if (true) effect', "final-caption"],
-        ["key-mode", 'if (s.settings.mode === "toggle") { toggle(s, effects, e.at); break; }',
-            'if (false) { toggle(s, effects, e.at); break; }', "key-mode"],
+        ["key-mode", 'if (s.settings.mode === "toggle" || s.settings.mode === "always") { toggle(s, effects, e.at); break; }',
+            'if (s.settings.mode === "always") { toggle(s, effects, e.at); break; }', "key-mode"],
         ["mute-key-store", 'effect(s, effects, "mute-store", { muted: true });',
             'void effects;', "mute-key"],
         ["initial", "gen: 0, nextOp: 1, stale: 0, settings: {},",
@@ -1543,7 +1659,7 @@ try {
         ["playback-fault", 'end(s, effects, e.at, "playback-failed", false);',
             'if (false) end(s, effects, e.at, "playback-failed", false);', "playback-fault"],
         ["indicator", 's.indicator.kind === "shown"', '(true || s.indicator.kind === "shown")', "indicator-gate"],
-        ["indicator-demand", 'return canEngage(s) && s.conversation.kind !== "ended" && s.input.kind !== "released";',
+        ["indicator-demand", 'return canEngage(s) && (s.input.kind === "armed"\n        || s.conversation.kind !== "ended" && s.input.kind !== "released");',
             'return false;', "indicator-gate"],
         ["hold", 'if (s.input.kind === "held") break;',
             'if (false && s.input.kind === "held") break;', "hold-edges"],
@@ -1634,6 +1750,22 @@ try {
         ["engine-change", " || s.engine.kind !== e.engine;", ";", "duplex-engine"],
         ["engine-required", 'if (e.engine !== "chained" && e.engine !== "duplex") throw new Error("jarvis: session=engine");', "", "duplex-engine"]
     ];
+    mutants.push(
+        ["always-arm", 'else if (s.input.kind === "released" && armedWanted(s)) s.input = { kind: "armed" };', "", "always-arms"],
+        ["always-disarm", 'if (s.input.kind === "armed" && !armedWanted(s)) s.input = { kind: "released" };', 'if (false) s.input = { kind: "released" };', "always-disarms"],
+        ["armed-idle-only", '&& s.turn.kind === "none" && s.playback.kind === "idle"\n', "\n", "always-one-utterance"],
+        ["armed-chained", 's.settings.mode === "always" && s.engine.kind === "chained" && canEngage(s)', 's.settings.mode === "always" && canEngage(s)', "always-disarms"],
+        ["armed-engaged", 's.settings.mode === "always" && s.engine.kind === "chained" && canEngage(s)', 's.settings.mode === "always" && s.engine.kind === "chained"', "always-disarms"],
+        ["armed-no-collect", 'canCapture(s) && s.input.kind !== "armed"', "canCapture(s)", "always-arms"],
+        ["armed-ended-capture", '(s.conversation.kind !== "ended" || s.input.kind === "armed")', 's.conversation.kind !== "ended"', "always-arms"],
+        ["armed-indicator", 's.input.kind === "armed"\n        || ', "", "always-arms"],
+        ["wake-armed-only", ' || s.capture.mode !== "armed") { stale(s); break; }', ") { stale(s); break; }", "always-wake"],
+        ["wake-starts", 'start(s, effects, "conversation", e.at);\n        break;\n    case "capture-closed":', 'break;\n    case "capture-closed":', "always-wake"],
+        ["wake-closes-armed", "    closeArmed(s, effects);\n", "", "always-wake"],
+        ["always-utterance", ' || s.settings.mode === "always") s.input = { kind: "released" };', ') s.input = { kind: "released" };', "always-one-utterance"],
+        ["always-talk-toggles", 'if (s.settings.mode === "toggle" || s.settings.mode === "always") { toggle', 'if (s.settings.mode === "toggle") { toggle', "always-talk"],
+        ["armed-toggle", '(s.input.kind === "released" || s.input.kind === "armed")', 's.input.kind === "released"', "always-talk"]
+    );
     mutants.push(
         ["say-judge", 'case "say":\n        if (sayRefusal(s) !== null) break;', 'case "say":', "say-refusals"],
         ["say-recover", 'recover(s, effects, e.at);\n        commitUserText(s, effects, e.text, e.at, 1);', 'commitUserText(s, effects, e.text, e.at, 1);', "say-recovers"],

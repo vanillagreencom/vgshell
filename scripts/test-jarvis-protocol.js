@@ -136,7 +136,7 @@ const cases = [
     ["settings", changed(hello, { settings: {} }), "shell", "shape-settings"],
     ...[false, true].map(echoCancel => ["echo-setting-" + echoCancel,
         changed(hello, { settings: { ...hello.settings, echoCancel } }), "shell", "shape-settings"]),
-    ["mode", changed(hello, { settings: { ...hello.settings, mode: "always" } }), "shell", "mode"],
+    ["mode", changed(hello, { settings: { ...hello.settings, mode: "continuous" } }), "shell", "mode"],
     ["extra-setting", changed(hello, { settings: { ...hello.settings, extra: "" } }), "shell", "shape-settings"],
     ["missing-brain", changed(hello, { settings: { ...hello.settings, brain: undefined } }), "shell", "shape-settings"],
     ["brain-setting", changed(hello, { settings: { ...hello.settings, brain: 1 } }), "shell", "shape-settings"],
@@ -271,6 +271,8 @@ for (const shown of [false, true])
     assert.equal(Protocol.accept(changed(indicator, { shown }), "shell").shown, shown);
 assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, mode: "toggle" },
     keys: { talk: null, mute: null, stop: null, confirm: null, console: null } }), "shell").settings.mode, "toggle");
+assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, mode: "always" },
+    keys: { talk: null, mute: null, stop: null, confirm: null, console: null } }), "shell").settings.mode, "always");
 for (const message of [devices, level, audioFault, taskRequest, tasks, taskAnswer, taskPrompts, taskResponse, { ...tasks, count: 0 },
     transcript, { ...transcript, role: "assistant", stage: "final", text: "a".repeat(4096), rev: 2 },
     shellStatus, { ...shellStatus, availability: { kind: "checking" } },
@@ -398,7 +400,7 @@ try {
             'if (false) fail("indicator");', "indicator-shown"],
         ["indicator-shape", 'keys(message, ["v", "type", "gen", "revision", "shown"], "indicator");',
             'void message;', "indicator-shape"],
-        ["mode", 'if (message.settings.mode !== "hold" && message.settings.mode !== "toggle") fail("mode");',
+        ["mode", 'if (["hold", "toggle", "always"].indexOf(message.settings.mode) === -1) fail("mode");',
             'if (false) fail("mode");', "mode"],
         ["key-type", 'fail("key-" + shortcut);', ';', "key-type"],
         ["intent-direction", 'if (direction !== "shell") fail("direction-intent");',

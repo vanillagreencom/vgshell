@@ -254,7 +254,7 @@ function accept(line, direction) {
                 || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings.voiceAccount)) fail("voice-settings");
         if (typeof message.settings.sounds !== "boolean") fail("sounds");
         if (typeof message.settings.brain !== "string") fail("shape-settings");
-        if (message.settings.mode !== "hold" && message.settings.mode !== "toggle") fail("mode");
+        if (["hold", "toggle", "always"].indexOf(message.settings.mode) === -1) fail("mode");
         if (TASK_TERMINALS.indexOf(message.settings.taskTerminal) === -1) fail("task-terminal");
         if (CLOUD_VISION.indexOf(message.settings.cloudVision) === -1) fail("cloud-vision");
         if (typeof message.settings.privateWindows !== "string"
