@@ -68,6 +68,8 @@ Column {
     }
 
     function useHyprlandValue(key) {
+        // Variants share the source-list editor, outside this read-only row.
+        if (key === "variants") sourceList.forceActiveFocus();
         const reply = shell.configure.unset(key);
         problem = reply === "ok" ? "" : "VGS could not save this setting.";
         if (reply !== "ok") console.warn("keyboard: configure " + reply);

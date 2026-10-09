@@ -298,6 +298,20 @@ expect_poll "the configured repeat rate applies after the action" 31 keyboard_op
 expect_poll "the mapped slider shows Hyprland's repeat rate" 31 ipc smoke readMatchingDescendant window vgs.keyboard Slider objectName repeatRate value
 expect_poll "the action returns focus to the repeat slider" true ipc smoke readMatchingDescendant window vgs.keyboard Slider objectName repeatRate activeFocus
 expect_poll "the mapped row hides its Hyprland action after the edit" false keyboard_source_row offersHyprlandValue
+keyboard_variant_row() { ipc smoke readMatchingDescendant window vgs.keyboard KeyboardRow setting variants "$1"; }
+keyboard_variant_focus() { ipc smoke readMatchingDescendant window vgs.keyboard DeviceList objectName inputSources activeFocus; }
+keyboard_variant_check() { expect "the variants action returns focus to the source-list editor" true keyboard_variant_focus; }
+keyboard_set_sources us intl
+expect "the variant focus fixture reloads" ok ipc shell reloadConfig
+printf '%s\n' 'hl.config({ input = { kb_variant = "dvorak" } })' >>"$home/.config/hypr/hyprland.lua"
+expect "the variant config reloads" ok hypr reload config-only
+expect_poll "the mapped variant row reads the configured variant" '"dvorak"' keyboard_variant_row hyprlandConfigValue
+keyboard_source_focus || { keyboard_restore; return 0; }
+keyboard_editor_keys -k space || { keyboard_restore; return 0; }
+expect_poll "the variant action clears the saved value" '["absent", "absent"]' keyboard_saved_value variants
+expect_poll "the configured variant applies after the action" '"dvorak"' keyboard_option input:kb_variant str
+expect_poll "the variant action hides after the edit" false keyboard_variant_row offersHyprlandValue
+keyboard_variant_check
 expect "the Keyboard source pane closes before its control" ok ipc shell hide window vgs.system
 expect "Keyboard disables before its source control" ok ipc shell setPluginEnabled vgs.keyboard false
 mkdir -p "$keyboard_copy"
@@ -330,6 +344,33 @@ expect "the source control pane closes" ok ipc shell hide window vgs.system
 expect "Keyboard disables after its source control" ok ipc shell setPluginEnabled vgs.keyboard false
 rm -rf -- "${keyboard_copy:?}"
 rescan "rescan removes the Keyboard source control"
+# A second disposable publication keeps the unset action and removes only
+# the variants focus handoff, so the same focus check must fail.
+mkdir -p "$keyboard_copy"
+cp -R "$repo/shell/plugins/vgs.keyboard/." "$keyboard_copy/"
+python3 - "$keyboard_copy/KeyboardControls.qml" <<'PYFOCUS'
+import pathlib,sys
+path=pathlib.Path(sys.argv[1]);text=path.read_text()
+old='if (key === "variants") sourceList.forceActiveFocus();'
+assert text.count(old)==1
+path.write_text(text.replace(old,'if (false) sourceList.forceActiveFocus();'))
+PYFOCUS
+keyboard_set_sources us intl
+rescan "rescan discovers the variants focus control"
+expect "the variants focus control values reload" ok ipc shell reloadConfig
+expect "Keyboard enables for its variants focus control" ok ipc shell setPluginEnabled vgs.keyboard true
+expect "the variants focus control pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.keyboard"}'
+expect_poll "the variants focus control offers the configured value" '"dvorak"' keyboard_variant_row hyprlandConfigValue
+keyboard_source_focus || { keyboard_restore; return 0; }
+keyboard_editor_keys -k space || { keyboard_restore; return 0; }
+expect_poll "the focus control still clears the saved variant" '["absent", "absent"]' keyboard_saved_value variants
+keyboard_variant_control() { (failures=0 behaviour_failures=0; keyboard_variant_check >"$sandbox/keyboard-variant-focus-control.log"; echo "$failures"); }
+expect "control: omitting the variants focus handoff fails the same focus check" 1 keyboard_variant_control
+keyboard_control_log <"$sandbox/keyboard-variant-focus-control.log"
+expect "the variants focus control pane closes" ok ipc shell hide window vgs.system
+expect "Keyboard disables after its variants focus control" ok ipc shell setPluginEnabled vgs.keyboard false
+rm -rf -- "${keyboard_copy:?}"
+rescan "rescan removes the variants focus control"
 hypr_lua_restore keyboard-source || fail "the Keyboard source config restores"
 expect "the Keyboard config reloads after its source control" ok hypr reload config-only
 expect "Keyboard enables after its source control" ok ipc shell setPluginEnabled vgs.keyboard true
