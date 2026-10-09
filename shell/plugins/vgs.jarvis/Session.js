@@ -330,15 +330,34 @@ function recover(s, effects, at) {
     s.fault = { kind: "none" };
 }
 
-// A debounced press is not a press: it leaves the fault shown.
+// A press within 250 ms of the last one is a bounce, not a press: it
+// leaves the fault shown.
+function bounced(s, at) { return s.toggleAt !== null && at - s.toggleAt < 250; }
+
 function toggle(s, effects, at) {
-    if (s.toggleAt !== null && at - s.toggleAt < 250) return;
+    if (bounced(s, at)) return;
     recover(s, effects, at);
     if (!canEngage(s)) return;
     s.toggleAt = at;
-    if (s.conversation.kind === "ended" || (s.input.kind === "released" || s.input.kind === "armed")
-            && s.turn.kind === "none" && s.approval.kind === "none" && s.action.kind === "none") start(s, effects, "conversation", at);
+    if (s.conversation.kind === "ended" || s.input.kind === "released" && s.turn.kind === "none" && s.approval.kind === "none" && s.action.kind === "none") start(s, effects, "conversation", at);
     else end(s, effects, at, "toggle", false);
+}
+
+// Always mode's Talk listens now, as Hold's press does: it stops a reply,
+// cancels a turn or clears a fault first. A press while a request is being
+// heard ends the conversation, as Toggle does, and the word is awaited again.
+function listenNow(s, effects, at) {
+    if (bounced(s, at)) return;
+    if (s.input.kind === "conversation" && s.turn.kind === "collecting") {
+        s.toggleAt = at;
+        end(s, effects, at, "toggle", false);
+        return;
+    }
+    recover(s, effects, at);
+    if (!canEngage(s)) return;
+    s.toggleAt = at;
+    interrupt(s, effects, at);
+    start(s, effects, "conversation", at);
 }
 
 function expire(s, effects, at) {
@@ -419,7 +438,8 @@ function reduce(state, e) {
             }
             break;
         }
-        if (s.settings.mode === "toggle" || s.settings.mode === "always") { toggle(s, effects, e.at); break; }
+        if (s.settings.mode === "toggle") { toggle(s, effects, e.at); break; }
+        if (s.settings.mode === "always") { listenNow(s, effects, e.at); break; }
         if (s.input.kind === "held") break;
         recover(s, effects, e.at);
         interrupt(s, effects, e.at);

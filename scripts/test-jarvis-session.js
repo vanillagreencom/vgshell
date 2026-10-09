@@ -166,9 +166,37 @@ const table = [
         assert.deepEqual([pressed.state.input.kind, pressed.state.capture.kind, pressed.state.conversation.kind],
             ["conversation", "closing", "active"], "Talk listens now");
         assert.deepEqual(step(logic, pressed.state, event("talk-up", 301)).state.input, pressed.state.input, "release changes nothing");
+        const armedHeard = step(logic, pressed.state, callback("capture-closed", pressed.state.capture, 302));
+        assert.deepEqual([kinds(armedHeard), armedHeard.effects[0].mode], [["capture-open", "collect"], "conversation"],
+            "a press while armed listens for a request");
+        const heard = step(logic, armedHeard.state, callback("capture-opened", armedHeard.state.capture, 303)).state;
+        const bounced = step(logic, heard, event("talk-down", 400));
+        assert.deepEqual([bounced.effects, bounced.state.turn.kind], [[], "collecting"], "a press within 250 ms is no press");
         const listening = alwaysListening(logic);
-        const again = step(logic, listening, event("talk-down", 400)).state;
-        assert.deepEqual([again.conversation.kind, again.input.kind], ["ended", "armed"], "a second press ends it");
+        const again = step(logic, listening, event("talk-down", 400));
+        assert.deepEqual([again.state.conversation.kind, again.state.input.kind, again.state.turn.kind], ["ended", "armed", "none"],
+            "a press while listening ends it");
+        const rearmed = step(logic, again.state, callback("capture-closed", again.state.capture, 401));
+        assert.deepEqual([kinds(rearmed), rearmed.effects[0].mode], [["capture-open"], "armed"], "the word is awaited again");
+        // A press while Jarvis speaks stops the reply, then listens.
+        let reply = alwaysThinking(logic);
+        reply = step(logic, reply, callback("play", reply.turn, 40, { interruptible: true })).state;
+        reply = step(logic, reply, callback("brain-done", reply.turn, 41)).state;
+        const stopped = step(logic, reply, event("talk-down", 500));
+        assert.deepEqual([kinds(stopped), stopped.state.input.kind], [["playback-flush"], "conversation"], "a press while speaking stops the reply");
+        const afterReply = step(logic, stopped.state, callback("flushed", stopped.state.playback, 501));
+        assert.deepEqual([kinds(afterReply), afterReply.state.gen], [["capture-open", "collect"], reply.gen], "then listens in the same conversation");
+        // A press while Jarvis thinks cancels the turn, then listens.
+        const busy = alwaysThinking(logic);
+        const cancelling = step(logic, busy, event("talk-down", 500));
+        assert.deepEqual([kinds(cancelling), cancelling.state.turn.kind, cancelling.state.input.kind],
+            [["brain-cancel"], "cancelling", "conversation"], "a press while thinking cancels the turn");
+        const afterCancel = step(logic, cancelling.state, callback("cancelled", cancelling.state.turn, 501));
+        assert.deepEqual(kinds(afterCancel), ["capture-open", "collect"], "then listens");
+        // A press on a shown fault clears it and listens.
+        const faulted = step(logic, listening, callback("capture-failed", listening.capture, 40, { reason: "provider-disconnected" })).state;
+        const cleared = step(logic, faulted, event("talk-down", 500));
+        assert.deepEqual([cleared.state.fault.kind, cleared.state.input.kind], ["none", "conversation"], "a press on a fault listens");
         // After a turn the conversation stays open while the word is awaited.
         let t = alwaysThinking(logic);
         t = step(logic, t, callback("brain-done", t.turn, 40)).state;
@@ -1627,8 +1655,8 @@ try {
         ["caption-final-text", 'userTranscript(s, effects, text, rev);',
             'userTranscript(s, effects, s.turn.partial, rev);', "final-caption"],
         ["caption-silence", 'if (shown !== "") effect', 'if (true) effect', "final-caption"],
-        ["key-mode", 'if (s.settings.mode === "toggle" || s.settings.mode === "always") { toggle(s, effects, e.at); break; }',
-            'if (s.settings.mode === "always") { toggle(s, effects, e.at); break; }', "key-mode"],
+        ["key-mode", 'if (s.settings.mode === "toggle") { toggle(s, effects, e.at); break; }',
+            'if (false) { toggle(s, effects, e.at); break; }', "key-mode"],
         ["mute-key-store", 'effect(s, effects, "mute-store", { muted: true });',
             'void effects;', "mute-key"],
         ["initial", "gen: 0, nextOp: 1, stale: 0, settings: {},",
@@ -1642,9 +1670,10 @@ try {
             's.mute.kind === "off" && (true || s.fault.kind !== "error");', "fault-gate"],
         ["recover-hold", 'recover(s, effects, e.at);\n        interrupt(s, effects, e.at);',
             'interrupt(s, effects, e.at);', "fault-recovery"],
-        ["recover-toggle", 'recover(s, effects, at);', 'if (false) recover(s, effects, at);', "fault-recovery"],
-        ["recover-debounce", 'if (s.toggleAt !== null && at - s.toggleAt < 250) return;\n    recover(s, effects, at);',
-            'recover(s, effects, at);\n    if (s.toggleAt !== null && at - s.toggleAt < 250) return;', "fault-gate"],
+        ["recover-toggle", 'return;\n    recover(s, effects, at);\n    if (!canEngage(s)) return;\n    s.toggleAt = at;\n    if (s.conversation',
+            'return;\n    if (false) recover(s, effects, at);\n    if (!canEngage(s)) return;\n    s.toggleAt = at;\n    if (s.conversation', "fault-recovery"],
+        ["recover-debounce", 'if (bounced(s, at)) return;\n    recover(s, effects, at);',
+            'recover(s, effects, at);\n    if (bounced(s, at)) return;', "fault-gate"],
         ["recover-mute", ' || s.mute.kind !== "off") return;', ') return;', "fault-gate"],
         ["recover-gate", 's.fault.kind !== "error" || s.gate.kind !== "up" ||', 's.fault.kind !== "error" ||', "fault-gate"],
         ["recover-fault", 's.fault = { kind: "none" };\n}', '}', "fault-recovery"],
@@ -1763,8 +1792,14 @@ try {
         ["wake-starts", 'start(s, effects, "conversation", e.at);\n        break;\n    case "capture-closed":', 'break;\n    case "capture-closed":', "always-wake"],
         ["wake-closes-armed", "    closeArmed(s, effects);\n", "", "always-wake"],
         ["always-utterance", ' || s.settings.mode === "always") s.input = { kind: "released" };', ') s.input = { kind: "released" };', "always-one-utterance"],
-        ["always-talk-toggles", 'if (s.settings.mode === "toggle" || s.settings.mode === "always") { toggle', 'if (s.settings.mode === "toggle") { toggle', "always-talk"],
-        ["armed-toggle", '(s.input.kind === "released" || s.input.kind === "armed")', 's.input.kind === "released"', "always-talk"]
+        ["always-talk-mode", 'if (s.settings.mode === "always") { listenNow(s, effects, e.at); break; }', "", "always-talk", "listens now"],
+        ["always-talk-debounce", 'function listenNow(s, effects, at) {\n    if (bounced(s, at)) return;',
+            'function listenNow(s, effects, at) {', "always-talk", "250 ms"],
+        ["always-talk-ends", 'if (s.input.kind === "conversation" && s.turn.kind === "collecting") {', "if (false) {", "always-talk", "while listening"],
+        ["always-talk-interrupts", '    interrupt(s, effects, at);\n    start(s, effects, "conversation", at);', '    start(s, effects, "conversation", at);', "always-talk", "stops the reply"],
+        ["always-talk-starts", '    interrupt(s, effects, at);\n    start(s, effects, "conversation", at);', '    interrupt(s, effects, at);', "always-talk", "listens now"],
+        ["always-talk-recovers", '    recover(s, effects, at);\n    if (!canEngage(s)) return;\n    s.toggleAt = at;\n    interrupt(',
+            '    if (!canEngage(s)) return;\n    s.toggleAt = at;\n    interrupt(', "always-talk", "on a fault"]
     );
     mutants.push(
         ["say-judge", 'case "say":\n        if (sayRefusal(s) !== null) break;', 'case "say":', "say-refusals"],
