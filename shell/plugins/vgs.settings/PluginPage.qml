@@ -351,7 +351,7 @@ FocusScope {
                                 Field {
                                     id: setupState
                                     required property var modelData
-                                    readonly property var view: Steps.statusView(modelData.entry, ms => new Date(ms).toLocaleString(Qt.locale(), Locale.ShortFormat))
+                                    readonly property var view: Steps.statusView(modelData.entry, ms => Timestamp.text(ms, Time.now.getTime()))
                                     width: setup.width
                                     label: modelData.label
                                     inline: true

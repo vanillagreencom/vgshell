@@ -13,7 +13,9 @@ import qs.Ui
 // written, for a name whose case matters such as a package's: it is drawn
 // in the `kbd` role, mono at the `label` role's size without its capitals,
 // so the chip keeps the same height and centre. Under a rounded theme the
-// side padding grows until the content clears the drawn corner.
+// side padding grows until the content clears the drawn corner. Given a
+// width under its implicit width, the chip keeps its side padding and
+// elides the label at its end; at its implicit width the label is whole.
 Rectangle {
     id: root
 
@@ -62,5 +64,7 @@ Rectangle {
         color: root.tokens.foreground
         x: root.sidePadding + (icon.visible ? icon.width + Theme.badge.gap : 0)
         y: topForCapCenter(root.height)
+        width: root.width < root.implicitWidth ? Math.max(0, root.width - x - root.sidePadding) : implicitWidth
+        elide: Text.ElideRight
     }
 }

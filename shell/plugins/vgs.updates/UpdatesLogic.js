@@ -241,14 +241,19 @@ function errorText(reason) {
     return "The update check failed. Select Refresh to try again.";
 }
 
+// The check's `state` status value: `text` is the short state its badge
+// reads, and a state that asks the user to act carries the sentence that
+// says what to do as `hint`, which the Settings page wraps under the badge
+// and summaryText reads. A source's label comes from the snapshot, so the
+// text is bounded to the core's state text limit.
 function checkState(snapshot, checking, now, intervalMs, checkFailure) {
     if (checking) return { tone: "info", text: "Checking" };
-    if (checkFailure !== null && checkFailure !== undefined && checkFailure !== "") return { tone: "danger", text: errorText(checkFailure) };
+    if (checkFailure !== null && checkFailure !== undefined && checkFailure !== "") return { tone: "danger", text: "Failed", hint: errorText(checkFailure) };
     if (snapshot === null) return { tone: "info", text: "Not checked" };
-    if (snapshot.error !== null && snapshot.error !== "") return { tone: "danger", text: errorText(snapshot.error) };
+    if (snapshot.error !== null && snapshot.error !== "") return { tone: "danger", text: "Failed", hint: errorText(snapshot.error) };
     var source = firstSourceError(snapshot);
-    if (source !== null) return { tone: "warning", text: ((source.label || source.source) + ": " + errorText(source.error)).slice(0, 200) };
-    if (typeof now === "number" && intervalMs > 0 && now - snapshot.checkedAt >= 2 * intervalMs) return { tone: "warning", text: "The last check is old. Select Refresh to check again." };
+    if (source !== null) return { tone: "warning", text: ((source.label || source.source) + " failed").slice(0, 200), hint: errorText(source.error) };
+    if (typeof now === "number" && intervalMs > 0 && now - snapshot.checkedAt >= 2 * intervalMs) return { tone: "warning", text: "Check is old", hint: "The last check is old. Select Refresh to check again." };
     return { tone: "ok", text: pendingCount(snapshot) > 0 ? "Updates waiting" : "Up to date" };
 }
 
@@ -755,42 +760,40 @@ function widgetView(values, hideWhenCurrent) {
 }
 
 // The one line that says where updates stand, as the tooltip and the
-// window's heading show it.
+// window's heading show it: a check that needs attention reads its state's
+// sentence, its `hint`, where it has one, else its short text.
 function summaryText(values) {
     var state = widgetState(values);
     switch (state) {
     case "current": return "Up to date";
     case "pending": return countText(pendingOf(values), "update") + " waiting";
-    case "attention": return String(valuesOf(values).checkState.text);
+    case "attention":
+        var check = valuesOf(values).checkState;
+        return String(check.hint !== undefined ? check.hint : check.text);
     case "checking": return "Checking for updates";
     case "unchecked": return "Not checked yet";
     default: throw new Error("updates: widget state " + JSON.stringify(state) + " has no summary");
     }
 }
 
-function sameLocalDay(a, b) {
-    var x = new Date(a);
-    var y = new Date(b);
-    return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate();
-}
-
-// `Checked <time>` for `lastCheck`, with the date when the check was not on
-// NOW's local day, or `Never checked`. `formatWhen(ms, withDate)` is the
-// caller's locale formatting.
-function checkedText(lastCheck, now, formatWhen) {
+// `Checked <time>` for `lastCheck` at NOW, or `Never checked`. `timeText`
+// is qs.Commons Timestamp.text, the shell's one wording of a past moment,
+// handed in by the caller because bin/check and bin/facts load this file
+// under node with no module bindings.
+function checkedText(lastCheck, now, timeText) {
     if (typeof lastCheck !== "number") return "Never checked";
-    return "Checked " + formatWhen(lastCheck, !sameLocalDay(lastCheck, now));
+    return "Checked " + timeText(lastCheck, now);
 }
 
 // The widget's tooltip: the summary title, one count row per source in the
 // service's order, `check failed` for a source with no count, and the
 // checked line.
-function widgetTooltip(values, now, formatWhen) {
+function widgetTooltip(values, now, timeText) {
     var details = [];
     var sources = sourcesOf(values);
     for (var i = 0; i < sources.length; i++)
         details.push({ label: sources[i].label, value: sources[i].count === null ? "check failed" : sources[i].count });
-    details.push(checkedText(valuesOf(values).lastCheck, now, formatWhen));
+    details.push(checkedText(valuesOf(values).lastCheck, now, timeText));
     return { title: summaryText(values), details: details };
 }
 

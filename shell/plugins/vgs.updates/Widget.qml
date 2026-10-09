@@ -11,25 +11,19 @@ import "UpdatesLogic.js" as Logic
 // `hideWhenCurrent` setting hides it only while the last check succeeded
 // and nothing waits. A left click opens or closes the Updates window; a
 // middle click opens the `update` TUI for every source. The tooltip lists
-// each source's count and when the last check ran. It is one BarItem, the
+// each source's count and when the last check ran, in the shell's one
+// wording of a past moment (Timestamp). It is one BarItem, the
 // count drawn beside the icon in the icon's tone.
 BarWidget {
     id: widget
 
     readonly property var values: shell === null ? ({}) : shell.status.values
     readonly property var view: Logic.widgetView(values, setting("hideWhenCurrent", false))
-    readonly property var tip: Logic.widgetTooltip(values, Time.now.getTime(), formatWhen)
+    readonly property var tip: Logic.widgetTooltip(values, Time.now.getTime(), Timestamp.text)
 
     visible: !view.hidden
     implicitWidth: button.implicitWidth
     implicitHeight: barSize
-
-    // The time of MS in the locale's short format, with the date when
-    // WITHDATE holds.
-    function formatWhen(ms, withDate) {
-        const when = new Date(ms);
-        return withDate ? when.toLocaleString(Qt.locale(), Locale.ShortFormat) : when.toLocaleTimeString(Qt.locale(), Locale.ShortFormat);
-    }
 
     function toneColor(tone) {
         switch (tone) {

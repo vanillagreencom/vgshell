@@ -85,7 +85,7 @@ The service publishes these status keys:
 
 - `pending`: total updates with numeric counts.
 - `lastCheck`: the last successful snapshot time.
-- `checkState`: `ok`, `info`, `warning` or `danger`, with a short reason.
+- `checkState`: `ok`, `info`, `warning` or `danger`, with a short state as its text and, for a failed or old check, the sentence that says what to do as its `hint`.
 - `checking`: whether a check process runs. It is the widget's spinner, since `info` also means "not checked".
 - `sources`: the source rows for the bar widget and the window.
 - `reviewAgent`: the agent that reviews third-party packages, in words: its name, `Custom:` and the edited command's first word, that the chosen agent is not installed, `None found`, or `Off`.

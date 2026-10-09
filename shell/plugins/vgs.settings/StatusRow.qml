@@ -9,9 +9,11 @@ import "Steps.js" as Steps
 // beside its value, the entry's hint and, while its step applies
 // (Steps.js), its action. A presence
 // or a state draws as a Badge in the tone the entry carries, a state's
-// further lines each as a Badge of that tone under it; a text, a
-// count or a time as one line of text; an entry the plugin has not
-// published, or published while disabled, as "Not reported". A presence
+// further lines each as a Badge of that tone under it, and its hint, the
+// state's sentence where the state carries one, wrapped under them; a
+// text, a count or a time as one line of text, a time through Timestamp;
+// an entry the plugin has not published, or published while disabled, as
+// "Not reported". A presence
 // list draws its label and hint alone, "None detected" while the list is
 // empty, then one line per item: the item's label beside a Badge of its
 // presence, its hint, and Connect or Disconnect for an item that is a secret's
@@ -39,8 +41,10 @@ GroupList {
         return panel === null || entry === null ? "" : panel.replyOf(pluginId, entry.key, account);
     }
 
-    // What the row draws: Steps.statusView of its entry.
-    readonly property var view: Steps.statusView(entry, ms => new Date(ms).toLocaleString(Qt.locale(), Locale.ShortFormat))
+    // What the row draws: Steps.statusView of its entry, a time in the
+    // shell's one wording of a past moment, which reads Time.now and so
+    // moves on with the clock.
+    readonly property var view: Steps.statusView(entry, ms => Timestamp.text(ms, Time.now.getTime()))
 
     visible: entry !== null
 

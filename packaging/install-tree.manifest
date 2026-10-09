@@ -53,6 +53,7 @@ f share/vgshell/shell/Commons/Theme.qml
 f share/vgshell/shell/Commons/ThemeLogic.js
 f share/vgshell/shell/Commons/ThemeSource.qml
 f share/vgshell/shell/Commons/Time.qml
+f share/vgshell/shell/Commons/Timestamp.js
 f share/vgshell/shell/Commons/Tokens.js
 f share/vgshell/shell/Commons/WatchedFile.qml
 f share/vgshell/shell/Commons/Workspaces.qml

@@ -207,6 +207,7 @@ run() { # AREA LABEL CMD...
 # counts, a root file such as VERSION included.
 rows=(
   "logic|duration formatter|node scripts/test-duration.js|shell/Commons/Duration.js bin/lib/qml-library.js"
+  "logic|timestamp formatter|node scripts/test-timestamp.js|shell/Commons/Timestamp.js shell/Commons/Duration.js bin/lib/qml-library.js"
   "logic|traffic counters rates and bounded apps|node scripts/test-traffic-logic.js|shell/plugins/vgs.traffic/TrafficLogic.js scripts/fixtures/traffic/* bin/lib/qml-library.js"
   "logic|network snapshot decisions|node scripts/test-network-logic.js|shell/Commons/Nmcli.js shell/Commons/qmldir shell/plugins/vgs.network/NetworkLogic.js shell/plugins/vgs.network/NetworkBody.qml bin/lib/qml-library.js"
   "logic|network QR secret transport controls|python3 scripts/test-network-share.py|shell/plugins/vgs.network/bin/share-qr scripts/smoke/fixtures/devices/network-qr-tools.py"
@@ -261,7 +262,7 @@ rows=(
   "cli|polkit other agents and their TUIs|scripts/test-polkit-agents.sh|shell/plugins/vgs.polkit/bin/agents shell/plugins/vgs.polkit/PolkitModel.js shell/plugins/vgs.polkit/tui/uninstall.sh shell/plugins/vgs.polkit/tui/stop.sh bin/lib/qml-library.js bin/lib/tui.sh"
   "logic|Bluetooth agent transcripts|node scripts/test-bluetooth-agent.js|shell/Core/BluetoothAgentModel.js bin/lib/qml-library.js"
   "logic|Bluetooth plugin logic|node scripts/test-bluetooth-logic.js|shell/plugins/vgs.bluetooth/BluetoothLogic.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
-  "logic|updates logic|node scripts/test-updates-logic.js|shell/plugins/vgs.updates/UpdatesLogic.js bin/lib/qml-library.js"
+  "logic|updates logic|node scripts/test-updates-logic.js|shell/plugins/vgs.updates/UpdatesLogic.js shell/Commons/Timestamp.js shell/Commons/Duration.js bin/lib/qml-library.js"
   "logic|displays logic|node scripts/test-displays-logic.js|shell/plugins/vgs.displays/DisplaysLogic.js shell/plugins/vgs.displays/manifest.json shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
   "logic|keyboard logic|node scripts/test-keyboard-logic.js|shell/plugins/vgs.keyboard/KeyboardLogic.js shell/plugins/vgs.keyboard/manifest.json scripts/fixtures/keyboard/* bin/lib/qml-library.js"
   "logic|mouse logic|node scripts/test-mouse-logic.js|shell/plugins/vgs.mouse/MouseLogic.js shell/plugins/vgs.mouse/manifest.json bin/lib/qml-library.js"

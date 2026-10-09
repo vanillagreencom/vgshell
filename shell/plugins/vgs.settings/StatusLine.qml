@@ -5,7 +5,8 @@ import qs.Ui
 // One read-only line of a Status row: `label` beside its value, the line's
 // one-click setup step (D061) as a RowAction right after the value, or
 // under it where the two do not fit one line, and `hint` under them. The value is a
-// Badge reading `text` in `tone`, with one more Badge of that tone under it for each of `lines`; with
+// Badge reading `text` in `tone`, with one more Badge of that tone under it for each of `lines`,
+// each no wider than the value column, eliding a text too long for it; with
 // `tone` "", `text` as one line in the value role, the label's pair,
 // or the itemHint role while `muted`; with neither, the hint itself on the
 // label's row, so a line that names a group never leaves its value column
@@ -73,10 +74,11 @@ Column {
         // column; past that, as for a long chip, the step goes under the
         // value, `field.gap` below it, from the value column, so the two
         // never overlap. The choice reads the value's natural width, the
-        // chips' or the whole text's in its own font, never the width the
-        // value is then given, so it does not depend on its own outcome. A
-        // long text elides and a hint wraps within the room it has, and
-        // the row grows with it.
+        // chips' bounded to the value column or the whole text's in its own
+        // font, never the width the value is then given beside a step, so
+        // it does not depend on its own outcome. A long chip or text elides
+        // and a hint wraps within the room it has, and the row grows with
+        // it.
         Item {
             id: valueRow
             readonly property real naturalWidth: line.tone !== "" ? value.implicitWidth : Math.ceil(valueText.advanceWidth)
@@ -178,11 +180,16 @@ Column {
         id: badge
         Column {
             spacing: line.spacing
-            Badge { text: line.text; tone: line.tone }
+            // A chip wider than the value column elides rather than run
+            // past the line's edge. It is bounded to the column, not to the
+            // room a step beside it leaves, since a chip that does not fit
+            // beside the step already puts the step under it.
+            Badge { width: Math.min(implicitWidth, valueRow.width); text: line.text; tone: line.tone }
             Repeater {
                 model: line.lines
                 Badge {
                     required property string modelData
+                    width: Math.min(implicitWidth, valueRow.width)
                     text: modelData
                     tone: line.tone
                 }

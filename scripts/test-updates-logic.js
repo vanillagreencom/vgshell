@@ -13,6 +13,9 @@ const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.updates", "UpdatesLogic.js");
+// The shell's one wording of a past moment, which the widget and the window
+// hand the checked line.
+const Timestamp = load(path.join(__dirname, "..", "shell", "Commons", "Timestamp.js"));
 const scratch = path.join(__dirname, "..", "tmp", "test-updates-logic-" + process.pid);
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), JSON.parse(JSON.stringify(want)), message || "");
 
@@ -133,7 +136,7 @@ function verify(logic) {
   same(snapshot.sources.map(s => [s.source, s.count, s.label]), [["pacman", 2, "System"], ["aur", 1, "AUR"], ["flatpak", 0, "Flatpak"], ["mise", null, "mise"], ["vgs", 1, "VGS"], ["plugins", 1, "Plugins"], ["themes", 0, "Themes"]]);
   same(snapshot.sources[4].packages, [{ name: "vgs", old: "0.1.0.r1.g1111111", new: "0.1.0.r2.g2222222" }]);
   assert.equal(logic.pendingCount(snapshot), 5);
-  same(logic.checkState(snapshot, false, now, 6 * 60 * 60 * 1000, ""), { tone: "warning", text: "mise: The update check failed. Select Refresh to try again." });
+  same(logic.checkState(snapshot, false, now, 6 * 60 * 60 * 1000, ""), { tone: "warning", text: "mise failed", hint: "The update check failed. Select Refresh to try again." });
   const clean = JSON.parse(JSON.stringify(snapshot));
   clean.sources[3].error = null;
   clean.sources[3].count = 0;
@@ -142,9 +145,9 @@ function verify(logic) {
   same(logic.checkState(clean, false, now, 6 * 60 * 60 * 1000, ""), { tone: "ok", text: "Up to date" });
   same(logic.checkState(clean, true, now, 6, ""), { tone: "info", text: "Checking" });
   clean.checkedAt = now - 13;
-  same(logic.checkState(clean, false, now, 6, ""), { tone: "warning", text: "The last check is old. Select Refresh to check again." });
+  same(logic.checkState(clean, false, now, 6, ""), { tone: "warning", text: "Check is old", hint: "The last check is old. Select Refresh to check again." });
   clean.error = "exit=1";
-  same(logic.checkState(clean, false, now, 6, ""), { tone: "danger", text: "The update check failed. Select Refresh to try again." });
+  same(logic.checkState(clean, false, now, 6, ""), { tone: "danger", text: "Failed", hint: "The update check failed. Select Refresh to try again." });
   same(logic.publishValues(snapshot, false, now, 6 * 60 * 60 * 1000, "").pending, 5);
   assert.equal(logic.publishValues(snapshot, false, now, 6, "").lastCheck, now);
   assert.equal(logic.nextCheckDelay(null, false, now, 6, null, null), 0);
@@ -169,7 +172,7 @@ function verify(logic) {
   assert.equal(logic.intervalMs({ intervalHours: 0 }), 3600000);
   assert.equal(logic.intervalMs({ intervalHours: 49 }), 48 * 3600000);
   same(snapshot.sources[5].packages, [{ name: "acme.one", old: "a", new: "b", behind: 2 }]);
-  same(logic.checkState(clean, false, now, 6, "timeout=120"), { tone: "danger", text: "The update check took too long. Select Refresh to try again." });
+  same(logic.checkState(clean, false, now, 6, "timeout=120"), { tone: "danger", text: "Failed", hint: "The update check took too long. Select Refresh to try again." });
   same(logic.statusWrites({}, { pending: 1, lastCheck: null, checkState: { tone: "ok", text: "Up to date" }, sources: [] }).map(w => w.key), ["pending", "checkState", "sources"]);
   same(logic.statusWrites({ pending: 1 }, { pending: 1, checkState: { tone: "ok", text: "Up to date" } }).map(w => w.key), ["checkState"]);
   assert.equal(logic.nextCheckDelay(snapshot, false, now + 1000, 99999999, now, null), logic.RETRY_AFTER_FAILURE_MS - 1000);
@@ -203,7 +206,7 @@ function verify(logic) {
   const failedPlugins = logic.normalizeSnapshot({ pkg: probe([]), self: probe({ behind: false, error: null }), plugins: probe([{ id: "bad", behind: null, head: null, upstream: null, error: "fetch=bad" }, { id: "good", behind: 3, head: "a", upstream: "b", error: null }]), themes: probe([]) }, now);
   const pluginRow = failedPlugins.sources.find(s => s.source === "plugins");
   same([pluginRow.count, pluginRow.error], [1, "bad: fetch=bad"]);
-  same(logic.checkState(failedPlugins, false, now, 6 * 60 * 60 * 1000, ""), { tone: "warning", text: "Plugins: The update source could not be reached. Check your connection and select Refresh." });
+  same(logic.checkState(failedPlugins, false, now, 6 * 60 * 60 * 1000, ""), { tone: "warning", text: "Plugins failed", hint: "The update source could not be reached. Check your connection and select Refresh." });
   const untracked = logic.normalizeSnapshot({ pkg: probe([]), self: probe({ behind: false, error: null }), plugins: probe([{ id: "local", behind: null, head: null, upstream: null, error: "not-a-checkout=/home/u/.config/vgshell/plugins/local" }]), themes: probe([]) }, now);
   const untrackedRow = untracked.sources.find(s => s.source === "plugins");
   same([untrackedRow.count, untrackedRow.packages, untrackedRow.error], [0, [], null]);
@@ -251,6 +254,8 @@ function verifyView(logic) {
     [{ pending: 1, checkState: ok }, "1 update waiting"],
     [{ pending: 7, checkState: ok }, "7 updates waiting"],
     [{ pending: 7, checkState: { tone: "warning", text: "Check stale" } }, "Check stale"],
+    [{ pending: 7, checkState: { tone: "warning", text: "Check is old", hint: "The last check is old. Select Refresh to check again." } }, "The last check is old. Select Refresh to check again."],
+    [{ checkState: { tone: "danger", text: "Failed", hint: "The update check failed. Select Refresh to try again." } }, "The update check failed. Select Refresh to try again."],
     [{ checking: true }, "Checking for updates"],
     [{}, "Not checked yet"]
   ];
@@ -259,9 +264,9 @@ function verifyView(logic) {
   const now = new Date(2026, 8, 29, 14, 30).getTime();
   const today = new Date(2026, 8, 29, 14, 2).getTime();
   const yesterday = new Date(2026, 8, 28, 23, 59).getTime();
-  const when = (ms, withDate) => (withDate ? "date+" : "") + (ms === today ? "14:02" : "23:59");
-  assert.equal(logic.checkedText(today, now, when), "Checked 14:02");
-  assert.equal(logic.checkedText(yesterday, now, when), "Checked date+23:59");
+  const when = Timestamp.text;
+  assert.equal(logic.checkedText(today, now, when), "Checked 28m ago");
+  assert.equal(logic.checkedText(yesterday, now, when), "Checked Mon 28 Sep, 23:59");
   assert.equal(logic.checkedText(undefined, now, when), "Never checked");
 
   const sources = [
@@ -280,7 +285,7 @@ function verifyView(logic) {
       { label: "Flatpak", value: 0 },
       { label: "Plugins", value: 1 },
       { label: "later", value: 1 },
-      "Checked 14:02"
+      "Checked 28m ago"
     ]
   });
   same(logic.widgetTooltip({}, now, when), { title: "Not checked yet", details: ["Never checked"] });
@@ -452,7 +457,7 @@ const controls = [
   ["package rows count", "total += snapshot.sources[i].count;", "total += 0;"],
   ["outdated rows count once", "count += 1;", "count += behind;"],
   ["outdated packages keep behind", "behind: behind", "oldBehind: behind"],
-  ["check failure wins state", "if (checkFailure !== null && checkFailure !== undefined && checkFailure !== \"\") return { tone: \"danger\", text: errorText(checkFailure) };", "if (false) return { tone: \"danger\", text: \"\" };"],
+  ["check failure wins state", "if (checkFailure !== null && checkFailure !== undefined && checkFailure !== \"\") return { tone: \"danger\", text: \"Failed\", hint: errorText(checkFailure) };", "if (false) return { tone: \"danger\", text: \"\" };"],
   ["status writes skip unchanged", "if (!hasOwn(before, key) || !sameJson(before[key], next[key])) out.push({ key: key, value: clone(next[key]) });", "out.push({ key: key, value: clone(next[key]) });"],
   ["failure retry uses short delay", "failedAt + RETRY_AFTER_FAILURE_MS - now", "failedAt + interval - now"],
   ["proc stat btime is parsed as milliseconds", "if (m !== null) return Number(m[1]) * 1000;", "if (false) return Number(m[1]) * 1000;"],
@@ -462,7 +467,10 @@ const controls = [
   ["published packages are bounded", "var limit = Math.min(row.packages.length, PUBLISHED_PACKAGES_PER_SOURCE_MAX);", "var limit = row.packages.length;"],
   ["published rows carry the omitted package count", "made.more = Math.max(0, row.packages.length - packages.length);", "made.more = 0;"],
   ["published package text is bounded", "return text.length > PUBLISHED_PACKAGE_TEXT_MAX ? text.slice(0, PUBLISHED_PACKAGE_TEXT_MAX) : text;", "return text;"],
-  ["source errors set warning", "if (source !== null) return { tone: \"warning\", text: ((source.label || source.source) + \": \" + errorText(source.error)).slice(0, 200) };", "if (false) return { tone: \"warning\", text: \"\" };"] ,
+  ["source errors set warning", "if (source !== null) return { tone: \"warning\", text: ((source.label || source.source) + \" failed\").slice(0, 200), hint: errorText(source.error) };", "if (false) return { tone: \"warning\", text: \"\" };"] ,
+  ["a failed source names what to do", "text: ((source.label || source.source) + \" failed\").slice(0, 200), hint: errorText(source.error) };", "text: ((source.label || source.source) + \" failed\").slice(0, 200) };"],
+  ["a stale check names what to do", "text: \"Check is old\", hint:", "text: \"Check is old\", oldHint:"],
+  ["the attention summary reads the sentence", "return String(check.hint !== undefined ? check.hint : check.text);", "return String(check.text);"],
   ["stale after twice the interval", "now - snapshot.checkedAt >= 2 * intervalMs", "now - snapshot.checkedAt > 3 * intervalMs"],
   ["a stale snapshot sets no stale timer", "return delay > 0 ? delay : null;", "return Math.max(0, delay);"],
   ["the timer wakes when the snapshot turns stale", "return delay > 0 ? delay : null;", "return null;"],
@@ -476,7 +484,7 @@ const controls = [
   ["a running check spins", "if (v.checking === true) return \"checking\";", "if (false) return \"checking\";"],
   ["pending needs a count", "case \"ok\": return pendingOf(v) > 0 ? \"pending\" : \"current\";", "case \"ok\": return \"pending\";"],
   ["the badge is capped", "return count > BADGE_COUNT_MAX ? BADGE_COUNT_MAX + \"+\" : String(count);", "return String(count);"],
-  ["the checked line dates another day", "formatWhen(lastCheck, !sameLocalDay(lastCheck, now))", "formatWhen(lastCheck, false)"],
+  ["the checked line reads the shared wording at now", "return \"Checked \" + timeText(lastCheck, now);", "return \"Checked \" + timeText(lastCheck, lastCheck);"],
   ["a source with no count reads failed in the tooltip", "sources[i].count === null ? \"check failed\" : sources[i].count", "sources[i].count"],
   ["a failed source keeps its badge", "badge: failed ? \"Failed\" : badgeText(row.count),", "badge: badgeText(row.count),"],
   ["only a source with updates offers Update", "updatable: !failed && row.count > 0,", "updatable: true,"],

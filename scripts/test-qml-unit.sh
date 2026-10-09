@@ -971,6 +971,8 @@ mutations=(
   "a status line's hint value runs on one line|../plugins/vgs.settings/StatusLine.qml|wrapMode: Text.Wrap|wrapMode: Text.NoWrap|tst_grouplist.qml"
   "a status line's step overlaps a long text|../plugins/vgs.settings/StatusLine.qml|text: line.tone !== \"\" ? \"\" : line.text !== \"\" ? line.text : line.hint|text: \"\"|tst_grouplist.qml"
   "a status line's step stands apart from its value|../plugins/vgs.settings/StatusLine.qml|x: valueRow.stepBelow ? 0 : value.width + Theme.stack.inline|x: valueRow.stepBelow ? 0 : value.width + 2 * Theme.stack.inline|tst_grouplist.qml"
+  "a status line's chip runs past the line|../plugins/vgs.settings/StatusLine.qml|Badge { width: Math.min(implicitWidth, valueRow.width); text: line.text; tone: line.tone }|Badge { text: line.text; tone: line.tone }|tst_grouplist.qml"
+  "a narrowed badge's label runs past the chip|feedback/Badge.qml|width: root.width < root.implicitWidth ? Math.max(0, root.width - x - root.sidePadding) : implicitWidth|width: implicitWidth|tst_grouplist.qml"
   "a disclosure's content starts at the icon|layout/Disclosure.qml|        x: inset|        x: 0|tst_spacing.qml"
   "a row's text start leaves out its icon|layout/ListItem.qml|readonly property real textStart: leftPadding + (iconName !== \"\" ? Theme.icon.size.md + Theme.listItem.iconGap : 0)|readonly property real textStart: leftPadding|tst_spacing.qml"
   "an inline field keeps the full row|controls/FormRow.qml|Math.max(Theme.row.height, labelText.implicitHeight, slot.childrenRect.height)|Math.max(1, labelText.implicitHeight, slot.childrenRect.height)|tst_spacing.qml"

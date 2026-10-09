@@ -11,11 +11,13 @@ import "../../shell/plugins/vgs.settings"
 // theme moves both. The groups are the Settings page's own Status lines
 // and Requirements rows, so the page's rhythm is read where it is drawn:
 // a line's own lines, its value and its hint sit `field.gap` apart, less
-// than the gap between groups.
+// than the gap between groups. A state too long for the value column
+// elides inside its chip, and its sentence wraps under it, both inside
+// the line.
 Item {
     id: root
     width: 480
-    height: 1260
+    height: 1420
 
     GroupList {
         id: list
@@ -47,6 +49,7 @@ Item {
     StatusLine { id: longText; x: 0; y: 1140; width: 400; label: "Model"; text: "A model name far too long to share its line with the step beside it"; actionLabel: "Choose a model"; actionOffered: true }
     StatusLine { id: longHint; x: 0; y: 1000; width: 400; label: "Accounts"; hint: "Signed in does not prove that the AI answers. A test request may cost money, so check it yourself." }
     StatusLine { id: longStep; x: 0; y: 820; width: 400; label: "While logged out"; tone: "warning"; text: "Automations run only while you are logged in"; actionLabel: "Enable while logged out"; actionOffered: true }
+    StatusLine { id: longState; x: 0; y: 1220; width: 260; label: "Check"; tone: "danger"; text: "The update check failed. Select Refresh to try again."; hint: "The update source could not be reached. Check your connection and select Refresh." }
 
     TestCase {
         name: "grouplist"
@@ -183,6 +186,33 @@ Item {
             longText.width = 0;
             longText.width = 400;
             tryVerify(() => box(stepOf(longText), longText).y >= box(value(longText), longText).bottom, 1000, "the step stays under the text after a relayout");
+        }
+
+        // A state too long for the value column keeps its chip, and the
+        // chip's label, inside the line; its sentence wraps under it,
+        // inside the line too.
+        function test_a_long_state_and_its_sentence_stay_inside_the_line() {
+            const chip = chipOf(longState);
+            const chipBox = box(chip, longState);
+            verify(chipBox.right <= longState.width + 0.5, "the chip ends inside the line: " + chipBox.right + " > " + longState.width);
+            verify(chip.width < chip.implicitWidth, "the fixture's state is too long for the value column");
+            const label = chip.children.find(child => child.role === "label");
+            verify(label !== undefined, "the chip holds its label");
+            verify(label.truncated, "the label elides");
+            verify(box(label, longState).x + label.contentWidth <= chipBox.right + 0.5, "the label's text ends inside the chip");
+            let sentence = null;
+            const stack = [longState];
+            while (stack.length > 0) {
+                const at = stack.pop();
+                if (at.role === "hint" && at.text === longState.hint && at.visible) sentence = at;
+                for (const child of at.children) stack.push(child);
+            }
+            verify(sentence !== null, "the line draws its sentence");
+            verify(sentence.lineCount > 1, "the sentence wraps");
+            const sentenceBox = box(sentence, longState);
+            verify(sentenceBox.y >= chipBox.bottom, "the sentence sits under the chip");
+            verify(sentenceBox.x + sentence.contentWidth <= longState.width + 0.5, "the sentence ends inside the line");
+            verify(sentenceBox.bottom <= longState.height + 0.5, "the line holds every wrapped line of the sentence");
         }
 
         function test_a_groups_own_lines_sit_close() {

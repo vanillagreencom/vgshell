@@ -7,7 +7,8 @@ import "UpdatesLogic.js" as Logic
 // The Updates window: where updates stand, one row per source the service
 // published with its count, the packages it lists when opened and its own
 // Update when it has updates, and a footer with Update everything over
-// Refresh, the last check's time and the last run's log. It draws the
+// Refresh, the last check's time in the shell's one wording of a past
+// moment (Timestamp), and the last run's log. It draws the
 // status the service publishes and runs nothing itself: Refresh asks the
 // service's `check` through the plugin's own IPC, and every update and the
 // log open the plugin's floating TUIs (UpdatesLogic.tuiRequest). The
@@ -33,13 +34,6 @@ FocusScope {
         problem = "";
     }
     function close() {}
-
-    // The time of MS in the locale's short format, with the date when
-    // WITHDATE holds.
-    function formatWhen(ms, withDate) {
-        const when = new Date(ms);
-        return withDate ? when.toLocaleString(Qt.locale(), Locale.ShortFormat) : when.toLocaleTimeString(Qt.locale(), Locale.ShortFormat);
-    }
 
     // Open the TUI for ACTION (`all`, `source` with SOURCE, or `log`);
     // answers the capability's reply.
@@ -210,7 +204,7 @@ FocusScope {
                         y: topForCapCenter(parent.height)
                         horizontalAlignment: Text.AlignHCenter
                         role: "hint"
-                        text: Logic.checkedText(root.values.lastCheck, Time.now.getTime(), root.formatWhen)
+                        text: Logic.checkedText(root.values.lastCheck, Time.now.getTime(), Timestamp.text)
                         elide: Text.ElideRight
                     }
                     Button {
