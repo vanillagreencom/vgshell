@@ -9,8 +9,9 @@ import qs.Ui
 // alone. It opens on this month every time; Left and Right switch the
 // month, and Escape, a click outside or a second click on the clock close
 // it. A click on a day of the shown month opens that day in the web
-// calendar the `calendarUrl` setting names, through the default browser,
-// and closes the calendar; Enter opens today, or the 1st of another shown
+// calendar the `calendarUrl` setting names, in the browser and profile the
+// `openWith` setting names (DesktopLaunch.openWith), and closes the
+// calendar; Enter opens today, or the 1st of another shown
 // month. The day buttons take no Tab stop, so Tab moves between the two
 // month buttons alone. Qt's month grid model holds six weeks for every
 // month, 42 days, the days of the months around it drawn disabled, so the
@@ -51,7 +52,7 @@ Item {
     // MONTH counts from 0, as the grid does; the address counts from 1.
     function openDay(year, month, day) {
         const url = String(shell.settings.calendarUrl).replace(/\{year\}/g, year).replace(/\{month\}/g, month + 1).replace(/\{day\}/g, day);
-        const reply = shell.run.detached(DesktopLaunch.open(url));
+        const reply = shell.run.detached(DesktopLaunch.openWith(url, shell.settings.openWith));
         if (reply !== "ok") {
             console.warn("vgs.bar: calendar open " + reply);
             return;

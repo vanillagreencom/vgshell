@@ -23,15 +23,23 @@
     "configure",
     "ipc",
     "run",
+    "requirements",
     "shortcut",
+    "status",
     "surfaces"
   ],
   "requirements": [
-    { "command": "gio", "packages": { "pacman": "glib2", "dnf": "glib2", "nix": "glib" }, "optional": false, "purpose": "Opens a calendar day in the default browser" }
+    { "command": "gio", "packages": { "pacman": "glib2", "dnf": "glib2", "nix": "glib" }, "optional": false, "purpose": "Opens a calendar day in the default browser" },
+    { "command": "chromium", "packages": { "pacman": "chromium", "apt": "chromium", "dnf": "chromium", "nix": "chromium" }, "optional": true, "purpose": "Opens a calendar day in a Chromium profile" },
+    { "command": "google-chrome-stable", "packages": { "aur": "google-chrome", "nix": "google-chrome" }, "optional": true, "purpose": "Opens a calendar day in a Google Chrome profile" },
+    { "command": "brave", "packages": { "aur": "brave-bin", "nix": "brave" }, "optional": true, "purpose": "Opens a calendar day in a Brave profile" },
+    { "command": "vivaldi-stable", "packages": { "pacman": "vivaldi", "nix": "vivaldi" }, "optional": true, "purpose": "Opens a calendar day in a Vivaldi profile" },
+    { "command": "microsoft-edge-stable", "packages": { "aur": "microsoft-edge-stable-bin", "nix": "microsoft-edge" }, "optional": true, "purpose": "Opens a calendar day in a Microsoft Edge profile" }
   ],
   "settings": {
     "clockFormat": "ddd d MMM  HH:mm",
     "calendarUrl": "https://calendar.google.com/calendar/r/day/{year}/{month}/{day}",
+    "openWith": "",
     "hidden": false
   },
   "schema": {
@@ -62,11 +70,20 @@
         { "value": "https://outlook.live.com/calendar/0/view/day/{year}/{month}/{day}", "label": "Outlook" }
       ]
     },
+    "openWith": {
+      "type": "string",
+      "label": "Open with",
+      "description": "The browser and profile a click on a day opens your calendar in",
+      "optionsFrom": "browserProfiles"
+    },
     "hidden": {
       "type": "boolean",
       "label": "Hide top bar",
       "description": "Hide the bar on every screen and give its space to windows"
     }
+  },
+  "status": {
+    "browserProfiles": { "type": "choices", "label": "Browser profiles", "hidden": true }
   },
   "hyprland": {
     "binds": [
