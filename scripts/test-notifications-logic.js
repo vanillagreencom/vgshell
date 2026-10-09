@@ -7,7 +7,8 @@
 // which notifications stay held and which go into the history, the
 // sender's window, the paused and running clocks, the per-application
 // rules that read a sender's workspace, people and workspace icons, and
-// the VGS hints with what a click on a hinted card does. Every expected value is written out by hand.
+// the VGS hints with what a click on a hinted card does, and how a card's
+// body text reads against its card. Every expected value is written out by hand.
 //
 // The controls at the end edit a copy of the logic, one rule at a time, and
 // require this suite to fail on each copy.
@@ -20,6 +21,8 @@ const { load } = require("../bin/lib/qml-library.js");
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.notifications", "NotificationLogic.js");
 // The plugin's look, whose face tints the logic names.
 const appearance = load(path.join(__dirname, "..", "shell", "plugins", "vgs.notifications", "Appearance.js"));
+// The theme judge, which resolves the look and reads a contrast ratio.
+const themeLogic = load(path.join(__dirname, "..", "shell", "Commons", "ThemeLogic.js"));
 // The core's status judge, which the Slack token rows the service publishes
 // must pass.
 const pluginLogic = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
@@ -930,5 +933,36 @@ assert.deepEqual(serviceMismatches(manifestText, readSource), [], "every script 
 const otherManifest = JSON.stringify(Object.assign({}, JSON.parse(manifestText), { secrets: { service: "vgs-other", label: "x" } }));
 assert.deepEqual([...new Set(serviceMismatches(otherManifest, readSource).map(line => line.split(" ")[0]))], SERVICE_SOURCES.map(([name]) => name), "control: a manifest naming another service fails every script");
 assert.deepEqual(serviceMismatches(manifestText, name => name === "slack-photos.js" ? readSource(name).replace('"service", "vgs-notifications"', '"service", "vgs-other"') : readSource(name)), ["slack-photos.js names vgs-other, the manifest vgs-notifications"], "control: a helper naming another service fails");
+
+// A card's body text against the card it sits on, WCAG 2.2 SC 1.4.3 AA for
+// normal-size text. The card is the glass fill over the wallpaper and the
+// text the body's colour over that card, judged over black and over white,
+// the darkest and the lightest a wallpaper pixel can be. The light look
+// meets the floor over both; the dark body keeps the value it had. The
+// control: a light look whose body is the foreground at 0.5, the subtitle's
+// opacity it drew at before, is under the floor over both.
+const BODY_FLOOR = 4.5;
+const WALLPAPERS = ["#000000", "#ffffff"];
+function lookIn(light, mode) {
+    const judged = themeLogic.acceptAppearance(appearance.TOKENS, light, { scheme: { mode: mode }, palette: { accent: "#ff5a36" }, motion: { scale: 1 } });
+    assert.equal(judged.ok, true, "the look resolves in " + mode + " mode: " + JSON.stringify(judged));
+    return judged.values;
+}
+function over(top, under) {
+    const channel = name => top[name] * top.a + under[name] * (1 - top.a);
+    return { r: channel("r"), g: channel("g"), b: channel("b"), a: 1 };
+}
+function bodyShortfalls(look) {
+    return WALLPAPERS.filter(wallpaper => {
+        const card = over(themeLogic.parseColor(look.glass.fill), themeLogic.parseColor(wallpaper));
+        return themeLogic.contrastRatio(over(themeLogic.parseColor(look.text.body.color), card), card) < BODY_FLOOR;
+    });
+}
+same(bodyShortfalls(lookIn(appearance.LIGHT, "light")), [], "the light body text meets 4.5:1 on its card over a dark and a light wallpaper");
+// #e8e8e8 at 0.5: 0.5 * 255 = 127.5, 0x80.
+assert.equal(lookIn(appearance.LIGHT, "dark").text.body.color, "#e8e8e880", "the dark body text is the foreground at 0.5");
+const faintLight = JSON.parse(JSON.stringify(appearance.LIGHT));
+faintLight.text.body.color = "alpha({text.foreground}, 0.5)";
+same(bodyShortfalls(lookIn(faintLight, "light")), WALLPAPERS, "control: a light body at 0.5 is under the floor");
 
 console.log(`test-notifications-logic: ok bodies=${BODIES.length} states=${STATE_REFUSED.length} hints=${HINT_ROWS.length} enriched=${ENRICHED.length} controls=${CONTROLS.length}`);

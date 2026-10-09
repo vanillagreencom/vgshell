@@ -244,7 +244,7 @@ Item {
                 // body's fade is its colour's alpha, so an emoji draws at
                 // full strength.
                 segments: card.bodySegments
-                color: card.look.text.subtitle.color
+                color: card.look.text.body.color
                 font: Qt.font({ family: card.look.font.family, pixelSize: card.look.text.body.size })
                 maximumLineCount: Math.max(1, Math.floor(room / bodyMetrics.height))
             }
