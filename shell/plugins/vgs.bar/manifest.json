@@ -55,7 +55,7 @@
     "calendarUrl": {
       "type": "string",
       "label": "Calendar",
-      "description": "The web calendar a click on a day in the clock's calendar opens. A custom address takes {year}, {month} and {day}",
+      "description": "The web calendar a click on a day opens; a custom address takes {year}, {month} and {day}",
       "allowCustom": true,
       "presets": [
         { "value": "https://calendar.google.com/calendar/r/day/{year}/{month}/{day}", "label": "Google Calendar" },

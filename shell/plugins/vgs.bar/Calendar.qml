@@ -20,7 +20,7 @@ Item {
     id: root
 
     property var shell: null
-    property Item initialFocus: page
+    property Item initialFocus: root
 
     // Today, read apart so the month grid's cells change only at midnight,
     // not on every tick of the clock.
@@ -61,6 +61,12 @@ Item {
 
     implicitWidth: Theme.size.panel.sm
     implicitHeight: layout.implicitHeight
+    // Qt hands a key an item does not accept to its parent, so Left and
+    // Right reach the calendar from a focused month button.
+    Keys.onLeftPressed: root.showMonth(-1)
+    Keys.onRightPressed: root.showMonth(1)
+    Keys.onReturnPressed: root.openShownDay()
+    Keys.onEnterPressed: root.openShownDay()
 
     Surface {
         anchors.fill: parent
@@ -71,22 +77,11 @@ Item {
         anchors.fill: parent
         container: "panel"
         fitToContent: true
-
-        Column {
-            id: page
-            readonly property real cellHeight: Theme.size.control.sm
-
-            width: layout.contentWidth
-            spacing: Theme.space.sm
-            // Qt hands a key an item does not accept to its parent, so
-            // Left and Right reach the page from a focused button.
-            Keys.onLeftPressed: root.showMonth(-1)
-            Keys.onRightPressed: root.showMonth(1)
-            Keys.onReturnPressed: root.openShownDay()
-            Keys.onEnterPressed: root.openShownDay()
-
+        // The month row is the header, so the Settings gear the panel host
+        // adds sits at its end, not on a row of its own.
+        header: [
             Row {
-                width: parent.width
+                width: layout.headerWidth
                 spacing: Theme.space.xs
                 IconButton { id: previous; iconName: "chevron-left"; label: "Previous month"; onClicked: root.showMonth(-1) }
                 Label {
@@ -99,6 +94,14 @@ Item {
                 }
                 IconButton { id: next; iconName: "chevron-right"; label: "Next month"; onClicked: root.showMonth(1) }
             }
+        ]
+
+        Column {
+            id: page
+            readonly property real cellHeight: Theme.size.control.sm
+
+            width: layout.contentWidth
+            spacing: Theme.space.sm
 
             // Both Qt controls take their height from tokens, not from
             // their content: a popup takes the size of its first frame,
@@ -136,7 +139,7 @@ Item {
                 activeFocusOnTab: false
                 month: root.shownMonth
                 year: root.shownYear
-                // keyboard-path: Enter on the page opens today, or the 1st of the shown month
+                // keyboard-path: Enter on the calendar opens today, or the 1st of the shown month
                 delegate: Button {
                     // The roles of Qt's month grid model.
                     required property int day
