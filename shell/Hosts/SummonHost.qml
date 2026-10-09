@@ -215,7 +215,9 @@ Scope {
                         host.rememberFocuser(entry.modelData, () => focusInitial());
                         if (host.built(entry.modelData, instance)) focusInitial();
                     }
-                    onDismissed: Qt.callLater(() => host.drop(entry.modelData))
+                    onDismissed: Qt.callLater(() => {
+                        if (!popupSurface.visible) host.drop(entry.modelData);
+                    })
                 }
             }
 

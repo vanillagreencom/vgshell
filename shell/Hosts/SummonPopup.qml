@@ -87,6 +87,7 @@ PopupWindow {
     function requestDismiss() {
         if (closing) return;
         closing = true;
+        slot.closeInstance();
         setMotion(0, true);
     }
 
@@ -95,7 +96,6 @@ PopupWindow {
     }
 
     function closeFromHost() {
-        slot.closeInstance();
         requestDismiss();
     }
 
