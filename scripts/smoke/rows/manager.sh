@@ -73,11 +73,13 @@ user_key() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.ar
 # The binds Hyprland holds for the Settings shortcut, as [modmask, key].
 settings_binds() { hypr -j binds | py_reply 'import json,sys; print(json.dumps(sorted([b["modmask"], b["key"]] for b in json.load(sys.stdin) if b["description"] == "vgs.settings:toggle" and b.get("submap", "") in ("", "default"))))'; }
 # window_fits MONITOR [MODE]: [] when the Settings window on MONITOR is
-# min(size.window.width, width - 2 * size.window.gutter) wide,
-# the larger of its tall-height request and its titled Pane content,
-# capped by the height less two gutters, and centred on the monitor's
-# work area, its box less the space the bar reserves and general:float_gaps,
-# where Hyprland centres a floating window, within one pixel; else the
+# min(size.window.width, the monitor's width less the edges Hyprland
+# reserves and size.window.gutter a side) wide, the larger of its
+# tall-height request and its titled Pane content, capped by the height
+# less the reserved edges and the gutter a side, and centred on the
+# monitor's work area, its box less the space the bar reserves and
+# general:float_gaps, where Hyprland centres a floating window, within one
+# pixel; else the
 # misfits. The monitor, the clients and the gaps come from one batched
 # request, which the compositor answers from one state. Given MODE, the
 # mode a row holds, a monitor at another mode reads
@@ -118,8 +120,8 @@ top, right, bottom, left = (int(v) for v in gaps["css"].split())
 rl, rt, rr, rb = m["reserved"]
 area_x, area_y = m["x"] + rl + left, m["y"] + rt + top
 area_w, area_h = mw - rl - rr - left - right, mh - rt - rb - top - bottom
-want_w = math.floor(min(width, mw - 2 * gutter))
-want_h = math.floor(min(max(math.floor(share * mh), max(requests)), mh - 2 * gutter))
+want_w = math.floor(min(width, mw - rl - rr - 2 * gutter))
+want_h = math.floor(min(max(math.floor(share * mh), max(requests)), mh - rt - rb - 2 * gutter))
 out = []
 for key, got, want in (("w", w, want_w), ("h", h, want_h), ("x", x, area_x + (area_w - want_w) / 2), ("y", y, area_y + (area_h - want_h) / 2)):
     if abs(got - want) > 1: out.append("%s=%s want=%s" % (key, got, want))

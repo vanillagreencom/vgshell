@@ -523,7 +523,11 @@ for share_size in standard minimum; do
           type_keys -k Tab || fail "share-picker: reaching the next slider failed"
         done
         if [[ $share_size == standard && $share_mode == dark ]]; then
-          share_minimum_mode="$(share_read sharingHeight | py_reply 'import math,sys; gutter=2*float(sys.argv[3]); bar=float(sys.argv[5].split()[2]); margin=max(gutter,bar+2*float(sys.argv[6])); print("%dx%d" % (math.ceil(float(sys.argv[4])+gutter),math.ceil(float(sys.stdin.read())-2*(float(sys.argv[1])+float(sys.argv[2]))+margin)))' "$(ipc smoke themeValue row.height)" "$(ipc smoke themeValue stack.row)" "$(ipc smoke themeValue size.window.gutter)" "$(ipc smoke themeValue size.window.width)" "$(monitor_size)" "$(window_border_size)")"
+          # The smallest output whose work area less the gutter a side,
+          # the window's room, holds the compact Area: its height, the
+          # bar's reserved top (monitor_size's third field) and a gutter a
+          # side.
+          share_minimum_mode="$(share_read sharingHeight | py_reply 'import math,sys; gutter=2*float(sys.argv[3]); bar=float(sys.argv[5].split()[2]); margin=bar+gutter; print("%dx%d" % (math.ceil(float(sys.argv[4])+gutter),math.ceil(float(sys.stdin.read())-2*(float(sys.argv[1])+float(sys.argv[2]))+margin)))' "$(ipc smoke themeValue row.height)" "$(ipc smoke themeValue stack.row)" "$(ipc smoke themeValue size.window.gutter)" "$(ipc smoke themeValue size.window.width)" "$(monitor_size)")"
           printf 'share-picker: minimum-output=%s full-area-height=%s\n' "$share_minimum_mode" "$(share_read sharingHeight)"
         fi
       fi
