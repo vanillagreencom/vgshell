@@ -372,11 +372,15 @@ var TOKENS = {
     // between the blocks of a window's page, which a reader holds longer
     // than a flyout, `section` before a section, and `inline` between
     // controls side by side in one group, such as a row of buttons.
+    // `heading` is the space a `Section` leaves above its heading, from the
+    // lowest drawn pixel above it to the heading's capital top, so the eye
+    // reads the same space under a switch, a select or a help line.
     stack: {
         row: length("{space.xs}"),
         group: length("{space.lg}"),
         page: length("{space.xl}"),
         section: length("{space.xxl}"),
+        heading: length("{space.xxxl}"),
         titleSpace: bodyLines(1.2),
         inline: length("{space.md}")
     },

@@ -14,6 +14,11 @@ import qs.Commons
 // glyph. `topForCapCenter()` gives the top that puts the capital centre on
 // a box centre with the baseline on a whole device pixel of the label's own
 // screen, since a whole pixel spans two device pixels on a 2x screen.
+// `capTop()` is how far below the label top the first line's capitals
+// start, and `inkBelow()` how far above its bottom edge the last line's
+// ink ends: its baseline in capitals, else its descent. Lines of one label
+// share one line box, so the last baseline is the first one
+// `baselineOffset` places, moved down by every line box but the last.
 Text {
     id: root
 
@@ -41,6 +46,15 @@ Text {
     font.capitalization: typography.uppercase ? Font.AllUppercase : Font.MixedCase
     lineHeight: lineBox > fontHeight ? lineBox : 1
     lineHeightMode: lineBox > fontHeight ? Text.FixedHeight : Text.ProportionalHeight
+
+    function capTop() {
+        return baselineOffset - metrics.capitalHeight;
+    }
+
+    function inkBelow() {
+        const lines = Math.max(1, lineCount);
+        return height - baselineOffset - contentHeight * (lines - 1) / lines - (typography.uppercase ? 0 : metrics.descent);
+    }
 
     function topForCapCenter(boxHeight) {
         return Math.round((boxHeight / 2 + metrics.capitalHeight / 2) * Screen.devicePixelRatio) / Screen.devicePixelRatio - metrics.ascent;

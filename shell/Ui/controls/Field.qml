@@ -95,7 +95,9 @@ Column {
             }
             return Math.max(0, controlRow.height - bottom);
         }
-        // The lines' block, then the hint `field.gap` under it.
+        // The lines' block, then the hint `field.gap` under it; the last
+        // of them ends the slot.
+        function inkBelow() { return hintLine.text !== "" ? hintLine.inkBelow() : Theme.inkBelow(subLines); }
         readonly property real linesHeight: root.lines.length > 0 ? subLines.implicitHeight + (hintLine.text !== "" ? Theme.field.gap : 0) : 0
         height: Math.max(0, linesHeight + (hintLine.text !== "" ? hintLine.implicitHeight : 0) - slack)
 

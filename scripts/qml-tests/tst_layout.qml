@@ -45,6 +45,7 @@ Item {
         spacing: Theme.stack.group
         Section { id: firstSection; title: "First"; width: parent.width; Field { label: "One"; inline: true; width: parent.width; Label { role: "item"; text: "Ready" } } }
     }
+    FontMetrics { id: eyebrowMetrics; font: section.children[0].children[0].children[0].font }
     Surface { id: surface; level: "raised"; width: 100; height: 40; y: 220 }
     Divider { id: divider; width: 100; y: 270 }
     SignalSpy { id: clicks; target: row; signalName: "clicked" }
@@ -197,11 +198,17 @@ Item {
             compare(String(divider.color), String(Qt.color(Theme.divider.color)));
         }
 
+        // How far the heading's capitals start under the drawn row above
+        // it, a box that draws to its edge.
+        function headingSpace() {
+            const eyebrow = section.children[0].children[0].children[0];
+            return eyebrow.mapToItem(sectionColumn, 0, eyebrow.baselineOffset).y - eyebrowMetrics.capitalHeight - beforeSection.height;
+        }
+
         function test_section_spacing_and_inset() {
             const headerItem = section.children[0];
             const rows = section.children[1];
-            compare(section.topPadding, Theme.stack.section - sectionColumn.spacing);
-            fuzzyCompare(headerItem.mapToItem(sectionColumn, 0, 0).y - beforeSection.height, Theme.stack.section, 1);
+            fuzzyCompare(headingSpace(), Theme.stack.heading, 1);
             compare(firstSection.topPadding, 0);
             compare(rows.spacing, Theme.stack.row);
             compare(headerItem.leftPadding, Theme.row.paddingX);
@@ -218,10 +225,11 @@ Item {
         }
 
         function test_theme_change_moves_the_layout() {
-            compare(UnitTheme.override({ tabs: { height: 44 }, row: { height: 50 }, stack: { row: 9, section: 30 }, divider: { thickness: 3 }, surface: { radius: 9 } }), "ok");
+            compare(UnitTheme.override({ tabs: { height: 44 }, row: { height: 50 }, stack: { row: 9, heading: 40 }, divider: { thickness: 3 }, surface: { radius: 9 } }), "ok");
             compare(tabs.height, 44);
             verify(row.height >= 50);
-            compare(section.topPadding, 30 - sectionColumn.spacing);
+            // The column places its rows again on its next polish.
+            tryVerify(() => Math.abs(headingSpace() - 40) <= 1, 1000, "the heading moves with the token");
             compare(section.children[1].spacing, 9);
             compare(divider.height, 3);
             compare(surface.radius, 9);

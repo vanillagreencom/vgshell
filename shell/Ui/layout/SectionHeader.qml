@@ -7,7 +7,9 @@ import qs.Ui
 // description, since the rows after it are a group. `Section` owns the
 // space above. It spans its parent, as a heading does, unless given a
 // width; a surface that insets its rows sets `leftPadding` and
-// `rightPadding` to match.
+// `rightPadding` to match. `capTop()` is how far below its top the
+// title's capitals start, or 0 for no title, for the space `Section`
+// measures to what it draws.
 Column {
     id: root
 
@@ -19,6 +21,8 @@ Column {
     readonly property real bodyWidth: width - leftPadding - rightPadding
 
     width: parent ? parent.width : implicitWidth
+
+    function capTop() { return text === "" ? 0 : topPadding + titleLabel.parent.y + titleLabel.y + titleLabel.capTop(); }
 
     topPadding: 0
     bottomPadding: description !== "" ? Theme.stack.group : Theme.sectionHeader.paddingBottom

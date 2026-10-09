@@ -6,7 +6,8 @@ import qs.Ui
 // Text with one cited substring as a link. The text property is plain
 // text; every occurrence of `link` is drawn as a link and activates the
 // component. `lineCount` is the wrapped label's line count, for owners that
-// measure whether the message stayed on one line. Use it where a consumer
+// measure whether the message stayed on one line, and `inkBelow()` is the
+// label's (Label.qml). Use it where a consumer
 // surface cites a file that the core can open through `vgshell edit`.
 // The focus ring goes round the first occurrence's words, `linkBox`, not
 // the whole text, so a ring on a line of prose shows which words act.
@@ -84,6 +85,10 @@ T.Control {
     }
 
     onClicked: activated()
+
+    function inkBelow() {
+        return height - label.y - label.height + label.inkBelow();
+    }
 
     implicitWidth: label.implicitWidth
     implicitHeight: label.implicitHeight

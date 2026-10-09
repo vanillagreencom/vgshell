@@ -33,7 +33,9 @@ import qs.Ui
 // no row height: the control takes the full width at its own height, as a
 // Field whose label stands above its control does. `valueX` is where the
 // value column starts, for content that belongs under it. Width comes from
-// the parent.
+// the parent. `inkBelow()` is how far above its bottom edge the row's
+// lowest drawn part ends, its label, its control as drawn, its message or
+// that message's action, since the control centres in a taller row box.
 Item {
     id: root
 
@@ -59,6 +61,16 @@ Item {
     readonly property real messageBottom: height - subTextRoom
     readonly property real boxHeight: messageBottom - messageRoom
     signal warningLinkActivated()
+
+    function inkBelow() {
+        let bottom = labelColumn && label !== "" ? labelText.y + labelText.height - labelText.inkBelow() : 0;
+        for (const child of slot.children) {
+            if (child.visible) bottom = Math.max(bottom, slot.y + child.y + child.height - Theme.inkBelow(child));
+        }
+        if (message.visible) bottom = Math.max(bottom, message.y + message.height - message.inkBelow());
+        if (actionSlot.visible) bottom = Math.max(bottom, actionSlot.y + actionSlot.height);
+        return height - bottom;
+    }
 
     function toneColor(name) {
         if (name === "warning") return Theme.color.warning;

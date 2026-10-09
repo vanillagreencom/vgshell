@@ -163,6 +163,26 @@ Singleton {
         return subText && index >= 0 && !last ? Math.max(0, stack.group - spacing) : 0;
     }
 
+    // How far above its bottom edge an item's drawn content ends, so a
+    // `Section` measures the space above its heading from what the eye
+    // sees. An item that declares `inkBelow()`, such as a `Label`, a
+    // `Switch` or a `FormRow`, answers for itself; a Column ends where its
+    // lowest placed child does and a Loader where its item does; any other
+    // item draws to its edge. A Column lays out no hidden or zero-sized
+    // child (https://doc.qt.io/qt-6/qml-qtquick-column.html).
+    function inkBelow(item) {
+        if (item === null || item === undefined) return 0;
+        if (typeof item.inkBelow === "function") return item.inkBelow();
+        if (item instanceof Loader) return item.item instanceof Item ? item.height - item.item.y - item.item.height + inkBelow(item.item) : 0;
+        if (!(item instanceof Column)) return 0;
+        let last = null;
+        for (const child of item.children) {
+            if (!child.visible || child.width <= 0 || child.height <= 0) continue;
+            if (last === null || child.y + child.height >= last.y + last.height) last = child;
+        }
+        return last === null ? 0 : item.height - last.y - last.height + inkBelow(last);
+    }
+
     function toColor(text) {
         return "#" + text.slice(7, 9) + text.slice(1, 7);
     }

@@ -13,7 +13,9 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // track it sits on. Hover lightens the track and a press widens the knob.
 // The text draws in `item`; the track centres on its capital centre on a
 // whole pixel, and the control is never shorter than `size.control.sm`,
-// so a compact track keeps a larger input area.
+// so a compact track keeps a larger input area. `inkBelow()` is how far
+// above its bottom edge the track or the text ends, for the space a
+// `Section` measures from what it draws.
 // Its tokens are `Theme.toggle`, since `switch` is a JavaScript keyword.
 T.Switch {
     id: root
@@ -39,6 +41,11 @@ T.Switch {
     // The content's left padding already holds the indicator and the gap.
     implicitWidth: text !== "" ? implicitContentWidth : implicitIndicatorWidth
     implicitHeight: Math.max(Theme.size.control.sm, implicitIndicatorHeight, implicitContentHeight)
+
+    function inkBelow() {
+        const text = root.text === "" ? 0 : contentItem.y + contentItem.height - Theme.inkBelow(contentItem);
+        return height - Math.max(indicator.y + indicator.height, text);
+    }
     spacing: Theme.toggle.gap
     hoverEnabled: true
     PointerCursor {}

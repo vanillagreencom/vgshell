@@ -155,6 +155,7 @@ const DEFAULTS = [
     ["stack.group", 12],
     ["stack.page", 16],
     ["stack.section", 24],
+    ["stack.heading", 32],
     ["stack.inline", 8],
     ["button.paddingX", 12],
     ["textField.paddingX", 10],

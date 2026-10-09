@@ -316,6 +316,10 @@ Column {
             width: parent.width
             implicitHeight: Math.max(bar.implicitHeight, shown.implicitHeight)
 
+            // The slider and its value centre in the row: the lower of
+            // their drawn bottoms ends it (Theme.inkBelow).
+            function inkBelow() { return height - Math.max(bar.y + bar.height - bar.inkBelow(), shown.y + shown.height - shown.inkBelow()); }
+
             function commit() {
                 const wanted = bar.value;
                 bar.value = Qt.binding(() => root.value);
