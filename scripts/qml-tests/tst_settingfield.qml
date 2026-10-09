@@ -64,8 +64,8 @@ Item {
 
     // A key field whose description carries a link at its start, so a
     // click at the line's start lands on it, and a custom field whose
-    // description carries one too. The error field's line is an error,
-    // which carries no link.
+    // description carries one too. The error field's error holds its hint
+    // link's words, which an error line still draws as no link.
     Column {
         id: linkRows
         y: 360
@@ -91,7 +91,7 @@ Item {
             label: "Erred"
             hint: "Get one at the key page."
             hintLink: "key page"
-            error: "That key was refused."
+            error: "The key page refused that key."
         }
     }
 
@@ -171,7 +171,7 @@ Item {
 
         function test_an_error_line_carries_no_link() {
             const link = linkOf(erred);
-            compare(link.text, "That key was refused.");
+            compare(link.text, "The key page refused that key.");
             verify(!link.linked, "the error line draws no link");
         }
 

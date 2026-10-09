@@ -166,7 +166,7 @@ mutations=(
   "a bind row drops its caller's actions|controls/BindField.qml|property alias actions: input.actions|property var actions: []|tst_bindfield.qml"
   "a bind row drops its caller's hint actions|controls/BindField.qml|property alias hintActions: input.hintActions|property var hintActions: []|tst_bindfield.qml"
   "an empty hint action line hides what it waits on|controls/ShortcutField.qml|id: hintActionRow|id: hintActionRow; visible: visibleChildren.length > 0|tst_bindfield.qml"
-  "a bind row hides its hint link|controls/BindField.qml|property alias hintLink: input.hintLink|property string hintLink: \"\"|tst_bindfield.qml"
+  "a bind row hides its hint link|controls/BindField.qml|        hintLink: root.hintLink|        hintLink: \"\"|tst_bindfield.qml"
   "a bind row reports no hint link|controls/BindField.qml|onHintLinkActivated: root.hintLinkActivated()|onHintLinkActivated: {}|tst_bindfield.qml"
   "the shortcut field draws no hint link|controls/ShortcutField.qml|link: root.hintIsNotice ? \"\" : root.hintLink|link: \"\"|tst_bindfield.qml"
   "hint actions draw in the tool row|controls/ShortcutField.qml|property alias hintActions: hintActionRow.data|property alias hintActions: actionRow.data|tst_bindfield.qml"
