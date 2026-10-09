@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// The provider table against its vendors' documentation; the GPT-Live row's
-// sources are in docs/decisions/D089-jarvis-chained-engine-and-heard-prefix.md.
-// No request is made.
+// The provider table against its vendors' documentation, and the tree's own
+// account of two names: the realtime model, pinned in one place, and the
+// removed duplex voice, named nowhere. No request is made.
 "use strict";
-const { assert, path, backend, world, control } = require("./fixtures/jarvis-voice/assertions.js");
+const { assert, fs, path, backend, world, control } = require("./fixtures/jarvis-voice/assertions.js");
+const { execFileSync } = require("node:child_process");
 const Providers = require(path.join(backend, "Providers.js"));
 
 // Pinned independently of the table: base URL, key need, image input and
@@ -36,9 +37,13 @@ function pinned(logic) {
         ["anthropic", "anthropic-messages", "https://api.anthropic.com/v1", "required", true, null]);
     assert.equal(row.retention.source, "https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data");
     assert.ok(Object.isFrozen(row) && Object.isFrozen(row.retention));
-    const live = logic.select("openai-live", "http://127.0.0.1:9000/v1");
-    assert.deepEqual([live.id, live.driver, live.base, live.key, live.images, live.noStore],
-        ["openai-live", "openai-live", "wss://api.openai.com/v1/live/sessions", "required", false, { store: false }]);
+    // The address pins the model: session.update cannot change it. The id
+    // itself is read from the row, which is its one place in the tree.
+    const live = logic.select("openai-realtime", "http://127.0.0.1:9000/v1");
+    const address = new URL(live.base);
+    assert.deepEqual([live.id, live.driver, address.origin + address.pathname, [...address.searchParams.keys()], live.key, live.images, live.noStore],
+        ["openai-realtime", "openai-realtime", "wss://api.openai.com/v1/realtime", ["model"], "required", false, { tracing: null }]);
+    assert.match(address.searchParams.get("model"), /^[a-z0-9][a-z0-9.-]*$/, "the address names a model");
     assert.equal(live.retention.source, "https://developers.openai.com/api/docs/guides/your-data");
     assert.ok(Object.isFrozen(live) && Object.isFrozen(live.noStore));
     // The harness rows: the program owns its login; base names the release recipient.
@@ -103,6 +108,40 @@ for (const id of ["", "OpenAI", "xai", "constructor", "__proto__", 7])
 assert.throws(() => Providers.assertRow({ ...Providers.select("openai") }), { message: "jarvis: provider=row" });
 assert.throws(() => Providers.select("openai").noStore.store = true, TypeError);
 
+// git lists the files a search reads: the tree's tracked and not yet tracked
+// files, or with --no-index a scratch folder. Each answer line is file:line:text.
+function search(root, flags, pattern) {
+    try {
+        return execFileSync("git", ["grep", "-I", "-n", ...flags, "-e", pattern, "--", "."],
+            { cwd: root, env: { PATH: process.env.PATH }, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }).trim().split("\n");
+    } catch (error) {
+        // git grep exits 1 when nothing matches.
+        if (error.status === 1 && error.stdout === "") return [];
+        throw error;
+    }
+}
+const repo = path.resolve(backend, "../../../..");
+const fileOf = line => line.split(":")[0];
+const textOf = line => line.split(":").slice(2).join(":");
+// The realtime model's id stands in one line of the tree, the provider row's.
+function pinnedOnce(root, flags, expected) {
+    const model = new URL(Providers.select("openai-realtime").base).searchParams.get("model");
+    assert.deepEqual(search(root, [...flags, "-F"], model).map(fileOf), expected, "the realtime model is named in one place");
+}
+pinnedOnce(repo, ["--untracked"], ["shell/plugins/vgs.jarvis/backend/Providers.js"]);
+// The removed duplex voice's names, in every spelling the tree used. The
+// input transcription model's id starts with one of them: that one exact
+// token stays, since the Realtime session's transcription needs it.
+const REMOVED = ["gpt", "live"].join("[-_ ]?") + "|" + ["openai", "live"].join("-");
+const KEPT = /(?<![\w-])gpt-live-transcribe(?![\w-])/g;
+function leftovers(root, flags) {
+    return search(root, [...flags, "-i", "-E"], REMOVED)
+        .filter(line => new RegExp(REMOVED, "i").test(textOf(line).replace(KEPT, "")));
+}
+assert.deepEqual(leftovers(repo, ["--untracked"]), [], "the removed duplex voice is named nowhere in the tree");
+assert.ok(search(repo, ["--untracked", "-F"], "gpt-live-transcribe").map(fileOf).includes("shell/plugins/vgs.jarvis/backend/Realtime.js"),
+    "the search reads the adapter, where the kept token stands");
+
 let controls = 0;
 world("providers", root => {
     const mutants = [
@@ -110,8 +149,9 @@ world("providers", root => {
         ["anthropic-base", '"https://api.anthropic.com/v1"', '"https://api.anthropic.com"', pinned],
         ["base", '"https://api.groq.com/openai/v1"', '"https://api.groq.com/v1"', pinned],
         ["no-store", "images: true,\n        noStore: { store: false }", "images: true,\n        noStore: null", pinned],
-        ["live-no-store", "images: false,\n        noStore: { store: false }", "images: false,\n        noStore: null", pinned],
-        ["live-base", '"wss://api.openai.com/v1/live/sessions"', '"wss://api.openai.com/v1/realtime"', pinned],
+        ["live-no-store", "images: false,\n        noStore: { tracing: null }", "images: false,\n        noStore: null", pinned],
+        ["live-base", '"wss://api.openai.com/v1/realtime?model=', '"wss://api.openai.com/v1/live?model=', pinned],
+        ["live-model", '/v1/realtime?model=', '/v1/realtime?version=', pinned],
         ["codex-key", 'base: "https://chatgpt.com", key: "none"', 'base: "https://chatgpt.com", key: "optional"', pinned],
         ["claude-key", 'base: "https://api.anthropic.com", key: "none"', 'base: "https://api.anthropic.com", key: "optional"', pinned],
         ["claude-origin", 'base: "https://api.anthropic.com", key: "none"', 'base: "https://claude.ai", key: "none"', joined],
@@ -131,6 +171,25 @@ world("providers", root => {
     ];
     for (const [name, needle, replacement, check] of mutants) {
         control(root, name, "Providers.js", needle, replacement, check);
+        controls++;
+    }
+    // The searches against planted trees: a second place for the model, and
+    // each removed spelling beside the one kept token.
+    const scratch = path.join(root, "names");
+    fs.mkdirSync(scratch);
+    const model = new URL(Providers.select("openai-realtime").base).searchParams.get("model");
+    fs.writeFileSync(path.join(scratch, "row.js"), "const base = \"wss://example.test/v1/realtime?model=" + model + "\";\n");
+    pinnedOnce(scratch, ["--no-index"], ["row.js"]);
+    fs.writeFileSync(path.join(scratch, "second.md"), "The model is " + model + ".\n");
+    assert.throws(() => pinnedOnce(scratch, ["--no-index"], ["row.js"]), assert.AssertionError, "a second place for the model must turn red");
+    controls++;
+    fs.writeFileSync(path.join(scratch, "kept.js"), "const TRANSCRIBE = \"gpt-live-transcribe\";\n");
+    assert.deepEqual(leftovers(scratch, ["--no-index"]), [], "the kept token alone passes");
+    const voice = ["gpt", "live"].join("-");
+    for (const planted of [voice + "-1", voice + "-transcriber", voice + "-transcribe-2", "x-" + voice + "-transcribe",
+        voice.toUpperCase().replace("L", "l").replace("IVE", "ive"), "Gpt" + "Live.js", voice.replace("-", "_"), ["openai", "live"].join("-")]) {
+        fs.writeFileSync(path.join(scratch, "planted.js"), "// " + planted + " beside gpt-live-transcribe\n");
+        assert.deepEqual(leftovers(scratch, ["--no-index"]).map(fileOf), ["planted.js"], planted + " must turn red");
         controls++;
     }
 });

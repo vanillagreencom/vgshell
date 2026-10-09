@@ -1,17 +1,18 @@
 #!/usr/bin/env node
-// The GPT-Live duplex engine against schema-pinned scripts that a loopback
-// WebSocket server replays inside the J09 world, through the real Session
-// reducer and runner. In-memory capture and playback ports follow Audio's
-// sink and source contract. A manual clock drives silence, reply ends, idle
-// close and finalization. Excerpt and scripts: scripts/fixtures/jarvis-live/.
-// The key is the keys-world stand-in's fixture value; no network or account.
+// The Realtime duplex engine against a recorded session: schema-pinned
+// scripts that a loopback WebSocket server replays inside the J09 world,
+// through the real Session reducer and runner. In-memory capture and playback
+// ports follow Audio's sink and source contract. A manual clock drives
+// silence, reply ends and idle close. Excerpt and scripts:
+// scripts/fixtures/jarvis-live/. The key is the keys-world stand-in's fixture
+// value; no network or account.
 "use strict";
 const { assert, fs, path, tree, world, mutant } = require("./fixtures/jarvis/policy.js");
 const { standins } = require("./fixtures/jarvis/keys-world.js");
 const Ws = require("./fixtures/jarvis/websocket.js");
 const Check = require("./fixtures/schema-check.js");
-const excerpt = require("./fixtures/jarvis-live/gpt-live.schema.json");
-const fixtures = require("./fixtures/jarvis-live/gpt-live-scripts.json");
+const excerpt = require("./fixtures/jarvis-live/realtime.schema.json");
+const fixtures = require("./fixtures/jarvis-live/realtime-scripts.json");
 const { load } = require("../bin/lib/qml-library.js");
 const http = require("node:http");
 const cp = require("node:child_process");
@@ -19,28 +20,44 @@ const { once } = require("node:events");
 const BrainFixture = require("./fixtures/jarvis/engine.js");
 const { standins: audioStandins } = require("./fixtures/jarvis/audio.js");
 const backend = path.join(tree, "shell/plugins/vgs.jarvis/backend");
-const file = path.join(backend, "GptLive.js");
+const file = path.join(backend, "Realtime.js");
 const Protocol = load(path.join(tree, "shell/plugins/vgs.jarvis/JarvisProtocol.js"));
 const KEY = "test-key-must-stay-private";
 const PRIVATE = "fixture-private-provider-text";
-// The bounds docs/decisions/D089-jarvis-chained-engine-and-heard-prefix.md, in the units the engine reads.
+// The provider row pins the model; this suite reads it there and names it nowhere.
+const MODEL = new URL(require(path.join(backend, "Providers.js")).select("openai-realtime").base).searchParams.get("model");
+// The engine's bounds, in the units it reads.
 const BACKLOG = 256 * 1024;
 const FRAME = 1024 * 1024;
 const OPENING = 24000 * 2 * 20;
-const APPEND = "session.input_audio.append";
-const CLIENT = { "session.start": "LiveSessionStartEvent", [APPEND]: "LiveInputAudioAppendEvent",
-    "session.close": "LiveSessionCloseParam", "session.commentary.append": "LiveCommentaryAppendEvent" };
-const SERVER = { "session.started": "LiveSessionStarted", "session.output_audio.delta": "LiveOutputAudioDelta",
-    "session.input_transcript.delta": "LiveInputTranscriptDelta", "session.output_transcript.delta": "LiveOutputTranscriptDelta",
-    "session.usage.updated": "LiveSessionUsageUpdated", info: "LiveInfoEvent", "session.closed": "LiveSessionClosed",
-    error: "LiveErrorEvent", "session.delegation.created": "LiveDelegationCreated" };
+const TURN = 65536;
+const APPEND = "input_audio_buffer.append";
+const SPEAK = "response.create";
+const CLIENT = { "session.update": "SessionUpdateEvent", [APPEND]: "InputAudioBufferAppendEvent", [SPEAK]: "ResponseCreateEvent" };
+const SERVER = { "session.created": "SessionCreatedEvent", "session.updated": "SessionUpdatedEvent",
+    "input_audio_buffer.speech_started": "InputAudioBufferSpeechStartedEvent",
+    "input_audio_buffer.speech_stopped": "InputAudioBufferSpeechStoppedEvent",
+    "input_audio_buffer.committed": "InputAudioBufferCommittedEvent",
+    "conversation.item.input_audio_transcription.delta": "ConversationItemInputAudioTranscriptionDeltaEvent",
+    "conversation.item.input_audio_transcription.completed": "ConversationItemInputAudioTranscriptionCompletedEvent",
+    "conversation.item.input_audio_transcription.failed": "ConversationItemInputAudioTranscriptionFailedEvent",
+    "response.created": "ResponseCreatedEvent", "response.done": "ResponseDoneEvent",
+    "response.output_audio.delta": "ResponseAudioDeltaEvent",
+    "response.output_audio_transcript.delta": "ResponseAudioTranscriptDeltaEvent",
+    "response.function_call_arguments.done": "ResponseFunctionCallArgumentsDoneEvent", error: "RealtimeErrorEvent" };
+// Documented events the session causes and the engine does not read.
+const UNREAD = ["conversation.created", "conversation.item.created", "conversation.item.added", "conversation.item.done",
+    "input_audio_buffer.speech_stopped", "input_audio_buffer.committed", "response.output_item.added",
+    "response.output_item.done", "response.content_part.added", "response.content_part.done", "response.output_audio.done",
+    "response.output_audio_transcript.done", "rate_limits.updated"];
 function pinned(name, value, label) {
     assert.equal(typeof name, "string", label + " names a pinned event: " + value.type);
     assert.deepEqual(Check.errors(excerpt, name, value), [], label + " matches the pinned " + name);
 }
 for (const [name, events] of Object.entries(fixtures.scripts)) for (const event of events) pinned(SERVER[event.type], event, name);
+const script = (name, index = 0) => structuredClone(fixtures.scripts[name].at(index));
 // Off-schema frames a fault row needs, built from a pinned event.
-const off = (name, change) => JSON.stringify(change(structuredClone(fixtures.scripts[name][0])));
+const off = (name, change, index = 0) => JSON.stringify(change(script(name, index)));
 const turn = () => new Promise(resolve => setImmediate(resolve));
 async function until(check, label) {
     // Loopback delivery and stream events, not a latency measurement. Each
@@ -86,6 +103,8 @@ function same(event, expected, label) {
     assert.ok(actual.equals(expected), label + ": " + actual.length + " bytes");
 }
 const appended = conn => Buffer.concat(conn.events.filter(event => event.type === APPEND).map(event => Buffer.from(event.audio, "base64")));
+// The words one spoken response carries, after the voice's own guidance.
+const words = event => JSON.parse(event.response.instructions.split("\n\n").at(-1));
 
 world(async () => {
     const childEnv = {};
@@ -96,11 +115,17 @@ world(async () => {
         return fs.existsSync(calls) ? fs.readFileSync(calls, "utf8").trim().split("\n")
             .filter(line => JSON.parse(line).argv[0] === "lookup").length : 0;
     };
-    function listen() {
-        const conns = [];
+    function listen(redirectTo) {
+        const conns = [], redirected = [];
         const instance = http.createServer((request, response) => { response.writeHead(404); response.end(); });
         instance.on("upgrade", (request, socket) => {
-            const conn = { url: request.url, rig: new URL(request.url, "http://rig").searchParams.get("rig"), taken: false,
+            const query = new URL(request.url, "http://rig").searchParams;
+            if (query.get("redirect") !== null) {
+                redirected.push(query.get("rig"));
+                socket.end("HTTP/1.1 307 Temporary Redirect\r\nLocation: " + redirectTo() + request.url + "\r\n\r\n");
+                return;
+            }
+            const conn = { url: request.url, rig: query.get("rig"), taken: false, auto: 0,
                 headers: request.headers, events: [], cursor: 0, socket, ended: false,
                 play(name) { for (const event of fixtures.scripts[name]) this.raw(JSON.stringify(event)); },
                 send(event) { pinned(SERVER[event.type], event, "raw"); this.raw(JSON.stringify(event)); },
@@ -120,6 +145,13 @@ world(async () => {
                 const value = JSON.parse(payload.toString());
                 pinned(CLIENT[value.type], value, "client");
                 conn.events.push(value);
+                // The daemon rows answer each spoken response without audio.
+                if (conn.auto > 0 && value.type === SPEAK) for (const [name, index] of [["reply-old", 0], ["done-old", 0]]) {
+                    const event = script(name, index);
+                    event.response.id = "resp_auto_" + conn.auto;
+                    conn.send(event);
+                    if (name === "done-old") conn.auto++;
+                }
             }));
             socket.on("close", () => { conn.ended = true; });
             // A fixture socket reset after the engine closes is not evidence.
@@ -127,7 +159,7 @@ world(async () => {
         });
         return new Promise((resolve, reject) => {
             instance.once("error", reject);
-            instance.listen(0, "127.0.0.1", () => resolve({ instance, conns,
+            instance.listen(0, "127.0.0.1", () => resolve({ instance, conns, redirected,
                 origin: "http://127.0.0.1:" + instance.address().port,
                 // A rig's own connection: a red control's late one never stands in.
                 async accept(w) {
@@ -139,8 +171,8 @@ world(async () => {
                 } }));
         });
     }
-    const main = await listen();
     const other = await listen();
+    const main = await listen(() => other.origin.replace("http:", "ws:"));
     const nets = [];
     let conversations = 0;
 
@@ -150,34 +182,34 @@ world(async () => {
         for (const sibling of fs.readdirSync(folder).filter(name => name.endsWith(".js")))
             fs.copyFileSync(path.join(folder, sibling), path.join(table, sibling));
         fs.cpSync(path.join(backend, "skills"), path.join(table, "skills"), { recursive: true });
-        for (const [name, needle, replacement] of [["Providers.js", '"wss://api.openai.com/v1/live/sessions"',
-            JSON.stringify(main.origin.replace("http:", "ws:") + "/v1/live/sessions")], ...edits]) {
+        for (const [name, needle, replacement] of [["Providers.js", "wss://api.openai.com/v1/realtime",
+            main.origin.replace("http:", "ws:") + "/v1/realtime"], ...edits]) {
             const source = fs.readFileSync(path.join(table, name), "utf8");
             assert.equal(source.split(needle).length - 1, 1, name + " kit substitution");
             fs.writeFileSync(path.join(table, name), source.replace(needle, replacement));
         }
         const load = name => require(path.join(table, name));
-        return { folder: table, Live: load("GptLive.js"), Policy: load("Policy.js"), Net: load("net.js"), Providers: load("Providers.js"),
+        return { folder: table, Live: load("Realtime.js"), Policy: load("Policy.js"), Net: load("net.js"), Providers: load("Providers.js"),
             Secrets: load("Secrets.js"), Runner: load("session-runner.js") };
     }
 
-    function rig(kit, { key = "own", mode = "hold", synchronousClose = false } = {}) {
+    function rig(kit, { key = "own", mode = "hold", synchronousClose = false, redirect = false } = {}) {
         const clock = manual();
-        const w = { id: ++conversations, clock, played: [], flushes: 0, transcripts: [], logs: [], collected: [], sink: null,
-            source: null, handed: [], backlog: null, delegations: [] };
+        const w = { id: ++conversations, kit, clock, played: [], flushes: 0, transcripts: [], logs: [], collected: [], sink: null,
+            source: null, handed: [], backlog: null, delegations: [], tools: 0, starts: 0 };
         const store = new kit.Secrets.Secrets(path.join(childEnv.XDG_STATE_HOME, "vgshell/jarvis"), childEnv);
         const reference = kit.Secrets.ownReference("openai", "fixture", key === "elsewhere" ? other.origin : main.origin);
         const secrets = { lookup: value => { const secret = store.lookup(value); w.handed.push(secret); return secret; } };
         const recipients = kit.Policy.recipients({ conversation: "live-" + w.id, profile: "standard", cloudVision: "ask",
             brain: { kind: "local", provider: "fixture-brain", account: "" },
-            speech: [{ kind: "network", provider: "openai-live", account: "fixture", origin: main.origin }] });
+            speech: [{ kind: "network", provider: "openai", account: "fixture", origin: main.origin }] });
         w.net = kit.Net.create(recipients);
         nets.push(w.net);
         // The rig's query names its connection on the server. The send-backlog
         // bound reads the channel's unsent bytes; a staged w.backlog stands in
         // for the kernel's buffering, which differs by host.
         const net = { websocket(value, options) {
-            const channel = w.net.websocket(value, { ...options, url: options.url + "?rig=" + w.id });
+            const channel = w.net.websocket(value, { ...options, url: options.url + "&rig=" + w.id + (redirect ? "&redirect=1" : "") });
             if (channel.kind !== "channel") return channel;
             let closing = false;
             return { kind: channel.kind, events: channel.events, send: channel.send, close() {
@@ -190,7 +222,7 @@ world(async () => {
                 get readyState() { return channel.readyState; },
                 get bufferedAmount() { return w.backlog === null ? channel.bufferedAmount : w.backlog; } };
         } };
-        const engine = kit.Live.create({ provider: kit.Providers.select("openai-live"), clock,
+        const engine = kit.Live.create({ provider: kit.Providers.select("openai-realtime"), clock,
             captionLimit: Protocol.TRANSCRIPT_CHARS, log: line => w.logs.push(line),
             conversation: () => ({ net, key: key === null ? null : { secrets, reference }, language: "",
                 transfer: (item, start) => start(), grants: () => [] }) });
@@ -210,6 +242,7 @@ world(async () => {
                 const source = engine.playbackSource(e.source);
                 if (source === null) { failed("playback-source-unavailable"); return; }
                 w.source = source;
+                w.starts++;
                 source.on("data", chunk => w.played.push({ chunk, flush: w.flushes }));
                 source.on("end", () => { if (w.source === source) { w.source = null; done(); } });
             },
@@ -224,24 +257,46 @@ world(async () => {
         ports.mute = { store: () => {} };
         ports.speech = engine.port;
         ports.brain = { ...ports.brain, send: (e, done) => { w.delegations.push(e); done("brain-done"); } };
+        // The voice has no route to an action: any start here is a defect.
+        ports.tools = { ...ports.tools, start: () => { w.tools++; } };
         w.runner = new kit.Runner.SessionRunner(Protocol.Session, ports, clock, (state, phase) => { w.state = state; w.phase = phase; });
         w.dispatch = (type, values = {}) => w.runner.dispatch({ type, ...values });
         w.dispatch("snapshot", { locked: false, engine: "duplex", configured: true, settings: { mode } });
         w.dispatch("indicator", { shown: true });
         return w;
     }
-    // Talk opens the session and holds it before session.started.
-    async function starting(kit, options) {
+    // One finished user turn, built from the recorded one.
+    function heard(conn, item, text) {
+        const event = script("turn", -1);
+        Object.assign(event, { item_id: item, transcript: text });
+        conn.send(event);
+    }
+    // The newest delegation's words, as the engine's brain turn releases them.
+    const say = (w, text) => w.engine.commentary(w.delegations.at(-1).delegation, w.kit.Policy.item(text, ["speech"]));
+    // A caption that reaches the wire proves every frame before it was read.
+    async function mark(w, conn, text) {
+        const event = script("turn", 1);
+        Object.assign(event, { item_id: "item_" + text, delta: text });
+        conn.send(event);
+        await until(() => w.state.fault.kind === "error" || w.transcripts.some(item => item.text === text), text + " is read");
+    }
+    // Talk opens the socket; the provider has not spoken yet.
+    async function connecting(kit, options) {
         const w = rig(kit, options);
         w.dispatch("talk-down");
-        const conn = await main.accept(w);
-        await conn.event("session.start");
+        return { w, conn: await main.accept(w) };
+    }
+    // The session is configured and waits for session.updated.
+    async function starting(kit, options) {
+        const { w, conn } = await connecting(kit, options);
+        conn.play("created");
+        await conn.event("session.update");
         return { w, conn };
     }
     // Release leaves the started session running on paced silence.
     async function running(kit, options) {
         const { w, conn } = await starting(kit, options);
-        conn.play("started");
+        conn.play("updated");
         w.sink.write(Buffer.alloc(960, 5));
         await conn.event(APPEND);
         w.dispatch("talk-up");
@@ -250,10 +305,26 @@ world(async () => {
         await conn.event(APPEND);
         return { w, conn };
     }
+    // The first user turn has reached the brain.
+    async function conversing(kit, options) {
+        const { w, conn } = await running(kit, options);
+        conn.play("turn");
+        await until(() => w.delegations.length === 1 || w.state.fault.kind === "error", "the turn reaches the brain");
+        assert.equal(w.delegations.length, 1);
+        return { w, conn };
+    }
+    // The provider has started the response that speaks the brain's words.
+    async function speaking(kit, options) {
+        const { w, conn } = await conversing(kit, options);
+        assert.equal(say(w, "It is noon."), true);
+        await conn.event(SPEAK);
+        conn.send(script("reply-old"));
+        return { w, conn };
+    }
     // Session state comes from the QML library realm; compare its JSON.
     const fault = (w, reason) => assert.deepEqual(JSON.parse(JSON.stringify(w.state.fault)), { kind: "error", reason, retry: 0 });
     function quiet(w, conn) {
-        const all = JSON.stringify([w.state, w.logs, w.transcripts, conn === undefined ? [] : conn.events]);
+        const all = JSON.stringify([w.state, w.logs, w.transcripts, w.delegations, conn === undefined ? [] : conn.events]);
         assert.equal(all.includes(KEY), false, "no key in state, log, transcript or frame");
         assert.equal(all.includes(PRIVATE), false, "no provider message text");
     }
@@ -265,20 +336,23 @@ world(async () => {
         assert.equal(lookups(), looked + 1, "the key is looked up when the session first needs it");
         assert.ok(w.handed.length === 1 && w.handed[0].every(byte => byte === 0), "the looked-up key is zeroed after the handshake");
         const conn = await main.accept(w);
-        assert.equal(conn.url, "/v1/live/sessions?rig=" + w.id);
+        assert.ok(typeof MODEL === "string" && MODEL !== "", "the provider row pins a model");
+        assert.equal(conn.url, "/v1/realtime?model=" + MODEL + "&rig=" + w.id);
         assert.equal(conn.headers.authorization, "Bearer " + KEY);
-        const start = await conn.event("session.start");
-        assert.equal(start.session.model, "gpt-live-1");
-        assert.deepEqual(start.session.audio, { format: { type: "audio/pcm", rate: 24000 } });
-        assert.deepEqual(start.session.delegation, { type: "client" });
-        assert.equal(start.session.store, false);
-        assert.match(start.session.instructions, /You are Jarvis/);
+        await turn();
+        assert.deepEqual(conn.events, [], "nothing leaves before session.created");
+        conn.play("created");
+        const update = await conn.event("session.update");
+        assert.deepEqual(update.session, { type: "realtime", output_modalities: ["audio"], tools: [], tracing: null,
+            audio: { input: { format: { type: "audio/pcm", rate: 24000 }, transcription: { model: "gpt-live-transcribe" },
+                turn_detection: { type: "semantic_vad", create_response: false, interrupt_response: false } },
+                output: { format: { type: "audio/pcm", rate: 24000 } } } });
         w.sink.write(Buffer.alloc(4800, 5));
         await turn();
-        assert.equal(conn.count(APPEND), 0, "no audio before session.started");
-        conn.play("started");
+        assert.equal(conn.count(APPEND), 0, "no audio before session.updated");
+        conn.play("updated");
         same(await conn.event(APPEND), Buffer.alloc(4800, 5),
-            "opening words wait for session.started, then leave once");
+            "opening words wait for session.updated, then leave once");
         w.sink.write(Buffer.alloc(960, 6));
         same(await conn.event(APPEND), Buffer.alloc(960, 6), "a microphone frame leaves");
         w.clock.advance(1000);
@@ -293,162 +367,202 @@ world(async () => {
         w.clock.advance(0);
         same(await conn.event(APPEND), Buffer.alloc(48000),
             "after a stalled loop at most 1 s of silence leaves, with no catch-up");
+        conn.play("turn");
+        await until(() => w.delegations.length === 1, "the user's turn reaches the brain");
+        assert.deepEqual([w.delegations[0].text, w.delegations[0].delegation], ["What is the time?", "item_user_1"]);
+        assert.equal(say(w, "It is noon."), true);
+        const spoken = await conn.event(SPEAK);
+        assert.deepEqual([spoken.response.conversation, spoken.response.output_modalities], ["none", ["audio"]]);
+        assert.equal(words(spoken), "It is noon.");
+        assert.match(spoken.response.instructions, /^# Voice\n\nYou are the voice of Jarvis/);
         conn.play("reply-old");
         await until(() => bytes(w, 0x11) === 1440, "the reply reaches playback");
         assert.equal(w.phase, "speaking");
-        w.clock.advance(400);
-        conn.send(fixtures.scripts["late-old"][0]);
+        w.clock.advance(1000);
+        conn.play("late-old");
         await until(() => bytes(w, 0x11) === 1920, "a later delta joins the playing reply");
+        assert.deepEqual([w.state.playback.kind, w.starts], ["playing", 1], "a response in flight keeps its reply open");
+        conn.play("done-old");
+        await mark(w, conn, "done");
         w.clock.advance(499);
         await turn();
-        assert.equal(w.state.playback.kind, "playing", "each delta restarts the reply's gap");
+        assert.equal(w.state.playback.kind, "playing", "the reply stays open for more words");
         w.clock.advance(1);
-        await until(() => w.state.playback.kind === "idle", "the reply ends after its gap");
+        await until(() => w.state.playback.kind === "idle", "the reply ends once no words wait");
         assert.equal(w.phase, "idle");
         assert.deepEqual(w.collected, [], "the duplex engine collects no utterance");
+        assert.equal(w.tools, 0, "the voice starts no action");
         assert.equal(w.state.fault.kind, "none");
         quiet(w, conn);
         return { w, conn };
     }
 
-    // Idle is 60 s with no caption, no output audio and no new capture while
-    // no reply is queued or playing. Output audio counts through its reply.
+    // Idle is 60 s with no user speech, no words for the voice, no reply and
+    // no new capture.
     async function idle(kit) {
         const { w, conn } = await roundTrip(kit);
-        const closes = () => conn.count("session.close");
         await elapse(w, 59000);
-        conn.play("speech-after");
-        await until(() => w.transcripts.length === 1, "a caption arrives");
+        conn.play("turn-next");
+        await until(() => w.delegations.length === 2, "a second turn arrives");
         await elapse(w, 59000);
-        assert.equal(closes(), 0, "a caption restarts the idle wait");
+        assert.equal(conn.ended, false, "user speech restarts the idle wait");
+        assert.equal(say(w, "Nothing changed."), true);
+        await conn.event(SPEAK);
+        await elapse(w, 2000);
+        assert.equal(conn.ended, false, "words in flight hold the session");
         conn.play("reply-new");
+        conn.play("done-new");
         await until(() => bytes(w, 0x22) === 1440, "a late reply plays");
         w.clock.advance(500);
         await until(() => w.state.playback.kind === "idle", "the late reply ends");
         await elapse(w, 1000);
-        assert.equal(closes(), 0, "a reply's end restarts the idle wait");
         w.dispatch("talk-down");
-        conn.play("speech-after");
+        heard(conn, "item_user_3", "Again?");
+        await until(() => w.delegations.length === 3, "a third turn arrives");
+        assert.equal(say(w, "It is noon."), true);
+        await conn.event(SPEAK);
         conn.play("reply-old");
+        conn.play("done-old");
         await until(() => w.state.speech.reply.kind === "waiting", "a reply waits behind the held key");
+        await mark(w, conn, "waiting");
         await elapse(w, 61000);
-        assert.equal(closes(), 0, "a queued reply holds the session");
+        assert.equal(conn.ended, false, "a queued reply holds the session");
         const old = bytes(w, 0x11);
         w.dispatch("talk-up");
         await until(() => bytes(w, 0x11) === old + 1440, "the queued reply plays");
         w.clock.advance(500);
         await until(() => w.state.playback.kind === "idle", "the queued reply ends");
         await elapse(w, 59999);
-        assert.equal(closes(), 0, "no close before 60 s idle");
+        assert.equal(conn.ended, false, "no close before 60 s idle");
         assert.equal(w.state.speech.kind, "open");
         w.clock.advance(1);
-        await conn.event("session.close");
+        await until(() => conn.ended, "idle closes the socket");
         assert.equal(w.state.speech.kind, "closed");
         assert.equal(w.state.conversation.kind, "ended", "idle close ends the conversation");
         assert.equal(w.state.fault.kind, "none");
-        conn.play("closed");
-        await until(() => conn.ended, "the engine releases the socket after session.closed");
         assert.deepEqual(w.logs, []);
     }
 
-    async function unconfirmed(kit) {
+    // The session has no close event: stop and lease loss close the socket,
+    // and the next Talk opens a new session at once.
+    async function closing(kit) {
         const { w, conn } = await running(kit);
         w.dispatch("stop");
-        await conn.event("session.close");
-        const closedAt = conn.events.length;
-        await elapse(w, 14999);
-        assert.equal(conn.ended, false, "the engine waits for session.closed");
-        assert.deepEqual(conn.events.slice(closedAt).map(event => event.type), [], "input stops at session.close");
-        w.clock.advance(1);
-        await until(() => conn.ended, "the bounded wait releases the socket");
-        assert.deepEqual(w.logs, ["jarvis: live=close-unconfirmed cause=timeout"]);
+        await until(() => conn.ended, "stop closes the socket");
+        assert.deepEqual([w.state.speech.kind, w.state.fault.kind], ["closed", "none"]);
         const lease = await running(kit);
         lease.w.runner.close();
-        await until(() => lease.conn.ended, "lease loss aborts at once");
-        assert.equal(lease.conn.count("session.close"), 0);
-        assert.deepEqual(lease.w.logs, ["jarvis: live=close-unconfirmed cause=lease"]);
-        const closing = await running(kit);
-        closing.w.dispatch("stop");
-        await closing.conn.event("session.close");
-        closing.w.runner.close();
-        await until(() => closing.conn.ended, "lease loss releases a closing session at once");
-        assert.deepEqual(closing.w.logs, ["jarvis: live=close-unconfirmed cause=lease"]);
-    }
-
-    async function finalizing(kit) {
-        const w = rig(kit, { mode: "toggle" });
-        const conns = [];
-        for (let index = 0; index < 5; index++) {
-            w.clock.advance(300);
-            w.dispatch("talk-down");
-            const conn = await main.accept(w);
-            await conn.event("session.start");
-            conn.play("started");
-            w.sink.write(Buffer.alloc(960));
-            await conn.event(APPEND);
-            w.clock.advance(300);
-            w.dispatch("talk-down");
-            await conn.event("session.close");
-            conns.push(conn);
+        await until(() => lease.conn.ended, "lease loss closes the socket");
+        // The engine releases the port itself when it ends a conversation.
+        const ended = await running(kit);
+        ended.w.engine.port.release();
+        await until(() => ended.conn.ended, "the conversation's end closes the socket");
+        const again = rig(kit, { mode: "toggle" });
+        for (let index = 0; index < 2; index++) {
+            again.clock.advance(300);
+            again.dispatch("talk-down");
+            const opened = await main.accept(again);
+            opened.play("created");
+            await opened.event("session.update");
+            opened.play("updated");
+            again.sink.write(Buffer.alloc(960));
+            await opened.event(APPEND);
+            again.clock.advance(300);
+            again.dispatch("talk-down");
+            await until(() => opened.ended, "toggle closes the session");
         }
-        await until(() => conns[0].ended, "past four finalizing sessions the oldest is released");
-        assert.deepEqual(conns.map(conn => conn.ended), [true, false, false, false, false]);
-        assert.deepEqual(w.logs, ["jarvis: live=close-unconfirmed cause=finalizing-limit"]);
+        assert.equal(again.state.fault.kind, "none", "a closed session leaves the next one free to open");
     }
 
     async function captions(kit) {
-        const { w, conn } = await running(kit);
-        conn.play("captions");
-        conn.send({ type: "session.output_transcript.delta", event_id: "evt_long", delta: "x\u0007".repeat(2500), start_ms: 5000, end_ms: 9000 });
-        await until(() => w.transcripts.length === 9, "captions reach the wire");
-        const long = "x ".repeat(2500);
+        const { w, conn } = await conversing(kit);
+        assert.equal(say(w, "It is noon."), true);
+        await conn.event(SPEAK);
+        conn.play("reply-old");
+        conn.play("done-old");
+        assert.equal(say(w, "Nothing changed."), true);
+        await conn.event(SPEAK);
+        conn.play("reply-new");
+        const long = script("reply-new", -1);
+        long.delta = "x\u0007".repeat(2500);
+        conn.send(long);
+        conn.play("done-new");
+        conn.play("turn-next");
+        await until(() => w.delegations.length === 2, "captions reach the wire");
+        const reply = "It is noon. Nothing changed." + "x ".repeat(2500);
         assert.deepEqual(w.transcripts, [
             { role: "user", text: "What is", stage: "partial", rev: 1 },
             { role: "user", text: "What is the time?", stage: "partial", rev: 2 },
-            { role: "assistant", text: "It is noon.", stage: "partial", rev: 3 },
-            { role: "user", text: "What is the time?", stage: "final", rev: 4 },
-            { role: "user", text: "Thanks.", stage: "partial", rev: 5 },
-            { role: "assistant", text: "It is noon.", stage: "final", rev: 6 },
-            { role: "assistant", text: long.slice(0, 4096), stage: "partial", rev: 7 },
-            { role: "assistant", text: long.slice(0, 4096), stage: "final", rev: 8 },
-            { role: "assistant", text: long.slice(4096), stage: "partial", rev: 9 }
+            { role: "user", text: "What is the time?", stage: "final", rev: 3 },
+            { role: "assistant", text: "It is noon.", stage: "partial", rev: 4 },
+            { role: "assistant", text: "It is noon. Nothing changed.", stage: "partial", rev: 5 },
+            { role: "assistant", text: reply.slice(0, 4096), stage: "partial", rev: 6 },
+            { role: "assistant", text: reply.slice(0, 4096), stage: "final", rev: 7 },
+            { role: "assistant", text: reply.slice(4096), stage: "partial", rev: 8 },
+            { role: "assistant", text: reply.slice(4096), stage: "final", rev: 9 },
+            { role: "user", text: "Stop.", stage: "partial", rev: 10 },
+            { role: "user", text: "Stop. What changed?", stage: "partial", rev: 11 },
+            { role: "user", text: "Stop. What changed?", stage: "final", rev: 12 }
         ]);
-        conn.play("usage");
-        conn.play("speech-before");
-        await until(() => w.transcripts.length === 10, "usage and info pass without a fault");
+        heard(conn, "item_user_3", "No partial came.");
+        await until(() => w.delegations.length === 3, "a turn with no partial arrives");
+        assert.deepEqual(w.transcripts.slice(12), [
+            { role: "user", text: "No partial came.", stage: "partial", rev: 13 },
+            { role: "user", text: "No partial came.", stage: "final", rev: 14 }
+        ]);
+        const part = (item, text) => { const event = script("turn", 1); Object.assign(event, { item_id: item, delta: text }); conn.send(event); };
+        part("item_a", "One");
+        part("item_b", "Two");
+        await until(() => w.transcripts.length === 17, "a new turn's partial closes the open caption");
+        assert.deepEqual(w.transcripts.slice(14), [
+            { role: "user", text: "One", stage: "partial", rev: 15 },
+            { role: "user", text: "One", stage: "final", rev: 16 },
+            { role: "user", text: "Two", stage: "partial", rev: 17 }
+        ]);
         assert.equal(w.state.fault.kind, "none");
         quiet(w, conn);
     }
 
-    // An interrupted reply already playing: its later audio never plays, and
-    // only user speech after the interruption point reopens output.
+    // An interrupted reply already playing: the words not yet asked for are
+    // dropped, and the rest of the interrupted response never plays.
     async function interruptPlaying(kit) {
-        const { w, conn } = await running(kit);
+        const { w, conn } = await conversing(kit);
+        const stale = w.delegations[0].delegation;
+        assert.equal(say(w, "It is noon."), true);
+        assert.equal(say(w, "It was noon before."), true);
+        await conn.event(SPEAK);
         conn.play("reply-old");
         await until(() => bytes(w, 0x11) === 1440, "the old reply plays");
         w.dispatch("talk-down");
         assert.equal(w.flushes, 1);
         assert.equal(w.state.playback.kind, "idle");
+        assert.equal(w.engine.commentary(stale, kit.Policy.item("Late words.", ["speech"])), false, "an interrupted request takes no more words");
         conn.play("late-old");
-        conn.play("speech-before");
-        conn.play("late-old");
-        conn.play("speech-after");
-        await until(() => w.transcripts.some(item => item.text.startsWith("Stop")), "the new utterance arrives");
-        assert.ok(w.transcripts.some(item => item.role === "assistant"), "the interrupted reply's caption arrives");
-        assert.equal(w.played.filter(item => item.flush === 1).length, 0, "no audio of the interrupted reply after the flush");
+        conn.play("done-old");
+        conn.play("turn-next");
+        await until(() => w.delegations.length === 2, "the new turn arrives");
+        assert.equal(conn.count(SPEAK), 1, "the words waiting behind the interrupted response never leave");
+        assert.equal(w.played.filter(item => item.flush === 1).length, 0, "no audio of the interrupted response after the flush");
         assert.equal(w.state.speech.reply.kind, "none");
+        assert.equal(say(w, "Nothing changed."), true);
+        assert.equal(words(await conn.event(SPEAK)), "Nothing changed.");
         conn.play("reply-new");
         w.dispatch("talk-up");
-        await until(() => bytes(w, 0x22) === 1440, "the reply to the new utterance plays");
-        assert.equal(w.played.filter(item => item.flush === 1).reduce((sum, item) => sum + item.chunk.filter(b => b === 0x11).length, 0), 0);
+        await until(() => bytes(w, 0x22) === 1440, "the reply to the new turn plays");
+        assert.equal(bytes(w, 0x11), 1440);
+        assert.equal(w.state.fault.kind, "none", "no cancel met a finished response");
     }
 
     // A reply still queued behind a held talk key is dropped whole.
     async function interruptQueued(kit) {
         const { w, conn } = await running(kit);
         w.dispatch("talk-down");
-        conn.play("speech-after");
+        conn.play("turn");
+        await until(() => w.delegations.length === 1, "the held turn arrives");
+        assert.equal(say(w, "It is noon."), true);
+        await conn.event(SPEAK);
         conn.play("reply-old");
+        conn.play("done-old");
         await until(() => w.state.speech.reply.kind === "waiting", "the reply waits behind the held key");
         assert.equal(w.state.capture.kind, "open", "half duplex: a reply never cuts off held talk");
         w.dispatch("interrupt");
@@ -456,7 +570,10 @@ world(async () => {
         w.dispatch("talk-up");
         await turn();
         assert.equal(w.state.playback.kind, "idle", "the interruption cleared the queue");
-        conn.play("speech-after");
+        conn.play("turn-next");
+        await until(() => w.delegations.length === 2, "the next turn arrives");
+        assert.equal(say(w, "Nothing changed."), true);
+        await conn.event(SPEAK);
         conn.play("reply-new");
         await until(() => bytes(w, 0x22) === 1440, "the next reply plays");
         assert.equal(bytes(w, 0x11), 0, "no queued audio of the interrupted reply plays");
@@ -464,64 +581,106 @@ world(async () => {
 
     // Each fault row: [name, stage, act, reason]. A caption after the act
     // reaches the wire only when the act did not fault, so a red row is quick.
+    const completed = change => conn => conn.raw(off("turn", change, -1));
+    const audio = change => conn => conn.raw(off("reply-old", change, 1));
     const rows = [
-        ["error", running, conn => conn.play("error"), "live=server-error code=unknown_parameter"],
-        ["delegation-shape", running, conn => conn.raw(off("delegation", event => ({ ...event, delegation: { ...event.delegation, target: "responses" } }))), "live=delegation-shape"],
-        ["delegation-id", running, conn => conn.raw(off("delegation", event => ({ ...event, delegation: { ...event.delegation, id: "" } }))), "live=delegation-shape"],
-        ["delegation-id-type", running, conn => conn.raw(off("delegation", event => ({ ...event, delegation: { ...event.delegation, id: 0 } }))), "live=delegation-shape"],
-        ["delegation-id-size", running, conn => conn.raw(off("delegation", event => ({ ...event, delegation: { ...event.delegation, id: "x".repeat(513) } }))), "live=delegation-shape"],
-        ["delegation-offset", running, conn => conn.raw(off("delegation", event => ({ ...event, offset_ms: -1 }))), "live=delegation-shape"],
-        ["delegation-kind", running, conn => conn.raw(off("delegation", event => ({ ...event, delegation: { ...event.delegation, type: "tool" } }))), "live=delegation-shape"],
-        ["expired", running, conn => conn.play("expired"), "live=closed reason=expired"],
-        ["closed-reason", running, conn => conn.raw(off("expired", event => ({ ...event, reason: "hung_up" }))), "live=frame-shape"],
+        ["error", running, conn => conn.play("error"), "live=server-error type=invalid_request_error code=unknown_parameter"],
+        ["response-failed", speaking, conn => conn.play("failed"), "live=response status=failed"],
+        ["transcription-failed", running, conn => conn.play("transcription-failed"), "live=transcription code=audio_unintelligible"],
+        ["function-call", running, conn => conn.play("function-call"), "live=event type=response.function_call_arguments.done"],
+        ["unrequested", running, conn => conn.raw(JSON.stringify({ type: "conversation.item.truncated", event_id: "e",
+            item_id: "item_x", content_index: 0, audio_end_ms: 100 })), "live=event type=conversation.item.truncated"],
+        ["unasked-response", running, conn => conn.send(script("reply-old")), "live=event-order"],
+        ["second-response", speaking, conn => conn.send(script("reply-new")), "live=event-order"],
+        ["other-response", speaking, conn => conn.send(script("reply-new", 1)), "live=event-order"],
+        ["item-id", running, completed(event => ({ ...event, item_id: "" })), "live=frame-shape"],
+        ["item-id-type", running, completed(event => ({ ...event, item_id: 0 })), "live=frame-shape"],
+        ["item-id-size", running, completed(event => ({ ...event, item_id: "x".repeat(513) })), "live=frame-shape"],
+        ["transcript-shape", running, completed(event => ({ ...event, transcript: 7 })), "live=frame-shape"],
+        ["turn-size", running, completed(event => ({ ...event, transcript: "x".repeat(TURN + 1) })), "live=turn-size"],
+        ["partial-shape", running, conn => conn.raw(off("turn", event => ({ ...event, delta: 7 }), 1)), "live=frame-shape"],
+        ["words-shape", speaking, conn => conn.raw(off("reply-old", event => ({ ...event, delta: 7 }), -1)), "live=frame-shape"],
         ["json", running, conn => conn.raw("{"), "live=frame-json"],
         ["binary", running, conn => conn.raw(Buffer.from([1, 2]), 2), "live=frame-binary"],
         ["frame-size", running, conn => conn.raw("x".repeat(FRAME + 1)), "live=frame-size"],
         ["shape", running, conn => conn.raw("[1]"), "live=frame-shape"],
-        ["caption-shape", running, conn => conn.send({ type: "session.input_transcript.delta", event_id: "e", delta: "late",
-            start_ms: 20, end_ms: 10 }), "live=frame-shape"],
-        ["usage-shape", running, conn => conn.raw(off("usage", event => ({ ...event, usage: {} }))), "live=frame-shape"],
-        ["odd-audio", running, conn => conn.send({ type: "session.output_audio.delta", delta: "AAAA" }), "live=output-audio"],
+        ["odd-audio", speaking, audio(event => ({ ...event, delta: "AAAA" })), "live=output-audio"],
         // Lenient base64 decodes this to four bytes; only the strict pattern refuses it.
-        ["not-base64", running, conn => conn.send({ type: "session.output_audio.delta", delta: "AAAAAA=A" }), "live=output-audio"],
-        ["unrequested", running, conn => conn.raw(JSON.stringify({ type: "response.event", event_id: "e", event: {} })),
-            "live=event type=response.event"],
-        ["started-twice", running, conn => conn.play("started"), "live=event-order"],
+        ["not-base64", speaking, audio(event => ({ ...event, delta: "AAAAAA=A" })), "live=output-audio"],
+        ["created-twice", running, conn => { conn.play("created"); conn.play("updated"); }, "live=event-order"],
+        ["updated-twice", running, conn => conn.play("updated"), "live=event-order"],
         ["input-frame", running, (conn, w) => { w.dispatch("talk-down"); w.sink.write(Buffer.alloc(3)); }, "live=input-frame"],
         ["reset", running, conn => conn.socket.destroy(), "live=disconnected code=1006"],
-        ["format", starting, conn => conn.raw(off("started", event => {
-            event.session.audio.format.rate = 16000;
+        ["format", starting, conn => conn.raw(off("updated", event => {
+            event.session.audio.output.format.rate = 16000;
             return event;
         })), "live=format"],
-        ["started-shape", starting, conn => conn.raw(off("started", event => ({ ...event, session: { ...event.session, id: "" } }))),
+        ["updated-shape", starting, conn => conn.raw(off("updated", event => ({ ...event, session: { type: "realtime" } }))),
             "live=frame-shape"],
-        ["early-audio", starting, conn => conn.send(fixtures.scripts["reply-old"][0]), "live=event-order"],
-        ["early-caption", starting, conn => conn.play("speech-before"), "live=event-order"]
+        ["early-audio", starting, conn => conn.send(script("reply-old", 1)), "live=event-order"],
+        ["early-turn", starting, conn => conn.play("turn"), "live=event-order"],
+        ["early-update", connecting, conn => conn.play("updated"), "live=event-order"]
     ];
     async function failures(kit, only = null) {
         const selected = rows.filter(([name]) => only === null || name === only);
         assert.ok(selected.length > 0, "fault row " + only);
         for (const [name, stage, act, reason] of selected) {
             const { w, conn } = await stage(kit);
+            const delegations = w.delegations.length;
             act(conn, w);
-            if (stage === starting) conn.play("started");
-            conn.play("speech-before");
-            await until(() => w.state.fault.kind === "error" || w.transcripts.length > 0, name + " is judged");
+            if (stage === connecting) conn.play("created");
+            if (stage !== running && stage !== speaking) conn.play("updated");
+            await mark(w, conn, "probe");
             fault(w, reason);
             assert.equal(w.state.speech.kind, "closed", name + " releases the session");
             assert.equal(w.state.conversation.kind, "ended", name + " ends the conversation: no silent provider switch");
+            assert.deepEqual([w.delegations.length, w.tools], [delegations, 0], name + " reaches no brain and no action");
             await until(() => conn.ended, name + " closes the socket");
             quiet(w, conn);
         }
     }
 
+    // Every documented event the session causes and the engine does not read.
+    async function unread(kit) {
+        const { w, conn } = await speaking(kit);
+        for (const type of UNREAD) conn.raw(JSON.stringify({ type, event_id: "evt_" + type }));
+        const frame = JSON.stringify({ type: "rate_limits.updated", event_id: "e", rate_limits: [], pad: "" });
+        conn.raw(frame.replace('"pad":""', '"pad":"' + "m".repeat(FRAME - frame.length) + '"'));
+        heard(conn, "item_bound", "x".repeat(TURN));
+        await until(() => w.delegations.length === 2 || w.state.fault.kind === "error", "the unread events are judged");
+        assert.equal(w.state.fault.kind, "none", "unread events, a 1 MiB frame and a turn at its bound are kept");
+    }
+
+    // The door refuses the redirect, so the key reaches no second origin.
+    async function redirect(kit) {
+        const w = rig(kit, { redirect: true });
+        w.dispatch("talk-down");
+        await until(() => w.state.fault.kind === "error", "a redirect ends the conversation");
+        fault(w, "live=disconnected code=1006");
+        assert.deepEqual(main.redirected.filter(id => id === String(w.id)), [String(w.id)], "the provider answered with a redirect");
+        await turn();
+        assert.equal([...main.conns, ...other.conns].filter(conn => conn.rig === String(w.id)).length, 0, "no connection follows the redirect");
+        assert.equal(w.state.conversation.kind, "ended");
+        quiet(w);
+    }
+
     async function startTimeout(kit) {
-        const { w, conn } = await starting(kit);
+        const { w, conn } = await connecting(kit);
         await elapse(w, 19999);
         assert.equal(w.state.fault.kind, "none");
         w.clock.advance(1);
         fault(w, "live=start-timeout");
         await until(() => conn.ended, "start timeout closes the socket");
+    }
+
+    // A response that never ends would hold every later word.
+    async function responseTimeout(kit) {
+        const { w, conn } = await speaking(kit);
+        await elapse(w, 29999);
+        assert.equal(w.state.fault.kind, "none");
+        w.clock.advance(1);
+        fault(w, "live=response-timeout");
+        await until(() => conn.ended, "a response that never ends closes the socket");
     }
 
     async function keys(kit) {
@@ -530,17 +689,19 @@ world(async () => {
         elsewhere.dispatch("talk-down");
         fault(elsewhere, "net=key-origin");
         assert.equal(lookups(), looked, "a key bound to another origin is refused before any lookup");
+        assert.equal(elsewhere.state.conversation.kind, "ended");
         const missing = rig(kit, { key: null });
         missing.dispatch("talk-down");
         fault(missing, "live=no-key");
         await turn();
         const own = [elsewhere.id, missing.id].map(String);
         assert.equal([...main.conns, ...other.conns].filter(conn => own.includes(conn.rig)).length, 0, "no connection without a usable key");
+        quiet(elsewhere);
     }
 
     async function release(kit) {
         const { w, conn } = await starting(kit);
-        conn.play("started");
+        conn.play("updated");
         w.sink.write(Buffer.alloc(960, 5));
         await until(() => w.state.fault.kind === "error", "a withheld frame faults");
         fault(w, "live=release-withhold");
@@ -556,7 +717,7 @@ world(async () => {
         assert.equal(main.conns.filter(conn => conn.rig === String(w.id)).length, 0, "a withheld connection opens no socket");
     }
 
-    // The full opening fits; it leaves after session.started in order, ahead
+    // The full opening fits; it leaves after session.updated in order, ahead
     // of later words, without meeting the send backlog.
     async function opening(kit) {
         const { w: early } = await starting(kit);
@@ -565,13 +726,13 @@ world(async () => {
         early.sink.write(Buffer.alloc(2));
         fault(early, "live=input-overflow");
         const { w, conn } = await starting(kit);
-        const words = Buffer.concat(Array.from({ length: 20 }, (_, index) => Buffer.alloc(48000, index + 1)));
-        for (let offset = 0; offset < words.length; offset += 48000) w.sink.write(words.subarray(offset, offset + 48000));
-        conn.play("started");
+        const opened = Buffer.concat(Array.from({ length: 20 }, (_, index) => Buffer.alloc(48000, index + 1)));
+        for (let offset = 0; offset < opened.length; offset += 48000) w.sink.write(opened.subarray(offset, offset + 48000));
+        conn.play("updated");
         await conn.event(APPEND);
         assert.equal(w.state.fault.kind, "none", "the opening leaves behind the socket's backpressure");
         w.sink.write(Buffer.alloc(960, 0x7f));
-        const all = Buffer.concat([words, Buffer.alloc(960, 0x7f)]);
+        const all = Buffer.concat([opened, Buffer.alloc(960, 0x7f)]);
         const deadline = Date.now() + 2000;
         while (appended(conn).length < all.length && w.state.fault.kind === "none") {
             assert.ok(Date.now() < deadline, "the opening drains");
@@ -593,14 +754,50 @@ world(async () => {
         assert.equal(w.state.conversation.kind, "ended", "released callbacks cannot restore the session");
     }
 
+    // One response at a time, each bounded, and the next only once playback
+    // has drained the reply: a response's audio cannot be paused.
+    async function pacing(kit) {
+        const { w, conn } = await running(kit);
+        w.dispatch("talk-down");
+        conn.play("turn");
+        await until(() => w.delegations.length === 1, "the held turn arrives");
+        const long = "word ".repeat(119) + "end.";
+        assert.equal(say(w, long), true);
+        assert.equal(say(w, "It is noon."), true);
+        const first = await conn.event(SPEAK);
+        await turn();
+        assert.equal(conn.count(SPEAK), 1, "the next words wait for the response in flight");
+        assert.ok([...words(first)].length <= 240 && long.startsWith(words(first)), "one response carries a bounded part of a long sentence");
+        conn.send(script("reply-old"));
+        const chunk = script("reply-old", 1);
+        chunk.delta = Buffer.alloc(65536).toString("base64");
+        for (let index = 0; index < 2; index++) conn.send(chunk);
+        conn.play("done-old");
+        await mark(w, conn, "full");
+        await elapse(w, 1000);
+        assert.equal(conn.count(SPEAK), 1, "the next words wait while the reply still holds its audio");
+        w.dispatch("talk-up");
+        await until(() => w.played.length > 0, "the waiting reply plays");
+        w.clock.advance(100);
+        const second = await conn.event(SPEAK);
+        assert.equal(words(first) + words(second), long.slice(0, (words(first) + words(second)).length), "the sentence continues in order");
+        const queue = kit.Policy.item("x".repeat(65536), ["speech"]);
+        assert.throws(() => w.engine.commentary(w.delegations[0].delegation, queue), { message: "jarvis: live=speech-queue" },
+            "words past the queue's bound are refused");
+    }
+
     async function replyQueue(kit) {
         const { w, conn } = await running(kit);
         w.dispatch("talk-down");
-        conn.play("speech-after");
-        const chunk = { type: "session.output_audio.delta", delta: Buffer.alloc(65536).toString("base64") };
+        conn.play("turn");
+        await until(() => w.delegations.length === 1, "the held turn arrives");
+        assert.equal(say(w, "It is noon."), true);
+        await conn.event(SPEAK);
+        conn.send(script("reply-old"));
+        const chunk = script("reply-old", 1);
+        chunk.delta = Buffer.alloc(65536).toString("base64");
         for (let index = 0; index < 19; index++) conn.send(chunk);
-        conn.send({ type: "session.output_transcript.delta", event_id: "mark", delta: "mark", start_ms: 1, end_ms: 2 });
-        await until(() => w.transcripts.length === 2, "19 queued chunks arrive");
+        await mark(w, conn, "kept");
         assert.equal(w.state.fault.kind, "none", "a queue under the playback allowance is kept");
         for (let index = 0; index < 2; index++) conn.send(chunk);
         await until(() => w.state.fault.kind === "error", "past the allowance the reply faults");
@@ -619,69 +816,53 @@ world(async () => {
         fault(w, "live=send-backlog");
     }
 
-    async function frameBound(kit) {
-        const { w, conn } = await running(kit);
-        const frame = JSON.stringify({ type: "info", event_id: "e", code: "c", message: "" });
-        conn.raw(frame.replace('"message":""', '"message":"' + "m".repeat(FRAME - frame.length) + '"'));
-        conn.play("speech-before");
-        await until(() => w.transcripts.length === 1 || w.state.fault.kind === "error", "a frame at the bound is judged");
-        assert.equal(w.state.fault.kind, "none", "a 1 MiB frame is kept");
-    }
-
     async function delegation(kit) {
-        const { w, conn } = await running(kit);
-        conn.play("captions");
-        conn.send({ type: "session.input_transcript.delta", event_id: "straddling", delta: "Across the boundary.", start_ms: 3500, end_ms: 3700 });
-        conn.play("delegation");
-        await until(() => w.delegations.length === 1 || w.state.fault.kind === "error", "delegation reaches the brain");
-        assert.equal(w.delegations.length, 1);
+        const { w, conn } = await conversing(kit);
         const task = w.delegations[0];
-        assert.equal(task.delegation, "del_fixture");
-        assert.ok(task.text.includes("What is") && task.text.includes("It is noon."));
-        assert.equal(task.text.includes("Thanks."), false, "context after the delegation offset does not enter the request");
-        assert.equal(task.text.includes("Across the boundary."), false, "a delta that ends after delegation is excluded");
-        const item = kit.Policy.item("The result is ready. ".repeat(30), ["speech"]);
-        assert.equal(w.engine.commentary(task.delegation, item), true);
-        await until(() => conn.events.some(event => event.type === "session.commentary.append"), "commentary leaves");
-        const sent = conn.events.filter(event => event.type === "session.commentary.append");
-        assert.equal(sent.map(event => event.content).join(""), item.content);
-        assert.ok(sent.every(event => Buffer.byteLength(event.content) <= 400 && event.delegation_id === task.delegation));
-        assert.equal(w.engine.commentary("stale", item), false);
-        w.dispatch("interrupt");
-        assert.equal(w.engine.commentary(task.delegation, item), false);
-        conn.play("speech-after");
-        conn.play("delegation");
-        await until(() => w.delegations.length === 2, "a new delegation uses new identity");
+        heard(conn, "item_blank", " ");
+        const before = w.transcripts.length;
+        await mark(w, conn, "blank");
+        assert.deepEqual([w.delegations.length, w.transcripts.length], [1, before + 1], "a blank turn reaches no brain and no caption");
+        assert.equal(w.engine.commentary("stale", kit.Policy.item("Stale words.", ["speech"])), false);
+        assert.equal(say(w, "It is noon."), true);
+        assert.equal(say(w, "It was noon before."), true);
+        await conn.event(SPEAK);
+        conn.send(script("reply-old"));
+        conn.play("turn-next");
+        await until(() => w.delegations.length === 2, "a new turn uses new identity");
+        assert.equal(w.delegations[1].delegation, "item_user_2");
+        conn.play("done-old");
+        await mark(w, conn, "replaced");
+        assert.equal(conn.count(SPEAK), 1, "words waiting for a replaced request never leave");
+        assert.equal(w.engine.commentary(task.delegation, kit.Policy.item("Old words.", ["speech"])), false, "a replaced request takes no more words");
         w.dispatch("stop");
-        assert.equal(w.engine.commentary(task.delegation, item), false, "an ended conversation sends no commentary");
+        assert.equal(say(w, "Late words."), false, "an ended conversation speaks no words");
+        assert.equal(w.tools, 0);
     }
 
     async function violations(kit) {
-        const { w, conn } = await running(kit);
-        conn.send({ type: "session.output_transcript.delta", event_id: "format_1", delta: "Visit https://example.com.", start_ms: 0, end_ms: 100 });
-        conn.send({ type: "session.output_transcript.delta", event_id: "format_2", delta: "Use **bold**.", start_ms: 2000, end_ms: 2100 });
-        conn.play("speech-before");
-        await until(() => w.transcripts.some(item => item.text === "earlier"), "the transcript windows arrive");
-        let counts = w.logs.filter(line => line.startsWith("jarvis: live=violations counts="))
+        const { w, conn } = await conversing(kit);
+        const counts = () => w.logs.filter(line => line.startsWith("jarvis: live=violations counts="))
             .map(line => JSON.parse(line.split("counts=")[1]));
-        assert.equal(counts.length, 1, "the closed window is counted once");
-        assert.equal(counts[0].url, 1);
+        const reply = text => { const event = script("reply-old", -1); event.delta = text; conn.send(event); };
+        assert.equal(say(w, "It is noon."), true);
+        await conn.event(SPEAK);
+        conn.send(script("reply-old"));
+        reply("Visit https://example.com.");
+        conn.play("done-old");
+        conn.play("turn-next");
+        await until(() => w.delegations.length === 2, "the next turn closes the reply's caption");
+        assert.equal(counts().length, 1, "the closed caption is counted once");
+        assert.equal(counts()[0].url, 1);
+        assert.equal(say(w, "Nothing changed."), true);
+        await conn.event(SPEAK);
+        conn.send(script("reply-old"));
+        reply("Use **bold**.");
+        await until(() => w.transcripts.some(item => item.text.includes("bold")), "the second reply's words arrive");
         w.dispatch("stop");
-        counts = w.logs.filter(line => line.startsWith("jarvis: live=violations counts="))
-            .map(line => JSON.parse(line.split("counts=")[1]));
-        assert.equal(counts.length, 2, "teardown counts the final non-overlapping window");
-        assert.equal(counts[1].markdown, 4);
+        assert.equal(counts().length, 2, "teardown counts the open caption");
+        assert.equal(counts()[1].markdown, 4);
         assert.equal(w.logs.some(line => line.includes("example.com") || line.includes("bold")), false);
-    }
-
-    async function contextBound(kit) {
-        const { w, conn } = await running(kit);
-        conn.send({ type: "session.input_transcript.delta", event_id: "bound", delta: "x".repeat(65536), start_ms: 0, end_ms: 100 });
-        await until(() => w.transcripts.length >= 16 || w.state.fault.kind === "error", "context at its limit arrives");
-        assert.equal(w.state.fault.kind, "none");
-        conn.play("speech-before");
-        await until(() => w.state.fault.kind === "error", "overflow ends the session");
-        fault(w, "live=context-limit");
     }
 
     // The real daemon selects Accounts, the configured brain, Session,
@@ -719,7 +900,7 @@ world(async () => {
         // Observe the audit inside the actual frame-send callback. Earlier
         // connection or audio records cannot stand in for this frame's record.
         const frameAudits = path.join(root, "frame-audits");
-        const liveFile = path.join(plugin, "backend/GptLive.js");
+        const liveFile = path.join(plugin, "backend/Realtime.js");
         const liveSource = fs.readFileSync(liveFile, "utf8");
         const sendNeedle = "const answer = session.transfer(frame, () => session.channel.send(frame, session.grants()));";
         assert.equal(liveSource.split(sendNeedle).length - 1, 1);
@@ -771,20 +952,23 @@ world(async () => {
         const heldReply = new Promise(resolve => { releaseReply = resolve; });
         try {
             send({ type: "hello", settings: { sounds: false, mode: "hold", microphone: "", speaker: "", brain, taskTerminal: "auto",
-                cloudVision: "ask", privateWindows: "", voiceProvider: "gpt-live", voiceAccount: live }, directories, locked: false,
+                cloudVision: "ask", privateWindows: "", voiceProvider: "realtime", voiceAccount: live }, directories, locked: false,
                 keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } });
-            await wait(() => last()?.gate.kind === "up", "configured GPT-Live raises the daemon gate");
+            await wait(() => last()?.gate.kind === "up", "the configured Realtime voice raises the daemon gate");
             assert.equal(last().engine.kind, "duplex");
             send({ type: "indicator", shown: true });
             send({ type: "intent", intent: "talk-down" });
             await wait(() => main.conns.some(conn => conn.rig === null && !conn.taken), "the actual daemon connects its voice");
             const conn = main.conns.find(conn => conn.rig === null && !conn.taken); conn.taken = true;
-            await conn.event("session.start");
-            conn.play("started");
+            conn.auto = 1;
+            conn.play("created");
+            assert.deepEqual((await conn.event("session.update")).session.tools, [], "the daemon's voice has no tools");
+            conn.play("updated");
             await wait(() => last()?.capture.kind === "open", "synthetic capture opens behind the indicator");
             send({ type: "intent", intent: "talk-up" });
+            const answer = "**Completed.** Visit https://example.com.";
             if (only === "action") server.replies.push(BrainFixture.calls({ id: "delete_call", name: "files_delete", arguments: { path: victim } }),
-                BrainFixture.text("**Completed.** Visit https://example.com."));
+                BrainFixture.text(answer));
             else if (only === "release") server.replies.push(BrainFixture.calls({ id: "read_call", name: "files_read", arguments: { path: victim } }),
                 BrainFixture.text("The private result was withheld."));
             else if (only === "stale") server.replies.push([{ wait: heldReply },
@@ -793,13 +977,12 @@ world(async () => {
                 server.replies.push(BrainFixture.text({ wait: heldReply }, "Late reply."));
                 if (only === "replacement") server.replies.push(BrainFixture.text("Current reply."));
             }
-            conn.play("captions"); conn.play("delegation");
+            conn.play("turn");
             await wait(() => server.requests[0]?.body !== null && server.requests.length > 0, "the configured brain receives the delegation");
             const first = server.requests[0].body;
-            assert.ok(first.messages.some(value => value.role === "user" && value.content.includes("What is")));
+            assert.ok(first.messages.some(value => value.role === "user" && value.content.includes("What is the time?")));
             assert.equal(first.model, "fixture-model");
             assert.ok(Array.isArray(first.tools) && first.tools.some(value => value.function.name === "files_delete"), "the configured router offers its tools");
-            assert.equal(JSON.stringify(first).includes("Thanks."), false);
             if (only === "action") {
                 await wait(() => last()?.approval.kind === "held", "the router holds the destructive call");
                 assert.equal(fs.existsSync(victim), true, "Policy blocks deletion before approval");
@@ -809,35 +992,37 @@ world(async () => {
                 await wait(() => last().approval.shownAt !== null, "the action is drawn");
                 fs.writeFileSync(offset, "1000");
                 send({ type: "intent", intent: "confirm", id: approval.id, digest: approval.digest, source: "key" });
-                await wait(() => conn.count("session.commentary.append") > 0 || last()?.fault.kind === "error", "the approved result returns through commentary");
-                assert.ok(conn.count("session.commentary.append") > 0, JSON.stringify(last()?.fault));
+                await wait(() => conn.count(SPEAK) > 0 || last()?.fault.kind === "error", "the approved result returns as spoken words");
+                assert.ok(conn.count(SPEAK) > 0, JSON.stringify(last()?.fault));
                 assert.equal(fs.existsSync(victim), false);
                 assert.equal(server.requests.length, 2);
                 assert.ok(server.requests[1].body.messages.some(value => value.role === "tool" && value.tool_call_id === "delete_call"));
-                // Turn completion ends commentary production. The send trace
-                // precedes loopback receipt, so wait for those frames too.
-                await wait(() => last()?.turn.kind === "none", "delegation finishes its commentary sends");
+                // The words leave one response at a time, so the sentence
+                // count is the barrier; the assertions below read the frames.
+                const speakable = require(path.join(kit.folder, "Speakable.js")).create("");
+                const sentences = [...speakable.push(answer), ...speakable.finish()].length;
+                await wait(() => conn.count(SPEAK) === sentences && last()?.turn.kind === "none", "every sentence of the result is spoken");
                 const observed = fs.readFileSync(frameAudits, "utf8").trim().split("\n").map(JSON.parse)
-                    .filter(value => value.frame.type === "session.commentary.append");
-                await wait(() => conn.count("session.commentary.append") === observed.length, "the traced commentary frames arrive");
-                const commentary = conn.events.filter(value => value.type === "session.commentary.append");
-                assert.ok(commentary.every(value => value.delegation_id === "del_fixture" && !value.content.includes("https://") && !value.content.includes("**")));
+                    .filter(value => value.frame.type === SPEAK);
+                const commentary = conn.events.filter(value => value.type === SPEAK);
+                assert.ok(commentary.every(value => !words(value).includes("https://") && !words(value).includes("**")));
+                assert.ok(commentary.map(words).join(" ").includes("Completed."));
                 assert.ok(rows().some(row => row.kind === "action" && row.effect === "destructive" && row.confirmed === "physical"));
                 assert.deepEqual(observed.map(value => value.frame), commentary);
                 assert.deepEqual({ check: "commentary-audit-before-send", audited: observed.every(value =>
                     value.records.some(row => row.kind === "release" && row.decision === "send" && row.op === last().speech.op
                         && row.outcome === "pending" && row.args.labels === "[redacted]")) },
                     { check: "commentary-audit-before-send", audited: true },
-                    "each outbound commentary frame has its own prior audit");
+                    "each outbound spoken frame has its own prior audit");
             } else if (only === "release") {
                 await wait(() => last()?.approval.kind === "held", "the whole recipient set asks for file release");
                 assert.equal(last().approval.purpose, "release");
                 assert.ok(last().approval.text.includes(PROVIDERS.find(row => row.id === "openai").label),
                     "release names the selected account provider");
-                assert.equal(last().approval.text.includes("openai-live"), false, "release shows no adapter id");
+                assert.equal(last().approval.text.includes("openai-realtime"), false, "release shows no adapter id");
                 assert.equal(server.requests.length, 1, "no tool result reaches the brain while release is held");
                 send({ type: "intent", intent: "cancel", id: last().approval.id });
-                await wait(() => conn.count("session.commentary.append") > 0, "the refused release completes with a withheld result");
+                await wait(() => conn.count(SPEAK) > 0, "the refused release completes with a withheld result");
                 assert.equal(server.requests.length, 2);
                 const tool = server.requests[1].body.messages.find(value => value.role === "tool");
                 assert.equal(tool.tool_call_id, "read_call");
@@ -847,24 +1032,21 @@ world(async () => {
             } else {
                 let requestClosed = false;
                 server.requests[0].closed.then(() => { requestClosed = true; });
-                if (only === "replacement") {
-                    const event = structuredClone(fixtures.scripts.delegation[0]);
-                    event.delegation.id = "del_current";
-                    conn.send(event);
-                } else send({ type: "intent", intent: only === "interrupt" ? "talk-down" : "stop" });
+                if (only === "replacement") heard(conn, "item_current", "And now?");
+                else send({ type: "intent", intent: only === "interrupt" ? "talk-down" : "stop" });
                 await wait(() => requestClosed, "cancel closes the old brain request");
                 releaseReply();
                 if (only === "replacement") {
-                    await wait(() => conn.count("session.commentary.append") > 0, "the new delegation returns after cancellation");
+                    await wait(() => conn.count(SPEAK) > 0, "the new delegation returns after cancellation");
                     assert.equal(server.requests.length, 2);
-                    const commentary = conn.events.filter(value => value.type === "session.commentary.append");
-                    assert.ok(commentary.every(value => value.delegation_id === "del_current" && !value.content.includes("Late")));
+                    const commentary = conn.events.filter(value => value.type === SPEAK);
+                    assert.ok(commentary.every(value => !words(value).includes("Late")));
                 } else {
                     if (only === "stale") {
                         await wait(() => last()?.conversation.kind === "ended", "stop ends delegated work");
                         await wait(() => conn.ended, "stop closes the old speech transport");
                     } else await wait(() => last()?.turn.kind === "none", "interrupt ends delegated work");
-                    assert.equal(conn.count("session.commentary.append"), 0, "stale brain work never reaches GPT-Live");
+                    assert.equal(conn.count(SPEAK), 0, "stale brain work never reaches the voice");
                 }
                 assert.equal(fs.existsSync(victim), true, "stale work starts no file action");
             }
@@ -881,17 +1063,17 @@ world(async () => {
         }
     }
 
-    const cases = { roundTrip, idle, unconfirmed, finalizing, captions, interruptPlaying, interruptQueued,
-        failures, startTimeout, keys, opening, releaseLifetime, replyQueue, backlog, frameBound, delegation, violations, contextBound,
+    const cases = { roundTrip, idle, closing, captions, interruptPlaying, interruptQueued, failures, unread, redirect,
+        startTimeout, responseTimeout, keys, opening, releaseLifetime, pacing, replyQueue, backlog, delegation, violations,
         daemonDelegation, daemonStale: kit => daemonDelegation(kit, "stale"), daemonRelease: kit => daemonDelegation(kit, "release"),
         daemonReplacement: kit => daemonDelegation(kit, "replacement"), daemonInterrupt: kit => daemonDelegation(kit, "interrupt") };
     const withheld = ["Policy.js", "const current = item(value.content, value.labels);",
-        'const current = item(value.content, value.labels);\n    if (String(current.content).includes("input_audio.append")) return { kind: "withhold", content: "[withheld]", labels: current.labels };'];
+        'const current = item(value.content, value.labels);\n    if (String(current.content).includes("input_audio_buffer.append")) return { kind: "withhold", content: "[withheld]", labels: current.labels };'];
     const withheldConnect = ["Policy.js", "const current = item(value.content, value.labels);",
-        'const current = item(value.content, value.labels);\n    if (String(current.content).endsWith("/v1/live/sessions")) return { kind: "withhold", content: "[withheld]", labels: current.labels };'];
+        'const current = item(value.content, value.labels);\n    if (String(current.content).includes("/v1/realtime")) return { kind: "withhold", content: "[withheld]", labels: current.labels };'];
     let controls = 0;
     async function control(name, needle, replacement, check) {
-        await mutant(file, name, needle, replacement, async (_module, folder) => check(folder), "GptLive.js");
+        await mutant(file, name, needle, replacement, async (_module, folder) => check(folder), "Realtime.js");
         controls++;
         console.log("control=" + name + " detected");
     }
@@ -901,76 +1083,87 @@ world(async () => {
         await releaseConnect(kitFrom(backend, [withheldConnect]));
         const as = name => folder => cases[name](kitFrom(folder));
         const row = name => folder => failures(kitFrom(folder), name);
+        const disconnected = 'answer.events.addEventListener("close", event => failed(session, "live=disconnected code=" + event.code));';
         const mutations = [
-            ["delegation-dispatch", "session.events.delegation({ id: event.id,", "void ({ id: event.id,", as("delegation")],
-            ["delegation-context", "item.end <= event.offset", "true", as("delegation")],
+            ["no-tools", "output_modalities: [\"audio\"], tools: [],", 'output_modalities: ["audio"], tools: [{ type: "function", name: "files_delete" }],', as("roundTrip")],
+            ["no-own-answer", "create_response: false", "create_response: true", as("roundTrip")],
+            ["no-trace", "...provider.noStore } };", "} };", as("roundTrip")],
+            ["out-of-band", 'response: { conversation: "none", ', "response: { ", as("roundTrip")],
+            ["exact-words", '+ "\\n\\n" + JSON.stringify(words.text)', '+ "\\n\\n" + JSON.stringify("")', as("roundTrip")],
+            ["delegation-dispatch", "session.events.delegation({ id: event.item, text: clean(event.text) });", "void event;", as("delegation")],
+            ["blank-turn", 'if (event.text.trim() === "") break;', "", as("delegation")],
             ["stale-delegation", " || session.delegation !== id", "", as("delegation")],
-            ["flush-delegation", "session.delegation = null;\n            session.output", "session.output", as("delegation")],
-            ["commentary-bound", "slice(0, COMMENTARY_CHARS)", "slice(0)", as("delegation")],
-            ["violation-count", "const counts = Speakable.violations(segment.text, session.language);", 'const counts = Speakable.violations("", session.language);', as("violations")],
-            ["context-bound", 'if (session.contextChars > CONTEXT_CHARS) fail("context-limit");', "", as("contextBound")],
+            ["replaced-words", "// Words still waiting answer the request this one replaces.\n                session.speech.queue = [];\n                session.speech.chars = 0;", "", as("delegation")],
+            ["flush-delegation", 'session.delegation = null;\n            conclude(session, "assistant");', 'conclude(session, "assistant");', as("interruptPlaying")],
+            ["flush-words", 'session.speech.queue = [];\n            session.speech.chars = 0;\n            if (session.speech.active', "if (session.speech.active", as("interruptPlaying")],
+            ["discard", "if (!asked(session, event.id, false).discarded) output(session, event.pcm);", "asked(session, event.id, false); output(session, event.pcm);", as("interruptPlaying")],
             ["flush-queue", "if (session.next !== null) session.next.stream.destroy();\n            session.next = null;\n            // Audio's",
                 "// Audio's", as("interruptQueued")],
-            ["discard", 'if (session.output.kind === "discarding" || pcm.length === 0) return;', "if (pcm.length === 0) return;", as("interruptPlaying")],
-            ["discard-timeline", "&& start >= session.output.from", "", as("interruptPlaying")],
-            ["reopen-role", 'role === "user" && session.output.kind === "discarding"', 'session.output.kind === "discarding"', as("interruptPlaying")],
+            ["one-response", 'if (session.state.kind !== "running" || speech.active !== null || ', 'if (session.state.kind !== "running" || ', as("pacing")],
+            ["drained-reply", " || waiting > REPLY_LOW_BYTES)", ")", as("pacing")],
+            ["speech-bound", "slice(0, SPEECH_CHARS)", "slice(0)", as("pacing")],
+            ["speech-queue", 'if (session.speech.chars + prefix.length > QUEUE_CHARS) fail("speech-queue");', "", as("pacing")],
+            ["violation-count", "const counts = Speakable.violations(text, session.language);", 'const counts = Speakable.violations("", session.language);', as("violations")],
             ["idle-rule", "}, IDLE_MS);", "}, IDLE_MS + 1);", as("idle")],
-            ["caption-activity", "function caption(session, role, delta, start, end) {\n        activity(session);",
-                "function caption(session, role, delta, start, end) {", as("idle")],
-            ["reply-end-activity", 'clear(session, "gap");\n            activity(session);', 'clear(session, "gap");', as("idle")],
-            ["idle-guard", "if (session.playing !== null || session.next !== null) return;", "", as("idle")],
-            ["close-wait", 'clock.set(() => finalize(session, "timeout"), CLOSE_WAIT_MS)', "null", as("unconfirmed")],
-            ["close-input", 'for (const name of ["silence", "idle", "gap"]) clear(session, name);',
-                'for (const name of ["idle", "gap"]) clear(session, name);', as("unconfirmed")],
-            ["lease-release", 'for (const session of [...sessions.values()]) finalize(session, "lease");', "", as("unconfirmed")],
-            ["finalizing", 'if (closing.length > FINALIZING) finalize(closing[0], "finalizing-limit");', "", as("finalizing")],
-            ["server-error", 'return fail("server-error code="', 'return { kind: "ignored" }; return fail("server-error code="', row("error")],
-            ["delegation-shape", 'value.delegation.target !== "client"', 'false', row("delegation-shape")],
-            ["delegation-id", 'value.delegation.id === ""', "false", row("delegation-id")],
-            ["delegation-id-type", 'typeof value.delegation.id !== "string"', "false", row("delegation-id-type")],
-            ["delegation-id-size", 'value.delegation.id.length > 512', "false", row("delegation-id-size")],
-            ["delegation-offset", '!time(value.offset_ms)', "false", row("delegation-offset")],
-            ["delegation-kind", 'value.delegation.type !== "delegation"', "false", row("delegation-kind")],
-            ["closed-running", 'else fail("closed reason=" + event.reason);', "", row("expired")],
-            ["closed-reason", 'if (!CLOSED_REASONS.includes(value.reason)) fail("frame-shape");', "", row("closed-reason")],
+            ["speech-activity", 'case "activity": activity(session); break;', 'case "activity": break;', as("idle")],
+            ["reply-end-activity", 'clear(session, "gap");\n            activity(session);\n        });', 'clear(session, "gap");\n        });', as("idle")],
+            ["idle-reply", "if (session.playing !== null || session.next !== null || !quiet(session)) return;", "if (!quiet(session)) return;", as("idle")],
+            ["idle-words", "if (session.playing !== null || session.next !== null || !quiet(session)) return;",
+                "if (session.playing !== null || session.next !== null) return;", as("idle")],
+            ["close", "if (live !== null && live.op === e.target) release(live);", "", as("closing")],
+            ["lease-release", "release() {\n            if (live !== null) release(live);", "release() {", as("closing")],
+            ["server-error", 'return fail("server-error type="', 'return { kind: "ignored" }; return fail("server-error type="', row("error")],
+            ["response-status", 'if (response.status !== "completed") fail("response status=" + token(response.status));', "", row("response-failed")],
+            ["transcription-failed", 'return fail("transcription code="', 'return { kind: "ignored" }; return fail("transcription code="', row("transcription-failed")],
+            ["function-call", 'return fail("event type=" + token(value.type));', 'return { kind: "ignored" };', row("function-call")],
+            ["unrequested", 'return fail("event type=" + token(value.type));', 'return { kind: "ignored" };', row("unrequested")],
+            ["unasked-response", "if (active === null || (created", "if (active !== null && (created", row("unasked-response")],
+            ["second-response", "(created ? active.id !== null : active.id !== id)", "(!created && active.id !== id)", row("second-response")],
+            ["other-response", "(created ? active.id !== null : active.id !== id)", "(created && active.id !== null)", row("other-response")],
+            ["item-id", ' || value === "" || value.length > 512) fail("frame-shape");', ' || value.length > 512) fail("frame-shape");', row("item-id")],
+            ["item-id-type", 'if (typeof value !== "string" || value === ""', 'if (value === ""', row("item-id-type")],
+            ["item-id-size", ' || value.length > 512) fail("frame-shape");', ') fail("frame-shape");', row("item-id-size")],
+            ["transcript-shape", 'if (typeof value.transcript !== "string") fail("frame-shape");', "", row("transcript-shape")],
+            ["turn-size", 'if (value.transcript.length > TURN_CHARS) fail("turn-size");', "", row("turn-size")],
+            ["partial-shape", 'if (value.delta !== undefined && typeof value.delta !== "string") fail("frame-shape");', "", row("partial-shape")],
+            ["words-shape", 'if (typeof value.delta !== "string") fail("frame-shape");\n        return { kind: "said"', 'return { kind: "said"', row("words-shape")],
             ["frame-json", 'catch { fail("frame-json"); }', 'catch { return { kind: "ignored" }; }', row("json")],
             ["frame-binary", 'if (typeof data !== "string") fail("frame-binary");', "", row("binary")],
             ["frame-size", 'if (data.length > FRAME_CHARS) fail("frame-size");', "", row("frame-size")],
             ["frame-shape", 'if (!plain(value) || typeof value.type !== "string") fail("frame-shape");', "", row("shape")],
-            ["caption-shape", " || value.end_ms < value.start_ms", "", row("caption-shape")],
-            ["usage-shape", 'if (!plain(value.usage) || !time(value.usage.seconds)) fail("frame-shape");', "", row("usage-shape")],
             ["output-odd", 'if (pcm.length % 2 !== 0) fail("output-audio");', "", row("odd-audio")],
             ["output-base64", " || !BASE64.test(value.delta)", "", row("not-base64")],
-            ["unrequested", 'return fail("event type=" + token(value.type));', 'return { kind: "ignored" };', row("unrequested")],
-            ["started-order", 'if (session.state.kind !== "starting") fail("event-order");', "", row("started-twice")],
+            ["created-order", 'if (kind !== "connecting") fail("event-order");', "", row("created-twice")],
+            ["updated-order", 'if (kind !== "starting") fail("event-order");', "", row("updated-twice")],
             ["input-frame", 'if (pcm.length % 2 !== 0) { failed(session, "live=input-frame"); return; }', "", row("input-frame")],
-            ["disconnected", 'else failed(session, "live=disconnected code=" + event.code);', "", row("reset")],
-            ["format", '\n            fail("format");', "\n            void 0;", row("format")],
-            ["started-shape", 'if (!plain(session) || typeof session.id !== "string" || session.id === "") fail("frame-shape");', "",
-                row("started-shape")],
-            ["audio-order", 'output(session, event.pcm);\n                else if (kind !== "closing") fail("event-order");',
-                "output(session, event.pcm);", row("early-audio")],
-            ["caption-order", 'event.start, event.end);\n                else if (kind !== "closing") fail("event-order");',
-                "event.start, event.end);", row("early-caption")],
+            ["disconnected", disconnected, "", row("reset")],
+            ["redirect", disconnected, "", as("redirect")],
+            ["format", '\n                fail("format");', "\n                void 0;", row("format")],
+            ["updated-shape", 'if (!plain(audio)) fail("frame-shape");', "if (!plain(audio)) return { kind: \"started\" };", row("updated-shape")],
+            ["early-turn", 'if (kind !== "running" && !["created", "started", "ignored"].includes(event.kind)) fail("event-order");', "", row("early-turn")],
+            ["unread", 'case "response.output_audio.done": ', "", as("unread")],
             ["start-timeout", 'clock.set(() => failed(session, "live=start-timeout"), START_WAIT_MS)', "null", as("startTimeout")],
+            ["response-timeout", 'clock.set(() => failed(session, "live=response-timeout"), RESPONSE_WAIT_MS)', "null", as("responseTimeout")],
+            ["response-wait-end", 'clear(session, "words");', "", as("idle")],
             ["key-first", "Net.assertKeyTarget(provider.base, key.reference.origin);", "", as("keys")],
             ["key-zero", "} finally { secret.fill(0); }", "} finally { void secret; }", as("roundTrip")],
             ["pending", "session.pending.push(Buffer.from(pcm));", "", as("roundTrip")],
             ["silence", "if (samples > 0 && !input(session, Buffer.alloc(samples * 2))) return;", "", as("roundTrip")],
             ["silence-gate", "if (session.capture === null) {", "if (true) {", as("roundTrip")],
             ["silence-cap", "Math.min(now - session.inputAt, SILENCE_MAX_MS)", "(now - session.inputAt)", as("roundTrip")],
-            ["reply-gap", "reply.stream.push(null);", "", as("roundTrip")],
-            ["gap-restart", "if (reply === session.playing) gap(session);", "", as("roundTrip")],
-            ["segment-gap", "start - segment.end >= SEGMENT_GAP_MS", "false", as("captions")],
-            ["segment-limit", 'captionLimit) {\n                conclude(session, role);\n                emit(segment.text, "final");', "captionLimit) {", as("captions")],
+            ["reply-end", "reply.stream.push(null);", "", as("roundTrip")],
+            ["reply-open", 'if (session.playing !== reply || reply.kind !== "open" || !quiet(session)) return;', 'if (session.playing !== reply || reply.kind !== "open") return;', as("roundTrip")],
+            ["caption-turn", "if (segment !== null && segment.source !== source) {\n            conclude(session, role);\n            segment = null;\n        }", "", as("captions")],
+            ["caption-limit", "captionLimit) {\n                conclude(session, role);\n                segment = null;", "captionLimit) {\n                segment = null;", as("captions")],
+            ["caption-reply-end", 'case "hearing":\n                conclude(session, "assistant");', 'case "hearing":', as("captions")],
             ["release-before-close", 'session.state = { kind: "ended" };\n        if (session.channel !== null) session.channel.close();',
                 'if (session.channel !== null) session.channel.close();\n        session.state = { kind: "ended" };', as("releaseLifetime")],
             ["input-overflow", 'if (session.pendingBytes > PENDING_BYTES) { failed(session, "live=input-overflow"); return false; }', "",
                 as("opening")],
-            ["input-order", "if (!waiting && session.pending.length === 0) return append(session, pcm);",
-                "if (!waiting) return append(session, pcm);", as("opening")],
+            ["input-order", 'if (session.state.kind === "running" && session.pending.length === 0) return append(session, pcm);',
+                'if (session.state.kind === "running") return append(session, pcm);', as("opening")],
             ["drain", " && session.channel.bufferedAmount === 0) {", ") {", as("opening")],
-            ["output-overflow", 'if (!reply.stream.push(pcm)) { failed(session, "live=output-overflow"); return; }', "reply.stream.push(pcm);",
+            ["output-overflow", 'if (!reply.stream.push(pcm)) failed(session, "live=output-overflow");', "reply.stream.push(pcm);",
                 as("replyQueue")],
             ["backlog", 'if (session.channel.bufferedAmount > SEND_BACKLOG_BYTES) fail("send-backlog");', "", as("backlog")],
             ["release", 'if (answer.kind !== "send") fail("release-" + answer.kind);\n        if (session.channel', "if (session.channel",
@@ -980,7 +1173,7 @@ world(async () => {
         ];
         for (const [name, needle, replacement, check] of mutations) await control(name, needle, replacement, check);
         for (const [name, needle, replacement, scenario] of [
-            ["daemon-live-selection", 'if (settings.voiceProvider === "gpt-live") {', "if (false) {", "action"],
+            ["daemon-live-selection", 'if (settings.voiceProvider === "realtime") {', "if (false) {", "action"],
             ["daemon-commentary", "c.live.commentary(turn.delegation, item);", "void item;", "action"],
             ["daemon-router-tools", "tools: router.offer()", "tools: []", "action"],
             ["daemon-router-approval", "router.route(call, { gen: turn.gen, op: turn.op });", "void call;", "action"],
@@ -989,10 +1182,10 @@ world(async () => {
                 'provider: provider.id, account: account.id, origin: Net.endpoint(provider.base).origin', "release"],
             ["daemon-release-request", "if (needed.length === 0) return;", "return;", "release"],
             ["daemon-audit-before-send", 'const result = audit.before(releaseEvent(c, identity, item.labels, "send", "pending"), start);',
-                `if (item.content.startsWith('{"type":"session.commentary.append"')) return start();\n        const result = audit.before(releaseEvent(c, identity, item.labels, "send", "pending"), start);`, "action"]
+                `if (item.content.startsWith('{"type":"response.create"')) return start();\n        const result = audit.before(releaseEvent(c, identity, item.labels, "send", "pending"), start);`, "action"]
         ]) {
             const kit = kitFrom(backend, [["ChainedEngine.js", needle, replacement]]);
-            // The audit plant must parse, send the real commentary frame, and
+            // The audit plant must parse, send the real spoken frame, and
             // fail at its missing frame record rather than at setup.
             new (require("node:vm").Script)(fs.readFileSync(path.join(kit.folder, "ChainedEngine.js"), "utf8"));
             const failed = name === "daemon-audit-before-send"
@@ -1014,4 +1207,4 @@ world(async () => {
             await new Promise(resolve => server.instance.close(resolve));
         }
     }
-}, folder => { standins(folder); audioStandins(folder); }, 180000)?.catch(error => { console.error(error); process.exitCode = 1; });
+}, folder => { standins(folder); audioStandins(folder); }, 240000)?.catch(error => { console.error(error); process.exitCode = 1; });

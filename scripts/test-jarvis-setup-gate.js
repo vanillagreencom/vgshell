@@ -155,7 +155,7 @@ function verifyVoiceConsumers(gate, pageSource) {
     assert.ok(accessor, "the Details accessor is present");
     const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
     for (const [provider, causes, expected] of [
-        ["gpt-live", ["brain=unselected"], ["success", false]],
+        ["realtime", ["brain=unselected"], ["success", false]],
         ["local", ["brain=unselected", "speech=local-not-set-up"], ["warning", true]]
     ]) {
         const values = { ...plain(gate.readiness({ kind: "answered", causes })),
@@ -204,7 +204,7 @@ function verifyReadiness(gate) {
     for (const cause of ["speech=live-account-unselected", "speech=live-account-unreadable", "speech=live-key-required", "speech=always-local-voice"]) {
         const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setupVoice.tone, got.setupVoice.action, typeof got.setupVoice.hint], ["warning", false, "string"],
-            "GPT-Live setup never starts local model installation");
+            "Realtime voice setup never starts local model installation");
         assert.deepEqual(got.setupModel, { tone: "ok", text: "Done" });
     }
     // Before the daemon answers nothing reads ready or to do.
@@ -333,7 +333,7 @@ const CONTROLS = [
     ["the withheld text names every required command", 'lacking.join(" and ")', 'requires.join(" and ")'],
     ["a missing requirement offers no install", 'if (missing.indexOf(command) === -1) return { tone: "ok"', 'if (true) return { tone: "ok"'],
     ["a found requirement offers its install", 'if (missing.indexOf(command) === -1) return { tone: "ok"', 'if (false) return { tone: "ok"'],
-    ["GPT-Live offers the local install action", 'return cause.indexOf("speech=live-") !== 0 && ', 'return true && '],
+    ["the Realtime voice offers the local install action", 'return cause.indexOf("speech=live-") !== 0 && ', 'return true && '],
     ["Always mode offers the local install action", ' && cause !== "speech=always-local-voice";', ";"],
     ["Always mode has no hint of its own", '    "speech=always-local-voice": ', '    "speech=always-local-voice-unused": '],
     ["a cause marks no step", "out[REQUIRED[step]] = hint === undefined", "void (hint === undefined)"],
@@ -386,8 +386,8 @@ try {
     catch (error) { failure = error; }
     assert.ok(failure instanceof assert.AssertionError);
     assert.equal(failure.check, "setup-voice-consumer-source");
-    assert.equal(failure.provider, "gpt-live");
-    console.log("test-jarvis-setup-gate: control=second-voice-source check=setup-voice-consumer-source provider=gpt-live rejected=true");
+    assert.equal(failure.provider, "realtime");
+    console.log("test-jarvis-setup-gate: control=second-voice-source check=setup-voice-consumer-source provider=realtime rejected=true");
     for (const [label, needle, replacement, assertion] of CONTROLS) {
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);
         const changed = source.replace(needle, () => replacement);

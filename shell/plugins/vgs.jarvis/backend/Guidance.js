@@ -43,9 +43,8 @@ function compose(engine, brainClass, language) {
     const code = languageCode(language);
     let names;
     if (engine === "duplex") {
-        names = brainClass === "duplex"
-            ? ["core-short.md", "speech.md", "turns.md", "class/duplex.md"]
-            : ["core.md", "speech.md", "actions.md"];
+        // The duplex voice reads the brain's words aloud and decides nothing.
+        names = brainClass === "duplex" ? ["class/duplex.md"] : ["core.md", "speech.md", "actions.md"];
     } else {
         names = ["core.md", "speech.md", "turns.md", "actions.md"];
         if (brainClass === "local") names.push("class/local.md");

@@ -74,7 +74,7 @@ Item {
         SettingField {
             id: keyLinked
             key: "voiceAccount"
-            spec: ({ type: "boolean", label: "GPT-Live key", description: "OpenAI API keys gives you a key.", link: { text: "OpenAI API keys", url: "https://platform.openai.com/api-keys" } })
+            spec: ({ type: "boolean", label: "Realtime key", description: "OpenAI API keys gives you a key.", link: { text: "OpenAI API keys", url: "https://platform.openai.com/api-keys" } })
             value: true
             onOpenLink: url => root.opened.push(url)
         }

@@ -1,0 +1,379 @@
+{
+ "source": {
+  "schema": "realtime.schema.json",
+  "fetched": "2026-10-09",
+  "kind": "A recorded Realtime session made by hand from the documented event shapes. No account data and no provider recording. Old-reply PCM is 0x11 bytes, new-reply PCM 0x22."
+ },
+ "scripts": {
+  "created": [
+   {
+    "type": "session.created",
+    "event_id": "evt_created",
+    "session": {
+     "type": "realtime",
+     "output_modalities": [
+      "audio"
+     ],
+     "tools": [],
+     "tool_choice": "auto",
+     "instructions": "Fixture default instructions.",
+     "audio": {
+      "input": {
+       "format": {
+        "type": "audio/pcm",
+        "rate": 24000
+       },
+       "turn_detection": {
+        "type": "server_vad",
+        "create_response": true,
+        "interrupt_response": true
+       }
+      },
+      "output": {
+       "format": {
+        "type": "audio/pcm",
+        "rate": 24000
+       },
+       "voice": "marin"
+      }
+     }
+    }
+   }
+  ],
+  "updated": [
+   {
+    "type": "session.updated",
+    "event_id": "evt_updated",
+    "session": {
+     "type": "realtime",
+     "output_modalities": [
+      "audio"
+     ],
+     "tools": [],
+     "tracing": null,
+     "audio": {
+      "input": {
+       "format": {
+        "type": "audio/pcm",
+        "rate": 24000
+       },
+       "transcription": {
+        "model": "gpt-live-transcribe"
+       },
+       "turn_detection": {
+        "type": "semantic_vad",
+        "create_response": false,
+        "interrupt_response": false
+       }
+      },
+      "output": {
+       "format": {
+        "type": "audio/pcm",
+        "rate": 24000
+       },
+       "voice": "marin"
+      }
+     }
+    }
+   }
+  ],
+  "turn": [
+   {
+    "type": "input_audio_buffer.speech_started",
+    "event_id": "evt_item_user_1_started",
+    "item_id": "item_user_1",
+    "audio_start_ms": 1200
+   },
+   {
+    "type": "conversation.item.input_audio_transcription.delta",
+    "event_id": "evt_item_user_1_delta_0",
+    "item_id": "item_user_1",
+    "content_index": 0,
+    "delta": "What is"
+   },
+   {
+    "type": "conversation.item.input_audio_transcription.delta",
+    "event_id": "evt_item_user_1_delta_1",
+    "item_id": "item_user_1",
+    "content_index": 0,
+    "delta": " the time?"
+   },
+   {
+    "type": "input_audio_buffer.speech_stopped",
+    "event_id": "evt_item_user_1_stopped",
+    "item_id": "item_user_1",
+    "audio_end_ms": 3100
+   },
+   {
+    "type": "input_audio_buffer.committed",
+    "event_id": "evt_item_user_1_committed",
+    "item_id": "item_user_1",
+    "previous_item_id": null
+   },
+   {
+    "type": "conversation.item.input_audio_transcription.completed",
+    "event_id": "evt_item_user_1_completed",
+    "item_id": "item_user_1",
+    "content_index": 0,
+    "transcript": "What is the time?",
+    "usage": {
+     "type": "duration",
+     "seconds": 2
+    }
+   }
+  ],
+  "turn-next": [
+   {
+    "type": "input_audio_buffer.speech_started",
+    "event_id": "evt_item_user_2_started",
+    "item_id": "item_user_2",
+    "audio_start_ms": 1200
+   },
+   {
+    "type": "conversation.item.input_audio_transcription.delta",
+    "event_id": "evt_item_user_2_delta_0",
+    "item_id": "item_user_2",
+    "content_index": 0,
+    "delta": "Stop."
+   },
+   {
+    "type": "conversation.item.input_audio_transcription.delta",
+    "event_id": "evt_item_user_2_delta_1",
+    "item_id": "item_user_2",
+    "content_index": 0,
+    "delta": " What changed?"
+   },
+   {
+    "type": "input_audio_buffer.speech_stopped",
+    "event_id": "evt_item_user_2_stopped",
+    "item_id": "item_user_2",
+    "audio_end_ms": 3100
+   },
+   {
+    "type": "input_audio_buffer.committed",
+    "event_id": "evt_item_user_2_committed",
+    "item_id": "item_user_2",
+    "previous_item_id": null
+   },
+   {
+    "type": "conversation.item.input_audio_transcription.completed",
+    "event_id": "evt_item_user_2_completed",
+    "item_id": "item_user_2",
+    "content_index": 0,
+    "transcript": "Stop. What changed?",
+    "usage": {
+     "type": "duration",
+     "seconds": 2
+    }
+   }
+  ],
+  "reply-old": [
+   {
+    "type": "response.created",
+    "event_id": "evt_resp_old_created",
+    "response": {
+     "id": "resp_old",
+     "object": "realtime.response",
+     "status": "in_progress",
+     "conversation_id": null,
+     "output_modalities": [
+      "audio"
+     ],
+     "output": []
+    }
+   },
+   {
+    "type": "response.output_audio.delta",
+    "event_id": "evt_resp_old_audio_0",
+    "response_id": "resp_old",
+    "item_id": "item_resp_old",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "ERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERER"
+   },
+   {
+    "type": "response.output_audio.delta",
+    "event_id": "evt_resp_old_audio_1",
+    "response_id": "resp_old",
+    "item_id": "item_resp_old",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "ERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERER"
+   },
+   {
+    "type": "response.output_audio.delta",
+    "event_id": "evt_resp_old_audio_2",
+    "response_id": "resp_old",
+    "item_id": "item_resp_old",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "ERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERER"
+   },
+   {
+    "type": "response.output_audio_transcript.delta",
+    "event_id": "evt_resp_old_words",
+    "response_id": "resp_old",
+    "item_id": "item_resp_old",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "It is noon."
+   }
+  ],
+  "late-old": [
+   {
+    "type": "response.output_audio.delta",
+    "event_id": "evt_resp_old_audio_late",
+    "response_id": "resp_old",
+    "item_id": "item_resp_old",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "ERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERER"
+   }
+  ],
+  "done-old": [
+   {
+    "type": "response.done",
+    "event_id": "evt_resp_old_done",
+    "response": {
+     "id": "resp_old",
+     "object": "realtime.response",
+     "status": "completed",
+     "conversation_id": null,
+     "output_modalities": [
+      "audio"
+     ],
+     "output": []
+    }
+   }
+  ],
+  "reply-new": [
+   {
+    "type": "response.created",
+    "event_id": "evt_resp_new_created",
+    "response": {
+     "id": "resp_new",
+     "object": "realtime.response",
+     "status": "in_progress",
+     "conversation_id": null,
+     "output_modalities": [
+      "audio"
+     ],
+     "output": []
+    }
+   },
+   {
+    "type": "response.output_audio.delta",
+    "event_id": "evt_resp_new_audio_0",
+    "response_id": "resp_new",
+    "item_id": "item_resp_new",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIi"
+   },
+   {
+    "type": "response.output_audio.delta",
+    "event_id": "evt_resp_new_audio_1",
+    "response_id": "resp_new",
+    "item_id": "item_resp_new",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIi"
+   },
+   {
+    "type": "response.output_audio.delta",
+    "event_id": "evt_resp_new_audio_2",
+    "response_id": "resp_new",
+    "item_id": "item_resp_new",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIi"
+   },
+   {
+    "type": "response.output_audio_transcript.delta",
+    "event_id": "evt_resp_new_words",
+    "response_id": "resp_new",
+    "item_id": "item_resp_new",
+    "output_index": 0,
+    "content_index": 0,
+    "delta": "Nothing changed."
+   }
+  ],
+  "done-new": [
+   {
+    "type": "response.done",
+    "event_id": "evt_resp_new_done",
+    "response": {
+     "id": "resp_new",
+     "object": "realtime.response",
+     "status": "completed",
+     "conversation_id": null,
+     "output_modalities": [
+      "audio"
+     ],
+     "output": []
+    }
+   }
+  ],
+  "failed": [
+   {
+    "type": "response.done",
+    "event_id": "evt_resp_old_failed",
+    "response": {
+     "id": "resp_old",
+     "object": "realtime.response",
+     "status": "failed",
+     "conversation_id": null,
+     "output_modalities": [
+      "audio"
+     ],
+     "output": [],
+     "status_details": {
+      "type": "failed",
+      "error": {
+       "type": "server_error",
+       "code": "inference_error"
+      }
+     }
+    }
+   }
+  ],
+  "transcription-failed": [
+   {
+    "type": "conversation.item.input_audio_transcription.failed",
+    "event_id": "evt_failed",
+    "item_id": "item_user_9",
+    "content_index": 0,
+    "error": {
+     "type": "transcription_error",
+     "code": "audio_unintelligible",
+     "message": "fixture-private-provider-text"
+    }
+   }
+  ],
+  "function-call": [
+   {
+    "type": "response.function_call_arguments.done",
+    "event_id": "evt_call",
+    "response_id": "resp_call",
+    "item_id": "item_call",
+    "output_index": 0,
+    "call_id": "call_fixture",
+    "name": "files_delete",
+    "arguments": "{\"path\":\"/home/fixture/file\"}"
+   }
+  ],
+  "error": [
+   {
+    "type": "error",
+    "event_id": "evt_error",
+    "error": {
+     "type": "invalid_request_error",
+     "code": "unknown_parameter",
+     "message": "fixture-private-provider-text",
+     "param": "session.audio",
+     "event_id": null
+    }
+   }
+  ]
+ }
+}

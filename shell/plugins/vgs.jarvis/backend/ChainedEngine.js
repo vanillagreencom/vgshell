@@ -1,4 +1,4 @@
-// One conversation owner: chained speech or GPT-Live duplex delegation.
+// One conversation owner: chained speech or Realtime duplex delegation.
 // Session owns identity and deadlines, Audio owns pacing and heard accounting,
 // WireBrain owns history and ToolRouter owns actions. This owner connects them
 // per conversation and keeps the heard prefix that the next turn reports.
@@ -20,7 +20,7 @@ const PiHarness = require("./PiHarness.js");
 const ClaudeCode = require("./ClaudeCode.js");
 const LocalSpeech = require("./LocalSpeech.js");
 const { PCM_RATE } = require("./Audio.js");
-const GptLive = require("./GptLive.js");
+const Realtime = require("./Realtime.js");
 const TaskVoice = require("./TaskVoice.js");
 
 // Speech adapter rows in selection order. A row is {select({settings,
@@ -94,14 +94,14 @@ function select(settings, accounts, directories) {
 // that spots it locally; any other voice would stream the room to a provider.
 function selectSpeech(settings, accounts, directories) {
     const speech = selectVoice(settings, accounts, directories);
-    if (settings.mode === "always" && (settings.voiceProvider === "gpt-live" || speech.kind === "ready" && speech.wake !== true))
+    if (settings.mode === "always" && (settings.voiceProvider === "realtime" || speech.kind === "ready" && speech.wake !== true))
         return unconfigured("speech=always-local-voice");
     return speech;
 }
 
 function selectVoice(settings, accounts, directories) {
-    if (settings.voiceProvider === "gpt-live") {
-        const provider = Providers.select("openai-live");
+    if (settings.voiceProvider === "realtime") {
+        const provider = Providers.select("openai-realtime");
         if (!settings.voiceAccount) return unconfigured("speech=live-account-unselected");
         let judge, account;
         try { judge = accounts(); account = judge.resolve(settings.voiceAccount); }
@@ -113,7 +113,7 @@ function selectVoice(settings, accounts, directories) {
             return unconfigured("speech=live-key-required");
         const reference = account.source.reference;
         Net.assertKeyTarget(provider.base, reference.origin);
-        return { kind: "ready", id: "openai-live", provider, key: { secrets: judge.secrets, reference },
+        return { kind: "ready", id: "openai-realtime", provider, key: { secrets: judge.secrets, reference },
             recipients: [{ kind: "network", provider: account.provider, account: account.id, origin: Net.endpoint(provider.base).origin }] };
     }
     let speech = unconfigured("speech=no-adapter");
@@ -236,8 +236,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             decisions: new Set(), releasePending: null, late: new Map(), results: [], turn: null, last: null,
             feedback: null, collection: null, unbound: null, rev: 0, quiet: Promise.resolve(), live: null };
         try {
-            if (plan.speech.id === "openai-live") {
-                c.live = GptLive.create({ provider: plan.speech.provider, clock, captionLimit,
+            if (plan.speech.id === "openai-realtime") {
+                c.live = Realtime.create({ provider: plan.speech.provider, clock, captionLimit,
                     log, conversation: e => ({ net, key: plan.speech.key, language: LANGUAGE,
                         grants: () => c.grants, transfer: (item, start) => transfer(c, e, item, start) }) });
                 c.speech = { close: () => c.live.port.release() };
@@ -1014,7 +1014,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             return turn.speech.readable;
         },
         playback, brain,
-        engine() { return plan.kind === "ready" && plan.speech.id === "openai-live" ? "duplex" : "chained"; },
+        engine() { return plan.kind === "ready" && plan.speech.id === "openai-realtime" ? "duplex" : "chained"; },
         speech: {
             open(e, events) { current(e.gen).live.port.open(e, events); },
             close(e) { conversation?.live?.port.close(e); },

@@ -28,8 +28,7 @@ for (const [engine, brain, language, cause] of invalid)
 let controls = 0;
 world("jg", root => {
     const rows = [
-        ["voice-layers", '["core-short.md", "speech.md", "turns.md", "class/duplex.md"]',
-            '["core.md", "speech.md", "turns.md", "class/duplex.md"]', logic => composed(logic, fixtures[0])],
+        ["voice-layers", '? ["class/duplex.md"]', '? ["core.md", "class/duplex.md"]', logic => composed(logic, fixtures[0])],
         ["delegation-layers", '["core.md", "speech.md", "actions.md"]',
             '["core.md", "speech.md", "turns.md"]', logic => composed(logic, fixtures[1])],
         ["frontier-language", 'names.push("lang/" + code + ".md");', 'names.push("lang/en.md");',

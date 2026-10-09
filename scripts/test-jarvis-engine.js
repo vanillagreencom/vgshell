@@ -527,7 +527,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
 // Always mode through the shipped daemon, Session, Audio and local adapter
 // with the stand-in sidecar: the wake capture reaches only the sidecar and
 // no brain, the word opens one utterance, the reply plays, and the next
-// wake capture follows in the same conversation. "refused" selects GPT-Live
+// wake capture follows in the same conversation. "refused" selects the Realtime voice
 // and "unset" has no local setup: neither opens any capture.
 async function alwaysTalk(server, ending = "ready", edits = []) {
     server.replies.length = 0;
@@ -570,7 +570,7 @@ async function alwaysTalk(server, ending = "ready", edits = []) {
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = () => send({ type: "hello", locked: false,
         settings: { sounds: false, mode: "always", microphone: "", speaker: "", brain: "fixture-account", taskTerminal: "auto",
-            voiceProvider: ending === "refused" ? "gpt-live" : "local", voiceAccount: "", cloudVision: "ask", privateWindows: "bitwarden" },
+            voiceProvider: ending === "refused" ? "realtime" : "local", voiceAccount: "", cloudVision: "ask", privateWindows: "bitwarden" },
         keys: { talk: null, mute: null, stop: null, confirm: null, console: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     hello();
     const before = server.requests.length;
@@ -1761,7 +1761,7 @@ function selection(Engine) {
     const always = ["speech=always-local-voice"];
     for (const [settings, wake, causes] of [
         [{ mode: "always" }, false, always],
-        [{ mode: "always", voiceProvider: "gpt-live" }, true, always],
+        [{ mode: "always", voiceProvider: "realtime" }, true, always],
         [{ mode: "always", brain: "" }, false, [...always, "brain=unselected"]]])
         assert.deepEqual(configure(settings, accepted(resolved), true, wake), { kind: "unconfigured", cause: causes[0], causes }, JSON.stringify(settings));
     assert.deepEqual(configure({ mode: "always" }, accepted(resolved), false, true), { kind: "unconfigured", cause: "speech=fixture-off",
@@ -1802,7 +1802,7 @@ world(async () => {
             ["harness-driver", '"codex-app-server": CodexHarness, '],
             ["claude-driver", ', "claude-code": ClaudeCode });', " });"],
             ["always-any-voice", 'settings.mode === "always" && (', "false && ("],
-            ["always-live-voice", 'settings.voiceProvider === "gpt-live" || speech.kind', "speech.kind"],
+            ["always-live-voice", 'settings.voiceProvider === "realtime" || speech.kind', "speech.kind"],
             ["always-wake-row", ' && speech.wake !== true))', "))"]]) {
             const { Engine } = Fixture.copy(root, [[needle, replacement]]);
             assert.throws(() => selection(Engine), assert.AssertionError, name + " must turn red");

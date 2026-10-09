@@ -16,7 +16,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Always talk mode: say Hey Jarvis to start a request. The word is heard by the local voice on this computer; nothing reaches the AI model until you speak after it. While Jarvis waits for the word its bubble shows a still orb.
 - An AI model from an API key you added, or from an app you are signed in to, such as Claude Code, Codex, GitHub Copilot or Pi with its own providers.
 - Local voice: speech to text and spoken replies on your computer, with no network access, after Set up local voice.
-- GPT-Live voice with a saved OpenAI key. The selected AI model handles delegated work through Jarvis's action and release checks.
+- Realtime voice with a saved OpenAI key. OpenAI hears you and speaks the reply. The selected AI model answers each request through Jarvis's action and release checks.
 - Half duplex audio: Jarvis closes its microphone while speech plays, and Talk interrupts speech.
 - Provider keys stored in your desktop keyring. Plugins shows whether a key is present, absent, locked or unavailable without reading it.
 - Accounts finds the account folders of other tools in your home, config and data folders, and can remember a key another tool stored without copying its value. A login hint never proves that the AI answers.
@@ -34,7 +34,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 The Setup section at the top of the Jarvis page says Ready when Jarvis has an AI model it can use and the selected voice provider, and Not ready when it does not. It offers Sign in, AI model, Voice, Browser and Input. The AI model and voice steps read Done or To do. Sign in is optional. A step with a setup action shows its action beside it. The browser and input steps read Optional until they are done.
 
-Setup actions are buttons on the Jarvis page in Plugins or rows in the launcher's Jarvis group. These actions open a floating terminal. For GPT-Live, use Add key under Setup at the top of this page to save an OpenAI key. Jarvis selects the only available OpenAI key when GPT-Live key is empty. With several keys, choose one under Voice.
+Setup actions are buttons on the Jarvis page in Plugins or rows in the launcher's Jarvis group. These actions open a floating terminal. For the Realtime voice, use Add key under Setup at the top of this page to save an OpenAI key. Jarvis selects the only available OpenAI key when Realtime key is empty. With several keys, choose one under Voice.
 
 - Add key stores a new API key from an AI provider in your keyring, with hidden key input. You choose the provider from a list that names the page where it makes keys, then give the key a name.
 - Sign in opens the app's own sign-in: Claude Code, Codex or GitHub Copilot. Give a new account a name, or select an existing account folder. Jarvis shows the folder before sign-in and creates it if needed. After sign-in, select the account as the AI model. The app keeps its login token.
@@ -51,8 +51,8 @@ The shell's requirement notice installs a missing tool in one click.
 | --- | --- |
 | Talk mode | Hold: Jarvis takes what you said when you let go of the Talk key. Toggle: the conversation stays open until you press Talk again. Always: say Hey Jarvis, then your request; Talk listens at once. Always needs the local voice: the word is heard on this computer, and the bubble stays on screen while the microphone is open. |
 | Microphone, Speaker | The audio devices Jarvis uses. |
-| Voice provider | Local runs voice on this computer. GPT-Live sends microphone audio and released results to OpenAI. Changing it ends the conversation. |
-| GPT-Live key | A saved OpenAI key. Add key opens hidden key input and stores the key in your desktop keyring. Get the key at [OpenAI API keys](https://platform.openai.com/api-keys). |
+| Voice provider | Local runs voice on this computer. Realtime sends microphone audio and released results to OpenAI. Changing it ends the conversation. |
+| Realtime key | A saved OpenAI key the Realtime voice uses. Add key opens hidden key input and stores the key in your desktop keyring. Get the key at [OpenAI API keys](https://platform.openai.com/api-keys). |
 | AI model | The AI that answers you: an API key you added, or an app you are signed in to. It lists only the choices Jarvis can use. An app with more than one account shows each by its sign-in email. |
 | Task terminal | Where a coding task opens. Auto uses tmux when it is installed, so several tasks run at once, and the floating terminal otherwise. |
 | Screen to cloud | Whether a screenshot or its text goes to an AI outside this computer. Ask withholds it unless granted for the conversation, Allow sends it, Never withholds it. When the AI and the voice both run on this computer, they always receive it. |
@@ -60,4 +60,4 @@ The shell's requirement notice installs a missing tool in one click.
 
 The keys are under Keys on the same page. Show in bar puts the bar icon back after Hide.
 
-GPT-Live can change how it speaks a result. Jarvis counts formatting violations in its transcript. This check does not control the audio OpenAI makes.
+Jarvis asks the Realtime voice to speak each sentence of a result exactly. Jarvis counts formatting violations in the transcript of what the voice said. This check does not control the audio OpenAI makes.

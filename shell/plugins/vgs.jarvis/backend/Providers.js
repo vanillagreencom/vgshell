@@ -23,9 +23,13 @@ const ROWS = Object.freeze({
             source: "https://developers.openai.com/api/docs/guides/your-data" } },
     // The duplex voice engine. base is its WebSocket endpoint; a key stored for
     // the openai row's origin serves it, since both handshake at that origin.
-    "openai-live": { driver: "openai-live", base: "wss://api.openai.com/v1/live/sessions", key: "required", images: false,
-        noStore: { store: false },
-        retention: { text: "Abuse monitoring logs are kept up to 30 days; voice sessions are not used for training, and nothing is stored for forking while store is false.",
+    // The address pins the model, which session.update cannot change; this is
+    // its one place in VGS. It is the model Talk's session uses:
+    // ~/dev/talk/docs/talk-api.md:58. noStore keeps the session out of
+    // OpenAI's Traces dashboard.
+    "openai-realtime": { driver: "openai-realtime", base: "wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1", key: "required", images: false,
+        noStore: { tracing: null },
+        retention: { text: "Abuse monitoring logs are kept up to 30 days; realtime sessions are not used for training, and OpenAI keeps no conversation state after the session.",
             source: "https://developers.openai.com/api/docs/guides/your-data" } },
     openrouter: { driver: "openai-chat", base: "https://openrouter.ai/api/v1", key: "required", images: true,
         noStore: { provider: { data_collection: "deny" } },

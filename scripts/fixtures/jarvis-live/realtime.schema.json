@@ -1,0 +1,926 @@
+{
+ "source": {
+  "types": "https://github.com/openai/openai-node/blob/3edaf0f3c3f9a366b6993773d231002fa59c3b4d/src/resources/realtime/realtime.ts",
+  "package": "openai-node 7.31.0",
+  "sha256": "649e40ef616f221e9c8fcf5573d5ddb41c31a244824d1fc54fb7d20fd547827e",
+  "fetched": "2026-10-09",
+  "operation": "WS /v1/realtime",
+  "guides": [
+   "https://developers.openai.com/api/docs/guides/realtime-websocket",
+   "https://developers.openai.com/api/docs/guides/realtime-conversations",
+   "https://developers.openai.com/api/docs/guides/realtime-vad",
+   "https://developers.openai.com/api/docs/guides/realtime-transcription"
+  ]
+ },
+ "rule": [
+  "Each schema transcribes the interface of the same name in the types file to the checker's keyword set. String literals become enums; optional members stay optional.",
+  "RealtimeSessionCreateRequest keeps its realtime branch. tools items, noise_reduction and a tracing object stay open, since the engine sends an empty tools list and a null tracing value.",
+  "RealtimeResponse and RealtimeResponseCreateParams keep the members a spoken out-of-band response carries. output items, usage and audio stay open.",
+  "The checker closes every other object."
+ ],
+ "omitted": [
+  "Client events the duplex engine does not send: input_audio_buffer.commit and clear, conversation.item.create, retrieve, truncate and delete, response.cancel, output_audio_buffer.clear.",
+  "Server events the engine does not read, and the events only a tool, a text reply, an MCP server, SIP or WebRTC produce. The function call arguments event is kept for the refusal it proves.",
+  "The transcription session branch, the G.711 formats, custom voices, prompt references and reasoning settings."
+ ],
+ "schemas": {
+  "AudioPCM": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "audio/pcm"
+     ]
+    },
+    "rate": {
+     "type": "integer",
+     "enum": [
+      24000
+     ]
+    }
+   }
+  },
+  "AudioTranscription": {
+   "type": "object",
+   "properties": {
+    "model": {
+     "type": "string"
+    },
+    "language": {
+     "type": "string"
+    },
+    "languages": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "keywords": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "prompt": {
+     "type": "string"
+    },
+    "delay": {
+     "type": "string",
+     "enum": [
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+     ]
+    }
+   }
+  },
+  "TurnDetection": {
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "type": "string",
+       "enum": [
+        "semantic_vad"
+       ]
+      },
+      "create_response": {
+       "type": "boolean"
+      },
+      "eagerness": {
+       "type": "string",
+       "enum": [
+        "low",
+        "medium",
+        "high",
+        "auto"
+       ]
+      },
+      "interrupt_response": {
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "type"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "type": "string",
+       "enum": [
+        "server_vad"
+       ]
+      },
+      "create_response": {
+       "type": "boolean"
+      },
+      "interrupt_response": {
+       "type": "boolean"
+      },
+      "idle_timeout_ms": {
+       "type": "integer",
+       "nullable": true
+      },
+      "prefix_padding_ms": {
+       "type": "integer"
+      },
+      "silence_duration_ms": {
+       "type": "integer"
+      },
+      "threshold": {
+       "type": "number"
+      }
+     },
+     "required": [
+      "type"
+     ]
+    }
+   ]
+  },
+  "RealtimeSessionCreateRequest": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "realtime"
+     ]
+    },
+    "audio": {
+     "type": "object",
+     "properties": {
+      "input": {
+       "type": "object",
+       "properties": {
+        "format": {
+         "$ref": "#/schemas/AudioPCM"
+        },
+        "noise_reduction": {
+         "type": "object",
+         "additionalProperties": true,
+         "nullable": true
+        },
+        "transcription": {
+         "$ref": "#/schemas/AudioTranscription"
+        },
+        "turn_detection": {
+         "anyOf": [
+          {
+           "$ref": "#/schemas/TurnDetection"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        }
+       }
+      },
+      "output": {
+       "type": "object",
+       "properties": {
+        "format": {
+         "$ref": "#/schemas/AudioPCM"
+        },
+        "speed": {
+         "type": "number"
+        },
+        "voice": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    },
+    "include": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "item.input_audio_transcription.logprobs"
+      ]
+     }
+    },
+    "instructions": {
+     "type": "string"
+    },
+    "max_output_tokens": {
+     "type": [
+      "integer",
+      "string"
+     ]
+    },
+    "model": {
+     "type": "string"
+    },
+    "output_modalities": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "text",
+       "audio"
+      ]
+     }
+    },
+    "parallel_tool_calls": {
+     "type": "boolean"
+    },
+    "tool_choice": {
+     "type": "string"
+    },
+    "tools": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "additionalProperties": true
+     }
+    },
+    "tracing": {
+     "type": [
+      "string",
+      "object"
+     ],
+     "nullable": true,
+     "additionalProperties": true
+    },
+    "truncation": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type"
+   ]
+  },
+  "RealtimeResponseCreateParams": {
+   "type": "object",
+   "properties": {
+    "conversation": {
+     "type": "string"
+    },
+    "input": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "additionalProperties": true
+     }
+    },
+    "instructions": {
+     "type": "string"
+    },
+    "max_output_tokens": {
+     "type": [
+      "integer",
+      "string"
+     ]
+    },
+    "metadata": {
+     "type": "object",
+     "additionalProperties": true,
+     "nullable": true
+    },
+    "output_modalities": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "text",
+       "audio"
+      ]
+     }
+    }
+   }
+  },
+  "RealtimeResponseStatus": {
+   "type": "object",
+   "properties": {
+    "error": {
+     "type": "object",
+     "properties": {
+      "code": {
+       "type": "string"
+      },
+      "type": {
+       "type": "string"
+      }
+     }
+    },
+    "reason": {
+     "type": "string",
+     "enum": [
+      "turn_detected",
+      "client_cancelled",
+      "max_output_tokens",
+      "content_filter"
+     ]
+    },
+    "type": {
+     "type": "string",
+     "enum": [
+      "completed",
+      "cancelled",
+      "incomplete",
+      "failed"
+     ]
+    }
+   }
+  },
+  "RealtimeResponse": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "audio": {
+     "type": "object",
+     "additionalProperties": true
+    },
+    "conversation_id": {
+     "type": "string",
+     "nullable": true
+    },
+    "max_output_tokens": {
+     "type": [
+      "integer",
+      "string"
+     ]
+    },
+    "metadata": {
+     "type": "object",
+     "additionalProperties": true,
+     "nullable": true
+    },
+    "object": {
+     "type": "string",
+     "enum": [
+      "realtime.response"
+     ]
+    },
+    "output": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "additionalProperties": true
+     }
+    },
+    "output_modalities": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "text",
+       "audio"
+      ]
+     }
+    },
+    "status": {
+     "type": "string",
+     "enum": [
+      "completed",
+      "cancelled",
+      "failed",
+      "incomplete",
+      "in_progress"
+     ]
+    },
+    "status_details": {
+     "$ref": "#/schemas/RealtimeResponseStatus"
+    },
+    "usage": {
+     "type": "object",
+     "additionalProperties": true
+    }
+   }
+  },
+  "RealtimeError": {
+   "type": "object",
+   "properties": {
+    "message": {
+     "type": "string"
+    },
+    "type": {
+     "type": "string"
+    },
+    "code": {
+     "type": "string",
+     "nullable": true
+    },
+    "event_id": {
+     "type": "string",
+     "nullable": true
+    },
+    "param": {
+     "type": "string",
+     "nullable": true
+    }
+   },
+   "required": [
+    "message",
+    "type"
+   ]
+  },
+  "SessionUpdateEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "session.update"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "session": {
+     "$ref": "#/schemas/RealtimeSessionCreateRequest"
+    }
+   },
+   "required": [
+    "type",
+    "session"
+   ]
+  },
+  "InputAudioBufferAppendEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "input_audio_buffer.append"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "audio": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "audio"
+   ]
+  },
+  "ResponseCreateEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "response.create"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "response": {
+     "$ref": "#/schemas/RealtimeResponseCreateParams"
+    }
+   },
+   "required": [
+    "type"
+   ]
+  },
+  "SessionCreatedEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "session.created"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "session": {
+     "$ref": "#/schemas/RealtimeSessionCreateRequest"
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "session"
+   ]
+  },
+  "SessionUpdatedEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "session.updated"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "session": {
+     "$ref": "#/schemas/RealtimeSessionCreateRequest"
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "session"
+   ]
+  },
+  "InputAudioBufferSpeechStartedEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "input_audio_buffer.speech_started"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "item_id": {
+     "type": "string"
+    },
+    "audio_start_ms": {
+     "type": "integer"
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "item_id",
+    "audio_start_ms"
+   ]
+  },
+  "InputAudioBufferSpeechStoppedEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "input_audio_buffer.speech_stopped"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "item_id": {
+     "type": "string"
+    },
+    "audio_end_ms": {
+     "type": "integer"
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "item_id",
+    "audio_end_ms"
+   ]
+  },
+  "InputAudioBufferCommittedEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "input_audio_buffer.committed"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "item_id": {
+     "type": "string"
+    },
+    "previous_item_id": {
+     "type": "string",
+     "nullable": true
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "item_id"
+   ]
+  },
+  "ConversationItemInputAudioTranscriptionDeltaEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "conversation.item.input_audio_transcription.delta"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "item_id": {
+     "type": "string"
+    },
+    "content_index": {
+     "type": "integer"
+    },
+    "delta": {
+     "type": "string"
+    },
+    "logprobs": {
+     "type": "array",
+     "nullable": true,
+     "items": {
+      "type": "object",
+      "additionalProperties": true
+     }
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "item_id"
+   ]
+  },
+  "ConversationItemInputAudioTranscriptionCompletedEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "conversation.item.input_audio_transcription.completed"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "item_id": {
+     "type": "string"
+    },
+    "content_index": {
+     "type": "integer"
+    },
+    "transcript": {
+     "type": "string"
+    },
+    "usage": {
+     "type": "object",
+     "additionalProperties": true
+    },
+    "languages": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "additionalProperties": true
+     }
+    },
+    "logprobs": {
+     "type": "array",
+     "nullable": true,
+     "items": {
+      "type": "object",
+      "additionalProperties": true
+     }
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "item_id",
+    "content_index",
+    "transcript",
+    "usage"
+   ]
+  },
+  "ConversationItemInputAudioTranscriptionFailedEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "conversation.item.input_audio_transcription.failed"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "item_id": {
+     "type": "string"
+    },
+    "content_index": {
+     "type": "integer"
+    },
+    "error": {
+     "type": "object",
+     "properties": {
+      "code": {
+       "type": "string"
+      },
+      "message": {
+       "type": "string"
+      },
+      "param": {
+       "type": "string"
+      },
+      "type": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "item_id",
+    "content_index",
+    "error"
+   ]
+  },
+  "ResponseCreatedEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "response.created"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "response": {
+     "$ref": "#/schemas/RealtimeResponse"
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "response"
+   ]
+  },
+  "ResponseDoneEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "response.done"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "response": {
+     "$ref": "#/schemas/RealtimeResponse"
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "response"
+   ]
+  },
+  "ResponseAudioDeltaEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "response.output_audio.delta"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "response_id": {
+     "type": "string"
+    },
+    "item_id": {
+     "type": "string"
+    },
+    "output_index": {
+     "type": "integer"
+    },
+    "content_index": {
+     "type": "integer"
+    },
+    "delta": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "response_id",
+    "item_id",
+    "output_index",
+    "content_index",
+    "delta"
+   ]
+  },
+  "ResponseAudioTranscriptDeltaEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "response.output_audio_transcript.delta"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "response_id": {
+     "type": "string"
+    },
+    "item_id": {
+     "type": "string"
+    },
+    "output_index": {
+     "type": "integer"
+    },
+    "content_index": {
+     "type": "integer"
+    },
+    "delta": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "response_id",
+    "item_id",
+    "output_index",
+    "content_index",
+    "delta"
+   ]
+  },
+  "ResponseFunctionCallArgumentsDoneEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "response.function_call_arguments.done"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "response_id": {
+     "type": "string"
+    },
+    "item_id": {
+     "type": "string"
+    },
+    "output_index": {
+     "type": "integer"
+    },
+    "call_id": {
+     "type": "string"
+    },
+    "name": {
+     "type": "string"
+    },
+    "arguments": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "response_id",
+    "item_id",
+    "output_index",
+    "call_id",
+    "name",
+    "arguments"
+   ]
+  },
+  "RealtimeErrorEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "error"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "error": {
+     "$ref": "#/schemas/RealtimeError"
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "error"
+   ]
+  }
+ }
+}

@@ -480,7 +480,7 @@ try {
             'if (false) fail("task-terminal");', "task-terminal"],
         ["cloud-vision", 'if (CLOUD_VISION.indexOf(message.settings.cloudVision) === -1) fail("cloud-vision");',
             'if (false) fail("cloud-vision");', "cloud-vision"],
-        ["voice-provider", '!["local", "gpt-live"].includes(message.settings.voiceProvider)', "false", "voice-provider"],
+        ["voice-provider", '!["local", "realtime"].includes(message.settings.voiceProvider)', "false", "voice-provider"],
         ["live-account-type", 'typeof message.settings.voiceAccount !== "string"', "false", "live-account-type"],
         ["live-account-control", "/^[^\\x00-\\x1f\\x7f]{0,200}$/", "/^[^]{0,200}$/", "live-account-control", 2],
         ["live-account-size", "/^[^\\x00-\\x1f\\x7f]{0,200}$/", "/^[^\\x00-\\x1f\\x7f]*$/", "live-account-size", 2],

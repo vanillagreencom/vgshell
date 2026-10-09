@@ -352,7 +352,7 @@ world(async () => {
             assert.equal(received("turn/interrupt").length, 1);
             validWrites();
         },
-        // GPT-Live replaces streaming work, including a replacement cancelled
+        // The duplex voice replaces streaming work, including a replacement cancelled
         // before Codex acknowledges the original turn/interrupt.
         async engineReplacement(folder) {
             for (const cancelQueued of [false, true]) {
@@ -371,7 +371,7 @@ world(async () => {
                     captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
                     harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime } });
                 owners.unshift(() => engine.close());
-                assert.deepEqual(engine.configure({ brain: "codex-fixture", voiceProvider: "gpt-live", voiceAccount: "live-fixture" }), { kind: "ready" });
+                assert.deepEqual(engine.configure({ brain: "codex-fixture", voiceProvider: "realtime", voiceAccount: "live-fixture" }), { kind: "ready" });
                 const { gen, turn: { op } } = w.runner.state;
                 const callbacks = [];
                 const send = (id, text) => engine.brain.send({ gen, op: id, owner: 1, text, delegation: "del_" + id },
