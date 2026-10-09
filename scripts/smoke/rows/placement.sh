@@ -328,7 +328,13 @@ cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv
 placement_held_builtin() {
   local x y tx ty barrier out_fd in_fd hold_pid
   read -r x y < <(placement_point vgs.bar/left-workspaces) || return 1
-  read -r tx ty < <(placement_before acme.tick vgs.bar/left-workspaces) || return 1
+  # One pixel left of the tick's left edge: a slot comes from the
+  # neighbours' shifted boxes (Plugins.dragMove), and whether the preview
+  # stands before the clock or before the tick, this point lies past the
+  # clock's middle and short of the tick's, so it reads before the tick
+  # whatever path the pointer took.
+  read -r tx ty < <(placement_point acme.tick) || return 1
+  tx="$(ipc smoke instanceGeometry "$(bar_key)" acme.tick | py_reply 'import json,sys; print(int(json.load(sys.stdin)[0]) - 1)')" || return 1
   expect "the builtin drag snapshot includes all widgets" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.bar/left-workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
   hover "$((x + 1))" "$y" || return 1
   coproc builtin_hold { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$tx" "$ty" hold; }
