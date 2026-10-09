@@ -724,12 +724,13 @@ scroll_themes 10000
 click_button "Install" RowAction || fail "the click on the catalog Install button failed"
 expect "the catalog Install button reaches the theme capability" installed wait_catalog_installed
 expect_poll "the panel is open after catalog install" open panel_open
-expect_poll "the catalog install changes the row to an installed catalog theme without wallpapers" '[["catalog-smoke", "dark, wallpapers 13 MB", "Installed", "Download wallpapers"]]' theme_row catalog-smoke
+# The action is inside its item, so pointing at it selects that theme.
+expect_poll "the catalog install changes the selected row to an installed catalog theme without wallpapers" '[["catalog-smoke", "dark, wallpapers 13 MB", "Installed", "Alt", "D", "Download wallpapers"]]' theme_row catalog-smoke
 
 
 scroll_themes 10000
 click_button "Download wallpapers" RowAction || fail "the click on the catalog Download wallpapers button failed"
-expect_poll "the clicked catalog wallpaper download shows the browser progress text" '[["catalog-smoke", "dark, wallpapers 13 MB", "Installed", "Downloading 3 of 13 MB", "Download wallpapers"]]' theme_row catalog-smoke
+expect_poll "the clicked catalog wallpaper download shows the browser progress text and selected row shortcut" '[["catalog-smoke", "dark, wallpapers 13 MB", "Installed", "Downloading 3 of 13 MB", "Alt", "D", "Download wallpapers"]]' theme_row catalog-smoke
 touch -- "$catalog_wallpapers_gate"
 expect "the clicked catalog Download wallpapers button reaches the theme capability" installed wait_catalog_wallpapers
 expect_poll "the clicked catalog wallpaper download removes the download action" '[["catalog-smoke", "dark, wallpapers 13 MB", "Installed"]]' theme_row catalog-smoke
