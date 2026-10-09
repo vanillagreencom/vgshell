@@ -45,12 +45,22 @@ var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];
 // The types a settings schema entry may declare, and the keys an entry may
 // carry. `presets`, `allowCustom`, `format` and `unit` choose the Settings
 // editor; `min`, `max` and `step` bound a number's control; `group` names
-// the section heading the entry is drawn under. Pads.js judges a `list`.
+// the section heading the entry is drawn under; `link` makes part of the
+// description open an https address. Pads.js judges a `list`.
 var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];
-var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "hintFrom", "info", "options", "optionsFrom", "presets", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults"];
+var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "hintFrom", "info", "link", "options", "optionsFrom", "presets", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults"];
 var NUMBER_BOUND_KEYS = ["min", "max", "step"];
 var PRESET_KEYS = ["value", "label"];
 var PRESET_LABEL_MAX = 40;
+// A schema entry's `link`: the words of its description that open `url`.
+// The address is https with a host of letters, digits, dots and hyphens,
+// an optional port, and a path, query or fragment of printable ASCII, so
+// the desktop open route hands the browser nothing else: no other scheme,
+// no user part, no space and no control character.
+var LINK_KEYS = ["text", "url"];
+var LINK_TEXT_MAX = 60;
+var LINK_URL_MAX = 2048;
+var LINK_URL_PATTERN = /^https:\/\/[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*(:[0-9]{1,5})?([/?#][!-~]*)?$/;
 
 // The icon a plugin without a manifest `icon` is listed with.
 var DEFAULT_ICON = "package";
@@ -409,6 +419,9 @@ function schemaError(schema, settings, status) {
         var schemaInfo = infoError(entry.info, at);
         if (schemaInfo !== "")
             return schemaInfo;
+        var schemaLink = linkError(entry, at);
+        if (schemaLink !== "")
+            return schemaLink;
         var listBad = Pads.listEntryError(entry, at, status, schemaError);
         if (listBad !== "")
             return listBad;
@@ -518,6 +531,31 @@ function isPrintableLine(text, max) {
 
 function infoError(info, at) {
     return info === undefined || isPrintableLine(info, INFO_MAX) ? "" : at + ".info must be a printable line of 1 to " + INFO_MAX + " characters when present";
+}
+
+// The first defect of a flat schema entry's optional `link`, or "": an
+// object of `text`, words its description holds, and `url`, an address
+// LINK_URL_PATTERN admits.
+function linkError(entry, at) {
+    var link = entry.link;
+    if (link === undefined)
+        return "";
+    if (!isPlainObject(link))
+        return at + ".link must be an object";
+    var linkKeys = Object.keys(link);
+    for (var k = 0; k < linkKeys.length; k++) {
+        if (LINK_KEYS.indexOf(linkKeys[k]) === -1)
+            return at + ".link has unknown key " + JSON.stringify(linkKeys[k]);
+    }
+    if (entry.type === "list")
+        return at + ".link needs a flat setting";
+    if (!isPrintableLine(link.text, LINK_TEXT_MAX))
+        return at + ".link.text must be a printable line of 1 to " + LINK_TEXT_MAX + " characters";
+    if (typeof entry.description !== "string" || entry.description.indexOf(link.text) === -1)
+        return at + ".link.text must be words of its description";
+    if (typeof link.url !== "string" || link.url.length > LINK_URL_MAX || !LINK_URL_PATTERN.test(link.url))
+        return at + ".link.url must be an https address of at most " + LINK_URL_MAX + " characters";
+    return "";
 }
 
 // The first defect of a manifest's `status` key, or "". An object keyed by
