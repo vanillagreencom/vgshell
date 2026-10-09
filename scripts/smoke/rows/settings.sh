@@ -29,9 +29,8 @@ expect_poll "the page draws the fixture's fields again" '[9, 0]' page_fields
 # nothing leaves the sandbox. The description line spans the field's
 # value column while its words, the link's alone, start at its left edge,
 # so the pointer goes 8 px into the line and clicks once the link reads
-# it on its words. Two Tabs from the Gap field's
-# editor, focused with its own value so no edit begins, pass the Compact
-# switch to the link.
+# it on its words. Two Tabs from the Gap field's editor, focused with its
+# own value so no edit begins, pass the Compact switch to the link.
 link_argv="$sandbox/gio-argv"
 cat >"$shim/gio" <<EOF
 #!/bin/sh
@@ -41,9 +40,16 @@ chmod 755 "$shim/gio"
 link_opens() { if [[ -f $link_argv ]]; then python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1]).read().splitlines()))' "$link_argv"; else echo '[]'; fi; }
 link_focus() { ipc smoke focused window vgs.settings | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[:2]))'; }
 link_click() {
-  local rect x y
-  rect="$(ipc smoke windowGeometry window vgs.settings LinkText "$1")" || return 1
-  [[ $rect == \[* ]] || { echo "link_click: no link $1: $rect" >&2; return 1; }
+  local rect last="" x y
+  # The opened page slides in, so the link's box is read until two reads
+  # 100 ms apart agree.
+  for _ in $(seq 1 50); do
+    rect="$(ipc smoke windowGeometry window vgs.settings LinkText "$1")" || return 1
+    [[ $rect == \[* && $rect == "$last" ]] && break
+    last="$rect"
+    sleep 0.1
+  done
+  [[ $rect == \[* && $rect == "$last" ]] || { echo "link_click: no still link $1: $rect" >&2; return 1; }
   rect="$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); print(json.dumps([r[0], r[1], 16, r[3]]))' "$rect")" || return 1
   read -r x y < <(at_centre window:Plugins "$rect") || return 1
   hover "$((x + 1))" "$y" || return 1
