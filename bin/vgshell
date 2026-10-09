@@ -142,7 +142,8 @@
 # Apply records the package's name, the hash of the bytes it wrote to the
 # theme file and a digest of the package's content in
 # ${XDG_STATE_HOME:-~/.local/state}/vgshell/applied.json. `theme follow` holds
-# the same lock and applies the recorded package again when its content
+# the same lock, first waiting up to 10 s for another theme command's hold,
+# and applies the recorded package again when its content
 # changed while the theme file still holds those bytes; a hand-edited file
 # stays. `theme list` reports that unedited file unmodified.
 # Apply also makes the package's remembered background image, else its
@@ -1637,11 +1638,13 @@ theme_lock_change() { # KEY
 # until it exits, and it prints every refusal, busy included, so a --json
 # caller reads a result on every path. bin/vgshell-theme-judge's LOCK_FD names
 # the same number: no reload hook it runs holds the descriptor.
-theme_lock_verdict() {
+# FLOCK_OPTION names the wait as theme_lock_hold's does, -n when none.
+theme_lock_verdict() { # [FLOCK_OPTION...]
   local status=0
+  (($#)) || set -- -n
   verdict=failed
   mkdir -p -- "$config_home/vgshell" 2>/dev/null && { exec 9>>"$theme_lock"; } 2>/dev/null || return 0
-  flock -n -E 75 9 || status=$?
+  flock "$@" -E 75 9 || status=$?
   case "$status" in
     0) verdict=held ;;
     75) verdict=busy ;;
@@ -2594,7 +2597,13 @@ case "$cmd" in
         ;;
       follow)
         if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
-        theme_lock_verdict
+        # The shell queues a follow after every scan and gets no second
+        # chance until the next scan, while a holder such as `theme
+        # outdated` from a vgs.updates check, or an apply, is short. 10 s
+        # matches reset_lock_wait_s, which waits on the shell's follow from
+        # the other side; past it the follow is refused busy.
+        follow_lock_wait_s=10
+        theme_lock_verdict -w "$follow_lock_wait_s"
         exec node "$theme_judge" follow "$format" "$config_home/vgshell" "$state_home/vgshell" "$verdict"
         ;;
       background)

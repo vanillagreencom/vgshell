@@ -94,10 +94,39 @@ check "the apply replaces the malformed record" record_is fern "$file"
 
 # Invocation and the lock.
 tinst "follow with an argument is exit 2" "$cfg" "$rt_empty" 2 "" "vgshell: refused: argument=fern" theme follow fern
+
+# A holder that takes the theme lock shared, as `theme outdated` does, for
+# 1 s and marks `released` just before it lets go; it sets `holder`.
+shared_holder() {
+  rm -f -- "${tmp:?}/held" "${tmp:?}/released"
+  (
+    exec 7>>"$cfg/vgshell/theme.lock"
+    flock -s 7
+    : >"$tmp/held"
+    sleep 1
+    : >"$tmp/released"
+  ) &
+  holder=$!
+  for _ in $(seq 1 50); do [[ -e $tmp/held ]] && break; sleep 0.1; done
+  [[ -e $tmp/held ]] || fail "the shared holder never took the theme lock"
+}
+shared_holder
+tinst "follow waits for another theme command's shared hold" "$cfg" "$rt_empty" 0 "$(follow_line current fern unchanged)" "" theme follow
+check "the follow ends only after the holder lets the lock go" test -e "$tmp/released"
+wait "$holder"
+tree_control follow-wait bin/vgshell 'follow_lock_wait_s=10' 'follow_lock_wait_s=0'
+shared_holder
+tinst "the no-wait mutant refuses a follow under a shared hold as busy" "$cfg" "$rt_empty" 75 "" "vgshell: refused: follow=applied reason=busy" theme follow
+wait "$holder"
+unset THEME_BIN
+
+# A hold that outlasts the wait, here cut to 1 s on a tree copy, which the
+# busy mutant copies in turn.
 exec 7>>"$cfg/vgshell/theme.lock"
 flock 7
-tinst "follow while the theme lock is held is refused as busy" "$cfg" "$rt_empty" 75 "" "vgshell: refused: follow=applied reason=busy" theme follow
-judge_control busy 'const key = "follow=applied reason";' 'const key = "follow=applied reason"; lock = "held";'
+tree_control follow-wait-1 bin/vgshell 'follow_lock_wait_s=10' 'follow_lock_wait_s=1'
+tinst "follow while the theme lock is held past the wait is refused as busy" "$cfg" "$rt_empty" 75 "" "vgshell: refused: follow=applied reason=busy" theme follow
+tree="$tmp/tree-follow-wait-1" judge_control busy 'const key = "follow=applied reason";' 'const key = "follow=applied reason"; lock = "held";'
 tinst "the busy mutant follows under the held lock" "$cfg" "$rt_empty" 0 "$(follow_line current fern unchanged)" "" theme follow
 unset THEME_BIN
 exec 7>&-

@@ -178,6 +178,9 @@ Scope {
     // follow: queue `vgshell theme follow --json`. A follow asked for while a
     // follow waits joins it; one asked for while a follow runs waits, since
     // the running one may have read the packages before they changed.
+    // The follow waits in vgshell up to 10 s for another theme command's
+    // hold, so the queue waits behind it, and a busy result past that is a
+    // real failure.
     function follow() {
         const tail = jobs[jobs.length - 1];
         if (tail !== undefined && tail.verb === "follow" && !tail.started) return;
