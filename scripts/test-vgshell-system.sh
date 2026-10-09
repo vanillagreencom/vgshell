@@ -1019,6 +1019,15 @@ check "the user's file keeps its bytes" test "$(cat "$notice_link")" == mine
 check "a foreign file at the link's path runs no sudo" no_sudo
 rm -f -- "$notice_link"; ln -s -- "$notice_hook" "$notice_link"
 check "another link at the link's path reads denied" test "$(step_state reboot-notice)" == "denied foreign-file"
+# A link to /dev/null that no record of VGS's names is the user's own:
+# undo would leave it, so it reads denied and offers no undo.
+fresh; notice_fixture; hooks_fixture; ln -s -- /dev/null "$notice_link"
+check "a link to /dev/null VGS did not record reads denied" test "$(step_state reboot-notice)" == "denied foreign-link"
+run "apply refuses a link to /dev/null VGS did not record" 1 "vgs-system: refused: state=denied reason=foreign-link step=reboot-notice" apply reboot-notice
+run "undo of a link to /dev/null VGS did not record" 0 "" undo reboot-notice
+check "undo of a link VGS did not record changes nothing" out_is "ok system=reboot-notice state=untouched"
+check "the user's link to /dev/null stays" notice_links_null
+check "a link to /dev/null VGS did not record runs no sudo" no_sudo
 # A link replaced after apply is the user's: undo refuses before the
 # question and keeps the record.
 fresh; notice_fixture
@@ -1233,10 +1242,13 @@ check "the greeter-account-blind mutant reads another account's theme copy direc
 
 control notice-ready-any '    if [[ $target == /dev/null ]]; then notice_state=off; else notice_state=foreign; fi' '    notice_state=off'
 notice_fixture; hooks_fixture; ln -s -- "$notice_hook" "$notice_link"
-check "the notice-ready-any mutant reads another link ready" test "$(step_state reboot-notice)" == "ready notice-off"
+check "the notice-ready-any mutant reads another link as a link to /dev/null" test "$(step_state reboot-notice)" == "denied foreign-link"
+control notice-unrecorded-ready '      if (read_record reboot-notice && [[ ${record[link]-} == 1 ]]) 2>/dev/null; then set_probe ready notice-off' '      if true; then set_probe ready notice-off'
+notice_fixture; hooks_fixture; ln -s -- /dev/null "$notice_link"
+check "the notice-unrecorded-ready mutant reads a link VGS did not record ready" test "$(step_state reboot-notice)" == "ready notice-off"
 control notice-file-ready '  elif [[ -e $notice_link ]]; then notice_state=foreign' '  elif [[ -e $notice_link ]]; then notice_state=off'
 notice_fixture; hooks_fixture; printf 'mine\n' >"$notice_link"
-check "the notice-file-ready mutant reads a regular file ready" test "$(step_state reboot-notice)" == "ready notice-off"
+check "the notice-file-ready mutant reads a regular file as a link to /dev/null" test "$(step_state reboot-notice)" == "denied foreign-link"
 control notice-undo-any '  [[ $notice_state != foreign ]] || refuse 1 "destination=foreign path=$notice_link" "a file VGS did not write is never removed"
   if [[ $notice_state == off && -n ${record[link]+set} ]]; then' '  if [[ -n ${record[link]+set} ]]; then'
 notice_fixture

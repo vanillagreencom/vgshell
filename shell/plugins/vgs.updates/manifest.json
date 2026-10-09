@@ -90,7 +90,7 @@
     "rebootNotice": {
       "type": "state",
       "label": "Reboot notice",
-      "hint": "Use the VGS reboot notice only adds /etc/pacman.d/hooks/cachyos-reboot-required.hook, which turns off the CachyOS notice, and Turn the CachyOS notice back on removes it.",
+      "hint": "Use the VGS reboot notice only adds /etc/pacman.d/hooks/cachyos-reboot-required.hook, which turns off the CachyOS notice, and Turn the CachyOS notice back on removes the file VGS added.",
       "info": "At the end of an update that changes the kernel or another package the CachyOS notice names, VGS asks to reboot. The CachyOS notice also shows after such an update. Use the VGS reboot notice only to get the VGS question alone.",
       "actions": {
         "vgsOnly": { "label": "Use the VGS reboot notice only", "system": "reboot-notice" },

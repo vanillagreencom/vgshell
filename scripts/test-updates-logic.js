@@ -432,6 +432,7 @@ function verifyView(logic) {
     [{ state: "needed", reason: "notice-on" }, { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" }],
     [{ state: "ready", reason: "notice-off" }, { tone: "ok", text: "VGS only", action: "both" }],
     [{ state: "denied", reason: "foreign-file" }, null],
+    [{ state: "denied", reason: "foreign-link" }, null],
     [{ state: "unknown", reason: "probe-failed" }, null],
     [null, null]
   ];
@@ -529,6 +530,7 @@ const controls = [
   ["an absent hook hides the reboot notice", 'if (state === "absent" || (state === "unknown"', 'if ((state === "unknown"'],
   ["an unprobed step hides the reboot notice", '(state === "unknown" && step && step.reason === "unprobed")', "false"],
   ["the CachyOS notice on offers VGS only", 'case "needed": return { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" };', 'case "needed": return { tone: "info", text: "CachyOS and VGS" };'],
+  ["a file or link VGS did not make offers nothing", 'case "denied": return { tone: "warning", text: "Set by another file",', 'case "denied": return { tone: "warning", text: "Set by another file", action: "both",'],
   ["VGS only offers both", 'case "ready": return { tone: "ok", text: "VGS only", action: "both" };', 'case "ready": return { tone: "ok", text: "VGS only", action: "vgsOnly" };'],
   ["the reboot notice is written", '"reviewAgents", "reviewAgent", "rebootNotice"]', '"reviewAgents", "reviewAgent"]'],
   ["failed probe is reported", "if (!probe || probe.status !== 0) return { ok: false, error: commandError(name, probe || { status: null, stderr: \"\" }) };", "if (!probe || probe.status !== 0) return { ok: true, value: [] };"],

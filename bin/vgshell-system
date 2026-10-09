@@ -80,10 +80,11 @@
 # directory. On NixOS it reads ready once display-manager.service names
 # greetd.service and the snippet's directories exist with their owners.
 # The reboot notice reads the link itself, since pacman acts on the link:
-# ready, reason notice-off, while a link to /dev/null is there; needed
-# while nothing is; denied, reason foreign-file, for any other file or
-# link, which apply and undo never touch; absent, reason hook-missing,
-# without the CachyOS hook.
+# ready, reason notice-off, while a link to /dev/null that VGS's record
+# names is there; denied, reason foreign-link, for a link to /dev/null
+# without that record; needed while nothing is; denied, reason
+# foreign-file, for any other file or link, which apply and undo never
+# touch; absent, reason hook-missing, without the CachyOS hook.
 #
 # `status` prints one `system=<step> state=<state> reason=<key>` line per
 # step in table order; `--json` prints one line, the text the shell's
@@ -172,7 +173,8 @@ rules_dir="$prefix/etc/udev/rules.d"
 rule_dest="$rules_dir/60-vgs-apple-displays.rules"
 record_dir="$prefix/var/lib/vgshell/system"
 # The CachyOS reboot hook pacman runs from its system hook directory, and
-# the same name in the hook directory pacman.conf names, which replaces it.
+# the same name in /etc/pacman.d/hooks, pacman's default HookDir, which
+# replaces it.
 notice_hook="$prefix/usr/share/libalpm/hooks/cachyos-reboot-required.hook"
 pacman_dir="$prefix/etc/pacman.d"
 hooks_dir="$pacman_dir/hooks"
@@ -721,11 +723,19 @@ read_notice_link() {
   fi
 }
 
+# A link to /dev/null is VGS's only while VGS's record names it: undo
+# removes no other, so one the user made reads denied, never ready with an
+# undo that does nothing. The record is read in a subshell, since a record
+# that cannot be read refuses, and that refusal makes the link foreign too.
 probe_reboot_notice() {
   [[ -f $notice_hook ]] || { set_probe absent hook-missing; return; }
   read_notice_link || { set_probe unknown link-unreadable; return; }
   case "$notice_state" in
-    off) set_probe ready notice-off ;;
+    off)
+      if (read_record reboot-notice && [[ ${record[link]-} == 1 ]]) 2>/dev/null; then set_probe ready notice-off
+      else set_probe denied foreign-link
+      fi
+      ;;
     none) set_probe needed notice-on ;;
     *) set_probe denied foreign-file ;;
   esac
