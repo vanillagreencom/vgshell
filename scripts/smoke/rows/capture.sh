@@ -619,8 +619,9 @@ capture_settled() {
 capture_submap() { local out; out="$(hypr submap)" || return; [[ -n $out ]] && printf '%s\n' "$out" | tail -n 1 || printf 'default\n'; }
 # capture_shows OPEN BARE: `shown=<bool> open=<n> bare=<n>`, the pixels of
 # the last saved image that differ from reference OPEN and from reference
-# BARE by more than 32 in a channel; shown when the image is far nearer the
-# open surface than the bare desktop.
+# BARE by more than 32 in a channel; shown when the image is at least three
+# times nearer the open surface than the bare desktop. An animated surface,
+# the launcher's glass, leaves a few hundred pixels between two frames.
 capture_shows() { python3 - "$(capture_path)" "$capture_state/reference-$1.png" "$capture_state/reference-$2.png" <<'PY'
 import pathlib, struct, sys, zlib
 def pixels(path):
@@ -652,7 +653,7 @@ def differ(one, two):
     return sum(1 for r1, r2 in zip(one, two) for p, q in zip(r1, r2) if max(abs(u - v) for u, v in zip(p, q)) > 32)
 saved, shown, bare = (pixels(p) for p in sys.argv[1:])
 near, far = differ(saved, shown), differ(saved, bare)
-print("shown=%s open=%d bare=%d" % (far >= 1000 and near * 10 <= far, near, far))
+print("shown=%s open=%d bare=%d" % (far >= 1000 and near * 3 <= far, near, far))
 PY
 }
 capture_shown_verdict() { capture_shows "$@" | cut -d' ' -f1; }
@@ -660,13 +661,16 @@ capture_shown_verdict() { capture_shows "$@" | cut -d' ' -f1; }
 # grab when a layer that takes the keyboard maps (v0.56.2 LayerSurface.cpp
 # onMap, setGrab(nullptr)): hyprpicker and slurp both do, so the flyout
 # closes when the selector maps, and STAYS is False for it.
-# SUBMAP is the submap the surface holds, which the selector's returns to.
-capture_surface() { # LABEL OPEN_CMD SHOWN_CMD CLOSE_CMD STAYS SUBMAP
+# SUBMAP is the submap the surface holds, which the selector's returns to;
+# KIND and ID name its summon, whose drawn frame the open reference waits
+# for: the panel and the launcher animate, so their frames never settle.
+capture_surface() { # LABEL OPEN_CMD SHOWN_CMD CLOSE_CMD STAYS SUBMAP KIND ID
   local label="$1" open="$2" shown="$3" close="$4" stays="$5" submap="$6"
   expect "the bare desktop under the $label settles" settled capture_settled "bare-$label"
   eval "$open" || fail "capture: the $label could not be opened"
   expect_poll "the $label shows" True eval "$shown"
-  expect "the open $label settles" settled capture_settled "open-$label"
+  summon_drawn "$7" "$8" || fail "capture: the $label never drew a frame"
+  capture_reference "open-$label" || fail "capture: the open $label reference failed"
   capture_press || fail "capture: SUPER+SHIFT+S could not be typed over the $label"
   expect "SUPER+SHIFT+S opens a selector over the $label" True capture_selecting
   if [[ $stays == True ]]; then
@@ -690,18 +694,18 @@ capture_notes_shown() { [[ $(ipc smoke instanceGeometry panel vgs.notifications)
 # from it and Hyprland gives it back to that window, which closes nothing.
 open_toplevel "$sandbox/capture-under-inbox.log" smoke.capture-under-inbox "Under the inbox" || fail "capture: the window under the inbox did not map"
 capture_under_pid="$toplevel_pid"
-capture_surface "notifications panel" "type_keys -M logo -k n -m logo" capture_notes_shown "ipc vgs.notifications invoke close ''" True default
+capture_surface "notifications panel" "type_keys -M logo -k n -m logo" capture_notes_shown "ipc vgs.notifications invoke close ''" True default panel vgs.notifications
 close_toplevel "$capture_under_pid" "the window under the inbox closes"
 expect "System Monitor enables for the flyout reading" ok ipc shell setPluginEnabled vgs.sysmon true
 expect "System Monitor places its widget for the flyout reading" ok ipc shell setPluginPlaced vgs.sysmon true
 capture_flyout_shown() { [[ $(ipc smoke instanceGeometry panel vgs.sysmon) != absent ]] && echo True || echo False; }
-capture_surface "System Monitor flyout" 'click_centre "$(bar_key)" vgs.sysmon' capture_flyout_shown "type_keys -k Escape" False default
+capture_surface "System Monitor flyout" 'click_centre "$(bar_key)" vgs.sysmon' capture_flyout_shown "type_keys -k Escape" False default panel vgs.sysmon
 expect "System Monitor leaves the bar after the flyout reading" ok ipc shell setPluginPlaced vgs.sysmon false
 expect "System Monitor disables after the flyout reading" ok ipc shell setPluginEnabled vgs.sysmon false
 expect "the launcher enables for its reading" ok ipc shell setPluginEnabled vgs.launcher true
 expect_poll "the launcher service is built" True record_exists vgs.launcher
 capture_launcher_shown() { [[ $(layer_count vgs:overlay) == 1 ]] && echo True || echo False; }
-capture_surface "launcher" "type_keys -M logo -k space -m logo" capture_launcher_shown "type_keys -k Escape" True vgs:capture
+capture_surface "launcher" "type_keys -M logo -k space -m logo" capture_launcher_shown "type_keys -k Escape" True vgs:capture overlay vgs.launcher
 expect "the launcher disables after its reading" ok ipc shell setPluginEnabled vgs.launcher false
 hypr_lua_restore capture || fail "capture: the harness hyprland.lua could not be put back"
 expect "the nested instance reloads the harness hyprland.lua" ok hypr reload config-only
