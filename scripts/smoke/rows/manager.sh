@@ -352,7 +352,7 @@ PY
 }
 geometry expect_poll "the list page and plugin page header rows share one measured height" "[$list_header_height, $list_header_height]" header_height_pair "$list_header_height"
 section_names() { ipc smoke itemTexts window vgs.settings SectionHeader | py_reply 'import json,sys; print(json.dumps([t[0] for t in json.load(sys.stdin) if t]))'; }
-expect_poll "the page draws one section per schema group, ungrouped first" '["Settings", "Layout", "Behaviour", "Look"]' section_names
+expect_poll "the page heads each named schema group and leaves ungrouped fields unheaded" '["Layout", "Behaviour", "Look"]' section_names
 page_fields() { ipc smoke drawnFields window vgs.settings | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["acme.probe"], sum(v for k, v in d.items() if k != "acme.probe")]))'; }
 expect_poll "the page draws one field per schema entry and no other plugin's" '[9, 0]' page_fields
 sliders() { ipc smoke descendantGeometry window vgs.settings | py_reply 'import json,sys; rows=json.load(sys.stdin)
