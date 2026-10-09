@@ -11,6 +11,7 @@ While it is on, any program running as you can run anything as root without a pa
 ## Features
 
 - A closed lock while passwordless sudo is off. An open lock in the warning colour while it is on. The tooltip tells until when.
+- A question mark when VGS cannot read whether it is on. On NixOS, a snowflake: your system configuration holds the rule, and VGS cannot read it.
 - Click the closed lock to turn it on. A terminal opens and asks how long: 15 minutes, 1 hour, 1 day or Indefinitely, starting on your default. It shows the risk and asks you to confirm. Indefinitely asks a second time.
 - The first time, the same terminal also sets up the part of passwordless sudo that runs as root. Sudo asks for your password once.
 - A timed grant ends by itself at its time, and at the next restart if the computer restarts first.

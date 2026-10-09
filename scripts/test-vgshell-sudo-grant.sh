@@ -697,7 +697,10 @@ installed
 run_tty "a grant before uninstall" 0 grant
 printf 'other ALL=(ALL) NOTAFTER=29990101000000Z NOPASSWD: ALL\n' >"$other"
 printf 'other ALL=(ALL) NOPASSWD: ALL\n' >"$other_perm"
+rm -f -- "$tmp/sudo.log"
 run "uninstall succeeds" 0 "" uninstall
+check "uninstall drops the credential before it reaches the root half" test "$(sed -n 1,2p "$tmp/sudo.log")" == "-k
+-- $installed __disable $uid"
 check "uninstall reports it" test "$(tail -n 1 "$tmp/out")" == "ok sudo-grant=uninstalled"
 check "uninstall revokes the grant" test ! -e "$rule"
 check "uninstall runs the boot cleanup's line now" test "$(cat "$tmp/tmpfiles.log")" == "--remove --boot -- $boot"
@@ -825,6 +828,9 @@ control warm-sudo '  sudo -k || refuse 1 "sudo=reset-failed"
   trap'
 run "the warm-sudo mutant's revoke" 0 "" revoke
 check "the warm-sudo mutant keeps the cached credential" test "$(sed -n 2p "$tmp/sudo.log")" == "-N -- $installed __disable $uid"
+control cold-uninstall '  sudo -k || refuse 1 "sudo=reset-failed before=uninstall"' '  true'
+run "the cold-uninstall mutant uninstalls" 0 "" uninstall
+check "the cold-uninstall mutant reaches the root half with the cached credential" test "$(sed -n 1p "$tmp/sudo.log")" == "-- $installed __disable $uid"
 control grants-kept '    sudo systemd-tmpfiles --remove --boot -- "$boot_file" </dev/null ||' '    true ||'
 printf 'other ALL=(ALL) NOTAFTER=29990101000000Z NOPASSWD: ALL\n' >"$other"
 run "the grants-kept mutant uninstalls" 0 "" uninstall

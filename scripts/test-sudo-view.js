@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 // The Passwordless Sudo widget's view, shell/plugins/vgs.sudo/SudoView.js,
-// under node: which state reads as on, which tooltip each state takes, and
-// which notification, if any, each ended grant or revoke sends: none when
-// the run changed nothing, the warning one naming the time left and the
-// clock time for a timed grant, the warning one for an indefinite grant,
-// the success one for a grant turned off, and the danger one for a revoke
-// that left the grant on. The controls at the end edit a copy of the view,
+// under node: which state reads as on, the icon, tone and tooltip each
+// state takes, with only no grant read as off and a failed read and NixOS
+// each its own, and which notification, if any, each ended grant or revoke
+// sends: none when the run changed nothing, the warning one naming the time
+// left and the clock time for a timed grant, the warning one for an
+// indefinite grant, the success one for a grant turned off, the danger one
+// for a revoke that left the grant on, and the unknown one when the read
+// after the run failed. The controls at the end edit a copy of the view,
 // one rule at a time, and require this suite to fail on each copy.
 "use strict";
 const assert = require("node:assert/strict");
@@ -27,28 +29,36 @@ function verify(view) {
     for (const [minutes, want] of [[1, "1 minute"], [15, "15 minutes"], [59, "59 minutes"], [60, "1 hour"], [61, "1 hour 1 minute"], [90, "1 hour 30 minutes"], [120, "2 hours"], [1439, "23 hours 59 minutes"], [1440, "1 day"]])
         same(view.durationText(minutes), want, "durationText " + minutes);
 
-    // active and tooltip: [name, state, active, tooltip kind]; the kind is
-    // the tooltip's own clock time, `until-off` or `off`.
+    // active, look and tooltip: [name, state, active, [icon, tone], tooltip
+    // kind]. The kind is `off`, the one tooltip no grant shows; `unknown`
+    // and `nixos`, each its own and never off; `clock`, the deadline's
+    // time; `until-off`, an indefinite grant's, which names no time.
     const tips = [
-        ["no read yet", null, false, "off"],
-        ["unknown", state("unknown"), false, "off"],
-        ["no root half", state("absent"), false, "off"],
-        ["inactive", state("inactive"), false, "off"],
-        ["NixOS", state("nixos"), false, "off"],
-        ["timed", state("active", timed(60)), true, "clock"],
-        ["indefinite", state("active", "indefinite"), true, "until-off"],
+        ["no read yet", null, false, ["circle-question-mark", "neutral"], "unknown"],
+        ["unknown", state("unknown"), false, ["circle-question-mark", "neutral"], "unknown"],
+        ["no root half", state("absent"), false, ["lock", "bar"], "off"],
+        ["inactive", state("inactive"), false, ["lock", "bar"], "off"],
+        ["NixOS", state("nixos"), false, ["snowflake", "info"], "nixos"],
+        ["timed", state("active", timed(60)), true, ["lock-open", "warning"], "clock"],
+        ["indefinite", state("active", "indefinite"), true, ["lock-open", "warning"], "until-off"],
     ];
-    const tipOf = { off: view.tooltip(null, timeOf) };
-    for (const [name, s, active, kind] of tips) {
+    const tipOf = {
+        off: view.tooltip(state("inactive"), timeOf),
+        unknown: view.tooltip(state("unknown"), timeOf),
+        nixos: view.tooltip(state("nixos"), timeOf),
+    };
+    assert.equal(new Set(Object.values(tipOf)).size, 3, "the off, unknown and NixOS tooltips are three: " + JSON.stringify(tipOf));
+    for (const [name, s, active, look, kind] of tips) {
         same(view.active(s), active, "active: " + name);
+        same([view.look(s).icon, view.look(s).tone], look, "look: " + name);
         const tip = view.tooltip(s, timeOf);
         if (kind === "clock") {
             assert.ok(tip.endsWith(timeOf(s.until)), "tooltip " + name + " ends with the clock time: " + tip);
-            assert.ok(tip !== tipOf.off, "tooltip " + name + " is not the off one");
+            assert.ok(!Object.values(tipOf).includes(tip), "tooltip " + name + " is its own");
         } else if (kind === "until-off") {
-            assert.ok(tip !== tipOf.off && tip.indexOf(timeOf(s.until)) === -1, "tooltip " + name + " names no clock time: " + tip);
+            assert.ok(!Object.values(tipOf).includes(tip) && tip.indexOf(timeOf(s.until)) === -1, "tooltip " + name + " names no clock time: " + tip);
         } else {
-            same(tip, tipOf.off, "tooltip " + name);
+            same(tip, tipOf[kind], "tooltip " + name);
         }
     }
 
@@ -57,7 +67,9 @@ function verify(view) {
     const notices = [
         ["a declined grant", "grant", "inactive", state("inactive"), null],
         ["a cancelled first grant", "grant", "absent", state("absent"), null],
-        ["a failed read after a grant", "grant", "inactive", state("unknown"), null],
+        ["a failed read after a grant", "grant", "inactive", state("unknown"), ["warning", "circle-question-mark", []]],
+        ["a failed read after a revoke", "revoke", "active", state("unknown"), ["warning", "circle-question-mark", []]],
+        ["a NixOS grant run", "grant", "nixos", state("nixos"), null],
         ["a grant of 1 hour", "grant", "inactive", state("active", timed(60)), ["warning", "lock-open", [view.durationText(60), timeOf(timed(60))]]],
         ["a grant read 20 s late", "grant", "inactive", state("active", timed(15 - 1 / 3)), ["warning", "lock-open", [view.durationText(15)]]],
         ["a grant whose window stayed open 2 minutes", "grant", "inactive", state("active", timed(58)), ["warning", "lock-open", [view.durationText(58)]]],
@@ -95,6 +107,9 @@ verify(load(file));
 // Each control removes one rule from a copy of the view and keeps the text
 // around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["only no grant reads as off", '    return "unknown";\n}\n\n// The lock\'s icon', '    return "off";\n}\n\n// The lock\'s icon'],
+    ["NixOS is not off", '    case "nixos": return "nixos";\n', ''],
+    ["a failed read after a run is not silent", 'if (kind(result) === "unknown")\n        return', 'if (false)\n        return'],
     ["only an active read is on", 'return state !== null && state.state === "active";', "return state !== null;"],
     ["an indefinite tooltip is its own", 'if (state.until === "indefinite")\n        return "Passwordless sudo is on until you turn it off";', ""],
     ["a revoke that left the grant on says so", 'if (action === "revoke" && on)', "if (false)"],

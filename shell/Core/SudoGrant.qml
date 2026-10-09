@@ -58,8 +58,9 @@ Scope {
     // reader; `revision`: the count of changed reads; both bindable.
     // `grant` and `revoke` open the core TUIs and return the shown answer;
     // `done`, when given, is called once with { code, reason, state,
-    // until } after the run ended and the read after it finished, and is
-    // dropped with CTX's instance.
+    // until } after the run ended and the read after it finished, or, for
+    // a launch that failed, at once with the last read; it is dropped with
+    // CTX's instance.
     function provider(ctx) {
         return {
             get state() { return root.current; },

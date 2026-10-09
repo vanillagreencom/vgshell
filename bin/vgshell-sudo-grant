@@ -35,9 +35,10 @@
 # no `Sudoers entry:` line is a sudo too old to name its files.
 #
 # Run as root, the file is the root half: the installed copy, which the user
-# half reaches only through `sudo -N` after `sudo -k`, so every root action
-# asks for the password unless a grant is active, and no sudo timestamp
-# outlives the command. It runs under `bash -p`, runs itself again with an
+# half reaches only after `sudo -k`, through `sudo -N` from grant and
+# revoke, so every root action asks for the password unless a grant is
+# active, and no sudo timestamp outlives the command: uninstall drops the
+# credential again when it ends. It runs under `bash -p`, runs itself again with an
 # environment of PATH, LC_ALL and SUDO_UID alone, holds /run/vgs-sudo-grant.lock,
 # and takes three actions, each for SUDO_UID's own account and nothing else:
 #
@@ -722,6 +723,9 @@ user_install() {
 }
 
 user_uninstall() {
+  # A credential cached earlier on this terminal would answer every root
+  # action below with no password.
+  sudo -k || refuse 1 "sudo=reset-failed before=uninstall"
   trap 'sudo -k || say "sudo=revoke-failed"' EXIT
   if [[ -e $installed || -L $installed ]]; then
     reply_status=0
