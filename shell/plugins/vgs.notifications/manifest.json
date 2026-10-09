@@ -32,9 +32,15 @@
     "customEmoji": true,
     "slackPhotos": false,
     "position": "top-center",
-    "placement": "top"
+    "placement": "top",
+    "glass": true
   },
   "schema": {
+    "glass": {
+      "type": "boolean",
+      "label": "VGlass",
+      "description": "Draw notifications as frosted glass with a moving edge light."
+    },
     "slackPhotos": {"type": "boolean", "label": "Slack photos", "group": "Slack", "description": "Show sender photos from your Slack workspace.", "info": "Set up Slack photos opens Slack app creation with the app details filled. Sign in if asked. Select your workspace. Review the permissions. Create and install the app. Allow access. Copy its User OAuth Token. Sign in to the workspace in the Slack desktop app. Select Connect and paste the token into the masked field. This adds photos, workspace icons and custom emoji."},
     "duration": {
       "type": "number",

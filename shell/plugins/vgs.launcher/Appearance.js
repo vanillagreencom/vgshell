@@ -82,21 +82,6 @@ var TOKENS = {
         flyout: { size: length(12), detail: length(12) }
     },
 
-    glass: {
-        fill: color("alpha(#151515, 0.78)"),
-        sheen: ink(0.045),
-        sheenEnd: ink(0),
-        sheenHeight: length(48),
-        hairline: ink(0.09),
-        hairlineWidth: length(1),
-        divider: ink(0.07)
-    },
-
-    shadow: {
-        wide: { color: color("alpha(#000000, 0.55)"), blur: length(90), offsetY: offset(28), spread: offset(-4) },
-        tight: { color: color("alpha(#000000, 0.45)"), blur: length(30), offsetY: offset(10), spread: offset(-4) }
-    },
-
     radius: {
         sm: length(8),
         md: length(12),
@@ -105,6 +90,9 @@ var TOKENS = {
     },
 
     card: {
+        // The card's and the flyout's glass fill, handed to GlassSurface
+        // of qs.Ui, which draws the rest of the glass (Theme.glass).
+        fill: color("alpha(#151515, 0.78)"),
         width: length(640),
         // Half the header plus the padding, 17 + 18: the bare search field
         // is a pill.
@@ -181,6 +169,10 @@ var TOKENS = {
         enterX: length(18),
         enterY: length(6),
         staggerRows: number(8, 0, 64),
+        // The hairline between the field and its results, before a
+        // drill-down's rows and between the flyout's groups.
+        divider: ink(0.07),
+        dividerWidth: length(1),
         dividerInset: length(4)
     },
 
@@ -260,22 +252,18 @@ var TOKENS = {
     }
 };
 
-// Light mode: the hook's light glass and neutral, and the reference's light
+// Light mode: the hook's light glass fill and neutral, and the reference's light
 // alphas. The grey is 0.1647 * 1.08 = 0.1779 of white, #2d2d2d.
 var LIGHT = {
     text: {
         foreground: "#2a2a2a",
         shadow: "alpha(#000000, 0.08)"
     },
-    glass: {
-        fill: "alpha(#efefef, 0.8)",
-        sheen: "alpha({text.foreground}, 0.35)",
-        hairline: "alpha({text.foreground}, 0.1)",
-        divider: "alpha({text.foreground}, 0.08)"
+    card: {
+        fill: "alpha(#efefef, 0.8)"
     },
-    shadow: {
-        wide: { color: "alpha(#000000, 0.2)" },
-        tight: { color: "alpha(#000000, 0.16)" }
+    row: {
+        divider: "alpha({text.foreground}, 0.08)"
     },
     tile: {
         top: "alpha({text.foreground}, 0.06)",

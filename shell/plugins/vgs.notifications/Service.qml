@@ -37,6 +37,9 @@ Item {
     // Where every screen's stack sits, the `position` setting: one of the
     // schema's options, top or bottom, then -left, -center or -right.
     readonly property string position: shell === null ? "" : shell.settings.position
+    // The notifications' own VGlass choice, the `glass` setting, which every
+    // toast hands its glass.
+    readonly property bool glassChoice: shell !== null && shell.settings.glass === true
     readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
     property bool registered: false
     property var layerRelease: null

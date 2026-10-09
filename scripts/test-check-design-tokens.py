@@ -19,7 +19,7 @@ ENV = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"}
 
 # Files copied from the repository into every fixture: the real table, judge,
 # singleton and loader, so a row judges against the shipped token paths.
-SHIPPED = ("shell/Commons/Tokens.js", "shell/Commons/ThemeLogic.js", "shell/Commons/Theme.qml", "shell/Commons/SettingValues.js", "shell/Core/PluginLogic.js", "shell/Core/Pads.js", "shell/Core/PackageManagers.js", "shell/Core/MonitorLogic.js", "shell/Core/HyprlandLayer.js", "shell/Ui/icons/Lucide.js", "bin/lib/qml-library.js")
+SHIPPED = ("shell/Commons/Tokens.js", "shell/Commons/ThemeLogic.js", "shell/Commons/Theme.qml", "shell/Commons/Glass.js", "shell/Commons/SettingValues.js", "shell/Core/PluginLogic.js", "shell/Core/Pads.js", "shell/Core/PackageManagers.js", "shell/Core/MonitorLogic.js", "shell/Core/HyprlandLayer.js", "shell/Ui/icons/Lucide.js", "bin/lib/qml-library.js")
 # Every tree the default scope walks, each with one clean file, so a fixture
 # walks what the repository walks: these six, the shipped files under shell/
 # (the three under shell/Commons, and the manifest judge under shell/Core with
@@ -51,6 +51,10 @@ ROWS = [
     ("a member Theme.qml declares is not a finding", UI, "Item { property string n: Theme.name + Theme.revision }\n", None),
     ("a function Theme.qml declares is not a finding", "shell/Core/Thing.qml", "Item { property string c: Theme.toColor(\"#12ab34ff\") }\n", None),
     ("another object named Theme is not judged", UI, "Item { property var x: acme.Theme.nope }\n", None),
+    ("a glass token is not a finding", UI, "Item { color: Theme.glass.glass.fill; property real b: Theme.glass.shadow.tight.blur }\n", None),
+    ("a glass path that names nothing", UI, "Item { color: Theme.glass.glass.glow }\n", "glass-unknown"),
+    ("a glass group where a token was named", UI, "Item { property var t: Theme.glass.shadow.wide.colors }\n", "glass-unknown"),
+    ("a token of the shell's table under glass", UI, "Item { color: Theme.glass.color.accent }\n", "glass-unknown"),
     ("an unknown token in core JS is a finding", "shell/Core/Thing.js", ".pragma library\nfunction f(Theme) { return Theme.nope; }\n", "token-unknown"),
     ("an unknown token in a smoke fixture is a finding", "scripts/smoke/fixtures/plugins/acme.probe/Bad.qml", "Item { color: Theme.palette.acent }\n", "token-unknown"),
     ("a hex colour string", UI, 'Item { color: "#ff0000" }\n', "literal-color"),
@@ -125,6 +129,7 @@ LOOK_ROWS = [
     ("a look path the table does not hold", {"View.qml": LOOK_VIEW.replace("look.card.fill", "look.card.glow")}, "look-unknown"),
     ("a property of a look value is not a finding", {"View.qml": LOOK_VIEW.replace("look.card.fill", "look.card.fill.shade.x").replace("color: look", "property var c: look")}, None),
     ("a Theme member other than appearance", {"View.qml": LOOK_VIEW.replace("color: look.card.fill", "color: Theme.color.text")}, "theme-read"),
+    ("the shared glass read from a plugin's own look", {"View.qml": LOOK_VIEW.replace("color: look.card.fill", "color: Theme.glass.glass.fill")}, "theme-read"),
     ("a literal in another file of the plugin is a finding", {"View.qml": LOOK_VIEW.replace("radius: look.card.radius", "width: 10")}, "literal-metric"),
     ("a radius from a look path inside arithmetic is not a finding", {"View.qml": LOOK_VIEW.replace("radius: look.card.radius", "radius: Math.min(look.card.radius, height / 2)")}, None),
     ("a radius that names no look path is a finding", {"View.qml": LOOK_VIEW.replace("radius: look.card.radius", "radius: height / 2")}, "literal-radius"),
@@ -152,7 +157,7 @@ def run_look_row(name, files, want):
         return report(name, good, proc)
 
 
-def build_repo(tmp, planted=None, theme=None, tokens=None):
+def build_repo(tmp, planted=None, theme=None, tokens=None, glass=None):
     root = os.path.join(tmp, "repo")
     for relative in SHIPPED:
         os.makedirs(os.path.dirname(os.path.join(root, relative)), exist_ok=True)
@@ -174,6 +179,9 @@ def build_repo(tmp, planted=None, theme=None, tokens=None):
     if tokens is not None:
         with open(os.path.join(root, "shell/Commons/Tokens.js"), "w", encoding="utf-8") as fh:
             fh.write(tokens)
+    if glass is not None:
+        with open(os.path.join(root, "shell/Commons/Glass.js"), "w", encoding="utf-8") as fh:
+            fh.write(glass)
     return root
 
 
@@ -227,6 +235,17 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         proc = run_check(build_repo(tmp, tokens=".pragma library\nvar TOKENS = {\n"))
         results.append(report("a token table node cannot load exits 2", proc.returncode == 2 and proc.stdout.startswith("check-design-tokens: unreadable: token-table: "), proc))
+    glass = open(os.path.join(REPO, "shell/Commons/Glass.js"), encoding="utf-8").read()
+    # The glass table is judged in both modes: a light value of the wrong
+    # type is refused in light mode alone, and a table that does not load
+    # is refused.
+    glass_light = '        fill: "alpha(#f2f2f2, 0.85)",\n'
+    assert glass.count(glass_light) == 1, "the Glass.js light fill to replace must occur once"
+    for name, text, mode in (("a glass light value of the wrong type is refused", glass.replace(glass_light, "        fill: 18,\n"), "mode=light "),
+                             ("a glass table that does not load is refused", ".pragma library\nvar TOKENS = {\n", "unloadable: ")):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = run_check(build_repo(tmp, glass=text))
+            results.append(report(name, proc.returncode == 1 and keys_of(proc) == {"appearance-refused"} and any(line.startswith("appearance-refused ") and "Glass.js:1 " + mode in line for line in proc.stdout.splitlines()), proc))
     with tempfile.TemporaryDirectory() as tmp:
         root = build_repo(tmp)
         shutil.rmtree(os.path.join(root, "shell/Ui"))

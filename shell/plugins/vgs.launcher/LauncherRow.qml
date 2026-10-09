@@ -69,9 +69,9 @@ Item {
         anchors.right: parent.right
         anchors.leftMargin: row.look.row.dividerInset
         anchors.rightMargin: row.look.row.dividerInset
-        y: -Math.ceil(row.look.row.spacing / 2) - row.look.glass.hairlineWidth
-        height: row.look.glass.hairlineWidth
-        color: row.look.glass.divider
+        y: -Math.ceil(row.look.row.spacing / 2) - row.look.row.dividerWidth
+        height: row.look.row.dividerWidth
+        color: row.look.row.divider
     }
 
     IconTile {

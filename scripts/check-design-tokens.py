@@ -11,6 +11,12 @@ templates and the smoke fixtures:
                      in Theme.qml, so no file could read its tokens
   window-room        no screen width or height less a window gutter;
                      OverlayState.room owns every output bound
+  glass-unknown      a `Theme.glass.<path>` names no path of shell/Commons/
+                     Glass.js, the shared glass look Theme publishes as
+                     `glass`
+  appearance-refused shell/Commons/Glass.js throws as it loads, or
+                     ThemeLogic.acceptAppearance refuses its TOKENS and LIGHT
+                     in dark or in light mode against the shell's defaults
 Literal rules, on shipped QML (shell/Ui, shell/Hosts, shell/plugins) and the
 skill templates; shell/Commons and shell/Core draw nothing, and a fixture's
 fixed geometry is what a placement row measures:
@@ -79,12 +85,26 @@ from qml_source import Unreadable, source_lines, source_texts, blank_comments
 NODE_ENV = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"}
 # The table and the judge, loaded the way every offline reader loads a
 # shell library; the judge lists the groups, the tokens and the leaves.
+# The shared glass look is judged as a plugin's own look is, in both modes.
 TOKEN_PATHS = (
     "const { load } = require(process.argv[1]);"
     "const table = load(process.argv[2]).TOKENS;"
     "const judge = load(process.argv[3]);"
-    "process.stdout.write(JSON.stringify({ paths: judge.paths(table), leaves: judge.leaves(table).map(l => l.path) }));"
+    "const out = { paths: judge.paths(table), leaves: judge.leaves(table).map(l => l.path), glass: { refusals: [], paths: [], leaves: [] } };"
+    "let glass = null; try { glass = load(process.argv[4]); } catch (e) { out.glass.refusals.push('unloadable: ' + e.message); }"
+    "if (glass !== null) {"
+    "  const shell = judge.defaults(table).values;"
+    "  for (const mode of ['dark', 'light']) {"
+    "    const result = judge.acceptAppearance(glass.TOKENS, glass.LIGHT, Object.assign({}, shell, { scheme: { mode: mode } }));"
+    "    if (!result.ok) out.glass.refusals.push('mode=' + mode + ' ' + judge.refusalLine(result).replace(/^theme: refused: /, ''));"
+    "  }"
+    "  if (out.glass.refusals.length === 0) { out.glass.paths = judge.paths(glass.TOKENS); out.glass.leaves = judge.leaves(glass.TOKENS).map(l => l.path); }"
+    "}"
+    "process.stdout.write(JSON.stringify(out));"
 )
+# The member of Theme that publishes Glass.js, whose paths its own table
+# names.
+GLASS_MEMBER = "glass"
 
 # A plugin's appearance: its manifest judged by the one manifest judge and,
 # when it declares `appearance`, the table in that file judged in both modes
@@ -239,7 +259,8 @@ class Table:
 
     def __init__(self, repo):
         commons = os.path.join(repo, "shell", "Commons")
-        command = ["node", "-e", TOKEN_PATHS, os.path.join(repo, "bin", "lib", "qml-library.js"), os.path.join(commons, "Tokens.js"), os.path.join(commons, "ThemeLogic.js")]
+        self.glass_file = os.path.join(commons, "Glass.js")
+        command = ["node", "-e", TOKEN_PATHS, os.path.join(repo, "bin", "lib", "qml-library.js"), os.path.join(commons, "Tokens.js"), os.path.join(commons, "ThemeLogic.js"), self.glass_file]
         try:
             run = subprocess.run(command, capture_output=True, text=True, check=False, env=NODE_ENV)
         except OSError as exc:
@@ -251,6 +272,11 @@ class Table:
         self.leaves = set(listed["leaves"])
         if not self.leaves:
             raise Unreadable("token-table", "the judge listed no token; the table walk is broken")
+        self.glass_refusals = listed["glass"]["refusals"]
+        self.glass_paths = set(listed["glass"]["paths"])
+        self.glass_leaves = set(listed["glass"]["leaves"])
+        if not self.glass_refusals and not self.glass_leaves:
+            raise Unreadable(self.glass_file, "the judge listed no glass token; the table walk is broken")
         self.theme = os.path.join(commons, "Theme.qml")
         try:
             with open(self.theme, encoding="utf-8") as fh:
@@ -265,13 +291,18 @@ class Table:
         self.unpublished = sorted(group for group in self.paths if "." not in group and group not in self.members)
 
     def unknown(self, dotted):
-        """The shortest prefix of `dotted` that names nothing, or None. A
-        member Theme.qml declares that is no group, such as `name`, takes
-        any path under it."""
+        """The rule and the shortest prefix of `dotted` that names nothing,
+        or None. `glass` takes the paths of Glass.js; another member
+        Theme.qml declares that is no group, such as `name`, takes any path
+        under it."""
         parts = dotted.split(".")
+        if parts[0] == GLASS_MEMBER and len(parts) > 1 and not self.glass_refusals:
+            unknown = unknown_prefix(".".join(parts[1:]), self.glass_paths, self.glass_leaves)
+            return None if unknown is None else ("glass-unknown", GLASS_MEMBER + "." + unknown)
         if parts[0] in self.members and parts[0] not in self.paths:
             return None
-        return unknown_prefix(dotted, self.paths, self.leaves)
+        unknown = unknown_prefix(dotted, self.paths, self.leaves)
+        return None if unknown is None else ("token-unknown", unknown)
 
 
 def plugin_looks(repo, root, plugins):
@@ -333,7 +364,7 @@ def check_tree(root, table, literal, looks, findings, notices):
         for m in THEME_REFERENCE.finditer(line):
             unknown = table.unknown(m.group(1))
             if unknown is not None:
-                findings.append(f"token-unknown {path}:{number} Theme.{unknown}")
+                findings.append(f"{unknown[0]} {path}:{number} Theme.{unknown[1]}")
             elif look is not None and m.group(1).split(".")[0] != APPEARANCE_MEMBER:
                 findings.append(f"theme-read {path}:{number} Theme.{m.group(1)}")
         if look is not None and not look.refusals:
@@ -373,6 +404,8 @@ def main(argv):
         table = Table(repo)
         for group in table.unpublished:
             findings.append(f"group-unpublished {table.theme}:{table.members_line} {group}")
+        for refusal in table.glass_refusals:
+            findings.append(f"appearance-refused {table.glass_file}:1 {refusal}")
         for root, literal, plugins in trees:
             files += check_tree(root, table, literal, plugin_looks(repo, root, plugins), findings, notices)
     except Unreadable as exc:

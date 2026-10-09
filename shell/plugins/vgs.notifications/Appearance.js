@@ -89,34 +89,20 @@ var TOKENS = {
         label: { size: length(12), weight: weight(500), opacity: share(0.7) }
     },
 
-    glass: {
-        // The toast fill the hook writes for [notifications].
-        base: color("#101010"),
-        fill: color("alpha({glass.base}, 0.8)"),
-        sheen: ink(0.045),
-        sheenEnd: ink(0),
-        sheenHeight: length(48),
-        hairline: ink(0.09),
-        hairlineWidth: length(1),
-        // The bead a toast is while it is still a dot: a shade toward the
-        // bottom and a specular spot at the top left.
-        orbShadeStop: share(0.45),
-        orbShade: color("alpha(#000000, 0.35)"),
-        orbClear: color("alpha(#000000, 0)"),
-        orbSpot: color("alpha(#ffffff, 0.42)"),
-        orbSpotEnd: color("alpha(#ffffff, 0)"),
-        orbSpotX: share(0.3),
-        orbSpotY: share(0.42),
-        orbSpotWidth: share(0.46),
-        orbSpotHeight: share(0.3),
-        orbSpotAngle: offset(-18)
-    },
-
-    shadow: {
-        color: color("alpha(#000000, 0.45)"),
-        blur: length(30),
-        offsetY: offset(10),
-        spread: offset(-4)
+    // The bead a toast is while it is still a dot, drawn only while the
+    // toast draws glass: a shade toward the bottom and a specular spot at
+    // the top left.
+    orb: {
+        shadeStop: share(0.45),
+        shade: color("alpha(#000000, 0.35)"),
+        clear: color("alpha(#000000, 0)"),
+        spot: color("alpha(#ffffff, 0.42)"),
+        spotEnd: color("alpha(#ffffff, 0)"),
+        spotX: share(0.3),
+        spotY: share(0.42),
+        spotWidth: share(0.46),
+        spotHeight: share(0.3),
+        spotAngle: offset(-18)
     },
 
     radius: {
@@ -143,6 +129,11 @@ var TOKENS = {
     },
 
     card: {
+        // The toast colour the hook writes for [notifications], and the
+        // glass fill over it handed to GlassSurface of qs.Ui, which draws
+        // the rest of the glass (Theme.glass).
+        base: color("#101010"),
+        fill: color("alpha({card.base}, 0.8)"),
         width: length(420),
         gap: length(8),
         // The dot a toast morphs from, how far it drops in, how much the
@@ -197,23 +188,23 @@ var TOKENS = {
     // and a "+N" chip.
     face: {
         share: share(0.6),
-        ring: color("{glass.base}"),
+        ring: color("{card.base}"),
         ringWidth: length(2),
         // Every face is opaque, so a face over another cuts it out rather
         // than showing it through. A person's face takes one tint, picked
         // by NotificationLogic.faceTint from the name; the chip is neutral.
         // Each is mixed into the glass, so light mode lightens it and the
         // foreground stays readable on it.
-        chip: color("mix({glass.base}, {text.foreground}, 0.26)"),
+        chip: color("mix({card.base}, {text.foreground}, 0.26)"),
         tint: {
-            coral: color("mix({glass.base}, #e8715a, 0.6)"),
-            amber: color("mix({glass.base}, #e0a23a, 0.6)"),
-            green: color("mix({glass.base}, #5fb36b, 0.6)"),
-            blue: color("mix({glass.base}, #4aa3c7, 0.6)"),
-            indigo: color("mix({glass.base}, #7a7ee0, 0.6)"),
-            magenta: color("mix({glass.base}, #c46fb4, 0.6)"),
-            teal: color("mix({glass.base}, #3fb8a6, 0.6)"),
-            rose: color("mix({glass.base}, #e06a8c, 0.6)")
+            coral: color("mix({card.base}, #e8715a, 0.6)"),
+            amber: color("mix({card.base}, #e0a23a, 0.6)"),
+            green: color("mix({card.base}, #5fb36b, 0.6)"),
+            blue: color("mix({card.base}, #4aa3c7, 0.6)"),
+            indigo: color("mix({card.base}, #7a7ee0, 0.6)"),
+            magenta: color("mix({card.base}, #c46fb4, 0.6)"),
+            teal: color("mix({card.base}, #3fb8a6, 0.6)"),
+            rose: color("mix({card.base}, #e06a8c, 0.6)")
         },
         // The initials' size as a share of the face's diameter.
         initials: share(0.42),
@@ -330,14 +321,9 @@ var LIGHT = {
         foreground: "#2a2a2a",
         shadow: "alpha(#000000, 0.08)"
     },
-    glass: {
+    card: {
         base: "#f2f2f2",
-        fill: "alpha({glass.base}, 0.85)",
-        sheen: "alpha({text.foreground}, 0.35)",
-        hairline: "alpha({text.foreground}, 0.1)"
-    },
-    shadow: {
-        color: "alpha(#000000, 0.16)"
+        fill: "alpha({card.base}, 0.85)"
     },
     edge: {
         neutral: "#2d2d2d"

@@ -14,7 +14,7 @@
 # The import root is built in a temporary directory: qs/Ui links to the
 # module under test with an offscreen ModalDialog interface; qs/Commons
 # holds the shipped Theme.qml, Tokens.js,
-# ThemeLogic.js, Inset.js, SessionLockState.js, WatchedFile.qml,
+# ThemeLogic.js, Glass.js, Inset.js, SessionLockState.js, WatchedFile.qml,
 # Paths.qml and DesktopLaunch.js, under a qmldir of their own, beside a
 # stand-in ThemeSource that takes a document from the UnitTheme singleton of
 # the qs.Unit module and calls the shipped accept; a stand-in Quickshell
@@ -125,7 +125,7 @@ ln -s -- "$repo/shell/assets" "$imports/qs/assets"
 # qmldir names Time and Workspaces too, whose Quickshell types do not load
 # outside the shell, and a type a linked file names is resolved when that
 # file compiles.
-for file in Theme.qml Tokens.js ThemeLogic.js Inset.js SettingValues.js SessionLockState.js ClearingInset.qml WatchedFile.qml Paths.qml DesktopLaunch.js AccountDirectories.js Reply.js; do
+for file in Theme.qml Tokens.js ThemeLogic.js Glass.js Inset.js SettingValues.js SessionLockState.js ClearingInset.qml WatchedFile.qml Paths.qml DesktopLaunch.js AccountDirectories.js Reply.js; do
   [[ -f $commons/$file ]] || { printf 'qml-unit: refused: missing=%s\n' "$commons/$file" >&2; exit 2; }
   ln -s -- "$commons/$file" "$imports/qs/Commons/$file"
 done

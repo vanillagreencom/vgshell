@@ -1055,8 +1055,22 @@ var APPEARANCE = {
     // move windows with the shell's motion: no theme value stands in.
     windowAnimations: { type: "flag", only: true, hyprland: "motion", unset: "hyprland" },
     interfaceFont: { type: "family", theme: "font.family.sans", targets: [["font.family.sans"], ["font.family.caps"]] },
-    terminalFont: { type: "family" }
+    terminalFont: { type: "family" },
+    // VGlass on every surface or on none; unset, each surface's own choice
+    // decides (glassOn).
+    glass: { type: "choice", options: ["on", "off"], unset: "surface" },
+    // Hyprland's own windows as one surface's choice: unset leaves window
+    // decoration to the user's Hyprland config.
+    windowGlass: { type: "flag", only: true, hyprland: "glass", unset: "hyprland" }
 };
+
+// Whether a surface whose own VGlass choice is OPTIN draws glass under
+// VALUES, the accepted Appearance values: `glass` "on" or "off" decides for
+// every surface, and unset leaves it to OPTIN. The shared GlassSurface and
+// the layer's window glass both ask this, so the two cannot differ.
+function glassOn(values, optIn) {
+    return values.glass === "on" || (values.glass !== "off" && optIn === true);
+}
 
 // Why VALUE cannot be the user's KEY of APPEARANCE, as a keyed line, or "".
 function appearanceRefusal(key, value) {
@@ -1103,8 +1117,8 @@ function appearanceRefusal(key, value) {
 // that references a changed token follows it; with no user token the
 // theme's own values answer unchanged. `appearance` is { values, the
 // accepted members; theme, what each member shows while the user sets
-// none; sources, `theme`, `user` or `hyprland` per member; hyprland,
-// whether the layer writes each group a member decides }.
+// none; sources, `theme`, `user`, `hyprland` or `surface` per member;
+// hyprland, whether the layer writes each group a member decides }.
 function withAppearance(tokens, theme, user) {
     var given = isPlainObject(user) ? user : {};
     var values = {};
@@ -1135,6 +1149,9 @@ function withAppearance(tokens, theme, user) {
         if (member.targets !== undefined && sources[key] === "user")
             member.targets.forEach(function (target) { stated[target[0]] = member.type === "family" ? values[key] : values[key] * APPEARANCE_RATIOS[target[1]]; });
     });
+    // Window glass is Hyprland's windows taking glass as a surface does,
+    // their own choice being `windowGlass`.
+    hyprland.glass = glassOn(values, values.windowGlass === true);
     var moving = hasOwn(values, "motion") ? values.motion : themeScale > 0;
     if (!moving && hasOwn(values, "motion"))
         stated[MOTION_SCALE] = 0;

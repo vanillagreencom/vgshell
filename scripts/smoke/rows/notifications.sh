@@ -5,7 +5,7 @@
 # through the probe, its state file, the compositor and the lending record.
 # No owner data reaches it: every notification here is made up. The row ends
 # with the plugin disabled and every registration released.
-# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json
+# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 note_state="$home/.local/state/vgshell/notifications/state.json"
@@ -2109,19 +2109,19 @@ expect "the toast outlived the removed monitor" True has_row live "Everywhere"
 theme="$home/.config/vgshell/theme.json"
 write_theme() { printf '%s\n' "$1" >"$theme.tmp" && mv -T -- "$theme.tmp" "$theme"; }
 edge_values() { ipc smoke layerItems vgs.notifications EdgeLight "$1" | py_reply 'import json,sys; print(json.dumps(sorted(set(json.dumps(v[sys.argv[1]]) for s, r, v in json.load(sys.stdin)))))' "$1"; }
-expect_poll "the look resolved" '"#cc101010"' look_at glass.fill
+expect_poll "the look resolved" '"#cc101010"' look_at card.fill
 write_theme '{ "schemaVersion": 1, "name": "unrelated", "tokens": { "palette": { "foreground": "#ff00ff", "background": "#00ff00" }, "font": { "size": 22 }, "space": { "unit": 7 }, "radius": { "md": 9 }, "text": { "body": { "size": 30 } }, "color": { "surface": "#ff0000" } } }'
 expect_poll "the unrelated theme is accepted" unrelated ipc smoke themeName
-expect "an unrelated theme leaves the glass" '"#cc101010"' look_at glass.fill
+expect "an unrelated theme leaves the glass" '"#cc101010"' look_at card.fill
 expect "an unrelated theme leaves the text" '"#ffe8e8e8"' look_at text.foreground
 expect "an unrelated theme leaves the type" '"Liberation Sans"' look_at font.family
 expect "an unrelated theme leaves the card width" "$note_card_width" look_at card.width
 write_theme '{ "schemaVersion": 1, "name": "accent", "tokens": { "palette": { "accent": "#7aa2f7" } } }'
 expect_poll "the accent reaches the notifications" '"#ff7aa2f7"' look_at palette.accent
 expect "the accent reaches the edge light" '["\"#7aa2f7\""]' edge_values accent
-expect "the accent leaves the glass" '"#cc101010"' look_at glass.fill
+expect "the accent leaves the glass" '"#cc101010"' look_at card.fill
 write_theme '{ "schemaVersion": 1, "name": "bright", "tokens": { "scheme": { "mode": "light" }, "palette": { "accent": "#a8330a" } } }'
-expect_poll "light mode applies the light glass" '"#d9f2f2f2"' look_at glass.fill
+expect_poll "light mode applies the light glass" '"#d9f2f2f2"' look_at card.fill
 expect "light mode applies the light text" '"#ff2a2a2a"' look_at text.foreground
 expect "light mode applies the light edge neutral" '"#ff2d2d2d"' look_at edge.neutral
 expect "light mode keeps the theme's accent" '"#ffa8330a"' look_at palette.accent

@@ -3,6 +3,7 @@ import QtQuick
 import Quickshell
 import "Tokens.js" as Tokens
 import "ThemeLogic.js" as ThemeLogic
+import "Glass.js" as Glass
 import "Inset.js" as Inset
 
 // The design tokens as QML values: one read-only group per top-level group
@@ -40,6 +41,16 @@ Singleton {
     // sources, hyprland } (ThemeLogic.withAppearance). The groups below
     // already hold the resolved values.
     readonly property var appearanceState: source.appearance
+    // VGlass, the one shared glass look (Glass.js), resolved as a plugin's
+    // own look is: it follows the theme's mode, accent and motion scale
+    // alone. GlassSurface of qs.Ui draws it.
+    readonly property var glass: appearance(Glass.TOKENS, Glass.LIGHT)
+
+    // Whether a surface whose own VGlass choice is OPTIN draws glass under
+    // the user's Appearance values (ThemeLogic.glassOn).
+    function glassOn(optIn) {
+        return ThemeLogic.glassOn(appearanceState.values, optIn);
+    }
 
     readonly property var scheme: published.scheme
     readonly property var palette: published.palette

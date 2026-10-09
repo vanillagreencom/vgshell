@@ -11,7 +11,7 @@
 # holds Plugin settings and, while vgs.system is enabled, System Settings,
 # each opening its window. The row ends with the plugin disabled and every
 # registration released.
-# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.system/manifest.json shell/plugins/vgs.system/Service.qml shell/plugins/vgs.updates/* shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Core/PluginLogic.js shell/Core/PluginStatus.qml bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh
+# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.system/manifest.json shell/plugins/vgs.system/Service.qml shell/plugins/vgs.updates/* shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Core/PluginLogic.js shell/Core/PluginStatus.qml bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 launcher() { ipc vgs.launcher invoke "$1" "${2:-}"; }
 tui_fixture() { ipc acme.tui invoke "$1" "${2:-}"; }
@@ -733,7 +733,7 @@ rm -f -- "${user_menu:?}"
 # other token of the theme moves and the look stays; the accent moves the
 # accent; light mode applies the light glass.
 expect "the launcher summons for its look" ok ipc shell summon overlay vgs.launcher '{}'
-expect_poll "the look resolved" '"#c7151515"' look_at glass.fill
+expect_poll "the look resolved" '"#c7151515"' look_at card.fill
 if ! look_before="$(read_launcher look)"; then fail "the launcher's look is unreadable"; fi
 write_theme '{ "schemaVersion": 1, "name": "unrelated", "tokens": { "palette": { "foreground": "#ff00ff", "background": "#00ff00", "success": "#123456" }, "font": { "size": 22, "family": { "mono": "Serif", "sans": "Serif" } }, "space": { "unit": 7 }, "radius": { "md": 9 }, "text": { "body": { "size": 30 } }, "color": { "surface": "#ff0000" } } }'
 expected_errors+=('theme: font=Serif unavailable')
@@ -743,9 +743,9 @@ expect_poll "every unrelated token leaves the launcher's look as it was" same un
 write_theme '{ "schemaVersion": 1, "name": "accent", "tokens": { "palette": { "accent": "#7aa2f7" } } }'
 expect_poll "the accent reaches the launcher" '"#ff7aa2f7"' look_at palette.accent
 expect "the accent reaches the caret's halo" '"#2e7aa2f7"' look_at caret.halo
-expect "the accent leaves the glass" '"#c7151515"' look_at glass.fill
+expect "the accent leaves the glass" '"#c7151515"' look_at card.fill
 write_theme '{ "schemaVersion": 1, "name": "bright", "tokens": { "scheme": { "mode": "light" }, "palette": { "accent": "#a8330a" } } }'
-expect_poll "light mode applies the light glass" '"#ccefefef"' look_at glass.fill
+expect_poll "light mode applies the light glass" '"#ccefefef"' look_at card.fill
 expect "light mode applies the light text" '"#ff2a2a2a"' look_at text.foreground
 expect "light mode keeps the theme's accent" '"#ffa8330a"' look_at palette.accent
 write_theme '{ "schemaVersion": 1, "name": "still", "tokens": { "motion": { "scale": 0 } } }'

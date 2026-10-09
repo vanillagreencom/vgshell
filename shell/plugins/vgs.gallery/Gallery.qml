@@ -62,7 +62,7 @@ Item {
 
                 Section {
                     title: "Surfaces"
-                    description: "Panel background levels"
+                    description: "Panel background levels and glass"
                 Flow {
                     width: parent.width
                     spacing: Theme.stack.inline
@@ -74,6 +74,24 @@ Item {
                             width: Theme.size.panel.sm / 2
                             height: Theme.size.panel.sm / 4
                             Label { role: "label"; text: parent.modelData; anchors.centerIn: parent }
+                        }
+                    }
+                }
+                // VGlass for a surface that opts in, and the standard
+                // surface for one that does not; the Appearance values can
+                // turn glass on or off for both.
+                Flow {
+                    width: parent.width
+                    spacing: Theme.stack.inline
+                    Repeater {
+                        model: [{ optIn: true, text: "VGlass" }, { optIn: false, text: "No glass" }]
+                        GlassSurface {
+                            id: glassSample
+                            required property var modelData
+                            optIn: modelData.optIn
+                            width: Theme.size.panel.sm / 2
+                            height: Theme.size.panel.sm / 4
+                            Label { role: "label"; text: glassSample.modelData.text; anchors.centerIn: parent }
                         }
                     }
                 }

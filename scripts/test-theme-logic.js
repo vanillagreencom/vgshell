@@ -878,6 +878,27 @@ function verify(judge) {
     assert.equal(judge.refusalLine(judge.accept(TOKENS, document({ palette: { acent: "#fff" } }))), "theme: refused: token=palette.acent reason=unknown-token");
     assert.equal(judge.refusalLine(judge.accept(TOKENS, JSON.stringify({ foreground: "#123456" }))), "theme: refused: document reason=unknown-key key=foreground");
     verifyAppearance(judge);
+    verifyGlass(judge);
+}
+
+// VGlass, shell/Commons/Glass.js, judged as a plugin's own look is, in
+// both modes against the shipped defaults: the window values Hyprland
+// takes, whose shadow is the tight shadow's colour, alpha 0.45 in dark,
+// round(0.45 * 255) = 115 = 0x73, and 0.16 in light, round(40.8) = 41 =
+// 0x29. The surface values are pinned in scripts/test-notifications-logic.js
+// beside the looks that hand them.
+const GLASS = load(path.join(repo, "shell", "Commons", "Glass.js"));
+function verifyGlass(judge, glass = GLASS) {
+    const shipped = judge.defaults(TOKENS).values;
+    for (const [mode, shadow] of [["dark", "#00000073"], ["light", "#00000029"]]) {
+        const result = judge.acceptAppearance(glass.TOKENS, glass.LIGHT, Object.assign({}, shipped, { scheme: { mode } }));
+        assert.equal(result.ok, true, result.ok ? "" : judge.refusalLine(result));
+        assert.deepEqual(plain(result.values.window), { opacity: 0.92, inactiveOpacity: 0.86, blurSize: 8, blurPasses: 2, shadowRange: 30, shadowPower: 3, shadowColor: shadow }, "the window glass in " + mode + " mode");
+    }
+    // A blur size Hyprland would not take is refused.
+    const wide = JSON.parse(JSON.stringify(glass.TOKENS));
+    wide.window.blurSize.value = 65;
+    assert.equal(judge.acceptAppearance(wide, glass.LIGHT, shipped).reason, "range", "a blur size past 64 is refused");
 }
 
 // The user's Appearance values over the theme (D104). Each expected value
@@ -962,25 +983,41 @@ function verifyAppearance(judge) {
     // Where each value comes from, what the theme shows, and which layer
     // groups the user leaves to Hyprland.
     const plainResult = over(shipped, {}).appearance;
-    assert.deepEqual(plain(plainResult.sources), { windowRadius: "theme", borderWidth: "theme", controlRadius: "theme", motion: "theme", motionStyle: "theme", motionSpeed: "theme", windowAnimations: "hyprland", interfaceFont: "theme", terminalFont: "theme" }, "every value from the theme, animations from Hyprland");
-    assert.deepEqual(plain(plainResult.hyprland), { radius: true, borders: true, motion: false }, "the layer writes borders and radius and leaves animations");
+    assert.deepEqual(plain(plainResult.sources), { windowRadius: "theme", borderWidth: "theme", controlRadius: "theme", motion: "theme", motionStyle: "theme", motionSpeed: "theme", windowAnimations: "hyprland", interfaceFont: "theme", terminalFont: "theme", glass: "surface", windowGlass: "hyprland" }, "every value from the theme, animations and window glass from Hyprland, glass from each surface");
+    assert.deepEqual(plain(plainResult.hyprland), { radius: true, borders: true, motion: false, glass: false }, "the layer writes borders and radius and leaves animations and window glass");
     assert.deepEqual(plain(plainResult.theme), { motion: true, motionStyle: "smooth", motionSpeed: 1, windowRadius: 0, borderWidth: 2, controlRadius: 0, interfaceFont: "Inter Variable" }, "the theme's own values");
     assert.equal(over(accepted({ motion: { scale: 2 } }), {}).appearance.theme.motionSpeed, 0.5, "a theme's speed is 1 / its scale");
     const own = over(shipped, { windowRadius: "hyprland", borderWidth: "hyprland", windowAnimations: true, controlRadius: 4 }).appearance;
     assert.deepEqual(plain([own.sources.windowRadius, own.sources.borderWidth, own.sources.windowAnimations, own.sources.controlRadius]), ["hyprland", "hyprland", "user", "user"], "Use my Hyprland value is its own source");
-    assert.deepEqual(plain(own.hyprland), { radius: false, borders: false, motion: true }, "the layer leaves the groups the user keeps and writes the motion the user chose");
+    assert.deepEqual(plain(own.hyprland), { radius: false, borders: false, motion: true, glass: false }, "the layer leaves the groups the user keeps and writes the motion the user chose");
+    // VGlass: the effective window glass is the windows' own choice under
+    // the user's `glass`, which turns it on or off for every surface. Each
+    // row: [glass, windowGlass, the layer writes window glass].
+    for (const [glass, windowGlass, want] of [[undefined, undefined, false], [undefined, true, true], ["on", undefined, true], ["on", true, true], ["off", undefined, false], ["off", true, false]]) {
+        const user = {};
+        if (glass !== undefined) user.glass = glass;
+        if (windowGlass !== undefined) user.windowGlass = windowGlass;
+        const result = over(shipped, user).appearance;
+        assert.equal(result.hyprland.glass, want, "window glass under glass=" + glass + " windowGlass=" + windowGlass);
+        assert.deepEqual([result.sources.glass, result.sources.windowGlass], [glass === undefined ? "surface" : "user", windowGlass === undefined ? "hyprland" : "user"], "glass sources under glass=" + glass + " windowGlass=" + windowGlass);
+    }
+    assert.deepEqual(plain(over(shipped, { glass: "off", windowGlass: true }).values), plain(shipped.values), "VGlass draws no token of the shell's table");
+    // glassOn: a surface's own choice, which `glass` overrides either way.
+    // Each row: [values, optIn, want].
+    for (const [values, optIn, want] of [[{}, false, false], [{}, true, true], [{ glass: "on" }, false, true], [{ glass: "on" }, true, true], [{ glass: "off" }, false, false], [{ glass: "off" }, true, false], [{}, "yes", false]])
+        assert.equal(judge.glassOn(values, optIn), want, "glassOn(" + JSON.stringify(values) + ", " + JSON.stringify(optIn) + ")");
     assert.deepEqual(plain(over(shipped, { windowRadius: "hyprland" }).values), plain(shipped.values), "Use my Hyprland value leaves the shell's surfaces on the theme");
     // A member the judge refuses is left out, listed by key, and shows as
     // Set by theme.
-    const refused = over(shipped, { windowRadius: 40, controlRadius: "hyprland", motion: "yes", motionStyle: "bouncy", motionSpeed: 3, windowAnimations: false, corner: 4, borderWidth: -1 });
-    assert.deepEqual(plain(refused.refusals.map(row => row.key)), ["windowRadius", "controlRadius", "motion", "motionStyle", "motionSpeed", "windowAnimations", "corner", "borderWidth"], "each bad member is refused by key");
+    const refused = over(shipped, { windowRadius: 40, controlRadius: "hyprland", motion: "yes", motionStyle: "bouncy", motionSpeed: 3, windowAnimations: false, corner: 4, borderWidth: -1, glass: "auto", windowGlass: false });
+    assert.deepEqual(plain(refused.refusals.map(row => row.key)), ["windowRadius", "controlRadius", "motion", "motionStyle", "motionSpeed", "windowAnimations", "corner", "borderWidth", "glass", "windowGlass"], "each bad member is refused by key");
     assert.ok(refused.refusals.every(row => row.line.startsWith("refused: ")), "each refusal is a keyed line");
     assert.deepEqual(plain(refused.values), plain(shipped.values), "refused members draw the theme");
     assert.deepEqual(plain(refused.appearance.values), {}, "refused members hold no value");
-    for (const [key, value] of [["windowRadius", 32], ["windowRadius", 0], ["windowRadius", "hyprland"], ["borderWidth", 20], ["borderWidth", "hyprland"], ["controlRadius", 16], ["motion", true], ["motion", false], ["motionStyle", "smooth"], ["motionSpeed", 0.5], ["motionSpeed", 2], ["windowAnimations", true],
+    for (const [key, value] of [["windowRadius", 32], ["windowRadius", 0], ["windowRadius", "hyprland"], ["borderWidth", 20], ["borderWidth", "hyprland"], ["controlRadius", 16], ["motion", true], ["motion", false], ["motionStyle", "smooth"], ["motionSpeed", 0.5], ["motionSpeed", 2], ["windowAnimations", true], ["glass", "on"], ["glass", "off"], ["windowGlass", true],
         ["interfaceFont", "Inter Variable"], ["terminalFont", "JetBrainsMono Nerd Font"], ["terminalFont", "Noto Sans Mono CJK JP"], ["terminalFont", "M+ 1mn"], ["interfaceFont", "x".repeat(100)]])
         assert.equal(judge.appearanceRefusal(key, value), "", key + "=" + JSON.stringify(value) + " is accepted");
-    for (const [key, value] of [["windowRadius", 33], ["windowRadius", "12"], ["windowRadius", 12.5], ["borderWidth", 0.5], ["controlRadius", 4.25], ["borderWidth", 21], ["controlRadius", 17], ["controlRadius", "hyprland"], ["motionSpeed", 0.25], ["motionSpeed", "hyprland"], ["motion", "hyprland"], ["windowAnimations", false], ["motionStyle", "none"], ["corner", 1], ["windowRadius", undefined],
+    for (const [key, value] of [["windowRadius", 33], ["windowRadius", "12"], ["windowRadius", 12.5], ["borderWidth", 0.5], ["controlRadius", 4.25], ["borderWidth", 21], ["controlRadius", 17], ["controlRadius", "hyprland"], ["motionSpeed", 0.25], ["motionSpeed", "hyprland"], ["motion", "hyprland"], ["windowAnimations", false], ["motionStyle", "none"], ["corner", 1], ["windowRadius", undefined], ["glass", true], ["glass", "auto"], ["glass", "hyprland"], ["windowGlass", false], ["windowGlass", "on"],
         // A family: text, with nothing that ends or changes the terminal's
         // configuration line and nothing the resolver reads as a reference.
         ["terminalFont", ""], ["terminalFont", 12], ["terminalFont", ["Fira Code"]], ["terminalFont", " Fira Code"], ["terminalFont", "Fira Code "], ["terminalFont", "x".repeat(101)],
@@ -1122,6 +1159,26 @@ try {
     }
 } finally {
     fs.rmSync(tokenControlDir, { recursive: true, force: true });
+}
+
+// Each glass control edits a copy of Glass.js, and verifyGlass must fail
+// on that copy.
+const glassSource = fs.readFileSync(path.join(repo, "shell/Commons/Glass.js"), "utf8");
+const GLASS_CONTROLS = [
+    ["window shadow is the tight shadow", 'shadowColor: color("{shadow.tight.color}")', 'shadowColor: color("{shadow.wide.color}")'],
+    ["light shadow", 'tight: { color: "alpha(#000000, 0.16)" }', 'tight: { color: "alpha(#000000, 0.2)" }'],
+    ["blur size bound", "blurSize: whole(8, 1, 64)", "blurSize: whole(8, 1, 4096)"]
+];
+const glassControlDir = fs.mkdtempSync(path.join(repo, "tmp", "glass-control-"));
+try {
+    for (const [label, needle, replacement] of GLASS_CONTROLS) {
+        assert.equal(glassSource.split(needle).length, 2, `glass control "${label}": the text to replace must occur once`);
+        const mutant = path.join(glassControlDir, "Glass.js");
+        fs.writeFileSync(mutant, glassSource.replace(needle, () => replacement));
+        assert.throws(() => verifyGlass(load(judgeFile), load(mutant)), { code: "ERR_ASSERTION" }, `glass control "${label}": verifyGlass passed on that table`);
+    }
+} finally {
+    fs.rmSync(glassControlDir, { recursive: true, force: true });
 }
 
 // Each control removes one rule's behaviour from a copy of the judge and
@@ -1270,6 +1327,11 @@ const CONTROLS = [
     ["appearance hyprland source", "member.hyprland !== undefined && values[key] === \"hyprland\" ? \"hyprland\" : \"user\";", "\"user\";"],
     ["appearance hyprland source on a group member alone", "member.hyprland !== undefined && values[key] === \"hyprland\" ? \"hyprland\" : \"user\";", "values[key] === \"hyprland\" ? \"hyprland\" : \"user\";"],
     ["appearance unset source", "(member.unset || \"theme\")", "\"theme\""],
+    ["glass off overrides a surface's choice", "(values.glass !== \"off\" && optIn === true)", "(optIn === true)"],
+    ["glass on overrides a surface's choice", "return values.glass === \"on\" || (", "return ("],
+    ["glass takes a surface's choice only when true", "values.glass !== \"off\" && optIn === true", "values.glass !== \"off\" && !!optIn"],
+    ["window glass follows glassOn", "hyprland.glass = glassOn(values, values.windowGlass === true);", ""],
+    ["glass members unset to the surface", "glass: { type: \"choice\", options: [\"on\", \"off\"], unset: \"surface\" }", "glass: { type: \"choice\", options: [\"on\", \"off\"] }"],
     ["appearance layer groups", "hyprland[member.hyprland] = sources[key] !== \"hyprland\";", "hyprland[member.hyprland] = true;"],
     ["appearance theme speed", "motionSpeed: themeScale > 0 ? 1 / themeScale : 1", "motionSpeed: 1"],
     ["appearance published fallback", "result = withAppearance(tokens, accepted, {});\n    }", "}"],
@@ -1338,4 +1400,4 @@ function gridShortfalls(values) {
     assert.equal(offGrid.ok, true, "the browser grid control document is accepted");
     assert.deepEqual(gridShortfalls(offGrid.values), ["carousel.expandedHeight=475", "carousel.overlap=30"], "control: the carousel's off-grid card height and overlap are named");
 }
-console.log(`test-theme-logic: ok documents=${ACCEPTED.length + REFUSED.length} controls=${CONTROLS.length + TOKEN_CONTROLS.length}`);
+console.log(`test-theme-logic: ok documents=${ACCEPTED.length + REFUSED.length} controls=${CONTROLS.length + TOKEN_CONTROLS.length + GLASS_CONTROLS.length}`);

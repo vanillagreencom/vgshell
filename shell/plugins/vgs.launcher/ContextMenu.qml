@@ -12,6 +12,8 @@ Item {
 
     required property var look
     required property var motion
+    // Whether the flyout draws glass: the launcher card's effective state.
+    property bool glass: false
     property var items: []
     readonly property bool opened: state === "open"
     property int hovered: -1
@@ -101,12 +103,13 @@ Item {
 
     GlassSurface {
         id: panel
-        look: menu.look
+        optIn: menu.glass
+        fill: menu.look.card.fill
         width: menu.look.flyout.width
         height: implicitHeight
         implicitHeight: column.implicitHeight + 2 * menu.look.flyout.padding
         radius: menu.look.flyout.radius
-        elevation: menu.look.shadow.tight
+        elevation: "tight"
         opacity: menu.opened ? 1 : 0
         scale: menu.opened ? 1 : menu.look.flyout.openScale
         Behavior on opacity {
@@ -163,8 +166,8 @@ Item {
                             visible: entry.separator
                             anchors.centerIn: parent
                             width: parent.width - menu.look.flyout.separatorInset
-                            height: menu.look.glass.hairlineWidth
-                            color: menu.look.glass.divider
+                            height: menu.look.row.dividerWidth
+                            color: menu.look.row.divider
                         }
 
                         Item {

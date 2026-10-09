@@ -3,12 +3,14 @@ import qs.Commons
 import qs.Ui
 
 // Windows pane: the corner radius and the border width over the theme, each
-// Set by theme until the user moves it. The corner radius is one base:
-// windows take it, flyouts three quarters of it and grouped window tabs
-// half of it (ThemeLogic.APPEARANCE_RATIOS). Both map to a Hyprland option,
-// so each row also offers the user's own Hyprland value. Each slider runs
-// between the bounds the `appearance` capability lends for its value, the
-// judge's own.
+// Set by theme until the user moves it, and VGlass. The corner radius is one
+// base: windows take it, flyouts three quarters of it and grouped window
+// tabs half of it (ThemeLogic.APPEARANCE_RATIOS). Both map to a Hyprland
+// option, so each row also offers the user's own Hyprland value. Each
+// slider runs between the bounds the `appearance` capability lends for its
+// value, the judge's own. VGlass is on or off everywhere, or each surface's
+// own choice, Hyprland's windows being one such surface; the Windows switch
+// shows the state Theme.glassOn gives them.
 FocusScope {
     id: root
 
@@ -41,6 +43,14 @@ FocusScope {
     function valueOf(key) { return appearance === null ? undefined : appearance.values[key]; }
     function pathOf(key) { return appearance === null ? "" : appearance.keys[key].hyprland; }
     function boundOf(key, bound) { return appearance === null ? 0 : appearance.keys[key][bound]; }
+
+    // The VGlass choices, in the order the select lists them: unset first.
+    readonly property var glassChoices: [
+        { label: "Each surface decides", value: undefined },
+        { label: "On everywhere", value: "on" },
+        { label: "Off everywhere", value: "off" }
+    ]
+    readonly property bool surfacesDecide: valueOf("glass") === undefined
 
     Column {
         id: content
@@ -105,6 +115,52 @@ FocusScope {
                     formatValue: value => Math.round(value) + " px"
                     shown: borderRow.shownValue === undefined ? 0 : borderRow.shownValue
                     onSaved: value => root.answer(root.shell.appearance.set("borderWidth", Math.round(value)))
+                }
+            }
+        }
+
+        SectionHeader {
+            width: parent.width
+            text: "Glass"
+            description: "Set frosted glass for shell surfaces and windows."
+        }
+
+        Column {
+            width: parent.width
+            spacing: Theme.stack.row
+
+            FormRow {
+                width: parent.width
+                label: "VGlass"
+                info: "Each surface decides: each surface uses its own VGlass setting. The launcher and notifications use glass by default. On everywhere and Off everywhere set all surfaces and your windows."
+                Select {
+                    width: parent.width
+                    Accessible.name: "VGlass"
+                    model: root.glassChoices
+                    textRole: "label"
+                    currentIndex: root.glassChoices.findIndex(choice => choice.value === root.valueOf("glass"))
+                    onActivated: index => {
+                        const wanted = root.glassChoices[index].value;
+                        currentIndex = Qt.binding(() => root.glassChoices.findIndex(choice => choice.value === root.valueOf("glass")));
+                        root.answer(wanted === undefined ? root.shell.appearance.unset("glass") : root.shell.appearance.set("glass", wanted));
+                    }
+                }
+            }
+
+            FormRow {
+                width: parent.width
+                label: "Windows"
+                info: "On: Hyprland draws your windows with blur, transparency and a shadow. Off: Hyprland keeps the window look from your own Hyprland config. The VGlass choice above sets this unless each surface decides."
+                Switch {
+                    size: "sm"
+                    Accessible.name: "Windows"
+                    enabled: root.surfacesDecide
+                    checked: Theme.glassOn(root.valueOf("windowGlass") === true)
+                    onToggled: {
+                        const wanted = checked;
+                        checked = Qt.binding(() => Theme.glassOn(root.valueOf("windowGlass") === true));
+                        root.answer(wanted ? root.shell.appearance.set("windowGlass", true) : root.shell.appearance.unset("windowGlass"));
+                    }
                 }
             }
         }

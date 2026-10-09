@@ -74,6 +74,7 @@ Scope {
             onWarning: Theme.color.onWarning
         },
         hyprland: Theme.hyprland,
+        glass: Theme.glass.window,
         groups: Theme.appearanceState.hyprland,
         motionScale: Theme.motion.scale,
         tuiMargins: { bar: Theme.bar.height, gutter: Theme.size.window.gutter }

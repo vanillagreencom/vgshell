@@ -27,6 +27,7 @@ Screenshots come from `scripts/readme-shots.sh` in the nested sandbox, with the 
 
 | Setting | What it changes |
 | --- | --- |
+| VGlass | Whether notifications draw as frosted glass with a moving edge light, and enter from a glass bead. Off, they draw as plain panels that fade in and out. On by default. The Windows page can set glass on or off everywhere. |
 | Notification duration | The minimum time a normal notification stays on screen. |
 | Position | Where notifications show on each screen: top or bottom, at the left, center or right. The newest notification is nearest that edge. |
 | Slack photos | Whether sender photos load from connected Slack workspaces. |

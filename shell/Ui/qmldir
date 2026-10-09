@@ -3,6 +3,7 @@ BarWidget 1.0 BarWidget.qml
 Label 1.0 foundation/Label.qml
 Icon 1.0 foundation/Icon.qml
 Surface 1.0 foundation/Surface.qml
+GlassSurface 1.0 foundation/GlassSurface.qml
 Divider 1.0 foundation/Divider.qml
 FocusRing 1.0 foundation/FocusRing.qml
 Scrim 1.0 foundation/Scrim.qml

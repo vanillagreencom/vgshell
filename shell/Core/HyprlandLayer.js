@@ -141,19 +141,20 @@ var APPEARANCE_DEFAULTS = { noGaps: false };
 // The theme's groups, which a user's own line would replace: they are
 // applied after the configuration, each while the theme's `groups` says
 // so, which the user's Appearance values decide (ThemeLogic.APPEARANCE).
-var APPLIED_GROUPS = ["borders", "radius", "motion"];
+var APPLIED_GROUPS = ["borders", "radius", "motion", "glass"];
 // The option of each applied group a user's Appearance row shows, by the
 // path `hyprctl getoption` and `hl.get_config` read and its type, as for
 // OPTIONS, and `member`, the shell.json `appearance` member that decides
 // the group (ThemeLogic.APPEARANCE, whose `hyprland` names the same group;
 // scripts/test-hyprland-layer.js holds the two equal). Kept out of
 // OPTIONS, which a manifest may map a setting to. The nested Hyprland
-// v0.56.2 answered `getoption` in this dot form for all three
+// v0.56.2 answered `getoption` in this dot form for the first three
 // (scripts/smoke/rows/appearance.sh, 2026-10-08).
 var APPEARANCE_PATHS = {
     borders: { path: "general.border_size", type: "int", member: "borderWidth" },
     radius: { path: "decoration.rounding", type: "int", member: "windowRadius" },
-    motion: { path: "animations.enabled", type: "bool", member: "windowAnimations" }
+    motion: { path: "animations.enabled", type: "bool", member: "windowAnimations" },
+    glass: { path: "decoration.blur.enabled", type: "bool", member: "windowGlass" }
 };
 
 // The getoption type of PATH, an OPTIONS or APPEARANCE_PATHS path, or null
@@ -395,6 +396,35 @@ function motionLines(theme) {
     return lines;
 }
 
+// Window glass, VGlass for Hyprland's own windows: the blur behind them,
+// their opacity while focused and while not, and their drop shadow, from
+// Theme.glass.window. Hyprland 0.56.2 draws no sheen without a shader, so
+// none is written. It comes after the borders group, so its shadow colour
+// is the one in force while both are written.
+function glassLines(theme) {
+    var glass = theme.glass;
+    return [
+        "-- Theme appearance: window glass.",
+        "hl.config({",
+        "    decoration = {",
+        "        active_opacity = " + luaNumber(glass.opacity) + ",",
+        "        inactive_opacity = " + luaNumber(glass.inactiveOpacity) + ",",
+        "        blur = {",
+        "            enabled = true,",
+        "            size = " + luaNumber(glass.blurSize) + ",",
+        "            passes = " + luaNumber(glass.blurPasses) + ",",
+        "        },",
+        "        shadow = {",
+        "            enabled = true,",
+        "            range = " + luaNumber(glass.shadowRange) + ",",
+        "            render_power = " + luaNumber(glass.shadowPower) + ",",
+        "            color = \"" + hyprColour("glass.window.shadowColor", glass.shadowColor) + "\",",
+        "        },",
+        "    },",
+        "})"
+    ];
+}
+
 // No window gaps: zero inner and outer gaps on every workspace. Workspace
 // rules, not `general` gaps, so a user's own `general.gaps_*` after the
 // loading line leaves the switch in force; the empty selector matches every
@@ -441,6 +471,7 @@ function appearanceValue(group, theme) {
     case "borders": return theme.hyprland.border.size;
     case "radius": return theme.hyprland.window.radius;
     case "motion": return !(theme.motionScale === 0 || theme.hyprland.motion.preset === "none");
+    case "glass": return true;
     }
     throw new Error("HyprlandLayer: applied group " + JSON.stringify(group) + " is not one of " + APPLIED_GROUPS.join(", "));
 }
@@ -1174,7 +1205,8 @@ function appliedLines(values, paths) {
 // { id, shortcut, key, heldBy }. A bind whose key the user set to null
 // becomes an `unbound` comment. A layer rule an earlier section already
 // wrote, the same namespace and effects, is written once. THEME gives the
-// theme's colours and Hyprland tokens, `groups`, whether each of
+// theme's colours and Hyprland tokens, `glass`, the window glass values
+// (Theme.glass.window), `groups`, whether each of
 // APPLIED_GROUPS is written, and `tuiMargins`, the margins
 // tuiWindowLines keeps the floating TUIs from the output's edges. After
 // the header comes appliedLines: the APPLIED_GROUPS the theme writes, in
@@ -1204,7 +1236,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     var switches = groupSwitches(sections);
     var applied = [];
     var groups = [];
-    var groupLines = { borders: function () { return borderLines(theme, themeName); }, radius: function () { return radiusLines(theme, highestScale); }, motion: function () { return motionLines(theme); } };
+    var groupLines = { borders: function () { return borderLines(theme, themeName); }, radius: function () { return radiusLines(theme, highestScale); }, motion: function () { return motionLines(theme); }, glass: function () { return glassLines(theme); } };
     var appearance = [];
     APPLIED_GROUPS.forEach(function (group) {
         if (theme.groups === null || typeof theme.groups !== "object" || typeof theme.groups[group] !== "boolean")

@@ -1,8 +1,11 @@
 import QtQuick
+import qs.Ui
 import "NotificationLogic.js" as Logic
 
 // The shared notification face: one card, the glass behind it, the edge
 // light over it and the hover report every surface sends to the service.
+// The edge light and the bead show only while the glass is on; `glassOn`
+// is that state, which the toast's entrance and exit follow too.
 Item {
     id: face
 
@@ -31,6 +34,9 @@ Item {
     property real edgeBoost: 1
     property bool edgeVisible: false
     property bool reportHover: true
+    // The notifications' own VGlass choice, their `glass` setting.
+    property bool glassChoice: false
+    readonly property bool glassOn: glass.on
     readonly property bool hovered: card.hovered
     readonly property alias card: card
 
@@ -81,16 +87,26 @@ Item {
     }
 
     GlassSurface {
+        id: glass
         z: -1
-        look: face.look
+        optIn: face.glassChoice
         follow: card
-        orb: face.orb
+        fill: face.look.card.fill
+        radius: face.look.radius.full
+        elevation: "tight"
+        // The card morphs, so its shadow is not cached.
+        shadowCached: false
+
+        Orb {
+            look: face.look
+            amount: glass.on ? face.orb : 0
+        }
     }
 
     EdgeLight {
         look: face.look
         follow: card
-        visible: face.edgeVisible
+        visible: face.edgeVisible && glass.on
         active: face.urgency === Logic.URGENCY.critical
         spin: face.edgeSpin
         boost: face.edgeBoost

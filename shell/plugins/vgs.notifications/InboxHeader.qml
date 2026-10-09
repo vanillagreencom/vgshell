@@ -11,6 +11,8 @@ Item {
 
     required property var look
     required property Item settingsHost
+    // The notifications' own VGlass choice, their `glass` setting.
+    property bool glassChoice: false
     property string mode: "inbox"
     property string subtitle: ""
     property bool silenced: false
@@ -35,7 +37,11 @@ Item {
 
     GlassSurface {
         anchors.fill: parent
-        look: header.look
+        optIn: header.glassChoice
+        fill: header.look.card.fill
+        radius: header.look.radius.full
+        elevation: "tight"
+        shadowCached: false
     }
 
     Column {

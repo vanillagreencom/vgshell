@@ -22,6 +22,9 @@ Item {
     // The core assigns the plugin's scoped shell object after creation.
     property var shell: null
     readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
+    // The launcher's own VGlass choice, its `glass` setting; the card's
+    // `on` is the effective state the edge light and the flyout follow.
+    readonly property bool glassChoice: shell !== null && shell.settings.glass === true
 
     // ------------------------------------------------------------ lifecycle
 
@@ -941,9 +944,10 @@ Item {
         onClicked: root.cancel()
     }
 
-    GlassSurface {
+    Ui.GlassSurface {
         id: card
-        look: root.look
+        optIn: root.glassChoice
+        fill: root.look.card.fill
         width: root.cardWidth
         height: Math.min(root.cardHeight, root.height - root.look.card.margin - root.effectiveCardTop)
         radius: Math.min(height / 2, root.look.card.radius)
@@ -1094,8 +1098,8 @@ Item {
                     anchors.topMargin: card.contentInset
                     anchors.leftMargin: -root.look.card.padding
                     anchors.rightMargin: -root.look.card.padding
-                    height: root.look.glass.hairlineWidth
-                    color: root.look.glass.divider
+                    height: root.look.row.dividerWidth
+                    color: root.look.row.divider
                     opacity: root.visibleRowsHeight > 0 ? 1 : 0
                     Behavior on opacity {
                         Anim { duration: root.look.motion.duration.short4; curve: root.look.motion.curve.standard }
@@ -1177,16 +1181,20 @@ Item {
         }
     }
 
+    // The moving edge reflection is the launcher's own glass treatment,
+    // drawn only while the card draws glass.
     EdgeLight {
         id: edgeLight
         look: root.look
         follow: card
+        visible: card.on
         active: root.searching
     }
 
     ContextMenu {
         id: fileFlyout
         look: root.look
+        glass: card.on
         motion: root.listMotion
         property string targetPath: ""
         function dismiss() {

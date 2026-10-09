@@ -950,7 +950,7 @@ function over(top, under) {
 }
 function textShortfalls(look, role) {
     return WALLPAPERS.filter(wallpaper => {
-        const card = over(themeLogic.parseColor(look.glass.fill), themeLogic.parseColor(wallpaper));
+        const card = over(themeLogic.parseColor(look.card.fill), themeLogic.parseColor(wallpaper));
         return themeLogic.contrastRatio(over(themeLogic.parseColor(look.text[role].color), card), card) < TEXT_FLOOR;
     });
 }
@@ -964,5 +964,56 @@ for (const mode of ["dark", "light"]) {
         same(textShortfalls(lookIn(faintTokens, faintLight, mode), role), mode === "dark" ? ["#ffffff"] : WALLPAPERS, "control: " + mode + " " + role + " at 0.5 fails the text floor");
     }
 }
+
+// VGlass at its defaults draws what the launcher's and the notifications'
+// own glass tables drew before the shared style, in both modes: each value
+// below is the resolved literal those tables held, with the look and the
+// shared table each value now comes from. `drawn` reads every value the
+// two glass surfaces, the launcher's dividers and the toast's bead draw.
+const launcherAppearance = load(path.join(__dirname, "..", "shell", "plugins", "vgs.launcher", "Appearance.js"));
+const glassAppearance = load(path.join(__dirname, "..", "shell", "Commons", "Glass.js"));
+const DRAWN_BEFORE = {
+    dark: {
+        launcher: { fill: "#151515c7", sheen: "#e8e8e80b", sheenEnd: "#e8e8e800", sheenHeight: 48, hairline: "#e8e8e817", hairlineWidth: 1, divider: "#e8e8e812", dividerWidth: 1,
+            wide: { color: "#0000008c", blur: 90, offsetY: 28, spread: -4 }, tight: { color: "#00000073", blur: 30, offsetY: 10, spread: -4 } },
+        notifications: { base: "#101010ff", fill: "#101010cc", sheen: "#e8e8e80b", sheenEnd: "#e8e8e800", sheenHeight: 48, hairline: "#e8e8e817", hairlineWidth: 1,
+            shadow: { color: "#00000073", blur: 30, offsetY: 10, spread: -4 },
+            orb: { shadeStop: 0.45, shade: "#00000059", clear: "#00000000", spot: "#ffffff6b", spotEnd: "#ffffff00", spotX: 0.3, spotY: 0.42, spotWidth: 0.46, spotHeight: 0.3, spotAngle: -18 },
+            ring: "#101010ff", chip: "#484848ff", coral: "#924a3cff" }
+    },
+    light: {
+        launcher: { fill: "#efefefcc", sheen: "#2a2a2a59", sheenEnd: "#2a2a2a00", sheenHeight: 48, hairline: "#2a2a2a1a", hairlineWidth: 1, divider: "#2a2a2a14", dividerWidth: 1,
+            wide: { color: "#00000033", blur: 90, offsetY: 28, spread: -4 }, tight: { color: "#00000029", blur: 30, offsetY: 10, spread: -4 } },
+        notifications: { base: "#f2f2f2ff", fill: "#f2f2f2d9", sheen: "#2a2a2a59", sheenEnd: "#2a2a2a00", sheenHeight: 48, hairline: "#2a2a2a1a", hairlineWidth: 1,
+            shadow: { color: "#00000029", blur: 30, offsetY: 10, spread: -4 },
+            orb: { shadeStop: 0.45, shade: "#00000059", clear: "#00000000", spot: "#ffffff6b", spotEnd: "#ffffff00", spotX: 0.3, spotY: 0.42, spotWidth: 0.46, spotHeight: 0.3, spotAngle: -18 },
+            ring: "#f2f2f2ff", chip: "#bebebeff", coral: "#eca597ff" }
+    }
+};
+function drawn(launcherTable, notesTable, glassTable, mode) {
+    const launcher = lookIn(launcherTable.TOKENS, launcherTable.LIGHT, mode);
+    const notes = lookIn(notesTable.TOKENS, notesTable.LIGHT, mode);
+    const glass = lookIn(glassTable.TOKENS, glassTable.LIGHT, mode);
+    const shared = { sheen: glass.glass.sheen, sheenEnd: glass.glass.sheenEnd, sheenHeight: glass.glass.sheenHeight, hairline: glass.glass.hairline, hairlineWidth: glass.glass.hairlineWidth };
+    return {
+        // Launcher.qml and ContextMenu.qml hand card.fill and the wide or
+        // the tight elevation; the dividers read row.
+        launcher: Object.assign({ fill: launcher.card.fill }, shared, { divider: launcher.row.divider, dividerWidth: launcher.row.dividerWidth, wide: glass.shadow.wide, tight: glass.shadow.tight }),
+        // CardFace.qml and InboxHeader.qml hand card.fill and the tight
+        // elevation; Orb.qml reads orb; the faces mix card.base.
+        notifications: Object.assign({ base: notes.card.base, fill: notes.card.fill }, shared, { shadow: glass.shadow.tight, orb: notes.orb, ring: notes.face.ring, chip: notes.face.chip, coral: notes.face.tint.coral })
+    };
+}
+for (const mode of ["dark", "light"])
+    same(drawn(launcherAppearance, appearance, glassAppearance, mode), DRAWN_BEFORE[mode], "VGlass at its defaults draws today's " + mode + " glass");
+// Controls: a shared hairline, a launcher fill and a notifications base
+// each moved by one step must fail the comparison.
+const moved = (table, edit) => { const copy = { TOKENS: JSON.parse(JSON.stringify(table.TOKENS)), LIGHT: JSON.parse(JSON.stringify(table.LIGHT)) }; edit(copy); return copy; };
+for (const [label, launcherTable, notesTable, glassTable] of [
+    ["the shared hairline", launcherAppearance, appearance, moved(glassAppearance, t => { t.TOKENS.glass.hairline.value = "alpha({text.foreground}, 0.1)"; })],
+    ["the launcher fill", moved(launcherAppearance, t => { t.TOKENS.card.fill.value = "alpha(#151515, 0.8)"; }), appearance, glassAppearance],
+    ["the notifications base", launcherAppearance, moved(appearance, t => { t.TOKENS.card.base.value = "#111111"; }), glassAppearance]
+])
+    assert.throws(() => same(drawn(launcherTable, notesTable, glassTable, "dark"), DRAWN_BEFORE.dark), { code: "ERR_ASSERTION" }, "control: " + label + " moved fails today's glass");
 
 console.log(`test-notifications-logic: ok bodies=${BODIES.length} states=${STATE_REFUSED.length} hints=${HINT_ROWS.length} enriched=${ENRICHED.length} controls=${CONTROLS.length}`);

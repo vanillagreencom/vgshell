@@ -37,7 +37,16 @@
     { "command": "grim", "packages": { "pacman": "grim", "dnf": "grim", "nix": "grim" }, "optional": false, "purpose": "Captures the image for the Screenshot action" },
     { "command": "slurp", "packages": { "pacman": "slurp", "dnf": "slurp", "nix": "slurp" }, "optional": false, "purpose": "Selects the area for the Screenshot action" }
   ],
-  "settings": {},
+  "settings": {
+    "glass": true
+  },
+  "schema": {
+    "glass": {
+      "type": "boolean",
+      "label": "VGlass",
+      "description": "Draw the launcher as frosted glass with its moving edge light."
+    }
+  },
   "defaultSection": "left",
   "appearance": "Appearance.js",
   "hyprland": {

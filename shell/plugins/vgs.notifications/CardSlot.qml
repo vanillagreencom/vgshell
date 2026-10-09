@@ -1,11 +1,12 @@
 import QtQuick
 import QtQuick.Layouts
 
-// One toast row of the stack on one screen. The card morphs in from a dot
-// and collapses back into one when it leaves. The service owns the row, its
-// lifetime and its end. In a stack at the top the row's gap is above the
-// card and the dot drops in from above; at the bottom the gap is below it
-// and the dot rises from below.
+// One toast row of the stack on one screen. While the toast draws glass,
+// the card morphs in from a dot and collapses back into one when it leaves;
+// without glass it fades in at full size as it drops, and fades out. The
+// service owns the row, its lifetime and its end. In a stack at the top the
+// row's gap is above the card and the dot drops in from above; at the
+// bottom the gap is below it and the dot rises from below.
 Item {
     id: slot
 
@@ -61,13 +62,14 @@ Item {
 
     Component.onCompleted: {
         if (leaving !== "") play();
-        else enterAnim.start();
+        else (face.glassOn ? enterAnim : plainEnter).start();
     }
     onLeavingChanged: play()
 
     function play() {
         enterAnim.stop();
-        if (leaving !== "") exitAnim.start();
+        plainEnter.stop();
+        if (leaving !== "") (face.glassOn ? exitAnim : plainExit).start();
     }
 
     SequentialAnimation {
@@ -88,6 +90,27 @@ Item {
                 Anim { target: face.card; property: "contentOpacity"; to: 1; duration: slot.look.motion.duration.short4; curve: slot.look.motion.curve.standard }
             }
         }
+    }
+
+    // Without glass the toast is a card from the start: it fades in as it
+    // drops, its text with it.
+    SequentialAnimation {
+        id: plainEnter
+        PropertyAction { target: slot; property: "stretch"; value: 1 }
+        PropertyAction { target: face.card; property: "opacity"; value: 0 }
+        PropertyAction { target: slot; property: "drop"; value: -slot.look.card.drop }
+        ParallelAnimation {
+            Anim { target: face.card; property: "opacity"; to: 1; duration: slot.look.motion.duration.short3; curve: slot.look.motion.curve.standard }
+            Anim { target: slot; property: "drop"; to: 0; duration: slot.look.motion.duration.medium1; curve: slot.look.motion.curve.emphasizedDecel }
+        }
+    }
+
+    // Without glass a toast leaving fades out, and only then its row
+    // closes, so the rows under it slide up with nothing shown shrinking.
+    SequentialAnimation {
+        id: plainExit
+        Anim { target: face.card; property: "opacity"; to: 0; duration: slot.look.motion.duration.short3; curve: slot.look.motion.curve.standard }
+        Anim { target: slot; property: "stretch"; to: 0; duration: slot.look.motion.duration.medium3; curve: slot.look.motion.curve.emphasizedAccel }
     }
 
     // A toast leaving collapses to a dot and shrinks away. The text is gone
@@ -122,6 +145,7 @@ Item {
         urgency: slot.urgency
         hintIcon: slot.hintIcon
         hintTone: slot.hintTone
+        glassChoice: slot.service !== null && slot.service.glassChoice
         workspace: slot.service !== null ? slot.service.workspaceOf(face.card.enrichment) : ""
         workspaceIcon: slot.service !== null && face.card.enrichment !== null ? slot.service.workspaceIcon(face.card.enrichment.rule, face.card.workspace) : ""
         faceImages: slot.service !== null && face.card.enrichment !== null ? slot.service.faceImages(face.card.enrichment, slot.image, face.card.workspace) : []

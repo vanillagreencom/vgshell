@@ -42,9 +42,9 @@ The file is written whole at the end of each change. After a restart or a rebuil
 
 ## Look
 
-`Appearance.js` holds every value the notifications draw with, as the `appearance` table [docs/decisions/D023](../../../docs/decisions/D023-plugin-owned-appearance.md) sets out. The theme reaches it through `scheme.mode`, `palette.accent` and `motion.scale` alone, so a theme's palette, fonts and metrics leave the glass as it is. The accent lights the edge reflection of a critical toast and the Silence switch. With the motion scale at 0 nothing animates and the edge lights stand still.
+`Appearance.js` holds every value the notifications draw with, as the `appearance` table [docs/decisions/D023](../../../docs/decisions/D023-plugin-owned-appearance.md) sets out, except the glass. The theme reaches it through `scheme.mode`, `palette.accent` and `motion.scale` alone, so a theme's palette, fonts and metrics leave the glass as it is. The accent lights the edge reflection of a critical toast and the Silence switch. With the motion scale at 0 nothing animates and the edge lights stand still.
 
-The glass, the edge light, the pills and the switch are the plugin's own files, drawn from its own table: a plugin imports no other plugin's files.
+The edge light, the bead, the pills and the switch are the plugin's own files, drawn from its own table: a plugin imports no other plugin's files. The glass is VGlass, `GlassSurface` of `qs.Ui` over `Theme.glass`, handed the table's own fill, rounding and the `tight` shadow ([D023](../../../docs/decisions/D023-plugin-owned-appearance.md)). The edge light and the toast's spin to a circle show only while a card draws glass; without it a toast fades in and out as a plain panel.
 
 Where a card's text and media sit, and how the media slot's tier is chosen: `mediaTier` in `NotificationLogic.js` and the media rows of `Appearance.js`.
 
