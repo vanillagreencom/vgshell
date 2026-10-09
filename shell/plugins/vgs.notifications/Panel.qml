@@ -67,25 +67,59 @@ FocusScope {
         });
     }
 
-    // The window Hyprland names active while the panel holds the keyboard.
-    // A layer that takes the keyboard, such as a capture's selector, leaves
-    // Hyprland's active window as it was (FocusState::rawSurfaceFocus,
-    // Hyprland v0.56.2), so only a window that takes it closes the panel.
-    // A title change reposts the same window, which closes nothing. The
-    // focus loss and the active window arrive on two sockets in either
-    // order, so both are read.
-    property string heldWindow: ""
-    readonly property string activeWindow: Hyprland.activeToplevel ? Hyprland.activeToplevel.address : ""
-    onActiveWindowChanged: closeForWindow()
+    // A window that takes the keyboard closes the panel; a layer that takes
+    // it, such as a capture's selector, closes nothing. Hyprland posts
+    // activewindowv2 when a window takes the keyboard, the held one again
+    // included, but not when a layer does (FocusState::rawSurfaceFocus,
+    // Hyprland v0.56.2). It also reposts the active window after a title
+    // change, right after windowtitlev2 (CWindow::onUpdateMeta), and after
+    // a layer closes it gives the keyboard back to the last window
+    // (CLayerSurface::onUnmap, refocusLastWindow): neither is a window
+    // taking it from the panel. The close still waits for the panel's own
+    // focus loss, so a window event that comes first closes nothing yet.
+    // rawEvent: Quickshell 0.3.1 HyprlandEvent,
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Hyprland/HyprlandEvent
+    property bool windowTook: false
+    property string retitled: ""
+    property bool refocusing: false
 
     onActiveFocusChanged: {
         root.call("panel-focused", activeFocus ? "on" : "off");
-        if (activeFocus) heldWindow = activeWindow;
+        if (activeFocus) {
+            windowTook = false;
+            refocusing = false;
+        }
         closeForWindow();
     }
 
     function closeForWindow() {
-        if (opened && !activeFocus && activeWindow !== heldWindow) root.call("close", "");
+        if (opened && !activeFocus && windowTook) root.call("close", "");
+    }
+
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) {
+            switch (event.name) {
+            case "openlayer":
+                root.refocusing = false;
+                break;
+            case "closelayer":
+                root.refocusing = !event.data.startsWith("vgs:");
+                break;
+            case "windowtitlev2":
+                root.retitled = event.data.split(",")[0];
+                break;
+            case "activewindowv2": {
+                const repost = root.refocusing || event.data === root.retitled;
+                root.refocusing = false;
+                root.retitled = "";
+                if (repost) return;
+                root.windowTook = true;
+                root.closeForWindow();
+                break;
+            }
+            }
+        }
     }
 
     function open(payloadJson) {
@@ -94,7 +128,7 @@ FocusScope {
         // user stays on the row that took the chosen one's place.
         const reopen = opened && mode === payload.mode;
         mode = payload.mode;
-        if (!opened) heldWindow = activeWindow;
+        if (!opened) windowTook = false;
         opened = true;
         actionIndex = -1;
         call("panel-opened", mode);
