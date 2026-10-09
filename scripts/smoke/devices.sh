@@ -45,22 +45,30 @@ devices_hid_log="$devices_dir/hid-fake.calls"
 devices_fixtures="$repo/scripts/smoke/fixtures/devices"
 devices_env_words=(PIPEWIRE_RUNTIME_DIR="$rt_dir" VGS_DEV_ROOT="$devices_dev_root"
   VGS_SYSFS_ROOT="$devices_sysfs_root" VGS_HID_FAKE="$devices_hid_socket")
-device_stand_in_names=(rfkill tailscale ddcutil brightnessctl nmcli pactl bluetoothctl systemctl udevadm modprobe xdg-open gio gum)
+device_stand_in_names=(rfkill tailscale ddcutil brightnessctl nmcli pactl bluetoothctl systemctl udevadm modprobe xdg-open gum)
 mkdir -p -- "$devices_dir/calls" "$devices_dir/replies"
 
 # devices_write_stand_ins: every stand-in written into $shim, and rfkill's
 # state reset to the fixture's two unblocked radios. The harness calls it
 # before the first shell starts, so no shell ever resolves one of these
 # names on the host. The interpreter is resolved once, here, so a row's
-# PATH cannot change what a stand-in runs.
+# PATH cannot change what a stand-in runs. gio is split: `gio open` and
+# `gio launch`, which start a program outside the sandbox, such as a
+# browser, go to the stand-in, which records them; its other subcommands
+# only read, such as the `gio mime` the launcher's open-with list runs, and
+# go to the host's gio.
 devices_write_stand_ins() {
-  local python name
+  local python name gio_bin
   python="$(command -v python3)" || { printf 'qml-smoke: status=not-measured missing=python3\n'; exit 77; }
   cp -- "$devices_fixtures/rfkill.json" "$devices_dir/rfkill.json"
   for name in "${device_stand_in_names[@]}"; do
     printf '#!/usr/bin/env bash\nexec %q %q %q %q "$@"\n' "$python" "$devices_fixtures/stand-in.py" "$name" "$devices_dir" >"$shim/$name"
     chmod 755 "$shim/$name"
   done
+  if gio_bin="$(command -v gio)"; then
+    printf '#!/usr/bin/env bash\ncase ${1-} in open|launch) exec %q %q gio %q "$@" ;; esac\nexec %q "$@"\n' "$python" "$devices_fixtures/stand-in.py" "$devices_dir" "$gio_bin" >"$shim/gio"
+    chmod 755 "$shim/gio"
+  fi
 }
 
 # device_reply NAME STATUS STDOUT ARGV...: NAME's stand-in answers the call
