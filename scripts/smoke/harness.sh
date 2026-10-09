@@ -613,9 +613,10 @@ sized_monitors() {
   hypr -j monitors | python3 -c 'import json,sys; ms=json.load(sys.stdin); print(len(ms) if ms and all(m["width"] > 0 and m["height"] > 0 for m in ms) else 0, ",".join("%s:%dx%d" % (m["name"], m["width"], m["height"]) for m in ms))'
 }
 # nested_monitor_wait_secs bounds the wait from the compositor's launch,
-# and every start prints how long it took. A 10 s bound lost eight runs
-# of seven lanes to an unsized monitor on 2026-10-09 between 10:24Z and
-# 12:47Z, up to ten lanes on the host; those runs left no later reading.
+# and every start prints how long it waited, keyed secs=. A 10 s bound
+# lost eight runs of seven lanes to an unsized monitor on 2026-10-09
+# between 10:24Z and 12:47Z, up to ten lanes on the host; those runs left
+# no later reading.
 # Twelve starts of `qml-smoke.sh --first-bar-runs 12` on cachy, the same
 # day at 12:57Z and host load 9.1, each read 0.33 to 0.34 s. No start
 # came late in that run, so 60 s is not a measured late time: it is 180
@@ -624,11 +625,11 @@ sized_monitors() {
 nested_monitor_wait_secs=60
 monitors=-1
 monitors_seen=""
+compositor_gone=""
 while :; do
   if read -r monitors monitors_seen < <(sized_monitors 2>/dev/null) && [[ $monitors -gt 0 ]]; then break; fi
-  nested_monitor_waited_ms=$((($(date +%s%N) - compositor_started_ns) / 1000000))
-  ((nested_monitor_waited_ms < nested_monitor_wait_secs * 1000)) || break
-  kill -0 "$compositor_pid" 2>/dev/null || break
+  kill -0 "$compositor_pid" 2>/dev/null || { compositor_gone=1; break; }
+  (($(date +%s%N) - compositor_started_ns < nested_monitor_wait_secs * 1000000000)) || break
   sleep 0.2
 done
 nested_monitor_waited_ms=$((($(date +%s%N) - compositor_started_ns) / 1000000))
@@ -636,12 +637,16 @@ nested_monitor_ready_secs="$((nested_monitor_waited_ms / 1000)).$(printf '%02d' 
 if [[ $monitors -gt 0 ]]; then
   printf 'qml-smoke: nested-monitor-ready secs=%s bound_secs=%d\n' "$nested_monitor_ready_secs" "$nested_monitor_wait_secs"
   ok "nested compositor lists $monitors monitor(s): $monitors_seen"
+elif [[ -n $compositor_gone ]]; then
+  printf 'qml-smoke: status=not-measured missing=nested-compositor secs=%s\n' "$nested_monitor_ready_secs"
+  tail -n 20 "$sandbox/hyprland.log"
+  exit 77
 elif [[ -n $monitors_seen ]]; then
-  printf 'qml-smoke: status=not-measured nested-monitor=unsized monitors=%s\n' "$monitors_seen"
-  echo "the nested compositor listed a monitor with no size for $nested_monitor_ready_secs s of a $nested_monitor_wait_secs s bound from its launch, so it would configure no bar; FALLBACK is Hyprland's placeholder while the host has not configured the nested window. Run the smoke again"
+  printf 'qml-smoke: status=not-measured nested-monitor=unsized monitors=%s secs=%s bound_secs=%d\n' "$monitors_seen" "$nested_monitor_ready_secs" "$nested_monitor_wait_secs"
+  echo "the nested compositor still listed a monitor with no size $nested_monitor_ready_secs s after its launch, at the $nested_monitor_wait_secs s bound, so it would configure no bar; FALLBACK is Hyprland's placeholder while the host has not configured the nested window. Run the smoke again"
   exit 77
 else
-  printf 'qml-smoke: status=not-measured missing=nested-monitor\n'; exit 77
+  printf 'qml-smoke: status=not-measured missing=nested-monitor secs=%s bound_secs=%d\n' "$nested_monitor_ready_secs" "$nested_monitor_wait_secs"; exit 77
 fi
 # hl.device takes a name no device carries without an error, so the run
 # reads that the device it detaches is the compositor's one mouse before
