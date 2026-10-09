@@ -253,31 +253,43 @@ Singleton {
     // exclusive layers, the bar's above all (BarHost's exclusiveZone; the
     // bar unmaps while hidden), which OverlayState.room reads from
     // Quickshell's monitor objects. Quickshell 0.3.1 re-reads j/monitors on
-    // connect, `configreloaded`, a monitor's arrival or removal and some
-    // workspace events, never on a layer event (src/wayland/hyprland/ipc/
-    // connection.cpp, HyprlandIpc::onEvent), so the core asks for that read
-    // here, on Quickshell's own request socket. Quickshell drops the ask
-    // while a read is in flight (HyprlandIpc::refreshMonitors), and that
-    // read may have been answered before the layer changed, so the first
-    // monitor update after a layer event asks once more; Quickshell clears
+    // connect, `configreloaded`, `monitoraddedv2` and a
+    // `destroyworkspacev2` that leaves a monitor no active workspace, never
+    // on a layer event (src/wayland/hyprland/ipc/connection.cpp,
+    // HyprlandIpc::onEvent), so the core asks for that read here, on
+    // Quickshell's own request socket. Quickshell drops the ask while a
+    // read is in flight (HyprlandIpc::refreshMonitors), and that read may
+    // have been answered before the layer changed, so the first monitor
+    // update after a layer event asks once more: the focused monitor's
+    // lastIpcObjectChanged, or the focused monitor's change, since on
+    // Quickshell's first read the monitors update before it sets the
+    // focused one (HyprlandMonitor::updateFromObject). A `focusedmon`
+    // event's focus change asks too, where Quickshell may drop the ask as
+    // it may the first; the next layer event asks again. Quickshell clears
     // its in-flight mark before it updates the monitors, so that ask is
-    // sent. A bar height change with no map or unmap is read at the next
-    // layer event or `configreloaded`; a theme's bar height is in the
-    // Hyprland layer's TUI margins (HyprlandLayer.qml tuiMargins), so its
-    // change rewrites the layer, whose reload posts `configreloaded`.
+    // sent, and the mark clears before it, so each layer event costs at
+    // most two reads. A failed read updates nothing and leaves the mark
+    // for the next update. A bar height change with no map or unmap is
+    // read at the next layer event or `configreloaded`; a theme's bar
+    // height is in the Hyprland layer's TUI margins (HyprlandLayer.qml
+    // tuiMargins), so its change rewrites the layer, whose reload posts
+    // `configreloaded`.
     property bool layersMoved: false
+
+    function askAgain() {
+        if (!layersMoved) return;
+        layersMoved = false;
+        Hyprland.refreshMonitors();
+    }
 
     Connections {
         target: Hyprland.focusedMonitor
-        function onLastIpcObjectChanged() {
-            if (!root.layersMoved) return;
-            root.layersMoved = false;
-            Hyprland.refreshMonitors();
-        }
+        function onLastIpcObjectChanged() { root.askAgain(); }
     }
 
     Connections {
         target: Hyprland
+        function onFocusedMonitorChanged() { root.askAgain(); }
         function onRawEvent(event) {
             if (event.name === "openlayer" || event.name === "closelayer") {
                 root.layersMoved = true;

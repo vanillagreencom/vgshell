@@ -128,17 +128,16 @@ FocusScope {
     onShownPageChanged: if (root.Window.window !== null && root.Window.window.visible) Qt.callLater(fitWindow)
 
     // Resize the shown window to mapHeight within the room OverlayState
-    // gives its screen, the work area under the bar less the gutter, once
-    // Hyprland answers and the shown page is laid out, so the last change
-    // wins. Hyprland
-    // owns a mapped window's size, and its floating resize keeps the
-    // window's centre, not its corner (v0.56.2
+    // gives the screen its client is on, the work area under the bar less
+    // the gutter, once Hyprland answers and the shown page is laid out, so
+    // the last change wins. Hyprland owns a mapped window's size, and its
+    // floating resize keeps the window's centre, not its corner (v0.56.2
     // src/layout/algorithm/floating/default/DefaultFloatingAlgorithm.cpp:198-203,
     // resizeTarget), so a move to the old top-left follows each resize,
     // through the same queue: the top-left stays unless the grown window
     // would pass the bottom of that room, when it rises by that overflow
-    // alone, never above the room's top; x never
-    // changes. The settings smoke row reads both back. The window is the one client
+    // alone, never above the room's top; x never changes. The settings
+    // smoke row reads both back. The window is the one client
     // of the shell's app-id, `org.vgs.shell`, which shell.qml's AppId pragma
     // and HyprlandLayer.APP_WINDOW own and a plugin cannot import, titled
     // with this plugin's name, as the window host titles it.
@@ -158,15 +157,31 @@ FocusScope {
             const client = own[0];
             // A tiled or fullscreen window is the user's layout choice.
             if (client.floating !== true || client.fullscreen !== 0) return;
-            if (root.screen === null) return;
+            // The monitor the client is on now, which a drag may have
+            // changed since the window opened, as the screen of that name.
+            const monitors = state.monitors.filter(m => m.id === client.monitor);
+            if (monitors.length !== 1) {
+                console.warn("settings: resize monitors=" + monitors.length + " id=" + client.monitor);
+                return;
+            }
+            // Read by index, as Compositor.focusedScreen reads
+            // Quickshell.screens.
+            const all = shell.screens.all;
+            let screen = null;
+            for (let i = 0; i < all.length; i++)
+                if (all[i].name === monitors[0].name) screen = all[i];
+            if (screen === null) {
+                console.warn("settings: resize screen=none monitor=" + monitors[0].name);
+                return;
+            }
             // The room's top and bottom in global logical pixels: a
             // ShellScreen's x and y are its output's logical position, the
             // space of a client's `at`. The room keeps `size.window.gutter`
             // free inside the work area, since Hyprland draws the border
             // outside the window's box.
-            const room = OverlayState.room(root.screen);
-            const top = Math.ceil(root.screen.y + room.y);
-            const bottom = Math.floor(root.screen.y + room.y + room.height);
+            const room = OverlayState.room(screen);
+            const top = Math.ceil(screen.y + room.y);
+            const bottom = Math.floor(screen.y + room.y + room.height);
             // The rounded room bounds the height too, so a page never asks
             // for more than fits under the bar.
             let height = Math.min(root.mapHeight, bottom - top);

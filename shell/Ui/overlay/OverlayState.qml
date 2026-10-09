@@ -48,7 +48,12 @@ QtObject {
         const monitor = Hyprland.monitorFor(output);
         const ipc = monitor === null || monitor === undefined ? null : monitor.lastIpcObject;
         const listed = ipc !== null && ipc !== undefined ? ipc.reserved : undefined;
-        const reserved = Array.isArray(listed) && listed.length === 4 && listed.every(n => typeof n === "number" && isFinite(n)) ? listed : [0, 0, 0, 0];
+        // A list inside a QVariantMap reaches JS as a Qt sequence, not an
+        // Array: Array.isArray answered false for it in the VGS-1178
+        // review's C++ probe against Qt 6.11.2, the Qt Quickshell links, so
+        // it is copied as an array-like.
+        const edges = listed !== null && listed !== undefined && listed.length === 4 ? Array.from(listed) : [];
+        const reserved = edges.length === 4 && edges.every(n => typeof n === "number" && isFinite(n)) ? edges : [0, 0, 0, 0];
         const gutter = 2 * Theme.size.window.gutter;
         return {
             x: reserved[0] + gutter / 2,

@@ -23,7 +23,8 @@
 # shows the scroll area's bottom edge cue.
 # The plugin list, the tallest page, maps with its frame inside the work
 # area under the bar, which the box the room gave without the reserved
-# area, the control, does not.
+# area, the control, does not; the list fills that room, so the check
+# judges a window the room bounds.
 # inputs: shell/Ui/overlay/OverlayState.qml shell/Core/PluginLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Field.qml shell/Ui/feedback/LinkText.qml shell/Commons/DesktopLaunch.js shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.bar/* shell/Commons/Paths.qml shell/Ui/controls/Select.qml scripts/smoke/fixtures/browsers/* scripts/smoke/rows/bar.sh shell/plugins/*/manifest.json
 set -euo pipefail
 click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
@@ -75,8 +76,32 @@ old_room_box() {
   [[ $gutter =~ ^[0-9]+$ ]] || { printf 'gutter-%s\n' "$gutter"; return; }
   printf '%s\n' "$box" | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); m=json.loads(sys.argv[1]); g=int(sys.argv[2]); tall=m["height"] - 2 * g; middle=m["y"] + m["top"] + (m["height"] - m["top"] - m["bottom"]) / 2; print(json.dumps([x, middle - tall / 2, w, tall]))' "$mon" "$gutter"
 }
+# work_area MONITOR GUTTER: the height of monitor MONITOR's ([id], as
+# window_of reads it) work area less GUTTER at its top and bottom, whose
+# height is the mode's width on an odd transform, from j/monitors apart
+# from Window.qml's room.
+work_area() {
+  hypr -j monitors | py_reply 'import json,math,sys; m=[m for m in json.load(sys.stdin) if m["id"] == json.loads(sys.argv[1])[0]]; g=int(sys.argv[2]); print(math.floor(m[0]["y"] + (m[0]["width"] if m[0]["transform"] % 2 == 1 else m[0]["height"]) / m[0]["scale"] - m[0]["reserved"][3] - g) - math.ceil(m[0]["y"] + m[0]["reserved"][1] + g) if len(m) == 1 else "monitors=%d" % len(m))' "$1" "$2"
+}
+# list_fills_room: `fills` when the Plugins client is as tall as its
+# monitor's work area less the gutter a side, within a pixel, so the room
+# bounds it and a room blind to the reserved area would map it taller;
+# else the two heights.
+list_fills_room() {
+  local client monitor gutter area
+  client="$(one_window Plugins)" || return
+  [[ $client == \[* ]] || { printf 'client-%s\n' "$client"; return; }
+  monitor="$(window_of Plugins monitor)" || return
+  [[ $monitor == \[* ]] || { printf 'monitor-%s\n' "$monitor"; return; }
+  gutter="$(ipc smoke themeValue size.window.gutter)" || return
+  [[ $gutter =~ ^[0-9]+$ ]] || { printf 'gutter-%s\n' "$gutter"; return; }
+  area="$(work_area "$monitor" "$gutter")" || return
+  [[ $area =~ ^[0-9]+$ ]] || { printf 'area-%s\n' "$area"; return; }
+  printf '%s\n' "$client" | py_reply 'import json,sys; h=json.load(sys.stdin)[3]; a=int(sys.argv[1]); print("fills" if abs(h - a) <= 1 else json.dumps([h, a]))' "$area"
+}
 plugins_monitor_reserves_top() { plugins_monitor | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["top"] > 0))'; }
-expect_poll "the plugin list maps with its frame below the bar and above the bottom edge" inside frame_room
+expect_poll "the plugin list fills the work area less the gutter a side" fills list_fills_room
+expect "the plugin list maps with its frame below the bar and above the bottom edge" inside frame_room
 expect "the bar reserves a top edge on the window's monitor" true plugins_monitor_reserves_top
 old_box="$(old_room_box)" || old_box=unread
 expect "control: the list sized without the reserved area draws its frame under the bar" under-bar frame_room "$old_box"
@@ -265,11 +290,8 @@ expect_poll "the page change back returns the body to its top" '[0]' page_top
 # Details reading with the window at its Settings height and no cue, as
 # with neither the resize nor the cue: the judge reads it cut.
 # fit_state: the Plugins client as [x, y, w, h], its height target, the
-# window's mapHeight within its monitor's work area less the window
-# gutter at its top and bottom, whose height is the mode's width on an odd
-# transform, read from j/monitors apart from Window.qml's room, and where
-# the shown page ends (Probe paneEnd), as one object; a state word while one is
-# absent.
+# window's mapHeight within its work_area, and where the shown page ends
+# (Probe paneEnd), as one object; a state word while one is absent.
 fit_state() {
   local client target monitor gutter area
   client="$(one_window Plugins)" || return
@@ -280,7 +302,7 @@ fit_state() {
   [[ $monitor == \[* ]] || { printf 'monitor-%s\n' "$monitor"; return; }
   gutter="$(ipc smoke themeValue size.window.gutter)" || return
   [[ $gutter =~ ^[0-9]+$ ]] || { printf 'gutter-%s\n' "$gutter"; return; }
-  area="$(hypr -j monitors | py_reply 'import json,math,sys; m=[m for m in json.load(sys.stdin) if m["id"] == json.loads(sys.argv[1])[0]]; g=int(sys.argv[2]); print(math.floor(m[0]["y"] + (m[0]["width"] if m[0]["transform"] % 2 == 1 else m[0]["height"]) / m[0]["scale"] - m[0]["reserved"][3] - g) - math.ceil(m[0]["y"] + m[0]["reserved"][1] + g) if len(m) == 1 else "monitors=%d" % len(m))' "$monitor" "$gutter")" || return
+  area="$(work_area "$monitor" "$gutter")" || return
   [[ $area =~ ^[0-9]+$ ]] || { printf 'area-%s\n' "$area"; return; }
   ipc smoke paneEnd window vgs.settings | py_reply 'import json,sys; print(json.dumps({"client": json.loads(sys.argv[1]), "target": min(int(sys.argv[2]), int(sys.argv[3])), "end": json.load(sys.stdin)}))' "$client" "$target" "$area"
 }

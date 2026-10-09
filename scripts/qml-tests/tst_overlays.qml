@@ -191,7 +191,9 @@ Item {
             // A monitor Quickshell has not read yet reserves nothing.
             Hyprland.monitors = { one: { lastIpcObject: {} } };
             compare(OverlayState.room(output).height, 720 - 2 * gutter);
-            Hyprland.monitors = { one: { lastIpcObject: { reserved: [12, 40, 6, 10] } } };
+            // Quickshell hands the list over as a Qt sequence, an
+            // array-like that is no Array.
+            Hyprland.monitors = { one: { lastIpcObject: { reserved: { length: 4, 0: 12, 1: 40, 2: 6, 3: 10 } } } };
             const reserved = OverlayState.room(output);
             compare(reserved.x, 12 + gutter);
             compare(reserved.y, 40 + gutter);
