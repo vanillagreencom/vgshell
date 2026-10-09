@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // The shared wording of a past moment (shell/Commons/Timestamp.js): under
-// an hour before now it reads relative, any other time as the bar clock in
+// an hour before now it reads relative, as does a time under a minute
+// ahead, since Time.now ticks once a minute; any other time as the bar clock in
 // local time, with the year only outside now's year. The zone is fixed
 // before any date is made, and is one where the local and the UTC day and
 // year differ, so a reading in UTC fails the table. The controls edit
@@ -33,6 +34,8 @@ const CASES = [
     ["days ago", NOW - 3 * 24 * HOUR, NOW, "Tue 6 Oct, 00:19"],
     ["on the hour", Date.UTC(2026, 9, 1, 3, 0), NOW, "Thu 1 Oct, 12:00"],
     ["another year", Date.UTC(2025, 9, 8, 15, 19), NOW, "Thu 9 Oct 2025, 00:19"],
+    ["inside the clock's minute", NOW + 30 * 1000, NOW, "just now"],
+    ["a minute ahead", NOW + MINUTE, NOW, "Fri 9 Oct, 00:20"],
     ["ahead of now", NOW + 5 * MINUTE, NOW, "Fri 9 Oct, 00:24"],
     ["the local year", Date.UTC(2026, 11, 31, 13, 0), NEW_YEAR, "Thu 31 Dec 2026, 22:00"]
 ];
@@ -46,6 +49,8 @@ const CONTROLS = [
     ["an hour old reads as the clock", "age < RELATIVE_MS", "age <= RELATIVE_MS"],
     ["under a minute reads just now", 'seconds < 60 ? "just now"', 'seconds < 0 ? "just now"'],
     ["a time ahead reads as the clock", "age >= 0 && ", ""],
+    ["a time inside the clock's minute reads just now", 'if (age < 0 && age > -CLOCK_LAG_MS) return "just now";', ""],
+    ["a minute ahead reads as the clock", "age > -CLOCK_LAG_MS", "age >= -CLOCK_LAG_MS"],
     ["the year shows outside now's year", "=== new Date(now).getFullYear()", "=== at.getFullYear()"],
     ["the hour is local", "twoDigits(at.getHours())", "twoDigits(at.getUTCHours())"],
     ["minutes keep two digits", "twoDigits(at.getMinutes())", "at.getMinutes()"]
