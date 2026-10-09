@@ -265,9 +265,10 @@ FocusScope {
         container: "panel"
         padding: 0
         cornerRadius: 0
-        gap: root.look.header.gap
+        // The list viewport, its clip and its alpha mask share the header's bottom.
+        gap: 0
 
-        titleContent: [
+        header: [
             InboxHeader {
                 id: header
                 look: root.look

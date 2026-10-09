@@ -147,6 +147,12 @@ for file in Singleton.qml Scope.qml PopupWindow.qml Edges.qml PopupAdjustment.qm
   cp -- "$tests/stand-ins/$file" "$imports/Quickshell/$file"
 done
 printf 'module Quickshell\nSingleton 1.0 Singleton.qml\nScope 1.0 Scope.qml\nPopupWindow 1.0 PopupWindow.qml\nEdges 1.0 Edges.qml\nPopupAdjustment 1.0 PopupAdjustment.qml\nsingleton Quickshell 1.0 Quickshell.qml\nsingleton QsWindow 1.0 QsWindow.qml\nsingleton DesktopEntries 1.0 DesktopEntries.qml\nScriptModel 1.0 ScriptModel.qml\nLazyLoader 1.0 LazyLoader.qml\n' >"$imports/Quickshell/qmldir"
+# The shipped notification panel imports this type for hidden media. The
+# image-free boundary fixture needs its Rectangle interface only; rounded
+# image clipping remains covered by the real shell's notification smoke.
+mkdir -p -- "$imports/Quickshell/Widgets"
+printf 'import QtQuick\nRectangle { clip: true }\n' >"$imports/Quickshell/Widgets/ClippingRectangle.qml"
+printf 'module Quickshell.Widgets\nClippingRectangle 1.0 ClippingRectangle.qml\n' >"$imports/Quickshell/Widgets/qmldir"
 mkdir -p -- "$imports/Quickshell/Hyprland"
 cp -- "$tests/stand-ins/GlobalShortcut.qml" "$imports/Quickshell/Hyprland/GlobalShortcut.qml"
 cp -- "$tests/stand-ins/Hyprland.qml" "$imports/Quickshell/Hyprland/Hyprland.qml"

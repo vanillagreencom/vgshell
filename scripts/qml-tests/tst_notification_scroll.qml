@@ -8,6 +8,7 @@ import "../../shell/plugins/vgs.notifications/Appearance.js" as Appearance
 // The shipped scroll frame fades each edge while more content lies beyond it.
 // Both the notification panel and toast stack instantiate this component.
 Item {
+    id: scene
     width: 600
     height: 300
 
@@ -53,13 +54,97 @@ Item {
         }
     }
 
+    Notifications.Panel {
+        id: panel
+        width: implicitWidth
+        height: 300
+        visible: false
+        rows: Array.from({ length: 12 }, (_, index) => ({
+            key: "boundary-" + index, app: "Boundary test",
+            summary: "Notification " + index, body: "An overflowing shipped panel"
+        }))
+    }
+
+    Component {
+        id: boundaryInk
+        Rectangle { color: "#ff00ff"; z: 100 }
+    }
+
     TestCase {
         name: "notification_scroll"
         when: windowShown
 
         function cleanup() {
+            panel.visible = false;
+            frame.visible = true;
             activeCard.focus = false;
             mouseMove(frame, frame.width + 20, 0);
+        }
+
+        function test_shipped_panel_boundary_data() {
+            return [{ tag: "top end", progress: 0 }, { tag: "mid scroll", progress: 0.5 }];
+        }
+
+        function test_shipped_panel_boundary(row) {
+            frame.visible = false;
+            panel.visible = true;
+            const scrollbar = findChild(panel, "notificationPanelScrollBar");
+            verify(scrollbar !== null);
+            const scroll = scrollbar.parent;
+            const view = scrollbar.flickable;
+            const title = findChild(panel, "notificationHeaderTitleText");
+            verify(title !== null);
+            const header = title.parent.parent;
+            tryVerify(() => view.contentHeight > view.height);
+            const headerBottom = header.mapToItem(panel, 0, header.height).y;
+            const viewTop = view.mapToItem(panel, 0, 0).y;
+            compare(viewTop, headerBottom, "the shipped viewport starts at the actual header bottom");
+            compare(scroll.parent.mapToItem(panel, 0, 0).y, headerBottom,
+                "the list frame starts at the same boundary");
+            verify(view.clip, "the shipped viewport clips its content");
+            const masks = Array.from(scroll.children).filter(child => child.gradient !== undefined);
+            compare(masks.length, 1, "one alpha gradient owns both list edges");
+            const mask = masks[0];
+            compare(mask.mapToItem(panel, 0, 0).y, headerBottom,
+                "the alpha mask starts at the actual header bottom");
+            compare(mask.height, view.height);
+            compare(mask.gradient.stops[0].position, 0, "the gradient starts at the clip edge");
+
+            const travel = view.contentHeight - view.height;
+            view.contentY = travel * row.progress;
+            if (row.progress > 0) verify(view.contentY > 0 && view.contentY < travel);
+            // Test ink crosses the shipped clip. It occupies the side gutter,
+            // outside the header and active-card mask rectangles. This proves
+            // actual clipped and faded paint without relying on card colours.
+            const ink = boundaryInk.createObject(view.contentItem, {
+                x: 0, y: view.contentY - 16, width: view.width, height: view.height + 32
+            });
+            verify(ink !== null);
+            try {
+                panel.Window.window.update();
+                verify(waitForRendering(panel));
+                const painted = grabImage(scene);
+                const x = Math.floor(view.mapToItem(scene, 10, 0).x);
+                const edge = Math.floor(view.mapToItem(scene, 0, 0).y);
+                for (const distance of [1, 8, 15]) {
+                    compare(painted.red(x, edge - distance), 0, "no painted card strip escapes above the header boundary");
+                    compare(painted.blue(x, edge - distance), 0);
+                }
+                if (row.progress === 0) {
+                    compare(painted.red(x, edge + 1), 255, "the top end retains full content paint");
+                } else {
+                    const near = painted.red(x, edge + 1);
+                    const middle = painted.red(x, edge + Math.floor(scroll.fadeExtent / 2));
+                    const centre = painted.red(x, edge + Math.ceil(scroll.fadeExtent));
+                    verify(near < 8 && middle > near && middle < centre,
+                        "one smooth painted fade rises from the header boundary");
+                    compare(centre, 255);
+                    compare(painted.green(x, edge + 1), 0, "the gradient adds no colour");
+                    compare(painted.blue(x, edge + 1), near, "the gradient changes alpha only");
+                }
+            } finally {
+                ink.destroy();
+            }
         }
 
         function test_active_card_data() {

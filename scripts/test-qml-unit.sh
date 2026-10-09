@@ -96,6 +96,8 @@ mutations=(
   "the description separates from its title|layout/Pane.qml|readonly property real subtitleGap: titleRowHeight > 0 && subtitleHeight > 0 ? Theme.row.lineGap : 0|readonly property real subtitleGap: titleRowHeight > 0 && subtitleHeight > 0 ? Theme.stack.titleSpace : 0|tst_title_space.qml"
   "a surviving slot dereferences its destroyed measure height|layout/Pane.qml|implicitHeight: contentItem === null ? 0 : (contentItem === this ? childrenRect.height : contentItem.implicitHeight)|implicitHeight: contentItem === this ? childrenRect.height : contentItem.implicitHeight|tst_title_space.qml"
   "a surviving slot dereferences its destroyed measure width|layout/Pane.qml|if (contentItem === null) return 0;|{}|tst_title_space.qml"
+  "notification panel restores rejected header gap|../plugins/vgs.notifications/Panel.qml|gap: 0|gap: root.look.header.gap|tst_notification_scroll.qml"
+  "notification viewport lets a card strip escape|../plugins/vgs.notifications/CardScroll.qml|clip: true|clip: false|tst_notification_scroll.qml"
   "notification content never fades|../plugins/vgs.notifications/CardScroll.qml|layer.enabled: root.visible && height > 0 && !(atYBeginning && atYEnd)|layer.enabled: false|tst_notification_scroll.qml"
   "notification mask paints no fade|../plugins/vgs.notifications/CardScroll.qml|maskEnabled: true|maskEnabled: false|tst_notification_scroll.qml"
   "notification top edge never fades|../plugins/vgs.notifications/CardScroll.qml|GradientStop { position: 0; color: root.maskColor(root.edgeAlpha(0, root.topStrength)) }|GradientStop { position: 0; color: root.maskColor(1) }|tst_notification_scroll.qml"
