@@ -44,7 +44,8 @@ Item {
             spacing: Theme.stack.row
             Repeater {
                 model: root.sizingRows
-                ListItem { required property int index; width: parent.width; text: "Source " + index; secondary: "Ready" }
+                // Teardown detaches delegates before their width bindings end.
+                ListItem { required property int index; width: parent === null ? 0 : parent.width; text: "Source " + index; secondary: "Ready" }
             }
         }
         footer: Button { text: "Refresh" }

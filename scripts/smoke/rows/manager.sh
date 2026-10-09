@@ -1,7 +1,8 @@
 # The Settings plugin, vgs.settings, the plugin manager's user interface.
 # Always on, it binds SUPER+M and refuses every disable; shown here, its
-# plug sits last in every bar and opens a Hyprland window centred on its monitor's work area, half the
-# monitor tall and `size.window.width` wide or clamped on a narrower
+# plug sits last in every bar and opens a Hyprland window centred on its
+# monitor's work area, growing for its titled content within the output
+# room, and `size.window.width` wide or clamped on a narrower
 # monitor, which takes the keyboard. The pointer shows the hand over the
 # list's controls, the I-beam over its search field and the arrow over its
 # heading. The window lists every plugin, itself included, and opens a page
@@ -73,8 +74,8 @@ user_key() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.ar
 settings_binds() { hypr -j binds | py_reply 'import json,sys; print(json.dumps(sorted([b["modmask"], b["key"]] for b in json.load(sys.stdin) if b["description"] == "vgs.settings:toggle" and b.get("submap", "") in ("", "default"))))'; }
 # window_fits MONITOR [MODE]: [] when the Settings window on MONITOR is
 # min(size.window.width, width - 2 * size.window.gutter) wide,
-# size.window.tallHeightShare of the height tall, or the height less two
-# gutters when that is less, and centred on the monitor's
+# the larger of its tall-height request and its titled Pane content,
+# capped by the height less two gutters, and centred on the monitor's
 # work area, its box less the space the bar reserves and general:float_gaps,
 # where Hyprland centres a floating window, within one pixel; else the
 # misfits. The monitor, the clients and the gaps come from one batched
@@ -82,10 +83,11 @@ settings_binds() { hypr -j binds | py_reply 'import json,sys; print(json.dumps(s
 # mode a row holds, a monitor at another mode reads
 # ["mode=<WxH> want=<MODE>"] and no window is measured against it.
 window_fits() {
-  local width share gutter
+  local width share gutter panes
   width="$(ipc smoke themeValue size.window.width)" || return
   share="$(ipc smoke themeValue size.window.tallHeightShare)" || return
   gutter="$(ipc smoke themeValue size.window.gutter)" || return
+  panes="$(ipc smoke titledPaneContent window vgs.settings)" || return
   hypr --batch 'j/monitors; j/clients; j/getoption general:float_gaps' | py_reply '
 import json, math, sys
 text = sys.stdin.read()
@@ -95,7 +97,11 @@ while len(parts) < 3:
     part, at = decoder.raw_decode(text, at)
     parts.append(part)
 monitors, clients, gaps = parts
-name, held, klass, (width, share, gutter) = sys.argv[1], sys.argv[2], sys.argv[3], (json.loads(a) for a in sys.argv[4:])
+name, held, klass, (width, share, gutter) = sys.argv[1], sys.argv[2], sys.argv[3], (json.loads(a) for a in sys.argv[4:7])
+panes = json.loads(sys.argv[7])
+requests = [p["requestedHeight"] for p in panes if p["container"] == "window"]
+if not requests:
+    print(json.dumps(["titled window Pane absent"])); sys.exit()
 mon = [m for m in monitors if m["name"] == name]
 if len(mon) != 1:
     print(json.dumps(["monitor=%s absent" % name])); sys.exit()
@@ -112,11 +118,12 @@ top, right, bottom, left = (int(v) for v in gaps["css"].split())
 rl, rt, rr, rb = m["reserved"]
 area_x, area_y = m["x"] + rl + left, m["y"] + rt + top
 area_w, area_h = mw - rl - rr - left - right, mh - rt - rb - top - bottom
-want_w, want_h = math.floor(min(width, mw - 2 * gutter)), math.floor(min(share * mh, mh - 2 * gutter))
+want_w = math.floor(min(width, mw - 2 * gutter))
+want_h = math.floor(min(max(math.floor(share * mh), max(requests)), mh - 2 * gutter))
 out = []
 for key, got, want in (("w", w, want_w), ("h", h, want_h), ("x", x, area_x + (area_w - want_w) / 2), ("y", y, area_y + (area_h - want_h) / 2)):
     if abs(got - want) > 1: out.append("%s=%s want=%s" % (key, got, want))
-print(json.dumps(out))' "$1" "${2:-}" "$shell_class" "$width" "$share" "$gutter"
+print(json.dumps(out))' "$1" "${2:-}" "$shell_class" "$width" "$share" "$gutter" "$panes"
 }
 first_monitor() { hypr -j monitors | py_reply 'import json,sys; print(json.load(sys.stdin)[0]["name"])'; }
 
@@ -175,7 +182,7 @@ click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
 expect_poll "the gear opens the Settings window" open settings_open
 expect_poll "the Settings window is one window" 1 window_count Plugins
 main_monitor="$(first_monitor)" || fail "the first monitor's name is unreadable"
-geometry expect_poll "the window is the token width, the tall share of the monitor and centred on the work area within one pixel" '[]' window_fits "$main_monitor"
+geometry expect_poll "the window is the token width, grows for its titled content within the screen cap and centres on the work area" '[]' window_fits "$main_monitor"
 expect_poll "the window takes the keyboard when it opens" true ipc smoke activeFocusIn window vgs.settings
 listed_names() { ipc smoke itemTexts window vgs.settings ListItem | py_reply 'import json,sys; print(json.dumps([t[0] for t in json.load(sys.stdin)]))'; }
 type_keys probe || fail "typing into the Settings search failed"
@@ -467,6 +474,28 @@ PY
 geometry expect_poll "the page's fields share one label edge, one control edge and one right edge, each label on its control" '[]' page_alignment 9 0
 page_alignment_planted() { page_alignment 9 0 plant | py_reply 'import json,sys; o=json.load(sys.stdin); print(any(".slider.gap=" in e for e in o) and any(".segmented.width=" in e for e in o) and any(e.endswith(" slots=0") for e in o))'; }
 expect "control: overlapping the slider value, stretching a segmented control and moving a control under its label are each refused" True page_alignment_planted
+
+# This producer owns the long fixture that Settings also reads. Both pages
+# get their length from its manifest, without capabilities or host data.
+scroll_fixture="$home/.config/vgshell/plugins/acme.settings-scroll"
+mkdir -- "$scroll_fixture"
+cp -- "$repo/scripts/smoke/fixtures/plugins/acme.bare/Service.qml" "$scroll_fixture/Service.qml"
+python3 - "$repo/scripts/smoke/fixtures/plugins/acme.bare/manifest.json" "$scroll_fixture/manifest.json" <<'PYSCROLL'
+import json,sys
+from pathlib import Path
+manifest=json.loads(Path(sys.argv[1]).read_text())
+manifest.update(id="acme.settings-scroll",name="Scroll fixture",
+    description="\n".join("Details fixture line %s\nDetails fixture continuation %s" % (n,n) for n in range(40)),
+    requirements=[],settings={"field%s" % n:False for n in range(40)},
+    schema={"field%s" % n:{"type":"boolean","label":"Fixture field %s" % n} for n in range(40)})
+with Path(sys.argv[2]).open("x") as file:
+    json.dump(manifest,file)
+PYSCROLL
+rescan "a rescan picks the shared scroll fixture"
+expect "the window opens the long fixture for its scroll bar" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.settings-scroll
+expect_poll "the long fixture opens before scrolling" '"acme.settings-scroll"' settings_page
+scroll_fixture_fields() { ipc smoke drawnFields window vgs.settings | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d.get("acme.settings-scroll", 0), sum(v for k,v in d.items() if k != "acme.settings-scroll")]))'; }
+expect_poll "the long fixture draws its forty fields alone" '[40, 0]' scroll_fixture_fields
 
 # The page scrolls under its bar: a drag on the thumb moves the content
 # with it, and a press on the track under the thumb pages one view down.
@@ -1054,7 +1083,7 @@ bar_width() { one_layer vgs:bar | py_reply 'import json,sys; print(json.load(sys
 expect_poll "the bar follows the narrow monitor" "$narrow_width" bar_width
 expect "the gear opens the window on the narrow monitor" ok ipc smoke invokeInstance "$(bar_key)" vgs.settings toggle ''
 expect_poll "the window maps on the narrow monitor" 1 window_count Plugins
-geometry expect_poll "a monitor narrower than the width token keeps the gutters, the tall share of its height, centred" '[]' window_fits "$main_monitor" "$narrow_mode"
+geometry expect_poll "a monitor narrower than the width token keeps the gutters, grows within the screen cap and centres" '[]' window_fits "$main_monitor" "$narrow_mode"
 clamped_width() { settings_layer | py_reply 'import json,sys; print(json.load(sys.stdin)[2])'; }
 geometry expect "the clamped window is the monitor's width less two gutters" "$((narrow_width - 2 * gutter))" clamped_width
 # Control: the monitor's own mode comes back under the held row, as a host

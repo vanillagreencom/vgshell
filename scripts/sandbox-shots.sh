@@ -241,15 +241,15 @@ done
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 checkout="$repo"
+# No process this run starts may open an amdgpu node, so the run goes on
+# only where none is visible: scripts/smoke/gpu-fence.sh.
+"$checkout/scripts/smoke/gpu-fence.sh" --check || exec "$checkout/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
 capture_source="${rev:-$(git -C "$checkout" rev-parse HEAD)}"
 if [[ $title_inventory == true && -z $rev ]]; then
   # The inventory round stages and freezes its sources before capture.
   # A tree id binds uncommitted sources without labelling them as HEAD.
   capture_source="tree:$(git -C "$checkout" write-tree)"
 fi
-# No process this run starts may open an amdgpu node, so the run goes on
-# only where none is visible: scripts/smoke/gpu-fence.sh.
-"$checkout/scripts/smoke/gpu-fence.sh" --check || exec "$checkout/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
 if ! command -v grim >/dev/null 2>&1; then
   printf 'sandbox-shots: status=not-measured missing=grim\n'
   exit 77
@@ -584,23 +584,24 @@ clean_shot_chrome() {
 # held mode's name.
 take_raw() { # NAME
   local status=0
-  if [[ $title_inventory == true ]]; then
-    local inventory
-    if inventory="$(ipc smoke titleInventory)"; then
-      printf 'sandbox-shots: title-inventory source=%s shot=%s value=%s\n' "$capture_source" "$1" "$inventory"
-      printf '%s\t%s\n' "$1" "$inventory" >>"$SHOT_DIR/title-inventory.tsv"
-      expect "the $1 titled panes keep their last row reachable" True py_reply 'import json,sys; rows=json.load(sys.stdin); print(isinstance(rows,list) and all(row["end"]["lastRowVisible"] and row["end"]["footerFits"] for row in rows))' <<<"$inventory"
-    else
-      fail "the $1 titled pane inventory is unreadable"
-    fi
-  fi
   if [[ ${#mode_hold[@]} -eq 0 ]]; then
     shot "$1" || status=$?
   else
     shot_held "$1" held_mode_state settle_hold || status=$?
   fi
   case $status in
-    0) ;;
+    0)
+      if [[ $title_inventory == true ]]; then
+        local inventory
+        if inventory="$(ipc smoke titleInventory)"; then
+          printf 'sandbox-shots: title-inventory source=%s shot=%s phase=after-frame value=%s\n' "$capture_source" "$1" "$inventory"
+          printf '%s\t%s\n' "$1" "$inventory" >>"$SHOT_DIR/title-inventory.tsv"
+          expect "the $1 titled panes keep their last row reachable" True py_reply 'import json,sys; rows=json.load(sys.stdin); print(isinstance(rows,list) and all(row["end"]["lastRowVisible"] and row["end"]["footerFits"] for row in rows))' <<<"$inventory"
+        else
+          fail "the $1 titled pane inventory is unreadable"
+        fi
+      fi
+      ;;
     2) undrawn=$((undrawn + 1)); fail "grim got no frame from the nested compositor for $1" ;;
     3) fail "shot $1 not taken: the held mode could not be taken again" ;;
     4) fail "shot $1 not accepted: $(hold_left)" ;;

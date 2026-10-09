@@ -175,23 +175,7 @@ expect_poll "the short page control opens on Settings" 0 settings_tab
 expect_poll "the short page control has insufficient scroll range" False page_scroll_ready 300
 expect "control: insufficient page content is a setup error" short-page page_scroll_short_control
 
-# Both pages get their length from this row's own manifest content. The
-# service copy has no capabilities or host-dependent data.
-scroll_fixture="$home/.config/vgshell/plugins/acme.settings-scroll"
-mkdir -- "$scroll_fixture"
-cp -- "$repo/scripts/smoke/fixtures/plugins/acme.bare/Service.qml" "$scroll_fixture/Service.qml"
-python3 - "$repo/scripts/smoke/fixtures/plugins/acme.bare/manifest.json" "$scroll_fixture/manifest.json" <<'PYSCROLL'
-import json,sys
-from pathlib import Path
-manifest=json.loads(Path(sys.argv[1]).read_text())
-manifest.update(id="acme.settings-scroll",name="Scroll fixture",
-    description="\n".join("Details fixture line %s" % n for n in range(40)),
-    requirements=[],settings={"field%s" % n:False for n in range(40)},
-    schema={"field%s" % n:{"type":"boolean","label":"Fixture field %s" % n} for n in range(40)})
-with Path(sys.argv[2]).open("x") as file:
-    json.dump(manifest,file)
-PYSCROLL
-rescan "a rescan picks the row-owned scroll fixture"
+# The declared manager producer owns the long fixture for both pages.
 expect "the window opens the scroll fixture" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.settings-scroll
 expect_poll "the scroll fixture opens on Settings" 0 settings_tab
 type_keys -k Tab -k Tab || fail "tabbing to the scroll fixture's strip failed"
@@ -685,17 +669,18 @@ expect_poll "turning photos off again keeps the Slack tokens row unreported" '[[
 # each focused
 # row into view. The control gives the same page Qt's left-button drag back
 # through the probe, and the same drag then scrolls it.
-settings_view() { ipc smoke viewHolding window vgs.settings Layout; }
+swipe_text="Fixture field 0"
+settings_view() { ipc smoke viewHolding window vgs.settings "$swipe_text"; }
 settings_view_y() { settings_view | py_reply 'import json,sys; print(json.load(sys.stdin)["contentY"])'; }
 settings_view_kind() { settings_view | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v["type"], v["acceptedButtons"]]))'; }
-expect "the window opens the fixture's page for the scroll rows" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
-expect_poll "the page draws the fixture's fields for the scroll rows" '[9, 0]' page_fields
+expect "the window opens the fixture's page for the scroll rows" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.settings-scroll
+expect_poll "the page draws the fixture's fields for the scroll rows" '[40, 0]' scroll_fixture_fields
 expect "the page scrolls in a ScrollArea that takes no mouse button" '["ScrollArea", 0]' settings_view_kind
-expect "a mouse drag on the page leaves it where it was" still view_pointer window:Plugins window vgs.settings Layout drag
-expect "a wheel notch on the page scrolls it" moved view_pointer window:Plugins window vgs.settings Layout wheel
-expect "control: the probe gives the page Qt's left-button drag" 0 ipc smoke setViewButtons window vgs.settings Layout 1
-expect "control: the same drag then scrolls the page" moved view_pointer window:Plugins window vgs.settings Layout drag
-expect "the page takes no mouse button again" 1 ipc smoke setViewButtons window vgs.settings Layout 0
+expect "a mouse drag on the page leaves it where it was" still view_pointer window:Plugins window vgs.settings "$swipe_text" drag
+expect "a wheel notch on the page scrolls it" moved view_pointer window:Plugins window vgs.settings "$swipe_text" wheel
+expect "control: the probe gives the page Qt's left-button drag" 0 ipc smoke setViewButtons window vgs.settings "$swipe_text" 1
+expect "control: the same drag then scrolls the page" moved view_pointer window:Plugins window vgs.settings "$swipe_text" drag
+expect "the page takes no mouse button again" 1 ipc smoke setViewButtons window vgs.settings "$swipe_text" 0
 # Touchpad scrolling (docs/architecture/design-system.md § Pointer): a two-finger swipe of
 # 40 px of axis length moves the page as far as GTK moves a list, and a
 # wheel notch still
@@ -704,10 +689,7 @@ expect "the page takes no mouse button again" 1 ipc smoke setViewButtons window 
 # one pixel per pixel. Each starts from the page's top, which a long swipe
 # up reaches. They run on the row's scroll fixture, whose forty fields
 # leave the swipe the room view_swipe asks for, seven times its length, at
-# the window's height (size.window.tallHeightShare); the probe fixture's
-# page is shorter than that past the window. The Tab row after them reads
-# the probe fixture's page again.
-swipe_text="Fixture field 0"
+# the window's screen cap. The Tab row reads this same long page.
 expect "the window opens the scroll fixture for the touchpad rows" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.settings-scroll
 swipe_view_kind() { ipc smoke viewHolding window vgs.settings "$swipe_text" | py_reply 'import json,sys; print(json.load(sys.stdin)["type"])'; }
 expect_poll "the scroll fixture's first field lies in the page's ScrollArea for the touchpad rows" ScrollArea swipe_view_kind
@@ -721,8 +703,9 @@ expect "control: the probe turns the page's touchpad scroll off" true ipc smoke 
 expect "control: the same swipe then moves the page one pixel per pixel" as-qt settings_swipe
 expect "the page's touchpad scroll is on again" false ipc smoke setViewTouchpad window vgs.settings "$swipe_text" true
 expect "a wheel notch moves the page Qt's step" 72 settings_travel view_travel window:Plugins window vgs.settings "$swipe_text" wheel 1 80
-expect "the window opens the fixture's page again for the Tab row" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.probe
-expect_poll "the page draws the fixture's fields again for the Tab row" '[9, 0]' page_fields
+expect "the window opens the long fixture again for the Tab row" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.settings-scroll
+expect_poll "the page draws the long fixture's fields again for the Tab row" '[40, 0]' scroll_fixture_fields
+expect "the Tab fixture starts at the top" 0 page_scrolled 0
 # Tab until the page scrolls, each focused item read in view. The control's
 # drag can leave a flick running, so the page first holds one position for
 # two readings 0.1 s apart, for up to 3 s.
@@ -736,6 +719,7 @@ settings_tab_reveal() {
     [[ $before == "$last" ]] && break
   done
   [[ $before == "$last" ]] || { printf 'unsettled contentY=%s\n' "$before"; return 0; }
+  [[ $before == 0 ]] || { printf 'setup-not-at-top contentY=%s\n' "$before"; return 0; }
   for _ in $(seq 1 40); do
     type_keys -k Tab || return 1
     focus="$(ipc smoke focused window vgs.settings)" || return 1

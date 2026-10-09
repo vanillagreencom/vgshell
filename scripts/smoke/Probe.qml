@@ -281,9 +281,14 @@ Scope {
         const footer = pane.children[4];
         const clips = row === null ? [] : paneScrolls(pane).map(child => {
             const rowY = row.mapToItem(child, 0, 0).y;
-            const inset = child === view ? pane.ringRoom : child.focusInset === undefined ? 0 : child.focusInset + child.clipPadding;
+            // Pane extends its viewport into reserved ring room. Content
+            // must fit the actual clip; the row's ring margin is separate.
+            const inset = child.focusInset === undefined ? 0 : child.focusInset + child.clipPadding;
+            const ringInset = child === view ? pane.ringRoom : inset;
             return { type: typeName(child), top: rowY, bottom: rowY + row.height, height: child.height,
-                fits: rowY >= inset - 0.5 && rowY + row.height <= child.height - inset + 0.5 };
+                clipInset: inset, ringInset: ringInset,
+                fits: rowY >= inset - 0.5 && rowY + row.height <= child.height - inset + 0.5,
+                ringFits: rowY >= ringInset - 0.5 && rowY + row.height <= child.height - ringInset + 0.5 };
         });
         return {
             title: pane.title,
@@ -310,6 +315,7 @@ Scope {
             lastRowBottom: bottom,
             lastRowClips: clips,
             lastRowVisible: clips.every(child => child.fits),
+            lastRowRingMarginFits: clips.every(child => child.ringFits),
             footerBottom: footer.y + footer.height,
             footerFits: footer.y + footer.height <= pane.height - pane.contentInset + 0.5
         };
@@ -1643,8 +1649,8 @@ Scope {
             for (const pane of root.titledPanes(item)) root.reachLastPaneRow(pane);
             return root.json(root.titledPanes(item).map(pane => root.paneContentFacts(pane)));
         }
-        // Read and restore the scroll offsets in one call. The image keeps
-        // the scene's opened/Tab state while the log proves the end is reachable.
+        // Read and restore the scroll offsets in one call. The scene keeps
+        // its opened/Tab state while the log proves the end is reachable.
         function titleInventory(): string {
             const out = [];
             const seen = [];
