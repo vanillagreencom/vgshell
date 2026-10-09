@@ -15,6 +15,9 @@ const ALLOW = ["allow", "yes", "yes allow"];
 const DENY = ["deny", "no", "no deny"];
 const REPORTED = { "reported-ok": "the task done", "reported-failed": "the task failed" };
 const WAITING = "The coding agent stopped and is waiting.";
+// How often one conversation asks one prompt. A second ask follows a
+// release of the first; after it the prompt is left to the console.
+const ASKS = 2;
 
 function fail(reason) { throw new Error("jarvis: task-voice=" + reason); }
 
@@ -137,11 +140,16 @@ const key = prompt => prompt.task + "/" + prompt.id;
  *
  * observe(views) takes TaskRunner's derived tasks; the first call only
  * seeds, so a restart says nothing about old states. prompts(list) takes the
- * held prompts, session(s) every published state. A prompt counts as asked
- * once its line is dispatched, so no path that ends a relay turn early can
- * ask it again and again; the engine reports a prompt the user talked over
- * with interrupted(gen, ask), and a line the release gate kept from speech
- * with withheld(gen, text).
+ * held prompts, session(s) every published state. A conversation asks one
+ * prompt at a time: an asked prompt holds its next words until the prompt
+ * leaves the held list, so a second prompt cannot take an answer meant for
+ * the first. A prompt counts as asked once its line is dispatched, so no
+ * path that ends a relay turn early can ask it again and again. The engine
+ * reports a prompt line cut off before its end with interrupted(gen, ask),
+ * which asks it again or, once the conversation ended, notifies it; a prompt
+ * whose words went to the brain after one re-ask with released(gen, ask);
+ * and a line kept from speech or cut off with withheld(gen, text, ask), ask
+ * null for TaskVoice's other lines, which notifies it.
  */
 function create({ session, state, dispatch, notify, log, defer = queueMicrotask }) {
     // Per task, the facts of the view last seen; null before the first observation.
@@ -149,7 +157,9 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
     let held = [];
     // Lines waiting for an idle moment of the conversation gen they were made in.
     let queue = [];
-    let asked = { gen: null, keys: new Set() };
+    // Per prompt this conversation asked: how often, and whether it holds
+    // the conversation's next words.
+    let asked = { gen: null, prompts: new Map() };
     // Prompts the user was told about, by voice or by notification.
     const told = new Set();
     let scheduled = false;
@@ -176,7 +186,11 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
     }
 
     const open = refusal => refusal === null || refusal === "busy";
-    const unasked = () => held.find(prompt => !asked.keys.has(key(prompt))) ?? null;
+    const entry = name => asked.prompts.get(name) ?? { count: 0, open: false };
+    function unasked() {
+        if (held.some(prompt => entry(key(prompt)).open)) return null;
+        return held.find(prompt => entry(key(prompt)).count < ASKS) ?? null;
+    }
 
     function pump() {
         if (closed) return;
@@ -194,7 +208,7 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
         // A line whose conversation ended unspoken is told the other way.
         for (const item of queue) if (item.gen !== s.gen) send(item.text);
         queue = queue.filter(item => item.gen === s.gen);
-        if (asked.gen !== s.gen) asked = { gen: s.gen, keys: new Set() };
+        if (asked.gen !== s.gen) asked = { gen: s.gen, prompts: new Map() };
         if (refusal === null && !scheduled && (queue.length > 0 || unasked() !== null)) {
             scheduled = true;
             defer(speak);
@@ -214,7 +228,7 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
         }
         const prompt = unasked();
         if (prompt === null) return;
-        asked.keys.add(key(prompt));
+        asked.prompts.set(key(prompt), { count: entry(key(prompt)).count + 1, open: true });
         told.add(key(prompt));
         dispatch({ type: "relay", text: promptLine(prompt), ask: { task: prompt.task, prompt: prompt.id, kind: prompt.kind } });
     }
@@ -242,11 +256,22 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
         },
         session: pump,
         interrupted(gen, ask) {
-            if (closed || gen !== asked.gen) return;
-            asked.keys.delete(ask.task + "/" + ask.prompt);
-            told.delete(ask.task + "/" + ask.prompt);
+            const name = ask.task + "/" + ask.prompt;
+            if (closed || gen !== asked.gen || !asked.prompts.has(name)) return;
+            asked.prompts.set(name, { count: entry(name).count - 1, open: false });
+            told.delete(name);
         },
-        withheld(gen, text) { if (!closed) send(text); },
+        released(gen, ask) {
+            const name = ask.task + "/" + ask.prompt;
+            if (closed || gen !== asked.gen || !asked.prompts.has(name)) return;
+            asked.prompts.set(name, { count: entry(name).count, open: false });
+        },
+        withheld(gen, text, ask) {
+            if (closed) return;
+            // A prompt the release gate keeps from this conversation is not asked in it again.
+            if (ask !== null && gen === asked.gen) asked.prompts.set(ask.task + "/" + ask.prompt, { count: ASKS, open: false });
+            send(text);
+        },
         close() {
             closed = true;
             queue = [];

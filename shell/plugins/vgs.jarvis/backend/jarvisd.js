@@ -466,7 +466,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                                 void tasks.observe();
                                 return answer;
                             },
-                            interrupted: (gen, ask) => voice.interrupted(gen, ask), withheld: (gen, text) => voice.withheld(gen, text) },
+                            interrupted: (gen, ask) => voice.interrupted(gen, ask), released: (gen, ask) => voice.released(gen, ask),
+                            withheld: (gen, text, ask) => voice.withheld(gen, text, ask) },
                         directories: context.directories });
                     const actionApproval = runner.ports.approval;
                     runner.ports.approval = {

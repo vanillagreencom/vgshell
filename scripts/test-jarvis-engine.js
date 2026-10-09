@@ -178,7 +178,7 @@ function taskWorld(kit, runner, Session, faults) {
         changed: views => voice.observe(views), promptsChanged: list => voice.prompts(list),
         environment: env, lookup: () => false, clock: { now: Date.now, set: () => ({}), clear() {} } });
     const daemon = fs.readFileSync(path.join(backend, "jarvisd.js"), "utf8");
-    const wiring = [...daemon.matchAll(/tasks: (\{ held: [\s\S]*?withheld\(gen, text\) \}),\n/g)];
+    const wiring = [...daemon.matchAll(/tasks: (\{ held: [\s\S]*?withheld\(gen, text, ask\) \}),\n/g)];
     assert.equal(wiring.length, 1, "one shipped daemon tasks port");
     const port = vm.runInNewContext("(" + wiring[0][1] + ")", { tasks, voice, answerTask: (...args) => tasks.answer(...args) });
     const event = (id, kind, data = {}) => {
@@ -1348,7 +1348,6 @@ async function cases(kit, server, only = null) {
         await settled(() => control.spoken.slice(from).join(" ") === line,
             () => control.spoken.slice(from).join(" ").length > line.length, "Jarvis speaks: " + line);
         await playOut(w);
-        await until(() => w.s().turn.kind === "none" && w.s().playback.kind === "idle", "the relay turn ends");
     }
     await run("task-relay", async w => {
         const t = w.tasks;
@@ -1441,6 +1440,115 @@ async function cases(kit, server, only = null) {
         await spoken(w, again + 1, QUESTION);
     }, { tasks: true });
 
+    // Two held prompts: the conversation asks one at a time, so the user's
+    // words answer the prompt they heard, and the second is asked after it.
+    await run("task-two-prompts", async w => {
+        const t = w.tasks;
+        await t.observe();
+        await opened(w);
+        t.task("ta");
+        t.task("tb");
+        const first = t.ask("ta", { kind: "question", tool: null, text: "Which branch should I use?" });
+        const second = t.ask("tb", { kind: "question", tool: null, text: "Which test should I run?" });
+        let from = control.spoken.length;
+        await t.observe();
+        await spoken(w, from, QUESTION);
+        w.runner.dispatch({ type: "indicator", shown: true });
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(control.spoken.length, from + 2, "the second prompt waits while the first holds the next words");
+        from = control.spoken.length;
+        await say(w, utterance("Use main."));
+        await spoken(w, from, SENT);
+        assert.deepEqual([t.Relay.answerTo(t.prompts, first), t.Relay.answerTo(t.prompts, second)],
+            [{ v: 1, kind: "reply", text: "Use main." }, null], "the answer reaches the prompt the user heard");
+        from = control.spoken.lastIndexOf(SENT) + 1;
+        await spoken(w, from, "The coding agent asks: Which test should I run? Your next words are its answer.");
+        from = control.spoken.length;
+        await say(w, utterance("Run all of them."));
+        await spoken(w, from, SENT);
+        assert.deepEqual(t.Relay.answerTo(t.prompts, second), { v: 1, kind: "reply", text: "Run all of them." });
+        assert.deepEqual([t.notes, w.faults], [[], []]);
+    }, { tasks: true });
+
+    // A stop while a prompt is spoken: the conversation ends, and the
+    // prompt the user did not hear whole is notified, once.
+    await run("task-stop-spoken", async w => {
+        const t = w.tasks;
+        await t.observe();
+        await opened(w);
+        t.task("t5");
+        t.ask("t5", { kind: "question", tool: null, text: "Which branch should I use?" });
+        const from = control.spoken.length;
+        await t.observe();
+        await until(() => control.spoken.length > from && w.s().playback.kind === "playing", "the question starts to play");
+        w.runner.dispatch({ type: "stop" });
+        await until(() => w.s().conversation.kind === "ended" && t.notes.length > 0, "the cut-off prompt is notified");
+        await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual(t.notes, [["Coding task", QUESTION]]);
+    }, { tasks: true });
+
+    // A task line whose relay turn fails ends the conversation unspoken and
+    // reaches the user as a notification.
+    await run("task-line-failed", async w => {
+        const t = w.tasks;
+        await opened(w);
+        t.task("t6");
+        await t.observe();
+        fs.renameSync(path.join(w.state, "audit"), path.join(w.state, "audit-saved"));
+        fs.writeFileSync(path.join(w.state, "audit"), "not a directory\n");
+        try {
+            t.event("t6", "turn-ended");
+            await t.observe();
+            await until(() => w.s().fault.kind === "error" && t.notes.length > 0, "the failed line is notified");
+        } finally {
+            fs.rmSync(path.join(w.state, "audit"));
+            fs.renameSync(path.join(w.state, "audit-saved"), path.join(w.state, "audit"));
+        }
+        assert.equal(w.s().fault.reason, "engine=audit-write");
+        assert.deepEqual(t.notes, [["Coding task", WAITING]]);
+        assert.equal(control.spoken.includes(WAITING), false);
+    }, { tasks: true });
+
+    // A permission prompt takes one re-ask. Words that again answer nothing
+    // are the user's own turn; the prompt is asked once more at a later idle
+    // moment, and then left to the console.
+    await run("task-permission-release", async w => {
+        const t = w.tasks;
+        const PERMISSION = "The coding agent asks to use Bash: Run the tests. Say allow or deny.";
+        // One brain turn of the user's own words; answers the brain's request.
+        async function own(said, reply) {
+            const next = await say(w, utterance(said));
+            const body = await requested(w, next + 1, "the words reach the brain: " + said);
+            server.replies.push(text(reply));
+            await until(() => control.spoken.includes(reply), "the brain's reply is spoken");
+            return body;
+        }
+        await t.observe();
+        await opened(w);
+        t.task("t7");
+        const permission = t.ask("t7", { kind: "permission", tool: "Bash", text: "Run the tests" });
+        let from = control.spoken.length;
+        await t.observe();
+        await spoken(w, from, PERMISSION);
+        for (const [unjudged, own1, reply] of [["Maybe.", "What time is it?", "Noon."], ["Later.", "Tell me more.", "Sure."]]) {
+            from = control.spoken.length;
+            await say(w, utterance(unjudged));
+            await spoken(w, from, "Say allow or deny.");
+            const body = await own(own1, reply);
+            assert.equal(user(body).at(-1), own1, "words that again answer nothing go to the brain");
+            assert.equal(user(body).some(item => item.includes(unjudged)), false, "a re-ask's words never reach the brain");
+            from = control.spoken.lastIndexOf(reply) + 1;
+            await playOut(w);
+            if (reply === "Noon.") await spoken(w, from, PERMISSION);
+            else {
+                w.runner.dispatch({ type: "indicator", shown: true });
+                await new Promise(resolve => setImmediate(resolve));
+                assert.equal(control.spoken.length, from, "a conversation asks a released prompt twice at most");
+            }
+        }
+        assert.equal(t.Relay.answerTo(t.prompts, permission), null, "no unjudged words answer the permission");
+    }, { tasks: true });
+
     // A release the user declines keeps the agent's text from speech; the
     // prompt goes to a notification and the next words go to the brain.
     await run("task-release-declined", async w => {
@@ -1474,9 +1582,12 @@ async function taskControls(root, server) {
             ["relay-held-at-done", '            }\n            turn.phase = "done";\n',
                 '            }\n            turn.phase = "done";\n            if (turn.relay.ask !== null) c.relay = turn.relay.ask;\n', "task-barge-in"],
             ["relay-heard-prefix", "if (own && turn.relay === null) heard(", "if (own) heard(", "task-barge-in"],
-            ["relay-flush-forgotten", "else if (own && turn.relay.ask && c.relay !== turn.relay.ask) tasks.interrupted(c.gen, turn.relay.ask);",
-                "", "task-barge-in"],
-            ["relay-withheld-silent", "tasks.withheld(c.gen, text);", "void text;", "task-release-declined"]
+            ["relay-flush-forgotten", "else if (own) unheard(c, turn);", "", "task-barge-in"],
+            ["relay-withheld-silent", "tasks.withheld(c.gen, text, turn.relay.ask);", "void text;", "task-release-declined"],
+            ...["task-stop-spoken", "task-line-failed"].map(scenario => ["relay-end-forgets-" + scenario,
+                "        if (c.last !== null) unheard(c, c.last);\n", "", scenario]),
+            ["relay-retry-captures", "if (prompt !== null && answer === null && c.retried === c.relay) {",
+                "if (false) {", "task-permission-release"]
     ]) {
         await assert.rejects(() => cases(Fixture.copy(root, [[needle, replacement]]), server, scenario), assert.AssertionError,
             name + " must turn its scenario red");
@@ -1486,7 +1597,10 @@ async function taskControls(root, server) {
     for (const [name, needle, replacement, scenario] of [
         ["permission-maybe", 'return ALLOW.includes(said) ? { v: 1, kind: "allow" }', 'return !DENY.includes(said) ? { v: 1, kind: "allow" }', "task-permission"],
         ["no-conversation-spoken", 'const open = refusal => refusal === null || refusal === "busy";', "const open = () => true;", "task-relay"],
-        ["prompt-asked-twice", "        asked.keys.add(key(prompt));\n", "", "task-relay"]
+        ["prompt-asked-twice", "        asked.prompts.set(key(prompt), { count: entry(key(prompt)).count + 1, open: true });\n", "", "task-relay"],
+        ["two-prompts-at-once", "        if (held.some(prompt => entry(key(prompt)).open)) return null;\n", "", "task-two-prompts"],
+        ["released-asked-forever", "        return held.find(prompt => entry(key(prompt)).count < ASKS) ?? null;",
+            "        return held.find(() => true) ?? null;", "task-permission-release"]
     ]) {
         const kit = Fixture.copy(root);
         const file = path.join(kit.folder, "backend/TaskVoice.js");
