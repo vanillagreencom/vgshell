@@ -255,7 +255,10 @@ class Accounts {
         if (result.error || result.signal || result.status !== 0)
             return { kind: "refused", cause: result.error?.code === "ENOENT" ? "command-missing" : "login-failed" };
         const account = this.cliAccount({ provider: entry.provider, directory: entry.directory, label: entry.label });
-        if (account.state.kind !== "signed-in") return { kind: "refused", cause: "not-signed-in" };
+        // A row with no status command proves its sign-in by the marker the
+        // login writes, Copilot's config.json.
+        const signedIn = account.state.kind === "signed-in" || (account.state.kind === "unchecked" && account.marker === "present");
+        if (!signedIn) return { kind: "refused", cause: "not-signed-in" };
         this.add(entry);
         return { kind: "signed-in" };
     }
