@@ -21,6 +21,7 @@
         pkgs.fd
         pkgs.ffmpeg
         pkgs.file
+        pkgs.fontconfig
         pkgs.fzf
         pkgs.gawk
         pkgs.git

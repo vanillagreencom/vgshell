@@ -10,5 +10,13 @@
   "kinds": ["pane"],
   "entryPoints": { "pane": "Pane.qml" },
   "capabilities": ["appearance"],
+  "requirements": [
+    {
+      "command": "fc-list",
+      "packages": { "pacman": "fontconfig", "apt": "fontconfig", "dnf": "fontconfig", "xbps": "fontconfig", "emerge": "media-libs/fontconfig", "nix": "fontconfig" },
+      "optional": false,
+      "purpose": "Lists the fixed-width fonts for the terminal font"
+    }
+  ],
   "pane": { "group": "Appearance", "order": 40 }
 }

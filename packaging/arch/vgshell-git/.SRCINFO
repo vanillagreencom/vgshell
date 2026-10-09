@@ -25,6 +25,7 @@ pkgbase = vgshell-git
 	depends = fd
 	depends = ffmpeg
 	depends = file
+	depends = fontconfig
 	depends = fzf
 	depends = gawk
 	depends = glib2

@@ -10,7 +10,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 - A Fonts section under Appearance in the System Settings window.
 - Each value shows Set by theme until you change it. Use theme value puts the theme's value back.
-- Each list holds the fonts installed on your computer. Type the first letters of a name to move to it.
+- The Interface list holds the fonts installed on your computer. The Terminal list holds only the fixed-width ones. Type the first letters of a name to move to it.
 - The values stay in effect when you disable this plugin. Enable it again to change them.
 
 ## Values
@@ -25,3 +25,4 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - The terminal font reaches a terminal after you apply a theme in Themes, because VGS writes it into the theme files that terminal reads.
 - VGS does not write the terminal font while you edit the theme file by hand. Apply a theme again to write it.
 - A font that your own Kitty config sets after the VGS line stays in effect in Kitty.
+- The Terminal list holds the fonts that fontconfig reports as fixed-width. A font it does not report so is not in the list.

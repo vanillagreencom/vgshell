@@ -266,6 +266,7 @@ rows=(
   "logic|displays logic|node scripts/test-displays-logic.js|shell/plugins/vgs.displays/DisplaysLogic.js shell/plugins/vgs.displays/manifest.json shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/Commons/SettingValues.js bin/lib/qml-library.js"
   "logic|keyboard logic|node scripts/test-keyboard-logic.js|shell/plugins/vgs.keyboard/KeyboardLogic.js shell/plugins/vgs.keyboard/manifest.json scripts/fixtures/keyboard/* bin/lib/qml-library.js"
   "logic|mouse logic|node scripts/test-mouse-logic.js|shell/plugins/vgs.mouse/MouseLogic.js shell/plugins/vgs.mouse/manifest.json bin/lib/qml-library.js"
+  "logic|fonts logic|node scripts/test-fonts-logic.js|shell/plugins/vgs.fonts/FontsLogic.js bin/lib/qml-library.js"
   "logic|sound logic|node scripts/test-sound-logic.js|shell/plugins/vgs.sound/SoundLogic.js bin/lib/qml-library.js"
   "logic|power logic|node scripts/test-power-logic.js|shell/plugins/vgs.power/PowerLogic.js bin/lib/qml-library.js"
   "logic|system monitor readings|node scripts/test-sysmon-logic.js|shell/plugins/vgs.sysmon/SysmonLogic.js bin/lib/qml-library.js"

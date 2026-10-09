@@ -1,6 +1,8 @@
 import QtQuick
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "FontsLogic.js" as Fonts
 
 // Fonts pane: the interface font and the terminal font over the theme, each
 // Set by theme until the user chooses one. The interface font is the family
@@ -9,8 +11,9 @@ import qs.Ui
 // kitty and Ghostty theme targets write it, so it reaches a terminal once a
 // theme is applied, and no theme states one, so Set by theme leaves each
 // terminal its own font. kitty takes a new family when its configuration
-// reloads (kitty 0.49.2, boss.py apply_new_options). Both selects offer
-// the families Qt lists.
+// reloads (kitty 0.49.2, boss.py apply_new_options). The interface select
+// offers the families Qt lists, and the terminal select those of them that
+// fontconfig lists as fixed-width.
 FocusScope {
     id: root
 
@@ -21,6 +24,10 @@ FocusScope {
     // Array.isArray, which Select counts its model with (a run under
     // qmltestrunner, Qt 6.11.2), so the selects take a copy that is one.
     readonly property var families: Array.from(Qt.fontFamilies())
+    // fontconfig's fixed-width family names: `reading` until the pane's one
+    // read ends, then `read` with the names, or `failed`.
+    property var fixedWidth: ({ state: "reading", names: [] })
+    readonly property var terminalFamilies: Fonts.fixedWidth(families, fixedWidth.names)
     readonly property Item initialFocus: interfaceSelect
 
     function open(payloadJson) {}
@@ -31,10 +38,30 @@ FocusScope {
         if (reply !== "ok") console.warn("fonts: appearance " + reply);
     }
 
-    // The families a select offers: Qt's, with SHOWN, the family in effect,
-    // first when Qt does not list it, so the select reads it.
-    function offers(shown) {
-        return typeof shown !== "string" || families.indexOf(shown) !== -1 ? families : [shown].concat(families);
+    // One read a pane, in a process of its own, so the UI thread never
+    // waits for fontconfig. The enumerate format prints each name of a font
+    // on a line of its own as fontconfig holds it; the default output joins
+    // a font's names with commas and puts a backslash before a hyphen or a
+    // comma inside one (fc-pattern, fontconfig 2.18.3).
+    Process {
+        // The run's exit, { code, status }, null until `exited` arrives: a
+        // command that fails to start emits `runningChanged` alone.
+        property var completion: null
+
+        command: ["fc-list", "--format", "%{[]family{%{family}\\n}}", ":spacing=mono"]
+        running: true
+        stdout: StdioCollector { id: fixedWidthOut }
+        stderr: StdioCollector { id: fixedWidthErr }
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            if (completion !== null && completion.code === 0 && completion.status === 0) {
+                root.fixedWidth = { state: "read", names: Fonts.listed(fixedWidthOut.text) };
+                return;
+            }
+            root.fixedWidth = { state: "failed", names: [] };
+            console.warn("fonts: fixed-width=unread " + JSON.stringify(completion) + " " + fixedWidthErr.text.trim().split("\n")[0]);
+        }
     }
 
     implicitWidth: Theme.size.window.width
@@ -77,7 +104,7 @@ FocusScope {
                     id: interfaceSelect
                     width: parent.width
                     Accessible.name: "Interface font"
-                    model: root.offers(interfaceRow.shownValue)
+                    model: Fonts.offers(root.families, interfaceRow.shownValue)
                     currentIndex: model.indexOf(interfaceRow.shownValue)
                     onActivated: index => {
                         const wanted = model[index];
@@ -101,8 +128,9 @@ FocusScope {
                 Select {
                     width: parent.width
                     Accessible.name: "Terminal font"
-                    model: root.offers(terminalRow.shownValue)
+                    model: Fonts.offers(root.terminalFamilies, terminalRow.shownValue)
                     placeholderText: "Your terminal's font"
+                    emptyText: root.fixedWidth.state === "read" ? "No fixed-width fonts" : ""
                     currentIndex: model.indexOf(terminalRow.shownValue)
                     onActivated: index => {
                         const wanted = model[index];
@@ -120,6 +148,15 @@ FocusScope {
             width: parent.width
             role: "hint"
             text: "Apply a theme in Themes to use the terminal font."
+            wrapMode: Text.Wrap
+        }
+
+        Label {
+            visible: root.fixedWidth.state === "failed"
+            width: parent.width
+            role: "hint"
+            color: Theme.color.danger
+            text: "VGS could not read the fixed-width fonts."
             wrapMode: Text.Wrap
         }
 

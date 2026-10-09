@@ -30,6 +30,7 @@ depends=(
   'fd'
   'ffmpeg'
   'file'
+  'fontconfig'
   'fzf'
   'gawk'
   'glib2'
