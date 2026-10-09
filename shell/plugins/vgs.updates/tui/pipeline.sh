@@ -17,13 +17,16 @@
 #      setting is on, an agent resolves (UpdatesLogic.reviewPlan through
 #      bin/facts review) and the AUR or a pacman repository that is not
 #      official has an update pending: the run fetches the AUR build files
-#      itself, and the agent runs in a second window, the `review` TUI,
+#      itself and judges each one's install script by its change against
+#      the installed one (UpdatesLogic.installScriptChange through bin/facts
+#      install), and the agent runs in a second window, the `review` TUI,
 #      which the service opens from the stable review start directory. The
 #      per-run directory is inside it, so the agent's folder trust is
 #      keyed on one path and the user trusts it once. The run waits for
-#      the verdict, so a flagged package the user skips reaches its
-#      upgrade step as `--ignore <name>`. The review runs before any
-#      credential is cached: shell/plugins/vgs.updates/pipeline.md § Third-party review
+#      the verdict and asks once per flagged package, Skip or Install
+#      anyway, so a package the user skips reaches its upgrade step as
+#      `--ignore <name>`. The review runs before any credential is cached:
+#      shell/plugins/vgs.updates/pipeline.md § Third-party review
 #   5. one sudo session, when the package layer's elevation command is
 #      sudo and a snapshot or the system step needs root. That command is
 #      the one `vgshell pkg plan upgrade <primary>` names, from shell.json's
@@ -54,18 +57,25 @@
 #      a system or AUR upgrade
 #  14. a shell restart when a package step or the rebuild replaced the VGS
 #      package
-#  15. a check request to refresh the widget and window
-#  16. a reboot question when the kernel or the running Hyprland was
-#      replaced (tui.sh's vgs_tui_reboot_check)
+#  15. the result list: one line per source step, plugin, theme and
+#      skipped package, installed, skipped or failed with its cause
+#  16. a check request to refresh the widget and window
+#  17. a reboot question when the run upgraded a package
+#      UpdatesLogic.rebootPackages names, by pacman -Q before the first
+#      package step and after the last, or the kernel or the running
+#      Hyprland was replaced (tui.sh's vgs_tui_reboot_check)
 #
 # The package steps are the package-manager table's own plans, read with
 # `vgshell pkg plan` and run with `vgshell pkg run`: they take no -y, so each
 # manager asks its own questions in this terminal. -y answers only the
 # pipeline's own start question; the orphan and reboot questions are then
-# reported instead of asked, and the review's questions are still asked. A plugin or theme update that fails or is
-# declined warns and the run goes on. Any other failing step ends the run:
-# the ERR trap prints `updates: failed exit=<n> log=<file>` and how to
-# recover, and the session's or the guard's EXIT trap drops the credential.
+# reported instead of asked, and the review's questions are still asked.
+# A source step (7 to 10 and 12) that fails records its cause, the last
+# line it printed on stderr, and the run goes on with the next; a run with
+# a failed step exits 1 after the reboot question. A step a Ctrl-C ended
+# ends the run with 130. Any other failing step ends the run: the ERR trap
+# prints `updates: failed exit=<n> log=<file>` and how to recover, and the
+# session's or the guard's EXIT trap drops the credential.
 #
 # Every refusal prints `updates: refused: <key>=<value>` first. A bad
 # invocation exits 2; a held lock exits 75.
@@ -119,6 +129,62 @@ _updates_run() { # LABEL ARGV...
   vgs_tui_step "$1"
   shift
   (cd -- "$HOME" && "$@")
+}
+
+# The cause of a failed step from its stderr in FILE: the last line that
+# holds text once SGR escapes and carriage returns are gone, and that VGS
+# did not print. VGS prints a `vgshell: refused:` or `vgs-tui: refused:`
+# key line and the English after the last one, such as `vgshell pkg run`'s
+# rescan refusal after its steps. Sets _updates_cause, empty when no line
+# is left, and _updates_declined to 1 when a key line is the `declined=`
+# answer of `vgshell plugin|theme update`.
+_updates_cause_of() { # FILE
+  local line out last="" keyed=0 held=""
+  _updates_declined=0
+  out="$(LC_ALL=C sed -E -e $'s/\e\\[[0-9;:?]*[ -/]*[@-~]//g' -e $'s/\r+$//' -e $'s/^.*\r//' -- "$1")"
+  while IFS= read -r line; do
+    if [[ $line =~ ^(vgshell|vgs-tui):\ refused:\ (.*)$ ]]; then
+      [[ ${BASH_REMATCH[2]} != declined=* ]] || _updates_declined=1
+      keyed=1
+      held="$last"
+    elif [[ -n ${line//[[:space:]]/} ]]; then
+      last="$line"
+    fi
+  done <<<"$out"
+  if [[ $keyed == 1 ]]; then _updates_cause="$held"; else _updates_cause="$last"; fi
+}
+
+# Runs one source step, ARGV, and adds its result to _updates_results as
+# `LABEL: <result>`: installed; skipped when it is a plugin or theme update
+# the user declined; failed with its cause line, else `exit <n>`. The run
+# goes on after a failure, so neither errexit nor the ERR trap sees it.
+# Its stderr reaches the terminal and the cause file both, and the tee is
+# waited for, so the file is whole when it is read; stdout and stdin stay
+# the terminal's, so a manager still asks its questions. A step a Ctrl-C
+# ended, 130, ends the run.
+_updates_source() { # ID LABEL ARGV...
+  local id="$1" label="$2" status=0
+  shift 2
+  : >"$_updates_cause_file"
+  { "$@"; } 2> >(tee -a -- "$_updates_cause_file" >&2) || status=$?
+  wait "$!" || :
+  if [[ $status -eq 0 ]]; then
+    _updates_results+=("$label: installed")
+    return 0
+  fi
+  if [[ $status -eq 130 ]]; then
+    _updates_diagnostic "updates: stopped source=$id exit=$status"
+    exit "$status"
+  fi
+  _updates_cause_of "$_updates_cause_file"
+  if [[ $_updates_declined == 1 ]]; then
+    _updates_results+=("$label: skipped, you declined it")
+    return 0
+  fi
+  _updates_diagnostic "updates: failed source=$id exit=$status"
+  _updates_results+=("$label: failed, ${_updates_cause:-exit $status}")
+  _updates_failures=$((_updates_failures + 1))
+  vgs_tui_warn "$label failed. The rest of the update goes on."
 }
 
 # The directory a run writes its log in, and the last run's log in it,
@@ -236,13 +302,11 @@ _updates_outdated() { # plugin|theme SOURCE
 }
 
 _updates_update_each() { # plugin|theme ID...
-  local kind="$1" id status
+  local kind="$1" id
   shift
   for id in "$@"; do
     vgs_tui_step "Updating the $kind $id"
-    status=0
-    "$_updates_vgshell" "$kind" update "${_updates_yes_flag[@]}" "$id" || status=$?
-    if [[ $status -ne 0 ]]; then _updates_diagnostic "updates: $kind=$id exit=$status"; vgs_tui_warn "Could not update $id. The update continues."; fi
+    _updates_source "$kind:$id" "${kind^} $id" "$_updates_vgshell" "$kind" update "${_updates_yes_flag[@]}" "$id"
   done
 }
 
@@ -279,26 +343,36 @@ _updates_recheck() {
   fi
 }
 
-_updates_reboot() {
-  local out status=0 reason reasons=()
+# The reboot question, one confirmation, default Later: CORE are the
+# packages UpdatesLogic.rebootPackages kept of those the run upgraded, and
+# tui.sh's check adds a replaced kernel or running Hyprland. Under -y the
+# reasons are printed instead.
+_updates_reboot() { # CORE...
+  local out status=0 reason reasons=() names=""
+  if [[ $# -gt 0 ]]; then
+    for reason; do names+="${names:+, }$reason"; done
+    reasons+=("The run updated $names, which $([[ $# -eq 1 ]] && echo takes || echo take) effect after a reboot.")
+  fi
   out="$(vgs_tui_reboot_check)" || status=$?
   case "$status" in
-    0) ;;
-    1) return 0 ;;
-    *) _updates_diagnostic "updates: reboot-check=failed exit=$status"; vgs_tui_warn "Could not check whether a restart is needed."; return 0 ;;
+    0)
+      while read -r reason; do
+        case "$reason" in
+          reboot=kernel) reasons+=("The kernel was updated.") ;;
+          reboot=hyprland) reasons+=("Hyprland was updated.") ;;
+        esac
+      done <<<"$out"
+      ;;
+    1) ;;
+    *) _updates_diagnostic "updates: reboot-check=failed exit=$status"; vgs_tui_warn "Could not check whether a restart is needed." ;;
   esac
-  while read -r reason; do
-    case "$reason" in
-      reboot=kernel) reasons+=("The kernel was updated.") ;;
-      reboot=hyprland) reasons+=("Hyprland was updated.") ;;
-    esac
-  done <<<"$out"
+  [[ ${#reasons[@]} -gt 0 ]] || return 0
   if [[ $_updates_yes == 1 ]]; then
     printf '%s Reboot when you are ready.\n' "${reasons[*]}"
     return 0
   fi
   status=0
-  vgs_tui_confirm "${reasons[*]} Reboot now?" || status=$?
+  vgs_tui_confirm "${reasons[*]} Reboot now?" --affirmative=Reboot --negative=Later --default=false || status=$?
   case "$status" in
     0) systemctl reboot ;;
     1) echo "Reboot later to run the updated system." ;;
@@ -338,12 +412,13 @@ _updates_review_agent() { # SETTINGS
 # credentials a URL can carry, and signature level. Sets
 # _updates_review_lines, the lines of packages.txt (review/third-party.md
 # names their form), _updates_review_aur and _updates_review_repo, the
-# names, and _updates_review_helper. Returns 1 after a diagnostic when a
-# list cannot be read.
+# names, _updates_review_aur_old, each AUR name's installed version or `?`,
+# and _updates_review_helper. Returns 1 after a diagnostic when a list
+# cannot be read.
 _updates_review_list() { # AUR REPO HELPER REBUILD
   local out facts key name old new repo repos=() listed line
   local -A pending=()
-  _updates_review_lines=() _updates_review_aur=() _updates_review_repo=() _updates_review_helper="$3"
+  _updates_review_lines=() _updates_review_aur=() _updates_review_aur_old=() _updates_review_repo=() _updates_review_helper="$3"
   if [[ $1 == 1 ]]; then
     if ! out="$("$_updates_vgshell" pkg check --json --source aur)" || ! facts="$(_updates_facts pending <<<"$out")"; then
       _updates_diagnostic "updates: review=unlisted source=aur"; return 1
@@ -352,11 +427,13 @@ _updates_review_list() { # AUR REPO HELPER REBUILD
       [[ $key == pending ]] || continue
       _updates_review_lines+=("aur $name $old $new")
       _updates_review_aur+=("$name")
+      _updates_review_aur_old+=("$old")
     done <<<"$facts"
   fi
   if [[ $4 == 1 ]] && ! _updates_in vgshell-git "${_updates_review_aur[@]}"; then
     _updates_review_lines+=("aur vgshell-git ? ?")
     _updates_review_aur+=(vgshell-git)
+    _updates_review_aur_old+=("?")
   fi
   if [[ ${#_updates_review_aur[@]} -gt 0 ]]; then _updates_review_lines=("helper $3" "${_updates_review_lines[@]}"); fi
   [[ $2 == 1 ]] || return 0
@@ -395,6 +472,55 @@ _updates_review_list() { # AUR REPO HELPER REBUILD
   done <<<"$facts"
 }
 
+# Each fetched AUR package's install script judged by its change against
+# the installed package's (UpdatesLogic.installScriptChange through
+# bin/facts install): `install <name> <state>` added to DIR/packages.txt,
+# a changed script's diff as build/<name>/install.diff, and a flag in
+# _updates_review_risks, `<name> <concern>`, per risky line the update
+# adds. The installed script is the copy in pacman's local database, under
+# the installed version or, for `?`, pacman -Q's; one that cannot be found
+# counts as absent, so the whole new script is judged. The new one is the
+# file the `install =` line of the package's .SRCINFO names.
+_updates_review_install() { # DIR
+  local dir="$1" db="" i name old out installed new file key eq value facts state status
+  if ! db="$(pacman-conf DBPath)"; then _updates_diagnostic "updates: install-check query=dbpath reason=failed"; db=""; fi
+  for i in "${!_updates_review_aur[@]}"; do
+    name="${_updates_review_aur[i]}" old="${_updates_review_aur_old[i]}"
+    if [[ $old == "?" ]]; then
+      old=""
+      if out="$(pacman -Q "$name" 2>/dev/null)"; then old="${out#* }"; fi
+    fi
+    installed=-
+    if [[ -n $db && -n $old && -f ${db%/}/local/$name-$old/install ]]; then installed="${db%/}/local/$name-$old/install"; fi
+    file=""
+    if [[ -f $dir/build/$name/.SRCINFO ]]; then
+      while read -r key eq value; do
+        if [[ $key == install && $eq == = ]]; then file="$value"; break; fi
+      done <"$dir/build/$name/.SRCINFO"
+    fi
+    new=-
+    if [[ -n $file && -f $dir/build/$name/$file ]]; then new="$dir/build/$name/$file"; fi
+    if ! facts="$(_updates_facts install "$installed" "$new")"; then
+      _updates_review_risks+=("$name The install script could not be read.")
+      continue
+    fi
+    state=""
+    while read -r key value; do
+      case "$key" in
+        install) state="$value" ;;
+        risk) _updates_review_risks+=("$name The install script adds: $value") ;;
+      esac
+    done <<<"$facts"
+    printf 'install %s %s\n' "$name" "$state" >>"$dir/packages.txt"
+    if [[ $state == changed ]]; then
+      status=0
+      diff -u -- "$installed" "$new" >"$dir/build/$name/install.diff" || status=$?
+      # diff exits 1 when the files differ, and above 1 when it failed.
+      [[ $status -le 1 ]] || _updates_diagnostic "updates: install-diff=failed package=$name exit=$status"
+    fi
+  done
+}
+
 # Removes the review directory. The service writes `ended` with a shell
 # redirect, which makes no directory, so a write after the directory is gone
 # fails; a write while rm runs leaves rm's last rmdir a name, and the next
@@ -417,11 +543,12 @@ _updates_review_remove() {
 # the agent reads them offline; a fetch runs no package code. NAMEs are
 # the packages listed. Sets
 # _updates_review_verdict to clean, flagged or none, _updates_review_flags
-# to `<name> <concern>` per flag and _updates_review_reason, for the
-# developer log, when there is no verdict.
+# to `<name> <concern>` per flag, _updates_review_risks to the install
+# script check's flags in the same form, and _updates_review_reason, for
+# the developer log, when there is no verdict.
 _updates_review_run() { # NAME...
   local start dir reply status=0 polls=0 facts key value lock
-  _updates_review_verdict=none _updates_review_reason="" _updates_review_flags=()
+  _updates_review_verdict=none _updates_review_reason="" _updates_review_flags=() _updates_review_risks=()
   start="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/vgshell/updates/review"
   mkdir -p -- "$start"
   chmod 700 -- "$start"
@@ -437,6 +564,7 @@ _updates_review_run() { # NAME...
     if ! (cd -- "$dir/build" && "$_updates_review_helper" -G "${_updates_review_aur[@]}"); then
       _updates_review_reason="fetch=failed helper=$_updates_review_helper"; return 0
     fi
+    _updates_review_install "$dir"
   fi
   reply="$("$_updates_vgshell" ipc call "$VGS_PLUGIN_ID" invoke review "$dir" 2>&1)" || status=$?
   if [[ $status -ne 0 || $reply != ok ]]; then _updates_review_reason="open=${reply%%$'\n'*} exit=$status"; return 0; fi
@@ -467,18 +595,21 @@ _updates_review_run() { # NAME...
   done <<<"$facts"
 }
 
-# The review and what its verdict leads to: a clean verdict goes on; each
-# flagged package asks to be skipped, a yes adding it to _updates_skip_aur
-# or _updates_skip_repo and a no stopping the run; no verdict asks to go on
-# without a review, default no. A stopped run exits 0. LISTED is 0 when the
-# packages could not be listed, which is no verdict.
+# The review and what its verdict leads to: a clean verdict goes on; no
+# verdict asks to go on without a review, default no, and a no stops the
+# run, which exits 0. Then each package the agent or the install script
+# check flagged asks once, Skip, the default, or Install anyway: Skip adds
+# it to _updates_skip_aur or _updates_skip_repo and to the result list,
+# and either answer goes on. LISTED is 0 when the packages could not be
+# listed, which is no verdict.
 _updates_review() { # LISTED
-  local status flag name
+  local status flag flags=() name line order=()
+  local -A concerns=()
   if [[ $1 == 1 ]]; then
     vgs_tui_step "Reviewing third-party packages in a second window"
     _updates_review_run "${_updates_review_aur[@]}" "${_updates_review_repo[@]}"
   else
-    _updates_review_verdict=none _updates_review_reason="list=unreadable" _updates_review_flags=()
+    _updates_review_verdict=none _updates_review_reason="list=unreadable" _updates_review_flags=() _updates_review_risks=()
   fi
   if [[ -n ${_updates_review_dir:-} ]]; then
     _updates_review_remove
@@ -488,22 +619,7 @@ _updates_review() { # LISTED
   local count=$((${#_updates_review_aur[@]} + ${#_updates_review_repo[@]}))
   case "$_updates_review_verdict" in
     clean) echo "The review found no risk in the $count package$([[ $count == 1 ]] || echo s) it listed." ;;
-    flagged)
-      for flag in "${_updates_review_flags[@]}"; do
-        name="${flag%% *}"
-        vgs_tui_warn "$name: ${flag#* }"
-        status=0
-        vgs_tui_confirm "Skip $name?" || status=$?
-        case "$status" in
-          0)
-            if _updates_in "$name" "${_updates_review_aur[@]}"; then _updates_skip_aur+=("$name"); fi
-            if _updates_in "$name" "${_updates_review_repo[@]}"; then _updates_skip_repo+=("$name"); fi
-            ;;
-          1) echo "Update stopped."; exit 0 ;;
-          *) exit "$status" ;;
-        esac
-      done
-      ;;
+    flagged) ;;
     *)
       _updates_diagnostic "updates: review=none $_updates_review_reason"
       if [[ $1 == 1 ]]; then vgs_tui_warn "The review ended without a result."
@@ -518,6 +634,29 @@ _updates_review() { # LISTED
       esac
       ;;
   esac
+  # One question per package, with every concern about it above it.
+  if [[ $_updates_review_verdict == flagged ]]; then flags=("${_updates_review_flags[@]}"); fi
+  for flag in "${flags[@]}" "${_updates_review_risks[@]}"; do
+    name="${flag%% *}"
+    if [[ -z ${concerns[$name]+set} ]]; then order+=("$name"); concerns[$name]=""; fi
+    concerns[$name]+="${flag#* }"$'\n'
+  done
+  for name in "${order[@]}"; do
+    while IFS= read -r line; do
+      [[ -z $line ]] || vgs_tui_warn "$name: $line"
+    done <<<"${concerns[$name]}"
+    status=0
+    vgs_tui_confirm "Skip $name, or install it anyway?" --affirmative=Skip --negative="Install anyway" || status=$?
+    case "$status" in
+      0)
+        if _updates_in "$name" "${_updates_review_aur[@]}"; then _updates_skip_aur+=("$name"); fi
+        if _updates_in "$name" "${_updates_review_repo[@]}"; then _updates_skip_repo+=("$name"); fi
+        _updates_results+=("$name: skipped, the review flagged it")
+        ;;
+      1) echo "Installing $name anyway." ;;
+      *) exit "$status" ;;
+    esac
+  done
 }
 
 # updates_main all ARG... | updates_main source SOURCE ARG...: the pipeline
@@ -572,6 +711,10 @@ updates_main() {
   mv -f -- "$UPDATES_LOG_PART" "$_updates_log"
   _updates_pid=$BASHPID
   trap '_updates_failed $?' ERR
+  # The result list, the failed steps' count, and the file a source step's
+  # stderr is copied to: one file, since the lock holds one run at a time.
+  _updates_results=() _updates_failures=0
+  _updates_cause_file="$state/.step-stderr"
 
   # What the run acts on: the plugin's settings and the system's managers.
   local out facts key value aur_command=() snapshot_setting="" trust=false
@@ -626,6 +769,7 @@ updates_main() {
 
   # Each source's plan, for the box and the steps. A package source whose
   # plan the table refuses, as it refuses nix's, leaves the run.
+  local -A labels=()
   local plan=() kept=() id label vgs_method="" vgs_package="" vgs_behind=false plugins=() themes=()
   local primary_planned=0 elevator="" elevator_refused=""
   local _updates_plan_text _updates_plan_elevator _updates_plan_elevator_refused
@@ -660,6 +804,7 @@ updates_main() {
       mise) label=mise ;;
       *) label=System ;;
     esac
+    labels[$id]="$label"
     if _updates_plan "$id"; then
       kept+=("$id")
       plan+=("$label: install available updates")
@@ -797,9 +942,23 @@ updates_main() {
       vgs_tui_warn "Continuing the update without a snapshot."
     fi
   fi
+  # The installed packages before the first package step, which the
+  # reboot question compares with those after the last.
+  local -A installed=()
+  local listed=0
+  if [[ $primary == pacman && $replaces == 1 ]]; then
+    if out="$(pacman -Q)"; then
+      listed=1
+      while read -r name value; do
+        [[ -z $name ]] || installed[$name]="$value"
+      done <<<"$out"
+    else
+      _updates_diagnostic "updates: installed=unread when=before"
+    fi
+  fi
   if _updates_in vgs "${run[@]}" && [[ $vgs_behind == true && ( $vgs_method == checkout || $vgs_method == curl ) ]]; then
     vgs_tui_step "Updating VGS"
-    "$_updates_vgshell" self update
+    _updates_source vgs VGS "$_updates_vgshell" self update
   fi
   local ignore=()
   for id in "${run[@]}"; do
@@ -808,7 +967,7 @@ updates_main() {
       *)
         ignore=()
         if [[ $id == pacman && ${#_updates_skip_repo[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_repo[@]}"); fi
-        "$_updates_vgshell" pkg run upgrade --manager "$id" "${ignore[@]}"
+        _updates_source "$id" "${labels[$id]}" "$_updates_vgshell" pkg run upgrade --manager "$id" "${ignore[@]}"
         ;;
     esac
   done
@@ -827,14 +986,35 @@ updates_main() {
       if [[ ${#aur_command[@]} -gt 0 ]]; then
         # The words may sync the system too, so both lists are kept out.
         for name in "${_updates_skip_aur[@]}" "${_updates_skip_repo[@]}"; do ignore+=(--ignore "$name"); done
-        _updates_run "Updating AUR packages" "${aur_command[@]}" "${ignore[@]}"
+        _updates_source aur AUR _updates_run "Updating AUR packages" "${aur_command[@]}" "${ignore[@]}"
       else
         if [[ ${#_updates_skip_aur[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_aur[@]}"); fi
-        "$_updates_vgshell" pkg run upgrade --manager aur "${ignore[@]}"
+        _updates_source aur AUR "$_updates_vgshell" pkg run upgrade --manager aur "${ignore[@]}"
       fi
     fi
-    if [[ $rebuild == 1 ]] && ! _updates_in vgshell-git "${_updates_skip_aur[@]}"; then _updates_run "Rebuilding VGS" "$aur_binary" -S vgshell-git; fi
+    if [[ $rebuild == 1 ]] && ! _updates_in vgshell-git "${_updates_skip_aur[@]}"; then
+      _updates_source vgshell-git "VGS package" _updates_run "Rebuilding VGS" "$aur_binary" -S vgshell-git
+    fi
     if [[ $guarded == 1 ]]; then vgs_tui_sudo_session end; fi
+  fi
+
+  # The packages the run upgraded, a new version or a new name, and of
+  # those the ones that need a reboot.
+  local upgraded=() core=()
+  if [[ $listed == 1 ]]; then
+    if out="$(pacman -Q)"; then
+      while read -r name value; do
+        [[ -z $name || ( -n ${installed[$name]+set} && ${installed[$name]} == "$value" ) ]] || upgraded+=("$name")
+      done <<<"$out"
+    else
+      _updates_diagnostic "updates: installed=unread when=after"
+    fi
+  fi
+  if [[ ${#upgraded[@]} -gt 0 ]]; then
+    facts="$(printf '%s\n' "${upgraded[@]}" | _updates_facts reboot)"
+    while read -r key value; do
+      if [[ $key == reboot ]]; then core+=("$value"); fi
+    done <<<"$facts"
   fi
 
   if [[ $primary == pacman ]] && [[ $upgrades == 1 ]]; then _updates_orphans; fi
@@ -842,6 +1022,12 @@ updates_main() {
     vgs_tui_step "Restarting the shell on the updated VGS"
     "$_updates_vgshell" restart || { _updates_diagnostic "updates: restart=failed exit=$?"; vgs_tui_warn "VGS could not restart. Save your work and restart the computer."; }
   fi
-  _updates_recheck success
-  _updates_reboot
+  if [[ ${#_updates_results[@]} -gt 0 ]]; then vgs_tui_header "Update result" "${_updates_results[@]}"; fi
+  rm -f -- "${_updates_cause_file:?}"
+  local ended=success
+  if [[ $_updates_failures -gt 0 ]]; then ended=failed; fi
+  _updates_recheck "$ended"
+  if [[ $ended == failed ]]; then vgs_tui_error "Some updates failed. The list above names each cause."; fi
+  _updates_reboot "${core[@]}"
+  [[ $ended == success ]] || exit 1
 }

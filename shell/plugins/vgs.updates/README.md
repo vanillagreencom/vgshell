@@ -14,7 +14,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - A window on `SUPER+CTRL+U` or a click on the icon, with one row per source. A row lists its packages. Update installs one source, and Update everything installs all of them.
 - Open last log shows the log of the last update run.
 - Saves a system snapshot with Snapper or Timeshift before an update, when one is installed.
-- An AI agent reviews packages from outside your distribution's official repositories before they install. It runs in a second window, so you can talk to it. It installs nothing and never gets administrator access. A flagged package asks you to skip it or stop the update.
+- An AI agent reviews packages from outside your distribution's official repositories before they install. It runs in a second window, so you can talk to it. It installs nothing and never gets administrator access. A flagged package asks you to skip it or install it anyway.
 - The steps of an update run are in [pipeline.md](pipeline.md).
 
 ## Settings

@@ -24,8 +24,9 @@
 # would, and writes the review directory's `ended` after it, as the
 # service's `done` does; `ipc-refuses` answers a refusal, and `ipc-ended`
 # writes `ended` alone, as a terminal that failed after the answer does.
-# The stand-in paru's -G writes a PKGBUILD per package. No row reaches a
-# real agent or the network.
+# The stand-in paru's -G writes a PKGBUILD per package, and the build files
+# a row put in $FIX/build-<package>. No row reaches a real agent or the
+# network.
 #
 # Each control runs a row against a copy of the plugin whose
 # tui/pipeline.sh drops one rule, and that row must fail.
@@ -63,12 +64,16 @@ stub() { # DIR NAME BODY
   chmod +x "$1/$2"
 }
 # vgshell answers each read from $FIX; pacman's plan names the elevator in
-# $FIX/elevator; `pkg run` fails with 9 for a manager $FIX/fail-<id> names;
-# `pkg owner` answers only while $FIX/owner exists, with a new version after
-# its first answer when $FIX/owner-changes does.
+# $FIX/elevator; `pkg detect` fails with 5 while $FIX/fail-detect exists;
+# `pkg run` fails with 9 for a manager $FIX/fail-<id> names, after a
+# coloured error line on stderr ending in a carriage return, and exits 130,
+# as a Ctrl-C ends it, for one $FIX/interrupt-<id> names; `plugin|theme
+# update` declines, as its [y/N] question does, for an id
+# $FIX/decline-<id> names; `pkg owner` answers only while $FIX/owner exists,
+# with a new version after its first answer when $FIX/owner-changes does.
 stub "$tree/bin" vgshell 'case "$1 $2" in
   "plugin settings") cat "$FIX/settings.json" ;;
-  "pkg detect") cat "$FIX/detect.json" ;;
+  "pkg detect") [ ! -e "$FIX/fail-detect" ] || exit 5; cat "$FIX/detect.json" ;;
   "pkg plan")
     case "$4" in
       pacman) echo "{\"manager\":\"pacman\",\"binary\":\"pacman\",\"action\":\"upgrade\",\"elevate\":true,\"steps\":[[\"pacman\",\"-Syu\"]],\"elevator\":{\"ok\":true,\"command\":\"$(cat "$FIX/elevator")\"}}" ;;
@@ -81,7 +86,12 @@ stub "$tree/bin" vgshell 'case "$1 $2" in
   "self update") echo "ok updated=vgs from=a to=b" ;;
   "plugin outdated") cat "$FIX/plugins.json" ;;
   "theme outdated") cat "$FIX/themes.json" ;;
-  "pkg run") [ ! -e "$FIX/fail-$5" ] || exit 9 ;;
+  "pkg run")
+    [ ! -e "$FIX/interrupt-$5" ] || exit 130
+    [ ! -e "$FIX/fail-$5" ] || { printf "\033[31merror:\033[0m failed to install crush\r\n" >&2; exit 9; } ;;
+  "plugin update"|"theme update")
+    for id; do :; done
+    [ ! -e "$FIX/decline-$id" ] || { printf "vgshell: update %s? [y/N] \nvgshell: refused: declined=%s\nthe checkout stays at its commit\n" "$id" "$id" >&2; exit 1; } ;;
   "pkg check")
     if [ -e "$FIX/check-$5.json" ]; then cat "$FIX/check-$5.json"
     else echo "[{\"source\":\"$5\",\"count\":0,\"packages\":[],\"checkedAt\":\"x\",\"error\":null}]"
@@ -106,7 +116,8 @@ stub "$tree/bin" vgshell 'case "$1 $2" in
   "pid ") [ -e "$FIX/running" ] || exit 69; echo 42 ;;
 esac'
 # gum confirm answers the exit status in $FIX/answer-<question>, 0 when
-# absent; style prints its lines.
+# absent: `skip` for the review's Skip or Install anyway, `reboot` for the
+# reboot question; style prints its lines.
 stub "$stubs" gum 'case "$1" in
   confirm)
     for q; do :; done
@@ -125,9 +136,24 @@ stub "$snapper_dir" snapper 'case "$*" in
   "--csvout list-configs") printf "config,subvolume\nroot,/\n" ;;
   *create*) [ ! -e "$FIX/fail-snapper" ] || exit 1 ;;
 esac'
-stub "$stubs" pacman 'if [ "$1" = -Sl ]; then cat "$FIX/sl-$2"; exit; fi
-[ -e "$FIX/orphans" ] || exit 1; cat "$FIX/orphans"'
+# pacman -Q answers $FIX/installed, and from its second answer on
+# $FIX/installed-after when that exists; pacman -Q NAME answers NAME's line
+# of $FIX/installed.
+stub "$stubs" pacman 'case "$1" in
+  -Sl) cat "$FIX/sl-$2" ;;
+  -Q)
+    if [ -n "${2:-}" ]; then
+      while read -r n v; do [ "$n" != "$2" ] || { echo "$n $v"; exit 0; }; done <"$FIX/installed"
+      exit 1
+    fi
+    f="$FIX/installed"
+    if [ -e "$FIX/installed-asked" ] && [ -e "$FIX/installed-after" ]; then f="$FIX/installed-after"; fi
+    : >"$FIX/installed-asked"
+    cat "$f" ;;
+  *) [ -e "$FIX/orphans" ] || exit 1; cat "$FIX/orphans" ;;
+esac'
 stub "$stubs" pacman-conf 'case "$1 ${3:-}" in
+  "DBPath ") echo "$FIX/db/" ;;
   "--repo-list ") cat "$FIX/repos" ;;
   "--repo Server") cat "$FIX/server-$2" ;;
   "--repo SigLevel") [ ! -e "$FIX/siglevel-$2" ] || cat "$FIX/siglevel-$2" ;;
@@ -151,7 +177,7 @@ pwd >"$FIX/agent-cwd"
 review_dir="$(printf '%s\n' "$last" | sed -n 's|^The review directory is `\(.*\)`. The files below are in it\. Read and write paths relative to that directory\.$|\1|p' | sed -n '1p')"
 if [ -n "$review_dir" ]; then
   cat "$review_dir/packages.txt" >"$FIX/packages-seen" 2>/dev/null || :
-  for f in "$review_dir"/build/*/PKGBUILD; do [ ! -e "$f" ] || echo "${f#"$review_dir"/}"; done >"$FIX/build-seen"
+  for f in "$review_dir"/build/*/PKGBUILD "$review_dir"/build/*/install.diff; do [ ! -e "$f" ] || echo "${f#"$review_dir"/}"; done >"$FIX/build-seen"
 else
   : >"$FIX/packages-seen"
   : >"$FIX/build-seen"
@@ -177,11 +203,16 @@ stub "$stubs" df 'a=99999999999; [ ! -e "$FIX/avail" ] || read -r a <"$FIX/avail
 stub "$stubs" pgrep '[ -e "$FIX/pids" ] || exit 1; cat "$FIX/pids"'
 stub "$stubs" uname "echo $kernel"
 stub "$stubs" systemctl ''
-# paru authorizes through sudo and fails with 7 while $FIX/fail-paru exists.
-stub "$stubs" paru 'if [ "$1" = -G ]; then shift; for p; do mkdir -p "$p"; echo "pkgname=$p" >"$p/PKGBUILD"; done; exit 0; fi
+# paru authorizes through sudo and fails with 7 while $FIX/fail-paru exists,
+# and with 130, as a Ctrl-C ends it, while $FIX/interrupt-paru does.
+stub "$stubs" paru 'if [ "$1" = -G ]; then shift; for p; do
+  mkdir -p "$p"; echo "pkgname=$p" >"$p/PKGBUILD"
+  for f in "$FIX/build-$p"/* "$FIX/build-$p"/.SRCINFO; do [ ! -e "$f" ] || cat "$f" >"$p/${f##*/}"; done
+done; exit 0; fi
+[ ! -e "$FIX/interrupt-paru" ] || { sudo /usr/bin/true; exit 130; }
 [ ! -e "$FIX/fail-paru" ] || { sudo /usr/bin/true; exit 7; }'
 stub "$stubs" less ''
-for tool in bash env readlink dirname mkdir chmod mv rm script flock sleep cat id sed; do
+for tool in bash env readlink dirname mkdir chmod mv rm script flock sleep cat id sed tee diff; do
   found="$(command -v "$tool")" || { echo "test-updates-pipeline: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$(readlink -f -- "$found")" "$tools/$tool"
 done
@@ -202,10 +233,12 @@ self_json() { # METHOD PACKAGE_JSON BEHIND
 }
 # The fixture every row starts from: pacman with the AUR through paru,
 # Flatpak and mise; a checkout one commit behind; one plugin and one theme
-# behind; no snapshot tool, no orphan, no replaced Hyprland, every answer yes.
+# behind; no snapshot tool, no orphan, no replaced Hyprland, no package
+# upgraded, every answer yes.
 reset_fix() {
   rm -rf -- "${fix:?}" "$state/vgshell"
   mkdir -p "$fix"
+  printf 'linux 6.1-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\n' >"$fix/installed"
   settings "" false
   echo sudo >"$fix/elevator"
   printf '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"},{"id":"flatpak","binary":"flatpak"}],"sources":[{"id":"mise","binary":"mise"}]}\n' >"$fix/detect.json"
@@ -288,10 +321,10 @@ assert() {
 full_seq=("vgshell plugin settings vgs.updates" "vgshell pkg detect --json" "vgshell self status --json"
   "vgshell pkg plan upgrade pacman" "vgshell pkg plan upgrade flatpak" "vgshell pkg plan upgrade mise" "vgshell pkg plan upgrade aur"
   "vgshell plugin outdated --json" "vgshell theme outdated --json" "gum confirm -- Start the update?"
-  "vgshell pkg owner $tree/VERSION" "sudo -k" "sudo /usr/bin/true" "vgshell self update"
+  "vgshell pkg owner $tree/VERSION" "sudo -k" "sudo /usr/bin/true" "pacman -Q" "vgshell self update"
   "vgshell pkg run upgrade --manager pacman" "vgshell pkg run upgrade --manager flatpak" "vgshell pkg run upgrade --manager mise"
   "vgshell plugin update acme.one" "vgshell theme update night" "sudo -k"
-  "vgshell pkg run upgrade --manager aur" "sudo -k" "pacman -Qtdq" "vgshell ipc call vgs.updates invoke check ")
+  "vgshell pkg run upgrade --manager aur" "sudo -k" "pacman -Q" "pacman -Qtdq" "vgshell ipc call vgs.updates invoke check ")
 row_full() {
   reset_fix
   pipeline update.sh
@@ -302,6 +335,14 @@ row_full() {
   assert "no snapshot tool warns nothing" out_lacks "snapshot=failed"
   assert "no snapshot tool keeps the update going quietly" out_lacks "without a snapshot"
   assert "the log keeps the plan box" grep -qF "Update everything" "$log"
+  assert "a full run lists each source installed" out_has "System: installed"
+  assert "a full run lists each plugin installed" out_has "Plugin acme.one: installed"
+  assert "nothing core upgraded asks no reboot" no_call "gum confirm --affirmative=Reboot"
+  touch "$fix/decline-acme.one"
+  pipeline update.sh
+  assert "a declined plugin update leaves the exit 0" test "$status" == 0
+  assert "a declined plugin update reads skipped" out_has "Plugin acme.one: skipped, you declined it"
+  assert "a declined plugin update leaves the theme update to run" has_call "vgshell theme update night"
 }
 row_trusted() {
   reset_fix
@@ -321,27 +362,70 @@ row_snapshot() {
   assert "a failed snapshot does not stop the update" has_call "vgshell pkg run upgrade --manager pacman"
   assert "a failed snapshot leaves the exit 0" test "$status" == 0
 }
+# A failed source records its cause and the run goes on with every later
+# source; the reboot question still follows the result list, and the run
+# exits 1.
 row_failure() {
   reset_fix
-  touch "$fix/fail-pacman"
+  touch "$fix/fail-mise"
+  printf 'linux 6.2-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\n' >"$fix/installed-after"
   pipeline update.sh
-  assert "a failed system step ends the run with its status" test "$status" == 9
-  assert "a failed step asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check " "$tmp/seq")" == 1
-  assert "a failed step names the log in its recovery message" out_has "Select Open last log in Updates to read this run's output."
-  assert "the failure code stays in the developer log" grep -qF "updates: failed exit=9" "$state/vgshell/updates/diagnostics.log"
-  assert "a failed step drops the credential last" test "$(tail -n 1 "$tmp/seq")" == "sudo -k"
-  assert "a failed step runs no AUR" test "$(grep -c 'manager aur' "$tmp/seq")" == 0
+  assert "a failed source ends the run with 1" test "$status" == 1
+  assert "the plugin update runs after the failed source" before "vgshell pkg run upgrade --manager mise" "vgshell plugin update acme.one"
+  assert "the AUR runs after the failed source" before "vgshell pkg run upgrade --manager mise" "vgshell pkg run upgrade --manager aur"
+  assert "the result list names the failed source with its cause line" out_has "mise: failed, error: failed to install crush"
+  assert "the result list names the later source installed" out_has "AUR: installed"
+  assert "the failure stays in the developer log" diag_has "updates: failed source=mise exit=9"
+  assert "a failed source asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check " "$tmp/seq")" == 1
+  assert "a failed source is not a stopped run" out_lacks "The update stopped."
+  assert "a failed source still asks to reboot after an upgraded kernel" has_call "gum confirm --affirmative=Reboot --negative=Later --default=false -- The run updated linux, which takes effect after a reboot. Reboot now?"
+}
+# A step that fails outside the sources ends the run: the ERR trap prints
+# the recovery message.
+row_stopped() {
+  reset_fix
+  touch "$fix/fail-detect"
+  pipeline update.sh
+  assert "a failed read ends the run with its status" test "$status" == 5
+  assert "a failed read asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check " "$tmp/seq")" == 1
+  assert "a failed read names the log in its recovery message" out_has "Select Open last log in Updates to read this run's output."
+  assert "the failure code stays in the developer log" grep -qsF "updates: failed exit=5" "$state/vgshell/updates/diagnostics.log"
+  assert "a failed read runs no step" test "$(grep -c 'pkg run' "$tmp/seq")" == 0
+}
+# A Ctrl-C in a source step ends the run with 130 and drops the credential.
+row_interrupted() {
+  reset_fix
+  touch "$fix/interrupt-pacman"
+  pipeline update.sh
+  assert "an interrupted step ends the run with 130" test "$status" == 130
+  assert "an interrupted step runs no later source" no_call "vgshell pkg run upgrade --manager flatpak"
+  assert "an interrupted step drops the credential last" test "$(tail -n 1 "$tmp/seq")" == "sudo -k"
 }
 row_reboot() {
   reset_fix
   printf '%s\n' "$hyprland_pid" >"$fix/pids"
   pipeline update.sh
-  assert "a replaced Hyprland asks to reboot" has_call "gum confirm -- Hyprland was updated. Reboot now?"
-  assert "a replaced Hyprland rechecks before it asks to reboot" before "vgshell ipc call vgs.updates invoke check " "gum confirm -- Hyprland was updated. Reboot now?"
+  assert "a replaced Hyprland asks to reboot" has_call "gum confirm --affirmative=Reboot --negative=Later --default=false -- Hyprland was updated. Reboot now?"
+  assert "a replaced Hyprland rechecks before it asks to reboot" before "vgshell ipc call vgs.updates invoke check " "gum confirm --affirmative=Reboot --negative=Later --default=false -- Hyprland was updated. Reboot now?"
   assert "a yes reboots" test "$(tail -n 1 "$tmp/seq")" == "systemctl reboot"
   echo 1 >"$fix/answer-reboot"
   pipeline update.sh
   assert "a no does not reboot" test "$(grep -c '^systemctl' "$tmp/seq")" == 0
+}
+# The run's own upgrade list: pacman -Q before the first package step and
+# after the last.
+row_reboot_core() {
+  reset_fix
+  printf 'linux 6.2-1\nlinux-headers 6.2-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\n' >"$fix/installed-after"
+  pipeline update.sh
+  assert "an upgraded kernel asks to reboot, naming it" has_call "gum confirm --affirmative=Reboot --negative=Later --default=false -- The run updated linux, which takes effect after a reboot. Reboot now?"
+  assert "the installed packages are read before the first package step" before "pacman -Q" "vgshell pkg run upgrade --manager pacman"
+  assert "the installed packages are read again after the last" before "vgshell pkg run upgrade --manager aur" "pacman -Q"
+  assert "a reboot asked after an upgraded kernel reboots on a yes" test "$(tail -n 1 "$tmp/seq")" == "systemctl reboot"
+  reset_fix
+  printf 'linux 6.1-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\nfoo 1-1\n' >"$fix/installed-after"
+  pipeline update.sh
+  assert "nothing core upgraded asks no reboot" no_call "gum confirm --affirmative=Reboot"
 }
 row_orphans() {
   reset_fix
@@ -399,17 +483,21 @@ row_aur_command() {
   assert "aurCommand runs after the session ends" before "vgshell theme update night" "paru -Sua --devel"
 }
 # An AUR helper that caches a sudo credential and then fails still has it
-# dropped, after it, and the run ends with the helper's status and the
-# recovery message.
+# dropped, after it; with no line on stderr its cause is its status. One a
+# Ctrl-C ends has it dropped as the run exits.
 row_aur_failure() {
   reset_fix
   settings "paru -Sua --devel" false
   touch "$fix/fail-paru"
   pipeline update.sh
-  assert "a failed AUR step ends the run with its status" test "$status" == 7
-  assert "a failed AUR step names the log in its recovery message" out_has "Select Open last log in Updates to read this run's output."
-  assert "a failed AUR step drops the credential it cached, last" test "$(tail -n 1 "$tmp/seq")" == "sudo -k"
+  assert "a failed AUR step ends the run with 1" test "$status" == 1
+  assert "a failed AUR step with no stderr is listed with its status" out_has "AUR: failed, exit 7"
   assert "the credential is dropped after the failed AUR step" before "paru -Sua --devel" "sudo -k"
+  rm -f -- "${fix:?}/fail-paru"
+  touch "$fix/interrupt-paru"
+  pipeline update.sh
+  assert "an interrupted AUR step ends the run with 130" test "$status" == 130
+  assert "an interrupted AUR step drops the credential it cached, last" test "$(tail -n 1 "$tmp/seq")" == "sudo -k"
 }
 # packages.elevate names doas: sudo is installed but refuses, and the
 # update runs through doas without a sudo session.
@@ -436,7 +524,7 @@ row_vgs_only() {
   assert "a VGS rebuild alone takes a snapshot before it" before "sudo snapper -c root create -c number -d VGS update" "paru -S vgshell-git"
   assert "a VGS rebuild alone drops the credential after it" before "paru -S vgshell-git" "sudo -k"
   assert "a VGS rebuild alone restarts the running shell" has_call "vgshell restart"
-  assert "a VGS rebuild alone upgrades no other package" test "$(grep -c -e 'pkg run' -e '^pacman' "$tmp/seq")" == 0
+  assert "a VGS rebuild alone upgrades no other package" test "$(grep -c -e 'pkg run' -e '^pacman -[^Q]' "$tmp/seq")" == 0
 }
 row_vgs_git() {
   reset_fix
@@ -577,7 +665,7 @@ row_review_clean() {
   assert "the agent finds the fetched build files" test "$(cat "$fix/build-seen" 2>/dev/null)" == "build/tool-bin/PKGBUILD"
   assert "the agent's last argument is the bundled prompt with the review directory" test "$(cat "$fix/prompt-seen" 2>/dev/null)" == "$expected_prompt"
   assert "the agent runs in the review start directory" test "$(cat "$fix/agent-cwd" 2>/dev/null)" == "$rt/vgshell/updates/review"
-  assert "the agent is handed the third-party packages alone" test "$(cat "$fix/packages-seen" 2>/dev/null)" == "$(printf '%s\n' "helper paru" "aur tool-bin 1.0-1 1.1-1" "repo chaotic foo 2-1 3-1" "server chaotic https://chaotic.example/x86_64" "siglevel chaotic Optional TrustAll")"
+  assert "the agent is handed the third-party packages alone" test "$(cat "$fix/packages-seen" 2>/dev/null)" == "$(printf '%s\n' "helper paru" "aur tool-bin 1.0-1 1.1-1" "repo chaotic foo 2-1 3-1" "server chaotic https://chaotic.example/x86_64" "siglevel chaotic Optional TrustAll" "install tool-bin none")"
   assert "no credential is asked before the review" none_before "sudo" "$review_call"
   assert "the review comes before the sudo session" before "$review_call$dir" "sudo /usr/bin/true"
   assert "a clean verdict asks nothing more" no_call "gum confirm --default=false -- Continue without a review?"
@@ -606,23 +694,29 @@ row_review_start_stable() {
   assert "two reviews keep separate per-run directories" test "$first_dir" != "$second_dir"
   assert "both review directories are inside the stable start directory" test "${first_dir%/*}:${second_dir%/*}" == "$rt/vgshell/updates/review:$rt/vgshell/updates/review"
 }
-# r4: a flagged verdict asks per package; a yes keeps it out of its own
-# upgrade step, and a no stops the run before any step.
+# r4: a flagged verdict asks per package, Skip or Install anyway: Skip
+# keeps it out of its own upgrade step and lists it skipped, Install anyway
+# installs it, and the run goes on either way.
 row_review_flagged() {
   reset_fix
   third_party
   printf 'verdict flagged\nflag tool-bin Its source moved to a new domain.\nflag foo The repository is unsigned.\n' >"$fix/verdict"
   PIPE_PATH="$agents" pipeline update.sh
-  assert "a flagged review asks to skip each package" has_call "gum confirm -- Skip tool-bin?"
+  assert "a flagged review asks Skip or Install anyway for each package" has_call "gum confirm --affirmative=Skip --negative=Install anyway -- Skip tool-bin, or install it anyway?"
   assert "a skipped repository package is kept out of the system step" has_call "vgshell pkg run upgrade --manager pacman --ignore foo"
   assert "a skipped AUR package is kept out of the AUR step" has_call "vgshell pkg run upgrade --manager aur --ignore tool-bin"
+  assert "a skipped package is listed skipped" out_has "tool-bin: skipped, the review flagged it"
+  assert "a run that skipped packages exits 0" test "$status" == 0
   settings "paru -Sua --devel" false
   PIPE_PATH="$agents" pipeline update.sh
   assert "both skipped packages are kept out of the aurCommand, which may sync the system" has_call "paru -Sua --devel --ignore tool-bin --ignore foo"
+  settings "" false
   echo 1 >"$fix/answer-skip"
   PIPE_PATH="$agents" pipeline update.sh
-  assert "a flagged package not skipped stops the run with 0" test "$status" == 0
-  assert "a stopped run upgrades nothing and asks no credential" test "$(grep -c -e '^sudo' -e 'pkg run' "$tmp/seq")" == 0
+  assert "Install anyway runs the run to its end" test "$status" == 0
+  assert "Install anyway installs the AUR package" has_call "vgshell pkg run upgrade --manager aur"
+  assert "Install anyway installs the repository package" has_call "vgshell pkg run upgrade --manager pacman"
+  assert "Install anyway lists nothing skipped" out_lacks "skipped, the review flagged it"
   # A behind vgshell-git, as row_vgs_git's, is reviewed for its rebuild,
   # and skipping it keeps the rebuild out.
   reset_fix
@@ -632,6 +726,7 @@ row_review_flagged() {
   printf 'verdict flagged\nflag vgshell-git Its source moved to a new domain.\n' >"$fix/verdict"
   PIPE_PATH="$agents" pipeline update.sh
   assert "the rebuilt vgshell-git is reviewed" grep -qxF "aur vgshell-git ? ?" "$fix/packages-seen"
+  assert "the rebuilt vgshell-git's installed version is asked of pacman" has_call "pacman -Q vgshell-git"
   assert "a skipped vgshell-git is not rebuilt" no_call "paru -S vgshell-git"
   assert "a skipped vgshell-git leaves the AUR step to the rest" has_call "vgshell pkg run upgrade --manager aur --ignore vgshell-git"
 }
@@ -689,10 +784,94 @@ row_review_custom() {
   assert "an edited command runs as written" has_call "my-agent --model x --yolo"
   assert "an edited command runs instead of the default" no_call "claude"
 }
+# The 1password install script at AUR commit e4388fb, 8.12.38, which
+# d0a8a7e, 8.12.40, ships unchanged.
+onepassword_install() {
+  cat <<'SH'
+# Do not add your user, or any others, to this group.
+GROUP_NAME="onepassword"
 
-row_full; row_trusted; row_snapshot; row_failure; row_reboot; row_orphans; row_yes
+app_group_exists() {
+    if [ $(getent group "${GROUP_NAME}") ]; then
+        true
+    else
+        false
+    fi
+}
+
+setup_browser_helper() {
+    # Setup the Core App Integration helper binary with the correct permissions and group
+    BROWSER_SUPPORT_PATH="/opt/1Password/1Password-BrowserSupport"
+
+    chgrp "${GROUP_NAME}" $BROWSER_SUPPORT_PATH
+    chmod g+s $BROWSER_SUPPORT_PATH
+}
+
+pre_install() {
+    if app_group_exists; then
+        : # Do nothing
+    else
+        groupadd "${GROUP_NAME}"
+    fi
+}
+
+pre_upgrade() {
+    if app_group_exists; then
+        : # Do nothing
+    else
+        groupadd "${GROUP_NAME}"
+    fi
+}
+
+post_install() {
+    setup_browser_helper
+}
+
+post_upgrade() {
+    setup_browser_helper
+}
+
+post_remove() {
+    if app_group_exists; then
+        groupdel "${GROUP_NAME}"
+    fi
+}
+SH
+}
+# 1password pending 8.12.38 -> 8.12.40: the installed script in pacman's
+# local database, and the fetched build files naming theirs.
+onepassword_pending() {
+  printf '[{"source":"aur","count":1,"packages":[{"name":"1password","old":"8.12.38-1","new":"8.12.40-1"}],"checkedAt":"x","error":null}]\n' >"$fix/check-aur.json"
+  mkdir -p "$fix/db/local/1password-8.12.38-1" "$fix/build-1password"
+  onepassword_install >"$fix/db/local/1password-8.12.38-1/install"
+  printf 'pkgbase = 1password\n\tpkgver = 8.12.40\n\tinstall = 1password.install\n\npkgname = 1password\n' >"$fix/build-1password/.SRCINFO"
+  onepassword_install >"$fix/build-1password/1password.install"
+  printf 'verdict clean\n' >"$fix/verdict"
+}
+# An install script is judged by its change: the same script asks nothing
+# under a clean verdict, though it sets a setgid bit and adds a group; a
+# change that adds a setgid line asks, whatever the agent said.
+row_review_install() {
+  reset_fix
+  onepassword_pending
+  PIPE_PATH="$agents" pipeline update.sh
+  assert "an unchanged install script is named unchanged to the agent" grep -qxF "install 1password unchanged" "$fix/packages-seen"
+  assert "an unchanged install script asks nothing" no_call "gum confirm --affirmative=Skip"
+  assert "an unchanged install script's package installs" has_call "vgshell pkg run upgrade --manager aur"
+  reset_fix
+  onepassword_pending
+  printf 'chmod 2755 /opt/1Password/extra\n' >>"$fix/build-1password/1password.install"
+  PIPE_PATH="$agents" pipeline update.sh
+  assert "a changed install script is named changed to the agent" grep -qxF "install 1password changed" "$fix/packages-seen"
+  assert "a changed install script's diff is beside its build files" grep -qxF "build/1password/install.diff" "$fix/build-seen"
+  assert "an added setgid line asks under a clean verdict" has_call "gum confirm --affirmative=Skip --negative=Install anyway -- Skip 1password, or install it anyway?"
+  assert "an added setgid line is named above the question" out_has "1password: The install script adds: chmod 2755 /opt/1Password/extra"
+  assert "a skipped changed script's package is kept out" has_call "vgshell pkg run upgrade --manager aur --ignore 1password"
+}
+
+row_full; row_trusted; row_snapshot; row_failure; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_orphans; row_yes
 row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_git; row_source; row_recheck_failure; row_log
-row_review_off; row_review_no_agent; row_review_none_pending; row_review_clean; row_review_start_stable; row_review_flagged; row_review_no_verdict; row_review_no_helper; row_review_custom
+row_review_off; row_review_no_agent; row_review_none_pending; row_review_clean; row_review_start_stable; row_review_flagged; row_review_no_verdict; row_review_no_helper; row_review_custom; row_review_install
 
 # Controls: each runs one row against a plugin copy whose FILE, relative
 # to the plugin and tui/pipeline.sh unless named, drops one rule, quietly,
@@ -713,10 +892,20 @@ control aur-unguarded '      vgs_tui_sudo_session guard' '      :' row_aur_failu
 control session-ignores-elevator 'if [[ $elevator == sudo ]]; then session=1; fi' 'if command -v sudo >/dev/null; then session=1; fi' row_doas
 control snapshot-ignores-elevator '_updates_snapshot "$snapshot_tool" "$elevator" || status=$?' '_updates_snapshot "$snapshot_tool" sudo || status=$?' row_doas
 control rebuild-unguarded 'if [[ $upgrades == 1 || $rebuild == 1 ]]; then replaces=1; fi' 'if [[ $upgrades == 1 ]]; then replaces=1; fi' row_vgs_only
-control no-recovery "trap '_updates_failed \$?' ERR" ':' row_failure
-control no-reboot-check '  _updates_reboot' '  :' row_reboot
-control no-success-recheck '  _updates_recheck success' '  :' row_reboot
-control no-failure-recheck '  _updates_recheck failed' '  :' row_failure
+control no-recovery "trap '_updates_failed \$?' ERR" ':' row_stopped
+control no-reboot-check '  _updates_reboot "${core[@]}"' '  :' row_reboot
+control no-success-recheck '  _updates_recheck "$ended"' '  :' row_reboot
+control no-failure-recheck '  _updates_recheck failed' '  :' row_stopped
+control source-stops-run '{ "$@"; } 2> >(tee -a -- "$_updates_cause_file" >&2) || status=$?' '{ "$@"; } 2> >(tee -a -- "$_updates_cause_file" >&2)' row_failure
+control cause-keeps-escapes 'sed -E -e $'"'"'s/\e' 'sed -E -e $'"'"'s/NEVER\e' row_failure
+control failure-exits-0 '  [[ $ended == success ]] || exit 1' '  :' row_failure
+control interrupt-goes-on 'if [[ $status -eq 130 ]]; then' 'if false; then' row_interrupted
+control declined-fails 'if [[ $_updates_declined == 1 ]]; then' 'if false; then' row_full
+control reboot-ignores-upgrades 'if [[ $# -gt 0 ]]; then' 'if false; then' row_reboot_core
+control install-anyway-ignored '      1) echo "Installing $name anyway." ;;' '      1) _updates_skip_aur+=("$name"); _updates_skip_repo+=("$name") ;;' row_review_flagged
+control skip-aur-installed 'if _updates_in "$name" "${_updates_review_aur[@]}"; then _updates_skip_aur+=("$name"); fi' ':' row_review_flagged
+control risks-unasked '        risk) _updates_review_risks+=("$name The install script adds: $value") ;;' '        risk) ;;' row_review_install
+control installed-script-unread 'installed="${db%/}/local/$name-$old/install"; fi' 'installed=-; fi' row_review_install
 control orphans-default-yes 'orphaned package(s)?" --default=false || status=$?' 'orphaned package(s)?" || status=$?' row_orphans
 control log-clobbers 'vgs_tui_log "$UPDATES_LOG_PART"' 'vgs_tui_log "$_updates_log"' row_busy
 control unasked-start 'vgs_tui_confirm "Start the update?" || status=$?' 'true || status=$?' row_declined

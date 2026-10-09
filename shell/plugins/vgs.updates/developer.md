@@ -142,7 +142,7 @@ The widget is always visible by default. `hideWhenCurrent`, off by default, hide
 
 Before an update installs packages from outside the distribution's official repositories, an AI agent reviews them for supply-chain risk. On Arch these are AUR packages and packages from a pacman repository other than `core`, `extra`, `multilib` and the CachyOS repositories. The agent runs in a second window. When it is done, it tells the user to close the window, and the update continues.
 
-The update installs what the review allows. A flagged package asks the user to skip it or stop the update. A review that ends without a result asks whether to continue without a review or stop, and stops by default. The agent installs nothing and never gets administrator access. The default commands run the agent in a restricted mode: it asks before it runs a command and writes only in the review directory. An edited command runs as written.
+The update installs what the review allows. A flagged package asks the user to skip it or install it anyway. A review that ends without a result asks whether to continue without a review or stop, and stops by default. The agent installs nothing and never gets administrator access. The default commands run the agent in a restricted mode: it asks before it runs a command and writes only in the review directory. An edited command runs as written.
 
 The settings, in the Update options group:
 
