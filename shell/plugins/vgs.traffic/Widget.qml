@@ -7,11 +7,9 @@ BarWidget {
     id: root
     readonly property var traffic: shell === null ? ({}) : shell.status.values.traffic || ({})
     readonly property string showMode: setting("show", "both")
-    // Stacked draws upload over download on two short lines; one shown
-    // speed stays one line.
-    readonly property bool stacked: setting("layout", "One line") === "Stacked" && showMode === "both"
-    readonly property var directions: (stacked ? ["up", "down"] : ["down", "up"])
-        .filter(direction => showMode === "both" || showMode === (direction === "up" ? "upload" : "download"))
+    // Stacked draws upload over download on BarItem's two short lines;
+    // one shown speed stays one line.
+    readonly property bool stacked: setting("layout") === "Stacked" && showMode === "both"
     readonly property int kbDigits: setting("kbDecimals", 0)
     readonly property int mbDigits: setting("mbDecimals", 1)
     function rate(value) { return Logic.formatRate(value, kbDigits, mbDigits); }
@@ -19,23 +17,20 @@ BarWidget {
 
     // Each speed holds the width it lays out to at the rate sample and
     // draws right aligned in it, so the arrow stays beside its rate and the
-    // held room sits before the arrow. Stacked lines left-align in one
-    // block, with the held room before the whole block.
+    // held room sits before the arrow.
     component Speed: Item {
         id: speed
         property string arrow: ""
         property string rate: ""
         property string sample: ""
-        property bool stacked: false
-        readonly property real heldWidth: line.implicitWidth + reading.room
-        implicitWidth: stacked ? line.implicitWidth : heldWidth
+        implicitWidth: line.implicitWidth + reading.room
         implicitHeight: line.implicitHeight
         Row {
             id: line
             anchors.right: parent.right
             spacing: Theme.row.lineGap
-            BarItem.Reading { stacked: speed.stacked; text: speed.arrow; color: Theme.color.accent }
-            BarItem.Reading { id: reading; stacked: speed.stacked; text: speed.rate; sample: speed.sample; font.capitalization: Font.MixedCase }
+            Label { role: "bar"; text: speed.arrow; color: Theme.color.accent }
+            BarItem.Reading { id: reading; text: speed.rate; sample: speed.sample; font.capitalization: Font.MixedCase }
         }
     }
     property bool leased: false
@@ -45,7 +40,7 @@ BarWidget {
     onShellChanged: hold()
     onTrafficChanged: hold()
     Component.onDestruction: if (leased && shell !== null) shell.ipc.call("lease", JSON.stringify({ id: String(root), open: false }))
-    implicitWidth: button.implicitWidth
+    implicitWidth: (root.stacked ? stackedButton : button).implicitWidth
     implicitHeight: barSize
 
     function toggle() {
@@ -54,8 +49,27 @@ BarWidget {
         return reply;
     }
 
+    // Stacked, BarItem draws the two lines with their arrow icons; one
+    // line draws the speeds in a row of its own. One of the two shows.
+    BarItem {
+        id: stackedButton
+        visible: root.stacked
+        anchors.centerIn: parent
+        label: "Network Traffic"
+        tooltip: "Network Traffic"
+        tooltipDetails: button.tooltipDetails
+        onClicked: root.toggle()
+        stacked: true
+        iconName: "arrow-up"
+        countIconName: "arrow-down"
+        text: root.rate(root.traffic.up)
+        count: root.rate(root.traffic.down)
+        textSample: root.rateSample
+        countSample: root.rateSample
+    }
     BarItem {
         id: button
+        visible: !root.stacked
         anchors.centerIn: parent
         label: "Network Traffic"
         // It draws text, so it keeps a text item's padding: BarItem reads an
@@ -65,26 +79,14 @@ BarWidget {
         tooltipDetails: (root.traffic.interfaces || []).map(row => row.name + "  ↓ " + root.rate(row.down) + "  ↑ " + root.rate(row.up))
         onClicked: root.toggle()
         contentItem: Item {
-            implicitWidth: root.stacked ? Math.max(speeds.itemAt(0)?.heldWidth || 0, speeds.itemAt(1)?.heldWidth || 0) : rates.implicitWidth
+            implicitWidth: rates.implicitWidth
             implicitHeight: rates.implicitHeight
-            Grid {
+            Row {
                 id: rates
-                x: root.stacked ? Math.round((parent.width + parent.implicitWidth) / 2 - width) : (parent.width - width) / 2
-                anchors.verticalCenter: parent.verticalCenter
-                columns: root.stacked ? 1 : 2
-                columnSpacing: Theme.stack.inline
-                horizontalItemAlignment: root.stacked ? Grid.AlignLeft : Grid.AlignRight
-                Repeater {
-                    id: speeds
-                    model: root.directions
-                    Speed {
-                        required property string modelData
-                        arrow: modelData === "up" ? "↑" : "↓"
-                        rate: root.rate(root.traffic[modelData])
-                        sample: root.rateSample
-                        stacked: root.stacked
-                    }
-                }
+                anchors.centerIn: parent
+                spacing: Theme.stack.inline
+                Speed { visible: root.showMode !== "upload"; arrow: "↓"; rate: root.rate(root.traffic.down); sample: root.rateSample }
+                Speed { visible: root.showMode !== "download"; arrow: "↑"; rate: root.rate(root.traffic.up); sample: root.rateSample }
             }
         }
     }

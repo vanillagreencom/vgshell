@@ -16,11 +16,14 @@ import qs.Unit
 // padding, and the icon or caption stays as far from its value as with no
 // held room; a stacked item draws text over count in `bar.stacked.size`,
 // both lines inside the item at every item height, left aligned in a
-// block whose held width is its wider line's sample, each line starting
-// at the item gap from the icon at a short reading as at the widest, and
-// with one reading shown stays one line; `active` fills it with
-// `bar.active`;
-// hover and press fill it with their own tokens; a click emits `clicked`.
+// block whose held width is its wider line's sample, in mixed case under
+// an uppercase bar role; with an icon each line draws its own,
+// `bar.stacked.icon` at `bar.stacked.iconStroke` in that line's colour,
+// centred in the line and `bar.item.gap` before its value at a short
+// reading as at the widest, in place of the one icon, while a caption
+// stays the item gap before the block; with one reading shown it stays
+// one line; `active` fills it with `bar.active`; hover and press fill it
+// with their own tokens; a click emits `clicked`.
 Item {
     id: root
     width: 300
@@ -62,6 +65,14 @@ Item {
         function firstIcon(item) {
             const walk = node => { for (const child of node.children) { if (child.name !== undefined && child.paths !== undefined) return child; const found = walk(child); if (found) return found; } return null; };
             return walk(item.contentItem);
+        }
+        // The icons the stacked lines draw, the text line's first: every
+        // shown icon but the item's one icon.
+        function lineIcons(item) {
+            const glyph = firstIcon(item), out = [];
+            const walk = node => { for (const child of node.children) { if (child.paths !== undefined && child !== glyph && child.visible) out.push(child); walk(child); } };
+            walk(item.contentItem);
+            return out;
         }
 
         function test_geometry_follows_the_bar_item_tokens() {
@@ -242,14 +253,21 @@ Item {
         function lineStarts(item) {
             return labels(item).filter(label => label.text === item.text || (item.stackedShown && label.text === item.count));
         }
-        // The blank between the icon's or caption's ink and the ink of
-        // each value that starts a line.
-        function markGaps(img, item) {
+        // The mark before each value that starts a line: stacked with
+        // icons, that line's own icon; otherwise the icon or caption.
+        function marks(item) {
             const glyph = firstIcon(item);
-            const mark = glyph.parent.visible ? glyph : labels(item)[0];
-            const markInk = inkRight(img, mark);
-            verify(markInk >= 0, "the mark draws");
-            return lineStarts(item).map(value => {
+            return lineStarts(item).map(value => item.lineIcons
+                ? value.parent.children.find(child => child.paths !== undefined && child.visible)
+                : glyph.parent.visible ? glyph : labels(item)[0]);
+        }
+        // The blank between each mark's ink and the ink of its value.
+        function markGaps(img, item) {
+            const found = marks(item);
+            return lineStarts(item).map((value, index) => {
+                verify(found[index] !== undefined, "\"" + value.text + "\" has its mark");
+                const markInk = inkRight(img, found[index]);
+                verify(markInk >= 0, "the mark draws");
                 const valueInk = inkLeft(img, value);
                 verify(valueInk >= 0, "\"" + value.text + "\" draws");
                 return valueInk - (markInk + 1);
@@ -259,16 +277,18 @@ Item {
         // A short and the widest value held at the same sample, on one line
         // and stacked: the held room sits before the icon or caption, so the
         // blank between it and each line's value is the one the same item
-        // with no held room draws, and stacked, each line's box starts the
-        // item gap after the icon's or caption's box, the shorter line too.
+        // with no held room draws. Stacked with icons, each line's value
+        // starts `bar.item.gap` after its own icon's box and both icons
+        // start at one left edge; stacked with a caption, each line's box
+        // starts the item gap after the caption's box, the shorter line too.
         function test_the_mark_stays_beside_its_value_data() {
             return [
                 { tag: "short", held: { iconName: "cpu", text: "9%", textSample: "100%" } },
                 { tag: "widest", held: { iconName: "cpu", text: "100%", textSample: "100%" } },
                 { tag: "short-count", held: { iconName: "cpu", text: "9%", textSample: "100%", count: "9°", countSample: "100°", separator: "/" } },
                 { tag: "short-caption", held: { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%" } },
-                { tag: "stacked-short", held: { iconName: "cpu", text: "3%", textSample: "100%", count: "41°", countSample: "100°", stacked: true } },
-                { tag: "stacked-widest", held: { iconName: "cpu", text: "100%", textSample: "100%", count: "100°", countSample: "100°", stacked: true } },
+                { tag: "stacked-short", held: { iconName: "cpu", countIconName: "thermometer", text: "3%", textSample: "100%", count: "41°", countSample: "100°", stacked: true } },
+                { tag: "stacked-widest", held: { iconName: "cpu", countIconName: "thermometer", text: "100%", textSample: "100%", count: "100°", countSample: "100°", stacked: true } },
                 { tag: "stacked-caption", held: { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%", stacked: true } }
             ];
         }
@@ -286,13 +306,18 @@ Item {
             compare(heldGaps.length, data.held.stacked ? 2 : 1);
             for (let index = 0; index < heldGaps.length; index++)
                 verify(Math.abs(heldGaps[index] - bareGaps[index]) <= 1, "the held item keeps its mark beside its value: held " + heldGaps[index] + ", bare " + bareGaps[index]);
-            if (data.held.stacked) {
-                const glyph = firstIcon(held);
-                const mark = glyph.parent.visible ? glyph.parent : labels(held)[0];
+            if (held.lineIcons) {
+                const icons = marks(held);
+                for (const [index, value] of lineStarts(held).entries())
+                    tryVerify(() => Math.abs(value.mapToItem(held, 0, 0).x - icons[index].mapToItem(held, icons[index].width, 0).x - Theme.bar.item.gap) <= 0.5, 1000,
+                        "\"" + value.text + "\" starts the stacked gap after its icon");
+                compare(icons[0].mapToItem(held, 0, 0).x, icons[1].mapToItem(held, 0, 0).x, "both line icons start at one left edge");
+            } else if (data.held.stacked) {
+                const mark = labels(held)[0];
                 const markEnd = mark.mapToItem(held, mark.width, 0).x;
                 for (const value of lineStarts(held))
                     tryVerify(() => Math.abs(value.mapToItem(held, 0, 0).x - markEnd - held.spacing) <= 0.5, 1000,
-                        "\"" + value.text + "\" starts the item gap after the mark");
+                        "\"" + value.text + "\" starts the item gap after the caption");
             }
         }
 
@@ -420,6 +445,96 @@ Item {
             verify(waitForRendering(canvas));
             compare(item.width, width, "the item keeps its width as its readings change");
             compare(starts()[0], starts()[1]);
+        }
+
+        // Each stacked line draws its own icon from the shipped set at the
+        // stacked size and stroke, in its own line's level colour, centred
+        // in its line and the stacked gap before its value; the one icon is
+        // gone, and a line with no icon name draws no icon box, its value
+        // starting at the block's left edge.
+        function test_stacked_lines_draw_their_own_icons_data() {
+            return [
+                { tag: "levels", properties: { iconName: "cpu", countIconName: "thermometer", textLevel: "warning", countLevel: "danger" },
+                    icons: ["cpu", "thermometer"], colours: ["warning", "danger"] },
+                { tag: "normal", properties: { iconName: "memory-stick", countIconName: "hard-drive" },
+                    icons: ["memory-stick", "hard-drive"], colours: ["normal", "normal"] },
+                { tag: "count-without-icon", properties: { iconName: "cpu", countLevel: "danger" },
+                    icons: ["cpu"], colours: ["normal"] }
+            ];
+        }
+
+        function test_stacked_lines_draw_their_own_icons(data) {
+            const tone = "#123456";
+            const colours = { normal: Qt.color(tone), warning: Qt.color(Theme.color.warning), danger: Qt.color(Theme.color.danger) };
+            const item = createTemporaryObject(readingCase, root, Object.assign({ stacked: true, tone: tone, text: "5%", count: "41°" }, data.properties));
+            verify(item !== null);
+            compare(firstIcon(item).parent.visible, false, "the one icon is gone");
+            const values = labels(item);
+            compare(JSON.stringify(values.map(label => label.text)), JSON.stringify(["5%", "41°"]));
+            const icons = lineIcons(item);
+            compare(JSON.stringify(icons.map(icon => icon.name)), JSON.stringify(data.icons));
+            for (const [index, icon] of icons.entries()) {
+                const value = values[index];
+                compare(icon.size, Theme.bar.stacked.icon);
+                compare(icon.width, Theme.bar.stacked.icon);
+                compare(icon.stroke, Theme.bar.stacked.iconStroke);
+                compare(icon.color, colours[data.colours[index]], icon.name + " draws its line's colour");
+                compare(icon.parent, value.parent, icon.name + " draws on its value's line");
+                tryVerify(() => Math.abs(value.mapToItem(item, 0, 0).x - icon.mapToItem(item, icon.width, 0).x - Theme.bar.item.gap) <= 0.5, 1000,
+                    icon.name + " stands the stacked gap before \"" + value.text + "\"");
+                const top = icon.mapToItem(value, 0, 0).y;
+                verify(top >= 0 && top + icon.height <= value.height, icon.name + " lies inside its line: top " + top);
+                fuzzyCompare(top + icon.height / 2, value.height / 2, 0.5);
+            }
+            if (icons.length === 1)
+                compare(values[1].mapToItem(item, 0, 0).x, icons[0].mapToItem(item, 0, 0).x, "a line with no icon starts at the block's left edge");
+        }
+
+        // The block holds its wider line, icon and value at its sample:
+        // the item is as wide as the same item showing its samples, and
+        // keeps that width as its readings change.
+        function test_stacked_icons_hold_the_block_width() {
+            const icons = { iconName: "cpu", countIconName: "thermometer", stacked: true };
+            const held = createTemporaryObject(readingCase, root, Object.assign({ text: "3%", textSample: "100%", count: "41°", countSample: "100°" }, icons));
+            const wide = createTemporaryObject(readingCase, root, Object.assign({ text: "100%", count: "100°", y: 40 }, icons));
+            verify(held !== null && wide !== null);
+            tryVerify(() => wide.width > wide.height, 1000, "the wide item lays out");
+            tryCompare(held, "width", wide.width, 1000, "the held item is as wide as its samples shown");
+            held.text = "100%";
+            held.count = "100°";
+            verify(waitForRendering(held));
+            compare(held.width, wide.width, "the item keeps its width as its readings change");
+        }
+
+        // The stacked lines draw mixed case under a bar role that
+        // uppercases, so a unit such as "MB/s" keeps its letters.
+        function test_stacked_lines_keep_their_case() {
+            compare(UnitTheme.override({ text: { bar: { uppercase: true } } }), "ok");
+            const one = createTemporaryObject(readingCase, root, { text: "1 MB/s" });
+            const item = createTemporaryObject(readingCase, root, { stacked: true, iconName: "arrow-up", countIconName: "arrow-down", text: "1 MB/s", count: "2 KB/s", y: 40 });
+            verify(one !== null && item !== null);
+            compare(labels(one)[0].font.capitalization, Font.AllUppercase, "the theme uppercases the bar role");
+            const found = labels(item);
+            compare(found.length, 2);
+            for (const label of found) compare(label.font.capitalization, Font.MixedCase, "\"" + label.text + "\" keeps its case");
+        }
+
+        // One line, a caption, a spinner or one reading shown: the item
+        // keeps its one mark and its lines draw no icons.
+        function test_the_one_mark_stays_data() {
+            return [
+                { tag: "one-line", properties: { iconName: "cpu", countIconName: "thermometer", text: "5%", count: "41°", separator: "/" }, glyph: true },
+                { tag: "one-reading", properties: { iconName: "cpu", countIconName: "thermometer", text: "5%", stacked: true }, glyph: true },
+                { tag: "spinner", properties: { iconName: "cpu", countIconName: "thermometer", text: "5%", count: "41°", stacked: true, spinning: true }, glyph: true },
+                { tag: "caption", properties: { iconName: "cpu", countIconName: "thermometer", caption: "CPU", text: "5%", count: "41°", stacked: true }, glyph: false }
+            ];
+        }
+
+        function test_the_one_mark_stays(data) {
+            const item = createTemporaryObject(readingCase, root, data.properties);
+            verify(item !== null);
+            compare(firstIcon(item).parent.visible, data.glyph);
+            compare(lineIcons(item).length, 0, "no line draws an icon");
         }
 
         function test_one_reading_stays_one_line_data() {

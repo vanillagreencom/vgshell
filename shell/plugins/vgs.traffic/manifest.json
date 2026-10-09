@@ -105,13 +105,32 @@
     }
   ],
   "settings": {
+    "layout": "Stacked",
+    "refreshSeconds": 2,
     "show": "both",
-    "layout": "One line",
     "kbDecimals": 0,
-    "mbDecimals": 1,
-    "refreshSeconds": 2
+    "mbDecimals": 1
   },
   "schema": {
+    "layout": {
+      "type": "enum",
+      "label": "Layout",
+      "options": [
+        "Stacked",
+        "One line"
+      ],
+      "description": "Stacked shows two readings on two short lines.",
+      "group": "Readings"
+    },
+    "refreshSeconds": {
+      "type": "number",
+      "label": "Refresh interval",
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "unit": "seconds",
+      "group": "Readings"
+    },
     "show": {
       "type": "enum",
       "label": "Speeds shown",
@@ -120,16 +139,6 @@
         "download",
         "upload"
       ],
-      "group": "Display"
-    },
-    "layout": {
-      "type": "enum",
-      "label": "Layout",
-      "options": [
-        "One line",
-        "Stacked"
-      ],
-      "description": "Stacked shows two readings on two short lines.",
       "group": "Display"
     },
     "kbDecimals": {
@@ -149,15 +158,6 @@
       "max": 2,
       "step": 1,
       "group": "Display"
-    },
-    "refreshSeconds": {
-      "type": "number",
-      "label": "Refresh interval",
-      "min": 1,
-      "max": 10,
-      "step": 1,
-      "unit": "seconds",
-      "group": "Readings"
     }
   },
   "status": {

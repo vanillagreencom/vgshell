@@ -15,7 +15,7 @@ BarWidget {
     implicitWidth: row.implicitWidth
     implicitHeight: row.implicitHeight
     readonly property bool captions: setting("labelStyle", "icons") === "text"
-    readonly property bool stacked: setting("layout", "One line") === "Stacked"
+    readonly property bool stacked: setting("layout") === "Stacked"
     readonly property var gpuTemperature: gpu && gpu.state !== "asleep" ? gpu.temperature : null
     visible: setting("showCpu", true) || setting("showMemory", true) || (setting("showGpu", true) && gpu !== null)
 
@@ -48,6 +48,7 @@ BarWidget {
             visible: root.setting("showCpu", true)
             label: "CPU"
             iconName: root.captions ? "" : "cpu"
+            countIconName: root.captions ? "" : "thermometer"
             caption: root.captions ? "CPU" : ""
             text: root.percent(root.cpu.use)
             count: root.setting("cpuTemperature", false) ? root.degrees(root.cpu.temperature) : ""
@@ -64,6 +65,7 @@ BarWidget {
             visible: root.setting("showMemory", true)
             label: "Memory"
             iconName: root.captions ? "" : "memory-stick"
+            countIconName: root.captions ? "" : "hard-drive"
             caption: root.captions ? "RAM" : ""
             text: root.setting("memoryUnit", "percent") === "used" ? root.gb(root.memory.used) : root.percent(root.memory.use)
             count: root.setting("showSwap", false) ? root.percent(root.memory.swapUse) : ""
@@ -80,6 +82,7 @@ BarWidget {
             visible: root.setting("showGpu", true) && root.gpu !== null
             label: "GPU"
             iconName: root.captions ? "" : "gpu"
+            countIconName: root.captions ? "" : "thermometer"
             caption: root.captions ? "GPU" : ""
             text: root.percent(root.gpu && root.gpu.state === "asleep" ? null : root.gpu ? root.gpu.use : null)
             count: root.setting("gpuTemperature", false) ? root.degrees(root.gpuTemperature) : ""

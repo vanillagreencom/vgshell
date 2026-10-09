@@ -1025,10 +1025,15 @@ var TOKENS = {
         // line tighter than the font's own. Both follow the item's height,
         // and a line is just under half of it, so the two lines fit the
         // item at every height once the judge rounds each to a pixel. At
-        // the shipped 24 px item that is 10 px text on 12 px lines.
+        // the shipped 24 px item that is 10 px text on 12 px lines. Each
+        // line draws its own `icon` at the text size with a 1 px
+        // `iconStroke`, a lighter line than the bar icon's to suit the
+        // smaller glyph.
         stacked: {
             size: length("mul({bar.item.height}, 0.4)"),
-            lineHeight: length("mul({bar.item.height}, 0.48)")
+            lineHeight: length("mul({bar.item.height}, 0.48)"),
+            icon: length("{bar.stacked.size}"),
+            iconStroke: number(1, 0.5, 4)
         },
         // A gap or a separator the user adds from the bar's menu: the gap's
         // empty width, the room either side of the separator's line, and

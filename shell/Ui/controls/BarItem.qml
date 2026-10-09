@@ -23,11 +23,16 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // and the item keeps its width as the reading changes. A reading without a
 // sample holds no room. `stacked`, with both text and count shown, draws
 // the text over the count on two short lines, `bar.stacked.size` text in
-// `bar.stacked.lineHeight` boxes, with no separator: the two lines left
-// align in a block beside the icon, so each starts at the item gap from
-// it, and the held width is the wider line at its sample, so the room sits
-// before the icon and both lines fit inside the item. The item is as wide
-// as its
+// `bar.stacked.lineHeight` boxes, in mixed case, since a reading carries a
+// unit such as "MB/s" an uppercase role would change, and with no
+// separator. With an icon, each line draws its own in place of the item's
+// one icon: `iconName` before the text and `countIconName` before the
+// count, `bar.stacked.icon` wide at the `bar.stacked.iconStroke` line, in
+// that line's own level colour, `bar.item.gap` from its reading; a line
+// whose icon name is empty draws none. A caption or a spinner stays left
+// of the two lines instead. The lines left align in a block, and the held
+// width is the wider line at its sample, so the room sits before the
+// block and both lines fit inside the item. The item is as wide as its
 // padding and what it draws, and reserves no room after it. The item is
 // never narrower than it is tall, and an item that draws an icon alone is
 // square, its icon centred. The tooltip reads `tooltip` as its title and
@@ -75,6 +80,16 @@ T.AbstractButton {
         }
     }
 
+    // A stacked line's icon, centred in the line's box. A Row lays out
+    // only visible children, so a hidden icon leaves no gap before its
+    // value (tst_baritem.qml test_stacked_lines_draw_their_own_icons,
+    // count-without-icon, under scripts/qml-unit.sh on 2026-10-09).
+    component LineIcon: Icon {
+        size: Theme.bar.stacked.icon
+        stroke: Theme.bar.stacked.iconStroke
+        anchors.verticalCenter: parent.verticalCenter
+    }
+
     readonly property real minimumWidth: Theme.control.minWidth
     readonly property real maximumWidth: Theme.control.maxWidth
     Layout.minimumWidth: minimumWidth
@@ -83,6 +98,8 @@ T.AbstractButton {
     InputWidth { target: root }
 
     property string iconName: ""
+    // The count line's icon in the stacked layout.
+    property string countIconName: ""
     property string count: ""
     // The widest form of `text` and of `count`, held by their Readings.
     property string textSample: ""
@@ -92,6 +109,9 @@ T.AbstractButton {
     // Draw text and count on two lines; with one of them shown it is one.
     property bool stacked: false
     readonly property bool stackedShown: stacked && text !== "" && count !== ""
+    // Stacked lines draw their own icons unless a caption or a spinner
+    // stands left of them.
+    readonly property bool lineIcons: stackedShown && caption === "" && !spinning
     // "normal", "warning" or "danger".
     property string textLevel: "normal"
     property string countLevel: "normal"
@@ -135,7 +155,7 @@ T.AbstractButton {
         // The row's width with every reading at its sample; stacked, the
         // block's width with its wider line at its sample.
         readonly property real held: row.implicitWidth + textLabel.room + countLabel.room
-            + (stack.visible ? Math.max(stackText.implicitWidth + stackText.room, stackCount.implicitWidth + stackCount.room) - stack.implicitWidth : 0)
+            + (stack.visible ? Math.max(textLine.implicitWidth + stackText.room, countLine.implicitWidth + stackCount.room) - stack.implicitWidth : 0)
         implicitWidth: held
         implicitHeight: row.implicitHeight
 
@@ -155,7 +175,7 @@ T.AbstractButton {
                 y: topForCapCenter(row.height)
             }
             Item {
-                visible: (root.iconName !== "" && root.caption === "") || root.spinning
+                visible: ((root.iconName !== "" && root.caption === "") || root.spinning) && !root.lineIcons
                 width: Theme.bar.item.icon
                 height: Theme.bar.item.icon
                 anchors.verticalCenter: parent.verticalCenter
@@ -206,19 +226,17 @@ T.AbstractButton {
                 id: stack
                 visible: root.stackedShown
                 anchors.verticalCenter: parent.verticalCenter
-                Reading {
-                    id: stackText
-                    stacked: true
-                    sample: root.textSample
-                    text: root.text
-                    color: root.textColor
+                Row {
+                    id: textLine
+                    spacing: Theme.bar.item.gap
+                    LineIcon { visible: root.lineIcons && name !== ""; name: root.iconName; color: root.textColor }
+                    Reading { id: stackText; stacked: true; sample: root.textSample; text: root.text; color: root.textColor; font.capitalization: Font.MixedCase }
                 }
-                Reading {
-                    id: stackCount
-                    stacked: true
-                    sample: root.countSample
-                    text: root.count
-                    color: root.countColor
+                Row {
+                    id: countLine
+                    spacing: Theme.bar.item.gap
+                    LineIcon { visible: root.lineIcons && name !== ""; name: root.countIconName; color: root.countColor }
+                    Reading { id: stackCount; stacked: true; sample: root.countSample; text: root.count; color: root.countColor; font.capitalization: Font.MixedCase }
                 }
             }
         }

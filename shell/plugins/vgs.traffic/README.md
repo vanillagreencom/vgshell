@@ -5,7 +5,7 @@ See download and upload speeds in the bar. Click the widget to see traffic per a
 ![Network Traffic showing app download and upload rates](../../../docs/images/plugins/vgs.traffic-panel.webp)
 
 - Choose download, upload, or both speeds in the bar.
-- Stack the upload speed over the download speed on two short lines.
+- Stack the upload speed over the download speed on two short lines, each with its arrow icon.
 - Search apps and sort their download, upload, or connection count.
 - Click an app to inspect its processes and connections, or to kill it. Kill asks first and names the app and its processes.
 - See traffic from other accounts and protocols in Other traffic.
@@ -13,7 +13,7 @@ See download and upload speeds in the bar. Click the widget to see traffic per a
 
 ## Setup
 
-Open Settings > Plugins > Network Traffic to change the speeds shown, the layout, the decimals each speed shows, and the refresh interval. By default, KB/s shows no decimals and MB/s shows one. Apps show TCP traffic from your account. Other traffic includes UDP, system services, and other accounts.
+Open Settings > Plugins > Network Traffic to change the speeds shown, the layout, the decimals each speed shows, and the refresh interval. By default, the speeds are stacked, KB/s shows no decimals and MB/s shows one. Apps show TCP traffic from your account. Other traffic includes UDP, system services, and other accounts.
 
 The optional bandwhich requirement enables See all. Install it from the Requirements section. The Traffic capture row has Allow when capture access is needed. Allowing it lets every account on this computer see network traffic through bandwhich.
 

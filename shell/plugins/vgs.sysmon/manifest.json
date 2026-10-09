@@ -50,6 +50,10 @@
     }
   ],
   "settings": {
+    "layout": "Stacked",
+    "labelStyle": "icons",
+    "refreshSeconds": 2,
+    "temperatureUnit": "Celsius",
     "showCpu": true,
     "cpuTemperature": false,
     "cpuSensor": "automatic",
@@ -58,11 +62,7 @@
     "memoryUnit": "percent",
     "showGpu": true,
     "gpuTemperature": false,
-    "gpu": "",
-    "labelStyle": "icons",
-    "layout": "One line",
-    "refreshSeconds": 2,
-    "temperatureUnit": "Celsius"
+    "gpu": ""
   },
   "status": {
     "readings": {
@@ -84,6 +84,45 @@
     }
   },
   "schema": {
+    "layout": {
+      "type": "enum",
+      "label": "Layout",
+      "options": [
+        "Stacked",
+        "One line"
+      ],
+      "description": "Stacked shows two readings on two short lines.",
+      "group": "Readings"
+    },
+    "labelStyle": {
+      "type": "enum",
+      "label": "Labels",
+      "options": [
+        "icons",
+        "text"
+      ],
+      "description": "Shows an icon or a short name before each reading.",
+      "group": "Readings"
+    },
+    "refreshSeconds": {
+      "type": "number",
+      "label": "Refresh interval",
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "unit": "seconds",
+      "group": "Readings"
+    },
+    "temperatureUnit": {
+      "type": "enum",
+      "label": "Temperature unit",
+      "options": [
+        "Celsius",
+        "Fahrenheit"
+      ],
+      "description": "Sets the unit for CPU and GPU temperatures.",
+      "group": "Readings"
+    },
     "showCpu": {
       "type": "boolean",
       "label": "CPU",
@@ -136,45 +175,6 @@
       "label": "Graphics card",
       "optionsFrom": "gpus",
       "group": "GPU"
-    },
-    "labelStyle": {
-      "type": "enum",
-      "label": "Labels",
-      "options": [
-        "icons",
-        "text"
-      ],
-      "description": "Shows an icon or a short name before each reading.",
-      "group": "Readings"
-    },
-    "layout": {
-      "type": "enum",
-      "label": "Layout",
-      "options": [
-        "One line",
-        "Stacked"
-      ],
-      "description": "Stacked shows two readings on two short lines.",
-      "group": "Readings"
-    },
-    "refreshSeconds": {
-      "type": "number",
-      "label": "Refresh interval",
-      "min": 1,
-      "max": 10,
-      "step": 1,
-      "unit": "seconds",
-      "group": "Readings"
-    },
-    "temperatureUnit": {
-      "type": "enum",
-      "label": "Temperature unit",
-      "options": [
-        "Celsius",
-        "Fahrenheit"
-      ],
-      "description": "Sets the unit for CPU and GPU temperatures.",
-      "group": "Readings"
     }
   },
   "tui": {

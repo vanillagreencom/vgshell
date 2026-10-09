@@ -126,6 +126,9 @@ const DEFAULTS = [
     // 12 px lines, two of them the item's 24 px.
     ["bar.stacked.size", 10],
     ["bar.stacked.lineHeight", 12],
+    // Each stacked line's icon at the line's 10 px text, drawn at 1 px.
+    ["bar.stacked.icon", 10],
+    ["bar.stacked.iconStroke", 1],
     ["bar.scroll.fade", 12],
     // The control and row rhythm, Radix Themes' button sizes on the 4 px
     // unit: 24, 32 and 40 px controls with mul(4, 2) = 8, mul(4, 3) = 12
@@ -1065,7 +1068,8 @@ verifyBarSeparator(TOKENS);
 
 // Two stacked lines fit the bar item at every height the judge lets a
 // theme give it, its whole length range and odd heights between, and the
-// stacked text is smaller than the bar text.
+// stacked text is smaller than the bar text. Each line's icon fits its
+// line.
 function verifyBarStacked(table) {
     const judge = load(judgeFile);
     const defaults = judge.defaults(table).values;
@@ -1076,6 +1080,7 @@ function verifyBarStacked(table) {
         const line = at(result.values, "bar.stacked.lineHeight");
         assert.ok(2 * line <= height, `item height ${height}: two ${line} px lines`);
         assert.ok(at(result.values, "bar.stacked.size") <= line, `item height ${height}: the text fits its line`);
+        assert.ok(at(result.values, "bar.stacked.icon") <= line, `item height ${height}: the icon fits its line`);
     }
 }
 verifyBarStacked(TOKENS);
@@ -1101,6 +1106,7 @@ const TOKEN_CONTROLS = [
     ["bar separator colour", 'line: color("alpha({bar.foreground}, 0.2)")', 'line: color("alpha({bar.foreground}, 0.4)")', verifyBarSeparator],
     ["bar separator height", 'height: length(12),\n            line:', 'height: length("{icon.size.md}"),\n            line:', verifyBarSeparator],
     ["stacked lines rounded past the item", 'lineHeight: length("mul({bar.item.height}, 0.48)")', 'lineHeight: length("mul({bar.item.height}, 0.5)")', verifyBarStacked],
+    ["stacked icon past its line", 'icon: length("{bar.stacked.size}")', 'icon: length("{bar.item.height}")', verifyBarStacked],
     ["stacked text at the bar size", 'size: length("mul({bar.item.height}, 0.4)")', 'size: length("{text.bar.size}")', verifyBarStacked],
     ["bar scroll fade end", 'clear: color("alpha({bar.background}, 0)")', 'clear: color("alpha({bar.foreground}, 0)")', verifyBarScroll],
     ["bar scroll backdrop", 'backdrop: color("{bar.background}")', 'backdrop: color("{color.surface}")', verifyBarScroll]
@@ -1296,7 +1302,7 @@ try {
 const GRID_EXCEPTIONS = [
     [/^(font\.size|text\.[^.]+\.size|bar\.stacked\.size)$/, "type sizes"],
     [/(^border\.|\.border$|[bB]orderWidth$|^divider\.thickness$|^focusRing\.width$|^titleButton\.underline$|^rowAction\.underline(Hover)?$|^tabs\.indicator$|^segmented\.indicator$|^avatarGroup\.ringWidth$|^hyprland\.border\.size$)/, "strokes"],
-    [/^(icon\.size\.|button\.size\.[^.]+\.icon$|rowAction\.icon$|slider\.handle$|radio\.dot$)/, "indicator and icon drawing sizes"],
+    [/^(icon\.size\.|button\.size\.[^.]+\.icon$|rowAction\.icon$|bar\.stacked\.icon$|slider\.handle$|radio\.dot$)/, "indicator and icon drawing sizes"],
     [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap|rowAction\.underlineGap|carousel\.sliceName\.shadowOffset)$/, "2 px steps inside one component"],
     [/^textField\.paddingX$/, "optical insets inside one component"],
     [/^(space\.sm|badge\.size\.sm\.paddingX|kbd\.paddingX|tooltip\.paddingY)$/, "6 px padding inside a chip, a key cap or a tooltip"],

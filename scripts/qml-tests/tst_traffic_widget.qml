@@ -1,6 +1,7 @@
 import QtQuick
 import QtTest
 import qs.Commons
+import qs.Core
 import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.traffic" as Traffic
@@ -11,9 +12,10 @@ import "../../shell/plugins/vgs.traffic" as Traffic
 // the outer room of every bar item, and the boxes stand the bar gap
 // apart, as two icon-only items do. A high rate leaves the widget's width
 // where 0 B/s put it, so the bar does not shift, and the held room sits
-// before each arrow, so an arrow stays beside its rate. The Stacked layout
-// draws the upload line over the download line inside the item, each
-// arrow beside its rate. Both stacked arrows start at the block's left
+// before each arrow, so an arrow stays beside its rate. The Stacked
+// layout, the manifest's default, draws BarItem's two lines: the upload
+// line over the download line inside the item, each led by its arrow
+// icon beside its rate. Both stacked arrows start at the block's left
 // edge, with the held room before that block.
 Item {
     id: root
@@ -49,16 +51,26 @@ Item {
                 ipc: { call: function () { return "ok"; } },
                 surfaces: { toggle: function () { return "ok"; } } };
         }
+        // The settings the core hands the widget: the manifest's defaults
+        // under the saved values, PluginLogic.settingsFor.
+        function saved(values) {
+            const request = new XMLHttpRequest();
+            request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.traffic/manifest.json"), false);
+            request.send();
+            return PluginLogic.settingsFor({}, JSON.parse(request.responseText), "layout", values);
+        }
+        readonly property var oneLine: ({ layout: "One line" })
         function init() {
             UnitTheme.reset();
             status.values = { traffic: { down: 0, up: 0, interfaces: [] } };
-            widget.settings = {};
+            widget.settings = saved(oneLine);
             widget.shell = scope();
         }
-        function button() { return widget.children.find(child => child.label === "Network Traffic"); }
+        // The widget's shown item.
+        function button() { return widget.children.find(child => child.label === "Network Traffic" && child.visible); }
         function rates() {
             const found = [];
-            const walk = node => { for (const child of node.children) { if (child.role === "bar" && String(child.text).indexOf("/s") >= 0) found.push(child); walk(child); } };
+            const walk = node => { for (const child of node.children) { if (child.role === "bar" && child.visible && String(child.text).indexOf("/s") >= 0) found.push(child); walk(child); } };
             walk(widget);
             return found;
         }
@@ -105,17 +117,17 @@ Item {
 
         function test_a_high_rate_keeps_the_width_data() {
             return [
-                { tag: "mb-and-kb", down: 123.4 * 1048576, up: 1023 * 1024, texts: ["123.4 MB/s", "1023 KB/s"] },
-                { tag: "kb-and-mb", down: 999 * 1024, up: 100 * 1048576, texts: ["999 KB/s", "100.0 MB/s"] },
-                { tag: "four-digit-kb", down: 1023 * 1024, up: 1023, texts: ["1023 KB/s", "1023 B/s"] },
-                { tag: "four-digit-mb", down: 1023.9 * 1048576, up: 1023 * 1024, texts: ["1023.9 MB/s", "1023 KB/s"] },
-                { tag: "four-digit-two-decimals", settings: { kbDecimals: 2, mbDecimals: 2 }, down: 1023.99 * 1048576, up: 1023.99 * 1024, texts: ["1023.99 MB/s", "1023.99 KB/s"] },
+                { tag: "mb-and-kb", settings: { layout: "One line" }, down: 123.4 * 1048576, up: 1023 * 1024, texts: ["123.4 MB/s", "1023 KB/s"] },
+                { tag: "kb-and-mb", settings: { layout: "One line" }, down: 999 * 1024, up: 100 * 1048576, texts: ["999 KB/s", "100.0 MB/s"] },
+                { tag: "four-digit-kb", settings: { layout: "One line" }, down: 1023 * 1024, up: 1023, texts: ["1023 KB/s", "1023 B/s"] },
+                { tag: "four-digit-mb", settings: { layout: "One line" }, down: 1023.9 * 1048576, up: 1023 * 1024, texts: ["1023.9 MB/s", "1023 KB/s"] },
+                { tag: "four-digit-two-decimals", settings: { layout: "One line", kbDecimals: 2, mbDecimals: 2 }, down: 1023.99 * 1048576, up: 1023.99 * 1024, texts: ["1023.99 MB/s", "1023.99 KB/s"] },
                 { tag: "stacked", settings: { layout: "Stacked" }, down: 123.4 * 1048576, up: 1023 * 1024, texts: ["1023 KB/s", "123.4 MB/s"] },
                 { tag: "stacked-four-digit", settings: { layout: "Stacked", kbDecimals: 2, mbDecimals: 2 }, down: 1023.99 * 1048576, up: 1023.99 * 1024, texts: ["1023.99 KB/s", "1023.99 MB/s"] }
             ];
         }
         function test_a_high_rate_keeps_the_width(data) {
-            widget.settings = data.settings || {};
+            widget.settings = saved(data.settings);
             verify(waitForRendering(widget));
             const zero = widget.implicitWidth;
             const nextAt = first.x;
@@ -126,13 +138,19 @@ Item {
             compare(first.x, nextAt, "the next widget does not move");
         }
 
+        // The arrow before a rate on its line: one line, a text arrow;
+        // stacked, the line's icon.
+        function arrowOf(rate) {
+            return rate.parent.children.find(child => child !== rate && child.visible && (child.role === "bar" || child.paths !== undefined));
+        }
         // The blank between an arrow's ink and its rate's ink, read on the
-        // black canvas, where the accent arrow and the bar text both carry
-        // red. At rates whose text starts with the same glyph, the short
-        // one and the widest of its unit draw the same blank.
+        // black canvas, where the accent arrow, the bar-coloured icon and
+        // the bar text all carry red. At rates whose text starts with the
+        // same glyph, the short one and the widest of its unit draw the
+        // same blank.
         function arrowGaps(img) {
             return rates().map(label => {
-                const arrow = label.parent.children.find(child => child !== label && child.role === "bar");
+                const arrow = arrowOf(label);
                 const a = arrow.mapToItem(canvas, 0, 0), r = label.mapToItem(canvas, 0, 0);
                 const arrowInk = inkRight(img, a.x, a.x + arrow.width, a.y, a.y + arrow.height);
                 let rateInk = -1;
@@ -144,11 +162,11 @@ Item {
             });
         }
         function test_the_arrow_stays_beside_its_rate_data() {
-            return [{ tag: "one-line", settings: {} }, { tag: "stacked", settings: { layout: "Stacked" } }];
+            return [{ tag: "one-line", settings: { layout: "One line" } }, { tag: "stacked", settings: { layout: "Stacked" } }];
         }
         function test_the_arrow_stays_beside_its_rate(data) {
             mouseMove(root, root.width - 1, root.height - 1);
-            widget.settings = data.settings;
+            widget.settings = saved(data.settings);
             status.values = { traffic: { down: 1024, up: 1024, interfaces: [] } };
             compare(JSON.stringify(rates().map(label => label.text)), JSON.stringify(["1 KB/s", "1 KB/s"]));
             verify(waitForRendering(canvas));
@@ -161,40 +179,47 @@ Item {
                 verify(Math.abs(short[index] - widest[index]) <= 1, "the arrow keeps its blank before the rate: short " + short[index] + ", widest " + widest[index]);
         }
 
-        // Each line: its arrow and its rate, in the order the widget draws
-        // them.
+        // Each line: its arrow, a text arrow on one line or an icon
+        // stacked, and its rate, in the order the widget draws them.
         function lines() {
-            const found = [];
-            const walk = node => { for (const child of node.children) { if (child.role === "bar" && child.visible && (child.text === "↑" || child.text === "↓")) found.push(child); walk(child); } };
-            walk(widget);
-            return found.map(arrow => ({ arrow: arrow, rate: arrow.parent.children.find(child => child !== arrow && child.role === "bar") }));
+            return rates().map(rate => ({ arrow: arrowOf(rate), rate: rate }));
         }
+        function arrowName(arrow) { return arrow.paths !== undefined ? arrow.name : arrow.text; }
         function test_the_layout_setting_data() {
             return [
-                { tag: "stacked", settings: { layout: "Stacked" }, arrows: ["↑", "↓"], stacked: true },
+                { tag: "stacked", settings: { layout: "Stacked" }, arrows: ["arrow-up", "arrow-down"], stacked: true },
                 { tag: "one-line", settings: { layout: "One line" }, arrows: ["↓", "↑"], stacked: false },
-                { tag: "default", settings: {}, arrows: ["↓", "↑"], stacked: false },
+                { tag: "default", settings: {}, arrows: ["arrow-up", "arrow-down"], stacked: true },
                 { tag: "stacked-download", settings: { layout: "Stacked", show: "download" }, arrows: ["↓"], stacked: false },
                 { tag: "stacked-upload", settings: { layout: "Stacked", show: "upload" }, arrows: ["↑"], stacked: false }
             ];
         }
         function test_the_layout_setting(data) {
-            widget.settings = data.settings;
+            widget.settings = saved(data.settings);
             status.values = { traffic: { down: 2048, up: 1024, interfaces: [] } };
             const found = lines();
-            compare(JSON.stringify(found.map(line => line.arrow.text)), JSON.stringify(data.arrows));
+            compare(JSON.stringify(found.map(line => arrowName(line.arrow))), JSON.stringify(data.arrows));
+            compare(JSON.stringify(found.map(line => line.rate.text)), JSON.stringify(data.stacked ? ["1 KB/s", "2 KB/s"] : data.arrows.map(arrow => arrow === "↓" ? "2 KB/s" : "1 KB/s")));
             const item = button();
+            compare(item.stackedShown, data.stacked, "the stacked lines are BarItem's own");
             const size = data.stacked ? Theme.bar.stacked.size : Theme.text.bar.size;
-            for (const line of found)
-                for (const label of [line.arrow, line.rate]) {
+            for (const line of found) {
+                const labels = data.stacked ? [line.rate] : [line.arrow, line.rate];
+                for (const label of labels)
                     compare(label.font.pixelSize, size, "\"" + label.text + "\" draws in its layout's size");
-                    const top = label.mapToItem(item, 0, 0).y;
-                    verify(top >= 0 && top + label.height <= item.height, "\"" + label.text + "\" lies inside the item: top " + top + ", height " + label.height);
+                for (const part of [line.arrow, line.rate]) {
+                    const top = part.mapToItem(item, 0, 0).y;
+                    verify(top >= 0 && top + part.height <= item.height, arrowName(line.arrow) + " lies inside the item: top " + top + ", height " + part.height);
                 }
-            if (found.length === 2) {
-                const tops = found.map(line => line.arrow.mapToItem(item, 0, 0).y);
                 if (data.stacked) {
-                    verify(tops[1] >= tops[0] + found[0].arrow.height, "the download line is under the upload line");
+                    compare(line.arrow.size, Theme.bar.stacked.icon, "the arrow icon draws at the stacked size");
+                    compare(line.arrow.stroke, Theme.bar.stacked.iconStroke);
+                }
+            }
+            if (found.length === 2) {
+                const tops = found.map(line => line.rate.mapToItem(item, 0, 0).y);
+                if (data.stacked) {
+                    verify(tops[1] >= tops[0] + found[0].rate.height, "the download line is under the upload line");
                     compare(found[0].arrow.mapToItem(item, 0, 0).x, found[1].arrow.mapToItem(item, 0, 0).x, "both arrows start at one left edge");
                 } else {
                     compare(tops[1], tops[0], "the two speeds draw on one line");
@@ -208,26 +233,36 @@ Item {
                 { tag: "high", down: 1023 * 1048576, up: 1023 * 1024 }];
         }
         function test_stacked_arrows_share_a_column(data) {
-            widget.settings = { layout: "Stacked" };
+            widget.settings = saved({ layout: "Stacked" });
             verify(waitForRendering(widget));
+            const width = widget.implicitWidth;
             const nextAt = first.x;
             status.values = { traffic: { down: data.down, up: data.up, interfaces: [] } };
             verify(waitForRendering(widget));
             const found = lines(), item = button();
+            compare(found.length, 2);
             const start = found[1].arrow.mapToItem(item, 0, 0).x;
             compare(found[0].arrow.mapToItem(item, 0, 0).x, start);
             verify(start >= item.leftPadding, "the block stays inside the left padding");
             if (data.tag === "low") verify(start > item.leftPadding, "the spare width sits before the arrows");
-            compare(widget.implicitWidth, 102);
+            compare(widget.implicitWidth, width, "the widget keeps the width it has at no traffic");
             compare(first.x, nextAt, "the next widget does not move");
             for (const line of found)
-                compare(line.rate.x, line.arrow.width + Theme.row.lineGap, "the rate follows its arrow");
+                compare(line.rate.x, line.arrow.width + Theme.bar.item.gap, "the rate follows its arrow");
+            // The stacked lines are the persistent item's own, so the
+            // planted right alignment is undone after the check.
             const shortLine = found[0].arrow.parent;
-            shortLine.parent.width = found[1].arrow.parent.width;
-            shortLine.anchors.right = shortLine.parent.right;
-            verify(waitForRendering(widget));
-            expectFail("", "a right-aligned shorter line breaks the shared arrow column");
-            compare(found[0].arrow.mapToItem(item, 0, 0).x, start);
+            try {
+                shortLine.parent.width = found[1].arrow.parent.width;
+                shortLine.anchors.right = shortLine.parent.right;
+                verify(waitForRendering(widget));
+                expectFail("", "a right-aligned shorter line breaks the shared arrow column");
+                compare(found[0].arrow.mapToItem(item, 0, 0).x, start);
+            } finally {
+                shortLine.anchors.right = undefined;
+                shortLine.x = 0;
+                shortLine.parent.width = undefined;
+            }
         }
     }
 }

@@ -235,7 +235,7 @@ PopupWindow {
     readonly property bool focused: widget.children.some(child => child.activeFocus)
     readonly property bool rateCaseCorrect: {
         function labels(item) {
-            let found = item.role === "bar" && String(item.text).indexOf("/s") >= 0 ? [item] : [];
+            let found = item.role === "bar" && item.visible && String(item.text).indexOf("/s") >= 0 ? [item] : [];
             for (const child of item.children || []) found = found.concat(labels(child));
             return found;
         }
@@ -248,7 +248,7 @@ PopupWindow {
         bar: win.original.bar
         settings: win.original.settings
         Component.onCompleted: Qt.callLater(() => {
-            const button = widget.children.find(child => child.label === "Network Traffic");
+            const button = widget.children.find(child => child.label === "Network Traffic" && child.visible);
             if (button) button.forceActiveFocus(Qt.TabFocusReason);
         })
     }

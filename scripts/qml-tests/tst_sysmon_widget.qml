@@ -1,6 +1,7 @@
 import QtQuick
 import QtTest
 import qs.Commons
+import qs.Core
 import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.sysmon" as Sysmon
@@ -114,6 +115,14 @@ Item {
             for (const label of drawn(item)) content += label.width + (label.room === undefined ? 0 : label.room);
             return item.leftPadding + Math.ceil(content) + item.rightPadding;
         }
+        // The settings the core hands the widget: the manifest's defaults
+        // under the saved values, PluginLogic.settingsFor.
+        function saved(values) {
+            const request = new XMLHttpRequest();
+            request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.sysmon/manifest.json"), false);
+            request.send();
+            return PluginLogic.settingsFor({}, JSON.parse(request.responseText), "layout", values);
+        }
         function allReadings() {
             return { showCpu: true, showMemory: true, showGpu: true,
                 cpuTemperature: true, gpuTemperature: true, showSwap: true };
@@ -190,14 +199,16 @@ Item {
         // Each item of the widget that shows two readings draws them on two
         // lines in the Stacked layout: the items are read from the widget,
         // and every one of the three must stack, so an item that ignores
-        // the setting fails its row. One line is the default, and an item
-        // showing one reading stays one line.
+        // the setting fails its row. Stacked is the manifest's default, a
+        // saved One line stays, and an item showing one reading stays one
+        // line.
         function test_layout_reaches_every_reading_data() {
             return [
                 { tag: "stacked", settings: Object.assign(allReadings(), { layout: "Stacked" }), stacked: true },
                 { tag: "stacked-used-memory", settings: Object.assign(allReadings(), { layout: "Stacked", memoryUnit: "used", labelStyle: "text" }), stacked: true },
                 { tag: "one-line", settings: Object.assign(allReadings(), { layout: "One line" }), stacked: false },
-                { tag: "default", settings: allReadings(), stacked: false },
+                { tag: "default", settings: saved(allReadings()), stacked: true },
+                { tag: "saved-one-line", settings: saved(Object.assign(allReadings(), { layout: "One line" })), stacked: false },
                 { tag: "stacked-one-reading", settings: { showCpu: true, showMemory: true, showGpu: true, layout: "Stacked" }, stacked: false }
             ];
         }
@@ -218,6 +229,29 @@ Item {
                     else compare(tops()[1], tops()[0], item.label + " draws its readings on one line");
                 }
                 compare(item.height, Theme.bar.item.height);
+            }
+        }
+        // Stacked, each item's lines draw their own icons, the reading's
+        // over the temperature's or the swap's, in place of the item's one
+        // icon; text labels keep the caption and draw no line icons.
+        function test_stacked_items_draw_line_icons_data() {
+            return [
+                { tag: "icons", settings: saved(allReadings()), icons: [["cpu", "thermometer"], ["memory-stick", "hard-drive"], ["gpu", "thermometer"]] },
+                { tag: "text-labels", settings: saved(Object.assign(allReadings(), { labelStyle: "text" })), icons: [[], [], []] }
+            ];
+        }
+        function test_stacked_items_draw_line_icons(data) {
+            widget.settings = data.settings;
+            const shownItems = items().filter(item => item.visible);
+            compare(shownItems.length, 3);
+            for (const [index, item] of shownItems.entries()) {
+                verify(item.stackedShown, item.label + " stacks");
+                const glyph = firstIcon(item);
+                const shown = [];
+                const walk = node => { for (const child of node.children) { if (child.paths !== undefined && child !== glyph && child.visible) shown.push(child.name); walk(child); } };
+                walk(item.contentItem);
+                compare(JSON.stringify(shown), JSON.stringify(data.icons[index]), item.label + " draws its line icons");
+                compare(glyph.parent.visible, false, item.label + " draws no one icon");
             }
         }
         function test_temperatures_swap_and_used_memory() {
