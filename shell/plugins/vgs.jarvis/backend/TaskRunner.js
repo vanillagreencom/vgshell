@@ -96,11 +96,12 @@ const PROCESSES = {
  * settings() -> {taskTerminal}; display.run(args) -> Promise<answer> asks the
  * service to open the `task` TUI; count(n) receives the live-task count;
  * failed(error) receives an observation failure; accounts resolves an account
- * reference to its directory; promptsChanged publishes held hook prompts.
+ * reference to its directory; promptsChanged publishes held hook prompts;
+ * changed(views) receives every observation's Tasks.derive records.
  * environment, lookup, tmux,
  * clock {now,set,clear}, processes and spawn are injectable for tests.
  */
-function create({ directories, engine, backend, profiles = Profiles.TABLE, settings, display, count, failed, accounts, promptsChanged,
+function create({ directories, engine, backend, profiles = Profiles.TABLE, settings, display, count, failed, accounts, promptsChanged, changed,
     environment = process.env, lookup = command => onPath(command, environment.PATH),
     tmux = "tmux", clock, processes = PROCESSES, spawn = spawnProcess }) {
     const { state, runtime } = directories;
@@ -236,18 +237,26 @@ function create({ directories, engine, backend, profiles = Profiles.TABLE, setti
 
     async function sweep() {
         let live = 0;
-        for (const task of store.list()) {
+        let wrote = false;
+        const views = store.list();
+        for (const task of views) {
             if (closed) return;
             if (task.process.kind === "starting") {
                 if (clock.now() - task.createdAt < LAUNCH_WINDOW_MS) { live++; continue; }
                 await removeSpec(task.id);
+                wrote = true;
                 if (await lose(task) === "stale") again = true;
             } else if (task.process.kind === "alive") {
                 if (stopping.has(task.id) || await identity(task) === "match") live++;
-                else if (await lose(task) === "stale") again = true;
+                else {
+                    wrote = true;
+                    if (await lose(task) === "stale") again = true;
+                }
             }
         }
         if (closed) return;
+        // A lost written here changed its task, so the views are read again.
+        if (changed !== undefined) changed(wrote ? store.list() : views);
         const pending = held();
         const signature = JSON.stringify(pending);
         if (signature !== publishedPrompts) {

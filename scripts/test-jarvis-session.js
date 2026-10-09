@@ -13,7 +13,7 @@ const copy = value => JSON.parse(JSON.stringify(value));
 const events = ["snapshot", "indicator", "talk-down", "talk-up", "toggle", "mute", "unmute", "mute-toggle", "stop",
     "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial", "final", "say", "collect-failed", "brain-done",
     "brain-failed", "brain-ended", "cancelled", "play", "played", "flushed", "tool", "tool-done", "approval",
-    "shown", "confirm", "approval-cancel", "deadline", "lease-ended", "speak", "transcript", "speech-idle", "speech-failed", "feedback", "delegation"];
+    "shown", "confirm", "approval-cancel", "deadline", "lease-ended", "speak", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay"];
 assert.deepEqual(copy(Session.EVENTS), events, "every supported event enters the pair matrix");
 const snapshot = extra => ({ type: "snapshot", at: 0, locked: false, engine: "chained", configured: true,
     settings: {}, ...extra });
@@ -36,6 +36,11 @@ function thinking(logic, toggle = false) {
 function speaking(logic) {
     let s = thinking(logic);
     return step(logic, s, callback("play", s.turn, 40, { interruptible: true })).state;
+}
+// A hold conversation between turns: open, idle, the microphone closed.
+function between(logic) {
+    const s = thinking(logic);
+    return step(logic, s, callback("brain-done", s.turn, 40)).state;
 }
 function acting(logic, cancellable = true) {
     let s = thinking(logic);
@@ -105,6 +110,52 @@ const table = [
         unchanged("busy-turn", thinking(logic), "busy");
         unchanged("busy-action", acting(logic), "busy");
         unchanged("busy-cancel", step(logic, thinking(logic), event("cancel", 50)).state, "busy");
+    }],
+    ["relay-idle", logic => {
+        const s = between(logic);
+        assert.equal(logic.relayRefusal(s), null);
+        const ask = { task: "t1", prompt: "p1", kind: "question" };
+        const r = step(logic, s, event("relay", 50, { text: "The coding agent asks: Which branch?", ask }));
+        assert.deepEqual(kinds(r), ["brain-send"], "a relay line is no user turn: no user caption");
+        const send = r.effects[0];
+        assert.deepEqual([send.text, send.relay], [undefined, { text: "The coding agent asks: Which branch?", ask }]);
+        assert.equal(send.owner, s.brain.op, "the relay turn keeps the conversation's brain owner");
+        assert.deepEqual([r.state.turn.kind, r.state.turn.op, r.state.gen, r.state.conversation.kind], ["thinking", send.op, s.gen, "active"]);
+        assert.deepEqual(r.state.brain, s.brain, "the relay turn keeps the conversation's brain owner");
+        assert.equal(r.state.stale, s.stale);
+        const line = step(logic, s, event("relay", 50, { text: "The coding task was stopped.", ask: null }));
+        assert.equal(line.effects[0].relay.ask, null);
+    }],
+    ["relay-refusals", logic => {
+        const refused = (label, s, key) => {
+            assert.equal(logic.relayRefusal(s), key, label);
+            const r = step(logic, s, event("relay", 300, { text: "line", ask: null }));
+            assert.deepEqual(kinds(r).filter(kind => kind === "brain-send"), [], label);
+            assert.equal(r.state.stale, s.stale + 1, label + " is counted stale");
+            assert.equal(r.state.turn.kind, s.turn.kind, label);
+        };
+        refused("down", logic.initial(), "down");
+        refused("ended", ready(logic), "ended");
+        refused("muted", step(logic, between(logic), event("mute", 50)).state, "muted");
+        refused("duplex", step(logic, between(logic), snapshot({ at: 50, engine: "duplex" })).state, "duplex");
+        let failedTurn = thinking(logic);
+        failedTurn = step(logic, failedTurn, callback("brain-failed", failedTurn.turn, 40, { reason: "fixture" })).state;
+        refused("fault", failedTurn, "fault");
+        refused("listening", listening(logic), "busy");
+        refused("thinking", thinking(logic), "busy");
+        refused("speaking", speaking(logic), "busy");
+        refused("acting", acting(logic), "busy");
+        refused("held", held(logic), "busy");
+        refused("toggle-conversation", step(logic, ready(logic), event("toggle", 50)).state, "busy");
+        // Talk held while the indicator is away: no capture, but the user is speaking up.
+        const hidden = step(logic, between(logic), event("indicator", 50, { shown: false })).state;
+        const pressed = step(logic, hidden, event("talk-down", 51)).state;
+        assert.deepEqual([pressed.input.kind, pressed.capture.kind, pressed.turn.kind], ["held", "closed", "none"]);
+        refused("talk-held", pressed, "busy");
+        assert.throws(() => logic.reduce(between(logic), event("relay", 50, { text: "line" })), /session=relay/);
+        assert.throws(() => logic.reduce(between(logic), event("relay", 50, { text: " ", ask: null })), /session=relay/);
+        assert.throws(() => logic.reduce(between(logic), event("relay", 50, { text: "line",
+            ask: { task: "t1", prompt: "p1", kind: "idle" } })), /session=relay/);
     }],
     ["say-refuses-action-only", logic => {
         const running = acting(logic, false);
@@ -1147,7 +1198,7 @@ const seeds = [ready(Session), listening(Session), thinking(Session), speaking(S
     step(Session, thinking(Session), event("cancel", 50)).state,
     step(Session, thinking(Session, true), callback("play", thinking(Session, true).turn, 40, { interruptible: true })).state,
     step(Session, acting(Session), callback("deadline", acting(Session).action, 140)).state,
-    duplexReady(Session), duplexListening(Session), duplexSpeaking(Session)];
+    duplexReady(Session), duplexListening(Session), duplexSpeaking(Session), between(Session)];
 const pairEvents = events.map(type => ({ type, extra: {} })).concat([
     { type: "snapshot", extra: { locked: true } },
     { type: "snapshot", extra: { locked: null } },
@@ -1167,7 +1218,7 @@ function fixtureEvent(type, s, at) {
     const owner = s[regions[type]] || {};
     return { ...snapshot(), type, at, shown: true, text: "fixture", reason: "fixture", outcome: "completed",
         tool: "fixture", timeoutMs: 100, cancellable: true, interruptible: true, id: "fixture", digest: "a".repeat(64),
-        physical: true, source: "key", role: "user", stage: "partial", rev: 1,
+        physical: true, source: "key", role: "user", stage: "partial", rev: 1, ask: null,
         ...(s.approval.kind === "held" && ["shown", "confirm", "approval-cancel"].includes(type)
             ? { id: s.approval.id, digest: s.approval.digest } : {}),
         gen: owner.gen === undefined ? s.gen : owner.gen, op: owner.op === undefined ? 99999 : owner.op };
@@ -1391,7 +1442,7 @@ for (const seed of seeds) for (const a of pairEvents) for (const b of pairEvents
     }
     pairs++;
 }
-assert.equal(pairs, 17 * (events.length + 5) ** 2, "matrix discovery floor and exact event set");
+assert.equal(pairs, 18 * (events.length + 5) ** 2, "matrix discovery floor and exact event set");
 const createdPairs = createdPairMatrix(Session);
 
 const parent = path.resolve(__dirname, "../tmp");
@@ -1502,10 +1553,18 @@ try {
             'if (false) dropApproval(s, effects, "interrupt", at);', "hold-approval"],
         ["completed-brain", 'if (s.turn.kind === "none") closeBrain(s, effects);',
             'if (false && s.turn.kind === "none") closeBrain(s, effects);', "completed-brain-owner"],
-        ["retain-brain", 'var brain = effect(s, effects, "brain-send", { text: text });\n    if (s.brain.kind === "closed")',
-            'var brain = effect(s, effects, "brain-send", { text: text });\n    if (true)', "reused-brain-owner", "next chained turn retains the conversation's brain owner"],
-        ["retain-delegation-brain", 'var brain = effect(s, effects, "brain-send", { text: e.text, delegation: e.id });\n            if (s.brain.kind === "closed")',
-            'var brain = effect(s, effects, "brain-send", { text: e.text, delegation: e.id });\n            if (true)', "duplex-delegation", "replacement delegation retains the conversation's brain owner"],
+        ["retain-brain", 'var brain = effect(s, effects, "brain-send", values);\n    if (s.brain.kind === "closed")',
+            'var brain = effect(s, effects, "brain-send", values);\n    if (true)', "reused-brain-owner", "next chained turn retains the conversation's brain owner"],
+        ["retain-delegation-brain", 'var brain = effect(s, effects, "brain-send", values);\n    if (s.brain.kind === "closed")',
+            'var brain = effect(s, effects, "brain-send", values);\n    if (true)', "duplex-delegation", "replacement delegation retains the conversation's brain owner"],
+        ["retain-relay-brain", 'var brain = effect(s, effects, "brain-send", values);\n    if (s.brain.kind === "closed")',
+            'var brain = effect(s, effects, "brain-send", values);\n    if (true)', "relay-idle", "the relay turn keeps the conversation's brain owner"],
+        ["relay-judge", 'if (relayRefusal(s) !== null) { stale(s); break; }', 'if (false) { stale(s); break; }', "relay-refusals"],
+        ["relay-busy", '            || s.input.kind !== "released" || s.capture.kind !== "closed") return "busy";',
+            '            || s.capture.kind !== "closed") return "busy";', "relay-refusals"],
+        ["relay-ended", 'if (s.conversation.kind === "ended") return "ended";', '', "relay-refusals"],
+        ["relay-no-caption", 'think(s, effects, { relay: { text: e.text, ask: e.ask } }, e.at);',
+            'userTranscript(s, effects, e.text, 1);\n        think(s, effects, { relay: { text: e.text, ask: e.ask } }, e.at);', "relay-idle"],
         ["release", 'if (s.input.kind !== "held") break;', 'if (false && s.input.kind !== "held") break;', "hold-edges"],
         ["toggle", "at - s.toggleAt < 250", "at - s.toggleAt < 249", "toggle-debounce"],
         ["start-gen", 's.gen++;\n        s.conversation = { kind: "active" };', 's.gen += 0;\n        s.conversation = { kind: "active" };', "start-generation"],

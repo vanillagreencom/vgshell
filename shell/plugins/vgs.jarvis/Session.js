@@ -18,7 +18,7 @@ var EVENTS = [
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
     "final", "say", "collect-failed", "brain-done", "brain-failed", "brain-ended", "cancelled", "play", "played",
     "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "deadline", "lease-ended",
-    "speak", "transcript", "speech-idle", "speech-failed", "feedback", "delegation"
+    "speak", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay"
 ];
 
 function initial() {
@@ -157,6 +157,25 @@ function captionText(value) {
     return text.trim() === "" ? "" : text;
 }
 
+// A coding task's line speaks only into an open chained conversation, and
+// only at an idle moment: "busy" waits for the next one, any other refusal
+// leaves the line to a desktop notification (TaskVoice.js).
+function relayRefusal(s) {
+    if (s.gate.kind !== "up") return "down";
+    if (s.mute.kind !== "off") return "muted";
+    if (s.engine.kind !== "chained") return "duplex";
+    if (s.fault.kind !== "none") return "fault";
+    if (s.conversation.kind === "ended") return "ended";
+    if (s.turn.kind !== "none" || s.playback.kind !== "idle" || s.approval.kind !== "none" || s.action.kind !== "none"
+            || s.input.kind !== "released" || s.capture.kind !== "closed") return "busy";
+    return null;
+}
+
+function relayAsk(ask) {
+    return ask === null || exact(ask, ["task", "prompt", "kind"]) && typeof ask.task === "string"
+        && typeof ask.prompt === "string" && ["permission", "question"].indexOf(ask.kind) !== -1;
+}
+
 function userTranscript(s, effects, text, rev) {
     var shown = captionText(text);
     if (shown !== "") effect(s, effects, "transcript", { role: "user", text: shown, stage: "final", rev: rev });
@@ -171,7 +190,13 @@ function commitUserText(s, effects, text, at, rev) {
     if (s.input.kind === "held") s.input = { kind: "released" };
     closeCapture(s, effects);
     userTranscript(s, effects, text, rev);
-    var brain = effect(s, effects, "brain-send", { text: text });
+    think(s, effects, { text: text }, at);
+}
+
+// One thinking turn of the conversation's brain owner. A relay turn holds the
+// owner too, so a later user turn keeps the conversation's history.
+function think(s, effects, values, at) {
+    var brain = effect(s, effects, "brain-send", values);
     if (s.brain.kind === "closed") s.brain = { kind: "acquired", gen: brain.gen, op: brain.op };
     brain.owner = s.brain.op;
     s.turn = { kind: "thinking", gen: brain.gen, op: brain.op, deadline: at + RESPONSE_TIMEOUT_MS };
@@ -456,10 +481,7 @@ function reduce(state, e) {
             cancelTurn(s, effects, e.at);
             dropApproval(s, effects, "replaced", e.at);
             if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
-            var brain = effect(s, effects, "brain-send", { text: e.text, delegation: e.id });
-            if (s.brain.kind === "closed") s.brain = { kind: "acquired", gen: brain.gen, op: brain.op };
-            brain.owner = s.brain.op;
-            s.turn = { kind: "thinking", gen: brain.gen, op: brain.op, deadline: e.at + RESPONSE_TIMEOUT_MS };
+            think(s, effects, { text: e.text, delegation: e.id }, e.at);
         } else {
             if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
             commitUserText(s, effects, e.text, e.at, e.op);
@@ -469,6 +491,15 @@ function reduce(state, e) {
         if (sayRefusal(s) !== null) break;
         recover(s, effects, e.at);
         commitUserText(s, effects, e.text, e.at, 1);
+        break;
+    // A task line the daemon wrote speaks as a turn of its own: no user
+    // words, and the engine never hands it to the brain.
+    case "relay":
+        if (typeof e.text !== "string" || e.text.trim() === "" || !relayAsk(e.ask))
+            throw new Error("jarvis: session=relay");
+        if (relayRefusal(s) !== null) { stale(s); break; }
+        s.conversation = { kind: "active" };
+        think(s, effects, { relay: { text: e.text, ask: e.ask } }, e.at);
         break;
     // A transcription that fails after its capture closed still owns the turn.
     case "collect-failed":

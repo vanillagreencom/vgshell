@@ -126,18 +126,23 @@ async function permission(hook, value) {
 }
 
 // Stop is a turn end, never a finished task. A turn that ends before the
-// agent reported its outcome waits on the user.
+// agent reported its outcome waits on the user. Each pair of facts is
+// written in the order that keeps a reader between them from seeing a turn
+// end with nothing held, which Jarvis would announce as a stopped agent.
 async function stop(hook, value) {
-    record(hook, "turn-ended");
     const task = new Tasks.Store(hook.state).find(hook.task);
     if (task === null) fail("task-unknown");
-    if (task.outcome.kind !== "none") return null;
+    if (task.outcome.kind !== "none") {
+        record(hook, "turn-ended");
+        return null;
+    }
     record(hook, "wait", { kind: "question" });
+    record(hook, "turn-ended");
     const text = typeof value.last_assistant_message === "string" ? value.last_assistant_message : "";
     const answer = await hold(hook, { kind: "question", tool: null, text });
     if (answer === null) return null;
-    record(hook, "wait", { kind: "none" });
     record(hook, "working");
+    record(hook, "wait", { kind: "none" });
     return { decision: "block", reason: "The user answered: " + answer.text };
 }
 
@@ -147,8 +152,8 @@ async function main() {
     switch (hook.event) {
     case "UserPromptSubmit":
         Relay.withdrawTask(hook.prompts, hook.task);
-        record(hook, "wait", { kind: "none" });
         record(hook, "working");
+        record(hook, "wait", { kind: "none" });
         return null;
     case "Notification": {
         const kind = Object.hasOwn(NOTIFIED, value.notification_type) ? NOTIFIED[value.notification_type] : null;

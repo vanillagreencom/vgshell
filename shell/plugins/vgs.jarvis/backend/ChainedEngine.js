@@ -21,6 +21,7 @@ const ClaudeCode = require("./ClaudeCode.js");
 const LocalSpeech = require("./LocalSpeech.js");
 const { PCM_RATE } = require("./Audio.js");
 const GptLive = require("./GptLive.js");
+const TaskVoice = require("./TaskVoice.js");
 
 // Speech adapter rows in selection order. A row is {select({settings,
 // accounts, directories})} answering {kind:"ready", recipients, open({net,
@@ -149,9 +150,12 @@ function selectBrain(settings, accounts) {
  * no capture or turn remains to carry. captionLimit is the wire's transcript
  * bound. harness is {bridge, gate, env, runtime} for a harness brain: the
  * tool bridge, the HarnessGate, the environment its program is started from
- * and a function answering the runtime directory.
+ * and a function answering the runtime directory. tasks is the coding-task
+ * port a relay turn needs: held() lists the held prompts, answer(task,
+ * prompt, value) answers one, and interrupted(gen, ask) and withheld(gen,
+ * text) report back to TaskVoice.
  */
-function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, directories, dispatch, clock, configured = () => {}, log = () => {} }) {
+function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, log = () => {} }) {
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
     let plan = unconfigured("engine=starting");
     let conversation = null;
@@ -217,7 +221,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             cloudVision: facts.cloudVision, brain: plan.brain.recipient, speech: plan.speech.recipients });
         const net = Net.create(recipients);
         // late holds at most one call: the router runs one action at a time.
-        const c = { gen, plan, recipients, net, speech: null, brain: null, owner: null, grants: [], heard: null,
+        // relay is the held prompt the user's next words answer, or null.
+        const c = { gen, plan, recipients, net, speech: null, brain: null, owner: null, grants: [], heard: null, relay: null,
             decisions: new Set(), releasePending: null, late: new Map(), results: [], turn: null, last: null,
             feedback: null, collection: null, unbound: null, rev: 0, quiet: Promise.resolve(), live: null };
         try {
@@ -351,7 +356,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                     } else if (event.kind === "final") {
                         utterance.state = "concluded";
                         if (answer !== null) {
-                            const phrase = event.text.trim().toLowerCase().replace(/[.!?]+$/, "");
+                            const phrase = TaskVoice.phrase(event.text);
                             if (["yes", "confirm", "yes confirm"].includes(phrase))
                                 dispatch({ type: "confirm", ...answer, source: "voice" });
                             else if (["no", "cancel", "no cancel"].includes(phrase))
@@ -622,6 +627,70 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         router.route(call, { gen: turn.gen, op: turn.op });
     }
 
+    // A relay turn: one fixed task line, never a brain request. relay.ask is
+    // the prompt the line asks, or null.
+    function relayTurn(c, e, done, relay) {
+        if (c.turn !== null) fail("brain-busy");
+        const turn = { gen: e.gen, op: e.op, done, labels: new Set(), speech: null, stopped: false, speaking: false,
+            delegation: undefined, feedbackTimer: null, phase: "relay", calls: [], answers: new Map(), routing: null,
+            caption: "", relay };
+        c.turn = turn;
+        c.last = turn;
+        return turn;
+    }
+
+    // The line leaves through the brain's own path: the release gate,
+    // Speakable, captions and playback. A line the gate keeps from the
+    // conversation's recipients goes to TaskVoice instead.
+    async function relayLine(c, turn, text, labels) {
+        try {
+            if (tasks === null) fail("tasks-port");
+            const item = Policy.item(text, labels);
+            let judged = Policy.release(item, c.recipients, c.grants);
+            if (judged.kind === "ask") {
+                await requestRelease(c, turn, judged.needed);
+                if (turn.stopped || conversation !== c) return;
+                judged = Policy.release(item, c.recipients, c.grants);
+            }
+            if (judged.kind === "send") {
+                for (const label of item.labels) turn.labels.add(label);
+                const speakable = Speakable.create(LANGUAGE);
+                for (const sentence of [...speakable.push(text), ...speakable.finish()]) say(c, turn, sentence);
+                if (turn.stopped) return;
+            } else {
+                record(c, turn, judged.kind === "ask" ? judged.needed : judged.labels, "withhold");
+                tasks.withheld(c.gen, text);
+            }
+            turn.phase = "done";
+            c.turn = null;
+            turn.speech?.end();
+            concluded(c, turn);
+            turn.done("brain-done");
+        } catch (error) { failed(c, turn, error); }
+    }
+
+    // The prompt the conversation asked, while its hook still holds it.
+    // Answered elsewhere, expired or withdrawn, it no longer takes words.
+    function relayPrompt(c) {
+        const prompt = tasks.held().find(item => item.task === c.relay.task && item.id === c.relay.prompt) ?? null;
+        if (prompt === null) c.relay = null;
+        return prompt;
+    }
+
+    // The user's words answer the held prompt through the daemon's port,
+    // never the brain; Jarvis says what became of them.
+    function answerTurn(c, e, done, prompt) {
+        const turn = relayTurn(c, e, done, { ask: null });
+        let reply;
+        try {
+            const answer = TaskVoice.answerOf(prompt, e.text);
+            reply = answer === null ? TaskVoice.retry(prompt)
+                : TaskVoice.answered(prompt, tasks.answer(prompt.task, prompt.id, answer));
+        } catch (error) { failed(c, turn, error); return; }
+        if (!reply.keep) c.relay = null;
+        void relayLine(c, turn, reply.text, reply.labels);
+    }
+
     function heard(c, turn, text) {
         c.heard = { labels: [...turn.labels], text };
     }
@@ -640,6 +709,23 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     const brain = {
         send(e, done) {
             const c = current(e.gen);
+            if (e.relay !== undefined) {
+                const turn = relayTurn(c, e, done, { ask: e.relay.ask });
+                void relayLine(c, turn, e.relay.text, e.relay.ask === null ? ["desktop"] : ["agent"]);
+                return;
+            }
+            if (c.relay !== null && e.text.trim() !== "") {
+                let prompt;
+                try { prompt = relayPrompt(c); }
+                catch (error) {
+                    failed(c, relayTurn(c, e, done, { ask: null }), error);
+                    return;
+                }
+                if (prompt !== null) {
+                    answerTurn(c, e, done, prompt);
+                    return;
+                }
+            }
             if (c.brain === null) {
                 c.brain = DRIVERS[c.plan.brain.provider.driver].create({ provider: c.plan.brain.provider,
                     model: c.plan.brain.model, net: c.net, recipients: c.recipients, key: c.plan.brain.key,
@@ -649,7 +735,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             } else if (c.owner !== e.owner) fail("brain-owner");
             if (c.turn !== null) fail("brain-busy");
             const turn = { gen: e.gen, op: e.op, done, labels: new Set(), speech: null, stopped: false, speaking: false, delegation: e.delegation,
-                feedbackTimer: null,
+                feedbackTimer: null, relay: null,
                 phase: "queued", calls: [], answers: new Map(), routing: null, caption: "" };
             if (e.text.trim() === "") {
                 done("brain-done");
@@ -682,11 +768,13 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (turn === null || turn.op !== e.target) { done(); return; }
             c.turn = null;
             stop(turn);
-            if (c.live === null) heard(c, turn, "");
+            // A relay turn was never the brain's: it hears no prefix of it.
+            if (c.live === null && turn.relay === null) heard(c, turn, "");
+            if (turn.relay?.ask) tasks.interrupted(c.gen, turn.relay.ask);
             const routing = turn.phase === "routing";
-            // A queued turn owns no adapter request. Its prior cancellation
+            // A queued or relay turn owns no adapter request. Its prior cancellation
             // still blocks the next turn and this cancellation's acknowledgement.
-            c.quiet = (turn.phase === "queued" ? c.quiet : c.brain.cancel()).then(() => {
+            c.quiet = (turn.phase === "queued" || turn.phase === "relay" ? c.quiet : c.brain.cancel()).then(() => {
                 // Every call in history gets an answer, so the next request is
                 // valid. A running call's real outcome follows on a later turn.
                 if (routing && c.brain !== null) c.brain.record({ kind: "tool-results", results: turn.calls.map(call => {
@@ -730,7 +818,17 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     // Natural completion drained every sentence, so it changes nothing.
     function playback(port) {
         return {
-            start: port.start,
+            start(e, done, failed) {
+                const c = conversation;
+                const turn = c?.last;
+                return port.start(e, (...result) => {
+                    // A prompt heard to its end holds the conversation's
+                    // next words; a flushed one is asked again later.
+                    if (turn?.relay?.ask && conversation === c && c.last === turn && turn.op === e.source && turn.phase === "done")
+                        c.relay = turn.relay.ask;
+                    done(...result);
+                }, failed);
+            },
             flush(e, done) {
                 // The report belongs to the turn being flushed. Cue-only
                 // teardown must not mark its later reply as interrupted.
@@ -738,8 +836,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 const turn = c?.last;
                 const speaking = turn?.speaking === true;
                 return port.flush(e, report => {
-                    if (speaking && c.live === null && conversation === c && c.last === turn && (report === null || report.source === turn.op))
-                        heard(c, turn, report === null ? "" : report.heardText);
+                    const own = speaking && c.live === null && conversation === c && c.last === turn && (report === null || report.source === turn.op);
+                    if (own && turn.relay === null) heard(c, turn, report === null ? "" : report.heardText);
+                    else if (own && turn.relay.ask && c.relay !== turn.relay.ask) tasks.interrupted(c.gen, turn.relay.ask);
                     done(report);
                 });
             }

@@ -39,6 +39,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     const Files = require("./Files.js");
     const Shell = require("./Shell.js");
     const TaskRunner = require("./TaskRunner.js");
+    const TaskVoice = require("./TaskVoice.js");
+    const Desktop = require("./Desktop.js");
     const ToolBridge = require("./ToolBridge.js");
     const HarnessGate = require("./HarnessGate.js");
     const ChainedEngine = require("./ChainedEngine.js");
@@ -68,6 +70,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     let requirementsScan = -1;
     const clock = { now: () => performance.now(), set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer) };
     let tasks = null;
+    let voice = null;
     let bridge = null;
     let gate = null;
 
@@ -84,6 +87,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     }
 
     function teardown() {
+        if (voice !== null) voice.close();
         // The bridge ends its connections while the router can still drop their results.
         if (bridge !== null) bridge.close();
         if (gate !== null) gate.close();
@@ -125,6 +129,12 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                 }
             });
         });
+    }
+
+    // Typed and spoken answers alike: a locked session answers no prompt.
+    function answerTask(task, prompt, value) {
+        const answer = context.locked ? "session-locked" : tasks.answer(task, prompt, value);
+        return answer;
     }
 
     // The one producer of the protected path snapshot, rebuilt for every
@@ -263,6 +273,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     }, (state, phase) => {
         audio.observe(state);
         if (engine !== null) engine.observe(state);
+        if (voice !== null) voice.session(state);
         if (state.gate.kind === "down") void audio.teardown("gate", ["capture", "playback"]);
         if (!ending && context !== null) write({ v: 1, type: "state", gen: state.gen,
             revision: context.revision, seq: ++seq, state, phase });
@@ -286,8 +297,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                 }
                 if (message.type === "intent" && message.intent === "task-respond") {
                     intentIdentity(message);
-                    const answer = context.locked ? "session-locked"
-                        : tasks.answer(message.task, message.prompt, message.answer);
+                    const answer = answerTask(message.task, message.prompt, message.answer);
                     write({ v: 1, type: "task-response", gen: runner.state.gen,
                         revision: context.revision, task: message.task, prompt: message.prompt, answer });
                     void tasks.observe();
@@ -410,6 +420,15 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         routerSync(state);
                         if (browser !== null) browser.sync(state);
                     };
+                    // The daemon, not the model, writes every task line and
+                    // runs its notification, outside the router and policy.
+                    voice = TaskVoice.create({ session: Session, state: () => runner.state,
+                        dispatch: event => runner.dispatch(event), log: line => process.stderr.write(line + "\n"),
+                        notify: (title, body, signal) => {
+                            const file = commandFile("notify-send");
+                            return file === null ? null : Desktop.runCommand(file, "notify-send",
+                                Desktop.ARGV["notify.notification"]({ title, body }), { environment: process.env, signal, clock });
+                        } });
                     // The task executor needs an agent profile and a release port
                     // for the task's recipients. Task handoff orchestration owns
                     // that separate release decision. Until it registers the executor,
@@ -421,7 +440,9 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                             return account !== null && account.provider === agent && account.source.kind === "cli"
                                 ? account.source.directory : null;
                         },
+                        changed: views => voice.observe(views),
                         promptsChanged: prompts => {
+                            voice.prompts(prompts);
                             if (!ending) write({ v: 1, type: "task-prompts", gen: runner.state.gen,
                                 revision: context.revision, prompts });
                         },
@@ -439,6 +460,13 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         captionLimit: Protocol.TRANSCRIPT_CHARS, dispatch: event => runner.dispatch(event), clock, configured,
                         log: line => process.stderr.write(line + "\n"),
                         harness: { bridge, gate, env: process.env, runtime: () => context.directories.runtime },
+                        tasks: { held: () => tasks.held(),
+                            answer: (task, prompt, value) => {
+                                const answer = answerTask(task, prompt, value);
+                                void tasks.observe();
+                                return answer;
+                            },
+                            interrupted: (gen, ask) => voice.interrupted(gen, ask), withheld: (gen, text) => voice.withheld(gen, text) },
                         directories: context.directories });
                     const actionApproval = runner.ports.approval;
                     runner.ports.approval = {

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Synthetic Claude Code task cases from AgentProfiles.js, claude-hook and
-// TaskRelay.js v1, 2026-10-02. The stand-in claude,
+// TaskRelay.js v1, 2026-10-02, and what TaskVoice.js says about them, from
+// the Jarvis plan § 7 Voice and § 4.4, 2026-10-08. The stand-in claude,
 // scripts/fixtures/jarvis-claude/claude-task.js, runs the hooks --settings
 // wires as the Claude Code hooks reference describes; TaskRunner, task-run.py
 // and the task engine copy are real. Everything runs inside the J09 world.
@@ -19,7 +20,7 @@ const backend = path.join(tree, "shell/plugins/vgs.jarvis/backend");
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // The files a control copies: the engine copy's four and their consumers.
 const ENGINE = ["Tasks.js", "task-event", "TaskRelay.js", "claude-hook"];
-const SOURCES = ENGINE.concat(["TaskRunner.js", "AgentProfiles.js", "task-run.py"]);
+const SOURCES = ENGINE.concat(["TaskRunner.js", "AgentProfiles.js", "task-run.py", "TaskVoice.js"]);
 const EVENTS = ["Notification", "PermissionRequest", "SessionEnd", "Stop", "StopFailure", "UserPromptSubmit"];
 // Hook timeouts in seconds: a held event's is the 600 s window plus 60.
 const TIMEOUTS = { UserPromptSubmit: 30, Notification: 30, PermissionRequest: 660, Stop: 660, StopFailure: 30, SessionEnd: 10 };
@@ -52,7 +53,7 @@ async function inside() {
     }
     const load = dir => ({ dir, Runner: require(path.join(dir, "TaskRunner.js")),
         Profiles: require(path.join(dir, "AgentProfiles.js")), Relay: require(path.join(dir, "TaskRelay.js")),
-        Tasks: require(path.join(dir, "Tasks.js")) });
+        Tasks: require(path.join(dir, "Tasks.js")), Voice: require(path.join(dir, "TaskVoice.js")) });
     const kinds = record => record.events.map(event => event.kind === "wait" ? "wait " + event.data.kind
         : event.kind === "turn-failed" ? "turn-failed " + event.data.kind : event.kind);
 
@@ -60,7 +61,7 @@ async function inside() {
     // space, an engine published from a snapshot of modules.dir that is then
     // removed, an account directory, and a runner whose floating display runs
     // task-run.py in a session of its own.
-    function world(modules, readOnly = false) {
+    function world(modules, readOnly = false, options = {}) {
         const base = path.join(root, "w" + (++worlds));
         const directories = { state: path.join(base, "it's \"state\""), runtime: path.join(base, "run time") };
         const snapshot = path.join(base, "snapshot");
@@ -91,7 +92,7 @@ async function inside() {
             accounts: (agent, reference) => agent === "claude" && reference === "cli:work" ? account : null,
             environment: { ...env, XDG_RUNTIME_DIR: path.join(base, "xdg"), VGSH_RUNNER_PID: "1", FIXTURE_SECRET: "x" },
             lookup: command => command === "claude",
-            clock: { now: Date.now, set: setTimeout, clear: clearTimeout } });
+            clock: { now: Date.now, set: setTimeout, clear: clearTimeout }, ...options });
         runners.add(runner);
         runner.tuiState(false);
         const read = id => new Tasks.Store(directories.state).read(id);
@@ -239,8 +240,9 @@ async function inside() {
             "", "", ""
         ]);
         const record = w.read(id);
-        assert.deepEqual(kinds(record), ["started", "wait none", "working", "wait permission", "wait none", "turn-ended",
-            "wait question", "wait none", "working", "outcome", "turn-ended", "wait idle", "wait none", "exited"]);
+        assert.deepEqual(kinds(record), ["started", "working", "wait none", "wait permission", "wait none", "wait question",
+            "turn-ended", "working", "wait none", "outcome", "turn-ended", "wait idle", "wait none", "exited"],
+        "a turn end follows its held question, and work resumes before the wait clears");
         assert.deepEqual([record.outcome.kind, record.state], ["reported-ok", "reported-ok"]);
         assert.deepEqual(fs.readdirSync(w.prompts).filter(name => name !== ".relay.lock"), [], "every prompt leaves with its hook");
         assert.deepEqual(fs.readdirSync(project), [], "relay delivery writes no project file");
@@ -332,8 +334,8 @@ async function inside() {
         const file = path.join(root, "not-a-directory");
         fs.writeFileSync(file, "");
         const rows = [
-            ["record", [...hookArgs(w, "fails", "Stop").slice(0, 1), file, ...hookArgs(w, "fails", "Stop").slice(2)],
-                input("Stop"), /^jarvis: claude-hook=record kind=turn-ended /],
+            ["record", [...hookArgs(w, "fails", "UserPromptSubmit").slice(0, 1), file, ...hookArgs(w, "fails", "UserPromptSubmit").slice(2)],
+                input("UserPromptSubmit"), /^jarvis: claude-hook=record kind=working /],
             ["permission-record", [...hookArgs(w, "fails", "PermissionRequest").slice(0, 1), file,
                 ...hookArgs(w, "fails", "PermissionRequest").slice(2)], input("PermissionRequest", { tool_name: "Bash" }),
                 /^jarvis: claude-hook=record kind=wait /],
@@ -462,6 +464,131 @@ async function inside() {
         cases++;
     }
 
+    // The plan's wording for a turn end with no outcome (§ 7 Voice).
+    const WAITING = "The coding agent stopped and is waiting.";
+    const DONE = "The coding agent reports the task done.";
+    const QUESTION = "The coding agent asks: Which branch should I use? Your next words are its answer.";
+    const Session = loadQml(path.join(backend, "../Session.js"));
+    // Session with the gate up and no conversation open.
+    const ready = Session.reduce(Session.initial(), { type: "snapshot", at: 0, locked: false, engine: "chained",
+        configured: true, settings: {} }).state;
+
+    // What a derived task view says, from synthetic records through the real
+    // Tasks.derive. Done is said only for the agent's reported-ok outcome.
+    function voiceLines(modules) {
+        const { Voice, Tasks: Records } = modules;
+        const view = (kinds, noisy = false) => Records.derive(kinds.map(([kind, data = {}], index) =>
+            ({ v: 1, seq: index + 1, at: index + 1, kind, data })), noisy);
+        const started = ["started", { pid: 2, pgid: 2, sid: 2, startTime: "1" }];
+        const ok = ["outcome", { kind: "reported-ok" }], bad = ["outcome", { kind: "reported-failed" }];
+        const rows = [
+            ["turn-ended", [started, ["turn-ended"]], WAITING],
+            ["idle", [started, ["wait", { kind: "idle" }]], WAITING],
+            ["question", [started, ["turn-ended"], ["wait", { kind: "question" }]], null],
+            ["permission", [started, ["wait", { kind: "permission" }]], null],
+            ["working", [started, ["working"]], null],
+            ["starting", [], null],
+            ["noisy", [started, ["turn-ended"]], null, true],
+            ["reported-ok", [started, ok], DONE],
+            ["reported-ok-exit", [started, ok, ["turn-ended"], ["exited", { code: 0 }]], DONE],
+            ["reported-failed", [started, bad], "The coding agent reports the task failed."],
+            ["exited", [started, ["turn-ended"], ["exited", { code: 0 }]], "The coding agent exited without reporting an outcome."],
+            ["exit-failed", [started, ["exited", { code: 1 }]], "The coding agent failed without reporting an outcome."],
+            ["turn-failed", [started, ["turn-failed", { kind: "rate_limit" }]], "The coding agent failed without reporting an outcome."],
+            ["failed-after-ok", [started, ok, ["exited", { code: 1 }]], "The coding agent failed after it reported the task done."],
+            ["lost", [started, ["lost", { seq: 1 }]], "The coding agent's process was lost without an outcome."],
+            ["lost-after-ok", [started, ok, ["lost", { seq: 2 }]], "The coding agent's process was lost after it reported the task done."],
+            ["stopped", [started, ["turn-ended"], ["stopped"]], "The coding task was stopped."]
+        ];
+        for (const [label, kinds, expected, noisy] of rows) {
+            const after = view(kinds, noisy === true);
+            const line = Voice.outcomeLine(null, after);
+            assert.equal(line, expected, label);
+            if (line !== null) {
+                assert.doesNotMatch(line, /finish/i, label + ": nothing is called finished");
+                assert.equal(/\bdone\b/i.test(line), after.outcome.kind === "reported-ok", label + ": done only for reported-ok");
+                assert.equal(Voice.outcomeLine(after, after), null, label + ": an unchanged state says nothing");
+            }
+            cases++;
+        }
+        const working = view([started, ["working"]]);
+        assert.equal(Voice.outcomeLine(working, view([started, ["turn-ended"]])), WAITING);
+        assert.equal(Voice.outcomeLine(view([started, ["turn-ended"]]), view([started, ["wait", { kind: "idle" }]])), null,
+            "an idle notice after a turn end repeats nothing");
+        assert.equal(Voice.promptLine({ kind: "question", tool: null, text: "Which branch should I use?" }), QUESTION);
+        assert.equal(Voice.promptLine({ kind: "permission", tool: "Bash", text: "Run the tests" }),
+            "The coding agent asks to use Bash: Run the tests. Say allow or deny.");
+        cases += 4;
+    }
+
+    // The spoken-answer judge yields only answers the relay's own judge takes.
+    function voiceAnswers(modules) {
+        const { Voice, Relay } = modules;
+        const w = world(modules);
+        const now = Date.now();
+        const permission = { kind: "permission", tool: "Bash", text: "Run the tests" };
+        const rows = [
+            [permission, "Allow.", "allow"], [permission, " yes ", "allow"], [permission, "Yes allow!", "allow"],
+            [permission, "deny", "deny"], [permission, "No.", "deny"], [permission, "no deny", "deny"],
+            [permission, "maybe", null], [permission, "allow it", null], [permission, "", null],
+            [{ kind: "question", tool: null, text: "q" }, "Use main.", "Use main."],
+            [{ kind: "question", tool: null, text: "q" }, "a\u0007b", "a b"],
+            [{ kind: "question", tool: null, text: "q" }, "x".repeat(Relay.MAX_TEXT + 9), "x".repeat(Relay.MAX_TEXT)],
+            [{ kind: "question", tool: null, text: "q" }, " \u0007 ", null]
+        ];
+        for (const [detail, said, expected] of rows) {
+            const answer = Voice.answerOf(detail, said);
+            assert.deepEqual(answer === null ? null : answer.kind === "reply" ? answer.text : answer.kind, expected, JSON.stringify(said).slice(0, 40));
+            if (answer !== null) {
+                const prompt = Relay.ask(w.prompts, "voice", detail, now, 600000);
+                assert.equal(w.runner.answer("voice", prompt.id, answer), "answered", "the relay takes the judged answer");
+                Relay.withdraw(w.prompts, prompt);
+            }
+            cases++;
+        }
+        w.close();
+    }
+
+    // A real stub agent with no conversation open: its question, its turn end
+    // and its reported outcome reach the user as notifications, in order, and
+    // nothing is dispatched to a conversation.
+    async function voiceTask(modules) {
+        const notes = [], dispatched = [];
+        let voice = null;
+        const w = world(modules, false, { changed: views => voice.observe(views), promptsChanged: list => voice.prompts(list) });
+        voice = modules.Voice.create({ session: Session, state: () => ready, dispatch: event => dispatched.push(event),
+            notify: (title, body) => { notes.push([title, body]); return Promise.resolve({ kind: "exited", code: 0 }); },
+            log: line => assert.fail(line) });
+        await w.runner.observe();
+        const id = await w.started([
+            { hook: "UserPromptSubmit", input: { prompt: "brief" } },
+            { hook: "Stop", input: { stop_hook_active: false, last_assistant_message: "Which branch should I use?" } },
+            { hook: "Notification", input: { notification_type: "idle_prompt", message: "waiting" } },
+            { gate: "resume" },
+            { hook: "UserPromptSubmit", input: { prompt: "go on" } },
+            { report: "reported-ok" },
+            { hook: "Stop", input: { stop_hook_active: false, last_assistant_message: "Done." } },
+            { hook: "SessionEnd", input: { reason: "other" } }
+        ]);
+        const told = text => until("notified: " + text, async () => {
+            await w.runner.observe();
+            return notes.some(note => note[1] === text);
+        });
+        await told(QUESTION);
+        const question = await w.prompt(id, "question");
+        assert.equal(w.runner.answer(id, question.id, { v: 1, kind: "reply", text: "main" }), "answered");
+        await told(WAITING);
+        fs.writeFileSync(path.join(w.account, "resume"), "");
+        await until("agent exit", () => w.read(id).process.kind === "exited");
+        await told(DONE);
+        await w.seen.launchers[0].closed;
+        assert.deepEqual(notes, [["Coding task", QUESTION], ["Coding task", WAITING], ["Coding task", DONE]]);
+        assert.deepEqual(dispatched, [], "no conversation is open, so nothing is spoken");
+        voice.close();
+        w.close();
+        cases++;
+    }
+
     const current = load(backend);
     function snapshot(modules) {
         const w = world(modules);
@@ -499,6 +626,9 @@ async function inside() {
         await takeover(current);
         await concurrent(current);
         snapshot(current);
+        voiceLines(current);
+        voiceAnswers(current);
+        await voiceTask(current);
 
         async function control(name, file, needle, replacement, check) {
             const source = fs.readFileSync(path.join(backend, file), "utf8");
@@ -533,15 +663,17 @@ async function inside() {
         await control("exec-form", "AgentProfiles.js", "hooks: [{ type: \"command\", command: task.node, timeout,\n            args: [hook,",
             "hooks: [{ type: \"command\", command: task.node, timeout,\n            argv: [hook,", profile);
         await control("prompt-after-options", "AgentProfiles.js", 'claudeSettings(task), "--", task.brief]', "claudeSettings(task), task.brief]", profile);
-        await control("prompt-submit-silent", "claude-hook", '        record(hook, "working");\n        return null;\n    case "Notification"',
-            '        record(hook, "working");\n        return {};\n    case "Notification"', relay);
+        await control("prompt-submit-silent", "claude-hook", '        record(hook, "wait", { kind: "none" });\n        return null;\n    case "Notification"',
+            '        record(hook, "wait", { kind: "none" });\n        return {};\n    case "Notification"', relay);
         await control("permission-held", "claude-hook",
             "    const prompt = Relay.ask(hook.prompts, hook.task, detail, Date.now(), hook.window);",
             '    if (detail.kind === "permission") return { v: 1, kind: "allow" };\n    const prompt = Relay.ask(hook.prompts, hook.task, detail, Date.now(), hook.window);', relay);
         await control("deny", "claude-hook", 'decision: { behavior: "deny", message', 'decision: { behavior: "allow", message', deny);
-        await control("stop-outcome", "claude-hook", 'if (task.outcome.kind !== "none") return null;', "if (false) return null;", relay);
-        await control("stop-working", "claude-hook", '    record(hook, "working");\n    return { decision: "block"',
-            '    return { decision: "block"', relay);
+        await control("stop-outcome", "claude-hook", 'if (task.outcome.kind !== "none") {', "if (false) {", relay);
+        await control("stop-working", "claude-hook", '    record(hook, "working");\n    record(hook, "wait", { kind: "none" });\n    return { decision: "block"',
+            '    record(hook, "wait", { kind: "none" });\n    return { decision: "block"', relay);
+        await control("stop-wait-first", "claude-hook", '    record(hook, "wait", { kind: "question" });\n    record(hook, "turn-ended");',
+            '    record(hook, "turn-ended");\n    record(hook, "wait", { kind: "question" });', relay);
         await control("failure-kind", "claude-hook", "FAILURES.includes(value.error) ? value.error : \"unknown\"", '"unknown"', deny);
         await control("notification-map", "claude-hook", 'idle_prompt: "idle"', 'idle_prompt: "question"', relay);
         await control("expiry-silent", "claude-hook", "if (Date.now() >= prompt.deadline) return null;",
@@ -569,8 +701,18 @@ async function inside() {
             "        live.push(item);", full);
         await control("account", "TaskRunner.js", 'if (value === null) return { reason: "account-unknown" };',
             'if (false) return { reason: "account-unknown" };', account);
-        await control("takeover", "claude-hook", '        Relay.withdrawTask(hook.prompts, hook.task);\n        record(hook, "wait", { kind: "none" });\n        record(hook, "working");',
-            '        record(hook, "wait", { kind: "none" });\n        record(hook, "working");', takeover);
+        await control("takeover", "claude-hook", '        Relay.withdrawTask(hook.prompts, hook.task);\n        record(hook, "working");\n        record(hook, "wait", { kind: "none" });',
+            '        record(hook, "working");\n        record(hook, "wait", { kind: "none" });', takeover);
+        await control("turn-ended-finished", "TaskVoice.js", 'const WAITING = "The coding agent stopped and is waiting.";',
+            'const WAITING = "The coding agent finished.";', voiceLines);
+        await control("exit-called-done", "TaskVoice.js", 'case "exited": return "The coding agent exited without reporting an outcome.";',
+            'case "exited": return "The coding agent is done.";', voiceLines);
+        await control("permission-maybe", "TaskVoice.js", 'return ALLOW.includes(said) ? { v: 1, kind: "allow" }',
+            'return !DENY.includes(said) ? { v: 1, kind: "allow" }', voiceAnswers);
+        await control("reply-unbounded", "TaskVoice.js", ".trim().slice(0, MAX_REPLY);", ".trim();", voiceAnswers);
+        await control("no-conversation-queued", "TaskVoice.js", 'const open = refusal => refusal === null || refusal === "busy";',
+            "const open = () => true;", voiceTask);
+        await control("views-unobserved", "TaskRunner.js", "if (changed !== undefined) changed(wrote ? store.list() : views);", "", voiceTask);
         console.log("test-jarvis-claude-task: ok cases=" + cases + " controls=" + controls);
     } finally {
         for (const runner of runners) runner.close();

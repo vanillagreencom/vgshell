@@ -1260,6 +1260,44 @@ exit "$failures"
     };
     await stopIntent(daemon);
     await control("task-stop-intent", "void tasks.stop(task).then(answer => {", "void Promise.resolve(\"stopped\").then(answer => {", stopIntent);
+    // With no conversation open, a held prompt and a task's end reach the
+    // user as notifications the daemon runs itself: the notify-send
+    // stand-in records the argv, the parent-death signal and an environment
+    // holding only what the command reads.
+    const voiceNotify = async file => {
+        fs.writeFileSync(path.join(desktop, "modes.json"), "{}");
+        fs.writeFileSync(path.join(desktop, "calls.jsonl"), "");
+        const notified = () => lines(path.join(desktop, "calls.jsonl")).filter(call => call.name === "notify-send");
+        const task = await taskGroup();
+        const directory = path.join(hello.directories.runtime, "prompts");
+        Relay.ask(directory, task.id, { kind: "permission", tool: "Bash", text: "Run the tests" }, Date.now(), 600000);
+        try {
+            await conversation(file, async w => {
+                await until("the held prompt is notified", () => notified().length === 1);
+                assert.equal(w.last().state.conversation.kind, "ended");
+                w.raw({ v: 1, type: "intent", gen: 1, revision: hello.revision, intent: "task-stop", task: task.id });
+                await until("the stopped task is notified", () => notified().length === 2);
+            });
+            await task.closed;
+            const calls = notified();
+            assert.deepEqual(calls.map(call => call.argv), [
+                ["--app-name=Jarvis", "--", "Coding task", "The coding agent asks to use Bash: Run the tests. Say allow or deny."],
+                ["--app-name=Jarvis", "--", "Coding task", "The coding task was stopped."]]);
+            for (const call of calls) {
+                assert.deepEqual(Object.keys(call.env).sort(), ["LC_ALL", "PATH", "XDG_RUNTIME_DIR"], "only what notify-send reads");
+                assert.equal(call.deathsig, 9);
+            }
+        } finally {
+            if (task.launcher.exitCode === null) {
+                try { process.kill(-task.pgid, "SIGKILL"); } catch (error) { if (error.code !== "ESRCH") throw error; }
+            }
+            await task.closed;
+            Relay.withdrawTask(directory, task.id);
+        }
+    };
+    await voiceNotify(daemon);
+    await control("voice-prompts", "                            voice.prompts(prompts);\n", "", voiceNotify);
+    await control("voice-views", "changed: views => voice.observe(views),", "", voiceNotify);
     // Without local setup the installed daemon stays unconfigured. A
     // disposable copy adds the scripted row, a model for the local brain row
     // and the indicator, then drives phases through the real engine.
@@ -1521,8 +1559,10 @@ async function main() {
         const launcher = path.join(tree, "scripts/lib/jarvis-env.sh");
         standins(path.join(root, "standins"));
         desktopFixture.standins(path.join(root, "standins"));
-        fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis/desktop-tool.py"), path.join(root, "standins/playerctl"));
-        fs.chmodSync(path.join(root, "standins/playerctl"), 0o700);
+        for (const name of ["playerctl", "notify-send"]) {
+            fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis/desktop-tool.py"), path.join(root, "standins", name));
+            fs.chmodSync(path.join(root, "standins", name), 0o700);
+        }
         const result = cp.spawnSync("/bin/bash", [launcher, path.join(root, "standins"), "--", "node", __filename, "--inside"],
             { env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: path.join(tree, "tmp") },
                 // Bounds a hung world, not a latency: the suite runs real children.

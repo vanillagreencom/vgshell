@@ -162,4 +162,4 @@ function create(id, { commands, environment, clock }) {
         cancel: call => { running.get(call)?.abort(); } };
 }
 
-module.exports = { create, runCommand, failure, TOOLS };
+module.exports = { create, runCommand, failure, TOOLS, ARGV };

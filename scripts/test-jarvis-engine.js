@@ -71,9 +71,11 @@ function rig(kit, server, options = {}) {
     ports.capture = { ...ports.capture, ...audio.capturePort };
     ports.transcript = e => captions.push([e.gen, e.role, e.stage, e.rev, e.text]);
     let engine = null;
+    let voice = null;
     const runner = new SessionRunner(Session, ports, runnerClock, s => {
         audio.observe(s);
         if (engine !== null) engine.observe(s);
+        if (voice !== null) voice.session(s);
         if (s.gate.kind === "down") void audio.teardown("gate", ["capture", "playback"]);
         if (s.turn.kind === "collecting" && s.turn.partial !== "" && partials.at(-1) !== s.turn.partial)
             partials.push(s.turn.partial);
@@ -110,10 +112,12 @@ function rig(kit, server, options = {}) {
         source: { kind: "local", origin: "http://127.0.0.1:" + PORT }, model: "fixture-model" } }) });
     const configured = answer => runner.dispatch({ type: "snapshot", locked: false, engine: "chained",
         configured: answer.kind === "ready" || answer.kind === "loading", settings: runner.state.settings });
+    const tasks = options.tasks ? taskWorld(kit, runner, Session, faults) : null;
+    voice = tasks?.voice ?? null;
     engine = kit.Engine.create({ session: Session, state: () => runner.state, audit, router, accounts,
         policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => faults.push(reason),
         captionLimit: options.captionLimit ?? Protocol.TRANSCRIPT_CHARS, dispatch: e => runner.dispatch(e), clock: runnerClock,
-        directories: options.directories, configured });
+        directories: options.directories, configured, tasks: tasks?.port ?? null });
     ports.release = engine.release;
     const actionApproval = ports.approval;
     const daemonSource = fs.readFileSync(path.join(kit.folder, "backend/jarvisd.js"), "utf8");
@@ -140,14 +144,67 @@ function rig(kit, server, options = {}) {
         return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
     };
     return { runner, audio, audioClock, engine, audit, faults, executions, held, partials, captions, rows, configure,
-        state, workspace, server, advanceRunner, writes, timers,
+        state, workspace, server, advanceRunner, writes, timers, tasks,
         s: () => runner.state,
         async close() {
+            tasks?.close();
             runner.close();
             engine.close();
             audit.close();
             await audio.close("test-end");
         } };
+}
+
+// Coding-task records and held prompts through the real producer, relay,
+// TaskRunner and TaskVoice, wired to the engine by the shipped daemon's
+// tasks port. Each task is alive as a sleeping group this world started, so
+// observation keeps it without a launch. Notifications are recorded, not run.
+function taskWorld(kit, runner, Session, faults) {
+    const backend = path.join(kit.folder, "backend");
+    const Tasks = require(path.join(backend, "Tasks.js"));
+    const Relay = require(path.join(backend, "TaskRelay.js"));
+    const TaskRunner = require(path.join(backend, "TaskRunner.js"));
+    const TaskVoice = require(path.join(backend, "TaskVoice.js"));
+    const root = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "tasks-"));
+    const directories = { state: path.join(root, "state"), runtime: path.join(root, "run") };
+    const producer = Tasks.publish(path.join(root, "data"), backend);
+    const env = { PATH: process.env.PATH, LANG: "C.UTF-8" };
+    const notes = [], logs = [];
+    const voice = TaskVoice.create({ session: Session, state: () => runner.state, dispatch: e => runner.dispatch(e),
+        notify: (title, body) => { notes.push([title, body]); return Promise.resolve({ kind: "exited", code: 0 }); },
+        log: line => logs.push(line) });
+    const tasks = TaskRunner.create({ directories, engine: producer, backend, settings: () => ({ taskTerminal: "floating" }),
+        display: { run: () => Promise.resolve("refused") }, count() {}, failed: error => faults.push(error.message),
+        changed: views => voice.observe(views), promptsChanged: list => voice.prompts(list),
+        environment: env, lookup: () => false, clock: { now: Date.now, set: () => ({}), clear() {} } });
+    const daemon = fs.readFileSync(path.join(backend, "jarvisd.js"), "utf8");
+    const wiring = [...daemon.matchAll(/tasks: (\{ held: [\s\S]*?withheld\(gen, text\) \}),\n/g)];
+    assert.equal(wiring.length, 1, "one shipped daemon tasks port");
+    const port = vm.runInNewContext("(" + wiring[0][1] + ")", { tasks, voice, answerTask: (...args) => tasks.answer(...args) });
+    const event = (id, kind, data = {}) => {
+        const result = cp.spawnSync(process.execPath, [producer, "--state", directories.state, id, kind],
+            { env, input: JSON.stringify(data), encoding: "utf8", timeout: 10000 });
+        assert.equal(result.status, 0, result.stderr);
+    };
+    const prompts = path.join(directories.runtime, "prompts");
+    const groups = [];
+    return { voice, port, notes, logs, prompts, Relay, TaskVoice,
+        task(id) {
+            const group = cp.spawn("sleep", ["600"], { detached: true, stdio: "ignore" });
+            groups.push(group);
+            const stat = fs.readFileSync("/proc/" + group.pid + "/stat", "utf8").split(") ")[1].split(" ");
+            event(id, "create", { goal: "Fixture goal", cwd: process.env.HOME, agent: "fixture", account: "" });
+            event(id, "started", { pid: group.pid, pgid: Number(stat[2]), sid: Number(stat[3]), startTime: stat[19] });
+        },
+        event,
+        ask: (id, detail) => Relay.ask(prompts, id, detail, Date.now(), 600000),
+        observe: () => tasks.observe(),
+        close() {
+            voice.close();
+            tasks.close();
+            for (const group of groups) group.kill("SIGKILL");
+        }
+    };
 }
 
 // One utterance through real capture: down, partials, up, final.
@@ -1266,6 +1323,186 @@ async function cases(kit, server, only = null) {
         await settled(() => control.aborted === 1, () => control.finals === 1, "the transcription is abandoned");
         assert.equal(server.requests.length, before, "muted words never reach the brain");
     });
+
+    // A coding task's question and the user's answer pass through the
+    // relay, never the brain. With no conversation the prompt is a
+    // notification; in one, Jarvis asks it at the first idle moment, and
+    // a turn end is never called finished.
+    const QUESTION = "The coding agent asks: Which branch should I use? Your next words are its answer.";
+    const WAITING = "The coding agent stopped and is waiting.";
+    const SENT = "I sent your answer to the coding agent.";
+    // A conversation idle after one brain turn. Answers the count of
+    // sentences spoken before the idle moment, when a task line may start.
+    async function opened(w) {
+        const first = await say(w, utterance("Hello."));
+        await requested(w, first + 1, "the opening turn reaches the brain");
+        server.replies.push(text("Hi."));
+        await until(() => w.s().turn.kind === "none" && control.spoken.includes("Hi."), "the opening reply completes");
+        const spokenBefore = control.spoken.length;
+        await playOut(w);
+        return spokenBefore;
+    }
+    // Waits until speech holds every sentence of line after the first from,
+    // then plays it out and answers the spoken text.
+    async function spoken(w, from, line) {
+        await settled(() => control.spoken.slice(from).join(" ") === line,
+            () => control.spoken.slice(from).join(" ").length > line.length, "Jarvis speaks: " + line);
+        await playOut(w);
+        await until(() => w.s().turn.kind === "none" && w.s().playback.kind === "idle", "the relay turn ends");
+    }
+    await run("task-relay", async w => {
+        const t = w.tasks;
+        t.task("earlier");
+        t.event("earlier", "turn-ended");
+        await t.observe();
+        assert.deepEqual(t.notes, [], "the first observation only seeds: a restart says nothing old");
+        t.task("t1");
+        const question = t.ask("t1", { kind: "question", tool: null, text: "Which branch should I use?" });
+        await t.observe();
+        await until(() => t.notes.length === 1, "the held prompt is notified");
+        assert.deepEqual(t.notes, [["Coding task", QUESTION]], "with no conversation the prompt is a notification");
+        assert.deepEqual([control.spoken, w.s().conversation.kind], [[], "ended"], "nothing is spoken with no conversation");
+        const asked = await opened(w);
+        await spoken(w, asked, QUESTION);
+        assert.ok(control.labels.has("agent"), "the agent's text reaches speech labelled as agent output");
+        const requests = server.requests.length;
+        // Another idle state publication asks nothing new.
+        w.runner.dispatch({ type: "indicator", shown: true });
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(control.spoken.length, asked + 2, "a prompt is asked once per conversation");
+        const said = control.spoken.length;
+        await say(w, utterance("Use main."));
+        await spoken(w, said, SENT);
+        assert.equal(server.requests.length, requests, "the answer never reaches the brain");
+        assert.deepEqual(t.Relay.answerTo(t.prompts, question), { v: 1, kind: "reply", text: "Use main." });
+        assert.deepEqual(w.captions.filter(row => row[1] === "user").map(row => row[4]), ["Hello.", "Use main."],
+            "the user's answer shows as their words");
+        assert.ok(w.captions.some(row => row[1] === "assistant" && row[4].includes("Which branch should I use?")),
+            "the asked prompt is captioned as Jarvis's words");
+        t.event("t1", "turn-ended");
+        let from = control.spoken.length;
+        await t.observe();
+        await spoken(w, from, WAITING);
+        t.event("t1", "outcome", { kind: "reported-ok" });
+        from = control.spoken.length;
+        await t.observe();
+        await spoken(w, from, "The coding agent reports the task done.");
+        assert.equal(control.spoken.some(sentence => /finish/i.test(sentence)), false, "no turn is called finished");
+        const next = await say(w, utterance("Thanks."));
+        server.replies.push(text(""));
+        const body = await requested(w, next + 1, "the words after an answer reach the brain");
+        assert.deepEqual(user(body), ["Hello.", "Thanks."], "the brain never sees a prompt, an answer or a task line");
+        assert.deepEqual(body.messages.slice(1).map(message => [message.role, message.content]),
+            [["user", "Hello."], ["assistant", "Hi."], ["user", "Thanks."]], "no task line enters the brain's history");
+        assert.deepEqual([t.notes.length, t.logs, w.faults], [1, [], []]);
+    }, { tasks: true });
+
+    await run("task-permission", async w => {
+        const t = w.tasks;
+        await t.observe();
+        await opened(w);
+        t.task("t2");
+        const permission = t.ask("t2", { kind: "permission", tool: "Bash", text: "Run the tests" });
+        let from = control.spoken.length;
+        await t.observe();
+        await spoken(w, from, "The coding agent asks to use Bash: Run the tests. Say allow or deny.");
+        const requests = server.requests.length;
+        from = control.spoken.length;
+        await say(w, utterance("Maybe."));
+        await spoken(w, from, "Say allow or deny.");
+        assert.equal(t.Relay.answerTo(t.prompts, permission), null, "an unjudged permission answer is not sent");
+        from = control.spoken.length;
+        await say(w, utterance("Allow."));
+        await spoken(w, from, SENT);
+        assert.deepEqual(t.Relay.answerTo(t.prompts, permission), { v: 1, kind: "allow" });
+        assert.equal(server.requests.length, requests, "no permission answer reaches the brain");
+        assert.deepEqual([t.notes, w.faults], [[], []]);
+    }, { tasks: true });
+
+    // Talk during the question flushes it: the user's words go to the brain
+    // and the prompt is asked again at the next idle moment.
+    await run("task-barge-in", async w => {
+        const t = w.tasks;
+        await t.observe();
+        await opened(w);
+        t.task("t3");
+        const question = t.ask("t3", { kind: "question", tool: null, text: "Which branch should I use?" });
+        const from = control.spoken.length;
+        await t.observe();
+        await until(() => control.spoken.length > from && w.s().playback.kind === "playing", "the question starts to play");
+        const next = await say(w, utterance("What time is it?"));
+        const body = await requested(w, next + 1, "the interrupting words reach the brain");
+        assert.deepEqual(user(body), ["Hello.", "What time is it?"], "an interrupted question takes no answer");
+        assert.equal(t.Relay.answerTo(t.prompts, question), null);
+        server.replies.push(text("Noon."));
+        const again = control.spoken.length;
+        await until(() => w.s().turn.kind === "none", "the brain answers");
+        await playOut(w);
+        await spoken(w, again + 1, QUESTION);
+    }, { tasks: true });
+
+    // A release the user declines keeps the agent's text from speech; the
+    // prompt goes to a notification and the next words go to the brain.
+    await run("task-release-declined", async w => {
+        const t = w.tasks;
+        await t.observe();
+        await opened(w);
+        t.task("t4");
+        t.ask("t4", { kind: "question", tool: null, text: "Which branch should I use?" });
+        await t.observe();
+        await until(() => w.s().approval.kind === "held", "agent text asks for release first");
+        assert.equal(w.s().approval.purpose, "release");
+        const h = w.s().approval;
+        w.runner.dispatch({ type: "approval-cancel", gen: h.gen, id: h.id });
+        await until(() => t.notes.length === 1 && w.s().turn.kind === "none", "the withheld prompt is notified");
+        assert.deepEqual(t.notes, [["Coding task", QUESTION]]);
+        assert.equal(control.spoken.some(sentence => sentence.includes("Which branch")), false, "withheld text is not spoken");
+        const next = await say(w, utterance("Never mind."));
+        server.replies.push(text(""));
+        const body = await requested(w, next + 1, "the next words reach the brain");
+        assert.deepEqual(user(body), ["Hello.", "Never mind."]);
+    }, { tasks: true, fixture: { recipients: [{ kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9" }] } });
+}
+
+// Each task voice rule turns its scenario red: an engine copy with one
+// planted defect, or a TaskVoice copy loaded again under its engine.
+async function taskControls(root, server) {
+    let controls = 0;
+    for (const [name, needle, replacement, scenario] of [
+            ["relay-answer-to-brain", 'if (c.relay !== null && e.text.trim() !== "") {', "if (false) {", "task-relay"],
+            ["relay-heard-whole", "c.relay = turn.relay.ask;", "void turn;", "task-relay"],
+            ["relay-held-at-done", '            }\n            turn.phase = "done";\n',
+                '            }\n            turn.phase = "done";\n            if (turn.relay.ask !== null) c.relay = turn.relay.ask;\n', "task-barge-in"],
+            ["relay-heard-prefix", "if (own && turn.relay === null) heard(", "if (own) heard(", "task-barge-in"],
+            ["relay-flush-forgotten", "else if (own && turn.relay.ask && c.relay !== turn.relay.ask) tasks.interrupted(c.gen, turn.relay.ask);",
+                "", "task-barge-in"],
+            ["relay-withheld-silent", "tasks.withheld(c.gen, text);", "void text;", "task-release-declined"]
+    ]) {
+        await assert.rejects(() => cases(Fixture.copy(root, [[needle, replacement]]), server, scenario), assert.AssertionError,
+            name + " must turn its scenario red");
+        console.log("control=" + name + " detected");
+        controls++;
+    }
+    for (const [name, needle, replacement, scenario] of [
+        ["permission-maybe", 'return ALLOW.includes(said) ? { v: 1, kind: "allow" }', 'return !DENY.includes(said) ? { v: 1, kind: "allow" }', "task-permission"],
+        ["no-conversation-spoken", 'const open = refusal => refusal === null || refusal === "busy";', "const open = () => true;", "task-relay"],
+        ["prompt-asked-twice", "        asked.keys.add(key(prompt));\n", "", "task-relay"]
+    ]) {
+        const kit = Fixture.copy(root);
+        const file = path.join(kit.folder, "backend/TaskVoice.js");
+        const source = fs.readFileSync(file, "utf8");
+        assert.equal(source.split(needle).length - 1, 1, name + " mutation match");
+        fs.writeFileSync(file, source.replace(needle, replacement));
+        // The copy's engine loaded TaskVoice already: load both again.
+        const engineFile = path.join(kit.folder, "backend/ChainedEngine.js");
+        delete require.cache[file];
+        delete require.cache[engineFile];
+        kit.Engine = require(engineFile);
+        await assert.rejects(() => cases(kit, server, scenario), assert.AssertionError, name + " must turn its scenario red");
+        console.log("control=" + name + " detected");
+        controls++;
+    }
+    return controls;
 }
 
 // Selection: the first ready speech row, then the saved brain account as
@@ -1414,7 +1651,7 @@ world(async () => {
             ["heard-once", "            c.heard = null;\n", "", "barge-in"],
             ["full-reply-heard", 'heard(c, turn, report === null ? "" : report.heardText);',
                 'heard(c, turn, "Hello there. The time is noon.");', "barge-in"],
-            ["cancel-heard", '            if (c.live === null) heard(c, turn, "");\n', "", "cancel-thinking"],
+            ["cancel-heard", '            if (c.live === null && turn.relay === null) heard(c, turn, "");\n', "", "cancel-thinking"],
             ["partial-to-brain", 'utterance.collection?.done("partial", event.text);', 'utterance.collection?.done("final", event.text);', "turn-loop"],
             ["speakable-bypass", "for (const sentence of text.push(event.text)) say(c, turn, sentence);",
                 "text.push(event.text); say(c, turn, event.text);", "turn-loop"],
@@ -1465,6 +1702,7 @@ world(async () => {
             console.log("control=" + name + " detected operator=" + failure.operator + ": " + failure.message.split("\n")[0]);
             controls++;
         }
+        controls += await taskControls(root, server);
         const toggleKit = Fixture.copy(root);
         const sessionFile = path.join(toggleKit.folder, "Session.js");
         const sessionSource = fs.readFileSync(sessionFile, "utf8");

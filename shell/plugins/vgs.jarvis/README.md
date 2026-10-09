@@ -27,6 +27,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Screen tools that read the screen, a monitor, a window, a region or an area you draw, at most four times a turn. Windows of password managers and private browsing are painted black before a screenshot leaves Jarvis.
 - A private browser from Set up browser. Jarvis asks for input access to each site, a submit needs your confirmation, and password entry stays with you.
 - Coding tasks in their own tmux session or a floating terminal. Plugins shows how many are running. A stop ends every process of the task before it is recorded as stopped.
+- Jarvis speaks a coding agent's question and sends your spoken answer back to it. It calls a task done only when the agent reports it done. With no conversation open, it shows these as desktop notifications.
 
 ## Setup
 
