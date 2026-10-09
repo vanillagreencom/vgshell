@@ -12,6 +12,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Workspaces: one number per workspace, lowest first, the focused one highlighted. A click focuses that workspace.
 - The clock: the date and time in the preset or custom format you choose.
 - Three sections for plugin buttons. Enabling a plugin on its Settings page places its button in the section the plugin chooses.
+- Right-click an empty part of the bar and choose Add separator or Add gap to put a thin line or a little empty room where you clicked. Drag either to move it; right-click it and choose Remove separator or Remove gap to take it away.
 - Colours, the font and every size follow the theme.
 - Hide top bar, in the launcher's Style menu, hides the bar on every screen and gives its space to windows. The row then reads Show top bar.
 - `SUPER+SHIFT+SPACE` hides or shows the bar the same way. The Keys row on the plugin's Settings page changes it.

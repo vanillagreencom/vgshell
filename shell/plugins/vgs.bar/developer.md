@@ -6,6 +6,8 @@ The bar's row in `plugins` in `~/.config/vgshell/shell.json` holds its settings,
 
 The bar declares `builtinLabels`, derives `builtinNames` from it and receives `widgetLayout` from the core. Its single keyed model owns Loader delegates under the bar. Each Loader owns a registered `BarWidget` wrapper. The core positions those wrappers through the same section, drag and Hide path as plugin widgets. Hide removes the entry without confirmation or a change to bar settings or enablement. Each builtin has a Show on the bar switch under Settings > Bar. The switch restores its shipped section and declared neighbour order.
 
+The bar also declares `builtinFamilies`, `gap` and `separator`. Add gap and Add separator call `shell.builtins.add`, which writes a new entry such as `vgs.bar/gap-3` where a widget dragged to the click would drop, numbered one past the family's highest. Each entry is one builtin with its own registration, so it drags like any widget, and its frame menu's Remove runs the same Hide path, which deletes the entry. A gap is `bar.spacer.gap` wide; a separator is a `divider.thickness` line `bar.spacer.height` tall in `bar.spacer.line`, with `bar.spacer.inset` either side.
+
 `hidden` hides the bar on every screen; its surface is unmapped, so it reserves no space. The launcher's Hide top bar row and the shortcut `vgs.bar:toggle` flip it.
 
 The clock ticks once a minute, or once a second when the format shows seconds.
