@@ -269,11 +269,9 @@ for tool in bash env readlink dirname mkdir chmod mv rm script flock sleep cat i
 done
 ln -s -- "$node_bin" "$tools/node"
 
-cp -- "$(command -v sleep)" "$tmp/Hyprland"
-"$tmp/Hyprland" 300 &
-hyprland_pid=$!
-trap 'kill "$hyprland_pid" 2>/dev/null; rm -rf -- "${tmp:?}"' EXIT
-rm -- "$tmp/Hyprland"
+replaced_binary "$tmp/Hyprland"
+# shellcheck disable=SC2154 # replaced_binary sets it
+hyprland_pid="$replaced_pid"
 
 settings() { # AUR_COMMAND TRUST [REVIEW AGENT COMMAND]
   printf '{"intervalHours":6,"hideWhenCurrent":false,"aurCommand":"%s","snapshot":"auto","trustPluginUpdates":%s,"reviewThirdParty":%s,"reviewAgent":"%s","reviewCommand":"%s","placement":"center"}\n' \

@@ -1,11 +1,11 @@
 # The assertion library the bin/vgshell suites, scripts/test-vgshell*.sh, source:
 # the scratch directory, the child environment, the row helpers, the theme
 # tree fixture, the install source tree, the plugin and theme git source
-# fixtures, the stop rows' stand-in git and runner, the must-fail copy,
-# the working-tree repository, the private system bus, the theme lock
-# holder and the row jobs. It sets `set -euo pipefail`, `repo`, `tmp`
-# (removed on exit by rows_cleanup), `rt_empty`, `node_bin`, `base_path`,
-# `base_env`, `git_env` and `failures`.
+# fixtures, the stop rows' stand-in git and runner, the replaced-binary
+# process, the must-fail copy, the working-tree repository, the private
+# system bus, the theme lock holder and the row jobs. It sets
+# `set -euo pipefail`, `repo`, `tmp` (removed on exit by rows_cleanup),
+# `rt_empty`, `node_bin`, `base_path`, `base_env`, `git_env` and `failures`.
 set -euo pipefail
 
 repo="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)"
@@ -126,6 +126,30 @@ stop_git() { # MODE [SECONDS]
     'esac' \
     'exit 1' >"$stop_git_dir/git"
   chmod +x "$stop_git_dir/git"
+}
+# replaced_binary PATH: run a copy of sleep from PATH until the suite ends,
+# as a process whose binary was replaced on disk: PATH is removed only once
+# /proc/<pid>/exe names it, so the link then reads `PATH (deleted)`. Sets
+# replaced_pid and arms the EXIT trap to end the copy before rows_cleanup; the
+# copy may already have ended, which the trap does not count as a failure.
+# The wait for the exec is a hang guard of 10 s, far above the
+# milliseconds an exec takes; it ends the suite with
+# `<suite>: replaced-binary=never-ran path=PATH`.
+replaced_binary() { # PATH
+  local tick
+  cp -- "$(command -v sleep)" "$1"
+  "$1" infinity &
+  replaced_pid=$!
+  trap 'kill "$replaced_pid" 2>/dev/null || true; rows_cleanup' EXIT
+  for ((tick = 0; tick < 200; tick++)); do
+    if [[ "$(readlink -- "/proc/$replaced_pid/exe" 2>/dev/null || true)" == "$1" ]]; then
+      rm -- "$1"
+      return 0
+    fi
+    sleep 0.05
+  done
+  echo "$(basename -- "$0" .sh): replaced-binary=never-ran path=$1" >&2
+  exit 1
 }
 # Whether process PID runs, a zombie counting as ended.
 proc_live() { # PID

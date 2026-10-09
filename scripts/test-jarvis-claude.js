@@ -34,6 +34,11 @@ const PLANTED = { ANTHROPIC_API_KEY: "planted-anthropic-key", CLAUDE_CODE_OAUTH_
     VGS_JARVIS_TOOLS_TOKEN: "planted-tools-token", VGSHELL_RUNNER_PID: "424242" };
 const leaked = call => Object.values(call.env).filter(value => Object.values(PLANTED).includes(value));
 
+// The suite and every control run inside one world, whose 300 s timeout at
+// the end is a hang guard, not a budget: in scripts/validate offline on host
+// cachy (32 threads, 2026-10-09) this row took 42 s with the rows run one
+// after another and over 60 s with 32 at once, where the world's default
+// 60 s guard ended it (the VGS-1211 before and after runs).
 world(async () => {
     const Session = load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js"));
     const fixtures = seed();
@@ -712,4 +717,4 @@ world(async () => {
 }, standins => {
     fs.copyFileSync(stub, path.join(standins, "claude"));
     fs.chmodSync(path.join(standins, "claude"), 0o700);
-})?.catch(error => { console.error(error); process.exitCode = 1; });
+}, 300000)?.catch(error => { console.error(error); process.exitCode = 1; });

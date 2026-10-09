@@ -28,7 +28,9 @@ if not brief.startswith("fixture-untrusted"):
     payload = {"type": "agent-turn-complete", "thread-id": "fixture-thread",
                "input-messages": ["PRIVATE_INPUT"], "last-assistant-message": "PRIVATE_REPLY"}
     subprocess.run(notify + [json.dumps(payload)], check=True)
-pathlib.Path("codex-ready.json").write_text(json.dumps({"argv": sys.argv[1:], "env": dict(os.environ)}))
+# The test reads the file as soon as it exists, so it appears whole.
+pathlib.Path("codex-ready.json.part").write_text(json.dumps({"argv": sys.argv[1:], "env": dict(os.environ)}))
+os.replace("codex-ready.json.part", "codex-ready.json")
 while not pathlib.Path("codex-release").exists():
     time.sleep(0.02)
 if brief.startswith("fixture-outcome"):

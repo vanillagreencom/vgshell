@@ -343,11 +343,8 @@ check "gum's words are its exported colours, TERM and COLORTERM" gum_env_row
 kernel=""
 for dir in /lib/modules/*/; do [[ -d $dir ]] && { kernel="$(basename -- "$dir")"; break; }; done
 [[ -n $kernel ]] || { echo "test-tui: status=not-measured missing=/lib/modules/<release>"; exit 77; }
-cp -- "$(command -v sleep)" "$tmp/replaced"
-"$tmp/replaced" 60 &
-replaced_pid=$!
-trap 'kill "$replaced_pid" 2>/dev/null; rm -rf -- "${tmp:?}"' EXIT
-rm -- "$tmp/replaced"
+replaced_binary "$tmp/replaced"
+# shellcheck disable=SC2154 # replaced_binary sets replaced_pid
 # Rows: name | release | pids | exit | stdout
 rows=(
   "a current system|$kernel||1|"
