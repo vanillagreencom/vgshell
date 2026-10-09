@@ -180,7 +180,7 @@ share_launch control-tabs-width
 expect_poll "the capped-tabs control maps" True share_mapped
 share_tabs_width_control() { (failures=0 behaviour_failures=0; share_tabs_width_check >"$share_world/tabs-width-control.log"; echo "$failures"); }
 expect "control: capped page tabs fail the same content-width assertion" 1 share_tabs_width_control
-cat -- "$share_world/tabs-width-control.log"
+sed 's/^/  CONTROL  /' "$share_world/tabs-width-control.log"
 share_click Button Cancel
 expect_poll "the capped-tabs control caller cancels" True share_cancelled control-tabs-width
 share_control_restore share-tabs-width-control
@@ -240,7 +240,7 @@ expect_poll "the wrong-window control captures the other live fixture" '[240, 18
 expect "the wrong-window control picker maps" True share_mapped
 share_preview_control() { (failures=0 behaviour_failures=0; share_preview_identity >"$share_world/preview-control.log"; echo "$failures"); }
 expect "control: the wrong live window fails the same preview identity assertion" 1 share_preview_control
-cat -- "$share_world/preview-control.log"
+sed 's/^/  CONTROL  /' "$share_world/preview-control.log"
 share_click Button Cancel
 expect_poll "the preview control caller cancels" True share_cancelled control-preview
 share_control_restore share-preview-control
@@ -264,7 +264,7 @@ expect_poll "the disabled-drag control picker maps" True share_mapped
 share_drag
 share_drag_control() { (failures=0 behaviour_failures=0; share_drag_check >"$share_world/drag-control.log"; echo "$failures"); }
 expect "control: disabling drag mapping fails the same output rectangle assertion" 1 share_drag_control
-cat -- "$share_world/drag-control.log"
+sed 's/^/  CONTROL  /' "$share_world/drag-control.log"
 share_click Button Cancel
 expect_poll "the drag control caller cancels" True share_cancelled control-drag
 share_control_restore share-drag-control
@@ -311,7 +311,7 @@ share_replacement_control() {
    echo "$failures")
 }
 expect "control: omitting replacement cancellation fails the same release check" 1 share_replacement_control
-cat -- "$share_world/replacement-control.log"
+sed 's/^/  CONTROL  /' "$share_world/replacement-control.log"
 expect "the control's pending request is cancelled for cleanup" ok ipc vgs.capture invoke share-cancel "{\"id\":\"$share_replacement_id\"}"
 expect_poll "the control's executable exits without a selection" True share_cancelled control-replacement
 cp -- "$share_world/window.saved" "$repo/shell/plugins/vgs.capture/Window.qml"
@@ -333,7 +333,7 @@ share_current_id="$(share_request_id)"
 expect_poll "the held picker has a live preview" true share_read previewReady
 share_held_owner_control() { (failures=0 behaviour_failures=0; share_owner_released held-picker >"$share_world/held-owner-control.log"; echo "$failures"); }
 expect "control: a retained picker fails the same request and preview release check" 1 share_held_owner_control
-cat -- "$share_world/held-owner-control.log"
+sed 's/^/  CONTROL  /' "$share_world/held-owner-control.log"
 expect "control: an old request cannot satisfy a new caller" False share_new_request "$share_current_id" fixture
 rest_pointer || fail "share-picker: parking pointer for keyboard failed"
 expect_poll "the page tabs have the keyboard" true ipc smoke readDescendant window vgs.capture Tabs activeFocus
@@ -507,7 +507,7 @@ for share_size in standard minimum; do
       if [[ $share_version == before ]]; then
         share_area_control() { (failures=0 behaviour_failures=0; share_area_check >"$share_world/area-control-$share_size-$share_mode.log"; echo "$failures"); }
         expect "control: the old fixed height fails the same Area geometry assertion" 1 share_area_control
-        cat -- "$share_world/area-control-$share_size-$share_mode.log"
+        sed 's/^/  CONTROL  /' "$share_world/area-control-$share_size-$share_mode.log"
         ipc smoke scrollTo window vgs.capture 100000 >/dev/null
       else
         share_area_check
@@ -644,7 +644,7 @@ expect_poll "the application holds its screen-share session" sharing share_app_p
 expect_poll "control: an open portal session retains its video source" 1 share_stream_count
 share_held_stream_control() { (failures=0 behaviour_failures=0; share_stream_released held-app >"$share_world/held-stream-control.log"; echo "$failures"); }
 expect "control: the held app fails the same video-source release check" 1 share_held_stream_control
-cat -- "$share_world/held-stream-control.log"
+sed 's/^/  CONTROL  /' "$share_world/held-stream-control.log"
 share_owner_released selected-before-app-quit
 kill -TERM -- -"$share_app_pid"
 wait "$share_app_pid" 2>/dev/null || true
