@@ -200,11 +200,12 @@ expect_poll "the page change back returns the body to its top" '[0]' page_top
 # tab change resizes its Hyprland client to the page's height, at its width
 # and its top-left corner, and the window's content takes the client's
 # height, so no part of it is blank. VPN's Details is taller than its
-# Settings: the window grows on Details and returns on Settings. Then every
-# plugin the manager lists is judged on Details by one judge: its last row
-# ends inside the window, or the scroll area's bottom edge cue shows.
-# Jarvis's Details reaches the cap and reads the cue, and VPN's fits
-# without it, so the cue reads both ways. The control hands the judge VPN's
+# Settings: the window grows on Details, as tall as Details up to the cap,
+# and returns on Settings. Then every plugin the manager lists is judged on
+# Details by one judge: its last row ends inside the window, or the scroll
+# area's bottom edge cue shows. Jarvis's Details reaches the cap and reads
+# the cue, and the Bar's fits under the cap without it, so the cue reads
+# both ways. The control hands the judge VPN's
 # Details reading with the window at its Settings height and no cue, as
 # with neither the resize nor the cue: the judge reads it cut.
 # fit_state: the Plugins client as [x, y, w, h] and where the shown page
@@ -245,8 +246,6 @@ expect_poll "the window takes the VPN Details height" settled fit_settled
 vpn_details="$(fit_state)" || vpn_details=unread
 [[ $vpn_details == \{* ]] || fail "the window's VPN Details reading: got $vpn_details"
 expect "VPN Details grows the window at its top-left and width" '[true, true, true]' fit_change "$vpn_settings" "$vpn_details"
-expect "VPN Details ends inside the grown window" fits fit_judge "$vpn_details"
-expect "VPN Details that fits shows no bottom cue" false fit_field "$vpn_details" end cueBelow
 expect "control: VPN Details at the Settings height without the cue is cut" cut fit_judge "$vpn_details" "$(fit_field "$vpn_settings" client 3)" false
 settings_tab_click Settings || fail "the click on VPN's Settings tab failed"
 expect_poll "VPN's Settings tab shows again" 0 settings_tab
@@ -254,14 +253,16 @@ expect_poll "the window takes the VPN Settings height again" settled fit_settled
 vpn_settings_box="$(printf '%s\n' "$vpn_settings" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["client"]))')" || vpn_settings_box=unread
 expect "the window returns to the VPN Settings box" "$vpn_settings_box" fit_client
 fit_ids="$(settings_rows | py_reply 'import json,sys; print(" ".join(r["id"] for r in json.load(sys.stdin)))')" || fit_ids=""
-[[ " $fit_ids " == *" vgs.vpn "* && " $fit_ids " == *" vgs.jarvis "* ]] || fail "the manager lists VPN and Jarvis for the Details judge: got $fit_ids"
+[[ " $fit_ids " == *" vgs.bar "* && " $fit_ids " == *" vgs.jarvis "* ]] || fail "the manager lists the Bar and Jarvis for the Details judge: got $fit_ids"
 jarvis_details=unread
+bar_details=unread
 for fit_id in $fit_ids; do
   expect "the window opens $fit_id's page for the Details judge" ok ipc smoke invokeInstance window vgs.settings openPlugin "$fit_id"
   settings_details
   expect_poll "the window takes $fit_id's Details height" settled fit_settled
   fit_reading="$(fit_state)" || fit_reading=unread
   [[ $fit_id == vgs.jarvis ]] && jarvis_details="$fit_reading"
+  [[ $fit_id == vgs.bar ]] && bar_details="$fit_reading"
   fit_verdict="$(fit_judge "$fit_reading")" || fit_verdict=unread
   case $fit_verdict in
     fits|cued) ok "$fit_id Details ends inside the window or shows the bottom cue: $fit_verdict" ;;
@@ -270,6 +271,8 @@ for fit_id in $fit_ids; do
 done
 expect "Jarvis Details runs past the capped window and shows the bottom cue" cued fit_judge "$jarvis_details"
 expect "Jarvis Details shows the bottom cue" true fit_field "$jarvis_details" end cueBelow
+expect "the Bar's Details ends inside the window" fits fit_judge "$bar_details"
+expect "the Bar's Details that fits shows no bottom cue" false fit_field "$bar_details" end cueBelow
 
 open_rows() { settings_rows | py_reply 'import json,sys; ids=("acme.probe","vgs.gallery","vgs.devtools","vgs.themes"); print(json.dumps({r["id"]: r["opens"] for r in json.load(sys.stdin) if r["id"] in ids}, sort_keys=True))'; }
 open_button() { ipc smoke windowGeometry window vgs.settings Button Open | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
