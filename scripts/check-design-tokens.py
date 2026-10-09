@@ -9,6 +9,8 @@ templates and the smoke fixtures:
                      never from a second list
   group-unpublished  a top-level group of Tokens.js has no read-only property
                      in Theme.qml, so no file could read its tokens
+  window-room        no screen width or height less a window gutter;
+                     OverlayState.room owns every output bound
 Literal rules, on shipped QML (shell/Ui, shell/Hosts, shell/plugins) and the
 skill templates; shell/Commons and shell/Core draw nothing, and a fixture's
 fixed geometry is what a placement row measures:
@@ -71,7 +73,7 @@ import sys
 # A check writes nothing into the tree it reads, so the shared module leaves
 # no bytecode cache beside it.
 sys.dont_write_bytecode = True
-from qml_source import Unreadable, source_lines
+from qml_source import Unreadable, source_lines, source_texts, blank_comments
 
 # node runs under this environment and nothing inherited beyond it.
 NODE_ENV = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"}
@@ -116,6 +118,10 @@ APPEARANCE = (
     "}"
     "process.stdout.write(JSON.stringify(out));"
 )
+
+# Window.qml and Console.qml used these private full-screen bounds, which
+# ignore the bar. OverlayState.room owns the work-area and gutter deduction.
+SCREEN_GUTTER = re.compile(r"\bscreen\s*\.\s*(?:width|height)\s*-\s*(?:2\s*\*\s*)?(?:Theme\s*\.\s*size|look)\s*\.\s*window\s*\.\s*gutter\b")
 
 THEME_REFERENCE = re.compile(r"(?<![\w.$])Theme\.((?:[A-Za-z_]\w*)(?:\.[A-Za-z_]\w*)*)")
 LOOK_REFERENCE = re.compile(r"(?<![\w$])look\.((?:[A-Za-z_]\w*)(?:\.[A-Za-z_]\w*)*)")
@@ -306,6 +312,13 @@ def look_of(looks, path):
 def check_tree(root, table, literal, looks, findings, notices):
     """Check every source file under `root`; answer the file count."""
     files = set()
+    for path, text in source_texts(root):
+        if manifestless_plugin_dir(looks, path) is not None:
+            continue
+        code = blank_comments(text)
+        for match in SCREEN_GUTTER.finditer(code):
+            number = code.count("\n", 0, match.start()) + 1
+            findings.append(f"window-room {path}:{number} screen-gutter")
     for look in looks.values():
         if look.file is not None:
             for refusal in look.refusals:

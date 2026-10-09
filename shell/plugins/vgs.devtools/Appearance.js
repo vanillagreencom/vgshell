@@ -13,9 +13,7 @@
 // `stack.section` 24 between sections, `space.xs` 4 between lines,
 // `stack.inline` 8 between a row's chips and actions,
 // `row.twoLineHeight` 56 for a row, `size.window.width` 600 for the width
-// and `size.panel.maxHeight` 600 for the height, `size.window.gutter` 12
-// kept clear of a narrower or shorter screen's edges, so the window sits
-// beside the shell's surfaces under that theme. The tile's size, corner and
+// and `size.panel.maxHeight` 600 for the height. The tile's size, corner and
 // glyph are the window's own.
 
 function color(value) { return { type: "color", value: value }; }
@@ -108,7 +106,6 @@ Object.keys(TOKENS.brand).forEach(function (key) {
 TOKENS.window = {
     width: length(600),
     maxHeight: length(600),
-    gutter: length(12),
     padding: length(16),
     radius: length(0),
     gap: length(12),

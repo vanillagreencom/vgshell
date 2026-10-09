@@ -37,6 +37,12 @@ UI = "shell/Ui/Thing.qml"
 # rows: name, path of the planted file, its text, expected rule key or None
 ROWS = [
     ("clean tree", UI, CLEAN, None),
+    ("a shared work-area width", UI, "Item { implicitWidth: Math.min(Theme.size.window.width, OverlayState.room(screen).width) }\n", None),
+    ("a shared work-area height", UI, "Item { implicitHeight: Math.min(Theme.size.panel.maxHeight, OverlayState.room(screen).height) }\n", None),
+    ("a private full-screen width", "shell/plugins/acme.widget/Window.qml", "Item { implicitWidth: Math.min(Theme.size.window.width, screen.width - 2 * Theme.size.window.gutter) }\n", "window-room"),
+    ("a private full-screen height", UI, "Item { implicitHeight: screen.height - Theme.size.window.gutter - Theme.size.window.gutter }\n", "window-room"),
+    ("a private bound split over lines", UI, "Item { implicitWidth: screen.width -\n 2 * Theme.size.window.gutter }\n", "window-room"),
+    ("a private bound in a comment", UI, "Item { /* screen.width - 2 * Theme.size.window.gutter */ }\n", None),
     ("a token path that names nothing", UI, "Item { color: Theme.colour.accent }\n", "token-unknown"),
     ("a token under the wrong group", UI, "Item { color: Theme.palette.textMuted }\n", "token-unknown"),
     ("a group where a token was named", UI, "Item { property var t: Theme.text.body.sizes }\n", "token-unknown"),
@@ -110,6 +116,7 @@ LOOK_DIR = "shell/plugins/acme.look"
 # None. The clean plugin adds two source files to the ten.
 LOOK_ROWS = [
     ("a plugin reading its own look", {}, None),
+    ("a private full-screen bound from a plugin look", {"View.qml": LOOK_VIEW.replace("radius: look.card.radius", "implicitWidth: screen.width - 2 * look.window.gutter"), "Look.js": LOOK_TABLE.replace(" card:", " window: { gutter: { type: \"length\", value: 12 } }, card:", 1)}, "window-room"),
     ("a literal in the declared table is not a finding", {"Look.js": LOOK_TABLE.replace("#151515", "#123456")}, None),
     ("a light tree that sets an input is refused", {"Look.js": LOOK_TABLE.replace("card: { fill: \"#efefef\" }", "palette: { accent: \"#ffffff\" }")}, "appearance-refused"),
     ("a palette colour other than the accent is refused", {"Look.js": LOOK_TABLE.replace("palette: { accent:", "palette: { foreground: { type: \"color\", value: \"#fff\" }, accent:")}, "appearance-refused"),

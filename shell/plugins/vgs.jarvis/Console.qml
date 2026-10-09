@@ -95,8 +95,8 @@ FocusScope {
     }
 
     onTranscriptRowsChanged: Qt.callLater(followEnd)
-    implicitWidth: screen === null ? Theme.size.window.width : Math.floor(Math.min(Theme.size.window.width, screen.width - Theme.size.window.gutter - Theme.size.window.gutter))
-    implicitHeight: screen === null ? Theme.size.panel.maxHeight : Math.floor(Math.min(Theme.size.panel.maxHeight, screen.height - Theme.size.window.gutter - Theme.size.window.gutter))
+    implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
+    implicitHeight: Math.floor(Math.min(Theme.size.panel.maxHeight, OverlayState.room(screen).height))
     focus: true
 
     Pane {

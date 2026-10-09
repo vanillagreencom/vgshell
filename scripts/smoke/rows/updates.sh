@@ -512,7 +512,7 @@ updates_shifted() { updates_geometry shift | py_reply 'import json,sys; print(an
 expect "control: a trailing item moved off its row edge is refused" True updates_shifted
 
 # A monitor too short and narrow for the window, 480 by 360: the window
-# asks for the output less `size.window.gutter` a side, lays out at that
+# asks for the work area less `size.window.gutter` a side, lays out at that
 # size, its body scrolls and its footer stays inside it. The held mode is released after, so later rows meet the
 # monitor they read at the start. The size rule's control widens the
 # window's reading by 8 px, which the check refuses. `[]` is the pass.
@@ -535,11 +535,18 @@ short_saved_w="$mon_w" short_saved_h="$mon_h"
 mon_w="$short_logical_w" mon_h="$short_logical_h"
 open_updates
 window_room() { # [PLANT]
-  python3 - "$(ipc smoke instanceGeometry window vgs.updates)" "$short_gutter" "$short_logical_w" "$short_logical_h" "${1:-}" <<'PY'
+  python3 - "$(ipc smoke instanceGeometry window vgs.updates)" "$short_gutter" "$(hypr -j monitors)" "$short_monitor" "${1:-}" <<'PY'
 import json, sys
-if not sys.argv[1].startswith("[") or not sys.argv[2].isdigit() or not sys.argv[3].isdigit() or not sys.argv[4].isdigit():
-    print(json.dumps(["window=%s gutter=%s monitor=%sx%s" % (sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])])); sys.exit()
-box, gutter, monitor_w, monitor_h, plant = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]), sys.argv[5] == "wide"
+if not sys.argv[1].startswith("[") or not sys.argv[2].isdigit() or not sys.argv[3].startswith("["):
+    print(json.dumps(["window=%s gutter=%s monitors=%s" % tuple(sys.argv[1:4])])); sys.exit()
+monitors = [m for m in json.loads(sys.argv[3]) if m["name"] == sys.argv[4]]
+if len(monitors) != 1:
+    print(json.dumps(["monitors=%d" % len(monitors)])); sys.exit()
+monitor = monitors[0]
+left, top, right, bottom = monitor["reserved"]
+box, gutter, plant = sys.argv[1], int(sys.argv[2]), sys.argv[5] == "wide"
+monitor_w = monitor["width"] / monitor["scale"] - left - right
+monitor_h = monitor["height"] / monitor["scale"] - top - bottom
 x, y, w, h = json.loads(box)
 if plant: w += 8
 out = []

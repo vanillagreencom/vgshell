@@ -72,8 +72,8 @@ Item {
         return reply;
     }
 
-    implicitWidth: screen === null ? look.window.width : Math.floor(Math.min(look.window.width, screen.width - 2 * look.window.gutter))
-    implicitHeight: screen === null ? look.window.maxHeight : Math.floor(Math.min(look.window.maxHeight, screen.height - 2 * look.window.gutter))
+    implicitWidth: Math.floor(Math.min(look.window.width, OverlayState.room(screen).width))
+    implicitHeight: Math.floor(Math.min(look.window.maxHeight, OverlayState.room(screen).height))
 
     Pane {
         id: pane

@@ -46,8 +46,8 @@ FocusScope {
     readonly property string previewFirst: previewRows.length > 0 ? String(previewRows[0]) : ""
     readonly property int listCurrent: automationList.current
 
-    implicitWidth: screen === null ? Theme.size.window.width : Math.floor(Math.min(Theme.size.window.width, screen.width - 2 * Theme.size.window.gutter))
-    implicitHeight: screen === null ? Theme.size.panel.maxHeight : Math.floor(Math.min(Theme.size.panel.maxHeight, screen.height - 2 * Theme.size.window.gutter))
+    implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
+    implicitHeight: Math.floor(Math.min(Theme.size.panel.maxHeight, OverlayState.room(screen).height))
     focus: true
 
     function open(payloadJson) {
