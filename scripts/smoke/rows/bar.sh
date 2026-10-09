@@ -591,7 +591,9 @@ PY
   # section with every System Monitor reading on, over the default set,
   # which enables each of them. The sandbox's stand-ins draw narrower than
   # his live widgets, which run into the clock at his 2560 logical pixels,
-  # so the row holds 1600, where the stand-ins run into it too.
+  # so the row holds 1600, where the stand-ins run into it too. System
+  # Monitor and Network Traffic hold One line, the widths the walks below
+  # count widgets by; their Stacked default draws narrower.
   zone_right='["vgs.vpn","vgs.network","vgs.bluetooth","vgs.sound","vgs.displays","vgs.keyboard","vgs.settings","vgs.agent-warden","vgs.ai-usage","vgs.capture","vgs.jarvis","vgs.power","vgs.traffic","vgs.updates","vgs.voice","vgs.sysmon"]'
   # zone_plant [N]: the owner's layout in the user file, the first N of
   # his right widgets alone when N is given, the rest off the bar;
@@ -610,7 +612,9 @@ rows += [{"id": i} for i in owner + ["vgs.sudo"] if i not in right and i not in 
 entries = [{"id": i} for i in right]
 for entry in entries:
     if entry["id"] == "vgs.sysmon":
-        entry.update({"cpuTemperature": True, "gpuTemperature": True, "showSwap": True, "showMemory": True, "memoryUnit": "percent"})
+        entry.update({"cpuTemperature": True, "gpuTemperature": True, "showSwap": True, "showMemory": True, "memoryUnit": "percent", "layout": "One line"})
+    if entry["id"] == "vgs.traffic":
+        entry["layout"] = "One line"
 config["bar"] = {"id": "vgs.bar", "layout": {"left": [{"id": "vgs.launcher"}, {"id": "vgs.bar/left-workspaces"}, {"id": "vgs.tray"}],
                                              "center": [{"id": "vgs.bar/center-clock"}], "right": entries}}
 with open(path + ".tmp", "w") as out:
