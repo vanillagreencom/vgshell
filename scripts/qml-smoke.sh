@@ -13,7 +13,8 @@
 #
 # Exit 0 when every check passed. Exit 77 when a prerequisite is missing,
 # naming it; when the nested compositor still lists a monitor with no size
-# after 10 s, nested-monitor=unsized, since it configures no bar there;
+# at the bound scripts/smoke/harness.sh names from its launch,
+# nested-monitor=unsized, since it configures no bar there;
 # or when a run whose only failures are geometry or render rows
 # met a sandbox fault: the nested window's output rejected a state because
 # its buffers could not be allocated, which the nested compositor logs as
@@ -28,8 +29,10 @@
 # --first-bar-runs N, N a positive integer, measures the first bar alone:
 # it starts the sandbox N times, runs no row, and prints one line per run,
 # `run=<i> latency_first_bar_ms=<ms> cpu_some_pct=<pct>
-# services_released=<reason> waited_ms=<ms>`, the last two from the
-# service gate's release line (unreleased and - when it logged none), or
+# services_released=<reason> waited_ms=<ms> nested_monitor_ready_secs=<s>`,
+# the released reason and waited_ms from the service gate's release line
+# (unreleased and - when it logged none), the last the harness's
+# nested-monitor-ready reading, or
 # `run=<i> status=not-measured exit=<status> log=<path>` for a run whose
 # harness exited non-zero or read no bar. The last line is
 # `qml-smoke: first-bar runs=<N> measured=<M> highest_ms=<H> budget_ms=<2H>
@@ -207,7 +210,7 @@ if [[ -n $first_bar_runs ]]; then
     set +e
     (
       source "$repo/scripts/smoke/harness.sh"
-      printf '%s %s %s\n' "${first_bar_ms:-unmeasured}" "$first_bar_cpu_some_pct" "$(service_release)" >"$result"
+      printf '%s %s %s %s\n' "${first_bar_ms:-unmeasured}" "$first_bar_cpu_some_pct" "$(service_release)" "$nested_monitor_ready_secs" >"$result"
     ) >"$log" 2>&1 </dev/null
     status=$?
     set -e
@@ -215,12 +218,13 @@ if [[ -n $first_bar_runs ]]; then
     pct=""
     reason=""
     waited=""
-    if [[ $status -eq 0 && -f $result ]]; then read -r ms pct reason waited <"$result"; fi
+    ready=""
+    if [[ $status -eq 0 && -f $result ]]; then read -r ms pct reason waited ready <"$result"; fi
     if [[ $status -eq 0 && $ms =~ ^[0-9]+$ ]]; then
       measured=$((measured + 1))
       if ((ms > highest)); then highest=$ms; fi
       if [[ $reason == first-frame ]] && { [[ -z $highest_waited ]] || ((waited > highest_waited)); }; then highest_waited=$waited; fi
-      printf 'run=%d latency_first_bar_ms=%d cpu_some_pct=%s services_released=%s waited_ms=%s\n' "$run" "$ms" "$pct" "$reason" "$waited"
+      printf 'run=%d latency_first_bar_ms=%d cpu_some_pct=%s services_released=%s waited_ms=%s nested_monitor_ready_secs=%s\n' "$run" "$ms" "$pct" "$reason" "$waited" "$ready"
     else
       printf 'run=%d status=not-measured exit=%d log=%s\n' "$run" "$status" "$log"
     fi
