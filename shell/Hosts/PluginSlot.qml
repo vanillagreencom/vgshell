@@ -73,7 +73,7 @@ FocusScope {
     function openSettingsPage() {
         const kind = slot.kind;
         const id = slot.pluginId;
-        const shown = Plugins.route("summon", "window", Registry.managerId, JSON.stringify({ plugin: settingsPage }), null);
+        const shown = Plugins.openSettingsPage(settingsPage);
         if (shown !== "ok") {
             console.warn("plugin slot: settings page of " + id + " " + shown);
             return;

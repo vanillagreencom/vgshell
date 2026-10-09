@@ -1,10 +1,13 @@
 # Every plugin with a bar widget shows in the bar once it is installed,
-# with no step in Settings, and every widget's right-click menu hides it.
+# with no step in Settings, and every widget's right-click menu hides it
+# or opens the owning plugin's Settings page through its last entry.
 # A copy of the acme.pane fixture, a service plus a bar widget, installed
 # as acme.hideable, is placed in its default section and enabled by the
 # rescan that finds it (PluginLogic.firstPresence). A real right click on
 # its widget opens the shared frame's menu (shell/Ui/BarWidget.qml); its
-# one entry, Hide, opens the dialog, whose Cancel holds the focus: Return
+# last entry, Settings, opens the plugin's page, while the built-in clock's
+# Settings entry opens the bar page. A menu copy with that entry removed is
+# the control. Hide opens the dialog, whose Cancel holds the focus: Return
 # and Escape each close it and leave the user file and the bar as they
 # were. Return on Hide after a Tab takes the widget off every bar and out
 # of the user file's layout, keeps the plugin enabled, leaves a plugins[]
@@ -22,7 +25,7 @@
 # the two shipped plugins stay off and vgs.tray comes on. The row
 # restores the user file, removes its copies and puts the pointer back
 # where it found it.
-# inputs: shell/Ui/BarWidget.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/overlay/DismissScope.qml shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Config.qml scripts/smoke/fixtures/plugins/acme.pane/* shell/plugins/vgs.settings/* shell/plugins/vgs.voice/manifest.json shell/plugins/vgs.webapps/manifest.json shell/plugins/vgs.tray/manifest.json
+# inputs: shell/Ui/BarWidget.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/overlay/DismissScope.qml shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Config.qml scripts/smoke/fixtures/plugins/acme.pane/* shell/plugins/vgs.settings/* shell/plugins/vgs.voice/manifest.json shell/plugins/vgs.webapps/manifest.json shell/plugins/vgs.tray/manifest.json
 set -euo pipefail
 hide_file="$home/.config/vgshell/shell.json"
 hide_saved="$sandbox/shell-before-widget-hide.json"
@@ -76,6 +79,18 @@ hide_ask() {
   expect_poll "Hide closes the menu" false hide_read "$1" frameMenuOpen
   expect_poll "Hide opens the dialog" true hide_read "$1" frameDialogOpen
 }
+hide_menu_last() { hide_read "$1" frameMenuEntries | py_reply 'import json,sys; rows=json.load(sys.stdin); print(json.dumps(rows[-1] if rows else ""))'; }
+hide_settings() {
+  local id="$1" page="$2"
+  hide_right_click "$id" || fail "the right click on $id's widget failed"
+  expect_poll "a right click on $id's widget opens its menu" true hide_read "$id" frameMenuOpen
+  expect "$id's menu ends with Settings" '"Settings"' hide_menu_last "$id"
+  type_keys -k End -k Return || fail "End and Return on $id's Settings entry failed"
+  expect_poll "Settings closes $id's menu" false hide_read "$id" frameMenuOpen
+  expect_poll "Settings on $id's widget opens $page's page" "\"$page\"" ipc smoke readInstance window vgs.settings page
+  expect "the Settings window opened from $id hides" ok ipc shell hide window vgs.settings
+  expect_poll "the Settings window opened from $id is gone" 0 window_count Plugins
+}
 hide_unchanged() { if cmp -s -- "$hide_file" "$1"; then echo unchanged; else echo changed; fi; }
 
 install_plugin_copy acme.pane acme.hideable "Hideable" 10
@@ -85,6 +100,10 @@ expect_poll "the installed widget is in every bar" '[true]' hide_in_bars acme.hi
 expect "the installed widget sits in its default section of the user file" '["right"]' hide_sections acme.hideable
 hide_disabled_before="$(hide_disabled)" || fail "the user file's disabledPlugins is unreadable"
 cp -- "$hide_file" "$sandbox/shell-widget-hide-placed.json"
+
+hide_settings acme.hideable acme.hideable
+hide_settings vgs.bar/center-clock vgs.bar
+expect "the Settings menu steps leave the user file as it was" unchanged hide_unchanged "$sandbox/shell-widget-hide-placed.json"
 
 # Cancel holds the focus: Return presses it. Escape rejects too.
 hide_ask acme.hideable
@@ -158,6 +177,23 @@ if copy_tree widget-hide-control \
   hide_right_click acme.hideable || fail "control: the right click on the widget failed"
   sleep 0.5
   expect "control: a frame with no menu opens nothing on a right click" false hide_read acme.hideable frameMenuOpen
+  hide_settings_menuitem=$'                MenuItem {\n                    text: "Settings"\n                    iconName: "settings"\n                    visible: ui.settingsPage !== ""\n                    onTriggered: {\n                        const reply = root.frame.openSettings();\n                        if (reply !== "ok") console.warn("bar widget: settings of " + root.moduleName + " " + reply);\n                    }\n                }\n'
+  if copy_tree widget-settings-control \
+    && edit_tree widget-settings-control shell/Ui/BarWidget.qml "$hide_settings_menuitem" ''; then
+    stop_shell
+    start_shell "$sandbox/tree-widget-settings-control" "$sandbox/widget-settings-control.log" || fail "the widget-settings control shell starts"
+    expect_poll "control: the placed widget is built for the Settings control" '[true]' hide_in_bars acme.hideable
+    hide_right_click acme.hideable || fail "control: the right click on acme.hideable's widget failed"
+    expect_poll "control: acme.hideable's widget menu opens" true hide_read acme.hideable frameMenuOpen
+    expect "control: acme.hideable's menu has no Settings entry" '"Hide"' hide_menu_last acme.hideable
+    type_keys -k Escape || fail "control: Escape on acme.hideable's menu failed"
+    expect_poll "control: Escape closes acme.hideable's menu" false hide_read acme.hideable frameMenuOpen
+    hide_right_click vgs.bar/center-clock || fail "control: the right click on the clock widget failed"
+    expect_poll "control: the clock widget menu opens" true hide_read vgs.bar/center-clock frameMenuOpen
+    expect "control: the clock menu has no Settings entry" '"Hide"' hide_menu_last vgs.bar/center-clock
+    type_keys -k Escape || fail "control: Escape on the clock menu failed"
+    expect_poll "control: Escape closes the clock menu" false hide_read vgs.bar/center-clock frameMenuOpen
+  fi
   stop_shell
   start_shell "$repo" "$sandbox/widget-hide-restored.log" || fail "the shell starts again after the widget-hide control"
 fi

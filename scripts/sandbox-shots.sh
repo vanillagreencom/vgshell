@@ -3005,7 +3005,7 @@ PYKEYBOARD
     take "system-$1-keyboard-widget"
     keyboard_shot_right_click || fail "opening the Keyboard widget menu failed"
     expect_poll "the Keyboard widget menu is open for its shot" true ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuOpen
-    expect "the widget menu includes Keyboard Controls and System settings" '["Hide","Keyboard Controls","Keyboard Settings"]' ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries
+    expect "the widget menu includes Keyboard Controls, System settings and Settings" '["Hide","Keyboard Controls","Keyboard Settings","Settings"]' ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries
     take "system-$1-keyboard-widget-menu"
     type_keys -k Home -k Down -k Return || fail "opening Keyboard Controls from its widget menu failed"
     expect_poll "the widget action opens the typed Keyboard panel" '[["us", ""], ["de", "nodeadkeys"]]' keyboard_shot_panel_sources

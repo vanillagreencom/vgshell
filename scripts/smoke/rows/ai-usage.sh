@@ -25,7 +25,7 @@
 # credential file, one that reads a failed request as 0 % and a panel host
 # copy whose slot opens Settings with no page each fail their own reading.
 # This row has no latency ceiling; every reading polls through expect_poll.
-# inputs: shell/plugins/vgs.ai-usage/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js scripts/fixtures/ai-usage/* scripts/smoke/fixtures/ai-usage/* shell/plugins/vgs.settings/* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/SurfaceHeight.qml shell/Ui/layout/Pane.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/feedback/Badge.qml shell/Ui/feedback/ProgressBar.qml shell/Commons/Time.qml config/shell.json bin/vgshell-tui scripts/qml-smoke.sh shell/Commons/Duration.js shell/Commons/qmldir shell/Ui/foundation/KeyNavLogic.js
+# inputs: shell/plugins/vgs.ai-usage/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js scripts/fixtures/ai-usage/* scripts/smoke/fixtures/ai-usage/* shell/plugins/vgs.settings/* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/SurfaceHeight.qml shell/Ui/layout/Pane.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/feedback/Badge.qml shell/Ui/feedback/ProgressBar.qml shell/Commons/Time.qml config/shell.json bin/vgshell-tui scripts/qml-smoke.sh shell/Commons/Duration.js shell/Commons/qmldir shell/Ui/foundation/KeyNavLogic.js
 set -euo pipefail
 usage_dir="$sandbox/ai-usage"
 mkdir -p -- "$usage_dir"
@@ -456,7 +456,7 @@ usage_gear_dir="$repo/shell/Hosts/SettingsGearControl"
 mkdir -p -- "$usage_gear_dir"
 cp -- "$repo/shell/Hosts/SummonPopup.qml" "$repo/shell/Hosts/PluginSlot.qml" "$usage_gear_dir/"
 usage_edit "$usage_gear_dir/PluginSlot.qml" 'import "../Ui/foundation/KeyNavLogic.js" as KeyNavLogic' 'import "../../Ui/foundation/KeyNavLogic.js" as KeyNavLogic' || fail "the copied slot's shared key navigation import failed"
-usage_edit "$usage_gear_dir/PluginSlot.qml" 'JSON.stringify({ plugin: settingsPage })' '"{}"' || fail "the pageless gear control's edit failed"
+usage_edit "$usage_gear_dir/PluginSlot.qml" 'Plugins.openSettingsPage(settingsPage)' 'Plugins.route("summon", "window", Registry.managerId, "{}", null)' || fail "the pageless gear control's edit failed"
 expect "the probe builds the panel host copy whose gear opens no page" ok ipc smoke popupLoad usage-gear-control "$usage_gear_dir/SummonPopup.qml" "$(bar_key)" vgs.ai-usage '{"pluginId":"vgs.ai-usage","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
 expect_poll "the host copy's panel draws its gear" shown usage_gear_shown
 summon_drawn panel vgs.ai-usage || fail "the host copy's panel never drew a frame"

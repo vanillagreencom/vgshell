@@ -3,20 +3,24 @@ import Quickshell
 import qs.Commons
 import qs.Ui
 
-// Base item for plugin widgets and registered builtin wrappers. The core assigns five properties to plugin widgets
-// after it builds the widget: `shell` (the widget's own scoped object),
-// `bar` (the bar API), `moduleName` (the plugin id), `settings` (the
-// manifest defaults under the widget's layout entry) and `frame`, what Hide
-// and a drag read and call: `describe()` answers { name, keys, stops,
-// builtin, owner }, `hide()` takes the widget out of every bar section,
-// `dragStart`, `dragMove` and `dragEnd` take the drag's points, and
-// `dragCancel()` ends a remove question, putting the widget back where the
-// drag found it.
+// Base item for plugin widgets and registered builtin wrappers. The core
+// assigns five properties to plugin widgets after it builds the widget:
+// `shell` (the widget's own scoped object), `bar` (the bar API),
+// `moduleName` (the plugin id), `settings` (the manifest defaults under
+// the widget's layout entry) and `frame`, what Hide, Settings and a drag
+// read and call: `describe()` answers { name, page, keys, stops, builtin,
+// owner }, `hide()` takes the widget out of every bar section,
+// `openSettings()` opens Plugins on `page`, `dragStart`, `dragMove` and
+// `dragEnd` take the drag's points, and `dragCancel()` ends a remove
+// question, putting the widget back where the drag found it.
 //
 // Every widget gets the same right-click menu, with no code in the plugin:
 // Hide, then the entries the widget hands in `frameActions`, each
-// { label, action }, which a click or Enter runs. A builtin hides at once;
-// its Settings > Bar switch restores it. A plugin widget asks first in a small dialog under the widget,
+// { label, action }, which a click or Enter runs, then Settings. Settings
+// opens Plugins on the owning plugin's page through the same link as a
+// pane's gear; a builtin opens its bar's page. The entry is absent when
+// the plugin has no Settings page. A builtin hides at once; its Settings >
+// Bar switch restores it. A plugin widget asks first in a small dialog under the widget,
 // which says how to bring the widget back, shows the shortcuts that keep
 // working, and says when hiding also turns the plugin off. Cancel holds the
 // focus, so Enter and Escape change nothing; a press outside closes it too.
@@ -127,15 +131,19 @@ Item {
 
             readonly property bool menuOpened: hideMenu.opened
             readonly property bool dialogOpened: dialogWindow.visible
-            readonly property var menuEntries: hideMenu.opened ? hideMenu.items().map(entry => entry.text) : []
+            readonly property var menuEntries: hideMenu.opened ? hideMenu.items().filter(entry => entry.visible).map(entry => entry.text) : []
             // Hide or a far drop was chosen and the dialog has not opened yet.
             property bool asking: false
             // What the dialog asks: "hide" from the menu, "remove" from a drop.
             property string question: "hide"
             // What the open dialog says, read from `frame` when it opens.
             property var facts: ({ name: "", keys: [], stops: false, builtin: false, owner: "" })
+            property string settingsPage: ""
 
-            function openMenu() { hideMenu.open(); }
+            function openMenu() {
+                settingsPage = root.frame.describe().page;
+                hideMenu.open();
+            }
 
             function ask(kind) {
                 asking = false;
@@ -188,6 +196,15 @@ Item {
                         // Read from the list itself: a model entry is a copy
                         // that need not keep the function.
                         onTriggered: root.frameActions[index].action()
+                    }
+                }
+                MenuItem {
+                    text: "Settings"
+                    iconName: "settings"
+                    visible: ui.settingsPage !== ""
+                    onTriggered: {
+                        const reply = root.frame.openSettings();
+                        if (reply !== "ok") console.warn("bar widget: settings of " + root.moduleName + " " + reply);
                     }
                 }
             }

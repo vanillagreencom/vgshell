@@ -173,7 +173,7 @@ shim_hyprctl real
 rm -- "${shim:?}/hyprctl.keyboard-stale"
 keyboard_right_click || fail "right clicking Keyboard failed"
 expect_poll "the Keyboard widget menu opens" true ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuOpen
-expect "the widget keeps both Keyboard Controls and System settings" '["Hide","Keyboard Controls","Keyboard Settings"]' ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries
+expect "the widget keeps both Keyboard Controls and System settings" '["Hide","Keyboard Controls","Keyboard Settings","Settings"]' ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries
 keyboard_controls_activate || fail "activating Keyboard Controls failed"
 expect_poll "the menu action builds the typed Keyboard panel" '[["us", ""], ["de", "nodeadkeys"]]' keyboard_panel_sources
 expect "the opened panel has the Keyboard title" '"Keyboard"' ipc smoke readDescendant panel vgs.keyboard Pane title
@@ -294,7 +294,7 @@ expect_poll "the absent-action widget builds and stays visible" true ipc smoke r
 expect_poll "the absent-action widget still reads US" '"US"' keyboard_active_code
 keyboard_right_click || fail "right clicking the absent-action control failed"
 expect_poll "the absent-action widget menu opens" true ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuOpen
-expect "the absent-action menu keeps System settings" '["Hide","Keyboard Settings"]' ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries
+expect "the absent-action menu keeps System settings" '["Hide","Keyboard Settings","Settings"]' ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries
 if keyboard_controls_activate; then fail "control: an absent action still activates Keyboard Controls"
 else ok "control: removing the action fails the same menu opener"; fi
 expect "control: the absent action builds no typed Keyboard panel" absent ipc smoke readDescendant panel vgs.keyboard KeyboardControls sources

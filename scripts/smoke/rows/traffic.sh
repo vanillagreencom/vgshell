@@ -311,7 +311,7 @@ traffic_widget_box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.traffic)"
 read -r traffic_x traffic_y < <(python3 -c 'import json,sys;x,y,w,h=json.loads(sys.argv[1]);print(int(x+w/2),int(y+h/2))' "$traffic_widget_box")
 hover "$((traffic_x - 1))" "$traffic_y" && right_click "$traffic_x" "$traffic_y" || fail "Traffic right click failed"
 expect_poll "right click keeps the shared widget menu" true ipc smoke readInstance "$(bar_key)" vgs.traffic frameMenuOpen
-expect "Traffic keeps Hide" '["Hide"]' ipc smoke readInstance "$(bar_key)" vgs.traffic frameMenuEntries
+expect "Traffic keeps Hide and Settings" '["Hide","Settings"]' ipc smoke readInstance "$(bar_key)" vgs.traffic frameMenuEntries
 type_keys -k Return
 expect_poll "Hide opens the confirmation" true ipc smoke readInstance "$(bar_key)" vgs.traffic frameDialogOpen
 type_keys -k Tab -k Return

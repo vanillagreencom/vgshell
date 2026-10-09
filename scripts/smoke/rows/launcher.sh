@@ -687,7 +687,7 @@ launcher_right_click() {
 launcher_pointer="$pointer_at"
 if launcher_right_click; then
   expect_poll "a right click on the bar entry opens its menu" true launcher_menu frameMenuOpen
-  expect "the menu holds Hide, then Open terminal" '["Hide","Open terminal"]' launcher_menu frameMenuEntries
+  expect "the menu holds Hide, then Open terminal, then Settings" '["Hide","Open terminal","Settings"]' launcher_menu frameMenuEntries
   expect "a right click on the bar entry opens no terminal" absent recorded
   expect "a right click on the bar entry opens no launcher" 0 layer_count vgs:overlay
   type_keys -k Escape || fail "Escape to the bar entry's menu failed"

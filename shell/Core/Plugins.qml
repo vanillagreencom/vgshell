@@ -245,8 +245,9 @@ Singleton {
 
     // A bar widget: built like any instance on its bar's screen, then given
     // the five properties BarWidget declares. `frame` is what the shared
-    // widget frame's Hide reads and calls: the plugin's name, the keys in
-    // effect, whether hiding also turns the plugin off, and the unplace.
+    // widget frame reads and calls: the plugin's name, its Settings page,
+    // the keys in effect, whether hiding also turns the plugin off, the
+    // unplace, the pane-shared Settings link, and drag hooks.
     // `locator` is { section, nth }:
     // which layout entry with this id the widget reads, for its configure
     // capability. A widget that does not declare them is destroyed.
@@ -273,6 +274,7 @@ Singleton {
         return {
             describe: () => root.frameFacts(id, item),
             hide: () => root.setPlaced(id, false),
+            openSettings: () => root.openSettingsPage(root.frameFacts(id, item).page),
             dragStart: point => root.dragStart(hostKey, id, locator, item, point),
             dragMove: point => root.dragMove(hostKey, point),
             dragEnd: point => root.dragEnd(hostKey, point),
@@ -432,9 +434,10 @@ Singleton {
         if (barPressGrab !== null && barPressGrab.owner === item && !barPressGrab.active) endPressGrab();
     }
 
-    // What the widget frame's Hide and Remove dialogs say about entry `id`,
-    // read when one opens: { name, keys, stops, builtin, owner }, `keys` the
-    // keys in effect of its bound shortcuts and `stops` true when hiding the
+    // What the widget frame's menu and Hide and Remove dialogs say about
+    // entry `id`, read when one opens: { name, page, keys, stops, builtin,
+    // owner }, `page` the Settings page the menu can open, `keys` the keys
+    // in effect of its bound shortcuts and `stops` true when hiding the
     // widget also turns the plugin off (PluginLogic.enablementRule
     // "widget"). A builtin has no independent settings or enablement; its
     // wrapper supplies its label, and `owner` names the plugin whose page
@@ -447,6 +450,7 @@ Singleton {
             for (const row of Logic.bindRows(Config.effective, m, Capabilities.shortcutDescriptions))
                 for (const key of row.keys) keys.push(key);
         return { name: owner === null ? m.name : item.Accessible.name, keys: keys,
+            page: Registry.settingsPageOf("bar-widget", owner === null ? id : owner.id),
             stops: owner === null && Logic.enablementRule(m) === "widget", builtin: owner !== null, owner: m.name };
     }
 
@@ -750,6 +754,13 @@ Singleton {
             return restart;
         }
         return hosts[kind][verb](id, payloadJson, origin || null);
+    }
+
+    // Summon the manager's window on plugin `page`'s Settings page; answers
+    // the route's reply. The panes' gear and a bar widget's Settings entry
+    // both open Settings here.
+    function openSettingsPage(page) {
+        return route("summon", "window", Registry.managerId, JSON.stringify({ plugin: page }), null);
     }
 
     function navigateOverlay(direction) {
