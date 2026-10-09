@@ -95,14 +95,27 @@ Item {
 
         function test_initial_focus_has_no_ring_and_tab_shows_it() {
             linked.forceActiveFocus(Qt.OtherFocusReason);
-            const ring = linked.children.find(child => String(child).indexOf("FocusRing") === 0);
+            const ring = ringOf(linked);
+            verify(ring !== undefined, "the linked word owns its ring");
             compare(linked.activeFocus, true);
             compare(linked.Accessible.name, linked.text);
             compare(linked.Accessible.role, Accessible.Link);
+            compare(linked.visualFocus, false);
+            verify(waitForRendering(linked));
             compare(ring.visible, false);
             keyClick(Qt.Key_Tab);
+            compare(escaped.activeFocus, true);
+            compare(escaped.visualFocus, true);
+            const nextRing = ringOf(escaped);
+            verify(nextRing !== undefined, "the next linked word owns its ring");
+            verify(waitForRendering(escaped));
+            compare(nextRing.visible, true);
+            compare(linked.visualFocus, false);
+            compare(ring.visible, false);
             keyClick(Qt.Key_Backtab);
             compare(linked.activeFocus, true);
+            compare(linked.visualFocus, true);
+            verify(waitForRendering(linked));
             compare(ring.visible, true);
         }
 
