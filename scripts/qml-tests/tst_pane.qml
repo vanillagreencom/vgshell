@@ -219,6 +219,30 @@ Item {
 
     Component { id: displaysSection; Displays.Pane {} }
 
+    Component {
+        id: titledSources
+        Pane {
+            id: layout
+            width: 320
+            height: implicitHeight
+            fitToContent: true
+            container: "window"
+            title: "Sources"
+            subtitle: Label { text: "Ready"; role: "hint" }
+            property alias rows: sourceRows
+            Column {
+                width: parent.width
+                spacing: Theme.stack.row
+                Repeater {
+                    id: sourceRows
+                    model: 7
+                    ListItem { required property int index; width: parent.width; text: "Source " + index; secondary: "Ready" }
+                }
+            }
+            footer: Button { text: "Refresh" }
+        }
+    }
+
     TestCase {
         name: "pane"
         when: windowShown
@@ -235,6 +259,34 @@ Item {
         function footerDivider(of) { return of.children[6]; }
         // The scroll area's touchpad area is an item of its content too.
         function body(of) { return of.scrollArea.contentItem.children.find(child => !(child instanceof TouchpadScroll)).children[0]; }
+
+        function test_title_growth_keeps_the_last_source_row_reachable_data() {
+            return [
+                { tag: "one line fits", lines: 1, cap: 0 },
+                { tag: "added line fits", lines: 2, cap: 0 },
+                { tag: "one line scrolls", lines: 1, cap: 300 },
+                { tag: "added line scrolls", lines: 2, cap: 300 }
+            ];
+        }
+
+        function test_title_growth_keeps_the_last_source_row_reachable(data) {
+            compare(UnitTheme.override({ stack: { titleSpace: data.lines }, motion: { scale: 0 } }), "ok");
+            const made = createTemporaryObject(titledSources, root, { maximumHeight: data.cap });
+            waitForRendering(made);
+            const view = made.scrollArea;
+            const last = made.rows.itemAt(made.rows.count - 1);
+            compare(view.overflowing, data.cap > 0);
+            if (data.cap > 0) {
+                verify(view.bar.visible);
+                view.contentY = view.contentHeight - view.height;
+                verify(view.contentY > 0);
+            }
+            const rowTop = last.mapToItem(view, 0, 0).y;
+            verify(rowTop >= made.ringRoom - 0.5, "the last source row starts inside the viewport");
+            verify(rowTop + last.height <= view.height - made.ringRoom + 0.5, "the last source row ends inside the viewport");
+            const footer = footerSlot(made);
+            compare(footer.y + footer.height, made.height - made.contentInset);
+        }
 
         function test_an_external_footer_stays_pinned_and_dies_with_its_section() {
             compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");

@@ -7,6 +7,7 @@
 #                                 [--preview-themes LIST] [--preview-wallpaper NAME=PATH]...
 #                                 [--dotfiles DIR]
 #                                 [--timeout SECONDS] [--keep] [SCENE...]
+#                                 [--title-inventory]
 #
 # The sandbox is the smoke's own (scripts/smoke/harness.sh): its own HOME,
 # runtime dir, buses and nested compositor, with the shell started inside
@@ -205,6 +206,7 @@ declare -A preview_wallpaper=()
 preview_dotfiles=""
 require_window=""
 scenes=()
+title_inventory=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) out="$2"; shift 2 ;;
@@ -219,6 +221,7 @@ while [[ $# -gt 0 ]]; do
     --hidden) require_window=hidden; shift ;;
     --timeout) timeout_s="$2"; shift 2 ;;
     --keep) keep=true; shift ;;
+    --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
     sysmon|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|plugin-messages|traffic|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
@@ -238,6 +241,12 @@ done
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 checkout="$repo"
+capture_source="${rev:-$(git -C "$checkout" rev-parse HEAD)}"
+if [[ $title_inventory == true && -z $rev ]]; then
+  # The inventory round stages and freezes its sources before capture.
+  # A tree id binds uncommitted sources without labelling them as HEAD.
+  capture_source="tree:$(git -C "$checkout" write-tree)"
+fi
 # No process this run starts may open an amdgpu node, so the run goes on
 # only where none is visible: scripts/smoke/gpu-fence.sh.
 "$checkout/scripts/smoke/gpu-fence.sh" --check || exec "$checkout/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
@@ -575,6 +584,16 @@ clean_shot_chrome() {
 # held mode's name.
 take_raw() { # NAME
   local status=0
+  if [[ $title_inventory == true ]]; then
+    local inventory
+    if inventory="$(ipc smoke titleInventory)"; then
+      printf 'sandbox-shots: title-inventory source=%s shot=%s value=%s\n' "$capture_source" "$1" "$inventory"
+      printf '%s\t%s\n' "$1" "$inventory" >>"$SHOT_DIR/title-inventory.tsv"
+      expect "the $1 titled panes keep their last row reachable" True py_reply 'import json,sys; rows=json.load(sys.stdin); print(isinstance(rows,list) and all(row["end"]["lastRowVisible"] and row["end"]["footerFits"] for row in rows))' <<<"$inventory"
+    else
+      fail "the $1 titled pane inventory is unreadable"
+    fi
+  fi
   if [[ ${#mode_hold[@]} -eq 0 ]]; then
     shot "$1" || status=$?
   else
@@ -766,12 +785,36 @@ scene_gallery() { # MODE
     at="$(ipc smoke scrollTo "$gallery_kind" vgs.gallery "$y")" || at=""
     if [[ $at != "["* ]]; then fail "the gallery did not scroll: ${at:-no reply}"; break; fi
     read -r cy ch h < <(python3 -c 'import json,sys; print(*(int(v) for v in json.loads(sys.argv[1])))' "$at")
-    take "gallery-$1-p$page"
+    # The Gallery's focus examples deliberately draw rings when reached.
+    # Inventory images retain those examples rather than judge them as chrome.
+    if [[ $title_inventory == true ]]; then take_posed "gallery-$1-p$page"; else take "gallery-$1-p$page"; fi
     (( cy + h < ch )) || break
     y=$(( cy + h - 40 )); page=$(( page + 1 ))
   done
+  if [[ $title_inventory == true ]]; then
+    ipc smoke titledPaneScrollEnd "$gallery_kind" vgs.gallery >/dev/null || fail "the Gallery's final row was not reached"
+    take_posed "gallery-$1-last-row"
+  fi
   gallery_error_focus "$1"
   gallery_menu_first "$1"
+  if [[ $title_inventory == true ]]; then
+    ipc smoke revealText "$gallery_kind" vgs.gallery Button "Open a popover" >/dev/null || fail "the Gallery popover launcher was not revealed"
+    click_in "$gallery_surface" "$gallery_kind" vgs.gallery Button "Open a popover" || fail "the Gallery title popover did not open"
+    gallery_title_popover() { ipc smoke titleInventory | py_reply 'import json,sys; print(any(row["opened"]["title"]=="A popover" for row in json.load(sys.stdin)))'; }
+    expect_poll "the Gallery popover title is visible" True gallery_title_popover
+    take_posed "gallery-$1-titled-popover-opened"
+    type_keys -k Escape || fail "the Gallery title popover did not close"
+    expect_poll "the Gallery title popover closes" False gallery_title_popover
+    ipc smoke revealText "$gallery_kind" vgs.gallery Button "Open modal dialog" >/dev/null || fail "the Gallery modal launcher was not revealed"
+    click_in "$gallery_surface" "$gallery_kind" vgs.gallery Button "Open modal dialog" || fail "the Gallery modal did not open"
+    gallery_title_modal() { layer_count vgs:dialog; }
+    expect_poll "the Gallery titled modal maps" 1 gallery_title_modal
+    take_posed "gallery-$1-titled-modal-opened"
+    type_keys -k Tab || fail "native Tab in the Gallery modal failed"
+    take_posed "gallery-$1-titled-modal-tab"
+    type_keys -k Escape || fail "the Gallery titled modal did not close"
+    expect_poll "the Gallery titled modal closes" 0 gallery_title_modal
+  fi
   expect "the gallery hides" ok ipc shell hide "$gallery_kind" vgs.gallery
   expect_poll "the gallery's surface is gone" 0 surface_count "$gallery_surface"
 }
@@ -2660,6 +2703,9 @@ scene_devtools() { # MODE
   # always unknown, so the line is there whatever the other scenes set up.
   # Where the line fits, the first row's Install takes the hover.
   [[ $(ipc smoke windowGeometry window vgs.devtools RowAction Details) != \[* ]] || hover=Details
+  local hover_offset
+  hover_offset="$(ipc smoke revealText window vgs.devtools RowAction "$hover")" || hover_offset=unread
+  [[ $hover_offset =~ ^[0-9]+([.][0-9]+)?$ ]] || fail "the Dev Tools $hover button was not revealed: $hover_offset"
   hover_on "the pointer rests on the Dev Tools $hover button" window vgs.devtools RowAction "$hover" "window:Dev Tools" && take_posed "devtools-$1-hover"
   park_pointer
   while (( page <= 4 )); do
@@ -4028,7 +4074,7 @@ following=header if rows[header]["box"][3]>0 else footer if body is None else bo
 box=rows[block]["box"]
 print(json.dumps({"paneBox":rows[pane]["box"],"titleBlockBox":box,"titleGap":rows[following]["box"][1]-box[1]-box[3]}))
 ')" || { fail "the $3 title geometry is unreadable"; return; }
-  printf 'sandbox-shots: title-geometry source=%s theme=%s id=%s title=%s token=%s value=%s\n' "${rev:-$(git -C "$checkout" rev-parse HEAD)}" "$1" "$3" "$title" "$token" "$measured"
+  printf 'sandbox-shots: title-geometry source=%s theme=%s id=%s title=%s token=%s value=%s\n' "$capture_source" "$1" "$3" "$title" "$token" "$measured"
   expect "the $3 rendered title gap equals its token" True py_reply 'import json,sys; d=json.load(sys.stdin); print(isinstance(d,dict) and d.get("titleGap") == float(sys.argv[1]) and d.get("titleGap",0)>0)' "$token" <<<"$measured"
 }
 scene_flyout-titles() { # MODE
@@ -4084,6 +4130,26 @@ scene_flyout-titles() { # MODE
   flyout_title_measure "$mode" window vgs.updates
   take_posed "flyout-titles-$mode-updates-opened"
   expect "Updates closes after its title shot" ok ipc shell hide window vgs.updates
+
+  # These controls have both a System page and their own titled flyout.
+  # Use each actual panel entry point, including the device stand-ins the
+  # preceding title scene readied, rather than judging only its System page.
+  local id label
+  for id in vgs.mouse vgs.keyboard vgs.displays; do
+    case $id in
+      vgs.mouse) label=Mouse ;;
+      vgs.keyboard) label=Keyboard ;;
+      vgs.displays) label=Displays ;;
+    esac
+    expect "$label enables for its title shot" ok ipc shell setPluginEnabled "$id" true
+    expect "$label opens for its title shot" ok ipc shell summon panel "$id" '{}'
+    expect_poll "$label draws its title" "\"$label\"" ipc smoke readDescendant panel "$id" Pane title
+    park_pointer
+    flyout_title_measure "$mode" panel "$id"
+    take_posed "flyout-titles-$mode-${id#vgs.}-opened"
+    expect "$label closes after its title shot" ok ipc shell hide panel "$id"
+    expect "$label disables after its title shot" ok ipc shell setPluginEnabled "$id" false
+  done
 }
 
 # The first shot is the bare desktop; every later shot must differ from the

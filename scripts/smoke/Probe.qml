@@ -1,11 +1,13 @@
 import QtQuick
 import QtQuick.Window
+import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Hyprland
 import qs.Core
 import qs.Commons
+import qs.Ui as Ui
 import "Commons/Tokens.js" as Tokens
 import "Commons/ThemeLogic.js" as ThemeLogic
 
@@ -229,6 +231,88 @@ Scope {
         for (let i = 0; i < found.length; i++)
             for (const child of found[i].children || []) found.push(child);
         return found;
+    }
+
+    function titledPanes(item) {
+        return item === null ? [] : descendants(item).filter(child => child instanceof Ui.Pane && child.hasTitle && visibleInTree(child));
+    }
+
+    function lastPaneRow(pane) {
+        function lastIn(items) {
+            const shown = Array.from(items).filter(child => child instanceof Item && child.visible && child.width > 0 && child.height > 0
+                && !["TouchpadScroll", "ScrollBar", "SlimScrollBar"].includes(typeName(child)));
+            const last = shown[shown.length - 1];
+            if (last === undefined) return null;
+            if (last instanceof Flickable) return lastIn(last.contentItem.children);
+            if (last instanceof Ui.Pane) return last.footerHeight > 0 ? lastIn(last.children[4].children) : lastPaneRow(last);
+            // Mounted sections and tab pages wrap their rows in Items and
+            // FocusScopes. Measure the last row, not that entire page.
+            if (last instanceof Column || last instanceof Grid || last instanceof GridLayout || last instanceof FocusScope
+                || last instanceof Loader || typeName(last) === "QQuickItem" || typeName(last) === "CardScroll")
+                return lastIn(last.children) || last;
+            return last;
+        }
+        const wrapper = pane.scrollArea.contentItem.children.find(child => typeName(child) !== "TouchpadScroll");
+        return wrapper === undefined || wrapper.children.length === 0 ? null : lastIn(wrapper.children[0].children);
+    }
+
+    function paneScrolls(pane) {
+        const views = [pane.scrollArea];
+        const row = lastPaneRow(pane);
+        for (let at = row === null ? null : row.parent; at !== null && at !== pane.parent; at = at.parent)
+            if (at instanceof Flickable && at !== pane.scrollArea) views.push(at);
+        return views;
+    }
+
+    function reachLastPaneRow(pane) {
+        for (const view of paneScrolls(pane)) view.contentY = Math.max(0, view.contentHeight - view.height);
+        const row = lastPaneRow(pane);
+        // A nested transcript can leave blank room after its last entry.
+        // Use the shipped reveal path to reach that entry in each outer view.
+        for (let at = row === null ? null : row.parent; at !== null && at !== pane.parent; at = at.parent)
+            if (at instanceof Flickable && typeof at.reveal === "function") at.reveal(row);
+    }
+
+    function paneContentFacts(pane) {
+        const view = pane.scrollArea;
+        const row = lastPaneRow(pane);
+        const top = row === null ? null : row.mapToItem(view, 0, 0).y;
+        const bottom = row === null ? null : top + row.height;
+        const footer = pane.children[4];
+        const clips = row === null ? [] : paneScrolls(pane).map(child => {
+            const rowY = row.mapToItem(child, 0, 0).y;
+            const inset = child === view ? pane.ringRoom : child.focusInset === undefined ? 0 : child.focusInset + child.clipPadding;
+            return { type: typeName(child), top: rowY, bottom: rowY + row.height, height: child.height,
+                fits: rowY >= inset - 0.5 && rowY + row.height <= child.height - inset + 0.5 };
+        });
+        return {
+            title: pane.title,
+            titleTexts: descendants(pane.children[0]).filter(child => child instanceof Text && child.visible && child.text !== "").map(child => child.text),
+            container: pane.container,
+            paneHeight: pane.height,
+            requestedHeight: pane.uncappedHeight,
+            titleSpace: Theme.stack.titleSpace,
+            bodyHeight: pane.bodyContentHeight,
+            viewportHeight: view.height,
+            contentHeight: view.contentHeight,
+            contentY: view.contentY,
+            overflow: view.overflowing,
+            scrollbarVisible: view.bar.visible,
+            scrollbarOpacity: view.bar.opacity,
+            scrollbarFade: Theme.scrollArea.fade,
+            nestedScrolls: paneScrolls(pane).filter(child => child !== view).map(child => ({
+                type: typeName(child), height: child.height, contentHeight: child.contentHeight, contentY: child.contentY,
+                overflow: child.contentHeight > child.height, scrollbarVisible: child.bar === undefined ? null : child.bar.visible
+            })),
+            lastRowType: row === null ? null : typeName(row),
+            lastRowTexts: row === null ? [] : descendants(row).filter(child => child instanceof Text && child.visible && child.text !== "").map(child => child.text),
+            lastRowTop: top,
+            lastRowBottom: bottom,
+            lastRowClips: clips,
+            lastRowVisible: clips.every(child => child.fits),
+            footerBottom: footer.y + footer.height,
+            footerFits: footer.y + footer.height <= pane.height - pane.contentInset + 0.5
+        };
     }
 
     function shownScrollAreas(item) {
@@ -1546,6 +1630,54 @@ Scope {
                     visible: child.visible
                 };
             }));
+        }
+        // Geometry of every shown title, including inline title slots.
+        // The capture inventory compares these before and after scrolling.
+        function titledPaneContent(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            return item === null ? "absent" : root.json(root.titledPanes(item).map(pane => root.paneContentFacts(pane)));
+        }
+        function titledPaneScrollEnd(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            for (const pane of root.titledPanes(item)) root.reachLastPaneRow(pane);
+            return root.json(root.titledPanes(item).map(pane => root.paneContentFacts(pane)));
+        }
+        // Read and restore the scroll offsets in one call. The image keeps
+        // the scene's opened/Tab state while the log proves the end is reachable.
+        function titleInventory(): string {
+            const out = [];
+            const seen = [];
+            for (const hostKey of Object.keys(Plugins.built)) {
+                for (const entry of Plugins.built[hostKey]) {
+                    const trees = [entry.instance];
+                    for (const owner of root.descendants(entry.instance)) {
+                        const popup = owner.tracker !== undefined && owner.tracker !== null ? owner.tracker.popup : null;
+                        if (popup !== null && popup !== undefined && popup.visible) trees.push(popup.contentItem);
+                        // A ModalDialog's Loader owns a window, not a visual
+                        // child. Its content needs the same inventory.
+                        if (owner instanceof Loader && owner.item !== null && !(owner.item instanceof Item)
+                            && owner.item.visible && owner.item.contentItem !== undefined) trees.push(owner.item.contentItem);
+                    }
+                    for (const tree of trees) {
+                        for (const pane of root.titledPanes(tree)) {
+                            if (seen.includes(pane)) continue;
+                            seen.push(pane);
+                            const views = root.paneScrolls(pane);
+                            const offsets = views.map(view => view.contentY);
+                            const opened = root.paneContentFacts(pane);
+                            root.reachLastPaneRow(pane);
+                            const end = root.paneContentFacts(pane);
+                            for (let i = views.length - 1; i >= 0; i--) views[i].contentY = offsets[i];
+                            out.push({ host: hostKey, id: entry.id, instanceHeight: entry.instance.height,
+                                instanceRequestedHeight: entry.instance.implicitHeight,
+                                screenRoom: entry.screen === null || entry.screen === undefined ? null : entry.screen.height - 2 * Theme.size.window.gutter,
+                                opened: opened, end: end });
+                        }
+                    }
+                }
+            }
+            return root.json(out);
         }
         // Every item named `type` under an instance, in tree order, as the
         // texts it draws: its visible, non-empty Text items depth first, so

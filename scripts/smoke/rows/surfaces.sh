@@ -280,6 +280,23 @@ else
   fail "the fixture window's address is unreadable: ${surfaces_address:-}"
 fi
 
+# A small plugin request must include the Pane's actual title and sources.
+# The last row is checked at open, then at the shared screen cap with the
+# production scroll area moved to its end. The ignored-request plant below
+# reaches the same clipped row that the Updates title gap exposed.
+surface_content_state() { ipc smoke titledPaneContent window acme.surfaces; }
+surface_content_visible() { surface_content_state | py_reply 'import json,sys; rows=json.load(sys.stdin); print(isinstance(rows,list) and len(rows)==1 and rows[0]["lastRowVisible"] and rows[0]["footerFits"])'; }
+surface_last_row_check() { expect "the titled window keeps its last source row visible" True surface_content_visible; }
+expect "the source-row fixture opens its titled window" ok ipc shell summon window acme.surfaces '{"sizing":true}'
+geometry expect_poll "the titled window grows to keep its last source row visible" True surface_content_visible
+printf 'surfaces: titled-window opened=%s\n' "$(surface_content_state)"
+expect "the fitted source window closes" ok ipc shell hide window acme.surfaces
+expect "the source-row fixture opens beyond the screen cap" ok ipc shell summon window acme.surfaces '{"sizing":true,"rows":100}'
+geometry expect_poll "the capped source window exposes its shared scrollbar" true ipc smoke readDescendant window acme.surfaces ScrollArea overflowing
+expect "the shared Pane scrolls to its last row" True py_reply 'import json,sys; rows=json.load(sys.stdin); print(isinstance(rows,list) and len(rows)==1 and rows[0]["lastRowVisible"] and rows[0]["footerFits"] and rows[0]["scrollbarVisible"] and rows[0]["contentY"]>0)' <<<"$(ipc smoke titledPaneScrollEnd window acme.surfaces)"
+printf 'surfaces: titled-window capped=%s\n' "$(surface_content_state)"
+expect "the capped source window closes" ok ipc shell hide window acme.surfaces
+
 # Popup geometry is read from the instance through Item.mapToGlobal, which
 # answers in the coordinates of the window the popup was anchored in, after
 # the compositor's configure event; the anchor is read the same way, from
@@ -469,3 +486,20 @@ expect "the retained-scope control closes its window" ok ipc shell hide window a
 expect "the retained-scope control disables its fixture" ok ipc shell setPluginEnabled acme.surfaces false
 stop_shell
 start_shell "$repo" "$sandbox/focus-scope-restored.log" || fail "the retained-scope control restores the shipped shell"
+
+copy_tree window-pane-request
+edit_tree window-pane-request shell/Hosts/AppWindow.qml \
+  'paneHeight(slot.instance)' \
+  '0'
+stop_shell
+start_shell "$sandbox/tree-window-pane-request" "$sandbox/window-pane-request.log" || fail "the clipped source-row control starts"
+expect "the clipped-row control enables its fixture" ok ipc shell setPluginEnabled acme.surfaces true
+expect "the clipped-row control opens its titled window" ok ipc shell summon window acme.surfaces '{"sizing":true}'
+expect_poll "the clipped-row control maps" 1 window_count Surfaces
+surface_last_row_control() { (failures=0 behaviour_failures=0; surface_last_row_check >"$sandbox/window-pane-request-control.log"; echo "$failures"); }
+expect "control: ignoring the Pane request fails the same last-row visibility assertion" 1 surface_last_row_control
+sed 's/^/  CONTROL  /' "$sandbox/window-pane-request-control.log"
+expect "the clipped-row control closes" ok ipc shell hide window acme.surfaces
+expect "the clipped-row control disables its fixture" ok ipc shell setPluginEnabled acme.surfaces false
+stop_shell
+start_shell "$repo" "$sandbox/window-pane-request-restored.log" || fail "the clipped-row control restores the shipped shell"
