@@ -24,6 +24,8 @@ scripts/validate package                     # the Arch recipes in a rootless po
 
 Exit 77 means a check could not run and is not a pass. The `qml` area is the nested sandbox and needs `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR`; `scripts/qml-smoke.sh` runs it alone. A new check is a row in `scripts/validate` with its must-fail control beside it.
 
+Two GitHub workflows run on `main`, never on a push or a pull request. `.github/workflows/nightly.yml` runs `scripts/validate --full` on a schedule while the repository variable `NIGHTLY` is `on`, and reports only. `.github/workflows/kendex-refresh.yml` takes kendex package updates on each kendex release, every 6 hours and by hand: it opens the `kendex/refresh` pull request, which merges at once because `main` has no merge requirements. Kendex owns that file's bytes; it changes only through kendex's `refresh/adopt-refresh.sh`, which refuses a hand edit.
+
 ## Debug
 
 ```sh

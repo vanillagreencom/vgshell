@@ -32,7 +32,7 @@ severity = """
 Review changes to the merge checks, scripts, review policy, the instance lock and the session lock, `vgshell plugin add` and the other plugin manager commands, and privileged operations in full depth. Privileged operations include elevation and writes outside the user's home wherever the code resides.
 """
 declined = """
-This personal project deliberately has no branch protection, merge queue, required review or commit/push guards, and no workflow that runs on a push or a pull request; its one workflow, .github/workflows/nightly.yml, runs scripts/validate --full on main on a schedule for the areas a hosted runner can run and reports only. Reviews are optional. Direct pushes to main and immediate PR merges are supported. Do not request reinstating gates; local validation selects affected checks from the diff.
+This personal project deliberately has no branch protection, merge queue, required review or commit/push guards, and no workflow that runs on a push or a pull request. Its two workflows run on main: .github/workflows/nightly.yml runs scripts/validate --full on a schedule for the areas a hosted runner can run and reports only, and .github/workflows/kendex-refresh.yml, adopted unedited from kendex, opens the kendex/refresh pull request with each package update, which merges at once. Reviews are optional. Direct pushes to main and immediate PR merges are supported. Do not request reinstating gates; local validation selects affected checks from the diff.
 """
 no-preferences = """
 The helper owns parsing and generation; a helper module split is separate work. Theme packages intentionally keep parallel per-theme app files. Agent instructions and architecture references do not require product README copies or release notes.
@@ -85,7 +85,7 @@ The agent-frontmatter and agent-skills tables contain kendex render configuratio
 name = "workflows"
 globs = [".github/workflows/**"]
 reviewer_only = true
-instructions = "The one workflow, nightly.yml, runs scripts/validate --full per area on a schedule and on a manual dispatch, and reports only. Do not add a push, pull_request or merge_group trigger, a required check or a merge gate unless the owner asks, and do not copy a check into a workflow: scripts/validate owns every check, with affected rows selected by the diff."
+instructions = "nightly.yml runs scripts/validate --full per area on a schedule and on a manual dispatch, and reports only. kendex-refresh.yml is kendex's shipped refresh workflow, adopted unedited through kendex's refresh/adopt-refresh.sh; do not ask for an edit to it. Do not add a push, pull_request or merge_group trigger, a required check or a merge gate unless the owner asks, and do not copy a check into a workflow: scripts/validate owns every check, with affected rows selected by the diff."
 
 [[bot-instructions.surface]]
 name = "arch-overview"
