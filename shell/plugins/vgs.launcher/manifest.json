@@ -44,7 +44,8 @@
     "glass": {
       "type": "boolean",
       "label": "VGlass",
-      "description": "Draw the launcher as frosted glass with its moving edge light."
+      "description": "Draw the launcher as frosted glass with its moving edge light.",
+      "info": "VGlass in Appearance, Windows can turn glass on or off for every glass surface. This switch then has no effect."
     }
   },
   "defaultSection": "left",

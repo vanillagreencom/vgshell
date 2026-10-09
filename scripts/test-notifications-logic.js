@@ -145,7 +145,25 @@ const ENRICHED = [
     ["a Slack address from a sender that is no browser", "Chat", "chat", "New message in eng", "app.slack.com\n\nGrace: hi", null]
 ];
 
+// A toast's motion over the shipped durations (short2 100, short3 150,
+// short4 200, medium1 250, medium2 300, medium3 350, medium4 400) and over
+// a set where the fade outlasts the close, short3 400 and medium3 100.
+// Glass: in, max(150, 250) + 100 + max(300, 400, 2 * 200) = 750; out,
+// max(150, 350) + 150 = 500. Plain: in, max(150, 250) = 250; out, the fade
+// then the close, 150 + 350 = 500, and 400 + 100 = 500 where glass takes
+// max(400, 100) + 400 = 800 out and max(400, 250) + 100 + 400 = 900 in.
+const SHIPPED_DURATIONS = { short2: 100, short3: 150, short4: 200, medium1: 250, medium2: 300, medium3: 350, medium4: 400 };
+const LONG_FADE = Object.assign({}, SHIPPED_DURATIONS, { short3: 400, medium3: 100 });
+const TOAST_MOTION = [
+    [SHIPPED_DURATIONS, true, { enter: 750, exit: 500 }],
+    [SHIPPED_DURATIONS, false, { fade: 150, drop: 250, close: 350, enter: 250, exit: 500 }],
+    [LONG_FADE, true, { enter: 900, exit: 800 }],
+    [LONG_FADE, false, { fade: 400, drop: 250, close: 100, enter: 400, exit: 500 }]
+];
+
 function verify(logic) {
+    for (const [durations, glass, want] of TOAST_MOTION)
+        same(logic.toastMotion(durations, glass), want, "toast motion " + (glass ? "with" : "without") + " glass over " + JSON.stringify(durations));
     for (const [label, body, app, want] of BODIES)
         assert.equal(logic.styledBody(body, app, ""), want, "styled body: " + label);
     assert.equal(logic.sanitizeBody("", "app", ""), "", "an empty body stays empty");
@@ -741,6 +759,9 @@ verify(load(file));
 // Each control removes one rule from a copy of the logic and keeps the text
 // around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["a plain exit is the fade then the close", "exit: d.short3 + d.medium3 };", "exit: Math.max(d.short3, d.medium3) + d.short3 };"],
+    ["a plain entrance is the fade beside the drop", "enter: Math.max(d.short3, d.medium1), exit:", "enter: Math.max(d.short3, d.medium1) + d.short2, exit:"],
+    ["the plain close is the medium3 duration", "close: d.medium3,", "close: d.medium4,"],
     ["a refused open's notice is transient", "notice: Object.assign(openNotice(match === null ? \"\" : match[1]), { transient: true })", "notice: openNotice(match === null ? \"\" : match[1])"],
     ["image tag", 'return !!name && name[1].toLowerCase() === "img";', "return false;"],
     ["strip after the newline rewrite", 'return stripImageTags(sanitizeBody(body, app, appIcon).replace(/\\r\\n|\\r|\\n/g, "<br/>"));', 'return sanitizeBody(body, app, appIcon).replace(/\\r\\n|\\r|\\n/g, "<br/>");'],
@@ -964,6 +985,28 @@ for (const mode of ["dark", "light"]) {
         same(textShortfalls(lookIn(faintTokens, faintLight, mode), role), mode === "dark" ? ["#ffffff"] : WALLPAPERS, "control: " + mode + " " + role + " at 0.5 fails the text floor");
     }
 }
+
+// CardSlot.qml plays the plain exit as toastMotion's fade, then its close,
+// one after the other, and the service's timers read toastMotion under the
+// state the slot reads: a source check of the two files, since the
+// lengths themselves are pinned above. The controls swap the close for a
+// literal duration and the service's state for the setting.
+const notesDir = path.join(__dirname, "..", "shell", "plugins", "vgs.notifications");
+function plainExitPlays(slotSource) {
+    const block = slotSource.match(/id: plainExit\n([\s\S]*?)\n    \}/);
+    return block === null ? [] : [...block[1].matchAll(/duration: slot\.plain\.(\w+);/g)].map(m => m[1]);
+}
+function serviceTimesFollowGlass(serviceSource) {
+    return /Logic\.toastMotion\(look\.motion\.duration, glassOn\)/.test(serviceSource) && /readonly property bool glassOn: glassState\.on/.test(serviceSource);
+}
+const slotSource = fs.readFileSync(path.join(notesDir, "CardSlot.qml"), "utf8");
+const serviceSource = fs.readFileSync(path.join(notesDir, "Service.qml"), "utf8");
+same(plainExitPlays(slotSource), ["fade", "close"], "the plain exit plays the fade, then the close");
+assert.ok(/readonly property bool glassOn: service !== null && service\.glassOn/.test(slotSource), "a toast moves as the service's glass state says");
+assert.equal(serviceTimesFollowGlass(serviceSource), true, "the service's timers follow its glass state");
+assert.equal(slotSource.split("duration: slot.plain.close;").length, 2, "control text occurs once");
+same(plainExitPlays(slotSource.replace("duration: slot.plain.close;", "duration: slot.look.motion.duration.medium3;")), ["fade"], "control: a plain close of its own length is caught");
+assert.equal(serviceTimesFollowGlass(serviceSource.replace("readonly property bool glassOn: glassState.on", "readonly property bool glassOn: glassChoice")), false, "control: service timers on the setting alone are caught");
 
 // VGlass at its defaults draws what the launcher's and the notifications'
 // own glass tables drew before the shared style, in both modes: each value

@@ -99,7 +99,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Voice](shell/plugins/vgs.voice/README.md) | Dictate into the focused field and see the recording state in the bar. |
 | [VPN](shell/plugins/vgs.vpn/README.md) | Connect Tailscale or a saved VPN profile. |
 | [Web Apps](shell/plugins/vgs.webapps/README.md) | Turn a website into an app with its own window. |
-| [Windows](shell/plugins/vgs.windows/README.md) | Set the corners, borders and glass of windows and surfaces. |
+| [Windows](shell/plugins/vgs.windows/README.md) | Set the corners and borders of windows and flyouts, and VGlass. |
 
 ## Setup
 

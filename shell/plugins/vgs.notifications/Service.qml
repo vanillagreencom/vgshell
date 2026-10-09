@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Services.Notifications
 import qs.Commons
+import qs.Ui
 import "Appearance.js" as Appearance
 import "NotificationLogic.js" as Logic
 
@@ -38,8 +39,11 @@ Item {
     // schema's options, top or bottom, then -left, -center or -right.
     readonly property string position: shell === null ? "" : shell.settings.position
     // The notifications' own VGlass choice, the `glass` setting, which every
-    // toast hands its glass.
+    // toast hands its glass, and the state it comes to under the user's
+    // Appearance values, which every toast's motion and the timers below
+    // follow.
     readonly property bool glassChoice: shell !== null && shell.settings.glass === true
+    readonly property bool glassOn: glassState.on
     readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
     property bool registered: false
     property var layerRelease: null
@@ -96,11 +100,18 @@ Item {
     readonly property bool silenced: store.dnd
     property int panelRevision: 0
 
-    // The exit's and the entrance's whole length, from their animations in
-    // CardSlot.qml.
-    readonly property var durations: look === null ? null : look.motion.duration
-    readonly property int exitTime: durations === null ? 0 : Math.max(durations.short3, durations.medium3) + durations.short3
-    readonly property int enterTime: durations === null ? 0 : Math.max(durations.short3, durations.medium1) + durations.short2 + Math.max(durations.medium2, durations.medium4, 2 * durations.short4)
+    // The exit's and the entrance's whole length, as CardSlot.qml plays
+    // them with glass or without (NotificationLogic.toastMotion).
+    readonly property var toastMotion: look === null ? null : Logic.toastMotion(look.motion.duration, glassOn)
+    readonly property int exitTime: toastMotion === null ? 0 : toastMotion.exit
+    readonly property int enterTime: toastMotion === null ? 0 : toastMotion.enter
+
+    // It draws nothing: it answers whether the notifications draw glass.
+    GlassSurface {
+        id: glassState
+        visible: false
+        optIn: root.glassChoice
+    }
 
     // The layer exists while there is something to draw.
     readonly property bool wanted: look !== null && rowModel.count > 0 && !panelOpen

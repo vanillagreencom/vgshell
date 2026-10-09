@@ -748,7 +748,8 @@ function verify(logic, layer, shellText) {
     same(layer.render([], Object.assign(groupsOf(false, false, true), { motionScale: 0 }), "vgs", 1).appearance, [{ id: "", setting: "windowAnimations", path: "animations.enabled", value: false }], "a still theme's motion group reports animations off");
     // Window glass, written: Hyprland's blur, opacity and shadow from
     // Theme.glass.window, after the other groups, its colour converted
-    // from `#aarrggbb`; its option is the blur switch, reported on.
+    // from `#aarrggbb`; its option is the active opacity, reported as
+    // written.
     const glassy = layer.render([], groupsOf(true, false, false, true), "vgs", 1);
     const GLASS_SECTION = [
         "-- Theme appearance: window glass.",
@@ -773,11 +774,11 @@ function verify(logic, layer, shellText) {
     const glassApplied = applied(glassy);
     same(glassApplied.slice(glassApplied.indexOf(GLASS_SECTION[0]), glassApplied.indexOf(GLASS_SECTION[0]) + GLASS_SECTION.length), GLASS_SECTION, "window glass writes Hyprland's blur, opacity and shadow, byte for byte");
     assert.ok(glassApplied.indexOf("-- Theme vgs: window, group and group bar borders.") < glassApplied.indexOf(GLASS_SECTION[0]), "window glass follows the borders, so its shadow colour holds");
-    same(glassy.appearance, [{ id: "", setting: "borderWidth", path: "general.border_size", value: 4 }, { id: "", setting: "windowGlass", path: "decoration.blur.enabled", value: true }], "a written glass group reports the blur switch on");
-    same(lines(glassy)[APPLIED_AT + 4], "    for _, path in ipairs({ \"general.border_size\", \"decoration.blur.enabled\" }) do options.start[path] = hl.get_config(path) end", "the recorder reads the blur switch while window glass is written");
+    same(glassy.appearance, [{ id: "", setting: "borderWidth", path: "general.border_size", value: 4 }, { id: "", setting: "windowGlass", path: "decoration.active_opacity", value: 0.9 }], "a written glass group reports the active opacity it wrote");
+    same(lines(glassy)[APPLIED_AT + 4], "    for _, path in ipairs({ \"general.border_size\", \"decoration.active_opacity\" }) do options.start[path] = hl.get_config(path) end", "the recorder reads the active opacity while window glass is written");
     assert.ok(!lines(glassy).includes(UNWRITTEN.glass), "written window glass leaves no comment");
     assert.ok(!bareLines.some(line => /active_opacity|blur = \{|render_power/.test(line)), "unwritten window glass sets nothing of Hyprland's decoration");
-    same(layer.readType("decoration.blur.enabled"), "bool", "getoption reads the blur switch as a bool");
+    same(layer.readType("decoration.active_opacity"), "float", "getoption reads the active opacity as a float");
     ["borders", "radius", "motion", "glass"].forEach(group => {
         const broken = Object.assign({}, theme, { groups: Object.assign({}, theme.groups, { [group]: undefined }) });
         assert.throws(() => layer.render([], broken, "vgs", 1), new RegExp("theme\\.groups\\." + group + " must be a boolean"), "a group the theme does not state is refused: " + group);
@@ -1518,11 +1519,12 @@ const CONTROLS = [
     [layerFile, "the recorder reads the written groups' options", "var paths = options.written.concat(appearance).filter(", "var paths = options.written.filter("],
     [layerFile, "a written group reports its option", "appearance.push({ id: \"\", setting: APPEARANCE_PATHS[group].member, path: APPEARANCE_PATHS[group].path, value: appearanceValue(group, theme) });", ""],
     [layerFile, "window glass is an applied group", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\", \"glass\"];", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\"];"],
-    [layerFile, "window glass reads its blur switch", "glass: { path: \"decoration.blur.enabled\", type: \"bool\", member: \"windowGlass\" }", "glass: { path: \"decoration.blur.enabled\", type: \"int\", member: \"windowGlass\" }"],
+    [layerFile, "window glass reads its active opacity as a float", "glass: { path: \"decoration.active_opacity\", type: \"float\", member: \"windowGlass\" }", "glass: { path: \"decoration.active_opacity\", type: \"int\", member: \"windowGlass\" }"],
+    [layerFile, "window glass reads its active opacity", "glass: { path: \"decoration.active_opacity\", type: \"float\", member: \"windowGlass\" }", "glass: { path: \"decoration.blur.enabled\", type: \"float\", member: \"windowGlass\" }"],
     [layerFile, "window glass writes the inactive opacity", "\"        inactive_opacity = \" + luaNumber(glass.inactiveOpacity) + \",\",", "\"        inactive_opacity = \" + luaNumber(glass.opacity) + \",\","],
     [layerFile, "window glass writes its own shadow colour", "hyprColour(\"glass.window.shadowColor\", glass.shadowColor)", "hyprColour(\"hyprland.shadow.color\", theme.hyprland.shadow.color)"],
     [layerFile, "window glass enables the blur", "\"            enabled = true,\",\n        \"            size = \"", "\"            enabled = false,\",\n        \"            size = \""],
-    [layerFile, "a written glass group reports the blur on", "case \"glass\": return true;", "case \"glass\": return false;"],
+    [layerFile, "a written glass group reports the opacity it wrote", "case \"glass\": return theme.glass.opacity;", "case \"glass\": return theme.glass.inactiveOpacity;"],
     [layerFile, "a written motion group reports whether it moves", "case \"motion\": return !(theme.motionScale === 0 || theme.hyprland.motion.preset === \"none\");", "case \"motion\": return true;"],
     [layerFile, "a group names the member that decides it", "radius: { path: \"decoration.rounding\", type: \"int\", member: \"windowRadius\" },", "radius: { path: \"decoration.rounding\", type: \"int\", member: \"cornerRadius\" },"],
     [layerFile, "motion scale zero disables", "if (scale === 0 || preset === \"none\")", "if (preset === \"none\")"],

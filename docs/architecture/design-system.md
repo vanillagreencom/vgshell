@@ -12,7 +12,7 @@ The component library `qs.Ui`, listed in `shell/Ui/qmldir`, is the only code tha
 
 Each input behaviour has one owner in `qs.Ui`. `PointerCursor` draws the pointing hand, `TouchpadScroll` moves a view under a touchpad swipe, `KeyNav` moves through a composite, `FocusRing` shows focus, `ListCursor` draws a list's selection and `Pane` owns a container's inset. The Keyboard, Motion and Layout rules below govern them.
 
-A plugin whose design must look the same under every theme owns its look through an `appearance` table. The same judge resolves it, fed only the theme's mode, accent and motion scale ([D023](../decisions/D023-plugin-owned-appearance.md)). A plugin's Settings page is drawn from its manifest schema ([D032](../decisions/D032-settings-plugin-and-manifest-settings-convention.md)). Text a user reads states the result and the action the user takes.
+A plugin whose design must look the same under every theme owns its look through an `appearance` table. The same judge resolves it, fed only the theme's mode, accent and motion scale, except the standard surface `GlassSurface` draws while glass is off ([D023](../decisions/D023-plugin-owned-appearance.md)). A plugin's Settings page is drawn from its manifest schema ([D032](../decisions/D032-settings-plugin-and-manifest-settings-convention.md)). Text a user reads states the result and the action the user takes.
 
 ## Why
 
@@ -59,7 +59,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 - Never read a `Theme` member other than `appearance` in such a plugin, and never name a path the look lacks. `theme-read` and `look-unknown` in `scripts/check-design-tokens.py` refuse both.
 - Do bind the look once through `Theme.appearance`, read every value as `look.<path>`, and draw nothing on a null look. Review holds it.
 - Never give a plugin-owned look a text size below the shell's smallest text role. `type-floor` in `scripts/check-design-tokens.py` refuses it.
-- Do hand every `qs.Ui` component a plugin-owned look draws with the look's own values; a component left on its defaults draws the shared tokens. Gap: no check reads which values a plugin hands a component.
+- Do hand every `qs.Ui` component a plugin-owned look draws with the look's own values; a component left on its defaults draws the shared tokens. `GlassSurface` takes only the look's fill, rounding and elevation, and while glass is off draws the standard surface. Gap: no check reads which values a plugin hands a component.
 
 ### Components
 

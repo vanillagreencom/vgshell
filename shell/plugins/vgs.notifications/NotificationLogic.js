@@ -1445,3 +1445,20 @@ function silenceArgument(arg, current) {
     if (v === "toggle") return { ok: true, dnd: !current };
     return { ok: false };
 }
+
+// A toast's motion, as CardSlot.qml plays it, from DURATIONS, the look's
+// motion.duration group, with or without GLASS: `enter` and `exit`, the
+// whole entrance and exit, which the service waits out before a toast's
+// lifetime starts and before its row goes. Without glass the toast fades
+// in over `fade` as it drops over `drop`, and on its way out fades over
+// `fade`, then its row closes over `close`. With glass it morphs from a
+// dot and back into one.
+function toastMotion(durations, glass) {
+    var d = durations;
+    if (glass)
+        return {
+            enter: Math.max(d.short3, d.medium1) + d.short2 + Math.max(d.medium2, d.medium4, 2 * d.short4),
+            exit: Math.max(d.short3, d.medium3) + d.short3
+        };
+    return { fade: d.short3, drop: d.medium1, close: d.medium3, enter: Math.max(d.short3, d.medium1), exit: d.short3 + d.medium3 };
+}

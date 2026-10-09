@@ -149,12 +149,15 @@ var APPLIED_GROUPS = ["borders", "radius", "motion", "glass"];
 // scripts/test-hyprland-layer.js holds the two equal). Kept out of
 // OPTIONS, which a manifest may map a setting to. The nested Hyprland
 // v0.56.2 answered `getoption` in this dot form for the first three
-// (scripts/smoke/rows/appearance.sh, 2026-10-08).
+// (scripts/smoke/rows/appearance.sh, 2026-10-08). Window glass reads the
+// active opacity, not the blur switch: Hyprland's blur is on by default,
+// so only the opacity, 1 by default, tells the written group apart.
+// scripts/smoke/rows/appearance.sh reads it back.
 var APPEARANCE_PATHS = {
     borders: { path: "general.border_size", type: "int", member: "borderWidth" },
     radius: { path: "decoration.rounding", type: "int", member: "windowRadius" },
     motion: { path: "animations.enabled", type: "bool", member: "windowAnimations" },
-    glass: { path: "decoration.blur.enabled", type: "bool", member: "windowGlass" }
+    glass: { path: "decoration.active_opacity", type: "float", member: "windowGlass" }
 };
 
 // The getoption type of PATH, an OPTIONS or APPEARANCE_PATHS path, or null
@@ -471,7 +474,7 @@ function appearanceValue(group, theme) {
     case "borders": return theme.hyprland.border.size;
     case "radius": return theme.hyprland.window.radius;
     case "motion": return !(theme.motionScale === 0 || theme.hyprland.motion.preset === "none");
-    case "glass": return true;
+    case "glass": return theme.glass.opacity;
     }
     throw new Error("HyprlandLayer: applied group " + JSON.stringify(group) + " is not one of " + APPLIED_GROUPS.join(", "));
 }

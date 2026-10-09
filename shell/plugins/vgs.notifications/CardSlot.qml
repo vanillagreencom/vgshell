@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import "NotificationLogic.js" as Logic
 
 // One toast row of the stack on one screen. While the toast draws glass,
 // the card morphs in from a dot and collapses back into one when it leaves;
@@ -52,6 +53,10 @@ Item {
     property real hover: face.hovered && leaving === "" ? 1 : 0
     Behavior on hover { Anim { duration: slot.look.motion.duration.short4; curve: slot.look.motion.curve.standard } }
     readonly property real orbness: 1 - stretch
+    // Whether the toast moves as glass: the service's state, which its
+    // timers follow too, so a toast's motion and its row's end agree.
+    readonly property bool glassOn: service !== null && service.glassOn
+    readonly property var plain: Logic.toastMotion(look.motion.duration, false)
     readonly property bool fadeActive: face.hovered && leaving === ""
     readonly property rect fadeArea: host ? Qt.rect(host.look.stack.pad + x + face.x,
         y + face.y - host.scrollView.contentY, face.width, face.height) : Qt.rect(0, 0, 0, 0)
@@ -62,14 +67,14 @@ Item {
 
     Component.onCompleted: {
         if (leaving !== "") play();
-        else (face.glassOn ? enterAnim : plainEnter).start();
+        else (glassOn ? enterAnim : plainEnter).start();
     }
     onLeavingChanged: play()
 
     function play() {
         enterAnim.stop();
         plainEnter.stop();
-        if (leaving !== "") (face.glassOn ? exitAnim : plainExit).start();
+        if (leaving !== "") (glassOn ? exitAnim : plainExit).start();
     }
 
     SequentialAnimation {
@@ -100,8 +105,8 @@ Item {
         PropertyAction { target: face.card; property: "opacity"; value: 0 }
         PropertyAction { target: slot; property: "drop"; value: -slot.look.card.drop }
         ParallelAnimation {
-            Anim { target: face.card; property: "opacity"; to: 1; duration: slot.look.motion.duration.short3; curve: slot.look.motion.curve.standard }
-            Anim { target: slot; property: "drop"; to: 0; duration: slot.look.motion.duration.medium1; curve: slot.look.motion.curve.emphasizedDecel }
+            Anim { target: face.card; property: "opacity"; to: 1; duration: slot.plain.fade; curve: slot.look.motion.curve.standard }
+            Anim { target: slot; property: "drop"; to: 0; duration: slot.plain.drop; curve: slot.look.motion.curve.emphasizedDecel }
         }
     }
 
@@ -109,8 +114,8 @@ Item {
     // closes, so the rows under it slide up with nothing shown shrinking.
     SequentialAnimation {
         id: plainExit
-        Anim { target: face.card; property: "opacity"; to: 0; duration: slot.look.motion.duration.short3; curve: slot.look.motion.curve.standard }
-        Anim { target: slot; property: "stretch"; to: 0; duration: slot.look.motion.duration.medium3; curve: slot.look.motion.curve.emphasizedAccel }
+        Anim { target: face.card; property: "opacity"; to: 0; duration: slot.plain.fade; curve: slot.look.motion.curve.standard }
+        Anim { target: slot; property: "stretch"; to: 0; duration: slot.plain.close; curve: slot.look.motion.curve.emphasizedAccel }
     }
 
     // A toast leaving collapses to a dot and shrinks away. The text is gone

@@ -39,7 +39,8 @@
     "glass": {
       "type": "boolean",
       "label": "VGlass",
-      "description": "Draw notifications as frosted glass with a moving edge light."
+      "description": "Draw notifications as frosted glass with a moving edge light.",
+      "info": "VGlass in Appearance, Windows can turn glass on or off for every glass surface. This switch then has no effect."
     },
     "slackPhotos": {"type": "boolean", "label": "Slack photos", "group": "Slack", "description": "Show sender photos from your Slack workspace.", "info": "Set up Slack photos opens Slack app creation with the app details filled. Sign in if asked. Select your workspace. Review the permissions. Create and install the app. Allow access. Copy its User OAuth Token. Sign in to the workspace in the Slack desktop app. Select Connect and paste the token into the masked field. This adds photos, workspace icons and custom emoji."},
     "duration": {

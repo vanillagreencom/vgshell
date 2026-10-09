@@ -24,6 +24,6 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 | Setting | What it changes |
 | --- | --- |
-| VGlass | Whether the launcher draws as frosted glass with a moving edge light. Off, it draws as a plain panel. On by default. The Windows page can set glass on or off everywhere. |
+| VGlass | Whether the launcher draws as frosted glass with a moving edge light. Off, it draws as a plain panel. On by default. VGlass in the Windows page can turn glass on or off for every glass surface, and then this setting has no effect. |
 
 The key is under Keys on the plugin's Settings page.

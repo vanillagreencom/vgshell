@@ -4,7 +4,7 @@
   "name": "Windows",
   "version": "0.1.0",
   "author": "VanillaGreen",
-  "description": "Set the corners, borders and glass of windows and surfaces.",
+  "description": "Set the corners and borders of windows and flyouts, and VGlass.",
   "license": "MIT",
   "icon": "app-window",
   "kinds": ["pane"],

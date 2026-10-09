@@ -4,8 +4,7 @@ import "NotificationLogic.js" as Logic
 
 // The shared notification face: one card, the glass behind it, the edge
 // light over it and the hover report every surface sends to the service.
-// The edge light and the bead show only while the glass is on; `glassOn`
-// is that state, which the toast's entrance and exit follow too.
+// The edge light and the bead show only while the glass is on.
 Item {
     id: face
 
@@ -36,7 +35,6 @@ Item {
     property bool reportHover: true
     // The notifications' own VGlass choice, their `glass` setting.
     property bool glassChoice: false
-    readonly property bool glassOn: glass.on
     readonly property bool hovered: card.hovered
     readonly property alias card: card
 

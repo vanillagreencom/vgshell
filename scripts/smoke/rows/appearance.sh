@@ -47,7 +47,7 @@
 # 0.2 s for up to the harness's poll bound. The row leaves the user file,
 # hyprland.lua, the plugins directory and every enablement as it found
 # them.
-# inputs: shell/plugins/vgs.motion/* shell/plugins/vgs.windows/* shell/plugins/vgs.ui/* shell/plugins/vgs.fonts/* shell/plugins/vgs.system/* scripts/smoke/fixtures/plugins/acme.appearance/* shell/Commons/ThemeLogic.js shell/Commons/ThemeSource.qml shell/Commons/Theme.qml shell/Commons/Tokens.js shell/Core/Config.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/Plugins.qml shell/Hosts/PaneHost.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/Slider.qml shell/Ui/controls/SavedSlider.qml shell/Ui/controls/Switch.qml shell/Ui/controls/Select.qml shell/shell.qml shell/Core/ThemeRunner.qml scripts/smoke/Probe.qml scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.motion/* shell/plugins/vgs.windows/* shell/plugins/vgs.ui/* shell/plugins/vgs.fonts/* shell/plugins/vgs.system/* scripts/smoke/fixtures/plugins/acme.appearance/* shell/Commons/ThemeLogic.js shell/Commons/ThemeSource.qml shell/Commons/Theme.qml shell/Commons/Tokens.js shell/Commons/Glass.js shell/Core/Config.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/Plugins.qml shell/Hosts/PaneHost.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/Slider.qml shell/Ui/controls/SavedSlider.qml shell/Ui/controls/Switch.qml shell/Ui/controls/Select.qml shell/shell.qml shell/Core/ThemeRunner.qml scripts/smoke/Probe.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 app_file="$home/.config/vgshell/shell.json"
@@ -70,6 +70,7 @@ app_holders() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(jso
 app_saved() { python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])).get("appearance"), sort_keys=True))' "$app_file"; }
 hypr_int() { hypr -j getoption "$1" | py_reply 'import json,sys; print(json.load(sys.stdin)["int"])'; }
 hypr_bool() { hypr -j getoption "$1" | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps(v.get("bool", v.get("int"))))'; }
+hypr_float() { hypr -j getoption "$1" | py_reply 'import json,sys; print("%g" % json.load(sys.stdin)["float"])'; }
 app_layer_has() { if grep -qE -- "$1" "$app_layer"; then echo yes; else echo no; fi; }
 # Group tabs against the layer: half the radius, 6, times the highest
 # monitor scale the layer names, rounded and bounded to 20, as
@@ -175,6 +176,34 @@ expect "the corner radius is unset" ok app_unset windowRadius
 expect "the user file holds no Appearance value" null app_saved
 expect_poll "the flyout radius is the theme's again" 0 ipc smoke themeValue popover.radius
 expect_poll "Hyprland's window rounding is the theme's again" 0 hypr_int decoration:rounding
+# Window glass: the windows' own choice writes Hyprland's opacity, blur and
+# shadow from Glass.js; glass off for every glass surface leaves them to the
+# user's config whatever the windows' choice; glass on writes them with no
+# window choice. Hyprland's own opacities read each state back.
+app_glass_line='^[[:space:]]*-- Theme appearance: window glass\.$'
+app_opacity_was="$(hypr_float decoration:active_opacity)" || fail "Hyprland's active opacity is unreadable"
+app_inactive_was="$(hypr_float decoration:inactive_opacity)" || fail "Hyprland's inactive opacity is unreadable"
+expect "the layer writes no window glass before a choice" no app_layer_has "$app_glass_line"
+expect "window glass maps to Hyprland's active opacity" decoration.active_opacity app_key_path windowGlass
+expect "window glass is written" ok app_set '{"key":"windowGlass","value":true}'
+expect "the user file holds window glass" '{"windowGlass": true}' app_saved
+expect_poll "the layer writes window glass" yes app_layer_has "$app_glass_line"
+expect_poll "Hyprland's active opacity is the glass 0.92" 0.92 hypr_float decoration:active_opacity
+expect_poll "Hyprland's inactive opacity is the glass 0.86" 0.86 hypr_float decoration:inactive_opacity
+expect "glass off for every glass surface is written" ok app_set '{"key":"glass","value":"off"}'
+expect_poll "glass off leaves window glass unwritten" no app_layer_has "$app_glass_line"
+expect_poll "Hyprland's active opacity is as before" "$app_opacity_was" hypr_float decoration:active_opacity
+expect_poll "Hyprland's inactive opacity is as before" "$app_inactive_was" hypr_float decoration:inactive_opacity
+expect "the glass choice is unset" ok app_unset glass
+expect "window glass is unset" ok app_unset windowGlass
+expect "the user file holds no Appearance value after window glass" null app_saved
+expect "glass on for every glass surface is written" ok app_set '{"key":"glass","value":"on"}'
+expect_poll "glass on writes window glass with no window choice" yes app_layer_has "$app_glass_line"
+expect_poll "Hyprland's active opacity is the glass 0.92 again" 0.92 hypr_float decoration:active_opacity
+expect "the glass choice is unset again" ok app_unset glass
+expect "the user file holds no Appearance value after the glass choice" null app_saved
+expect_poll "the layer writes no window glass again" no app_layer_has "$app_glass_line"
+expect_poll "Hyprland's active opacity is as before again" "$app_opacity_was" hypr_float decoration:active_opacity
 expect "disabling the appearance fixture is allowed" ok ipc shell setPluginEnabled acme.appearance false
 expect_poll "the appearance fixture is disabled" False plugin_enabled acme.appearance
 rm -rf -- "${app_fixture:?}"

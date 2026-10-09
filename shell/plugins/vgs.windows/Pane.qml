@@ -8,7 +8,7 @@ import qs.Ui
 // tabs half of it (ThemeLogic.APPEARANCE_RATIOS). Both map to a Hyprland
 // option, so each row also offers the user's own Hyprland value. Each
 // slider runs between the bounds the `appearance` capability lends for its
-// value, the judge's own. VGlass is on or off everywhere, or each surface's
+// value, the judge's own. VGlass is on or off for every glass surface, or each surface's
 // own choice, Hyprland's windows being one such surface; the Windows switch
 // shows the state Theme.glassOn gives them.
 FocusScope {
@@ -47,8 +47,8 @@ FocusScope {
     // The VGlass choices, in the order the select lists them: unset first.
     readonly property var glassChoices: [
         { label: "Each surface decides", value: undefined },
-        { label: "On everywhere", value: "on" },
-        { label: "Off everywhere", value: "off" }
+        { label: "On for every glass surface", value: "on" },
+        { label: "Off for every glass surface", value: "off" }
     ]
     readonly property bool surfacesDecide: valueOf("glass") === undefined
 
@@ -122,7 +122,7 @@ FocusScope {
         SectionHeader {
             width: parent.width
             text: "Glass"
-            description: "Set frosted glass for shell surfaces and windows."
+            description: "Set frosted glass for the launcher, notifications and windows."
         }
 
         Column {
@@ -132,7 +132,7 @@ FocusScope {
             FormRow {
                 width: parent.width
                 label: "VGlass"
-                info: "Each surface decides: each surface uses its own VGlass setting. The launcher and notifications use glass by default. On everywhere and Off everywhere set all surfaces and your windows."
+                info: "The glass surfaces are the launcher, notifications and your windows. Each surface decides: each one uses its own VGlass setting, and the launcher and notifications use glass by default. On or Off for every glass surface sets all of them."
                 Select {
                     width: parent.width
                     Accessible.name: "VGlass"
