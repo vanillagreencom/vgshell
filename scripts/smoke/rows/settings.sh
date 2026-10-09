@@ -26,9 +26,11 @@ expect_poll "the page draws the fixture's fields again" '[9, 0]' page_fields
 # A setting description's link opens its address through the desktop open
 # route by the pointer and by Return. The row stands a `gio` that records
 # its argv in the shell's stand-in directory, so no browser starts and
-# nothing leaves the sandbox. The fixture's Compact description is its
-# link's words alone, so a click at its centre lands on the link. Two Tabs
-# from the Gap field's editor pass the Compact switch to the link.
+# nothing leaves the sandbox. The description line spans the field's
+# value column while its words, the link's alone, start at its left edge,
+# so the click lands 8 px into the line. Two Tabs from the Gap field's
+# editor, focused with its own value so no edit begins, pass the Compact
+# switch to the link.
 link_argv="$sandbox/gio-argv"
 cat >"$shim/gio" <<EOF
 #!/bin/sh
@@ -36,18 +38,20 @@ printf '%s\n' "\$*" >>$(printf %q "$link_argv")
 EOF
 chmod 755 "$shim/gio"
 link_opens() { if [[ -f $link_argv ]]; then python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1]).read().splitlines()))' "$link_argv"; else echo '[]'; fi; }
-link_focus() { page_focus | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[:2]))'; }
+link_focus() { ipc smoke focused window vgs.settings | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[:2]))'; }
 link_click() {
   local rect x y
-  rect="$(ipc smoke windowGeometry window vgs.settings "$1" "$2")" || return 1
-  [[ $rect == \[* ]] || { echo "link_click: no $1 $2: $rect" >&2; return 1; }
+  rect="$(ipc smoke windowGeometry window vgs.settings LinkText "$1")" || return 1
+  [[ $rect == \[* ]] || { echo "link_click: no link $1: $rect" >&2; return 1; }
+  rect="$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); print(json.dumps([r[0], r[1], 16, r[3]]))' "$rect")" || return 1
   read -r x y < <(at_centre window:Plugins "$rect") || return 1
   hover "$((x + 1))" "$y" || return 1
   click "$x" "$y"
 }
-link_click LinkText "Compact guide" || fail "the click on the Compact guide link failed"
+link_click "Compact guide" || fail "the click on the Compact guide link failed"
 expect_poll "a click on a description link opens its address" '["open https://example.invalid/compact"]' link_opens
-link_click TextField 4 || fail "the click on the Gap field failed"
+gap_rect="$(ipc smoke invokeInstance window vgs.settings holdField '{"id":"acme.probe","key":"gap","text":"4"}')" || gap_rect=unread
+[[ $gap_rect == \[* ]] || fail "the Gap field's editor takes the keyboard: got $gap_rect"
 type_keys -k Tab -k Tab || fail "tabbing from the Gap field to the Compact guide link failed"
 expect_poll "the Compact guide link is the Tab stop after the Compact switch" '["LinkText", "Compact guide"]' link_focus
 type_keys -k Return || fail "pressing Return on the Compact guide link failed"
