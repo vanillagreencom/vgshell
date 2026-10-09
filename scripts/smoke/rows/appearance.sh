@@ -24,6 +24,12 @@
 # animations. In the UI section End sets the control radius to 16 for
 # buttons, text fields and segmented controls.
 #
+# Control run on 2026-10-08, host cachy, through this row after
+# hyprland-consent, on a source_tree copy of the shell whose
+# ThemeLogic.APPEARANCE_RATIOS gives flyouts the full radius: "a flyout
+# takes three quarters of it, 12 * 0.75" and "a menu entry follows its
+# menu" failed, each reading 12.
+#
 # No latency is budgeted: each reading polls through expect_poll every
 # 0.2 s for up to the harness's poll bound. The row leaves the user file,
 # hyprland.lua, the plugins directory and every enablement as it found
