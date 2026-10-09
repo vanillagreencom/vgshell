@@ -8,7 +8,8 @@ var PROVIDERS = [
     { id: "claude", label: "Claude Code", kind: "cli", origin: "https://api.anthropic.com", command: ["claude", "auth", "status"], signIn: ["claude", "auth", "login"] },
     { id: "codex", label: "Codex", kind: "cli", command: ["codex", "login", "status"], signIn: ["codex", "login"] },
     // Copilot documents no status command; Verify proves the account answers.
-    { id: "copilot", label: "GitHub Copilot", kind: "cli", command: null },
+    // Sign in runs `copilot login`, the sign-in GitHub documents for Copilot CLI.
+    { id: "copilot", label: "GitHub Copilot", kind: "cli", command: null, signIn: ["copilot", "login"] },
     // Pi's sign-in check needs a provider name; its own model list proves a setup.
     { id: "pi", label: "Pi", kind: "cli", command: null },
     { id: "openai", label: "OpenAI", kind: "key", variable: "OPENAI_API_KEY", origin: "https://api.openai.com", keyPage: "https://platform.openai.com/api-keys",
