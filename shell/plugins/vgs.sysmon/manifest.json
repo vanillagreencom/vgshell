@@ -59,6 +59,7 @@
     "showGpu": true,
     "gpuTemperature": false,
     "gpu": "",
+    "labelStyle": "icons",
     "refreshSeconds": 2,
     "temperatureUnit": "Celsius"
   },
@@ -134,6 +135,16 @@
       "label": "Graphics card",
       "optionsFrom": "gpus",
       "group": "GPU"
+    },
+    "labelStyle": {
+      "type": "enum",
+      "label": "Labels",
+      "options": [
+        "icons",
+        "text"
+      ],
+      "description": "Shows an icon or a short name before each reading.",
+      "group": "Readings"
     },
     "refreshSeconds": {
       "type": "number",

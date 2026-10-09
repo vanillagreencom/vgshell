@@ -14,15 +14,13 @@ BarWidget {
     property string leaseId: ""
     implicitWidth: row.implicitWidth
     implicitHeight: row.implicitHeight
+    readonly property bool captions: setting("labelStyle", "icons") === "text"
+    readonly property var gpuTemperature: gpu && gpu.state !== "asleep" ? gpu.temperature : null
     visible: setting("showCpu", true) || setting("showMemory", true) || (setting("showGpu", true) && gpu !== null)
 
     function percent(value) { return typeof value === "number" ? Math.round(value) + "%" : "--"; }
     function degrees(value) { return Logic.degrees(value, setting("temperatureUnit", "Celsius")); }
     function gb(value) { return typeof value === "number" ? (value / 1073741824).toFixed(1) + " GB" : "--"; }
-    function tone(value, warning, danger) {
-        const state = Logic.tone(value, warning, danger);
-        return state === "danger" ? Theme.color.danger : state === "warning" ? Theme.color.warning : Theme.bar.foreground;
-    }
     function holdLease() {
         if (shell === null || leased) return;
         if (leaseId === "") leaseId = String(root);
@@ -45,37 +43,37 @@ BarWidget {
         BarItem {
             visible: root.setting("showCpu", true)
             label: "CPU"
-            iconName: "cpu"
+            iconName: root.captions ? "" : "cpu"
+            caption: root.captions ? "CPU" : ""
             text: root.percent(root.cpu.use)
-            count: root.setting("cpuTemperature", false) ? "/" + root.degrees(root.cpu.temperature) : ""
-            compactCount: true
-            tone: root.tone(root.cpu.use, 60, 80)
-            textTone: Theme.bar.foreground
-            countTone: root.tone(root.cpu.temperature, 70, 85)
+            count: root.setting("cpuTemperature", false) ? root.degrees(root.cpu.temperature) : ""
+            separator: "/"
+            textLevel: Logic.tone(root.cpu.use, 60, 80)
+            countLevel: Logic.tone(root.cpu.temperature, 70, 85)
             tooltip: "CPU " + root.percent(root.cpu.use) + " · " + root.degrees(root.cpu.temperature)
             onClicked: root.toggle()
         }
         BarItem {
             visible: root.setting("showMemory", true)
             label: "Memory"
-            iconName: "memory-stick"
+            iconName: root.captions ? "" : "memory-stick"
+            caption: root.captions ? "RAM" : ""
             text: root.setting("memoryUnit", "percent") === "used" ? root.gb(root.memory.used) : root.percent(root.memory.use)
-            count: root.setting("showSwap", false) ? "/" + root.percent(root.memory.swapUse) : ""
-            compactCount: true
-            tone: root.tone(root.memory.use, 75, 90)
-            textTone: Theme.bar.foreground
-            countTone: Theme.bar.foreground
+            count: root.setting("showSwap", false) ? root.percent(root.memory.swapUse) : ""
+            separator: "/"
+            textLevel: Logic.tone(root.memory.use, 75, 90)
             tooltip: "Memory " + root.gb(root.memory.used) + " of " + root.gb(root.memory.total)
             onClicked: root.toggle()
         }
         BarItem {
             visible: root.setting("showGpu", true) && root.gpu !== null
             label: "GPU"
-            iconName: "gpu"
+            iconName: root.captions ? "" : "gpu"
+            caption: root.captions ? "GPU" : ""
             text: root.percent(root.gpu && root.gpu.state === "asleep" ? null : root.gpu ? root.gpu.use : null)
-            count: root.setting("gpuTemperature", false) ? "/" + root.degrees(root.gpu && root.gpu.state !== "asleep" ? root.gpu.temperature : null) : ""
-            compactCount: true
-            countTone: root.tone(root.gpu ? root.gpu.temperature : null, 65, 80)
+            count: root.setting("gpuTemperature", false) ? root.degrees(root.gpuTemperature) : ""
+            separator: "/"
+            countLevel: Logic.tone(root.gpuTemperature, 65, 80)
             tooltip: root.gpu ? root.gpu.name + " · " + (root.gpu.state === "asleep" ? "Asleep" : root.percent(root.gpu.use) + " · " + root.degrees(root.gpu.temperature)) : "GPU"
             onClicked: root.toggle()
         }

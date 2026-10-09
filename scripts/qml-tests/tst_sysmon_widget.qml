@@ -50,7 +50,7 @@ Item {
             const found = [];
             function walk(node) {
                 for (const child of node.children) {
-                    if (child.compactCount !== undefined && child.iconName !== undefined) found.push(child);
+                    if (child.separator !== undefined && child.iconName !== undefined) found.push(child);
                     walk(child);
                 }
             }
@@ -91,10 +91,15 @@ Item {
             walk(item.contentItem);
             return found;
         }
+        function drawnText(item) { return drawn(item).map(label => label.text).join(""); }
+        function firstIcon(item) {
+            const walk = node => { for (const child of node.children) { if (child.name !== undefined && child.paths !== undefined) return child; const found = walk(child); if (found) return found; } return null; };
+            return walk(item.contentItem);
+        }
         // The expected width adds the padding to the icon and the drawn
         // labels' own widths, so room kept past the reading turns it red.
         function drawnWidth(item) {
-            let content = Theme.bar.item.icon + Theme.bar.item.iconGap;
+            let content = (item.iconName === "" ? 0 : Theme.bar.item.icon) + Theme.bar.item.iconGap;
             for (const label of drawn(item)) content += label.implicitWidth;
             return item.leftPadding + Math.ceil(content) + item.rightPadding;
         }
@@ -105,7 +110,8 @@ Item {
         function test_each_item_ends_at_its_reading_data() {
             return [
                 { tag: "values", settings: { showCpu: true, showMemory: true, showGpu: true } },
-                { tag: "both-values", settings: allReadings() }
+                { tag: "both-values", settings: allReadings() },
+                { tag: "text-labels", settings: Object.assign(allReadings(), { labelStyle: "text" }) }
             ];
         }
         function test_each_item_ends_at_its_reading(data) {
@@ -153,15 +159,15 @@ Item {
             widget.settings = { showCpu: true, showMemory: true, showGpu: true,
                 cpuTemperature: true, gpuTemperature: true, showSwap: true, memoryUnit: "used" };
             const readings = items();
-            compare(readings[0].text + readings[0].count, "5%/54°");
-            compare(readings[1].text + readings[1].count, "1.0 GB/0%");
-            compare(readings[2].text + readings[2].count, "5%/42°");
-            for (const item of readings) compare(item.compactCount, true, item.label + " draws its count against its value");
+            compare(drawnText(readings[0]), "5%/54°");
+            compare(drawnText(readings[1]), "1.0 GB/0%");
+            compare(drawnText(readings[2]), "5%/42°");
+            for (const item of readings) compare(drawn(item)[1].color, Qt.color(Theme.bar.item.separator), item.label + " draws its separator dim");
             status.values = { readings: sample(null) };
             const empty = sample(null); empty.cpu.temperature = null; empty.gpu.temperature = null;
             status.values = { readings: empty };
-            compare(readings[0].count, "/--");
-            compare(readings[2].count, "/--");
+            compare(drawnText(readings[0]), "--/--");
+            compare(drawnText(readings[2]), "--/--");
         }
         function test_fahrenheit_readings_keep_celsius_tones() {
             widget.settings = { showCpu: true, showGpu: true, cpuTemperature: true,
@@ -169,10 +175,12 @@ Item {
             const value = sample(12); value.cpu.temperature = 70; value.gpu.temperature = 65;
             status.values = { readings: value };
             const readings = items();
-            compare(readings[0].text + readings[0].count, "12%/158°");
-            compare(readings[2].count, "/149°");
-            compare(readings[0].countTone, Qt.color(Theme.color.warning));
-            compare(readings[2].countTone, Qt.color(Theme.color.warning));
+            compare(drawnText(readings[0]), "12%/158°");
+            compare(drawnText(readings[2]), "12%/149°");
+            compare(readings[0].countLevel, "warning");
+            compare(readings[2].countLevel, "warning");
+            compare(drawn(readings[0])[2].color, Qt.color(Theme.color.warning));
+            compare(drawn(readings[2])[2].color, Qt.color(Theme.color.warning));
             verify(readings[0].tooltip.indexOf("158°") !== -1);
             verify(readings[2].tooltip.indexOf("149°") !== -1);
             const shownItems = readings.filter(row => row.visible);
@@ -180,8 +188,8 @@ Item {
             const widths = readings.map(item => item.implicitWidth);
             const next = sample(45); next.cpu.temperature = 85; next.gpu.temperature = 80;
             status.values = { readings: next };
-            compare(readings[0].text + readings[0].count, "45%/185°");
-            compare(readings[2].count, "/176°");
+            compare(drawnText(readings[0]), "45%/185°");
+            compare(drawnText(readings[2]), "45%/176°");
             verify(waitForRendering(widget));
             compare(JSON.stringify(readings.map(item => item.implicitWidth)), JSON.stringify(widths), "the same character count keeps each width");
         }
@@ -312,21 +320,21 @@ Item {
         }
         function test_production_tone_boundaries_data() {
             const rules = [
-                { name: "cpu-use", reading: "cpu", field: "use", icon: "cpu", output: "tone", warning: 60, danger: 80 },
-                { name: "memory-use", reading: "memory", field: "use", icon: "memory-stick", output: "tone", warning: 75, danger: 90 },
-                { name: "cpu-temperature", reading: "cpu", field: "temperature", icon: "cpu", output: "countTone", warning: 70, danger: 85 },
-                { name: "gpu-temperature", reading: "gpu", field: "temperature", icon: "gpu", output: "countTone", warning: 65, danger: 80 }
+                { name: "cpu-use", reading: "cpu", field: "use", icon: "cpu", output: "textLevel", label: 0, warning: 60, danger: 80 },
+                { name: "memory-use", reading: "memory", field: "use", icon: "memory-stick", output: "textLevel", label: 0, warning: 75, danger: 90 },
+                { name: "cpu-temperature", reading: "cpu", field: "temperature", icon: "cpu", output: "countLevel", label: 2, warning: 70, danger: 85 },
+                { name: "gpu-temperature", reading: "gpu", field: "temperature", icon: "gpu", output: "countLevel", label: 2, warning: 65, danger: 80 }
             ];
             const cases = [];
             for (const rule of rules) {
                 const values = [
-                    { value: null, expected: Theme.bar.foreground },
-                    { value: rule.warning - 1, expected: Theme.bar.foreground },
-                    { value: rule.warning, expected: Theme.color.warning },
-                    { value: rule.warning + 1, expected: Theme.color.warning },
-                    { value: rule.danger - 1, expected: Theme.color.warning },
-                    { value: rule.danger, expected: Theme.color.danger },
-                    { value: rule.danger + 1, expected: Theme.color.danger }
+                    { value: null, level: "normal", expected: Theme.bar.foreground },
+                    { value: rule.warning - 1, level: "normal", expected: Theme.bar.foreground },
+                    { value: rule.warning, level: "warning", expected: Theme.color.warning },
+                    { value: rule.warning + 1, level: "warning", expected: Theme.color.warning },
+                    { value: rule.danger - 1, level: "warning", expected: Theme.color.warning },
+                    { value: rule.danger, level: "danger", expected: Theme.color.danger },
+                    { value: rule.danger + 1, level: "danger", expected: Theme.color.danger }
                 ];
                 for (const row of values) cases.push(Object.assign({ tag: rule.name + "-" + row.value }, rule, row));
             }
@@ -339,7 +347,41 @@ Item {
             status.values = { readings: reading };
             const item = items().find(row => row.iconName === data.icon);
             verify(item !== undefined);
-            compare(item[data.output], Qt.color(data.expected));
+            compare(item[data.output], data.level);
+            compare(drawn(item)[data.label].color, Qt.color(data.expected));
+            compare(firstIcon(item).color, Qt.color(data.expected), "the icon draws its most severe value");
+        }
+        function test_label_style_data() {
+            return [
+                { tag: "default", style: undefined, icons: ["cpu", "memory-stick", "gpu"], captions: ["", "", ""] },
+                { tag: "icons", style: "icons", icons: ["cpu", "memory-stick", "gpu"], captions: ["", "", ""] },
+                { tag: "text", style: "text", icons: ["", "", ""], captions: ["CPU", "RAM", "GPU"] }
+            ];
+        }
+        function test_label_style(data) {
+            const settings = allReadings();
+            if (data.style !== undefined) settings.labelStyle = data.style;
+            widget.settings = settings;
+            const value = sample(5); value.cpu.use = 85; value.gpu.temperature = 70;
+            status.values = { readings: value };
+            const readings = items();
+            compare(JSON.stringify(readings.map(item => item.iconName)), JSON.stringify(data.icons));
+            compare(JSON.stringify(readings.map(item => item.caption)), JSON.stringify(data.captions));
+            compare(JSON.stringify(readings.map(item => item.label)), JSON.stringify(["CPU", "Memory", "GPU"]));
+            const marks = [Theme.color.danger, Theme.bar.foreground, Theme.color.warning];
+            for (let index = 0; index < readings.length; index++) {
+                const labels = drawn(readings[index]);
+                const glyph = firstIcon(readings[index]);
+                if (data.style === "text") {
+                    compare(glyph.parent.visible, false, "a text label hides the icon");
+                    compare(labels[0].text, data.captions[index]);
+                    compare(labels[0].color, Qt.color(marks[index]), "the name draws the icon's colour");
+                } else {
+                    compare(glyph.parent.visible, true);
+                    compare(glyph.color, Qt.color(marks[index]));
+                    verify(labels[0].text !== "CPU" && labels[0].text !== "RAM" && labels[0].text !== "GPU");
+                }
+            }
         }
         function test_widget_lease_lifetime() {
             compare(root.leaseCalls.length, 1);
@@ -363,8 +405,8 @@ Item {
             status.values = { readings: sample(5, { name: "Sleeping GPU", state: "asleep", use: 95, temperature: 75 }) };
             compare(widget.visible, true);
             const gpu = items()[2];
-            compare(gpu.text, "--");
-            compare(gpu.count, "/--");
+            compare(drawnText(gpu), "--/--");
+            compare(gpu.countLevel, "normal", "a sleeping card's hidden temperature takes no level");
         }
     }
 }

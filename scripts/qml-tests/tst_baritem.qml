@@ -7,8 +7,10 @@ import qs.Unit
 // BarItem: every bar widget's one item. It is `bar.item.height` tall and
 // never narrower; its content sits `bar.item.paddingX` in; the icon is
 // `bar.item.icon` wide at full opacity; a count draws in the bar role in
-// the item's tone; the item is as wide as its padding and what it draws,
-// with no room after the reading; `active` fills it with `bar.active`;
+// the item's tone; a value draws its level's colour and the icon or its
+// caption the most severe level shown; the separator draws its own token;
+// the item is as wide as its padding and what it draws, with no room
+// after the reading; `active` fills it with `bar.active`;
 // hover and press fill it with their own tokens; a click emits `clicked`.
 Item {
     id: root
@@ -20,8 +22,8 @@ Item {
     BarItem { id: pill; text: "1"; active: true; y: 80 }
     BarItem { id: spinner; iconName: "refresh-cw"; spinning: true; y: 120 }
     BarItem { id: tooltipItem; iconName: "settings"; label: "Settings"; tooltip: "Open settings"; tooltipDetails: ["Pinned in the bar"]; x: 80 }
-    BarItem { id: reading; text: "5%"; count: "9°"; x: 150 }
     property int clicks: 0
+    Component { id: readingCase; BarItem { x: 150 } }
     Component {
         id: tooltipCase
         BarItem {
@@ -131,45 +133,95 @@ Item {
         // widths, so any room the item keeps beyond them turns this red.
         function test_the_width_ends_at_the_reading_data() {
             return [
-                { tag: "text", iconName: "", text: "5%", count: "", compact: false },
-                { tag: "icon-text", iconName: "cpu", text: "100%", count: "", compact: false },
-                { tag: "icon-compact-count", iconName: "cpu", text: "5%", count: "/54°", compact: true },
-                { tag: "icon-spaced-count", iconName: "cpu", text: "5%", count: "54°", compact: false },
-                { tag: "long-reading", iconName: "memory-stick", text: "999.9 GB", count: "/100%", compact: true }
+                { tag: "text", properties: { text: "5%" } },
+                { tag: "icon-text", properties: { iconName: "cpu", text: "100%" } },
+                { tag: "icon-separated-count", properties: { iconName: "cpu", text: "5%", count: "54°", separator: "/" } },
+                { tag: "icon-spaced-count", properties: { iconName: "cpu", text: "5%", count: "54°" } },
+                { tag: "caption-long-reading", properties: { caption: "RAM", text: "999.9 GB", count: "100%", separator: "/" } }
             ];
         }
 
         function test_the_width_ends_at_the_reading(data) {
-            reading.iconName = data.iconName; reading.text = data.text; reading.count = data.count; reading.compactCount = data.compact;
-            const found = labels(reading);
-            compare(found.length, data.count === "" ? 1 : 2);
-            let content = data.iconName === "" ? 0 : Theme.bar.item.icon + Theme.bar.item.iconGap;
+            const item = createTemporaryObject(readingCase, root, data.properties);
+            verify(item !== null);
+            const found = labels(item);
+            const shown = [data.properties.caption, data.properties.text, data.properties.separator, data.properties.count]
+                .filter(value => value !== undefined && value !== "");
+            compare(JSON.stringify(found.map(label => label.text)), JSON.stringify(shown));
+            let content = data.properties.iconName === undefined ? 0 : Theme.bar.item.icon;
+            if (data.properties.iconName !== undefined || data.properties.caption !== undefined) content += Theme.bar.item.iconGap;
             for (const label of found) content += label.implicitWidth;
-            if (data.count !== "" && !data.compact) content += Theme.bar.item.iconGap;
+            if (data.properties.count !== undefined && data.properties.separator === undefined) content += Theme.bar.item.iconGap;
             // The content row lays out at its next polish.
-            tryCompare(reading, "implicitWidth", Theme.bar.item.paddingX + Math.ceil(content) + Theme.bar.item.paddingX);
-            compare(reading.width, reading.implicitWidth);
+            tryCompare(item, "implicitWidth", Theme.bar.item.paddingX + Math.ceil(content) + Theme.bar.item.paddingX);
+            compare(item.width, item.implicitWidth);
             const last = found[found.length - 1];
-            tryVerify(() => reading.width - reading.rightPadding - last.mapToItem(reading, last.width, 0).x < 1, 1000, "the reading ends at the right padding");
-            reading.iconName = ""; reading.text = "5%"; reading.count = "9°"; reading.compactCount = false;
+            tryVerify(() => item.width - item.rightPadding - last.mapToItem(item, last.width, 0).x < 1, 1000, "the reading ends at the right padding");
         }
 
-        function test_the_compact_reading_follows_the_icon() {
-            reading.iconName = "cpu"; reading.text = "5%"; reading.count = "/9°"; reading.compactCount = true;
-            const found = labels(reading), glyph = firstIcon(reading);
-            tryVerify(() => Math.abs(found[0].mapToItem(reading, 0, 0).x - glyph.mapToItem(reading, glyph.width, 0).x - Theme.bar.item.iconGap) <= 0.5, 1000, "the drawn reading follows the icon after layout");
-            fuzzyCompare(found[0].mapToItem(reading, 0, 0).x - glyph.mapToItem(reading, glyph.width, 0).x, Theme.bar.item.iconGap, 0.5);
-            fuzzyCompare(found[1].mapToItem(reading, 0, 0).x, found[0].mapToItem(reading, found[0].width, 0).x, 0.5);
-            reading.iconName = ""; reading.compactCount = false; reading.count = "9°";
+        function test_the_separated_reading_follows_the_icon() {
+            const item = createTemporaryObject(readingCase, root, { iconName: "cpu", text: "5%", count: "9°", separator: "/" });
+            const found = labels(item), glyph = firstIcon(item);
+            compare(found.length, 3);
+            compare(found[1].text, "/");
+            tryVerify(() => Math.abs(found[0].mapToItem(item, 0, 0).x - glyph.mapToItem(item, glyph.width, 0).x - Theme.bar.item.iconGap) <= 0.5, 1000, "the drawn reading follows the icon after layout");
+            fuzzyCompare(found[1].mapToItem(item, 0, 0).x, found[0].mapToItem(item, found[0].width, 0).x, 0.5);
+            fuzzyCompare(found[2].mapToItem(item, 0, 0).x, found[1].mapToItem(item, found[1].width, 0).x, 0.5);
         }
 
-        function test_text_and_count_take_separate_tones() {
-            reading.text = "5%"; reading.count = "9°";
-            reading.tone = "#ff0000";
-            reading.textTone = "#0000ff";
-            reading.countTone = "#00ff00";
-            compare(String(labels(reading)[0].color), "#0000ff");
-            compare(String(labels(reading)[1].color), "#00ff00");
+        // Each (text, count) level pair, with and without a count shown: the
+        // values draw their own level, the separator draws its own token,
+        // and the icon draws the most severe level of the values shown.
+        function test_the_icon_draws_the_most_severe_value_data() {
+            const order = ["normal", "warning", "danger"];
+            const cases = [];
+            for (const textLevel of order)
+                for (const countLevel of order) {
+                    cases.push({ tag: textLevel + "-" + countLevel, textLevel: textLevel, countLevel: countLevel, count: "9°",
+                        icon: order[Math.max(order.indexOf(textLevel), order.indexOf(countLevel))] });
+                    cases.push({ tag: textLevel + "-" + countLevel + "-hidden-count", textLevel: textLevel, countLevel: countLevel, count: "",
+                        icon: textLevel });
+                }
+            return cases;
+        }
+
+        function test_the_icon_draws_the_most_severe_value(data) {
+            const tone = "#123456";
+            const colours = { normal: Qt.color(tone), warning: Qt.color(Theme.color.warning), danger: Qt.color(Theme.color.danger) };
+            const item = createTemporaryObject(readingCase, root, { iconName: "cpu", text: "5%", count: data.count, separator: "/",
+                tone: tone, textLevel: data.textLevel, countLevel: data.countLevel });
+            verify(item !== null);
+            const found = labels(item);
+            compare(found[0].color, colours[data.textLevel]);
+            if (data.count !== "") {
+                compare(found.length, 3);
+                compare(found[1].color, Qt.color(Theme.bar.item.separator), "the separator takes no level or tone");
+                compare(found[2].color, colours[data.countLevel]);
+            } else {
+                compare(found.length, 1);
+            }
+            compare(firstIcon(item).color, colours[data.icon]);
+        }
+
+        function test_a_caption_takes_the_icon_place_and_colour() {
+            const item = createTemporaryObject(readingCase, root, { iconName: "gpu", caption: "GPU", label: "GPU",
+                text: "5%", count: "88°", separator: "/", countLevel: "danger" });
+            verify(item !== null);
+            const glyph = firstIcon(item);
+            compare(glyph.parent.visible, false, "the caption replaces the icon");
+            const found = labels(item);
+            compare(found[0].text, "GPU");
+            compare(found[0].role, "bar");
+            compare(found[0].color, Qt.color(Theme.color.danger));
+            // anchors.centerIn rounds the row to a whole pixel, so the
+            // caption may start up to one pixel past the padding.
+            tryVerify(() => Math.abs(found[0].mapToItem(item, 0, 0).x - item.leftPadding) <= 1, 1000, "the caption starts at the padding");
+            fuzzyCompare(found[1].mapToItem(item, 0, 0).x - found[0].mapToItem(item, found[0].width, 0).x, Theme.bar.item.iconGap, 0.5);
+            const alone = createTemporaryObject(readingCase, root, { caption: "GPU", label: "GPU graphics" });
+            compare(alone.iconOnly, false);
+            compare(alone.leftPadding, Theme.bar.item.paddingX);
+            compare(alone.Accessible.name, "GPU graphics");
+            compare(labels(alone)[0].color, Qt.color(Theme.bar.foreground));
         }
 
         function test_theme_moves_the_item() {

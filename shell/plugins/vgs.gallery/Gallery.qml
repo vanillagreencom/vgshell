@@ -151,7 +151,8 @@ Item {
                         BarItem { iconName: "settings"; label: "Settings" }
                         BarItem { iconName: "shield-alert"; count: "2"; tone: Theme.color.warning; label: "Agent Warden" }
                         BarItem { iconName: "refresh-cw"; spinning: true; label: "Updates" }
-                        BarItem { iconName: "cpu"; text: "5%"; count: "/54°"; compactCount: true; textTone: Theme.bar.foreground; countTone: Theme.color.warning; label: "CPU reading" }
+                        BarItem { iconName: "cpu"; text: "5%"; count: "74°"; separator: "/"; countLevel: "warning"; label: "CPU reading" }
+                        BarItem { caption: "GPU"; text: "92%"; count: "88°"; separator: "/"; textLevel: "danger"; countLevel: "warning"; label: "GPU reading" }
                     }
                 }
                 Column {

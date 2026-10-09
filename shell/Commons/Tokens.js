@@ -990,7 +990,10 @@ var TOKENS = {
             iconGap: length("{control.gap}"),
             radius: length("{radius.sm}"),
             hover: color("{color.surfaceHover}"),
-            pressed: color("{color.border}")
+            pressed: color("{color.border}"),
+            // The separator between paired readings: the bar text at a
+            // quarter strength, never a state colour.
+            separator: color("mix({bar.foreground}, {bar.background}, 0.75)")
         }
     }
 };
