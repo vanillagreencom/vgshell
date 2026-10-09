@@ -32,7 +32,7 @@ BarWidget {
         implicitHeight: line.implicitHeight
         Row {
             id: line
-            anchors.right: speed.stacked ? undefined : parent.right
+            anchors.right: parent.right
             spacing: Theme.row.lineGap
             BarItem.Reading { stacked: speed.stacked; text: speed.arrow; color: Theme.color.accent }
             BarItem.Reading { id: reading; stacked: speed.stacked; text: speed.rate; sample: speed.sample; font.capitalization: Font.MixedCase }
