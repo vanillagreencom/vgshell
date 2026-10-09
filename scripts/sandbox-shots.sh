@@ -3252,9 +3252,11 @@ PY
 # dictation sounds from a voxtype stand-in that answers the value alone,
 # tones on; no shot chooses a dictation value, so nothing is written and
 # no service restarts. The player is the harness's pw-play stand-in and no
-# shot presses Test, so nothing sounds. Jarvis is disabled again, the
-# stand-in is removed, and the user file, with every other enablement,
-# goes back as the scene found it.
+# shot presses Test, so nothing sounds. The other Appearance sections the
+# tree ships are enabled too, so the sidebar holds the whole group whatever
+# an earlier scene left disabled. Jarvis is disabled again, the stand-in is
+# removed, and the user file, with every other enablement, goes back as
+# the scene found it.
 sounds_row() { ipc smoke readMatchingDescendant window vgs.sounds FormRow label "$1" "$2"; }
 sounds_picker_open() { ipc smoke readMatchingDescendant window vgs.sounds Select currentText "$1" listOpen; }
 scene_sounds() { # MODE
@@ -3270,7 +3272,8 @@ esac
 EOF
   chmod 755 "$shim/voxtype"
   rescan "the Sounds shots' voxtype stand-in is scanned"
-  for id in vgs.system vgs.sounds vgs.notifications vgs.voice vgs.jarvis; do
+  for id in vgs.system vgs.motion vgs.windows vgs.ui vgs.fonts vgs.sounds vgs.notifications vgs.voice vgs.jarvis; do
+    ships_plugin "$id" || continue
     expect "enabling $id for the Sounds shots is allowed" ok ipc shell setPluginEnabled "$id" true
   done
   expect_poll "the Jarvis daemon answers hello before the Sounds shots" ready jarvis_started

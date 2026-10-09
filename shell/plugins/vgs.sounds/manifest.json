@@ -10,5 +10,5 @@
   "kinds": ["pane"],
   "entryPoints": { "pane": "Pane.qml" },
   "capabilities": ["soundSettings"],
-  "pane": { "group": "Appearance", "order": 40 }
+  "pane": { "group": "Appearance", "order": 50 }
 }
