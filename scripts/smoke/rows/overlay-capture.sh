@@ -5,7 +5,7 @@
 # the shell process dies. Controls start mutant tree copies: one without the
 # layer-open submap dispatch, one without the layer-closed reset, and one
 # without the hl.bind wrapper that learns the user's focus bind.
-# inputs: shell/Core/HyprlandLayer.js shell/Hosts/SummonLayer.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.themes/* bin/vgshell scripts/smoke/toplevel/* shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/theme-browser.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/Core/HyprlandLayer.js shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.themes/* bin/vgshell scripts/smoke/toplevel/* shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/theme-browser.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 press_themes() { type_keys -M logo -M shift -k t -m shift -m logo; }

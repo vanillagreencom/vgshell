@@ -27,6 +27,9 @@ Flickable {
 
     property real rightInset: Theme.scrollArea.gutter
     property bool barOverContent: false
+    // True while the area is short only for a moment, as in a card that
+    // grows toward its content: the bar stays hidden for that overflow.
+    property bool barHeld: false
     property bool keyboardScroll: false
     property real contentPadding: 0
     readonly property real clipPadding: keyboardScroll && keyboardFocus.visualFocus ? contentPadding : 0

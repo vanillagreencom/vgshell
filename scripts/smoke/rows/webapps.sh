@@ -34,7 +34,7 @@
 # write in the data home late in the full row order: the service's browser
 # and the launcher's first listing are polled every 200 ms for up to
 # wa_index_s.
-# inputs: scripts/smoke/webapps-browsers.sh shell/plugins/vgs.webapps/* shell/plugins/vgs.settings/* shell/plugins/vgs.launcher/* shell/plugins/vgs.notifications/* shell/Core/Notifier.qml shell/Hosts/SummonLayer.qml shell/Commons/DesktopLaunch.js shell/Core/Compositor.qml shell/Core/Dispatch.js bin/lib/qml-library.js
+# inputs: scripts/smoke/webapps-browsers.sh shell/plugins/vgs.webapps/* shell/plugins/vgs.settings/* shell/plugins/vgs.launcher/* shell/plugins/vgs.notifications/* shell/Core/Notifier.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Commons/DesktopLaunch.js shell/Core/Compositor.qml shell/Core/Dispatch.js bin/lib/qml-library.js
 set -euo pipefail
 
 wa_id=vgs.webapps

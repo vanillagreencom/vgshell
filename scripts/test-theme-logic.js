@@ -62,6 +62,8 @@ const DEFAULTS = [
     ["motion.list.stagger", 18],
     ["motion.list.staggerRows", 8],
     ["motion.list.rise", 6],
+    ["motion.surface.resize.duration", 300],
+    ["motion.surface.resize.easing", "outCubic"],
     ["hyprland.border.size", 2],
     ["hyprland.window.radius", 0],
     ["hyprland.window.roundingPower", 2],

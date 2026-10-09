@@ -947,6 +947,21 @@ Item {
                         Label { role: "code"; text: "linux 6.1 -> 6.2" }
                         Label { role: "code"; text: "mesa 25.1 -> 25.2" }
                     }
+                    // The card follows its content's height through
+                    // SurfaceHeight, as a summoned panel's card does.
+                    SurfaceHeight {
+                        width: parent.width
+                        target: grower.implicitHeight
+                        Surface { anchors.fill: parent }
+                        Disclosure {
+                            id: grower
+                            width: parent.width
+                            text: "Card height"
+                            secondary: "Open it to watch the card grow"
+                            iconName: "info"
+                            Label { role: "hint"; text: "The card animates to its new height while its surface keeps one size."; width: parent.width; wrapMode: Text.Wrap }
+                        }
+                    }
                     Disclosure {
                         width: parent.width
                         text: "No details"

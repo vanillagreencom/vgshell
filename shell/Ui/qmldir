@@ -50,6 +50,7 @@ ScrollArea 1.0 layout/ScrollArea.qml
 TouchpadScroll 1.0 layout/TouchpadScroll.qml
 SlimScrollBar 1.0 layout/SlimScrollBar.qml
 Pane 1.0 layout/Pane.qml
+SurfaceHeight 1.0 layout/SurfaceHeight.qml
 Tabs 1.0 layout/Tabs.qml
 TabPages 1.0 layout/TabPages.qml
 ListItem 1.0 layout/ListItem.qml

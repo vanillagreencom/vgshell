@@ -241,6 +241,11 @@ var TOKENS = {
             stagger: duration(18),
             staggerRows: number(8, 0, 64),
             rise: length("{space.sm}")
+        },
+        // A summoned surface's drawn height following its content, the
+        // launcher's card motion: `slow` and a fifth, on the standard curve.
+        surface: {
+            resize: { duration: duration("mul({motion.duration.slow}, 1.2)"), easing: easing("{motion.easing.standard}") }
         }
     },
 

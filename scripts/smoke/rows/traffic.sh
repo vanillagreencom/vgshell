@@ -2,7 +2,7 @@
 # physical interface resolver, and a capture probe seam. No capture or host
 # authentication runs. No latency budget: CPU evidence is in the item.
 # Polls use expect_poll. A dropped panel release must fail the lease check.
-# inputs: shell/plugins/vgs.traffic/* shell/plugins/vgs.traffic/tui/* scripts/fixtures/traffic/* scripts/smoke/fixtures/traffic/* scripts/smoke/fixtures/tui/vgs.traffic/tui/* shell/Core/PluginLogic.js shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml shell/Ui/BarWidget.qml shell/Ui/controls/BarItem.qml shell/Hosts/SummonPopup.qml shell/Hosts/PluginSlot.qml scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh
+# inputs: shell/plugins/vgs.traffic/* shell/plugins/vgs.traffic/tui/* scripts/fixtures/traffic/* scripts/smoke/fixtures/traffic/* scripts/smoke/fixtures/tui/vgs.traffic/tui/* shell/Core/PluginLogic.js shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml shell/Ui/BarWidget.qml shell/Ui/controls/BarItem.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/PluginSlot.qml scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 traffic_dir="$sandbox/traffic"
 mkdir -p -- "$traffic_dir"

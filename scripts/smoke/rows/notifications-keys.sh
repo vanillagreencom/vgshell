@@ -32,7 +32,7 @@
 # No latency is measured; each reading polls every 200 ms for up to 5 s.
 # A press that reaches nothing changes nothing to poll for, so the
 # controls read after a native key marker on the same virtual keyboard.
-# inputs: shell/plugins/vgs.notifications/* shell/Hosts/SummonLayer.qml scripts/smoke/toplevel/* scripts/smoke/rows/notifications.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.notifications/* shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml scripts/smoke/toplevel/* scripts/smoke/rows/notifications.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 nk_hypr_lua="$home/.config/hypr/hyprland.lua"

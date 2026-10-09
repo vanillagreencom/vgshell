@@ -70,6 +70,14 @@ Item {
         return null;
     }
     readonly property bool showsSettings: settingsHost !== null && settingsHost.settingsPage !== ""
+    // True while the SurfaceHeight card holding this pane grows toward its
+    // content: the body is short only until the card lands, so it shows no
+    // scroll bar or footer divider for that.
+    readonly property bool cardGrowing: {
+        for (let item = root.parent; item !== null; item = item.parent)
+            if (item.surfaceGrowing !== undefined) return item.surfaceGrowing;
+        return false;
+    }
     readonly property real gearRoom: gear.item ? gear.item.width + Theme.stack.inline : 0
     readonly property Item headerSwitch: switchLoader.item
     readonly property bool hasTitle: title !== ""
@@ -262,6 +270,7 @@ Item {
         // A container inset narrower than the bar's gutter still leaves the
         // gutter, so the bar never covers the content.
         rightInset: Math.max(root.contentInset - focusInset, Theme.scrollArea.gutter)
+        barHeld: root.cardGrowing
         contentPadding: root.ringRoom
         height: root.ringRoom * 2 + Math.max(0, root.boxHeight - 2 * root.contentInset - root.headerHeight - root.headerGap - root.footerGap - root.footerHeight)
 
@@ -306,6 +315,6 @@ Item {
     Rule {
         id: footerDivider
         y: footerSlot.y - root.footerGap + Math.round((root.footerGap - height) / 2)
-        visible: root.footerHeight > 0 && scroll.contentY + scroll.height < scroll.contentHeight - 1
+        visible: root.footerHeight > 0 && !root.cardGrowing && scroll.contentY + scroll.height < scroll.contentHeight - 1
     }
 }

@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Wayland
 import qs.Core
 import qs.Commons
+import qs.Ui
 
 // A summon with no anchor, built as a layer surface on the screen it was
 // summoned on. An overlay covers its screen and owns the keyboard until it
@@ -61,30 +62,38 @@ PanelWindow {
         enabled: win.catches
         acceptedButtons: Qt.AllButtons
         onPressed: mouse => {
-            if (!slot.contains(mapToItem(slot, mouse.x, mouse.y)))
+            if (!sized.contains(mapToItem(sized, mouse.x, mouse.y)))
                 win.dismissed();
         }
     }
 
-    PluginSlot {
-        id: slot
-        kind: win.kind
-        pluginId: win.pluginId
-        hostKey: win.kind
-        settingsPage: Registry.settingsPageOf(win.kind, win.pluginId)
-        screen: win.screen
-        closeOnUnload: true
-        focus: true
+    // The plugin's box: its height follows the plugin's through
+    // SurfaceHeight, so a content change animates; the layer surface itself
+    // covers the screen and never resizes.
+    SurfaceHeight {
+        id: sized
         // The room inside the margins; a plugin larger than it is laid out
         // at the room's size.
         readonly property real roomWidth: Math.max(1, win.width - win.place.margins.left - win.place.margins.right)
         readonly property real roomHeight: Math.max(1, win.height - win.place.margins.top - win.place.margins.bottom)
-        width: !win.catches ? win.width : instance ? Math.max(1, Math.min(instance.implicitWidth, roomWidth)) : 1
-        height: !win.catches ? win.height : instance ? Math.max(1, Math.min(instance.implicitHeight, roomHeight)) : 1
+        width: !win.catches ? win.width : slot.instance ? Math.max(1, Math.min(slot.instance.implicitWidth, roomWidth)) : 1
+        target: !win.catches ? win.height : slot.instance ? Math.max(1, Math.min(slot.instance.implicitHeight, roomHeight)) : 1
         x: !win.catches ? 0 : win.place.anchors.left === win.place.anchors.right ? Math.round((win.width - width) / 2) : win.place.anchors.left ? win.place.margins.left : win.width - width - win.place.margins.right
         y: !win.catches ? 0 : win.place.anchors.top === win.place.anchors.bottom ? Math.round((win.height - height) / 2) : win.place.anchors.top ? win.place.margins.top : win.height - height - win.place.margins.bottom
-        Keys.onEscapePressed: win.dismissed()
-        onBuilt: instance => win.built(instance)
-        onBuildFailed: key => win.dismissed()
+
+        PluginSlot {
+            id: slot
+            kind: win.kind
+            pluginId: win.pluginId
+            hostKey: win.kind
+            settingsPage: Registry.settingsPageOf(win.kind, win.pluginId)
+            screen: win.screen
+            closeOnUnload: true
+            focus: true
+            anchors.fill: parent
+            Keys.onEscapePressed: win.dismissed()
+            onBuilt: instance => win.built(instance)
+            onBuildFailed: key => win.dismissed()
+        }
     }
 }

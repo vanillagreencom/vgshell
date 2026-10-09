@@ -80,6 +80,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 - Do clear a rounded corner through `Inset.clearing` in `shell/Commons/Inset.js`, and never hand-pad for a curve. `scripts/test-inset.js` pins the rule.
 - Do keep a container's scroll bar inside its right inset strip. `scripts/qml-tests/tst_scroll.qml` pins the gutter with and without overflow.
 - Do fit dialogs and popovers to their content up to their maximum height share, then scroll. `scripts/qml-tests/tst_pane.qml` pins the fitted height.
+- Do animate a summoned flyout's or panel's card height through `SurfaceHeight`. A bar flyout takes the room below its anchor at open, keeps that size while its content fits in it, never shrinks while it shows, and masks input to its card; a panel's layer covers its screen and catches the presses outside its card. A popup anchored inside a window, such as `Popover`, `Menu`, `Select` or `Tooltip`, follows its content, since a client cannot read where that window sits. `scripts/qml-tests/tst_surfaceheight.qml` pins the card; gap: no check reads which hosts compose it.
 - Do give a popover list no outer inset; its row fill meets the border and its row padding carries the text inset. `scripts/qml-tests/tst_overlays.qml` pins it.
 
 ### Copy

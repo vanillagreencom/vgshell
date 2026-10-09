@@ -33,7 +33,7 @@ Item {
     z: 1
     width: Theme.scrollArea.barWidth
     height: flickable.height
-    visible: needed
+    visible: needed && !flickable.barHeld
     opacity: active ? 1 : Theme.scrollArea.idleOpacity
     Behavior on opacity { NumberAnimation { duration: Theme.scrollArea.fade; easing.type: Theme.motion.easing.standard } }
 
