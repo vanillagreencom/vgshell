@@ -31,7 +31,6 @@ Kendex workflow policy VGS keeps (KEN-3470):
 - The VGS estimate scale, in implementation, planned and review-created issues and review findings: 1 means hours, 2 half a day, 3 a day, 4 two to three days, 5 a week or more. The numeric field keeps this consumer-defined meaning. Reassess the estimate when implementation changes the scope. (DV17, ORCH-M22, RV20)
 - A worktree or Pi session in an explicitly recorded orch lane leaves kendex refresh and apply to the overseer in the base checkout after merge; an ordinary linked worktree keeps its own project resolution and complete drift repair guidance, and a linked Git directory alone is not a lane record. After an authorized documentation rewrite changes kendex-owned inputs, use that refresh and verification route and respect a launched lane's refresh restriction. (hook-session-drift-check-04, pi-hooks-M01, DW22)
 - Never kill a process by its name or argv pattern. Kill a PID recorded when you launched that process, or, on Linux, read /proc/PID/cwd and kill that PID only when the path is inside your own worktree; the /proc route is an alternative, not an extra condition on the recorded PID. (hook-block-argv-kill-03)
-
 <!-- kendex:shared-instructions:end -->
 
 ## VGS orchestration policy (KEN-3470)
@@ -48,7 +47,6 @@ Kendex workflow policy VGS keeps (KEN-3470):
 - VGS selects the full-bypass permission mode for its Claude handoff lanes explicitly; carry it through the existing launch arguments. Do not infer it from the use of orchestration alone. (ORCH-M21)
 - For an outside contribution, maintainers supply missing version, changelog and generated-render bookkeeping during takeover; never send the contributor back only for those steps. (ORCH-M27)
 - In review-pr and submit-pr local pre-PR review, external second-opinion review is advisory: if its script fails, record the stated failure and continue. VGS has no stricter second-opinion gate. (second-opinion-16)
-
 <!-- kendex:project-instructions:end -->
 
 # Orchestration
@@ -121,7 +119,7 @@ Route `<command> [args]` to its workflow and follow [Workflow Execution](#workfl
 | `worktree-push` | Push an issue worktree via `worktree push`, reconciling rebased SHAs in workflow state in the same call; `--check-live-round` answers whether a fix round is in flight and pushes nothing |
 | `dev-round-write` | Persist a fix round's delegated item set at stamp time; `--cut` records a reviewer or orchestrator scope choice |
 | `dev-artifact-check` | Validate a dev round's completion artifact by round id |
-| `round-prune` | At a dev round's start, prune the item worktree's build output under its own lease when the disk is at or past `ORCH_ROUND_PRUNE_DISK_PCT`, recording the bytes in `round_prunes` |
+| `round-prune` | Consumer-selected Cargo cleanup at round start; [Round Closure](references/skill-rules.md#round-closure) owns its policy and contract |
 | `round-recover` | Close a stalled dev round from the idle agent's transcript: write the report as the artifact, or mint one re-delegation's round id |
 | `dev-validate-run` | Run `DEV_VALIDATE_CMD`, or with `--validate-mode range --base REF` `DEV_VALIDATE_RANGE_CMD`, or with `--validate-mode ci --base REF` nothing where the pull request's base branch requires the context `DEV_VALIDATE_CI_CONTEXT` names and the change class says the pull request CI checks the change, detached under `DEV_VALIDATE_TIMEOUT_SECS`, with the change class as `DEV_VALIDATE_CLASS`, and leave its verdict on disk as one `guard-exit=N` sentinel; `--wait`, `--record`, `--resolve-mode`, `--last-pass`, `--live` and `--stop` poll, read and end runs, per `--help`. The route every harness validates through |
 | `restack-skip` | Say whether a restacked head skips its range re-test: no conflict, or only version fields and changelog entries conflicted, per `--help` |
