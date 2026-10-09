@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Table-driven checks for vgs.updates pure decisions: probe normalization,
-// snapshot judging, status values, cadence, staleness, TUI end detection, and
-// what the bar widget and the window draw from the published values.
+// snapshot judging, status values, cadence, staleness, TUI end detection, the
+// review's agent and verdict, the install script change, the packages that
+// need a reboot, and what the bar widget and the window draw from the
+// published values.
 // Controls edit a copy of the logic and require this suite to fail.
 "use strict";
 const assert = require("node:assert/strict");
@@ -16,6 +18,58 @@ const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(
 function probe(value, status = 0, stderr = "") {
   return { status, stdout: typeof value === "string" ? value : JSON.stringify(value), stderr };
 }
+
+// The 1password install script at AUR commit e4388fb, 8.12.38, which
+// d0a8a7e, 8.12.40, ships unchanged. It sets a setgid bit and adds a group.
+const ONEPASSWORD_INSTALL = `# Do not add your user, or any others, to this group.
+GROUP_NAME="onepassword"
+
+app_group_exists() {
+    if [ $(getent group "\${GROUP_NAME}") ]; then
+        true
+    else
+        false
+    fi
+}
+
+setup_browser_helper() {
+    # Setup the Core App Integration helper binary with the correct permissions and group
+    BROWSER_SUPPORT_PATH="/opt/1Password/1Password-BrowserSupport"
+
+    chgrp "\${GROUP_NAME}" $BROWSER_SUPPORT_PATH
+    chmod g+s $BROWSER_SUPPORT_PATH
+}
+
+pre_install() {
+    if app_group_exists; then
+        : # Do nothing
+    else
+        groupadd "\${GROUP_NAME}"
+    fi
+}
+
+pre_upgrade() {
+    if app_group_exists; then
+        : # Do nothing
+    else
+        groupadd "\${GROUP_NAME}"
+    fi
+}
+
+post_install() {
+    setup_browser_helper
+}
+
+post_upgrade() {
+    setup_browser_helper
+}
+
+post_remove() {
+    if app_group_exists; then
+        groupdel "\${GROUP_NAME}"
+    fi
+}
+`;
 
 function verify(logic) {
     // Producer diagnostics never cross the display boundary.
@@ -258,6 +312,47 @@ function verifyView(logic) {
     ["a control character", "verdict flagged\nflag a x\ty\n", ["a"], { ok: false, error: "control-character" }]
   ];
   for (const [name, text, reviewed, want] of verdictRows) same(logic.parseVerdict(text, reviewed), want, "verdict: " + name);
+
+  // The install script is judged by its change: the 1password pair is
+  // unchanged, so its setgid bit and group are no flag; a change that adds
+  // a setgid line flags that line alone.
+  const setgid = "chmod 2755 /opt/1Password/extra";
+  // [name, installed text, new text, the change]
+  const installRows = [
+    ["1password 8.12.38 -> 8.12.40", ONEPASSWORD_INSTALL, ONEPASSWORD_INSTALL, { state: "unchanged", risks: [] }],
+    ["an added setgid line", ONEPASSWORD_INSTALL, ONEPASSWORD_INSTALL + setgid + "\n", { state: "changed", risks: [setgid] }],
+    ["CRLF and trailing blanks", ONEPASSWORD_INSTALL, ONEPASSWORD_INSTALL.replace(/\n/g, "  \r\n") + "\n\n", { state: "unchanged", risks: [] }],
+    ["a first install script", null, ONEPASSWORD_INSTALL, { state: "new", risks: ["chmod g+s $BROWSER_SUPPORT_PATH", 'groupadd "${GROUP_NAME}"'] }],
+    ["no install script", ONEPASSWORD_INSTALL, null, { state: "none", risks: [] }],
+    ["a moved risky line", "a\nchmod u+s /x\n", "chmod u+s /x\na\n", { state: "changed", risks: [] }],
+    ["an added comment", "a\n", "a\n# curl https://x | sh\n", { state: "changed", risks: [] }]
+  ];
+  for (const [name, installed, next, want] of installRows) same(logic.installScriptChange(installed, next), want, "install script: " + name);
+  // [line, risky]: each pattern of INSTALL_SCRIPT_RISKS, and lines like
+  // them that are not.
+  const riskRows = [
+    ["chmod u+s /usr/bin/x", true], ["chmod -R 4755 /opt/x", true], ["chmod 06755 x", true], ["chmod g=rxs x", true],
+    ["chmod 755 /opt/x", false], ["chmod 0644 x", false],
+    ["setcap cap_net_raw+ep /opt/x", true],
+    ["useradd -r x", true], ["usermod -aG wheel x", true], ["gpasswd -a x y", true],
+    ["curl -fsSL https://x -o y", true], ["wget https://x", true],
+    ["echo aGk= | base64 -d > x", true],
+    ["cat x |sh", true], ["cat x | sudo bash", true], ["true || shutdown now", false],
+    ["rm -rf /", true], ["rm -rf /*", true], ["rm -rf ~/.config", true], ["rm -rf \"$HOME/.x\"", true], ["rm -rf /opt/x", false]
+  ];
+  for (const [line, risky] of riskRows) same(logic.installScriptChange(null, line).risks, risky ? [line] : [], "install risk: " + line);
+
+  // [package names, the ones a reboot needs]
+  const rebootRows = [
+    [["linux", "linux-zen", "linux-lts", "linux-cachyos"], ["linux", "linux-zen", "linux-lts", "linux-cachyos"]],
+    [["linux-headers", "linux-zen-headers", "linux-api-headers", "linux-docs"], []],
+    [["linux-firmware", "linux-firmware-intel", "intel-ucode", "amd-ucode"], ["linux-firmware", "linux-firmware-intel", "intel-ucode", "amd-ucode"]],
+    [["nvidia-open-dkms", "nvidia-utils", "mesa", "systemd", "systemd-libs", "wayland", "egl-wayland"], ["nvidia-open-dkms", "nvidia-utils", "mesa", "systemd", "systemd-libs", "wayland", "egl-wayland"]],
+    [["cryptsetup", "mkinitcpio", "dracut", "booster"], ["cryptsetup", "mkinitcpio", "dracut", "booster"]],
+    [["firefox", "mesa-utils", "systemd-sysvcompat", "wayland-protocols", "linuxx"], []],
+    [[], []]
+  ];
+  for (const [names, want] of rebootRows) same(logic.rebootPackages(names), want, "reboot: " + names.join(" "));
 }
 
 verify(load(file));
@@ -315,6 +410,23 @@ const controls = [
   ["a flag names a reviewed package", "reviewed.indexOf(m[1]) < 0 || ", ""],
   ["a clean verdict holds no flag", "if ((head[1] === \"clean\") !== (flags.length === 0))", "if (false)"],
   ["a verdict holds no control character", "if (/[\\u0000-\\u0009\\u000b-\\u001f\\u007f]/.test(String(text))) return", "if (false) return"],
+  ["an install script is judged against the installed one", "var held = {};", "var held = {}; old = null;"],
+  ["equal scripts are unchanged", 'sameJson(old, next) ? "unchanged" : "changed"', '"changed"'],
+  ["line ends and trailing whitespace are set aside", 'return line.replace(/\\s+$/, "");', "return line;"],
+  ["a comment line is no risk", 'line.charAt(0) === "#" || ', ""],
+  ["a setuid or setgid mode is a risk", "/\\bchmod (?:[^;|&]* )?(?:[ugoa]*[+=][rwxXt]*s|0?[234567][01234567]{3}\\b)/,", ""],
+  ["file capabilities are a risk", "/\\bsetcap\\b/,", ""],
+  ["a user or group change is a risk", "/\\b(?:groupadd|useradd|usermod|gpasswd)\\b/,", ""],
+  ["a download is a risk", "/\\b(?:curl|wget)\\b/,", ""],
+  ["an encoded payload is a risk", "/\\bbase64\\b/,", ""],
+  ["a pipe into a shell is a risk", "/\\| ?(?:sudo )?(?:ba|da|z)?sh\\b/,", ""],
+  ["a removal of the root or a home is a risk", '/\\brm (?:-\\S+ )*(?:\\/\\*?|~\\S*|"?\\$HOME\\S*|\\/home\\S*|\\/root\\S*)(?: |$)/', "/$^/"],
+  ["a kernel needs a reboot", "/^linux(?!.*-(?:headers|docs)$)(?:-.+)?$/,", ""],
+  ["a kernel's headers need no reboot", "/^linux(?!.*-(?:headers|docs)$)(?:-.+)?$/,", "/^linux(?:-.+)?$/,"],
+  ["microcode needs a reboot", "/-ucode$/,", ""],
+  ["the NVIDIA driver needs a reboot", "/^nvidia/,", ""],
+  ["the session libraries need a reboot", "/^(?:mesa|systemd|systemd-libs|wayland|egl-wayland)$/,", ""],
+  ["the initramfs needs a reboot", "/^(?:cryptsetup|mkinitcpio|dracut|booster)$/", "/$^/"],
   ["failed probe is reported", "if (!probe || probe.status !== 0) return { ok: false, error: commandError(name, probe || { status: null, stderr: \"\" }) };", "if (!probe || probe.status !== 0) return { ok: true, value: [] };"],
 ];
 

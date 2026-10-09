@@ -44,6 +44,14 @@
 //       `verdict clean|flagged`, then `flag <package> <concern>` per
 //       flagged package, or `verdict none` and `reason <error>` for text
 //       UpdatesLogic.parseVerdict refuses against the packages named
+//   facts <loader> install <installed> <new>
+//                                   no stdin
+//       the change UpdatesLogic.installScriptChange judges between the
+//       installed package's install script and the update's, each a path
+//       or `-` when absent: `install none|new|unchanged|changed`, then
+//       `risk <line>` per risky line the change adds
+//   facts <loader> reboot           package names, one a line
+//       `reboot <name>` per name UpdatesLogic.rebootPackages keeps
 //
 // Every refusal is one line on stderr, `updates-facts: refused: <key>=<value>`,
 // and exit 2 for a bad invocation, 1 for an answer it cannot read. A value
@@ -189,6 +197,25 @@ case "verdict": {
     }
     line("verdict", judged.verdict);
     for (const flag of judged.flags) line("flag", flag.name + " " + flag.concern);
+    break;
+}
+case "install": {
+    if (process.argv.length !== 6) refuse("install=want-installed-new", 2);
+    const script = file => {
+        if (file === "-") return null;
+        try {
+            return fs.readFileSync(file, "utf8");
+        } catch (e) {
+            refuse("install=unreadable path=" + file + " error=" + e.code, 1);
+        }
+    };
+    const change = logic().installScriptChange(script(process.argv[4]), script(process.argv[5]));
+    line("install", change.state);
+    for (const risk of change.risks) line("risk", risk);
+    break;
+}
+case "reboot": {
+    for (const name of logic().rebootPackages(text().split("\n").filter(name => name !== ""))) line("reboot", name);
     break;
 }
 default:

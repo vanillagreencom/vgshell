@@ -3,8 +3,9 @@
 // Pure decisions for vgs.updates: probe normalization, snapshot judging,
 // status derivation, publish diffs, check cadence, failure retry and TUI run
 // end detection for the service, the third-party review's agent and verdict
-// for the service and the pipeline, and what the bar widget and the window
-// draw from the published status. QML owns I/O and timers; bin/check owns
+// for the service and the pipeline, the install script change and the
+// packages that need a reboot for the pipeline, and what the bar widget and
+// the window draw from the published status. QML owns I/O and timers; bin/check owns
 // processes and disk.
 
 // Every source a status row can name, with the label the service publishes
@@ -490,6 +491,100 @@ function parseVerdict(text, reviewed) {
     }
     if ((head[1] === "clean") !== (flags.length === 0)) return { ok: false, error: "verdict=" + head[1] + " flags=" + flags.length };
     return { ok: true, verdict: head[1], flags: flags };
+}
+
+// The install script lines the review flags when an update adds or alters
+// them, each a pattern over one line with its whitespace runs one space.
+var INSTALL_SCRIPT_RISKS = [
+    // a setuid or setgid mode: chmod u+s, g=rxs, 2755, 4755, 06755
+    /\bchmod (?:[^;|&]* )?(?:[ugoa]*[+=][rwxXt]*s|0?[234567][01234567]{3}\b)/,
+    // file capabilities
+    /\bsetcap\b/,
+    // a new or changed user or group
+    /\b(?:groupadd|useradd|usermod|gpasswd)\b/,
+    // a download
+    /\b(?:curl|wget)\b/,
+    // an encoded payload
+    /\bbase64\b/,
+    // text piped into a shell
+    /\| ?(?:sudo )?(?:ba|da|z)?sh\b/,
+    // a removal of the root or of a home directory, which no package owns
+    /\brm (?:-\S+ )*(?:\/\*?|~\S*|"?\$HOME\S*|\/home\S*|\/root\S*)(?: |$)/
+];
+
+// One line as installScriptChange compares it: trimmed, its whitespace
+// and control characters each run one space.
+function scriptLine(line) {
+    return line.replace(/[\s\u0000-\u001f\u007f]+/g, " ").replace(/^ | $/g, "");
+}
+
+// A script's lines, each without trailing whitespace, a CRLF line end's CR
+// included, and no blank line at the end.
+function scriptLines(text) {
+    var lines = String(text).split("\n").map(function (line) { return line.replace(/\s+$/, ""); });
+    while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+    return lines;
+}
+
+function riskyScriptLine(line) {
+    for (var i = 0; i < INSTALL_SCRIPT_RISKS.length; i++)
+        if (INSTALL_SCRIPT_RISKS[i].test(line)) return true;
+    return false;
+}
+
+// What an update changes in a package's install script, from the text of
+// the INSTALLED package's script and the NEW one's, each null when absent:
+// { state, risks }.
+//   none       the update has no install script
+//   new        the installed package has none
+//   unchanged  both hold the same lines once line ends and trailing
+//              whitespace are set aside
+//   changed    otherwise
+// `risks` are the new script's lines, as scriptLine gives them, that the
+// installed one does not hold and an INSTALL_SCRIPT_RISKS pattern matches,
+// each once; a comment line is none. So a risk the installed package
+// already carried is not flagged again.
+function installScriptChange(installedText, newText) {
+    if (newText === null) return { state: "none", risks: [] };
+    var next = scriptLines(newText);
+    var old = installedText === null ? null : scriptLines(installedText);
+    var state = old === null ? "new" : sameJson(old, next) ? "unchanged" : "changed";
+    var held = {};
+    var i;
+    for (i = 0; old !== null && i < old.length; i++) held[scriptLine(old[i])] = true;
+    var risks = [];
+    for (i = 0; i < next.length; i++) {
+        var line = scriptLine(next[i]);
+        if (line === "" || line.charAt(0) === "#" || hasOwn(held, line)) continue;
+        held[line] = true;
+        if (riskyScriptLine(line)) risks.push(line);
+    }
+    return { state: state, risks: risks };
+}
+
+// The packages whose upgrade takes effect only after a reboot, each a
+// pattern over a package name.
+var REBOOT_PACKAGES = [
+    // a kernel and linux-firmware*, but not the headers or the docs
+    /^linux(?!.*-(?:headers|docs)$)(?:-.+)?$/,
+    // CPU microcode
+    /-ucode$/,
+    // the NVIDIA driver and its modules
+    /^nvidia/,
+    // libraries every session loads when it starts
+    /^(?:mesa|systemd|systemd-libs|wayland|egl-wayland)$/,
+    // the initramfs and what unlocks the disk in it
+    /^(?:cryptsetup|mkinitcpio|dracut|booster)$/
+];
+
+// The NAMES, packages a run upgraded, that a REBOOT_PACKAGES pattern
+// matches, in their order.
+function rebootPackages(names) {
+    return names.filter(function (name) {
+        for (var i = 0; i < REBOOT_PACKAGES.length; i++)
+            if (REBOOT_PACKAGES[i].test(name)) return true;
+        return false;
+    });
 }
 
 // ---- What the bar widget and the window draw --------------------------------
