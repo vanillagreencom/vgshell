@@ -13,8 +13,8 @@ import qs.Ui
 // screen its `screens` capability gives. That height sizes the window as
 // it maps; once it shows, each change of the shown page, the list, another
 // plugin's page or the other tab, resizes it to the new page's height
-// through its `compositor` capability, keeping its width and its top-left
-// corner. A change inside a page, such as a rescan's rows, keeps the size.
+// through its `compositor` capability, keeping its width. A change inside
+// a page, such as a rescan's rows, keeps the size.
 // The pages fill whatever size the window has, and a page taller than it
 // scrolls, with the scroll area's edge cue. The list page and the plugin page
 // sit side by side and slide on `motion.duration.normal`, so a
@@ -119,10 +119,10 @@ FocusScope {
     // (https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method).
     onShownPageChanged: if (root.Window.window !== null && root.Window.window.visible) Qt.callLater(fitWindow)
 
-    // Resize the shown window to implicitHeight, read once Hyprland answers,
-    // so the page's layout has settled and the last change wins. Hyprland
-    // owns a mapped window's size, and resizing keeps its top-left corner,
-    // which the settings smoke row reads back. The window is the one client
+    // Resize the shown window to implicitHeight, read once Hyprland answers
+    // and the shown page is laid out, so the last change wins. Hyprland
+    // owns a mapped window's size; the settings smoke row reads the resize
+    // back. The window is the one client
     // of the shell's app-id, `org.vgs.shell`, which shell.qml's AppId pragma
     // and HyprlandLayer.APP_WINDOW own and a plugin cannot import, titled
     // with this plugin's name, as the window host titles it.
@@ -133,6 +133,7 @@ FocusScope {
                 console.warn("settings: resize " + state.error);
                 return;
             }
+            settle(root.page === "" ? list : detail);
             const own = state.clients.filter(c => c.class === "org.vgs.shell" && c.title === root.title && c.mapped);
             if (own.length !== 1) {
                 console.warn("settings: resize clients=" + own.length + " title=" + root.title);
@@ -142,6 +143,19 @@ FocusScope {
             const reply = shell.compositor.resizeWindow(own[0].address, own[0].size[0], root.implicitHeight);
             if (!Reply.isOk(reply)) console.warn("settings: resize " + reply);
         });
+    }
+
+    // Lay out every positioner under ITEM, the deepest first, so its height
+    // holds the page now shown: a Column places its children once per frame
+    // (https://doc.qt.io/qt-6/qml-qtquick-column.html#forceLayout-method),
+    // and the settings smoke row read the Hyprland answer arrive before that
+    // frame after a tab change, with the old tab's height.
+    function settle(item) {
+        const found = [item];
+        for (let i = 0; i < found.length; i++)
+            for (const child of found[i].children) found.push(child);
+        for (let i = found.length - 1; i >= 0; i--)
+            if (typeof found[i].forceLayout === "function") found[i].forceLayout();
     }
 
     onPluginsChanged: {
