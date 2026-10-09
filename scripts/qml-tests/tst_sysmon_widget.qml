@@ -50,7 +50,7 @@ Item {
             const found = [];
             function walk(node) {
                 for (const child of node.children) {
-                    if (child.reservedText !== undefined && child.iconName !== undefined) found.push(child);
+                    if (child.compactCount !== undefined && child.iconName !== undefined) found.push(child);
                     walk(child);
                 }
             }
@@ -80,29 +80,88 @@ Item {
             status.values = { readings: sample(0) };
             for (const item of items()) compare(item.text, "0%");
         }
-        function test_fixed_width_from_five_to_one_hundred_percent() {
+        function drawn(item) {
+            const found = [];
+            function walk(node) {
+                for (const child of node.children) {
+                    if (child.role !== undefined && child.visible) found.push(child);
+                    walk(child);
+                }
+            }
+            walk(item.contentItem);
+            return found;
+        }
+        // The expected width adds the padding to the icon and the drawn
+        // labels' own widths, so room kept past the reading turns it red.
+        function drawnWidth(item) {
+            let content = Theme.bar.item.icon + Theme.bar.item.iconGap;
+            for (const label of drawn(item)) content += label.implicitWidth;
+            return item.leftPadding + Math.ceil(content) + item.rightPadding;
+        }
+        function allReadings() {
+            return { showCpu: true, showMemory: true, showGpu: true,
+                cpuTemperature: true, gpuTemperature: true, showSwap: true };
+        }
+        function test_each_item_ends_at_its_reading_data() {
+            return [
+                { tag: "values", settings: { showCpu: true, showMemory: true, showGpu: true } },
+                { tag: "both-values", settings: allReadings() }
+            ];
+        }
+        function test_each_item_ends_at_its_reading(data) {
+            widget.settings = data.settings;
+            const shownItems = items().filter(item => item.visible);
+            compare(shownItems.length, 3);
+            for (const item of shownItems) {
+                compare(item.leftPadding, Theme.bar.item.paddingX);
+                compare(item.rightPadding, Theme.bar.item.paddingX);
+                tryVerify(() => item.implicitWidth === drawnWidth(item), 1000, item.label + " keeps no room after its reading");
+            }
+        }
+        function test_width_moves_only_with_the_character_count() {
+            widget.settings = allReadings();
+            const cpu = items()[0];
+            tryVerify(() => cpu.implicitWidth === drawnWidth(cpu), 1000, "the CPU item lays out its reading");
+            const five = cpu.implicitWidth;
+            status.values = { readings: sample(7) };
+            compare(cpu.text, "7%");
             verify(waitForRendering(widget));
-            const width = widget.implicitWidth;
-            const widths = items().map(item => item.implicitWidth);
-            verify(width > 0);
+            compare(cpu.implicitWidth, five, "a reading with the same character count keeps its width");
             status.values = { readings: sample(100) };
-            verify(waitForRendering(widget));
-            compare(widget.implicitWidth, width);
-            compare(JSON.stringify(items().map(item => item.implicitWidth)), JSON.stringify(widths));
+            compare(cpu.text, "100%");
+            tryVerify(() => cpu.implicitWidth === drawnWidth(cpu), 1000, "the CPU item lays out its longer reading");
+            const advance = drawn(cpu)[0].implicitWidth / cpu.text.length;
+            verify(advance > 0);
+            fuzzyCompare(cpu.implicitWidth - five, 2 * advance, 1, "two more characters widen the item by two advances");
+        }
+        function test_widget_spaces_its_items_by_the_bar_gap_data() {
+            return [
+                { tag: "three", settings: allReadings(), shown: 3 },
+                { tag: "cpu-gpu", settings: { showCpu: true, showMemory: false, showGpu: true }, shown: 2 },
+                { tag: "memory", settings: { showCpu: false, showMemory: true, showGpu: false }, shown: 1 }
+            ];
+        }
+        function test_widget_spaces_its_items_by_the_bar_gap(data) {
+            widget.settings = data.settings;
+            const shownItems = items().filter(item => item.visible);
+            compare(shownItems.length, data.shown);
+            tryVerify(() => shownItems.every(item => item.width === drawnWidth(item)), 1000, "each item lays out its reading");
+            const expected = () => shownItems.reduce((total, item) => total + item.width, 0) + (shownItems.length - 1) * Theme.bar.gap;
+            tryVerify(() => widget.implicitWidth === expected(), 1000, "the widget is its items and the bar gap between them");
         }
         function test_temperatures_swap_and_used_memory() {
             widget.settings = { showCpu: true, showMemory: true, showGpu: true,
                 cpuTemperature: true, gpuTemperature: true, showSwap: true, memoryUnit: "used" };
             const readings = items();
             compare(readings[0].text + readings[0].count, "5%/54°");
-            compare(readings[1].text, "1.0 GB");
-            compare(readings[1].count, "· 0%");
-            compare(readings[2].count, "42°");
+            compare(readings[1].text + readings[1].count, "1.0 GB/0%");
+            compare(readings[2].text + readings[2].count, "5%/42°");
+            for (const item of readings) compare(item.compactCount, true, item.label + " draws its count against its value");
             status.values = { readings: sample(null) };
             const empty = sample(null); empty.cpu.temperature = null; empty.gpu.temperature = null;
             status.values = { readings: empty };
             compare(readings[0].count, "/--");
-            compare(readings[2].count, "--");
+            compare(readings[2].count, "/--");
         }
         function test_fahrenheit_readings_keep_celsius_tones() {
             widget.settings = { showCpu: true, showGpu: true, cpuTemperature: true,
@@ -111,16 +170,20 @@ Item {
             status.values = { readings: value };
             const readings = items();
             compare(readings[0].text + readings[0].count, "12%/158°");
-            compare(readings[2].count, "149°");
+            compare(readings[2].count, "/149°");
             compare(readings[0].countTone, Qt.color(Theme.color.warning));
             compare(readings[2].countTone, Qt.color(Theme.color.warning));
             verify(readings[0].tooltip.indexOf("158°") !== -1);
             verify(readings[2].tooltip.indexOf("149°") !== -1);
+            const shownItems = readings.filter(row => row.visible);
+            tryVerify(() => shownItems.every(item => item.implicitWidth === drawnWidth(item)), 1000, "each item lays out its Fahrenheit reading");
+            const widths = readings.map(item => item.implicitWidth);
+            const next = sample(45); next.cpu.temperature = 85; next.gpu.temperature = 80;
+            status.values = { readings: next };
+            compare(readings[0].text + readings[0].count, "45%/185°");
+            compare(readings[2].count, "/176°");
             verify(waitForRendering(widget));
-            const width = widget.implicitWidth;
-            status.values = { readings: sample(100) };
-            verify(waitForRendering(widget));
-            compare(widget.implicitWidth, width);
+            compare(JSON.stringify(readings.map(item => item.implicitWidth)), JSON.stringify(widths), "the same character count keeps each width");
         }
         function test_panel_converts_cpu_and_gpu_details() {
             const facade = scope(); facade.settings = { temperatureUnit: "Fahrenheit" };
@@ -301,7 +364,7 @@ Item {
             compare(widget.visible, true);
             const gpu = items()[2];
             compare(gpu.text, "--");
-            compare(gpu.count, "--");
+            compare(gpu.count, "/--");
         }
     }
 }

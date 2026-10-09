@@ -7,8 +7,9 @@ import qs.Unit
 // BarItem: every bar widget's one item. It is `bar.item.height` tall and
 // never narrower; its content sits `bar.item.paddingX` in; the icon is
 // `bar.item.icon` wide at full opacity; a count draws in the bar role in
-// the item's tone; `active` fills it with `bar.active`; hover and press
-// fill it with their own tokens; a click emits `clicked`.
+// the item's tone; the item is as wide as its padding and what it draws,
+// with no room after the reading; `active` fills it with `bar.active`;
+// hover and press fill it with their own tokens; a click emits `clicked`.
 Item {
     id: root
     width: 300
@@ -19,7 +20,7 @@ Item {
     BarItem { id: pill; text: "1"; active: true; y: 80 }
     BarItem { id: spinner; iconName: "refresh-cw"; spinning: true; y: 120 }
     BarItem { id: tooltipItem; iconName: "settings"; label: "Settings"; tooltip: "Open settings"; tooltipDetails: ["Pinned in the bar"]; x: 80 }
-    BarItem { id: reserved; text: "5%"; reservedText: "100%"; count: "9°"; reservedCount: "100°"; x: 150 }
+    BarItem { id: reading; text: "5%"; count: "9°"; x: 150 }
     property int clicks: 0
     Component {
         id: tooltipCase
@@ -126,35 +127,49 @@ Item {
             tryCompare(tip, "shown", false);
         }
 
-        function test_reserved_text_and_count_keep_the_width() {
-            reserved.text = "5%"; reserved.count = "9°";
-            verify(waitForRendering(reserved));
-            const width = reserved.width;
-            reserved.text = "100%";
-            verify(waitForRendering(reserved));
-            compare(reserved.width, width);
-            reserved.count = "100°";
-            verify(waitForRendering(reserved));
-            compare(reserved.width, width);
+        // The expected width adds the padding to the drawn labels' own
+        // widths, so any room the item keeps beyond them turns this red.
+        function test_the_width_ends_at_the_reading_data() {
+            return [
+                { tag: "text", iconName: "", text: "5%", count: "", compact: false },
+                { tag: "icon-text", iconName: "cpu", text: "100%", count: "", compact: false },
+                { tag: "icon-compact-count", iconName: "cpu", text: "5%", count: "/54°", compact: true },
+                { tag: "icon-spaced-count", iconName: "cpu", text: "5%", count: "54°", compact: false },
+                { tag: "long-reading", iconName: "memory-stick", text: "999.9 GB", count: "/100%", compact: true }
+            ];
         }
 
-        function test_reservations_follow_the_drawn_reading() {
-            reserved.iconName = "cpu"; reserved.text = "5%"; reserved.count = "/9°"; reserved.compactCount = true;
-            const found = labels(reserved), glyph = firstIcon(reserved);
-            tryVerify(() => Math.abs(found[0].mapToItem(reserved, 0, 0).x - glyph.mapToItem(reserved, glyph.width, 0).x - Theme.bar.item.iconGap) <= 0.5, 1000, "the drawn reading follows the icon after layout");
-            fuzzyCompare(found[0].mapToItem(reserved, 0, 0).x - glyph.mapToItem(reserved, glyph.width, 0).x, Theme.bar.item.iconGap, 0.5);
-            fuzzyCompare(found[1].mapToItem(reserved, 0, 0).x, found[0].mapToItem(reserved, found[0].width, 0).x, 0.5);
-            verify(found[1].mapToItem(reserved, found[1].width, 0).x < reserved.width - reserved.rightPadding);
-            reserved.iconName = ""; reserved.compactCount = false;
+        function test_the_width_ends_at_the_reading(data) {
+            reading.iconName = data.iconName; reading.text = data.text; reading.count = data.count; reading.compactCount = data.compact;
+            const found = labels(reading);
+            compare(found.length, data.count === "" ? 1 : 2);
+            let content = data.iconName === "" ? 0 : Theme.bar.item.icon + Theme.bar.item.iconGap;
+            for (const label of found) content += label.implicitWidth;
+            if (data.count !== "" && !data.compact) content += Theme.bar.item.iconGap;
+            // The content row lays out at its next polish.
+            tryCompare(reading, "implicitWidth", Theme.bar.item.paddingX + Math.ceil(content) + Theme.bar.item.paddingX);
+            compare(reading.width, reading.implicitWidth);
+            const last = found[found.length - 1];
+            tryVerify(() => reading.width - reading.rightPadding - last.mapToItem(reading, last.width, 0).x < 1, 1000, "the reading ends at the right padding");
+            reading.iconName = ""; reading.text = "5%"; reading.count = "9°"; reading.compactCount = false;
+        }
+
+        function test_the_compact_reading_follows_the_icon() {
+            reading.iconName = "cpu"; reading.text = "5%"; reading.count = "/9°"; reading.compactCount = true;
+            const found = labels(reading), glyph = firstIcon(reading);
+            tryVerify(() => Math.abs(found[0].mapToItem(reading, 0, 0).x - glyph.mapToItem(reading, glyph.width, 0).x - Theme.bar.item.iconGap) <= 0.5, 1000, "the drawn reading follows the icon after layout");
+            fuzzyCompare(found[0].mapToItem(reading, 0, 0).x - glyph.mapToItem(reading, glyph.width, 0).x, Theme.bar.item.iconGap, 0.5);
+            fuzzyCompare(found[1].mapToItem(reading, 0, 0).x, found[0].mapToItem(reading, found[0].width, 0).x, 0.5);
+            reading.iconName = ""; reading.compactCount = false; reading.count = "9°";
         }
 
         function test_text_and_count_take_separate_tones() {
-            reserved.text = "5%"; reserved.count = "9°";
-            reserved.tone = "#ff0000";
-            reserved.textTone = "#0000ff";
-            reserved.countTone = "#00ff00";
-            compare(String(labels(reserved)[0].color), "#0000ff");
-            compare(String(labels(reserved)[1].color), "#00ff00");
+            reading.text = "5%"; reading.count = "9°";
+            reading.tone = "#ff0000";
+            reading.textTone = "#0000ff";
+            reading.countTone = "#00ff00";
+            compare(String(labels(reading)[0].color), "#0000ff");
+            compare(String(labels(reading)[1].color), "#00ff00");
         }
 
         function test_theme_moves_the_item() {

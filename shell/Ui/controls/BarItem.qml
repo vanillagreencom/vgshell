@@ -9,7 +9,10 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // `bar.item.height` tall and its content, `bar.item.paddingX` in from each
 // side, is an optional icon `bar.item.icon` wide at full opacity or a
 // spinner in its place, an optional `text`, and an optional `count`, drawn
-// in the `bar` role in `tone`, the same way in every widget. The item is
+// in the `bar` role in `tone`, the same way in every widget; `compactCount`
+// draws the count against the text with no gap. The item is as wide as
+// what it draws and reserves no room after it; the `bar` role is mono, so
+// a reading's width moves only with its character count. The item is
 // never narrower than it is tall, and an item that draws an icon alone is
 // square, its icon centred. The tooltip reads `tooltip` as its title and
 // `tooltipDetails` as its quieter detail lines. `active` fills it with
@@ -28,10 +31,6 @@ T.AbstractButton {
 
     property string iconName: ""
     property string count: ""
-    // Reserve unused reading width after both labels, so short values keep
-    // the same icon gap. https://quickshell.org/docs/v0.3.1/guide/size-position
-    property string reservedText: ""
-    property string reservedCount: ""
     property bool compactCount: false
     property color textTone: foreground
     property color countTone: foreground
@@ -88,36 +87,25 @@ T.AbstractButton {
                     size: Theme.bar.item.icon
                 }
             }
-            // Reserved strings use the drawn label's layout, so both widths
-            // include the same font shaping and pixel rounding.
-            Label { id: textWidth; visible: false; role: "bar"; text: root.reservedText }
-            Label { id: countWidth; visible: false; role: "bar"; text: root.reservedCount }
-            Item {
+            Row {
+                id: values
                 visible: root.text !== "" || root.count !== ""
-                width: Math.max(values.implicitWidth,
-                    (root.text === "" ? 0 : root.reservedText === "" ? textLabel.implicitWidth : Math.ceil(textWidth.implicitWidth))
-                    + (root.count === "" ? 0 : root.reservedCount === "" ? countLabel.implicitWidth : Math.ceil(countWidth.implicitWidth))
-                    + (root.text !== "" && root.count !== "" ? values.spacing : 0))
-                height: values.implicitHeight
-                Row {
-                    id: values
-                    spacing: root.compactCount ? 0 : root.spacing
-                    Label {
-                        id: textLabel
-                        role: "bar"
-                        visible: root.text !== ""
-                        text: root.text
-                        color: root.textTone
-                        y: topForCapCenter(row.height)
-                    }
-                    Label {
-                        id: countLabel
-                        role: "bar"
-                        visible: root.count !== ""
-                        text: root.count
-                        color: root.countTone
-                        y: topForCapCenter(row.height)
-                    }
+                spacing: root.compactCount ? 0 : root.spacing
+                Label {
+                    id: textLabel
+                    role: "bar"
+                    visible: root.text !== ""
+                    text: root.text
+                    color: root.textTone
+                    y: topForCapCenter(row.height)
+                }
+                Label {
+                    id: countLabel
+                    role: "bar"
+                    visible: root.count !== ""
+                    text: root.count
+                    color: root.countTone
+                    y: topForCapCenter(row.height)
                 }
             }
         }

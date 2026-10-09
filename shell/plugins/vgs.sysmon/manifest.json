@@ -51,16 +51,16 @@
   ],
   "settings": {
     "showCpu": true,
-    "showMemory": true,
-    "showGpu": true,
     "cpuTemperature": false,
-    "gpuTemperature": false,
-    "memoryUnit": "percent",
+    "cpuSensor": "automatic",
+    "showMemory": true,
     "showSwap": false,
+    "memoryUnit": "percent",
+    "showGpu": true,
+    "gpuTemperature": false,
     "gpu": "",
     "refreshSeconds": 2,
-    "temperatureUnit": "Celsius",
-    "cpuSensor": "automatic"
+    "temperatureUnit": "Celsius"
   },
   "status": {
     "readings": {
@@ -74,7 +74,7 @@
     "graphics": {
       "type": "state",
       "label": "Graphics card",
-      "group": "Readings"
+      "group": "GPU"
     },
     "cpuSensors": {
       "type": "choices",
@@ -85,48 +85,55 @@
     "showCpu": {
       "type": "boolean",
       "label": "CPU",
-      "group": "Readings"
-    },
-    "showMemory": {
-      "type": "boolean",
-      "label": "Memory",
-      "group": "Readings"
-    },
-    "showGpu": {
-      "type": "boolean",
-      "label": "GPU",
-      "group": "Readings",
-      "hintFrom": "graphics"
+      "group": "CPU"
     },
     "cpuTemperature": {
       "type": "boolean",
       "label": "CPU temperature",
-      "group": "Readings"
+      "group": "CPU"
     },
-    "gpuTemperature": {
+    "cpuSensor": {
+      "type": "string",
+      "label": "CPU temperature sensor",
+      "optionsFrom": "cpuSensors",
+      "description": "Automatic keeps the CPU sensor selected by the system.",
+      "group": "CPU"
+    },
+    "showMemory": {
       "type": "boolean",
-      "label": "GPU temperature",
-      "group": "Readings"
+      "label": "Memory",
+      "group": "Memory"
     },
     "showSwap": {
       "type": "boolean",
       "label": "Swap use",
-      "group": "Readings"
+      "group": "Memory"
     },
     "memoryUnit": {
       "type": "enum",
       "label": "Memory unit",
-      "group": "Readings",
+      "group": "Memory",
       "options": [
         "percent",
         "used"
       ]
     },
+    "showGpu": {
+      "type": "boolean",
+      "label": "GPU",
+      "group": "GPU",
+      "hintFrom": "graphics"
+    },
+    "gpuTemperature": {
+      "type": "boolean",
+      "label": "GPU temperature",
+      "group": "GPU"
+    },
     "gpu": {
       "type": "string",
       "label": "Graphics card",
       "optionsFrom": "gpus",
-      "group": "Readings"
+      "group": "GPU"
     },
     "refreshSeconds": {
       "type": "number",
@@ -145,13 +152,6 @@
         "Fahrenheit"
       ],
       "description": "Sets the unit for CPU and GPU temperatures.",
-      "group": "Readings"
-    },
-    "cpuSensor": {
-      "type": "string",
-      "label": "CPU temperature sensor",
-      "optionsFrom": "cpuSensors",
-      "description": "Automatic keeps the CPU sensor selected by the system.",
       "group": "Readings"
     }
   },

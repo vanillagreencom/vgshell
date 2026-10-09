@@ -41,16 +41,14 @@ BarWidget {
 
     Row {
         id: row
-        spacing: Theme.bar.item.gap
+        spacing: Theme.bar.gap
         BarItem {
             visible: root.setting("showCpu", true)
             label: "CPU"
             iconName: "cpu"
             text: root.percent(root.cpu.use)
-            reservedText: "100%"
             count: root.setting("cpuTemperature", false) ? "/" + root.degrees(root.cpu.temperature) : ""
             compactCount: true
-            reservedCount: root.setting("temperatureUnit", "Celsius") === "Fahrenheit" ? "/212°" : "/100°"
             tone: root.tone(root.cpu.use, 60, 80)
             textTone: Theme.bar.foreground
             countTone: root.tone(root.cpu.temperature, 70, 85)
@@ -62,9 +60,8 @@ BarWidget {
             label: "Memory"
             iconName: "memory-stick"
             text: root.setting("memoryUnit", "percent") === "used" ? root.gb(root.memory.used) : root.percent(root.memory.use)
-            reservedText: root.setting("memoryUnit", "percent") === "used" ? "999.9 GB" : "100%"
-            count: root.setting("showSwap", false) ? "· " + root.percent(root.memory.swapUse) : ""
-            reservedCount: "· 100%"
+            count: root.setting("showSwap", false) ? "/" + root.percent(root.memory.swapUse) : ""
+            compactCount: true
             tone: root.tone(root.memory.use, 75, 90)
             textTone: Theme.bar.foreground
             countTone: Theme.bar.foreground
@@ -76,9 +73,8 @@ BarWidget {
             label: "GPU"
             iconName: "gpu"
             text: root.percent(root.gpu && root.gpu.state === "asleep" ? null : root.gpu ? root.gpu.use : null)
-            reservedText: "100%"
-            count: root.setting("gpuTemperature", false) ? root.degrees(root.gpu && root.gpu.state !== "asleep" ? root.gpu.temperature : null) : ""
-            reservedCount: root.setting("temperatureUnit", "Celsius") === "Fahrenheit" ? "212°" : "100°"
+            count: root.setting("gpuTemperature", false) ? "/" + root.degrees(root.gpu && root.gpu.state !== "asleep" ? root.gpu.temperature : null) : ""
+            compactCount: true
             countTone: root.tone(root.gpu ? root.gpu.temperature : null, 65, 80)
             tooltip: root.gpu ? root.gpu.name + " · " + (root.gpu.state === "asleep" ? "Asleep" : root.percent(root.gpu.use) + " · " + root.degrees(root.gpu.temperature)) : "GPU"
             onClicked: root.toggle()
