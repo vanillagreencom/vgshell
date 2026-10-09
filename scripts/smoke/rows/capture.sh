@@ -39,7 +39,7 @@ capture_panel() { ipc smoke readInstance panel vgs.capture recording; }
 capture_panel_geometry() { layers_of vgs:panel | py_reply 'import json,sys; rows=json.load(sys.stdin); print(len(rows) == 1 and rows[0][2] > 0 and rows[0][3] > 0)'; }
 capture_status() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["status"].get("vgs.capture")))'; }
 # The service's exclusive recording action, not a compositor session.
-capture_recording_actions() { capture_status | py_reply 'import json,sys; s=json.load(sys.stdin)["capture"]; print(int(s["action"].startswith("record") and s["phase"]!="idle"))'; }
+capture_recording_actions() { ipc smoke statusValues vgs.capture | py_reply 'import json,sys; s=json.load(sys.stdin)["capture"]; print(int(s["action"].startswith("record") and s["phase"]!="idle"))'; }
 capture_recording_counts() { python3 - "$capture_state" "$(capture_recording_actions)" <<'PY'
 import json,os,pathlib,sys
 root=pathlib.Path(sys.argv[1]); pid=int((root/"owned-recorder").read_text())
