@@ -22,7 +22,7 @@
 #     "validate": "pass"|"no-verdict"|"FAILING: …",
 #     "baseline_lines": 138 (implement only),
 #     "validate_mode": "full"|"range"|"ci"|null (the validation mode that ran;
-#       ci only on a fix, null only beside a FAILING: validate),
+#       null only beside a FAILING: validate),
 #     "validate_time": {"started_at": "…", "ended_at": "…", "seconds": N}|null
 #       (the run's wall time; null only beside a FAILING: validate),
 #     "validate_note": "…"|null (optional free-text qualifier; required
@@ -97,8 +97,6 @@ finish() {
   exit "$1"
 }
 
-# The per-harness backgrounding paragraph under --wait is an intentional twin
-# of review-artifact-check's: each --help is self-contained, so edit both.
 usage() {
   cat << 'EOF'
 Usage:
@@ -114,8 +112,9 @@ returns the moment the receipt is written, independent of any return-message
 delivery, and a deadline return is the escalation trigger. Backgrounding per
 harness: Claude Code runs it as a background shell (the exit wake IS the
 event); Pi runs it under bg_task, which emits no exit wake, so pair it with
-the per-wake check; Codex and OpenCode run it via scheduled re-entry, or fall
-back to the per-wake check alone.
+the per-wake check. Codex uses references/codex-runtime.md, Delegated round
+wait. OpenCode runs it via scheduled re-entry, or falls back to the per-wake
+check alone.
 
 Round mode (the production path): resolves WT/tmp/dev-return-ISSUE-RID.json,
 requires it exists, its internal .round_id == RID, then the scalar/kind, commit
@@ -198,7 +197,7 @@ reason meanings when ok=false:
               wrong-typed/empty: .kind ∈ {implement,fix}; .issue/.branch
               non-empty strings; .round_id non-empty string; .schema_version a
               number; .commit/.validate non-empty strings; .validate_mode
-              present and full or range, ci on a fix, or null beside a
+              present and full, range or ci, or null beside a
               FAILING: .validate;
               a no-verdict .validate carries a .validate_note;
               .validate_time present, and null beside a FAILING: .validate
@@ -500,7 +499,7 @@ round_id_matches() {
 # Type-strict required scalars: .kind ∈ {implement,fix}; .issue/.branch
 # non-empty STRINGS (arrays/objects/bools/numbers fail, not just ""); .round_id a
 # non-empty string; .schema_version a number; .commit/.validate non-empty
-# strings; .validate_mode present and full or range, ci on a fix, or null
+# strings; .validate_mode present and full, range or ci, or null
 # beside a FAILING: .validate; a no-verdict .validate carries the
 # .validate_note naming the scoped suites, its only evidence; .validate_time
 # present, null beside a FAILING: .validate, else the run's UTC start and end
@@ -519,7 +518,7 @@ has_required_fields() {
       and has("validate_mode")
       and (.validate_mode == "full" or .validate_mode == "range"
            or (.validate_mode == null and (.validate | startswith("FAILING:")))
-           or (.validate_mode == "ci" and $k == "fix"))
+           or .validate_mode == "ci")
       and has("validate_time")
       and (if .validate_time == null then (.validate | startswith("FAILING:"))
            else .validate_mode != null

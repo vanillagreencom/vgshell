@@ -2,6 +2,9 @@
 """Static SSH lane hosts. Use --help for configuration and the command contract."""
 
 import argparse
+import base64
+import io
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -30,15 +33,148 @@ def notice(key, **values):
     print("lane-host-ssh: " + key + "".join(f" {k}={v}" for k, v in values.items()), file=sys.stderr)
 
 
-def remote(row, script, *args, data=None, accept=()):
-    """Run Bash through SSH; quote every argument for the remote login shell."""
+def remote_command(row, script, *args):
+    """Build the SSH command for a request or a lifecycle session."""
+    control_dir = Path.home() / ".cache" / "kendex-ssh"
+    control_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    control_dir.chmod(0o700)
     command = shlex.join(["bash", "-c", "set -euo pipefail\n" + script, "lane-host-ssh", *args])
-    result = subprocess.run(["ssh", "-T", "-o", "BatchMode=yes", "--", row["target"], command],
-                            input=data if data is not None else b"", stdout=subprocess.PIPE)
-    if result.returncode != 0 and result.returncode not in accept:
+    # Keep the master past the mail interval; OpenSSH reconnects if it is gone.
+    return ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ControlMaster=auto",
+            "-o", "ControlPersist=60", "-o", f"ControlPath={control_dir}/%C",
+            "--", row["target"], command]
+
+
+def remote(row, script, *args, data=None, accept=(), capture_error=False):
+    """Run Bash through SSH; accept=None returns every transport status."""
+    if "session" in row:
+        result = row["session"].request(script, args, data or b"")
+    else:
+        result = subprocess.run(remote_command(row, script, *args),
+                                input=data if data is not None else b"", stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE if capture_error else None)
+    if accept is not None and result.returncode != 0 and result.returncode not in accept:
         notice("remote-failed", target=row["target"], exit=result.returncode)
         raise SystemExit(result.returncode if result.returncode > 0 else 1)
     return result
+
+
+class LifecycleSession:
+    """One SSH channel owns the lock and executes every lifecycle step.
+
+    OpenSSH ChannelTimeout can close one idle session while other sessions
+    continue. Executing the work on the lock's channel removes that split.
+    Requests and replies count bytes so credentials and tar archives keep
+    their binary contents, and a truncated request executes nothing.
+    """
+
+    def __init__(self, row):
+        self.row = row
+        self.output = bytearray()
+        library = Path(__file__).with_name("lib").joinpath("file-lock.sh").read_text()
+        script = library + '\n' + '''mkdir -p -- "$(dirname -- "$1")"
+exec 9>>"$1"
+orch_take_lock 9 "$1" 0 || exit 75
+umask 077
+session=$(mktemp -d) || exit 1
+trap 'rm -rf -- "${session:?}"; orch_release_lock' EXIT
+# sshd can send HUP when ChannelTimeout closes this channel. Bash defers a
+# trapped signal until its foreground operation ends, keeping the mutex too.
+trap 'exit 129' HUP
+printf 'owned\\n'
+while read -r command_size input_size; do
+  dd bs=1 count="$command_size" of="$session/command" 2>/dev/null
+  arrived=$(wc -c < "$session/command")
+  test "$((arrived + 0))" -eq "$command_size" || exit 1
+  dd bs=1 count="$input_size" of="$session/input" 2>/dev/null
+  arrived=$(wc -c < "$session/input")
+  test "$((arrived + 0))" -eq "$input_size" || exit 1
+  code=0
+  # The command is exclusively shlex.join output from this provider.
+  bash "$session/command" < "$session/input" > "$session/output" || code=$?
+  size=$(wc -c < "$session/output")
+  printf '%s %s\\n' "$code" "$((size + 0))"
+  cat -- "$session/output"
+done
+'''
+        self.process = subprocess.Popen(remote_command(row, script, row["clone"] + ".lane-host.lock"),
+                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                        env=dict(os.environ))
+
+    def request(self, script, args, data):
+        command = shlex.join(["bash", "-c", "set -euo pipefail\n" + script, "lane-host-ssh", *args]).encode()
+        try:
+            self.process.stdin.write(f"{len(command)} {len(data)}\n".encode() + command + data)
+            self.process.stdin.flush()
+            header = self.process.stdout.readline().split()
+            if len(header) != 2 or not all(word.isdigit() for word in header):
+                raise EOFError
+            code, size = map(int, header)
+            output = self.process.stdout.read(size)
+            if len(output) != size:
+                raise EOFError
+        except (BrokenPipeError, EOFError):
+            notice("ownership-channel-failed", target=self.row["target"], clone=self.row["clone"])
+            raise SystemExit(1) from None
+        return subprocess.CompletedProcess(command, code, output)
+
+    def close(self):
+        """Bound an SSH client stalled in the remote EOF exchange."""
+        try:
+            try:
+                self.process.stdin.close()
+            except BrokenPipeError:
+                pass
+            # No operation remains after EOF. Give the SSH exchange a grace
+            # interval, then signal only the process handle this owner holds.
+            try:
+                return self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                notice("ownership-shutdown-timeout", target=self.row["target"])
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                try:
+                    self.process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    notice("ownership-reap-timeout", target=self.row["target"])
+            return 1
+        finally:
+            self.process.stdout.close()
+
+
+@contextmanager
+def ownership_lock(row):
+    """Execute lifecycle work on its lock owner and confirm that owner exited."""
+    session = LifecycleSession(row)
+    ready = False
+    try:
+        ready = session.process.stdout.readline() == b"owned\n"
+        if not ready:
+            return
+        yield {**row, "session": session}
+    finally:
+        error = sys.exc_info()[1]
+        code = session.close()
+        if not ready and code == 0:
+            code = 1
+        if code:
+            notice("ownership-busy" if code == 75 else "ownership-lock-failed",
+                   target=row["target"], clone=row["clone"], exit=code)
+        if error is None or isinstance(error, SystemExit) and error.code == 0:
+            if code:
+                raise SystemExit(code if code > 0 else 1)
+            sys.stdout.buffer.write(session.output)
+
+
+def lifecycle_output(row, data):
+    """Publish lifecycle success only after the owning SSH channel completes."""
+    if "session" in row:
+        row["session"].output.extend(data)
+    else:
+        sys.stdout.buffer.write(data)
 
 
 # Run first by `read`, which `cat` and the Claude state merge use, and by
@@ -168,6 +304,8 @@ esac''', path, str(len(data)), row["clone"], "kendex-append", "append", data=dat
         raise SystemExit(4)
 
 
+READ_FILE = MAILBOX_GUARD + 'test -e "$1" || exit 2\ncat -- "$1"'
+
 def read(row, path):
     """Return a remote file's bytes, or None for a path that is not there.
 
@@ -175,8 +313,76 @@ def read(row, path):
     "the lane has not written this yet"; every other read failure keeps its
     own status so the caller refuses rather than reads empty.
     """
-    result = remote(row, MAILBOX_GUARD + 'test -e "$1" || exit 2\ncat -- "$1"', path, accept=(2,))
+    result = remote(row, READ_FILE, path, accept=(2,))
     return None if result.returncode == 2 else result.stdout
+
+
+def read_many(rows, requests):
+    """Read each target in one SSH session; frame exact bytes before encoding.
+
+    Batching changes transport only. The same mailbox guard as cat rejects
+    unsafe components, and each failed file keeps a non-missing status.
+    """
+    if not isinstance(requests, list) or any(
+            not isinstance(r, dict) or set(r) != {"item", "path"}
+            or any(not isinstance(r[k], str) or not r[k]
+                   or any(c in r[k] for c in "\x00\t\r\n") for k in ("item", "path"))
+            for r in requests):
+        raise ValueError("invalid read-many request")
+    if len({(r["item"], r["path"]) for r in requests}) != len(requests):
+        raise ValueError("duplicate read-many request")
+    inventory = {r["item"]: r for r in rows}
+    groups = {}
+    replies = {}
+    for request in requests:
+        if request["item"] not in inventory:
+            replies[(request["item"], request["path"])] = {
+                **request, "status": 1, "data": "",
+                "error": f"lane-host-ssh: item-unconfigured item={request['item']}"}
+            continue
+        row = inventory[request["item"]]
+        groups.setdefault(row["target"], []).append(request)
+    for target, group in groups.items():
+        # Stage each file before declaring its byte count. A failed read's
+        # partial bytes must never become a successful or missing file.
+        script = 'read_file() (\n' + READ_FILE + '\n)\n' + '''staged=$(mktemp -d) || exit 1
+trap 'rm -rf -- "${staged:?}"' EXIT
+for path in "$@"; do
+  rc=0
+  read_file "$path" >"$staged/data" 2>"$staged/error" || rc=$?
+  if test "$rc" -ne 0; then : >"$staged/data"; fi
+  count=$(wc -c <"$staged/data") || exit 1
+  errors=$(wc -c <"$staged/error") || exit 1
+  printf '%s %s %s\\n' "$rc" "$((count + 0))" "$((errors + 0))"
+  cat -- "$staged/data" "$staged/error" || exit 1
+done'''
+        result = remote(inventory[group[0]["item"]], script, *(r["path"] for r in group),
+                        accept=None, capture_error=True)
+        if result.returncode != 0:
+            # SSH failures must not hide mail on another configured target.
+            status = result.returncode if 0 < result.returncode <= 255 and result.returncode not in (2, 69) else 1
+            error = (f"lane-host-ssh: remote-failed target={target} exit={result.returncode}\n"
+                     + result.stderr.decode("utf-8", errors="replace"))
+            for request in group:
+                replies[(request["item"], request["path"])] = {
+                    **request, "status": status, "data": "", "error": error}
+            continue
+        stream = io.BytesIO(result.stdout)
+        for request in group:
+            header = stream.readline().split()
+            if len(header) != 3 or any(not n.isdigit() for n in header):
+                raise ValueError("invalid read-many frame")
+            status, size, error_size = map(int, header)
+            data = stream.read(size)
+            error = stream.read(error_size)
+            if len(data) != size or len(error) != error_size or (status != 0 and size != 0):
+                raise ValueError("truncated read-many frame")
+            replies[(request["item"], request["path"])] = {
+                **request, "status": status, "data": base64.b64encode(data).decode("ascii"),
+                "error": error.decode("utf-8", errors="replace")}
+        if stream.read():
+            raise ValueError("extra read-many frame")
+    print(json.dumps([replies[(r["item"], r["path"])] for r in requests]))
 
 
 def claude_state(current, snapshot):
@@ -227,7 +433,7 @@ printf other''', row["clone"], item).stdout
     if owner == b"owned":
         return
     if owner == b"other" and not worktree_exists(row, item):
-        print(ABSENT_ANSWERS[verb].format(item))
+        lifecycle_output(row, (ABSENT_ANSWERS[verb].format(item) + "\n").encode())
         raise SystemExit(0)
     notice(verb + "-unowned", item=item)
     raise SystemExit(75)
@@ -300,22 +506,175 @@ def require_render(row):
 done''', row["clone"])
 
 
-def install_dependencies(row):
+def install_dependencies(row, item):
     """Install each node_modules a WORKTREE_SYMLINKS entry links, in the clone.
 
     The clone is the main checkout, the one place worktree --help lets an
     install run; a worktree links its node_modules from here. The settings
     come through the clone's own loader, so this reads what the worktree
     command reads, in a subshell: npm ci and the dependencies' install scripts
-    run with the SSH session's environment, never the project's settings or
-    its private env file. npm ci empties node_modules first, so the marker of the
+    run with the SSH session's environment. The selected private env files and
+    .env.local are moved out of the clone and the current item's standing worktree after
+    settings resolution and restored when this call exits, so install scripts
+    cannot read those paths or provisioned copies.
+    npm ci empties node_modules first, so the marker of the
     committed lockfile blob it was installed from lives inside it and survives
     only a finished install: an unchanged lockfile installs nothing. An entry
     climbing out of the clone is the worktree command's to refuse, never a
     directory to install in.
     """
-    remote(row, '''symlinks=$(. "$1/.agents/skills/worktree/scripts/lib/kendex-env.sh" &&
-  kendex_load_project_env "$1" >&2 && printf '%s' "${WORKTREE_SYMLINKS:-}") || exit 1
+    remote(row, '''loader="$1/.agents/skills/worktree/scripts/lib/kendex-env.sh"
+load_copy_support() {
+  local support="${loader%/*}" library helper
+  unset -f worktree_message strip_trailing_slashes normalize_worktree_config_path split_worktree_config_words || return 1
+  for library in "$support/messages.sh" "$support/links.sh"; do
+    if ! test -r "$library"; then
+      printf 'lane-host-ssh: copy-support-unavailable path=%s cause=unreadable\\n' "$library" >&2
+      return 1
+    fi
+    . "$library" || return 1
+  done
+  for helper in worktree_message strip_trailing_slashes normalize_worktree_config_path split_worktree_config_words; do
+    if ! declare -F "$helper" >/dev/null; then
+      case "$helper" in
+        worktree_message) library="$support/messages.sh" ;;
+        *) library="$support/links.sh" ;;
+      esac
+      printf 'lane-host-ssh: copy-support-unavailable path=%s cause=missing-helper helper=%s\\n' "$library" "$helper" >&2
+      return 1
+    fi
+  done
+}
+load_copy_support || exit 1
+load_install_settings() {
+  local selected_private
+  unset -f kendex_project_env_supports || return 1
+  . "$loader" || return 1
+  if ! declare -F kendex_project_env_supports >/dev/null ||
+     ! kendex_project_env_supports selected-private-path; then
+    printf 'lane-host-ssh: loader-private-path-missing path=%s output=selected-private-path\\n' "$loader" >&2
+    return 1
+  fi
+  kendex_load_project_env "$1" selected_private >&2 || return 1
+  printf '%q ' "${WORKTREE_SYMLINKS:-}" "$selected_private" "${WORKTREE_COPIES:-}"
+}
+settings=$(load_install_settings "$1") || exit 1
+# Only printf %q's shell-quoted values enter eval, including paths with spaces.
+eval "settings=($settings)"
+symlinks=${settings[0]}
+private_names=(.env.local "${settings[1]}")
+copy_settings=("${settings[2]}")
+roots=("$1")
+tree=$(cd -- "$1" && .agents/skills/worktree/scripts/worktree path "$2") || exit 1
+if test -d "$tree"; then
+  selected=$(load_install_settings "$tree") || exit 1
+  eval "selected=($selected)"
+  private_names+=("${selected[1]}")
+  copy_settings+=("${selected[2]}")
+  roots+=("$tree")
+fi
+private_paths=()
+private_copies=()
+for copies in "${copy_settings[@]}"; do
+  split_worktree_config_words "$copies" || exit 1
+  for entry in ${WORKTREE_CONFIG_WORDS[@]+"${WORKTREE_CONFIG_WORDS[@]}"}; do
+    copy=$(normalize_worktree_config_path WORKTREE_COPIES "$entry") || exit 1
+    private_copies+=("$copy")
+  done
+done
+for ((index = 0; index < ${#roots[@]}; index++)); do
+  roots[$index]=$(cd -P -- "${roots[$index]}" && pwd -P) || exit 1
+done
+protect_private_path() {
+  local path="$1" at target root relative prior contained copy copy_root
+  local chain=() names=()
+  while test -e "$path" || test -L "$path"; do
+    at=$(cd -P -- "${path%/*}" && pwd -P) || return 1
+    path="$at/${path##*/}"
+    contained=false
+    for root in "${roots[@]}"; do
+      case "$path" in
+        "$root"/*)
+          contained=true
+          relative=${path#"$root"/}
+          names=("$relative")
+          break ;;
+      esac
+    done
+    if test "$contained" != true; then
+      printf 'lane-host-ssh: private-protection-unsafe path=%s cause=outside-roots\\n' "$path" >&2
+      return 1
+    fi
+    # WORKTREE_COPIES can reach the same source through a directory alias.
+    # Its destination is a separate file under that configured relative name.
+    for copy in ${private_copies[@]+"${private_copies[@]}"}; do
+      for copy_root in "${roots[@]}"; do
+        if test "$copy_root/$copy" -ef "$path"; then
+          names+=("$copy")
+          break
+        fi
+      done
+    done
+    for relative in "${names[@]}"; do
+      for prior in "${private_names[@]}"; do
+        if test "$prior" = "$relative"; then break; fi
+      done
+      if test "$prior" != "$relative"; then private_names+=("$relative"); fi
+    done
+    for prior in ${chain[@]+"${chain[@]}"}; do
+      if test "$prior" = "$path"; then
+        printf 'lane-host-ssh: private-protection-unsafe path=%s cause=link-cycle\\n' "$path" >&2
+        return 1
+      fi
+    done
+    chain+=("$path")
+    prior=""
+    for prior in ${private_paths[@]+"${private_paths[@]}"}; do
+      if test "$prior" = "$path"; then break; fi
+    done
+    if test "${prior:-}" != "$path"; then private_paths+=("$path"); fi
+    if test -L "$path"; then
+      target=$(readlink -- "$path") || return 1
+      case "$target" in /*) path="$target" ;; *) path="${path%/*}/$target" ;; esac
+      if ! test -e "$path" && ! test -L "$path"; then
+        printf 'lane-host-ssh: private-protection-unsafe path=%s cause=unresolved-link\\n' "$path" >&2
+        return 1
+      fi
+    elif test -f "$path"; then
+      return 0
+    else
+      printf 'lane-host-ssh: private-protection-unsafe path=%s cause=not-file\\n' "$path" >&2
+      return 1
+    fi
+  done
+}
+# Worktree setup can copy a target under a name different from its relative link.
+# Discover that name before moving anything, then protect it in both checkouts.
+for ((index = 0; index < ${#private_names[@]}; index++)); do
+  for root in "${roots[@]}"; do
+    protect_private_path "$root/${private_names[$index]}" || exit 1
+  done
+done
+# A reused clone already holds the private file, so delaying its upload alone
+# would still expose it and worktree copies to dependency lifecycle scripts.
+private=$(mktemp -d) || exit 1
+saved_paths=()
+restore_private() {
+  local status=$? index path
+  for ((index = ${#saved_paths[@]} - 1; index >= 0; index--)); do
+    path=${saved_paths[$index]}
+    mv -- "$private/$index" "$path" || status=1
+  done
+  rmdir -- "$private" || status=1
+  return "$status"
+}
+trap restore_private EXIT
+for path in ${private_paths[@]+"${private_paths[@]}"}; do
+  if test -e "$path" || test -L "$path"; then
+    mv -- "$path" "$private/${#saved_paths[@]}"
+    saved_paths+=("$path")
+  fi
+done
 read -r -a entries <<<"$symlinks"
 for entry in ${entries[@]+"${entries[@]}"}; do
   case "/$entry/" in */../*|*/./*|//*) continue ;; esac
@@ -332,7 +691,7 @@ for entry in ${entries[@]+"${entries[@]}"}; do
   printf 'lane-host-ssh: dependency-install path=%s\\n' "$lockfile" >&2
   (cd -- "$1/${entry%node_modules}" && npm ci --no-audit --no-fund) >&2
   printf '%s\\n' "$blob" >"$marker"
-done''', row["clone"])
+done''', row["clone"], item)
 
 
 def create(row, args, source):
@@ -382,7 +741,7 @@ fi''', row["clone"])
     record = '{ lane_identity_record "$F" || { printf \'lane-host-ssh: identity-record-failed path=%s\\n\' "$F" >&2; exit 1; }; }'
     if args.harness == "claude":
         put(row, remote_account + "/setup-token", (account / "setup-token").read_bytes())
-        prefix = "exec " + shlex.join(["bash", "-c",
+        prefix = shlex.join(["bash", "-c",
             '. "$2" && ' + record.replace("$F", "$3") + ' && CLAUDE_CODE_OAUTH_TOKEN=$(< "$1") && export CLAUDE_CODE_OAUTH_TOKEN && exec bash -lc "$4"',
             "lane-host", remote_account + "/setup-token", *identity])
     else:
@@ -392,11 +751,11 @@ fi''', row["clone"])
         if args.harness != "copilot":
             put(row, remote_account + "/auth.json", (account / "auth.json").read_bytes())
         name = {"codex": "CODEX_HOME", "copilot": "COPILOT_HOME"}.get(args.harness, "PI_CODING_AGENT_DIR")
-        prefix = "exec env " + shlex.quote(name + "=" + remote_account) + " " + shlex.join(["bash", "-c",
+        prefix = "env " + shlex.quote(name + "=" + remote_account) + " " + shlex.join(["bash", "-c",
             '. "$1" && ' + record.replace("$F", "$2") + ' && exec bash -lc "$3"', "lane-host", *identity])
     # The caller's folder trust and hook approval land where each harness reads
     # them; Claude's relative path resolves in the SSH session's remote home.
-    # A copilot lane places no file: its prefix sets COPILOT_HOME alone, and its
+    # A copilot lane places no file: its prefix sets COPILOT_HOME, and its
     # folder trust is the COPILOT_ALLOW_ALL=true its start command carries where
     # it names --allow-all or --yolo (lib/lane-launch.sh lane_copilot_env).
     approval = {"claude": ".claude.json", "codex": "config.toml", "pi": "trust.json"}.get(args.harness)
@@ -413,12 +772,13 @@ fi''', row["clone"])
     # The install changes the shared node_modules, so it waits for that
     # ownership too, and precedes the final setup pass that links it.
     flags = ["--reuse"] if result.stdout == b"existing" else create_flags(row, args.item, args.relaunch or args.reuse)
-    install_dependencies(row)
+    install_dependencies(row, args.item)
     create_worktree(row, args.item, flags)
     path = worktree(row, "path", args.item).stdout.decode().strip()
     if not path or "\n" in path or "\t" in path:
         notice("worktree-path-invalid", item=args.item)
         raise SystemExit(1)
+    prefix = "exec env " + shlex.quote("ORCH_STATE_DIR=" + path + "/tmp") + " " + prefix
     # The item marker is local to this clone; it is not part of the install record.
     remote(row, 'printf "%s\\n" "$2" > "$1/.git/lane-host-item"', row["clone"], args.item)
     # The launch record lane-mail-check reads, written by its one owner out of
@@ -436,16 +796,15 @@ if [ ! -x "$marker" ]; then
 fi
 exec "$marker" "$2" "$3"''', row["clone"], path, args.item)
     pi_root = f"\tpi-root={remote_account}" if args.harness == "pi" else ""
-    print(f"ssh-target={row['target']}\tpath={path}\tremote-prefix={prefix}{pi_root}")
+    lifecycle_output(row, f"ssh-target={row['target']}\tpath={path}\tremote-prefix={prefix}{pi_root}\n".encode())
 
 
 def archive_tmp(row, item, worktree_path):
     """Preserve remaining lane records locally before close removes their worktree.
 
-    The item's workflow state goes with them wherever the lane's settings and
-    private env file put its state directory, as the clone's own workflow-state
-    resolves it from the worktree, or the clone once the worktree is gone: the
-    lane's own resolution, on the lane's own host. The archive's
+    The item's workflow state goes with them under the launch environment's
+    rule in workflow-state --help. Older launches can keep it where their
+    settings and private env file placed it. The archive's
     `lane-host-state` member names that file's member, or is an empty line
     where the lane wrote none, so a reader takes the state the lane resolved,
     never another copy of the same name. A resolution that fails stops close,
@@ -461,9 +820,12 @@ state="" member="" from="$2"
 test -d "$from" || from="$1"
 states="$1/.agents/skills/orch/scripts/workflow-state"
 if test -x "$states"; then
-  if ! state=$(cd "$from" && "$states" path "$3"); then
-    printf 'lane-host-ssh: state-unresolved item=%s\\n' "$3" >&2
-    exit 1
+  state="$2/tmp/workflow-state-$3.json"
+  if ! test -f "$state"; then
+    if ! state=$(cd "$from" && "$states" path "$3"); then
+      printf 'lane-host-ssh: state-unresolved item=%s\\n' "$3" >&2
+      exit 1
+    fi
   fi
   names=(lane-host-state)
   if test -f "$state"; then
@@ -517,7 +879,7 @@ lane_owned_processes "$1" "$2" launch-record || {
 }
 if test -n "$LANE_OWNED_PROCESS_PIDS"; then printf 'running\\n'
 else printf 'exited\\n'; fi''', path, harness, row["clone"], item)
-    sys.stdout.buffer.write(result.stdout)
+    lifecycle_output(row, result.stdout)
 
 
 def stop(row, item, harness):
@@ -560,7 +922,7 @@ case "$rc" in
 esac''', harness, row["clone"], item, IDENTITY_FILE, str(STOP_BY_DIRECTORY), accept=(STOP_BY_DIRECTORY,))
     if result.returncode == STOP_BY_DIRECTORY:
         result = stop_by_worktree(row, item, harness)
-    sys.stdout.buffer.write(result.stdout)
+    lifecycle_output(row, result.stdout)
 
 
 def stop_by_worktree(row, item, harness):
@@ -598,6 +960,9 @@ path), account (absolute remote harness config directory). Each target/clone
 pair and each item occurs once. SSH keys and host verification use your SSH config.
 LANE_HOST_SSH_SOURCE names the local source clone (default: current directory).
 create copies its .env.local.
+Dependency installation temporarily removes .env.local and the loader-selected
+private files from the clone and the current item's standing worktree after resolving settings.
+It restores each file or link on success or failure.
 An existing clone must have an origin for the configured repository. Its base
 branch is fast-forwarded before setup; local changes or divergence stop create.
 create renders nothing and installs no Pi package: the worktree carries the
@@ -620,7 +985,10 @@ ACCOUNT/lane-host/.claude.json merges into the remote home's .claude.json (its
 top-level keys set, its project entries merged key by key), and
 ACCOUNT/lane-host/config.toml (Codex) or ACCOUNT/lane-host/trust.json (Pi) in the
 remote account directory, so folder trust and hook approval precede the first turn. Bytes
-travel on stdin. cat exits 2 for a path that is not there. put stages beside
+travel on stdin. read-many reads a JSON array of item/path requests from stdin
+and returns item/path/status/base64-data rows, in request order, with one SSH
+call per target. Missing files have status 2; other failed files keep their
+nonzero status and no bytes. cat exits 2 for a path that is not there. put stages beside
 the target and renames only once the byte count the sender declared has
 arrived, so a transfer cut short replaces nothing and exits 1. Neither verb
 leaves its staged file behind. A failed write of the staged bytes, or of
@@ -654,6 +1022,9 @@ the harness starts, through the clone's lib/lane-state.sh; a clone whose
 library predates that recorder refuses create as identity-recorder-missing,
 and a record that fails ends the prefix with identity-record-failed before the
 harness starts.
+create, status, stop and close hold one exclusive remote lock beside the clone
+for the whole call. An overlapping lifecycle call exits 75 as ownership-busy,
+so unfinished creation cannot be reported as an absent sandbox.
 stop --item ID --harness claude|codex|pi|copilot reads that identity after
 confirming the clone's item owner and signals only the matching harness
 processes at or below its pid, where that pid still runs and started at the
@@ -685,8 +1056,8 @@ remove; that refusal, and an untracked render the temporary index cannot read,
 exit 3 and keep the static host. Any path outside the
 clone's generated inventory refuses close with exit 3 and keeps the static host.
 Before worktree removal, close archives remaining clone/tmp
-and worktree/tmp directories, and the item's workflow state where the lane's
-settings place it outside them, with a lane-host-state member naming that
+and worktree/tmp directories, and the item's workflow state, falling back to
+an older launch's settings when needed, with a lane-host-state member naming that
 state's member, under FLEET_DIR/archive/REPO/ITEM/tmp-STAMP.tgz
 (FLEET_DIR defaults to ~/.fleet) and prints kept=PATH. A failed archive stops
 close, as does a state directory the clone's workflow-state cannot resolve,
@@ -718,6 +1089,7 @@ capabilities prints the static ssh host kind's one capability line
         stopping = sub.add_parser(verb)
         stopping.add_argument("--item", required=True)
         stopping.add_argument("--harness", required=True, choices=("claude", "codex", "pi", "copilot"))
+    sub.add_parser("read-many")
     sub.add_parser("list")
     sub.add_parser("capabilities")
     args = parser.parse_args()
@@ -746,6 +1118,9 @@ capabilities prints the static ssh host kind's one capability line
     if len({r["repo"] for r in rows}) > 1:
         notice("inventory-repo", path=inventory)
         raise SystemExit(2)
+    if args.verb == "read-many":
+        read_many(rows, json.load(sys.stdin))
+        return
     if args.verb == "list":
         for row in rows:
             state = remote(row, 'if test -f "$1/.git/lane-host-item"; then printf hosted; else printf available; fi', row["clone"])
@@ -756,6 +1131,14 @@ capabilities prints the static ssh host kind's one capability line
         notice("item-unconfigured", item=args.item)
         raise SystemExit(2)
     row = matches[0]
+    if args.verb in ("create", "status", "stop", "close"):
+        with ownership_lock(row) as locked:
+            dispatch(locked, args)
+    else:
+        dispatch(row, args)
+
+
+def dispatch(row, args):
     if args.verb == "create":
         if row["repo"] != args.repo:
             notice("repo-mismatch", item=args.item, repo=args.repo)

@@ -23,7 +23,21 @@ Problems with a kendex-owned skill go through `kendex report`; check ownership i
 
 VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, branch-size and commit-hook gates. Work targets main. PRs are optional; push directly or merge a PR immediately with gh, with no queue or CI wait. Review goes by risk: a change to code where a defect shows as a performance, stability, race, leak or lifetime problem (services, Quickshell or Hyprland IPC, processes and timers, file or socket watchers, object ownership and destruction, caches, concurrency, the plugin scan and publish path, the sandbox and smoke harness) runs one internal review round, the orch review panel, before the push; a change that is only layout, copy, styling, tokens, docs or a settings field runs none. The done line names which applied and why. Do not arm git guards. Run scripts/validate once on the final relevant diff; use --changed <last-validated-commit> for a fix round, and reuse passing results while those inputs are unchanged. Do not rerun a full battery at commit, push or submission. Use --full only for an explicit full sweep or an unmapped dependency. Keep the live-session safety rules.
 
+Kendex workflow policy VGS keeps (KEN-3470):
+
+- Plans, research reports, measurements and handoffs go under tmp/ (a report at the path its caller names) or on the owning tracker issue, and the caller attaches the final artifact to that issue; none is committed under docs/. Before a rewrite removes a tracked copy, preserve its evidence on that issue. Durable product and architecture documentation stays in the repository. (agent-planner-06, deep-research-10, DW12)
+- VGS hosts code on GitHub and tracks work in Linear: the GitHub and Linear skills stay available to the generic planning, management, research and implementation agents, tpm and frontend included, when their task uses those services. (catalog-declarations-10)
+- Linear, orch and project-management share one state-role map: the VGS team's live state names and lifecycle roles (Backlog, Todo, In Progress, In Review, Verifying, Done and Canceled where the team uses those names) in planning, audit, cycle, roadmap, activation, completion and research-completion operations. Read the live issue and its team's states before a transition. Verifying is post-merge evidence work. (LIN-027, ORCH-M09, PM-038)
+- The VGS estimate scale, in implementation, planned and review-created issues and review findings: 1 means hours, 2 half a day, 3 a day, 4 two to three days, 5 a week or more. The numeric field keeps this consumer-defined meaning. Reassess the estimate when implementation changes the scope. (DV17, ORCH-M22, RV20)
+- A worktree or Pi session in an explicitly recorded orch lane leaves kendex refresh and apply to the overseer in the base checkout after merge; an ordinary linked worktree keeps its own project resolution and complete drift repair guidance, and a linked Git directory alone is not a lane record. After an authorized documentation rewrite changes kendex-owned inputs, use that refresh and verification route and respect a launched lane's refresh restriction. (hook-session-drift-check-04, pi-hooks-M01, DW22)
+- Never kill a process by its name or argv pattern. Kill a PID recorded when you launched that process, or, on Linux, read /proc/PID/cwd and kill that PID only when the path is inside your own worktree; the /proc route is an alternative, not an extra condition on the recorded PID. (hook-block-argv-kill-03)
+
 <!-- kendex:shared-instructions:end -->
+
+## UI evidence (KEN-3470: CQ33)
+
+For each changed view, capture a before image from the base revision and an after image from HEAD in every supported theme, dark and light. Put the images under tmp/ui-shots/ in the worktree; `scripts/sandbox-shots.sh` captures them. List each image on its own line in the round summary as `tmp/ui-shots/[FILE]` - [View], [before|after], [THEME]. A later change to the view replaces its after images and carries its before images forward. List the full set in that round's summary. A new view has after images only.
+
 <!-- kendex:project-instructions:end -->
 
 # Dev Workflows
@@ -70,7 +84,7 @@ For an item spanning domains, split the delegation by domain. If the selected ag
   - A second copy of that verb, in any language, is a twin and never delegation, and so is a second statement of a rule another file owns, in prose, config or a table.
   - Call or cite the one that exists, or escalate in your return. An issue that orders a twin is escalated, not implemented.
 - A doc claim the change makes false is updated in the same change; a code change alone owes no doc change. The `docs-writing` skill states what each document holds.
-- Once a commit has been reported to the orchestrator, in a return artifact or in a message naming it, later work adds a commit and never amends, whatever the branch push state. The one exception is a head the orchestrator states is unread: there the kendex-issues fix cycle may amend, only to refresh a required check that cannot be rerun.
+- Once a commit has been reported to the orchestrator, in a return artifact or in a message naming it, later work adds a commit and never amends, whatever the branch push state. The one exception is a head the orchestrator states is unread: there the orch fix cycle may amend, only to refresh a required check that cannot be rerun.
 - A push that prints `rebase-map:` lines has rewritten the shas the PR's `Fixed in <sha>` replies name: before holding, re-reply each such thread with the new sha, or post the map as one PR comment naming old and new per line; a sha the map reports as `dropped` gets a reply that the fix commit no longer exists on the branch.
 
 Code standards are [`../code-quality/SKILL.md`](../code-quality/SKILL.md): correctness, comments, over-engineering, cleanup.
@@ -87,6 +101,8 @@ A session keeps the rule text it loaded, and a push, `worktree create --reuse` o
 - `--kind` always matches what was delegated. `--validate` matches your commit message and return. `--validate-note` carries the test-only validation-ceiling report when that route applies. Flag constraints and value shapes: `dev-return-write --help`.
 
 **Acceptance is that artifact plus git state, never your message.** Write the artifact, then return exactly once over the harness's agent-to-agent channel; a disk write is not a return. Send the `**Return exactly**` body once and go idle. Once the artifact is written, start no validation, test, lint or build run in the worktree: the orchestrator validates there next.
+
+The Codex caller follows [orch codex-runtime.md § Delegated round wait](../orch/references/codex-runtime.md#delegated-round-wait) while this agent works.
 
 - The channel is Claude Code `SendMessage`, Codex `send_input`, OpenCode a resume on the stored `task_id`, Pi background the final assistant message. Copilot CLI's channel is not yet measured, so this contract names none for it.
 - In a Pi persistent pane, follow the return with `complete_subagent`; background agents must not call it.

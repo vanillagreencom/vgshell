@@ -22,7 +22,22 @@ Problems with a kendex-owned skill go through `kendex report`; check ownership i
 
 VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, branch-size and commit-hook gates. Work targets main. PRs are optional; push directly or merge a PR immediately with gh, with no queue or CI wait. Review goes by risk: a change to code where a defect shows as a performance, stability, race, leak or lifetime problem (services, Quickshell or Hyprland IPC, processes and timers, file or socket watchers, object ownership and destruction, caches, concurrency, the plugin scan and publish path, the sandbox and smoke harness) runs one internal review round, the orch review panel, before the push; a change that is only layout, copy, styling, tokens, docs or a settings field runs none. The done line names which applied and why. Do not arm git guards. Run scripts/validate once on the final relevant diff; use --changed <last-validated-commit> for a fix round, and reuse passing results while those inputs are unchanged. Do not rerun a full battery at commit, push or submission. Use --full only for an explicit full sweep or an unmapped dependency. Keep the live-session safety rules.
 
+Kendex workflow policy VGS keeps (KEN-3470):
+
+- Plans, research reports, measurements and handoffs go under tmp/ (a report at the path its caller names) or on the owning tracker issue, and the caller attaches the final artifact to that issue; none is committed under docs/. Before a rewrite removes a tracked copy, preserve its evidence on that issue. Durable product and architecture documentation stays in the repository. (agent-planner-06, deep-research-10, DW12)
+- VGS hosts code on GitHub and tracks work in Linear: the GitHub and Linear skills stay available to the generic planning, management, research and implementation agents, tpm and frontend included, when their task uses those services. (catalog-declarations-10)
+- Linear, orch and project-management share one state-role map: the VGS team's live state names and lifecycle roles (Backlog, Todo, In Progress, In Review, Verifying, Done and Canceled where the team uses those names) in planning, audit, cycle, roadmap, activation, completion and research-completion operations. Read the live issue and its team's states before a transition. Verifying is post-merge evidence work. (LIN-027, ORCH-M09, PM-038)
+- The VGS estimate scale, in implementation, planned and review-created issues and review findings: 1 means hours, 2 half a day, 3 a day, 4 two to three days, 5 a week or more. The numeric field keeps this consumer-defined meaning. Reassess the estimate when implementation changes the scope. (DV17, ORCH-M22, RV20)
+- A worktree or Pi session in an explicitly recorded orch lane leaves kendex refresh and apply to the overseer in the base checkout after merge; an ordinary linked worktree keeps its own project resolution and complete drift repair guidance, and a linked Git directory alone is not a lane record. After an authorized documentation rewrite changes kendex-owned inputs, use that refresh and verification route and respect a launched lane's refresh restriction. (hook-session-drift-check-04, pi-hooks-M01, DW22)
+- Never kill a process by its name or argv pattern. Kill a PID recorded when you launched that process, or, on Linux, read /proc/PID/cwd and kill that PID only when the path is inside your own worktree; the /proc route is an alternative, not an extra condition on the recorded PID. (hook-block-argv-kill-03)
+
 <!-- kendex:shared-instructions:end -->
+
+## VGS documentation policy (KEN-3470)
+
+- This repository adopts bot-instructions for its GitHub review bots. Keep the generated GitHub instruction files and review doctrine consistent with the effective manifest, and render them through their owning package. (DW05)
+- Write the README for a reader with moderate technical knowledge: what the product does and why it matters. Engineering implementation detail goes in DEVELOPMENT.md or docs/architecture/. (DW07)
+
 <!-- kendex:project-instructions:end -->
 
 # Docs Writing
@@ -61,11 +76,11 @@ This is the default repository layout. A rewrite moves what it finds onto it. A 
 |---|---|---|---|
 | `README.md` | a person choosing or using it | the sections § `README.md` orders | yes |
 | `AGENTS.md` | every agent, at session start | what the repo is, the commands, the conventions, and task routes to principle docs, directly or through named nested instructions | yes |
-| `CLAUDE.md` | Claude Code | one import line, written by kendex | yes, written by kendex |
+| `CLAUDE.md` | Claude Code sessions that need an import | the project's own `@AGENTS.md` import (§ `CLAUDE.md`) | only where a session needs an import |
 | `DEVELOPMENT.md` | a maintainer | build, run, test and debug: only what the tooling does not show | where needed |
 | `LICENSE` | a person | the licence | yes |
 | `CHANGELOG.md`, `changelog.d/` | a person reading a release | release notes | released packages |
-| `<dir>/AGENTS.md`, with its `<dir>/CLAUDE.md` import line | an agent working in that folder | the folder's commands, rules no linked principle doc owns, and task triggers for the principle docs that govern it | where a folder has its own rules |
+| `<dir>/AGENTS.md` | an agent working in that folder | the folder's commands, rules no linked principle doc owns, and task triggers for the principle docs that govern it | where a folder has its own rules |
 | `docs/architecture/<name>.md` | an agent about to do the work the doc governs | one principle: the approach, why, the rules, one code example | where a principle exists |
 | `docs/decisions/INDEX.md` and `<DECISION_ID>-<slug>.md` (names and locations follow decider) | a reviewer or agent about to reverse a choice | decision records: the choice, why, the rejected option, when to revisit | where such choices exist |
 | `docs/images/` | a reader of a README or doc | the screenshots and images those files show | when used |
@@ -79,7 +94,7 @@ Nothing else lives under `docs/`. A plan, a research report, a measurement or a 
 ### Reference rules
 
 - The root `AGENTS.md` gives each principle doc a task trigger, or routes to a nested `AGENTS.md` that gives the local trigger: "Before writing a plugin: `docs/architecture/plugins.md`".
-- A nested `AGENTS.md` names the principle doc for its folder. Codex reads every `AGENTS.md` on the path to the working directory, Claude Code reads the nested `CLAUDE.md` import, and Copilot reads the nested file when it opens files there.
+- A nested `AGENTS.md` names the principle doc for its folder. Codex reads every `AGENTS.md` on the path to the working directory. Claude Code loads nested instructions under § `CLAUDE.md`. Copilot reads the nested file when it opens files there.
 - The Copilot review instruction files point the review bot at the same principle docs for the matching paths; the bot-instructions skill renders them.
 - Decision records are not listed in `AGENTS.md`. Review and dev workflows find them by keyword with `decisions search`, and a code comment cites a decision ID only where that code carries out the choice.
 - A code comment holds a local reason or an external cause at its site, per the code-quality skill's SKILL.md § Comments and Prose, and nothing points to it.
@@ -111,14 +126,13 @@ Read by every harness at the start of every session. What the repo is in two or 
 
 ### `<dir>/AGENTS.md`
 
-Read by an agent working in that folder. Keep the folder's commands and rules no linked principle doc owns, with no rationale. Give a task trigger for that doc instead of repeating its rules. An approach belongs in architecture when one reader's task needs it to prevent a harmful mistake, whatever folders the task crosses. [Claude Code supports direct AGENTS.md loading](https://code.claude.com/docs/en/memory#agents-md) from [v2.1.277](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#21277), subject to its instruction settings and session limits. Kendex keeps the generated `<dir>/CLAUDE.md` import so the same source also loads in sessions without direct support. Examples: [examples/nested-agents-plugins.md](examples/nested-agents-plugins.md), [examples/nested-agents-components.md](examples/nested-agents-components.md).
+Read by an agent working in that folder. Keep the folder's commands and rules no linked principle doc owns, with no rationale. Give a task trigger for that doc instead of repeating its rules. An approach belongs in architecture when one reader's task needs it to prevent a harmful mistake, whatever folders the task crosses. Claude Code's native loading and personal-import fallback follow § `CLAUDE.md`. Examples: [examples/nested-agents-plugins.md](examples/nested-agents-plugins.md), [examples/nested-agents-components.md](examples/nested-agents-components.md).
 
 ### `CLAUDE.md`
 
-The harness shim. kendex writes it, and its whole content is one import line.
+[Claude Code reads `AGENTS.md` natively](https://code.claude.com/docs/en/memory#agents-md) from [v2.1.277](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#21277). Bedrock and telemetry-off sessions need v2.1.281. By default, a `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` in the working directory or above prevents native loading. A nested `AGENTS.md` loads when Claude reads a file there, unless that directory has one of those Claude files. Files under `.agents/` do not load.
 
-- Never hand-write it, a `.claude/rules` file, or any other harness-specific instruction file.
-- `kendex apply`, `kendex refresh` and `kendex verify` write and check it, and it is committed.
+kendex writes no `CLAUDE.md`. An existing root or nested `CLAUDE.md` with an `@AGENTS.md` import belongs to the project. kendex leaves it in place and does not check it. A person who needs an older session, a disabled native plugin or Project instructions set to `claude-md` keeps their own `CLAUDE.md` with that import.
 
 ### `docs/architecture/<name>.md`
 

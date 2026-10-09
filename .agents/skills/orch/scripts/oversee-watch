@@ -262,6 +262,7 @@ PW_STATE_DIR="${OVERSEE_WATCH_STATE_DIR:-$PROJECT_ROOT/tmp/oversee-watch}"
 #   usage-limit<TAB><lane><TAB><first-seen-epoch>|<pane key>|<reported event>|<reset key>
 #   model-capacity<TAB><lane><TAB><pane key>|<turn identity>|model-capacity
 #   lane-exited<TAB><lane><TAB><pane key>[|reported]
+#   terminal-close<TAB><item><TAB><terminal state>|<lane record JSON>
 #   lane-idle<TAB><lane><TAB><pane key>|<copilot note>|<screen cksum>[|reported]
 #   handoff<TAB><item><TAB><record checksum>
 #   lane-prepare<TAB><item><TAB><preparation start epoch>|<ready|failed|stuck>
@@ -271,6 +272,7 @@ PW_STATE_DIR="${OVERSEE_WATCH_STATE_DIR:-$PROJECT_ROOT/tmp/oversee-watch}"
 #   merged<TAB><item><TAB><repo>#<number>[ <repo>#<number>...]
 #   outside-contribution<TAB><repo>#<number><TAB><pr HEAD_SHA|issue>
 #   refresh-failing<TAB><repo><TAB><newest run's REFRESH_RUN as JSON>|[<passes since reported>|<cause>|unjudged]
+#   main-push-failing<TAB><repo><TAB>[<sorted failed jobs>,<sorted failure identities or null for unread logs>] as JSON
 #   security-alert, bot-fix and security-alerts-unread rows, which
 #   lib/security-alerts.sh sets out above check_security_alerts
 #   account<TAB><harness>|<through>|<config dir><TAB><status>|<verdict>|<binding_resets_at or ->|<status of the last unmeasured reading, or ->
@@ -297,8 +299,8 @@ PW_STATE_DIR="${OVERSEE_WATCH_STATE_DIR:-$PROJECT_ROOT/tmp/oversee-watch}"
 # delivering a line again for a walled, idle or exited lane or a merged --item.
 # Each helper takes the whole baseline blob and returns the answer or the
 # rewritten blob, so a pass mutates a local and commits once. `lane-exited` and
-# `lane-idle` hold the first of the two passes they need in a row, not a
-# global: a pass that found any event exits the process.
+# `lane-idle` hold a needed first pass in a row, not a global: a pass that
+# found any event exits the process.
 lane_row_get() {
   awk -F'\t' -v kind="$1" -v lane="$3" '$1 == kind && NF == 3 && $2 == lane { print $3 }' <<<"$2"
 }
@@ -443,7 +445,7 @@ LANE_STALL_SECS="${ORCH_WATCH_LANE_STALL_SECS:-3600}"
 [[ "$LANE_STALL_SECS" =~ ^[1-9][0-9]*$ ]] || die lane-stall-secs-invalid "" "value=$LANE_STALL_SECS"
 # Age threshold in seconds for lane-long on a running or parked lane.
 # Repeat schedule: oversee-watch --help, event lane-long.
-LANE_AGE_SECS="${ORCH_WATCH_LANE_AGE_SECS:-14400}"
+LANE_AGE_SECS="${ORCH_WATCH_LANE_AGE_SECS:-12600}"
 [[ "$LANE_AGE_SECS" =~ ^[1-9][0-9]*$ ]] || die lane-age-secs-invalid "" "value=$LANE_AGE_SECS"
 # The state's records the pane never judges and the start-stall check reads,
 # rebuilt by every fleet read: `<window>=<item>` for each Pi lane, judged from
@@ -520,10 +522,17 @@ check_repo_set() {
 # (worktree create's branch name); one branch per line, for the jq membership
 # test.
 check_item_set() {
-  local item entry hosted_item hosted_seen=""
+  local item entry hosted_item hosted_seen="" stopped=""
+  local merge_items=(${ITEMS[@]+"${ITEMS[@]}"} ${PARKED_ITEMS[@]+"${PARKED_ITEMS[@]}"})
+  if [[ -n "$FLEET_STATE" ]]; then
+    stopped="$(jq -r '(.lanes // [])[] | objects | select(.status == "stopped") | .item | strings' <<<"$FLEET_STATE")" \
+      || die state-invalid "" "path=$STATE_FILE"
+    while IFS= read -r item; do [[ -z "$item" ]] || merge_items+=("$item"); done <<<"$stopped"
+  fi
   ITEM_BRANCHES=""
   MERGED_ITEMS=()
-  for item in ${ITEMS[@]+"${ITEMS[@]}"} ${PARKED_ITEMS[@]+"${PARKED_ITEMS[@]}"}; do
+  for item in ${merge_items[@]+"${merge_items[@]}"}; do
+    item_in "$item" ${MERGED_ITEMS[@]+"${MERGED_ITEMS[@]}"} && continue
     [[ "$item" =~ ^[A-Za-z0-9._-]+$ ]] || die item-invalid "" "item=$item"
     ITEM_BRANCHES+="$(printf '%s' "$item" | tr '[:upper:]' '[:lower:]')"$'\n'
     MERGED_ITEMS+=("$item")
@@ -1070,10 +1079,12 @@ item_state_dir() { # ITEM
 # background, for tick_sleep's reason, and again after a TERM returns the wait
 # early. pass_stop spares its tree, read from CLOSE_PID_FILE.
 CLOSE_TERMED=""
-close_hosted_lane() { # ITEM
+CLOSE_RESULT=failed
+close_hosted_lane() { # ITEM [--if-terminal]
   local out line path="" rc=0 close_pid
+  CLOSE_RESULT=failed
   trap 'CLOSE_TERMED=1' TERM
-  "$LANE_CLOSE" --state-dir "$FLEET_STATE_DIR" "$1" > "$WORK_DIR/lane-close.out" 2>&1 &
+  "$LANE_CLOSE" --state-dir "$FLEET_STATE_DIR" "$@" > "$WORK_DIR/lane-close.out" 2>&1 &
   close_pid=$!
   printf '%s\n' "$close_pid" > "$CLOSE_PID_FILE"
   while :; do
@@ -1086,6 +1097,7 @@ close_hosted_lane() { # ITEM
   out="$(cat -- "$WORK_DIR/lane-close.out")"
   case "$rc" in
     0)
+      CLOSE_RESULT=closed
       echo "EVENT lane-closed $1"
       # A host that no longer held the item ran no archive pass, so lane-close
       # gives no archive verdict and its closed=absent line stands in its place.
@@ -1095,6 +1107,7 @@ close_hosted_lane() { # ITEM
         echo "kept=none"
       fi ;;
     3)
+      CLOSE_RESULT=refused
       # The provider's close-refused line names the refused checkout.
       while IFS= read -r line; do
         [[ "$line" == *"close-refused path="* ]] || continue
@@ -1104,11 +1117,106 @@ close_hosted_lane() { # ITEM
       echo "EVENT lane-close-refused $1"
       printf 'path=%s\n' "${path:-unknown}"
       [[ -z "$out" ]] || printf '%s\n' "$out" >&2 ;;
+    4)
+      # A provider can also return 4. Only the close verb's own keyed line
+      # says the item reopened after the probe.
+      if [[ "${2:-}" == --if-terminal ]] && grep -qxF "lane-close: item-open item=$1" <<<"$out"; then
+        CLOSE_RESULT=open
+        return 0
+      fi
+      ow_message lane-close-failed "item=$1" "exit=$rc" >&2
+      [[ -z "$out" ]] || printf '%s\n' "$out" >&2
+      return 1 ;;
     *)
       ow_message lane-close-failed "item=$1" "exit=$rc" >&2
       [[ -z "$out" ]] || printf '%s\n' "$out" >&2
       return 1 ;;
   esac
+}
+
+# Stopped and parked records have no pane or mailbox to watch. Read the close
+# verb's terminal judge on every fleet pass, and keep only provider refusals:
+# user-owned changes need an overseer's action, not another provider call.
+check_terminal_lanes() {
+  [[ -n "$STATE_FILE" ]] || return 0
+  local records record item terminal key prior refused rc merged merge_key cycle_pr recorded_merge merged_repo rows="${PW_SEEN[0]}" refreshed=false
+  local items=()
+  records="$(jq -cS '(.lanes // [])[] | objects | select(.status == "parked" or .status == "stopped")' <<<"$FLEET_STATE")" \
+    || die state-invalid "" "path=$STATE_FILE"
+  while IFS= read -r record; do
+    [[ -n "$record" ]] || continue
+    item="$(jq -er '.item | strings | select(length > 0)' <<<"$record")" \
+      || die state-invalid "" "path=$STATE_FILE" "field=item"
+    items+=("$item")
+    rc=0
+    terminal="$("$LANE_CLOSE" --state-dir "$FLEET_STATE_DIR" --terminal-state "$item" 2>"$WORK_DIR/terminal.err")" || rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+      ow_message lane-close-failed "item=$item" "exit=$rc" >&2
+      cat -- "$WORK_DIR/terminal.err" >&2
+      PASS_FAILED=1
+      continue
+    fi
+    case "$terminal" in
+      open) rows="$(lane_row_clear terminal-close "$rows" "$item")"; continue ;;
+      completed|canceled) ;;
+      *) die state-invalid "$terminal" "item=$item" "field=terminal-state" ;;
+    esac
+    key="$terminal|$record"
+    prior="$(lane_row_get terminal-close "$rows" "$item")" \
+      || die state-read-failed "" "item=$item" "row=terminal-close"
+    refused=false
+    [[ "$prior" != "$key" ]] || refused=true
+    # The tracker can become terminal at merge while the sandbox is stopped.
+    # Preserve the merge record before close removes its lane-side state.
+    merged="$(lane_row_get merged "$rows" "$item")" \
+      || die state-read-failed "" "item=$item" "row=merged"
+    cycle_pr="$(jq -r '.cycle.pr // empty' <<<"$record")" \
+      || die state-invalid "" "path=$STATE_FILE" "field=cycle"
+    recorded_merge="$(jq -r 'if .parked.pr != null then "\(.parked.repo | ascii_downcase)#\(.parked.pr)" else "" end' <<<"$record")" \
+      || die state-invalid "" "path=$STATE_FILE" "field=parked"
+    merged_repo="$(jq -r '(.repo // "") | ascii_downcase' <<<"$record")" \
+      || die state-invalid "" "path=$STATE_FILE" "field=repo"
+    for merge_key in $merged; do
+      if [[ -n "$recorded_merge" ]]; then
+        [[ "$merge_key" == "$recorded_merge" ]] || continue
+      elif [[ -n "$merged_repo" && "${merge_key%#*}" != "$merged_repo" ]]; then
+        continue
+      fi
+      [[ "${merge_key##*#}" != "$cycle_pr" ]] || break
+      rc=0
+      "$SCRIPT_DIR/oversee-cycle" --state-dir "$FLEET_STATE_DIR" record \
+        --pr "${merge_key##*#}" --repo "${merge_key%#*}" "$item" || rc=$?
+      if [[ "$rc" -ne 0 ]]; then
+        ow_message lane-close-failed "item=$item" "step=cycle" "exit=$rc" >&2
+      fi
+      # The recorder adds cycle to this same record. Keep that write in the
+      # refusal key so it does not cause a second provider call on restart.
+      record="$(jq -cS --arg item "$item" '.lanes[] | select(.item == $item)' "$STATE_FILE")" \
+        || die state-read-failed "" "path=$STATE_FILE" "item=$item"
+      key="$terminal|$record"
+      refreshed=true
+      break
+    done
+    # A provider refusal suppresses only close. Merge discovery and recorder
+    # recovery still run, and their cycle write keeps the refusal on restart.
+    if [[ "$refused" == true ]]; then
+      rows="$(lane_row_set terminal-close "$rows" "$item" "$key")"
+      continue
+    fi
+    if close_hosted_lane "$item" --if-terminal; then
+      if [[ "$CLOSE_RESULT" == refused ]]; then rows="$(lane_row_set terminal-close "$rows" "$item" "$key")"; fi
+      # A close may have rewritten the fleet. Read it before pane and merge
+      # checks, so they cannot report a closed record as still parked.
+      if [[ "$CLOSE_RESULT" != open ]]; then refreshed=true; PASS_EVENT=1; fi
+    else
+      PASS_FAILED=1
+    fi
+    lane_row_commit "$rows"
+    [[ -z "$CLOSE_TERMED" ]] || exit 143
+  done <<<"$records"
+  rows="$(lane_row_prune terminal-close "$rows" ${items[@]+"${items[@]}"})"
+  lane_row_commit "$rows"
+  [[ "$refreshed" == false ]] || fleet_merge quiet
 }
 
 command -v gh >/dev/null 2>&1 || die command-missing "" "command=gh"
@@ -1282,16 +1390,11 @@ MAIL_STATE_FILE="$(pw_state_file "${REPOS[0]}").mail"
 # delivered, so a merged item still in --item on a re-run is not news again,
 # while a further PR on the branch, in any repo, is. The rows are committed
 # once, after the lines are out.
-# A parked item's merge is handed to the overseer as parked-merged, in the
-# pass that reports it: the lane has no pane to exit and nothing wakes a
-# parked sandbox, and the record carries no launch flags, so the resume is the
-# overseer's relaunch, after which the lane runs its own post-merge. The hand
-# is owed to the pull request its park judged, in the repository it read it
-# in, and to no other pull request on the branch's name, which is reported as
-# any item's is and hands nothing. The record stays parked and nothing is
-# closed here: the relaunched lane's own completion is what closes it. The
-# merged row that holds the key is what parked_merged_owed repeats the hand
-# from at each heartbeat while the record still reads parked.
+# An open parked item needs its lane to finish post-merge work. Hand only
+# the pull request its park judged to the overseer's relaunch. A terminal
+# item needs no relaunch: check_terminal_lanes records its cycle and closes
+# it after this check commits the merge row. The heartbeat repeats the hand
+# while the open item's record still reads parked over that merge.
 # GitHub's search ceiling for one gh pr list; the key search refuses a page
 # that reaches it, since the item's own pull request may be past it.
 MERGED_SEARCH_PAGE=1000
@@ -1358,7 +1461,17 @@ check_merged() {
 # The parked-merged line, one spelling for the merged check's fresh merge and
 # the heartbeat's repeat.
 parked_merged_line() { # ITEM KEY
-  echo "EVENT parked-merged $1 pr=${2##*#} repo=${2%#*}"
+  local terminal rc=0
+  terminal="$("$LANE_CLOSE" --state-dir "$FLEET_STATE_DIR" --terminal-state "$1" 2>"$WORK_DIR/terminal.err")" || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    cat -- "$WORK_DIR/terminal.err" >&2
+    die lane-close-failed "" "item=$1" "exit=$rc"
+  fi
+  case "$terminal" in
+    completed|canceled) return 0 ;;
+    open) echo "EVENT parked-merged $1 pr=${2##*#} repo=${2%#*}" ;;
+    *) die state-invalid "$terminal" "item=$1" "field=terminal-state" ;;
+  esac
 }
 
 # The hand is level-triggered from the record: every record still reading
@@ -1538,24 +1651,111 @@ REFRESH_RUN='def run: [.createdAt, .databaseId, .attempt];
     (.createdAt | type) == "string" and (.createdAt | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"));'
 REFRESH_ROW='^(\["[0-9TZ:-]{20}",([0-9]+),[0-9]+\])\|(unjudged|[0-9]+\|.+)?$'
 REFRESH_ROW_UNRECORDED='^[0-9]+\|.+$'
+workflow_absent() { # REPO WORKFLOW ERROR_FILE
+  local workflows workflow_pattern="${2//./\\.}"
+  # gh rewrites every workflow-endpoint 404, including access failures.
+  # Only a complete successful workflow list can prove absence.
+  grep -q "^HTTP 404: workflow $workflow_pattern not found on the default branch (" "$3" \
+    && workflows="$(gh api --paginate "repos/$1/actions/workflows" \
+      --jq '.workflows[].path' 2>"$3")" \
+    && ! grep -qxF ".github/workflows/$2" <<<"$workflows"
+}
+
+check_main_push() {
+  local repo runs run conclusion jobs log cause failures key prior changed rc
+  local rows="${PW_SEEN[0]}" errf="$WORK_DIR/main-push.err"
+  for repo in "${REPOS[@]}"; do
+    rc=0
+    runs="$(gh run list --repo "$repo" --workflow skill-tests.yml --branch main --event push \
+      --status completed --limit 1 --json databaseId,conclusion 2>"$errf")" || rc=$?
+    if (( rc == 0 )); then
+      runs="$(jq -er '
+        if type == "array" and length <= 1 and all(.[];
+          (.databaseId | type) == "number" and (.conclusion | type) == "string") then
+          if length == 0 then "none|" else "\(.[0].databaseId)|\(.[0].conclusion)" end
+        else error("invalid completed main-push runs") end' <<<"$runs" 2>"$errf")" || rc=$?
+    fi
+    if (( rc != 0 )); then
+      if workflow_absent "$repo" skill-tests.yml "$errf"; then
+        rows="$(lane_row_clear main-push-failing "$rows" "$repo")" \
+          || die state-read-failed "" "repo=$repo" "row=main-push-failing"
+        continue
+      fi
+      ow_message main-push-unread "repo=$repo" "read=runs" "exit=$rc" >&2
+      continue
+    fi
+    IFS='|' read -r run conclusion <<<"$runs"
+    if [[ "$conclusion" != failure && "$conclusion" != timed_out ]]; then
+      rows="$(lane_row_clear main-push-failing "$rows" "$repo")" \
+        || die state-read-failed "" "repo=$repo" "row=main-push-failing"
+      continue
+    fi
+    rc=0
+    jobs="$(gh run view "$run" --repo "$repo" --json jobs 2>"$errf")" || rc=$?
+    if (( rc == 0 )); then
+      jobs="$(jq -ec '
+        if (.jobs | type) == "array" and all(.jobs[];
+          (.name | type) == "string" and (.conclusion | type) == "string") then
+          [.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .name] | unique
+        else error("invalid main-push jobs") end' <<<"$jobs" 2>"$errf")" || rc=$?
+    fi
+    if (( rc != 0 )); then
+      ow_message main-push-unread "repo=$repo" "read=jobs" "run=$run" "exit=$rc" >&2
+      continue
+    fi
+    rc=0
+    log="$(gh run view "$run" --repo "$repo" --log-failed 2>"$errf")" || rc=$?
+    cause=unread failures=null
+    if (( rc == 0 )); then
+      # Only producer summaries identify suites. Raw diagnostics describe
+      # the first cause but can change while the same suites still fail.
+      log="$(awk '{ sub(/^[^\t]*\t[^\t]*\t[^ ]* /, ""); sub(/\r$/, "") }
+        /^suite=.* fail=[1-9][0-9]*($| )/ || /^FAILED: / || /^FAIL[ :]/ || /^run-all.sh: (suite-timeout|run-deadline) / {
+          gsub("\t", " "); print
+        }' <<<"$log")" || rc=$?
+      if (( rc == 0 )); then
+        [[ -z "$log" ]] || cause="${log%%$'\n'*}"
+        failures="$(jq -Rsc 'split("\n") | map(
+          if startswith("suite=") then split(" ")[0]
+          elif startswith("FAILED: ") then ltrimstr("FAILED: ")
+          else empty end) | unique' <<<"$log")" || rc=$?
+      fi
+    fi
+    if (( rc != 0 )); then
+      ow_message main-push-unread "repo=$repo" "read=log" "run=$run" "exit=$rc" >&2
+    fi
+    prior="$(lane_row_get main-push-failing "$rows" "$repo")" \
+      || die state-read-failed "" "repo=$repo" "row=main-push-failing"
+    # Missing logs cannot change known failures. Recovery fills missing
+    # evidence quietly; later reads still compare it, including rerun attempts.
+    key="$(jq -cn --argjson jobs "$jobs" --argjson failures "$failures" --argjson prior "${prior:-null}" '
+      [$jobs, (if $failures == null and $prior[0] == $jobs then $prior[1] else $failures end)]')" \
+      || die state-read-failed "" "repo=$repo" "row=main-push-failing"
+    changed="$(jq -nr --argjson key "$key" --argjson prior "${prior:-null}" '
+      $prior == null or $key[0] != $prior[0] or ($prior[1] != null and $key[1] != $prior[1])')" \
+      || die state-read-failed "" "repo=$repo" "row=main-push-failing"
+    if [[ "$changed" == true ]]; then
+      printf 'EVENT main-push-failing %s workflow=skill-tests.yml run=%s jobs=%s cause=%s\n' "$repo" "$run" "$jobs" "$cause"
+      PASS_EVENT=1
+    fi
+    rows="$(lane_row_set main-push-failing "$rows" "$repo" "$key")" \
+      || die state-read-failed "" "repo=$repo" "row=main-push-failing"
+  done
+  lane_row_commit "$rows"
+}
+
 check_refresh() {
-  local repo runs order newest run since recent log cause prior rec rec_id standing passes rc workflows report
+  local repo runs order newest run since recent log cause prior rec rec_id standing passes rc report
   local rows="${PW_SEEN[0]}" errf="$WORK_DIR/refresh.err"
   for repo in "${REPOS[@]}"; do
     rc=0
     runs="$(gh run list --repo "$repo" --workflow kendex-refresh.yml --status completed --limit 2 \
       --json databaseId,attempt,conclusion,createdAt 2>"$errf")" || rc=$?
     if (( rc != 0 )); then
-      # gh rewrites every workflow-endpoint 404, including access failures.
-      # Only a complete successful workflow list can prove absence.
-      if grep -q '^HTTP 404: workflow kendex-refresh\.yml not found on the default branch (' "$errf"; then
-        if workflows="$(gh api --paginate "repos/$repo/actions/workflows" \
-          --jq '.workflows[].path' 2>"$errf")" \
-          && ! grep -qxF '.github/workflows/kendex-refresh.yml' <<<"$workflows"; then
-          rows="$(lane_row_clear refresh-failing "$rows" "$repo")" \
-            || die state-read-failed "" "repo=$repo" "row=refresh-failing"
-          continue
-        fi
+      if workflow_absent "$repo" kendex-refresh.yml "$errf"; then
+        rows="$(lane_row_clear refresh-failing "$rows" "$repo")" \
+          || die state-read-failed "" "repo=$repo" "row=refresh-failing"
+        continue
       fi
       ow_message refresh-unread "repo=$repo" "read=runs" "exit=$rc" >&2
       continue
@@ -1774,10 +1974,57 @@ resolve_due_owner_asks() {
 # One lane-mail read for the mail pass, its output in MAIL_OUT. A read that
 # failed is set as the lane's failure and returns 1, for the caller to report.
 MAIL_OUT=""
+MAIL_HOST_READS=()
+MAIL_HOST_READ_DIR=""
+mail_host_read_dir() { # HOST
+  local entry
+  MAIL_HOST_READ_DIR=""
+  for entry in ${MAIL_HOST_READS[@]+"${MAIL_HOST_READS[@]}"}; do
+    [[ "${entry%%$'\x1f'*}" != "$1" ]] || { MAIL_HOST_READ_DIR="${entry#*$'\x1f'}"; return 0; }
+  done
+  return 1
+}
+mail_host_reads() { # ITEMS...
+  local item host clone directory rc entries=() hosts=()
+  MAIL_HOST_READS=()
+  for item in "$@"; do
+    hosted_root "$item"
+    [[ -n "$HOSTED_ROOT" ]] || continue
+    item_in "$HOSTED_HOST" ${hosts[@]+"${hosts[@]}"} || hosts+=("$HOSTED_HOST")
+  done
+  for host in ${hosts[@]+"${hosts[@]}"}; do
+    entries=()
+    for item in "$@"; do
+      hosted_root "$item"
+      [[ -n "$HOSTED_ROOT" && "$HOSTED_HOST" == "$host" ]] || continue
+      clone="$(lane_row_get clone-root "$MAIL_SEEN" "$item")" || die state-read-failed "" "item=$item" "row=clone-root"
+      entries+=("$item" "$HOSTED_ROOT" "$clone")
+    done
+    directory="$WORK_DIR/mail-host-${#MAIL_HOST_READS[@]}"
+    mkdir -p -- "$directory" || die mail-read-failed "" "host=$host"
+    rm -f -- "${directory:?}/failed" "${directory:?}/index"
+    python3 "$SCRIPT_DIR/lib/lane-host-read.py" request "${entries[@]}" >"$directory/request" \
+      || die mail-read-failed "" "host=$host" "read=request"
+    rc=0
+    ORCH_LANE_HOST="$host" "$SCRIPT_DIR/lane-host" read-many <"$directory/request" >"$directory/reply" 2>"$directory/error" || rc=$?
+    if [[ "$rc" -eq 0 ]]; then
+      python3 "$SCRIPT_DIR/lib/lane-host-read.py" unpack "$directory" 2>"$directory/error" || rc=$?
+    fi
+    if [[ "$rc" -ne 0 ]]; then
+      # Exit 2 on the whole call is a refused batch, never a missing file.
+      [[ "$rc" -eq "$LANE_HOST_BUSY_EXIT" ]] || rc=1
+      printf '%s\n' "$rc" >"$directory/failed"
+    fi
+    MAIL_HOST_READS+=("$host"$'\x1f'"$directory")
+  done
+}
 mail_read() { # ITEM LANE_MAIL_ARGS...
   local item="$1" rc=0 host_env=()
   shift
-  [[ "$item" == overseer || -z "$HOSTED_HOST" ]] || host_env=("ORCH_LANE_HOST=$HOSTED_HOST")
+  if [[ "$item" != overseer && -n "$HOSTED_HOST" ]]; then
+    mail_host_read_dir "$HOSTED_HOST" || die mail-read-failed "" "host=$HOSTED_HOST" "read=snapshot"
+    host_env=("ORCH_LANE_HOST=$HOSTED_HOST" "LANE_HOST_READ_DIR=$MAIL_HOST_READ_DIR")
+  fi
   MAIL_OUT="$(env ${host_env[@]+"${host_env[@]}"} "$LANE_MAIL" "$@" 2>"$WORK_DIR/mail.err")" || rc=$?
   [[ "$rc" -ne 0 ]] || return 0
   [[ "$rc" -ne "$LANE_HOST_BUSY_EXIT" ]] || { lane_failure_set lane-host-busy "" "item=$item"; return 1; }
@@ -1810,6 +2057,7 @@ check_mail() { # [overseer]
       item_in "$item" ${MAILLESS[@]+"${MAILLESS[@]}"} || mail_items+=("$item")
     done
   fi
+  mail_host_reads ${mail_items[@]+"${mail_items[@]}"}
   mail_items+=(overseer)
   for item in "${mail_items[@]}"; do
     root=""
@@ -1824,7 +2072,8 @@ check_mail() { # [overseer]
       if [[ -z "$root" ]]; then local_root "$item"; root="$LOCAL_ROOT"; host_flag=(); fi
     fi
     if [[ -n "$HOSTED_ROOT" && "$item" != overseer ]]; then
-      if ! hosted_clone "$item" "$state"; then
+      mail_host_read_dir "$HOSTED_HOST" || die mail-read-failed "" "host=$HOSTED_HOST" "read=snapshot"
+      if ! LANE_HOST_READ_DIR="$MAIL_HOST_READ_DIR" hosted_clone "$item" "$state"; then
         lane_failure_report "$item" "$state"
         mail_row_commit "$LANE_FAILURE_STATE"
         state="$MAIL_SEEN"
@@ -2458,12 +2707,21 @@ overseer_recovery_blocked() { # ROW ROWS IDENTITY PANE WINDOW
   local errf="$WORK_DIR/overseer-blocked.err"
   lane_row_commit "$(lane_row_set "$row" "$rows" "$identity" reported)"
   OVERSEER_STOP=1
-  printf 'overseer-recovery-blocked: no account qualifies for a successor to the overseer in tmux window %s (pane %s). Its own account is %s and its binding bucket frees up at %s. The repeat stops; start a fresh overseer by hand once an account has room.\n' \
-    "$window" "$pane" "${OVERSEER_MARK_ACCOUNT:-unknown}" "${OVERSEER_MARK_RESETS:-none}" > "$notice" \
+  local account="" resets=""
+  [[ "$OVERSEER_MARK_READ" -ne 1 ]] || { account="$OVERSEER_MARK_ACCOUNT"; resets="$OVERSEER_MARK_RESETS"; }
+  local remedy="Start a fresh overseer by hand once an account qualifies."
+  if [[ "$OV_SOURCE" == auth || ( "$OV_SOURCE" == rows && "$SESSION_ROWS_WALL_KIND" == auth ) ]]; then
+    account="" resets=""
+    remedy="The login failed and has no usage reset. Sign in to an account, then start a fresh overseer by hand."
+  elif [[ -n "$account" && -n "$resets" ]]; then
+    remedy="Account $account has a measured binding bucket reset at $resets. Start a fresh overseer by hand once an account has room."
+  fi
+  printf 'overseer-recovery-blocked: no account qualifies for a successor to the overseer in tmux window %s (pane %s). %s The repeat stops.\n' \
+    "$window" "$pane" "$remedy" > "$notice" \
     || { overseer_note overseer-notice-failed "channel=file"; return 0; }
   overseer_publish "$notice" "$record" "$errf"
   ow_message overseer-recovery-blocked "pane=$pane" \
-    "account=${OVERSEER_MARK_ACCOUNT:-unknown}" "resets=${OVERSEER_MARK_RESETS:-none}" >&2
+    "account=${account:-unknown}" "resets=${resets:-none}" >&2
 }
 
 overseer_relaunch_failed() { # ROW ROWS IDENTITY PANE WINDOW ATTEMPT STEP
@@ -2917,6 +3175,13 @@ overseer_pane_read() { # PANE
   OV_START="$(ol_session_start "$server" "$pane")" \
     || { overseer_note overseer-unreadable "pane=$pane" "field=server-start"; return 1; }
   [[ "$OL_INSPECT_STATE" != exited ]] || bare=1
+  # Login failure is this harness's wall even with a last successful row or
+  # room on its account. The shared judge supplies the failure classification.
+  if [[ "$OL_INSPECT_STATE" == walled ]] \
+    && [[ "$OL_INSPECT_WALL_KIND" == auth ]]; then
+    OV_STATE=walled OV_SOURCE=auth OV_SCREEN="$OL_DETAIL"
+    return 0
+  fi
   [[ ",$OL_INSPECT_CAUSE," != *,process-probe,* ]] || note_probe_unusable "$pane" "$OL_INSPECT_PROBE"
   # The rows file and the exit status the record holds for THIS pane on THIS
   # server, by `ol_names`, and neither for a record naming another session:
@@ -2992,7 +3257,9 @@ overseer_judge() { # PANE
   case "$OV_STATE" in
     exited) OV_VERDICT=exited ;;
     walled)
-      if [[ "$OV_SOURCE" == rows ]]; then
+      if [[ "$OV_SOURCE" == auth || ( "$OV_SOURCE" == rows && "$SESSION_ROWS_WALL_KIND" == auth ) ]]; then
+        OV_VERDICT=walled
+      elif [[ "$OV_SOURCE" == rows ]]; then
         if ! overseer_marks_judge || [[ "$OVERSEER_MARK_KEY" != below-mark ]]; then OV_VERDICT=walled
         else overseer_note overseer-wall-lifted "pane=$1"; fi
       elif overseer_wall_confirmed "$1"; then OV_VERDICT=walled; fi ;;
@@ -3216,9 +3483,9 @@ check_lanes() {
   # No lane to watch still leaves the items: a handoff is read from state.
   [[ ${#LANES[@]} -gt 0 ]] || { check_handoff; return 0; }
   local lane pane below cmd pid state window i states="" claims="" claimed pane_key
-  local seen seen_at seen_pane seen_reported seen_key reset_at reset_utc reset_note event quiet
+  local seen seen_at seen_pane seen_reported seen_key reset_at reset_utc reset_note event reported_event quiet
   local asking_state fingerprint prior turn_identity capacity capacity_key screen_key close_failed=0
-  local banner banner_rc turn hosted_item hosted_harness
+  local banner banner_rc turn hosted_item hosted_harness wall_kind
   # One liveness read and one pane capture per lane per pass: a lane's kind is
   # decided from a single observation, never from two screens taken apart. The
   # pid leads the format so a command carrying a space cannot shift the split.
@@ -3257,7 +3524,7 @@ check_lanes() {
       || die limit-scan-failed "" "lane=$lane"
     # Provider failures stay unjudged; local probe failures still permit pane judgment.
     [[ -n "$hosted_item" || "$LANE_PROBE_RC" -le 1 ]] || note_probe_unusable "$lane"
-    states+="$i"$'\t'"$state"$'\t'"$LANE_EXIT_SOURCE"$'\n'
+    states+="$i"$'\t'"$state"$'\t'"$LANE_EXIT_SOURCE"$'\t'"$LANE_WALL_KIND"$'\n'
     if [[ "$state" == gone ]]; then
       echo "EVENT window-gone $lane"
       PASS_EVENT=1
@@ -3357,8 +3624,10 @@ check_lanes() {
     fi
     seen_at=""; seen_pane=""; seen_reported=""; seen_key=""
     [[ -z "$seen" ]] || IFS='|' read -r seen_at seen_pane seen_reported seen_key <<<"$seen"
+    wall_kind="$(lane_field "$states" "$i" 4)" || die state-read-failed "" "lane=$lane" "field=wall-kind"
     reset_at=""
     [[ -z "$seen_key" ]] || reset_at="$(usage_reset_epoch "$seen_key" "$seen_at")"
+    [[ "$wall_kind" != auth ]] || reset_at=""
     event=usage-limit
     reset_note=""
     reset_utc=""
@@ -3373,7 +3642,11 @@ check_lanes() {
     # lane stays walled above; a reset going by turns the event into
     # usage-limit-passed, which is news once more. Such a pass only
     # records the wall (lib/account-wall.sh).
-    quiet=""; [[ "$seen_reported" != "$event" ]] || quiet=1
+    # A retry can replace a no-reset usage wall with a failed login in the
+    # same pane. Its report identity must differ without moving the reset's day.
+    reported_event="$event"
+    [[ "$wall_kind" != auth ]] || reported_event="$event:auth"
+    quiet=""; [[ "$seen_reported" != "$reported_event" ]] || quiet=1
     # The detail is a nicety; a claim store this process cannot read must
     # not take down the event that carries the payload.
     claims="$(lane_claims_read "$(lane_claims_dir "$PROJECT_ROOT")" || true)"
@@ -3406,10 +3679,11 @@ check_lanes() {
     [[ -n "$banner" ]] || die limit-banner-missing "" "lane=$lane"
     account_wall_record "$PROJECT_ROOT" "$claimed" "$reset_at" "$PASS_NOW" "$banner" "${LANE_ROWS[$i]:+row}" || true
     [[ -z "$quiet" ]] || continue
-    echo "EVENT $event $lane${claimed:+ $claimed}$reset_note"
+    [[ "$wall_kind" == auth ]] || wall_kind=""
+    echo "EVENT $event $lane${claimed:+ $claimed}$reset_note${wall_kind:+ wall_kind=$wall_kind}"
     banner_payload "$below" "$banner" || die limit-banner-missing "" "lane=$lane"
     PASS_EVENT=1
-    asking_state="$(lane_row_set usage-limit "$asking_state" "$lane" "${seen_at:-$PASS_NOW}|${seen_pane:-$pane_key}|$event|$seen_key")"
+    asking_state="$(lane_row_set usage-limit "$asking_state" "$lane" "${seen_at:-$PASS_NOW}|${seen_pane:-$pane_key}|$reported_event|$seen_key")"
   done
   # A pane keeps its last screen, so neither a stale prompt under a bare shell
   # nor a dialog answered passes ago is a live question. A current prompt is
@@ -3449,8 +3723,10 @@ check_lanes() {
     bounded_tail "$below"
     PASS_EVENT=1
   done
-  # The round is over and nobody is driving: the harness is up, at its input
-  # prompt, with nothing in flight. Two consecutive passes, because the screen
+  # The harness is up at its input prompt with nothing in flight. Codex is
+  # reported on the first pass after a submitted turn: an agent return cannot
+  # start its next turn, and that return changes the screen while the lane
+  # remains parked. Other idle screens take two consecutive passes, because the screen
   # between a finished tool call and the next one reads the same; the first is
   # a `lane-idle` row, as for lane-exited above. The second pass reports it and
   # marks the row, so a lane left at the same screen is reported once, however
@@ -3508,7 +3784,7 @@ check_lanes() {
       die state-read-failed "" "lane=$lane" "row=lane-idle"
     fi
     if [[ "$prior" == "$screen_key|reported" ]]; then continue; fi
-    if [[ "$prior" == "$screen_key" ]]; then
+    if [[ "$prior" == "$screen_key" ]] || { grep -Eq -- "$CODEX_MARKER_RE" <<<"$below" && [[ -n "$(pane_turn_slice "$pane" before)" ]]; }; then
       asking_state="$(lane_row_set lane-idle "$asking_state" "$lane" "$screen_key|reported")"
       # The lane's closing report, which decides whether it is free for
       # another launch. Below the last turn is the round that just ended,
@@ -3656,8 +3932,8 @@ check_report() {
 
 # The work the fleet owes and its launch queue lacks, one `owed` line per item,
 # as OWED_LINES. The tracker is the membership and launch_queue only the
-# order: with LINEAR_TEAM, every team item In Progress or In Review, one live
-# read; with none, every open pull request in the item repository, the first
+# order: with LINEAR_TEAM, every team item In Progress, In Review or
+# Verifying, one live read. Verifying is handled before development filtering; with none, every open pull request in the item repository, the first
 # --repo, whose head is a GitHub item's branch, issue-N, read whole by a
 # listing of its own. A listing that reaches OWED_PR_LIMIT refuses rather than
 # pass a short set as the whole one. An item is owed nothing while its record
@@ -3684,6 +3960,7 @@ check_report() {
 # Without --state there is no queue to compare.
 OWED_PR_LIMIT=1000
 OWED_LINES=""
+VERIFYING_LINES=""
 # The heartbeat's own caches: one listing per host, one verdict per host,
 # harness and model, and the answers owed_accounts and owed_wall hand back.
 OWED_ACCOUNTS=""
@@ -3692,13 +3969,14 @@ OWED_LISTING=""
 OWED_VERDICT=""
 owed_read() {
   OWED_LINES=""
+  VERIFYING_LINES=""
   [[ -n "$STATE_FILE" ]] || return 0
   local errf="$WORK_DIR/owed.err" out items rows rc=0 n
   local id state priority lane host harness model delivery key verdict line asked answer
   OWED_ACCOUNTS=""
   OWED_ANSWERS=""
   if [[ -n "${LINEAR_TEAM:-}" ]]; then
-    out="$("$TRACKER" issues list --team "$LINEAR_TEAM" --state "In Progress,In Review" --max --format=safe 2>"$errf")" || rc=$?
+    out="$("$TRACKER" issues list --team "$LINEAR_TEAM" --state "In Progress,In Review,Verifying" --max --format=safe 2>"$errf")" || rc=$?
     [[ "$rc" -eq 0 ]] \
       || die tracker-list-failed "$(cat "$errf")" "team=$LINEAR_TEAM" "exit=$rc"
     # Linear's priority 0 is No priority, which ranks after Low: it prints `-`.
@@ -3707,8 +3985,8 @@ owed_read() {
       | map(
           if ((.id? | type) == "string" and (.id | test("^[A-Za-z0-9._-]+$"))) then .
           else error("tracker-field field=id value=\(.id | tojson)") end
-          | {id, priority: (if .priority == null or .priority == 0 then "-" else .priority end),
-             state: ({"In Progress": "in-progress", "In Review": "in-review"}[.state? | strings]
+          | {id, description: (.description // ""), priority: (if .priority == null or .priority == 0 then "-" else .priority end),
+             state: ({"In Progress": "in-progress", "In Review": "in-review", "Verifying": "verifying"}[.state? | strings]
                // error("tracker-field field=state value=\(.state | tojson)"))})' <<<"$out" 2>"$errf")" \
       || die tracker-list-invalid "$(cat "$errf")" "team=$LINEAR_TEAM"
   else
@@ -3720,6 +3998,11 @@ owed_read() {
     items="$(awk -F'\t' '$2 ~ /^issue-[0-9]+$/ { print $2 }' <<<"$out" \
       | jq -Rnc '[inputs | {id: ., state: "open-pr", priority: "-"}]' 2>"$errf")" \
       || die pr-list-invalid "$(cat "$errf")" "repo=${REPOS[0]}"
+  fi
+  if [[ -n "${LINEAR_TEAM:-}" ]]; then
+    verifying_read "$items"
+    items="$(jq -c 'map(select(.state != "verifying"))' <<<"$items")" \
+      || die tracker-list-invalid "" "team=$LINEAR_TEAM"
   fi
   # One row per owed item on the unit separator, since a model id is the
   # launcher's to spell: id, state, priority, lane, then the host, harness and
@@ -3795,6 +4078,53 @@ owed_accounts() { # HOST
   OWED_ACCOUNTS+="$host"$'\t'"$OWED_LISTING"$'\n'
 }
 
+# Verification uses the same inventory as owed work, before queue and active
+# lane filtering. Deadlines remain per box in the issue description.
+verifying_read() { # SAFE_ITEMS
+  local lib="$SKILLS_DIR/linear/scripts/lib/issue-validation.sh"
+  local rows row id desc parsed lines overdue prior state="${PW_SEEN[0]}"
+  rows="$(jq -c '.[] | select(.state == "verifying")' <<<"$1")" \
+    || die tracker-list-invalid "" "team=$LINEAR_TEAM"
+  # Rebuild deadline rows from the complete read. Leaving Verifying or ticking
+  # a box clears its edge key, so a later overdue box is new attention.
+  state="$(awk -F'\t' '$1 != "verifying-deadline" { print }' <<<"$state")"
+  if [[ -z "$rows" ]]; then
+    lane_row_commit "$state"
+    return 0
+  fi
+  [[ -r "$lib" ]] || die missing-linear "" "path=$lib"
+  # shellcheck source=../../../linear/scripts/lib/issue-validation.sh
+  source "$lib"
+  while IFS= read -r row; do
+    [[ -n "$row" ]] || continue
+    id="$(jq -r '.id' <<<"$row")" || die tracker-list-invalid "" "team=$LINEAR_TEAM"
+    desc="$(jq -r '.description + "."' <<<"$row")" || die tracker-list-invalid "" "team=$LINEAR_TEAM"
+    parsed="$(done_when_parse "${desc%.}" '[]')" || die verifying-invalid "" "issue=$id"
+    jq -e '(.errors | length) == 0 and all(.boxes[]; .checked or .post_merge)' <<<"$parsed" >/dev/null \
+      || die verifying-invalid "$parsed" "issue=$id"
+    lines="$(jq -r --arg id "$id" '
+      .boxes[] | select(.post_merge and (.checked | not))
+      | "verifying \($id) box=\(.number) deadline=\(.deadline) reading=\(.reading | tojson) where=\(.where | tojson) why=\(.why | tojson)"' <<<"$parsed")" \
+      || die verifying-invalid "" "issue=$id"
+    [[ -n "$lines" ]] || lines="verifying $id boxes=0"
+    VERIFYING_LINES+="$lines"$'\n'
+    overdue="$(jq -r --argjson now "$PASS_NOW" '
+      .boxes[] | select(.post_merge and (.checked | not) and .deadline_epoch <= $now)
+      | "box=\(.number) deadline=\(.deadline)"' <<<"$parsed")" || die verifying-invalid "" "issue=$id"
+    [[ -n "$overdue" ]] || continue
+    prior="$(lane_row_get verifying-deadline "${PW_SEEN[0]}" "$id")" \
+      || die state-read-failed "" "row=verifying-deadline" "issue=$id"
+    state="$(lane_row_set verifying-deadline "$state" "$id" "${overdue//$'\n'/|}")"
+    [[ "$prior" != "${overdue//$'\n'/|}" ]] || continue
+    while IFS= read -r row; do
+      echo "EVENT verifying-deadline $id $row"
+    done <<<"$overdue"
+    PASS_EVENT=1
+  done <<<"$rows"
+  VERIFYING_LINES="${VERIFYING_LINES%$'\n'}"
+  lane_row_commit "$state"
+}
+
 # The wall verdict of one host, harness and model, as OWED_VERDICT. `lanes
 # pick` judges it under that host exactly as a launch there is judged. Exit 0
 # is room; exit 3 with walled accounts is a wall, dated by the refusal's own
@@ -3857,7 +4187,6 @@ heartbeat() {
     open="$(security_mark_open "$baseline" "$repo" "$open")" || die state-read-failed "" "path=$file" "row=bot-fix"
     open_all+="$(pw_prefix "$repo" "$open")"$'\n'
   done
-  owed_read
   hands="$(parked_merged_owed "$baseline")" || die state-read-failed "" "path=$file" "row=merged"
   # The current fleet's alone: a row clears on the item's next good read,
   # and an item that left the fleet is read no more.
@@ -3877,6 +4206,7 @@ heartbeat() {
     echo "account-roster accounts=$(grep -c . <<<"$ACCOUNT_ROSTER" || true)"
     [[ -z "$ACCOUNT_ROSTER" ]] || awk -F'\t' '{ print "account " $3 }' <<<"$ACCOUNT_ROSTER"
   fi
+  [[ -z "$VERIFYING_LINES" ]] || printf '%s\n' "$VERIFYING_LINES"
   [[ -z "$OWED_LINES" ]] || printf '%s\n' "$OWED_LINES"
   pr_watch_context
   exit 0
@@ -3894,7 +4224,7 @@ heartbeat() {
 # next long pass reads, never this process's copy of them.
 LONG_PASSES=0
 LONG_RETURNS=(LONG_EVENT LONG_FAILED OVERSEER_SUCCEEDED OVERSEER_STOP PW_PASSES PW_RC PW_EVENT
-  PW_OUT PW_ERR LANE_PROBE_NOTED OVERSEER_NOTED ACCOUNT_ROSTER ACCOUNT_ROSTER_RC)
+  PW_OUT PW_ERR LANE_PROBE_NOTED OVERSEER_NOTED ACCOUNT_ROSTER ACCOUNT_ROSTER_RC OWED_LINES VERIFYING_LINES)
 long_pass() {
   local i state_file
   PASS_EVENT=0
@@ -3910,12 +4240,14 @@ long_pass() {
   # overseer exited or walled. A later live pass or the successor receives
   # that work.
   if check_overseer; then
+    check_merged
+    check_terminal_lanes
     observe_lanes
     check_pr_watch
-    check_merged
     check_triage
     check_outside_contribution
     check_refresh
+    check_main_push
     check_security_alerts
     check_prepare
     check_start_stall
@@ -3923,6 +4255,7 @@ long_pass() {
     check_lane_long
     check_lanes
     check_accounts
+    owed_read
     check_report
   fi
   # Under names of their own, so sourcing them cannot overwrite the news this
@@ -4122,6 +4455,7 @@ run_end() {
     exit 2
   fi
   if [[ "$PASS_EVENT" -eq 1 ]]; then
+    [[ -z "$VERIFYING_LINES" ]] || printf '%s\n' "$VERIFYING_LINES"
     pr_watch_context
     exit 0
   fi

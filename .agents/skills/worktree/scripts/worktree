@@ -138,6 +138,10 @@ source "$SCRIPT_DIR/lib/kendex-env.sh"
 CALLER_ENV_NAMES="$(compgen -e)"
 kendex_load_project_env "$PROJECT_ROOT"
 
+# Worktree link setup, health and repair.
+# shellcheck source=lib/links.sh
+source "$SCRIPT_DIR/lib/links.sh"
+
 GITHUB_AUTH_LIB="$SCRIPT_DIR/../../github/scripts/lib/gh-auth.sh"
 if [[ -f "$GITHUB_AUTH_LIB" ]]; then
   # shellcheck source=../../github/scripts/lib/gh-auth.sh
@@ -231,7 +235,8 @@ restack_original_head_authorized() {
     [[ "$pending" == true ]]
     return
   fi
-  if git -C "$wt" merge-base --is-ancestor "$expected_oid" "$original_head"; then
+  if git -C "$wt" merge-base --is-ancestor "$expected_oid" "$original_head" || \
+     branch_holds_remote_commits "$wt" "$expected_oid" "$original_head"; then
     return 0
   fi
   authorized_head="$(restack_state_get "$wt" authorizedHead)"
@@ -328,22 +333,63 @@ prepare_restack_authorization() {
   record_pending_restack_authorization "$wt" "$remote" "$branch" "$expected_oid" "$original_head" "$base_oid"
 }
 
-# Whether the local branch already carries every commit unique to the remote
-# branch, under different SHAs. Git's own patch-equivalence judge over the
-# symmetric difference answers it, so a branch a rewrite moved off the remote
-# is told from a remote that genuinely moved ahead. A rev-list that cannot
-# answer is not an answer: the caller keeps the fetch-and-rebase route, which
-# is the safe reading of an unknown.
-branch_holds_remote_commits() { # WT EXPECTED_OID -> 0 when every remote-only commit has a local twin
-  local wt="$1" expected_oid="$2" remote_only=""
+# Patch IDs omit content and edit locations. Compare the complete raw changes:
+# quoted paths, modes and full before/after blob IDs, with one local match per
+# remote commit. A base change to the same file cannot pass this proof.
+# Empty commits, merges without changes, duplicate matches and failed Git reads
+# keep the fetch-and-integrate refusal.
+branch_holds_remote_commits() { # WT EXPECTED_OID [HEAD] -> 0 when every remote-only commit has an exact local twin
+  local wt="$1" expected_oid="$2" local_head="${3:-HEAD}"
+  local remote_commits="" local_commits="" commits="" commit="" changes="" identity="" identities=""
+  local remote_changes="" local_changes="" side=0
 
-  remote_only="$(git -C "$wt" rev-list --count --cherry-pick --right-only "HEAD...$expected_oid" 2>/dev/null)" || return 1
-  [[ "$remote_only" == 0 ]]
+  remote_commits="$(git -C "$wt" rev-list "$local_head..$expected_oid" 2>/dev/null)" || return 1
+  [[ -n "$remote_commits" ]] || return 0
+  local_commits="$(git -C "$wt" rev-list --no-merges "$expected_oid..$local_head" 2>/dev/null)" || return 1
+  for commits in "$remote_commits" "$local_commits"; do
+    identities=""
+    while IFS= read -r commit; do
+      [[ -n "$commit" ]] || continue
+      changes="$(git -C "$wt" -c core.quotePath=true diff-tree --root -r --raw --no-abbrev --no-commit-id \
+        --no-ext-diff --no-textconv --no-renames --no-color --no-relative \
+        --ignore-submodules=none "$commit" 2>/dev/null)" || return 1
+      [[ -n "$changes" ]] || continue
+      identity="$(git -C "$wt" hash-object --stdin <<<"$changes" 2>/dev/null)" || return 1
+      identities+="$identity $commit"$'\n'
+    done <<<"$commits"
+    if [[ "$side" == 0 ]]; then
+      remote_changes="$identities"
+    else
+      local_changes="$identities"
+    fi
+    side=$((side + 1))
+  done
+  awk '
+    $0 == "--" { side++; next }
+    !NF { next }
+    side == 0 { expected[$1]++; next }
+    NF != 2 || $1 !~ /^[0-9a-f]+$/ || $2 !~ /^[0-9a-f]+$/ { invalid = 1; next }
+    side == 1 { remote[$1]++; covered[$2]++; next }
+    side == 2 { local[$1]++; next }
+    END {
+      if (invalid) exit 1
+      for (commit in expected) if (expected[commit] != 1 || covered[commit] != 1) exit 1
+      for (commit in covered) if (!(commit in expected)) exit 1
+      for (change in remote) {
+        if (remote[change] != 1 || local[change] > 1) exit 1
+        if (local[change] < 1) exit 1
+      }
+    }
+  ' <<<"$remote_commits
+--
+$remote_changes
+--
+$local_changes"
 }
 
-# The remote OID a force-with-lease push of BRANCH is pinned to, empty where
-# the remote branch must not exist yet. Refuses a remote OID the local branch
-# neither contains nor holds a push authorization for.
+# Sets LEASE_EXPECTED_OID and REPUBLISH_REWRITE for the push arm. An empty
+# OID requires an absent remote branch. Exact change comparison permits recovery
+# after a bare rebase without accepting work the local branch lacks.
 remote_ref_lease_oid() {
   local wt="$1" remote="$2" branch="$3"
   local remote_head_ref="refs/heads/$branch"
@@ -351,6 +397,9 @@ remote_ref_lease_oid() {
   local expected_oid=""
   local fetch_err=""
   local fetch_status=0
+
+  LEASE_EXPECTED_OID=""
+  REPUBLISH_REWRITE=false
 
   expected_oid="$(git -C "$wt" show-ref --verify --hash "$remote_tracking_ref" 2>/dev/null || true)"
 
@@ -382,31 +431,17 @@ remote_ref_lease_oid() {
 
   if ! git -C "$wt" merge-base --is-ancestor "$expected_oid" HEAD && \
      ! restack_push_authorization_matches "$wt" "$remote" "$branch" "$expected_oid"; then
-    worktree_message push-remote-uncontained "$remote/$branch" "Error: Remote '$remote/$branch' points at $expected_oid, which is not contained in local branch '$branch'." >&2
-    # A branch that already holds the remote's work under rewritten SHAs was
-    # moved off the remote by a rewrite no recorded authorization covers, so
-    # fetching and rebasing would replay commits that rewrite superseded. No
-    # verb republishes such a branch, because a rewrite verb run on it now
-    # rewrites nothing and so records nothing, so the route is a push pinned
-    # to the OID this refusal read. The push arm refuses an unmapped rewrite
-    # before it asks this, so the route is never named for one. A remote that
-    # genuinely moved ahead carries work this branch lacks, and keeps the
-    # fetch-and-rebase route.
     if branch_holds_remote_commits "$wt" "$expected_oid"; then
-      echo "Local branch '$branch' already holds every commit on '$remote/$branch' under rewritten SHAs, so fetching and rebasing would replay superseded work." >&2
-      echo "No recorded push authorization covers this rewrite." >&2
-      echo "Republish the branch pinned to the remote OID above:" >&2
-      # A branch or remote name may carry shell syntax Git accepts, and the
-      # branch can be one a PR author named, so every argument is quoted for
-      # the shell the operator pastes this into.
-      printf '  git -C %q push %q %q %q\n' "$wt" "--force-with-lease=refs/heads/$branch:$expected_oid" "$remote" "$branch" >&2
+      REPUBLISH_REWRITE=true
     else
-      echo "Fetch and rebase/merge '$remote/$branch' before using worktree push." >&2
+      worktree_message push-remote-uncontained "$remote/$branch" "Error: Remote '$remote/$branch' points at $expected_oid, which is not contained in local branch '$branch'." >&2
+      echo "Fetch and integrate '$remote/$branch' before retrying worktree push." >&2
+      echo "For a base rewrite, use worktree create <ID> --restack or worktree create <ID> --reuse, then worktree push." >&2
+      return 1
     fi
-    return 1
   fi
 
-  printf '%s\n' "$expected_oid"
+  LEASE_EXPECTED_OID="$expected_oid"
 }
 
 # Which judge refused a push, read off the transcript, one predicate each.
@@ -853,14 +888,6 @@ parse_push_args() {
   done
 }
 
-strip_trailing_slashes() {
-  local path="$1"
-  while [[ "$path" != "/" && "$path" == */ ]]; do
-    path="${path%/}"
-  done
-  printf '%s\n' "$path"
-}
-
 # One path segment in the alphabet an issue ID is spelled in: a name composed
 # under the worktree base dir that cannot climb out of it or name a subtree.
 is_path_segment() {
@@ -873,24 +900,6 @@ validate_issue_id() {
     worktree_message issue-invalid "$issue" "Error: invalid issue ID '$issue'. Use letters, numbers, '.', '_', or '-' only; start with a letter/number and do not include '..'." >&2
     return 1
   fi
-}
-
-normalize_worktree_config_path() {
-  local var="$1" path="$2"
-  path="$(strip_trailing_slashes "$path")"
-  if [[ -z "$path" || "$path" == "." || "$path" == /* || "$path" == *\\* || "$path" == *'*'* || "$path" == *\?* || "$path" == *'['* || "$path" == *']'* || "$path" == */../* || "$path" == ../* || "$path" == */.. || "$path" == ".." || "$path" == */./* || "$path" == ./* || "$path" == */. ]]; then
-    worktree_message config-path-invalid "$var=$2" "Error: invalid $var entry '$2'. Use a worktree-relative path without '.', '..', absolute, backslash, or glob metacharacter components." >&2
-    return 1
-  fi
-  printf '%s\n' "$path"
-}
-
-split_worktree_config_words() {
-  local value="$1"
-  local IFS=$' \t\n'
-  WORKTREE_CONFIG_WORDS=()
-  [[ -n "$value" ]] || return 0
-  read -r -a WORKTREE_CONFIG_WORDS <<<"$value"
 }
 
 path_is_under_path() {
@@ -1264,10 +1273,6 @@ current_checkout_path_for_issue() {
   printf '%s\n' "$current_root"
 }
 
-# Worktree link setup, health and repair.
-# shellcheck source=lib/links.sh
-source "$SCRIPT_DIR/lib/links.sh"
-
 # ─── Git-hook auto-repair ────────────────────────────────────────────────────
 #
 # The clobber that materializes a configured symlink happens at git-operation
@@ -1416,7 +1421,7 @@ configure_worktree_git() {
   local wt="$1"
 
   # Required before writing per-worktree git config. Safe to repeat.
-  git -C "$PROJECT_ROOT" config extensions.worktreeConfig true 2>/dev/null || true
+  git -C "$PROJECT_ROOT" config extensions.worktreeConfig true || return 1
 
   # Add bot remote for agent pushes (if configured).
   if [[ -n "${BOT_REMOTE_NAME:-}" && -n "${BOT_REMOTE_URL:-}" ]]; then
@@ -1435,18 +1440,50 @@ configure_worktree_git() {
   fi
 }
 
+worktree_checkout_mode() {
+  local wt="$1" mode status=0
+  mode="$(git -C "$wt" config --get kendex-worktree.checkoutMode)" || status=$?
+  if [[ "$status" == 1 ]]; then mode=checkout; elif [[ "$status" != 0 ]]; then return "$status"; fi
+  case "$mode" in
+    claim | checkout) printf '%s\n' "$mode" ;;
+    *) worktree_message checkout-state-invalid "$wt" "Error: Unknown worktree checkout state: $mode" >&2; return 1 ;;
+  esac
+}
+
+materialize_worktree_claim() {
+  local wt="$1" mode path
+  mode="$(worktree_checkout_mode "$wt")" || return 1
+  [[ "$mode" == claim ]] || return 0
+  # The claim's missing files were never checked out. Restore only absent
+  # index entries: existing edits, staged deletions and untracked files stay.
+  git -C "$wt" ls-files -z | while IFS= read -r -d '' path; do
+    if [[ ! -e "$wt/$path" && ! -L "$wt/$path" ]]; then printf '%s\0' "$path"; fi
+  done | git -C "$wt" checkout-index --stdin -z || return 1
+  git -C "$wt" config --worktree kendex-worktree.checkoutMode checkout
+}
+
 # Provisioning applied to a worktree that some OTHER tool created — Codex
 # Desktop Environments, or Claude Code's WorktreeCreate hook. Nothing here is
 # app-specific; it is the same setup `create` applies once git has made the
 # worktree, which is why both entry points share it.
 setup_app_worktree() {
-  local wt="$1"
+  local wt="$1" checkout="${2:-true}"
 
-  setup_worktree_links "$wt" || return 1
-  configure_worktree_git "$wt" || return 1
+  # Push guards read the index; --no-checkout leaves it empty. Initialize
+  # that metadata without writing the source files a cloud claim never uses.
+  if [[ "$checkout" == true ]]; then
+    materialize_worktree_claim "$wt" || return 1
+    setup_worktree_links "$wt" || return 1
+    configure_worktree_git "$wt" || return 1
+  else
+    configure_worktree_git "$wt" || return 1
+    git -C "$wt" read-tree HEAD || return 1
+    git -C "$wt" config --worktree kendex-worktree.checkoutMode claim || return 1
+  fi
   # Best-effort by contract: a repo where the hooks cannot be written
   # still gets a fully provisioned worktree.
-  install_worktree_autorepair_hooks
+  if [[ "$checkout" == true ]]; then install_worktree_autorepair_hooks; fi
+  return 0
 }
 
 is_git_worktree_path() {
@@ -2604,10 +2641,13 @@ case "${1:-}" in
     REPLAY=false
     KEEP_ON_CONFLICT=false
     HOST_KIND=local
+    CHECKOUT=true
+    CHECKOUT_ARGS=()
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --base) BASE="$2"; shift 2 ;;
         --hosted) HOST_KIND=hosted; shift ;;
+        --no-checkout) CHECKOUT=false; CHECKOUT_ARGS=(--no-checkout); shift ;;
         --from) FROM="$2"; shift 2 ;;
         --pr) PR="$2"; shift 2 ;;
         --transfer) TRANSFER="${2:-}"; [[ -n "$TRANSFER" ]] || { worktree_message transfer-branch-missing "--transfer" "Error: --transfer requires the local branch checked out in the main checkout." >&2; exit 1; }; shift 2 ;;
@@ -2626,6 +2666,10 @@ case "${1:-}" in
         *) BRANCH="$1"; shift ;;
       esac
     done
+    if [[ "$CHECKOUT" == false && ( "$REUSE" == true || "$RESTACK" == true || -n "$TRANSFER" || -n "$BASE" || -n "$PR" ) ]]; then
+      worktree_message checkout-mode-invalid "--no-checkout" "Error: --no-checkout creates a fresh claim; it cannot reuse, restack, transfer, or inspect existing work." >&2
+      exit 1
+    fi
     if [[ "$REPLAY" == true && "$REUSE" != true && "$RESTACK" != true ]]; then
       worktree_message replay-mode-required "--replay" "Error: --replay selects the restack engine for --reuse/--restack; combine it with one of them." >&2
       exit 1
@@ -2683,21 +2727,32 @@ case "${1:-}" in
       reuse_respects_session_lease "$WT_PATH" "$(issue_session_owner "$ISSUE")" \
         || exit "$ACTIVE_WORK_EXIT"
 
+      REUSE_CHECKOUT_MODE="$(worktree_checkout_mode "$WT_PATH")" || exit 1
+      if [[ "$REUSE_CHECKOUT_MODE" == claim ]]; then
+        discover_ownership_remote_heads || exit 1
+        acquire_issue_claim_lock "$ISSUE" || exit 1
+        require_registered_project_worktree "$WT_PATH" "materialize it" || exit 1
+        fetch_origin || exit 1
+        materialize_worktree_claim "$WT_PATH" || exit 1
+      fi
       REUSE_STATUS=""
       REUSE_STATUS="$(git -C "$WT_PATH" status --porcelain 2>/dev/null)" || { worktree_message reuse-status-failed "$WT_PATH" "Error: could not read the worktree state before reusing $WT_PATH." >&2; exit 1; }
       if [[ "$REUSE" == true && "$RESTACK" != true && "$REPLAY" != true && -n "$REUSE_STATUS" ]]; then
+        if [[ "$REUSE_CHECKOUT_MODE" == claim ]]; then setup_app_worktree "$WT_PATH" || exit 1; fi
         worktree_message reuse-dirty "$WT_PATH" "Reused $WT_PATH with uncommitted work; refreshed its lease and skipped the rebase." >&2
         report_created_worktree; exit 0
       fi
 
       # Network/ref discovery must succeed before the claim lock or any setup
       # mutation. Repeat it under the per-issue lock immediately before reuse.
-      discover_ownership_remote_heads || exit 1
-      acquire_issue_claim_lock "$ISSUE" || exit 1
+      if [[ "$REUSE_CHECKOUT_MODE" != claim ]]; then
+        discover_ownership_remote_heads || exit 1
+        acquire_issue_claim_lock "$ISSUE" || exit 1
+      fi
       if ! is_registered_project_worktree "$WT_PATH"; then
         refuse_incomplete_worktree "$ISSUE" "$WT_PATH" || exit "$ACTIVE_WORK_EXIT"
       fi
-      fetch_origin || exit 1
+      if [[ "$REUSE_CHECKOUT_MODE" != claim ]]; then fetch_origin || exit 1; fi
       CURRENT_BRANCH=$(git -C "$WT_PATH" branch --show-current 2>/dev/null)
       if [[ -n "$CURRENT_BRANCH" ]]; then
         resolve_default_branch || exit 1
@@ -3085,9 +3140,9 @@ case "${1:-}" in
         exit 1
       fi
       mkdir -p "$TREES_DIR"
-      git -C "$PROJECT_ROOT" worktree add --no-track -b "$BRANCH" "$WT_PATH" "$START_POINT" >/dev/null 2>&1
+      git -C "$PROJECT_ROOT" worktree add ${CHECKOUT_ARGS[@]+"${CHECKOUT_ARGS[@]}"} --no-track -b "$BRANCH" "$WT_PATH" "$START_POINT" >/dev/null 2>&1
       release_issue_claim_lock
-      setup_app_worktree "$WT_PATH"
+      setup_app_worktree "$WT_PATH" "$CHECKOUT"
       report_created_worktree
       exit 0
     fi
@@ -3142,7 +3197,7 @@ case "${1:-}" in
         # skips new tracking config, but -B keeps an upstream a pre-existing
         # branch carried; drop it so a push cannot reach an origin branch of
         # that name.
-        git -C "$PROJECT_ROOT" worktree add --no-track -B "$BASE" "$WT_PATH" "$PR_HEAD_OID" >/dev/null 2>&1
+        git -C "$PROJECT_ROOT" worktree add ${CHECKOUT_ARGS[@]+"${CHECKOUT_ARGS[@]}"} --no-track -B "$BASE" "$WT_PATH" "$PR_HEAD_OID" >/dev/null 2>&1
         if git -C "$WT_PATH" config --get "branch.$BASE.merge" >/dev/null 2>&1; then
           git -C "$WT_PATH" branch --unset-upstream "$BASE" >/dev/null 2>&1 || {
             worktree_message upstream-clear-failed "$BASE" "Error: could not clear the upstream of branch '$BASE' in $WT_PATH" >&2
@@ -3150,8 +3205,8 @@ case "${1:-}" in
           }
         fi
       else
-        git -C "$PROJECT_ROOT" worktree add --track -b "$BASE" "$WT_PATH" "origin/$BASE" >/dev/null 2>&1 || \
-          git -C "$PROJECT_ROOT" worktree add "$WT_PATH" "$BASE" >/dev/null 2>&1
+        git -C "$PROJECT_ROOT" worktree add ${CHECKOUT_ARGS[@]+"${CHECKOUT_ARGS[@]}"} --track -b "$BASE" "$WT_PATH" "origin/$BASE" >/dev/null 2>&1 || \
+          git -C "$PROJECT_ROOT" worktree add ${CHECKOUT_ARGS[@]+"${CHECKOUT_ARGS[@]}"} "$WT_PATH" "$BASE" >/dev/null 2>&1
       fi
     else
       resolve_default_branch || exit 1
@@ -3166,7 +3221,7 @@ case "${1:-}" in
 
       BRANCH="${BRANCH:-$(issue_branch_name "$ISSUE")}"
       mkdir -p "$TREES_DIR"
-      git -C "$PROJECT_ROOT" worktree add --no-track -b "$BRANCH" "$WT_PATH" "origin/$DEFAULT_BRANCH" >/dev/null 2>&1
+      git -C "$PROJECT_ROOT" worktree add ${CHECKOUT_ARGS[@]+"${CHECKOUT_ARGS[@]}"} --no-track -b "$BRANCH" "$WT_PATH" "origin/$DEFAULT_BRANCH" >/dev/null 2>&1
     fi
 
     release_issue_claim_lock
@@ -3182,7 +3237,7 @@ case "${1:-}" in
       fi
     fi
 
-    setup_app_worktree "$WT_PATH"
+    setup_app_worktree "$WT_PATH" "$CHECKOUT"
     report_created_worktree
     ;;
 
@@ -3645,6 +3700,10 @@ case "${1:-}" in
     if ! require_registered_project_worktree "$WT_PATH" "push it"; then
       exit 1
     fi
+    PUSH_CHECKOUT_MODE="$(worktree_checkout_mode "$WT_PATH")" || exit 1
+    # A remote-work claim publishes its creation snapshot. Rebasing it needs
+    # a local checkout, which create --reuse/--restack materializes first.
+    if [[ "$PUSH_CHECKOUT_MODE" == claim ]]; then AUTO_REBASE=false; fi
     # Push is the usual first command after a MANUAL rebase — the case the
     # script never sees, and so the case nothing repairs. `create --reuse` and
     # the restack controls re-run setup themselves, so they self-heal and do
@@ -3666,8 +3725,7 @@ case "${1:-}" in
     # contained, rebase nothing and derive nothing, so it must refuse too
     # rather than publish a branch no map ever described. --no-rebase is no
     # exception: the commits are already rewritten. It sits ahead of the lease,
-    # whose uncontained refusal names a force push that would publish exactly
-    # that unmapped rewrite.
+    # whose rewrite recovery would publish that unmapped rewrite.
     if ! read_unmapped_rewrite "$WT_PATH"; then
       worktree_message push-unmapped-unreadable "$WT_PATH" "Error: Could not read $WT_PATH's rebase-map record, so whether an earlier rebase left this branch unmapped is unknown; refusing to push." >&2
       exit 1
@@ -3686,8 +3744,9 @@ case "${1:-}" in
     fi
     PUSH_LEASE=()
     LEASE_EXPECTED_OID=""
+    REPUBLISH_REWRITE=false
     if [[ "$AUTO_REBASE" == true && -n "$CURRENT_BRANCH" && "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ]]; then
-      if LEASE_EXPECTED_OID="$(remote_ref_lease_oid "$WT_PATH" "$REMOTE" "$CURRENT_BRANCH")"; then
+      if remote_ref_lease_oid "$WT_PATH" "$REMOTE" "$CURRENT_BRANCH"; then
         PUSH_LEASE=("--force-with-lease=refs/heads/$CURRENT_BRANCH:$LEASE_EXPECTED_OID")
       else
         exit 1
@@ -3725,18 +3784,12 @@ case "${1:-}" in
           PRE_REBASE_COMMITS="$(git -C "$WT_PATH" log --reverse --format='%H %s' "origin/$DEFAULT_BRANCH..HEAD")"
           # Write-ahead, before git touches a commit: see record_pending_rewrite.
           record_pending_rewrite "$WT_PATH" "$PRE_REBASE_HEAD" || exit 1
-          # The same moment carries the push authorization. The lease above was
-          # computed while the remote OID was still contained in this branch,
-          # and the rebase below ends that containment; without a record of the
-          # OID it was read at, a push the pre-push chain refuses leaves the
-          # retry recomputing the lease against a rewritten head and refusing
-          # `push-remote-uncontained` on a branch the tool itself rewrote.
-          # Refusing before the rewrite starts is why this sits here, and its
-          # own uncontained check cannot fire: the lease just passed the same
-          # one against the same remote, branch and OID.
+          # The lease check already verified containment, patch equivalence
+          # or standing authorization. Preserve that OID before another rewrite
+          # so a hook refusal leaves the next push able to publish this head.
           if [[ -n "$LEASE_EXPECTED_OID" ]]; then
             PUSH_REBASE_BASE_OID="$(git -C "$WT_PATH" rev-parse "origin/$DEFAULT_BRANCH")"
-            prepare_restack_authorization "$WT_PATH" "$REMOTE" "$CURRENT_BRANCH" "$LEASE_EXPECTED_OID" "$PUSH_REBASE_BASE_OID" || exit 1
+            record_pending_restack_authorization "$WT_PATH" "$REMOTE" "$CURRENT_BRANCH" "$LEASE_EXPECTED_OID" "$PRE_REBASE_HEAD" "$PUSH_REBASE_BASE_OID" || exit 1
           fi
           if ! git -C "$WT_PATH" rebase "origin/$DEFAULT_BRANCH" >/dev/null 2>&1; then
             git -C "$WT_PATH" rebase --abort >/dev/null 2>&1 || true
@@ -3834,6 +3887,9 @@ case "${1:-}" in
       [[ -n "$PUSH_OUTPUT" ]] && sed 's/^/  git: /' <<<"$PUSH_OUTPUT" >&2
       exit 1
     fi
+    if [[ "$REPUBLISH_REWRITE" == true ]]; then
+      worktree_message republished-after-rewrite "remote_oid=$LEASE_EXPECTED_OID"
+    fi
     clear_restack_push_authorization "$WT_PATH"
     ;;
 
@@ -3897,6 +3953,8 @@ case "${1:-}" in
        same_canonical_dir "$WT_PATH" "$PROJECT_ROOT"; then
       exit 0
     fi
+    REPAIR_CHECKOUT_MODE="$(worktree_checkout_mode "$WT_PATH")" || exit 1
+    if [[ "$REPAIR_CHECKOUT_MODE" == claim ]]; then exit 0; fi
     repair_worktree_links "$WT_PATH"
     ;;
 

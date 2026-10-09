@@ -27,8 +27,10 @@ Two passes run on one clock. The mail pass starts every
 ORCH_WATCH_MAIL_INTERVAL seconds, reads every lane mailbox, the overseer
 mailbox and the lane records one after another, and prints what it finds as
 it finds it: lane-question, lane-notice, directive-read, directive-unread,
-peer-note, owner-note, owner-ask-resolved and owner-ask-closed. Before the
-overseer mailbox is read, `lane-mail resolve --default` closes due owner asks.
+peer-note, owner-note, owner-ask-resolved and owner-ask-closed. Hosted mail
+uses `lane-host read-many` once per provider per mail pass, as
+schemas/lane-host.md specifies. Before the overseer mailbox is read,
+`lane-mail resolve --default` closes due owner asks.
 Only an unanswered ask receives a recommendation answer. The interval is
 counted start to start and kept across runs in the state directory. Between
 two mail passes, and through a --repeat sleep, the overseer mailbox's size is
@@ -92,8 +94,15 @@ The long pass's events, checked and reported in this order:
                              own), and stops: the successor runs a watch of
                              its own
   EVENT overseer-walled <pane> window=<window> passes=<N> succession=<on|off>
-        source=<rows|account|pane>
-                             the same session read `walled`: from `rows`, a
+        source=<auth|rows|account|pane>
+                             the session read `walled`:
+                             from `auth`, a login failure in the current
+                             pane turn. From `rows`, Claude Code's
+                             authentication_failed StopFailure is also a
+                             login wall. Both recover on the first pass,
+                             even with usage room or a previous successful
+                             row. No account mark confirmation is required.
+                             For usage limits, from `rows`, a
                              StopFailure row whose error is `rate_limit`,
                              standing unless its account measures room, its
                              message, or message=unrecorded, under the line; from `account`, a live
@@ -121,12 +130,15 @@ The long pass's events, checked and reported in this order:
                              same two channels. The successor is launched
                              through `oversee-succeed --walled-pane`, which
                              picks its account afresh and never reopens on the
-                             spent one; the line it built is on the watch's
+                             walled one; the line it built is on the watch's
                              stderr under the event. Where no account
                              qualifies, one `overseer-recovery-blocked` notice
-                             naming the account and when its binding bucket
-                             frees up goes to both channels and the repeat
-                             stops
+                             goes to both channels and the repeat stops.
+                             Measured account and reset values need an
+                             account mark. Unmeasured fields read
+                             account=unknown and resets=none. Login recovery
+                             has no usage reset: sign in to an account, then
+                             start a fresh overseer by hand
   EVENT overseer-mark <pane> kind=<headroom|rate|qualifying> value=<N> mark=<N>
                              succession=<on|off>
                              the OVERSEER's own account reached its mark,
@@ -215,7 +227,11 @@ The long pass's events, checked and reported in this order:
                              issue in the first, whose author is outside the
                              fleet: not an app or bot account, and not a
                              login GitHub associates with the repository as
-                             OWNER, MEMBER or COLLABORATOR. A pull request
+                             OWNER, MEMBER or COLLABORATOR, and not a login
+                             GitHub's collaborator permission read, made once
+                             per pass per repository and login, answers
+                             admin, maintain or write; a 404 is outside and
+                             any other failed read exits. A pull request
                              carries head=, its head commit on the list.
                              Reported once while it stays open, and a pull
                              request again once per new head; a
@@ -252,6 +268,25 @@ The long pass's events, checked and reported in this order:
                              A failed read prints refresh-unread on stderr,
                              leaves the failure pair intact when the run list
                              is unread, and keeps watching
+  EVENT main-push-failing <repo> workflow=skill-tests.yml run=<run-id> jobs=<JSON array> cause=<line>
+                             the latest completed push on main failed or
+                             timed out. jobs= lists failed or timed-out job
+                             names in sorted order. cause= is the first
+                             failing suite line from the failed-step log,
+                             without gh's job, step and timestamp prefix;
+                             unread means no such line was available.
+                             Reported in the long pass that reads it, once
+                             per changed jobs or set of failing suites. Suite timing
+                             and passing-test counts do not change that key.
+                             A later run with the same failures stays quiet.
+                             A completed run with no failure or a proven
+                             absent workflow clears the incident. A failed run or
+                             jobs read prints main-push-unread on stderr and
+                             keeps the incident intact. A failed log read
+                             prints that notice and keeps known failures when
+                             jobs are unchanged. A first unread log reports
+                             cause=unread. Recovered logs update the recorded
+                             failures without repeating the event
   EVENT security-alert <repo> kind=<dependabot|code-scanning|secret-scanning>
         number=<N> [severity=<s>] <package|rule>=<name> [manifest=<path>]
         [scope=<scope>] [advisory=<GHSA>] [validity=<v>] url=<url> [pr=<N>]
@@ -334,7 +369,7 @@ The long pass's events, checked and reported in this order:
                              digest. Reported once
                              and again every ORCH_OVERSEER_MARK_REPEAT passes
                              while it stands; a change starts a fresh window
-  EVENT lane-long <item> age=<secs> stage=<step>
+  EVENT lane-long <item> age=<secs> review_rounds=<n> repeated_class_rounds=<n> stage=<step>
                              a running or parked --state record is
                              ORCH_WATCH_LANE_AGE_SECS past its launched_at,
                              which --relaunch and handoffs keep and a fresh
@@ -343,6 +378,14 @@ The long pass's events, checked and reported in this order:
                              failed, or `none`. Reported once per age interval
                              of ORCH_WATCH_LANE_AGE_SECS, including after a
                              relaunch; a late pass reports the current interval
+                             review_rounds adds the first internal panel,
+                             re-review cycles and comment-review iterations.
+                             repeated_class_rounds counts later distinct patch
+                             commits repeating a recorded cause, once per commit.
+                             With no recorded cause that count is `-`.
+                             Both counts are `-` for absent or unread state,
+                             a file-less lane, or a parked lane whose stopped
+                             disk is never read
   EVENT window-gone <lane>   the tmux window no longer exists. Nothing follows
                              the line: the remedy is one relaunch, which
                              reads the item's worktree and PR, not a screen
@@ -372,7 +415,7 @@ The long pass's events, checked and reported in this order:
                              record with no `.resumed_at`; the record follows.
                              Emitted once per record, on every surface: it
                              reads the item's state, never a pane.
-  EVENT usage-limit <lane> [<config-dir>] [resets=<utc>]
+  EVENT usage-limit <lane> [<config-dir>] [resets=<utc>] [wall_kind=auth]
                              a live harness with no turn in flight shows a
                              limit banner below the last user turn on its screen.
                              The block that follows is a window AROUND that
@@ -380,6 +423,10 @@ The long pass's events, checked and reported in this order:
                              cap below, so the banner is always in the block
                              and the sentence marking a quoted wall travels
                              with it.
+                             wall_kind=auth is the shared judge's login
+                             failure. Exclude the failed account on every
+                             replacement pick, including another harness.
+                             No usage reset lifts a login failure.
                              `resets=` carries the reset time the banner
                              states; the wall is still standing. It is absent
                              when the banner states no reset in a shape the
@@ -412,7 +459,9 @@ The long pass's events, checked and reported in this order:
                              at capacity. Nothing follows the line: the
                              remedy is one continuation line back to the lane
   EVENT idle-after-return <lane> [<copilot note>]
-                             the live harness sits idle on two passes; the
+                             Codex sits idle after a submitted turn on the
+                             first long pass; other idle screens take two
+                             passes. The
                              lane's closing lines follow, and the note is
                              lane-asking's. A Pi lane is idle,
                              working or walled by the last row its own
@@ -457,6 +506,18 @@ The long pass's events, checked and reported in this order:
                              settings. Reported on every long pass while it
                              stays due, so it stops once a report is written;
                              read only with --state
+  EVENT verifying-deadline <item> box=<N> deadline=<UTC>
+                             an open post-merge box reached its UTC deadline.
+                             Read its evidence, tick it and complete the same
+                             item, or comment failure and move it In Progress.
+                             A deadline alone does not prove failure. Emitted
+                             once per standing item/overdue-box set; ticking,
+                             leaving Verifying or changing deadlines resets it.
+  verifying <item> box=<N> deadline=<UTC> reading=<JSON> where=<JSON> why=<JSON>
+                             every open post-merge box from the long pass's
+                             tracker read, before active/queued lane filtering.
+                             Printed with the event block or heartbeat. An item
+                             with none prints verifying <item> boxes=0.
   EVENT heartbeat            --max-loops long passes with no event, after
                              the repeated parked-merged lines above. A line
                              `  failing <item> <key>` follows for every lane
@@ -482,7 +543,8 @@ The long pass's events, checked and reported in this order:
                              unjudged harness=<h>>` per item the tracker holds
                              as work the fleet owes that launch_queue lacks:
                              with LINEAR_TEAM, the team's In Progress and In
-                             Review items, one live read, a priority of 0 (none)
+                             Review items, from the long pass's one live read
+                             that also supplies Verifying boxes. A priority of 0 (none)
                              printed `-`; with none, every open PR of the first
                              --repo on an issue-N branch, from a listing of its
                              own that exits 2 as owed-list-truncated at 1000.
@@ -934,6 +996,7 @@ Environment:
   OVERSEE_WATCH_STATE_DIR     one baseline file per repository — reducer,
                               triage, lane-asking, usage-limit, handoff,
                               account, outside-contribution, refresh-failing,
+                              main-push-failing,
                               security-alert, bot-fix and
                               security-alerts-unread rows; the mail pass's
                               file beside the first one holds
@@ -964,7 +1027,7 @@ Environment:
                               measures one
   ORCH_WATCH_LANE_AGE_SECS    seconds after a record's launched_at a running
                               or parked lane is reported lane-long, a positive
-                              whole number, default 14400
+                              whole number, default 12600
 USAGE
 }
 # stderr messages start `oversee-watch: REASON field=value ...`. Backslash,
@@ -996,6 +1059,7 @@ ow_message() { # REASON FIELD=VALUE...
     start-stall-secs-invalid) text='ORCH_WATCH_START_STALL_SECS takes a positive whole number of seconds, with no leading zero.' ;;
     start-stall-unread) text='The lane status file could not be read through lane-host, so whether the lane started settles nothing this pass: no start-stalled goes out for it and its row stands. The exit is lane_host_fetch'"'"'s: 2 a failed read, 4 no lane-host slot.' ;;
     refresh-unread) text='The refresh run list or failed-step log could not be read. A failed run-list read leaves the baseline intact; a failed log read reports cause=unread. The watch continues.' ;;
+    main-push-unread) text='The main-push run list, jobs or failed-step log could not be read. An unread run list or jobs leaves the incident intact; an unread log reports cause=unread. The watch continues.' ;;
     refresh-stale) text='GitHub answered the refresh run list with a page that judges nothing: newest= is the run it was checked against, the one the watch last read or, for a pair opening an incident or with none read, the newest completed run in the unfiltered list, none when it has none, and read= the newest run the page holds, none for an empty page. No pair is reported and none is cleared. The watch continues.' ;;
     refresh-order-unknown) text='The refresh run-list judgement named an order other than newer, same, older or unrecorded, so the run list cannot be judged.' ;;
     lane-rows-unread) text='The Pi lane session rows could not be read, so the lane reads unjudged this pass and its pane is not read in their place. The exit is lane_host_fetch'"'"'s for a hosted lane, 2 a failed read and 4 no lane-host slot; 0 is a file this read reached and could not read, or whose last row names an event no writer writes, and 2 on a local lane is a record naming no mail_root.' ;;
@@ -1015,7 +1079,7 @@ ow_message() { # REASON FIELD=VALUE...
     overseer-unrecorded) text='This start could not record the overseer pane in the fleet state, so the record stays as it was. The pane is still watched. '"$OW_REPLAY_RULE"' The held field is that line, none where the record holds none for this pane, or unread where the record, or the pane key or server start that names it, could not be read. The step field names what failed.' ;;
     overseer-notice-failed) text='An overseer notice could not be delivered on the channel the field names. A notice from a pass still had its event line printed; a notice from the watch start has none.' ;;
     overseer-relaunch-failed) text='oversee-succeed refused or failed the relaunch; the overseer is not replaced and this watch keeps running. Its own keyed line says why.' ;;
-    overseer-recovery-blocked) text='No account in the fleet qualifies for a successor, so the recovery stops rather than retry the same accounts. The fields name the spent account and the reset its banner states; a notice carrying both went to the fleet log and the overseer mailbox.' ;;
+    overseer-recovery-blocked) text='No account in the fleet qualifies for a successor, so the recovery stops rather than retry the same accounts. The notice reaches the fleet log and the overseer mailbox. Measured account and reset values come from an account mark. Unmeasured fields read account=unknown and resets=none. Login recovery has no usage reset: sign in to an account, then start a fresh overseer by hand.' ;;
     overseer-succeeded) text='A successor holds the dead overseer window and runs its own watch. This one stops rather than read the fleet twice.' ;;
     repeat-invalid) text='The repeat delay must be a non-negative integer.' ;;
     state-required) text='The option reads its lanes from the oversee workflow state. Add --state PATH.' ;;
@@ -1051,6 +1115,8 @@ ow_message() { # REASON FIELD=VALUE...
     time-failed) text='The current UTC time could not be read.' ;;
     tracker-list-failed) text='The tracker list command failed.' ;;
     tracker-list-invalid) text='The tracker list output could not be parsed.' ;;
+    missing-linear) text='The tracker path requires the linear skill checklist library beside orch.' ;;
+    verifying-invalid) text='The Verifying item has invalid post-merge metadata or an open branch-provable box. Correct its checklist before verification.' ;;
     owed-roster-invalid) text='The account listing read for the owed items could not be put to them, so the heartbeat names none.' ;;
     owed-accounts-unread) text='lanes list failed under this host, so the owed items on it read unjudged this heartbeat. Its own words follow.' ;;
     merged-search-truncated) text='The merged pull requests naming the item in their title or body, since --since, reached the search limit, so the item'"'"'s own pull request may be past it and its merge unreported. No merged event is judged from a partial list.' ;;
@@ -1067,6 +1133,7 @@ ow_message() { # REASON FIELD=VALUE...
     hosted-duplicate) text='Name each hosted item once.' ;;
     host-capabilities-unread) text='lane-host could not declare the capability line of a host a lane record names, or declared a value this watch has no arm for, so nothing says where that lane is read or how it is judged; lane-host'"'"'s own words are above this line. Nothing of the fleet is carried.' ;;
     lane-age-secs-invalid) text='ORCH_WATCH_LANE_AGE_SECS takes a positive whole number of seconds, with no leading zero.' ;;
+    lane-long-rounds-unread) text='The lane workflow state or its round counts could not be read. The lane-long event carries unavailable counts.' ;;
     lane-stall-secs-invalid) text='ORCH_WATCH_LANE_STALL_SECS takes a positive whole number of seconds, with no leading zero.' ;;
     lane-stall-unread) text='The digest of a lane pull request body could not be taken, so whether the lane moved is unknown. The watch stops rather than report a stall it did not measure.' ;;
     pr-read-failed) text='The open pull request on the item branch could not be listed, so this pass settles nothing about a lane whose kind writes no file this watch reads: no start-stalled or lane-stalled goes out for it and its rows stand. gh'"'"'s own words follow.' ;;

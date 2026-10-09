@@ -23,7 +23,19 @@ Problems with a kendex-owned skill go through `kendex report`; check ownership i
 
 VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, branch-size and commit-hook gates. Work targets main. PRs are optional; push directly or merge a PR immediately with gh, with no queue or CI wait. Review goes by risk: a change to code where a defect shows as a performance, stability, race, leak or lifetime problem (services, Quickshell or Hyprland IPC, processes and timers, file or socket watchers, object ownership and destruction, caches, concurrency, the plugin scan and publish path, the sandbox and smoke harness) runs one internal review round, the orch review panel, before the push; a change that is only layout, copy, styling, tokens, docs or a settings field runs none. The done line names which applied and why. Do not arm git guards. Run scripts/validate once on the final relevant diff; use --changed <last-validated-commit> for a fix round, and reuse passing results while those inputs are unchanged. Do not rerun a full battery at commit, push or submission. Use --full only for an explicit full sweep or an unmapped dependency. Keep the live-session safety rules.
 
+Kendex workflow policy VGS keeps (KEN-3470):
+
+- Plans, research reports, measurements and handoffs go under tmp/ (a report at the path its caller names) or on the owning tracker issue, and the caller attaches the final artifact to that issue; none is committed under docs/. Before a rewrite removes a tracked copy, preserve its evidence on that issue. Durable product and architecture documentation stays in the repository. (agent-planner-06, deep-research-10, DW12)
+- VGS hosts code on GitHub and tracks work in Linear: the GitHub and Linear skills stay available to the generic planning, management, research and implementation agents, tpm and frontend included, when their task uses those services. (catalog-declarations-10)
+- Linear, orch and project-management share one state-role map: the VGS team's live state names and lifecycle roles (Backlog, Todo, In Progress, In Review, Verifying, Done and Canceled where the team uses those names) in planning, audit, cycle, roadmap, activation, completion and research-completion operations. Read the live issue and its team's states before a transition. Verifying is post-merge evidence work. (LIN-027, ORCH-M09, PM-038)
+- The VGS estimate scale, in implementation, planned and review-created issues and review findings: 1 means hours, 2 half a day, 3 a day, 4 two to three days, 5 a week or more. The numeric field keeps this consumer-defined meaning. Reassess the estimate when implementation changes the scope. (DV17, ORCH-M22, RV20)
+- A worktree or Pi session in an explicitly recorded orch lane leaves kendex refresh and apply to the overseer in the base checkout after merge; an ordinary linked worktree keeps its own project resolution and complete drift repair guidance, and a linked Git directory alone is not a lane record. After an authorized documentation rewrite changes kendex-owned inputs, use that refresh and verification route and respect a launched lane's refresh restriction. (hook-session-drift-check-04, pi-hooks-M01, DW22)
+- Never kill a process by its name or argv pattern. Kill a PID recorded when you launched that process, or, on Linux, read /proc/PID/cwd and kill that PID only when the path is inside your own worktree; the /proc route is an alternative, not an extra condition on the recorded PID. (hook-block-argv-kill-03)
+
 <!-- kendex:shared-instructions:end -->
+
+VGS uses GitHub pull requests. Worktree ownership discovery checks the live GitHub pull requests as well as native Git refs before reuse or creation, and resolves the default branch, main, from WORKTREE_DEFAULT_BRANCH or the provider. (KEN-3470: WT-026)
+
 <!-- kendex:project-instructions:end -->
 
 # Worktree Management
@@ -46,7 +58,7 @@ Worktrees live at `<parent-of-checkout>/.worktrees/<checkout-name>/{id}`, outsid
 | `path` / `exists` | Print / check the worktree path for an issue ID; `path --hosted` prints the hosted lane path |
 | `merged` | Print the commit the issue tree's pull request merged as, asking about the branch that tree has checked out; exit 1 when none did, 2 when the lookup could not answer, a detached tree included (`merged --help`) |
 | `check` | Pre-create git state check (JSON: uncommitted, unpushed) |
-| `push` | Push worktree branch with auto-rebase and pinned `--force-with-lease`; on a merge-queue base with no up-to-date rule it pushes a cleanly merging branch unrebased and refuses a conflicting one toward `create --restack`. The `rebase-map:` contract for remapping pre-rebase SHAs is in `push --help` |
+| `push` | Push worktree branch to remote. Publication, rebase, force-with-lease and `rebase-map:` contracts: `push --help` |
 | `fix-links` / `repair-links` | Restore configured symlinks; `repair-links` is the git-hook-driven variant that never destroys untracked data |
 | `codex-setup` / `codex-branch` / `codex-cleanup`, `claude-setup` / `claude-cleanup` | App-created worktree hooks. Installation wiring: [references/hooks.md](references/hooks.md) |
 
@@ -54,7 +66,7 @@ Worktrees live at `<parent-of-checkout>/.worktrees/<checkout-name>/{id}`, outsid
 
 When an execution policy rejects top-level `git rebase` porcelain, never retry the porcelain and never substitute a raw `--force` push. Add `--replay` to the guarded restack (`create --help`); the controls stay `restack continue|skip|abort <ID>`.
 
-A branch is rebased only through `worktree push`, `create --restack`, or `create --reuse`, never a bare `git rebase`; use this section's replay fallback for recovery.
+A branch is rebased through `worktree push`, `create --restack`, or `create --reuse`. After a bare `git rebase`, `worktree push` republishes with a pinned lease when every remote commit has one exact local match in changed paths, modes and complete before/after file contents. A base update in the same file, missing work or an unproved comparison keeps the refusal and the fetch-and-integrate route. Use this section's replay fallback when execution policy blocks rebase.
 
 `create --reuse --keep-on-conflict` aborts a conflicting rebase and hands the tree back on its pre-rebase head with exit 76, for a relaunch that must start the session before the restack; a caller that needs the base omits the flag and keeps the failure (`create --help`).
 

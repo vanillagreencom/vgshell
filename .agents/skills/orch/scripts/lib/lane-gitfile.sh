@@ -38,14 +38,25 @@ lane_gitfile_common_dir() { # GITFILE_CONTENT
 # under the ambient setting.
 # ---------------------------------------------------------------------------
 
-# lane_host_fetch LANE_HOST_CLI ITEM PATH DEST ERRF — `lane-host cat --item
-# ITEM PATH` into DEST: 0 read, 1 not there, 2 failed, 4 lane-host refused the
-# call at its per-home cap, which says nothing about the host. Exit 2 is also
-# the dispatcher's own refusal, so it reads as a missing file only once `touch`
-# answers (schemas/lane-host.md). A failed read leaves no DEST; ERRF holds
-# what lane-host said.
+# lane_host_fetch LANE_HOST_CLI ITEM PATH DEST ERRF: read PATH into DEST from
+# the cached batch reply, or through `lane-host cat --item ITEM PATH` for a
+# single read. Returns 0 read, 1 not there, 2 failed, 4 dispatcher cap refusal.
+# Cached missing-file rows need no probe. A single-read exit 2 can also be a
+# dispatcher refusal, so only a successful `touch` confirms absence
+# (schemas/lane-host.md). A failed read leaves no DEST; ERRF holds the cause.
 lane_host_fetch() {
   local rc=0
+  if [[ -n "${LANE_HOST_READ_DIR:-}" ]]; then
+    source "$LANE_GITFILE_LIB/lane-host-read.sh" || return 2
+    lane_host_cached_read "$LANE_HOST_READ_DIR" "$2" "$3" "$4" "$5" || rc=$?
+    [[ "$rc" -ne 0 ]] || return 0
+    rm -f -- "${4:?}"
+    case "$rc" in
+      2) return 1 ;;
+      "$LANE_HOST_BUSY_EXIT") return 4 ;;
+      *) return 2 ;;
+    esac
+  fi
   "$1" cat --item "$2" "$3" >"$4" 2>"$5" || rc=$?
   [[ "$rc" -ne 0 ]] || return 0
   rm -f -- "$4"
@@ -103,12 +114,12 @@ lane_hosted_state_path() {
 }
 
 # lane_hosted_state_dir LANE_HOST_CLI ITEM ROOT SCRATCH — sets
-# LANE_HOSTED_STATE_DIR to the state directory the hosted lane at ROOT
-# resolves for itself, as workflow-state resolves it there: ORCH_STATE_DIR
+# LANE_HOSTED_STATE_DIR to an older hosted launch's state directory at ROOT,
+# where its state is absent at the location workflow-state --help names: ORCH_STATE_DIR
 # from ROOT's kendex.settings.toml, then .kendex/settings.toml, then its
 # private env file, .env.local unless those name another as KENDEX_ENV_FILE,
-# the later winning, else tmp. A hosted launch sets no ORCH_STATE_DIR, and the
-# caller's own names a directory on the caller's machine, never the lane's.
+# the later winning, else tmp. The caller's ORCH_STATE_DIR names a directory
+# on the caller's machine, never the lane's.
 # Each settings file is read as data, in a subshell, as `workflow-state
 # --no-private-env` reads another checkout's. The private env file is shell
 # the lane sources and this machine never runs, so only a literal
@@ -224,7 +235,7 @@ lane_archived_state() {
 # state directory of its own checkout, ROOT, where ROOT is a directory, so a
 # lane of another repository reads from that repository, and of the caller's
 # checkout where ROOT is gone or unrecorded; a hosted lane's is in the state
-# directory lane_hosted_state_dir reads for ROOT, joined to its clone, read
+# directory the launch uses, with lane_hosted_state_dir's older-launch fallback, read
 # through the probe above with ORCH_LANE_HOST set to HOST; STATE_DIR is the
 # local lane's alone. ARCHIVE, where given, is the `kept=` archive of a
 # hosted lane's close: where the host answers that the lane's worktree is
@@ -275,6 +286,15 @@ lane_hosted_item_state() {
     3) printf '%s\n' "$3/.git: ${LANE_HOSTED_GITLINE:-<empty>}" >"$4/state.err"; return 2 ;;
     *) return "$rc" ;;
   esac
+  lane_hosted_state_path "$LANE_HOSTED_CLONE" "$3/tmp" "$2"
+  rc=0
+  lane_host_fetch "$1" "$2" "$LANE_HOSTED_STATE_PATH" "$4/item-state.json" "$4/state.err" || rc=$?
+  case "$rc" in
+    0) LANE_ITEM_STATE="$(jq -c . -- "$4/item-state.json" 2>"$4/state.err")" || return 2; return 0 ;;
+    1) ;;
+    *) return "$rc" ;;
+  esac
+  rc=0
   lane_hosted_state_dir "$1" "$2" "$3" "$4" || return $?
   lane_hosted_state_path "$LANE_HOSTED_CLONE" "$LANE_HOSTED_STATE_DIR" "$2"
   lane_host_fetch "$1" "$2" "$LANE_HOSTED_STATE_PATH" "$4/item-state.json" "$4/state.err" || rc=$?

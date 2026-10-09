@@ -79,7 +79,7 @@ Check for a recorded runtime demotion before choosing persistent mode:
 .agents/skills/orch/scripts/workflow-state get [ISSUE_ID] '{observed: (.reviewer_slots_observed // 0), live: (.child_sessions // {} | [to_entries[] | select((.value.status // "active") == "active")] | length)}'
 ```
 
-`observed > 0` → wave mode at that size. Otherwise a budget of `0` is persistent mode, and a budget above `0` gives `REVIEWER_SLOTS = budget - 1 - live` (minimum 1; the `1` is this primary session), with wave mode when `[AGENTS]` exceeds it. A `child_sessions` record with no `status` counts as active. Recompute at every § 2 entry.
+On Codex MultiAgentV2, [skill-rules.md § Codex thread reuse](../references/skill-rules.md#codex-thread-reuse) replaces the active-only count above: read `spawn-adapter slots` and `list_agents`, counting every held thread and the primary once. Set `REVIEWER_SLOTS` to eligible finished reviewer threads plus `max(0, effective_cap - held threads)`. Bound the wave by a positive `reviewer_slots_observed` and by a nonzero configured budget after the primary and other active work. A zero-sized wave takes the held-thread wait in Codex thread reuse. Use wave mode when the panel exceeds this size; otherwise use persistent mode. Re-read before each spawn. On other surfaces, `observed > 0` → wave mode at that size. Otherwise a budget of `0` is persistent mode, and a budget above `0` gives `REVIEWER_SLOTS = budget - 1 - live` (minimum 1; the `1` is this primary session), with wave mode when `[AGENTS]` exceeds it. A `child_sessions` record with no `status` counts as active. Recompute at every § 2 entry.
 
 Read existing reviewer state before any spawn:
 
@@ -87,7 +87,7 @@ Read existing reviewer state before any spawn:
 .agents/skills/orch/scripts/workflow-state get [ISSUE_ID] '{review_agents: (.review_agents // []), review_agent_ids: (.review_agent_ids // {}), review_agent_runtime_types: (.review_agent_runtime_types // {})}'
 ```
 
-Classify each reviewer in `[AGENTS]` as reusable, context-exhausted, missing, closed, or confirmed-stuck. Reuse a live ID only under [Delegation](../references/skill-rules.md#delegation) for the target worktree. Apply that rule after a name-only resume too. Retire context-exhausted sessions and add them with the missing, closed, or confirmed-stuck sessions to `REVIEWERS_TO_LAUNCH`. Carry a reusable reviewer's existing runtime-type entry forward. On a RE-REVIEW whose panel shrank (§ 4 scopes it), retire the out-of-panel sessions first. **Do not spawn yet** — resolve § 2.1 first.
+Classify each reviewer in `[AGENTS]` as reusable, context-exhausted, missing, closed, or confirmed-stuck. Reuse a live ID only under [Delegation](../references/skill-rules.md#delegation) for the target worktree. Apply that rule after a name-only resume too. Apply [Codex thread reuse](../references/skill-rules.md#codex-thread-reuse) to Codex retirements; V1 closes the thread, while V2 keeps its slot allocated. Add context-exhausted sessions with the missing, closed, or confirmed-stuck sessions to `REVIEWERS_TO_LAUNCH`. Carry a reusable reviewer's existing runtime-type entry forward. On a RE-REVIEW whose panel shrank (§ 4 scopes it), retire the out-of-panel sessions first. **Do not spawn yet** — resolve § 2.1 first.
 
 ### 2.1 External Review Availability
 
@@ -103,19 +103,19 @@ A failure, `none`, or empty output sets `EXTERNAL_REVIEW_REQUESTED=false`; anyth
 
 ### 2.2 Launch And Delegate
 
-Spawn each reviewer in `REVIEWERS_TO_LAUNCH`, resolving Codex spawn parameters with `scripts/spawn-adapter spawn <reviewer-name>`. In **wave mode**, restrict this section to `[WAVE]` — the first up-to-`REVIEWER_SLOTS` reviewers in `[AGENTS]` not yet in `review_wave_done` — and reset the tracking on entry from § 2.1 (skip the reset when re-entering from § 3.2 for the next wave of the same cycle):
+Select an eligible finished thread or spawn each reviewer in `REVIEWERS_TO_LAUNCH` under [Codex thread reuse](../references/skill-rules.md#codex-thread-reuse), resolving fresh Codex spawn parameters with `scripts/spawn-adapter spawn <reviewer-name>`. In **wave mode**, restrict this section to `[WAVE]` — the first up-to-`REVIEWER_SLOTS` reviewers in `[AGENTS]` not yet in `review_wave_done` — and reset the tracking on entry from § 2.1 (skip the reset when re-entering from § 3.2 for the next wave of the same cycle):
 
 ```bash
 .agents/skills/orch/scripts/workflow-state set [ISSUE_ID] review_wave_done '[]'
 ```
 
-A retired reviewer has no session to reuse: recreate it fresh and write state with the live wave only. If a spawn fails with the runtime's thread-limit error, do not retry it and do not tear down the reviewers that did spawn — continue with those, fold the failed reviewer into a later wave, and use that smaller size for the rest of the cycle. Record the demotion in one write:
+On V1, a closed reviewer has no session to reuse: recreate it fresh. On V2, retirement keeps the thread allocated: reuse an eligible finished reviewer through `followup_task` with the complete delegation below. Write state for the assigned wave under canonical reviewer names. If a spawn fails with the runtime's thread-limit error, do not retry it and do not tear down the reviewers that did spawn — continue with those, fold the failed reviewer into a later wave, and use that smaller size for the rest of the cycle. Record the demotion in one write, counting assigned reusable threads as well as successful fresh spawns in `[OBSERVED_SPAWN_COUNT]` on V2:
 
 ```bash
 .agents/skills/orch/scripts/workflow-state update [ISSUE_ID] '.reviewer_slots_observed = [OBSERVED_SPAWN_COUNT] | .review_wave_done = []'
 ```
 
-Then tell the user once: `Runtime capped concurrent agent sessions — set REVIEWER_SLOT_BUDGET = "[OBSERVED_BUDGET]" in kendex.settings.toml [env]`, where `[OBSERVED_BUDGET]` is successful spawns + this session + live dev/QA sessions. If nothing spawned at all, report the misconfiguration and stop.
+Then tell the user once: `Runtime capped concurrent agent sessions — set REVIEWER_SLOT_BUDGET = "[OBSERVED_BUDGET]" in kendex.settings.toml [env]`, where `[OBSERVED_BUDGET]` is successful spawns + this session + live dev/QA sessions on other surfaces. On V2, report the `effective_cap` read from `spawn-adapter slots`; the active-only sum omits held finished threads. On V2, an empty fresh-spawn set first takes Codex thread reuse's eligible-thread and held-thread wave routes. Only after those routes cannot run the work, report the cap blocker that rule requires. On other surfaces, if nothing spawned at all, report the misconfiguration and stop.
 
 Store the active set:
 
@@ -126,10 +126,16 @@ Store the active set:
 Stamp the freshness boundary immediately before the delegation batch. In wave mode, re-stamp before each wave's batch:
 
 ```bash
+.agents/skills/orch/scripts/workflow-state new-round-id [ISSUE_ID] review_round_id
+```
+
+```bash
 .agents/skills/orch/scripts/workflow-state set-now [ISSUE_ID] review_delegated_at
 ```
 
-Delegate to every reviewer in the active set in parallel. When `EXTERNAL_REVIEW_REQUESTED=true`, launch the external review in the same batch — a shell command, not an agent session: it consumes no slot and joins only the cycle's first wave. Mint each reviewer's artifact path immediately before its delegation — one command per reviewer, its output filling `[ARTIFACT_PATH]`:
+Run [Store Review Stage Start](#store-review-stage-start) before delegating.
+
+For Codex, prepare each complete `DELEGATION:` message under [Codex thread reuse](../references/skill-rules.md#codex-thread-reuse), including the target reviewer's full instructions and workflow. A reused thread's fixed runtime instructions must permit that review. Delegate to every reviewer in the active set in parallel. When `EXTERNAL_REVIEW_REQUESTED=true`, launch the external review in the same batch — a shell command, not an agent session: it consumes no slot and joins only the cycle's first wave. Mint each reviewer's artifact path immediately before its delegation — one command per reviewer, its output filling `[ARTIFACT_PATH]`:
 
 ```bash
 .agents/skills/orch/scripts/review-artifact-check --path [WORKTREE_PATH] [AGENT]
@@ -177,6 +183,14 @@ Execute the exact command printed after `wait:` and repeat it per its exit code 
 
 `ok == true` → append the path to `json_paths`, carrying its `repeats` to § 4; `reason == "valid_undermeasured"` → report its `measurement_failed` string — and `measurement_suppressed` when present — beside the path; never present the external pass as clean. `ok == false`, including `moving_tree`, or any non-zero exit, → report the `reason` (and `detail` when present) and continue: external review is advisory, never blocking, and never substitutes a pass. A detached run that has already exited non-zero, or an artifact that does not validate, is **resolved** right then as `external: failed — [REASON]` (the script's exit class, or the check's `reason`) and leaves `OUTSTANDING` in § 3.1.
 
+### Store Review Stage Start
+
+Record one stage per delegated batch, including each wave. A repeated write keeps the existing stage.
+
+```bash
+.agents/skills/orch/scripts/workflow-state update [ISSUE_ID] '.review_round_id as $round | if any(.stages[]?; .round_id == $round) then . else .stages = ((.stages // []) + [{kind: "review", round_id: $round, start: .review_delegated_at, end: null}]) end'
+```
+
 ## 3. Collect Results
 
 **Persistent mode**: keep reviewers alive for § 4. **Wave mode**: retire each reviewer as its artifact validates, freeing the slot for the next wave.
@@ -210,18 +224,20 @@ Still `ok == false` after that, or the § 3.2 deadline reached → mark the agen
 
 ### 3.2 Watchdog
 
-**Keep a wake source armed for every incomplete agent (§ 3.1).** Background one `review-artifact-check [WORKTREE_PATH] [AGENT] [REVIEW_DELEGATED_AT] --wait [SECS] --issue [ISSUE_ID]` per agent. `[SECS]` ends at its earliest pending table row, or its deadline when no earlier row remains. The external lane uses § 2.2's `wait:` command. Arm with the delegation batch and re-arm after every action, including a ping. A promised completion extends nothing without re-arming. After artifact rejection (§ 3.1), set `[REVIEW_DELEGATED_AT]` strictly above the rejected artifact's mtime.
+**Keep a wake source armed for every incomplete agent (§ 3.1).** Arm one `review-artifact-check [WORKTREE_PATH] [AGENT] [REVIEW_DELEGATED_AT] --wait [SECS] --issue [ISSUE_ID]` per agent. On Codex, use [codex-runtime.md § Reviewer round wait](../references/codex-runtime.md#reviewer-round-wait) through the existing job runner and hold every completion in the current turn. Other harnesses use the check's `--help` background route. `[SECS]` ends at its earliest pending table row, or its deadline when no earlier row remains. The external lane uses § 2.2's `wait:` command. Arm with the delegation batch and re-arm after every action, including a ping. A promised completion extends nothing without re-arming. After artifact rejection (§ 3.1), set `[REVIEW_DELEGATED_AT]` strictly above the rejected artifact's mtime.
 
 **Replace a wake source without a verdict once, immediately.** `review-artifact-check` returns a result on stdout at exit 0 or 1. A keyed refusal at exit 2, or any other status, leaves the agent's deadlines unarmed. If the replacement also ends without a verdict, stop and report an environment failure with its status and any keyed line. Never arm a third source or mark the reviewer `unresponsive` for this failure.
 
 Sweep the filesystem on every wake. Per-agent deadline from `review_delegated_at`: 25 minutes for an agent whose name contains `perf`, 75 minutes for `reviewer-test`, 15 minutes for every other agent. The `reviewer-test` figure is one [`mutation-stability`](../../reviewer/scripts/mutation-stability) run at that script's defaults plus 5 minutes: a control build and test, a mutant build and test, and `--stability` clean-copy test runs, each bounded by `--timeout`, so (`--stability` + 4) × `--timeout`, 70 minutes at the defaults of 10 and 300 s. `skills/orch/tests/reviewer-test-deadline.test.sh` fails when the figure falls below that run. The external lane's printed deadline is absolute Unix epoch seconds; compare it with `date +%s`. If no deadline metadata prints, use 2 × `SECOND_OPINION_TIMEOUT` plus 3 minutes, with 1080 seconds as the timeout default. It is not a messageable agent, so the ping row and its early end never apply to it.
 
+**Active required measurement.** A responsive reviewer running the [reviewer skill's Mutation-Stability Pairing](../../reviewer/SKILL.md#mutation-stability-pairing) receives the `reviewer-test` deadline above, regardless of agent name. Its status reply must identify the active required measurement job. Apply this deadline before the post-ping and per-agent deadline rows. Keep it anchored to the original `review_delegated_at`; a reply does not restart the clock. Re-arm the wake source for this deadline. A promise without an active required job keeps the agent's usual deadline. Completion still requires § 3.1's validated artifact.
+
 | Event | Action |
 |-------|--------|
 | Return arrives | Run `review-artifact-check` (§ 3.1) |
-| 2 min after the first return, or 10 min from delegation with no returns — once per cycle (wave mode: per wave) | Ping each outstanding agent once (external exempt): `Status check on [ISSUE_ID] review — return your verdict if complete, or report the blocker.` |
-| 2 min after that ping | Mark each **agent** still outstanding `unresponsive`, bar a perf agent and `reviewer-test` — never the external lane |
-| Per-agent deadline (external: printed deadline, else 2 × timeout + 3 min) | Mark that agent or lane `unresponsive` |
+| 2 min after the first return, or 10 min from delegation with no returns — once per cycle (wave mode: per wave) | Ping each outstanding agent once (external exempt): `Status check on [ISSUE_ID] review: return your verdict if complete. If incomplete, report the blocker and identify any active required Mutation-Stability Pairing job.` |
+| 2 min after that ping | Mark each **agent** still outstanding `unresponsive`, except a perf agent, `reviewer-test`, or a responsive reviewer with an active required measurement as defined above. This row excludes the external lane. |
+| Per-agent deadline (external: printed deadline, else 2 × timeout + 3 min) | Mark that agent or lane `unresponsive` at its applicable deadline, including the active required measurement deadline above |
 
 Wave mode also shuts an `unresponsive` reviewer down and records it, so the slot frees and the reviewer does not relaunch this cycle:
 
@@ -229,7 +245,7 @@ Wave mode also shuts an `unresponsive` reviewer down and records it, so the slot
 .agents/skills/orch/scripts/workflow-state append [ISSUE_ID] review_wave_done "[AGENT]"
 ```
 
-`OUTSTANDING` empty (`unresponsive` counts as resolved) → § 3.3 in persistent mode; in wave mode, return to § 2.2 for the next wave while any reviewer in `[AGENTS]` is missing from `review_wave_done`, else § 3.3.
+`OUTSTANDING` empty (`unresponsive` counts as resolved) → read `.review_round_id` with `workflow-state get`, then run [dev-start.md § Store Stage End](dev-start.md#store-stage-end) for that id. Close the batch once, after all reviewers resolve, never on a reviewer's self-check. Then → § 3.3 in persistent mode; in wave mode, return to § 2.2 for the next wave while any reviewer in `[AGENTS]` is missing from `review_wave_done`, else § 3.3.
 
 ### 3.3 Present
 
@@ -329,11 +345,13 @@ At cap 0 (bare `cap REVIEW_MAX_CYCLES` prints `0`), a § 4 fix round or a submit
 | No files changed | → § 5 |
 | Anything else | → § 2 with caller context `agents` = the scoped panel below |
 
-The scoped panel is the union of the reviewers whose domains the round's diff touched, the reviewers who found the blockers it cleared, and external review when available. Select domains generously from the changed paths and their changes. Run every reviewer the diff plausibly concerns; omit reviewers with nothing to read. Record the scoping:
+The scoped panel is the reviewers whose domains the fix diff touches, the reviewers whose defect classes the round fixed (the blocker finders), and external review when available. A domain counts when the fix diff changes code or text that reviewer reads, not when the item's first diff did; omit reviewers with nothing in the fix diff to read. Record the scoping:
 
 ```bash
 .agents/skills/orch/scripts/workflow-state set [ISSUE_ID] rereview_panel '{"agents": [PANEL_AGENTS_JSON], "reason": "[DOMAINS_TOUCHED] + blocker finders + external"}'
 ```
+
+A panel holding every `first_panel` reviewer adds `"domain_reasons": {"[AGENT]": "[WHY THE FIX DIFF CONCERNS THIS DOMAIN]", ...}` with one entry per `first_panel` reviewer; `workflow-state` refuses a full copy without it as `panel-copy`.
 
 **The loop ends** when two consecutive cycles surface no new blocker, at this section's cap-0 exit, or when the At The Cap check ends it (the `rereview_panel` write raises `rereview_cycles`, refusing at the cap). The cap bounds NEW cycles, never verification, apart from that exit: a fix diff no reviewer has seen gets one focused verification pass, the `rereview_panel` rule scoped to that diff, and this loop's last fix round has budget for it; past the budget such a pass takes `verification_panel` instead, which the cap does not gate. That pass's items re-enter § 4, where the `fix set` decides what still delegates. In wave mode the panel replaces `[AGENTS]` for the cycle and wave mechanics apply unchanged.
 
@@ -403,7 +421,7 @@ Previous review cycle context (cycle [CYCLES]):
 - Do NOT re-report the fixed, escalated or declined items listed above, unless you check a listed fixed item against the current diff and the defect is still there — then report it again, copying that entry's location and description verbatim and naming its recorded commit sha in your recommendation, or saying it was recorded then dropped in a rebase when the entry carries no sha. A listed fixed item you did not check, and every listed escalated or declined item, stays suppressed. Otherwise report only new issues or regressions the fixes introduced.
 </delegation_format>
 
-Omit `[OWNER/REPO]` when `TRACKER=linear`. Stamp `review_delegated_at` before each QA delegation and accept the return through § 3.1's check; on `ok == true`, append the artifact path to `json_paths` and carry its `repeats` to § 7; when the agent reports a `benchmark_commit` other than `none`, confirm it resolves with `git -C [WORKTREE_PATH] log -1 --oneline [SHA]`. A performance QA agent's `qa_metadata.perf_qa` block is posted as an issue comment — Linear via `linear.sh comments create [ISSUE_ID] --body-file`, GitHub via `gh issue comment ${ISSUE_ID#issue-} --body-file` — written to a file first. A `pass` verdict continues to the next QA agent. After all QA agents complete, → § 7 — every verdict, every time: § 7 owns the exit and no branch here decides one around it, carrying the blockers and the `category == "fix"` suggestions not already in `escalated_items`. An item this round's QA artifact reports again is retained even when `fixed_items` lists it, as § 7 states.
+Omit `[OWNER/REPO]` when `TRACKER=linear`. Before each QA agent's initial delegation, mint `review_round_id` with `workflow-state new-round-id`, stamp `review_delegated_at` with `set-now`, and run [Store Review Stage Start](#store-review-stage-start). Accept the return through § 3.1's check; on `ok == true`, append the artifact path to `json_paths` and carry its `repeats` to § 7; when the agent reports a `benchmark_commit` other than `none`, confirm it resolves with `git -C [WORKTREE_PATH] log -1 --oneline [SHA]`. A performance QA agent's `qa_metadata.perf_qa` block is posted as an issue comment — Linear via `linear.sh comments create [ISSUE_ID] --body-file`, GitHub via `gh issue comment ${ISSUE_ID#issue-} --body-file` — written to a file first. When the QA reviewer resolves under §§ 3.1-3.2, including as `unresponsive`, run [dev-start.md § Store Stage End](dev-start.md#store-stage-end) for that `review_round_id` before the next QA delegation. The permitted artifact re-delegation keeps this stage open until the reviewer resolves. After all QA reviewers resolve, → § 7 — every verdict, every time: § 7 owns the exit and no branch here decides one around it, carrying the blockers and the `category == "fix"` suggestions not already in `escalated_items`. An item this round's QA artifact reports again is retained even when `fixed_items` lists it, as § 7 states.
 
 ## 7. Handle QA Items
 

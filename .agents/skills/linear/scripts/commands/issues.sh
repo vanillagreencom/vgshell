@@ -40,7 +40,7 @@ Workflow Actions (composite operations for dev):
                  assignee-skipped cause=unknown-email email=<email> (skipped)
   block          Block issue: add label + relation + comment
   unblock        Unblock issue: remove label + comment
-  complete       Complete issue: post optional summary comment, then set "Done"
+  complete       Complete issue: optional summary, then Done or post-merge Verifying
                  (--done-when-met ticks the met "## Done when" boxes in that
                  same update)
   validate-completion  Pre-merge check: state + summary comment
@@ -209,10 +209,17 @@ Complete Options:
   --format <fmt>        Output format: ids (identifier only); default is JSON.
   --summary <text>       Post a completion summary comment, then set "Done"
   --summary-file <path>  Read the summary from a file (preferred for markdown)
+  --post-merge-at <UTC>  Use the merged PR's mergedAt (YYYY-MM-DDTHH:MM:SSZ).
+                        Refuse open branch-provable boxes. Set Verifying when
+                        a post-merge box remains open, otherwise Done.
+                        Each Post-merge box names reading, Where, Why after
+                        merge and Deadline on one line. The deadline must be
+                        after mergedAt and at most three days later.
+                        Without this option, explicit completion sets Done.
   --done-when-met <all|N[,N...]>
                          Tick the "## Done when" checklist boxes the caller
                          verified as met, in the same issueUpdate that sets
-                         "Done". Boxes are numbered from 1 in the order the
+                         the completion state. Boxes are numbered from 1 in the order the
                          section lists them, checked ones included; "all"
                          ticks every box. A box not named stays unchecked. A
                          number past the section's last box refuses before
@@ -1282,6 +1289,10 @@ create_issue() {
     # The first request: the checks above need none, so they refuse first.
     linear_guard_create_team "$explicit_team" || return 1
 
+    # The same team id scopes project names, labels and the issue mutation.
+    local team_id
+    team_id=$(resolve_team_id "$team") || return 1
+
     # Resolve --project and --milestone BEFORE uploading: each can still
     # refuse — an unknown project, a milestone name with no project, an
     # ambiguous one, a failed lookup — and a refusal after the upload strands
@@ -1289,7 +1300,7 @@ create_issue() {
     # yield are what the input below carries.
     local project_id=""
     if [ -n "$project" ]; then
-        project_id=$(resolve_project_id "$project")
+        project_id=$(resolve_project_id "$project" "$team_id") || return 1
         if [ -z "$project_id" ]; then
             return 1
         fi
@@ -1308,12 +1319,6 @@ create_issue() {
     if [ -n "$assignee" ]; then
         assignee_id=$(resolve_assignee_id "$assignee") || return 1
     fi
-
-    # Shared resolver: it passes a team UUID straight through and tells an API
-    # failure apart from a genuine miss. Its id scopes every label lookup
-    # below, so an unknown team refuses here, before any of them or an upload.
-    local team_id
-    team_id=$(resolve_team_id "$team") || return 1
 
     # Handle labels (warn + skip on miss per label — EXCEPT agent:* labels:
     # the routing guard's promise is routed-or-refused, so an agent label
@@ -1788,7 +1793,11 @@ update_issue() {
     # after the upload strands the asset in Linear storage.
     local project_id=""
     if [ -n "$project" ]; then
-        project_id=$(resolve_project_id "$project")
+        if [[ -z "$team_id" && ! "$project" =~ $LINEAR_UUID_PATTERN ]]; then
+            jq -cn --arg issue "$issue_id" '{code: "ISSUE_TEAM_MISSING", issue: $issue, error: ("Issue team missing: " + $issue)}' >&2
+            return 1
+        fi
+        project_id=$(resolve_project_id "$project" "$team_id") || return 1
         if [ -z "$project_id" ]; then
             return 1
         fi
@@ -3013,30 +3022,7 @@ unblock_issue() {
     echo "{\"success\": true, \"identifier\": \"$identifier\", \"action\": \"unblocked\"}"
 }
 
-# Tick the `## Done when` checklist boxes MET names in DESCRIPTION.
-# Usage: done_when_tick DESCRIPTION MET
-# MET is the JSON string "all" or a JSON array of box numbers. Boxes are
-# numbered from 1 in section order, checked ones included, so a number names
-# the box a reader counted. Prints {description, ticked, missing}: missing
-# lists the numbers past the section's last box.
-done_when_tick() {
-    jq -cn --arg desc "$1" --argjson met "$2" '
-        reduce ($desc | split("\n"))[] as $line ({out: [], section: false, boxes: 0, ticked: 0};
-            (if ($line | test("^## Done when\\s*$")) then .section = true
-             elif ($line | startswith("## ")) then .section = false
-             else . end)
-            | if .section and ($line | test("^\\s*[-*] \\[[ xX]\\](\\s|$)")) then
-                .boxes += 1
-                | if ($line | test("^\\s*[-*] \\[ \\]")) and ($met == "all" or (.boxes as $n | $met | any(.[]; . == $n)))
-                  then .out += [$line | sub("\\[ \\]"; "[x]")] | .ticked += 1
-                  else .out += [$line] end
-              else .out += [$line] end)
-        | . as $r
-        | {description: ($r.out | join("\n")), ticked: $r.ticked,
-           missing: (if $met == "all" then [] else [$met[] | select(. > $r.boxes)] | unique end)}'
-}
-
-# Complete an issue: set state to "Done"
+# Complete an issue: explicit Done, or the merged checklist's Done/Verifying
 # Usage: complete_issue CC-XXX [--summary <text> | --summary-file <path>] [--done-when-met <all|N[,N...]>]
 # The summary comment is posted BEFORE the state transition so a failed post
 # never yields a Done issue without a completion summary. Unknown or trailing
@@ -3049,10 +3035,11 @@ complete_issue() {
     local issue_id="$1"
     shift
 
-    local usage="issues.sh complete <issue-id> [--summary <text> | --summary-file <path>] [--done-when-met <all|N[,N...]>]"
+    local usage="issues.sh complete <issue-id> [--summary <text> | --summary-file <path>] [--done-when-met <all|N[,N...]>] [--post-merge-at <UTC>]"
     local summary=""
     local summary_file=""
     local done_when_met=""
+    local post_merge_at=""
     local output_format=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -3065,6 +3052,16 @@ complete_issue() {
         --format=*)
             output_format="${1#*=}"
             linear_require_format "$output_format" ids || return 1
+            shift
+            ;;
+        --post-merge-at)
+            linear_require_option_value "$@" || return 1
+            post_merge_at="$2"
+            shift 2
+            ;;
+        --post-merge-at=*)
+            post_merge_at="${1#*=}"
+            [ -n "$post_merge_at" ] || return 1
             shift
             ;;
         --done-when-met)
@@ -3155,16 +3152,35 @@ complete_issue() {
             '{error: ("--done-when-met takes all or comma-separated box numbers from 1, got: " + $value)}' >&2
         return 1
     fi
+    if [ -n "$post_merge_at" ]; then
+        jq -en --arg stamp "$post_merge_at" '
+            $stamp | select(test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
+            | fromdateiso8601 | select(todateiso8601 == $stamp)' >/dev/null 2>&1 || {
+            jq -cn '{error: "post-merge-timestamp", option: "--post-merge-at"}' >&2
+            return 1
+        }
+    fi
     linear_guard_issue_team complete "$issue_id" || return 1
 
-    local update_args=(--state "Done")
+    local completion_state="Done"
+    local update_args=()
     local done_when_checked=""
-    if [ -n "$met_json" ]; then
+    if [ -n "$met_json" ] || [ -n "$post_merge_at" ]; then
         local issue_result description tick missing_count
         issue_result=$(get_issue "$issue_id" --format=raw) || return 1
         # The sentinel keeps a trailing newline the substitution would strip.
         description=$(jq -r '(.issue.description // "") + "."' <<<"$issue_result") || return 1
-        tick=$(done_when_tick "${description%.}" "$met_json") || return 1
+        tick=$(done_when_parse "${description%.}" "${met_json:-[]}" "$post_merge_at") || return 1
+        if [ -n "$post_merge_at" ]; then
+            if ! jq -e '(.errors | length) == 0 and all(.boxes[]; .checked or .post_merge)' <<<"$tick" >/dev/null; then
+                jq -c '{error: "post-merge-checklist", errors,
+                    unmet_branch_boxes: [.boxes[] | select(.checked == false and .post_merge == false) | .number]}' <<<"$tick" >&2
+                return 1
+            fi
+            if jq -e 'any(.boxes[]; .checked == false and .post_merge)' <<<"$tick" >/dev/null; then
+                completion_state="Verifying"
+            fi
+        fi
         missing_count=$(jq '.missing | length' <<<"$tick") || return 1
         if [ "$missing_count" -ne 0 ]; then
             jq -c --arg id "$issue_id" \
@@ -3178,6 +3194,8 @@ complete_issue() {
             update_args+=(--description "${ticked_description%.}")
         fi
     fi
+
+    update_args+=(--state "$completion_state")
 
     if [ -n "$summary" ]; then
         # validate-completion detects the summary by these markers; prefix the
@@ -3217,8 +3235,11 @@ complete_issue() {
             if [ -n "$done_when_met" ]; then
                 retry+=" --done-when-met $done_when_met"
             fi
-            jq -cn --arg retry "$retry'" \
-                '{error: ("State transition to Done failed after the summary comment was posted. Rerun " + $retry + " without summary flags to avoid a duplicate comment.")}' >&2
+            if [ -n "$post_merge_at" ]; then
+                retry+=" --post-merge-at $post_merge_at"
+            fi
+            jq -cn --arg retry "$retry'" --arg state "$completion_state" \
+                '{error: ("State transition to " + $state + " failed after the summary comment was posted. Rerun " + $retry + " without summary flags to avoid a duplicate comment.")}' >&2
         fi
         if [ -n "$update_result" ]; then
             echo "$update_result"
@@ -3232,8 +3253,8 @@ complete_issue() {
     fi
     local identifier
     identifier=$(echo "$update_result" | jq -r '.identifier // empty')
-    jq -cn --arg identifier "$identifier" --arg summary "$summary" --arg checked "$done_when_checked" \
-        '{success: true, identifier: $identifier, action: "completed"}
+    jq -cn --arg identifier "$identifier" --arg summary "$summary" --arg checked "$done_when_checked" --arg state "$completion_state" \
+        '{success: true, identifier: $identifier, action: "completed", state: $state}
          + (if $summary != "" then {summary_posted: true} else {} end)
          + (if $checked != "" then {done_when_checked: ($checked | tonumber)} else {} end)'
 }

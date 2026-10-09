@@ -4,18 +4,23 @@ Output protocol, which the commit-guards pre-commit lane and this package's
 suites read:
 
     refusal   bot-instructions: key=value   first line, on stderr, exit 2
+              bot-instructions: renders=none  second line, `unconfigured` only
     findings  bot-instructions: findings=N  first line, on stderr, exit 1
               then one line per finding
     bounds    region bounds<TAB>start<TAB>end   `region-bounds`, stdout, exit 0
+    owned     {"version":1,"paths":[...]}   `check --json`, stdout, exit 0
+
+`kendex verify` reads the owned report after a successful comparison. It lists
+whole files from the render's existing file map and grants no region ownership.
 
 The key names the condition and the value is that condition's subject: the
 repository or spec root for a failure reading them, the argument for a usage
 refusal, the interpreter for a launcher refusal, the count for findings, and
 the `--input` path for `region-bounds`. It is not always a path.
 
-`unconfigured` names the manifest read when it declares no `[bot-instructions]`
-table. review-gate's consumer refresh reads that record to leave a repo that
-installed this package and never configured it unrendered.
+`unconfigured` names the manifest read; `errors.Unconfigured` says when it is
+raised and which callers read it. Its `renders=none` line is the attestation
+`validators.md` § `orphan` defines.
 
 `region-input` is the one subject a person cannot open: the host writes the
 snapshot to a temporary file and unlinks it as soon as the child returns. The
@@ -26,6 +31,7 @@ contract. Exit codes: 0 clean, 1 findings, 2 could not complete.
 """
 
 import argparse
+import json
 import os
 import sys
 import traceback
@@ -75,6 +81,7 @@ def parser():
              "well as the outputs, so a pre-commit lane judges one coherent state",
     )
     p.add_argument("--dry-run", action="store_true", help="render: validate and write nothing")
+    p.add_argument("--json", action="store_true", help="check: report verified whole-file paths as JSON")
     p.add_argument("--input", default=None, help=argparse.SUPPRESS)
     return p
 
@@ -125,6 +132,8 @@ def main(argv=None):
     p = parser()
     p.given = tuple(sys.argv[1:] if argv is None else argv)
     args = p.parse_args(argv)
+    if args.json and args.verb != "check":
+        p.error("--json belongs to check")
     if args.verb == "region-bounds":
         if args.input is None:
             p.error("region-bounds requires --input")
@@ -198,12 +207,17 @@ def main(argv=None):
             from_spec = isinstance(exc, SpecError) or getattr(exc, "from_spec", False)
             subject = spec_root if from_spec else repo
         print(f"bot-instructions: {exc.key}={subject}", file=sys.stderr)
+        if exc.attestation is not None:
+            print(f"bot-instructions: {exc.attestation}", file=sys.stderr)
         print(str(exc), file=sys.stderr)
         return 2
     except Exception:  # a crash is not a finding either
         print(f"bot-instructions: crashed={repo}", file=sys.stderr)
         traceback.print_exc()
         return 2
+    if args.json:
+        print(json.dumps({"version": 1, "paths": sorted(ctx.build.files)}))
+        return 0
     for line in lines:
         print(line)
     return 0
