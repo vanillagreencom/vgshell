@@ -336,8 +336,10 @@ FocusScope {
                         // whose value is the entry's chip in its tone, or
                         // its text while it has no tone, so the label sits
                         // level with the chip, and a step's offered screen
-                        // as a RowAction beside it; then its lines and its
-                        // hint under the value, as a field draws them.
+                        // as a RowAction beside it, the chip no wider than
+                        // the value column less that action, eliding a long
+                        // state; then its lines and its hint under the
+                        // value, as a field draws them.
                         // Unkeyed, so each status write draws the entry
                         // anew.
                         Column {
@@ -364,6 +366,7 @@ FocusScope {
                                         spacing: Theme.stack.inline
                                         Badge {
                                             anchors.verticalCenter: parent.verticalCenter
+                                            width: Math.min(implicitWidth, setupState.bodyWidth - (setupState.valueX - setupState.leftPadding) - (setupAction.visible ? setupAction.implicitWidth + parent.spacing : 0))
                                             visible: setupState.view.tone !== ""
                                             text: setupState.view.text
                                             tone: setupState.view.tone === "" ? "neutral" : setupState.view.tone
@@ -375,6 +378,7 @@ FocusScope {
                                             text: setupState.view.text
                                         }
                                         RowAction {
+                                            id: setupAction
                                             anchors.verticalCenter: parent.verticalCenter
                                             visible: setupState.modelData.button !== null
                                             text: visible ? setupState.modelData.button.label : ""

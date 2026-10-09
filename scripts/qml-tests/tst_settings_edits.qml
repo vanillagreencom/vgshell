@@ -341,6 +341,26 @@ Item {
             releasePage(page, original);
         }
 
+        // A Setup state too long for the value column elides inside a chip
+        // that ends inside the page.
+        function test_a_long_setup_state_stays_inside_the_page() {
+            const original = root.pageRow;
+            const manifest = { status: { check: { type: "state", label: "Check", group: "Setup" } } };
+            const long = "The update check failed. Select Refresh to try again.";
+            root.pageRow = Object.assign({}, original, { binds: [], status: PluginLogic.statusRows(manifest, { check: { tone: "danger", text: long } }, []) });
+            const page = createTemporaryObject(pluginPageComponent, root);
+            try {
+                verify(page !== null);
+                const chip = () => descendants(page).find(child => child instanceof Badge && child.text === long && child.visible);
+                tryVerify(() => chip() !== undefined && chip().width > 0);
+                const right = () => chip().mapToItem(page, chip().width, 0).x;
+                verify(chip().mapToItem(page, 0, 0).x + chip().implicitWidth > page.width, "the fixture's state is too long for the page");
+                tryVerify(() => right() <= page.width + 0.5, 1000, "the chip ends inside the page: " + right() + " > " + page.width);
+            } finally {
+                releasePage(page, original);
+            }
+        }
+
         function test_builtin_and_matching_schema_group_share_one_section() {
             const original = root.pageRow;
             root.pageRow = Object.assign({}, original, {
