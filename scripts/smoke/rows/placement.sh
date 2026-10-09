@@ -966,7 +966,7 @@ if copy_tree placement-clock-zone-control \
 fi
 
 if copy_tree placement-clock-before-control \
-  && edit_tree placement-clock-before-control shell/Core/PluginLogic.js 'var before = slot < widgets.length ? clone(widgets[slot].locator) : null;' 'var before = null;'; then
+  && edit_tree placement-clock-before-control shell/Core/PluginLogic.js 'var before = target !== null ? clone(target.locator) : null;' 'var before = null;'; then
   stop_shell
   cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$sandbox/tree-placement-clock-before-control" "$sandbox/placement-clock-before-control.log" || fail "the clock neighbor control starts"

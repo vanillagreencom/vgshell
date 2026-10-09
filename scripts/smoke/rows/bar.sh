@@ -881,7 +881,7 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
   zone_button_right_click() { # LABEL
     local x y
     zone_place="$(zone_pick "json.dumps(d['right']['spans'][0])")" || { fail "$1: the right zone is unreadable"; return 1; }
-    wheel "$zone_wx" "$zone_wy" -1 && [[ $(zone_moved right "$zone_place" 1) == True ]] || { fail "$1: the wheel notch before it moved nothing"; return 1; }
+    hover "$zone_wx" "$zone_wy" && wheel "$zone_wx" "$zone_wy" -1 && [[ $(zone_moved right "$zone_place" 1) == True ]] || { fail "$1: the wheel notch before it moved nothing"; return 1; }
     zone_place="$(zone_pick "json.dumps(d['right']['spans'][0])")" && zone_under="$(zone_under_start right)" || { fail "$1: the right zone is unreadable"; return 1; }
     [[ $zone_under != none ]] || { fail "$1: no widget under the < button"; return 1; }
     read -r x y < <(zone_button right start) || { fail "$1: the < button has no place"; return 1; }
@@ -920,6 +920,12 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
   geometry expect "at rest the right zone's last widget meets its edge" True zone_pick "d['right']['ends'] == d['right']['ids'][-1:]"
   zone_rest="$(zone_shown right)" || fail "the resting right zone is unreadable"
   zone_middle
+  if zone_button_right_click "a right click on the < button"; then
+    geometry expect "a right click on the < button steps the zone" True zone_moved right "$zone_place" 1
+    expect "a right click on the < button opens no menu of the widget under it" false ipc smoke readInstance "$(bar_key)" "$zone_under" frameMenuOpen
+  fi
+  wheel "$zone_wx" "$zone_wy" 20 || fail "the wheel over the right zone failed"
+  geometry expect_poll "the zone returns to its end" "$zone_rest" zone_shown right
   if zone_clock_click "a right click on the clock over clipped widgets"; then
     expect_poll "a right click on the clock over clipped widgets opens the clock's menu alone" '[true, false]' zone_menus
     type_keys -k Escape || fail "Escape to the clock's menu failed"
@@ -927,12 +933,6 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
   fi
   zone_empty_menu "a right click on the empty bar over clipped widgets opens the add menu" True
   expect_poll "Escape closes the add menu" false ipc smoke readInstance "$(bar_key)" vgs.bar spacerMenuOpen
-  if zone_button_right_click "a right click on the < button"; then
-    geometry expect "a right click on the < button steps the zone" True zone_moved right "$zone_place" 1
-    expect "a right click on the < button opens no menu of the widget under it" false ipc smoke readInstance "$(bar_key)" "$zone_under" frameMenuOpen
-  fi
-  wheel "$zone_wx" "$zone_wy" 20 || fail "the wheel over the right zone failed"
-  geometry expect_poll "the zone returns to its end" "$zone_rest" zone_shown right
   zone_beside="$(zone_others)" || fail "the left zone and the centre are unreadable"
   # A wheel notch up steps toward the start and down toward the end; a
   # turn past the end stops there.

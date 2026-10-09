@@ -198,11 +198,19 @@ Item {
         // The room a shown button and its fade take from the view.
         readonly property real inset: startScroller.width
         // The scroll drawn now. Only a step slides it; a content width
-        // change moves the content at once, so a right zone keeps its edge,
-        // and one that leaves less to scroll clamps both at once, so a zone
-        // that clips again starts at rest.
+        // change moves the content at once. A right zone at rest keeps its
+        // edge, and one scrolled off it keeps the width it hides before the
+        // view, so the widgets it shows stay put. A change that leaves less
+        // to scroll clamps both, so a zone that clips again starts at rest.
         property real drawnScroll: 0
+        property real knownTravel: 0
         onTravelChanged: {
+            if (edge === Qt.RightEdge && scroll > 0) {
+                slide.stop();
+                scroll = Math.max(0, scroll + travel - knownTravel);
+                drawnScroll = scroll;
+            }
+            knownTravel = travel;
             if (scroll > travel) scroll = travel;
             if (drawnScroll > travel) {
                 slide.stop();
