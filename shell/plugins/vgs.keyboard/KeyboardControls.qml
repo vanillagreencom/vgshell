@@ -123,12 +123,7 @@ Column {
             id: variantSource
             setting: "variants"
             label: "Variants"
-            Label {
-                width: parent.width
-                role: "value"
-                text: Logic.sourceRows(root.sources, root.catalog).map(row => row.secondary).join(", ")
-                wrapMode: Text.Wrap
-            }
+            visible: messageKind === "config" || messageKind === "overridden"
         }
 
         Label {

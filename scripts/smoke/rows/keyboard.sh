@@ -182,6 +182,11 @@ expect_poll "the menu-opened panel is gone" 0 keyboard_panels
 expect "the Keyboard pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.keyboard"}'
 expect_poll "the Keyboard pane mounts" '["vgs.keyboard"]' window_panes
 expect_poll "the editor holds both sources and variants" '[["us", ""], ["de", "nodeadkeys"]]' keyboard_sources
+keyboard_variant_row() { ipc smoke readMatchingDescendant window vgs.keyboard KeyboardRow setting variants "$1"; }
+keyboard_variant_hidden_check() { expect "the Variants row hides without a conflict" false keyboard_variant_row visible; }
+keyboard_variant_warning() { keyboard_variant_row warning | py_reply 'import json,sys; print("shown" if json.load(sys.stdin) else "hidden")'; }
+expect_poll "the variants have no config conflict" '""' keyboard_variant_row messageKind
+keyboard_variant_hidden_check
 keyboard_wait || { keyboard_restore; return 0; }
 ok "the System window holds the keyboard before editor input"
 
@@ -298,7 +303,6 @@ expect_poll "the configured repeat rate applies after the action" 31 keyboard_op
 expect_poll "the mapped slider shows Hyprland's repeat rate" 31 ipc smoke readMatchingDescendant window vgs.keyboard Slider objectName repeatRate value
 expect_poll "the action returns focus to the repeat slider" true ipc smoke readMatchingDescendant window vgs.keyboard Slider objectName repeatRate activeFocus
 expect_poll "the mapped row hides its Hyprland action after the edit" false keyboard_source_row offersHyprlandValue
-keyboard_variant_row() { ipc smoke readMatchingDescendant window vgs.keyboard KeyboardRow setting variants "$1"; }
 keyboard_variant_focus() { ipc smoke readMatchingDescendant window vgs.keyboard DeviceList objectName inputSources activeFocus; }
 keyboard_variant_check() { expect "the variants action returns focus to the source-list editor" true keyboard_variant_focus; }
 keyboard_set_sources us intl
@@ -306,11 +310,16 @@ expect "the variant focus fixture reloads" ok ipc shell reloadConfig
 printf '%s\n' 'hl.config({ input = { kb_variant = "dvorak" } })' >>"$home/.config/hypr/hyprland.lua"
 expect "the variant config reloads" ok hypr reload config-only
 expect_poll "the mapped variant row reads the configured variant" '"dvorak"' keyboard_variant_row hyprlandConfigValue
+expect "the variant conflict identifies its warning" '"config"' keyboard_variant_row messageKind
+expect "the Variants row shows with a conflict" true keyboard_variant_row visible
+expect "the variant conflict offers the Hyprland value action" true keyboard_variant_row offersHyprlandValue
+expect "the variant conflict draws a warning" shown keyboard_variant_warning
 keyboard_source_focus || { keyboard_restore; return 0; }
 keyboard_editor_keys -k space || { keyboard_restore; return 0; }
 expect_poll "the variant action clears the saved value" '["absent", "absent"]' keyboard_saved_value variants
 expect_poll "the configured variant applies after the action" '"dvorak"' keyboard_option input:kb_variant str
 expect_poll "the variant action hides after the edit" false keyboard_variant_row offersHyprlandValue
+keyboard_variant_hidden_check
 keyboard_variant_check
 expect "the Keyboard source pane closes before its control" ok ipc shell hide window vgs.system
 expect "Keyboard disables before its source control" ok ipc shell setPluginEnabled vgs.keyboard false
@@ -322,6 +331,10 @@ path=pathlib.Path(sys.argv[1]);text=path.read_text()
 old='        onUseHyprlandValue: root.useHyprlandValue(setting)'
 assert text.count(old)==1
 path.write_text(text.replace(old,'        onUseHyprlandValue: {}'))
+text=path.read_text()
+old='            visible: messageKind === "config" || messageKind === "overridden"'
+assert text.count(old)==1
+path.write_text(text.replace(old,'            visible: true'))
 path=sys.argv[2];doc=json.load(open(path))
 for row in doc.get("plugins",[]):
     if row.get("id")=="vgs.keyboard":row["repeatRate"]=200
@@ -335,6 +348,10 @@ expect "the source control values reload" ok ipc shell reloadConfig
 expect "Keyboard enables for its source control" ok ipc shell setPluginEnabled vgs.keyboard true
 expect "the source control pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.keyboard"}'
 expect_poll "the source control still reaches the configured row" 31 keyboard_source_row hyprlandConfigValue
+expect_poll "the visibility control has no variant conflict" '""' keyboard_variant_row messageKind
+keyboard_variant_hidden_control() { (failures=0 behaviour_failures=0; keyboard_variant_hidden_check >"$sandbox/keyboard-variant-visible-control.log"; echo "$failures"); }
+expect "control: an always-shown Variants row fails the same visibility check" 1 keyboard_variant_hidden_control
+keyboard_control_log <"$sandbox/keyboard-variant-visible-control.log"
 keyboard_source_focus || { keyboard_restore; return 0; }
 keyboard_editor_keys -k space || { keyboard_restore; return 0; }
 keyboard_source_control() { (failures=0 behaviour_failures=0; keyboard_source_check >"$sandbox/keyboard-source-control.log"; echo "$failures"); }
