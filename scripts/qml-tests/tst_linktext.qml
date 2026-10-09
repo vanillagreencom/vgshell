@@ -5,7 +5,7 @@ import qs.Ui
 Item {
     id: root
     width: 420
-    height: 280
+    height: 320
 
     function labelOf(item) { return item.children[0]; }
 
@@ -52,8 +52,19 @@ Item {
         text: "Read the notes in hyprland.lua today."
         link: "hyprland.lua"
     }
+    // A link the full stop closes, so its box runs on to the stop.
+    LinkText {
+        id: closing
+        y: 240
+        width: 360
+        text: "Read the notes in hyprland.lua."
+        link: "hyprland.lua"
+    }
+    TextMetrics { id: before; font: labelOf(inline).font; text: "Read the notes in" }
     TextMetrics { id: prefix; font: labelOf(inline).font; text: "Read the notes in " }
     TextMetrics { id: words; font: labelOf(inline).font; text: "hyprland.lua" }
+    TextMetrics { id: wordsStop; font: labelOf(inline).font; text: "hyprland.lua." }
+    TextMetrics { id: wordsSpace; font: labelOf(inline).font; text: "hyprland.lua " }
     SignalSpy { id: activated; target: linked; signalName: "activated" }
 
     TestCase {
@@ -104,20 +115,33 @@ Item {
             return descendants(item).find(child => child.target === item && child.border !== undefined);
         }
 
+        // Each case: the item, the line its link is on, the run's start and
+        // width, and where the words beside it end and start, null where
+        // the line starts or the text ends.
         function test_focus_ring_goes_round_the_link_words() {
-            for (const [item, line, x] of [[inline, 0, prefix.advanceWidth], [wrapped, 1, 0]]) {
+            const cases = [
+                [inline, 0, prefix.advanceWidth, words.advanceWidth, before.advanceWidth, prefix.advanceWidth + wordsSpace.advanceWidth],
+                [wrapped, 1, 0, words.advanceWidth, null, wordsSpace.advanceWidth],
+                [closing, 0, prefix.advanceWidth, wordsStop.advanceWidth, before.advanceWidth, null]
+            ];
+            for (const [item, line, x, width, leftEnd, rightStart] of cases) {
                 const box = item.linkBox;
                 const lineBox = labelOf(item).lineBox;
                 compare(box.y, line * lineBox, "the words' line");
                 compare(box.height, lineBox, "one line box tall");
                 fuzzyCompare(box.x, x, 1, "the words' start");
-                fuzzyCompare(box.width, words.advanceWidth, 1, "the words' width");
+                fuzzyCompare(box.width, width, 1, "the words' width, punctuation against them included");
                 item.forceActiveFocus(Qt.TabFocusReason);
                 const ring = ringOf(item);
                 verify(ring !== undefined && ring.visible, "the focused link draws its ring");
-                const at = ring.mapToItem(item, 0, 0);
-                fuzzyCompare(at.x, box.x - ring.extent, 0.5, "the ring's left beside the words");
-                fuzzyCompare(ring.width, box.width + 2 * ring.extent, 0.5, "the ring as wide as the words and its gap");
+                const left = ring.mapToItem(item, 0, 0).x;
+                const right = left + ring.width;
+                verify(left + ring.border.width <= box.x, "the ring clears the words' start");
+                verify(right - ring.border.width >= box.x + box.width, "the ring clears the words' end");
+                if (leftEnd !== null)
+                    verify(left >= leftEnd + 1, "1 px clear of the word before: ring " + left + ", word end " + leftEnd);
+                if (rightStart !== null)
+                    verify(right <= rightStart - 1, "1 px clear of the word after: ring " + right + ", word start " + rightStart);
                 verify(ring.width < item.width, "the ring leaves the prose outside it");
             }
         }
