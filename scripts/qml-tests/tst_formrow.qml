@@ -9,7 +9,8 @@ import qs.Unit
 // box is `row.height` tall unless its control is taller; the label sits by
 // capital height and the control by its box; a message draws as hint text
 // under the value column, `field.gap` below the row box and wrapped to the
-// column, in its tone's colour, grows the row by the gap and its own
+// column, in its tone's colour, or in the role `warningRole` names, grows
+// the row by the gap and its own
 // height, and moves neither the label nor the control; an action draws on
 // the message's line, on the row's end edge, the message wrapping before
 // it, only while the row has a message and the action shows, and goes on a
@@ -52,6 +53,8 @@ Item {
         FormRow { id: warnedLast; width: parent.width; label: "Click"; warning: "Overridden"; Switch { size: "sm" } }
     }
 
+    FormRow { id: roled; y: 840; width: 420; label: "Speed"; warning: "Overridden"; warningRole: "tooltip"; Switch { size: "sm" } }
+
     TestCase {
         name: "formrow"
         when: windowShown
@@ -88,6 +91,12 @@ Item {
             compare(labelOf(plain).y, labelOf(plain).topForCapCenter(plain.height), "the label sits by capital height");
             fuzzyCompare(centreIn(toggle, plain), plain.height / 2, 1);
             verify(!messageOf(plain).visible, "a row without a message draws one");
+        }
+
+        function test_a_message_draws_in_the_role_the_row_names() {
+            const message = roled.children.find(child => child.role === "tooltip");
+            verify(message !== undefined && message.visible, "the row draws no message in the role it names");
+            verify(messageOf(roled) === undefined, "the row draws a hint message too");
         }
 
         function test_a_taller_control_grows_the_row() {
