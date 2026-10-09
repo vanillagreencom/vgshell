@@ -19,18 +19,20 @@ BarWidget {
 
     // Each speed holds the width it lays out to at the rate sample and
     // draws right aligned in it, so the arrow stays beside its rate and the
-    // held room sits before the arrow. Stacked, each is one short line.
+    // held room sits before the arrow. Stacked lines left-align in one
+    // block, with the held room before the whole block.
     component Speed: Item {
         id: speed
         property string arrow: ""
         property string rate: ""
         property string sample: ""
         property bool stacked: false
-        implicitWidth: line.implicitWidth + reading.room
+        readonly property real heldWidth: line.implicitWidth + reading.room
+        implicitWidth: stacked ? line.implicitWidth : heldWidth
         implicitHeight: line.implicitHeight
         Row {
             id: line
-            anchors.right: parent.right
+            anchors.right: speed.stacked ? undefined : parent.right
             spacing: Theme.row.lineGap
             BarItem.Reading { stacked: speed.stacked; text: speed.arrow; color: Theme.color.accent }
             BarItem.Reading { id: reading; stacked: speed.stacked; text: speed.rate; sample: speed.sample; font.capitalization: Font.MixedCase }
@@ -63,15 +65,17 @@ BarWidget {
         tooltipDetails: (root.traffic.interfaces || []).map(row => row.name + "  ↓ " + root.rate(row.down) + "  ↑ " + root.rate(row.up))
         onClicked: root.toggle()
         contentItem: Item {
-            implicitWidth: rates.implicitWidth
+            implicitWidth: root.stacked ? Math.max(speeds.itemAt(0)?.heldWidth || 0, speeds.itemAt(1)?.heldWidth || 0) : rates.implicitWidth
             implicitHeight: rates.implicitHeight
             Grid {
                 id: rates
-                anchors.centerIn: parent
+                x: root.stacked ? Math.round((parent.width + parent.implicitWidth) / 2 - width) : (parent.width - width) / 2
+                anchors.verticalCenter: parent.verticalCenter
                 columns: root.stacked ? 1 : 2
                 columnSpacing: Theme.stack.inline
-                horizontalItemAlignment: Grid.AlignRight
+                horizontalItemAlignment: root.stacked ? Grid.AlignLeft : Grid.AlignRight
                 Repeater {
+                    id: speeds
                     model: root.directions
                     Speed {
                         required property string modelData

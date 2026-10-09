@@ -13,7 +13,8 @@ import "../../shell/plugins/vgs.traffic" as Traffic
 // where 0 B/s put it, so the bar does not shift, and the held room sits
 // before each arrow, so an arrow stays beside its rate. The Stacked layout
 // draws the upload line over the download line inside the item, each
-// arrow beside its rate.
+// arrow beside its rate. Both stacked arrows start at the block's left
+// edge, with the held room before that block.
 Item {
     id: root
     width: 600
@@ -194,12 +195,39 @@ Item {
                 const tops = found.map(line => line.arrow.mapToItem(item, 0, 0).y);
                 if (data.stacked) {
                     verify(tops[1] >= tops[0] + found[0].arrow.height, "the download line is under the upload line");
-                    compare(Math.round(found[0].rate.mapToItem(item, found[0].rate.width, 0).x), Math.round(found[1].rate.mapToItem(item, found[1].rate.width, 0).x), "both rates end at one right edge");
+                    compare(found[0].arrow.mapToItem(item, 0, 0).x, found[1].arrow.mapToItem(item, 0, 0).x, "both arrows start at one left edge");
                 } else {
                     compare(tops[1], tops[0], "the two speeds draw on one line");
                 }
             }
             compare(item.height, Theme.bar.item.height);
+        }
+
+        function test_stacked_arrows_share_a_column_data() {
+            return [{ tag: "low", down: 2048, up: 0 },
+                { tag: "high", down: 1023 * 1048576, up: 1023 * 1024 }];
+        }
+        function test_stacked_arrows_share_a_column(data) {
+            widget.settings = { layout: "Stacked" };
+            verify(waitForRendering(widget));
+            const nextAt = first.x;
+            status.values = { traffic: { down: data.down, up: data.up, interfaces: [] } };
+            verify(waitForRendering(widget));
+            const found = lines(), item = button();
+            const start = found[1].arrow.mapToItem(item, 0, 0).x;
+            compare(found[0].arrow.mapToItem(item, 0, 0).x, start);
+            verify(start >= item.leftPadding, "the block stays inside the left padding");
+            if (data.tag === "low") verify(start > item.leftPadding, "the spare width sits before the arrows");
+            compare(widget.implicitWidth, 102);
+            compare(first.x, nextAt, "the next widget does not move");
+            for (const line of found)
+                compare(line.rate.x, line.arrow.width + Theme.row.lineGap, "the rate follows its arrow");
+            const shortLine = found[0].arrow.parent;
+            shortLine.parent.width = found[1].arrow.parent.width;
+            shortLine.anchors.right = shortLine.parent.right;
+            verify(waitForRendering(widget));
+            expectFail("", "a right-aligned shorter line breaks the shared arrow column");
+            compare(found[0].arrow.mapToItem(item, 0, 0).x, start);
         }
     }
 }
