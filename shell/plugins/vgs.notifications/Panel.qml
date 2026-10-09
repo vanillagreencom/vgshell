@@ -23,10 +23,15 @@ FocusScope {
     property var rows: []
     readonly property int rowCount: rows.length
     // Whether the service keeps rows past the page shown; the list asks for
-    // the next page when its view reaches its end or a key moves onto its
-    // last row.
+    // the next page when a key moves onto its last row, or when the user
+    // moved its view to its end. A refresh replaces every card, and the
+    // content can stand shorter than the view while they are built, which
+    // reads as the view at its end with nobody having moved it: so the
+    // view counts only while the content overflows it, the view has left
+    // its top and no refresh runs.
     property bool more: false
-    readonly property bool listAtEnd: listScroll.flickable.atYEnd
+    readonly property bool listAtEnd: !refreshing && listScroll.flickable.contentHeight > listScroll.flickable.height
+        && listScroll.flickable.contentY > 0 && listScroll.flickable.atYEnd
     onListAtEndChanged: if (listAtEnd) showMore()
     property int currentIndex: 0
     property int actionIndex: -1

@@ -2132,6 +2132,7 @@ panel_view_y() {
 wait_for "control: turning the list to its end shows a page more" 80 60 panel_wheel_end
 expect "the wheel left the selection on the newest row" "Bulk 85" panel_selected_summary
 expect "control: the view keeps its place once the page is added" scrolled panel_view_y
+expect "the page the wheel added leaves the rest for End" 80 panel_count
 expect_poll "the full history panel holds the keyboard on its list" True panel_focus_on_list
 type_keys -k End || fail "sending End to the history panel failed"
 expect_poll "control: End onto the last row shows the rest" "$panel_total" panel_count
