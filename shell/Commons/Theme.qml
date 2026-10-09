@@ -13,7 +13,10 @@ import "Inset.js" as Inset
 // cannot protect. A theme change replaces the groups and rebuilds no component:
 // a binding on a group re-evaluates, and a handler that needs every group
 // from one theme runs on `revisionChanged`, which fires after the last
-// group holds the new theme. The bundled fonts load here, so their families
+// group holds the new values. `documentRevision` rises after it, and only
+// for another theme document: a handler that reads what a theme package or
+// an apply changed runs on it, so an edit of the user's Appearance values
+// does not start it. The bundled fonts load here, so their families
 // are available before any component asks for them; a family a theme names
 // that Qt does not list is logged once and drawn with the bundled family the
 // token's default names.
@@ -22,6 +25,7 @@ Singleton {
 
     readonly property string name: source.name
     readonly property int revision: source.revision
+    readonly property int documentRevision: source.documentRevision
     // The theme file's state as ThemeSource last read it: `pending`, then
     // `loaded`, `absent`, `refused` or `unreadable`. A refused edit moves it
     // without a new revision.
@@ -30,10 +34,9 @@ Singleton {
     // "" for none. Config alone binds it; scripts/check-plugin-boundary.py
     // refuses a plugin that names it.
     property string appearanceInput: ""
-    // Where each Appearance value comes from, frozen: { input, the
-    // appearanceInput it was resolved from; values; theme; sources;
-    // hyprland } (ThemeLogic.withAppearance). The groups below already
-    // hold the resolved values.
+    // Where each Appearance value comes from, frozen: { values, theme,
+    // sources, hyprland } (ThemeLogic.withAppearance). The groups below
+    // already hold the resolved values.
     readonly property var appearanceState: source.appearance
 
     readonly property var scheme: published.scheme

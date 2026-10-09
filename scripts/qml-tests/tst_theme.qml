@@ -9,8 +9,9 @@ import qs.Unit
 // rises after the groups hold the new theme, and a refused document changes
 // nothing. The user's Appearance values, Theme's one input, resolve over the
 // theme before the revision rises, an equal text resolves nothing again,
-// and no text draws the theme alone. The pixel rows read colours back from
-// a rendered item.
+// and no text draws the theme alone. The document revision rises for
+// another theme document and never for an Appearance value. The pixel rows
+// read colours back from a rendered item.
 Item {
     id: root
     width: 200
@@ -85,7 +86,6 @@ Item {
             compare(Theme.revision, revision + 1);
             compare(Theme.popover.radius, 9, "a flyout takes three quarters of the corner radius");
             compare(root.radiusAtRevision, 9, "the groups hold the values before the revision rises");
-            compare(Theme.appearanceState.input, text);
             compare(Theme.appearanceState.sources.windowRadius, "user");
             verify(Object.isFrozen(Theme.appearanceState));
             Theme.appearanceInput = JSON.stringify({ windowRadius: 12 });
@@ -95,6 +95,18 @@ Item {
             Theme.appearanceInput = "";
             compare(Theme.popover.radius, 0, "no text draws the theme alone");
             compare(Theme.appearanceState.sources.windowRadius, "theme");
+        }
+
+        function test_the_document_revision_follows_the_theme_document_alone() {
+            const document = Theme.documentRevision;
+            const revision = Theme.revision;
+            Theme.appearanceInput = JSON.stringify({ windowRadius: 12 });
+            compare(Theme.revision, revision + 1, "the Appearance value is published");
+            compare(Theme.documentRevision, document, "an Appearance value is no new theme document");
+            compare(UnitTheme.override({ palette: { accent: "#123456" } }), "ok");
+            compare(Theme.documentRevision, document + 1, "another theme document raises it once");
+            Theme.appearanceInput = "";
+            compare(Theme.documentRevision, document + 1);
         }
 
         // expected-log: appearance: refused: windowRadius=99 -- the refused member the test plants is logged

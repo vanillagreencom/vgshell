@@ -29,13 +29,15 @@ Scope {
     property var accepted: defaults
     // The accepted theme: its name and its resolved values under the
     // user's Appearance values, a tree in the table's shape, and
-    // `appearance`, withAppearance's `appearance` with `input`, the
-    // userText it read. `revision` rises after all three hold the new
-    // result.
+    // `appearance`, withAppearance's `appearance`. `revision` rises after
+    // all three hold a new result, and `documentRevision` after it only
+    // when the result comes from another theme document, so an edit of the
+    // user's Appearance values leaves it.
     property string name: defaults.name
     property var values: defaults.values
     property var appearance: ThemeLogic.published(Tokens.TOKENS, defaults, "").appearance
     property int revision: 0
+    property int documentRevision: 0
     // The file: `pending` until its first read, then `loaded`, `absent`,
     // `refused` or `unreadable`.
     property string state: "pending"
@@ -45,11 +47,13 @@ Scope {
     function publish(next) {
         const result = ThemeLogic.published(Tokens.TOKENS, next, userText);
         for (const line of result.logs) console.error(line);
+        const document = next !== accepted;
         accepted = next;
         name = next.name;
         values = result.values;
         appearance = result.appearance;
         revision += 1;
+        if (document) documentRevision += 1;
     }
 
     WatchedFile {

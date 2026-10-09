@@ -293,7 +293,7 @@ FocusScope {
     // An apply from elsewhere changes the applied theme's images.
     Connections {
         target: Theme
-        function onRevisionChanged() {
+        function onDocumentRevisionChanged() {
             if (!root.busy) root.refresh();
         }
     }

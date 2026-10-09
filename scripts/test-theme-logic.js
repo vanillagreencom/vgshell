@@ -943,15 +943,14 @@ function verifyAppearance(judge) {
     assert.deepEqual(plain(refused.appearance.values), {}, "refused members hold no value");
     for (const [key, value] of [["windowRadius", 32], ["windowRadius", 0], ["windowRadius", "hyprland"], ["borderWidth", 20], ["borderWidth", "hyprland"], ["controlRadius", 16], ["motion", true], ["motion", false], ["motionStyle", "smooth"], ["motionSpeed", 0.5], ["motionSpeed", 2], ["windowAnimations", true]])
         assert.equal(judge.appearanceRefusal(key, value), "", key + "=" + JSON.stringify(value) + " is accepted");
-    for (const [key, value] of [["windowRadius", 33], ["windowRadius", "12"], ["borderWidth", 21], ["controlRadius", 17], ["controlRadius", "hyprland"], ["motionSpeed", 0.25], ["motionSpeed", "hyprland"], ["motion", "hyprland"], ["windowAnimations", false], ["motionStyle", "none"], ["corner", 1], ["windowRadius", undefined]])
+    for (const [key, value] of [["windowRadius", 33], ["windowRadius", "12"], ["windowRadius", 12.5], ["borderWidth", 0.5], ["controlRadius", 4.25], ["borderWidth", 21], ["controlRadius", 17], ["controlRadius", "hyprland"], ["motionSpeed", 0.25], ["motionSpeed", "hyprland"], ["motion", "hyprland"], ["windowAnimations", false], ["motionStyle", "none"], ["corner", 1], ["windowRadius", undefined]])
         assert.ok(judge.appearanceRefusal(key, value).startsWith("refused: "), key + "=" + JSON.stringify(value) + " is refused");
-    // What Theme publishes: the values, the frozen sources with the text
-    // they were read from, and a line per refused member. A value the
+    // What Theme publishes: the values, the frozen sources and a line per
+    // refused member. A value the
     // theme's own expressions cannot take draws the theme alone: here a
     // theme's offset of 300 control radii leaves the length range.
     const text = JSON.stringify({ windowRadius: 12, controlRadius: 99 });
     const published = judge.published(TOKENS, shipped, text);
-    assert.equal(published.appearance.input, text, "the publication names the text it read");
     assert.ok(Object.isFrozen(published.appearance) && Object.isFrozen(published.appearance.sources), "the publication is frozen");
     assert.equal(at(published.values, "surface.radius"), 9, "the publication resolves the accepted members");
     assert.equal(published.logs.length, 1, "one line per refused member");
@@ -1175,6 +1174,8 @@ const CONTROLS = [
     ["appearance ratios on a user value alone", "if (member.targets !== undefined && typeof values[key] === \"number\")\n            member.targets.forEach(function (target) { stated[target[0]] = values[key] * APPEARANCE_RATIOS[target[1]]; });", "if (member.targets !== undefined)\n            member.targets.forEach(function (target) { stated[target[0]] = (typeof values[key] === \"number\" ? values[key] : shown[key]) * APPEARANCE_RATIOS[target[1]]; });"],
     ["appearance hyprland value on a group member", "if (member.hyprland !== undefined && value === \"hyprland\")", "if (value === \"hyprland\")"],
     ["appearance range", "value >= member.min && value <= member.max", "true"],
+    ["appearance length is whole", "(member.type !== \"length\" || Number.isInteger(value))", "true"],
+    ["appearance number takes a fraction", "(member.type !== \"length\" || Number.isInteger(value))", "Number.isInteger(value)"],
     ["appearance flag only", "member.only !== undefined ? value === member.only : typeof value === \"boolean\"", "typeof value === \"boolean\""],
     ["appearance choice", "if (member.options.indexOf(value) !== -1)\n            return \"\";", "return \"\";"],
     ["appearance unknown member", "if (!hasOwn(APPEARANCE, key))\n        return \"refused: appearance=\" + key + \" unknown\";", "if (!hasOwn(APPEARANCE, key))\n        return \"\";"],
@@ -1189,7 +1190,6 @@ const CONTROLS = [
     ["appearance unset source", "(member.unset || \"theme\")", "\"theme\""],
     ["appearance layer groups", "hyprland[member.hyprland] = sources[key] !== \"hyprland\";", "hyprland[member.hyprland] = true;"],
     ["appearance theme speed", "motionSpeed: themeScale > 0 ? 1 / themeScale : 1", "motionSpeed: 1"],
-    ["appearance published input", "    appearance.input = text;\n", ""],
     ["appearance published fallback", "result = withAppearance(tokens, accepted, {});\n    }", "}"],
     ["accept states its overrides", "values: result.values, overrides: stated.overrides };", "values: result.values, overrides: {} };"]
 ];

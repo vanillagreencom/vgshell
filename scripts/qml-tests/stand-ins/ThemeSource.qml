@@ -17,6 +17,7 @@ QtObject {
     property var values: defaults.values
     property var appearance: ThemeLogic.published(Tokens.TOKENS, defaults, "").appearance
     property int revision: 0
+    property int documentRevision: 0
     property string state: "unit"
 
     onUserTextChanged: publish(accepted)
@@ -24,11 +25,13 @@ QtObject {
     function publish(next) {
         const result = ThemeLogic.published(Tokens.TOKENS, next, userText);
         for (const line of result.logs) console.error(line);
+        const document = next !== accepted;
         accepted = next;
         name = next.name;
         values = result.values;
         appearance = result.appearance;
         revision += 1;
+        if (document) documentRevision += 1;
     }
 
     // Accept one document; answers "ok" or the refusal line, which is also

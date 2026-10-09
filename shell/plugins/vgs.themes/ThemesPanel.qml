@@ -274,7 +274,7 @@ Item {
     // `current` and `modified` follow.
     Connections {
         target: Theme
-        function onRevisionChanged() { root.refresh(); }
+        function onDocumentRevisionChanged() { root.refresh(); }
     }
 
     implicitWidth: Theme.size.panel.lg

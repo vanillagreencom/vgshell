@@ -157,7 +157,7 @@ Item {
 
     Connections {
         target: Theme
-        function onRevisionChanged() { root.refreshData(); }
+        function onDocumentRevisionChanged() { root.refreshData(); }
     }
 
     // QFileSystemWatcher observes directory renames as well as removal.

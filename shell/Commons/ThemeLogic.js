@@ -1057,9 +1057,10 @@ function appearanceRefusal(key, value) {
     case "number":
         if (member.hyprland !== undefined && value === "hyprland")
             return "";
-        if (typeof value === "number" && isFinite(value) && value >= member.min && value <= member.max)
+        if (typeof value === "number" && isFinite(value) && value >= member.min && value <= member.max
+            && (member.type !== "length" || Number.isInteger(value)))
             return "";
-        want = member.min + ".." + member.max + (member.hyprland !== undefined ? "|hyprland" : "");
+        want = (member.type === "length" ? "whole " : "") + member.min + ".." + member.max + (member.hyprland !== undefined ? "|hyprland" : "");
         break;
     case "flag":
         if (member.only !== undefined ? value === member.only : typeof value === "boolean")
@@ -1149,9 +1150,9 @@ function frozen(value) {
 
 // What Theme publishes for ACCEPTED, an accept or defaults answer, under
 // TEXT, shell.json `appearance` as JSON text or "" for none: { values,
-// appearance, logs }. `appearance` is withAppearance's, deep-frozen, with
-// `input` TEXT; `logs` are the lines to log, one per refused member, and the
-// resolver's refusal, after which the theme alone is drawn.
+// appearance, logs }. `appearance` is withAppearance's, deep-frozen; `logs`
+// are the lines to log, one per refused member, and the resolver's refusal,
+// after which the theme alone is drawn.
 function published(tokens, accepted, text) {
     var logs = [];
     var result = withAppearance(tokens, accepted, text === "" ? {} : JSON.parse(text));
@@ -1160,7 +1161,5 @@ function published(tokens, accepted, text) {
         result = withAppearance(tokens, accepted, {});
     }
     result.refusals.forEach(function (refused) { logs.push("appearance: " + refused.line); });
-    var appearance = JSON.parse(JSON.stringify(result.appearance));
-    appearance.input = text;
-    return { values: result.values, appearance: frozen(appearance), logs: logs };
+    return { values: result.values, appearance: frozen(JSON.parse(JSON.stringify(result.appearance))), logs: logs };
 }

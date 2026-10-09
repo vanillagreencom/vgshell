@@ -248,7 +248,7 @@ FocusScope {
     // An apply from elsewhere changes the cards' applied and installed state.
     Connections {
         target: Theme
-        function onRevisionChanged() {
+        function onDocumentRevisionChanged() {
             if (root.pendingApply !== null) root.completeApply(root.pendingApply.name, root.pendingApply.line, root.pendingApply.downloaded);
             else if (!root.busy) root.refresh();
         }

@@ -50,10 +50,7 @@ Scope {
     // PluginLogic.hyprlandSection for every enabled plugin.
     readonly property var sections: Registry.hyprlandSections
     readonly property bool touchpadsNeeded: Layer.wantsTouchpads(root.sections)
-    // Theme resolves the user's Appearance values from Config's text; a
-    // render waits until it has resolved the text Config now holds.
     readonly property bool inputsReady: Registry.scanned && Config.ready && Theme.fileState !== "pending"
-        && Theme.appearanceState.input === Config.appearanceText
         && (!touchpadsNeeded || Capabilities.hyprland.touchpads !== null || Capabilities.hyprland.devicesFailure !== "")
     readonly property real highestMonitorScale: {
         let highest = 1;
@@ -157,6 +154,12 @@ Scope {
         }
     }
 
+    // Config's Appearance text reaches Theme inside the turn that changes
+    // it (Config's Binding, ThemeSource.onUserTextChanged), and a render
+    // made part way through that turn holds the theme alone. Qt.callLater
+    // runs the feed once the engine is back in the event loop
+    // (https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method), and the
+    // feed reads `rendered` then, so only the settled text is written.
     onRenderedChanged: Qt.callLater(() => feed({ type: "render" }))
 
     // Write the layer and reload Hyprland now, whatever the bytes, reading
