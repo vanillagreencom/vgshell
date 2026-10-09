@@ -58,7 +58,7 @@ Item {
 
         function handOver(name) {
             compare(handlers["report-apply"](name), "ok");
-            compare(service.reported.name, name);
+            compare(service.reported, name);
         }
 
         function init() {
@@ -85,7 +85,7 @@ Item {
             publish(null, "nord");
             if (data.handOver) handOver("nord");
             publish(data.result);
-            compare(service.reported, null, "no hand-over waits once the result came");
+            compare(service.reported, "", "no hand-over waits once the result came");
             if (data.tone === null) {
                 compare(notices.length, 0, "no notice");
                 return;
@@ -98,10 +98,8 @@ Item {
 
         // The result current at the hand-over is an earlier apply's: a new
         // `last` that carries it again, the running apply changed or not,
-        // is no answer, and the hand-over waits for the next result. Under
-        // qt6-declarative 6.11.2 a binding that evaluates to the identical
-        // object emits no change, so this holds without the service's
-        // `before` comparison too.
+        // is no answer, and the hand-over waits for the next result: a
+        // binding that evaluates to the identical object emits no change.
         function test_result_current_at_hand_over_is_not_the_answer() {
             const earlier = { state: "partial", theme: "akane", reason: null };
             publish(earlier);
@@ -110,12 +108,12 @@ Item {
             publish(earlier, "nord");
             publish(earlier);
             compare(notices.length, 0, "the earlier result sends nothing");
-            compare(service.reported.name, "nord", "the hand-over still waits");
+            compare(service.reported, "nord", "the hand-over still waits");
             const answer = { state: "partial", theme: "nord", reason: null };
             publish(answer);
             compare(notices.length, 1, "the next result is the answer");
             compare(JSON.stringify(notices[0]), JSON.stringify(BrowserLogic.applyNotice("nord", answer)));
-            compare(service.reported, null);
+            compare(service.reported, "");
         }
     }
 }

@@ -59,7 +59,7 @@ Item {
         shell.ipc.handle("gaps", () => root.toggleGaps());
         shell.ipc.handle("browser-data", revision => revision === String(root.dataRevision) ? "" : root.dataText);
         shell.ipc.handle("refresh-browser-data", () => { root.refreshData(); return "ok"; });
-        shell.ipc.handle("report-apply", name => { root.reported = { name: name, before: root.applyResult }; return "ok"; });
+        shell.ipc.handle("report-apply", name => { root.reported = name; return "ok"; });
         refreshData();
         checkSetup();
     }
@@ -83,13 +83,15 @@ Item {
         if (registeredWith !== null) checkSetup();
     }
     readonly property var applyResult: themeLast === null ? null : themeLast.result
-    // The apply the browser handed over, { name, before }, `before` the
-    // apply result current at the hand-over; null when none waits.
-    property var reported: null
+    // The package of the apply the browser handed over, "" when none waits.
+    // The hand-over comes while that apply runs, and the result current
+    // then does not change applyResult again, so the next change is its
+    // answer.
+    property string reported: ""
     onApplyResultChanged: {
-        if (reported === null || applyResult === reported.before) return;
-        const notice = BrowserLogic.applyNotice(reported.name, applyResult);
-        reported = null;
+        if (reported === "") return;
+        const notice = BrowserLogic.applyNotice(reported, applyResult);
+        reported = "";
         if (notice === null) return;
         const reply = shell.notify.send(notice);
         if (reply !== "ok") console.error("themes: notice " + reply);
