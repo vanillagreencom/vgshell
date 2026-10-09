@@ -27,6 +27,10 @@ var HISTORY_MAX = 720;
 var HISTORY_AGE = 24 * 3600 * 1000;
 var PANEL_ROWS_MAX = 40;
 var LIVE_MAX = 20;
+// The service holds the notification of at most the newest HELD_MAX history
+// entries, beside the toasts on screen: a held notification keeps a
+// sender's raw image data in memory for as long as it is held.
+var HELD_MAX = 100;
 // Text a sender supplies is stored up to these lengths, so the state file
 // holds at most (HISTORY_MAX + LIVE_MAX) entries of bounded size.
 var SUMMARY_MAX = 512;
@@ -1395,13 +1399,14 @@ function heldAfterLeave(reason, transient) {
     return null;
 }
 
-// The held keys whose entries are no longer stored: neither a toast on
-// screen nor in the history, so nothing can reach them. `live` and
-// `history` are the stored entries.
+// The held keys the service lets go: neither a toast on screen nor among
+// the newest HELD_MAX history entries. An entry past them stays in the
+// history with no live actions, as one restored after a restart does.
+// `live` and `history` are the stored entries, the history newest first.
 function heldPastHistory(keys, live, history) {
     var stored = {};
     for (var i = 0; i < live.length; i++) stored[live[i].key] = true;
-    for (var j = 0; j < history.length; j++) stored[history[j].key] = true;
+    for (var j = 0; j < history.length && j < HELD_MAX; j++) stored[history[j].key] = true;
     return keys.filter(function (k) { return !stored[k]; });
 }
 

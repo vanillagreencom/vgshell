@@ -376,6 +376,10 @@ function verify(logic) {
         assert.equal(logic.heldAfterLeave(reason, transient), want, `held after ${reason} transient=${transient}`);
     same(logic.heldPastHistory(["a", "b", "c", "d"], [stored(1, 1, { key: "a" })], [stored(2, 2, { key: "c" })]), ["b", "d"], "held past the history");
     same(logic.heldPastHistory([], [], []), [], "nothing held");
+    // The newest hundred history entries and the toasts on screen keep
+    // their notifications; the 101st entry on lets its go, entry kept.
+    const deep = Array.from({ length: 102 }, (_, i) => stored(5000 - i, i));
+    same(logic.heldPastHistory(["live", deep[0].key, deep[99].key, deep[100].key, deep[101].key], [stored(6000, 1, { key: "live" })], deep), [deep[100].key, deep[101].key], "held past the newest hundred");
 
     // The sender's windows: [label, windows, entry, addresses]. Those of
     // its desktop entry, else of its name, case folded; for a browser's web
@@ -854,6 +858,8 @@ const CONTROLS = [
     ["an invoked notification is closed on the server", 'if (reason === "invoke") return "dismiss";', 'if (reason === "invoke") return transient ? "dismiss" : "keep";'],
     ["a dismissal closes", 'if (reason === "dismiss") return "dismiss";', 'if (reason === "dismiss") return "keep";'],
     ["a held key past the history", "return keys.filter(function (k) { return !stored[k]; });", "return [];"],
+    ["held past the newest HELD_MAX", "for (var j = 0; j < history.length && j < HELD_MAX; j++)", "for (var j = 0; j < history.length; j++)"],
+    ["HELD_MAX is a hundred", "var HELD_MAX = 100;", "var HELD_MAX = 720;"],
     ["a held toast on screen stays", "for (var i = 0; i < live.length; i++) stored[live[i].key] = true;", ""],
     ["the sender's windows by name", "if (named.length > 0) return named.map(windowAddress);", ""],
     ["every window of the name", "if (named.length > 0) return named.map(windowAddress);", "if (named.length > 0) return [windowAddress(named[0])];"],

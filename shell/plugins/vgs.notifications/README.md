@@ -17,7 +17,7 @@ Screenshots come from `scripts/readme-shots.sh` in the nested sandbox, with the 
 - Silence keeps new notifications in History without showing them on screen.
 - A normal notification stays on screen for at least the Notification duration. A critical one stays until closed. Pointing at a notification pauses its timer.
 - Pointing at a notification shows its actions. A click runs its main action, such as View in Slack, and brings the application's window into view. An action removes the notification from the screen. Dismiss, or a right click, removes it from the screen.
-- Enter opens the selected notification in the panel. Delete dismisses it.
+- Enter opens the selected notification in the panel, which keeps it. Delete, or Dismiss on its card, removes it from the panel and from History.
 - A file notification opens the file in your editor, or in the default app for the file.
 - Slack notifications show sender initials and workspace icons without setup. Custom emoji appear when Slack has saved their images. See [Slack notifications](slack.md).
 - The panel says so when the saved history cannot be read. Clear history starts a new one.

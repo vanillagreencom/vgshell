@@ -373,7 +373,7 @@ release_runs
 expect_poll "the first open run ends" idle key_idle vgs.notifications/open
 # The busy open's own notice is newer than the kept card, so the click
 # names the kept card by its key.
-expect "a click on the kept card opens its file" left notes choose "{\"key\": \"$(key_of "Hinted other")\", \"choice\": \"open\"}"
+expect "a click on the kept card opens its file, its entry kept" kept notes choose "{\"key\": \"$(key_of "Hinted other")\", \"choice\": \"open\"}"
 expect_poll "the kept card's click hands the open TUI its own file" "$(words vgs.notifications/open tui/open.sh "$hint_other")" recorded_tail
 expect_poll "the kept card leaves once its file opens" none key_of "Hinted other"
 wait_for "the open notice leaves when its lifetime ends" '[]' 12 open_notices
@@ -1886,18 +1886,32 @@ type_keys -k End || fail "sending End to the notification inbox failed"
 expect_poll "End selects the oldest notification" "Keyboard first" panel_selected_summary
 type_keys -k Home || fail "sending Home to the notification inbox failed"
 expect_poll "Home selects the newest notification" "Keyboard fourth" panel_selected_summary
+# An opened row stays listed and selected, its toast gone; Delete removes
+# the selected row from the list and from the history.
 type_keys -k Return || fail "sending Return to the selected notification failed"
 expect_poll "Return opens the selected notification's default action" 1 delivered "$keyboard_fourth_id" default
-expect_poll "Return removes the opened keyboard row" none key_of "Keyboard fourth"
-expect_poll "the inbox list has focus after Return removes a row" True panel_focus_on_list
+# The panel's choice ran in one call with the delivery, so the selection
+# read after the delivery is the one the reply left.
+expect "control: the selection stays on the opened row" "Keyboard fourth" panel_selected_summary
+expect_poll "Return takes the opened notification off the screen" none key_of "Keyboard fourth"
+expect_poll "the opened keyboard row stays in the inbox" True has_row panel "Keyboard fourth"
+expect_poll "the inbox list has focus after Return opens a row" True panel_focus_on_list
+type_keys -k Down || fail "sending Down past the opened row failed"
+expect_poll "Down selects the row after the opened one" "Keyboard third" panel_selected_summary
 type_keys -k Delete || fail "sending Delete to the notification inbox failed"
 expect_poll "Delete dismisses the selected notification" none key_of "Keyboard third"
 expect_poll "Delete closes the selected notification on the server" 1 closed_on_server "$keyboard_third_id"
+expect_poll "control: Delete removes the dismissed row from the inbox" False has_row panel "Keyboard third"
+expect "control: Delete removes the dismissed row from the history" False in_history "Keyboard third"
+expect_poll "the selection moves to the next row after Delete" "Keyboard second" panel_selected_summary
 expect_poll "the inbox list has focus after Delete removes a row" True panel_focus_on_list
 type_keys -k Right -k Return || fail "sending Right and Return to the inbox action pill failed"
 expect_poll "Return on a selected pill delivers its default action" 1 delivered "$keyboard_second_id" default
-expect_poll "Return on a selected pill removes its row" none key_of "Keyboard second"
-expect_poll "the inbox list has focus after Return removes an action row" True panel_focus_on_list
+expect_poll "Return on a selected pill takes its notification off the screen" none key_of "Keyboard second"
+expect "the row acted on stays in the inbox" True has_row panel "Keyboard second"
+expect_poll "the inbox list has focus after Return runs an action" True panel_focus_on_list
+type_keys -k Down || fail "sending Down past the row acted on failed"
+expect_poll "Down selects the last live row" "Keyboard first" panel_selected_summary
 type_keys -k Left -k Right -k Right -k Space || fail "sending Left, Right and Space to the inbox action pill failed"
 expect_poll "Space on a selected pill delivers its action" 1 delivered "$keyboard_first_id" reply
 expect_poll "Space on a selected pill removes its row" none key_of "Keyboard first"
@@ -2076,10 +2090,10 @@ expect "a malformed Silence argument is refused" 'refused: silence="loud" want=o
 
 # The history keeps a bulk past two panel pages whole, the 720 it holds at
 # most being NotificationLogic's, which its suite pins. The panel shows a
-# page of forty, a page more once a key moves onto its last row, and the
-# rest as its list's view is turned to its end. The history is emptied
-# first, so the transient entry above, which holds no notification, leaves
-# the held count to the bulk.
+# page of forty, a page more as its list's view is turned to its end, with
+# the view left where it was, and the rest once a key moves onto its last
+# row. The history is emptied first, so the transient entry above, which
+# holds no notification, leaves the held count to the bulk.
 expect "clearing the history before the bulk is allowed" ok notes clear-history
 expect_poll "the history is empty before the bulk" 0 history_count
 for i in $(seq 1 85); do notify smoke-bulk 0 "Bulk $i" "" '[]' '{}' 0 >/dev/null; done
@@ -2091,11 +2105,10 @@ expect "the oldest is kept" True in_history "Bulk 1"
 held_within_history() { notes status | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["held"] <= d["history"] + d["onScreen"] and d["held"] >= d["history"])'; }
 expect_poll "the held notifications are the kept bulk and the toasts on screen at most" True held_within_history
 panel_total="$(( $(note_status history) + $(note_status onScreen) ))"
+expect "the bulk and the toasts on screen fill a third page" True python3 -c 'import sys; print(80 < int(sys.argv[1]) <= 120)' "$panel_total"
 expect "the history panel opens on the full history" ok notes history
 expect_poll "the full history panel shows its first page of forty rows" 40 panel_count
-expect_poll "the full history panel holds the keyboard on its list" True panel_focus_on_list
-type_keys -k End || fail "sending End to the history panel failed"
-expect_poll "control: End onto the last row shows a page more" 80 panel_count
+expect_poll "the full history panel selects its newest row" "Bulk 85" panel_selected_summary
 # panel_wheel_end: the history panel's list, the view holding the newest
 # bulk card, turned ten notches down at its centre once at rest; prints the
 # panel's row count.
@@ -2108,7 +2121,20 @@ panel_wheel_end() {
   hover "$x" "$y" && wheel "$x" "$y" 10 || return
   panel_count
 }
-wait_for "control: the history panel shows every kept entry once its list is turned to its end" "$panel_total" 60 panel_wheel_end
+# panel_view_y: the history panel's list view once at rest, `scrolled` past
+# its top or `top`, else view_at_rest's words.
+panel_view_y() {
+  local view
+  view="$(view_at_rest panel vgs.notifications "Bulk 85")" || return
+  [[ $view == \{* ]] || { echo "$view"; return 0; }
+  py_reply 'import json,sys; print("scrolled" if json.load(sys.stdin)["contentY"] > 0 else "top")' <<<"$view"
+}
+wait_for "control: turning the list to its end shows a page more" 80 60 panel_wheel_end
+expect "the wheel left the selection on the newest row" "Bulk 85" panel_selected_summary
+expect "control: the view keeps its place once the page is added" scrolled panel_view_y
+expect_poll "the full history panel holds the keyboard on its list" True panel_focus_on_list
+type_keys -k End || fail "sending End to the history panel failed"
+expect_poll "control: End onto the last row shows the rest" "$panel_total" panel_count
 hover "$((mon_w - 5))" "$((mon_h - 5))" || fail "moving the pointer off the history panel failed"
 expect "the panel closes over IPC" ok notes close
 expect_poll "the panel closed" '""' read_notes panelMode
@@ -2172,7 +2198,8 @@ os.replace(p + ".tmp", p)
 PY
 }
 # Age: an entry older than a day leaves the history when the service
-# starts, in the file and in the History panel; a younger one stays.
+# starts, so neither the file nor the History panel holds it; a younger one
+# stays. The panel's own age filter is the logic suite's.
 expect "disabling the notifications before the aged entry is allowed" ok ipc shell setPluginEnabled vgs.notifications false
 expect_poll "the service is gone before the aged entry" False record_exists vgs.notifications
 plant_state 'd["history"] = [entry("Young entry", 901, now - 3600 * 1000), entry("Aged entry", 902, now - 25 * 3600 * 1000)]'
@@ -2182,7 +2209,7 @@ expect_poll "control: the entry older than a day leaves the state file" False in
 expect "the entry an hour old stays in the state file" True in_history "Young entry"
 expect "the history panel opens over the aged entry" ok notes history
 expect_poll "the entry an hour old is a History row" True has_row panel "Young entry"
-expect "control: the entry older than a day is no History row" False has_row panel "Aged entry"
+expect "the entry older than a day is no History row" False has_row panel "Aged entry"
 expect "the history panel over the aged entry closes" ok notes close
 expect_poll "the history panel over the aged entry closed" '""' read_notes panelMode
 

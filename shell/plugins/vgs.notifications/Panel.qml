@@ -145,7 +145,10 @@ FocusScope {
             if (selectedKey !== previousKey || actionIndex >= actionsOf(currentIndex).length) actionIndex = -1;
             refreshing = false;
             updateSelectionHover();
-            nav.reveal(currentIndex);
+            // A selection that kept its row and place keeps the view where
+            // it is, so a page added at the list's end leaves a scrolled
+            // view at the rows the user scrolled to.
+            if (selectedKey !== previousKey || currentIndex !== previousIndex) nav.reveal(currentIndex);
         } catch (e) {
             console.warn("notifications panel: state " + e.message);
             more = false;
@@ -214,7 +217,7 @@ FocusScope {
 
     function choose(key, choice) {
         const reply = call("choose", JSON.stringify({ key: key, choice: choice }));
-        if (reply !== "left" && reply !== "held") console.warn("notifications panel: choose " + reply);
+        if (reply !== "left" && reply !== "kept" && reply !== "held") console.warn("notifications panel: choose " + reply);
         refresh();
         if (reply === "left") dropLocal(key);
         if (opened) Qt.callLater(() => {

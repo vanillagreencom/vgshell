@@ -64,7 +64,8 @@ Item {
     // its history entry can still open (NotificationLogic.heldAfterLeave),
     // until that entry goes, the user dismisses or acts on it or its sender
     // closes it.
-    // At most one per stored entry, so the history's limit bounds them.
+    // At most one per toast on screen and per one of the newest
+    // NotificationLogic.HELD_MAX history entries (heldPastHistory).
     // `links` are the [signal, handler] pairs connected to it, disconnected
     // when the service lets go of it.
     property var held: ({})
@@ -942,16 +943,24 @@ Item {
             const request = JSON.parse(String(arg || "{}"));
             if (typeof request.key !== "string" || typeof request.choice !== "string") return "refused: choose=shape";
             const mode = panelMode === "history" ? "history" : "inbox";
-            const left = choose(request.key, request.choice);
+            const chosen = choose(request.key, request.choice);
+            // A dismiss on a panel card clears that entry, a toast's on
+            // screen too, whose leave put it in the history.
+            if (chosen && request.choice === "dismiss") store.dropHistory(request.key);
+            // `left` when the row left the panel's list, `kept` when the
+            // choice ran and its entry stays listed, `held` when it did not
+            // run.
+            const reply = !chosen ? "held" : panelEntries().some(e => e.key === request.key) ? "kept" : "left";
             if (panelOpen) showPanel(mode);
-            return left ? "left" : "held";
+            return reply;
         } catch (e) {
             return "refused: choose=json";
         }
     }
 
     // Close, as `how` says, every held notification whose entry the store
-    // no longer keeps, trimmed off the history's end or cleared with it.
+    // no longer keeps, trimmed off the history's end or cleared with it, or
+    // whose entry fell past the newest HELD_MAX, which keeps its entry.
     function releaseUnstored(how) {
         for (const key of Logic.heldPastHistory(Object.keys(held), store.live, store.history)) unlink(key, how);
     }
