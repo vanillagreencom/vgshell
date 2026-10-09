@@ -49,6 +49,9 @@ PopupWindow {
     // on what lies under the popup, outside the grab, which dismisses it.
     mask: Region { item: sized }
     Component.onCompleted: Qt.callLater(() => setMotion(1, false))
+    // Quickshell PopupWindow::onClosed sets the wanted visibility false
+    // after the compositor closes the xdg_popup, so that path cannot commit
+    // a closing frame.
     onVisibleChanged: {
         if (!visible) {
             if (returnFocusWasVisual && returnFocusItem !== null && returnFocusItem.forceActiveFocus !== undefined) {
@@ -89,6 +92,18 @@ PopupWindow {
 
     function finishDismiss() {
         visible = false;
+    }
+
+    function closeFromHost() {
+        slot.closeInstance();
+        requestDismiss();
+    }
+
+    function reopenFromHost() {
+        slot.resetCloseState();
+        closing = false;
+        visible = true;
+        setMotion(1, false);
     }
 
     // The height from the anchor's bottom edge to the output's bottom, less

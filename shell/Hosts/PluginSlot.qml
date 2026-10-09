@@ -30,6 +30,7 @@ FocusScope {
     // Call the instance's close() before destroying it: a summoned kind's
     // host sets it, so a plugin closed by hide or by being disabled hears it.
     property bool closeOnUnload: false
+    property bool closeCalled: false
     property var releaseInputSurface: null
     readonly property var inputWindow: slot.Window.window
     onInputWindowChanged: {
@@ -84,18 +85,26 @@ FocusScope {
 
     function unload() {
         if (instance !== null) {
-            if (closeOnUnload) {
-                try {
-                    instance.close();
-                } catch (e) {
-                    console.error("plugin slot: " + pluginId + " close() failed: " + e.message);
-                }
-            }
+            closeInstance();
             Plugins.destroyInstance(instance, loadedHostKey);
             instance = null;
         }
         loadedKey = "";
         loadedHostKey = "";
+    }
+
+    function closeInstance() {
+        if (instance === null || !closeOnUnload || closeCalled) return;
+        closeCalled = true;
+        try {
+            instance.close();
+        } catch (e) {
+            console.error("plugin slot: " + pluginId + " close() failed: " + e.message);
+        }
+    }
+
+    function resetCloseState() {
+        closeCalled = false;
     }
 
     function reload() {
@@ -109,6 +118,7 @@ FocusScope {
         if (result.state === "failed") { buildFailed(key); return; }
         if (result.state === "refused") return;
         instance = result.instance;
+        closeCalled = false;
         instance.anchors.fill = slot;
         loadedHostKey = hostKey;
         built(instance);
