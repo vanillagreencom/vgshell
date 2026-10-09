@@ -62,6 +62,13 @@
 # still draws at scale 1, so QT_SCREEN_SCALE_FACTORS sets it; a run under
 # qmltestrunner 6.11.2 drew a half-pixel step as one device pixel there.
 #
+# The shader test runs under xvfb-run, which picks the first display whose
+# /tmp/.X<n>-lock is absent and only then starts Xvfb, so two runs at once,
+# as the parallel mutations of scripts/test-qml-unit.sh make, can pick one
+# display and the second Xvfb fails. The fence keeps the host's /tmp, so
+# every run holds /tmp/.vgshell-qml-unit-xvfb.lock with flock for its whole
+# xvfb-run call, and a missing flock is not measured like a missing Xvfb.
+#
 # QML_UNIT_RUNNER names the qmltestrunner binary; unset, the one on PATH
 # or under /usr/lib/qt6/bin is used. Exit 0 when every test passed, 1 when
 # one failed, logged an unexpected line or could not load, 2 on a refusal,
@@ -253,13 +260,14 @@ for file in "${files[@]}"; do
     # MultiEffect. An isolated X display supplies a software OpenGL
     # context for this shader test. xvfb-run owns its auth file and
     # display cleanup; no caller display or Wayland socket enters Qt.
-    for tool in Xvfb xvfb-run xauth; do
+    for tool in Xvfb xvfb-run xauth flock; do
       if ! command -v "$tool" >/dev/null 2>&1; then
         printf 'qml-unit: status=not-measured file=%s missing=%s\n' "${file##*/}" "$tool"
         exit 77
       fi
     done
-    render_command=(xvfb-run --auto-servernum --server-args='-screen 0 800x600x24 -nolisten tcp'
+    # -o leaves the lock's descriptor out of xvfb-run and its X server.
+    render_command=(flock -o /tmp/.vgshell-qml-unit-xvfb.lock xvfb-run --auto-servernum --server-args='-screen 0 800x600x24 -nolisten tcp'
       sh -c 'exec env -i DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" "$@"' qml-unit-shader)
     render_environment=(QT_QUICK_BACKEND=rhi QSG_RHI_BACKEND=opengl LIBGL_ALWAYS_SOFTWARE=1)
   fi

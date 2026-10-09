@@ -6,7 +6,9 @@
 # rows pin the runner's arguments: a missing qmltestrunner is not a pass,
 # and an unknown argument is refused. A second table plants one test file
 # per rule of the runner's log check and pins the exit and the line each
-# prints.
+# prints. One row runs two shader tests at once under a stand-in xvfb-run
+# and requires the second to start only once the first has ended, which a
+# copy of the runner without its display lock fails.
 #
 # Exit 0 when every row holds, 1 otherwise, 77 when the runner could not
 # measure, since a mutation nothing runs proves nothing: qmltestrunner is
@@ -27,6 +29,11 @@
 # a test of a component it did not touch; that is test strength, not product
 # behavior. Product QML unit tests still run in full, and direct runs or
 # scripts/validate --full check every mutation.
+#
+# The unmutated copy, the mutations, the two argument rows, the display
+# lock row and the log rows run side by side, at most VGS_VALIDATE_JOBS at once, a positive integer
+# (unset or empty: nproc), and print in that order; another value is
+# refused with exit 2, `test-qml-unit: refused: jobs=<value>`.
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -40,6 +47,13 @@ case "${1:-}" in
 esac
 if [[ $# -ne 0 ]]; then
   printf 'test-qml-unit: refused: argument=%s\n' "$1" >&2
+  exit 2
+fi
+jobs_max="${VGS_VALIDATE_JOBS:-}"
+if [[ -z $jobs_max ]]; then
+  jobs_max="$(nproc)"
+elif [[ ! $jobs_max =~ ^[1-9][0-9]*$ ]]; then
+  printf 'test-qml-unit: refused: jobs=%s\n' "$jobs_max" >&2
   exit 2
 fi
 
@@ -1421,52 +1435,48 @@ fresh() {
   cp -R -- "$repo/shell/Ui" "$1"
 }
 
+# The unmutated copy, which the copy and missing-runner cases only read.
 copy="$tmp/ui"
 fresh "$copy"
-if out="$("$runner" --ui "$copy" 2>&1)"; then ok "the unmutated copy passes"; else fail "the unmutated copy fails"; printf '%s\n' "$out" | tail -n 20; fi
 
-for index in "${!mutations[@]}"; do
-  row="${mutations[index]}"
-  IFS='|' read -r label file needle replacement test <<<"$row"
-  if [[ ${mutation_plan[index]} == skip\ * ]]; then
-    continue
-  fi
+# One mutation row, in a directory of its own, removed after the run.
+mutation_case() { # INDEX
+  local index="$1" label file needle replacement test dir target count mutant_status out plugin tests_dir
+  local -a commons_args=() core_args=()
+  IFS='|' read -r label file needle replacement test <<<"${mutations[index]}"
   # A `|` inside a field shifts the rest, and a runner handed a test that is
   # not there fails, which would read as a red mutation.
-  if [[ ! -f $repo/scripts/qml-tests/$test ]]; then fail "$label: the row's test is not a file: $test"; continue; fi
-  fresh "$copy"
-  target="$copy/$file"
-  commons_args=()
-  core_args=()
+  if [[ ! -f $repo/scripts/qml-tests/$test ]]; then fail "$label: the row's test is not a file: $test"; return 0; fi
+  dir="$tmp/mutation-$index"
+  mkdir -- "$dir"
+  fresh "$dir/ui"
+  target="$dir/ui/$file"
   tests_dir="$repo/scripts/qml-tests"
   if [[ $file == ../Commons/* ]]; then
-    rm -rf -- "$tmp/commons"
-    cp -R -- "$repo/shell/Commons" "$tmp/commons"
-    target="$tmp/commons/${file#../Commons/}"
-    commons_args=(--commons "$tmp/commons")
+    cp -R -- "$repo/shell/Commons" "$dir/commons"
+    target="$dir/commons/${file#../Commons/}"
+    commons_args=(--commons "$dir/commons")
   fi
   if [[ $file == ../Core/* ]]; then
-    rm -rf -- "$tmp/core"
-    cp -R -- "$repo/shell/Core" "$tmp/core"
-    target="$tmp/core/${file#../Core/}"
-    core_args=(--core "$tmp/core")
+    cp -R -- "$repo/shell/Core" "$dir/core"
+    target="$dir/core/${file#../Core/}"
+    core_args=(--core "$dir/core")
   fi
   if [[ $file == ../plugins/* ]]; then
     plugin="${file#../plugins/}"
     plugin="${plugin%%/*}"
-    rm -rf -- "${tmp:?}/mirror"
-    mkdir -p -- "$tmp/mirror/scripts" "$tmp/mirror/shell/plugins"
-    cp -R -- "$repo/scripts/qml-tests" "$tmp/mirror/scripts/qml-tests"
-    cp -R -- "$repo/shell/plugins/$plugin" "$tmp/mirror/shell/plugins/$plugin"
-    target="$tmp/mirror/shell/${file#../}"
-    tests_dir="$tmp/mirror/scripts/qml-tests"
+    mkdir -p -- "$dir/mirror/scripts" "$dir/mirror/shell/plugins"
+    cp -R -- "$repo/scripts/qml-tests" "$dir/mirror/scripts/qml-tests"
+    cp -R -- "$repo/shell/plugins/$plugin" "$dir/mirror/shell/plugins/$plugin"
+    target="$dir/mirror/shell/${file#../}"
+    tests_dir="$dir/mirror/scripts/qml-tests"
   fi
   count="$(python3 - "$target" "$needle" <<'PY'
 import sys
 print(open(sys.argv[1], encoding="utf-8").read().count(sys.argv[2]))
 PY
 )"
-  if [[ $count -ne 1 ]]; then fail "$label: the text to replace occurs $count times in $file"; continue; fi
+  if [[ $count -ne 1 ]]; then fail "$label: the text to replace occurs $count times in $file"; return 0; fi
   python3 - "$target" "$needle" "$replacement" <<'PY'
 import sys
 path, needle, replacement = sys.argv[1:]
@@ -1474,22 +1484,14 @@ text = open(path, encoding="utf-8").read()
 open(path, "w", encoding="utf-8").write(text.replace(needle, replacement))
 PY
   mutant_status=0
-  out="$("$runner" --ui "$copy" "${commons_args[@]}" "${core_args[@]}" --tests "$tests_dir" "$tests_dir/$test" 2>&1)" || mutant_status=$?
+  out="$("$runner" --ui "$dir/ui" "${commons_args[@]}" "${core_args[@]}" --tests "$tests_dir" "$tests_dir/$test" 2>&1)" || mutant_status=$?
   case "$mutant_status" in
     0) fail "$label: $test passed on the mutated copy" ;;
     1) ok "$label" ;;
     *) fail "$label: the runner exited $mutant_status, so no test judged the mutated copy"; printf '%s\n' "$out" | tail -n 5 ;;
   esac
-done
-
-if out="$(QML_UNIT_RUNNER=/nonexistent/qmltestrunner "$runner" --ui "$copy" 2>&1)"; then
-  fail "a missing runner passed"
-elif [[ $out == "qml-unit: status=not-measured missing=qmltestrunner" ]]; then
-  ok "a missing runner is not a pass"
-else
-  fail "a missing runner: got $out"
-fi
-if out="$("$runner" --nope 2>&1)"; then fail "an unknown argument passed"; elif [[ $out == "qml-unit: refused: argument=--nope" ]]; then ok "an unknown argument is refused"; else fail "an unknown argument: got $out"; fi
+  rm -rf -- "$dir"
+}
 
 # Rows: label | name of the planted tst_<name>.qml | the runner's exit |
 # the line it must print | the file's lines after the planted head, whose
@@ -1507,8 +1509,9 @@ logs=(
   "a declaration does not excuse a script error|script|1|qml-unit: warnings file=tst_script.qml|    // expected-log: ReferenceError -- the row plants it\n    function test_a() { Qt.createQmlObject(\"import QtQuick; Item { property int n: noSuchName.x }\", planted); }\n"
 )
 mkdir -p "$tmp/logs"
-for row in "${logs[@]}"; do
-  IFS='|' read -r label name want_status want_line body <<<"$row"
+log_case() { # INDEX
+  local label name want_status want_line body got_status out
+  IFS='|' read -r label name want_status want_line body <<<"${logs[$1]}"
   printf '%b%b}\n' "$planted_head" "$body" >"$tmp/logs/tst_$name.qml"
   got_status=0
   out="$("$runner" --tests "$repo/scripts/qml-tests" "$tmp/logs/tst_$name.qml" 2>&1)" || got_status=$?
@@ -1520,6 +1523,115 @@ for row in "${logs[@]}"; do
     printf '%s\n' "$out" | tail -n 20
   else
     ok "$label"
+  fi
+}
+
+# Two runs of the shader test at once, each under a stand-in xvfb-run that
+# waits up to 3 s for a second start: with the display lock the second run
+# starts after the first has ended, and a copy of the runner without the
+# lock lets both start at once.
+xvfb_lock_case() {
+  local dir="$tmp/xvfb-lock" tree="$tmp/xvfb-lock/tree" run want order a b
+  mkdir -p -- "$dir/bin" "$tree/scripts"
+  printf '#!/bin/sh\n' | tee "$dir/bin/Xvfb" >"$dir/bin/xauth"
+  cat >"$dir/bin/xvfb-run" <<'SH'
+#!/bin/sh
+echo "start $$" >>"$XVFB_LOCK_LOG"
+i=0
+while [ "$(grep -c '^start ' "$XVFB_LOCK_LOG")" -lt 2 ] && [ "$i" -lt 30 ]; do sleep 0.1; i=$((i + 1)); done
+echo "end $$" >>"$XVFB_LOCK_LOG"
+SH
+  chmod +x "$dir/bin/Xvfb" "$dir/bin/xauth" "$dir/bin/xvfb-run"
+  printf 'import QtTest\nTestCase { name: "lock" }\n' >"$dir/tst_notification_scroll.qml"
+  ln -s -- "$repo/shell" "$tree/shell"
+  ln -s -- "$repo/scripts/smoke" "$tree/scripts/smoke"
+  python3 - "$runner" "$tree/scripts/qml-unit.sh" <<'PY'
+import sys
+source, copy = sys.argv[1:]
+text = open(source, encoding="utf-8").read()
+lock = "flock -o /tmp/.vgshell-qml-unit-xvfb.lock "
+assert text.count(lock) == 1, "the runner holds its display lock once"
+open(copy, "w", encoding="utf-8").write(text.replace(lock, ""))
+PY
+  chmod +x "$tree/scripts/qml-unit.sh"
+  for run in "$runner" "$tree/scripts/qml-unit.sh"; do
+    : >"$dir/log"
+    PATH="$dir/bin:$PATH" XVFB_LOCK_LOG="$dir/log" "$run" --tests "$repo/scripts/qml-tests" "$dir/tst_notification_scroll.qml" >"$dir/a.out" 2>&1 &
+    a=$!
+    PATH="$dir/bin:$PATH" XVFB_LOCK_LOG="$dir/log" "$run" --tests "$repo/scripts/qml-tests" "$dir/tst_notification_scroll.qml" >"$dir/b.out" 2>&1 &
+    b=$!
+    wait "$a" || true
+    wait "$b" || true
+    order="$(cut -d' ' -f1 <"$dir/log" | tr '\n' ' ')" || order=unreadable
+    if [[ $run == "$runner" ]]; then
+      want="start end start end "
+      if [[ $order == "$want" ]]; then ok "two shader runs at once take the display one after the other"; else fail "two shader runs at once: xvfb-run order [$order], want [$want]"; tail -n 5 "$dir/a.out" "$dir/b.out"; fi
+    elif [[ $order == "start start "* ]]; then
+      ok "control: a runner without its display lock lets two runs take it at once"
+    else
+      fail "control: a runner without its display lock kept two runs apart: xvfb-run order [$order]"
+    fi
+  done
+}
+
+run_case() { # KIND [INDEX]
+  local out
+  case "$1" in
+    copy)
+      if out="$("$runner" --ui "$copy" 2>&1)"; then ok "the unmutated copy passes"; else fail "the unmutated copy fails"; printf '%s\n' "$out" | tail -n 20; fi ;;
+    mutation) mutation_case "$2" ;;
+    missing-runner)
+      if out="$(QML_UNIT_RUNNER=/nonexistent/qmltestrunner "$runner" --ui "$copy" 2>&1)"; then
+        fail "a missing runner passed"
+      elif [[ $out == "qml-unit: status=not-measured missing=qmltestrunner" ]]; then
+        ok "a missing runner is not a pass"
+      else
+        fail "a missing runner: got $out"
+      fi ;;
+    unknown-argument)
+      if out="$("$runner" --nope 2>&1)"; then fail "an unknown argument passed"; elif [[ $out == "qml-unit: refused: argument=--nope" ]]; then ok "an unknown argument is refused"; else fail "an unknown argument: got $out"; fi ;;
+    xvfb-lock) xvfb_lock_case ;;
+    log) log_case "$2" ;;
+    *) fail "test-qml-unit: case=$1 unknown" ;;
+  esac
+}
+
+# The cases run side by side, at most jobs_max at once, as the
+# parallel_cases of scripts/test-validate.sh runs its own: each job writes
+# its lines to its own log and its failure count beside it, and the logs
+# print in case order, so the lines read as one case after another. A job
+# that ended before writing its count is one failure. A job resets INT and
+# QUIT, which a bare `&` ignores, so a Ctrl-C reaches every runner.
+cases=(copy)
+for index in "${!mutations[@]}"; do
+  [[ ${mutation_plan[index]} == skip\ * ]] || cases+=("mutation $index")
+done
+cases+=(missing-runner unknown-argument xvfb-lock)
+for index in "${!logs[@]}"; do cases+=("log $index"); done
+active=0
+for i in "${!cases[@]}"; do
+  (
+    trap - INT QUIT
+    # shellcheck disable=SC2030 # the job's own count, by design
+    failures=0
+    # shellcheck disable=SC2086 # a case is its kind and its index
+    run_case ${cases[i]}
+    printf '%s\n' "$failures" >"$tmp/case-$i.failures"
+  ) >"$tmp/case-$i.log" 2>&1 &
+  active=$((active + 1))
+  if ((active >= jobs_max)); then
+    wait -n || true
+    active=$((active - 1))
+  fi
+done
+wait
+for i in "${!cases[@]}"; do
+  cat -- "$tmp/case-$i.log"
+  if count="$(cat -- "$tmp/case-$i.failures" 2>/dev/null)" && [[ $count =~ ^[0-9]+$ ]]; then
+    # shellcheck disable=SC2031 # the parent's count, which the jobs left alone
+    failures=$((failures + count))
+  else
+    fail "${cases[i]}: the case's job ended before it reported"
   fi
 done
 

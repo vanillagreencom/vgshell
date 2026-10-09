@@ -34,6 +34,10 @@
 #   prints `validate: unselected unset=<NAME> row=<label>` on stderr; such a
 #   run records no last pass, `validate: last-pass=unrecorded
 #   reason=unselected`.
+#   A row's input `@NAME` names state it shares with every other row that
+#   names it, a fixed file, socket or container; it matches no path. Rows
+#   that share a `@NAME` never run at the same time, and a row whose input
+#   is `@alone` runs with no other row beside it.
 #   A run that compares prints `validate: base=<commit> source=<source>` on
 #   stderr, the source one of argument, DEV_VALIDATE_BASE,
 #   VGS_VALIDATE_BASE, last-pass or merge-base, in that precedence.
@@ -44,6 +48,11 @@
 #   and end, and prints `validate: last-pass=recorded` or
 #   `validate: last-pass=unrecorded reason=<reason>`: last_pass_record.
 #   Every executed row prints `validate: secs=<seconds> exit=<status> row=<label>`.
+#   The selected rows of one run go side by side, at most
+#   VGS_VALIDATE_JOBS at once, and each row's lines from `== <label>` to
+#   its secs line print whole in table order; with more than one job, a
+#   row not marked `@alone` prints its stderr there on stdout: the run
+#   loop below.
 #   A diff-scoped run that selects the nested smoke passes it the rows the
 #   change reaches as `scripts/qml-smoke.sh --rows <row>,...`, or no --rows
 #   for every row, and prints `validate: smoke-rows=some selected=<n>
@@ -66,6 +75,9 @@
 # VGS_VALIDATE_CHANGED: on a readable diff-scoped run, the NUL-delimited file
 #   of changed paths a row may read to narrow its own work. Unset means
 #   everything changed.
+# VGS_VALIDATE_JOBS: how many rows run at once, a positive integer; unset or
+#   empty is the CPU count, nproc. 1 runs the rows one after another, each
+#   printing as it runs.
 # The document byte ceiling row reads no base: --changed, VGS_VALIDATE_BASE,
 #   DEV_VALIDATE_BASE and the last pass only choose whether it runs.
 #
@@ -73,7 +85,10 @@
 # but at least one could not run and is named; that is not a pass. Exit 1: a
 # check failed. Exit 2: invalid area or arguments, named by
 # `validate: refused: area=`, `extra-argument=` or
-#   `changed-base=missing-or-repeated` or `scope=conflicting-or-repeated`.
+#   `changed-base=missing-or-repeated` or `scope=conflicting-or-repeated`,
+#   or an invalid VGS_VALIDATE_JOBS, `validate: refused: jobs=<value>`.
+# An INT or TERM ends every running row's process group with TERM, removes
+#   the run's scratch directory and exits 130 or 143.
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -119,6 +134,12 @@ case "$area" in
   logic|manifests|boundary|cli|tools|repo|offline|unit|package|qml|nix|all) ;;
   *) printf 'validate: refused: area=%s\n' "$area" >&2; exit 2 ;;
 esac
+jobs_max="${VGS_VALIDATE_JOBS:-}"
+if [[ -z $jobs_max ]]; then
+  jobs_max="$(nproc)"
+elif [[ ! $jobs_max =~ ^[1-9][0-9]*$ ]]; then
+  printf 'validate: refused: jobs=%s\n' "$jobs_max" >&2; exit 2
+fi
 failed=()
 skipped=()
 scratch_path() {
@@ -164,11 +185,12 @@ fi
 # under the temporary home instead:
 # docs/architecture/validation.md § Test isolation. The row runs in a
 # subshell, the one scope where an unset hides a caller's exported
-# GIT_CONFIG_GLOBAL from the row's processes.
-run() { # AREA LABEL CMD...
-  local area="$1" label="$2" started status elapsed row_home
-  shift 2
-  row_home="$(scratch_dir)" || { echo 'validate: row-home=scratch-failed' >&2; exit 1; }
+# GIT_CONFIG_GLOBAL from the row's processes. HOME is the path the home is
+# made at, under the run's scratch directory; the status is the row's.
+run() { # HOME AREA LABEL CMD...
+  local row_home="$1" area="$2" label="$3" started status elapsed
+  shift 3
+  mkdir -- "$row_home" || { echo 'validate: row-home=scratch-failed' >&2; exit 1; }
   echo "== $label"
   started=$SECONDS
   status=0
@@ -194,15 +216,12 @@ run() { # AREA LABEL CMD...
   fi
   elapsed=$((SECONDS - started))
   printf 'validate: secs=%s exit=%s row=%s\n' "$elapsed" "$status" "$label"
-  case "$status" in
-    0) ;;
-    77) skipped+=("$label") ;;
-    *) failed+=("$label (exit $status)") ;;
-  esac
+  return "$status"
 }
 
 # Rows: area | label | command | additional input globs, space-delimited,
-# and the `$NAME` environment inputs the header names.
+# and the `$NAME` environment inputs and `@NAME` shared state the header
+# names.
 # The command's words that hold a slash are also inputs. Every input glob
 # counts, a root file such as VERSION included.
 rows=(
@@ -478,10 +497,10 @@ rows=(
   "unit|qml unit controls|scripts/test-qml-unit.sh|scripts/qml-unit.sh scripts/qml-tests/* shell/Ui/* shell/Commons/* shell/Core/TuiRecords.qml shell/Core/ThemeRunner.qml shell/Core/SessionLock.qml shell/Core/ShortcutRegistry.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/HyprctlReader.qml shell/Core/Dispatch.js shell/Core/PluginLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/HyprlandLayer.js shell/plugins/vgs.sysmon/* shell/plugins/vgs.traffic/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/plugins/vgs.displays/* shell/plugins/vgs.jarvis/Widget.qml shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Keys.qml shell/plugins/vgs.jarvis/LocalRuntime.qml shell/plugins/vgs.jarvis/Accounts.qml shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/AccountStatus.js shell/plugins/vgs.jarvis/JarvisProtocol.js scripts/smoke/gpu-fence.sh"
   "unit|Keys labels show whole|node scripts/test-key-labels.js|shell/plugins/*/manifest.json shell/plugins/*/Service.qml shell/plugins/vgs.themes/BrowserLogic.js shell/Ui/* shell/Commons/* shell/assets/* scripts/qml-unit.sh scripts/qml-tests/stand-ins/* bin/lib/qml-library.js scripts/smoke/gpu-fence.sh"
   "unit|session lock controls|scripts/test-session-lock.sh|shell/Core/SessionLock.qml shell/Commons/SessionLockState.js scripts/qml-unit.sh scripts/qml-tests/tst_session_lock.qml scripts/smoke/gpu-fence.sh"
-  "nix|nix flake package|scripts/test-flake.sh|flake.nix flake.lock config/requirements.json packaging/install-system.sh packaging/install-tree.manifest scripts/check-install-tree.sh bin/* shell/* config/* themes/* VERSION"
-  "package|Arch package build|scripts/arch-packages.sh|scripts/lib/release-tarball.sh packaging/arch/* packaging/install-system.sh bin/lib/post-install.txt bin/lib/first-start.sh bin/vgshell-browser-policy themes/targets/chromium/* config/requirements.json config/shell.json shell/plugins/*/manifest.json"
-  "qml|nested smoke|scripts/qml-smoke.sh|shell/* bin/* config/* themes/* packaging/install-system.sh packaging/install-tree.manifest VERSION scripts/smoke/* scripts/sample-shell-memory.sh scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-setup/installed.py scripts/fixtures/jarvis-voice/installed.js scripts/test-task-event.js"
-  "qml|shader GPU cost|scripts/measure-shader.sh|scripts/measure-shader.sh scripts/shader/* scripts/smoke/user-config.sh scripts/check-voiceorb-shader.py shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/plugins/vgs.voice/Plasma.qml shell/plugins/vgs.voice/Appearance.js shell/plugins/vgs.voice/shaders/* shell/Commons/* config/shell.json bin/lib/qml-library.js shell/Core/HyprlandLayer.js scripts/smoke/harness.sh scripts/smoke/gpu-fence.sh scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* scripts/smoke/mode-hold.sh scripts/smoke/teardown.sh scripts/smoke/verdict.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/keyboard/*"
+  "nix|nix flake package|scripts/test-flake.sh|flake.nix flake.lock config/requirements.json packaging/install-system.sh packaging/install-tree.manifest scripts/check-install-tree.sh bin/* shell/* config/* themes/* VERSION @alone"
+  "package|Arch package build|scripts/arch-packages.sh|scripts/lib/release-tarball.sh packaging/arch/* packaging/install-system.sh bin/lib/post-install.txt bin/lib/first-start.sh bin/vgshell-browser-policy themes/targets/chromium/* config/requirements.json config/shell.json shell/plugins/*/manifest.json @alone"
+  "qml|nested smoke|scripts/qml-smoke.sh|shell/* bin/* config/* themes/* packaging/install-system.sh packaging/install-tree.manifest VERSION scripts/smoke/* scripts/sample-shell-memory.sh scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-setup/installed.py scripts/fixtures/jarvis-voice/installed.js scripts/test-task-event.js @alone"
+  "qml|shader GPU cost|scripts/measure-shader.sh|scripts/measure-shader.sh scripts/shader/* scripts/smoke/user-config.sh scripts/check-voiceorb-shader.py shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/plugins/vgs.voice/Plasma.qml shell/plugins/vgs.voice/Appearance.js shell/plugins/vgs.voice/shaders/* shell/Commons/* config/shell.json bin/lib/qml-library.js shell/Core/HyprlandLayer.js scripts/smoke/harness.sh scripts/smoke/gpu-fence.sh scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* scripts/smoke/mode-hold.sh scripts/smoke/teardown.sh scripts/smoke/verdict.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/keyboard/* @alone"
 )
 
 # The branch point, printed on stdout: the merge base of COMMIT, HEAD by
@@ -1602,7 +1621,7 @@ if [[ -n $change_base ]]; then
           if [[ $word == */* ]]; then patterns+=("$word"); fi
         done
         for pattern in "${patterns[@]}"; do
-          [[ $pattern == \$* ]] && continue
+          [[ $pattern == [\$@]* ]] && continue
           if [[ $path == $pattern ]]; then affected[i]=true; known=true; break; fi
         done
       done
@@ -1629,6 +1648,8 @@ if [[ -n $change_base ]]; then
 fi
 
 selected_count=0
+selected=()
+row_command=()
 validate_started=$SECONDS
 for i in "${!rows[@]}"; do
   IFS='|' read -r row_area label command inputs <<<"${rows[i]}"
@@ -1659,14 +1680,120 @@ for i in "${!rows[@]}"; do
   if [[ $list_only == true ]]; then
     printf '%s\n' "$command"
   else
-    # shellcheck disable=SC2086
-    run "$row_area" "$label" $command
+    selected+=("$i")
+    row_command+=("$command")
   fi
 done
 if [[ $list_only == true ]]; then
   printf 'validate: selected=%s area=%s\n' "$selected_count" "$area" >&2
   exit 0
 fi
+
+# The run loop: the selected rows run side by side, at most jobs_max at once,
+# each as a job in a process group of its own, so a signal reaches every
+# process a row started. A row waits while a running row names one of its
+# `@NAME`s; an `@alone` row starts once nothing runs, and no row after it
+# in the table starts before it has ended. An `@alone` row, and every row
+# at one job, starts once every row before it has printed, so it writes to
+# validate's own stdout and stderr as it runs; any other row writes both to
+# its log, which prints whole once every row before it has printed. The
+# statuses fill failed and skipped in table order.
+run_dir="$(scratch_dir)" || { echo 'validate: run-dir=scratch-failed' >&2; exit 1; }
+trap 'chmod -R u+rwx -- "$run_dir" 2>/dev/null; rm -rf -- "${run_dir:?}"; if [[ -n ${paths_file:-} ]]; then rm -f -- "$paths_file"; fi' EXIT
+declare -A row_of_pid=() held=()
+row_state=() row_alone=() row_locks=() row_status=()
+for k in "${!selected[@]}"; do
+  IFS='|' read -r _ _ _ inputs <<<"${rows[selected[k]]}"
+  read -r -a patterns <<<"$inputs"
+  row_state[k]=pending row_alone[k]=false row_locks[k]=""
+  for pattern in "${patterns[@]}"; do
+    case "$pattern" in
+      @alone) row_alone[k]=true ;;
+      @*) row_locks[k]+=" ${pattern#@}" ;;
+    esac
+  done
+done
+start_row() { # K
+  local k="$1" row_area label name
+  IFS='|' read -r row_area label _ <<<"${rows[selected[k]]}"
+  # Job control, on only while the job starts, gives it its own process
+  # group and leaves its INT and QUIT at their defaults, which a bare `&`
+  # would ignore and the Ctrl-C checks of the fence and TUI rows need.
+  set -m
+  if [[ ${row_alone[k]} == true || $jobs_max -eq 1 ]]; then
+    # shellcheck disable=SC2086
+    run "$run_dir/$k" "$row_area" "$label" ${row_command[k]} </dev/null &
+  else
+    # shellcheck disable=SC2086
+    run "$run_dir/$k" "$row_area" "$label" ${row_command[k]} </dev/null >"$run_dir/$k.log" 2>&1 &
+  fi
+  set +m
+  row_of_pid[$!]=$k
+  row_state[k]=running
+  for name in ${row_locks[k]}; do held[$name]=1; done
+}
+start_rows() {
+  local k pid name
+  for pid in "${!row_of_pid[@]}"; do
+    k="${row_of_pid[$pid]}"
+    [[ ${row_alone[k]} == false ]] || return 0
+  done
+  for k in "${!selected[@]}"; do
+    [[ ${row_state[k]} == pending ]] || continue
+    if [[ ${row_alone[k]} == true ]]; then
+      [[ ${#row_of_pid[@]} -gt 0 ]] || start_row "$k"
+      return 0
+    fi
+    [[ ${#row_of_pid[@]} -lt $jobs_max ]] || return 0
+    for name in ${row_locks[k]}; do
+      [[ -z ${held[$name]-} ]] || continue 2
+    done
+    start_row "$k"
+  done
+}
+# A job bash has already reaped can leave its number to another process,
+# so a group is signalled only while its leader is still validate's child.
+stop_rows() { # EXIT-STATUS
+  local pid stat ppid pgrp
+  for pid in "${!row_of_pid[@]}"; do
+    read -r stat 2>/dev/null <"/proc/$pid/stat" || continue
+    read -r _ ppid pgrp _ <<<"${stat##*) }"
+    if [[ $ppid == "$$" && $pgrp == "$pid" ]]; then kill -TERM -- "-$pid" 2>/dev/null || true; fi
+  done
+  wait
+  exit "$1"
+}
+trap 'stop_rows 130' INT
+trap 'stop_rows 143' TERM
+printed=0
+while :; do
+  start_rows
+  [[ ${#row_of_pid[@]} -gt 0 ]] || break
+  pid="" status=0
+  wait -n -p pid || status=$?
+  if [[ -z $pid ]]; then
+    printf 'validate: wait=no-child status=%s running=%s\n' "$status" "${#row_of_pid[@]}" >&2; exit 1
+  fi
+  # Only a row's job counts; any other child is passed over.
+  [[ -n ${row_of_pid[$pid]-} ]] || continue
+  k="${row_of_pid[$pid]}"
+  unset 'row_of_pid[$pid]'
+  row_state[k]=ended row_status[k]=$status
+  for name in ${row_locks[k]}; do unset 'held[$name]'; done
+  while [[ $printed -lt ${#selected[@]} && ${row_state[printed]} == ended ]]; do
+    IFS='|' read -r _ label _ <<<"${rows[selected[printed]]}"
+    if [[ ${row_alone[printed]} == false && $jobs_max -gt 1 ]]; then
+      cat -- "$run_dir/$printed.log" || true
+    fi
+    case "${row_status[printed]}" in
+      0) ;;
+      77) skipped+=("$label") ;;
+      *) failed+=("$label (exit ${row_status[printed]})") ;;
+    esac
+    printed=$((printed + 1))
+  done
+done
+trap - INT TERM
 printf 'validate: selected=%s area=%s secs=%s\n' "$selected_count" "$area" "$((SECONDS - validate_started))" >&2
 
 if [[ ${#failed[@]} -gt 0 ]]; then

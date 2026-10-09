@@ -2396,6 +2396,244 @@ row "control: a validate without the rule runs the unset prepared row" "$d" 77 "
 test_area=offline
 test_args=()
 
+# Rows run side by side. jobs_fixture DIR SCRIPT ROW...: a fixture whose
+# table holds only the ROWs, each a whole quoted table entry, beside
+# scripts/SCRIPT, read from stdin.
+jobs_fixture() {
+  local dir="$1" script="$2"
+  shift 2
+  fresh "$dir"
+  cat >"$dir/scripts/$script"
+  chmod +x "$dir/scripts/$script"
+  python3 - "$dir/scripts/validate" "$@" <<'PY'
+from pathlib import Path
+import re
+import sys
+path = Path(sys.argv[1])
+rows = "\n".join("  " + row for row in sys.argv[2:])
+source, count = re.subn(r'rows=\(\n.*?\n\)\n', 'rows=(\n' + rows + '\n)\n', path.read_text(), count=1, flags=re.S)
+assert count == 1
+path.write_text(source)
+PY
+  "${base_env[@]}" git -C "$dir" add -A
+  "${base_env[@]}" git -C "$dir" commit -q -m jobs-rows
+}
+test_area=tools
+test_args=(--full)
+
+# Two rows that write one file and read it back for 2 s: run together they
+# see each other's write, and one `@NAME` on both keeps them apart.
+shared_rows() { # DIR DECLARATION
+  jobs_fixture "$1" test-shared.sh "\"tools|shared a|scripts/test-shared.sh a|$2\"" "\"tools|shared b|scripts/test-shared.sh b|$2\"" <<'SH'
+#!/bin/sh
+printf '%s\n' "$1" >.git/shared-state
+i=0
+while [ "$i" -lt 20 ]; do
+  [ "$(cat .git/shared-state)" = "$1" ] || { echo "shared-state: row $1 read $(cat .git/shared-state)"; exit 1; }
+  sleep 0.1
+  i=$((i + 1))
+done
+SH
+}
+d="$tmp/jobs-shared"; shared_rows "$d" "@shared-state"
+row "rows that name one @NAME never run together" "$d" 0 "VGS_VALIDATE_JOBS=2" "validate: ok"
+d="$tmp/jobs-shared-control"; shared_rows "$d" ""
+row_re "control: rows sharing a file undeclared fail run together" "$d" 1 "VGS_VALIDATE_JOBS=2" "~shared-state: row " "~validate: failed=shared "
+
+# An @alone row starts once the rows before it have ended and ends before
+# a row after it starts; each row marks its start and end.
+alone_rows() { # DIR DECLARATION
+  jobs_fixture "$1" test-mark.sh "\"tools|mark a|scripts/test-mark.sh a 0.6|\"" "\"tools|mark b|scripts/test-mark.sh b 0.6|\"" \
+    "\"tools|mark c|scripts/test-mark.sh c 0.2|$2\"" "\"tools|mark d|scripts/test-mark.sh d 0|\"" <<'SH'
+#!/bin/sh
+echo "start $1" >>.git/marks
+sleep "$2"
+echo "end $1" >>.git/marks
+SH
+}
+for declaration in @alone ""; do
+  d="$tmp/jobs-alone${declaration:+-declared}"; alone_rows "$d" "$declaration"
+  row "a fixture of four marked rows passes${declaration:+ with $declaration}" "$d" 0 "VGS_VALIDATE_JOBS=4" "validate: ok"
+  marks="$(sed -n '5,7p' "$d/.git/marks" | tr '\n' ' ')" || marks=unreadable
+  if [[ -n $declaration ]]; then
+    if [[ $marks == "start c end c start d " ]]; then ok "an @alone row runs with no row beside it"; else fail "an @alone row ran beside another: marks 5-7 [$marks]"; cat -- "$d/.git/marks"; fi
+  elif [[ $marks != "start c end c start d " ]]; then
+    ok "control: the row without @alone runs beside the others"
+  else
+    fail "control: the row without @alone still ran by itself"
+  fi
+done
+
+# Rows of different lengths print whole in table order at four jobs, as at
+# one, their seconds aside, and the skipped list follows the table.
+d="$tmp/jobs-order"
+jobs_fixture "$d" test-sleepy.sh "\"tools|one|scripts/test-sleepy.sh one 0.6 0|\"" "\"tools|two|scripts/test-sleepy.sh two 0.4 77|\"" \
+  "\"tools|three|scripts/test-sleepy.sh three 0 0|\"" "\"tools|four|scripts/test-sleepy.sh four 0 77|\"" <<'SH'
+#!/bin/sh
+sleep "$2"
+echo "out $1"
+echo "err $1" >&2
+exit "$3"
+SH
+for jobs in 1 4; do
+  status=0
+  out="$(cd -- "$d" && "${base_env[@]}" VGS_VALIDATE_JOBS="$jobs" bash scripts/validate tools --full 2>&1)" || status=$?
+  printf '%s\n' "$out" | sed 's/secs=[0-9]*/secs=N/' >"$tmp/jobs-order-$jobs.out"
+  if [[ $status == 77 ]] && grep -qxF 'validate: status=not-measured skipped=two;four' <<<"$out"; then
+    ok "the skipped list follows the table at $jobs jobs"
+  else
+    fail "the skipped list at $jobs jobs: exit=$status"; printf '%s\n' "$out" | sed 's/^/        /'
+  fi
+done
+if diff -- "$tmp/jobs-order-1.out" "$tmp/jobs-order-4.out" >/dev/null &&
+   [[ "$(grep '^== ' "$tmp/jobs-order-4.out" | tr '\n' ' ')" == "== one == two == three == four " ]]; then
+  ok "rows print whole in table order at four jobs as at one"
+else
+  fail "rows at four jobs print other lines than at one"; diff -- "$tmp/jobs-order-1.out" "$tmp/jobs-order-4.out" | sed 's/^/        /'
+fi
+
+# A TERM to validate ends every running row's processes and removes the
+# run's scratch directory. Each row holds a lock with a sleep that outlives
+# the wait below, so a free lock proves the row's processes ended; a copy
+# without the TERM trap leaves both held.
+hold_rows() { # DIR
+  jobs_fixture "$1" test-hold.sh "\"tools|hold a|scripts/test-hold.sh a|\"" "\"tools|hold b|scripts/test-hold.sh b|\"" <<'SH'
+#!/bin/sh
+exec 9>".git/lock-$1"
+flock 9
+: >".git/ready-$1"
+sleep 8
+SH
+}
+# hold_run DIR: start validate, TERM it once both rows hold their locks;
+# sets status and freed, the locks free within 3 s of the TERM.
+hold_run() {
+  local pid lock
+  (cd -- "$1" && exec "${base_env[@]}" VGS_VALIDATE_JOBS=2 bash scripts/validate tools --full) >"$1.out" 2>&1 &
+  pid=$!
+  for _ in $(seq 1 100); do
+    [[ -e $1/.git/ready-a && -e $1/.git/ready-b ]] && break
+    sleep 0.1
+  done
+  kill -TERM "$pid"
+  status=0
+  wait "$pid" || status=$?
+  freed=0
+  for lock in "$1/.git/lock-a" "$1/.git/lock-b"; do
+    if flock -w 3 "$lock" true; then freed=$((freed + 1)); fi
+  done
+}
+d="$tmp/jobs-term"; hold_rows "$d"
+hold_run "$d"
+if [[ $status == 143 && $freed == 2 && -z "$(ls -A -- "$d/.git/vgs-validate-tmp")" ]]; then
+  ok "a TERM to validate ends its rows and removes its scratch directory"
+else
+  fail "a TERM to validate: exit=$status freed=$freed scratch=[$(ls -A -- "$d/.git/vgs-validate-tmp")]"; sed 's/^/        /' "$d.out"
+fi
+d="$tmp/jobs-term-control"; hold_rows "$d"
+python3 - "$d/scripts/validate" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+line = "trap 'stop_rows 143' TERM\n"
+source = path.read_text()
+assert source.count(line) == 1
+path.write_text(source.replace(line, ""))
+PY
+"${base_env[@]}" git -C "$d" commit -q -am control
+hold_run "$d"
+if [[ $freed == 0 ]]; then
+  ok "control: a validate without its TERM trap leaves its rows running"
+else
+  fail "control: a validate without its TERM trap still ended its rows: freed=$freed"
+fi
+flock -w 15 "$d/.git/lock-a" true || true
+flock -w 15 "$d/.git/lock-b" true || true
+
+d="$tmp/jobs-refused"; fresh "$d"
+for value in 0 01 -1 two; do
+  row "VGS_VALIDATE_JOBS=$value is refused" "$d" 2 "VGS_VALIDATE_JOBS=$value" "validate: refused: jobs=$value"
+done
+
+# scripts/test-qml-unit.sh runs its mutations side by side and prints each
+# kill verdict in table order. The copy's runner is a stand-in that exits
+# with the verdict its mutated file names after the delay it names, so the
+# first row ends last; the copy's other rows fail on the stand-in, and only
+# the mutation lines are read. A copy that prints the case logs in reverse
+# is the control.
+q="$tmp/qml-jobs"
+mkdir -p "$q/scripts/qml-tests" "$q/shell/Ui"
+printf 'base\n' >"$q/shell/Ui/a.qml"
+: >"$q/scripts/qml-tests/tst_x.qml"
+cat >"$q/scripts/qml-unit.sh" <<'SH'
+#!/usr/bin/env bash
+ui=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --ui) ui="$2"; shift 2 ;;
+    --tests|--commons|--core) shift 2 ;;
+    --nope) echo 'qml-unit: refused: argument=--nope'; exit 2 ;;
+    *) shift ;;
+  esac
+done
+[[ -z ${QML_UNIT_RUNNER:-} ]] || { echo 'qml-unit: status=not-measured missing=qmltestrunner'; exit 77; }
+[[ -n $ui ]] || exit 0
+read -r verdict delay <"$ui/a.qml"
+sleep "${delay:-0}"
+case "$verdict" in KILL) exit 1 ;; CRASH) exit 3 ;; *) exit 0 ;; esac
+SH
+chmod +x "$q/scripts/qml-unit.sh"
+python3 - "$repo/scripts/test-qml-unit.sh" "$q/scripts/test-qml-unit.sh" <<'PY'
+import sys
+source, copy = sys.argv[1:]
+lines = open(source, encoding="utf-8").read().split("\n")
+start = lines.index("mutations=(") + 1
+end = lines.index(")", start)
+lines[start:end] = [
+    '  "killed slow|a.qml|base|KILL 0.6|tst_x.qml"',
+    '  "survived|a.qml|base|SURVIVE|tst_x.qml"',
+    '  "crashed|a.qml|base|CRASH|tst_x.qml"',
+    '  "killed fast|a.qml|base|KILL 0|tst_x.qml"',
+]
+open(copy, "w", encoding="utf-8").write("\n".join(lines))
+PY
+cp -- "$q/scripts/test-qml-unit.sh" "$q/scripts/test-qml-unit-reversed.sh"
+python3 - "$q/scripts/test-qml-unit-reversed.sh" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+line = '  cat -- "$tmp/case-$i.log"\n'
+source = path.read_text()
+assert source.count(line) == 1
+path.write_text(source.replace(line, '  cat -- "$tmp/case-$((${#cases[@]} - 1 - i)).log"\n'))
+PY
+qml_jobs_want=$'  ok    killed slow\n  FAIL  survived: tst_x.qml passed on the mutated copy\n  FAIL  crashed: the runner exited 3, so no test judged the mutated copy\n  ok    killed fast'
+for copy in test-qml-unit.sh test-qml-unit-reversed.sh; do
+  status=0
+  out="$("${base_env[@]}" VGS_VALIDATE_JOBS=4 bash "$q/scripts/$copy" 2>&1)" || status=$?
+  got="$(grep -E '^  (ok  |FAIL)  (killed|survived|crashed)' <<<"$out")" || got=""
+  if [[ $copy == test-qml-unit.sh ]]; then
+    if [[ $status == 1 && $got == "$qml_jobs_want" ]]; then
+      ok "qml mutations run side by side keep their kill verdicts in table order"
+    else
+      fail "qml mutations side by side: exit=$status"; printf '%s\n' "$got" | sed 's/^/        /'
+    fi
+  elif [[ $got != "$qml_jobs_want" ]]; then
+    ok "control: qml mutation verdicts printed out of table order are caught"
+  else
+    fail "control: qml mutation verdicts printed in reverse still read in table order"
+  fi
+done
+status=0
+out="$("${base_env[@]}" VGS_VALIDATE_JOBS=0 bash "$q/scripts/test-qml-unit.sh" --plan 2>&1)" || status=$?
+if [[ $status == 2 && $out == 'test-qml-unit: refused: jobs=0' ]]; then
+  ok "test-qml-unit refuses VGS_VALIDATE_JOBS=0"
+else
+  fail "test-qml-unit VGS_VALIDATE_JOBS=0: exit=$status output=$out"
+fi
+test_area=offline
+test_args=()
+
 d="$tmp/arguments"; fresh "$d"
 argument_cases=(
   'missing|--changed|changed-base=missing-or-repeated'
