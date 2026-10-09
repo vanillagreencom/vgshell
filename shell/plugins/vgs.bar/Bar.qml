@@ -187,10 +187,18 @@ Item {
         property real room: 0
         readonly property Item content: section
         readonly property bool clipped: section.width > room
-        // How far the content is scrolled from its rest at the bar edge,
-        // never past its travel.
-        property real scroll: 0
         readonly property real travel: Math.max(0, section.width - width)
+        // What a step asked for: the width hidden before the view, and for
+        // a right zone whether it rests at its bar edge. A content width
+        // change leaves them, so a change undone within one turn, as a
+        // reading that redraws narrower and back, moves nothing for good.
+        property real held: 0
+        property bool resting: true
+        // How far the content is scrolled from its rest at the bar edge:
+        // a right zone at rest keeps its edge, and one scrolled off it
+        // keeps the width it hides before the view, so the widgets it shows
+        // stay put; neither scrolls past its travel.
+        readonly property real scroll: edge === Qt.LeftEdge ? Math.min(held, travel) : resting ? 0 : Math.max(0, travel - held)
         // The width of the content hidden before the view once the scroll is done.
         readonly property real before: edge === Qt.LeftEdge ? scroll : travel - scroll
         readonly property bool moreBefore: clipped && before > 0.5
@@ -198,25 +206,21 @@ Item {
         // The room a shown button and its fade take from the view.
         readonly property real inset: startScroller.width
         // The scroll drawn now. Only a step slides it; a content width
-        // change moves the content at once. A right zone at rest keeps its
-        // edge, and one scrolled off it keeps the width it hides before the
-        // view, so the widgets it shows stay put. A change that leaves less
-        // to scroll clamps both, so a zone that clips again starts at rest.
+        // change moves the content at once.
         property real drawnScroll: 0
-        property real knownTravel: 0
-        onTravelChanged: {
-            if (edge === Qt.RightEdge && scroll > 0) {
-                slide.stop();
-                scroll = Math.max(0, scroll + travel - knownTravel);
-                drawnScroll = scroll;
-            }
-            knownTravel = travel;
-            if (scroll > travel) scroll = travel;
-            if (drawnScroll > travel) {
-                slide.stop();
-                drawnScroll = scroll;
-            }
+        property bool stepping: false
+        onScrollChanged: if (!stepping) {
+            slide.stop();
+            drawnScroll = scroll;
         }
+        // A zone that still fits once the turn that made it fit has ended
+        // starts at rest when it clips again.
+        function settleFit() {
+            if (clipped) return;
+            held = 0;
+            resting = true;
+        }
+        onClippedChanged: if (!clipped) Qt.callLater(settleFit)
         NumberAnimation {
             id: slide
             target: zone
@@ -241,7 +245,10 @@ Item {
         // Scroll so `hidden` of the content lies before the view.
         function scrollTo(hidden) {
             const at = Math.max(0, Math.min(travel, hidden));
-            scroll = edge === Qt.LeftEdge ? at : travel - at;
+            stepping = true;
+            resting = edge === Qt.RightEdge && at >= travel - 0.5;
+            held = at;
+            stepping = false;
             slide.stop();
             slide.from = drawnScroll;
             slide.to = scroll;
