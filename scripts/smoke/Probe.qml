@@ -2519,11 +2519,6 @@ Scope {
             copy[verb]();
             return "ok";
         }
-        // The list of Select copy NAME as selectList reads it, or `absent`.
-        function popupSelectList(name: string): string {
-            const copy = root.popupCopies[name];
-            return copy === undefined ? "absent" : root.json(root.selectList(copy));
-        }
         // PROPERTY of copy NAME as JSON, or `absent`.
         function popupRead(name: string, property: string): string {
             const copy = root.popupCopies[name];
