@@ -469,7 +469,7 @@ Singleton {
         if (barDrag !== null && barDrag.hostKey === hostKey) cancelBarDrag();
         const mount = mounts[hostKey];
         const manifests = Registry.manifests;
-        const names = mount.row.instance.builtinNames;
+        const names = barBuiltinNames(mount.row);
         const layout = Logic.effectiveLayout(Config.effective, manifests, Registry.defaultBarId, names);
         if (mount.row.instance.widgetLayout !== undefined)
             mount.row.instance.widgetLayout = layout;
@@ -726,7 +726,40 @@ Singleton {
 
     function widgetBuiltinNames() {
         const active = Object.values(mounts).find(mount => mount.row.id === Registry.activeBarId);
-        return active === undefined ? [] : active.row.instance.builtinNames;
+        return active === undefined ? [] : barBuiltinNames(active.row);
+    }
+
+    // A bar's catalogue: its fixed `builtinNames`, then each placed member
+    // of the families it declares in `builtinFamilies`, which it draws once
+    // per layout entry.
+    function barBuiltinNames(row) {
+        const bar = row.instance;
+        const families = Array.isArray(bar.builtinFamilies) ? bar.builtinFamilies : [];
+        return bar.builtinNames.concat(Logic.placedFamilyNames(Config.effective, row.id, families));
+    }
+
+    // Add a new member of the calling bar's builtin family `family` where
+    // a drag released at bar-window `x` would drop it, under the next free
+    // name (PluginLogic.nextFamilyName). The reply is one keyed line: `ok`
+    // (the file holds it) or a refusal.
+    function addBuiltin(ctx, family, x) {
+        if (!Logic.hasOwn(mounts, ctx.hostKey) || mounts[ctx.hostKey].row.id !== ctx.id)
+            return "refused: builtins=" + ctx.id + " reason=unmounted";
+        const mount = mounts[ctx.hostKey];
+        const families = mount.row.instance.builtinFamilies;
+        if (typeof family !== "string" || !Array.isArray(families) || families.indexOf(family) === -1)
+            return "refused: family=" + JSON.stringify(family) + " undeclared";
+        if (typeof x !== "number" || !isFinite(x)) return "refused: x=" + JSON.stringify(x) + " want=number";
+        const name = Logic.nextFamilyName(Config.effective, ctx.id, family);
+        const id = ctx.id + "/" + name;
+        const refusal = Logic.placedRefusal(Config.effective, Registry.manifests[ctx.id], Registry.defaultBarId, barBuiltinNames(mount.row).concat([name]), id);
+        if (refusal !== "") return refusal;
+        const sections = {};
+        for (const section of Logic.SECTIONS)
+            sections[section] = barDragSectionGeometry(ctx.hostKey, section);
+        const target = Logic.barDropTarget(mount.row.instance.width, x, sections);
+        const index = Logic.barDropIndex(Config.effective, target.section, target.before, null, id);
+        return Config.writeUser(Logic.withBuiltinAt(Config.user, id, target.section, index, Config.effective));
     }
 
     function widgetBuiltinRows(id) {

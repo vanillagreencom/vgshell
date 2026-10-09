@@ -540,6 +540,42 @@ function suite(ctx, check) {
     check("builtin Hide keeps owner enablement", ctx.isEnabled(ctx.effectiveConfig(builtinConfig, hiddenBuiltin), manifests["vgs.bar"], "vgs.bar"), true);
     check("builtin placement restores only an ordinary entry", ctx.withPlaced(hiddenBuiltin, manifests["vgs.bar"], true,
         ctx.effectiveConfig(builtinConfig, hiddenBuiltin), "vgs.bar/center-clock").bar.layout.center, [{ id: "vgs.bar/center-clock" }]);
+    // Builtin families: one registration per placed `<family>-<n>`.
+    const families = ["gap", "separator"];
+    const familyConfig = { bar: { id: "vgs.bar", layout: {
+        left: [{ id: "vgs.bar/gap-2" }, { id: "vgs.bar/left-workspaces" }, { id: "vgs.bar/separator-1" }],
+        center: [{ id: "vgs.bar/gap-7" }, { id: "alt.bar/gap-9" }, { id: "vgs.bar/gap-02" }, { id: "vgs.bar/rule-1" }, { id: "vgs.bar/gap-0" }],
+        right: [{ id: "vgs.bar/gap-2" }] } } };
+    for (const [name, member, want] of [
+        ["a declared family member", "gap-3", "gap"],
+        ["another declared family", "separator-12", "separator"],
+        ["an undeclared family", "rule-1", ""],
+        ["a bare family name", "gap", ""],
+        ["a zero number", "gap-0", ""],
+        ["a leading zero", "gap-02", ""],
+        ["a fixed builtin", "center-clock", ""],
+    ]) check("builtinFamilyOf: " + name, ctx.builtinFamilyOf(member, families), want);
+    check("placedFamilyNames: the bar's members once each in section order", ctx.placedFamilyNames(familyConfig, "vgs.bar", families), ["gap-2", "separator-1", "gap-7"]);
+    check("placedFamilyNames: no families admit no member", ctx.placedFamilyNames(familyConfig, "vgs.bar", []), []);
+    check("nextFamilyName: one past the highest placed member", ctx.nextFamilyName(familyConfig, "vgs.bar", "gap"), "gap-8");
+    check("nextFamilyName: a family with no member starts at one", ctx.nextFamilyName(builtinConfig, "vgs.bar", "gap"), "gap-1");
+    check("nextFamilyName: another bar's members do not count", ctx.nextFamilyName({ bar: { id: "vgs.bar", layout: { left: [{ id: "alt.bar/gap-4" }] } } }, "vgs.bar", "gap"), "gap-1");
+    const familyNames = builtinNames.concat(ctx.placedFamilyNames(familyConfig, "vgs.bar", families));
+    check("effectiveLayout builtin: placed family members share plugin order", ctx.effectiveLayout(familyConfig, manifests, "vgs.bar", familyNames),
+        { left: [{ id: "vgs.bar/gap-2" }, { id: "vgs.bar/left-workspaces" }, { id: "vgs.bar/separator-1" }], center: [{ id: "vgs.bar/gap-7" }], right: [] });
+    check("placedRefusal builtin: a placed family member can be removed", ctx.placedRefusal(familyConfig, manifests["vgs.bar"], "vgs.bar", familyNames, "vgs.bar/separator-1"), "");
+    check("moveRefusal builtin: a placed family member moves", ctx.moveRefusal(familyConfig, manifests["vgs.bar"], "right", 0, "vgs.bar", familyNames, "vgs.bar/gap-7"), "");
+    const removedGap = ctx.withPlaced({}, manifests["vgs.bar"], false, familyConfig, "vgs.bar/gap-7");
+    check("withPlaced: removing one member leaves the others", removedGap.bar.layout.center, familyConfig.bar.layout.center.slice(1));
+    check("withPlaced: removing a member writes no plugins row", removedGap.plugins, undefined);
+    for (const [name, user, section, index, want] of [
+        ["inserts at the index", builtinConfig, "left", 1, [{ id: "acme.widget" }, { id: "vgs.bar/gap-1" }, { id: "vgs.bar/left-workspaces" }]],
+        ["an index past the end appends", builtinConfig, "left", 9, [{ id: "acme.widget" }, { id: "vgs.bar/left-workspaces" }, { id: "vgs.bar/gap-1" }]],
+        ["a missing section is created", { bar: { id: "vgs.bar", layout: { left: [] } } }, "right", 0, [{ id: "vgs.bar/gap-1" }]],
+    ]) check("withBuiltinAt: " + name, ctx.withBuiltinAt(user, "vgs.bar/gap-1", section, index, user).bar.layout[section], want);
+    check("withBuiltinAt: seeds the user bar from the effective bar", ctx.withBuiltinAt(null, "vgs.bar/gap-1", "center", 0, builtinConfig).bar.layout,
+        { left: builtinConfig.bar.layout.left, center: [{ id: "vgs.bar/gap-1" }, { id: "vgs.bar/center-clock" }], right: [] });
+    check("withBuiltinAt does not alias the user file", (() => { const u = ctx.clone(builtinConfig); ctx.withBuiltinAt(u, "vgs.bar/gap-1", "right", 0, u); return u.bar.layout.right; })(), []);
     const builtinDefaults = { bar: { id: "vgs.bar", layout: {
         left: [{ id: "acme.widget" }, { id: "vgs.bar/left-workspaces" }, { id: "acme.tick" }],
         center: [{ id: "vgs.bar/center-clock" }], right: [] } } };
@@ -1308,6 +1344,12 @@ const CONTROLS = [
     ["undeclared settings never reach runtime or ordinary writes", "if (hasOwn(manifest.settings, k) || (stored && ENTRY_RESERVED_KEYS.indexOf(k) !== -1))", "if (stored || ENTRY_RESERVED_KEYS.indexOf(k) === -1)"],
     ["stored entries retain reserved keys", "stored && ENTRY_RESERVED_KEYS.indexOf(k) !== -1", "false && stored && ENTRY_RESERVED_KEYS.indexOf(k) !== -1"],
     ["builtin placement needs the active catalogue", 'builtinNames.indexOf(id.slice(prefix.length)) !== -1', 'true'],
+    ["a family member is numbered from one", "/^([a-z][a-z0-9]*)-([1-9][0-9]*)$/", "/^([a-z][a-z0-9]*)-([0-9]+)$/"],
+    ["a family member needs a declared family", "families.indexOf(match[1]) !== -1 ? match[1]", "true ? match[1]"],
+    ["family members belong to their own bar", "var name = id.slice(0, prefix.length) === prefix ? id.slice(prefix.length) : \"\";", "var name = id.slice(id.indexOf(\"/\") + 1);"],
+    ["family members are listed once", "if (builtinFamilyOf(name, families) !== \"\" && out.indexOf(name) === -1) out.push(name);", "if (builtinFamilyOf(name, families) !== \"\") out.push(name);"],
+    ["the next member follows the highest", "return family + \"-\" + (highest + 1);", "return family + \"-\" + highest;"],
+    ["a new builtin lands at its index", "target.splice(Math.max(0, Math.min(index, target.length)), 0, { id: id });", "target.push({ id: id });"],
     ["builtin placement needs the active bar prefix", 'id.indexOf(prefix) === 0', 'true'],
     ["builtin placement needs an enabled owner", 'isEnabled(config, bar, defaultBarId)', 'true'],
     ["builtin registration appears once", 'if (seenBuiltins.indexOf(entry.id) !== -1) return false;', ''],
