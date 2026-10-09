@@ -23,10 +23,11 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // and the item keeps its width as the reading changes. A reading without a
 // sample holds no room. `stacked`, with both text and count shown, draws
 // the text over the count on two short lines, `bar.stacked.size` text in
-// `bar.stacked.lineHeight` boxes, with no separator: the two lines right
-// align in a block beside the icon, and the held width is the wider line
-// at its sample, so the icon stays beside the block and both lines fit
-// inside the item. The item is as wide as its
+// `bar.stacked.lineHeight` boxes, with no separator: the two lines left
+// align in a block beside the icon, so each starts at the item gap from
+// it, and the held width is the wider line at its sample, so the room sits
+// before the icon and both lines fit inside the item. The item is as wide
+// as its
 // padding and what it draws, and reserves no room after it. The item is
 // never narrower than it is tall, and an item that draws an icon alone is
 // square, its icon centred. The tooltip reads `tooltip` as its title and
@@ -208,7 +209,6 @@ T.AbstractButton {
                 Reading {
                     id: stackText
                     stacked: true
-                    anchors.right: parent.right
                     sample: root.textSample
                     text: root.text
                     color: root.textColor
@@ -216,7 +216,6 @@ T.AbstractButton {
                 Reading {
                     id: stackCount
                     stacked: true
-                    anchors.right: parent.right
                     sample: root.countSample
                     text: root.count
                     color: root.countColor

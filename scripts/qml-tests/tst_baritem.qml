@@ -15,10 +15,11 @@ import qs.Unit
 // where the same item without held room ends, the item keeps its right
 // padding, and the icon or caption stays as far from its value as with no
 // held room; a stacked item draws text over count in `bar.stacked.size`,
-// both lines inside the item at every item height, right aligned in a
-// block whose held width is its wider line's sample, the icon as far from
-// the block at a short reading as at the widest, and with one reading
-// shown stays one line; `active` fills it with `bar.active`;
+// both lines inside the item at every item height, left aligned in a
+// block whose held width is its wider line's sample, each line starting
+// at the item gap from the icon at a short reading as at the widest, and
+// with one reading shown stays one line; `active` fills it with
+// `bar.active`;
 // hover and press fill it with their own tokens; a click emits `clicked`.
 Item {
     id: root
@@ -236,28 +237,37 @@ Item {
                     if (img.red(x, y) > 64) return x;
             return -1;
         }
-        // The blank between the icon's or caption's ink and the first
-        // value's ink.
-        function markGap(img, item) {
+        // The values that start a line beside the icon or caption: the
+        // text, and stacked, the count too.
+        function lineStarts(item) {
+            return labels(item).filter(label => label.text === item.text || (item.stackedShown && label.text === item.count));
+        }
+        // The blank between the icon's or caption's ink and the ink of
+        // each value that starts a line.
+        function markGaps(img, item) {
             const glyph = firstIcon(item);
             const mark = glyph.parent.visible ? glyph : labels(item)[0];
-            const value = labels(item).find(label => label.text === item.text);
-            const markInk = inkRight(img, mark), valueInk = inkLeft(img, value);
-            verify(markInk >= 0 && valueInk >= 0, "the mark and \"" + item.text + "\" draw");
-            return valueInk - (markInk + 1);
+            const markInk = inkRight(img, mark);
+            verify(markInk >= 0, "the mark draws");
+            return lineStarts(item).map(value => {
+                const valueInk = inkLeft(img, value);
+                verify(valueInk >= 0, "\"" + value.text + "\" draws");
+                return valueInk - (markInk + 1);
+            });
         }
 
         // A short and the widest value held at the same sample, on one line
         // and stacked: the held room sits before the icon or caption, so the
-        // blank between it and the value is the one the same item with no
-        // held room draws.
+        // blank between it and each line's value is the one the same item
+        // with no held room draws, and stacked, each line's box starts the
+        // item gap after the icon's or caption's box, the shorter line too.
         function test_the_mark_stays_beside_its_value_data() {
             return [
                 { tag: "short", held: { iconName: "cpu", text: "9%", textSample: "100%" } },
                 { tag: "widest", held: { iconName: "cpu", text: "100%", textSample: "100%" } },
                 { tag: "short-count", held: { iconName: "cpu", text: "9%", textSample: "100%", count: "9°", countSample: "100°", separator: "/" } },
                 { tag: "short-caption", held: { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%" } },
-                { tag: "stacked-short", held: { iconName: "cpu", text: "9%", textSample: "100%", count: "9°", countSample: "100°", stacked: true } },
+                { tag: "stacked-short", held: { iconName: "cpu", text: "3%", textSample: "100%", count: "41°", countSample: "100°", stacked: true } },
                 { tag: "stacked-widest", held: { iconName: "cpu", text: "100%", textSample: "100%", count: "100°", countSample: "100°", stacked: true } },
                 { tag: "stacked-caption", held: { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%", stacked: true } }
             ];
@@ -272,8 +282,18 @@ Item {
             tryVerify(() => held.width >= bare.width && bare.width > bare.height, 1000, "both items lay out");
             verify(waitForRendering(canvas));
             const img = grabImage(root);
-            const heldGap = markGap(img, held), bareGap = markGap(img, bare);
-            verify(Math.abs(heldGap - bareGap) <= 1, "the held item keeps its mark beside its value: held " + heldGap + ", bare " + bareGap);
+            const heldGaps = markGaps(img, held), bareGaps = markGaps(img, bare);
+            compare(heldGaps.length, data.held.stacked ? 2 : 1);
+            for (let index = 0; index < heldGaps.length; index++)
+                verify(Math.abs(heldGaps[index] - bareGaps[index]) <= 1, "the held item keeps its mark beside its value: held " + heldGaps[index] + ", bare " + bareGaps[index]);
+            if (data.held.stacked) {
+                const glyph = firstIcon(held);
+                const mark = glyph.parent.visible ? glyph.parent : labels(held)[0];
+                const markEnd = mark.mapToItem(held, mark.width, 0).x;
+                for (const value of lineStarts(held))
+                    tryVerify(() => Math.abs(value.mapToItem(held, 0, 0).x - markEnd - held.spacing) <= 0.5, 1000,
+                        "\"" + value.text + "\" starts the item gap after the mark");
+            }
         }
 
         function test_the_separated_reading_follows_the_icon() {
@@ -382,9 +402,9 @@ Item {
                 "the ink lies inside the item: rows " + inkRows[0] + " to " + inkRows[inkRows.length - 1] + ", item " + box.y + " to " + (box.y + item.height));
         }
 
-        // The block holds its wider line's sample and the lines right
-        // align in it: a value change keeps the item's width, and both
-        // lines end at one right edge.
+        // The block holds its wider line's sample and the lines left align
+        // in it: a value change keeps the item's width, and both lines start
+        // at one left edge.
         function test_stacked_lines_hold_their_samples() {
             const item = createTemporaryObject(stackedCase, canvas, { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%" });
             verify(item !== null);
@@ -392,14 +412,14 @@ Item {
             compare(found.length, 2);
             tryVerify(() => item.width > item.height, 1000, "the item lays out");
             const width = item.width;
-            const ends = () => found.map(label => Math.round(label.mapToItem(item, label.width, 0).x));
-            compare(ends()[0], ends()[1], "both lines end at one right edge");
+            const starts = () => found.map(label => Math.round(label.mapToItem(item, 0, 0).x));
+            compare(starts()[0], starts()[1], "both lines start at one left edge");
             verify(found[1].width < found[0].width, "the count's line is the narrower");
             item.text = "12.0 GB";
             item.count = "100%";
             verify(waitForRendering(canvas));
             compare(item.width, width, "the item keeps its width as its readings change");
-            compare(ends()[0], ends()[1]);
+            compare(starts()[0], starts()[1]);
         }
 
         function test_one_reading_stays_one_line_data() {
