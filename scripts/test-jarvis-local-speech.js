@@ -387,7 +387,96 @@ async function longReply(folder) {
     } finally { speech.close(); }
     cases++;
 }
-const CASES = { selection, utterance, antiAlias, streaming, partialViolations, failures, abort, backlog, close, speaking, speechWaits, longReply };
+// Wake spotting: woke once, frames before the models are ready dropped, an
+// ended capture and abort() abandoned with an abort sent, a failure keyed.
+async function wake(folder) {
+    const bounded = (promise, label) => {
+        let timer;
+        return Promise.race([promise, new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new assert.AssertionError({ message: "no outcome: " + label })), OBSERVE_MS);
+        })]).finally(() => clearTimeout(timer));
+    };
+    // Frames, then the capture stays open until released.
+    function open(pcm, gate = null) {
+        let release;
+        const held = new Promise(resolve => { release = resolve; });
+        const input = (async function* () {
+            for (let at = 0; at < pcm.length; at += 4800) yield { content: pcm.subarray(at, at + 4800), labels: ["speech"] };
+            if (gate !== null) {
+                gate.reached = true;
+                await gate.wait;
+                for (let at = 0; at < gate.after.length; at += 4800) yield { content: gate.after.subarray(at, at + 4800), labels: ["speech"] };
+            }
+            await held;
+        })();
+        return { input, release };
+    }
+    const assertReady = speech => until(() => speech.status().kind === "ready", "sidecar ready", OBSERVE_MS);
+    {
+        const w = runtime({ wakes: [{ afterFrames: 3 }] });
+        const speech = adapter(folder, w);
+        try {
+            await assertReady(speech);
+            const capture = open(tone(1000, 1, 0.5));
+            const spot = speech.spot(capture.input);
+            assert.deepEqual(await bounded(spot.outcome, "woke"), { kind: "woke" });
+            capture.release();
+            const log = w.log();
+            assert.equal(log.filter(entry => entry.woke).length, 1);
+            assert.equal(log.some(entry => entry.abort || entry.end), false, "a woke request is not aborted or ended");
+            assert.ok(Math.abs(log.find(entry => entry.woke).samples - 3 * 1600) < 64, "three resampled frames reach the spotter");
+            // The capture ends without a keyword: abandoned, abort sent.
+            const ended = speech.spot(frames(tone(1000, 1, 0.5)));
+            assert.deepEqual(await bounded(ended.outcome, "ended"), { kind: "abandoned" });
+            await until(() => w.log().some(entry => entry.abort), "an ended wake capture is aborted", OBSERVE_MS);
+            // abort() while held abandons too.
+            const later = open(tone(1000, 1, 0.5));
+            const stopped = speech.spot(later.input);
+            await until(() => w.log().filter(entry => entry.wake).length === 3, "third wake request sent", OBSERVE_MS);
+            stopped.abort();
+            assert.deepEqual(await bounded(stopped.outcome, "abort"), { kind: "abandoned" });
+            await until(() => w.log().filter(entry => entry.abort).length === 2, "abort() reaches the sidecar", OBSERVE_MS);
+            later.release();
+        } finally { speech.close(); }
+    }
+    {
+        const w = runtime({ wakes: [{ failed: "wake-keywords" }] });
+        const speech = adapter(folder, w);
+        try {
+            await assertReady(speech);
+            const capture = open(tone(1000, 1, 0.5));
+            const result = await bounded(speech.spot(capture.input).outcome, "failed");
+            capture.release();
+            assert.equal(result.kind, "failed");
+            assert.equal(result.error.message, "jarvis: speech=local-wake-keywords");
+        } finally { speech.close(); }
+    }
+    {
+        // Loading: frames before the ready frame never reach the sidecar.
+        const w = runtime({ start: "held", wakes: [{ afterFrames: 2 }] });
+        assert.equal(require("node:child_process").spawnSync("python3", ["-I", "-c", "import os,sys;os.mkfifo(sys.argv[1])",
+            path.join(w.local, "ready-gate")]).status, 0);
+        const speech = adapter(folder, w);
+        try {
+            let opened;
+            const gate = { wait: new Promise(resolve => { opened = resolve; }), after: tone(1000, 1, 0.5) };
+            // Silence while loading, the tone once ready.
+            const capture = open(Buffer.alloc(48000), gate);
+            const spot = speech.spot(capture.input);
+            await until(() => start(w.log()) !== undefined && gate.reached, "loading frames offered", OBSERVE_MS);
+            fs.writeFileSync(path.join(w.local, "ready-gate"), "R");
+            await assertReady(speech);
+            opened();
+            assert.deepEqual(await bounded(spot.outcome, "loading woke"), { kind: "woke" });
+            capture.release();
+            const woke = w.log().find(entry => entry.woke);
+            assert.ok(Math.abs(woke.samples - 2 * 1600) < 64 && woke.rms > 0.3, "only frames after ready were sent: " + JSON.stringify(woke));
+        } finally { speech.close(); }
+    }
+    cases++;
+}
+
+const CASES = { selection, utterance, antiAlias, streaming, partialViolations, failures, abort, backlog, close, speaking, speechWaits, longReply, wake };
 // Controls: name, edits to LocalSpeech.js, the case that must turn red.
 const CONTROLS = [
     ["partial delivery", [['if (utterance !== undefined) utterance.partial(header);', 'if (false) utterance.partial(header);']], "streaming"],
@@ -404,12 +493,17 @@ const CONTROLS = [
     ["no parent-death signal", [['"setpriv", "--pdeathsig", "KILL", "--"', '"setpriv", "--"']], "utterance"],
     ["inherited environment", [["{ env: environment, stdio", "{ env: { ...process.env, ...environment }, stdio"]], "utterance"],
     ["no resampling", [["sendAudio(id, resampler.push(fromPcm(bytes)));", "sendAudio(id, fromPcm(bytes));"]], "utterance"],
-    ["split sample dropped", [["carry = bytes.subarray(bytes.length - (bytes.length % 2));", "carry = Buffer.alloc(0);"]], "utterance"],
+    ["split sample dropped", [[" carry = bytes.subarray(bytes.length - (bytes.length % 2));", " carry = Buffer.alloc(0);"]], "utterance"],
     ["no anti-alias band", [["PASSBAND * Math.min(from, to)", "PASSBAND * Math.max(from, to)"]], "antiAlias"],
     ["failure read as final", [['?.settle({ kind: "failed", error: failure(header.cause) });', '?.settle({ kind: "final", text: "" });']], "failures"],
     ["exit unobserved", [['child.on("close",', 'child.on("closed",']], "failures"],
     ["foreign id accepted", [[" || header.id > next)", ")"]], "failures"],
     ["no abort sent", [['if (life.kind !== "ended") write({ type: "abort", id });', ""]], "abort"],
+    ["woke unsettled", [['request(header, "wake")?.settle({ kind: "woke" });', ""]], "wake"],
+    ["frames before ready sent", [['                    if (life.kind !== "ready") continue;\n', ""]], "wake"],
+    ["wake not resampled", [["sendAudio(id, stream.resampler.push(fromPcm(bytes)));", "sendAudio(id, fromPcm(bytes));"]], "wake"],
+    ["ended wake kept", [["if (step.done) { abort(); return; }", "if (step.done) return;"]], "wake"],
+    ["no wake abort", [['if (stream.kind === "sent" && life.kind !== "ended") write({ type: "abort", id });', ""]], "wake"],
     ["no backlog bound", [["if (child.stdin.writableLength > BACKLOG_BYTES) {", "if (false) {"]], "backlog"],
     ["close leaves the process", [['        child.kill("SIGKILL");\n', ""]], "close"],
     ["native frames counted", [["const pcm = toPcm(result.rate === PCM_RATE ? native :", "const pcm = toPcm(true ? native :"]], "speaking"]

@@ -8,6 +8,8 @@ written independently of LocalSpeech.js. DATA/scenario.json scripts it:
   utterances: per end, {final} | {failed} | {exit}; optional streaming:
     {partials:[{text,rev}], earlyFinal:text} answered on successive audio frames
   speech: per speak, {rate, samples, tone?, value?} | {failed} | {raw}
+  wakes: per wake, {afterFrames} answered woke on that audio frame | {failed}
+    answered on the first; with none left a wake waits for its abort
 DATA/log.jsonl records what it observed: its start facts, then one line per
 ended, aborted or spoken request. No model, device or network is touched.
 """
@@ -103,8 +105,10 @@ if start == "foreign-id":
 
 utterances = list(scenario.get("utterances", []))
 speech = list(scenario.get("speech", []))
+wakes = list(scenario.get("wakes", []))
 received = {}
 listening = {}
+spotting = {}
 while True:
     prefix = read(8)
     if prefix is None:
@@ -117,6 +121,24 @@ while True:
     if kind == "listen":
         record({"listen": ident, "detect": header["detect"]})
         listening[ident] = {"detect": header["detect"], "count": 0}
+    elif kind == "wake":
+        record({"wake": ident})
+        spotting[ident] = 0
+    elif kind == "audio" and ident in spotting:
+        received.setdefault(ident, []).extend(v for (v,) in struct.iter_unpack("<f", payload))
+        spotting[ident] += 1
+        action = wakes[0] if wakes else {}
+        if "failed" in action:
+            wakes.pop(0)
+            del spotting[ident]
+            send({"type": "failed", "id": ident, "cause": action["failed"]})
+        elif "afterFrames" in action and spotting[ident] >= action["afterFrames"]:
+            wakes.pop(0)
+            del spotting[ident]
+            samples = received.pop(ident)
+            record({"woke": ident, "samples": len(samples),
+                    "rms": math.sqrt(sum(v * v for v in samples) / len(samples))})
+            send({"type": "woke", "id": ident})
     elif kind == "audio":
         received.setdefault(ident, []).extend(v for (v,) in struct.iter_unpack("<f", payload))
         live = listening.get(ident)
@@ -134,6 +156,7 @@ while True:
                 del listening[ident]
                 utterances.pop(0)
     elif kind == "abort":
+        spotting.pop(ident, None)
         record({"abort": ident, "samples": len(received.pop(ident, []))})
     elif kind == "end":
         if ident not in listening:
