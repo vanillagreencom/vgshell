@@ -95,16 +95,27 @@ check "the apply replaces the malformed record" record_is fern "$file"
 # Invocation and the lock.
 tinst "follow with an argument is exit 2" "$cfg" "$rt_empty" 2 "" "vgshell: refused: argument=fern" theme follow fern
 
-# A holder that takes the theme lock shared, as `theme outdated` does, for
-# 1 s and marks `released` just before it lets go; it sets `holder`.
+# A holder that takes the theme lock shared, as `theme outdated` does, and
+# keeps it until /proc/locks shows a blocked flock on the lock file, which
+# it records as `waiter`, or until `release` exists, at most 10 s; it sets
+# `holder`.
 shared_holder() {
-  rm -f -- "${tmp:?}/held" "${tmp:?}/released"
+  rm -f -- "${tmp:?}/held" "${tmp:?}/waiter" "${tmp:?}/release"
   (
     exec 7>>"$cfg/vgshell/theme.lock"
     flock -s 7
+    inode="$(stat -c %i -- "$cfg/vgshell/theme.lock")"
     : >"$tmp/held"
-    sleep 1
-    : >"$tmp/released"
+    for _ in $(seq 1 100); do
+      [[ -e $tmp/release ]] && exit 0
+      while read -r -a lock; do
+        if [[ ${lock[1]-} == "->" && ${lock[2]-} == FLOCK && ${lock[6]-} == *:"$inode" ]]; then
+          : >"$tmp/waiter"
+          exit 0
+        fi
+      done </proc/locks
+      sleep 0.1
+    done
   ) &
   holder=$!
   for _ in $(seq 1 50); do [[ -e $tmp/held ]] && break; sleep 0.1; done
@@ -112,12 +123,13 @@ shared_holder() {
 }
 shared_holder
 tinst "follow waits for another theme command's shared hold" "$cfg" "$rt_empty" 0 "$(follow_line current fern unchanged)" "" theme follow
-check "the follow ends only after the holder lets the lock go" test -e "$tmp/released"
-wait "$holder"
+wait "$holder" || fail "the shared holder ended with status $?"
+check "the follow blocked on the shared hold" test -e "$tmp/waiter"
 tree_control follow-wait bin/vgshell 'follow_lock_wait_s=10' 'follow_lock_wait_s=0'
 shared_holder
 tinst "the no-wait mutant refuses a follow under a shared hold as busy" "$cfg" "$rt_empty" 75 "" "vgshell: refused: follow=applied reason=busy" theme follow
-wait "$holder"
+: >"$tmp/release"
+wait "$holder" || fail "the shared holder ended with status $?"
 unset THEME_BIN
 
 # A hold that outlasts the wait, here cut to 1 s on a tree copy, which the

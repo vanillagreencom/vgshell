@@ -2599,9 +2599,8 @@ case "$cmd" in
         if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
         # The shell queues a follow after every scan and gets no second
         # chance until the next scan, while a holder such as `theme
-        # outdated` from a vgs.updates check, or an apply, is short. 10 s
-        # matches reset_lock_wait_s, which waits on the shell's follow from
-        # the other side; past it the follow is refused busy.
+        # outdated` from a vgs.updates check, or an apply, is short; past
+        # the wait the follow is refused busy.
         follow_lock_wait_s=10
         theme_lock_verdict -w "$follow_lock_wait_s"
         exec node "$theme_judge" follow "$format" "$config_home/vgshell" "$state_home/vgshell" "$verdict"
