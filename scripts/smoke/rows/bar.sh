@@ -1,4 +1,4 @@
-# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* config/shell.json shell/Core/PluginLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json
+# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* config/shell.json shell/Core/PluginLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Core/Capabilities.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Commons/Tokens.js shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json
 set -euo pipefail
 expect "instance guard accepts the runner's shell" true ipc shell guarded
 
@@ -579,3 +579,188 @@ if copy_tree bar-motion-control \
   start_shell "$repo" "$sandbox/bar-motion-restored.log" || fail "the shell starts after the Row motion control"
   geometry expect_poll "the restored cold bar centers both builtin contents" '[]' bar_alignment
 fi
+
+# Gaps and separators: a right click on the empty bar opens the bar's own
+# menu, Add separator first and Add gap second; the entry lands where a
+# widget dragged to the click would drop. Each kind is added in every
+# section through the real pointer and keys, read back from the effective
+# layout and the drawn boxes, kept across a restart, dragged into another
+# section and removed through its frame menu's first entry. The control
+# runs a copy whose core catalogue leaves out the bar's families: the
+# entry is written but never drawn, so the drawn reader fails.
+spacer_saved="$sandbox/bar-spacer-saved.json"
+cp -- "$home/.config/vgshell/shell.json" "$spacer_saved"
+spacer_pattern='^vgs\.bar/(gap|separator)-[1-9][0-9]*$'
+# The spacer ids of FILE's layout (the effective layout when FILE is
+# absent), per section, in order.
+spacer_layout() {
+  if [[ -n ${1:-} ]]; then cat -- "$1"; else ipc shell listShellConfig; fi | py_reply 'import json,re,sys
+l=json.load(sys.stdin).get("bar",{}).get("layout",{})
+print(json.dumps({s:[e["id"] for e in l.get(s,[]) if re.match(sys.argv[1],e["id"])] for s in ("left","center","right")}))' "$spacer_pattern"
+}
+spacer_user() { spacer_layout "$home/.config/vgshell/shell.json"; }
+# A point on the empty bar in SECTION: past the end of the left section,
+# or before the start of the centre or right one, inside that third.
+spacer_point() {
+  local key bar sec
+  key="$(bar_key)" || return 1
+  bar="$(ipc smoke instanceGeometry "$key" vgs.bar)" && sec="$(ipc smoke barSectionGeometry "$key" "$1")" || return 1
+  py_reply 'import json,sys
+bar=json.loads(sys.argv[1]); sec=json.load(sys.stdin); s=sys.argv[2]; room=8
+x=sec[0]+sec[2]+room if s=="left" else sec[0]-room
+low,high={"left":(0,1),"center":(1,2),"right":(2,3)}[s]
+print("%d %d" % (x,bar[1]+bar[3]/2) if bar[0]+bar[2]*low/3<x<bar[0]+bar[2]*high/3 else "crowded")' "$bar" "$1" <<<"$sec"
+}
+spacer_read() { ipc smoke readInstance "$(bar_key)" vgs.bar "$1"; }
+spacer_entries() { spacer_read spacerMenuEntries | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+# spacer_add SECTION KIND: the right click and the menu entry for KIND.
+spacer_add() {
+  local x y
+  read -r x y < <(spacer_point "$1") || { fail "no empty point in the $1 section"; return 1; }
+  hover "$((x + 1))" "$y" && right_click "$x" "$y" || { fail "the right click on the empty $1 bar failed"; return 1; }
+  expect_poll "a right click on the empty $1 bar opens the add menu" true spacer_read spacerMenuOpen
+  expect "the add menu holds its two entries" 2 spacer_entries
+  if [[ $2 == gap ]]; then type_keys -k Down -k Return; else type_keys -k Return; fi
+  expect_poll "choosing Add $2 closes the add menu" false spacer_read spacerMenuOpen
+}
+# The drawn spacers per section, in x order, and every box that breaks
+# its size: a gap `bar.spacer.gap` wide, a separator its line plus
+# `bar.spacer.inset` a side, the line `divider.thickness` by
+# `bar.spacer.height` at the bar's vertical centre, each inside its section.
+spacer_rendered() {
+  local key records ids id rows="" section box tokens
+  key="$(bar_key)" && records="$(ipc shell built)" || return 1
+  ids="$(py_reply 'import json,re,sys; print(" ".join(r["id"] for r in json.load(sys.stdin)[sys.argv[1]] if re.match(sys.argv[2],r["id"])))' "$key" "$spacer_pattern" <<<"$records")" || return 1
+  for section in left center right; do
+    box="$(ipc smoke barSectionGeometry "$key" "$section")" || return 1
+    rows+="$section $box"$'\n'
+  done
+  for id in $ids; do
+    box="$(ipc smoke descendantGeometry "$key" "$id")" || return 1
+    rows+="$id $box"$'\n'
+  done
+  tokens="$(for t in bar.spacer.gap bar.spacer.inset bar.spacer.height divider.thickness; do ipc smoke themeValue "$t" || exit 1; done | paste -sd ' ')" || return 1
+  py_reply 'import json,sys
+gap,inset,height,thick=[float(v) for v in sys.argv[1].split()]
+sections={}; drawn={"left":[],"center":[],"right":[]}; errors=[]
+for line in sys.stdin:
+    if not line.strip(): continue
+    ident,value=line.split(" ",1); value=json.loads(value) if value[:1] in "[{" else None
+    if ident in drawn: sections[ident]=value; continue
+    if not value: errors.append(ident+":absent"); continue
+    box=value[0]["box"]
+    home=[s for s,b in sections.items() if b and box[0]>=b[0]-1 and box[0]+box[2]<=b[0]+b[2]+1 and box[2]>0]
+    if len(home)!=1: errors.append(ident+":outside-section"); continue
+    drawn[home[0]].append((box[0],ident))
+    lines=[r for r in value if r["type"] in ("QQuickRectangle","Rectangle") and r.get("visible",True)]
+    if "/gap-" in ident:
+        if abs(box[2]-gap)>0.5 or lines: errors.append(ident+":gap")
+    else:
+        want=2*inset+thick
+        if abs(box[2]-want)>0.5 or len(lines)!=1: errors.append(ident+":separator"); continue
+        l=lines[0]["box"]
+        if abs(l[0]-box[0]-inset)>0.5 or abs(l[2]-thick)>0.5 or abs(l[3]-height)>0.5 or abs(l[1]+l[3]/2-(box[1]+box[3]/2))>1: errors.append(ident+":line")
+print(json.dumps({"drawn":{s:[i for _,i in sorted(v)] for s,v in drawn.items()},"errors":errors}))' "$tokens" <<<"$rows"
+}
+# spacer_drawn WANT_LAYOUT_JSON: True when the drawn spacers match WANT
+# with no size errors.
+spacer_drawn() {
+  spacer_rendered | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["drawn"]==json.loads(sys.argv[1]) and not d["errors"])' "$1"
+}
+# spacer_centre ID: the centre of ID's box on the first bar.
+spacer_centre() { ipc smoke instanceGeometry "$(bar_key)" "$1" | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x+w/2,y+h/2))'; }
+spacer_holds() { spacer_layout | py_reply 'import json,sys; print(any(sys.argv[1] in ids for ids in json.load(sys.stdin).values()))' "$1"; }
+spacer_remove() {
+  local x y
+  read -r x y < <(spacer_centre "$1") || { fail "$1 has no box to right-click"; return 1; }
+  hover "$((x + 1))" "$y" && right_click "$x" "$y" || { fail "the right click on $1 failed"; return 1; }
+  expect_poll "a right click on $1 opens its frame menu" true ipc smoke readInstance "$(bar_key)" "$1" frameMenuOpen
+  type_keys -k Return
+}
+spacer_none='{"left": [], "center": [], "right": []}'
+expect "the smoke profile starts with no spacer" "$spacer_none" spacer_layout
+for spacer_section in left center right; do
+  for spacer_kind in separator gap; do spacer_add "$spacer_section" "$spacer_kind"; done
+done
+# Left appends at its end; centre and right insert before their first
+# widget, so the later gap stands before the earlier separator.
+spacer_added='{"left": ["vgs.bar/separator-1", "vgs.bar/gap-1"], "center": ["vgs.bar/gap-2", "vgs.bar/separator-2"], "right": ["vgs.bar/gap-3", "vgs.bar/separator-3"]}'
+expect_poll "each kind lands in each section where it was added" "$spacer_added" spacer_layout
+expect "the user file holds the added spacers" "$spacer_added" spacer_user
+expect_builtins "every bar registers each spacer once beside the fixed builtins" '["vgs.bar/center-clock","vgs.bar/gap-1","vgs.bar/gap-2","vgs.bar/gap-3","vgs.bar/left-workspaces","vgs.bar/separator-1","vgs.bar/separator-2","vgs.bar/separator-3"]'
+# The drawn order holds the same members; within left the spacers end
+# the section, within centre and right they start it.
+spacer_edges() {
+  local key records ids id rows="" box
+  key="$(bar_key)" && records="$(ipc shell built)" || return 1
+  ids="$(py_reply 'import json,sys; print(" ".join(r["id"] for r in json.load(sys.stdin)[sys.argv[1]] if r["origin"]=="plugin" or r["kind"]=="bar-widget"))' "$key" <<<"$records")" || return 1
+  for id in left center right; do rows+="$id $(ipc smoke barSectionGeometry "$key" "$id")"$'\n'; done
+  for id in $ids; do
+    box="$(ipc smoke instanceGeometry "$key" "$id")" && [[ "$(ipc smoke readInstance "$key" "$id" visible)" == true ]] || continue
+    rows+="$id $box"$'\n'
+  done
+  py_reply 'import json,re,sys
+sections={}; order={"left":[],"center":[],"right":[]}
+for line in sys.stdin:
+    if not line.strip(): continue
+    ident,value=line.split(" ",1); box=json.loads(value) if value.startswith("[") else None
+    if ident in order: sections[ident]=box; continue
+    if box is None or box[2]<=0: continue
+    for s,b in sections.items():
+        if b and box[0]>=b[0]-1 and box[0]+box[2]<=b[0]+b[2]+1: order[s].append((box[0],ident))
+ids={s:[i for _,i in sorted(v)] for s,v in order.items()}
+spacer=lambda i: re.match(sys.argv[1],i) is not None
+n={s:len([i for i in v if spacer(i)]) for s,v in ids.items()}
+print(all(spacer(i) for i in ids["left"][len(ids["left"])-n["left"]:]) and all(spacer(i) for s in ("center","right") for i in ids[s][:n[s]]))' "$spacer_pattern" <<<"$rows"
+}
+geometry expect_poll "the added spacers draw at the drop places with their token sizes" True spacer_drawn "$spacer_added"
+geometry expect_poll "left spacers end their section, centre and right ones start theirs" True spacer_edges
+stop_shell
+start_shell "$repo" "$sandbox/bar-spacer-restart.log" || fail "the shell starts again over the added spacers"
+expect_poll "the spacers keep their places across a restart" "$spacer_added" spacer_layout
+geometry expect_poll "the restarted bar draws every spacer again" True spacer_drawn "$spacer_added"
+# A drag moves each kind into another section as it moves any widget:
+# the left separator past the right section's last widget, the centre gap
+# to the start of the left section.
+spacer_drag() { # ID SECTION end|start
+  local x y x2 y2
+  read -r x y < <(spacer_centre "$1") || return 1
+  read -r x2 y2 < <(ipc smoke barSectionGeometry "$(bar_key)" "$2" | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x+w-2 if sys.argv[1]=="end" else x+2, y+h/2))' "$3") || return 1
+  hover "$((x + 1))" "$y" && drag "$x" "$y" "$x2" "$y2"
+}
+spacer_drag vgs.bar/separator-1 right end || fail "the separator drag failed"
+spacer_drag vgs.bar/gap-2 left start || fail "the gap drag failed"
+spacer_moved='{"left": ["vgs.bar/gap-2", "vgs.bar/gap-1"], "center": ["vgs.bar/separator-2"], "right": ["vgs.bar/gap-3", "vgs.bar/separator-3", "vgs.bar/separator-1"]}'
+expect_poll "a drag moves a separator and a gap into other sections" "$spacer_moved" spacer_layout
+expect "the user file holds the moved spacers" "$spacer_moved" spacer_user
+geometry expect_poll "the moved spacers draw in their new sections" True spacer_drawn "$spacer_moved"
+for spacer_id in vgs.bar/separator-1 vgs.bar/gap-2 vgs.bar/separator-2 vgs.bar/gap-1 vgs.bar/separator-3 vgs.bar/gap-3; do
+  spacer_remove "$spacer_id"
+  expect_poll "the frame menu's first entry removes $spacer_id" False spacer_holds "$spacer_id"
+done
+expect_poll "removing every spacer leaves none in the layout" "$spacer_none" spacer_layout
+expect "the user file holds no spacer" "$spacer_none" spacer_user
+expect_builtins "removed spacers release their registrations" '["vgs.bar/center-clock","vgs.bar/left-workspaces"]'
+stop_shell
+if copy_tree bar-spacer-control \
+  && edit_tree bar-spacer-control shell/Core/Plugins.qml 'return bar.builtinNames.concat(Logic.placedFamilyNames(Config.effective, row.id, families));' 'return bar.builtinNames;'; then
+  start_shell "$sandbox/tree-bar-spacer-control" "$sandbox/bar-spacer-control.log" || fail "the spacer control shell starts"
+  spacer_add left separator
+  expect_poll "control: Add separator still writes its entry" '{"left": ["vgs.bar/separator-1"], "center": [], "right": []}' spacer_layout
+  # The real bar draws an added entry within the reconcile its write
+  # starts; the control's must stay undrawn across the harness's polls.
+  spacer_ever_drawn() {
+    smoke_poll_tries 200
+    for _ in $(seq 1 "$smoke_poll_n"); do
+      [[ "$(spacer_drawn "$1")" == True ]] && { echo True; return; }
+      sleep 0.2
+    done
+    echo False
+  }
+  geometry expect "control: the drawn reader rejects a separator the catalogue leaves out" False spacer_ever_drawn '{"left": ["vgs.bar/separator-1"], "center": [], "right": []}'
+  stop_shell
+fi
+cp -- "$spacer_saved" "$home/.config/vgshell/shell.json.tmp"
+mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
+start_shell "$repo" "$sandbox/bar-spacer-restored.log" || fail "the shell returns after the spacer checks"
+expect_poll "the restored profile holds no spacer" "$spacer_none" spacer_layout
