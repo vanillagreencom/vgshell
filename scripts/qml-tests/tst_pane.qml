@@ -10,8 +10,10 @@ import "../../shell/plugins/vgs.displays" as Displays
 // switch at its end, the scroll bar sits in the right inset strip,
 // fit-to-content caps at a maximum height, a rounded container clears its
 // drawn corner through the shared inset rule, both dividers run from the
-// frame's border on one side to the other, and inside a host that names a
-// Settings page the outermost pane draws the gear that opens it.
+// frame's border on one side to the other and are the only line drawn on
+// their edge, a bare edge keeps the scroll area's own cue line, and inside
+// a host that names a Settings page the outermost pane draws the gear that
+// opens it.
 Item {
     id: root
     width: 500
@@ -130,6 +132,43 @@ Item {
             header: [ Item { width: 10; height: 20 } ]
             Repeater { model: layer.rowCount; ListItem { required property int index; width: layer.contentWidth; text: "Row " + index } }
             footer: [ Item { width: 10; height: 30 } ]
+        }
+    }
+
+    // Panes over the background colour, so the scroll area's edge shade,
+    // that colour at partial alpha, paints nothing, and every pixel row
+    // that differs from it beside the body is a drawn line. The body draws
+    // nothing, so no row of content reads as a line.
+    Component {
+        id: barredLines
+        Rectangle {
+            property alias pane: layer
+            width: 240
+            height: 200
+            color: Theme.color.background
+            Pane {
+                id: layer
+                anchors.fill: parent
+                container: "panel"
+                header: [ Item { width: 10; height: 20 } ]
+                Repeater { model: 12; Item { width: 10; height: 30 } }
+                footer: [ Item { width: 10; height: 30 } ]
+            }
+        }
+    }
+    Component {
+        id: bareLines
+        Rectangle {
+            property alias pane: layer
+            width: 240
+            height: 200
+            color: Theme.color.background
+            Pane {
+                id: layer
+                anchors.fill: parent
+                container: "panel"
+                Repeater { model: 12; Item { width: 10; height: 30 } }
+            }
         }
     }
 
@@ -699,6 +738,73 @@ Item {
             compare(divider(panel).x, 3);
             compare(footerDivider(panel).width, panel.width - 6);
             panel.destroy();
+        }
+
+        // The horizontal lines IMAGE draws between rows FROM and TO of a
+        // backdrop of COLOUR, as { y, first, last, solid } per pixel row
+        // that differs from the backdrop, the columns of SKIP, the scroll
+        // bar's, left out.
+        function drawnLines(image, colour, from, to, skip) {
+            const back = [Math.round(colour.r * 255), Math.round(colour.g * 255), Math.round(colour.b * 255)];
+            const differs = (x, y) => Math.abs(image.red(x, y) - back[0]) + Math.abs(image.green(x, y) - back[1]) + Math.abs(image.blue(x, y) - back[2]) > 6;
+            const lines = [];
+            for (let y = Math.max(0, Math.floor(from)); y < Math.min(image.height, Math.ceil(to)); ++y) {
+                let first = -1, last = -1, drawn = 0, open = 0;
+                for (let x = 0; x < image.width; ++x) {
+                    if (x >= skip[0] && x < skip[1]) continue;
+                    if (!differs(x, y)) continue;
+                    if (first < 0) first = x;
+                    last = x;
+                    drawn += 1;
+                }
+                if (first < 0) continue;
+                for (let x = first; x <= last; ++x)
+                    if (!(x >= skip[0] && x < skip[1])) open += 1;
+                lines.push({ y: y, first: first, last: last, solid: drawn === open });
+            }
+            return lines;
+        }
+
+        // Scrolled midway, a pane with a sticky header and footer shows one
+        // line under the header and one over the footer, each its divider
+        // from frame to frame; the scroll area's own hairline, which spans
+        // only its inset viewport, never shows beside either. A pane with
+        // neither keeps the scroll area's cue line on each edge, since no
+        // divider marks those edges.
+        function test_one_line_marks_each_scrolled_edge_data() {
+            return [
+                { tag: "header and footer", fixture: barredLines, barred: true },
+                { tag: "neither", fixture: bareLines, barred: false }
+            ];
+        }
+
+        function test_one_line_marks_each_scrolled_edge(data) {
+            const made = createTemporaryObject(data.fixture, root);
+            const of = made.pane;
+            const view = scroll(of);
+            tryVerify(() => view.contentHeight > view.height + 40, 1000, "the body overflows");
+            view.contentY = 20;
+            verify(view.cueAbove && view.cueBelow, "both edges are clipped");
+            waitForRendering(made);
+            const image = grabImage(made);
+            compare(image.width, made.width, "one pixel per unit");
+            const barX = view.bar.mapToItem(of, 0, 0).x;
+            const skip = [Math.floor(barX), Math.ceil(barX + view.bar.width)];
+            const viewTop = view.y + view.focusInset;
+            const viewBottom = view.y + view.height - view.focusInset;
+            const above = drawnLines(image, made.color, data.barred ? headerSlot(of).y + headerSlot(of).height : 0, viewTop + Theme.space.lg, skip);
+            const below = drawnLines(image, made.color, viewBottom - Theme.space.lg, data.barred ? footerSlot(of).y : of.height, skip);
+            for (const [edge, lines, line] of [["top", above, divider(of)], ["bottom", below, footerDivider(of)]]) {
+                compare(lines.length, 1, edge + " edge draws one line: " + JSON.stringify(lines));
+                verify(lines[0].solid, edge + " line is unbroken");
+                if (data.barred) {
+                    compare(lines[0].y, line.y, edge + " line is the pane's divider");
+                    compare([lines[0].first, lines[0].last], [of.frameBorder, of.width - of.frameBorder - 1], edge + " line runs frame to frame");
+                } else {
+                    compare(lines[0].y, edge === "top" ? viewTop : viewBottom - 1, edge + " line is the viewport's edge");
+                    compare(lines[0].first, view.x + view.focusInset, edge + " line starts at the viewport");
+                }
+            }
         }
 
         // Inside a host that names a Settings page, the gear shows at the
