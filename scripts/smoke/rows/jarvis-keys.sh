@@ -109,6 +109,32 @@ jarvis_key_mute_control() {
    echo "$failures")
 }
 jarvis_key_pending() { ipc smoke readInstance service vgs.jarvis lifetime; }
+# Always mode's resting orb: the one presented bubble waits for the word with
+# no words, and its orb ticks no frame and draws no level.
+jarvis_key_resting() {
+  local bubbles orbs
+  bubbles="$(ipc smoke layerItems vgs.jarvis Bubble presented,phase,words)" &&
+    orbs="$(ipc smoke layerItems vgs.jarvis VoiceOrb active,level,secondaryLevel)" || return 1
+  python3 -c '
+import json,sys
+bubbles,orbs=map(json.loads,sys.argv[1:3])
+shown=[(screen,v) for screen,_,v in bubbles if v["presented"]]
+if len(shown)!=1: print("presented=%d" % len(shown)); sys.exit()
+screen,bubble=shown[0]
+if bubble["phase"]!="armed" or bubble["words"]!="": print("phase=%s words=%d" % (bubble["phase"],len(bubble["words"]))); sys.exit()
+orb=[v for s,_,v in orbs if s==screen]
+if len(orb)!=1: print("orbs=%d" % len(orb)); sys.exit()
+o=orb[0]
+print("resting" if o["active"] is False and o["level"]==0 and o["secondaryLevel"]==0
+      else "active=%s level=%s secondary=%s" % (o["active"],o["level"],o["secondaryLevel"]))
+' "$bubbles" "$orbs"
+}
+jarvis_key_resting_assertion() { expect_poll "Always mode presents the still resting orb" resting jarvis_key_resting; }
+jarvis_key_resting_control() {
+  (failures=0 behaviour_failures=0
+   jarvis_key_resting_assertion >"$sandbox/jarvis-key-resting-control.log"
+   echo "$failures")
+}
 
 jarvis_shortcuts() {
   hypr globalshortcuts | python3 -c 'import json,re,sys; print(json.dumps(sorted(set(re.findall(r"vgs\.jarvis:[A-Za-z0-9_.-]+", sys.stdin.read())))))'
@@ -363,6 +389,10 @@ jarvis_key_talk_down
 jarvis_key_talk_up
 expect_poll "the next toggle press closes its conversation" ended jarvis_key_state conversation
 expect_poll "closing toggle releases capture" closed jarvis_key_state capture
+jarvis_key_mode always
+expect_poll "idle Always mode waits for the word" armed jarvis_key_state phase
+jarvis_key_resting_assertion
+jarvis_key_mode toggle
 sleep 0.25 # The next conversation uses a separate permitted toggle edge.
 jarvis_key_talk_down
 jarvis_key_talk_up
@@ -444,6 +474,28 @@ jarvis_key_talk_up
 hold_barrier
 expect "dropping release delivery breaks the real phase assertion" 1 jarvis_key_commit_control
 jarvis_disable
+# Keep the bubble and Always mode. Let only the resting orb tick; the same
+# resting assertion must fail once.
+cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
+jarvis_key_bubble="$repo/shell/plugins/vgs.jarvis/Bubble.qml"
+cp -- "$jarvis_key_bubble" "$sandbox/jarvis-key-bubble-before"
+python3 - "$jarvis_key_bubble" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); assert not p.is_symlink()
+s=p.read_text(); needle='active: root.shown && !resting'
+assert s.count(needle)==1
+changed=s.replace(needle, 'active: root.shown')
+assert changed!=s
+p.write_text(changed)
+PY
+jarvis_rescan
+jarvis_enable
+jarvis_key_mode always
+expect_poll "the resting control waits for the word" armed jarvis_key_state phase
+expect "a ticking resting orb breaks the same resting assertion" 1 jarvis_key_resting_control
+jarvis_disable
+cp -- "$sandbox/jarvis-key-bubble-before" "$jarvis_key_bubble"
 expect_poll "disable unregisters every Jarvis key" 0 hold_native vgs.jarvis:
 hold_barrier
 hold_stop_keyboard

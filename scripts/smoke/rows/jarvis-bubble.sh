@@ -469,7 +469,7 @@ needle,replacement={
     "approval-button": ('root.service.confirmApproval(root.displayedHold, "button")', 'void root.displayedHold'),
     "approval-cancel": ('root.service.cancelApproval(root.displayedHold)', 'void root.displayedHold'),
     "approval-shown": ('send({ type: "shown", id: hold.id });', 'void hold;'),
-    "approval-caption": ('state === null || root.hold !== null ? ""', 'state === null ? ""'),
+    "approval-caption": ('state === null || root.hold !== null || phase === "armed" ? ""', 'state === null || phase === "armed" ? ""'),
     "approval-kind": ('id: "files.delete", args:', 'id: "files.read", args:'),
     "approval-path": ('path: "/home/fixture/draft.txt"', 'path: "/home/fixture/other.txt"'),
     "approval-role": ('variant: "secondary"', 'variant: "primary"'),
