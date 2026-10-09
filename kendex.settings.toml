@@ -185,3 +185,9 @@ REVIEW_MAX_EXTERNAL_ROUNDS = "4"
 # or MemoryHigh value is a number followed by K or M; a value in G, a bare
 # byte count or a percentage passes.
 COMMAND_SAFETY_DENY_PATTERN = "(^|[^[:alnum:]_-])systemd-run[[:space:]][^;|&]*Memory(Max|High)=[0-9]+[KkMm]([^[:alnum:]]|$)"
+
+# The Slack master hold: while the master's watch keeps this file younger
+# than the age in seconds, the Slack relay holds owner asks for the master.
+# A machine with no master never has the file, so nothing is held there.
+SLACK_MASTER_FILE = "~/.fleet/master-live"
+SLACK_MASTER_MAX_AGE = "1800"
