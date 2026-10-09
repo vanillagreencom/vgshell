@@ -11,16 +11,18 @@
 # drag out and back drops where it returns, a release just inside one bar
 # height of the bar drops at the slot nearest along the bar, also with a
 # window holding the keyboard, Escape on a drag held far below writes
-# nothing, and a release just past that line asks to remove the widget,
+# nothing, a drag held far below draws the widget inside the bar at the
+# pointer's x, and a release just past that line asks to remove the widget,
 # with Cancel focused and no focus ring; Cancel and Escape put it back and
 # write nothing, and Remove leaves it unplaced as Hide does. After a drop
 # on an empty workspace, and after the question closes, the bar holds no
 # keyboard. Controls run a copy whose move ignores the index, a copy whose
-# drag capture is missing, a copy whose BarWidget cannot drag, a copy with
-# the old cancel of a release outside the bar, a copy whose grab leaves
-# the bar's keyboard interactivity alone, a copy with neither the focus
-# grab nor that step, and a copy whose remove question takes the
-# keyboard's focus reason once its window is active. The row restores the
+# drag capture is missing, a copy whose BarWidget cannot drag, a copy that
+# draws the held widget at the pointer's y, a copy with the old cancel of
+# a release outside the bar, a copy whose grab leaves the bar's keyboard
+# interactivity alone, a copy with neither the focus grab nor that step,
+# and a copy whose remove question takes the keyboard's focus reason once
+# its window is active. The row restores the
 # user file byte for byte, so rows after it find the fixture placed as
 # before. The disabled widget the refusals name is acme.tick, disabled for
 # them and enabled again.
@@ -230,6 +232,38 @@ placement_asking() {
   remove="$(ipc smoke popupItemGeometry "$(bar_key)" acme.probe "" "" Button Remove)" || return 1
   drag="$(ipc smoke barDragGeometry "$(bar_key)")" || return 1
   py_reply 'import json,sys; raw=sys.stdin.read().strip(); d=json.loads(raw) if raw.startswith("{") else None; over=d is not None and abs(d["item"][0]-d["gap"][0])<=1 and abs(d["item"][1]-d["gap"][1])<=1; print(json.dumps({"remove": sys.argv[1].startswith("["), "overGap": over}))' "$remove" <<<"$drag"
+}
+# placement_held_far LABEL WANT: a drag of the fixture held far below the
+# bar, whose held box reads {inside, atPointer}: inside the bar's box, and
+# its centre at the pointer's x, as WANT; then its release asks, and
+# Escape closes the question.
+placement_held_box() {
+  local bar drag
+  bar="$(surface_box vgs:bar)" || return 1
+  drag="$(ipc smoke barDragGeometry "$(bar_key)")" || return 1
+  py_reply 'import json,sys; raw=sys.stdin.read().strip(); d=json.loads(raw) if raw.startswith("{") else None; b=json.loads(sys.argv[1]); x=float(sys.argv[2])
+if d is None: print("absent"); sys.exit()
+i=d["item"]; print(json.dumps({"inside": i[1] >= 0 and i[1]+i[3] <= b[3], "atPointer": abs(i[0]+i[2]/2-x) <= 1}))' "$bar" "$1" <<<"$drag"
+}
+placement_held_far() {
+  local label="$1" want="$2" x y far_x far_y line out_fd in_fd pid
+  read -r x y < <(placement_point acme.probe) || return 1
+  read -r far_x far_y < <(placement_bar_far_left) || return 1
+  hover "$((x + 1))" "$y" || return 1
+  coproc placement_far { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$((x - 24))" "$y" "$far_x" "$far_y" hold; }
+  out_fd="${placement_far[0]}" in_fd="${placement_far[1]}" pid="$placement_far_PID"
+  read -r -t 10 line <&"$out_fd" || return 1
+  [[ $line == "holding $far_x $far_y" ]] || return 1
+  geometry expect_poll "$label" "$want" placement_held_box "$far_x"
+  printf '\n' >&"$in_fd"
+  exec {in_fd}>&-
+  read -r -t 10 line <&"$out_fd" || return 1
+  wait "$pid" || return 1
+  exec {out_fd}<&-
+  pointer_at="$far_x $far_y"
+  expect_poll "the held far release asks to remove the fixture" true ipc smoke readInstance "$(bar_key)" acme.probe frameDialogOpen
+  type_keys -k Escape || return 1
+  expect_poll "Escape closes the held far release's question" false ipc smoke readInstance "$(bar_key)" acme.probe frameDialogOpen
 }
 # placement_far_ask: a drag of the fixture released far below the bar,
 # then the remove question it opens.
@@ -664,6 +698,8 @@ expect "Escape leaves the user file as it was" unchanged placement_same_as "$san
 geometry expect_poll "Escape puts the fixture back before tick" "$placement_drawn_before" placement_visual_order
 expect "the outside drags keep every widget object" '[]' ipc smoke barWidgetIdentities
 expect "the outside snapshot is released" ok ipc smoke forgetBarWidgets
+placement_held_far "a drag held far below the bar draws the widget inside the bar at the pointer's x" '{"inside": true, "atPointer": true}' || fail "the drag held far below the bar completes"
+expect "the held far drag writes nothing" unchanged placement_same_as "$sandbox/shell-before-outside-drop.json"
 placement_far_ask
 type_keys -k Tab -k Return || fail "Tab and Return on Remove failed"
 expect_poll "Remove ends the held drag" absent ipc smoke barDragGeometry "$(bar_key)"
@@ -793,6 +829,19 @@ if copy_tree placement-outside-cancel-control \
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$repo" "$sandbox/placement-outside-cancel-restored.log" || fail "the shell starts again after the outside cancel control"
+fi
+
+# A held widget drawn at the pointer's y leaves the bar's box below the
+# bar, so the inside reading reads red.
+if copy_tree placement-ride-control \
+  && edit_tree placement-ride-control shell/Core/Plugins.qml 'drag.item.y = Math.max(0, Math.min(mount.row.instance.height - drag.item.height, point.y - drag.offset.y));' 'drag.item.y = point.y - drag.offset.y;'; then
+  stop_shell
+  cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$sandbox/tree-placement-ride-control" "$sandbox/placement-ride-control.log" || fail "the ride control shell starts"
+  placement_held_far "control: a widget drawn at the pointer's y leaves the bar's box" '{"inside": false, "atPointer": true}' || fail "control: the drag held far below the bar completes"
+  stop_shell
+  cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$repo" "$sandbox/placement-ride-restored.log" || fail "the shell starts again after the ride control"
 fi
 
 # A grab that leaves the bar's keyboard interactivity alone leaves the bar

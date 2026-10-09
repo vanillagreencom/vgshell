@@ -379,7 +379,9 @@ Singleton {
         const index = Logic.barDropIndex(Config.effective, target.section, target.before, barDrag.from, barDrag.id);
         const drag = barDrag;
         drag.item.x = point.x - drag.offset.x;
-        drag.item.y = point.y - drag.offset.y;
+        // The bar window draws nothing outside its box, so below or above
+        // the bar the widget rides along it at the pointer's x.
+        drag.item.y = Math.max(0, Math.min(mount.row.instance.height - drag.item.height, point.y - drag.offset.y));
         if (drag.gap.parent === mount.row.instance || drag.section !== target.section || drag.index !== index) {
             barDrag = Object.assign({}, drag, { section: target.section, before: target.before, index: index });
             positionBar(hostKey, barDrag);
