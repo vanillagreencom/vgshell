@@ -88,5 +88,9 @@ pkgbase = vgshell-git
 	optdepends = imv: opens a saved screenshot from its Capture notification
 	optdepends = satty: edits a saved screenshot from its Capture notification
 	optdepends = mpv: plays a saved recording from its Capture notification
+	optdepends = google-chrome: opens a calendar day in a Google Chrome profile
+	optdepends = brave-bin: opens a calendar day in a Brave profile
+	optdepends = vivaldi: opens a calendar day in a Vivaldi profile
+	optdepends = microsoft-edge-stable-bin: opens a calendar day in a Microsoft Edge profile
 
 pkgname = vgshell-git
