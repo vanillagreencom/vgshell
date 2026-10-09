@@ -163,6 +163,8 @@ Scope {
     }
 
     FileView { id: uiModule; path: Qt.resolvedUrl("Ui/qmldir"); blockLoading: true }
+    // The ink box textInk measures, one text at a time.
+    TextMetrics { id: inkMetrics }
 
     // The stand-in flow holds the members of Quickshell's AuthFlow that
     // PolkitModel.viewOf and the prompt read, as pkexec asks for a
@@ -1944,6 +1946,24 @@ Scope {
                         tui: step === null || step === undefined ? "" : step.name, tone: button.tone, enabled: button.enabled })),
                     lines: under.map(line => line.text)
                 };
+            }));
+        }
+        // Every shown Text item named TYPE under an instance, in tree order,
+        // as { text, ink: [x, y, width, height] }: its glyphs' ink box in
+        // scene coordinates, TextMetrics.tightBoundingRect placed at the
+        // item's first baseline and at the line start its horizontal
+        // alignment gives. One line of text each.
+        function textInk(hostKey: string, id: string, type: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            return root.json(root.descendants(item).filter(child => root.typeName(child) === type && child instanceof Text && root.visibleInTree(child)).map(child => {
+                inkMetrics.font = child.font;
+                inkMetrics.text = child.text;
+                const rect = inkMetrics.tightBoundingRect;
+                const free = child.width - inkMetrics.advanceWidth;
+                const start = child.horizontalAlignment === Text.AlignHCenter ? free / 2 : child.horizontalAlignment === Text.AlignRight ? free : 0;
+                const at = child.mapToItem(null, start + rect.x, child.baselineOffset + rect.y);
+                return { text: child.text, ink: [at.x, at.y, rect.width, rect.height] };
             }));
         }
         function itemValues(hostKey: string, id: string, type: string, properties: string): string {

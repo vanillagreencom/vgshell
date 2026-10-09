@@ -141,6 +141,7 @@ Item {
                 year: root.shownYear
                 // keyboard-path: Enter on the calendar opens today, or the 1st of the shown month
                 delegate: Button {
+                    id: cell
                     // The roles of Qt's month grid model.
                     required property int day
                     required property int month
@@ -154,6 +155,31 @@ Item {
                     variant: today ? "primary" : "ghost"
                     enabled: inMonth
                     onClicked: root.openDay(year, month, day)
+
+                    // The number's ink sits at the square's centre both ways,
+                    // whatever its digits: Button lays its text from the
+                    // left and centres the line box, whose ascent and side
+                    // bearings leave a digit off centre. The fill and the
+                    // focus ring stay on Button's own background, the same
+                    // square. TextMetrics.tightBoundingRect is the ink box
+                    // from the baseline origin (Qt Quick TextMetrics).
+                    contentItem: Item {
+                        TextMetrics {
+                            id: ink
+                            font: number.font
+                            text: number.text
+                        }
+                        Label {
+                            id: number
+                            role: "button"
+                            text: cell.text
+                            color: cell.foreground
+                            font.weight: cell.tokens.weight
+                            font.variableAxes: ({ wght: cell.tokens.weight })
+                            x: Math.round(parent.width / 2 - ink.tightBoundingRect.x - ink.tightBoundingRect.width / 2)
+                            y: Math.round(parent.height / 2 - baselineOffset - ink.tightBoundingRect.y - ink.tightBoundingRect.height / 2)
+                        }
+                    }
                 }
                 contentItem: Grid {
                     rows: 6

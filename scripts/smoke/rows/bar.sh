@@ -182,6 +182,43 @@ calendar_click_box() {
   click "$x" "$y" && echo ok
 }
 calendar_keys() { type_keys "$@" && echo ok; }
+# Each day's number sits at its square's centre both ways, one digit or
+# two: the ink box of the number inside each day button against the
+# button's box, within 1 px. The reading lists the off-centre numbers as
+# [text, dx, dy], so [] is the pass; a button with no number in it reads
+# as missing.
+calendar_off_centre() {
+  local rows inks
+  rows="$(ipc smoke descendantGeometry panel vgs.bar)" || return
+  inks="$(ipc smoke textInk panel vgs.bar Label)" || return
+  python3 - "$rows" "$inks" <<'PY'
+import json, sys
+if "absent" in sys.argv[1:]:
+    print("closed")
+    sys.exit()
+rows, inks = (json.loads(a) for a in sys.argv[1:])
+out = []
+for button in (r for r in rows if r["type"] == "Button"):
+    x, y, w, h = button["box"]
+    inside = [i for i in inks if i["text"] == button["text"] and x <= i["ink"][0] + i["ink"][2] / 2 <= x + w and y <= i["ink"][1] + i["ink"][3] / 2 <= y + h]
+    if len(inside) != 1:
+        out.append([button["text"], "missing"])
+        continue
+    ix, iy, iw, ih = inside[0]["ink"]
+    dx, dy = round(ix + iw / 2 - (x + w / 2), 2), round(iy + ih / 2 - (y + h / 2), 2)
+    if abs(dx) > 1 or abs(dy) > 1:
+        out.append([button["text"], dx, dy])
+print(json.dumps(out))
+PY
+}
+# The off-centre numbers a control planted: True once a one-digit and a
+# two-digit number both read off centre on AXIS (0 across, 1 down).
+calendar_off_axis() { # AXIS
+  calendar_off_centre | py_reply 'import json,sys
+t=sys.stdin.read().strip(); rows=[] if t=="closed" else json.loads(t); axis=int(sys.argv[1])
+off={r[0] for r in rows if r[1]!="missing" and abs(r[1+axis])>1}
+print(any(len(n)==1 for n in off) and any(len(n)==2 for n in off))' "$1"
+}
 # The controls run on a shell just started, whose bar can take a click
 # before the compositor maps it, so they build the same Calendar.qml through
 # the core's summon, unanchored in the layer host, not under the clock.
@@ -206,6 +243,7 @@ calendar_button() { calendar_click_box "$(ipc smoke labelledGeometry panel vgs.b
 calendar_day() { calendar_click_box "$(ipc smoke itemGeometry panel vgs.bar Button "$1")"; }
 expect "a click on the clock reaches it" ok clock_click
 expect_poll "the calendar opens on this month with today marked" "$(calendar_want 0)" calendar_read
+geometry expect_poll "every day's number sits at its square's centre both ways" '[]' calendar_off_centre
 expect "Right reaches the calendar" ok calendar_keys -k Right
 expect_poll "Right shows the next month with no day marked" "$(calendar_want 1)" calendar_read
 expect "Left twice reaches the calendar" ok calendar_keys -k Left -k Left
@@ -998,6 +1036,22 @@ for calendar_case in first first-unguarded; do
   else
     expect_poll "control: without the in-month rule the previous month marks this month's 1st" "$(calendar_want -1 1)" calendar_read
   fi
+  stop_shell
+done
+# The centring's controls: a number drawn from its square's left edge
+# reads off centre across, and one drawn from its top edge reads off
+# centre down, for one-digit and two-digit days alike.
+for calendar_case in left top; do
+  case "$calendar_case" in
+    left) calendar_old='x: Math.round(parent.width / 2 - ink.tightBoundingRect.x - ink.tightBoundingRect.width / 2)'; calendar_new='x: 0'; calendar_axis=0 ;;
+    top) calendar_old='y: Math.round(parent.height / 2 - baselineOffset - ink.tightBoundingRect.y - ink.tightBoundingRect.height / 2)'; calendar_new='y: 0'; calendar_axis=1 ;;
+  esac
+  copy_tree "calendar-$calendar_case" \
+    && edit_tree "calendar-$calendar_case" shell/plugins/vgs.bar/Calendar.qml "$calendar_old" "$calendar_new" \
+    || continue
+  start_shell "$sandbox/tree-calendar-$calendar_case" "$sandbox/calendar-$calendar_case.log" || fail "the $calendar_case calendar tree starts"
+  expect "$calendar_case: the calendar opens" ok calendar_summon
+  geometry expect_poll "control: numbers drawn from the square's $calendar_case edge read off centre" True calendar_off_axis "$calendar_axis"
   stop_shell
 done
 start_shell "$repo" "$sandbox/calendar-restored.log" || fail "the shell returns after the calendar control"
