@@ -87,8 +87,13 @@
 # `validate: refused: area=`, `extra-argument=` or
 #   `changed-base=missing-or-repeated` or `scope=conflicting-or-repeated`,
 #   or an invalid VGS_VALIDATE_JOBS, `validate: refused: jobs=<value>`.
-# An INT or TERM ends every running row's process group with TERM, removes
-#   the run's scratch directory and exits 130 or 143.
+# Every end of validate bash can see stops the running rows first: an INT,
+#   TERM, HUP or QUIT, which exit 130, 143, 129 or 131, and a fatal signal
+#   bash takes for its EXIT trap, such as a PIPE. Each row's process group
+#   gets TERM, then KILL once 10 s have passed or at a repeat signal, and
+#   then the run's scratch directory is removed. A KILL to validate itself
+#   cannot be caught: it leaves the running rows going, and their homes and
+#   logs under <git-dir>/vgs-validate-tmp.
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -1699,7 +1704,6 @@ fi
 # its log, which prints whole once every row before it has printed. The
 # statuses fill failed and skipped in table order.
 run_dir="$(scratch_dir)" || { echo 'validate: run-dir=scratch-failed' >&2; exit 1; }
-trap 'chmod -R u+rwx -- "$run_dir" 2>/dev/null; rm -rf -- "${run_dir:?}"; if [[ -n ${paths_file:-} ]]; then rm -f -- "$paths_file"; fi' EXIT
 declare -A row_of_pid=() held=()
 row_state=() row_alone=() row_locks=() row_status=()
 for k in "${!selected[@]}"; do
@@ -1751,20 +1755,54 @@ start_rows() {
     start_row "$k"
   done
 }
-# A job bash has already reaped can leave its number to another process,
-# so a group is signalled only while its leader is still validate's child.
-stop_rows() { # EXIT-STATUS
-  local pid stat ppid pgrp
-  for pid in "${!row_of_pid[@]}"; do
+# stop_rows, run by the EXIT trap however validate ends, sends TERM to the
+# group of every job still running, a row started but not yet recorded
+# included, then KILL to the groups still alive after 10 s, which outlasts
+# the smoke's own TERM-then-KILL teardown, or at once on a repeat signal.
+# A group is taken only while its leader is still validate's child, since a
+# job bash has already reaped can leave its number to another process; once
+# taken, the kernel keeps the group's number while any member lives, so the
+# KILL still reaches members whose leader the TERM ended.
+row_groups=()
+stopping=false
+kill_groups() { # SIGNAL
+  local pid
+  for pid in "${row_groups[@]}"; do kill -s "$1" -- "-$pid" 2>/dev/null || true; done
+  return 0
+}
+stop_rows() {
+  local pid stat ppid pgrp alive tick
+  local -a pids=()
+  stopping=true
+  jobs -p >"$run_dir/jobs" 2>/dev/null && mapfile -t pids <"$run_dir/jobs" || return 0
+  for pid in "${pids[@]}"; do
     read -r stat 2>/dev/null <"/proc/$pid/stat" || continue
     read -r _ ppid pgrp _ <<<"${stat##*) }"
-    if [[ $ppid == "$$" && $pgrp == "$pid" ]]; then kill -TERM -- "-$pid" 2>/dev/null || true; fi
+    if [[ $ppid == "$$" && $pgrp == "$pid" ]]; then row_groups+=("$pid"); fi
   done
-  wait
+  [[ ${#row_groups[@]} -gt 0 ]] || return 0
+  kill_groups TERM
+  for ((tick = 0; tick < 100; tick++)); do
+    alive=false
+    for pid in "${row_groups[@]}"; do
+      if kill -0 -- "-$pid" 2>/dev/null; then alive=true; fi
+    done
+    [[ $alive == true ]] || return 0
+    sleep 0.1
+  done
+  kill_groups KILL
+}
+# A signal exits through the EXIT trap; one that arrives while the rows are
+# being stopped KILLs their groups instead of ending validate mid-stop.
+on_signal() { # EXIT-STATUS
+  if [[ $stopping == true ]]; then kill_groups KILL; return 0; fi
   exit "$1"
 }
-trap 'stop_rows 130' INT
-trap 'stop_rows 143' TERM
+trap 'stop_rows; chmod -R u+rwx -- "$run_dir" 2>/dev/null; rm -rf -- "${run_dir:?}"; if [[ -n ${paths_file:-} ]]; then rm -f -- "$paths_file"; fi' EXIT
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
+trap 'on_signal 129' HUP
+trap 'on_signal 131' QUIT
 printed=0
 while :; do
   start_rows
@@ -1793,7 +1831,7 @@ while :; do
     printed=$((printed + 1))
   done
 done
-trap - INT TERM
+trap - INT TERM HUP QUIT
 printf 'validate: selected=%s area=%s secs=%s\n' "$selected_count" "$area" "$((SECONDS - validate_started))" >&2
 
 if [[ ${#failed[@]} -gt 0 ]]; then

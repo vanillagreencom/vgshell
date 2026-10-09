@@ -2492,63 +2492,113 @@ else
   fail "rows at four jobs print other lines than at one"; diff -- "$tmp/jobs-order-1.out" "$tmp/jobs-order-4.out" | sed 's/^/        /'
 fi
 
-# A TERM to validate ends every running row's processes and removes the
+# A signal to validate ends every running row's processes and removes the
 # run's scratch directory. Each row holds a lock with a sleep that outlives
-# the wait below, so a free lock proves the row's processes ended; a copy
-# without the TERM trap leaves both held.
-hold_rows() { # DIR
-  jobs_fixture "$1" test-hold.sh "\"tools|hold a|scripts/test-hold.sh a|\"" "\"tools|hold b|scripts/test-hold.sh b|\"" <<'SH'
+# the stop, so a free lock proves the row's processes ended. Rows given
+# `ignore` ignore TERM, so only the KILL after the deadline or at a repeat
+# signal ends them. Each control is a copy without one rule.
+hold_rows() { # DIR [ignore]
+  jobs_fixture "$1" test-hold.sh "\"tools|hold a|scripts/test-hold.sh a ${2-}|\"" "\"tools|hold b|scripts/test-hold.sh b ${2-}|\"" <<'SH'
 #!/bin/sh
+secs=8
+if [ "$2" = ignore ]; then trap '' TERM; secs=14; fi
 exec 9>".git/lock-$1"
 flock 9
 : >".git/ready-$1"
-sleep 8
+sleep "$secs"
 SH
 }
-# hold_run DIR: start validate, TERM it once both rows hold their locks;
-# sets status and freed, the locks free within 3 s of the TERM.
+# hold_run DIR SIGNAL...: start validate, send each SIGNAL 0.5 s apart once
+# both rows hold their locks; sets status, secs (from the first signal to
+# validate's end) and freed, the locks free within 1 s of that end.
 hold_run() {
-  local pid lock
-  (cd -- "$1" && exec "${base_env[@]}" VGS_VALIDATE_JOBS=2 bash scripts/validate tools --full) >"$1.out" 2>&1 &
+  local dir="$1" pid lock signal started
+  shift
+  (cd -- "$dir" && exec "${base_env[@]}" VGS_VALIDATE_JOBS=2 bash scripts/validate tools --full) >"$dir.out" 2>&1 &
   pid=$!
   for _ in $(seq 1 100); do
-    [[ -e $1/.git/ready-a && -e $1/.git/ready-b ]] && break
+    [[ -e $dir/.git/ready-a && -e $dir/.git/ready-b ]] && break
     sleep 0.1
   done
-  kill -TERM "$pid"
+  started=$SECONDS
+  for signal in "$@"; do
+    kill -s "$signal" "$pid"
+    sleep 0.5
+  done
   status=0
   wait "$pid" || status=$?
+  secs=$((SECONDS - started))
   freed=0
-  for lock in "$1/.git/lock-a" "$1/.git/lock-b"; do
-    if flock -w 3 "$lock" true; then freed=$((freed + 1)); fi
+  for lock in "$dir/.git/lock-a" "$dir/.git/lock-b"; do
+    if flock -w 1 "$lock" true; then freed=$((freed + 1)); fi
   done
 }
-d="$tmp/jobs-term"; hold_rows "$d"
-hold_run "$d"
-if [[ $status == 143 && $freed == 2 && -z "$(ls -A -- "$d/.git/vgs-validate-tmp")" ]]; then
-  ok "a TERM to validate ends its rows and removes its scratch directory"
-else
-  fail "a TERM to validate: exit=$status freed=$freed scratch=[$(ls -A -- "$d/.git/vgs-validate-tmp")]"; sed 's/^/        /' "$d.out"
-fi
-d="$tmp/jobs-term-control"; hold_rows "$d"
-python3 - "$d/scripts/validate" <<'PY'
+hold_mutant() { # DIR OLD NEW: commit the copy with OLD, one whole match, made NEW
+  python3 - "$1/scripts/validate" "$2" "$3" <<'PY'
 from pathlib import Path
 import sys
-path = Path(sys.argv[1])
-line = "trap 'stop_rows 143' TERM\n"
+path, old, new = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 source = path.read_text()
-assert source.count(line) == 1
-path.write_text(source.replace(line, ""))
+assert source.count(old) == 1, old
+path.write_text(source.replace(old, new))
 PY
-"${base_env[@]}" git -C "$d" commit -q -am control
-hold_run "$d"
+  "${base_env[@]}" git -C "$1" commit -q -am control
+}
+hold_cleanup() { # DIR: wait out rows a control left running
+  flock -w 20 "$1/.git/lock-a" true || true
+  flock -w 20 "$1/.git/lock-b" true || true
+}
+for spec in TERM@143 HUP@129; do
+  signal="${spec%@*}"
+  d="$tmp/jobs-$signal"; hold_rows "$d"
+  hold_run "$d" "$signal"
+  if [[ $status == "${spec#*@}" && $freed == 2 && -z "$(ls -A -- "$d/.git/vgs-validate-tmp")" ]]; then
+    ok "a $signal to validate ends its rows and removes its scratch directory"
+  else
+    fail "a $signal to validate: exit=$status freed=$freed scratch=[$(ls -A -- "$d/.git/vgs-validate-tmp")]"; sed 's/^/        /' "$d.out"
+  fi
+done
+d="$tmp/jobs-HUP-control"; hold_rows "$d"
+hold_mutant "$d" "trap 'stop_rows; chmod" "trap 'chmod"
+hold_run "$d" HUP
 if [[ $freed == 0 ]]; then
-  ok "control: a validate without its TERM trap leaves its rows running"
+  ok "control: a validate whose exit path stops no row leaves its rows running"
 else
-  fail "control: a validate without its TERM trap still ended its rows: freed=$freed"
+  fail "control: a validate whose exit path stops no row still ended its rows: freed=$freed"
 fi
-flock -w 15 "$d/.git/lock-a" true || true
-flock -w 15 "$d/.git/lock-b" true || true
+hold_cleanup "$d"
+d="$tmp/jobs-deadline"; hold_rows "$d" ignore
+hold_run "$d" TERM
+if [[ $status == 143 && $freed == 2 && $secs -ge 8 ]]; then
+  ok "rows that ignore TERM end by KILL once the stop's deadline passes"
+else
+  fail "rows that ignore TERM: exit=$status freed=$freed secs=$secs"; sed 's/^/        /' "$d.out"
+fi
+d="$tmp/jobs-deadline-control"; hold_rows "$d" ignore
+hold_mutant "$d" $'  kill_groups KILL\n}\n' $'}\n'
+hold_run "$d" TERM
+if [[ $freed == 0 ]]; then
+  ok "control: a stop without its deadline KILL leaves rows that ignore TERM running"
+else
+  fail "control: a stop without its deadline KILL still ended its rows: freed=$freed"
+fi
+hold_cleanup "$d"
+d="$tmp/jobs-repeat"; hold_rows "$d" ignore
+hold_run "$d" TERM TERM
+if [[ $status == 143 && $freed == 2 && $secs -le 4 ]]; then
+  ok "a repeat signal during the stop KILLs the rows at once"
+else
+  fail "a repeat signal during the stop: exit=$status freed=$freed secs=$secs"; sed 's/^/        /' "$d.out"
+fi
+d="$tmp/jobs-repeat-control"; hold_rows "$d" ignore
+hold_mutant "$d" 'kill_groups KILL; return 0; fi' 'return 0; fi'
+hold_run "$d" TERM TERM
+if [[ $secs -ge 8 ]]; then
+  ok "control: a stop that ignores a repeat signal waits for its deadline"
+else
+  fail "control: a stop that ignores a repeat signal ended in ${secs}s"
+fi
+hold_cleanup "$d"
 
 d="$tmp/jobs-refused"; fresh "$d"
 for value in 0 01 -1 two; do
