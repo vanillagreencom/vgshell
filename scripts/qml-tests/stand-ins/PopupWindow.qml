@@ -38,5 +38,7 @@ Window {
 
     width: Math.max(1, implicitWidth)
     height: Math.max(1, implicitHeight)
-    flags: Qt.Tool | Qt.FramelessWindowHint
+    // Quickshell 0.3.1 uses a non-grabbing Qt ToolTip, or a grabbing Popup.
+    // https://github.com/quickshell-mirror/quickshell/blob/v0.3.1/src/window/popupwindow.cpp#L56
+    flags: (grabFocus ? Qt.Popup : Qt.ToolTip) | Qt.FramelessWindowHint
 }

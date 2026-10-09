@@ -75,7 +75,9 @@ T.TabBar {
             focusPolicy: Qt.NoFocus
             PointerCursor {}
             Accessible.name: text
-            onClicked: { root.forceActiveFocus(Qt.MouseFocusReason); root.focusReason = Qt.MouseFocusReason; }
+            // A selection callback can open a dialog. Give this press
+            // its pointer focus before the template changes the index.
+            onPressed: { root.forceActiveFocus(Qt.MouseFocusReason); root.focusReason = Qt.MouseFocusReason; }
 
             contentItem: Label {
                 role: "button"

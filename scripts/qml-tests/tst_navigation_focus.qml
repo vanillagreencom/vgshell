@@ -35,6 +35,10 @@ Item {
     Component { id: shortcuts; ShortcutField { keys: ["SUPER+A", "SUPER+B"]; width: 400 } }
     Component { id: weekdays; WeekdayChipGroup { width: 400 } }
     Component { id: radio; Radio { text: "Only choice"; checked: true } }
+    Component { id: callbackDialog; Dialog {
+        x: 300; y: 150; visible: false; title: "Save changes"
+        actions: [{label:"Save",role:"accept"},{label:"Cancel",role:"cancel"}]
+    } }
     Component { id: devices; DeviceList { width: 350; rows: [{key:"one", text:"Only device"}] } }
     Component { id: traffic; Traffic.Panel {
         width: 600; height: implicitHeight
@@ -97,6 +101,51 @@ Item {
             waitForRendering(control);
             compare(receiver.visualFocus, false);
             compare(hasRing(control, data.tag === "tabs" ? null : receiver), false);
+        }
+        function test_retained_scope_empty_refill_native_edge() {
+            root.Window.window.requestActivate();
+            tryCompare(root.Window.window, "active", true);
+            UnitTheme.reset();
+            const list = createTemporaryObject(devices, root);
+            wait(0);
+            KeyNavLogic.focusInitial(list, root.Window.window);
+            compare(list.rowAt(0).activeFocus, true);
+            compare(hasRing(list, null), false);
+            keyClick(Qt.Key_Down);
+            compare(hasRing(list, null), true);
+            list.rows = [];
+            tryCompare(list, "count", 0);
+            compare(list.activeFocus, true);
+            list.rows = [{key:"next",text:"Next device"}];
+            tryCompare(list, "count", 1);
+            const row = list.rowAt(0);
+            compare(row.activeFocus, true);
+            compare(row.focusReason, Qt.OtherFocusReason);
+            compare(hasRing(list, null), false);
+            keyClick(Qt.Key_Down);
+            compare(list.current, 0);
+            compare(row.visualFocus, true);
+            compare(hasRing(list, null), true);
+        }
+        function test_tab_callback_keeps_its_dialog_recipient_data() {
+            return [{tag:"pointer"}, {tag:"keyboard"}];
+        }
+        function test_tab_callback_keeps_its_dialog_recipient(data) {
+            const control = createTemporaryObject(tabs, root);
+            const dialog = createTemporaryObject(callbackDialog, root);
+            verify(dialog !== null);
+            start(control);
+            const changed = () => { if (control.currentIndex === 1) { dialog.visible = true; dialog.takeFocus(); } };
+            control.currentIndexChanged.connect(changed);
+            try {
+                if (data.tag === "pointer") mouseClick(control.itemAt(1));
+                else keyClick(Qt.Key_Right);
+                compare(control.currentIndex, 1);
+                compare(dialog.buttons()[0].activeFocus, true);
+                compare(root.Window.window.activeFocusItem, dialog.buttons()[0]);
+                compare(dialog.buttons()[0].focusReason, Qt.OtherFocusReason);
+                compare(hasRing(dialog, null), false);
+            } finally { control.currentIndexChanged.disconnect(changed); }
         }
         function test_programmatic_and_forwarded_movement() {
             const control = createTemporaryObject(segments, root);

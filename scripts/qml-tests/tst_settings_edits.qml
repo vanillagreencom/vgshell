@@ -277,6 +277,8 @@ Item {
                 compare(control.activeFocus, true);
                 compare(control.visualFocus, true);
                 tryVerify(() => focused.length > 0, 2000);
+                compare(root.Window.window.active, true);
+                compare(control.activeFocus, true);
             } finally {
                 tip.openedChanged.disconnect(record);
             }

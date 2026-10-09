@@ -59,8 +59,10 @@ FocusScope {
 
     KeyNav {
         id: nav
-        // Resolve the row when this scope takes focus, after its rows exist.
-        focusTarget: list.activeFocus ? list.rowAt(list.current) : null
+        // Qt publishes a new receiver when a focused row is removed or
+        // rebuilt, including an empty list refilled at the same index.
+        // https://doc.qt.io/qt-6/qml-qtquick-window.html#activeFocusItem-prop
+        focusTarget: list.activeFocus ? list.Window.activeFocusItem : null
         count: list.rows.length
         currentIndex: list.current
         cursor: plate

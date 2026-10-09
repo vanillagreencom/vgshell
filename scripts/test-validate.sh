@@ -165,6 +165,8 @@ plan_case() {
 # names a broken read, not a short table.
 qml_total="$(awk '/^mutations=\($/ { inside = 1; next } inside && /^\)$/ { inside = 0 } inside' "$repo/scripts/test-qml-unit.sh")" || qml_total=""
 qml_odd="$(grep -cv '^  "[^"].*"$' <<<"$qml_total" || true)"
+qml_radio_rows="$(awk -F'|' '$2 == "controls/Radio.qml" { sub(/^  "/, "", $1); print "run " $1 }' <<<"$qml_total")"
+qml_radio_total="$(grep -c '^run ' <<<"$qml_radio_rows" || true)"
 qml_total="$(grep -c '^  "' <<<"$qml_total" || true)"
 if [[ $qml_odd != 0 || $qml_total -lt 100 ]]; then
   fail "qml mutation table read: rows=$qml_total other-lines=$qml_odd; the array read in test-validate.sh no longer matches scripts/test-qml-unit.sh"
@@ -178,7 +180,16 @@ else
   fail "qml mutation planning with no changed list: table rows=$qml_total"
   printf '%s\n' "$out" | sed 's/^/        /'
 fi
-plan_case "qml mutation planning narrows to a changed Radio target" "shell/Ui/controls/Radio.qml" "3/$qml_total" 3 "$qml_total"
+plan_case "qml mutation planning narrows to a changed Radio target" "shell/Ui/controls/Radio.qml" "$qml_radio_total/$qml_total" "$qml_radio_total" "$qml_total"
+# The target set comes from the actual table, independently of --plan.
+# Keep a required Radio member so an empty extraction cannot pass.
+radio_plan="$(VGS_VALIDATE_CHANGED="$tmp/qml-plan.paths" "$repo/scripts/test-qml-unit.sh" --plan 2>&1)" || radio_plan=""
+if grep -qxF 'run the radio dot ignores checked' <<<"$qml_radio_rows" &&
+   [[ "$(grep '^run ' <<<"$radio_plan" || true)" == "$qml_radio_rows" ]]; then
+  ok "qml mutation planning includes exactly the changed Radio target rows"
+else
+  fail "qml mutation planning selected the wrong Radio target set"
+fi
 plan_case "qml mutation planning runs every row for a harness change" "scripts/qml-unit.sh" "$qml_total/$qml_total" "$qml_total" "$qml_total"
 status=0
 out="$(VGS_VALIDATE_CHANGED="$tmp/missing-qml-plan.paths" "$repo/scripts/test-qml-unit.sh" --plan 2>&1)" || status=$?
