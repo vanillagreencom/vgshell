@@ -1,7 +1,7 @@
 {
     "schemaVersion": 1,
     "id": "acme.sounds",
-    "name": "Sound events",
+    "name": "Acme sounds",
     "version": "0.1.0",
     "author": "Smoke",
     "description": "Declares sound events, plays them and sets their sounds through the sounds and soundSettings capabilities",

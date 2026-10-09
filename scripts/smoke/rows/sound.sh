@@ -7,8 +7,9 @@
 # EasyEffects' output, a filter chain's output and a stream no app owns,
 # as pipewire-pulse lists them. For the row, recording stand-ins that run
 # the real command after they record also take wpctl, pw-cli, pw-cat,
-# pw-play, pw-metadata, pamixer and amixer from the shell's PATH, so a
-# process an audio widget would start shows. The row reads every volume,
+# pw-metadata, pamixer and amixer from the shell's PATH, so a process an
+# audio widget would start shows; pw-play is the harness's own recording
+# stand-in, read with the others. The row reads every volume,
 # mute, default and link from the private PipeWire itself through
 # devices_audio, never only from the plugin, and reads:
 # - an app that starts while the pane is open getting its row;
@@ -59,7 +60,7 @@ snd_saved="$sandbox/shell-before-sound.json"
 snd_copy="$home/.config/vgshell/plugins/vgs.sound"
 snd_settings_copy="$home/.config/vgshell/plugins/vgs.settings"
 snd_spawns="$sandbox/sound-spawns.calls"
-snd_recorded=(wpctl pw-cli pw-cat pw-play pw-metadata pamixer amixer)
+snd_recorded=(wpctl pw-cli pw-cat pw-metadata pamixer amixer)
 snd_output=SMOKE-SOUND
 cp -- "$snd_file" "$snd_saved"
 read -r mon_w mon_h < <(hypr -j monitors | py_reply 'import json,sys; m=json.load(sys.stdin)[0]; print(m["width"], m["height"])')
