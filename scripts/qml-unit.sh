@@ -52,8 +52,9 @@
 # are not judged, and no declaration excuses a script error.
 #
 # The offscreen platform holds two screens: `one` at scale 1, where a test's
-# own window opens, and `two` at scale 2, right of it, where a test opens a
-# window to draw at 2x. The screen's `dpr` key alone reports the ratio and
+# own window opens, and `two` at scale 2, where a test opens a window to
+# draw at 2x. `two` lies far below `one`, so a test window wider than `one`
+# stays on it. The screen's `dpr` key alone reports the ratio and
 # still draws at scale 1, so QT_SCREEN_SCALE_FACTORS sets it; a run under
 # qmltestrunner 6.11.2 drew a half-pixel step as one device pixel there.
 #
@@ -106,7 +107,7 @@ printf '%s\n' "$root" >>"$VGSHELL_FENCE_LEDGER"
 imports="$root/imports"
 mkdir -p "$imports/qs/Commons" "$imports/qs/Core" "$imports/qs/Unit" "$imports/Quickshell/Io" "$imports/Qt/labs/folderlistmodel" "$root/home" "$root/runtime"
 chmod 700 "$root/runtime"
-printf '{"screens": [{"name": "one", "x": 0, "y": 0, "width": 800, "height": 600, "logicalDpi": 96, "logicalBaseDpi": 96}, {"name": "two", "x": 800, "y": 0, "width": 1600, "height": 1200, "logicalDpi": 96, "logicalBaseDpi": 96}]}\n' >"$root/screens.json"
+printf '{"screens": [{"name": "one", "x": 0, "y": 0, "width": 800, "height": 600, "logicalDpi": 96, "logicalBaseDpi": 96}, {"name": "two", "x": 0, "y": 20000, "width": 1600, "height": 1200, "logicalDpi": 96, "logicalBaseDpi": 96}]}\n' >"$root/screens.json"
 # A plugin's footer test builds the real Displays pane offscreen. Its
 # inactive modal still resolves its window imports, so only this interface
 # is replaced. The nested Displays row tests the actual modal host.
