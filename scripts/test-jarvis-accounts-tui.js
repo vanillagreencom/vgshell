@@ -203,11 +203,12 @@ world(async () => {
     const cliIds = providerIds(plugin, "cli");
     assert.ok(cliIds.includes("claude") && cliIds.includes("codex") && cliIds.includes("copilot"));
     assert.ok(cliIds.every(id => PROVIDERS.find(row => row.id === id)?.kind === "cli"));
-    // The Sign in screen offers only CLI providers with a sign-in command.
+    // The Sign in screen offers only CLI providers with a sign-in command:
+    // Copilot among them, never Pi, which has none.
     const signInProviders = folder => {
         const ids = providerIds(folder, "sign-in");
-        assert.ok(ids.includes("claude") && ids.includes("codex"));
-        assert.equal(ids.includes("copilot"), false);
+        assert.ok(ids.includes("claude") && ids.includes("codex") && ids.includes("copilot"));
+        assert.equal(ids.includes("pi"), false);
         assert.ok(ids.every(id => Array.isArray(PROVIDERS.find(row => row.id === id)?.signIn)));
     };
     signInProviders(plugin);
@@ -293,13 +294,26 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
 }
 `));
     }
+    // Copilot has no status command; its login writes COPILOT_HOME's
+    // config.json, the marker its sign-in is proved by.
+    fs.writeFileSync(path.join(process.env.JARVIS_TEST_ROOT, "standins/copilot"), `#!/usr/bin/env node
+const fs=require("node:fs"), path=require("node:path");
+const state=process.env.XDG_STATE_HOME, args=process.argv.slice(2);
+fs.appendFileSync(path.join(state,"cli-calls"), JSON.stringify({args,env:process.env})+"\\n");
+if(JSON.stringify(args)!==JSON.stringify(["login"])) process.exit(9);
+const outcome=fs.readFileSync(path.join(state,"sign-in-mode"),"utf8").trim();
+console.log("fixture-login-code-private");
+if(outcome==="failure") process.exit(7);
+if(outcome!=="no-account") fs.writeFileSync(path.join(process.env.COPILOT_HOME,"config.json"),"{}");
+if(outcome==="failure-signed-in") process.exit(7);
+`, { mode: 0o700 });
     const records = () => fs.readFileSync(path.join(env.XDG_STATE_HOME, "cli-calls"), "utf8")
         .trim().split("\n").map(JSON.parse);
     const accountFile = path.join(env.XDG_STATE_HOME, "vgshell/jarvis/accounts.json");
     const clearSignIns = () => {
         fs.rmSync(accountFile, { force: true });
         for (const name of fs.readdirSync(env.HOME))
-            if (/^\.(claude|codex)(-|$)/.test(name)) fs.rmSync(path.join(env.HOME, name), { recursive: true, force: true });
+            if (/^\.(claude|codex|copilot)(-|$)/.test(name)) fs.rmSync(path.join(env.HOME, name), { recursive: true, force: true });
     };
     const signIn = (folder, vendor, selection, label, outcome, confirm = "yes", roots = {}) => {
         fs.writeFileSync(path.join(env.XDG_STATE_HOME, vendor + "-mode"), "found");
@@ -311,7 +325,7 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
     };
     const successfulSignIn = folder => {
         for (const [vendor, argv, variable] of [["claude", ["auth", "login"], "CLAUDE_CONFIG_DIR"],
-            ["codex", ["login"], "CODEX_HOME"]]) {
+            ["codex", ["login"], "CODEX_HOME"], ["copilot", ["login"], "COPILOT_HOME"]]) {
           clearSignIns();
           for (const [label, suffix] of [["login-account", ""], ["work_2", "-work_2"]]) {
             const target = path.join(env.HOME, "." + vendor + suffix);
@@ -336,7 +350,7 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
             assert.equal(login.env.VGSHELL_RUNNER_PID, undefined);
             const accounts = JSON.parse(cli(folder, "list"));
             const account = accounts.find(item => item.source.directory === target);
-            assert.equal(account.state.kind, "signed-in");
+            assert.equal(account.state.kind, vendor === "copilot" ? "unchecked" : "signed-in");
             const presence = Object.fromEntries(PROVIDERS.filter(row => row.variable).map(row => [row.variable, false]));
             const shown = JSON.parse(cli(folder, "presence", JSON.stringify(presence)));
             assert.ok(shown.brains.some(item => item.value === account.id), "signed-in account offered as AI model");
@@ -376,10 +390,11 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
     };
     themedSignIn(plugin);
     const incompleteSignIn = folder => {
+        for (const vendor of ["claude", "copilot"])
         for (const outcome of ["failure", "failure-signed-in", "no-account"] ) {
             clearSignIns();
-            const result = signIn(folder, "claude", "new", "login-account", outcome);
-            assert.equal(result.status, 1);
+            const result = signIn(folder, vendor, "new", "login-account", outcome);
+            assert.equal(result.status, 1, vendor + " " + outcome);
             const terminal = result.stdout + result.stderr;
             assert.equal(terminal.includes(log), false, "failed login does not refer to a log without its details");
             assert.equal(terminal.includes(log.replace(env.HOME, "~")), false, "the abbreviated log path is also absent");
@@ -406,8 +421,9 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
     };
     existingSignIn(plugin);
     const explicitSignIn = folder => {
+        const variables = ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME"];
         for (const [vendor, variable, argv] of [["claude", "CLAUDE_CONFIG_DIR", ["auth", "login"]],
-            ["codex", "CODEX_HOME", ["login"]]]) {
+            ["codex", "CODEX_HOME", ["login"]], ["copilot", "COPILOT_HOME", ["login"]]]) {
             clearSignIns();
             const target = path.join(env.HOME, "manual-" + vendor);
             fs.mkdirSync(target, { recursive: true });
@@ -424,7 +440,7 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
             assert.deepEqual(JSON.parse(fs.readFileSync(accountFile)), [{ provider: vendor, directory: target, label: "manual-" + vendor }]);
             const login = records().slice(before).find(item => JSON.stringify(item.args) === JSON.stringify(argv));
             assert.equal(login?.env[variable], target);
-            assert.equal(login.env[vendor === "claude" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"], undefined);
+            for (const other of variables.filter(name => name !== variable)) assert.equal(login.env[other], undefined, other);
         }
     };
     explicitSignIn(plugin);
@@ -485,11 +501,12 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
         assert.equal(result.stdout, "", "no vendor output without a terminal");
     };
     terminalRequired(plugin);
-    const copilotRefused = folder => {
+    // Pi has no sign-in command, so every sign-in verb refuses it.
+    const piRefused = folder => {
         for (const [verb, args] of [
-            ["sign-in-folders", ["copilot", "1000"]],
-            ["sign-in-entry", ["copilot", "new", "work"]],
-            ["sign-in", ["copilot", hand, "work"]]
+            ["sign-in-folders", ["pi", "1000"]],
+            ["sign-in-entry", ["pi", "new", "work"]],
+            ["sign-in", ["pi", hand, "work"]]
         ]) {
             const before = records().length;
             const result = cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), "--tree", tree, verb, ...args],
@@ -499,13 +516,19 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
             assert.equal(records().length, before, "no vendor program for " + verb);
         }
     };
-    copilotRefused(plugin);
+    piRefused(plugin);
     await control("backend/Accounts.js", "sign-in-terminal-required", 'if (process.stdin.isTTY !== true)',
         'if (false)', terminalRequired);
     await control("AccountProviders.js", "sign-in-provider-list", 'if (kind === "sign-in") return row.kind === "cli" && Array.isArray(row.signIn);',
         'if (kind === "sign-in") return row.kind === "cli";', signInProviders);
+    await control("AccountProviders.js", "sign-in-copilot-row", 'command: null, signIn: ["copilot", "login"] }',
+        'command: null }', signInProviders);
+    await control("AccountProviders.js", "sign-in-copilot-argv", 'signIn: ["copilot", "login"]',
+        'signIn: ["copilot", "auth", "login"]', successfulSignIn);
+    await control("backend/Accounts.js", "sign-in-copilot-marker", '(account.state.kind === "unchecked" && account.marker === "present")',
+        'account.state.kind === "unchecked"', incompleteSignIn);
     await control("backend/Accounts.js", "sign-in-provider-refusal", 'if (row.kind !== "cli" || !Array.isArray(row.signIn)) fail("sign-in=provider");',
-        'if (row.kind !== "cli") fail("sign-in=provider");', copilotRefused);
+        'if (row.kind !== "cli") fail("sign-in=provider");', piRefused);
     await control("tui/sign-in.sh", "sign-in-gum-words", 'gum() { "${child_env[@]}" "${gum_env[@]}" gum "$@"; }',
         'gum() { "${child_env[@]}" gum "$@"; }', themedSignIn);
     await control("tui/sign-in.sh", "sign-in-gum-own-list", 'vgs_tui_gum_env gum_env', OWN_GUM_LIST, themedSignIn);
@@ -523,8 +546,9 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
         'entries.push(entry);', existingSignIn);
     await control("backend/Accounts.js", "sign-in-discovered-label", 'label: item.label.slice(0, 60),',
         'label: item.label,', existingSignIn);
-    await control("tui/sign-in.sh", "sign-in-explicit-roots", 'CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-}" CODEX_HOME="${CODEX_HOME:-}"',
-        'CLAUDE_CONFIG_DIR="" CODEX_HOME=""', explicitSignIn);
+    await control("tui/sign-in.sh", "sign-in-explicit-roots", 'CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-}" CODEX_HOME="${CODEX_HOME:-}" COPILOT_HOME="${COPILOT_HOME:-}"',
+        'CLAUDE_CONFIG_DIR="" CODEX_HOME="" COPILOT_HOME=""', explicitSignIn);
+    await control("tui/sign-in.sh", "sign-in-copilot-root", 'COPILOT_HOME="${COPILOT_HOME:-}"', 'COPILOT_HOME=""', explicitSignIn);
     await control("tui/sign-in.sh", "sign-in-no-manual-folder", 'label="$(vgs_tui_input --header "A name for this account"',
         'dir="$(vgs_tui_input)"; label="$(vgs_tui_input --header "A name for this account"', successfulSignIn);
     await control("backend/Accounts.js", "sign-in-safe-name", '!/^[A-Za-z0-9][A-Za-z0-9_-]{0,59}$/.test(label)',
@@ -536,7 +560,7 @@ if(JSON.stringify(args)===${JSON.stringify(JSON.stringify(args))}) {
     await control("backend/Accounts.js", "sign-in-complete-search", 'if (found.partial)', 'if (false)', partialFolders);
     await control("backend/Accounts.js", "sign-in-selected-folder", 'folders.find(item => item.id === selected)',
         'folders[0]', unavailableFolder);
-    await control("backend/Accounts.js", "sign-in-account-confirmed", 'if (account.state.kind !== "signed-in")',
+    await control("backend/Accounts.js", "sign-in-account-confirmed", 'if (!signedIn)',
         'if (false)', incompleteSignIn);
     await control("backend/Accounts.js", "sign-in-process-failed", 'result.error || result.signal || result.status !== 0',
         'result.error || result.signal', incompleteSignIn);
