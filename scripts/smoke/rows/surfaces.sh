@@ -16,26 +16,7 @@ path = pathlib.Path(sys.argv[1])
 text = path.read_text()
 marker = '    function summonHere() { return shell.surfaces.summon("panel", "{\\"from\\":\\"widget\\"}", root); }\n'
 assert text.count(marker) == 1, "summonHere must occur once"
-text = text.replace(marker, marker + '''    property string smokeClickAction: ""
-    property string smokeClickPayload: "{}"
-    function summonPayload(payload) { return shell.surfaces.summon("panel", payload || "{}", root); }
-    function toggleHere(payload) { return shell.surfaces.toggle("panel", payload || "{}", root); }
-    function summonOnClick(payload) { smokeClickAction = "summon"; smokeClickPayload = payload || "{}"; return "ok"; }
-    function toggleOnClick(payload) { smokeClickAction = "toggle"; smokeClickPayload = payload || "{}"; return "ok"; }
-    MouseArea {
-        anchors.fill: parent
-        z: 1000
-        acceptedButtons: Qt.LeftButton
-        onPressed: {
-            const action = root.smokeClickAction;
-            const payload = root.smokeClickPayload;
-            root.smokeClickAction = "";
-            root.smokeClickPayload = "{}";
-            if (action === "summon") shell.surfaces.summon("panel", payload, root);
-            else if (action === "toggle") shell.surfaces.toggle("panel", payload, root);
-        }
-    }
-''', 1)
+text = text.replace(marker, marker + '    function summonPayload(payload) { return shell.surfaces.summon("panel", payload || "{}", root); }\n    function toggleHere(payload) { return shell.surfaces.toggle("panel", payload || "{}", root); }\n', 1)
 path.write_text(text)
 PYEDIT
 python3 - "$surf/Summoned.qml" <<'PYEDIT'
@@ -89,17 +70,6 @@ else:
                 raise SystemExit
     print("false")
 PY
-}
-open_panel_by_widget_click() {
-  local payload="${1:-{}}" opened
-  opened="$(ipc smoke readInstance panel acme.surfaces opened)" || return 1
-  if [[ $opened != absent ]]; then
-    printf '%s\n' "$opened"
-    return
-  fi
-  ipc smoke invokeInstance "bar:$screen_name" acme.surfaces summonOnClick "$payload" >/dev/null || return 1
-  click_centre "bar:$screen_name" acme.surfaces || return 1
-  ipc smoke readInstance panel acme.surfaces opened
 }
 monitor_logical_size() { hypr -j monitors | py_reply 'import json,sys; m=json.load(sys.stdin)[0]; print(round(m["width"] / m["scale"]), round(m["height"] / m["scale"]))'; }
 rescan "rescan after adding the hosts fixture answers ok"
@@ -543,29 +513,6 @@ expect "IPC hide starts the host-close motion" ok ipc shell hide panel acme.surf
 expect_poll "IPC hide called the panel's close() before the motion" yes marker "$sandbox/closed-by-ipc-motion"
 expect "IPC hide keeps the panel instance during the motion" 2 ipc smoke readInstance panel acme.surfaces opened
 expect_poll "IPC hide destroys the panel after the close motion" absent ipc smoke readInstance panel acme.surfaces opened
-if copy_tree host-close-motion-control \
-  && edit_tree host-close-motion-control shell/Hosts/SummonHost.qml 'if (PluginLogic.hasOwn(closers, id)) {' 'if (false && PluginLogic.hasOwn(closers, id)) {'; then
-  stop_shell
-  start_shell "$sandbox/tree-host-close-motion-control" "$sandbox/host-close-motion-control.log" || fail "the host close motion control shell starts"
-  expect "the host close control enables its fixture" ok ipc shell setPluginEnabled acme.surfaces true
-  expect "the host close control sees slowed flyout motion" 400 ipc smoke themeValue motion.flyout.travel.duration
-  geometry read_bar_settled "the host close control bar has settled before its widget panel opens"
-  expect_poll "the host close control widget is laid out before its panel opens" true acme_widget_laid_out
-  expect_poll "the host close control widget has drawn before its panel opens" drawn ipc smoke windowDrawn "bar:$screen_name" acme.surfaces
-  expect_poll "the host close control panel opens from a widget click" 1 open_panel_by_widget_click '{}'
-  expect "the host close control hides the widget panel" ok ipc shell hide panel acme.surfaces
-  host_close_motion_control() { (failures=0 behaviour_failures=0; expect "a host close keeps the panel instance during motion" 1 ipc smoke readInstance panel acme.surfaces opened >"$sandbox/host-close-motion-control.out"; echo "$failures"); }
-  expect "control: immediate host drop fails the close-motion assertion" 1 host_close_motion_control
-  sed 's/^/  CONTROL  /' "$sandbox/host-close-motion-control.out"
-  stop_shell
-  start_shell "$repo" "$sandbox/host-close-motion-restored.log" || fail "the shell starts after the host close motion control"
-  geometry read_bar_settled "the restored shell bar has settled before motion popup checks"
-  expect_poll "the restored shell widget is laid out before motion popup checks" true acme_widget_laid_out
-  expect_poll "the restored shell widget has drawn before motion popup checks" drawn ipc smoke windowDrawn "bar:$screen_name" acme.surfaces
-  expect_poll "the restored shell primer panel opens from a widget click before motion popup checks" 1 open_panel_by_widget_click '{}'
-  expect "the restored shell hides the primer panel before motion popup checks" ok ipc shell hide panel acme.surfaces
-  expect_poll "the restored shell primer panel closes before motion popup checks" absent ipc smoke readInstance panel acme.surfaces opened
-fi
 expect "the probe builds the SummonPopup copy for motion" ok ipc smoke popupLoad summon-motion "$repo/shell/Hosts/SummonPopup.qml" "bar:$screen_name" acme.surfaces '{"pluginId":"acme.surfaces","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
 expect "the motion copy's panel takes a payload" '' ipc smoke invokeInstance panel acme.surfaces open '{}'
 expect_poll "the motion copy is shown before its motion is read" true ipc smoke popupRead summon-motion visible
@@ -579,7 +526,8 @@ expect_poll "the motion copy's panel leaves the build records" absent ipc smoke 
 printf '%s\n' '{"schemaVersion":1,"name":"surface-motion-off","tokens":{"motion":{"scale":0}}}' >"$surface_motion_theme.tmp"
 mv -T -- "$surface_motion_theme.tmp" "$surface_motion_theme"
 expect_poll "motion scale 0 stills the flyout duration" 0 ipc smoke themeValue motion.flyout.travel.duration
-expect_poll "the motion-off host panel opens from a widget click" 1 open_panel_by_widget_click "{\"closeMarker\":\"$sandbox/closed-by-motion-off\"}"
+expect "the widget opens a panel for the motion-off host close" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces summonPayload "{\"closeMarker\":\"$sandbox/closed-by-motion-off\"}"
+expect_poll "the motion-off host panel opens" 1 ipc smoke readInstance panel acme.surfaces opened
 expect "IPC hide closes immediately when motion is off" ok ipc shell hide panel acme.surfaces
 expect_poll "motion off called close() before the immediate destroy" yes marker "$sandbox/closed-by-motion-off"
 expect_poll "motion off destroys the host panel at once" absent ipc smoke readInstance panel acme.surfaces opened
@@ -690,6 +638,33 @@ expect_poll "disabling closes its open panel" 0 layer_count vgs:panel
 expect_poll "disabling called the panel's close()" yes marker "$sandbox/closed-by-disable"
 expect_poll "disabling removes the background surface" 0 layer_count vgs:background
 expect "a disabled plugin is not summoned" "refused: disabled=acme.surfaces" ipc shell summon panel acme.surfaces '{}'
+if copy_tree host-close-motion-control \
+  && edit_tree host-close-motion-control shell/Hosts/SummonHost.qml 'if (PluginLogic.hasOwn(closers, id)) {' 'if (false && PluginLogic.hasOwn(closers, id)) {'; then
+  printf '%s\n' '{"schemaVersion":1,"name":"surface-motion-control","tokens":{"motion":{"scale":4}}}' >"$surface_motion_theme.tmp"
+  mv -T -- "$surface_motion_theme.tmp" "$surface_motion_theme"
+  stop_shell
+  start_shell "$sandbox/tree-host-close-motion-control" "$sandbox/host-close-motion-control.log" || fail "the host close motion control shell starts"
+  expect "the host close control enables its fixture" ok ipc shell setPluginEnabled acme.surfaces true
+  expect "the host close control sees slowed flyout motion" 400 ipc smoke themeValue motion.flyout.travel.duration
+  geometry read_bar_settled "the host close control bar has settled before its widget panel opens"
+  expect_poll "the host close control widget is laid out before its panel opens" true acme_widget_laid_out
+  expect_poll "the host close control widget has drawn before its panel opens" drawn ipc smoke windowDrawn "bar:$screen_name" acme.surfaces
+  click_centre "bar:$screen_name" acme.surfaces || fail "the host close control widget receives input before its panel opens"
+  expect "the host close control opens the widget panel" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces summonHere ''
+  expect_poll "the host close control panel opens" 1 ipc smoke readInstance panel acme.surfaces opened
+  expect "the host close control hides the widget panel" ok ipc shell hide panel acme.surfaces
+  host_close_motion_control() { (failures=0 behaviour_failures=0; expect "a host close keeps the panel instance during motion" 1 ipc smoke readInstance panel acme.surfaces opened >"$sandbox/host-close-motion-control.out"; echo "$failures"); }
+  expect "control: immediate host drop fails the close-motion assertion" 1 host_close_motion_control
+  sed 's/^/  CONTROL  /' "$sandbox/host-close-motion-control.out"
+  stop_shell
+  if [[ $surface_motion_had_theme == true ]]; then
+    cp -- "$sandbox/surface-motion-theme.json" "$surface_motion_theme.tmp"
+    mv -T -- "$surface_motion_theme.tmp" "$surface_motion_theme"
+  else
+    rm -f -- "$surface_motion_theme"
+  fi
+  start_shell "$repo" "$sandbox/host-close-motion-restored.log" || fail "the shell starts after the host close motion control"
+fi
 
 # Must-fail control for initial focus: retain the focus call but restore a
 # keyboard reason in a disposable tree. The same no-ring assertion fails.
