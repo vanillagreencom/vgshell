@@ -257,13 +257,24 @@ shown_pills() { ipc smoke layerItems vgs.notifications CardSlot summary,actions 
 has_row() { row_summaries "$1" | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$2"; }
 in_history() { history_summaries | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
 in_live() { live_summaries | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$1"; }
-# left_unstored LABEL SUMMARY: the toast SUMMARY, stored as on screen
-# before an action, leaves the stored toasts with no history entry. The
-# store writes both lists in one save, so once the first reading holds the
+# left_into_history LABEL SUMMARY: the toast SUMMARY, stored as on screen
+# before an action, leaves the stored toasts into the history. The store
+# writes both lists in one save, so once the first reading holds the
 # second reads the same save.
-left_unstored() { # LABEL SUMMARY
+left_into_history() { # LABEL SUMMARY
   expect_poll "$1: off the stored toasts" False in_live "$2"
-  expect "$1" False in_history "$2"
+  expect "$1" True in_history "$2"
+}
+# history_key SUMMARY: the key of the stored history entry SUMMARY, or none.
+history_key() { note_state_py 'import json,sys; print(next((e["key"] for e in json.load(open(sys.argv[1]))["history"] if e["summary"] == sys.argv[2]), "none"))' "$1"; }
+# clear_entry LABEL SUMMARY: once no inbox stands (inbox_closed) and the
+# row SUMMARY's exit has played, its history entry cleared as a dismiss on
+# its panel card clears it, read back from the state file.
+clear_entry() { # LABEL SUMMARY
+  inbox_closed || { fail "$1: the inbox never closed"; return; }
+  expect_poll "$1: its exit has played" none key_of "$2"
+  expect "$1: the dismiss is allowed" left notes choose "{\"key\": \"$(history_key "$2")\", \"choice\": \"dismiss\"}"
+  expect_poll "$1" False in_history "$2"
 }
 panel_count() { ipc smoke readInstance panel vgs.notifications rowCount; }
 panel_subtitle() { ipc smoke readInstance panel vgs.notifications subtitle; }
@@ -380,6 +391,18 @@ expected_errors+=('notifications: hints refused: app="smoke-app" names=x-vgs-ton
 notify smoke-app 0 "Brief" "" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
 expect_poll "a low-urgency toast shows" True has_row live "Brief"
 wait_for "the low-urgency toast expires after its five seconds" none 9 key_of Brief
+expect_poll "control: the expired toast is in the history" True in_history Brief
+# A transient toast and one from the bare command line go into the history
+# when they expire too, the pointer off the stack so neither clock pauses.
+hover "$((mon_w - 5))" "$((mon_h - 5))" || fail "moving the pointer off the stack before the transient toasts failed"
+notify smoke-app 0 "Brief transient" "" '[]' '{"urgency": <byte 0>, "transient": <true>}' 0 >/dev/null
+notify notify-send 0 "Brief command line" "" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
+expect_poll "a transient toast shows" True has_row live "Brief transient"
+expect_poll "a command-line toast shows" True has_row live "Brief command line"
+wait_for "the transient toast expires" none 9 key_of "Brief transient"
+wait_for "the command-line toast expires" none 9 key_of "Brief command line"
+expect_poll "control: the expired transient toast is in the history" True in_history "Brief transient"
+expect_poll "control: the expired command-line toast is in the history" True in_history "Brief command line"
 notify smoke-app 0 "Held" "" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
 expect_poll "a second low-urgency toast shows" True has_row live "Held"
 rest_on_card Held || fail "the pointer never rested on the held toast"
@@ -453,7 +476,7 @@ click_pill Reply || fail "the click on Reply failed"
 invoked() { grep -c "ActionInvoked (uint32 [0-9]*, '$1')" -- "$signals" || true; }
 expect_poll "the click runs the sender's action" 1 invoked reply
 expect_poll "the acted-on toast leaves" none key_of Actioned
-left_unstored "the acted-on toast leaves no history entry" Actioned
+left_into_history "the acted-on toast stays in the history" Actioned
 notify smoke-chat 0 "Clicked" "Open me" '["default", "Open"]' '{}' 0 >/dev/null
 expect_poll "a toast with a default action shows" True has_row live "Clicked"
 expect_poll "the toast to click is stored as on screen" True in_live "Clicked"
@@ -461,7 +484,7 @@ expect_poll "the toast to click is stored as on screen" True in_live "Clicked"
 click_card_clear Clicked || fail "the click on the card failed"
 expect_poll "a click on the card runs its default action" 1 invoked default
 expect_poll "the clicked toast leaves" none key_of Clicked
-left_unstored "the clicked toast leaves no history entry" Clicked
+left_into_history "control: the toast opened with its default action stays in the history" Clicked
 # A sender that offers no default: a click runs its first action. The
 # Reply above delivered one reply already, so the count is read first.
 replies_before="$(invoked reply)"
@@ -471,7 +494,7 @@ expect_poll "the toast with no default action is stored as on screen" True in_li
 click_card_clear "First action" || fail "the click on the card with no default action failed"
 expect_poll "a click on a card with no default action runs its first action" "$((replies_before + 1))" invoked reply
 expect_poll "the toast clicked for its first action leaves" none key_of "First action"
-left_unstored "the toast clicked for its first action leaves no history entry" "First action"
+left_into_history "the toast clicked for its first action stays in the history" "First action"
 
 # Every action on a notification delivers the sender's action and brings
 # the sender's window into view, through the compositor's reveal: a click
@@ -485,7 +508,7 @@ left_unstored "the toast clicked for its first action leaves no history entry" "
 # Dismiss pill, which raises nothing, must leave it there. The controls:
 # the inbox rows of a notification its sender closed and of one whose
 # toast was dismissed deliver nothing, and still raise. A dismissed toast
-# goes into the history; every row an action ran on leaves it. A resident
+# goes into the history, and so does every row an action ran on. A resident
 # notification, which the server keeps open after its action, closes on
 # the server once its toast or its inbox row is opened. Where the window
 # is on the screen is the reveal row's (rows/compositor-reveal.sh).
@@ -567,6 +590,10 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   expect_poll "a click on the toast delivers the default action once" 1 delivered "$toast_id" default
   expect_poll "a click on the toast raises the sender's window" "$sender_focused" active_window
   expect_poll "the opened toast leaves" none key_of "Opened from its toast"
+  left_into_history "the opened toast stays in the history" "Opened from its toast"
+  # Each opened toast's entry is cleared once read, so the inbox rows the
+  # clicks below reach stand where the panel shows them without a scroll.
+  clear_entry "the opened toast's entry is cleared" "Opened from its toast"
 
   focus_other
   reply_id="$(sender_note "Answered with Reply" 1)"
@@ -576,6 +603,8 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   expect_poll "the Reply pill raises the sender's window too" "$sender_focused" active_window
   expect "a Reply delivers no default action" 0 delivered "$reply_id" default
   expect_poll "the answered toast leaves" none key_of "Answered with Reply"
+  left_into_history "the answered toast stays in the history" "Answered with Reply"
+  clear_entry "the answered toast's entry is cleared" "Answered with Reply"
 
   # The Dismiss pill asks the core for no reveal: the service logs each
   # choice that asks for one, and the count stays.
@@ -596,6 +625,8 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   expect_poll "the Open pill delivers the default action once" 1 delivered "$pill_id" default
   expect_poll "the Open pill raises the sender's window" "$sender_focused" active_window
   expect_poll "the toast opened by its pill leaves" none key_of "Opened from its pill"
+  left_into_history "the toast opened by its pill stays in the history" "Opened from its pill"
+  clear_entry "the entry of the toast opened by its pill is cleared" "Opened from its pill"
 
   focus_other
   resident_id="$(resident_note "Resident toast" 1)"
@@ -605,7 +636,8 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   expect_poll "a click on the resident toast delivers its default action once" 1 delivered "$resident_id" default
   expect_poll "a click on the resident toast closes it on the server" 1 closed_on_server "$resident_id"
   expect_poll "the opened resident toast leaves" none key_of "Resident toast"
-  left_unstored "the opened resident toast leaves no history entry" "Resident toast"
+  left_into_history "the opened resident toast stays in the history" "Resident toast"
+  clear_entry "the opened resident toast's entry is cleared" "Resident toast"
 
   dismissed_id="$(sender_note "Dismissed from its toast" 1)"
   expect_poll "the toast to dismiss shows" True has_row live "Dismissed from its toast"
@@ -696,26 +728,28 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   expect "control: the late focus dispatch gave the other window the focus" ok cat -- "$sandbox/late-focus.reply"
   expect_poll "control: the row opened while the inbox stood raises the sender's window" "$sender_focused" active_window
   expect_poll "control: that row leaves" none key_of "Opened while the inbox stands"
+  expect_poll "control: the row opened while the inbox stood stays in the history" True in_history "Opened while the inbox stands"
+  clear_entry "control: the entry of the row opened while the inbox stood is cleared" "Opened while the inbox stands"
 
   focus_other
   open_card "the held inbox row" "Held for the inbox"
   expect_poll "a click on the inbox row of an expired toast delivers its default action once" 1 delivered "$held_id" default
   expect_poll "a click on that inbox row raises the sender's window" "$sender_focused" active_window
   expect_poll "the opened inbox row leaves" none key_of "Held for the inbox"
-  expect_poll "the opened inbox row leaves the history" False in_history "Held for the inbox"
+  expect_poll "control: the opened inbox row stays in the history" True in_history "Held for the inbox"
 
   focus_other
   open_card "the closed inbox row" "Closed by its sender"
   expect_poll "the inbox row of a notification its sender closed still raises the sender's window" "$sender_focused" active_window
   expect "that row delivers no action" 0 delivered "$gone_id" default
   expect_poll "the closed inbox row leaves" none key_of "Closed by its sender"
-  expect_poll "the closed inbox row leaves the history" False in_history "Closed by its sender"
+  expect_poll "the opened closed inbox row stays in the history" True in_history "Closed by its sender"
 
   focus_other
   open_card "the dismissed inbox row" "Dismissed from its toast"
   expect_poll "the inbox row of a dismissed toast still raises the sender's window" "$sender_focused" active_window
   expect "that row delivers no action" 0 delivered "$dismissed_id" default
-  expect_poll "the opened dismissed inbox row leaves the history" False in_history "Dismissed from its toast"
+  expect_poll "the opened dismissed inbox row stays in the history" True in_history "Dismissed from its toast"
 
   # A resident notification whose toast expired: the service still holds
   # it for its inbox row, and opening that row closes it on the server.
@@ -730,7 +764,7 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   open_card "the resident inbox row" "Resident in the inbox"
   expect_poll "a click on the resident inbox row delivers its default action once" 1 delivered "$resident_inbox_id" default
   expect_poll "a click on the resident inbox row closes it on the server" 1 closed_on_server "$resident_inbox_id"
-  expect_poll "the opened resident inbox row leaves the history" False in_history "Resident in the inbox"
+  expect_poll "the opened resident inbox row stays in the history" True in_history "Resident in the inbox"
 
   expect "the server sent the sender no activation token" 0 activation_tokens
   expect "the inbox closes after the open rows" ok notes close
@@ -1880,7 +1914,7 @@ expect_poll "the keyboard path leaves no live rows" 0 note_status onScreen
 
 # Silence: a notification goes into the history instead of the screen, bar
 # a critical one from the bare command line; one from the bare command line
-# that is not critical is not kept at all.
+# that is not critical, and a transient one, go into the history too.
 expect "Silence turns on over IPC" on notes silence on
 expect_poll "Silence is stored" true state_at dnd
 notify smoke-app 0 "Quiet" "" '[]' '{}' 0 >/dev/null
@@ -2033,22 +2067,49 @@ expect_poll "the inbox under Silence closed" '""' read_notes panelMode
 notify notify-send 0 "Urgent CLI" "" '[]' '{"urgency": <byte 2>}' 0 >/dev/null
 expect_poll "a critical notification from the command line shows through Silence" True has_row live "Urgent CLI"
 notify notify-send 0 "Noise" "" '[]' '{}' 0 >/dev/null
+notify smoke-app 0 "Quiet transient" "" '[]' '{"transient": <true>}' 0 >/dev/null
 notify smoke-app 0 "After noise" "" '[]' '{}' 0 >/dev/null
 expect_poll "the next silenced notification is kept" '"After noise"' state_at history.0.summary
-expect "a plain command-line notification under Silence is not kept" False in_history Noise
+expect "control: a plain command-line notification under Silence is kept" True in_history Noise
+expect "control: a transient notification under Silence is kept" True in_history "Quiet transient"
 expect "a malformed Silence argument is refused" 'refused: silence="loud" want=on|off|toggle' notes silence loud
 
-# The history keeps a hundred; the panel shows forty.
-for i in $(seq 1 105); do notify smoke-bulk 0 "Bulk $i" "" '[]' '{}' 0 >/dev/null; done
-expect_poll "the history keeps the newest hundred" 100 history_count
-expect "the newest is first" '"Bulk 105"' state_at history.0.summary
-expect "the oldest went" False in_history "Bulk 5"
+# The history keeps a bulk past two panel pages whole, the 720 it holds at
+# most being NotificationLogic's, which its suite pins. The panel shows a
+# page of forty, a page more once a key moves onto its last row, and the
+# rest as its list's view is turned to its end. The history is emptied
+# first, so the transient entry above, which holds no notification, leaves
+# the held count to the bulk.
+expect "clearing the history before the bulk is allowed" ok notes clear-history
+expect_poll "the history is empty before the bulk" 0 history_count
+for i in $(seq 1 85); do notify smoke-bulk 0 "Bulk $i" "" '[]' '{}' 0 >/dev/null; done
+expect_poll "the history keeps the whole bulk" 85 history_count
+expect "the newest is first" '"Bulk 85"' state_at history.0.summary
+expect "the oldest is kept" True in_history "Bulk 1"
 # The notifications held for the history are bounded by it: none outlives
-# its entry, so at most the kept hundred and the toasts on screen are held.
+# its entry, so at most the kept bulk and the toasts on screen are held.
 held_within_history() { notes status | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["held"] <= d["history"] + d["onScreen"] and d["held"] >= d["history"])'; }
-expect_poll "the held notifications are the kept hundred and the toasts on screen at most" True held_within_history
+expect_poll "the held notifications are the kept bulk and the toasts on screen at most" True held_within_history
+panel_total="$(( $(note_status history) + $(note_status onScreen) ))"
 expect "the history panel opens on the full history" ok notes history
-expect_poll "the full history panel shows forty rows" 40 panel_count
+expect_poll "the full history panel shows its first page of forty rows" 40 panel_count
+expect_poll "the full history panel holds the keyboard on its list" True panel_focus_on_list
+type_keys -k End || fail "sending End to the history panel failed"
+expect_poll "control: End onto the last row shows a page more" 80 panel_count
+# panel_wheel_end: the history panel's list, the view holding the newest
+# bulk card, turned ten notches down at its centre once at rest; prints the
+# panel's row count.
+panel_wheel_end() {
+  local view rect x y
+  view="$(view_at_rest panel vgs.notifications "Bulk 85")" || return
+  [[ $view == \{* ]] || { echo "$view"; return 0; }
+  rect="$(py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["box"]))' <<<"$view")" || return
+  read -r x y < <(at_centre vgs:panel "$rect") || return
+  hover "$x" "$y" && wheel "$x" "$y" 10 || return
+  panel_count
+}
+wait_for "control: the history panel shows every kept entry once its list is turned to its end" "$panel_total" 60 panel_wheel_end
+hover "$((mon_w - 5))" "$((mon_h - 5))" || fail "moving the pointer off the history panel failed"
 expect "the panel closes over IPC" ok notes close
 expect_poll "the panel closed" '""' read_notes panelMode
 
@@ -2088,6 +2149,59 @@ expect_poll "the re-enabled service is built" True record_exists vgs.notificatio
 expect_poll "the re-enabled service restored the live toasts" True has_row restored Survivor
 expect "a toast whose time ran out is not shown again" none key_of Stale
 expect_poll "it went into the history instead" True in_history Stale
+
+# The state file names the kernel's boot id, the sandbox's being the
+# host's, since both run on one kernel.
+host_boot="$(tr -d '\n' </proc/sys/kernel/random/boot_id)"
+expect_poll "the state file names this boot" "\"$host_boot\"" state_at boot
+# plant_state EDIT: with the service gone, the state file rewritten by the
+# Python statement EDIT on its document `d`, `now` the time in
+# milliseconds and `entry(summary, id, at)` a stored entry; written whole,
+# as the store writes it.
+plant_state() { # EDIT
+  python3 - "$note_state" "$1" <<'PY'
+import json, os, sys, time
+p = sys.argv[1]
+d = json.load(open(p))
+now = int(time.time() * 1000)
+def entry(summary, id, at):
+    return {"key": "%d-%d" % (at, id), "originalId": id, "app": "smoke-app", "appIcon": "", "summary": summary, "body": "", "image": "", "desktopEntry": "", "urgency": 1, "expireTimeout": 0, "timestamp": at}
+exec(sys.argv[2])
+json.dump(d, open(p + ".tmp", "w"))
+os.replace(p + ".tmp", p)
+PY
+}
+# Age: an entry older than a day leaves the history when the service
+# starts, in the file and in the History panel; a younger one stays.
+expect "disabling the notifications before the aged entry is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+expect_poll "the service is gone before the aged entry" False record_exists vgs.notifications
+plant_state 'd["history"] = [entry("Young entry", 901, now - 3600 * 1000), entry("Aged entry", 902, now - 25 * 3600 * 1000)]'
+expect "re-enabling over the aged entry is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "the service over the aged entry is built" True record_exists vgs.notifications
+expect_poll "control: the entry older than a day leaves the state file" False in_history "Aged entry"
+expect "the entry an hour old stays in the state file" True in_history "Young entry"
+expect "the history panel opens over the aged entry" ok notes history
+expect_poll "the entry an hour old is a History row" True has_row panel "Young entry"
+expect "control: the entry older than a day is no History row" False has_row panel "Aged entry"
+expect "the history panel over the aged entry closes" ok notes close
+expect_poll "the history panel over the aged entry closed" '""' read_notes panelMode
+
+# Reboot: a file from another boot comes back without its toasts and its
+# history, written once for this boot, and keeps Silence and Mark read.
+expect "disabling the notifications before the earlier boot is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+expect_poll "the service is gone before the earlier boot" False record_exists vgs.notifications
+earlier_read_before="$(state_at readBefore)"
+expect "Mark read is set before the earlier boot" True python3 -c 'import sys; print(float(sys.argv[1]) > 0)' "$earlier_read_before"
+plant_state 'd["boot"] = "smoke-earlier-boot"; d["dnd"] = True; d["live"] = [entry("Earlier boot toast", 903, now - 1000)]; d["history"] = [entry("Earlier boot entry", 904, now - 2000)]'
+expect "re-enabling over the earlier boot is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "the service over the earlier boot is built" True record_exists vgs.notifications
+expect_poll "control: the start after a reboot writes the file for this boot" "\"$host_boot\"" state_at boot
+expect "control: the earlier boot's toasts are gone" '[]' live_summaries
+expect "control: the earlier boot's history is gone" 0 history_count
+expect "no earlier boot's toast shows" none key_of "Earlier boot toast"
+expect "control: Silence stays after a reboot" true note_status silence
+expect "control: Mark read stays after a reboot" "$earlier_read_before" state_at readBefore
+expect_log "the cleared earlier boot is logged with its count" 1 'notifications: history from an earlier boot cleared: entries=2'
 
 # A state file the judge refuses is reported and left as it is; clearing
 # the history starts it over.
@@ -2637,6 +2751,11 @@ expect_poll "the Place toasts are gone" 0 layer_count vgs:layer
 fade_fixture_count() {
   ipc smoke modelRows vgs.notifications rows app,origin,leaving | py_reply 'import json,sys;print(sum(r[0]=="smoke-fade" and r[1]=="live" and r[2]=="" for r in json.load(sys.stdin)))'
 }
+# The smoke-fade rows in the service's model, leaving ones included, and
+# the keys and count of the smoke-fade history entries.
+fade_model_count() { ipc smoke modelRows vgs.notifications rows app,leaving | py_reply 'import json,sys;print(sum(r[0]=="smoke-fade" for r in json.load(sys.stdin)))'; }
+fade_history_keys() { note_state_py 'import json,sys; print("\n".join(e["key"] for e in json.load(open(sys.argv[1]))["history"] if e["app"] == "smoke-fade"))'; }
+fade_history_count() { note_state_py 'import json,sys; print(sum(e["app"] == "smoke-fade" for e in json.load(open(sys.argv[1]))["history"]))'; }
 fade_fixtures() {
   local keys key payload
   keys="$(ipc smoke modelRows vgs.notifications rows key,app,origin,leaving | py_reply 'import json,sys
@@ -2646,13 +2765,24 @@ if any(not isinstance(k,str) or not k or "\n" in k for k in keys): sys.exit(1)
 print("\n".join(keys))')" || return
   if [[ -n $keys ]]; then
     while IFS= read -r key; do
-      # These fixtures offer only synthetic actions. Their default action
-      # forgets the owned entry; dismiss would keep it as unread history.
-      payload="$(python3 -c 'import json,sys;print(json.dumps({"key":sys.argv[1],"choice":"action:default"}))' "$key")" || return
+      payload="$(python3 -c 'import json,sys;print(json.dumps({"key":sys.argv[1],"choice":"dismiss"}))' "$key")" || return
       notes choose "$payload" >/dev/null || return
     done <<<"$keys"
   fi
   expect_poll "the previous owned fade fixtures leave" 0 fade_fixture_count
+  # Every fixture that left, dismissed above or opened by a press, keeps
+  # its history entry, and the inventory reads each summary once, so each
+  # entry is cleared as a dismiss on its panel card clears it, once its
+  # exit has played and its row is gone.
+  expect_poll "the previous fade fixtures' exits have played" 0 fade_model_count
+  keys="$(fade_history_keys)" || return
+  if [[ -n $keys && $keys != absent ]]; then
+    while IFS= read -r key; do
+      payload="$(python3 -c 'import json,sys;print(json.dumps({"key":sys.argv[1],"choice":"dismiss"}))' "$key")" || return
+      notes choose "$payload" >/dev/null || return
+    done <<<"$keys"
+  fi
+  expect_poll "the previous fade fixtures leave the history" 0 fade_history_count
   for at in $(seq 1 16); do
     notify smoke-fade 0 "Fade probe $at" "The release notes are ready for your review. The build finished and the report is attached." '["default", "Open", "reply", "Reply"]' '{"urgency": <byte 2>, "x-vgs-icon": <"circle-x">, "x-vgs-tone": <"danger">}' 0 >/dev/null || return
   done

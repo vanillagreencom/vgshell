@@ -9,20 +9,22 @@ import "NotificationLogic.js" as Logic
 
 // The notification service: every desktop notification the core's server
 // receives becomes a glass toast on every screen, at the edge the `position`
-// setting names, and leaves into the history when it expires, is dismissed,
-// closed by its sender or
-// let go by a full stack, unless its sender marked it transient. The Inbox shows what arrived since the last Mark
-// read, the History everything kept; while either is open the toasts stay
-// and do not expire. Opening a toast or an inbox row runs its primary
-// action, the sender's default, else its first; a pill runs its own. Each
-// is delivered while the service still holds the notification, brings the
-// sender's window into view (NotificationLogic.choicePlan) and finishes
-// the notification: it leaves no history entry
-// (NotificationLogic.storedAfterLeave). Silence keeps notifications off the
-// screen and records them in the history, bar a critical one from the bare
-// command line. The service owns the rows, their clocks, the notification
-// objects it holds and the store; the stack its layer draws on each screen
-// is only a view of them. Everything it registers is the core's to release.
+// setting names, and leaves into the history whatever takes it off the
+// screen: it expires, is dismissed, is opened or acted on, is closed by its
+// sender or is let go by a full stack, transient or not. The history keeps
+// it until the user clears it, the machine starts again or it is a day old
+// (Store). The Inbox shows what arrived since the last Mark read, the
+// History everything kept, a page at a time; while either is open the
+// toasts stay and do not expire. Opening a toast or an inbox row runs its
+// primary action, the sender's default, else its first; a pill runs its
+// own. Each is delivered while the service still holds the notification,
+// brings the sender's window into view (NotificationLogic.choicePlan) and
+// closes the notification on the server; its history entry stays. Silence
+// keeps notifications off the screen and records them in the history, bar
+// a critical one from the bare command line, which shows. The service owns
+// the rows, their clocks, the notification objects it holds and the store;
+// the stack its layer draws on each screen is only a view of them.
+// Everything it registers is the core's to release.
 //   shortcut vgs.notifications:inbox     SUPER+N from the manifest's
 //                                        `hyprland` binds (README)
 //   vgshell ipc call vgs.notifications invoke <name> <arg>, names in the README
@@ -99,6 +101,10 @@ Item {
     property int shownCount: 0
     readonly property bool silenced: store.dnd
     property int panelRevision: 0
+    // How many pages of rows the open panel shows (NotificationLogic.panelPage):
+    // one when it opens or changes mode, a page more each time its list
+    // reaches its end while more are kept.
+    property int panelPages: 1
 
     // The exit's and the entrance's whole length, as CardSlot.qml plays
     // them with glass or without (NotificationLogic.toastMotion).
@@ -245,6 +251,7 @@ Item {
         shell.ipc.handle("panel-closed", () => { root.panelClosed(); return "ok"; });
         shell.ipc.handle("panel-focused", arg => { root.panelFocused = arg === "on"; root.settle(); return "ok"; });
         shell.ipc.handle("panel-state", () => JSON.stringify(root.panelSnapshot()));
+        shell.ipc.handle("panel-more", () => root.morePanel());
         shell.ipc.handle("hover", arg => root.hoverFromPanel(arg));
         shell.ipc.handle("choose", arg => root.chooseFromPanel(arg));
         shell.ipc.handle("silence", arg => {
@@ -346,7 +353,6 @@ Item {
         if (!keepCopy(entry)) return false;
         wantWorkspace(entry);
         if (store.dnd && !Logic.bypassesSilence(fields.appName, fields.urgency, fields.hints)) {
-            if (Logic.isEphemeral(fields.appName, fields.transient)) return false;
             n.tracked = true;
             silence(n, entry);
             return true;
@@ -356,7 +362,7 @@ Item {
         // is the same notification to it: its row goes without a history
         // entry, since the new one will leave one.
         for (const key of rowKeys(r => r.origin === "live" && r.originalId === entry.originalId)) {
-            store.dropLive(key, true);
+            store.dropReplaced(key);
             unlink(key, "dismiss");
             removeRow(key);
         }
@@ -400,7 +406,7 @@ Item {
         else next.keptBrowser += 1;
         duplicates = next;
         if (kept !== message) return false;
-        store.dropLive(read.prior.key, true);
+        store.dropReplaced(read.prior.key);
         unlink(read.prior.key, "dismiss");
         removeRow(read.prior.key);
         return true;
@@ -578,7 +584,7 @@ Item {
     function restore() {
         const now = Date.now();
         const plan = Logic.restorePlan(store.live, now, root.normalLifetime);
-        for (const entry of plan.expired) store.dropLive(entry.key, false);
+        for (const entry of plan.expired) store.dropLive(entry.key);
         for (const entry of plan.show) {
             store.putLive(entry);
             rowModel.append(rowOf(entry, "restored"));
@@ -646,15 +652,13 @@ Item {
 
     // ---------------------------------------------------------- leaving
 
-    // Start a row's exit. A toast is off the screen for the store at once,
-    // so a rebuild during the exit restores nothing it should not, and its
-    // notification is held for the history or closed as
-    // NotificationLogic.heldAfterLeave says; the row itself goes once its
-    // animation has played. `reason` is expire, dismiss, invoke or closed;
-    // the store keeps the toast in the history or forgets it as
-    // NotificationLogic.storedAfterLeave says. Whether it is transient is
-    // read off the notification held for it; a toast restored after a
-    // restart holds none, so it leaves into the history.
+    // Start a row's exit. A toast is off the screen for the store at once
+    // and into the history, whatever the reason, so a rebuild during the
+    // exit restores nothing it should not, and its notification is held for
+    // the history or closed as NotificationLogic.heldAfterLeave says; the
+    // row itself goes once its animation has played. `reason` is expire,
+    // dismiss, invoke or closed. Whether it is transient is read off the
+    // notification held for it; a toast restored after a restart holds none.
     function leave(key, reason) {
         const at = indexOf(key);
         if (at === -1 || rowModel.get(at).leaving !== "") return;
@@ -662,7 +666,7 @@ Item {
         stopClock(key);
         countShown();
         const fields = Logic.hasOwn(held, key) ? fieldsOf(held[key].notification) : null;
-        store.dropLive(key, Logic.storedAfterLeave(reason, fields !== null && fields.transient) === "forget");
+        store.dropLive(key);
         if (Logic.hasOwn(held, key)) {
             const fate = fields === null ? "drop" : Logic.heldAfterLeave(reason, fields.transient);
             if (fate === null) console.error("notifications: refused: leave=" + reason + " want=expire|invoke|dismiss|closed");
@@ -736,8 +740,8 @@ Item {
     // NotificationLogic.choicePlan says: an open runs the primary action,
     // the sender's default, else its first. Then the row leaves, bar an
     // open the TUI refuses, which keeps the row and shows why
-    // (NotificationLogic.openOutcome); after an action it leaves no history
-    // entry (NotificationLogic.storedAfterLeave).
+    // (NotificationLogic.openOutcome); its history entry stays
+    // (leaveChosen).
     // The sender's window comes into view through the core's reveal, which
     // after a delivered action first gives the sender the chance to raise
     // it itself. Logs what the choice reached, with no content.
@@ -792,17 +796,18 @@ Item {
         return true;
     }
 
-    // A chosen toast on screen leaves as leave() says. A chosen panel row
-    // leaves the store; a toast already leaving, whose entry leave() put in
-    // the history, leaves it after an action. Either way the notification
-    // held for it closes on the server.
+    // A chosen toast on screen leaves into the history as leave() says. A
+    // panel row dismissed is the user clearing that one entry, so it leaves
+    // the history; one opened or acted on stays, as does a toast already
+    // leaving, whose entry leave() put in the history. Either way the
+    // notification held for it closes on the server.
     function leaveChosen(key, reason) {
         const at = indexOf(key);
         if (at !== -1 && rowModel.get(at).leaving === "") {
             leave(key, reason);
             return;
         }
-        if (at === -1 || Logic.storedAfterLeave(reason, false) === "forget") store.dropHistory(key);
+        if (at === -1 && reason === "dismiss") store.dropHistory(key);
         if (Logic.hasOwn(held, key)) unlink(key, Logic.heldAfterLeave(reason, false));
         bumpPanel();
     }
@@ -825,6 +830,7 @@ Item {
         const next = mode === "history" ? "history" : "inbox";
         if (panelMode === next) return;
         panelMode = next;
+        panelPages = 1;
         settle();
         bumpPanel();
     }
@@ -858,6 +864,8 @@ Item {
         bumpPanel();
     }
 
+    // Every row the open panel lists, newest first: the toasts on screen and
+    // the stored entries its mode shows (NotificationLogic.panelRows).
     function panelEntries() {
         const entries = [];
         const present = {};
@@ -869,7 +877,7 @@ Item {
                 present[row.key] = true;
             }
         }
-        const stored = Logic.panelRows(store.history, panelMode, store.readBefore);
+        const stored = Logic.panelRows(store.history, panelMode, store.readBefore, Date.now());
         for (const entry of stored) {
             if (present[entry.key]) continue;
             // historyChanged publishes before the image helper finishes.
@@ -879,7 +887,15 @@ Item {
             present[entry.key] = true;
         }
         entries.sort((a, b) => b.timestamp - a.timestamp);
-        return entries.slice(0, Logic.PANEL_ROWS_MAX);
+        return entries;
+    }
+
+    // The panel's list reached its end: a page more while more are kept.
+    function morePanel() {
+        if (!panelOpen || !Logic.panelPage(panelEntries(), panelPages).more) return "none";
+        panelPages += 1;
+        bumpPanel();
+        return "ok";
     }
 
     function panelRow(entry) {
@@ -896,13 +912,17 @@ Item {
         return out;
     }
 
+    // The panel's header and its page of rows; the subtitle counts every
+    // row it lists, shown or not yet.
     function panelSnapshot() {
         const entries = panelEntries();
+        const page = Logic.panelPage(entries, panelPages);
         return {
             mode: panelMode === "history" ? "history" : "inbox",
             subtitle: Logic.panelSubtitle(panelMode === "" ? "inbox" : panelMode, entries.length, store.status),
             silenced: store.dnd,
-            rows: entries.map(panelRow)
+            more: page.more,
+            rows: page.rows.map(panelRow)
         };
     }
 

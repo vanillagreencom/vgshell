@@ -4,8 +4,9 @@
 // scripts/test-notifications-logic.js runs every function under node: what a
 // notification body may render, which notifications Silence lets through,
 // how long a toast lives, the state file's shape and its judge, the image
-// copies an entry owns, what a restart restores, what the history keeps and
-// the Inbox shows, which toast a full stack lets go, which actions a card
+// copies an entry owns, what a restart restores, what a start after a reboot
+// clears, what the history keeps and for how long, what a panel page shows,
+// which toast a full stack lets go, which actions a card
 // offers, what opening it does and which window that raises, which
 // notifications the service keeps holding for the history, the paused and
 // running clocks of the toasts on screen, the per-application rules that
@@ -14,10 +15,16 @@
 // twice, and the VGS hints a sender may add and what a click on a card
 // that carries them does.
 
-// The history keeps the newest HISTORY_MAX notifications; the Inbox and the
-// History panel show at most PANEL_ROWS_MAX of them. LIVE_MAX toasts show at
-// once: a newer one lets the oldest non-critical toast go into the history.
-var HISTORY_MAX = 100;
+// Every notification that leaves the screen goes into the history, which
+// keeps it until the user clears it, the machine starts again (fromBoot) or
+// it is HISTORY_AGE old. HISTORY_MAX only bounds the file: the busiest hour
+// of the owner's state.json read on 2026-10-09 (100 kept from 04:59Z to
+// 20:30Z, the old cap full) held 30, kept for 24 hours. The Inbox and the
+// History panel show PANEL_ROWS_MAX rows a page and grow by a page at their
+// list's end (panelPage). LIVE_MAX toasts show at once: a newer one lets the
+// oldest non-critical toast go into the history.
+var HISTORY_MAX = 720;
+var HISTORY_AGE = 24 * 3600 * 1000;
 var PANEL_ROWS_MAX = 40;
 var LIVE_MAX = 20;
 // Text a sender supplies is stored up to these lengths, so the state file
@@ -30,7 +37,7 @@ var BODY_MAX = 4096;
 var LOW_LIFETIME = 5000;
 var MAX_LIFETIME = 30000;
 // The state file's format.
-var STATE_VERSION = 1;
+var STATE_VERSION = 2;
 // The entry roles an image can sit in, each owned as a copy by a stored
 // entry, named <key>-<role> in the images directory.
 var IMAGE_ROLES = ["appIcon", "image"];
@@ -861,12 +868,6 @@ function bypassesSilence(appName, urgency, hints) {
     return isPlainObject(hints) && typeof hints["x-vgs-plugin"] === "string" && hints["x-vgs-plugin"] !== "";
 }
 
-// A notification nobody looks back at: marked transient, or sent from the
-// bare command line. A silenced one is not recorded at all.
-function isEphemeral(appName, transient) {
-    return !!transient || String(appName || "") === "notify-send";
-}
-
 // ---------------------------------------------------------- lifetime
 
 // How long a toast shows, in milliseconds; 0 is until it is closed.
@@ -1113,10 +1114,12 @@ function ownedImages(entries) {
 
 // ------------------------------------------------------------- state
 
-// The state file's content for this state.
+// The state file's content for this state. `boot` is the kernel's boot id
+// the state belongs to (fromBoot).
 function serializeState(state) {
     return JSON.stringify({
         version: STATE_VERSION,
+        boot: state.boot,
         dnd: state.dnd,
         readBefore: state.readBefore,
         live: state.live,
@@ -1164,8 +1167,9 @@ function parseState(text) {
     if (!isPlainObject(parsed)) return { ok: false, error: "not-object" };
     var keys = Object.keys(parsed);
     for (var k = 0; k < keys.length; k++)
-        if (["version", "dnd", "readBefore", "live", "history"].indexOf(keys[k]) === -1) return { ok: false, error: keys[k] + " unknown" };
+        if (["version", "boot", "dnd", "readBefore", "live", "history"].indexOf(keys[k]) === -1) return { ok: false, error: keys[k] + " unknown" };
     if (parsed.version !== STATE_VERSION) return { ok: false, error: "version want=" + STATE_VERSION };
+    if (typeof parsed.boot !== "string" || parsed.boot === "") return { ok: false, error: "boot want=string" };
     if (typeof parsed.dnd !== "boolean") return { ok: false, error: "dnd want=boolean" };
     if (typeof parsed.readBefore !== "number" || !isFinite(parsed.readBefore)) return { ok: false, error: "readBefore want=number" };
     var lists = ["live", "history"];
@@ -1182,7 +1186,7 @@ function parseState(text) {
             seen[list[i].key] = true;
         }
     }
-    return { ok: true, state: { dnd: parsed.dnd, readBefore: parsed.readBefore, live: parsed.live.map(withHintRoles), history: parsed.history.map(withHintRoles) } };
+    return { ok: true, state: { boot: parsed.boot, dnd: parsed.dnd, readBefore: parsed.readBefore, live: parsed.live.map(withHintRoles), history: parsed.history.map(withHintRoles) } };
 }
 
 // A stored entry with every hint role, "" for one it leaves out.
@@ -1195,8 +1199,19 @@ function withHintRoles(entry) {
     return out;
 }
 
-function emptyState() {
-    return { dnd: false, readBefore: 0, live: [], history: [] };
+function emptyState(boot) {
+    return { boot: boot, dnd: false, readBefore: 0, live: [], history: [] };
+}
+
+// The stored state as this boot, `boot`, reads it: { state, cleared }. A
+// state from another boot loses its toasts and its history, `cleared`
+// counting them, and keeps Silence and the last Mark read.
+function fromBoot(state, boot) {
+    if (state.boot === boot) return { state: state, cleared: 0 };
+    return {
+        state: { boot: boot, dnd: state.dnd, readBefore: state.readBefore, live: [], history: [] },
+        cleared: state.live.length + state.history.length
+    };
 }
 
 // ------------------------------------------------------------ restart
@@ -1245,22 +1260,52 @@ function withoutDeadline(entry) {
 
 // ------------------------------------------------------------ history
 
+// Whether an entry is still young enough at `now` to stay in the history.
+function youngAt(entry, now) {
+    return entry.timestamp > now - HISTORY_AGE;
+}
+
+// The history without the entries HISTORY_AGE old or older at `now`.
+function pruneHistory(history, now) {
+    return history.filter(function (e) { return youngAt(e, now); });
+}
+
+// When the oldest entry of a history comes of age, in milliseconds since
+// the epoch, or null for an empty one: the one moment the store prunes next.
+function historyDue(history) {
+    if (history.length === 0) return null;
+    var oldest = history[0].timestamp;
+    for (var i = 1; i < history.length; i++) oldest = Math.min(oldest, history[i].timestamp);
+    return oldest + HISTORY_AGE;
+}
+
 // The history with `entries` added at its head, newest first, each key once,
-// cut to HISTORY_MAX. Answers the history and the entries it let go.
-function pushHistory(history, entries) {
+// without what is HISTORY_AGE old at `now`, cut to HISTORY_MAX. Answers the
+// history and the entries it let go.
+function pushHistory(history, entries, now) {
     var incoming = entries.map(withoutDeadline);
     var keys = {};
     for (var i = 0; i < incoming.length; i++) keys[incoming[i].key] = true;
     var merged = incoming.concat(history.filter(function (e) { return !keys[e.key]; }));
     merged.sort(function (a, b) { return b.timestamp - a.timestamp; });
-    return { history: merged.slice(0, HISTORY_MAX), dropped: merged.slice(HISTORY_MAX) };
+    var young = pruneHistory(merged, now);
+    var aged = merged.filter(function (e) { return !youngAt(e, now); });
+    return { history: young.slice(0, HISTORY_MAX), dropped: young.slice(HISTORY_MAX).concat(aged) };
 }
 
-// The rows a panel shows: the Inbox what arrived after the last Mark read,
-// the History everything kept, at most PANEL_ROWS_MAX, newest first.
-function panelRows(history, mode, readBefore) {
-    var rows = mode === "inbox" ? history.filter(function (e) { return e.timestamp > readBefore; }) : history.slice();
-    return rows.slice(0, PANEL_ROWS_MAX);
+// The stored rows a panel lists, newest first: the Inbox what arrived after
+// the last Mark read, the History everything kept, either without an entry
+// HISTORY_AGE old at `now`, which the store's prune can reach late since a
+// timer does not count while the machine sleeps.
+function panelRows(history, mode, readBefore, now) {
+    return history.filter(function (e) { return youngAt(e, now) && (mode !== "inbox" || e.timestamp > readBefore); });
+}
+
+// The rows a panel opened `pages` pages deep shows of `rows`, PANEL_ROWS_MAX
+// a page, and whether more are kept: { rows, more }.
+function panelPage(rows, pages) {
+    var limit = pages * PANEL_ROWS_MAX;
+    return { rows: rows.slice(0, limit), more: rows.length > limit };
 }
 
 // The panel's subtitle under its title.
@@ -1347,18 +1392,6 @@ function heldAfterLeave(reason, transient) {
     if (reason === "invoke") return "dismiss";
     if (reason === "dismiss") return "dismiss";
     if (reason === "closed") return "drop";
-    return null;
-}
-
-// Whether a toast that leaves for `reason` goes into the history: `forget`
-// after an action the user chose, which finishes the notification, so it
-// leaves the Inbox and the History too, and for a `transient` one, which
-// its sender marked as nothing to look back at; `history` after it
-// expired, was dismissed or its sender closed it, which take it off the
-// screen without finishing it. Null for a reason no row leaves with.
-function storedAfterLeave(reason, transient) {
-    if (reason === "invoke") return "forget";
-    if (reason === "expire" || reason === "dismiss" || reason === "closed") return transient ? "forget" : "history";
     return null;
 }
 

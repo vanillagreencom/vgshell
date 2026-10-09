@@ -22,6 +22,12 @@ FocusScope {
     property bool silenced: false
     property var rows: []
     readonly property int rowCount: rows.length
+    // Whether the service keeps rows past the page shown; the list asks for
+    // the next page when its view reaches its end or a key moves onto its
+    // last row.
+    property bool more: false
+    readonly property bool listAtEnd: listScroll.flickable.atYEnd
+    onListAtEndChanged: if (listAtEnd) showMore()
     property int currentIndex: 0
     property int actionIndex: -1
     property string selectedKey: ""
@@ -127,6 +133,7 @@ FocusScope {
             mode = state.mode === "history" ? "history" : "inbox";
             subtitle = String(state.subtitle || "");
             silenced = state.silenced === true;
+            more = state.more === true;
             refreshing = true;
             rows = Array.isArray(state.rows) ? state.rows : [];
             const kept = indexOfKey(previousKey);
@@ -141,6 +148,7 @@ FocusScope {
             nav.reveal(currentIndex);
         } catch (e) {
             console.warn("notifications panel: state " + e.message);
+            more = false;
             refreshing = true;
             rows = [];
             currentIndex = -1;
@@ -187,6 +195,12 @@ FocusScope {
         refreshing = false;
         updateSelectionHover();
         nav.reveal(currentIndex);
+    }
+
+    function showMore() {
+        if (!opened || !more) return;
+        call("panel-more", "");
+        refresh();
     }
 
     function rowAt(index) {
@@ -365,7 +379,10 @@ FocusScope {
                             const row = root.rowAt(index);
                             return row === null ? "" : row.summary;
                         }
-                        onMoved: index => root.selectIndex(index)
+                        onMoved: index => {
+                            root.selectIndex(index);
+                            if (index === root.rows.length - 1) root.showMore();
+                        }
                         onActivated: index => root.actionIndex >= 0 ? root.pressAction() : root.openSelected()
                         onRemoved: index => root.dismissSelected()
                         onCrossed: delta => root.moveAction(delta)

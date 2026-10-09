@@ -35,8 +35,9 @@ const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(
 function stored(timestamp, id, extra) {
     return Object.assign({ key: timestamp + "-" + id, originalId: id, app: "app", appIcon: "", summary: "s" + id, body: "", image: "", desktopEntry: "", urgency: 1, expireTimeout: 0, timestamp: timestamp, hintIcon: "", hintTone: "", hintOpen: "", hintClick: "" }, extra || {});
 }
+const BOOT = "4b1c0e2a-6d55-4d2e-9a0f-3f1b2c4d5e6f";
 function stateText(value) {
-    return JSON.stringify(Object.assign({ version: 1, dnd: false, readBefore: 0, live: [], history: [] }, value));
+    return JSON.stringify(Object.assign({ version: 2, boot: BOOT, dnd: false, readBefore: 0, live: [], history: [] }, value));
 }
 
 // Bodies: [label, body, app, what the card renders].
@@ -69,11 +70,14 @@ const STATE_REFUSED = [
     ["not JSON", "{ nope", "not-json"],
     ["a list", "[]", "not-object"],
     ["an unknown key", stateText({ extra: 1 }), "extra unknown"],
-    ["another version", stateText({ version: 2 }), "version want=1"],
+    ["the first version, which named no boot", stateText({ version: 1, boot: undefined }), "version want=2"],
+    ["no boot", stateText({ boot: undefined }), "boot want=string"],
+    ["an empty boot", stateText({ boot: "" }), "boot want=string"],
+    ["a boot that is no string", stateText({ boot: 7 }), "boot want=string"],
     ["a Silence that is no boolean", stateText({ dnd: "on" }), "dnd want=boolean"],
     ["a read cutoff that is no number", stateText({ readBefore: "0" }), "readBefore want=number"],
     ["a history that is no list", stateText({ history: {} }), "history want=list"],
-    ["a history past its limit", stateText({ history: Array.from({ length: 101 }, (_, i) => stored(1000 + i, i)) }), "history length=101 want<=100"],
+    ["a history past its limit", stateText({ history: Array.from({ length: 721 }, (_, i) => stored(1000 + i, i)) }), "history length=721 want<=720"],
     ["a live list past its limit", stateText({ live: Array.from({ length: 21 }, (_, i) => stored(1000 + i, i)) }), "live length=21 want<=20"],
     ["an entry that is no object", stateText({ history: [3] }), "history.0 want=object"],
     ["an entry with an unknown key", stateText({ history: [stored(5, 1, { extra: 1 })] }), "history.0.extra unknown"],
@@ -186,9 +190,6 @@ function verify(logic) {
         ["no hints at all", "Lock", U.critical, undefined, false]
     ])
         assert.equal(logic.bypassesSilence(app, urgency, hints), want, "silence: " + label);
-    assert.equal(logic.isEphemeral("notify-send", false), true);
-    assert.equal(logic.isEphemeral("app", true), true, "a transient notification is not kept");
-    assert.equal(logic.isEphemeral("app", false), false);
 
     // Lifetimes: [urgency, sender's timeout, the duration setting in
     // milliseconds, milliseconds shown].
@@ -265,14 +266,21 @@ function verify(logic) {
     // The state file's judge.
     for (const [label, text, want] of STATE_REFUSED)
         same(logic.parseState(text), { ok: false, error: want }, "state: " + label);
-    const good = { version: 1, dnd: true, readBefore: 50, live: [stored(9, 2, { deadline: 99 })], history: [stored(5, 1)] };
-    same(logic.parseState(JSON.stringify(good)), { ok: true, state: { dnd: true, readBefore: 50, live: good.live, history: good.history } });
+    const good = { version: 2, boot: BOOT, dnd: true, readBefore: 50, live: [stored(9, 2, { deadline: 99 })], history: [stored(5, 1)] };
+    same(logic.parseState(JSON.stringify(good)), { ok: true, state: { boot: BOOT, dnd: true, readBefore: 50, live: good.live, history: good.history } });
     // An entry stored before senders could add hints has no hint roles,
     // and reads back with each one empty.
     const unhinted = (timestamp, id) => (({ hintIcon, hintTone, hintOpen, hintClick, ...rest }) => rest)(stored(timestamp, id));
-    same(logic.parseState(stateText({ live: [unhinted(8, 4)], history: [unhinted(7, 3)] })), { ok: true, state: { dnd: false, readBefore: 0, live: [stored(8, 4)], history: [stored(7, 3)] } }, "entries without hint roles read back with each empty");
-    same(logic.parseState(logic.serializeState(logic.emptyState())), { ok: true, state: { dnd: false, readBefore: 0, live: [], history: [] } }, "an empty state reads back");
-    same(logic.parseState(logic.serializeState({ dnd: true, readBefore: 50, live: good.live, history: good.history })).state.history, good.history, "a state reads back as written");
+    same(logic.parseState(stateText({ live: [unhinted(8, 4)], history: [unhinted(7, 3)] })), { ok: true, state: { boot: BOOT, dnd: false, readBefore: 0, live: [stored(8, 4)], history: [stored(7, 3)] } }, "entries without hint roles read back with each empty");
+    same(logic.parseState(logic.serializeState(logic.emptyState(BOOT))), { ok: true, state: { boot: BOOT, dnd: false, readBefore: 0, live: [], history: [] } }, "an empty state reads back");
+    same(logic.parseState(logic.serializeState({ boot: BOOT, dnd: true, readBefore: 50, live: good.live, history: good.history })).state, { boot: BOOT, dnd: true, readBefore: 50, live: good.live, history: good.history }, "a state reads back as written");
+
+    // A start after a reboot: the same boot keeps everything; another boot
+    // clears the toasts and the history and keeps Silence and Mark read.
+    const earlier = { boot: "other-boot", dnd: true, readBefore: 50, live: [stored(9, 2)], history: [stored(5, 1), stored(4, 3)] };
+    same(logic.fromBoot(earlier, "other-boot"), { state: earlier, cleared: 0 }, "the same boot keeps the state");
+    same(logic.fromBoot(earlier, BOOT), { state: { boot: BOOT, dnd: true, readBefore: 50, live: [], history: [] }, cleared: 3 }, "another boot clears the toasts and the history");
+    same(logic.fromBoot(Object.assign({}, earlier, { dnd: false, readBefore: 0 }), BOOT).state, { boot: BOOT, dnd: false, readBefore: 0, live: [], history: [] }, "another boot keeps Silence off and no Mark read");
 
     // Restart: a toast whose time ran out goes into the history; one that
     // survives restarts with a whole lifetime as a deadline.
@@ -292,20 +300,42 @@ function verify(logic) {
     same(logic.clockFields({ remaining: 400, since: 1000 }), { deadline: 1400 });
     assert.equal("deadline" in plan.expired[1], false, "an expired entry leaves its deadline behind");
 
-    // History: newest first, each key once, a hundred at most.
-    const pushed = logic.pushHistory([stored(10, 1), stored(5, 2)], [stored(10, 1, { summary: "again" }), stored(20, 3, { deadline: 5 })]);
+    // History: newest first, each key once, 720 at most, none 24 hours old.
+    const AGE = 24 * 3600 * 1000;
+    const pushed = logic.pushHistory([stored(10, 1), stored(5, 2)], [stored(10, 1, { summary: "again" }), stored(20, 3, { deadline: 5 })], 1000);
     same(pushed.history.map(e => [e.key, e.summary]), [["20-3", "s3"], ["10-1", "again"], ["5-2", "s2"]]);
     assert.equal("deadline" in pushed.history[0], false, "the history keeps no deadline");
-    const full = Array.from({ length: 100 }, (_, i) => stored(1000 - i, i));
-    const over = logic.pushHistory(full, [stored(2000, 500)]);
-    same([over.history.length, over.history[0].key, over.dropped.map(e => e.key)], [100, "2000-500", ["901-99"]], "the oldest goes past the limit");
+    const full = Array.from({ length: 720 }, (_, i) => stored(10000 - i, i));
+    const over = logic.pushHistory(full, [stored(20000, 5000)], 20000);
+    same([over.history.length, over.history[0].key, over.history[719].key, over.dropped.map(e => e.key)], [720, "20000-5000", "9282-718", ["9281-719"]], "the oldest goes past the limit");
+    same(logic.pushHistory(full.slice(0, 719), [stored(20000, 5000)], 20000).history.length, 720, "the history holds 720");
+    // Age: an entry exactly 24 hours old at `now` is gone, one a
+    // millisecond younger stays.
+    const at = 5 * AGE;
+    const ages = [stored(at - 1000, 1), stored(at - AGE + 1, 2), stored(at - AGE, 3), stored(at - AGE - 5000, 4)];
+    same(logic.pruneHistory(ages, at).map(e => e.key), [(at - 1000) + "-1", (at - AGE + 1) + "-2"], "the age prune");
+    const agedPush = logic.pushHistory(ages.slice(1), [stored(at, 9)], at);
+    same([agedPush.history.map(e => e.originalId), agedPush.dropped.map(e => e.originalId)], [[9, 2], [3, 4]], "a push lets the aged entries go");
+    assert.equal(logic.historyDue(ages), at - AGE - 5000 + AGE, "the next prune is due when the oldest entry comes of age");
+    assert.equal(logic.historyDue([stored(7, 1), stored(9, 2), stored(8, 3)]), 7 + AGE, "the oldest entry wherever it stands");
+    assert.equal(logic.historyDue([]), null, "an empty history is due no prune");
 
-    // Panels: the inbox after the cutoff, the history whole, forty at most.
+    // Panels: the inbox after the cutoff, the history whole, neither with an
+    // entry 24 hours old; forty a page, a page more at the list's end.
     const kept = Array.from({ length: 60 }, (_, i) => stored(600 - i, i));
-    same(logic.panelRows(kept, "inbox", 590).map(e => e.timestamp), [600, 599, 598, 597, 596, 595, 594, 593, 592, 591]);
-    same(logic.panelRows(kept, "history", 590).length, 40);
-    same(logic.panelRows(kept, "inbox", 0).length, 40);
-    same(logic.panelRows([], "inbox", 0), []);
+    same(logic.panelRows(kept, "inbox", 590, 1000).map(e => e.timestamp), [600, 599, 598, 597, 596, 595, 594, 593, 592, 591]);
+    same(logic.panelRows(kept, "history", 590, 1000).length, 60);
+    same(logic.panelRows(kept, "inbox", 0, 1000).length, 60);
+    same(logic.panelRows([], "inbox", 0, 1000), []);
+    same(logic.panelRows(kept, "history", 0, 590 + AGE).map(e => e.timestamp), [600, 599, 598, 597, 596, 595, 594, 593, 592, 591], "the history panel leaves out an entry 24 hours old");
+    same(logic.panelRows(kept, "inbox", 595, 590 + AGE).map(e => e.timestamp), [600, 599, 598, 597, 596], "the inbox leaves out an entry 24 hours old");
+    const paged = logic.panelRows(Array.from({ length: 85 }, (_, i) => stored(1000 - i, i)), "history", 0, 1000);
+    for (const [pages, shown, more] of [[1, 40, true], [2, 80, true], [3, 85, false], [4, 85, false]]) {
+        const page = logic.panelPage(paged, pages);
+        same([page.rows.length, page.rows[0].timestamp, page.more], [shown, 1000, more], `a panel ${pages} pages deep`);
+    }
+    same(logic.panelPage([], 1), { rows: [], more: false }, "an empty panel has no more");
+    same(logic.panelPage(paged.slice(0, 40), 1).more, false, "one whole page has no more");
     for (const [mode, count, state, want] of [["inbox", 0, "loaded", "No unread notifications"], ["history", 0, "absent", "No saved notifications"], ["inbox", 1, "loaded", "1 notification"], ["history", 3, "loaded", "3 notifications"], ["inbox", 2, "corrupt", "Saved history is damaged"], ["history", 2, "unreadable", "Saved history cannot be read"], ["inbox", 2, "pending", "Loading saved history"], ["history", 2, "future-private-reason", "Saved history is unavailable"]])
         assert.equal(logic.panelSubtitle(mode, count, state), want, `subtitle ${mode} ${count} ${state}`);
 
@@ -344,14 +374,6 @@ function verify(logic) {
         ["dismiss", false, "dismiss"], ["closed", false, "drop"], ["fade", false, null]
     ])
         assert.equal(logic.heldAfterLeave(reason, transient), want, `held after ${reason} transient=${transient}`);
-    // Storing: [reason, transient, fate]. An action finishes the
-    // notification and a transient one is not kept; every other way off the
-    // screen keeps it in the history.
-    for (const [reason, transient, want] of [
-        ["invoke", false, "forget"], ["expire", false, "history"], ["dismiss", false, "history"], ["closed", false, "history"],
-        ["invoke", true, "forget"], ["expire", true, "forget"], ["dismiss", true, "forget"], ["closed", true, "forget"], ["fade", false, null]
-    ])
-        assert.equal(logic.storedAfterLeave(reason, transient), want, `stored after ${reason} transient=${transient}`);
     same(logic.heldPastHistory(["a", "b", "c", "d"], [stored(1, 1, { key: "a" })], [stored(2, 2, { key: "c" })]), ["b", "d"], "held past the history");
     same(logic.heldPastHistory([], [], []), [], "nothing held");
 
@@ -790,16 +812,32 @@ const CONTROLS = [
     ["history limit", "if (list.length > limits[lists[l]]) return", "if (false) return"],
     ["entry key identity", 'if (value.key !== keyOf(value.timestamp, value.originalId)) return where + ".key want="', 'if (false) return where + ".key want="'],
     ["duplicate key", 'if (seen[list[i].key]) return { ok: false, error: lists[l] + "." + i + ".key duplicate" };', ""],
-    ["unknown state key", 'if (["version", "dnd", "readBefore", "live", "history"].indexOf(keys[k]) === -1) return', "if (false) return"],
+    ["unknown state key", 'if (["version", "boot", "dnd", "readBefore", "live", "history"].indexOf(keys[k]) === -1) return', "if (false) return"],
+    ["a state names its boot", 'if (typeof parsed.boot !== "string" || parsed.boot === "") return', "if (false) return"],
+    ["a state's boot is not empty", 'if (typeof parsed.boot !== "string" || parsed.boot === "") return', 'if (typeof parsed.boot !== "string") return'],
+    ["the state file keeps its boot", "        boot: state.boot,\n", ""],
+    ["another boot clears the history", "if (state.boot === boot) return { state: state, cleared: 0 };", "return { state: state, cleared: 0 };"],
+    ["another boot keeps Silence", "state: { boot: boot, dnd: state.dnd,", "state: { boot: boot, dnd: false,"],
+    ["another boot keeps Mark read", "readBefore: state.readBefore, live: [], history: [] },", "readBefore: 0, live: [], history: [] },"],
+    ["another boot counts what it cleared", "cleared: state.live.length + state.history.length", "cleared: state.history.length"],
     ["deadline outranks arrival", ": entry.deadline !== undefined ? now >= entry.deadline", ": false"],
     ["whole lifetime on restore", "if (lifetime > 0) kept.deadline = now + lifetime;", ""],
     ["a paused clock survives", "var over = entry.remaining !== undefined ? false", "var over = entry.remaining !== undefined ? true"],
     ["paused or running", 'if (value.deadline !== undefined && value.remaining !== undefined) return where + " deadline and remaining both set";', ""],
     ["clock fields", "return clock.since === null ? { remaining: clock.remaining } : { deadline: clock.since + clock.remaining };", "return { deadline: clock.since + clock.remaining };"],
     ["history newest first", "merged.sort(function (a, b) { return b.timestamp - a.timestamp; });", ""],
-    ["history cut", "return { history: merged.slice(0, HISTORY_MAX), dropped: merged.slice(HISTORY_MAX) };", "return { history: merged, dropped: [] };"],
-    ["inbox cutoff", 'var rows = mode === "inbox" ? history.filter(function (e) { return e.timestamp > readBefore; }) : history.slice();', "var rows = history.slice();"],
-    ["panel limit", "return rows.slice(0, PANEL_ROWS_MAX);", "return rows;"],
+    ["history cut", "return { history: young.slice(0, HISTORY_MAX), dropped: young.slice(HISTORY_MAX).concat(aged) };", "return { history: young, dropped: aged };"],
+    ["history cap", "var HISTORY_MAX = 720;", "var HISTORY_MAX = 100;"],
+    ["age prune", "return entry.timestamp > now - HISTORY_AGE;", "return true;"],
+    ["an entry exactly a day old goes", "return entry.timestamp > now - HISTORY_AGE;", "return entry.timestamp >= now - HISTORY_AGE;"],
+    ["a push prunes by age", "var young = pruneHistory(merged, now);", "var young = merged;"],
+    ["the next prune follows the oldest entry", "oldest = Math.min(oldest, history[i].timestamp);", ""],
+    ["an empty history is due no prune", "if (history.length === 0) return null;", ""],
+    ["inbox cutoff", '(mode !== "inbox" || e.timestamp > readBefore)', "true"],
+    ["a panel leaves out an aged entry", 'return youngAt(e, now) && (mode', 'return (mode'],
+    ["panel page", "return { rows: rows.slice(0, limit), more: rows.length > limit };", "return { rows: rows, more: false };"],
+    ["a panel page is forty rows", "var limit = pages * PANEL_ROWS_MAX;", "var limit = PANEL_ROWS_MAX;"],
+    ["more rows past the page", "more: rows.length > limit", "more: false"],
     ["evict non-critical first", "if (rows[i].urgency !== URGENCY.critical) return rows[i].key;", ""],
     ["Show without actions", 'if (list.length === 0 && canRaise) list.push({ id: "open", label: "Show" });', ""],
     ["an open delivers its primary action", 'var id = c === "open" ? primaryAction(offered) :', 'var id = c === "open" ? "" :'],
@@ -813,11 +851,7 @@ const CONTROLS = [
     ["an unknown choice is refused", 'if (id === "" && c !== "open") return null;', ""],
     ["an expired toast is held", 'if (reason === "expire") return transient ? "expire" : "keep";', 'if (reason === "expire") return "expire";'],
     ["a transient notification is never held", 'if (reason === "expire") return transient ? "expire" : "keep";', 'if (reason === "expire") return "keep";'],
-    ["a transient notification leaves no history", 'return transient ? "forget" : "history";', 'return "history";'],
-    ["a lasting notification leaves into the history", 'return transient ? "forget" : "history";', 'return "forget";'],
     ["an invoked notification is closed on the server", 'if (reason === "invoke") return "dismiss";', 'if (reason === "invoke") return transient ? "dismiss" : "keep";'],
-    ["an action leaves no history entry", 'if (reason === "invoke") return "forget";', 'if (reason === "invoke") return "history";'],
-    ["a dismissal still goes into the history", 'if (reason === "expire" || reason === "dismiss" || reason === "closed") return transient', 'if (reason === "dismiss") return "forget";\n    if (reason === "expire" || reason === "closed") return transient'],
     ["a dismissal closes", 'if (reason === "dismiss") return "dismiss";', 'if (reason === "dismiss") return "keep";'],
     ["a held key past the history", "return keys.filter(function (k) { return !stored[k]; });", "return [];"],
     ["a held toast on screen stays", "for (var i = 0; i < live.length; i++) stored[live[i].key] = true;", ""],

@@ -5,7 +5,7 @@
 # manifest name as its sender and carries the tone, icon and urgency it
 # was sent with and a click that only dismisses; its message arrives with
 # `&`, `<` and `>` escaped, since the server reads a body as markup. A
-# transient message's card leaves no History entry and a lasting one's
+# transient message's card leaves a History entry as a lasting one's
 # does. Under Silence a critical message still draws its card, as the
 # x-vgs-plugin hint the core adds lets it, and a normal one goes to History
 # unseen. Each malformed option is refused with its key, and a burst past
@@ -83,9 +83,9 @@ expect "a transient that is no boolean is refused" transient notify_refused_key 
 burst="$(ipc acme.probe invoke notify-burst '9 {"title": "Probe burst", "urgency": "low", "transient": true}')" || burst="unread"
 expect "a burst past the run ceiling ends in busy" busy-last burst_shape "$burst" 8
 
-# A dismissed transient card leaves no History entry and a lasting one
-# does. The lasting one goes second, so the History read after it is a
-# save that already followed the transient card's leaving.
+# A dismissed transient card goes to History as a lasting one does. The
+# lasting one goes second, so the History read after it is a save that
+# already followed the transient card's leaving.
 notes_clear "notify"
 expect "a transient message is sent" ok notify_send '{"title": "Probe quiet", "transient": true}'
 expect_poll "the transient card shows" '["", 1, "", "", "none"]' probe_card "Probe quiet"
@@ -94,7 +94,7 @@ expect "a lasting message is sent" ok notify_send '{"title": "Probe kept"}'
 expect_poll "the lasting card shows" '["", 1, "", "", "none"]' probe_card "Probe kept"
 notes_clear "notify: the lasting card"
 expect_poll "the dismissed lasting card went to History" True in_probe_history "Probe kept"
-expect "the dismissed transient card left no History entry" False in_probe_history "Probe quiet"
+expect "the dismissed transient card went to History" True in_probe_history "Probe quiet"
 
 # Under Silence a critical plugin message draws its card and a normal one
 # goes to History unseen. The normal one goes first, so once the critical
