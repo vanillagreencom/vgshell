@@ -31,8 +31,10 @@
 # keys start on the interface font's select, Down chooses the next family
 # Qt lists, which the reading text and the bar then draw in, and Use theme
 # value puts the theme's back; the terminal font's list holds a family and
-# not the bundled proportional one Qt lists, a click opens it, Down and
-# Enter choose its first family, and the choice ends with a follow.
+# not the proportional one the row takes from fontconfig, the first name
+# fontconfig lists for no fixed-width font that Qt lists too, a click opens
+# the list, Down and Enter choose its first family, and the choice ends with
+# a follow. A sandbox with no such family leaves that check not measured.
 #
 # Control run on 2026-10-08, host cachy, through this row after
 # hyprland-consent, on a source_tree copy of the shell whose
@@ -43,11 +45,12 @@
 # hyprland-consent, on a source_tree copy of the shell whose shell.qml asks
 # for no follow when the terminal font changes: the four checks that a
 # terminal font "ends with a theme follow" failed, and no other check did.
-# Control run on 2026-10-09, host cachy, through this row after
-# hyprland-consent, on a source_tree copy of the shell whose Fonts section
-# gives the terminal font's select every family Qt lists: "the terminal
-# font's list holds fixed-width families alone" failed, reading
-# proportional, and no other check did.
+# Control runs on 2026-10-09, host cachy, through this row after
+# hyprland-consent, each on a source_tree copy of the shell: one whose
+# Fonts section asks fontconfig for every font, its command without
+# `:spacing=mono`, and one whose terminal font's select takes every family
+# Qt lists. On each, "the terminal font's list holds fixed-width families
+# alone" failed, reading proportional, and no other check did.
 #
 # No latency is budgeted: each reading polls through expect_poll every
 # 0.2 s for up to the harness's poll bound. The row leaves the user file,
@@ -130,9 +133,23 @@ app_focus() { ipc smoke activeFocusItem window "$1"; }
 app_visual_focus() { ipc smoke readShownDescendant window "$1" Slider visualFocus; }
 # The user file's Appearance member NAME as JSON, `null` for none.
 app_member() { python3 -c 'import json,sys; print(json.dumps((json.load(open(sys.argv[1])).get("appearance") or {}).get(sys.argv[2])))' "$app_file" "$1"; }
-# What the terminal font's list holds: `fixed-width` for a family and no
-# bundled proportional one, else `empty` or `proportional`.
-app_terminal_list() { ipc smoke readMatchingDescendant window vgs.fonts Select placeholderText "Your terminal's font" model | py_reply 'import json,sys; m=json.load(sys.stdin); print("empty" if not m else "proportional" if "Inter Variable" in m else "fixed-width")'; }
+# fontconfig's family names under PATTERN, every font's without one, one a
+# line as the Fonts section reads them, in the shell's own environment.
+app_fc_names() { "${shell_env[@]}" "${shell_start_words[@]}" fc-list --format '%{[]family{%{family}\n}}' "$@"; }
+# The first name fontconfig lists for no fixed-width font that Qt lists
+# too, nothing when there is none: a family the terminal font's list holds
+# only when its filter lets a proportional font through.
+app_proportional() {
+  local all="$sandbox/appearance-fc-all" mono="$sandbox/appearance-fc-mono" name
+  app_fc_names | LC_ALL=C sort -u >"$all" && [[ -s $all ]] || return 1
+  app_fc_names :spacing=mono | LC_ALL=C sort -u >"$mono" || return 1
+  while IFS= read -r name; do
+    if [[ $(ipc smoke fontAvailable "$name") == true ]]; then printf '%s\n' "$name"; return 0; fi
+  done < <(LC_ALL=C comm -23 -- "$all" "$mono")
+}
+# What the terminal font's list holds: `fixed-width` for a family and not
+# NAME, else `empty` or `proportional`.
+app_terminal_list() { ipc smoke readMatchingDescendant window vgs.fonts Select placeholderText "Your terminal's font" model | py_reply 'import json,sys; m=json.load(sys.stdin); print("empty" if not m else "proportional" if sys.argv[1] in m else "fixed-width")' "$1"; }
 # The lines the runner logged for a follow that ended.
 app_follows() { log_lines 'INFO qml: theme: follow='; }
 
@@ -323,8 +340,13 @@ expect_poll "Use theme value removes the interface font from the file" null app_
 expect_poll "the reading text is the theme's again" '"Inter Variable"' ipc smoke themeValue text.body.family
 expect_poll "the action leaves the keys on the row's select" '["Select",""]' app_focus vgs.fonts
 # The list fills when the section's one fontconfig read ends.
-expect "Qt lists the bundled proportional family" true ipc smoke fontAvailable "Inter Variable"
-expect_poll "the terminal font's list holds fixed-width families alone" fixed-width app_terminal_list
+if ! app_plain="$(app_proportional)"; then
+  fail "fontconfig's family names are unreadable"
+elif [[ -n $app_plain ]]; then
+  expect_poll "the terminal font's list holds fixed-width families alone" fixed-width app_terminal_list "$app_plain"
+else
+  not_measured appearance missing=proportional-family
+fi
 app_followed="$(app_follows)" || fail "the instance log is unreadable before the section's terminal font"
 if read -r fx fy < <(app_select_point vgs.fonts 1); then
   hover "$fx" "$fy" || fail "hovering the terminal font's select failed"
