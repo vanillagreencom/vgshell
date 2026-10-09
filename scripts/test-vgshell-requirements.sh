@@ -17,7 +17,7 @@ set -euo pipefail
 
 # shellcheck source=scripts/vgshell-rows.sh
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
-for tool in dbus-daemon script unshare; do
+for tool in script unshare; do
   command -v "$tool" >/dev/null || { echo "test-vgshell-requirements: status=not-measured missing=$tool"; exit 77; }
 done
 if ! unshare -rm true 2>/dev/null; then
@@ -54,33 +54,10 @@ chmod +x "$tmp/qs"
 
 os_release="$tmp/os-release"; printf 'NAME="Arch Linux"\nID=arch\n' >"$os_release"
 nixos_release="$tmp/os-release-nixos"; printf 'NAME=NixOS\nID=nixos\n' >"$nixos_release"
-dbus_dir="$tmp/dbus"; mkdir -p "$dbus_dir/services"
-dbus_address="unix:path=$dbus_dir/bus"
-cat >"$dbus_dir/services/org.freedesktop.UPower.PowerProfiles.service" <<EOF_SERVICE
-[D-BUS Service]
-Name=org.freedesktop.UPower.PowerProfiles
-Exec=/bin/false
-EOF_SERVICE
-cat >"$dbus_dir/config.xml" <<EOF_DBUS
-<busconfig>
-  <auth>EXTERNAL</auth>
-  <auth>ANONYMOUS</auth>
-  <type>session</type>
-  <listen>$dbus_address</listen>
-  <servicedir>$dbus_dir/services</servicedir>
-  <policy context="default">
-    <allow send_destination="*"/>
-    <allow receive_sender="*"/>
-    <allow own="*"/>
-  </policy>
-</busconfig>
-EOF_DBUS
-dbus-daemon --nofork --print-address --config-file="$dbus_dir/config.xml" >"$dbus_dir/address" 2>"$dbus_dir/log" &
-req_dbus_pid=$!
-trap 'kill "$req_dbus_pid" 2>/dev/null || true; rm -rf -- "${tmp:?}"' EXIT
-for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -S $dbus_dir/bus ]] && break; sleep 0.1; done
-[[ -S $dbus_dir/bus ]] || { echo "test-vgshell-requirements: status=not-measured missing=dbus-bus"; exit 77; }
-base_env+=(DBUS_SYSTEM_BUS_ADDRESS="$dbus_address" DBUS_SESSION_BUS_ADDRESS="$dbus_address")
+# The scan's D-Bus rows read one private bus as both the system and the
+# session bus, with the power plugin's name activatable on it.
+system_bus org.freedesktop.UPower.PowerProfiles
+base_env+=(DBUS_SESSION_BUS_ADDRESS="$system_bus_address")
 rt_live="$tmp/rt-live"; mkdir -p "$rt_live"; printf '%s\n' "$$" >"$rt_live/vgshell.lock"
 log="$tmp/log"
 # The doctor rows' PATH: the stubs, then only what bin/vgshell, the scan and

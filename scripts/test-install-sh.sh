@@ -166,7 +166,7 @@ run() {
   fi
   status=0
   local -a invocation=(env -i PATH="${RUN_PATH:-$run_path}" HOME="$h" TMPDIR="$scratch" VGS_TEST_RUN="${RUN_TEST_RUN-1}" VGS_RELEASE_API="file://$www" \
-    VGS_SYSTEM_ROOT="${RUN_ROOT:-$system_root}" XDG_RUNTIME_DIR="${RUN_RT:-$rt_empty}" GIT_CONFIG_NOSYSTEM=1 GNUPGHOME="${RUN_GNUPG:-$gnupg_empty}" \
+    DBUS_SYSTEM_BUS_ADDRESS="$system_bus_address" VGS_SYSTEM_ROOT="${RUN_ROOT:-$system_root}" XDG_RUNTIME_DIR="${RUN_RT:-$rt_empty}" GIT_CONFIG_NOSYSTEM=1 GNUPGHOME="${RUN_GNUPG:-$gnupg_empty}" \
     VGS_INSTALL_LOG="$install_log" VGS_INSTALL_EXPECTED="$install_expected" VGS_INSTALL_CODE="${RUN_INSTALL_CODE:-0}" \
     "${wrap[@]}" bash "$bin" "$@")
   if [[ ${RUN_TTY:-false} == true ]]; then
@@ -231,7 +231,7 @@ sed -i 's/"v0.8.0"/"v0.8"/' "$releases/tags/v0.8.0"
 # fixture key's fingerprint in place of the published one, and $no_key is
 # install.sh with none.
 keys="$tmp/gnupg"; mkdir -m 700 "$keys"
-trap 'gpgconf --homedir "$keys" --kill gpg-agent >/dev/null 2>&1 || true; rm -rf -- "${tmp:?}"' EXIT
+trap 'gpgconf --homedir "$keys" --kill gpg-agent >/dev/null 2>&1 || true; rows_cleanup' EXIT
 gen_key() { # NAME: prints the new key's fingerprint
   GNUPGHOME="$keys" gpg --batch --quiet --pinentry-mode loopback --passphrase '' --quick-gen-key "$1" ed25519 sign never >/dev/null 2>&1
   GNUPGHOME="$keys" gpg --batch --with-colons --list-keys -- "$1" 2>/dev/null | awk -F: '$1 == "fpr" { print $10; exit }'
@@ -490,7 +490,10 @@ mkdir -p "$nix_present" "$nix_missing" "$nix_manager"
 stub "$nix_manager" nix "" 1
 nix_os="$tmp/nix-os"; printf 'ID=nixos\n' >"$nix_os"
 for tool in "$stubs"/*; do cp -- "$tool" "$nix_present/"; done
-python3 - "$repo" >"$tmp/nix-commands" <<'PYFIXTURE'
+# The fixture also writes every system bus name the requirements declare to
+# its second argument; the suite's private system bus lists each as
+# activatable, so every D-Bus requirement reads present.
+python3 - "$repo" "$tmp/system-bus-names" >"$tmp/nix-commands" <<'PYFIXTURE'
 import json,pathlib,sys
 root=pathlib.Path(sys.argv[1])
 rows=json.loads((root/'config/requirements.json').read_text())
@@ -499,7 +502,11 @@ for manifest in (root/'shell/plugins').glob('*/manifest.json'):
 commands=sorted({row['command'] for row in rows if 'command' in row and not row.get('optional', False) and 'nix' in row.get('packages', {})})
 assert len(commands)>6 and 'qrencode' in commands and 'bwrap' in commands
 print('\n'.join(commands))
+names=sorted({row['dbus']['name'] for row in rows if row.get('dbus', {}).get('bus') == 'system'})
+pathlib.Path(sys.argv[2]).write_text(''.join(name + '\n' for name in names))
 PYFIXTURE
+mapfile -t system_bus_names <"$tmp/system-bus-names"
+system_bus "${system_bus_names[@]}"
 while IFS= read -r command; do
   [[ -e $nix_present/$command || -e $tools/$command ]] || stub "$nix_present" "$command" ""
 done <"$tmp/nix-commands"

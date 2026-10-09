@@ -2,9 +2,10 @@
 # the scratch directory, the child environment, the row helpers, the theme
 # tree fixture, the install source tree, the plugin and theme git source
 # fixtures, the stop rows' stand-in git and runner, the must-fail copy,
-# the working-tree repository and the row jobs. It sets
-# `set -euo pipefail`, `repo`, `tmp` (removed on exit), `rt_empty`,
-# `node_bin`, `base_path`, `base_env`, `git_env` and `failures`.
+# the working-tree repository, the private system bus, the theme lock
+# holder and the row jobs. It sets `set -euo pipefail`, `repo`, `tmp`
+# (removed on exit by rows_cleanup), `rt_empty`, `node_bin`, `base_path`,
+# `base_env`, `git_env` and `failures`.
 set -euo pipefail
 
 repo="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)"
@@ -13,7 +14,17 @@ repo="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)
 tmp="$(mktemp -d)" || { echo "$(basename -- "$0" .sh): scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $tmp && ! -L $tmp ]] || { echo "$(basename -- "$0" .sh): scratch=not-a-directory value=[$tmp]" >&2; exit 1; }
 tmp="$(cd -- "$tmp" && pwd -P)"
-trap 'rm -rf -- "${tmp:?}"' EXIT
+# rows_cleanup stops the private system bus, when system_bus started one,
+# and removes $tmp. A suite that sets its own EXIT trap calls it there.
+system_bus_pid=""
+rows_cleanup() {
+  if [[ -n $system_bus_pid ]]; then
+    kill "$system_bus_pid" 2>/dev/null || true
+    wait "$system_bus_pid" 2>/dev/null || true
+  fi
+  rm -rf -- "${tmp:?}"
+}
+trap rows_cleanup EXIT
 rt_empty="$tmp/rt-empty"; mkdir -p "$rt_empty"
 
 # node on PATH may be a version-manager shim that reads the developer's own
@@ -28,8 +39,11 @@ base_path="$tmp:$(dirname -- "$node_bin"):$PATH"
 # which the theme judge's guard lets a reload hook run: $tmp. The
 # environment names no live session's server: env -i drops TMUX, the
 # session bus, Hyprland's signature and the Wayland display, and the
-# runtime and tmux socket directories are the suite's own.
-base_env=(env -i PATH="$base_path" HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.config" GIT_CONFIG_NOSYSTEM=1 GIT_CEILING_DIRECTORIES="$tmp" VGS_TEST_RUN=1 TMPDIR="$tmp" XDG_RUNTIME_DIR="$rt_empty" TMUX_TMPDIR="$tmp/tmux")
+# runtime and tmux socket directories are the suite's own. The system bus
+# address names a socket in $tmp that does not exist, since an unset one
+# means the host's /run/dbus/system_bus_socket to the scan; system_bus
+# appends the address of a private bus.
+base_env=(env -i PATH="$base_path" HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.config" GIT_CONFIG_NOSYSTEM=1 GIT_CEILING_DIRECTORIES="$tmp" VGS_TEST_RUN=1 TMPDIR="$tmp" XDG_RUNTIME_DIR="$rt_empty" TMUX_TMPDIR="$tmp/tmux" DBUS_SYSTEM_BUS_ADDRESS="unix:path=$tmp/no-system-bus")
 
 failures=0
 ok() { printf '  ok    %s\n' "$*"; }
@@ -295,7 +309,7 @@ os.rename(sys.argv[1] + ".part", sys.argv[1])
 server.serve_forever()
 ' "$ready" </dev/null >/dev/null 2>&1 &
   auth_server_pid=$!
-  trap 'kill "$auth_server_pid" 2>/dev/null || true; rm -rf -- "${tmp:?}"' EXIT
+  trap 'kill "$auth_server_pid" 2>/dev/null || true; rows_cleanup' EXIT
   for _ in $(seq 1 100); do
     [[ -s $ready ]] && break
     sleep 0.1
@@ -362,6 +376,76 @@ source_tree() { # DIR VERSION_TEXT
   printf 'fixture\n' >"$1/LICENSE"
   printf 'fixture\n' >"$1/README.md"
   printf '%s\n' "$2" >"$1/VERSION"
+}
+
+# system_bus NAME...: a private dbus-daemon in $tmp whose activatable names
+# are the NAMEs, each a service file whose Exec fails, so a name is listed
+# and never started. It sets system_bus_address and system_bus_pid, which
+# rows_cleanup stops, and appends DBUS_SYSTEM_BUS_ADDRESS to base_env. Only
+# the suite's own shell calls it, before any row job starts. Without
+# dbus-daemon, or when its socket does not appear, the suite exits 77.
+system_bus() {
+  local dir="$tmp/system-bus" name i
+  command -v dbus-daemon >/dev/null || { echo "$(basename -- "$0" .sh): status=not-measured missing=dbus-daemon"; exit 77; }
+  [[ -z $system_bus_pid ]] || { echo "$(basename -- "$0" .sh): system-bus=started" >&2; exit 1; }
+  mkdir -p "$dir/services"
+  system_bus_address="unix:path=$dir/bus"
+  for name in "$@"; do
+    printf '[D-BUS Service]\nName=%s\nExec=/bin/false\n' "$name" >"$dir/services/$name.service"
+  done
+  cat >"$dir/config.xml" <<EOF_DBUS
+<busconfig>
+  <auth>EXTERNAL</auth>
+  <auth>ANONYMOUS</auth>
+  <type>session</type>
+  <listen>$system_bus_address</listen>
+  <servicedir>$dir/services</servicedir>
+  <policy context="default">
+    <allow send_destination="*"/>
+    <allow receive_sender="*"/>
+    <allow own="*"/>
+  </policy>
+</busconfig>
+EOF_DBUS
+  dbus-daemon --nofork --print-address --config-file="$dir/config.xml" >"$dir/address" 2>"$dir/log" </dev/null &
+  system_bus_pid=$!
+  for ((i = 0; i < 50; i++)); do [[ -S $dir/bus ]] && break; sleep 0.1; done
+  [[ -S $dir/bus ]] || { echo "$(basename -- "$0" .sh): status=not-measured missing=dbus-bus"; exit 77; }
+  base_env+=(DBUS_SYSTEM_BUS_ADDRESS="$system_bus_address")
+}
+
+# theme_lock_holder shared|exclusive FILE: a background holder of FILE's
+# flock, shared or exclusive, that keeps it until /proc/locks shows a
+# blocked flock on FILE, which it records as $tmp/waiter, or until
+# $tmp/release exists, at most 10 s; $tmp/held marks the hold taken. It
+# sets holder, whose exit status is the holder's. flock(1) runs the watch
+# as its command, so the lock's owner, flock(1) itself, lives for the whole
+# hold: inside a PID namespace /proc/locks hides a lock whose owner process
+# has exited, and the waiters blocked on it.
+theme_lock_holder() { # shared|exclusive FILE
+  local mode
+  case $1 in
+    shared) mode=-s ;;
+    exclusive) mode=-x ;;
+    *) echo "$(basename -- "$0" .sh): theme-lock-holder=$1" >&2; exit 1 ;;
+  esac
+  rm -f -- "${tmp:?}/held" "$tmp/waiter" "$tmp/release"
+  flock "$mode" -- "$2" bash -c '
+    inode="$(stat -c %i -- "$1")" || exit 1
+    : >"$2/held"
+    for _ in $(seq 1 100); do
+      [[ -e $2/release ]] && exit 0
+      while read -r -a lock; do
+        if [[ ${lock[1]-} == "->" && ${lock[2]-} == FLOCK && ${lock[6]-} == *:"$inode" ]]; then
+          : >"$2/waiter"
+          exit 0
+        fi
+      done </proc/locks
+      sleep 0.1
+    done' theme-lock-holder "$2" "$tmp" &
+  holder=$!
+  for _ in $(seq 1 50); do [[ -e $tmp/held ]] && break; sleep 0.1; done
+  [[ -e $tmp/held ]] || fail "the $1 holder never took the lock on $2"
 }
 
 rows_done() { # SUITE

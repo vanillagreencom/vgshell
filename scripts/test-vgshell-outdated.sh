@@ -21,6 +21,7 @@ fi
 # shellcheck source=scripts/vgshell-rows.sh
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 
+system_bus
 theme_tree
 # The outdated verbs call these beside the tools theme_tree links.
 for tool in timeout python3 realpath env setsid; do
@@ -367,34 +368,12 @@ tinst "theme outdated with an argument is exit 2" "$cfg" "$rt_empty" 2 "" "vgshe
 tinst "theme outdated --json with an argument is exit 2" "$cfg" "$rt_empty" 2 "" "vgshell: refused: argument=moss" theme outdated --json moss
 
 # The holder releases only after the outdated command blocks on its lock.
-exclusive_holder() {
-  rm -f -- "$tmp/held" "$tmp/waiter" "$tmp/release"
-  (
-    exec 7>>"$cfg/vgshell/theme.lock"
-    flock 7
-    inode="$(stat -c %i -- "$cfg/vgshell/theme.lock")"
-    : >"$tmp/held"
-    for _ in $(seq 1 100); do
-      [[ -e $tmp/release ]] && exit 0
-      while read -r -a lock; do
-        if [[ ${lock[1]-} == "->" && ${lock[2]-} == FLOCK && ${lock[6]-} == *:"$inode" ]]; then
-          : >"$tmp/waiter"
-          exit 0
-        fi
-      done </proc/locks
-      sleep 0.1
-    done
-  ) &
-  holder=$!
-  for _ in $(seq 1 50); do [[ -e $tmp/held ]] && break; sleep 0.1; done
-  [[ -e $tmp/held ]] || fail "the exclusive holder never took the theme lock"
-}
-exclusive_holder
+theme_lock_holder exclusive "$cfg/vgshell/theme.lock"
 tinst "theme outdated waits for an exclusive holder, then reports the package" "$cfg" "$rt_empty" 0 "moss behind=1 head=${old:0:12} upstream=${new:0:12}" "" theme outdated
 wait "$holder" || fail "the exclusive holder ended with status $?"
 check "theme outdated blocked before the holder released" test -e "$tmp/waiter"
 tree_control outdated-nowait bin/vgshell 'theme_lock_hold "outdated=themes" -s -w "$theme_lock_wait_s"' 'theme_lock_hold "outdated=themes" -s -n'
-exclusive_holder
+theme_lock_holder exclusive "$cfg/vgshell/theme.lock"
 tinst "the nonblocking mutant refuses outdated under the exclusive hold" "$cfg" "$rt_empty" 75 "" "vgshell: refused: outdated=themes reason=busy" theme outdated
 check "the nonblocking mutant never waits for the lock" test ! -e "$tmp/waiter"
 : >"$tmp/release"

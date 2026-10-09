@@ -22,7 +22,8 @@ cleanup_started_pids() {
     wait "$pid" 2>/dev/null || true
   done
 }
-trap 'cleanup_started_pids; rm -rf -- "${tmp:?}"' EXIT
+trap 'cleanup_started_pids; rows_cleanup' EXIT
+system_bus
 
 # The stub answers `qs ipc ... call <target> <fn> ...` from STUB_REPLY and
 # STUB_STATUS, prints STUB_NOISE on stdout before the reply (as qs does with
@@ -775,6 +776,19 @@ if held_copy="$(pre_copy '&& flock -n "$lock" true; then' '&& true; then')"; the
 else
   fail "the held-lock control could not edit its copy"
 fi
+
+# The rows read the suite's own system bus, never the host's. The scan of
+# the bundled plugins, whose power plugin names a system bus service,
+# probes base_env's bus without a failure; the same scan pointed at a
+# socket that does not exist reports the failed probe, so the scan reads
+# the address base_env hands it.
+bus_probe() { # [VAR=VALUE...]: `failed` when the scan reports a failed system bus probe, else `ok`
+  local err
+  err="$("${base_env[@]}" "$@" "$repo/bin/vgshell-scan" "$repo/shell/plugins" 2>&1 >/dev/null)" || { echo scan-failed; return 0; }
+  if grep -q '^vgshell-scan: bus=system probe=failed ' <<<"$err"; then echo failed; else echo ok; fi
+}
+check "the scan of the bundled plugins probes the suite's own system bus" test "$(bus_probe)" == ok
+check "the same scan with the system bus at a missing socket reports the failed probe" test "$(bus_probe DBUS_SYSTEM_BUS_ADDRESS="unix:path=$tmp/missing-bus")" == failed
 
 # Install, update and remove, with local bare repositories as the source,
 # through the library's `g` and plugin source fixture.
