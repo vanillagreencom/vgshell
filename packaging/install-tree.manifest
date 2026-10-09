@@ -43,6 +43,7 @@ f share/vgshell/shell/Commons/AccountDirectories.js
 f share/vgshell/shell/Commons/ClearingInset.qml
 f share/vgshell/shell/Commons/DesktopLaunch.js
 f share/vgshell/shell/Commons/Duration.js
+f share/vgshell/shell/Commons/Glass.js
 f share/vgshell/shell/Commons/Inset.js
 f share/vgshell/shell/Commons/Nmcli.js
 f share/vgshell/shell/Commons/Paths.qml
@@ -163,6 +164,7 @@ f share/vgshell/shell/Ui/feedback/shaders/voiceorb.frag
 f share/vgshell/shell/Ui/feedback/shaders/voiceorb.frag.qsb
 f share/vgshell/shell/Ui/foundation/Divider.qml
 f share/vgshell/shell/Ui/foundation/FocusRing.qml
+f share/vgshell/shell/Ui/foundation/GlassSurface.qml
 f share/vgshell/shell/Ui/foundation/Icon.qml
 f share/vgshell/shell/Ui/foundation/IconBounds.js
 f share/vgshell/shell/Ui/foundation/ImagePool.qml
@@ -451,7 +453,6 @@ f share/vgshell/shell/plugins/vgs.launcher/ColorAnim.qml
 f share/vgshell/shell/plugins/vgs.launcher/ContextMenu.qml
 f share/vgshell/shell/plugins/vgs.launcher/EdgeLight.qml
 f share/vgshell/shell/plugins/vgs.launcher/FileSearch.qml
-f share/vgshell/shell/plugins/vgs.launcher/GlassSurface.qml
 f share/vgshell/shell/plugins/vgs.launcher/Highlight.qml
 f share/vgshell/shell/plugins/vgs.launcher/IconButton.qml
 f share/vgshell/shell/plugins/vgs.launcher/IconTile.qml
@@ -501,11 +502,11 @@ f share/vgshell/shell/plugins/vgs.notifications/CardScroll.qml
 f share/vgshell/shell/plugins/vgs.notifications/CardSlot.qml
 f share/vgshell/shell/plugins/vgs.notifications/ColorAnim.qml
 f share/vgshell/shell/plugins/vgs.notifications/EdgeLight.qml
-f share/vgshell/shell/plugins/vgs.notifications/GlassSurface.qml
 f share/vgshell/shell/plugins/vgs.notifications/InboxHeader.qml
 f share/vgshell/shell/plugins/vgs.notifications/MediaSlot.qml
 f share/vgshell/shell/plugins/vgs.notifications/NotificationCard.qml
 f share/vgshell/shell/plugins/vgs.notifications/NotificationLogic.js
+f share/vgshell/shell/plugins/vgs.notifications/Orb.qml
 f share/vgshell/shell/plugins/vgs.notifications/Panel.qml
 f share/vgshell/shell/plugins/vgs.notifications/PillButton.qml
 f share/vgshell/shell/plugins/vgs.notifications/Service.qml
