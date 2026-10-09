@@ -1329,7 +1329,7 @@ runs_before="$(note_status slack.runs)"
 notify Slack 0 "[acme] in launch" "ada: ship it :smoke-party: and :no-such-emoji:" '[]' '{"desktop-entry": <"slack">}' 0 >/dev/null
 expect_poll "a known custom emoji draws as an image in its body" "$monitors" drawn_images "$party"
 expect "its segments hold the image and keep the unknown shortcode as text" "[{\"markup\": \"ada: ship it \"}, {\"image\": \"$party\", \"alt\": \":smoke-party:\"}, {\"markup\": \" and :no-such-emoji:\"}]" card_value "[acme] in launch" bodySegments
-expect "the body fades by its colour, so the emoji draws at full strength" '[[1, "#80e8e8e8"]]' body_fade
+expect "the body fades by its colour, so the emoji draws at full strength" '[[1, "#cce8e8e8"]]' body_fade
 notify Slack 0 "[globex] in launch" "edsger: ship it :smoke-party:" '[]' '{"desktop-entry": <"slack">}' 0 >/dev/null
 expect_poll "another workspace's card keeps the shortcode as text" '[{"markup": "edsger: ship it :smoke-party:"}]' card_value "[globex] in launch" bodySegments
 for i in 1 2 3; do notify Slack 0 "[acme] in party $i" ":smoke-party: $i :smoke-party:" '[]' '{"desktop-entry": <"slack">}' 0 >/dev/null; done
