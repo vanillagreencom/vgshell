@@ -50,6 +50,7 @@ BarWidget {
             iconName: root.captions ? "" : "cpu"
             countIconName: root.captions ? "" : "thermometer"
             caption: root.captions ? "CPU" : ""
+            countCaption: root.captions ? "TMP" : ""
             text: root.percent(root.cpu.use)
             count: root.setting("cpuTemperature", false) ? root.degrees(root.cpu.temperature) : ""
             textSample: root.percentSample
@@ -67,6 +68,7 @@ BarWidget {
             iconName: root.captions ? "" : "memory-stick"
             countIconName: root.captions ? "" : "hard-drive"
             caption: root.captions ? "RAM" : ""
+            countCaption: root.captions ? "SWP" : ""
             text: root.setting("memoryUnit", "percent") === "used" ? root.gb(root.memory.used) : root.percent(root.memory.use)
             count: root.setting("showSwap", false) ? root.percent(root.memory.swapUse) : ""
             // Used memory never exceeds the total.
@@ -84,6 +86,7 @@ BarWidget {
             iconName: root.captions ? "" : "gpu"
             countIconName: root.captions ? "" : "thermometer"
             caption: root.captions ? "GPU" : ""
+            countCaption: root.captions ? "TMP" : ""
             text: root.percent(root.gpu && root.gpu.state === "asleep" ? null : root.gpu ? root.gpu.use : null)
             count: root.setting("gpuTemperature", false) ? root.degrees(root.gpuTemperature) : ""
             textSample: root.percentSample

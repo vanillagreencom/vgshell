@@ -15,8 +15,9 @@ import "../../shell/plugins/vgs.traffic" as Traffic
 // before each arrow, so an arrow stays beside its rate. The Stacked
 // layout, the manifest's default, draws BarItem's two lines: the upload
 // line over the download line inside the item, each led by its arrow
-// icon beside its rate. Both stacked arrows start at the block's left
-// edge, with the held room before that block.
+// icon beside its rate. Text labels name each speed in place of its
+// arrow, UPL and DNL, on one line and stacked. Both stacked arrows start
+// at the block's left edge, with the held room before that block.
 Item {
     id: root
     width: 600
@@ -179,8 +180,8 @@ Item {
                 verify(Math.abs(short[index] - widest[index]) <= 1, "the arrow keeps its blank before the rate: short " + short[index] + ", widest " + widest[index]);
         }
 
-        // Each line: its arrow, a text arrow on one line or an icon
-        // stacked, and its rate, in the order the widget draws them.
+        // Each line: its arrow, a text arrow or label, or stacked an icon or
+        // label, and its rate, in the order the widget draws them.
         function lines() {
             return rates().map(rate => ({ arrow: arrowOf(rate), rate: rate }));
         }
@@ -191,7 +192,10 @@ Item {
                 { tag: "one-line", settings: { layout: "One line" }, arrows: ["↓", "↑"], stacked: false },
                 { tag: "default", settings: {}, arrows: ["arrow-up", "arrow-down"], stacked: true },
                 { tag: "stacked-download", settings: { layout: "Stacked", show: "download" }, arrows: ["↓"], stacked: false },
-                { tag: "stacked-upload", settings: { layout: "Stacked", show: "upload" }, arrows: ["↑"], stacked: false }
+                { tag: "stacked-upload", settings: { layout: "Stacked", show: "upload" }, arrows: ["↑"], stacked: false },
+                { tag: "stacked-text", settings: { layout: "Stacked", labelStyle: "text" }, arrows: ["UPL", "DNL"], stacked: true },
+                { tag: "one-line-text", settings: { layout: "One line", labelStyle: "text" }, arrows: ["DNL", "UPL"], stacked: false },
+                { tag: "one-line-upload-text", settings: { layout: "One line", labelStyle: "text", show: "upload" }, arrows: ["UPL"], stacked: false }
             ];
         }
         function test_the_layout_setting(data) {
@@ -199,19 +203,19 @@ Item {
             status.values = { traffic: { down: 2048, up: 1024, interfaces: [] } };
             const found = lines();
             compare(JSON.stringify(found.map(line => arrowName(line.arrow))), JSON.stringify(data.arrows));
-            compare(JSON.stringify(found.map(line => line.rate.text)), JSON.stringify(data.stacked ? ["1 KB/s", "2 KB/s"] : data.arrows.map(arrow => arrow === "↓" ? "2 KB/s" : "1 KB/s")));
+            compare(JSON.stringify(found.map(line => line.rate.text)), JSON.stringify(data.arrows.map(arrow => ["↓", "arrow-down", "DNL"].indexOf(arrow) !== -1 ? "2 KB/s" : "1 KB/s")));
             const item = button();
             compare(item.stackedShown, data.stacked, "the stacked lines are BarItem's own");
             const size = data.stacked ? Theme.bar.stacked.size : Theme.text.bar.size;
             for (const line of found) {
-                const labels = data.stacked ? [line.rate] : [line.arrow, line.rate];
+                const labels = line.arrow.paths !== undefined ? [line.rate] : [line.arrow, line.rate];
                 for (const label of labels)
                     compare(label.font.pixelSize, size, "\"" + label.text + "\" draws in its layout's size");
                 for (const part of [line.arrow, line.rate]) {
                     const top = part.mapToItem(item, 0, 0).y;
                     verify(top >= 0 && top + part.height <= item.height, arrowName(line.arrow) + " lies inside the item: top " + top + ", height " + part.height);
                 }
-                if (data.stacked) {
+                if (data.stacked && line.arrow.paths !== undefined) {
                     compare(line.arrow.size, Theme.bar.stacked.icon, "the arrow icon draws at the stacked size");
                     compare(line.arrow.stroke, Theme.bar.stacked.iconStroke);
                 }

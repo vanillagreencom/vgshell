@@ -217,7 +217,7 @@ Item {
             const shownItems = items().filter(item => item.visible);
             compare(JSON.stringify(shownItems.map(item => item.label)), JSON.stringify(["CPU", "Memory", "GPU"]));
             for (const item of shownItems) {
-                const values = drawn(item).filter(label => label.text !== item.caption && label.text !== "/");
+                const values = drawn(item).filter(label => label.text !== item.caption && label.text !== item.countCaption && label.text !== "/");
                 compare(values.length, data.settings.cpuTemperature ? 2 : 1, item.label + " shows its readings");
                 const size = data.stacked ? Theme.bar.stacked.size : Theme.text.bar.size;
                 for (const label of values) compare(label.font.pixelSize, size, item.label + " draws \"" + label.text + "\" in its layout's size");
@@ -231,13 +231,15 @@ Item {
                 compare(item.height, Theme.bar.item.height);
             }
         }
-        // Stacked, each item's lines draw their own icons, the reading's
-        // over the temperature's or the swap's, in place of the item's one
-        // icon; text labels keep the caption and draw no line icons.
+        // Stacked, each item's lines draw their own icons or text labels,
+        // the reading's over the temperature's or the swap's, in place of
+        // the item's one icon or caption.
         function test_stacked_items_draw_line_icons_data() {
             return [
-                { tag: "icons", settings: saved(allReadings()), icons: [["cpu", "thermometer"], ["memory-stick", "hard-drive"], ["gpu", "thermometer"]] },
-                { tag: "text-labels", settings: saved(Object.assign(allReadings(), { labelStyle: "text" })), icons: [[], [], []] }
+                { tag: "icons", settings: saved(allReadings()), icons: [["cpu", "thermometer"], ["memory-stick", "hard-drive"], ["gpu", "thermometer"]],
+                    texts: [["5%", "54°"], ["5%", "0%"], ["5%", "42°"]] },
+                { tag: "text-labels", settings: saved(Object.assign(allReadings(), { labelStyle: "text" })), icons: [[], [], []],
+                    texts: [["CPU", "5%", "TMP", "54°"], ["RAM", "5%", "SWP", "0%"], ["GPU", "5%", "TMP", "42°"]] }
             ];
         }
         function test_stacked_items_draw_line_icons(data) {
@@ -252,6 +254,7 @@ Item {
                 walk(item.contentItem);
                 compare(JSON.stringify(shown), JSON.stringify(data.icons[index]), item.label + " draws its line icons");
                 compare(glyph.parent.visible, false, item.label + " draws no one icon");
+                compare(JSON.stringify(drawn(item).map(label => label.text)), JSON.stringify(data.texts[index]), item.label + " draws each line's label and value");
             }
         }
         function test_temperatures_swap_and_used_memory() {

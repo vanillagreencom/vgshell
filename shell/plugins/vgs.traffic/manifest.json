@@ -106,6 +106,7 @@
   ],
   "settings": {
     "layout": "Stacked",
+    "labelStyle": "icons",
     "refreshSeconds": 2,
     "show": "both",
     "kbDecimals": 0,
@@ -120,6 +121,16 @@
         "One line"
       ],
       "description": "Stacked shows two readings on two short lines.",
+      "group": "Readings"
+    },
+    "labelStyle": {
+      "type": "enum",
+      "label": "Labels",
+      "options": [
+        "icons",
+        "text"
+      ],
+      "description": "Shows an icon or a short name before each reading.",
       "group": "Readings"
     },
     "refreshSeconds": {

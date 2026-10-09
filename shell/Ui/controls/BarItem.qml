@@ -29,8 +29,12 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // one icon: `iconName` before the text and `countIconName` before the
 // count, `bar.stacked.icon` wide at the `bar.stacked.iconStroke` line, in
 // that line's own level colour, `bar.item.gap` from its reading; a line
-// whose icon name is empty draws none. A caption or a spinner stays left
-// of the two lines instead. The lines left align in a block, and the held
+// whose icon name is empty draws none. With a caption, each line draws
+// its own label in that place instead, `caption` before the text and
+// `countCaption` before the count, at the stacked size in that line's own
+// level colour, in one column as wide as the wider label, so both readings
+// start at one edge. A spinner stays left of the two lines, which then
+// draw neither. The lines left align in a block, and the held
 // width is the wider line at its sample, so the room sits before the
 // block and both lines fit inside the item. The item is as wide as its
 // padding and what it draws, and reserves no room after it. The item is
@@ -105,13 +109,16 @@ T.AbstractButton {
     property string textSample: ""
     property string countSample: ""
     property string caption: ""
+    // The count line's label in the stacked layout.
+    property string countCaption: ""
     property string separator: ""
     // Draw text and count on two lines; with one of them shown it is one.
     property bool stacked: false
     readonly property bool stackedShown: stacked && text !== "" && count !== ""
-    // Stacked lines draw their own icons unless a caption or a spinner
-    // stands left of them.
+    // Stacked lines draw their own labels with a caption, else their own
+    // icons, unless a spinner stands left of them.
     readonly property bool lineIcons: stackedShown && caption === "" && !spinning
+    readonly property bool lineCaptions: stackedShown && caption !== "" && !spinning
     // "normal", "warning" or "danger".
     property string textLevel: "normal"
     property string countLevel: "normal"
@@ -158,6 +165,8 @@ T.AbstractButton {
             + (stack.visible ? Math.max(textLine.implicitWidth + stackText.room, countLine.implicitWidth + stackCount.room) - stack.implicitWidth : 0)
         implicitWidth: held
         implicitHeight: row.implicitHeight
+        // The stacked labels' one column.
+        readonly property real captionWidth: Math.max(textCaption.implicitWidth, countCaption.implicitWidth)
 
         // The held box centres in the content and the row ends at its
         // right edge, on a whole pixel.
@@ -169,7 +178,7 @@ T.AbstractButton {
 
             Label {
                 role: "bar"
-                visible: root.caption !== "" && !root.spinning
+                visible: root.caption !== "" && !root.spinning && !root.lineCaptions
                 text: root.caption
                 color: glyph.color
                 y: topForCapCenter(row.height)
@@ -230,12 +239,14 @@ T.AbstractButton {
                     id: textLine
                     spacing: Theme.bar.item.gap
                     LineIcon { visible: root.lineIcons && name !== ""; name: root.iconName; color: root.textColor }
+                    Reading { id: textCaption; visible: root.lineCaptions; stacked: true; width: content.captionWidth; text: root.caption; color: root.textColor }
                     Reading { id: stackText; stacked: true; sample: root.textSample; text: root.text; color: root.textColor; font.capitalization: Font.MixedCase }
                 }
                 Row {
                     id: countLine
                     spacing: Theme.bar.item.gap
                     LineIcon { visible: root.lineIcons && name !== ""; name: root.countIconName; color: root.countColor }
+                    Reading { id: countCaption; visible: root.lineCaptions; stacked: true; width: content.captionWidth; text: root.countCaption; color: root.countColor }
                     Reading { id: stackCount; stacked: true; sample: root.countSample; text: root.count; color: root.countColor; font.capitalization: Font.MixedCase }
                 }
             }

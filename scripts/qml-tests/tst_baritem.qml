@@ -20,9 +20,11 @@ import qs.Unit
 // an uppercase bar role; with an icon each line draws its own,
 // `bar.stacked.icon` at `bar.stacked.iconStroke` in that line's colour,
 // centred in the line and `bar.item.gap` before its value at a short
-// reading as at the widest, in place of the one icon, while a caption
-// stays the item gap before the block; with one reading shown it stays
-// one line; `active` fills it with `bar.active`; hover and press fill it
+// reading as at the widest, in place of the one icon; with a caption
+// each line draws its own label there instead, in that line's colour, in
+// one column so both readings start at one edge, and no single caption
+// stands before the block; a spinner stays the item gap before the
+// block; with one reading shown it stays one line; `active` fills it with `bar.active`; hover and press fill it
 // with their own tokens; a click emits `clicked`.
 Item {
     id: root
@@ -253,12 +255,12 @@ Item {
         function lineStarts(item) {
             return labels(item).filter(label => label.text === item.text || (item.stackedShown && label.text === item.count));
         }
-        // The mark before each value that starts a line: stacked with
-        // icons, that line's own icon; otherwise the icon or caption.
+        // The mark before each value that starts a line: stacked, that
+        // line's own icon or label; otherwise the icon or caption.
         function marks(item) {
             const glyph = firstIcon(item);
-            return lineStarts(item).map(value => item.lineIcons
-                ? value.parent.children.find(child => child.paths !== undefined && child.visible)
+            return lineStarts(item).map(value => item.lineIcons || item.lineCaptions
+                ? value.parent.children.find(child => child !== value && child.visible && (child.paths !== undefined || child.role !== undefined))
                 : glyph.parent.visible ? glyph : labels(item)[0]);
         }
         // The blank between each mark's ink and the ink of its value.
@@ -277,10 +279,9 @@ Item {
         // A short and the widest value held at the same sample, on one line
         // and stacked: the held room sits before the icon or caption, so the
         // blank between it and each line's value is the one the same item
-        // with no held room draws. Stacked with icons, each line's value
-        // starts `bar.item.gap` after its own icon's box and both icons
-        // start at one left edge; stacked with a caption, each line's box
-        // starts the item gap after the caption's box, the shorter line too.
+        // with no held room draws. Stacked, each line's value starts
+        // `bar.item.gap` after its own icon's or label's box, and both
+        // marks start at one left edge.
         function test_the_mark_stays_beside_its_value_data() {
             return [
                 { tag: "short", held: { iconName: "cpu", text: "9%", textSample: "100%" } },
@@ -289,7 +290,7 @@ Item {
                 { tag: "short-caption", held: { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%" } },
                 { tag: "stacked-short", held: { iconName: "cpu", countIconName: "thermometer", text: "3%", textSample: "100%", count: "41°", countSample: "100°", stacked: true } },
                 { tag: "stacked-widest", held: { iconName: "cpu", countIconName: "thermometer", text: "100%", textSample: "100%", count: "100°", countSample: "100°", stacked: true } },
-                { tag: "stacked-caption", held: { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%", stacked: true } }
+                { tag: "stacked-caption", held: { caption: "RAM", countCaption: "SWP", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%", stacked: true } }
             ];
         }
 
@@ -306,18 +307,13 @@ Item {
             compare(heldGaps.length, data.held.stacked ? 2 : 1);
             for (let index = 0; index < heldGaps.length; index++)
                 verify(Math.abs(heldGaps[index] - bareGaps[index]) <= 1, "the held item keeps its mark beside its value: held " + heldGaps[index] + ", bare " + bareGaps[index]);
-            if (held.lineIcons) {
-                const icons = marks(held);
+            if (data.held.stacked) {
+                verify(held.lineIcons || held.lineCaptions, "each stacked line draws its own mark");
+                const lineMarks = marks(held);
                 for (const [index, value] of lineStarts(held).entries())
-                    tryVerify(() => Math.abs(value.mapToItem(held, 0, 0).x - icons[index].mapToItem(held, icons[index].width, 0).x - Theme.bar.item.gap) <= 0.5, 1000,
-                        "\"" + value.text + "\" starts the stacked gap after its icon");
-                compare(icons[0].mapToItem(held, 0, 0).x, icons[1].mapToItem(held, 0, 0).x, "both line icons start at one left edge");
-            } else if (data.held.stacked) {
-                const mark = labels(held)[0];
-                const markEnd = mark.mapToItem(held, mark.width, 0).x;
-                for (const value of lineStarts(held))
-                    tryVerify(() => Math.abs(value.mapToItem(held, 0, 0).x - markEnd - held.spacing) <= 0.5, 1000,
-                        "\"" + value.text + "\" starts the item gap after the caption");
+                    tryVerify(() => Math.abs(value.mapToItem(held, 0, 0).x - lineMarks[index].mapToItem(held, lineMarks[index].width, 0).x - Theme.bar.item.gap) <= 0.5, 1000,
+                        "\"" + value.text + "\" starts the stacked gap after its mark");
+                compare(lineMarks[0].mapToItem(held, 0, 0).x, lineMarks[1].mapToItem(held, 0, 0).x, "both line marks start at one left edge");
             }
         }
 
@@ -431,9 +427,9 @@ Item {
         // in it: a value change keeps the item's width, and both lines start
         // at one left edge.
         function test_stacked_lines_hold_their_samples() {
-            const item = createTemporaryObject(stackedCase, canvas, { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%" });
+            const item = createTemporaryObject(stackedCase, canvas, { caption: "RAM", countCaption: "SWP", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%" });
             verify(item !== null);
-            const found = labels(item).filter(label => label.text !== "RAM");
+            const found = labels(item).filter(label => label.text === item.text || label.text === item.count);
             compare(found.length, 2);
             tryVerify(() => item.width > item.height, 1000, "the item lays out");
             const width = item.width;
@@ -519,14 +515,15 @@ Item {
             for (const label of found) compare(label.font.capitalization, Font.MixedCase, "\"" + label.text + "\" keeps its case");
         }
 
-        // One line, a caption, a spinner or one reading shown: the item
-        // keeps its one mark and its lines draw no icons.
+        // One line, a spinner or one reading shown: the item keeps its one
+        // mark and its lines draw no icons. One line, a caption draws once
+        // and the count's label not at all.
         function test_the_one_mark_stays_data() {
             return [
                 { tag: "one-line", properties: { iconName: "cpu", countIconName: "thermometer", text: "5%", count: "41°", separator: "/" }, glyph: true },
                 { tag: "one-reading", properties: { iconName: "cpu", countIconName: "thermometer", text: "5%", stacked: true }, glyph: true },
                 { tag: "spinner", properties: { iconName: "cpu", countIconName: "thermometer", text: "5%", count: "41°", stacked: true, spinning: true }, glyph: true },
-                { tag: "caption", properties: { iconName: "cpu", countIconName: "thermometer", caption: "CPU", text: "5%", count: "41°", stacked: true }, glyph: false }
+                { tag: "one-line-caption", properties: { iconName: "cpu", countIconName: "thermometer", caption: "CPU", countCaption: "TMP", text: "5%", count: "41°", separator: "/" }, glyph: false }
             ];
         }
 
@@ -535,6 +532,59 @@ Item {
             verify(item !== null);
             compare(firstIcon(item).parent.visible, data.glyph);
             compare(lineIcons(item).length, 0, "no line draws an icon");
+            if (data.properties.caption !== undefined)
+                compare(JSON.stringify(labels(item).map(label => label.text)), JSON.stringify(["CPU", "5%", "/", "41°"]));
+        }
+
+        // Stacked with a caption, each line draws its own label at the
+        // stacked size in its own line's level colour, the stacked gap
+        // before its value, in place of the one caption; the labels share
+        // one column as wide as the wider, so both values start at one x.
+        function test_stacked_lines_draw_their_own_labels_data() {
+            return [
+                { tag: "levels", properties: { caption: "CPU", countCaption: "TMP", textLevel: "warning", countLevel: "danger" }, colours: ["warning", "danger"] },
+                { tag: "unequal", properties: { caption: "GPU", countCaption: "T" }, colours: ["normal", "normal"] },
+                { tag: "unequal-text-shorter", properties: { caption: "M", countCaption: "SWP", countLevel: "warning" }, colours: ["normal", "warning"] }
+            ];
+        }
+
+        function test_stacked_lines_draw_their_own_labels(data) {
+            const tone = "#123456";
+            const colours = { normal: Qt.color(tone), warning: Qt.color(Theme.color.warning), danger: Qt.color(Theme.color.danger) };
+            const item = createTemporaryObject(readingCase, root, Object.assign({ stacked: true, tone: tone, iconName: "cpu", text: "5%", count: "41°" }, data.properties));
+            verify(item !== null);
+            const found = labels(item);
+            compare(JSON.stringify(found.map(label => label.text)), JSON.stringify([data.properties.caption, "5%", data.properties.countCaption, "41°"]),
+                "each line draws its label and value, and no single caption stands before them");
+            compare(firstIcon(item).parent.visible, false);
+            compare(lineIcons(item).length, 0);
+            const captions = [found[0], found[2]], values = [found[1], found[3]];
+            const column = Math.max(captions[0].implicitWidth, captions[1].implicitWidth);
+            for (const [index, caption] of captions.entries()) {
+                compare(caption.font.pixelSize, Theme.bar.stacked.size);
+                compare(caption.color, colours[data.colours[index]], "\"" + caption.text + "\" draws its line's colour");
+                compare(caption.parent, values[index].parent, "\"" + caption.text + "\" draws on its value's line");
+                compare(caption.width, column, "\"" + caption.text + "\" spans the label column");
+            }
+            tryVerify(() => Math.abs(values[0].mapToItem(item, 0, 0).x - values[1].mapToItem(item, 0, 0).x) < 0.5, 1000, "both values start at one x");
+            for (const [index, value] of values.entries())
+                fuzzyCompare(value.mapToItem(item, 0, 0).x - captions[index].mapToItem(item, captions[index].width, 0).x, Theme.bar.item.gap, 0.5);
+            compare(captions[0].mapToItem(item, 0, 0).x, captions[1].mapToItem(item, 0, 0).x, "both labels start at one left edge");
+        }
+
+        // A spinner stays left of the stacked block: each line's box starts
+        // the item gap after it, the shorter line too, with held room.
+        function test_a_stacked_spinner_stands_the_item_gap_before_the_lines() {
+            const item = createTemporaryObject(readingCase, root, { stacked: true, spinning: true, iconName: "cpu", countIconName: "thermometer",
+                text: "3%", textSample: "100%", count: "41°", countSample: "100°" });
+            verify(item !== null);
+            const spinnerBox = firstIcon(item).parent;
+            compare(spinnerBox.visible, true);
+            const values = labels(item);
+            compare(values.length, 2);
+            for (const value of values)
+                tryVerify(() => Math.abs(value.mapToItem(item, 0, 0).x - spinnerBox.mapToItem(item, spinnerBox.width, 0).x - item.spacing) <= 0.5, 1000,
+                    "\"" + value.text + "\" starts the item gap after the spinner");
         }
 
         function test_one_reading_stays_one_line_data() {

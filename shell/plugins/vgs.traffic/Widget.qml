@@ -10,6 +10,8 @@ BarWidget {
     // Stacked draws upload over download on BarItem's two short lines;
     // one shown speed stays one line.
     readonly property bool stacked: setting("layout") === "Stacked" && showMode === "both"
+    // Text labels name each speed, UPL and DNL, in place of its arrow.
+    readonly property bool captions: setting("labelStyle") === "text"
     readonly property int kbDigits: setting("kbDecimals", 0)
     readonly property int mbDigits: setting("mbDecimals", 1)
     function rate(value) { return Logic.formatRate(value, kbDigits, mbDigits); }
@@ -49,8 +51,9 @@ BarWidget {
         return reply;
     }
 
-    // Stacked, BarItem draws the two lines with their arrow icons; one
-    // line draws the speeds in a row of its own. One of the two shows.
+    // Stacked, BarItem draws the two lines with their arrow icons or
+    // labels; one line draws the speeds in a row of its own. One of the
+    // two shows.
     BarItem {
         id: stackedButton
         visible: root.stacked
@@ -60,8 +63,10 @@ BarWidget {
         tooltipDetails: button.tooltipDetails
         onClicked: root.toggle()
         stacked: true
-        iconName: "arrow-up"
-        countIconName: "arrow-down"
+        iconName: root.captions ? "" : "arrow-up"
+        countIconName: root.captions ? "" : "arrow-down"
+        caption: root.captions ? "UPL" : ""
+        countCaption: root.captions ? "DNL" : ""
         text: root.rate(root.traffic.up)
         count: root.rate(root.traffic.down)
         textSample: root.rateSample
@@ -85,8 +90,8 @@ BarWidget {
                 id: rates
                 anchors.centerIn: parent
                 spacing: Theme.stack.inline
-                Speed { visible: root.showMode !== "upload"; arrow: "↓"; rate: root.rate(root.traffic.down); sample: root.rateSample }
-                Speed { visible: root.showMode !== "download"; arrow: "↑"; rate: root.rate(root.traffic.up); sample: root.rateSample }
+                Speed { visible: root.showMode !== "upload"; arrow: root.captions ? "DNL" : "↓"; rate: root.rate(root.traffic.down); sample: root.rateSample }
+                Speed { visible: root.showMode !== "download"; arrow: root.captions ? "UPL" : "↑"; rate: root.rate(root.traffic.up); sample: root.rateSample }
             }
         }
     }
