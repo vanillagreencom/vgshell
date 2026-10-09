@@ -388,7 +388,7 @@ python3 - "$keyboard_copy/Widget.qml" <<'PYNOPANEL'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text()
-needle = '        { label: "Keyboard Controls", action: () => widget.toggleControls() },\n'
+needle = '        { label: "Keyboard Controls", icon: "keyboard", action: () => widget.toggleControls() },\n'
 assert text.count(needle) == 1
 changed = text.replace(needle, '')
 assert changed != text
