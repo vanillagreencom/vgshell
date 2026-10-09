@@ -10,9 +10,26 @@ BarWidget {
     readonly property int kbDigits: setting("kbDecimals", 0)
     readonly property int mbDigits: setting("mbDecimals", 1)
     function rate(value) { return Logic.formatRate(value, kbDigits, mbDigits); }
-    // Three whole digits, as the panel holds, so a rate past 100 MB/s on a
-    // gigabit link keeps the bar still too.
-    readonly property string rateSample: Logic.rateSample(3, kbDigits, mbDigits)
+    readonly property string rateSample: Logic.rateSample(kbDigits, mbDigits)
+
+    // Each speed holds the width it lays out to at the rate sample and
+    // draws right aligned in it, so the arrow stays beside its rate and the
+    // held room sits before the arrow.
+    component Speed: Item {
+        id: speed
+        property string arrow: ""
+        property string rate: ""
+        property string sample: ""
+        implicitWidth: line.implicitWidth + reading.room
+        implicitHeight: line.implicitHeight
+        Row {
+            id: line
+            anchors.right: parent.right
+            spacing: Theme.row.lineGap
+            Label { role: "bar"; text: speed.arrow; color: Theme.color.accent }
+            BarItem.Reading { id: reading; text: speed.rate; sample: speed.sample; font.capitalization: Font.MixedCase }
+        }
+    }
     property bool leased: false
     function hold() {
         if (shell !== null && !leased) leased = shell.ipc.call("lease", JSON.stringify({ id: String(root), open: true, kind: "widget" })) === "ok";
@@ -46,18 +63,8 @@ BarWidget {
                 id: rates
                 anchors.centerIn: parent
                 spacing: Theme.stack.inline
-                Row {
-                    visible: root.showMode !== "upload"
-                    spacing: Theme.row.lineGap
-                    Label { role: "bar"; text: "↓"; color: Theme.color.accent }
-                    BarItem.Reading { text: root.rate(root.traffic.down); sample: root.rateSample; font.capitalization: Font.MixedCase }
-                }
-                Row {
-                    visible: root.showMode !== "download"
-                    spacing: Theme.row.lineGap
-                    Label { role: "bar"; text: "↑"; color: Theme.color.accent }
-                    BarItem.Reading { text: root.rate(root.traffic.up); sample: root.rateSample; font.capitalization: Font.MixedCase }
-                }
+                Speed { visible: root.showMode !== "upload"; arrow: "↓"; rate: root.rate(root.traffic.down); sample: root.rateSample }
+                Speed { visible: root.showMode !== "download"; arrow: "↑"; rate: root.rate(root.traffic.up); sample: root.rateSample }
             }
         }
     }

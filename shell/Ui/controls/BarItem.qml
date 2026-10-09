@@ -16,11 +16,12 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // it turns red exactly when a value beside it does. A `separator` draws
 // flush between text and count in `bar.item.separator`, never a state
 // colour; without one the two keep the item gap. A reading that changes,
-// `text` with `textSample` or `count` with `countSample`, is a `Reading`:
-// it holds the width of its sample, the widest form it takes, and draws
-// right aligned in it, so spare room sits before the number, inside the
-// item, and the item keeps its width as the reading changes. A reading
-// without a sample is as wide as it draws. The item is as wide as its
+// `text` with `textSample` or `count` with `countSample`, is a `Reading`
+// whose sample is the widest form it takes. The content holds the width it
+// lays out to with every reading at its sample and draws right aligned in
+// it, so spare room sits before the icon, the icon stays beside its number,
+// and the item keeps its width as the reading changes. A reading without a
+// sample holds no room. The item is as wide as its
 // padding and what it draws, and reserves no room after it. The item is
 // never narrower than it is tall, and an item that draws an icon alone is
 // square, its icon centred. The tooltip reads `tooltip` as its title and
@@ -32,20 +33,20 @@ T.AbstractButton {
     id: root
 
     // A bar reading that changes: `sample` is the widest form it takes.
-    // It holds the width the sample lays out to in its own font and draws
-    // right aligned in it, so the held room sits before the number. An
-    // empty sample holds nothing. An unshown Text measures the sample, not
-    // TextMetrics: a Text's width counts a last glyph's ink past its
-    // advance, which TextMetrics.advanceWidth leaves out ("100%" in the bar
-    // role lays out 33.56 px wide against an advance of 32.56 px, read
-    // under scripts/qml-unit.sh on 2026-10-08), so an advance would hold
-    // a pixel less than the sample shown takes.
+    // It draws at its own width; `room` is how much wider the sample lays
+    // out in its own font, the room the row it sits in holds before its
+    // start, so the reading's glyphs stay beside what precedes them. An
+    // empty sample, or a hidden reading, holds nothing. An unshown Text
+    // measures the sample, not TextMetrics: a Text's width counts a last
+    // glyph's ink past its advance, which TextMetrics.advanceWidth leaves
+    // out ("100%" in the bar role lays out 33.56 px wide against an advance
+    // of 32.56 px, read under scripts/qml-unit.sh on 2026-10-08), so an
+    // advance would hold a pixel less than the sample shown takes.
     component Reading: Label {
         id: reading
         property string sample: ""
+        readonly property real room: visible ? Math.max(0, sampleSize.implicitWidth - implicitWidth) : 0
         role: "bar"
-        horizontalAlignment: Text.AlignRight
-        width: Math.max(implicitWidth, sampleSize.implicitWidth)
 
         Text {
             id: sampleSize
@@ -105,12 +106,18 @@ T.AbstractButton {
     Keys.onEnterPressed: KeyNavLogic.activate(root)
 
     contentItem: Item {
-        implicitWidth: row.implicitWidth
+        id: content
+        // The row's width with every reading at its sample.
+        readonly property real held: row.implicitWidth + textLabel.room + countLabel.room
+        implicitWidth: held
         implicitHeight: row.implicitHeight
 
+        // The held box centres in the content and the row ends at its
+        // right edge, on a whole pixel.
         Row {
             id: row
-            anchors.centerIn: parent
+            x: Math.round((content.width + content.held) / 2 - width)
+            anchors.verticalCenter: parent.verticalCenter
             spacing: root.spacing
 
             Label {

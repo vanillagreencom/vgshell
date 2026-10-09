@@ -10,9 +10,11 @@ import qs.Unit
 // the item's tone; a value draws its level's colour and the icon or its
 // caption the most severe level shown; the separator draws its own token;
 // the item is as wide as its padding and what it draws, with no room
-// after the reading; a reading with a sample is as wide as its sample and
-// draws right aligned in it, so its glyphs end where the same reading
-// without held room ends and the item keeps its right padding; `active`
+// after the reading; an item whose readings hold samples is as wide as its
+// samples shown and draws right aligned in that width, so its glyphs end
+// where the same item without held room ends, the item keeps its right
+// padding, and the icon or caption stays as far from its value as with no
+// held room; `active`
 // fills it with `bar.active`;
 // hover and press fill it with their own tokens; a click emits `clicked`.
 Item {
@@ -219,6 +221,51 @@ Item {
                 verify(Math.abs(trailing(img, heldValues[index]) - trailing(img, bareValues[index])) <= 1,
                     "\"" + heldValues[index].text + "\" ends at the right of its held width");
             verify(Math.abs(trailing(img, held) - trailing(img, bare)) <= 1, "the held reading ends at the right padding");
+        }
+
+        // The leftmost column of `img` holding ink inside `item`'s box, -1
+        // when none does.
+        function inkLeft(img, item) {
+            const at = item.mapToItem(root, 0, 0);
+            for (let x = Math.max(0, Math.floor(at.x)); x < Math.min(img.width, Math.ceil(at.x + item.width)); x++)
+                for (let y = Math.max(0, Math.floor(at.y)); y < Math.min(img.height, Math.ceil(at.y + item.height)); y++)
+                    if (img.red(x, y) > 64) return x;
+            return -1;
+        }
+        // The blank between the icon's or caption's ink and the first
+        // value's ink.
+        function markGap(img, item) {
+            const glyph = firstIcon(item);
+            const mark = glyph.parent.visible ? glyph : labels(item)[0];
+            const value = labels(item).find(label => label.text === item.text);
+            const markInk = inkRight(img, mark), valueInk = inkLeft(img, value);
+            verify(markInk >= 0 && valueInk >= 0, "the mark and \"" + item.text + "\" draw");
+            return valueInk - (markInk + 1);
+        }
+
+        // A short and the widest value held at the same sample: the held
+        // room sits before the icon or caption, so the blank between it and
+        // the value is the one the same item with no held room draws.
+        function test_the_mark_stays_beside_its_value_data() {
+            return [
+                { tag: "short", held: { iconName: "cpu", text: "9%", textSample: "100%" } },
+                { tag: "widest", held: { iconName: "cpu", text: "100%", textSample: "100%" } },
+                { tag: "short-count", held: { iconName: "cpu", text: "9%", textSample: "100%", count: "9°", countSample: "100°", separator: "/" } },
+                { tag: "short-caption", held: { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%" } }
+            ];
+        }
+
+        function test_the_mark_stays_beside_its_value(data) {
+            mouseMove(root, root.width - 1, 0);
+            const bareProperties = Object.assign({}, data.held, { textSample: "", countSample: "", y: Theme.bar.item.height + 4 });
+            const held = createTemporaryObject(heldCase, canvas, data.held);
+            const bare = createTemporaryObject(heldCase, canvas, bareProperties);
+            verify(held !== null && bare !== null);
+            tryVerify(() => held.width >= bare.width && bare.width > bare.height, 1000, "both items lay out");
+            verify(waitForRendering(canvas));
+            const img = grabImage(root);
+            const heldGap = markGap(img, held), bareGap = markGap(img, bare);
+            verify(Math.abs(heldGap - bareGap) <= 1, "the held item keeps its mark beside its value: held " + heldGap + ", bare " + bareGap);
         }
 
         function test_the_separated_reading_follows_the_icon() {

@@ -11,10 +11,13 @@ function formatRate(rate, kbDigits, mbDigits) {
     return value.toFixed(unit === 0 ? 0 : unit === 1 ? kbDigits : mbDigits) + " " + units[unit];
 }
 
-// The widest text formatRate gives below `whole` integer digits, for a view
-// to measure, so a rate's column keeps its width as the rate changes.
-function rateSample(whole, kbDigits, mbDigits) {
-    const text = (digits, unit) => "8".repeat(whole) + (digits > 0 ? "." + "8".repeat(digits) : "") + " " + unit;
+// The widest text formatRate gives, for a view to measure, so a rate's
+// column keeps its width as the rate changes. A rate rolls to the next unit
+// at 1024, so it shows at most four whole digits: 1023, or 1024 when a
+// value just under it rounds up to its decimals. GB/s, the last unit, has
+// as many below 10 TB/s.
+function rateSample(kbDigits, mbDigits) {
+    const text = (digits, unit) => "8888" + (digits > 0 ? "." + "8".repeat(digits) : "") + " " + unit;
     const kb = text(kbDigits, "KB/s"), mb = text(mbDigits, "MB/s");
     return kb.length > mb.length ? kb : mb;
 }

@@ -107,11 +107,11 @@ Item {
             return walk(item.contentItem);
         }
         // The expected width adds the padding to the icon and the drawn
-        // labels' widths, each the width its reading holds, so room kept
-        // past the reading turns it red.
+        // labels' widths and the room each reading holds for its sample,
+        // so room kept past the reading turns it red.
         function drawnWidth(item) {
             let content = (item.iconName === "" ? 0 : Theme.bar.item.icon) + Theme.bar.item.iconGap;
-            for (const label of drawn(item)) content += label.width;
+            for (const label of drawn(item)) content += label.width + (label.room === undefined ? 0 : label.room);
             return item.leftPadding + Math.ceil(content) + item.rightPadding;
         }
         function allReadings() {

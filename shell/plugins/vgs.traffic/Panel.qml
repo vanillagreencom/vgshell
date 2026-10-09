@@ -153,7 +153,7 @@ Item {
             spacing: Theme.row.lineGap
             readonly property real rateWidth: Math.max(rateSize.width + Theme.stack.inline, downloadHeader.implicitWidth, uploadHeader.implicitWidth)
             readonly property real connectionsWidth: Math.max(connectionsSize.width + Theme.stack.inline, connectionsHeader.implicitWidth)
-            TextMetrics { id: rateSize; font.family: Theme.text.itemCode.family; font.pixelSize: Theme.text.itemCode.size; text: Logic.rateSample(3, root.kbDigits, root.mbDigits) }
+            TextMetrics { id: rateSize; font.family: Theme.text.itemCode.family; font.pixelSize: Theme.text.itemCode.size; text: Logic.rateSample(root.kbDigits, root.mbDigits) }
             TextMetrics { id: connectionsSize; font.family: Theme.text.button.family; font.pixelSize: Theme.text.button.size; text: "CONNECTIONS" }
             RowLayout {
                 x: Theme.listItem.paddingX

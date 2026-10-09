@@ -101,10 +101,26 @@ test("formatter-steps-digits-and-unknown", api => {
     kbDigits(api);
 });
 function rateSamples(api) {
-    for (const [whole, kb, mb, expected] of [[2,0,1,"88.8 MB/s"], [3,0,1,"888.8 MB/s"], [2,2,1,"88.88 KB/s"], [2,0,0,"88 MB/s"], [2,1,1,"88.8 MB/s"]])
-        assert.equal(api.rateSample(whole, kb, mb), expected);
+    for (const [kb, mb, expected] of [[0,1,"8888.8 MB/s"], [2,1,"8888.88 KB/s"], [0,0,"8888 MB/s"], [1,1,"8888.8 MB/s"], [1,2,"8888.88 MB/s"]])
+        assert.equal(api.rateSample(kb, mb), expected);
 }
 test("rate-sample-is-the-widest-unit", rateSamples);
+// The widest rate of each unit, just under the roll to the next and just
+// under it at every decimal setting, formats no longer than the sample a
+// view holds for it.
+function widestRatesFit(api) {
+    const below = digits => 1024 - Math.pow(10, -digits) / 4;
+    for (const kb of [0, 1, 2])
+        for (const mb of [0, 1, 2]) {
+            const sample = api.rateSample(kb, mb);
+            for (const rate of [1023, below(kb) * 1024, below(mb) * 1048576, below(mb) * 1073741824, 9999 * 1073741824]) {
+                const text = api.formatRate(rate, kb, mb);
+                assert.ok(text.length <= sample.length, `${text} at kb=${kb} mb=${mb} is wider than ${sample}`);
+            }
+        }
+    assert.equal(api.formatRate(1023 * 1024, 0, 1), "1023 KB/s", "a rate of four whole digits is a real format");
+}
+test("rate-sample-covers-the-widest-rates", widestRatesFit);
 const owners = 'ESTAB 0 0 192.0.2.2:1234 198.51.100.1:443 users:(("a\\"b",pid=7,fd=3),("a\\"b",pid=7,fd=4),("helper",pid=9,fd=1),("a\\"b",pid=8,fd=2)) ino:5\n\tbytes_acked:3';
 function ownerName(api) { assert.deepEqual(plain(api.parseSockets(owners)["5"]).pids, [7, 8]); }
 test("ss-owner-pids-per-name", api => {
@@ -202,6 +218,7 @@ const controls = [
     ["kill-outside-row", 'if (request.pids.some(pid => app.pids.indexOf(pid) === -1)) return { error: "changed" };', '', killOutsideRow],
     ["kill-stale", 'if (sample === null || !(now - sampledAt <= maxAge)) return { error: "stale" };', 'if (sample === null) return { error: "stale" };', killStale],
     ["rate-sample-unit", 'return kb.length > mb.length ? kb : mb;', 'return mb;', rateSamples],
+    ["rate-sample-three-digits", '"8888" + (digits', '"888" + (digits', widestRatesFit],
     ["inspect-cap", 'connections: connections.slice(0, INSPECT_ROWS)', 'connections: connections', inspectCap],
     ["connection-state-own", 'return Object.prototype.hasOwnProperty.call(STATES, state) ? STATES[state] : state;', 'return STATES[state] || state;', connectionStates],
     ["command-line-trailing", 'return text.replace(/\\0+$/, "").split("\\0").join(" ");', 'return text.split("\\0").join(" ");', commandLines],

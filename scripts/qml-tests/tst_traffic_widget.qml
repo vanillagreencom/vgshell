@@ -10,7 +10,8 @@ import "../../shell/plugins/vgs.traffic" as Traffic
 // glyph and the next widget is the item's right padding and the bar gap,
 // the outer room of every bar item, and the boxes stand the bar gap
 // apart, as two icon-only items do. A high rate leaves the widget's width
-// where 0 B/s put it, so the bar does not shift.
+// where 0 B/s put it, so the bar does not shift, and the held room sits
+// before each arrow, so an arrow stays beside its rate.
 Item {
     id: root
     width: 600
@@ -102,10 +103,14 @@ Item {
         function test_a_high_rate_keeps_the_width_data() {
             return [
                 { tag: "mb-and-kb", down: 123.4 * 1048576, up: 1023 * 1024, texts: ["123.4 MB/s", "1023 KB/s"] },
-                { tag: "kb-and-mb", down: 999 * 1024, up: 100 * 1048576, texts: ["999 KB/s", "100.0 MB/s"] }
+                { tag: "kb-and-mb", down: 999 * 1024, up: 100 * 1048576, texts: ["999 KB/s", "100.0 MB/s"] },
+                { tag: "four-digit-kb", down: 1023 * 1024, up: 1023, texts: ["1023 KB/s", "1023 B/s"] },
+                { tag: "four-digit-mb", down: 1023.9 * 1048576, up: 1023 * 1024, texts: ["1023.9 MB/s", "1023 KB/s"] },
+                { tag: "four-digit-two-decimals", settings: { kbDecimals: 2, mbDecimals: 2 }, down: 1023.99 * 1048576, up: 1023.99 * 1024, texts: ["1023.99 MB/s", "1023.99 KB/s"] }
             ];
         }
         function test_a_high_rate_keeps_the_width(data) {
+            widget.settings = data.settings || {};
             verify(waitForRendering(widget));
             const zero = widget.implicitWidth;
             const nextAt = first.x;
@@ -114,6 +119,37 @@ Item {
             verify(waitForRendering(widget));
             compare(widget.implicitWidth, zero, "the widget keeps its width at a high rate");
             compare(first.x, nextAt, "the next widget does not move");
+        }
+
+        // The blank between an arrow's ink and its rate's ink, read on the
+        // black canvas, where the accent arrow and the bar text both carry
+        // red. At rates whose text starts with the same glyph, the short
+        // one and the widest of its unit draw the same blank.
+        function arrowGaps(img) {
+            return rates().map(label => {
+                const arrow = label.parent.children.find(child => child !== label && child.role === "bar");
+                const a = arrow.mapToItem(canvas, 0, 0), r = label.mapToItem(canvas, 0, 0);
+                const arrowInk = inkRight(img, a.x, a.x + arrow.width, a.y, a.y + arrow.height);
+                let rateInk = -1;
+                for (let x = Math.floor(r.x); x < Math.ceil(r.x + label.width) && rateInk < 0; x++)
+                    for (let y = Math.floor(r.y); y < Math.ceil(r.y + label.height); y++)
+                        if (img.red(x, y) > 64) { rateInk = x; break; }
+                verify(arrowInk >= 0 && rateInk >= 0, "\"" + label.text + "\" and its arrow draw");
+                return rateInk - (arrowInk + 1);
+            });
+        }
+        function test_the_arrow_stays_beside_its_rate() {
+            mouseMove(root, root.width - 1, root.height - 1);
+            status.values = { traffic: { down: 1024, up: 1024, interfaces: [] } };
+            compare(JSON.stringify(rates().map(label => label.text)), JSON.stringify(["1 KB/s", "1 KB/s"]));
+            verify(waitForRendering(canvas));
+            const short = arrowGaps(grabImage(canvas));
+            status.values = { traffic: { down: 1023 * 1024, up: 1023 * 1024, interfaces: [] } };
+            compare(JSON.stringify(rates().map(label => label.text)), JSON.stringify(["1023 KB/s", "1023 KB/s"]));
+            verify(waitForRendering(canvas));
+            const widest = arrowGaps(grabImage(canvas));
+            for (let index = 0; index < short.length; index++)
+                verify(Math.abs(short[index] - widest[index]) <= 1, "the arrow keeps its blank before the rate: short " + short[index] + ", widest " + widest[index]);
         }
     }
 }
