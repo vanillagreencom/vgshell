@@ -16,8 +16,8 @@
     "privateWindows": "1password, bitwarden, keepass, proton pass, enpass, pinentry, seahorse, private browsing, incognito" },
   "schema": {
     "mode": { "type": "enum", "label": "Talk mode", "group": "Listening",
-      "options": ["hold", "toggle"],
-      "description": "Hold: Jarvis takes what you said when you let go of the Talk key. Toggle: the conversation stays open until you press Talk again." },
+      "options": ["hold", "toggle", "always"],
+      "description": "Hold: Jarvis takes what you said when you let go of the Talk key. Toggle: the conversation stays open until you press Talk again. Always: say Hey Jarvis, then your request; Talk listens at once. Always needs the local voice and keeps the microphone open on this computer." },
     "sounds": { "type": "boolean", "label": "Feedback sounds", "group": "Audio",
       "description": "A short sound tells you when to speak. Another sound tells you when the AI is still working." },
     "microphone": { "type": "string", "label": "Microphone", "group": "Audio", "optionsFrom": "microphones" },

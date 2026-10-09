@@ -13,6 +13,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - The Console window lets you type a message to Jarvis, review the conversation, and stop the current turn without using the microphone.
 - Mute stays on across restarts and blocks talk input.
 - A listening bubble whose orb and text let clicks reach the application below.
+- Always talk mode: say Hey Jarvis to start a request. The word is heard by the local voice on this computer; nothing reaches the AI model until you speak after it. While Jarvis waits for the word its bubble shows a still orb.
 - An AI model from an API key you added, or from an app you are signed in to, such as Claude Code, Codex, GitHub Copilot or Pi with its own providers.
 - Local voice: speech to text and spoken replies on your computer, with no network access, after Set up local voice.
 - GPT-Live voice with a saved OpenAI key. The selected AI model handles delegated work through Jarvis's action and release checks.
@@ -48,7 +49,7 @@ The shell's requirement notice installs a missing tool in one click.
 
 | Setting | What it changes |
 | --- | --- |
-| Talk mode | Hold: Jarvis takes what you said when you let go of the Talk key. Toggle: the conversation stays open until you press Talk again. |
+| Talk mode | Hold: Jarvis takes what you said when you let go of the Talk key. Toggle: the conversation stays open until you press Talk again. Always: say Hey Jarvis, then your request; Talk listens at once. Always needs the local voice: the word is heard on this computer, and the bubble stays on screen while the microphone is open. |
 | Microphone, Speaker | The audio devices Jarvis uses. |
 | Voice provider | Local runs voice on this computer. GPT-Live sends microphone audio and released results to OpenAI. Changing it ends the conversation. |
 | GPT-Live key | A saved OpenAI key. Add key opens hidden key input and stores the key in your desktop keyring. Get the key at [OpenAI API keys](https://platform.openai.com/api-keys). |

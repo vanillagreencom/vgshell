@@ -68,6 +68,7 @@ Item {
     readonly property var fault: phase === "error" ? View.faultText(state.fault) : null
     readonly property string stateText: state === null ? "" : state.mute.kind !== "off" ? "Muting"
         : fault !== null ? fault.title
+        : phase === "armed" ? "Say Hey Jarvis"
         : phase === "idle" ? "Waiting for indicator" : phase === "down" ? "Stopping"
         : phase[0].toUpperCase() + phase.slice(1)
     readonly property var levels: service === null || service.shell === null ? {}
@@ -105,11 +106,15 @@ Item {
                 width: pane.contentWidth
                 spacing: Theme.voiceBubble.gap
 
+                // Waiting for the wake word is the resting orb: the room's
+                // sound is not speech to Jarvis, and a wait can last all day,
+                // so the ring stands still and no frame ticks.
                 VoiceOrb {
+                    readonly property bool resting: root.phase === "armed"
                     tone: root.tone
-                    level: root.levels.capture || 0
-                    secondaryLevel: root.levels.playback || 0
-                    active: root.shown
+                    level: resting ? 0 : root.levels.capture || 0
+                    secondaryLevel: resting ? 0 : root.levels.playback || 0
+                    active: root.shown && !resting
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
