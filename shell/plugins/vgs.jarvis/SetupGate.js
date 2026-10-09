@@ -42,8 +42,14 @@ var TODO = {
     "speech=live-account-unselected": "Add an OpenAI key under Setup at the top of this page.",
     "speech=live-account-unreadable": "Jarvis could not read your GPT-Live key. Use Accounts in Setup to check it.",
     "speech=live-key-required": "Add an OpenAI key under Setup at the top of this page.",
-    "speech=local-not-ready": "Local voice did not start. Set it up again."
+    "speech=local-not-ready": "Local voice did not start. Set it up again.",
+    "speech=always-local-voice": "Always talk mode listens for Hey Jarvis on this computer. Choose Local in Settings > Voice, or Hold or Toggle in Settings > Listening."
 };
+// Causes whose step the voice setup action cannot complete: the user
+// changes a setting or adds a key instead.
+function setupActs(cause) {
+    return cause.indexOf("speech=live-") !== 0 && cause !== "speech=always-local-voice";
+}
 var STEP_TODO = { brain: "The chosen AI model cannot be used. Add a key or sign in, then choose it below." };
 var DONE = { tone: "ok", text: "Done", action: false };
 var CHECKING = { tone: "info", text: "Checking", action: false };
@@ -121,7 +127,7 @@ function readiness(answer) {
                 return;
             }
             var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];
-            var action = step === "brain" ? (cause === "brain=signed-out" ? "signIn" : "key") : cause.indexOf("speech=live-") !== 0;
+            var action = step === "brain" ? (cause === "brain=signed-out" ? "signIn" : "key") : setupActs(cause);
             out[REQUIRED[step]] = hint === undefined ? { tone: "warning", text: "To do", action: action }
                 : { tone: "warning", text: "To do", hint: hint, action: action };
         });

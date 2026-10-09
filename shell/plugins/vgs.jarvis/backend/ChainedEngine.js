@@ -90,7 +90,16 @@ function select(settings, accounts, directories) {
     return { kind: "ready", speech, brain: brain.brain };
 }
 
+// Always mode listens for the wake word on this computer, so it needs a row
+// that spots it locally; any other voice would stream the room to a provider.
 function selectSpeech(settings, accounts, directories) {
+    const speech = selectVoice(settings, accounts, directories);
+    if (settings.mode === "always" && (settings.voiceProvider === "gpt-live" || speech.kind === "ready" && speech.wake !== true))
+        return unconfigured("speech=always-local-voice");
+    return speech;
+}
+
+function selectVoice(settings, accounts, directories) {
     if (settings.voiceProvider === "gpt-live") {
         const provider = Providers.select("openai-live");
         if (!settings.voiceAccount) return unconfigured("speech=live-account-unselected");
@@ -283,37 +292,24 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         return collection !== null && session.live(state(), { gen: c.gen, op: collection.op }, "turn", ["collecting"]);
     }
 
-    // Speech to text. The capture sink exists while Audio holds the
-    // recorder; one utterance yields partials and one final.
-    function transcription(c, e) {
-        const approval = state().approval;
-        const answer = approval.kind === "held" ? { id: approval.id, digest: approval.digest,
-            gen: approval.gen, beganAt: clock.now(), idleAt } : null;
+    // One capture as an adapter reads it: Audio writes the sink, and frames
+    // hands each chunk on while running() holds. Each frame reaches the
+    // adapter as a speech-labelled item, so a network adapter's own send
+    // re-judges what it carries.
+    function captured(running) {
         let held = null;
         let finished = false;
         let released = false;
-        let output = null;
         const wake = signal();
-        // running: transcribing; concluded: final delivered or failed;
-        // aborted: abandoned by the conversation or by its replacement.
-        const utterance = { state: "running", collection: null, sink: null, abort() {
-            if (utterance.state !== "running") return;
-            utterance.state = "aborted";
-            held = null;
-            wake.notify();
-            void output?.return?.();
-        } };
         const sink = new Writable({
             highWaterMark: CAPTURE_BYTES,
             // Frames after the adapter stopped reading have no consumer.
             write(chunk, encoding, done) {
-                if (released || utterance.state !== "running") { done(); return; }
+                if (released || !running()) { done(); return; }
                 held = { chunk, done };
                 wake.notify();
             },
             final(done) { finished = true; wake.notify(); done(); },
-            // Audio's teardown ends the utterance. A conversation that ended
-            // with it, as by mute or stop, aborts the utterance in end().
             destroy(error, done) {
                 finished = true;
                 held = null;
@@ -321,12 +317,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 done(error);
             }
         });
-        utterance.sink = sink;
-        // Each frame reaches the adapter as a speech-labelled item, so a
-        // network adapter's own send re-judges what it carries.
         const frames = { [Symbol.asyncIterator]() { return { async next() {
             for (;;) {
-                if (utterance.state !== "running") return { value: undefined, done: true };
+                if (!running()) return { value: undefined, done: true };
                 if (held !== null) {
                     const { chunk, done } = held;
                     held = null;
@@ -342,6 +335,30 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             held = null;
             return { value: undefined, done: true };
         } }; } };
+        // A stopped reader wakes and ends; its held frame is dropped.
+        return { sink, frames, drop() { held = null; wake.notify(); } };
+    }
+
+    // Speech to text. The capture sink exists while Audio holds the
+    // recorder; one utterance yields partials and one final.
+    function transcription(c, e) {
+        const approval = state().approval;
+        const answer = approval.kind === "held" ? { id: approval.id, digest: approval.digest,
+            gen: approval.gen, beganAt: clock.now(), idleAt } : null;
+        let output = null;
+        // running: transcribing; concluded: final delivered or failed;
+        // aborted: abandoned by the conversation or by its replacement.
+        const utterance = { state: "running", collection: null, sink: null, abort() {
+            if (utterance.state !== "running") return;
+            utterance.state = "aborted";
+            input.drop();
+            void output?.return?.();
+        } };
+        // Audio's teardown ends the utterance. A conversation that ended
+        // with it, as by mute or stop, aborts the utterance in end().
+        const input = captured(() => utterance.state === "running");
+        const { sink, frames } = input;
+        utterance.sink = sink;
         async function run() {
             let rev = 0;
             try {
@@ -383,6 +400,20 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         }
         void run();
         return utterance;
+    }
+
+    // The wake word, while Always mode waits: capture reaches only the
+    // daemon-owned local sidecar. No conversation exists, so nothing is
+    // released or audited; the word dispatches wake for this capture.
+    function spotting(e) {
+        if (plan.kind !== "ready" || plan.speech.wake !== true) fail("wake-unavailable");
+        if (daemonSpeech === null) startSpeech(plan.speech);
+        const { sink, frames } = captured(() => true);
+        void daemonSpeech.spot(frames).outcome.then(result => {
+            if (result.kind === "woke") dispatch({ type: "wake", gen: e.gen, op: e.op });
+            else if (result.kind === "failed" && !sink.destroyed) sink.destroy(result.error);
+        });
+        return sink;
     }
 
     // Text to speech for one brain turn: one Readable for Audio, fed by the
@@ -950,6 +981,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // A live collection adopts the new utterance; otherwise it waits
         // unbound, replacing and abandoning any earlier unbound one.
         captureSink(e) {
+            if (e.mode === "armed") return spotting(e);
             const c = current(e.gen);
             if (c.live !== null) return c.live.captureSink(e);
             const utterance = transcription(c, e);

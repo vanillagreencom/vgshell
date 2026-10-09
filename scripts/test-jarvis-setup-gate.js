@@ -201,7 +201,7 @@ function verifyReadiness(gate) {
         assert.notEqual(got.setupVoice.hint.trim(), "", "memory refusal carries guidance");
     }
     assert.equal(new Set(lines).size, BRAIN_CAUSES.length, "each brain cause says its own hint");
-    for (const cause of ["speech=live-account-unselected", "speech=live-account-unreadable", "speech=live-key-required"]) {
+    for (const cause of ["speech=live-account-unselected", "speech=live-account-unreadable", "speech=live-key-required", "speech=always-local-voice"]) {
         const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setupVoice.tone, got.setupVoice.action, typeof got.setupVoice.hint], ["warning", false, "string"],
             "GPT-Live setup never starts local model installation");
@@ -333,7 +333,9 @@ const CONTROLS = [
     ["the withheld text names every required command", 'lacking.join(" and ")', 'requires.join(" and ")'],
     ["a missing requirement offers no install", 'if (missing.indexOf(command) === -1) return { tone: "ok"', 'if (true) return { tone: "ok"'],
     ["a found requirement offers its install", 'if (missing.indexOf(command) === -1) return { tone: "ok"', 'if (false) return { tone: "ok"'],
-    ["GPT-Live offers the local install action", ': cause.indexOf("speech=live-") !== 0;', ": true;"],
+    ["GPT-Live offers the local install action", 'return cause.indexOf("speech=live-") !== 0 && ', 'return true && '],
+    ["Always mode offers the local install action", ' && cause !== "speech=always-local-voice";', ";"],
+    ["Always mode has no hint of its own", '    "speech=always-local-voice": ', '    "speech=always-local-voice-unused": '],
     ["a cause marks no step", "out[REQUIRED[step]] = hint === undefined", "void (hint === undefined)"],
     ["a cause marks the other step", 'var REQUIRED = { speech: "setupVoice", brain: "setupModel" };', 'var REQUIRED = { speech: "setupModel", brain: "setupVoice" };'],
     ["the brain causes share one hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = STEP_TODO[step];"],

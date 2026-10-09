@@ -524,6 +524,109 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     }
 }
 
+// Always mode through the shipped daemon, Session, Audio and local adapter
+// with the stand-in sidecar: the wake capture reaches only the sidecar and
+// no brain, the word opens one utterance, the reply plays, and the next
+// wake capture follows in the same conversation. "refused" selects GPT-Live
+// and "unset" has no local setup: neither opens any capture.
+async function alwaysTalk(server, ending = "ready", edits = []) {
+    server.replies.length = 0;
+    const kit = Fixture.copy(process.env.JARVIS_TEST_ROOT);
+    const engineFile = path.join(kit.folder, "backend/ChainedEngine.js");
+    const speechNeedle = 'const SPEECH = Object.freeze({ scripted: require(' + JSON.stringify(require.resolve("./fixtures/jarvis/engine.js")) + ').row });';
+    const source = fs.readFileSync(engineFile, "utf8");
+    assert.equal(source.split(speechNeedle).length, 2);
+    fs.writeFileSync(engineFile, source.replace(speechNeedle, "const SPEECH = Object.freeze({ local: LocalSpeech.row });"));
+    fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis/artifacts.json"), path.join(kit.folder, "artifacts.json"));
+    for (const [file, needle, replacement] of edits) {
+        const name = path.join(kit.folder, file), original = fs.readFileSync(name, "utf8");
+        assert.equal(original.split(needle).length, 2, "one always control match");
+        fs.writeFileSync(name, original.replace(needle, replacement));
+    }
+    const root = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "always-"));
+    const local = path.join(root, "local"), state = path.join(root, "state");
+    fs.mkdirSync(path.join(local, "venv/bin"), { recursive: true });
+    fs.mkdirSync(state);
+    fs.copyFileSync(path.join(__dirname, "fixtures/jarvis-local-speech/standin.py"), path.join(local, "venv/bin/python"));
+    fs.chmodSync(path.join(local, "venv/bin/python"), 0o700);
+    fs.writeFileSync(path.join(local, "scenario.json"), JSON.stringify({ start: "ready", wakes: [{ afterFrames: 2 }],
+        utterances: [{ earlyFinal: "Woken request." }], speech: [{ rate: 16000, samples: 4800 }] }));
+    if (ending !== "unset") fs.writeFileSync(path.join(state, "local-ready.json"), JSON.stringify({ tier: "small", data: fs.realpathSync(local) }));
+    const preload = path.join(root, "accounts.js");
+    fs.writeFileSync(preload, 'require(' + JSON.stringify(path.join(kit.folder, "backend/Core.js")) + ').use(' + JSON.stringify(tree) + ');\n' +
+        'require(' + JSON.stringify(path.join(kit.folder, "backend/Accounts.js")) + ').Accounts.prototype.choose = id => ({ kind: "accepted", account: { id, provider: "ollama", label: "local", source: { kind: "local", origin: "http://127.0.0.1:11434" }, model: "fixture-model" } });');
+    const child = cp.spawn("node", ["--require", preload, path.join(kit.folder, "backend/jarvisd.js"), "--tree", tree], {
+        env: { PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR }, stdio: ["pipe", "pipe", "pipe"] });
+    const closed = once(child, "close");
+    const rows = [], logs = () => fs.existsSync(path.join(local, "log.jsonl"))
+        ? fs.readFileSync(path.join(local, "log.jsonl"), "utf8").trim().split("\n").filter(Boolean).map(JSON.parse) : [];
+    const states = () => rows.filter(row => row.type === "state");
+    const s = () => states().at(-1)?.state;
+    const status = () => rows.filter(row => row.type === "status").at(-1);
+    let tail = "", error = "";
+    child.stdout.on("data", data => { tail += data; const lines = tail.split("\n"); tail = lines.pop(); rows.push(...lines.filter(Boolean).map(JSON.parse)); });
+    child.stderr.on("data", data => { error += data; });
+    child.stdin.on("error", e => { if (e.code !== "EPIPE") throw e; });
+    const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
+    const hello = () => send({ type: "hello", locked: false,
+        settings: { sounds: false, mode: "always", microphone: "", speaker: "", brain: "fixture-account", taskTerminal: "auto",
+            voiceProvider: ending === "refused" ? "gpt-live" : "local", voiceAccount: "", cloudVision: "ask", privateWindows: "bitwarden" },
+        keys: { talk: null, mute: null, stop: null, confirm: null, console: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
+    hello();
+    const before = server.requests.length;
+    try {
+        await until(() => status() && s(), "shipped daemon publishes admission: " + error);
+        if (ending !== "ready") {
+            assert.deepEqual(status().causes, [ending === "refused" ? "speech=always-local-voice" : "speech=local-not-set-up"]);
+            assert.equal(s().gate.kind, "down");
+            send({ type: "indicator", shown: true });
+            send({ type: "intent", intent: "talk-down" });
+            // The hello is an ordered wire barrier after the refused intent.
+            const count = rows.filter(row => row.type === "status").length;
+            hello();
+            await until(() => rows.filter(row => row.type === "status").length > count, "refused Always settles");
+            assert.deepEqual([s().indicator.kind, s().input.kind, s().capture.kind, s().conversation.kind], ["shown", "released", "closed", "ended"]);
+            assert.equal(logs().length, 0, "no sidecar starts for a refused Always mode");
+            assert.equal(server.requests.length, before);
+            return;
+        }
+        assert.deepEqual(status().causes.filter(cause => cause !== "speech=local-loading"), []);
+        assert.equal(s().input.kind, "armed");
+        assert.equal(s().capture.kind, "closed", "the wake capture waits for its indicator");
+        send({ type: "indicator", shown: true });
+        await until(() => s().capture.kind === "open" && s().capture.mode === "armed", "the wake capture opens");
+        const armedGen = s().gen;
+        assert.equal(s().conversation.kind, "ended");
+        await until(() => s().conversation.kind === "active", "the word starts a conversation: " + JSON.stringify(logs().slice(-3)));
+        const log = logs();
+        const wake = log.findIndex(row => row.wake !== undefined), woke = log.findIndex(row => row.woke !== undefined);
+        assert.ok(wake !== -1 && woke > wake, "the stand-in spotted the word");
+        assert.equal(log.slice(0, woke).some(row => row.listen !== undefined), false, "no utterance before the word");
+        assert.equal(server.requests.length, before, "the wake capture reaches no brain");
+        assert.equal(s().gen, armedGen + 1);
+        server.replies.push(Fixture.text("Done."));
+        const body = await requested({ server }, before + 1, "the woken utterance reaches the brain");
+        assert.deepEqual(user(body), ["Woken request."]);
+        const listen = logs().find(row => row.listen !== undefined);
+        assert.equal(listen.detect, true, "the woken utterance ends by turn detection");
+        await until(() => logs().some(row => row.speak !== undefined), "the reply is spoken");
+        await until(() => logs().filter(row => row.wake !== undefined).length === 2 && s().capture.kind === "open"
+            && s().capture.mode === "armed", "the next wake capture follows the reply");
+        assert.deepEqual([s().conversation.kind, s().gen], ["active", armedGen + 1], "the conversation stays open for the next word");
+        assert.equal(server.requests.length, before + 1);
+        assert.equal(logs().filter(row => row.start).length, 1, "one daemon-owned sidecar serves wake and speech");
+        send({ type: "intent", intent: "mute" });
+        await until(() => s().mute.kind === "on" && s().capture.kind === "closed", "mute ends the wake capture");
+        await until(() => logs().filter(row => row.abort !== undefined).length >= 1, "the ended wake capture is aborted");
+        assert.equal(s().input.kind, "released");
+    } finally {
+        child.stdin.end();
+        const timer = setTimeout(() => child.kill("SIGKILL"), OBSERVE_MS);
+        try { const [code, signal] = await closed; assert.equal(signal, null); assert.equal(code, 0, error); }
+        finally { clearTimeout(timer); server.closeAll(); fs.rmSync(path.join(state, "mute.json"), { force: true }); }
+    }
+}
+
 async function cases(kit, server, only = null) {
     const Protocol = load(path.join(kit.folder, "JarvisProtocol.js"));
     const run = async (name, check, options) => {
@@ -1631,8 +1734,8 @@ function selection(Engine) {
         source: { kind: "local", origin: "http://127.0.0.1:" + PORT }, model: "fixture-model" };
     const accepted = account => () => ({ kind: "accepted", account });
     const refused = cause => () => ({ kind: "refused", cause });
-    const configure = (settings, choose, ready) => {
-        Fixture.reset({ ready });
+    const configure = (settings, choose, ready, wake = false) => {
+        Fixture.reset({ ready, wake });
         let answer;
         assert.doesNotThrow(() => {
             answer = Engine.create({ accounts: () => ({ secrets: null, choose }), captionLimit: 1 }).configure({ brain: "a", ...settings });
@@ -1654,6 +1757,17 @@ function selection(Engine) {
     assert.throws(() => Engine.create({ accounts: () => ({ choose: () => { throw new TypeError("defect"); } }), captionLimit: 1 })
         .configure({ brain: "a" }), TypeError, "a defect is not a configuration cause");
     assert.deepEqual(configure({}, accepted(resolved), true), { kind: "ready" });
+    // Always mode needs a row that spots the word on this computer.
+    const always = ["speech=always-local-voice"];
+    for (const [settings, wake, causes] of [
+        [{ mode: "always" }, false, always],
+        [{ mode: "always", voiceProvider: "gpt-live" }, true, always],
+        [{ mode: "always", brain: "" }, false, [...always, "brain=unselected"]]])
+        assert.deepEqual(configure(settings, accepted(resolved), true, wake), { kind: "unconfigured", cause: causes[0], causes }, JSON.stringify(settings));
+    assert.deepEqual(configure({ mode: "always" }, accepted(resolved), false, true), { kind: "unconfigured", cause: "speech=fixture-off",
+        causes: ["speech=fixture-off"] }, "a row not set up keeps its own cause and Settings path");
+    assert.deepEqual(configure({ mode: "always" }, accepted(resolved), true, true), { kind: "ready" });
+    assert.deepEqual(configure({ mode: "toggle" }, accepted(resolved), true), { kind: "ready" });
     // A subscription's program chooses its own model; its account names its directory.
     for (const [provider, directory] of [["codex", "/home/fixture/.codex"], ["claude", "/home/fixture/.claude"]])
         assert.deepEqual(configure({}, accepted({ id: "c", provider, label: "default",
@@ -1686,7 +1800,10 @@ world(async () => {
             ["unselected", 'if (settings.brain === "") return unconfigured("brain=unselected");'],
             ["refused-cause", 'return unconfigured("brain=" + choice.cause);', 'return unconfigured("brain=account-unavailable");'],
             ["harness-driver", '"codex-app-server": CodexHarness, '],
-            ["claude-driver", ', "claude-code": ClaudeCode });', " });"]]) {
+            ["claude-driver", ', "claude-code": ClaudeCode });', " });"],
+            ["always-any-voice", 'settings.mode === "always" && (', "false && ("],
+            ["always-live-voice", 'settings.voiceProvider === "gpt-live" || speech.kind', "speech.kind"],
+            ["always-wake-row", ' && speech.wake !== true))', "))"]]) {
             const { Engine } = Fixture.copy(root, [[needle, replacement]]);
             assert.throws(() => selection(Engine), assert.AssertionError, name + " must turn red");
             console.log("control=" + name + " detected");
@@ -1706,6 +1823,17 @@ world(async () => {
         await daemonSpeech(server, [], "held");
         for (const ending of ["ready", "stop", "mute", "lock", "lease", "fault", "locked", "muted", "missing", "brain", "device"])
             await loadingTalk(server, ending);
+        for (const ending of ["ready", "refused", "unset"]) await alwaysTalk(server, ending);
+        for (const [name, file, needle, replacement] of [
+            ["wake sink removed", "backend/ChainedEngine.js", '            if (e.mode === "armed") return spotting(e);\n', ""],
+            ["wake not dispatched", "backend/ChainedEngine.js", 'if (result.kind === "woke") dispatch({ type: "wake", gen: e.gen, op: e.op });', "void result;"],
+            ["Always refusal removed", "backend/ChainedEngine.js", 'settings.mode === "always" && (settings.voiceProvider', 'false && (settings.voiceProvider']
+        ]) {
+            await assert.rejects(() => alwaysTalk(server, name === "Always refusal removed" ? "refused" : "ready", [[file, needle, replacement]]),
+                assert.AssertionError, name);
+            console.log("control=" + name + " detected");
+            controls++;
+        }
         for (const [name, file, needle, replacement] of [
             ["loading admission removed", "backend/jarvisd.js", ' || configuration.kind === "loading"', ""],
             ["loading ready too early", "backend/ChainedEngine.js", 'return { kind: "loading", cause: "speech=local-loading", causes: ["speech=local-loading"] };', 'return { kind: "ready" };'],

@@ -19,7 +19,7 @@ const CHUNK_FRAMES = 24000; // Below Audio's 64 KiB chunk bound.
 // One shared controller per test process. A case resets it before use.
 const control = {};
 function reset(options = {}) {
-    Object.assign(control, { ready: true, recipients: [{ kind: "local", provider: "scripted-speech", account: "" }],
+    Object.assign(control, { ready: true, wake: false, recipients: [{ kind: "local", provider: "scripted-speech", account: "" }],
         utterances: [], detections: [], spoken: [], labels: new Set(), opened: [], closed: 0, aborted: 0, finals: 0,
         finalTimes: [], inputEnds: [], frames: 0, ...options });
 }
@@ -48,7 +48,7 @@ function synthesized(text) {
 
 const row = {
     select() {
-        return control.ready ? { kind: "ready", recipients: control.recipients,
+        return control.ready ? { kind: "ready", recipients: control.recipients, ...(control.wake ? { wake: true } : {}),
             open: ({ net, recipients }) => adapter(net, recipients) }
             : { kind: "unconfigured", cause: "speech=fixture-off" };
     }
