@@ -28,6 +28,35 @@ hint=next(r for r in rows if r["type"]=="Label" and r.get("role")=="hint" and r[
 print(len(tabs)==3 and abs(strip["box"][2]-hint["box"][2])<1 and all(abs(t["box"][2]-tabs[0]["box"][2])<1 for t in tabs) and abs(tabs[-1]["box"][0]+tabs[-1]["box"][2]-strip["box"][0]-strip["box"][2])<1)'
 }
 share_tabs_width_check() { expect "the page tabs fill the content width equally" True share_tabs_span; }
+share_area_fits() {
+  local rows scroll aspect current
+  rows="$(ipc smoke descendantGeometry window vgs.capture)" || return
+  scroll="$(ipc smoke itemValues window vgs.capture ScrollArea contentY,contentHeight,height)" || return
+  aspect="$(share_read previewRect)" || return
+  current="$(share_read current)" || return
+  python3 - "$rows" "$scroll" "$aspect" "$current" <<'PY'
+import json,sys
+rows,scroll,aspect,current=map(json.loads,sys.argv[1:])
+preview=next(r for r in rows if r['type']=='ScreencopyPreview')
+image_index=rows[preview['parent']]['parent']; image=rows[image_index]
+viewport=next(r for r in rows if r['type']=='ScrollArea' and r['visible'])
+actions=[r for r in rows if r['type']=='Button' and r.get('text') in ('Cancel','Share') and r['visible']]
+sliders=[r for r in rows if r['type']=='Slider' and r['visible']]
+selection=[r for r in rows if r['parent']==image_index and r['type']=='QQuickRectangle' and r['visible']]
+hint=next(r for r in rows if r['type']=='Label' and r.get('role')=='hint' and r['visible'])
+def inside(a,b):
+    x,y,w,h=a; X,Y,W,H=b
+    return w>0 and h>0 and x>=X-1 and y>=Y-1 and x+w<=X+W+1 and y+h<=Y+H+1
+print(len(actions)==2 and len(sliders)==4 and len(selection)==1
+      and all(inside(r['box'],rows[0]['box']) for r in [image,hint,*actions,*sliders])
+      and all(inside(r['box'],viewport['box']) for r in [image,hint,*sliders])
+      and inside(selection[0]['box'],image['box'])
+      and aspect['width']>0 and aspect['height']>0
+      and abs(aspect['width']/aspect['height']-current['width']/current['height'])<0.01
+      and len(scroll)==1 and scroll[0]['contentY']==0 and scroll[0]['contentHeight']<=scroll[0]['height']+1)
+PY
+}
+share_area_check() { expect "Area keeps the full preview, selection, sliders and actions without scrolling" True share_area_fits; }
 share_arg() { ipc smoke invokeInstance window vgs.capture "$1" "${2:-}" >/dev/null; }
 share_args() { ipc smoke invokeInstanceArgs window vgs.capture "$1" "$2" >/dev/null; }
 share_mapped() { ipc smoke instanceGeometry window vgs.capture | py_reply 'import json,sys; s=sys.stdin.read().strip(); print(s != "absent" and len(json.loads(s)) == 4)'; }
@@ -383,8 +412,7 @@ for share_mode in dark light; do
     rest_pointer || fail "share-picker: parking pointer failed"
     shot "$share_mode-$share_tab" || fail "share-picker: After $share_mode $share_tab failed"
     if [[ $share_tab == area ]]; then
-      share_scroll_bottom() { ipc smoke scrollTo window vgs.capture 100000 | py_reply 'import json,sys; s=sys.stdin.read().strip(); print(s.startswith("[") and len(json.loads(s))==3)'; }
-      expect "the Area controls scroll into view" True share_scroll_bottom
+      share_area_check
       shot "$share_mode-area-controls" || fail "share-picker: After $share_mode Area controls failed"
     fi
   done
@@ -398,6 +426,76 @@ for share_mode in dark light; do
 done
 unset SHOT_CHROME_READER SHOT_CHROME_REQUIRE
 python3 "$share_fixture/sheets.py" "$share_evidence" || fail "share-picker: picture labels failed"
+# Reconstruct the pre-fix layout in a disposable tree. The same geometry
+# assertion must reject its fixed-height request before the fit evidence.
+copy_tree share-area-height-control
+python3 - "$sandbox/tree-share-area-height-control/shell/plugins/vgs.capture/Window.qml" <<'PY'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]); assert not p.is_symlink(); s=p.read_text()
+old='implicitHeight: sharing ? sharingHeight - (compactArea ? 2 * (Theme.row.height + Theme.stack.row) : 0) : Theme.size.panel.maxHeight'
+assert s.count(old)==1
+s=s.replace(old,'implicitHeight: Theme.size.panel.maxHeight',1)
+old='height: Math.min(Theme.size.panel.sm, width * 9 / 16)'
+assert s.count(old)==1
+s=s.replace(old,'height: Math.min(Theme.size.panel.sm, width * 9 / 16, Math.max(Theme.size.control.lg, pane.bodyRoom - hint.implicitHeight - sources.height - Theme.stack.group * 2))',1)
+s=s.replace('Grid {\n                id: areaControls','Column {\n                id: areaControls',1)
+s=s.replace('                columns: root.compactArea ? 2 : 1\n','',1)
+s=s.replace('width: (areaControls.width - (areaControls.columns - 1) * areaControls.spacing) / areaControls.columns','width: areaControls.width',1)
+assert s!=p.read_text(); p.write_text(s)
+PY
+share_area_evidence="$source_repo/tmp/ui-shots/VGS-1164"
+SHOT_DIR="$(shot_dir_under "$source_repo" "$share_area_evidence")"
+share_original_mode="$(first_mode)"
+for share_size in standard minimum; do
+  if [[ $share_size == standard ]]; then
+    share_mode_size=1755x933
+  else
+    share_mode_size="$share_minimum_mode"
+  fi
+  hold_mode "Area evidence output" "$share_output" "$share_mode_size"
+  for share_version in before after; do
+    if [[ $share_version == before ]]; then share_control_start share-area-height-control; else share_control_restore share-area-height-control; fi
+    for share_mode in dark light; do
+      if [[ $share_mode == dark ]]; then
+        printf '{"schemaVersion":1,"name":"vgs","tokens":{}}\n' >"$share_theme.next"; share_theme_name=vgs
+      else
+        cp -- "$repo/themes/catalog/flexoki-light/theme.json" "$share_theme.next"; share_theme_name=flexoki-light
+      fi
+      mv -T -- "$share_theme.next" "$share_theme"
+      expect_poll "Area evidence publishes $share_mode" "$share_theme_name" ipc smoke themeName
+      share_launch "area-$share_size-$share_version-$share_mode"
+      share_arg switchTab 2; share_set_region
+      expect_poll "Area evidence preview builds" true share_read previewReady
+      if [[ $share_version == before ]]; then
+        share_area_control() { (failures=0 behaviour_failures=0; share_area_check >"$share_world/area-control-$share_size-$share_mode.log"; echo "$failures"); }
+        expect "control: the old fixed height fails the same Area geometry assertion" 1 share_area_control
+        cat -- "$share_world/area-control-$share_size-$share_mode.log"
+        ipc smoke scrollTo window vgs.capture 100000 >/dev/null
+      else
+        share_area_check
+        # Move each real slider with the keyboard and read all rectangles again.
+        rest_pointer || fail "share-picker: parking Area pointer failed"
+        type_keys -k Tab -k Tab || fail "share-picker: reaching Area sliders failed"
+        for share_slider in x y width height; do
+          type_keys -k Up || fail "share-picker: moving $share_slider failed"
+          share_area_check
+          type_keys -k Tab || fail "share-picker: reaching the next slider failed"
+        done
+        if [[ $share_size == standard && $share_mode == dark ]]; then
+          share_minimum_mode="$(share_read sharingHeight | py_reply 'import math,sys; print("1755x%d" % math.ceil(float(sys.stdin.read())-2*(float(sys.argv[1])+float(sys.argv[2]))+2*float(sys.argv[3])))' "$(ipc smoke themeValue row.height)" "$(ipc smoke themeValue stack.row)" "$(ipc smoke themeValue size.window.gutter)")"
+          printf 'share-picker: minimum-output=%s full-area-height=%s\n' "$share_minimum_mode" "$(share_read sharingHeight)"
+        fi
+      fi
+      ipc smoke descendantGeometry window vgs.capture >"$share_area_evidence/$share_size-$share_version-$share_mode-geometry.json"
+      ipc smoke itemValues window vgs.capture ScrollArea contentY,contentHeight,height >"$share_area_evidence/$share_size-$share_version-$share_mode-scroll.json"
+      rest_pointer || fail "share-picker: parking evidence pointer failed"
+      shot "$share_size-$share_version-$share_mode" || fail "share-picker: Area evidence failed"
+      share_click Button Cancel
+      expect_poll "Area evidence caller cancels" True share_cancelled "area-$share_size-$share_version-$share_mode"
+    done
+  done
+  release_mode "Area evidence restores output" "$share_output" "$share_original_mode"
+done
 cc -Wall -Wextra -Werror "$share_fixture/consume.c" -o "$share_world/consume" $(pkg-config --cflags --libs libpipewire-0.3) || { fail "share-picker: consumer build failed"; return 0; }
 mkdir -p -- "$home/.config/xdg-desktop-portal"
 printf '[preferred]\ndefault=hyprland\n' >"$home/.config/xdg-desktop-portal/portals.conf"

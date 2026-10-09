@@ -22,8 +22,13 @@ FocusScope {
     readonly property bool previewReady: preview.item !== null && preview.item.hasContent
     readonly property rect previewRect: previewReady ? preview.item.contentRect : Qt.rect(0, 0, imageBox.width, imageBox.height)
     readonly property var initialFocus: sharing ? tabs : captureControls.item === null ? null : captureControls.item.initialFocus
+    readonly property real areaHeight: 4 * Theme.row.height + 3 * Theme.stack.row
+    readonly property real sharingHeight: pane.uncappedHeight + (areaControls.visible ? areaHeight - areaControls.height : areaHeight + Theme.stack.group)
+    readonly property bool compactArea: sharingHeight > OverlayState.room(shell === null ? null : shell.screens.current).height
     implicitWidth: Theme.size.window.width
-    implicitHeight: Theme.size.panel.maxHeight
+    // The host maps once. Reserve Area's controls before the first tab opens.
+    // https://quickshell.org/docs/v0.3.1/guide/size-position/
+    implicitHeight: sharing ? sharingHeight - (compactArea ? 2 * (Theme.row.height + Theme.stack.row) : 0) : Theme.size.panel.maxHeight
     focus: true
 
     function open(payloadJson) {
@@ -100,8 +105,7 @@ FocusScope {
             Rectangle {
                 id: imageBox
                 width: parent.width
-                // Keep the chosen source's name above the pinned footer.
-                height: Math.min(Theme.size.panel.sm, width * 9 / 16, Math.max(Theme.size.control.lg, pane.bodyRoom - hint.implicitHeight - sources.height - Theme.stack.group * 2))
+                height: Math.min(Theme.size.panel.sm, width * 9 / 16)
                 color: Theme.color.background
                 radius: Theme.surface.radius
                 clip: true
@@ -190,17 +194,18 @@ FocusScope {
                 }
                 FocusRing { target: sources; targetRadius: Theme.listItem.radius }
             }
-            Column {
+            Grid {
                 id: areaControls
                 width: pane.contentWidth
                 visible: root.tab === 2 && root.current !== null
+                columns: root.compactArea ? 2 : 1
                 spacing: Theme.stack.row
                 Repeater {
                     model: [{ key: "x", label: "Left" }, { key: "y", label: "Top" }, { key: "width", label: "Width" }, { key: "height", label: "Height" }]
                     FormRow {
                         id: areaField
                         required property var modelData
-                        width: areaControls.width
+                        width: (areaControls.width - (areaControls.columns - 1) * areaControls.spacing) / areaControls.columns
                         label: modelData.label + " · " + root.region[modelData.key]
                         Slider {
                             width: Math.min(areaField.valueRoom, Theme.control.maxWidth)
