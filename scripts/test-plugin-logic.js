@@ -845,6 +845,27 @@ function suite(ctx, check) {
         const got = ctx.barDropTarget(width, x, dropSections);
         check("barDropTarget: " + name, [got.section, got.before, got.markerX], [section, before, markerX]);
     }
+    // A right section the bar scrolls: its view runs from beside the
+    // centre to the bar edge, left of two thirds too; it shows a.s1 to
+    // a.s3 whole; a.h1 lies under the start button and a.a1 after them.
+    const right = (id, x) => ({ x: x, width: 40, locator: { id: id, section: "right", nth: 0 } });
+    const scrolledSections = {
+        left: { x: 0, width: 100, widgets: [] },
+        center: { x: 400, width: 100, widgets: [{ x: 400, width: 100, locator: { id: "a.clock", section: "center", nth: 0 } }] },
+        right: { x: 440, width: 440, view: { x: 520, width: 360 }, shown: { x: 556, width: 288 },
+            widgets: [right("a.h1", 515), right("a.s1", 560), right("a.s2", 650), right("a.s3", 790), right("a.a1", 838)] }
+    };
+    const scrolledRows = [
+        ["a side view left of two thirds takes the drop", 570, "right", "a.s1", 560],
+        ["before the first shown widget lands before it, not among the hidden", 530, "right", "a.s1", 560],
+        ["between shown widgets lands between them", 640, "right", "a.s2", 650],
+        ["past the last shown widget lands beside it, before the hidden next", 860, "right", "a.a1", 830],
+        ["the gap beside the view keeps the thirds", 510, "center", null, 500],
+    ];
+    for (const [name, x, section, before, markerX] of scrolledRows) {
+        const got = ctx.barDropTarget(900, x, scrolledSections);
+        check("barDropTarget: " + name, [got.section, got.before === null ? null : got.before.id, got.markerX], [section, before, markerX]);
+    }
     const indexConfig = { bar: { layout: { left: [{ id: "a.one" }, { id: "a.two" }, { id: "a.one" }], center: [{ id: "a.three" }], right: [] } } };
     check("barDropIndex: before maps to the index after removal", ctx.barDropIndex(indexConfig, "left", { id: "a.one", section: "left", nth: 1 }, { section: "left", nth: 0 }, "a.one"), 1);
     check("barDropIndex: before in another section keeps its index", ctx.barDropIndex(indexConfig, "left", { id: "a.two", section: "left", nth: 0 }, { section: "center", nth: 0 }, "a.three"), 1);
@@ -1759,6 +1780,9 @@ const CONTROLS = [
     ["a notify message escapes <", '.replace(/</g, "&lt;")', ''],
     ["a notify message escapes >", '.replace(/>/g, "&gt;");', ';'],
     ["a notify title ends the options", 'return argv.concat(["--", judged.title, message]);', 'return argv.concat([judged.title, message]);'],
+    ["a side view takes the drop over it", "x >= view.x && x < view.x + view.width) section = side;", "false) section = side;"],
+    ["a scrolled section slots among its shown widgets", "widgets = widgets.filter(function (widget) { return widget.x >= low && widget.x + widget.width <= high; });", ""],
+    ["a drop past the shown widgets lands before the hidden next", "var target = slot < widgets.length ? widgets[slot] : next;", "var target = slot < widgets.length ? widgets[slot] : null;"],
 ];
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-logic-control-"));

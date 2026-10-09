@@ -1008,9 +1008,10 @@ function verifyStatusText(table) {
 }
 verifyStatusText(TOKENS);
 
-// The bar separator the owner set: a 12 px line in the bar's text colour
-// at 20% alpha, 0x33 of 0xff, in the default theme and every shipped one.
-function verifyBarSeparator(table) {
+// The default theme and every theme the shipped catalog lists, each
+// judged against TABLE, as [name, result]; the catalog lists flexoki-light
+// at least, so a catalog read short fails here.
+function shippedThemes(table) {
     const judge = load(judgeFile);
     const themes = [["vgs", judge.defaults(table)]];
     const index = judge.acceptCatalogIndex(table, fs.readFileSync(path.join(repo, "themes/catalog/index.json"), "utf8"));
@@ -1018,7 +1019,13 @@ function verifyBarSeparator(table) {
     assert.ok(index.entries.some(entry => entry.name === "flexoki-light"), "the shipped catalog lists flexoki-light");
     for (const entry of index.entries)
         themes.push([entry.name, judge.accept(table, fs.readFileSync(path.join(repo, "themes/catalog", entry.name, "theme.json"), "utf8"))]);
-    for (const [name, result] of themes) {
+    return themes;
+}
+
+// The bar separator the owner set: a 12 px line in the bar's text colour
+// at 20% alpha, 0x33 of 0xff, in the default theme and every shipped one.
+function verifyBarSeparator(table) {
+    for (const [name, result] of shippedThemes(table)) {
         assert.equal(result.ok, true, name);
         const line = at(result.values, "bar.spacer.line");
         assert.equal(line.slice(0, 7), at(result.values, "bar.foreground").slice(0, 7), `${name} bar.spacer.line colour`);
@@ -1049,13 +1056,7 @@ verifyBarStacked(TOKENS);
 // runs from that colour to the same colour clear, in the default theme
 // and every shipped one, so the fade shows no band of another colour.
 function verifyBarScroll(table) {
-    const judge = load(judgeFile);
-    const themes = [["vgs", judge.defaults(table)]];
-    const index = judge.acceptCatalogIndex(table, fs.readFileSync(path.join(repo, "themes/catalog/index.json"), "utf8"));
-    assert.equal(index.ok, true);
-    for (const entry of index.entries)
-        themes.push([entry.name, judge.accept(table, fs.readFileSync(path.join(repo, "themes/catalog", entry.name, "theme.json"), "utf8"))]);
-    for (const [name, result] of themes) {
+    for (const [name, result] of shippedThemes(table)) {
         assert.equal(result.ok, true, name);
         const background = at(result.values, "bar.background");
         assert.equal(at(result.values, "bar.scroll.backdrop"), background, `${name} bar.scroll.backdrop`);

@@ -4153,16 +4153,33 @@ function barDropIndex(config, section, before, from, movingId) {
 // The geometry rule for a bar widget drop. X is in bar-window
 // coordinates. SECTIONS maps each section to `{ x, width, widgets }`, and
 // each widget is `{ x, width, locator }`, with the dragged widget already
-// excluded.
+// excluded. A section the bar scrolls adds `view`, `{ x, width }`, the box
+// it draws in, and `shown`, the part of it that shows whole widgets.
+// X over a section's view picks that section; elsewhere the bar's thirds
+// do. In a section with `shown`, the slot is chosen among the widgets
+// shown whole, so a drop past the last shown one lands beside it, never
+// beside a widget the section hides.
 function barDropTarget(width, x, sections) {
     var section = x < width / 3 ? "left" : x < 2 * width / 3 ? "center" : "right";
+    ["left", "right"].forEach(function (side) {
+        var view = isPlainObject(sections) && isPlainObject(sections[side]) ? sections[side].view : null;
+        if (isPlainObject(view) && view.width > 0 && x >= view.x && x < view.x + view.width) section = side;
+    });
     var info = isPlainObject(sections) && isPlainObject(sections[section]) ? sections[section] : { x: 0, width: width, widgets: [] };
     var widgets = Array.isArray(info.widgets) ? info.widgets : [];
+    var next = null;
+    if (isPlainObject(info.shown)) {
+        var low = info.shown.x - 1, high = info.shown.x + info.shown.width + 1;
+        var after = widgets.filter(function (widget) { return widget.x + widget.width > high; });
+        next = after.length > 0 ? after[0] : null;
+        widgets = widgets.filter(function (widget) { return widget.x >= low && widget.x + widget.width <= high; });
+    }
     var slot = 0;
     while (slot < widgets.length && widgets[slot].x + widgets[slot].width / 2 < x) slot += 1;
-    var before = slot < widgets.length ? clone(widgets[slot].locator) : null;
+    var target = slot < widgets.length ? widgets[slot] : next;
+    var before = target !== null ? clone(target.locator) : null;
     var markerX;
-    if (before !== null) markerX = widgets[slot].x;
+    if (slot < widgets.length) markerX = widgets[slot].x;
     else if (widgets.length > 0) markerX = widgets[widgets.length - 1].x + widgets[widgets.length - 1].width;
     else markerX = (typeof info.x === "number" ? info.x : 0) + (typeof info.width === "number" ? info.width : width) / 2;
     return { section: section, before: before, markerX: markerX };

@@ -366,7 +366,21 @@ Singleton {
             const point = entry.widget.mapToItem(null, 0, 0);
             widgets.push({ x: point.x, width: entry.widget.width, locator: entry.locator });
         }
-        return { x: sectionPoint.x, width: container.width, widgets: widgets };
+        const geometry = { x: sectionPoint.x, width: container.width, widgets: widgets };
+        // A section its bar scrolls names the box it draws in and the part
+        // that shows whole widgets (vgs-plugin references/api.md).
+        if (typeof container.viewWidth === "number") {
+            geometry.view = { x: sectionPoint.x + container.viewX, width: container.viewWidth };
+            geometry.shown = { x: sectionPoint.x + container.shownX, width: container.shownWidth };
+        }
+        return geometry;
+    }
+
+    // A section its bar scrolls shows ITEM, a drag's preview gap or the
+    // widget it dropped, through the section's own `reveal`.
+    function revealInSection(item) {
+        const container = item.parent;
+        if (container !== null && typeof container.reveal === "function") container.reveal(item);
     }
 
     // Outside the bar too the slot is the nearest one along the bar:
@@ -387,6 +401,7 @@ Singleton {
         if (drag.gap.parent === mount.row.instance || drag.section !== target.section || drag.index !== index) {
             barDrag = Object.assign({}, drag, { section: target.section, before: target.before, index: index });
             positionBar(hostKey, barDrag);
+            revealInSection(barDrag.gap);
         }
     }
 
@@ -422,6 +437,7 @@ Singleton {
         // An unchanged write publishes no order change. Restore the
         // canonical parents after either result, including that drop.
         positionBar(hostKey, null);
+        revealInSection(drag.item);
         if (reply !== "ok") console.warn("plugins: move " + drag.id + " " + reply);
         return "drop";
     }

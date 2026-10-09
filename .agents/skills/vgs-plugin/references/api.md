@@ -45,7 +45,7 @@ Declare it as `property var shell: null`, or inherit it from `BarWidget`.
 | Property | Direction | Type | Meaning |
 |---|---|---|---|
 | `screen` | received | ShellScreen | the screen this bar draws on |
-| `leftSection`, `centerSection`, `rightSection` | declared | Item | passive containers with a `spacing` property from the bar's gap token; the core binds their implicit width and each child's position and size |
+| `leftSection`, `centerSection`, `rightSection` | declared | Item | passive containers with a `spacing` property from the bar's gap token; the core binds their implicit width and each child's position and size. A section the bar scrolls also declares `viewX` and `viewWidth`, the box it draws in, and `shownX` and `shownWidth`, the part that shows whole widgets, in its own coordinates, and `reveal(item)`: a drop over that box lands in that section beside the shown widgets, and the core reveals the preview gap and the dropped widget |
 | `builtinNames` | declared | list of strings | registration names the bar can draw, accepted only under the active bar's ID |
 | `builtinFamilies` | declared | list of strings | optional families the bar draws once per layout entry: each entry `<bar id>/<family>-<n>`, n from 1, is one more registration name |
 | `builtinLabels` | declared | object of labels keyed by registration name | labels for the builtin placement fields on the bar's Settings page, including hidden builtins |

@@ -187,20 +187,34 @@ Item {
         property real room: 0
         readonly property Item content: section
         readonly property bool clipped: section.width > room
-        // How far the content is scrolled from its rest at the bar edge.
+        // How far the content is scrolled from its rest at the bar edge,
+        // never past its travel.
         property real scroll: 0
         readonly property real travel: Math.max(0, section.width - width)
         // The width of the content hidden before the view once the scroll is done.
-        readonly property real before: edge === Qt.LeftEdge ? Math.min(scroll, travel) : travel - Math.min(scroll, travel)
+        readonly property real before: edge === Qt.LeftEdge ? scroll : travel - scroll
         readonly property bool moreBefore: clipped && before > 0.5
         readonly property bool moreAfter: clipped && before < travel - 0.5
         // The room a shown button and its fade take from the view.
         readonly property real inset: startScroller.width
-        // The scroll drawn now. A content width change moves the content at
-        // once, so a right zone keeps its edge; only a scroll animates.
-        property real drawnScroll: Math.min(scroll, travel)
-        Behavior on drawnScroll {
-            NumberAnimation { duration: Theme.motion.duration.normal; easing.type: Theme.motion.easing.standard }
+        // The scroll drawn now. Only a step slides it; a content width
+        // change moves the content at once, so a right zone keeps its edge,
+        // and one that leaves less to scroll clamps both at once, so a zone
+        // that clips again starts at rest.
+        property real drawnScroll: 0
+        onTravelChanged: {
+            if (scroll > travel) scroll = travel;
+            if (drawnScroll > travel) {
+                slide.stop();
+                drawnScroll = scroll;
+            }
+        }
+        NumberAnimation {
+            id: slide
+            target: zone
+            property: "drawnScroll"
+            duration: Theme.motion.duration.normal
+            easing.type: Theme.motion.easing.standard
         }
 
         // An item that clips hands no pointer event to its children outside
@@ -220,6 +234,10 @@ Item {
         function scrollTo(hidden) {
             const at = Math.max(0, Math.min(travel, hidden));
             scroll = edge === Qt.LeftEdge ? at : travel - at;
+            slide.stop();
+            slide.from = drawnScroll;
+            slide.to = scroll;
+            slide.start();
         }
 
         // One step toward the zone's end (1) or its start (-1): the first
@@ -238,7 +256,7 @@ Item {
             }
         }
 
-        // Scroll the least that shows all of `item`, a widget of the content.
+        // Scroll the least that shows all of `item`, an item of the content.
         function reveal(item) {
             if (item.x < before + (moreBefore ? inset : 0) - 0.5) scrollTo(item.x - inset);
             else if (item.x + item.width > before + width - (moreAfter ? inset : 0) + 0.5)
@@ -257,32 +275,43 @@ Item {
                 }
         }
 
-        // The wheel steps one widget a notch, toward the end for a turn down
-        // or right. It sits under the content, so a widget that takes the
-        // wheel itself, as Sound does, keeps it. Qt reports a notch as an
-        // angleDelta of 120 (QWheelEvent::angleDelta); smaller deltas add up.
-        // pointer-cursor-exempt: it takes the wheel alone, never a click
-        // keyboard-path: the < and > buttons and keyboard focus scroll the zone
-        MouseArea {
-            property real carry: 0
-
-            anchors.fill: parent
-            acceptedButtons: Qt.NoButton
-            enabled: zone.clipped
-            onWheel: wheel => {
-                const delta = Math.abs(wheel.angleDelta.x) > Math.abs(wheel.angleDelta.y) ? wheel.angleDelta.x : wheel.angleDelta.y;
-                if (delta * carry < 0) carry = 0;
-                carry += delta;
-                while (Math.abs(carry) >= 120) {
-                    zone.step(carry < 0 ? 1 : -1);
-                    carry -= Math.sign(carry) * 120;
-                }
+        // The wheel steps one widget a notch, toward the end for a turn
+        // down or right. Qt reports a notch as an angleDelta of 120
+        // (QWheelEvent::angleDelta); smaller deltas add up to one.
+        property real wheelCarry: 0
+        function takeWheel(wheel) {
+            const delta = Math.abs(wheel.angleDelta.x) > Math.abs(wheel.angleDelta.y) ? wheel.angleDelta.x : wheel.angleDelta.y;
+            if (delta * wheelCarry < 0) wheelCarry = 0;
+            wheelCarry += delta;
+            while (Math.abs(wheelCarry) >= 120) {
+                step(wheelCarry < 0 ? 1 : -1);
+                wheelCarry -= Math.sign(wheelCarry) * 120;
             }
         }
 
+        // The wheel over the zone, under the content, so a widget that
+        // takes the wheel itself, as Sound does, keeps it.
+        // pointer-cursor-exempt: it takes the wheel alone, never a click
+        // keyboard-path: the < and > buttons and keyboard focus scroll the zone
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.NoButton
+            enabled: zone.clipped
+            onWheel: wheel => zone.takeWheel(wheel)
+        }
+
+        // The section the core fills. The core's drop reads the box the
+        // zone draws in and the part of it that shows whole widgets, in
+        // section coordinates, and hands `reveal` a drag's preview gap and
+        // the widget it drops.
         Item {
             id: section
             readonly property real spacing: Theme.bar.gap
+            readonly property real viewX: -x
+            readonly property real viewWidth: zone.width
+            readonly property real shownX: -x + (zone.moreBefore ? zone.inset : 0)
+            readonly property real shownWidth: zone.width - (zone.moreBefore ? zone.inset : 0) - (zone.moreAfter ? zone.inset : 0)
+            function reveal(item) { zone.reveal(item); }
             x: zone.edge === Qt.LeftEdge ? -zone.drawnScroll : zone.width - width + zone.drawnScroll
             height: zone.height
         }
@@ -314,9 +343,12 @@ Item {
         height: scroller.owner.height
         x: start ? 0 : scroller.owner.width - width
 
-        // The backdrop takes every press and hover, so the widget it
-        // covers opens no menu and shows no tooltip from under the button.
-        // pointer-cursor-exempt: the button inside shows the hand; the backdrop around it runs nothing
+        // The backdrop takes every press, hover and wheel turn the bar
+        // item in it leaves, so the widget it covers opens no menu, shows
+        // no tooltip and takes no wheel from under the button. A press on
+        // it steps as the button does, and a turn over it scrolls the
+        // zone. A right click on the bar item steps the zone too (the bar
+        // row reads it).
         // keyboard-path: the button inside takes Tab focus and Enter
         MouseArea {
             x: scroller.start ? 0 : Theme.bar.scroll.fade
@@ -324,6 +356,9 @@ Item {
             height: parent.height
             acceptedButtons: Qt.AllButtons
             hoverEnabled: true
+            onClicked: scroller.owner.step(scroller.direction)
+            onWheel: wheel => scroller.owner.takeWheel(wheel)
+            PointerCursor {}
 
             Rectangle {
                 anchors.fill: parent
