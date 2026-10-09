@@ -539,6 +539,17 @@ nix_missing_row() { # BIN: only the absent available package blocks publication
     [[ ! -e $d/current && ! -e $d/0.1.0 && ! -s $install_log ]] && no_stage && scratch_empty
 }
 
+# run builds its own environment, not base_env's: a stand-in for install.sh
+# prints the system bus address it was handed, which must be the suite's
+# private bus, since a host bus that lists the names would pass the Nix rows
+# too.
+bus_address_row() {
+  new_home bus-address
+  printf 'printf "%%s\\n" "${DBUS_SYSTEM_BUS_ADDRESS-unset}"\n' >"$tmp/print-bus.sh"
+  run "$tmp/print-bus.sh"
+  [[ $status == 0 && $(<"$tmp/out") == "$system_bus_address" ]]
+}
+
 terminal_row() { # BIN: no launcher is needed in the caller's terminal
   new_home terminal-install
   missing_launcher_fixture
@@ -593,6 +604,7 @@ row_job check "a failed dependency install keeps the previous release and remove
 row_job check "the launcher prerequisite and real presenter refuse before fetch or launch" launcher_row "$installer"
 row_job check "Nix with every available required command permits release, current and Git installs" nix_present_row "$installer"
 row_job check "Nix names only the missing available required package" nix_missing_row "$installer"
+row_job check "run hands the script it runs the suite's private system bus" bus_address_row
 row_job pinned_row
 row_job check "a writer under the lock removes a dead run's staging directory" stage_row
 row_job check "a checksum mismatch refuses and leaves nothing: no data directory, no link, no download" mismatch_row "$installer"

@@ -15,7 +15,8 @@ tmp="$(mktemp -d)" || { echo "$(basename -- "$0" .sh): scratch=mktemp-failed" >&
 [[ -d $tmp && ! -L $tmp ]] || { echo "$(basename -- "$0" .sh): scratch=not-a-directory value=[$tmp]" >&2; exit 1; }
 tmp="$(cd -- "$tmp" && pwd -P)"
 # rows_cleanup stops the private system bus, when system_bus started one,
-# and removes $tmp. A suite that sets its own EXIT trap calls it there.
+# and removes $tmp. A suite that calls system_bus and sets its own EXIT
+# trap calls rows_cleanup there.
 system_bus_pid=""
 rows_cleanup() {
   if [[ -n $system_bus_pid ]]; then
@@ -418,7 +419,9 @@ EOF_DBUS
 # flock, shared or exclusive, that keeps it until /proc/locks shows a
 # blocked flock on FILE, which it records as $tmp/waiter, or until
 # $tmp/release exists, at most 10 s; $tmp/held marks the hold taken. It
-# sets holder, whose exit status is the holder's. flock(1) runs the watch
+# sets holder, whose exit status is the holder's: nonzero when the lock is
+# not taken within 5 s, so a leaked lock fails the row's wait rather than
+# hanging it. flock(1) runs the watch
 # as its command, so the lock's owner, flock(1) itself, lives for the whole
 # hold: inside a PID namespace /proc/locks hides a lock whose owner process
 # has exited, and the waiters blocked on it.
@@ -430,7 +433,7 @@ theme_lock_holder() { # shared|exclusive FILE
     *) echo "$(basename -- "$0" .sh): theme-lock-holder=$1" >&2; exit 1 ;;
   esac
   rm -f -- "${tmp:?}/held" "$tmp/waiter" "$tmp/release"
-  flock "$mode" -- "$2" bash -c '
+  flock -w 5 "$mode" -- "$2" bash -c '
     inode="$(stat -c %i -- "$1")" || exit 1
     : >"$2/held"
     for _ in $(seq 1 100); do
