@@ -10,16 +10,18 @@ import "Inset.js" as Inset
 // Every group is a deep-frozen object of primitives, so a write from any
 // file changes nothing: a colour is the string `#aarrggbb` a colour
 // property takes, never a colour value, whose channels a frozen object
-// cannot protect. A theme change replaces the groups and rebuilds no component:
-// a binding on a group re-evaluates, and a handler that needs every group
-// from one theme runs on `revisionChanged`, which fires after the last
-// group holds the new values. `documentRevision` rises after it, and only
-// for another theme document: a handler that reads what a theme package or
-// an apply changed runs on it, so an edit of the user's Appearance values
-// does not start it. The bundled fonts load here, so their families
-// are available before any component asks for them; a family a theme names
-// that Qt does not list is logged once and drawn with the bundled family the
-// token's default names.
+// cannot protect. A theme change replaces the groups whose values it
+// changes and rebuilds no component: a binding on such a group
+// re-evaluates, and a group whose values stay keeps its object, so no
+// binding on it runs. A handler that needs every group from one theme runs
+// on `revisionChanged`, which fires after the last group holds the new
+// values, also when no group changed. `documentRevision` rises after it,
+// and only for another theme document: a handler that reads what a theme
+// package or an apply changed runs on it, so an edit of the user's
+// Appearance values does not start it. The bundled fonts load here, so
+// their families are available before any component asks for them; a
+// family a theme names that Qt does not list is logged once and drawn with
+// the bundled family the token's default names.
 Singleton {
     id: root
 
@@ -103,7 +105,10 @@ Singleton {
     // judged again.
     readonly property var convertedValues: convert(source.values, [mono, sans].filter(font => font.status === FontLoader.Ready).map(font => font.name))
     readonly property real bodyLineBox: Math.max(Math.round(convertedValues.text.body.size * convertedValues.text.body.lineHeight), Math.ceil(bodyMetrics.height))
-    readonly property var published: convertBodyLines(Tokens.TOKENS, convertedValues, bodyLineBox)
+    // A group property whose binding answers the object it holds emits no
+    // change signal, and no binding on it runs (a run under qmltestrunner,
+    // Qt 6.11.2).
+    readonly property var published: identity.keep(convertBodyLines(Tokens.TOKENS, convertedValues, bodyLineBox))
 
     // A resolved colour is `#rrggbbaa`; Qt reads eight digits with alpha
     // first, so the alpha moves to the front here and nowhere else.
@@ -237,6 +242,34 @@ Singleton {
             return out === node ? node : Object.freeze(out);
         };
         return walk(table, values);
+    }
+
+    // Keeps a group's object across a publication that leaves its values.
+    // `held.tree` is the tree `published` last answered, a member of a
+    // plain object and no property: the write in `keep` emits nothing, so
+    // `published` does not depend on its own value.
+    QtObject {
+        id: identity
+
+        readonly property var held: ({ tree: null })
+
+        // `tree`, with each subtree that holds the values of its
+        // counterpart in the tree last answered replaced by that
+        // counterpart. Both trees have the table's shape.
+        function keep(tree) {
+            const walk = (previous, next) => {
+                if (typeof next !== "object") return next;
+                let same = true;
+                const out = {};
+                for (const key of Object.keys(next)) {
+                    out[key] = walk(previous[key], next[key]);
+                    same = same && out[key] === previous[key];
+                }
+                return same ? previous : Object.freeze(out);
+            };
+            held.tree = held.tree === null ? tree : walk(held.tree, tree);
+            return held.tree;
+        }
     }
 
     function convert(values, loaded) {

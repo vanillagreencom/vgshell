@@ -801,6 +801,7 @@ mutations=(
   "a theme change does not reach a group|../Commons/Theme.qml|readonly property var color: published.color|readonly property var color: convert(source.defaults.values, []).color|tst_theme.qml"
   "the theme reads no Appearance value|../Commons/Theme.qml|        userText: root.appearanceInput|        userText: \"\"|tst_theme.qml"
   "an Appearance value raises the document revision|../Commons/Theme.qml|readonly property int documentRevision: source.documentRevision|readonly property int documentRevision: source.revision|tst_theme.qml"
+  "an unchanged group is published as a new object|../Commons/Theme.qml|return same ? previous : Object.freeze(out);|return Object.freeze(out);|tst_theme.qml"
   "an appearance reads the whole theme|../Commons/Theme.qml|const converted = convertTree(table, accepted.values, accepted.values, []);|const converted = convertTree(table, Object.assign({}, accepted.values, { card: Object.assign({}, accepted.values.card, { fill: source.values.color.surface }) }), accepted.values, []);|tst_appearance.qml"
   "a read a change overtook is reported|../Commons/WatchedFile.qml|if (operation === \"stale\") {|if (false) {|tst_watched_file.qml"
   "a change during a read is not marked stale|../Commons/WatchedFile.qml|onFileChanged: file.inRead ? file.read() : file.changed()|onFileChanged: file.changed()|tst_watched_file.qml"

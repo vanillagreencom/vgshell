@@ -7,7 +7,9 @@ import qs.Unit
 // Theme reaches a component: a published value is the theme's, a theme
 // change re-evaluates a binding without rebuilding the item, the revision
 // rises after the groups hold the new theme, and a refused document changes
-// nothing. The user's Appearance values, Theme's one input, resolve over the
+// nothing. A theme change runs the bindings on a group it changes and none
+// on a group it leaves, and the revision rises for a theme that changes no
+// group. The user's Appearance values, Theme's one input, resolve over the
 // theme before the revision rises, an equal text resolves nothing again,
 // and no text draws the theme alone. The document revision rises for
 // another theme document and never for an Appearance value. The pixel rows
@@ -22,9 +24,19 @@ Item {
     property int revisionsSeen: 0
     property string accentAtRevision: ""
     property int radiusAtRevision: -1
+    // One binding on each of two groups, counted where it evaluates. The
+    // count is a member of a plain object, which no binding follows.
+    readonly property var evaluations: ({ color: 0, space: 0 })
+    function counted(group, value) { evaluations[group] += 1; return value; }
+    readonly property string accentRead: counted("color", Theme.color.accent)
+    readonly property real spaceRead: counted("space", Theme.space.md)
+    property int colorChanges: 0
+    property int spaceChanges: 0
     Connections {
         target: Theme
         function onRevisionChanged() { root.revisionsSeen += 1; root.accentAtRevision = Theme.color.accent; root.radiusAtRevision = Theme.popover.radius; }
+        function onColorChanged() { root.colorChanges += 1; }
+        function onSpaceChanged() { root.spaceChanges += 1; }
     }
 
     TestCase {
@@ -69,6 +81,38 @@ Item {
             compare(Theme.revision, revision + 1);
             compare(root.revisionsSeen, seen + 1);
             compare(root.accentAtRevision, "#ff0000ff");
+        }
+
+        // One theme change from the defaults per row: the group it changes
+        // with the value its binding then reads, and the group it leaves.
+        function test_a_change_runs_the_bindings_of_its_groups_alone_data() {
+            return [
+                { tag: "a colour", tokens: { palette: { accent: "#00ff00" } }, changed: "color", read: "accentRead", value: "#ff00ff00", left: "space" },
+                { tag: "a length", tokens: { space: { unit: 8 } }, changed: "space", read: "spaceRead", value: 16, left: "color" },
+            ];
+        }
+
+        function test_a_change_runs_the_bindings_of_its_groups_alone(row) {
+            const evaluations = Object.assign({}, root.evaluations);
+            const changes = { color: root.colorChanges, space: root.spaceChanges };
+            const seen = root.revisionsSeen;
+            compare(UnitTheme.override(row.tokens), "ok");
+            compare(root.evaluations[row.left], evaluations[row.left], "no binding on the group left ran");
+            compare(root[row.left + "Changes"], changes[row.left], "the group left emitted no change");
+            verify(root.evaluations[row.changed] > evaluations[row.changed], "the binding on the changed group ran");
+            compare(root[row.read], row.value);
+            compare(root[row.changed + "Changes"], changes[row.changed] + 1);
+            compare(root.revisionsSeen, seen + 1);
+        }
+
+        function test_an_equal_theme_runs_no_binding_and_raises_the_revision() {
+            compare(UnitTheme.override({ palette: { accent: "#00ff00" } }), "ok");
+            const evaluations = Object.assign({}, root.evaluations);
+            const seen = root.revisionsSeen;
+            compare(UnitTheme.override({ palette: { accent: "#00ff00" } }), "ok");
+            compare(root.evaluations.color, evaluations.color);
+            compare(root.evaluations.space, evaluations.space);
+            compare(root.revisionsSeen, seen + 1, "a handler on the revision still runs");
         }
 
         function test_refused_document_changes_nothing() {
