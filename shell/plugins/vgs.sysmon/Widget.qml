@@ -15,6 +15,7 @@ BarWidget {
     implicitWidth: row.implicitWidth
     implicitHeight: row.implicitHeight
     readonly property bool captions: setting("labelStyle", "icons") === "text"
+    readonly property bool stacked: setting("layout", "One line") === "Stacked"
     readonly property var gpuTemperature: gpu && gpu.state !== "asleep" ? gpu.temperature : null
     visible: setting("showCpu", true) || setting("showMemory", true) || (setting("showGpu", true) && gpu !== null)
 
@@ -53,6 +54,7 @@ BarWidget {
             textSample: root.percentSample
             countSample: root.degreesSample
             separator: "/"
+            stacked: root.stacked
             textLevel: Logic.tone(root.cpu.use, 60, 80)
             countLevel: Logic.tone(root.cpu.temperature, 70, 85)
             tooltip: "CPU " + root.percent(root.cpu.use) + " · " + root.degrees(root.cpu.temperature)
@@ -69,6 +71,7 @@ BarWidget {
             textSample: root.setting("memoryUnit", "percent") === "used" ? root.gb(root.memory.total) : root.percentSample
             countSample: root.percentSample
             separator: "/"
+            stacked: root.stacked
             textLevel: Logic.tone(root.memory.use, 75, 90)
             tooltip: "Memory " + root.gb(root.memory.used) + " of " + root.gb(root.memory.total)
             onClicked: root.toggle()
@@ -83,6 +86,7 @@ BarWidget {
             textSample: root.percentSample
             countSample: root.degreesSample
             separator: "/"
+            stacked: root.stacked
             countLevel: Logic.tone(root.gpuTemperature, 65, 80)
             tooltip: root.gpu ? root.gpu.name + " · " + (root.gpu.state === "asleep" ? "Asleep" : root.percent(root.gpu.use) + " · " + root.degrees(root.gpu.temperature)) : "GPU"
             onClicked: root.toggle()

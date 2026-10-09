@@ -135,9 +135,9 @@ Item {
                 tryVerify(() => item.implicitWidth === drawnWidth(item), 1000, item.label + " keeps no room after its reading");
             }
         }
-        // Each reading going from its short form to its widest: the item
-        // keeps its width, so no item after it and no widget after the
-        // System Monitor moves.
+        // Each reading going from its short form to its widest, on one line
+        // and stacked: the item keeps its width, so no item after it and no
+        // widget after the System Monitor moves.
         function test_a_reading_change_moves_no_other_widget_data() {
             const memory = { memoryUnit: "used" };
             return [
@@ -147,7 +147,9 @@ Item {
                 { tag: "memory-use", index: 1, change: (value, use) => { value.memory.use = use; }, from: 9, to: 100, texts: ["9%/0%", "100%/0%"] },
                 { tag: "swap", index: 1, change: (value, use) => { value.memory.swapUse = use; }, from: 9, to: 100, texts: ["5%/9%", "5%/100%"] },
                 { tag: "memory-used", index: 1, settings: memory, change: (value, gb) => { value.memory.used = gb * 1073741824; value.memory.total = 12 * 1073741824; }, from: 1, to: 12, texts: ["1.0 GB/0%", "12.0 GB/0%"] },
-                { tag: "gpu-use", index: 2, change: (value, use) => { value.gpu.use = use; }, from: 9, to: 100, texts: ["9%/42°", "100%/42°"] }
+                { tag: "gpu-use", index: 2, change: (value, use) => { value.gpu.use = use; }, from: 9, to: 100, texts: ["9%/42°", "100%/42°"] },
+                { tag: "stacked-cpu-temperature", index: 0, settings: { layout: "Stacked" }, change: (value, degrees) => { value.cpu.temperature = degrees; }, from: 9, to: 100, texts: ["5%9°", "5%100°"] },
+                { tag: "stacked-memory-used", index: 1, settings: { layout: "Stacked", memoryUnit: "used" }, change: (value, gb) => { value.memory.used = gb * 1073741824; value.memory.total = 12 * 1073741824; }, from: 1, to: 12, texts: ["1.0 GB0%", "12.0 GB0%"] }
             ];
         }
         function test_a_reading_change_moves_no_other_widget(data) {
@@ -184,6 +186,39 @@ Item {
             tryVerify(() => shownItems.every(item => item.width === drawnWidth(item)), 1000, "each item lays out its reading");
             const expected = () => shownItems.reduce((total, item) => total + item.width, 0) + (shownItems.length - 1) * Theme.bar.gap;
             tryVerify(() => widget.implicitWidth === expected(), 1000, "the widget is its items and the bar gap between them");
+        }
+        // Each item of the widget that shows two readings draws them on two
+        // lines in the Stacked layout: the items are read from the widget,
+        // and every one of the three must stack, so an item that ignores
+        // the setting fails its row. One line is the default, and an item
+        // showing one reading stays one line.
+        function test_layout_reaches_every_reading_data() {
+            return [
+                { tag: "stacked", settings: Object.assign(allReadings(), { layout: "Stacked" }), stacked: true },
+                { tag: "stacked-used-memory", settings: Object.assign(allReadings(), { layout: "Stacked", memoryUnit: "used", labelStyle: "text" }), stacked: true },
+                { tag: "one-line", settings: Object.assign(allReadings(), { layout: "One line" }), stacked: false },
+                { tag: "default", settings: allReadings(), stacked: false },
+                { tag: "stacked-one-reading", settings: { showCpu: true, showMemory: true, showGpu: true, layout: "Stacked" }, stacked: false }
+            ];
+        }
+        function test_layout_reaches_every_reading(data) {
+            widget.settings = data.settings;
+            const shownItems = items().filter(item => item.visible);
+            compare(JSON.stringify(shownItems.map(item => item.label)), JSON.stringify(["CPU", "Memory", "GPU"]));
+            for (const item of shownItems) {
+                const values = drawn(item).filter(label => label.text !== item.caption && label.text !== "/");
+                compare(values.length, data.settings.cpuTemperature ? 2 : 1, item.label + " shows its readings");
+                const size = data.stacked ? Theme.bar.stacked.size : Theme.text.bar.size;
+                for (const label of values) compare(label.font.pixelSize, size, item.label + " draws \"" + label.text + "\" in its layout's size");
+                compare(drawn(item).some(label => label.text === "/"), !data.stacked && values.length === 2, item.label + " draws its separator on one line alone");
+                if (values.length === 2) {
+                    // The column lays out at its next polish.
+                    const tops = () => values.map(label => label.mapToItem(item, 0, 0).y);
+                    if (data.stacked) tryVerify(() => tops()[1] >= tops()[0] + values[0].height, 1000, item.label + " draws its second reading under its first");
+                    else compare(tops()[1], tops()[0], item.label + " draws its readings on one line");
+                }
+                compare(item.height, Theme.bar.item.height);
+            }
         }
         function test_temperatures_swap_and_used_memory() {
             widget.settings = { showCpu: true, showMemory: true, showGpu: true,

@@ -11,7 +11,9 @@ import "../../shell/plugins/vgs.traffic" as Traffic
 // the outer room of every bar item, and the boxes stand the bar gap
 // apart, as two icon-only items do. A high rate leaves the widget's width
 // where 0 B/s put it, so the bar does not shift, and the held room sits
-// before each arrow, so an arrow stays beside its rate.
+// before each arrow, so an arrow stays beside its rate. The Stacked layout
+// draws the upload line over the download line inside the item, each
+// arrow beside its rate.
 Item {
     id: root
     width: 600
@@ -106,7 +108,9 @@ Item {
                 { tag: "kb-and-mb", down: 999 * 1024, up: 100 * 1048576, texts: ["999 KB/s", "100.0 MB/s"] },
                 { tag: "four-digit-kb", down: 1023 * 1024, up: 1023, texts: ["1023 KB/s", "1023 B/s"] },
                 { tag: "four-digit-mb", down: 1023.9 * 1048576, up: 1023 * 1024, texts: ["1023.9 MB/s", "1023 KB/s"] },
-                { tag: "four-digit-two-decimals", settings: { kbDecimals: 2, mbDecimals: 2 }, down: 1023.99 * 1048576, up: 1023.99 * 1024, texts: ["1023.99 MB/s", "1023.99 KB/s"] }
+                { tag: "four-digit-two-decimals", settings: { kbDecimals: 2, mbDecimals: 2 }, down: 1023.99 * 1048576, up: 1023.99 * 1024, texts: ["1023.99 MB/s", "1023.99 KB/s"] },
+                { tag: "stacked", settings: { layout: "Stacked" }, down: 123.4 * 1048576, up: 1023 * 1024, texts: ["1023 KB/s", "123.4 MB/s"] },
+                { tag: "stacked-four-digit", settings: { layout: "Stacked", kbDecimals: 2, mbDecimals: 2 }, down: 1023.99 * 1048576, up: 1023.99 * 1024, texts: ["1023.99 KB/s", "1023.99 MB/s"] }
             ];
         }
         function test_a_high_rate_keeps_the_width(data) {
@@ -138,8 +142,12 @@ Item {
                 return rateInk - (arrowInk + 1);
             });
         }
-        function test_the_arrow_stays_beside_its_rate() {
+        function test_the_arrow_stays_beside_its_rate_data() {
+            return [{ tag: "one-line", settings: {} }, { tag: "stacked", settings: { layout: "Stacked" } }];
+        }
+        function test_the_arrow_stays_beside_its_rate(data) {
             mouseMove(root, root.width - 1, root.height - 1);
+            widget.settings = data.settings;
             status.values = { traffic: { down: 1024, up: 1024, interfaces: [] } };
             compare(JSON.stringify(rates().map(label => label.text)), JSON.stringify(["1 KB/s", "1 KB/s"]));
             verify(waitForRendering(canvas));
@@ -150,6 +158,48 @@ Item {
             const widest = arrowGaps(grabImage(canvas));
             for (let index = 0; index < short.length; index++)
                 verify(Math.abs(short[index] - widest[index]) <= 1, "the arrow keeps its blank before the rate: short " + short[index] + ", widest " + widest[index]);
+        }
+
+        // Each line: its arrow and its rate, in the order the widget draws
+        // them.
+        function lines() {
+            const found = [];
+            const walk = node => { for (const child of node.children) { if (child.role === "bar" && child.visible && (child.text === "↑" || child.text === "↓")) found.push(child); walk(child); } };
+            walk(widget);
+            return found.map(arrow => ({ arrow: arrow, rate: arrow.parent.children.find(child => child !== arrow && child.role === "bar") }));
+        }
+        function test_the_layout_setting_data() {
+            return [
+                { tag: "stacked", settings: { layout: "Stacked" }, arrows: ["↑", "↓"], stacked: true },
+                { tag: "one-line", settings: { layout: "One line" }, arrows: ["↓", "↑"], stacked: false },
+                { tag: "default", settings: {}, arrows: ["↓", "↑"], stacked: false },
+                { tag: "stacked-download", settings: { layout: "Stacked", show: "download" }, arrows: ["↓"], stacked: false },
+                { tag: "stacked-upload", settings: { layout: "Stacked", show: "upload" }, arrows: ["↑"], stacked: false }
+            ];
+        }
+        function test_the_layout_setting(data) {
+            widget.settings = data.settings;
+            status.values = { traffic: { down: 2048, up: 1024, interfaces: [] } };
+            const found = lines();
+            compare(JSON.stringify(found.map(line => line.arrow.text)), JSON.stringify(data.arrows));
+            const item = button();
+            const size = data.stacked ? Theme.bar.stacked.size : Theme.text.bar.size;
+            for (const line of found)
+                for (const label of [line.arrow, line.rate]) {
+                    compare(label.font.pixelSize, size, "\"" + label.text + "\" draws in its layout's size");
+                    const top = label.mapToItem(item, 0, 0).y;
+                    verify(top >= 0 && top + label.height <= item.height, "\"" + label.text + "\" lies inside the item: top " + top + ", height " + label.height);
+                }
+            if (found.length === 2) {
+                const tops = found.map(line => line.arrow.mapToItem(item, 0, 0).y);
+                if (data.stacked) {
+                    verify(tops[1] >= tops[0] + found[0].arrow.height, "the download line is under the upload line");
+                    compare(Math.round(found[0].rate.mapToItem(item, found[0].rate.width, 0).x), Math.round(found[1].rate.mapToItem(item, found[1].rate.width, 0).x), "both rates end at one right edge");
+                } else {
+                    compare(tops[1], tops[0], "the two speeds draw on one line");
+                }
+            }
+            compare(item.height, Theme.bar.item.height);
         }
     }
 }

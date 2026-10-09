@@ -1002,6 +1002,16 @@ var TOKENS = {
             // quarter strength, never a state colour.
             separator: color("mix({bar.foreground}, {bar.background}, 0.75)")
         },
+        // Two readings of one item stacked on two short lines, the Stacked
+        // layout: the bar text at `size` on lines `lineHeight` tall, a
+        // line tighter than the font's own. Both follow the item's height,
+        // and a line is just under half of it, so the two lines fit the
+        // item at every height once the judge rounds each to a pixel. At
+        // the shipped 24 px item that is 10 px text on 12 px lines.
+        stacked: {
+            size: length("mul({bar.item.height}, 0.4)"),
+            lineHeight: length("mul({bar.item.height}, 0.48)")
+        },
         // A gap or a separator the user adds from the bar's menu: the gap's
         // empty width, the room either side of the separator's line, and
         // the line's height and colour. The owner set 15 and 5 px, the line

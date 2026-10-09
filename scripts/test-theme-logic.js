@@ -115,6 +115,10 @@ const DEFAULTS = [
     // The bar separator: alpha(#d7d7d9, 0.2), 255 * 0.2 = 51, a 12 px line.
     ["bar.spacer.line", "#d7d7d933"],
     ["bar.spacer.height", 12],
+    // Stacked readings: 24 * 0.4 = 9.6, a 10 px text, on 24 * 0.48 = 11.52,
+    // 12 px lines, two of them the item's 24 px.
+    ["bar.stacked.size", 10],
+    ["bar.stacked.lineHeight", 12],
     // The control and row rhythm, Radix Themes' button sizes on the 4 px
     // unit: 24, 32 and 40 px controls with mul(4, 2) = 8, mul(4, 3) = 12
     // and mul(4, 4) = 16 a side and mul(4, 1) = 4, 8 and mul(4, 3) = 12
@@ -910,13 +914,32 @@ function verifyBarSeparator(table) {
 }
 verifyBarSeparator(TOKENS);
 
+// Two stacked lines fit the bar item at every height the judge lets a
+// theme give it, its whole length range and odd heights between, and the
+// stacked text is smaller than the bar text.
+function verifyBarStacked(table) {
+    const judge = load(judgeFile);
+    const defaults = judge.defaults(table).values;
+    assert.ok(at(defaults, "bar.stacked.size") < at(defaults, "text.bar.size"), "the stacked text is smaller than the bar text");
+    for (const height of [0, 1, 7, 16, 23, 24, 25, 63, 4095, 4096]) {
+        const result = judge.accept(table, document({ bar: { item: { height: height } } }));
+        assert.equal(result.ok, true, `item height ${height}`);
+        const line = at(result.values, "bar.stacked.lineHeight");
+        assert.ok(2 * line <= height, `item height ${height}: two ${line} px lines`);
+        assert.ok(at(result.values, "bar.stacked.size") <= line, `item height ${height}: the text fits its line`);
+    }
+}
+verifyBarStacked(TOKENS);
+
 // Each token control edits a copy of the shipped table, and the verifier
 // it names must fail on that copy.
 const tokenSource = fs.readFileSync(path.join(repo, "shell/Commons/Tokens.js"), "utf8");
 const TOKEN_CONTROLS = [
     ["status text on its fill", 'color("contrast({color." + name + "})")', 'color("contrast({palette." + name + "})")', verifyStatusText],
     ["bar separator colour", 'line: color("alpha({bar.foreground}, 0.2)")', 'line: color("alpha({bar.foreground}, 0.4)")', verifyBarSeparator],
-    ["bar separator height", 'height: length(12),\n            line:', 'height: length("{icon.size.md}"),\n            line:', verifyBarSeparator]
+    ["bar separator height", 'height: length(12),\n            line:', 'height: length("{icon.size.md}"),\n            line:', verifyBarSeparator],
+    ["stacked lines rounded past the item", 'lineHeight: length("mul({bar.item.height}, 0.48)")', 'lineHeight: length("mul({bar.item.height}, 0.5)")', verifyBarStacked],
+    ["stacked text at the bar size", 'size: length("mul({bar.item.height}, 0.4)")', 'size: length("{text.bar.size}")', verifyBarStacked]
 ];
 fs.mkdirSync(path.join(repo, "tmp"), { recursive: true });
 const tokenControlDir = fs.mkdtempSync(path.join(repo, "tmp", "token-control-"));
@@ -1067,7 +1090,7 @@ try {
 // control moves row.height off the grid in a theme document, and the
 // check must name it.
 const GRID_EXCEPTIONS = [
-    [/^(font\.size|text\.[^.]+\.size)$/, "type sizes"],
+    [/^(font\.size|text\.[^.]+\.size|bar\.stacked\.size)$/, "type sizes"],
     [/(^border\.|\.border$|[bB]orderWidth$|^divider\.thickness$|^focusRing\.width$|^titleButton\.underline$|^rowAction\.underline(Hover)?$|^tabs\.indicator$|^segmented\.indicator$|^avatarGroup\.ringWidth$|^hyprland\.border\.size$)/, "strokes"],
     [/^(icon\.size\.|button\.size\.[^.]+\.icon$|rowAction\.icon$|slider\.handle$|radio\.dot$)/, "indicator and icon drawing sizes"],
     [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap|rowAction\.underlineGap|carousel\.sliceName\.shadowOffset)$/, "2 px steps inside one component"],

@@ -21,7 +21,12 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // lays out to with every reading at its sample and draws right aligned in
 // it, so spare room sits before the icon, the icon stays beside its number,
 // and the item keeps its width as the reading changes. A reading without a
-// sample holds no room. The item is as wide as its
+// sample holds no room. `stacked`, with both text and count shown, draws
+// the text over the count on two short lines, `bar.stacked.size` text in
+// `bar.stacked.lineHeight` boxes, with no separator: the two lines right
+// align in a block beside the icon, and the held width is the wider line
+// at its sample, so the icon stays beside the block and both lines fit
+// inside the item. The item is as wide as its
 // padding and what it draws, and reserves no room after it. The item is
 // never narrower than it is tall, and an item that draws an icon alone is
 // square, its icon centred. The tooltip reads `tooltip` as its title and
@@ -41,12 +46,25 @@ T.AbstractButton {
     // glyph's ink past its advance, which TextMetrics.advanceWidth leaves
     // out ("100%" in the bar role lays out 33.56 px wide against an advance
     // of 32.56 px, read under scripts/qml-unit.sh on 2026-10-08), so an
-    // advance would hold a pixel less than the sample shown takes.
+    // advance would hold a pixel less than the sample shown takes. A
+    // `stacked` reading is one of two lines in the item: the bar role at
+    // `bar.stacked.size`, centred in a box `bar.stacked.lineHeight` tall.
+    // The box sets the line, not the Text's own height: a Text one line
+    // tall is never shorter than its font's line box, 14 px for the 10 px
+    // text in a 12 px line, read under scripts/qml-unit.sh on 2026-10-09.
     component Reading: Label {
         id: reading
         property string sample: ""
+        property bool stacked: false
         readonly property real room: visible ? Math.max(0, sampleSize.implicitWidth - implicitWidth) : 0
+        // The stacked size and line, null for one line.
+        readonly property var stackedLine: stacked ? Theme.bar.stacked : null
+        readonly property real size: stackedLine !== null ? stackedLine.size : typography.size
         role: "bar"
+        font.pixelSize: size
+        font.letterSpacing: typography.letterSpacing * size
+        height: stackedLine !== null ? stackedLine.lineHeight : implicitHeight
+        verticalAlignment: Text.AlignVCenter
 
         Text {
             id: sampleSize
@@ -70,6 +88,9 @@ T.AbstractButton {
     property string countSample: ""
     property string caption: ""
     property string separator: ""
+    // Draw text and count on two lines; with one of them shown it is one.
+    property bool stacked: false
+    readonly property bool stackedShown: stacked && text !== "" && count !== ""
     // "normal", "warning" or "danger".
     property string textLevel: "normal"
     property string countLevel: "normal"
@@ -90,6 +111,9 @@ T.AbstractButton {
     function levelColor(value) {
         return value === "danger" ? Theme.color.danger : value === "warning" ? Theme.color.warning : foreground;
     }
+    // Each value's colour, on one line or stacked.
+    readonly property color textColor: levelColor(textLevel)
+    readonly property color countColor: levelColor(countLevel)
 
     implicitWidth: Math.max(implicitHeight, Math.ceil(implicitContentWidth) + leftPadding + rightPadding)
     implicitHeight: Theme.bar.item.height
@@ -107,8 +131,10 @@ T.AbstractButton {
 
     contentItem: Item {
         id: content
-        // The row's width with every reading at its sample.
+        // The row's width with every reading at its sample; stacked, the
+        // block's width with its wider line at its sample.
         readonly property real held: row.implicitWidth + textLabel.room + countLabel.room
+            + (stack.visible ? Math.max(stackText.implicitWidth + stackText.room, stackCount.implicitWidth + stackCount.room) - stack.implicitWidth : 0)
         implicitWidth: held
         implicitHeight: row.implicitHeight
 
@@ -149,14 +175,14 @@ T.AbstractButton {
             }
             Row {
                 id: values
-                visible: root.text !== "" || root.count !== ""
+                visible: !root.stackedShown && (root.text !== "" || root.count !== "")
                 spacing: root.separator !== "" ? 0 : root.spacing
                 Reading {
                     id: textLabel
                     sample: root.textSample
                     visible: root.text !== ""
                     text: root.text
-                    color: root.levelColor(root.textLevel)
+                    color: root.textColor
                     y: topForCapCenter(row.height)
                 }
                 Label {
@@ -171,8 +197,29 @@ T.AbstractButton {
                     sample: root.countSample
                     visible: root.count !== ""
                     text: root.count
-                    color: root.levelColor(root.countLevel)
+                    color: root.countColor
                     y: topForCapCenter(row.height)
+                }
+            }
+            Column {
+                id: stack
+                visible: root.stackedShown
+                anchors.verticalCenter: parent.verticalCenter
+                Reading {
+                    id: stackText
+                    stacked: true
+                    anchors.right: parent.right
+                    sample: root.textSample
+                    text: root.text
+                    color: root.textColor
+                }
+                Reading {
+                    id: stackCount
+                    stacked: true
+                    anchors.right: parent.right
+                    sample: root.countSample
+                    text: root.count
+                    color: root.countColor
                 }
             }
         }

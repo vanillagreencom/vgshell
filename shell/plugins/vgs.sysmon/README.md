@@ -18,6 +18,6 @@ Image: `scripts/readme-shots.sh`.
 
 ## Settings
 
-Open Settings, Shell & Plugins, System Monitor. CPU, Memory and GPU each turn their bar value on or off and hold its options. Graphics card, under GPU, selects the card when the computer has more than one. Readings sets the refresh interval and the temperature unit. Labels shows an icon or a short name before each reading.
+Open Settings, Shell & Plugins, System Monitor. CPU, Memory and GPU each turn their bar value on or off and hold its options. Graphics card, under GPU, selects the card when the computer has more than one. Readings sets the refresh interval and the temperature unit. Labels shows an icon or a short name before each reading. Layout shows two readings of one item, such as CPU use and temperature, on one line or stacked on two short lines.
 
 If See all is missing, select Details on the same page. In Requirements, select Install all missing to add btop for the process list.

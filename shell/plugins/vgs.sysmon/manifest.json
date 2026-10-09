@@ -60,6 +60,7 @@
     "gpuTemperature": false,
     "gpu": "",
     "labelStyle": "icons",
+    "layout": "One line",
     "refreshSeconds": 2,
     "temperatureUnit": "Celsius"
   },
@@ -144,6 +145,16 @@
         "text"
       ],
       "description": "Shows an icon or a short name before each reading.",
+      "group": "Readings"
+    },
+    "layout": {
+      "type": "enum",
+      "label": "Layout",
+      "options": [
+        "One line",
+        "Stacked"
+      ],
+      "description": "Stacked shows two readings on two short lines.",
       "group": "Readings"
     },
     "refreshSeconds": {

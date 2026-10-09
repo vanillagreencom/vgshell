@@ -106,6 +106,7 @@
   ],
   "settings": {
     "show": "both",
+    "layout": "One line",
     "kbDecimals": 0,
     "mbDecimals": 1,
     "refreshSeconds": 2
@@ -119,6 +120,16 @@
         "download",
         "upload"
       ],
+      "group": "Display"
+    },
+    "layout": {
+      "type": "enum",
+      "label": "Layout",
+      "options": [
+        "One line",
+        "Stacked"
+      ],
+      "description": "Stacked shows two readings on two short lines.",
       "group": "Display"
     },
     "kbDecimals": {

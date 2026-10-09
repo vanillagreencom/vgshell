@@ -14,8 +14,11 @@ import qs.Unit
 // samples shown and draws right aligned in that width, so its glyphs end
 // where the same item without held room ends, the item keeps its right
 // padding, and the icon or caption stays as far from its value as with no
-// held room; `active`
-// fills it with `bar.active`;
+// held room; a stacked item draws text over count in `bar.stacked.size`,
+// both lines inside the item at every item height, right aligned in a
+// block whose held width is its wider line's sample, the icon as far from
+// the block at a short reading as at the widest, and with one reading
+// shown stays one line; `active` fills it with `bar.active`;
 // hover and press fill it with their own tokens; a click emits `clicked`.
 Item {
     id: root
@@ -32,6 +35,7 @@ Item {
     Rectangle { id: canvas; y: 160; width: root.width; height: 100; color: "black" }
     Component { id: heldCase; BarItem { tone: "#ff0000" } }
     Component { id: readingCase; BarItem { x: 150 } }
+    Component { id: stackedCase; BarItem { tone: "#ff0000"; stacked: true; x: 8; y: 16 } }
     Component {
         id: tooltipCase
         BarItem {
@@ -243,15 +247,19 @@ Item {
             return valueInk - (markInk + 1);
         }
 
-        // A short and the widest value held at the same sample: the held
-        // room sits before the icon or caption, so the blank between it and
-        // the value is the one the same item with no held room draws.
+        // A short and the widest value held at the same sample, on one line
+        // and stacked: the held room sits before the icon or caption, so the
+        // blank between it and the value is the one the same item with no
+        // held room draws.
         function test_the_mark_stays_beside_its_value_data() {
             return [
                 { tag: "short", held: { iconName: "cpu", text: "9%", textSample: "100%" } },
                 { tag: "widest", held: { iconName: "cpu", text: "100%", textSample: "100%" } },
                 { tag: "short-count", held: { iconName: "cpu", text: "9%", textSample: "100%", count: "9°", countSample: "100°", separator: "/" } },
-                { tag: "short-caption", held: { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%" } }
+                { tag: "short-caption", held: { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%" } },
+                { tag: "stacked-short", held: { iconName: "cpu", text: "9%", textSample: "100%", count: "9°", countSample: "100°", stacked: true } },
+                { tag: "stacked-widest", held: { iconName: "cpu", text: "100%", textSample: "100%", count: "100°", countSample: "100°", stacked: true } },
+                { tag: "stacked-caption", held: { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%", stacked: true } }
             ];
         }
 
@@ -331,6 +339,87 @@ Item {
             compare(alone.leftPadding, Theme.bar.item.paddingX);
             compare(alone.Accessible.name, "GPU graphics");
             compare(labels(alone)[0].color, Qt.color(Theme.bar.foreground));
+        }
+
+        // Stacked readings at item heights around the shipped 24 and an odd
+        // one: test-theme-logic.js walks the judge's whole length range for
+        // the token arithmetic; this draws the lines. Each line's box and
+        // its ink stay inside the item, and the count's line is below the
+        // text's. The stacked text follows the item's height, so only the
+        // shipped item draws it smaller than the bar text.
+        function test_stacked_lines_fit_the_item_data() {
+            return [16, 24, 25, 40, 64].map(height => ({ tag: String(height), height: height }));
+        }
+
+        function test_stacked_lines_fit_the_item(data) {
+            mouseMove(root, root.width - 1, 0);
+            compare(UnitTheme.override({ bar: { item: { height: data.height } } }), "ok");
+            const item = createTemporaryObject(stackedCase, canvas, { text: "100%", count: "100°", separator: "/" });
+            verify(item !== null);
+            compare(item.height, data.height);
+            verify(item.y + item.height + 16 <= canvas.height, "the canvas holds the item and a margin under it");
+            const found = labels(item);
+            compare(JSON.stringify(found.map(label => label.text)), JSON.stringify(["100%", "100°"]), "the stacked lines draw no separator");
+            for (const label of found) {
+                compare(label.font.pixelSize, Theme.bar.stacked.size);
+                compare(label.height, Theme.bar.stacked.lineHeight);
+            }
+            if (data.height === 24) verify(Theme.bar.stacked.size < Theme.text.bar.size, "the shipped stacked text is smaller than the bar text");
+            tryVerify(() => found[1].mapToItem(item, 0, 0).y >= found[0].mapToItem(item, 0, found[0].height).y, 1000, "the count's line is under the text's");
+            for (const label of found) {
+                const top = label.mapToItem(item, 0, 0).y;
+                verify(top >= 0 && top + label.height <= item.height, "\"" + label.text + "\" lies inside the item: top " + top + ", height " + label.height);
+            }
+            verify(waitForRendering(canvas));
+            const img = grabImage(root);
+            const box = item.mapToItem(root, 0, 0);
+            const inkRows = [];
+            for (let y = Math.floor(box.y) - 16; y < Math.ceil(box.y + item.height) + 16; y++)
+                for (let x = Math.floor(box.x); x < Math.ceil(box.x + item.width); x++)
+                    if (img.red(x, y) > 64) { inkRows.push(y); break; }
+            verify(inkRows.length > 0, "the stacked lines draw");
+            verify(inkRows[0] >= box.y && inkRows[inkRows.length - 1] < box.y + item.height,
+                "the ink lies inside the item: rows " + inkRows[0] + " to " + inkRows[inkRows.length - 1] + ", item " + box.y + " to " + (box.y + item.height));
+        }
+
+        // The block holds its wider line's sample and the lines right
+        // align in it: a value change keeps the item's width, and both
+        // lines end at one right edge.
+        function test_stacked_lines_hold_their_samples() {
+            const item = createTemporaryObject(stackedCase, canvas, { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%" });
+            verify(item !== null);
+            const found = labels(item).filter(label => label.text !== "RAM");
+            compare(found.length, 2);
+            tryVerify(() => item.width > item.height, 1000, "the item lays out");
+            const width = item.width;
+            const ends = () => found.map(label => Math.round(label.mapToItem(item, label.width, 0).x));
+            compare(ends()[0], ends()[1], "both lines end at one right edge");
+            verify(found[1].width < found[0].width, "the count's line is the narrower");
+            item.text = "12.0 GB";
+            item.count = "100%";
+            verify(waitForRendering(canvas));
+            compare(item.width, width, "the item keeps its width as its readings change");
+            compare(ends()[0], ends()[1]);
+        }
+
+        function test_one_reading_stays_one_line_data() {
+            return [
+                { tag: "text", properties: { text: "5%", stacked: true } },
+                { tag: "count", properties: { iconName: "shield", count: "12", stacked: true } },
+                { tag: "one-line", properties: { text: "5%", count: "9°", separator: "/" } }
+            ];
+        }
+
+        function test_one_reading_stays_one_line(data) {
+            const item = createTemporaryObject(readingCase, root, data.properties);
+            verify(item !== null);
+            const found = labels(item);
+            verify(found.length > 0);
+            const top = found[0].mapToItem(item, 0, 0).y;
+            for (const label of found) {
+                compare(label.font.pixelSize, Theme.text.bar.size);
+                compare(label.mapToItem(item, 0, 0).y, top, "\"" + label.text + "\" draws on the one line");
+            }
         }
 
         function test_theme_moves_the_item() {

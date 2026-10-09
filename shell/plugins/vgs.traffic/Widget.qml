@@ -7,6 +7,11 @@ BarWidget {
     id: root
     readonly property var traffic: shell === null ? ({}) : shell.status.values.traffic || ({})
     readonly property string showMode: setting("show", "both")
+    // Stacked draws upload over download on two short lines; one shown
+    // speed stays one line.
+    readonly property bool stacked: setting("layout", "One line") === "Stacked" && showMode === "both"
+    readonly property var directions: (stacked ? ["up", "down"] : ["down", "up"])
+        .filter(direction => showMode === "both" || showMode === (direction === "up" ? "upload" : "download"))
     readonly property int kbDigits: setting("kbDecimals", 0)
     readonly property int mbDigits: setting("mbDecimals", 1)
     function rate(value) { return Logic.formatRate(value, kbDigits, mbDigits); }
@@ -14,20 +19,21 @@ BarWidget {
 
     // Each speed holds the width it lays out to at the rate sample and
     // draws right aligned in it, so the arrow stays beside its rate and the
-    // held room sits before the arrow.
+    // held room sits before the arrow. Stacked, each is one short line.
     component Speed: Item {
         id: speed
         property string arrow: ""
         property string rate: ""
         property string sample: ""
+        property bool stacked: false
         implicitWidth: line.implicitWidth + reading.room
         implicitHeight: line.implicitHeight
         Row {
             id: line
             anchors.right: parent.right
             spacing: Theme.row.lineGap
-            Label { role: "bar"; text: speed.arrow; color: Theme.color.accent }
-            BarItem.Reading { id: reading; text: speed.rate; sample: speed.sample; font.capitalization: Font.MixedCase }
+            BarItem.Reading { stacked: speed.stacked; text: speed.arrow; color: Theme.color.accent }
+            BarItem.Reading { id: reading; stacked: speed.stacked; text: speed.rate; sample: speed.sample; font.capitalization: Font.MixedCase }
         }
     }
     property bool leased: false
@@ -59,12 +65,22 @@ BarWidget {
         contentItem: Item {
             implicitWidth: rates.implicitWidth
             implicitHeight: rates.implicitHeight
-            Row {
+            Grid {
                 id: rates
                 anchors.centerIn: parent
-                spacing: Theme.stack.inline
-                Speed { visible: root.showMode !== "upload"; arrow: "↓"; rate: root.rate(root.traffic.down); sample: root.rateSample }
-                Speed { visible: root.showMode !== "download"; arrow: "↑"; rate: root.rate(root.traffic.up); sample: root.rateSample }
+                columns: root.stacked ? 1 : 2
+                columnSpacing: Theme.stack.inline
+                horizontalItemAlignment: Grid.AlignRight
+                Repeater {
+                    model: root.directions
+                    Speed {
+                        required property string modelData
+                        arrow: modelData === "up" ? "↑" : "↓"
+                        rate: root.rate(root.traffic[modelData])
+                        sample: root.rateSample
+                        stacked: root.stacked
+                    }
+                }
             }
         }
     }
