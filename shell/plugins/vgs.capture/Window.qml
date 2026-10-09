@@ -23,7 +23,7 @@ FocusScope {
     readonly property rect previewRect: previewReady ? preview.item.contentRect : Qt.rect(0, 0, imageBox.width, imageBox.height)
     readonly property var initialFocus: sharing ? tabs : captureControls.item === null ? null : captureControls.item.initialFocus
     readonly property real areaHeight: 4 * Theme.row.height + 3 * Theme.stack.row
-    readonly property real sharingHeight: pane.uncappedHeight + (areaControls.visible ? areaHeight - areaControls.height : areaHeight + Theme.stack.group)
+    readonly property real sharingHeight: 2 * pane.contentInset + pane.headerHeight + pane.headerBodyGap + hint.implicitHeight + imageBox.height + sources.height + areaHeight + 3 * Theme.stack.group + pane.gap + pane.footerHeight
     readonly property bool compactArea: sharingHeight > OverlayState.room(shell === null ? null : shell.screens.current).height
     implicitWidth: Theme.size.window.width
     // The host maps once. Reserve Area's controls before the first tab opens.

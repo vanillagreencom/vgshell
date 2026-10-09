@@ -29,14 +29,21 @@ print(len(tabs)==3 and abs(strip["box"][2]-hint["box"][2])<1 and all(abs(t["box"
 }
 share_tabs_width_check() { expect "the page tabs fill the content width equally" True share_tabs_span; }
 share_area_fits() {
-  local rows scroll aspect current
+  local rows scroll aspect current window monitor border
   rows="$(ipc smoke descendantGeometry window vgs.capture)" || return
   scroll="$(ipc smoke itemValues window vgs.capture ScrollArea contentY,contentHeight,height)" || return
   aspect="$(share_read previewRect)" || return
   current="$(share_read current)" || return
-  python3 - "$rows" "$scroll" "$aspect" "$current" <<'PY'
+  window="$(surface_box window:Capture)" || return
+  monitor="$(hypr -j monitors)" || return
+  border="$(window_border_size)" || return
+  python3 - "$rows" "$scroll" "$aspect" "$current" "$window" "$monitor" "$border" <<'PY'
 import json,sys
-rows,scroll,aspect,current=map(json.loads,sys.argv[1:])
+rows,scroll,aspect,current,window,monitors,border=map(json.loads,sys.argv[1:])
+monitor=next(m for m in monitors if m['name']==current['name'])
+left,top,right,bottom=monitor['reserved']
+room=[monitor['x']+left,monitor['y']+top,monitor['width']/monitor['scale']-left-right,monitor['height']/monitor['scale']-top-bottom]
+frame=[window[0]-border,window[1]-border,window[2]+2*border,window[3]+2*border]
 preview=next(r for r in rows if r['type']=='ScreencopyPreview')
 image_index=rows[preview['parent']]['parent']; image=rows[image_index]
 viewport=next(r for r in rows if r['type']=='ScrollArea' and r['visible'])
@@ -48,6 +55,8 @@ def inside(a,b):
     x,y,w,h=a; X,Y,W,H=b
     return w>0 and h>0 and x>=X-1 and y>=Y-1 and x+w<=X+W+1 and y+h<=Y+H+1
 print(len(actions)==2 and len(sliders)==4 and len(selection)==1
+      and inside(frame,room)
+      and actions[0]['parent']==actions[1]['parent'] and inside(rows[actions[0]['parent']]['box'],rows[0]['box'])
       and all(inside(r['box'],rows[0]['box']) for r in [image,hint,*actions,*sliders])
       and all(inside(r['box'],viewport['box']) for r in [image,hint,*sliders])
       and inside(selection[0]['box'],image['box'])
@@ -446,6 +455,7 @@ PY
 share_area_evidence="$source_repo/tmp/ui-shots/VGS-1164"
 SHOT_DIR="$(shot_dir_under "$source_repo" "$share_area_evidence")"
 share_original_mode="$(first_mode)"
+share_area_settle() { take_mode "$share_output" "$share_mode_size" 1 >/dev/null && rest_pointer; }
 for share_size in standard minimum; do
   if [[ $share_size == standard ]]; then
     share_mode_size=1755x933
@@ -463,6 +473,7 @@ for share_size in standard minimum; do
       fi
       mv -T -- "$share_theme.next" "$share_theme"
       expect_poll "Area evidence publishes $share_mode" "$share_theme_name" ipc smoke themeName
+      share_area_settle || { fail "share-picker: the Area output did not settle"; return 0; }
       share_launch "area-$share_size-$share_version-$share_mode"
       share_arg switchTab 2; share_set_region
       expect_poll "Area evidence preview builds" true share_read previewReady
@@ -478,19 +489,22 @@ for share_size in standard minimum; do
         type_keys -k Tab -k Tab || fail "share-picker: reaching Area sliders failed"
         for share_slider in x y width height; do
           type_keys -k Up || fail "share-picker: moving $share_slider failed"
+          share_moved_value() { share_read region | py_reply 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]])' "$share_slider"; }
+          case $share_slider in x) share_slider_value=33;; y) share_slider_value=49;; width) share_slider_value=161;; height) share_slider_value=121;; esac
+          expect "the $share_slider slider moves its region edge" "$share_slider_value" share_moved_value
           share_area_check
           type_keys -k Tab || fail "share-picker: reaching the next slider failed"
         done
         if [[ $share_size == standard && $share_mode == dark ]]; then
-          share_minimum_mode="$(share_read sharingHeight | py_reply 'import math,sys; print("1755x%d" % math.ceil(float(sys.stdin.read())-2*(float(sys.argv[1])+float(sys.argv[2]))+2*float(sys.argv[3])))' "$(ipc smoke themeValue row.height)" "$(ipc smoke themeValue stack.row)" "$(ipc smoke themeValue size.window.gutter)")"
+          share_minimum_mode="$(share_read sharingHeight | py_reply 'import math,sys; gutter=2*float(sys.argv[3]); bar=float(sys.argv[5].split()[2]); margin=max(gutter,bar+2*float(sys.argv[6])); print("%dx%d" % (math.ceil(float(sys.argv[4])+gutter),math.ceil(float(sys.stdin.read())-2*(float(sys.argv[1])+float(sys.argv[2]))+margin)))' "$(ipc smoke themeValue row.height)" "$(ipc smoke themeValue stack.row)" "$(ipc smoke themeValue size.window.gutter)" "$(ipc smoke themeValue size.window.width)" "$(monitor_size)" "$(window_border_size)")"
           printf 'share-picker: minimum-output=%s full-area-height=%s\n' "$share_minimum_mode" "$(share_read sharingHeight)"
         fi
       fi
       ipc smoke descendantGeometry window vgs.capture >"$share_area_evidence/$share_size-$share_version-$share_mode-geometry.json"
       ipc smoke itemValues window vgs.capture ScrollArea contentY,contentHeight,height >"$share_area_evidence/$share_size-$share_version-$share_mode-scroll.json"
       rest_pointer || fail "share-picker: parking evidence pointer failed"
-      shot "$share_size-$share_version-$share_mode" || fail "share-picker: Area evidence failed"
-      share_click Button Cancel
+      shot_held "$share_size-$share_version-$share_mode" held_mode_state share_area_settle || fail "share-picker: Area evidence failed"
+      type_keys -k Escape || fail "share-picker: closing Area evidence failed"
       expect_poll "Area evidence caller cancels" True share_cancelled "area-$share_size-$share_version-$share_mode"
     done
   done
