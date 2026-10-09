@@ -705,6 +705,10 @@ expect "the page's touchpad scroll is on again" false ipc smoke setViewTouchpad 
 expect "a wheel notch moves the page Qt's step" 72 settings_travel view_travel window:Plugins window vgs.settings "$swipe_text" wheel 1 80
 expect "the window opens the long fixture again for the Tab row" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.settings-scroll
 expect_poll "the page draws the long fixture's fields again for the Tab row" '[40, 0]' scroll_fixture_fields
+scroll_first_enabled() { ipc smoke invokeInstance window vgs.settings fieldBoolean '{"id":"acme.settings-scroll","key":"field0"}' | py_reply 'import json,sys; print(json.load(sys.stdin)["enabled"])'; }
+expect "control: the unlisted long fixture has read-only fields" False scroll_first_enabled
+expect "the inert long fixture enables for keyboard scrolling" ok ipc shell setPluginEnabled acme.settings-scroll true
+expect_poll "the long fixture's first field can take the keyboard" True scroll_first_enabled
 expect "the Tab fixture starts at the top" 0 page_scrolled 0
 # Tab until the page scrolls, each focused item read in view. The control's
 # drag can leave a flick running, so the page first holds one position for
