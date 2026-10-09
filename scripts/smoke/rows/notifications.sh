@@ -1930,13 +1930,34 @@ rescan "the pending-image control service is built"
 expect_poll "the pending-image control service is ready" True record_exists vgs.notifications
 
 pending_image_case() { # SUMMARY CONTROL
-  local summary="$1" control="$2" key pattern
+  local summary="$1" control="$2" key pattern setup_failures
   rm -f -- "${image_entered:?}"
   expect "$summary: Silence stays on" on notes silence on
   expect "$summary: the inbox opens before the copy" ok notes panel
   notify smoke-chat 0 "$summary" "" '[]' "{\"image-path\": <\"$home/avatar.png\">}" 0 >/dev/null
   expect_poll "$summary: the helper reaches the copy barrier" True test_file "$image_entered"
-  key="$(note_state_py 'import json,sys; print(next((e["key"] for e in json.load(open(sys.argv[1]))["history"] if e["summary"] == sys.argv[2]), "none"))' "$summary")"
+  # Store.changed queues its file write with Qt.callLater. A running copy
+  # does not prove that write finished: the VGS-1071 final run read no entry
+  # here and tested none-image despite logging the real pending-image warning.
+  setup_failures="$failures"
+  expect_poll "$summary: the saved history contains the pending notification" True in_history "$summary"
+  if ((failures > setup_failures)); then
+    if [[ -e $image_entered ]]; then printf 'release\n' >"$image_gate"; fi
+    return
+  fi
+  if ! key="$(note_state_py 'import json,re,sys
+entries = [e for e in json.load(open(sys.argv[1]))["history"] if e["summary"] == sys.argv[2]]
+if len(entries) != 1: sys.exit("pending-image-entry: count=" + str(len(entries)))
+entry = entries[0]
+key = entry.get("key")
+if not isinstance(key, str) or re.fullmatch(r"[0-9]+-[0-9]+", key) is None: sys.exit("pending-image-entry: invalid-key")
+if entry.get("app") != "smoke-chat" or entry.get("image") != "file://" + sys.argv[3] + "/" + key + "-image": sys.exit("pending-image-entry: wrong-fixture")
+print(key)' "$summary" "$note_images" 2>"$sandbox/pending-image-key.stderr")"; then
+    fail "$summary: the saved pending-image entry is invalid"
+    cat -- "$sandbox/pending-image-key.stderr"
+    if [[ -e $image_entered ]]; then printf 'release\n' >"$image_gate"; fi
+    return
+  fi
   expect "$summary: the saved image does not exist at the barrier" False test_file "$note_images/$key-image"
   expect "$summary: the inbox refreshes while the copy waits" ok notes panel
   pattern="MediaSlot\\.qml.*Cannot open: file://.*/$key-image"
