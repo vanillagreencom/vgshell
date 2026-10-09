@@ -231,20 +231,23 @@ var OVERLAY_CAPTURE = {
     shortcuts: { left: "overlay-left", right: "overlay-right", up: "overlay-up", down: "overlay-down" }
 };
 
-// The area selector's right-button cancel. slurp maps its selection layer
-// under `namespace`, and slurp 1.5.0 ends a selection on any pointer button
+// The area selector's button cancel. slurp maps its selection layer under
+// `namespace`, and slurp 1.5.0 ends a selection on any pointer button
 // (main.c pointer_handle_button), so a right click selected the box under
 // the pointer. While that layer is mapped Hyprland enters `submap`, which
-// holds every plugin bind and turns `button` into slurp's own `key`
-// cancel; Hyprland sends slurp neither the consumed press nor its release
-// (KeybindManager::onMouseEvent, v0.56.2), and send_shortcut with no window
-// sends the key to the keyboard focus, which slurp's exclusive layer holds.
+// holds every plugin bind and turns each of `buttons`, every button but
+// the left, into slurp's own `key` cancel, as slurp's later main.c does;
+// Hyprland sends slurp neither the consumed press nor its release
+// (KeybindManager::onMouseEvent, v0.56.2), and send_key_state with no
+// window sends the key to the keyboard focus, which slurp's exclusive layer
+// holds. It sends the press alone: slurp ends on it, and a release would
+// reach whatever takes the keyboard after slurp (Actions::sendKeyState).
 // A selection mapped over an overlay takes this submap; the overlay's
 // returns when the selection closes.
 var SELECTION_CANCEL = {
     submap: "vgs:selection",
     namespace: "selection",
-    button: "mouse:273",
+    buttons: ["mouse:273", "mouse:274", "mouse:275", "mouse:276"],
     key: "Escape",
     description: "vgs:selection-cancel"
 };
@@ -681,8 +684,9 @@ function overlayCaptureLines(plan) {
     ].concat(overlayCapturePluginBindLines(plan), [
         "    end)",
         "    hl.define_submap(capture.selection.submap, function()"
-    ], overlayCapturePluginBindLines(plan), [
-        "        hl.bind(\"" + SELECTION_CANCEL.button + "\", hl.dsp.send_shortcut({ mods = \"\", key = \"" + SELECTION_CANCEL.key + "\" }), { description = \"" + SELECTION_CANCEL.description + "\" })",
+    ], overlayCapturePluginBindLines(plan), SELECTION_CANCEL.buttons.map(function (button) {
+        return "        hl.bind(\"" + button + "\", hl.dsp.send_key_state({ mods = \"\", key = \"" + SELECTION_CANCEL.key + "\", state = \"down\" }), { description = \"" + SELECTION_CANCEL.description + "\", ignore_mods = true })";
+    }), [
         "    end)",
         "    local function vgs_overlay_capture_open(namespace, closing)",
         "        for _, layer in ipairs(hl.get_layers()) do",

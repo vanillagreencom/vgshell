@@ -1356,6 +1356,24 @@ def main():
             if name == "ocr-failure":
                 assert "tesseract: fixture failure" in messages[-1]["message"]
                 assert (root / "clipboard").read_bytes() == b"previous clipboard"
+        # A cancel read as slurp answers still wins over the box it printed,
+        # and the stderr of that terminated slurp is no failure.
+        def late_answer_holds(helper):
+            root = world("late-answer-" + helper.stem, slurpAnswersTerm=True)
+            (root / "clipboard").write_bytes(b"previous clipboard")
+            code, messages, err = worker(root, request(root, "screenshot-area"), helper, line="cancel\n")
+            return (code == 0 and [m["event"] for m in messages][-1:] == ["cancelled"] and not (root / "pictures").exists()
+                    and (root / "clipboard").read_bytes() == b"previous clipboard")
+        assert late_answer_holds(HELPER), "late answer"
+        for name, before, after in [
+            ("geometry-over-cancel", "if cancelled or child.returncode or not geometry:", "if child.returncode or not geometry:"),
+            ("late-answer-error", "if not cancelled and err and err != SELECTION_CANCELLED:", "if err and err != SELECTION_CANCELLED:"),
+        ]:
+            original = HELPER.read_text()
+            assert original.count(before) == 1, name
+            helper = base / f"{name}.py"
+            helper.write_text(original.replace(before, after))
+            assert not late_answer_holds(helper), f"control did not fail: {name}"
         root = world("record")
         assert record_holds(root, request(root, "record"), HELPER), "record SIGINT finalization"
         root = world("freeze-released", clipboardHold=True)
@@ -1461,7 +1479,7 @@ def main():
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
     if unmeasured is None:
         recording_controls += ",no-trim"
-    controls = ("undrawn-windows,drawn-window-delegate,model-windows,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,settle-ignores-cancel,written-ignores-cancel,selector-ignores-cancel,no-selection-end," + recording_controls + "," + notification_controls)
+    controls = ("undrawn-windows,drawn-window-delegate,model-windows,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,settle-ignores-cancel,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
     if unmeasured is not None:
         # The rest passed, but the real post-process could not run: not a pass.
         print(f"test-capture: status=not-measured cause={unmeasured}; controls={controls}")

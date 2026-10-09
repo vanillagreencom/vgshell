@@ -67,18 +67,25 @@ FocusScope {
         });
     }
 
-    onActiveFocusChanged: root.call("panel-focused", activeFocus ? "on" : "off")
+    // The window Hyprland names active while the panel holds the keyboard.
+    // A layer that takes the keyboard, such as a capture's selector, leaves
+    // Hyprland's active window as it was (FocusState::rawSurfaceFocus,
+    // Hyprland v0.56.2), so only a window that takes it closes the panel.
+    // A title change reposts the same window, which closes nothing. The
+    // focus loss and the active window arrive on two sockets in either
+    // order, so both are read.
+    property string heldWindow: ""
+    readonly property string activeWindow: Hyprland.activeToplevel === null ? "" : Hyprland.activeToplevel.address
+    onActiveWindowChanged: closeForWindow()
 
-    // A window that takes the keyboard closes the panel. A layer that takes
-    // it, such as a capture's selector, posts no activewindowv2 event
-    // (FocusState::rawSurfaceFocus, Hyprland v0.56.2), so the panel stays
-    // for the capture to show. rawEvent: Quickshell 0.3.1 HyprlandEvent,
-    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Hyprland/HyprlandEvent
-    Connections {
-        target: Hyprland
-        function onRawEvent(event) {
-            if (root.opened && event.name === "activewindowv2" && event.data !== "") root.call("close", "");
-        }
+    onActiveFocusChanged: {
+        root.call("panel-focused", activeFocus ? "on" : "off");
+        if (activeFocus) heldWindow = activeWindow;
+        closeForWindow();
+    }
+
+    function closeForWindow() {
+        if (opened && !activeFocus && activeWindow !== heldWindow) root.call("close", "");
     }
 
     function open(payloadJson) {
@@ -87,6 +94,7 @@ FocusScope {
         // user stays on the row that took the chosen one's place.
         const reopen = opened && mode === payload.mode;
         mode = payload.mode;
+        if (!opened) heldWindow = activeWindow;
         opened = true;
         actionIndex = -1;
         call("panel-opened", mode);

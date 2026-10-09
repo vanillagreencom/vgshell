@@ -10,7 +10,10 @@ The recorder logs its start and output name, then writes `finalized`, or
 copies the fixture's `video`, only after SIGINT, never on a hard stop.
 ffmpeg copies its input, or writes a small JPEG for a one-frame thumbnail;
 ffmpegHold holds it half way until `ffmpeg-release` exists. grimHeldCall N
-holds the Nth grim run until `grim-release` exists. pw-dump prints the fixture's
+holds the Nth grim run until `grim-release` exists. slurpAnswersTerm holds
+slurp, then answers the terminate a cancel sends with its box, a stderr
+line and exit 0, as a slurp that answered just before the signal does.
+pw-dump prints the fixture's
 nodes. tesseract lists the fixture's languages and fails as Tesseract does
 for a requested one it does not hold.
 """
@@ -55,6 +58,15 @@ match tool:
         if config.get("hold"):
             (root / "slurp-ready").touch()
             signal.pause()
+        if config.get("slurpAnswersTerm"):
+            def answer(signum, frame):
+                print(config.get("geometry", "10,20 80x60"), flush=True)
+                print("fixture late answer", file=sys.stderr, flush=True)
+                os._exit(0)
+            signal.signal(signal.SIGTERM, answer)
+            (root / "slurp-ready").touch()
+            while True:
+                signal.pause()
         if config.get("escape"):
             sys.exit("selection cancelled")
         if config.get("cancel"):

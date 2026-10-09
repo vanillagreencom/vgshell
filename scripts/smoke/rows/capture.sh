@@ -6,7 +6,7 @@
 # reading. Late in the row it is enabled for the notification readings, and
 # shell.json's restore at the end puts it back as found.
 # SUPER+SHIFT+S is typed on the bind hyprland-consent's wired layer holds.
-# inputs: shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/plugins/vgs.sysmon/* shell/plugins/vgs.launcher/* shell/Core/HyprlandLayer.js scripts/smoke/rows/hyprland-consent.sh shell/Core/NotificationHub.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Notifier.qml shell/Core/TuiRecords.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/*
+# inputs: shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/plugins/vgs.sysmon/* shell/plugins/vgs.launcher/* shell/Core/HyprlandLayer.* scripts/smoke/rows/hyprland-consent.sh shell/Core/NotificationHub.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Notifier.qml shell/Core/TuiRecords.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/*
 # Expected rectangles come from Hyprland. Disposable copies remove each
 # screenshot choice and the owned tool deadline, and
 # the panel's mode and target choices, its press and its opening focus.
@@ -561,14 +561,25 @@ right_click "$((mon_w / 2))" "$((mon_h / 2))" || fail "capture: the control righ
 expect_poll "control: the right click without the selection submap finishes" idle capture_phase
 expect_poll "control: a right click slurp reads saves a file" "$((capture_before + 1))" capture_counts
 expect "earlier capture notices expire before the busy-worker control" 0 capture_wait_cards
-# The worker the service starts reads the sandbox copy at each run.
-capture_helper="$repo/shell/plugins/vgs.capture/helper/capture.py"
-cp -- "$capture_helper" "$capture_state/helper-original.py"
-python3 - "$capture_helper" "$sandbox" <<'PY'
+# capture_stays_busy: `busy` when every phase read over the poll bound the
+# key-cancel readings use is capturing, else `idle`.
+capture_stays_busy() {
+  smoke_poll_tries 200 1
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    [[ $(capture_phase) == capturing ]] || { echo idle; return; }
+    sleep 0.2 # the reading holds over the bound, read every 200 ms
+  done
+  echo busy
+}
+# The service runs the helper from its scan snapshot, so the control edits
+# that copy and puts it back.
+capture_selector_helper="$(capture_read helperPath | py_reply 'import json,sys; print(json.load(sys.stdin))')"
+python3 -c 'import pathlib,sys; h=pathlib.Path(sys.argv[1]).resolve(); assert any(h.is_relative_to(pathlib.Path(r).resolve()) for r in sys.argv[2:]), "capture control must stay inside the sandbox or its private runtime"' "$capture_selector_helper" "$sandbox" "$rt_dir"
+cp -- "$capture_selector_helper" "$capture_state/selector-helper-original.py"
+python3 - "$capture_selector_helper" <<'PY'
 from pathlib import Path
 import sys
-helper, sandbox = map(Path, sys.argv[1:])
-assert helper.resolve().is_relative_to(sandbox.resolve()), "busy-worker control must stay inside the sandbox"
+helper = Path(sys.argv[1])
 source = helper.read_text()
 before = "            if self.cancelled(0.05):\n"
 assert source.count(before) == 1, "busy-worker control match"
@@ -576,9 +587,10 @@ helper.write_text(source.replace(before, "            if False:\n"))
 PY
 capture_press || fail "capture: SUPER+SHIFT+S could not be typed for the busy-worker control"
 expect "control: the busy-worker selector maps" True capture_selecting
+expect_poll "control: the busy worker runs its selector and freeze" 2 capture_left
 capture_press || fail "capture: SUPER+SHIFT+S could not be typed over the busy-worker selector"
-expect "control: a worker that ignores the key cancel stays busy" capturing capture_phase
-cp -- "$capture_state/helper-original.py" "$capture_helper"
+expect "control: a worker that ignores the key cancel stays busy" busy capture_stays_busy
+cp -- "$capture_state/selector-helper-original.py" "$capture_selector_helper"
 type_keys -k Escape || fail "capture: Escape could not end the busy-worker control"
 expect_poll "control: Escape ends the busy worker" idle capture_phase
 expect_poll "control: the busy worker leaves no selector or freeze" 0 capture_left
@@ -590,6 +602,21 @@ read -r capture_box_top < <(hypr -j monitors | py_reply 'import json,sys; print(
 # slurp counts both drag corners, so the box ends on the bottom row.
 capture_surface_box="1,$capture_box_top $((mon_w - 2))x$((mon_h - capture_box_top))"
 capture_reference() { "${shell_env[@]}" "$capture_real_grim" -g "$capture_surface_box" "$capture_state/reference-$1.png"; }
+# capture_settled NAME: `settled` once two grim images of the box in a row
+# are equal, the rule the helper's settle uses, kept as reference NAME.
+capture_settled() {
+  local now="$capture_state/reference-$1.png" before="$capture_state/reference-$1.before.png"
+  rm -f -- "${before:?}"
+  smoke_poll_tries 200 1
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    capture_reference "$1" || return 1
+    if [[ -f $before ]] && cmp -s -- "$before" "$now"; then echo settled; return; fi
+    cp -- "$now" "$before"
+    sleep 0.2 # the next frame, read every 200 ms
+  done
+  echo unsettled
+}
+capture_submap() { local out; out="$(hypr submap)" || return; [[ -n $out ]] && printf '%s\n' "$out" | tail -n 1 || printf 'default\n'; }
 # capture_shows OPEN BARE: `shown=<bool> open=<n> bare=<n>`, the pixels of
 # the last saved image that differ from reference OPEN and from reference
 # BARE by more than 32 in a channel; shown when the image is far nearer the
@@ -633,37 +660,48 @@ capture_shown_verdict() { capture_shows "$@" | cut -d' ' -f1; }
 # grab when a layer that takes the keyboard maps (v0.56.2 LayerSurface.cpp
 # onMap, setGrab(nullptr)): hyprpicker and slurp both do, so the flyout
 # closes when the selector maps, and STAYS is False for it.
-capture_surface() { # LABEL OPEN_CMD SHOWN_CMD CLOSE_CMD STAYS
-  local label="$1" open="$2" shown="$3" close="$4" stays="$5"
-  capture_reference "bare-$label" || fail "capture: the bare $label reference failed"
+# SUBMAP is the submap the surface holds, which the selector's returns to.
+capture_surface() { # LABEL OPEN_CMD SHOWN_CMD CLOSE_CMD STAYS SUBMAP
+  local label="$1" open="$2" shown="$3" close="$4" stays="$5" submap="$6"
+  expect "the bare desktop under the $label settles" settled capture_settled "bare-$label"
   eval "$open" || fail "capture: the $label could not be opened"
   expect_poll "the $label shows" True eval "$shown"
-  sleep 1 # the surface's open animation has no end event the row can read
-  capture_reference "open-$label" || fail "capture: the open $label reference failed"
+  expect "the open $label settles" settled capture_settled "open-$label"
   capture_press || fail "capture: SUPER+SHIFT+S could not be typed over the $label"
   expect "SUPER+SHIFT+S opens a selector over the $label" True capture_selecting
-  expect "the selector leaves the $label open: $stays" "$stays" eval "$shown"
+  if [[ $stays == True ]]; then
+    expect "the selector leaves the $label open" True eval "$shown"
+  else
+    expect_poll "the selector closes the $label" False eval "$shown"
+  fi
   drag 1 "$capture_box_top" "$((mon_w - 2))" "$((mon_h - 1))" || fail "capture: the drag over the $label failed"
   expect_poll "the capture over the $label finishes" idle capture_phase
   expect "the capture leaves the $label open: $stays" "$stays" eval "$shown"
+  expect_poll "the capture over the $label returns to its submap" "$submap" capture_submap
   expect_poll "the capture over the $label shows it" shown=True capture_shown_verdict "open-$label" "bare-$label"
+  expect "control: the comparison reads the bare desktop as not showing the $label" shown=False capture_shown_verdict "bare-$label" "open-$label"
   printf 'capture-surface: surface=%s %s\n' "$label" "$(capture_shows "open-$label" "bare-$label")"
   if [[ $stays == True ]]; then eval "$close" || fail "capture: the $label could not be closed"; fi
   expect_poll "the $label closes" False eval "$shown"
   expect "earlier capture notices expire after the $label" 0 capture_wait_cards
 }
 capture_notes_shown() { [[ $(ipc smoke instanceGeometry panel vgs.notifications) != absent ]] && echo True || echo False; }
-capture_surface "notifications panel" "type_keys -M logo -k n -m logo" capture_notes_shown "type_keys -k Escape" True
+# The inbox opens over a focused window: the selector takes the keyboard
+# from it and Hyprland gives it back to that window, which closes nothing.
+open_toplevel "$sandbox/capture-under-inbox.log" smoke.capture-under-inbox "Under the inbox" || fail "capture: the window under the inbox did not map"
+capture_under_pid="$toplevel_pid"
+capture_surface "notifications panel" "type_keys -M logo -k n -m logo" capture_notes_shown "ipc vgs.notifications invoke close ''" True default
+close_toplevel "$capture_under_pid" "the window under the inbox closes"
 expect "System Monitor enables for the flyout reading" ok ipc shell setPluginEnabled vgs.sysmon true
 expect "System Monitor places its widget for the flyout reading" ok ipc shell setPluginPlaced vgs.sysmon true
 capture_flyout_shown() { [[ $(ipc smoke instanceGeometry panel vgs.sysmon) != absent ]] && echo True || echo False; }
-capture_surface "System Monitor flyout" 'click_centre "$(bar_key)" vgs.sysmon' capture_flyout_shown "type_keys -k Escape" False
+capture_surface "System Monitor flyout" 'click_centre "$(bar_key)" vgs.sysmon' capture_flyout_shown "type_keys -k Escape" False default
 expect "System Monitor leaves the bar after the flyout reading" ok ipc shell setPluginPlaced vgs.sysmon false
 expect "System Monitor disables after the flyout reading" ok ipc shell setPluginEnabled vgs.sysmon false
 expect "the launcher enables for its reading" ok ipc shell setPluginEnabled vgs.launcher true
 expect_poll "the launcher service is built" True record_exists vgs.launcher
 capture_launcher_shown() { [[ $(layer_count vgs:overlay) == 1 ]] && echo True || echo False; }
-capture_surface "launcher" "type_keys -M logo -k space -m logo" capture_launcher_shown "type_keys -k Escape" True
+capture_surface "launcher" "type_keys -M logo -k space -m logo" capture_launcher_shown "type_keys -k Escape" True vgs:capture
 expect "the launcher disables after its reading" ok ipc shell setPluginEnabled vgs.launcher false
 hypr_lua_restore capture || fail "capture: the harness hyprland.lua could not be put back"
 expect "the nested instance reloads the harness hyprland.lua" ok hypr reload config-only
