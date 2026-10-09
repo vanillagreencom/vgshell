@@ -71,24 +71,22 @@ FocusScope {
     // it, such as a capture's selector, closes nothing. Hyprland posts
     // activewindowv2 when a window takes the keyboard, the held one again
     // included, but not when a layer does (FocusState::rawSurfaceFocus,
-    // Hyprland v0.56.2). It also reposts the active window after a title
-    // change, right after windowtitlev2 (CWindow::onUpdateMeta), and after
-    // a layer closes it gives the keyboard back to the last window
-    // (CLayerSurface::onUnmap, refocusLastWindow): neither is a window
-    // taking it from the panel. The close still waits for the panel's own
-    // focus loss, so a window event that comes first closes nothing yet.
-    // rawEvent: Quickshell 0.3.1 HyprlandEvent,
+    // Hyprland v0.56.2). Two activewindowv2 events are no window taking it
+    // from the panel: the repost right after a title change's windowtitlev2
+    // (CWindow::onUpdateMeta), and the last window getting the keyboard
+    // back right after a layer of another program closes
+    // (CLayerSurface::onUnmap, refocusLastWindow). The event socket keeps
+    // that order; activewindow and the submap event the layer's own close
+    // posts come between and explain nothing. The close still waits for
+    // the panel's own focus loss, so a window event that comes first closes
+    // nothing yet. rawEvent: Quickshell 0.3.1 HyprlandEvent,
     // https://quickshell.org/docs/v0.3.1/types/Quickshell.Hyprland/HyprlandEvent
     property bool windowTook: false
-    property string retitled: ""
-    property bool refocusing: false
+    property var previousEvent: null
 
     onActiveFocusChanged: {
         root.call("panel-focused", activeFocus ? "on" : "off");
-        if (activeFocus) {
-            windowTook = false;
-            refocusing = false;
-        }
+        if (activeFocus) windowTook = false;
         closeForWindow();
     }
 
@@ -99,26 +97,17 @@ FocusScope {
     Connections {
         target: Hyprland
         function onRawEvent(event) {
-            switch (event.name) {
-            case "openlayer":
-                root.refocusing = false;
-                break;
-            case "closelayer":
-                root.refocusing = !event.data.startsWith("vgs:");
-                break;
-            case "windowtitlev2":
-                root.retitled = event.data.split(",")[0];
-                break;
-            case "activewindowv2": {
-                const repost = root.refocusing || event.data === root.retitled;
-                root.refocusing = false;
-                root.retitled = "";
-                if (repost) return;
-                root.windowTook = true;
-                root.closeForWindow();
-                break;
+            if (event.name === "activewindow" || event.name === "submap") return;
+            if (event.name !== "activewindowv2") {
+                root.previousEvent = { name: event.name, data: event.data };
+                return;
             }
-            }
+            const before = root.previousEvent;
+            root.previousEvent = null;
+            if (before !== null && before.name === "windowtitlev2" && before.data.split(",")[0] === event.data) return;
+            if (before !== null && before.name === "closelayer" && !before.data.startsWith("vgs:")) return;
+            root.windowTook = true;
+            root.closeForWindow();
         }
     }
 
