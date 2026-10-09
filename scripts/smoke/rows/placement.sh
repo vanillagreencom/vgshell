@@ -887,7 +887,20 @@ fi
 # A remove question that takes the keyboard's focus reason once its window
 # is active draws the ring at open, so the no-ring check reads red.
 if copy_tree placement-ring-control \
-  && edit_tree placement-ring-control shell/Ui/BarWidget.qml 'if (kind === "remove") dialog.focusInitial(Qt.MouseFocusReason);' 'if (kind === "remove") dialog.Window.window.activeChanged.connect(() => dialog.focusInitial(Qt.TabFocusReason));'; then
+  && edit_tree placement-ring-control shell/Ui/BarWidget.qml \
+    'Qt.callLater(() => dialog.forceActiveFocus(Qt.OtherFocusReason));' \
+    'Qt.callLater(() => {
+                    dialog.forceActiveFocus(Qt.OtherFocusReason);
+                    if (kind === "remove") {
+                        const keyboardInitial = () => {
+                            if (!dialog.Window.window.active) return;
+                            dialog.focusInitial();
+                            dialog.buttons()[dialog.focusIndex].focusReason = Qt.TabFocusReason;
+                        };
+                        dialog.Window.window.activeChanged.connect(keyboardInitial);
+                        keyboardInitial();
+                    }
+                });'; then
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$sandbox/tree-placement-ring-control" "$sandbox/placement-ring-control.log" || fail "the ring control shell starts"
