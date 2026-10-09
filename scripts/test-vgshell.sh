@@ -1102,7 +1102,7 @@ check "a busy apply leaves the theme file alone" cmp -s "$repo/themes/vgs/theme.
 # The must-fail control: a copy of vgshell that never takes the lock applies
 # under the held lock.
 mutant="$tmp/tree-nolock"; cp -R -- "$tree" "$mutant"
-take='flock -n -E 75 9 || status=$?'
+take='flock "$@" -E 75 9 || status=$?'
 check "the theme lock is taken once in bin/vgshell" test "$(grep -o -F -- "$take" "$repo/bin/vgshell" | wc -l)" == 1
 sed -i "s/$take/true/" "$mutant/bin/vgshell"
 check "the lockless mutant differs from bin/vgshell" test "$(cmp -s "$repo/bin/vgshell" "$mutant/bin/vgshell"; echo $?)" == 1
