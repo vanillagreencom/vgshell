@@ -89,6 +89,12 @@ mv -- "$tmp/fern" "$themes/fern"
 printf '{ "schemaVersion": 1, "name": "fern" }\n' >"$record"
 tinst "follow refuses a malformed record" "$cfg" "$rt_empty" 1 '{"state":"failed","shell":"unchanged","targets":[],"theme":null,"reason":"malformed","follow":null}' "vgshell: refused: follow=applied reason=malformed path=$record" theme follow --json
 tinst "list refuses a malformed record" "$cfg" "$rt_empty" 1 "" "vgshell: refused: themes=malformed path=$record" theme list
+# A record's terminal font is one the judge accepts.
+python3 -c 'import json; print(json.dumps({"schemaVersion": 1, "name": "fern", "file": "0" * 64, "package": "0" * 64, "terminalFont": 5}))' >"$record"
+tinst "follow refuses a record whose terminal font is no family" "$cfg" "$rt_empty" 1 "" "vgshell: refused: follow=applied reason=malformed path=$record" theme follow
+judge_control record-font '(!hasFont || logic.appearanceRefusal("terminalFont", doc.terminalFont) === "");' 'true;'
+tinst "the record-font mutant follows that record" "$cfg" "$rt_empty" 0 "$(follow_line edited fern unchanged)" "" theme follow
+unset THEME_BIN
 tinst "an apply over a malformed record succeeds" "$cfg" "$rt_empty" 0 "ok theme=fern state=unchanged shell=unchanged" "" theme apply fern
 check "the apply replaces the malformed record" record_is fern "$file"
 
@@ -182,12 +188,12 @@ fern_changed() { # ACCENT
 }
 fern_changed '#212121'
 rm -f -- "$record"
-judge_control record '    replaceFile(path.join(stateDir, APPLIED_FILE), JSON.stringify({ schemaVersion: 1, name, file: sha256(row.files.theme), package: digest }) + "\n", key);' ''
+judge_control record '    replaceFile(path.join(stateDir, APPLIED_FILE), JSON.stringify(record) + "\n", key);' ''
 tinst "the record mutant applies fern" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply fern
 check "the record mutant's apply leaves no record" test ! -e "$record"
 
 fern_changed '#222222'
-judge_control current 'if (packageDigest(row, key) === applied.package) return settled("current");' 'return settled("current");'
+judge_control current 'if (samePackage && terminalFont(shellConfig(configDir, key)) === recordedFont) return settled("current");' 'return settled("current");'
 tinst "the current mutant takes a changed package as current" "$cfg" "$rt_empty" 0 "$(follow_line current fern unchanged)" "" theme follow
 
 fern_changed '#232323'

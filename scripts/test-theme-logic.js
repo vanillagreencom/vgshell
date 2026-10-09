@@ -107,7 +107,11 @@ const DEFAULTS = [
     ["text.display.family", "Inter Variable"],
     ["text.label.family", "JetBrains Mono"],
     ["text.bar.family", "JetBrains Mono"],
+    ["text.button.family", "JetBrains Mono"],
+    ["text.eyebrow.family", "JetBrains Mono"],
+    ["text.code.family", "JetBrains Mono"],
     ["font.family.sans", "Inter Variable"],
+    ["font.family.caps", "JetBrains Mono"],
     ["bar.height", 28],
     ["bar.item.height", 24],
     ["bar.item.icon", 16],
@@ -934,12 +938,30 @@ function verifyAppearance(judge) {
     assert.equal(at(over(stillTheme, { motion: true, motionSpeed: 0.5 }).values, "motion.scale"), 2, "and at a slower speed, 1 / 0.5");
     assert.equal(at(over(stillTheme, { motionSpeed: 2 }).values, "motion.scale"), 0, "a speed alone does not move a still theme");
     assert.equal(at(over(shipped, { motion: false, motionSpeed: 2 }).values, "motion.scale"), 0, "a speed does not move motion that is off");
+    // Fonts: the interface font sets the reading text and the capitals and
+    // leaves code and key names; a theme's fixed-width family reaches the
+    // capitals until the user sets a font; the terminal font sets no token.
+    const fonts = over(shipped, { interfaceFont: "Noto Serif" }).values;
+    assert.deepEqual([at(fonts, "font.family.sans"), at(fonts, "text.body.family"), at(fonts, "text.h1.family"), at(fonts, "text.bar.family"), at(fonts, "text.label.family"), at(fonts, "text.button.family"), at(fonts, "text.eyebrow.family")],
+        ["Noto Serif", "Noto Serif", "Noto Serif", "Noto Serif", "Noto Serif", "Noto Serif", "Noto Serif"], "the interface font sets the reading text and the capitals");
+    assert.deepEqual([at(fonts, "font.family.mono"), at(fonts, "text.code.family"), at(fonts, "text.kbd.family"), at(fonts, "text.itemCode.family")],
+        ["JetBrains Mono", "JetBrains Mono", "JetBrains Mono", "JetBrains Mono"], "and leaves code and key names in the fixed-width family");
+    const monoTheme = accepted({ font: { family: { mono: "Courier", sans: "Serif" } } });
+    assert.deepEqual([at(monoTheme.values, "text.bar.family"), at(monoTheme.values, "text.code.family")], ["Courier", "Courier"], "a theme's fixed-width family reaches the capitals");
+    const overMono = over(monoTheme, { interfaceFont: "Noto Serif" }).values;
+    assert.deepEqual([at(overMono, "text.body.family"), at(overMono, "text.bar.family"), at(overMono, "text.code.family")], ["Noto Serif", "Noto Serif", "Courier"], "a user's interface font wins over a theme's families");
+    const terminal = over(shipped, { terminalFont: "Fira Code" });
+    assert.deepEqual(plain(terminal.values), plain(shipped.values), "the terminal font sets no token");
+    assert.deepEqual([terminal.appearance.values.terminalFont, terminal.appearance.sources.terminalFont, Object.hasOwn(terminal.appearance.theme, "terminalFont")], ["Fira Code", "user", false], "and is the user's value, with none of the theme's to show");
+    // A font named as the Hyprland choice is a font: no layer group stands behind it.
+    const named = over(shipped, { interfaceFont: "hyprland" });
+    assert.deepEqual([named.appearance.sources.interfaceFont, at(named.values, "text.body.family")], ["user", "hyprland"], "a family is never the Hyprland source");
     // Where each value comes from, what the theme shows, and which layer
     // groups the user leaves to Hyprland.
     const plainResult = over(shipped, {}).appearance;
-    assert.deepEqual(plain(plainResult.sources), { windowRadius: "theme", borderWidth: "theme", controlRadius: "theme", motion: "theme", motionStyle: "theme", motionSpeed: "theme", windowAnimations: "hyprland" }, "every value from the theme, animations from Hyprland");
+    assert.deepEqual(plain(plainResult.sources), { windowRadius: "theme", borderWidth: "theme", controlRadius: "theme", motion: "theme", motionStyle: "theme", motionSpeed: "theme", windowAnimations: "hyprland", interfaceFont: "theme", terminalFont: "theme" }, "every value from the theme, animations from Hyprland");
     assert.deepEqual(plain(plainResult.hyprland), { radius: true, borders: true, motion: false }, "the layer writes borders and radius and leaves animations");
-    assert.deepEqual(plain(plainResult.theme), { motion: true, motionStyle: "smooth", motionSpeed: 1, windowRadius: 0, borderWidth: 2, controlRadius: 0 }, "the theme's own values");
+    assert.deepEqual(plain(plainResult.theme), { motion: true, motionStyle: "smooth", motionSpeed: 1, windowRadius: 0, borderWidth: 2, controlRadius: 0, interfaceFont: "Inter Variable" }, "the theme's own values");
     assert.equal(over(accepted({ motion: { scale: 2 } }), {}).appearance.theme.motionSpeed, 0.5, "a theme's speed is 1 / its scale");
     const own = over(shipped, { windowRadius: "hyprland", borderWidth: "hyprland", windowAnimations: true, controlRadius: 4 }).appearance;
     assert.deepEqual(plain([own.sources.windowRadius, own.sources.borderWidth, own.sources.windowAnimations, own.sources.controlRadius]), ["hyprland", "hyprland", "user", "user"], "Use my Hyprland value is its own source");
@@ -952,9 +974,15 @@ function verifyAppearance(judge) {
     assert.ok(refused.refusals.every(row => row.line.startsWith("refused: ")), "each refusal is a keyed line");
     assert.deepEqual(plain(refused.values), plain(shipped.values), "refused members draw the theme");
     assert.deepEqual(plain(refused.appearance.values), {}, "refused members hold no value");
-    for (const [key, value] of [["windowRadius", 32], ["windowRadius", 0], ["windowRadius", "hyprland"], ["borderWidth", 20], ["borderWidth", "hyprland"], ["controlRadius", 16], ["motion", true], ["motion", false], ["motionStyle", "smooth"], ["motionSpeed", 0.5], ["motionSpeed", 2], ["windowAnimations", true]])
+    for (const [key, value] of [["windowRadius", 32], ["windowRadius", 0], ["windowRadius", "hyprland"], ["borderWidth", 20], ["borderWidth", "hyprland"], ["controlRadius", 16], ["motion", true], ["motion", false], ["motionStyle", "smooth"], ["motionSpeed", 0.5], ["motionSpeed", 2], ["windowAnimations", true],
+        ["interfaceFont", "Inter Variable"], ["terminalFont", "JetBrainsMono Nerd Font"], ["terminalFont", "Noto Sans Mono CJK JP"], ["terminalFont", "M+ 1mn"], ["interfaceFont", "x".repeat(100)]])
         assert.equal(judge.appearanceRefusal(key, value), "", key + "=" + JSON.stringify(value) + " is accepted");
-    for (const [key, value] of [["windowRadius", 33], ["windowRadius", "12"], ["windowRadius", 12.5], ["borderWidth", 0.5], ["controlRadius", 4.25], ["borderWidth", 21], ["controlRadius", 17], ["controlRadius", "hyprland"], ["motionSpeed", 0.25], ["motionSpeed", "hyprland"], ["motion", "hyprland"], ["windowAnimations", false], ["motionStyle", "none"], ["corner", 1], ["windowRadius", undefined]])
+    for (const [key, value] of [["windowRadius", 33], ["windowRadius", "12"], ["windowRadius", 12.5], ["borderWidth", 0.5], ["controlRadius", 4.25], ["borderWidth", 21], ["controlRadius", 17], ["controlRadius", "hyprland"], ["motionSpeed", 0.25], ["motionSpeed", "hyprland"], ["motion", "hyprland"], ["windowAnimations", false], ["motionStyle", "none"], ["corner", 1], ["windowRadius", undefined],
+        // A family: text, with nothing that ends or changes the terminal's
+        // configuration line and nothing the resolver reads as a reference.
+        ["terminalFont", ""], ["terminalFont", 12], ["terminalFont", ["Fira Code"]], ["terminalFont", " Fira Code"], ["terminalFont", "Fira Code "], ["terminalFont", "x".repeat(101)],
+        ["terminalFont", "Fira Code\nmap ctrl+a launch sh"], ["terminalFont", "Fira\rCode"], ["terminalFont", "Fira\tCode"], ["terminalFont", "Fira\u0085Code"], ["terminalFont", "Fira\u2028Code"], ["terminalFont", "Fira\u2029Code"],
+        ["terminalFont", "Fira\u007fCode"], ["terminalFont", "Fira \"Code\""], ["terminalFont", "Fira\\Code"], ["terminalFont", "family=Fira Code"], ["interfaceFont", "{font.family.mono}"], ["interfaceFont", "Fira}"], ["interfaceFont", "hyprland\n"]])
         assert.ok(judge.appearanceRefusal(key, value).startsWith("refused: "), key + "=" + JSON.stringify(value) + " is refused");
     // What Theme publishes: the values, the frozen sources and a line per
     // refused member. A value the
@@ -1204,7 +1232,21 @@ const CONTROLS = [
     ["appearance group tab ratio", "groupTab: 0.5,", "groupTab: 1,"],
     ["appearance control ratio", "control: 1 };", "control: 0.5 };"],
     ["appearance user over theme", "Object.keys(stated).forEach(function (path) { overrides[path] = stated[path]; });", "Object.keys(stated).forEach(function (path) { if (!hasOwn(overrides, path)) overrides[path] = stated[path]; });"],
-    ["appearance ratios on a user value alone", "if (member.targets !== undefined && typeof values[key] === \"number\")\n            member.targets.forEach(function (target) { stated[target[0]] = values[key] * APPEARANCE_RATIOS[target[1]]; });", "if (member.targets !== undefined)\n            member.targets.forEach(function (target) { stated[target[0]] = (typeof values[key] === \"number\" ? values[key] : shown[key]) * APPEARANCE_RATIOS[target[1]]; });"],
+    ["appearance ratios on a user value alone", "if (member.targets !== undefined && sources[key] === \"user\")\n            member.targets.forEach(function (target) { stated[target[0]] = member.type === \"family\" ? values[key] : values[key] * APPEARANCE_RATIOS[target[1]]; });", "if (member.targets !== undefined)\n            member.targets.forEach(function (target) { stated[target[0]] = member.type === \"family\" ? (sources[key] === \"user\" ? values[key] : shown[key]) : (typeof values[key] === \"number\" ? values[key] : shown[key]) * APPEARANCE_RATIOS[target[1]]; });"],
+    ["appearance family sets its targets whole", "stated[target[0]] = member.type === \"family\" ? values[key] : values[key] * APPEARANCE_RATIOS[target[1]];", "if (member.type !== \"family\") stated[target[0]] = values[key] * APPEARANCE_RATIOS[target[1]];"],
+    ["appearance interface font reaches the capitals", "targets: [[\"font.family.sans\"], [\"font.family.caps\"]]", "targets: [[\"font.family.sans\"]]"],
+    ["appearance terminal font sets no token", "terminalFont: { type: \"family\" }", "terminalFont: { type: \"family\", targets: [[\"font.family.mono\"]] }"],
+    ["appearance family is text", "typeof value === \"string\" && value !== \"\" && value.length <= FAMILY_MAX", "value !== \"\" && value.length <= FAMILY_MAX"],
+    ["appearance family is not empty", "typeof value === \"string\" && value !== \"\" && value.length <= FAMILY_MAX", "typeof value === \"string\" && value.length <= FAMILY_MAX"],
+    ["appearance family length", "value.length <= FAMILY_MAX && ", ""],
+    ["appearance family edge spaces", "value.trim() === value && ", ""],
+    ["appearance family refused characters", "!FAMILY_REFUSED.test(value))", "true)"],
+    ["appearance family control characters", "\\u0000-\\u001f\\u007f-\\u009f", "\\u0000-\\u0009"],
+    ["appearance family line separators", "\\u2028\\u2029", ""],
+    ["appearance family quote", "\\u2029\"\\\\={}]/", "\\u2029\\\\={}]/"],
+    ["appearance family backslash", "\"\\\\={}]/", "\"={}]/"],
+    ["appearance family equals sign", "\\\\={}]/", "\\\\{}]/"],
+    ["appearance family braces", "={}]/", "=]/"],
     ["appearance hyprland value on a group member", "if (member.hyprland !== undefined && value === \"hyprland\")", "if (value === \"hyprland\")"],
     ["appearance range", "value >= member.min && value <= member.max", "true"],
     ["appearance length is whole", "(member.type !== \"length\" || Number.isInteger(value))", "true"],
@@ -1219,7 +1261,8 @@ const CONTROLS = [
     ["appearance speed needs motion", "else if (moving && hasOwn(values, \"motionSpeed\"))", "else if (hasOwn(values, \"motionSpeed\"))"],
     ["appearance style easings", "stated[\"motion.easing.emphasized\"] = MOTION_STYLES[values.motionStyle].emphasized;", ""],
     ["appearance style preset", "stated[\"hyprland.motion.preset\"] = values.motionStyle;", ""],
-    ["appearance hyprland source", "values[key] === \"hyprland\" ? \"hyprland\" : \"user\";", "\"user\";"],
+    ["appearance hyprland source", "member.hyprland !== undefined && values[key] === \"hyprland\" ? \"hyprland\" : \"user\";", "\"user\";"],
+    ["appearance hyprland source on a group member alone", "member.hyprland !== undefined && values[key] === \"hyprland\" ? \"hyprland\" : \"user\";", "values[key] === \"hyprland\" ? \"hyprland\" : \"user\";"],
     ["appearance unset source", "(member.unset || \"theme\")", "\"theme\""],
     ["appearance layer groups", "hyprland[member.hyprland] = sources[key] !== \"hyprland\";", "hyprland[member.hyprland] = true;"],
     ["appearance theme speed", "motionSpeed: themeScale > 0 ? 1 / themeScale : 1", "motionSpeed: 1"],

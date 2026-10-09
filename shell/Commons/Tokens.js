@@ -40,8 +40,8 @@ function neutral(amount) { return color("mix({palette.background}, {palette.fore
 // A text colour between the foreground and the background.
 function faded(amount) { return color("mix({palette.foreground}, {palette.background}, " + amount + ")"); }
 
-// One typography role. `face` is `sans` or `mono`, the family of `font.family`
-// the role draws in. `letterSpacing` is in em; Label multiplies it by the
+// One typography role. `face` is `sans`, `mono` or `caps`, the family of
+// `font.family` the role draws in. `letterSpacing` is in em; Label multiplies it by the
 // size, because QML takes letter spacing in pixels.
 function role(face, sizeFactor, fontWeight, letterSpacing, lineHeight, uppercase, colorRole) {
     return {
@@ -106,7 +106,7 @@ var TEXT = {
     h3: role("sans", 1.07, 600, 0, 1.5, false, "textHeading"),
     // The title of every window: h3 2 px larger, on the same 24 px line box.
     windowTitle: role("sans", 1.2, 600, 0, 1.333, false, "textHeading"),
-    eyebrow: role("mono", 0.8, 700, 0.18, 1, true, "accent"),
+    eyebrow: role("caps", 0.8, 700, 0.18, 1, true, "accent"),
     subheading: role("sans", 1.07, 400, 0, 1.75, false, "textMuted"),
     body: role("sans", 1, 400, 0, 1.6, false, "text"),
     bodyStrong: role("sans", 1, 600, 0, 1.6, false, "text"),
@@ -119,14 +119,14 @@ var TEXT = {
     // The key/value pair: `label` names a value and `value` is the text
     // beside it. The capitals of the two are within a pixel of one height,
     // so centred on one row they share a baseline and read as one line.
-    label: role("mono", 0.8, 500, 0.08, 1, true, "textMuted"),
+    label: role("caps", 0.8, 500, 0.08, 1, true, "textMuted"),
     value: role("sans", 0.87, 400, 0, 1, false, "text"),
     hint: role("sans", 0.87, 400, 0, 1.55, false, "textFaint"),
     tooltip: role("sans", 0.8, 500, 0, 1.333, false, "text"),
-    button: role("mono", 0.8, 500, 0.08, 1, true, "text"),
+    button: role("caps", 0.8, 500, 0.08, 1, true, "text"),
     kbd: role("mono", 0.8, 600, 0.02, 1, false, "text"),
     code: role("mono", 0.87, 500, 0, 1.5, false, "text"),
-    bar: role("mono", 0.8, 500, 0.08, 1, true, "text")
+    bar: role("caps", 0.8, 500, 0.08, 1, true, "text")
 };
 
 // The name of one role of `text`, which a theme may point at any other
@@ -312,7 +312,11 @@ var TOKENS = {
         size: length(15),
         family: {
             mono: family("JetBrains Mono"),
-            sans: family("Inter Variable")
+            sans: family("Inter Variable"),
+            // The capitals: labels, buttons, eyebrows and the bar. Its own
+            // token, so the user's interface font reaches them and leaves
+            // code and key names in `mono` (ThemeLogic.APPEARANCE).
+            caps: family("{font.family.mono}")
         }
     },
 

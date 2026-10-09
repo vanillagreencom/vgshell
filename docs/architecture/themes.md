@@ -10,7 +10,7 @@ A target is data too: one `target.json` and its templates under `themes/targets/
 
 An apply lands whole or not at all. It stages every file beside its destination, swaps under the theme lock, and writes the shell's theme file last ([D021](../decisions/D021-theme-apply-writes-beside-each-destination.md)). A target that fails costs only itself and keeps its last files.
 
-VGS never overwrites what the user placed. Application entries and selection keys follow [D022](../decisions/D022-theme-apply-keeps-managed-links-in-application-directories.md). A follow never replaces a hand-edited theme file. A package changes only as a whole, and no layer merges over it ([D025](../decisions/D025-no-theme-override-layer.md)) but the user's Appearance values, which no target renders ([D104](../decisions/D104-appearance-values-over-the-theme.md)).
+VGS never overwrites what the user placed. Application entries and selection keys follow [D022](../decisions/D022-theme-apply-keeps-managed-links-in-application-directories.md). A follow never replaces a hand-edited theme file. A package changes only as a whole, and no layer merges over it ([D025](../decisions/D025-no-theme-override-layer.md)) but the user's Appearance values. No target renders them except the terminal font, which no package states ([D104](../decisions/D104-appearance-values-over-the-theme.md)).
 
 A catalog package earns no trust of its own. The Catalog and Backgrounds rules below govern catalog installs and wallpaper state.
 
@@ -40,7 +40,8 @@ A wallpaper another program draws must not be covered by a bare background colou
 - Do hold the theme lock for apply, follow, reload, a background change and every install verb; a second holder is refused as busy, except that a follow first waits up to 10 s for the holder to end. `scripts/test-vgshell.sh` and `scripts/test-vgshell-follow.sh` pin it.
 - Never remove a shipped package; remove deletes an installed directory only. `scripts/test-vgshell.sh` pins it.
 - Do write every file through `replaceFile` in `bin/lib/judge-files.js`, so no reader sees a partial file. `scripts/test-judge-files.js` pins it.
-- Never add a layer that merges over the applied package. The user's Appearance values are the one exception, and no target reads them ([D104](../decisions/D104-appearance-values-over-the-theme.md)). Review.
+- Never add a layer that merges over the applied package. The user's Appearance values are the one exception ([D104](../decisions/D104-appearance-values-over-the-theme.md)). Review.
+- Never render an Appearance value in a target, except the terminal font: a target names it as `@{appearance.terminalFont}`, and a line that names it is written only while the user set one. `scripts/test-theme-render.js` pins the line, and `scripts/test-vgshell-targets.sh` the kitty and Ghostty files.
 
 ### Targets
 
@@ -65,6 +66,7 @@ A wallpaper another program draws must not be covered by a bare background colou
 - Do refuse the whole apply when a configuration layer is refused. `scripts/test-vgshell.sh` pins it.
 - Do record every due target as pending before the swap, so `vgshell theme reload` can retry it. `scripts/test-vgshell-reload.sh` pins it.
 - Never follow over a theme file whose hash is not the one the apply recorded. `scripts/test-vgshell-follow.sh` pins it.
+- Do keep the background state through a follow that renders an unchanged package again, as for a new terminal font. `scripts/test-vgshell-backgrounds.sh` pins it.
 
 ### Catalog
 

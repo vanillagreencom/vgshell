@@ -151,6 +151,22 @@ Item {
             compare(Theme.appearanceState.sources.windowRadius, "theme");
         }
 
+        // Both families are bundled, so each is one Qt can draw here.
+        function test_an_interface_font_reaches_the_text_and_the_capitals() {
+            const color = Theme.color;
+            Theme.appearanceInput = JSON.stringify({ interfaceFont: "JetBrains Mono" });
+            compare(Theme.text.body.family, "JetBrains Mono", "the reading text takes the font");
+            Theme.appearanceInput = JSON.stringify({ interfaceFont: "Inter Variable" });
+            compare(Theme.text.bar.family, "Inter Variable", "the bar's capitals take the font");
+            compare(Theme.text.button.family, "Inter Variable");
+            compare(Theme.text.code.family, "JetBrains Mono", "code keeps the fixed-width family");
+            compare(Theme.appearanceState.theme.interfaceFont, "Inter Variable");
+            verify(Theme.color === color, "a font leaves the colour group's object");
+            Theme.appearanceInput = JSON.stringify({ terminalFont: "Inter Variable" });
+            compare(Theme.text.bar.family, "JetBrains Mono", "the terminal font sets no token");
+            compare(Theme.appearanceState.values.terminalFont, "Inter Variable");
+        }
+
         function test_the_document_revision_follows_the_theme_document_alone() {
             const document = Theme.documentRevision;
             const revision = Theme.revision;

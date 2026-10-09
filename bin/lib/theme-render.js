@@ -112,6 +112,14 @@ const TERMINAL_PREFIX = "terminal.";
 const CASE_SEPARATOR = "|";
 const CASE_PATTERN = /^([^=]+)=(.+)$/;
 
+// The placeholder for the user's terminal font, the `terminalFont` member
+// of shell.json `appearance`, which no token holds. A line that names it is
+// written only while the user set one, so a render without a font holds no
+// font line. Its one case, `|set=<text>`, writes <text> in place of the
+// name, for a line that belongs with the font's line.
+const TERMINAL_FONT = "appearance.terminalFont";
+const TERMINAL_FONT_SET = "set";
+
 // The placeholders a wiring line, a reload argument and a selection value
 // hold: the stable state directory, which each of them may hold, and the one
 // wiring file and the target's own directory, which only a reload argument
@@ -614,6 +622,11 @@ function expressionColor(logic, tokens, input, expression) {
     return result.ok ? result.values.result : undefined;
 }
 
+// The user's terminal font INPUT carries, or null for none.
+function terminalFont(input) {
+    return typeof input.terminalFont === "string" ? input.terminalFont : null;
+}
+
 // The text placeholder NAME stands for, or undefined when it names no token
 // and no slot. A colour is written by ENCODE; a token with cases as the case
 // of its value; any other token as its value.
@@ -623,6 +636,11 @@ function placeholderText(logic, tokens, input, name, encode) {
         if (cases.length > 0) return undefined;
         const slot = path.slice(TERMINAL_PREFIX.length);
         return logic.terminalSlotNames().includes(slot) ? encode(input.slots[slot]) : undefined;
+    }
+    if (path === TERMINAL_FONT) {
+        if (cases.length === 0) return terminalFont(input) || "";
+        const set = cases.length === 1 ? CASE_PATTERN.exec(cases[0]) : null;
+        return set !== null && set[1] === TERMINAL_FONT_SET ? set[2] : undefined;
     }
     if (path.includes("(") && cases.length === 0) {
         const value = expressionColor(logic, tokens, input, path);
@@ -854,10 +872,12 @@ function editorHighlightTemplate(logic, input, text) {
 // the target names to its text. INPUT carries the package's resolved token
 // `values`, the terminal `slots` terminalSource chose, `curated`, a Map
 // from destination to the bytes of the package's `targets/<destination>`,
-// and `installed`, true for a package under the configuration home's
-// themes/ and false for a shipped one. Every template is rendered, so a
+// `installed`, true for a package under the configuration home's
+// themes/ and false for a shipped one, and `terminalFont`, the user's
+// terminal font, absent or null for none. Every template is rendered, so a
 // placeholder naming no token or slot refuses the target even where a
-// curated file stands in. On a `runsCode` target an installed package's
+// curated file stands in, and so is a line that names an unset terminal
+// font, which is then left out whole. On a `runsCode` target an installed package's
 // curated file is dropped, never judged, and its destination listed in
 // `dropped`; any other curated file curatedTaken admits is taken verbatim.
 // An extension target renders its `version` destination first and writes
@@ -890,15 +910,26 @@ function renderTarget(logic, tokens, target, templates, input) {
         const template = parseTemplate(text);
         if (!template.ok) return refused("placeholder", "template=" + file.template + " unterminated=" + template.at);
         let out = "";
+        // Where the line being written began in `out`, once it named an
+        // unset terminal font, else -1: the line is cut at its end.
+        let dropFrom = -1;
         for (const part of template.parts) {
             if (typeof part === "string") {
-                out += part;
+                const end = dropFrom === -1 ? -1 : part.indexOf("\n");
+                if (end === -1) {
+                    out += part;
+                } else {
+                    out = out.slice(0, dropFrom) + part.slice(end + 1);
+                    dropFrom = -1;
+                }
                 continue;
             }
             const value = part.name === VERSION_PLACEHOLDER ? version : placeholderText(logic, tokens, input, part.name, encode);
             if (value === undefined) return refused("placeholder", "template=" + file.template + " placeholder=" + JSON.stringify(part.name));
+            if (dropFrom === -1 && terminalFont(input) === null && part.name.split(CASE_SEPARATOR)[0] === TERMINAL_FONT) dropFrom = out.lastIndexOf("\n") + 1;
             out += value;
         }
+        if (dropFrom !== -1) out = out.slice(0, dropFrom);
         const present = input.curated.has(file.destination);
         const drop = present && input.installed && target.runsCode;
         if (drop) dropped.push(file.destination);

@@ -360,9 +360,26 @@ tinst "the screen-only mutant sets b.png for DP-1" "$cfg" "$rt_empty" 0 "$(set_l
 check "the screen-only mutant moves the link to the screen's image" links_to b.png
 reset_dusk "clear control"
 tinst "the clear control sets b.png for DP-1" "$cfg" "$rt_empty" 0 "$(set_line b.png dusk "$images/b.png" DP-1)" "" theme background set "$images/b.png" --screen DP-1
-judge_control clear '{ current: background, themes: shown.themes, screens: {} }' '{ current: background, themes: shown.themes, screens: shown.screens }'
+judge_control clear 'screens: keepBackground ? shown.screens : {} }' 'screens: shown.screens }'
 tinst "the clear mutant applies dusk" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply dusk
 check "the clear mutant keeps the screen image through an apply" doc_is "$(at a.JPG)" '{}' "{\"DP-1\":\"$images/b.png\"}"
+# A follow for a changed terminal font renders the same package again and
+# keeps the background state whole: the current image, here the user
+# folder's, which an apply would replace with the package's, and each
+# screen's own.
+reset_dusk "font follow"
+font_file="$cfg/vgshell/shell.json"
+tinst "the font follow sets the user folder's image" "$cfg" "$rt_empty" 0 "$(set_line u.png - "$user/u.png")" "" theme background set "$user/u.png"
+tinst "the font follow sets b.png for DP-1" "$cfg" "$rt_empty" 0 "$(set_line b.png dusk "$images/b.png" DP-1)" "" theme background set "$images/b.png" --screen DP-1
+printf '{ "appearance": { "terminalFont": "Fira Code" } }\n' >"$font_file"
+tinst "a follow for a terminal font renders the package again" "$cfg" "$rt_empty" 0 "ok follow=reapplied theme=dusk state=unchanged" "" theme follow
+check "a follow for a terminal font keeps the current image and the screen's own" doc_is "$(uat u.png)" '{}' "{\"DP-1\":\"$images/b.png\"}"
+check "a follow for a terminal font keeps the link" links_at "$user/u.png"
+printf '{ "appearance": { "terminalFont": "Iosevka Term" } }\n' >"$font_file"
+judge_control font-keep 'applyTo(result, failures, configDir, stateDir, lock, applied.name, samePackage);' 'applyTo(result, failures, configDir, stateDir, lock, applied.name);'
+tinst "the font-keep mutant follows the font" "$cfg" "$rt_empty" 0 "ok follow=reapplied theme=dusk state=unchanged" "" theme follow
+check "the font-keep mutant shows the package's image on every screen" doc_is "$(at a.JPG)" '{}'
+printf '{}\n' >"$font_file"
 reset_dusk "every-screen control"
 tinst "the every-screen control sets b.png for DP-1" "$cfg" "$rt_empty" 0 "$(set_line b.png dusk "$images/b.png" DP-1)" "" theme background set "$images/b.png" --screen DP-1
 judge_control every-screen 'after = { current: image, themes: themes, screens: {} };' 'after = { current: image, themes: themes, screens: shown.screens };'

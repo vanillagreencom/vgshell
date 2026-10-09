@@ -292,6 +292,83 @@ tinst "an unchanged theme reloads nothing" "$cfg" "$rt_empty" 0 "ok theme=nord s
 check "unchanged bytes touch neither watched file" test "$(stat -c %Y -- "$cfg/alacritty/alacritty.toml" "$cfg/wezterm/wezterm.lua" | tr '\n' ' ')" == "1000 1000 "
 check "unchanged bytes signal nothing" signalled ""
 
+# The user's terminal font, the `terminalFont` member of shell.json
+# `appearance`: kitty and Ghostty write it and no other target changes; a
+# follow renders it again when it changes; without one, each file holds the
+# bytes it held before. Ghostty first clears the families its own
+# configuration set.
+cp -- "$live/kitty.conf" "$tmp/kitty-plain.conf"; cp -- "$live/ghostty.conf" "$tmp/ghostty-plain.conf"
+record="$state/applied.json"
+user_file="$cfg/vgshell/shell.json"
+font_user() { printf '{ "appearance": { "terminalFont": %s } }\n' "$1" >"$user_file"; } # FONT_JSON
+# The values FILE gives KEY, in order, as JSON; SEPARATOR ends the key.
+font_values() { # FILE SEPARATOR KEY
+  python3 -c 'import json,sys
+rows = [line.partition(sys.argv[2]) for line in open(sys.argv[1]).read().split("\n") if line and not line.startswith("#")]
+print(json.dumps([value.strip() for key, _, value in rows if key.strip() == sys.argv[3]]))' "$1" "$2" "$3"
+}
+recorded_font() { python3 -c 'import json,sys; d = json.load(open(sys.argv[1])); print(json.dumps([len(d), d.get("terminalFont")]))' "$record"; }
+font_follow() { # NAME OUTCOME STATE TARGETS_JSON
+  tinst "$1" "$cfg" "$rt_empty" 0 "{\"state\":\"$3\",\"shell\":\"unchanged\",\"targets\":$4,\"theme\":\"nord\",\"reason\":null,\"follow\":\"$2\"}" "" theme follow --json
+}
+font_targets="$(terminals "unchanged null" "$written" "$written" "unchanged null")"
+check "a record without a terminal font holds four keys" test "$(recorded_font)" == '[4, null]'
+font_user '"Fira Code"'
+: >"$signals"
+font_follow "a terminal font follows into kitty and Ghostty alone" reapplied applied "$font_targets"
+check "kitty.conf sets the font family" test "$(font_values "$live/kitty.conf" ' ' font_family)" == '["Fira Code"]'
+check "ghostty.conf clears the families before it and sets the font" test "$(font_values "$live/ghostty.conf" = font-family)" == '["\"\"", "\"Fira Code\""]'
+check "the font leaves every other kitty line" test "$(grep -v '^font_family ' "$live/kitty.conf")" == "$(cat "$tmp/kitty-plain.conf")"
+check "the font leaves every other Ghostty line" test "$(grep -v 'font-family\|^# An empty value' "$live/ghostty.conf")" == "$(cat "$tmp/ghostty-plain.conf")"
+check "the font signals ghostty and kitty" signalled "$both_signals"
+check "the record holds the font the targets were rendered with" test "$(recorded_font)" == '[5, "Fira Code"]'
+font_follow "a follow with the recorded font is current" current unchanged "[]"
+font_user '"Iosevka Term"'
+font_follow "another font follows" reapplied applied "$font_targets"
+check "kitty.conf sets the new font family" test "$(font_values "$live/kitty.conf" ' ' font_family)" == '["Iosevka Term"]'
+tinst "an apply renders the font too" "$cfg" "$rt_empty" 0 "ok theme=dusk state=applied shell=applied" "" theme apply dusk
+check "the applied package's kitty.conf sets the font family" test "$(font_values "$live/kitty.conf" ' ' font_family)" == '["Iosevka Term"]'
+tinst "nord applies again with the font" "$cfg" "$rt_empty" 0 "ok theme=nord state=applied shell=applied" "" theme apply nord
+# A value the judge refuses is no font: here one that would add a line of
+# its own to kitty.conf.
+font_user '"Fira Code\nmap ctrl+a launch sh"'
+font_follow "a refused font follows as no font" reapplied applied "$font_targets"
+check "a refused font leaves kitty.conf as it was without one" cmp -s -- "$tmp/kitty-plain.conf" "$live/kitty.conf"
+check "a refused font leaves ghostty.conf as it was without one" cmp -s -- "$tmp/ghostty-plain.conf" "$live/ghostty.conf"
+check "the record of a render without a font holds none" test "$(recorded_font)" == '[4, null]'
+# The must-fail controls, each from nord applied without a font.
+judge_control font-unjudged 'return value !== undefined && logic.appearanceRefusal("terminalFont", value) === "" ? value : null;' 'return value !== undefined ? value : null;'
+tinst "the font-unjudged mutant follows the refused font" "$cfg" "$rt_empty" 0 "$any_out" "" theme follow
+check "the font-unjudged mutant writes the font's second line into kitty.conf" grep -qxF -- "map ctrl+a launch sh" "$live/kitty.conf"
+unset THEME_BIN
+# The mutant recorded that font, which the judge refuses in a record too:
+# an apply writes a new one.
+tinst "follow refuses the record the font-unjudged mutant wrote" "$cfg" "$rt_empty" 1 "" "vgshell: refused: follow=applied reason=malformed path=$record" theme follow
+tinst "an apply takes the refused font back out" "$cfg" "$rt_empty" 0 "ok theme=nord state=applied shell=unchanged" "" theme apply nord
+check "the apply leaves kitty.conf as it was without a font" cmp -s -- "$tmp/kitty-plain.conf" "$live/kitty.conf"
+font_user '"Fira Code"'
+judge_control font-unrendered 'installed: row.source === "installed", terminalFont: font });' 'installed: row.source === "installed" });'
+tinst "the font-unrendered mutant follows the font" "$cfg" "$rt_empty" 0 "$any_out" "" theme follow
+check "the font-unrendered mutant leaves kitty.conf without a font" cmp -s -- "$tmp/kitty-plain.conf" "$live/kitty.conf"
+unset THEME_BIN
+printf '{}\n' >"$user_file"
+tinst "nord applies without a font for the follow control" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply nord
+font_user '"Fira Code"'
+judge_control font-unfollowed 'if (samePackage && terminalFont(shellConfig(configDir, key)) === recordedFont) return settled("current");' 'if (samePackage) return settled("current");'
+font_follow "the font-unfollowed mutant takes a new font as current" current unchanged "[]"
+unset THEME_BIN
+font_follow "the font follows for the record control" reapplied applied "$font_targets"
+judge_control font-unrecorded 'if (font !== null) record.terminalFont = font;' ''
+tinst "the font-unrecorded mutant applies nord" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply nord
+check "the font-unrecorded mutant's record holds no font" test "$(recorded_font)" == '[4, null]'
+unset THEME_BIN
+tinst "nord applies with the font for the removal" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply nord
+printf '{}\n' >"$user_file"
+font_follow "a removed font follows" reapplied applied "$font_targets"
+check "without a font kitty.conf holds the bytes it held before one" cmp -s -- "$tmp/kitty-plain.conf" "$live/kitty.conf"
+check "without a font ghostty.conf holds the bytes it held before one" cmp -s -- "$tmp/ghostty-plain.conf" "$live/ghostty.conf"
+font_follow "a follow without a font is current again" current unchanged "[]"
+
 # A signal command that fails leaves both signalled targets pending, and
 # `vgshell theme reload` runs them again.
 printf '2\n' >"$tmp/signal-exit"
@@ -484,7 +561,7 @@ check "the shipped neovim.lua lands byte for byte" cmp -s -- "$tree/themes/fenlu
 # The must-fail controls: a judge copy that takes every package as shipped
 # lands the installed file; one that reports no drop, on the row or in text,
 # leaves the row or the line without it.
-judge_control installed-as-shipped 'installed: row.source === "installed" });' 'installed: false });'
+judge_control installed-as-shipped 'installed: row.source === "installed", terminalFont: font });' 'installed: false, terminalFont: font });'
 apply_json "the installed-as-shipped mutant applies" 0 mossy
 check "the installed-as-shipped mutant lands the installed neovim.lua" cmp -s -- "$cfg/vgshell/themes/mossy/targets/neovim.lua" "$live/neovim.lua"
 judge_control drop-unreported 'dropped: entry.dropped === undefined ? [] : entry.dropped })));' 'dropped: [] })));'

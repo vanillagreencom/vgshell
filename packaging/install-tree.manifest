@@ -313,6 +313,8 @@ f share/vgshell/shell/plugins/vgs.displays/TrialBanner.qml
 f share/vgshell/shell/plugins/vgs.displays/Widget.qml
 f share/vgshell/shell/plugins/vgs.displays/helper/brightness.py
 f share/vgshell/shell/plugins/vgs.displays/manifest.json
+f share/vgshell/shell/plugins/vgs.fonts/Pane.qml
+f share/vgshell/shell/plugins/vgs.fonts/manifest.json
 f share/vgshell/shell/plugins/vgs.gallery/Gallery.qml
 f share/vgshell/shell/plugins/vgs.gallery/manifest.json
 f share/vgshell/shell/plugins/vgs.gallery/sample-emoji.png

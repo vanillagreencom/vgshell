@@ -48,6 +48,8 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
   | Border width | `hyprland.border.size` | 1 |
   | Control radius | `button`, `textField` and `segmented` radius | 1 |
 
+- Do set the interface font on `font.family.sans` and `font.family.caps` alone, so code and key names keep `font.family.mono`, and set no token from the terminal font, which the theme targets write ([themes.md](themes.md)). `scripts/test-theme-logic.js` pins both.
+
 - Never take a colour as an Appearance value; colours stay the theme's ([D025](../decisions/D025-no-theme-override-layer.md)). Review holds it.
 - Do draw a value that maps to a Hyprland option with `ValueSourceRow` ([D057](../decisions/D057-one-row-for-hyprland-mapped-values.md)). `scripts/qml-tests/tst_valuesourcerow.qml` pins its states.
 

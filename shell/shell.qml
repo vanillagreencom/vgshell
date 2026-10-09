@@ -20,6 +20,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
+import qs.Commons
 import qs.Core
 import qs.Hosts
 
@@ -114,6 +115,11 @@ ShellRoot {
         target: root.guarded ? Registry : null
         function onScanFinished() { Capabilities.themes.follow(); }
     }
+
+    // So does a change of the user's terminal font, which the follow
+    // renders into the theme targets that write it.
+    readonly property string terminalFont: Theme.appearanceState.values.terminalFont || ""
+    onTerminalFontChanged: if (root.guarded) Capabilities.themes.follow()
 
     // The Hyprland layer's one writer, in the runner's shell alone.
     LazyLoader {

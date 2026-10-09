@@ -1021,15 +1021,25 @@ var MOTION_STYLES = {
     snappy: { standard: "outQuart", emphasized: "outExpo" }
 };
 
+// A font family name a user may set: FAMILY_MAX characters at most, with
+// no space at either end, no brace, which would make it a token reference,
+// and no character that could end or change the kitty or Ghostty
+// configuration line the terminal font is written into: a control
+// character, a line separator, a quote, a backslash or an equals sign.
+var FAMILY_MAX = 100;
+var FAMILY_REFUSED = /[\u0000-\u001f\u007f-\u009f\u2028\u2029"\\={}]/;
+
 // Each member of shell.json `appearance`. `type` is `length` (a whole
 // pixel count from `min` to `max`), `number` (from `min` to `max`), `flag`
-// (a boolean, or `only` that value) or `choice` (one of `options`).
+// (a boolean, or `only` that value), `choice` (one of `options`) or
+// `family` (a font family name, which sets each target whole).
 // `hyprland` names the generated layer's group the member decides: a
 // length member takes the value "hyprland", which leaves that group to the
 // user's own Hyprland configuration, and a member without a value is
 // `unset`, "theme" unless stated. `theme` is the token whose resolved theme
 // value the member shows while the user sets none; `targets` are the tokens
-// a user's number sets, each with its ratio.
+// a user's number sets, each with its ratio. `terminalFont` sets no token:
+// the kitty and ghostty theme targets write it (bin/lib/theme-render.js).
 var APPEARANCE = {
     windowRadius: {
         type: "length", min: 0, max: 32, hyprland: "radius", theme: "hyprland.window.radius",
@@ -1043,7 +1053,9 @@ var APPEARANCE = {
     motionSpeed: { type: "number", min: 0.5, max: 2 },
     // Hyprland keeps the user's own animations unless the user chooses to
     // move windows with the shell's motion: no theme value stands in.
-    windowAnimations: { type: "flag", only: true, hyprland: "motion", unset: "hyprland" }
+    windowAnimations: { type: "flag", only: true, hyprland: "motion", unset: "hyprland" },
+    interfaceFont: { type: "family", theme: "font.family.sans", targets: [["font.family.sans"], ["font.family.caps"]] },
+    terminalFont: { type: "family" }
 };
 
 // Why VALUE cannot be the user's KEY of APPEARANCE, as a keyed line, or "".
@@ -1071,6 +1083,11 @@ function appearanceRefusal(key, value) {
         if (member.options.indexOf(value) !== -1)
             return "";
         want = member.options.join("|");
+        break;
+    case "family":
+        if (typeof value === "string" && value !== "" && value.length <= FAMILY_MAX && value.trim() === value && !FAMILY_REFUSED.test(value))
+            return "";
+        want = "family";
         break;
     default:
         throw new Error("theme: appearance member " + key + " has unknown type " + member.type);
@@ -1112,11 +1129,11 @@ function withAppearance(tokens, theme, user) {
         var member = APPEARANCE[key];
         if (member.theme !== undefined)
             shown[key] = valueAt(theme.values, member.theme);
-        sources[key] = !hasOwn(values, key) ? (member.unset || "theme") : values[key] === "hyprland" ? "hyprland" : "user";
+        sources[key] = !hasOwn(values, key) ? (member.unset || "theme") : member.hyprland !== undefined && values[key] === "hyprland" ? "hyprland" : "user";
         if (member.hyprland !== undefined)
             hyprland[member.hyprland] = sources[key] !== "hyprland";
-        if (member.targets !== undefined && typeof values[key] === "number")
-            member.targets.forEach(function (target) { stated[target[0]] = values[key] * APPEARANCE_RATIOS[target[1]]; });
+        if (member.targets !== undefined && sources[key] === "user")
+            member.targets.forEach(function (target) { stated[target[0]] = member.type === "family" ? values[key] : values[key] * APPEARANCE_RATIOS[target[1]]; });
     });
     var moving = hasOwn(values, "motion") ? values.motion : themeScale > 0;
     if (!moving && hasOwn(values, "motion"))

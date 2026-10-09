@@ -33,9 +33,9 @@
 //       whose reload is due runs its hook last.
 //   vgshell-theme-judge follow <text|json> <config-dir> <state-dir> <held|busy|failed> [<name>]
 //       apply again the package <state-dir>/applied.json records when its
-//       content changed and the theme file still holds the bytes that
-//       apply wrote, under the same lock verdict; with NAME, only when the
-//       record names that package.
+//       content or the user's terminal font changed and the theme file
+//       still holds the bytes that apply wrote, under the same lock
+//       verdict; with NAME, only when the record names that package.
 //   vgshell-theme-judge reload <text|json> <config-dir> <state-dir> <held|busy|failed>
 //       run the hook of every target <state-dir>/reload-pending.json lists
 //       again, under the same lock verdict.
@@ -755,16 +755,19 @@ function packageDigest(row, key) {
 
 // The apply <state-dir>/applied.json records, `{ schemaVersion: 1, name,
 // file, package }`: the package's name, the sha256 of the theme.json bytes
-// it wrote to the theme file and its packageDigest. Null when absent. KEY
-// leads the refusal for a file that cannot be read or parsed, or is no
-// such record.
+// it wrote to the theme file and its packageDigest, and `terminalFont`, the
+// user's terminal font the targets were rendered with, present only when
+// there was one. Null when absent. KEY leads the refusal for a file that
+// cannot be read or parsed, or is no such record.
 function readApplied(stateDir, key) {
     const file = path.join(stateDir, APPLIED_FILE);
     const doc = readJson(file, key, true);
     if (doc === null) return null;
     const isDigest = value => typeof value === "string" && SHA256_HEX.test(value);
-    const shaped = logic.isPlainObject(doc) && Object.keys(doc).length === 4 && doc.schemaVersion === 1 &&
-        logic.isPackageName(doc.name) && isDigest(doc.file) && isDigest(doc.package);
+    const hasFont = logic.isPlainObject(doc) && Object.hasOwn(doc, "terminalFont");
+    const shaped = logic.isPlainObject(doc) && Object.keys(doc).length === (hasFont ? 5 : 4) && doc.schemaVersion === 1 &&
+        logic.isPackageName(doc.name) && isDigest(doc.file) && isDigest(doc.package) &&
+        (!hasFont || logic.appearanceRefusal("terminalFont", doc.terminalFont) === "");
     if (!shaped) refuse(key + "=malformed path=" + file, "malformed");
     return doc;
 }
@@ -845,15 +848,29 @@ function previewTokens(values, includePalette) {
 // and at least one application did not.
 const PARTIAL_STATUS = 3;
 
-// The target names the effective shell.json lists in `disabledTargets`: the
-// shipped layer merged with the user's by PluginLogic.effectiveConfig, each
-// judged by configError first. A layer the judge refuses refuses the apply,
-// since no target's enablement can then be known.
-function disabledTargets(configDir, key) {
+// The effective shell.json: the shipped layer merged with the user's by
+// PluginLogic.effectiveConfig, each judged by configError first. A layer
+// the judge refuses refuses the apply, since no target's enablement can
+// then be known.
+function shellConfig(configDir, key) {
     const shipped = readConfig(pluginLogic, SHIPPED_CONFIG, key);
     const user = readConfig(pluginLogic, path.join(configDir, "shell.json"), key, true);
-    const effective = pluginLogic.effectiveConfig(shipped, user);
+    return pluginLogic.effectiveConfig(shipped, user);
+}
+
+// The target names EFFECTIVE, shellConfig's answer, lists in
+// `disabledTargets`.
+function disabledTargets(effective) {
     return Array.isArray(effective.disabledTargets) ? effective.disabledTargets : [];
+}
+
+// The user's terminal font in EFFECTIVE, shellConfig's answer: the
+// `terminalFont` member of `appearance`, or null for none. A value
+// ThemeLogic.appearanceRefusal refuses is none here as in the shell, which
+// logs it and shows the member as Set by theme.
+function terminalFont(effective) {
+    const value = logic.isPlainObject(effective.appearance) ? effective.appearance.terminalFont : undefined;
+    return value !== undefined && logic.appearanceRefusal("terminalFont", value) === "" ? value : null;
 }
 
 // Run READ, whose fs failure is the target's own: answers READ's value, or
@@ -875,10 +892,10 @@ function reading(name, dir, read, failed) {
 // file was not taken because it is a symlink or the renderer dropped it,
 // until the stage compares their bytes. A
 // disabled target keeps its `target`, whose wiring apply removes.
-// SLOTS are the terminal slots terminalSource chose; LIVE is the state
-// directory's theme/, which an entry target's links point into and a
-// selection's value may name.
-function planTarget(dir, row, slots, disabled, configHome, live) {
+// SLOTS are the terminal slots terminalSource chose and FONT terminalFont's
+// answer; LIVE is the state directory's theme/, which an entry target's
+// links point into and a selection's value may name.
+function planTarget(dir, row, slots, font, disabled, configHome, live) {
     const name = path.basename(dir);
     const skipped = reason => ({ name, state: "skipped", reason });
     const failed = (reason, failure) => ({ name, state: "failed", reason, failure });
@@ -945,7 +962,7 @@ function planTarget(dir, row, slots, disabled, configHome, live) {
     }, failed);
     if (!curated.ok) return curated.entry;
     const rendered = render.renderTarget(logic, tokens, target, judged.value.templates,
-        { values: row.values, slots, curated: curated.value.files, installed: row.source === "installed" });
+        { values: row.values, slots, curated: curated.value.files, installed: row.source === "installed", terminalFont: font });
     if (!rendered.ok) return failed(rendered.reason, render.refusalLine(name, rendered));
     // A symlinked curated file is never read, so the template renders in
     // its place; the renderer drops the rest, on runsCode targets.
@@ -982,7 +999,7 @@ function planTarget(dir, row, slots, disabled, configHome, live) {
 // Every shipped target under themes/targets/, planned by planTarget, in
 // name order. KEY leads the refusal for a targets directory that cannot be
 // listed; an absent one holds no target.
-function planTargets(row, slots, disabled, configHome, live, key) {
+function planTargets(row, slots, font, disabled, configHome, live, key) {
     const base = path.join(SHIPPED, TARGETS);
     let names;
     try {
@@ -990,7 +1007,7 @@ function planTargets(row, slots, disabled, configHome, live, key) {
     } catch (e) {
         refuse(key + "=unreadable path=" + base + " error=" + e.code, "unreadable");
     }
-    return (names || []).map(name => planTarget(path.join(base, name), row, slots, disabled, configHome, live));
+    return (names || []).map(name => planTarget(path.join(base, name), row, slots, font, disabled, configHome, live));
 }
 
 // Whether every file of a rendered target already stands in LIVE with the
@@ -1500,8 +1517,9 @@ function settle(entry, configHome, live, key) {
 // every application file is in place, and record the apply in
 // applied.json. RESULT's `shell` follows the theme file and its `targets`
 // are set once the swap has landed them; FAILURES takes each failed
-// target's keyed line.
-function applyTo(result, failures, configDir, stateDir, lock, name) {
+// target's keyed line. KEEP_BACKGROUND, a follow's for a package that did
+// not change, leaves the background state as it stands.
+function applyTo(result, failures, configDir, stateDir, lock, name, keepBackground = false) {
     if (!logic.isPackageName(name)) refuse("theme=" + JSON.stringify(name) + " reason=malformed-name", "malformed-name");
     const key = "theme=" + name + " reason";
     themeLock(key, lock, configDir);
@@ -1518,7 +1536,9 @@ function applyTo(result, failures, configDir, stateDir, lock, name) {
     // a target's wiring file is relative to it.
     const configHome = path.dirname(configDir);
     const live = path.join(stateDir, "theme");
-    const targets = planTargets(row, source.terminal, disabledTargets(configDir, key), configHome, live, key);
+    const effective = shellConfig(configDir, key);
+    const font = terminalFont(effective);
+    const targets = planTargets(row, source.terminal, font, disabledTargets(effective), configHome, live, key);
     const wiredBefore = readWired(stateDir, key);
     const dropped = droppedWired(wiredBefore, new Set(targets.map(entry => entry.name)));
     for (const entry of dropped.rows) failures.push(entry.failure);
@@ -1526,7 +1546,8 @@ function applyTo(result, failures, configDir, stateDir, lock, name) {
     // Chosen before anything moves, so a background state or directory that
     // cannot be read refuses the apply whole.
     const shown = backgrounds.read(logic, stateDir, key);
-    const background = backgrounds.stamped(row.path, backgrounds.choose(backgrounds.images(row.path, key), shown.themes[name]), key);
+    const background = keepBackground ? shown.current
+        : backgrounds.stamped(row.path, backgrounds.choose(backgrounds.images(row.path, key), shown.themes[name]), key);
     // Taken before anything moves too, for the record written after the
     // theme file.
     const digest = packageDigest(row, key);
@@ -1583,7 +1604,7 @@ function applyTo(result, failures, configDir, stateDir, lock, name) {
     }
     replaceFile(path.join(stateDir, "theme.name"), name + "\n", key);
     // An apply shows the package on every screen: it clears `screens` (docs/architecture/themes.md § Backgrounds).
-    backgrounds.land(stateDir, { current: background, themes: shown.themes, screens: {} }, shown, key);
+    backgrounds.land(stateDir, { current: background, themes: shown.themes, screens: keepBackground ? shown.screens : {} }, shown, key);
     // Asserted on every apply, unchanged bytes included, so a line removed
     // by hand comes back.
     const landed = settled.map(entry => entry.state === "written" || entry.state === "unchanged" ? wire(entry, configHome, live) : entry);
@@ -1600,7 +1621,9 @@ function applyTo(result, failures, configDir, stateDir, lock, name) {
     }
     // Once the theme file holds the package's bytes, so a follow never
     // takes bytes this apply did not write for its own.
-    replaceFile(path.join(stateDir, APPLIED_FILE), JSON.stringify({ schemaVersion: 1, name, file: sha256(row.files.theme), package: digest }) + "\n", key);
+    const record = { schemaVersion: 1, name, file: sha256(row.files.theme), package: digest };
+    if (font !== null) record.terminalFont = font;
+    replaceFile(path.join(stateDir, APPLIED_FILE), JSON.stringify(record) + "\n", key);
     // Last, so each application re-reads files that are all in place.
     result.targets = droppedRows.concat(landed.map((entry, i) => entry.state !== "failed" && due.includes(entry.name)
         ? reloadRow(entry.name, entry.target, configHome, live, result.targets[droppedRows.length + i], failures)
@@ -1654,14 +1677,16 @@ function apply(format, configDir, stateDir, lock, name) {
 
 // --- follow
 
-// Apply again the package applied.json records once its content changed,
-// while the theme file still holds the bytes that apply wrote. RESULT's
+// Apply again the package applied.json records once its content or the
+// user's terminal font changed, while the theme file still holds the bytes
+// that apply wrote. RESULT's
 // `follow` is `none` with no record, or with ONLY, a name, when the record
 // names another package; `edited` when the theme file is absent or holds
 // other bytes, a hand edit the follow leaves; `unavailable` when the name
 // no longer resolves to an accepted package; `current` when the package's
-// digest is the recorded one; `reapplied` once applyTo runs for it, whose
-// result RESULT then carries.
+// digest and the terminal font are the recorded ones; `reapplied` once
+// applyTo runs for it, whose result RESULT then carries. A package that did
+// not change keeps its background state: only its targets render again.
 function followTo(result, failures, configDir, stateDir, lock, only) {
     const key = "follow=applied reason";
     themeLock(key, lock, configDir);
@@ -1682,9 +1707,11 @@ function followTo(result, failures, configDir, stateDir, lock, only) {
     if (bytes === undefined || sha256(bytes) !== applied.file) return settled("edited");
     const row = packageSet(configDir, key).resolved.get(applied.name);
     if (row === undefined || row.state !== "ok") return settled("unavailable");
-    if (packageDigest(row, key) === applied.package) return settled("current");
+    const samePackage = packageDigest(row, key) === applied.package;
+    const recordedFont = applied.terminalFont === undefined ? null : applied.terminalFont;
+    if (samePackage && terminalFont(shellConfig(configDir, key)) === recordedFont) return settled("current");
     result.follow = "reapplied";
-    applyTo(result, failures, configDir, stateDir, lock, applied.name);
+    applyTo(result, failures, configDir, stateDir, lock, applied.name, samePackage);
 }
 
 function follow(format, configDir, stateDir, lock, only) {
@@ -2010,7 +2037,7 @@ function reloadAll(result, failures, configDir, stateDir, lock) {
         result.state = "unchanged";
         return;
     }
-    const disabled = disabledTargets(configDir, key);
+    const disabled = disabledTargets(shellConfig(configDir, key));
     const base = path.join(SHIPPED, TARGETS);
     let shipped;
     try {

@@ -2652,7 +2652,91 @@ for (const floor of [4.5, 3]) {
 }
 // End VGS-1051 Neovim contract.
 
+// The user's terminal font, shell.json `appearance.terminalFont`: the line
+// rule on a probe template, then the kitty and Ghostty targets as shipped.
+// A font line: [template, font, rendered text]; a null font is none.
+const FONT_LINES = [
+    ["a\nfont @{appearance.terminalFont}\nb\n", "Fira Code", "a\nfont Fira Code\nb\n"],
+    ["a\nfont @{appearance.terminalFont}\nb\n", null, "a\nb\n"],
+    ["a\nfont @{appearance.terminalFont}", null, "a\n"],
+    ["font @{appearance.terminalFont}\nb", null, "b"],
+    ["font @{appearance.terminalFont}", null, ""],
+    ["a\nreset=@{appearance.terminalFont|set=\"\"}\nb", "Fira Code", "a\nreset=\"\"\nb"],
+    ["a\nreset=@{appearance.terminalFont|set=\"\"}\nb", null, "a\nb"],
+    ["a\nreset @{appearance.terminalFont|set=on}\nfont @{appearance.terminalFont}\nb", null, "a\nb"],
+    ["c=@{palette.accent} font=@{appearance.terminalFont} d=@{palette.accent}\nz=@{palette.accent}", null, "z=123456"],
+    ["c=@{palette.accent} font=@{appearance.terminalFont} d=@{palette.accent}\nz=@{palette.accent}", "Fira Code", "c=123456 font=Fira Code d=123456\nz=123456"],
+    ["a @@{appearance.terminalFont}\nb", null, "a @{appearance.terminalFont}\nb"]
+];
+// A font placeholder that refuses the target, with a font and without.
+const FONT_REFUSED = [
+    "@{appearance.terminalFont|dark=a}",
+    "@{appearance.terminalFont|set}",
+    "@{appearance.terminalFont|set=a|set=b}",
+    "font @{appearance.terminalFont} @{palette.nope}"
+];
+function verifyTerminalFont(render, changed = {}) {
+    const probeTarget = render.acceptTarget(logic, "probe", targetText({ encoder: "hex6" }));
+    assert.equal(probeTarget.ok, true);
+    const one = (text, font) => render.renderTarget(logic, TOKENS, probeTarget.target, new Map([["probe.conf", text]]),
+        Object.assign({ values: probe.values, slots: defaults.terminal, curated: new Map(), installed: false }, font === undefined ? {} : { terminalFont: font }));
+    for (const [text, font, want] of FONT_LINES) {
+        const result = one(text, font);
+        assert.equal(result.ok, true, JSON.stringify(text));
+        assert.equal(result.files[0].bytes.toString("utf8"), want, JSON.stringify([text, font]));
+        // An input that carries no font is one whose font is null.
+        if (font === null) assert.equal(one(text, undefined).files[0].bytes.toString("utf8"), want, JSON.stringify([text, "absent"]));
+    }
+    for (const text of FONT_REFUSED)
+        for (const font of ["Fira Code", null])
+            assert.deepEqual([one(text, font).ok, one(text, font).reason], [false, "placeholder"], JSON.stringify([text, font]));
+
+    // The settings of one rendered file, in order: [key, value].
+    const settings = (text, separator) => text.split("\n").filter(line => line.trim() !== "" && !line.startsWith("#"))
+        .map(line => [line.slice(0, line.indexOf(separator)).trim(), line.slice(line.indexOf(separator) + 1).trim()]);
+    for (const [name, separator, key, want] of [["kitty", " ", "font_family", ["Fira Code"]], ["ghostty", "=", "font-family", ['""', '"Fira Code"']]]) {
+        const dir = path.join(repo, "themes", "targets", name);
+        const accepted = render.acceptTarget(logic, name, fs.readFileSync(path.join(dir, "target.json"), "utf8"));
+        assert.equal(accepted.ok, true);
+        const template = changed[name] ?? fs.readFileSync(path.join(dir, accepted.target.files[0].template), "utf8");
+        const rendered = (text, font) => {
+            const result = render.renderTarget(logic, TOKENS, accepted.target, new Map([[accepted.target.files[0].template, text]]),
+                { values: selectionDefaults.values, slots: selectionDefaults.terminal, curated: new Map(), installed: false, terminalFont: font });
+            assert.equal(result.ok, true, name);
+            return result.files[0].bytes.toString("utf8");
+        };
+        const plain = rendered(template, null);
+        const chosen = rendered(template, "Fira Code");
+        // With no font the target writes what its template without the
+        // font lines writes: the bytes it wrote before it knew a font.
+        const fontless = template.split("\n").filter(line => !line.includes("appearance.terminalFont")).join("\n");
+        assert.notEqual(fontless, template, name + ": the template names the terminal font");
+        assert.equal(plain, rendered(fontless, null), name + ": no font leaves the render as it was");
+        assert.deepEqual(settings(plain, separator).filter(([k]) => k === key), [], name + ": no font writes no font setting");
+        assert.deepEqual(settings(chosen, separator).filter(([k]) => k === key).map(([, value]) => value), want, name + ": the font setting");
+        assert.deepEqual(settings(chosen, separator).filter(([k]) => k !== key), settings(plain, separator), name + ": the font changes no other setting");
+    }
+}
+verifyTerminalFont(require(rendererFile));
+// Each target's template without the line that carries the font, and
+// Ghostty's without the line that clears the families set before it.
+for (const [name, dropped] of [["kitty", "font_family @{appearance.terminalFont}\n"], ["ghostty", 'font-family = "@{appearance.terminalFont}"\n'], ["ghostty", 'font-family = @{appearance.terminalFont|set=""}\n']]) {
+    const template = fs.readFileSync(path.join(repo, "themes", "targets", name, name + ".conf"), "utf8");
+    assert.equal(template.split(dropped).length, 2, `${name}: the template holds ${JSON.stringify(dropped)} once`);
+    assert.throws(() => verifyTerminalFont(require(rendererFile), { [name]: template.replace(dropped, "") }), { code: "ERR_ASSERTION" }, `${name} without ${JSON.stringify(dropped)}`);
+}
+
 const CONTROLS = [
+    ["terminal font line left out without a font", "if (dropFrom === -1 && terminalFont(input) === null && part.name.split(CASE_SEPARATOR)[0] === TERMINAL_FONT)", "if (false)", verifyTerminalFont],
+    ["terminal font line cut from its start", "out = out.slice(0, dropFrom) + part.slice(end + 1);", "out = out + part.slice(end + 1);", verifyTerminalFont],
+    ["terminal font line cut to its end", "out = out.slice(0, dropFrom) + part.slice(end + 1);", "out = out.slice(0, dropFrom) + part.slice(end);", verifyTerminalFont],
+    ["terminal font line starts after the line before", 'dropFrom = out.lastIndexOf("\\n") + 1;', 'dropFrom = out.lastIndexOf("\\n");', verifyTerminalFont],
+    ["terminal font last line cut", "if (dropFrom !== -1) out = out.slice(0, dropFrom);", "", verifyTerminalFont],
+    ["terminal font name written", 'if (cases.length === 0) return terminalFont(input) || "";', 'if (cases.length === 0) return "";', verifyTerminalFont],
+    ["terminal font case text written", "return set !== null && set[1] === TERMINAL_FONT_SET ? set[2] : undefined;", "return set !== null && set[1] === TERMINAL_FONT_SET ? terminalFont(input) : undefined;", verifyTerminalFont],
+    ["terminal font takes one case", "const set = cases.length === 1 ? CASE_PATTERN.exec(cases[0]) : null;", "const set = CASE_PATTERN.exec(cases[0]);", verifyTerminalFont],
+    ["terminal font case is set", "return set !== null && set[1] === TERMINAL_FONT_SET ? set[2] : undefined;", "return set !== null ? set[2] : undefined;", verifyTerminalFont],
+    ["terminal font line is judged without a font", "if (value === undefined) return refused(\"placeholder\", \"template=\" + file.template + \" placeholder=\" + JSON.stringify(part.name));\n            if (dropFrom", "if (value === undefined && dropFrom === -1) return refused(\"placeholder\", \"template=\" + file.template + \" placeholder=\" + JSON.stringify(part.name));\n            if (value === undefined) continue;\n            if (dropFrom", verifyTerminalFont],
     ["editor cap applies before rendering", "text = editorHighlightTemplate(logic, input, text);", "text = text;", verifyEditorStyles],
     ["editor cap includes the underlying line", "fill = over(tint, fill);", "fill = over(tint, page);", verifyEditorStyles],
     ["editor cap keeps the contrast floor", "return logic.contrastRatio(over(text, fill), fill) >= logic.READABILITY_FLOOR;", "return true;", verifyEditorStyles],

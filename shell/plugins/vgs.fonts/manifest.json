@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.fonts",
+  "name": "Fonts",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Set the font of the shell and of your terminals.",
+  "license": "MIT",
+  "icon": "type",
+  "kinds": ["pane"],
+  "entryPoints": { "pane": "Pane.qml" },
+  "capabilities": ["appearance"],
+  "pane": { "group": "Appearance", "order": 40 }
+}
