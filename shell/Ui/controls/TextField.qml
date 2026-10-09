@@ -85,7 +85,9 @@ T.TextField {
             color: Theme.textField.placeholder
             visible: root.text === "" && root.preeditText === ""
             x: root.leftPadding
-            width: root.availableWidth
+            // TextField inherits TextInput, not Control: subtract its
+            // text padding here (tst_automation_controls.qml).
+            width: Math.max(0, root.width - root.leftPadding - root.rightPadding)
             anchors.verticalCenter: parent.verticalCenter
             elide: Text.ElideRight
         }

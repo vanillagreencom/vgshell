@@ -168,6 +168,7 @@ FocusScope {
                         error: page.validation.errors.workingDirectory || ""
                         PathField {
                             width: parent.width
+                            placeholderText: "Working directory, blank for home"
                             path: page.draft.workingDirectory
                             error: page.validation.errors.workingDirectory !== undefined
                             onEdited: (path, valid) => { page.change("workingDirectory", path); page.change("workingDirectoryMissing", !valid && path !== "" && path.charAt(0) === "/"); }

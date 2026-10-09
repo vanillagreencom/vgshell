@@ -18,6 +18,7 @@ Item {
     InputWidth { target: root }
 
     property string path: ""
+    property alias placeholderText: field.placeholderText
     property string displayPath: path
     property string currentFolder: displayPath !== "" && displayPath.charAt(0) === "/" ? displayPath : homePath()
     property bool error: false
@@ -94,7 +95,6 @@ Item {
         id: field
         anchors.fill: parent
         text: root.displayPath
-        placeholderText: "Working directory, blank for home"
         error: root.error || !root.valid
         onTextEdited: {
             root.displayPath = text;

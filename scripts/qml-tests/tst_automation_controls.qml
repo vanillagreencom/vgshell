@@ -59,11 +59,48 @@ Item {
 
         function pathEditorOf(field) {
             for (const child of field.children)
-                if (child.placeholderText === "Working directory, blank for home") return child;
+                if (child.placeholderText !== undefined) return child;
             fail("no path field editor");
         }
 
         function pathEditor() { return pathEditorOf(pathField); }
+
+        function test_path_placeholder_comes_from_the_caller() {
+            compare(boundPath.placeholderText, "");
+            pathField.placeholderText = "Caller folder prompt";
+            compare(pathEditor().placeholderText, pathField.placeholderText);
+            pathField.placeholderText = "";
+        }
+
+        function test_path_text_and_placeholder_end_before_browse_data() {
+            return [
+                {tag: "minimum-dark", width: Theme.field.minWidth, light: false},
+                {tag: "narrow-dark", width: 240, light: false},
+                {tag: "wide-dark", width: Theme.control.maxWidth, light: false},
+                {tag: "minimum-light", width: Theme.field.minWidth, light: true},
+                {tag: "narrow-light", width: 240, light: true},
+                {tag: "wide-light", width: Theme.control.maxWidth, light: true}
+            ];
+        }
+
+        function test_path_text_and_placeholder_end_before_browse(data) {
+            if (data.light) compare(UnitTheme.override({ scheme: { mode: "light" } }), "ok");
+            pathField.width = data.width;
+            pathField.placeholderText = "Working directory, blank for home";
+            const editor = pathEditor();
+            const mark = editor.background.children.find(child => child.role === "item");
+            const browse = editor.actions[0];
+            tryVerify(() => browse.width > 0 && mark.width > 0);
+            const actionLeft = browse.mapToItem(editor, 0, 0).x;
+            verify(mark.mapToItem(editor, mark.width, 0).x <= actionLeft,
+                "the placeholder ends before Browse");
+            compare(mark.elide, Text.ElideRight);
+            if (data.width <= 240) verify(mark.truncated, "a long placeholder elides at a narrow width");
+            editor.text = "/a/long/directory/path/that/exceeds/the/narrow/input/width";
+            verify(editor.width - editor.rightPadding <= actionLeft,
+                "the text area ends before Browse");
+            pathField.placeholderText = "";
+        }
 
         function editedRows(spy) {
             const out = [];
