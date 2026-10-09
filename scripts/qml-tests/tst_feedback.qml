@@ -7,8 +7,9 @@ import qs.Unit
 // Spinner, ProgressBar, Badge and Kbd: the spinner turns only while the
 // theme's duration is above zero, the bar's fill follows its position and
 // slides while indeterminate, a badge draws its tone and logs an unknown
-// one, a verbatim badge keeps its text's case on the same box, and a key
-// cap sizes to its text and draws it in the kbd role.
+// one, a badge's drawn ink sits on its chip's centre, a verbatim badge
+// keeps its text's case on the same box, and a key cap sizes to its text
+// and draws it in the kbd role.
 Item {
     id: root
     width: 300
@@ -121,6 +122,74 @@ Item {
             compare(iconLabel.y + iconLabel.baselineOffset, Math.round(iconLabel.y + iconLabel.baselineOffset), "a whole-pixel baseline");
             fuzzyCompare(iconLabel.y + iconLabel.capCentre, badgeIcon.height / 2, 0.5);
             fuzzyCompare(badgeIcon.width, 2 * Theme.badge.size.sm.paddingX + icon.width + Theme.badge.gap + iconLabel.opticalWidth, 0.5);
+        }
+
+        // The drawn label's ink box against the chip: the offset of the ink
+        // box's centre from the chip's centre, in pixels. A pixel is ink by
+        // its colour distance from the chip's fill, as a share of the
+        // strongest ink pixel, and a partly inked edge pixel counts by that
+        // share. Columns within the corner radius of a side are not read.
+        function inkOffset(chip) {
+            const img = grabImage(root);
+            const at = chip.mapToItem(root, 0, 0);
+            const centreX = at.x + chip.width / 2;
+            const centreY = at.y + chip.height / 2;
+            const x0 = Math.ceil(at.x + chip.radius) + 1;
+            const x1 = Math.floor(at.x + chip.width - chip.radius) - 1;
+            const y0 = Math.ceil(at.y) + 1;
+            const y1 = Math.floor(at.y + chip.height) - 1;
+            const fx = Math.round(centreX), fy = y0;
+            const distance = (x, y) => Math.abs(img.red(x, y) - img.red(fx, fy)) + Math.abs(img.green(x, y) - img.green(fx, fy)) + Math.abs(img.blue(x, y) - img.blue(fx, fy));
+            let strongest = 0;
+            for (let x = x0; x < x1; x++)
+                for (let y = y0; y < y1; y++)
+                    strongest = Math.max(strongest, distance(x, y));
+            const columns = {}, rows = {};
+            for (let x = x0; x < x1; x++)
+                for (let y = y0; y < y1; y++) {
+                    const share = distance(x, y) / strongest;
+                    columns[x] = Math.max(columns[x] || 0, share);
+                    rows[y] = Math.max(rows[y] || 0, share);
+                }
+            const inked = table => Object.keys(table).map(Number).filter(key => table[key] > 0.1).sort((a, b) => a - b);
+            const xs = inked(columns), ys = inked(rows);
+            verify(xs.length > 0 && ys.length > 0, "the chip draws ink");
+            const left = xs[0] + 1 - columns[xs[0]], right = xs[xs.length - 1] + columns[xs[xs.length - 1]];
+            const top = ys[0] + 1 - rows[ys[0]], bottom = ys[ys.length - 1] + rows[ys[ys.length - 1]];
+            return { x: (left + right) / 2 - centreX, y: (top + bottom) / 2 - centreY };
+        }
+
+        // A number's digits and a text label draw their ink within half a
+        // pixel of the chip's centre on both axes, in both sizes; a whole
+        // pixel baseline cannot do better for an odd ink height in an even
+        // chip. The shifted rows are the check's must-fail controls: a
+        // label moved a pixel left, or a pixel up, is off centre.
+        function test_badge_ink_centred_data() {
+            return [
+                { tag: "one digit sm", text: "1", size: "sm", shiftX: 0, shiftY: 0, centred: true },
+                { tag: "one digit md", text: "1", size: "md", shiftX: 0, shiftY: 0, centred: true },
+                { tag: "other digit sm", text: "2", size: "sm", shiftX: 0, shiftY: 0, centred: true },
+                { tag: "other digit md", text: "2", size: "md", shiftX: 0, shiftY: 0, centred: true },
+                { tag: "two digits sm", text: "12", size: "sm", shiftX: 0, shiftY: 0, centred: true },
+                { tag: "two digits md", text: "12", size: "md", shiftX: 0, shiftY: 0, centred: true },
+                { tag: "text sm", text: "Signed out", size: "sm", shiftX: 0, shiftY: 0, centred: true },
+                { tag: "text md", text: "Signed out", size: "md", shiftX: 0, shiftY: 0, centred: true },
+                { tag: "control: a pixel left", text: "2", size: "md", shiftX: -1, shiftY: 0, centred: false },
+                { tag: "control: a pixel up", text: "2", size: "md", shiftX: 0, shiftY: -1, centred: false }
+            ];
+        }
+
+        function test_badge_ink_centred(data) {
+            const chip = Qt.createQmlObject("import qs.Ui\nBadge { x: 160; y: 120; tone: \"accent\" }", root);
+            chip.text = data.text;
+            chip.size = data.size;
+            const label = badgeLabel(chip);
+            label.x += data.shiftX;
+            label.y += data.shiftY;
+            const offset = inkOffset(chip);
+            chip.destroy();
+            const centred = Math.abs(offset.x) <= 0.5 && Math.abs(offset.y) <= 0.5;
+            compare(centred, data.centred, "ink offset x " + offset.x + " y " + offset.y);
         }
 
         // A package name keeps its case: the default badge draws capitals,

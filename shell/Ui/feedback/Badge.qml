@@ -5,10 +5,12 @@ import qs.Ui
 // A status chip, for a state tag or for a state the user must act on now
 // with its action beside it; a light message in a form is FormRow's
 // `warning` line. `size` is `sm`, the default, or `md`. The label is
-// placed by capital height, and the width uses the label's optical width
-// with equal side padding. `tone` names a group
-// of `Theme.badge.tone`: `neutral`, `accent`, `success`, `warning`,
-// `danger` or `info`; an unknown tone is logged and drawn neutral. `iconName`
+// placed by capital height with its baseline on a whole device pixel,
+// since a whole pixel spans two device pixels on a 2x screen and leaves
+// the capitals off the chip's centre. The width uses the label's optical
+// width with equal side padding. `tone` names a group of
+// `Theme.badge.tone`: `neutral`, `accent`, `success`, `warning`, `danger`
+// or `info`; an unknown tone is logged and drawn neutral. `iconName`
 // draws a Lucide icon before the text. `verbatim` keeps the text as
 // written, for a name whose case matters such as a package's: it is drawn
 // in the `kbd` role, mono at the `label` role's size without its capitals,
@@ -58,6 +60,7 @@ Rectangle {
     Label {
         id: label
         role: root.verbatim ? "kbd" : "label"
+        pixelRatio: Screen.devicePixelRatio
         text: root.text
         color: root.tokens.foreground
         x: root.sidePadding + (icon.visible ? icon.width + Theme.badge.gap : 0)
