@@ -79,13 +79,13 @@ var TOKENS = {
         // The subtitle is the inbox header's count and the label a
         // control's text, chrome at the 12 px floor
         // (shell/Commons/Tokens.js).
-        subtitle: { size: length(12), opacity: share(0.5) },
+        subtitle: { size: length(12), color: color("{text.body.color}") },
         // A card's body, at the shell's 13 px reading floor
         // (shell/Commons/Tokens.js), above the reference's 11. Its fade is
-        // its colour's alpha, the subtitle's opacity here, so an image
-        // inline in the body draws at full strength. LIGHT states a stronger
-        // one.
-        body: { size: length(13), color: color("alpha({text.foreground}, {text.subtitle.opacity})") },
+        // its colour's alpha, so an image inline in the body draws at full
+        // strength. scripts/test-notifications-logic.js holds both text
+        // roles to the reading floor over dark and light wallpapers.
+        body: { size: length(13), color: color("alpha({text.foreground}, 0.8)") },
         label: { size: length(12), weight: weight(500), opacity: share(0.7) }
     },
 
@@ -328,11 +328,7 @@ var TOKENS = {
 var LIGHT = {
     text: {
         foreground: "#2a2a2a",
-        shadow: "alpha(#000000, 0.08)",
-        // The body at the subtitle's opacity is under 4.5:1 on the pale
-        // glass over a dark wallpaper; scripts/test-notifications-logic.js
-        // holds this value to that floor.
-        body: { color: "alpha({text.foreground}, 0.8)" }
+        shadow: "alpha(#000000, 0.08)"
     },
     glass: {
         base: "#f2f2f2",

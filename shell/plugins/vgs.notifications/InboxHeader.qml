@@ -61,8 +61,7 @@ Item {
             textFormat: Text.PlainText
             visible: text.length > 0
             text: header.subtitle
-            color: header.look.text.foreground
-            opacity: header.look.text.subtitle.opacity
+            color: header.look.text.subtitle.color
             font.family: header.look.font.family
             font.pixelSize: header.look.text.subtitle.size
         }
