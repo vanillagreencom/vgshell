@@ -12,7 +12,8 @@ import qs.Unit
 // theme in muted text with no action, offers Use theme value beside a
 // user's or Hyprland's value, and links the configuration beside
 // Hyprland's; a row the theme cannot set says nothing until Hyprland does;
-// two actions stand `rowAction.gap` apart; the control shows the source's
+// two actions stand `rowAction.gap` apart; every message draws in the
+// tooltip role; the control shows the source's
 // value, the theme's while Hyprland is unread; an action emits its signal
 // and hands the keys back to the row's control; the link opens the
 // configuration.
@@ -80,7 +81,7 @@ Item {
             }
             return null;
         }
-        function messageOf(target) { return target.children.find(child => child.role === "hint"); }
+        function messageOf(target) { return target.children.find(child => child.link !== undefined && child.role !== undefined); }
         function shownActions() { return ["useHyprlandValue", "useThemeValue"].filter(name => action(name).visible && row.actionItem !== null); }
 
         function test_a_theme_value_is_set_by_theme_in_muted_text() {
@@ -120,6 +121,7 @@ Item {
             compare(row.hyprlandConfigValue, 10, "the row reads its own path's value");
             compare(row.messageKind, "config");
             compare(row.warningTone, "warning");
+            compare(messageOf(row).role, "tooltip", "the line draws in the tooltip role, 1 px under hint");
             verify(row.warning.indexOf(row.formatValue(10)) !== -1, "the line names the configured value");
             verify(row.warningLink !== "" && row.warning.indexOf(row.warningLink) !== -1);
             compare(shownActions(), ["useHyprlandValue", "useThemeValue"]);

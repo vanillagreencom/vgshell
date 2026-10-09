@@ -502,6 +502,7 @@ mutations=(
   "a value source row's theme action asks for Hyprland's value|controls/ValueSourceRow.qml|                root.useThemeValue();|                root.useHyprlandValue();|tst_valuesourcerow.qml"
   "a value source row reads no override|controls/ValueSourceRow.qml|hyprland.overridden.indexOf(path) !== -1|false|tst_valuesourcerow.qml"
   "a value source row reads no Hyprland value|controls/ValueSourceRow.qml|? hyprland.values[path] : undefined|? undefined : undefined|tst_valuesourcerow.qml"
+  "a value source row draws its message as hint text|controls/ValueSourceRow.qml|    warningRole: \"tooltip\"|    warningRole: \"hint\"|tst_valuesourcerow.qml"
   "a row action hovers in its rest colour|../Commons/Tokens.js|                hover: color(\"{color.accentHover}\"),|                hover: color(\"{color.accent}\"),|tst_rowaction.qml"
   "the select accepts an index past its end|controls/Select.qml|index >= count) return;|index >= count + 100) return;|tst_overlays.qml"
   "the select ignores its text role|controls/Select.qml|return String(entry[textRole]);|return String(entry);|tst_overlays.qml"
