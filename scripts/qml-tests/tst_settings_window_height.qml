@@ -5,16 +5,19 @@ import qs.Core
 import qs.Ui
 import "../../shell/plugins/vgs.settings"
 
-// The Plugins window's height: the content and chrome of the page it opens
-// on, up to a cap, the share of the screen's height
+// The Plugins window's height: the content and chrome of the page it
+// shows, up to a cap, the share of the screen's height
 // `size.window.tallHeightShare` names, or the screen less
 // `size.window.gutter` a side when that is less. A plugin page is measured
-// on its Settings tab, which it opens on, so Settings fits its view with
-// no room below and no scroll, a taller Details scrolls, and a tab change
-// keeps the height; the list is measured with its rows. A page past the
-// cap takes the cap and scrolls. The shell here stands in for the window's
-// capabilities: a manager whose rows the test names, a screen of a fixed
-// size and a key capture.
+// on the tab it shows, so each tab fits its view with no room below and no
+// scroll, and a tab change takes the other tab's height; the list is
+// measured with its rows. A page past the cap takes the cap and scrolls.
+// While the window shows, a page change asks the compositor for the
+// window's client and resizes it to that height, keeping its width; the
+// dispatch's effect is read back in the settings smoke row. The shell here
+// stands in for the window's capabilities: a manager whose rows the test
+// names, a screen of a fixed size, a key capture and a compositor whose
+// window reads the test answers.
 Item {
     id: root
     width: 1200
@@ -95,8 +98,27 @@ Item {
     }
 
     QtObject {
+        id: fakeCompositor
+        // The window reads waiting on an answer, and each resize asked for.
+        property var reads: []
+        property var resizes: []
+        function readWindows(done) { reads = reads.concat([done]); }
+        function resizeWindow(address, width, height) {
+            resizes = resizes.concat([[address, width, height]]);
+            return "ok";
+        }
+        // Answer every waiting read with CLIENTS, as Hyprland's j/clients.
+        function answer(clients) {
+            const waiting = reads;
+            reads = [];
+            for (const done of waiting) done({ ok: true, clients: clients, monitors: [] });
+        }
+    }
+
+    QtObject {
         id: fakeShell
         readonly property var manager: fakeManager
+        readonly property var compositor: fakeCompositor
         readonly property var manifest: ({ id: "vgs.settings", name: "Plugins" })
         readonly property var screens: ({ current: root.screen })
         readonly property var shortcut: ({ capture: null })
@@ -125,6 +147,8 @@ Item {
 
         function init() {
             fakeManager.plugins = root.fewRows;
+            fakeCompositor.reads = [];
+            fakeCompositor.resizes = [];
         }
 
         // The list page and its pane.
@@ -175,23 +199,46 @@ Item {
             verify(p.page.scrollArea.overflowing, "a long page scrolls");
         }
 
-        function test_a_taller_details_tab_scrolls_in_the_settings_height() {
+        function test_a_tab_change_takes_the_shown_tab_height() {
             const window = opened('{"plugin":"acme.detailed"}');
             const p = parts(window);
             compare(p.tabs.currentIndex, 0, "the page opens on Settings");
             verify(p.details.height > p.settings.height, "Details is the taller tab: " + p.details.height + " > " + p.settings.height);
             const height = window.implicitHeight;
-            verify(height < cap(), "the page fits under the cap");
+            const settingsChrome = p.pane.uncappedHeight - p.settings.height;
             compare(height, Math.ceil(p.pane.uncappedHeight), "the window is the pane's content and chrome on Settings");
             verify(fits(p.page.scrollArea), "Settings fills its view: view " + p.page.scrollArea.height + ", content " + p.page.scrollArea.contentHeight);
             p.tabs.currentIndex = 1;
             waitForRendering(window);
-            compare(window.implicitHeight, height, "a tab change keeps the height");
-            verify(p.page.scrollArea.contentHeight > p.page.scrollArea.height, "Details runs past its view: content " + p.page.scrollArea.contentHeight + ", view " + p.page.scrollArea.height);
-            verify(p.page.scrollArea.overflowing, "Details scrolls");
+            compare(window.implicitHeight, Math.ceil(settingsChrome + p.details.height), "Details takes the chrome and its own height");
+            verify(window.implicitHeight < cap(), "Details fits under the cap: " + window.implicitHeight + " < " + cap());
+            verify(fits(p.page.scrollArea), "Details fills its view: view " + p.page.scrollArea.height + ", content " + p.page.scrollArea.contentHeight);
+            verify(!p.page.scrollArea.overflowing, "Details that fits does not scroll");
             p.tabs.currentIndex = 0;
             waitForRendering(window);
-            compare(window.implicitHeight, height, "a return to Settings keeps the height");
+            compare(window.implicitHeight, height, "a return to Settings takes the Settings height");
+        }
+
+        // The one client of the shell's app-id titled Plugins is resized to
+        // the new page's height at its own width; a client already that tall
+        // is left alone.
+        function test_a_page_change_while_shown_resizes_the_window_client() {
+            const window = opened('{"plugin":"acme.detailed"}');
+            const p = parts(window);
+            const settingsHeight = window.implicitHeight;
+            fakeCompositor.reads = [];
+            p.tabs.currentIndex = 1;
+            waitForRendering(window);
+            tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
+            const client = (title, appClass, address, height) => ({ class: appClass, title: title, mapped: true, address: address, size: [512, height] });
+            fakeCompositor.answer([client("Plugins", "kitty", "0xa", settingsHeight), client("Plugins", "org.vgs.shell", "0xb", settingsHeight), client("Other", "org.vgs.shell", "0xc", settingsHeight)]);
+            compare(fakeCompositor.resizes, [["0xb", 512, window.implicitHeight]], "the Plugins client takes Details' height at its width");
+            verify(window.implicitHeight > settingsHeight, "Details is taller than Settings");
+            p.tabs.currentIndex = 0;
+            waitForRendering(window);
+            tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
+            fakeCompositor.answer([client("Plugins", "org.vgs.shell", "0xb", settingsHeight)]);
+            compare(fakeCompositor.resizes.length, 1, "a client already at the page's height is not resized");
         }
 
         function test_a_short_list_takes_its_content_height() {

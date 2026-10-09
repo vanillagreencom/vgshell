@@ -18,6 +18,7 @@
     "service": "Service.qml"
   },
   "capabilities": [
+    "compositor",
     "ipc",
     "manager",
     "run",

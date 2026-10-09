@@ -7,13 +7,16 @@ import qs.Ui
 // Hyprland window titled Plugins, which Hyprland floats, centres, frames
 // and focuses like any other window. It asks to be `size.window.width`
 // wide, or the monitor's width less `size.window.gutter` a side when that
-// is less, and as tall as the page it opens on, a plugin page's Settings
-// tab, which it opens on, or the list, up to `size.window.tallHeightShare` of the monitor's
-// height, or its height less the gutter a side when that is less, read
-// from the screen its `screens` capability gives. The size holds while
-// pages change, since Hyprland would move a resized window. The pages fill
-// whatever size the window has after that, and a page taller than it
-// scrolls. The list page and the plugin page
+// is less, and as tall as the page it shows, the list or a plugin page's
+// shown tab, up to `size.window.tallHeightShare` of the monitor's height,
+// or its height less the gutter a side when that is less, read from the
+// screen its `screens` capability gives. That height sizes the window as
+// it maps; once it shows, each change of the shown page, the list, another
+// plugin's page or the other tab, resizes it to the new page's height
+// through its `compositor` capability, keeping its width and its top-left
+// corner. A change inside a page, such as a rescan's rows, keeps the size.
+// The pages fill whatever size the window has, and a page taller than it
+// scrolls, with the scroll area's edge cue. The list page and the plugin page
 // sit side by side and slide on `motion.duration.normal`, so a
 // `motion.scale` of 0 makes a push or a pop instant; the page not shown is
 // hidden once the slide ends, so the keyboard reaches the shown page alone.
@@ -96,16 +99,50 @@ FocusScope {
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
     // The tallest the window opens.
     readonly property real maxHeight: screen === null ? Theme.size.panel.maxHeight : Math.floor(Math.min(Theme.size.window.tallHeightShare * screen.height, OverlayState.room(screen).height))
-    // Only the height as the window shows counts: the window host calls open()
-    // before it shows the window, Quickshell 0.3.1 polishes the item tree
-    // just before it maps (proxywindow.cpp setVisibleDirect, QTBUG-126704),
-    // and a FloatingWindow takes a new implicit size only while hidden
-    // (floatingwindow.cpp trySetHeight), so a page reached after the window
-    // shows keeps its size and scrolls.
+    // The shown page's height. It sizes the window only as it maps: the
+    // window host calls open() before it shows the window, Quickshell 0.3.1
+    // polishes the item tree just before it maps (proxywindow.cpp
+    // setVisibleDirect, QTBUG-126704), and a FloatingWindow takes a new
+    // implicit size only while hidden (floatingwindow.cpp trySetHeight), so
+    // fitWindow() asks Hyprland for it after a page change.
     implicitHeight: Math.min(maxHeight, Math.ceil(page === "" ? list.fitHeight : detail.fitHeight))
+    // The page shown, as a page change resizes the window: the list, or a
+    // plugin id and its tab.
+    readonly property string shownPage: page === "" ? "" : page + "/" + detail.tab
     focus: true
 
     function rowOf(id) { return plugins.find(p => p.id === id) || null; }
+
+    // A change while the window is hidden needs no resize, since the window
+    // maps at its implicit height. callLater runs one fit for the changes of
+    // one turn, such as a page's id and its tab
+    // (https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method).
+    onShownPageChanged: if (root.Window.window !== null && root.Window.window.visible) Qt.callLater(fitWindow)
+
+    // Resize the shown window to implicitHeight, read once Hyprland answers,
+    // so the page's layout has settled and the last change wins. Hyprland
+    // owns a mapped window's size, and resizing keeps its top-left corner,
+    // which the settings smoke row reads back. The window is the one client
+    // of the shell's app-id, `org.vgs.shell`, which shell.qml's AppId pragma
+    // and HyprlandLayer.APP_WINDOW own and a plugin cannot import, titled
+    // with this plugin's name, as the window host titles it.
+    function fitWindow() {
+        shell.compositor.readWindows(state => {
+            if (root.Window.window === null || !root.Window.window.visible) return;
+            if (!state.ok) {
+                console.warn("settings: resize " + state.error);
+                return;
+            }
+            const own = state.clients.filter(c => c.class === "org.vgs.shell" && c.title === root.title && c.mapped);
+            if (own.length !== 1) {
+                console.warn("settings: resize clients=" + own.length + " title=" + root.title);
+                return;
+            }
+            if (own[0].size[1] === root.implicitHeight) return;
+            const reply = shell.compositor.resizeWindow(own[0].address, own[0].size[0], root.implicitHeight);
+            if (!Reply.isOk(reply)) console.warn("settings: resize " + reply);
+        });
+    }
 
     onPluginsChanged: {
         if (page === "" || rowOf(page) !== null) return;
