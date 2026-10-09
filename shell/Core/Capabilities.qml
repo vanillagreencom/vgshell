@@ -164,6 +164,7 @@ Singleton {
             reset: () => Notices.askReset(),
             rescan: () => Registry.rescan().answer,
             act: (id, key) => root.managerAct(id, key),
+            refreshChoices: (id, key) => PluginStatus.refresh(id, key),
             open: id => root.managerOpen(id),
             openPane: id => root.managerOpenPane(id),
             openTui: (id, name) => root.managerOpenTui(id, name),
@@ -193,8 +194,11 @@ Singleton {
         // is one this manifest does not declare. `rows` lends the plugin's
         // own Status rows as the Settings page draws them, so its surfaces
         // take each entry's tone and offered action from the one owner.
+        // `handleRefresh` registers what the plugin runs when Settings opens
+        // the select one of its `choices` entries feeds.
         status: ctx => ({
             set: (key, value) => PluginStatus.set(ctx, key, value),
+            handleRefresh: (key, handler) => PluginStatus.handleRefresh(ctx, key, handler),
             act: key => root.managerAct(ctx.id, key),
             get rows() { return Logic.statusRows(Registry.manifests[ctx.id], PluginStatus.valuesOf(ctx.id), Notices.missingOf(ctx.id)); },
             get values() { return PluginStatus.valuesOf(ctx.id); },

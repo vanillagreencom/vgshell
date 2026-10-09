@@ -56,6 +56,8 @@ T.AbstractButton {
     readonly property bool showsPlaceholder: count > 0 && !(currentIndex >= 0 && currentIndex < count) && placeholderText !== ""
     // A user choice only. Model and binding updates never emit this.
     signal activated(int index)
+    // The list opened, so an owner can refresh the model it shows.
+    signal opened()
 
     function share(open) {
         if (open === counted) return;
@@ -94,6 +96,7 @@ T.AbstractButton {
         entries.currentIndex = currentIndex;
         list.visible = true;
         entries.forceActiveFocus();
+        opened();
     }
 
     // The open list's rectangle in the coordinates of the window the

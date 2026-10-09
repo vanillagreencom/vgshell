@@ -491,6 +491,7 @@ FocusScope {
                                     edits: unsaved
                                     onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
                                     onOpenLink: url => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, url); }
+                                    onChoicesWanted: if (page !== null && page.row !== null) page.panel.refreshChoices(pluginId, spec.optionsFrom)
                                 }
                             }
                         }

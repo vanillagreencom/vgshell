@@ -25,6 +25,47 @@ Singleton {
 
     readonly property var empty: Object.freeze({})
 
+    // Plugin id -> { choices status key -> handler }: what each plugin runs
+    // when the Settings page opens the select that key feeds, so it reads
+    // its choices on demand instead of on a poll. A handler lives with the
+    // instance that registered it.
+    property var refreshers: ({})
+
+    // Register `handler` for the instance `ctx` belongs to as the one that
+    // refreshes its `choices` entry `key`, released with the instance:
+    // `ok`, `refused: status=<key> reason=undeclared` for a key the manifest
+    // does not declare as `choices`, or `reason=held` while another
+    // instance's handler holds it.
+    function handleRefresh(ctx, key, handler) {
+        if (typeof handler !== "function")
+            throw new Error("refused: status=" + key + " handler=not-a-function");
+        if (typeof key !== "string" || !Logic.hasOwn(ctx.manifest.status, key) || ctx.manifest.status[key].type !== "choices")
+            return Logic.statusRefusal(key, "undeclared");
+        if (Logic.hasOwn(refreshers, ctx.id) && Logic.hasOwn(refreshers[ctx.id], key))
+            return Logic.statusRefusal(key, "held");
+        const next = Object.assign({}, refreshers);
+        next[ctx.id] = Object.assign({}, next[ctx.id] || {});
+        next[ctx.id][key] = handler;
+        refreshers = next;
+        ctx.onDispose(() => {
+            const rest = Object.assign({}, root.refreshers);
+            const own = Object.assign({}, rest[ctx.id]);
+            delete own[key];
+            if (Object.keys(own).length === 0) delete rest[ctx.id];
+            else rest[ctx.id] = own;
+            root.refreshers = rest;
+        });
+        return "ok";
+    }
+
+    // Run plugin `id`'s handler for its choices entry `key`: `ok`, or
+    // `none` when no instance registered one, as for most choices.
+    function refresh(id, key) {
+        if (!Logic.hasOwn(refreshers, id) || !Logic.hasOwn(refreshers[id], key)) return "none";
+        refreshers[id][key]();
+        return "ok";
+    }
+
     // Publish `value` under `key` for the instance `ctx` belongs to. The
     // reply is one keyed line: `ok`, statusWrite's refusal, or
     // `refused: status=<key> reason=retired` from an instance whose plugin is

@@ -52,6 +52,9 @@ Column {
     readonly property bool edited: editing(loader.item) || editing(customLoader.item)
     signal apply(var value)
     signal openLink(string url)
+    // The select of a status-fed string opened: the page asks the plugin
+    // to read its choices again.
+    signal choicesWanted()
 
     width: parent === null ? implicitWidth : parent.width
     spacing: Theme.field.gap
@@ -255,6 +258,7 @@ Column {
             placeholderText: dynamic && root.spec.placeholder !== undefined ? root.spec.placeholder : ""
             currentIndex: configuredIndex
             enabled: root.editable
+            onOpened: if (dynamic) root.choicesWanted()
             onActivated: index => {
                 const chosen = dynamic ? root.choices[index].value : root.spec.options[index];
                 currentIndex = Qt.binding(() => configuredIndex);

@@ -287,6 +287,12 @@ FocusScope {
         return keep(id, shell.manager.setSetting(id, key, value));
     }
 
+    // Ask plugin `id` to read its choices status `key` again, as its select
+    // opens; answers the manager's reply, which no page shows.
+    function refreshChoices(id, key) {
+        return shell.manager.refreshChoices(id, key);
+    }
+
     // Open the update of installed plugin `id` or its removal in a floating
     // terminal, or the requirement notice for its missing commands, through
     // the manager; each answers the manager's reply. The terminal is a newer
