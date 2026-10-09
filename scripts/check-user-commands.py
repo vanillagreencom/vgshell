@@ -90,7 +90,7 @@ REQUIRED_HEADS = ("vgshell", "sudo")
 # table or index of a list.
 FIELDS = (
     ("name",), ("description",), ("author",),
-    ("schema", "*", "label"), ("schema", "*", "description"), ("schema", "*", "placeholder"), ("schema", "*", "info"), ("schema", "*", "group"), ("schema", "*", "options", "*"), ("schema", "*", "presets", "*", "label"),
+    ("schema", "*", "label"), ("schema", "*", "description"), ("schema", "*", "placeholder"), ("schema", "*", "info"), ("schema", "*", "link", "text"), ("schema", "*", "group"), ("schema", "*", "options", "*"), ("schema", "*", "presets", "*", "label"),
     ("schema", "*", "items", "*", "label"), ("schema", "*", "items", "*", "description"), ("schema", "*", "items", "*", "placeholder"), ("schema", "*", "items", "*", "group"),
     ("schema", "*", "items", "*", "options", "*"), ("schema", "*", "items", "*", "presets", "*", "label"),
     ("status", "*", "label"), ("status", "*", "group"), ("status", "*", "hint"), ("status", "*", "info"), ("status", "*", "action", "label"), ("status", "*", "actions", "*", "label"),
@@ -106,7 +106,7 @@ FIELDS = (
 EXEMPT = (
     ("schemaVersion",), ("id",), ("version",), ("license",), ("icon",), ("kinds",), ("entryPoints",),
     ("capabilities",), ("systemSteps",), ("settings",), ("defaultSection",), ("pane", "order"), ("appearance",), ("alwaysOn",),
-    ("schema", "*", "type"), ("schema", "*", "optionsFrom"), ("schema", "*", "hintFrom"), ("schema", "*", "defaults"), ("schema", "*", "presets", "*", "value"), ("schema", "*", "allowCustom"), ("schema", "*", "format"), ("schema", "*", "unit"), ("schema", "*", "min"), ("schema", "*", "max"), ("schema", "*", "step"),
+    ("schema", "*", "type"), ("schema", "*", "optionsFrom"), ("schema", "*", "hintFrom"), ("schema", "*", "link", "url"), ("schema", "*", "defaults"), ("schema", "*", "presets", "*", "value"), ("schema", "*", "allowCustom"), ("schema", "*", "format"), ("schema", "*", "unit"), ("schema", "*", "min"), ("schema", "*", "max"), ("schema", "*", "step"),
     ("status", "*", "type"), ("status", "*", "hidden"),
     ("status", "*", "action", "tui"), ("status", "*", "action", "install"), ("status", "*", "action", "system"),
     ("status", "*", "actions", "*", "tui"), ("status", "*", "actions", "*", "install"), ("status", "*", "actions", "*", "system"),
