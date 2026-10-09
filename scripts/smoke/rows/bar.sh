@@ -1,4 +1,4 @@
-# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* config/shell.json shell/Core/PluginLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.sudo/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/SummonPopup.qml shell/Commons/DesktopLaunch.js shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json shell/Core/Capabilities.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Commons/Tokens.js
+# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* config/shell.json shell/Core/PluginLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.sudo/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json shell/Core/Capabilities.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Commons/Tokens.js shell/plugins/vgs.settings/* shell/plugins/vgs.agent-warden/* shell/plugins/vgs.ai-usage/* shell/plugins/vgs.capture/* shell/plugins/vgs.jarvis/* shell/plugins/vgs.power/* shell/plugins/vgs.traffic/* shell/plugins/vgs.updates/* shell/plugins/vgs.voice/* shell/plugins/vgs.sysmon/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/SummonPopup.qml shell/Commons/DesktopLaunch.js
 set -euo pipefail
 expect "instance guard accepts the runner's shell" true ipc shell guarded
 
@@ -585,6 +585,333 @@ PY
   expect_poll "control: placement rejects any Mouse placement" False fresh_bar_complete
   fresh_restore
   geometry expect_poll "rendered placement returns after all controls" drawn fresh_bar_rendered
+  # A zone that would run into its neighbour clips to the room from its
+  # bar edge to the centre, less the gap, and scrolls by whole widgets
+  # (Bar.qml's Zone). The owner's own layout, 16 widgets in the right section
+  # with every System Monitor reading on, over the default set, which
+  # enables each of them. At his 2560 logical pixels the sandbox's
+  # stand-ins draw the section narrower than his live widgets do (959 px
+  # in a room of about 1190 px, read with zone_read in the nested sandbox
+  # on 2026-10-09), so it fits there and draws as before; at 1600 it runs
+  # into the clock, as his does at 2560.
+  zone_right='["vgs.vpn","vgs.network","vgs.bluetooth","vgs.sound","vgs.displays","vgs.keyboard","vgs.settings","vgs.agent-warden","vgs.ai-usage","vgs.capture","vgs.jarvis","vgs.power","vgs.traffic","vgs.updates","vgs.voice","vgs.sysmon"]'
+  zone_plant() {
+    python3 - "$home/.config/vgshell/shell.json" "$zone_right" <<'PYZONE'
+import json, os, sys
+path, right = sys.argv[1], json.loads(sys.argv[2])
+config = json.load(open(path))
+entries = [{"id": i} for i in right]
+entries[-1].update({"cpuTemperature": True, "gpuTemperature": True, "showSwap": True, "showMemory": True, "memoryUnit": "percent"})
+config["bar"] = {"id": "vgs.bar", "layout": {"left": [{"id": "vgs.launcher"}, {"id": "vgs.bar/left-workspaces"}, {"id": "vgs.tray"}],
+                                             "center": [{"id": "vgs.bar/center-clock"}], "right": entries}}
+with open(path + ".tmp", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".tmp", path)
+PYZONE
+  }
+  # Whether the first bar mounted the owner's right section in his order.
+  zone_mounted() {
+    ipc smoke barParticipationGeometry "$(bar_key)" | py_reply 'import json,sys
+d=json.load(sys.stdin); want=json.loads(sys.argv[1])
+if not isinstance(d,dict): print("absent"); sys.exit()
+ids=[e["id"] for s in d["sections"] if s["section"]=="right" for e in s["entries"] if e["present"]]
+print([i for i in ids if i in want]==want)' "$zone_right"
+  }
+  # The first bar's side zones as one JSON object: per zone its view in
+  # screen coordinates, whether it clips, whether it draws flush with its
+  # section as before, which buttons show, the widgets it draws over the
+  # centre section or the gap beside it, the widgets whose left edge
+  # meets the view's start and whose right edge meets its end, each beside
+  # a shown button's fade, the widgets it shows whole and its drawn
+  # widgets in order; `centre` is the centre section's box and `settled`
+  # whether every zone's scroll has finished drawing.
+  zone_read() {
+    local key bar part zones buttons
+    key="$(bar_key)" || return 1
+    bar="$(ipc smoke instanceGeometry "$key" vgs.bar)" && part="$(ipc smoke barParticipationGeometry "$key")" \
+      && zones="$(ipc smoke itemValues "$key" vgs.bar Zone objectName,x,width,clip,inset,scroll,travel,drawnScroll)" \
+      && buttons="$(ipc smoke itemValues "$key" vgs.bar BarItem objectName,visible)" || return 1
+    py_reply 'import json,sys
+part=json.load(sys.stdin)
+if not isinstance(part,dict): print("absent"); sys.exit()
+try: bar,zones,buttons=(json.loads(a) for a in sys.argv[1:4])
+except ValueError: print("absent"); sys.exit()
+sections={s["section"]:s for s in part["sections"]}
+center=sections["center"]["drop"]; gap=sections["center"]["gap"]
+named={b["objectName"]:b["visible"] for b in buttons if b["objectName"].startswith("bar-zone-")}
+out={"centre":[round(center["x"],1),round(center["width"],1)],"settled":all(abs(min(z["scroll"],z["travel"])-z["drawnScroll"])<0.5 for z in zones)}
+for zone in zones:
+    side=zone["objectName"].replace("bar-zone-","")
+    x0=bar[0]+zone["x"]; x1=x0+zone["width"]
+    start,end=named.get("bar-zone-%s-start" % side),named.get("bar-zone-%s-end" % side)
+    # The drop reader names the widgets the section draws; their places
+    # come from the section box, so a drop control leaves them true.
+    drop=sections[side]["drop"]; drawn_ids={w["locator"]["id"] for w in drop["widgets"]}
+    rows=[e for e in sections[side]["entries"] if e["id"] in drawn_ids]
+    ids=[e["id"] for e in rows]; spans=[(drop["x"]+e["box"][0],drop["x"]+e["box"][0]+e["box"][2]) for e in rows]
+    drawn=[(max(a,x0),min(b,x1)) if zone["clip"] else (a,b) for a,b in spans]
+    low,high=center["x"]-gap,center["x"]+center["width"]+gap
+    first=x0+(zone["inset"] if start else 0); last=x1-(zone["inset"] if end else 0)
+    out[side]={"view":[round(x0,1),round(x1-x0,1)],"clips":zone["clip"],"flush":abs(x0-drop["x"])<=0.5 and abs(x1-x0-drop["width"])<=0.5,
+        "start":start,"end":end,"over":[i for i,(a,b) in zip(ids,drawn) if b-a>0.5 and a<high-0.5 and b>low+0.5],
+        "starts":[i for i,(a,b) in zip(ids,spans) if abs(a-first)<=1],"ends":[i for i,(a,b) in zip(ids,spans) if abs(b-last)<=1],
+        "shown":[i for i,(a,b) in zip(ids,spans) if a>=first-1 and b<=last+1],"inset":zone["inset"],"ids":ids,
+        "spans":[[round(a,1),round(b-a,1)] for a,b in spans]}
+print(json.dumps(out))' "$bar" "$zones" "$buttons" <<<"$part"
+  }
+  # zone_pick PROGRAM: PROGRAM, a Python expression over the reading `d`,
+  # printed once every zone's scroll has finished drawing.
+  zone_pick() {
+    local reading=""
+    for _ in $(seq 1 50); do
+      reading="$(zone_read)" || return 1
+      [[ $(py_reply 'import json,sys; d=json.load(sys.stdin); print(isinstance(d,dict) and d["settled"])' <<<"$reading") == True ]] && break
+      sleep 0.1
+    done
+    py_reply 'import json,sys
+d=json.load(sys.stdin)
+if not isinstance(d,dict): print("absent"); sys.exit()
+print(eval(sys.argv[1]))' "$1" <<<"$reading"
+  }
+  # What a check names of SIDE's zone: whether it clips, which buttons
+  # show and what it draws over the centre.
+  zone_ends() { zone_pick "json.dumps([d['$1'][k] for k in ('clips','start','end','over')])"; }
+  zone_shown() { zone_pick "json.dumps(d['$1']['shown'])"; }
+  # One step lands a widget's edge at the end it moved toward: the start
+  # beside the fade, or the zone's own edge once no button shows there.
+  zone_landed() { zone_pick "bool(d['$1']['starts'] if '$2'=='start' else d['$1']['ends'])"; }
+  zone_others() { zone_pick "json.dumps([d['centre'], d['left']['view'], d['left']['spans']])"; }
+  # zone_button SIDE start|end: the centre of that zone button.
+  zone_button() {
+    zone_pick "'%d %d' % (d['$1']['view'][0]+(d['$1']['inset']-$zone_fade)/2 if '$2'=='start' else d['$1']['view'][0]+d['$1']['view'][1]-(d['$1']['inset']-$zone_fade)/2, $zone_bar_y)"
+  }
+  zone_press() { # SIDE start|end
+    local x y
+    read -r x y < <(zone_button "$1" "$2") && hover "$((x + 1))" "$y" && click "$x" "$y"
+  }
+  # zone_walk SIDE start|end: that button clicked while it shows, each
+  # step read as landing on a widget edge: `walked`, `unlanded=<click>`,
+  # or `stuck` when it still shows after more clicks than widgets.
+  # zone_moved SIDE PLACE: True once SIDE's first widget stands elsewhere
+  # than PLACE, the shell having taken the click, else False at the bound.
+  zone_moved() { zone_ever "json.dumps(d['$1']['spans'][0]) != '$2'"; }
+  zone_walk() {
+    local n place
+    for ((n = 1; n <= 20; n++)); do
+      place="$(zone_pick "json.dumps(d['$1']['spans'][0])")" || return 1
+      zone_press "$1" "$2" || return 1
+      [[ $(zone_moved "$1" "$place") == True ]] || { echo "unmoved=$n"; return; }
+      [[ $(zone_landed "$1" "$2") == True ]] || { echo "unlanded=$n"; return; }
+      [[ $(zone_pick "d['$1']['$2']") == True ]] || { echo walked; return; }
+    done
+    echo stuck
+  }
+  # zone_ever PROGRAM: True once PROGRAM reads True within the poll bound,
+  # else False, so a control shows a change that never comes.
+  zone_ever() {
+    smoke_poll_tries 200
+    for _ in $(seq 1 "$smoke_poll_n"); do
+      [[ $(zone_pick "$1") == True ]] && { echo True; return; }
+      sleep 0.2
+    done
+    echo False
+  }
+  # zone_ever_true READER...: True once READER answers true within the
+  # poll bound, else False.
+  zone_ever_true() { # READER...
+    smoke_poll_tries 200
+    for _ in $(seq 1 "$smoke_poll_n"); do
+      [[ $("$@") == true ]] && { echo True; return; }
+      sleep 0.2
+    done
+    echo False
+  }
+  # zone_hold_press ID DX DY: a held press on ID's centre moved by DX, DY,
+  # its pipes in zone_out and zone_in and its pid in zone_pid.
+  zone_hold_press() {
+    local box x y line
+    box="$(ipc smoke instanceGeometry "$(bar_key)" "$1")" || return 1
+    read -r x y < <(py_reply 'import json,sys; b=json.load(sys.stdin); print(int(b[0]+b[2]/2), int(b[1]+b[3]/2))' <<<"$box") || return 1
+    zone_to="$((x + $2)) $((y + $3))"
+    hover "$((x + 1))" "$y" || return 1
+    coproc zone_held { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$((x + $2))" "$((y + $3))" hold; }
+    zone_out="${zone_held[0]}" zone_in="${zone_held[1]}" zone_pid="$zone_held_PID"
+    read -r -t 10 line <&"$zone_out" && [[ $line == "holding $((x + $2)) $((y + $3))" ]]
+  }
+  zone_release() {
+    local line status=0
+    printf '\n' >&"$zone_in" || status=1
+    exec {zone_in}>&-
+    read -r -t 10 line <&"$zone_out" || status=1
+    wait "$zone_pid" || status=1
+    exec {zone_out}<&-
+    pointer_at="$zone_to"
+    return "$status"
+  }
+  # Focus that moves onto a hidden widget scrolls it into view. The bar
+  # holds the keyboard only while a press holds a widget, so a held press
+  # on the last widget, moved down and back to its own slot, gives the
+  # bar the keyboard, and the first widget, hidden at rest, takes focus.
+  # A host configure that resets the held mode moves the bar under the
+  # press, so a press the reset spoiled is let go and made once more on
+  # the mode taken again.
+  zone_focus() { # LABEL WANT
+    local first last attempt
+    for attempt in 1 2; do
+      [[ $(held_mode_state) == held ]] || hold_restore >/dev/null || true
+      first="$(zone_pick "d['right']['ids'][0]")" && last="$(zone_pick "d['right']['ids'][-1]")" || { fail "$1: the right zone is unreadable"; return; }
+      zone_hold_press "$last" 0 12 || { fail "$1: the held press on $last"; return; }
+      ipc smoke invokeInstanceArgs "$(bar_key)" "$first" forceActiveFocus '{"args":[]}' >/dev/null
+      [[ $attempt == 2 || $(zone_ever_true ipc smoke readInstance "$(bar_key)" "$first" activeFocus) == True || $(held_mode_state) == held ]] && break
+      type_keys -k Escape || fail "$1: Escape ends the spoiled press"
+      zone_release || fail "$1: the spoiled press releases"
+    done
+    expect_poll "$1: the first widget holds the keyboard" true ipc smoke readInstance "$(bar_key)" "$first" activeFocus
+    geometry expect "$1" "$2" zone_ever "'$first' in d['right']['shown']"
+    type_keys -k Escape || fail "$1: Escape ends the held press"
+    zone_release || fail "$1: the held press releases"
+  }
+  # The drop into a clipped zone lands at the slot under the pointer: a
+  # held press on the Launcher moved between two shown neighbours past
+  # the bar's last third, where the slot is the right section's, opens
+  # its gap inside the zone's view with nothing drawn over the centre,
+  # and the release writes the Launcher between them.
+  zone_drop() { # LABEL
+    local pair line
+    pair="$(zone_pick "next(('%s %s %d' % (a, b, (sa[0]+sa[1]+sb[0])/2) for (a, sa), (b, sb) in zip(zip(d['right']['ids'], d['right']['spans']), zip(d['right']['ids'][1:], d['right']['spans'][1:])) if a in d['right']['shown'] and b in d['right']['shown'] and sa[0]+sa[1] > 2*$mon_w/3 + 2), 'none')")" || { fail "$1: the right zone is unreadable"; return; }
+    read -r zone_a zone_b zone_x <<<"$pair"
+    [[ $zone_x =~ ^[0-9]+$ ]] || { fail "$1: no two shown neighbours past the last third: $pair"; return; }
+    local box x
+    box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.launcher)" || { fail "$1: the Launcher has no box"; return; }
+    x="$(py_reply 'import json,sys; b=json.load(sys.stdin); print(int(b[0]+b[2]/2))' <<<"$box")"
+    zone_hold_press vgs.launcher "$((zone_x - x))" 0 || { fail "$1: the held press on the Launcher"; return; }
+    geometry expect_poll "$1: the preview gap opens inside the clipped right zone, over nothing" '[true, []]' zone_pick "json.dumps([d['right']['clips'], d['right']['over']])"
+    zone_release || fail "$1: the held press releases"
+  }
+  zone_layout_elsewhere() { zone_layout | py_reply 'import json,sys; got=json.load(sys.stdin); print("vgs.launcher" in got and got!=json.loads(sys.argv[1]))' "[\"$zone_a\", \"vgs.launcher\", \"$zone_b\"]"; }
+  zone_layout() { ipc shell listShellConfig | py_reply 'import json,sys; ids=[e["id"] for e in json.load(sys.stdin)["bar"]["layout"]["right"]]; i=ids.index("vgs.launcher") if "vgs.launcher" in ids else -1; print(json.dumps(ids[i-1:i+2] if i>0 else ids))'; }
+
+  zone_plant
+  expect_poll "the bar mounts the owner's right section" True zone_mounted
+  zone_fade="$(ipc smoke themeValue bar.scroll.fade)" || fail "the fade token is unreadable"
+  zone_bar_y="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar | py_reply 'import json,sys; b=json.load(sys.stdin); print(int(b[1]+b[3]/2))')" || fail "the bar box is unreadable"
+  zone_monitor="$(first_name)" || fail "the monitor is unreadable"
+  zone_state="$(base_mode_scale "$zone_monitor")" || fail "the monitor's mode is unreadable"
+  zone_mode="${zone_state% scale=*}" zone_scale="${zone_state##*scale=}"
+  zone_saved_w="$mon_w" zone_saved_h="$mon_h"
+  # zone_hold WIDTH: the monitor held WIDTH logical pixels wide at its own
+  # height and scale, the pointer helpers sized to it.
+  zone_hold() {
+    hold_mode "the nested compositor holds its monitor $1 logical pixels wide" "$zone_monitor" "$(($1 * zone_scale))x${zone_mode#*x}" "$zone_scale"
+    mon_w="$1" mon_h="$((${zone_mode#*x} / zone_scale))"
+    expect_poll "the monitor reads $1 logical pixels wide" "$1" first_width
+  }
+  zone_hold 2560
+  geometry expect_poll "at the owner's 2560 his right section fits and shows no button" '[false, false, false, []]' zone_ends right
+  geometry expect "zones that fit draw flush with their sections, as before" '[true, true]' zone_pick "json.dumps([d['left']['flush'], d['right']['flush']])"
+  release_mode "the nested compositor gives the monitor its own mode back" "$zone_monitor" "$zone_mode" "$zone_scale"
+  zone_hold 1600
+  geometry expect_poll "at rest the clipped right zone shows its end and its < button alone, over nothing" '[true, true, false, []]' zone_ends right
+  geometry expect "the left zone fits and shows no button" '[false, false, false, []]' zone_ends left
+  geometry expect "at rest the right zone's last widget meets its edge" True zone_pick "d['right']['ends'] == d['right']['ids'][-1:]"
+  zone_rest="$(zone_shown right)" || fail "the resting right zone is unreadable"
+  # The widgets the right zone clips away stand under the clock and draw
+  # above it. A right click reaches every frame handler under it, so only
+  # the clip keeps it from the hidden widget's menu as well as the
+  # clock's. The click lands on the clock where a clipped widget lies.
+  zone_clock_click() { # LABEL
+    local pick x
+    pick="$(zone_pick "next(('%d %s' % ((max(a, d['centre'][0]) + min(a + w, d['centre'][0] + d['centre'][1])) / 2, i) for i, (a, w) in zip(d['right']['ids'], d['right']['spans']) if a + w > d['centre'][0] + 4 and a < d['centre'][0] + d['centre'][1] - 4), 'clear')")" || { fail "$1: the zones are unreadable"; return 1; }
+    read -r x zone_under <<<"$pick"
+    [[ $x =~ ^[0-9]+$ ]] || { fail "$1: no clipped widget under the clock: $pick"; return 1; }
+    hover "$((x + 1))" "$zone_bar_y" && right_click "$x" "$zone_bar_y" || { fail "$1: the right click on the clock failed"; return 1; }
+  }
+  zone_menus() { echo "[$(ipc smoke readInstance "$(bar_key)" vgs.bar/center-clock frameMenuOpen), $(ipc smoke readInstance "$(bar_key)" "$zone_under" frameMenuOpen)]"; }
+  if zone_clock_click "a right click on the clock over clipped widgets"; then
+    expect_poll "a right click on the clock over clipped widgets opens the clock's menu alone" '[true, false]' zone_menus
+    type_keys -k Escape || fail "Escape to the clock's menu failed"
+    expect_poll "Escape closes the clock's menu" '[false, false]' zone_menus
+  fi
+  # The empty bar before the clock, over widgets the right zone clips
+  # away, still opens the bar's add menu.
+  zone_empty_menu() { # LABEL WANT
+    local x
+    x="$(zone_pick "int((d['right']['spans'][0][0] + d['centre'][0]) / 2) if d['right']['spans'][0][0] < d['centre'][0] - 8 and d['right']['spans'][0][0] > d['left']['view'][0] + d['left']['view'][1] else 'crowded'")" || { fail "$1: the zones are unreadable"; return; }
+    [[ $x =~ ^[0-9]+$ ]] || { fail "$1: no empty bar over clipped widgets: $x"; return; }
+    hover "$((x + 1))" "$zone_bar_y" && right_click "$x" "$zone_bar_y" || { fail "$1: the right click on the empty bar failed"; return; }
+    geometry expect "$1" "$2" zone_ever_true ipc smoke readInstance "$(bar_key)" vgs.bar spacerMenuOpen
+    type_keys -k Escape || fail "$1: Escape closes the menu"
+  }
+  zone_empty_menu "a right click on the empty bar over clipped widgets opens the add menu" True
+  expect_poll "Escape closes the add menu" false ipc smoke readInstance "$(bar_key)" vgs.bar spacerMenuOpen
+  zone_beside="$(zone_others)" || fail "the left zone and the centre are unreadable"
+  read -r zone_wx zone_wy < <(zone_pick "'%d %d' % (d['right']['view'][0]+d['right']['view'][1]/2, $zone_bar_y)")
+  # A wheel notch up steps toward the start and down toward the end; a
+  # turn past the end stops there.
+  wheel "$zone_wx" "$zone_wy" -1 || fail "the wheel over the right zone failed"
+  geometry expect_poll "a wheel notch up lands a widget at the start, beside the fade" True zone_landed right start
+  geometry expect "a wheel notch up leaves the end, so > shows too" '[true, true, true, []]' zone_ends right
+  zone_one="$(zone_shown right)" || fail "the wheeled right zone is unreadable"
+  expect "a wheel notch up shows a widget before those at rest" True py_reply 'import json,sys; a,b=json.load(sys.stdin),json.loads(sys.argv[1]); print(bool(a) and a[0] not in b)' "$zone_rest" <<<"$zone_one"
+  wheel "$zone_wx" "$zone_wy" 3 || fail "the wheel over the right zone failed"
+  geometry expect_poll "wheel notches down stop at the end" "$zone_rest" zone_shown right
+  # The < button steps exactly as a notch up, then walks to the start a
+  # whole widget a click; the > button walks back to the end. Neither
+  # moves the left zone or the centre.
+  zone_press right start || fail "the < button click failed"
+  geometry expect_poll "a < click shows what a wheel notch up showed" "$zone_one" zone_shown right
+  geometry expect "the < button walks to the start, a widget edge at each step" walked zone_walk right start
+  geometry expect "at the start the first widget meets the zone's edge and > shows alone" '[true, false, true, []]' zone_pick "json.dumps([d['right']['starts'] == d['right']['ids'][:1], d['right']['start'], d['right']['end'], d['right']['over']])"
+  geometry expect "the > button walks to the end, a widget edge at each step" walked zone_walk right end
+  geometry expect "the > walk ends at rest" "$zone_rest" zone_shown right
+  geometry expect "scrolling the right zone never moves the left zone or the centre" "$zone_beside" zone_others
+  zone_drop "a drop into the clipped right zone"
+  expect_poll "the drop lands the Launcher between the neighbours under the pointer" "[\"$zone_a\", \"vgs.launcher\", \"$zone_b\"]" zone_layout
+  geometry expect_poll "after the drop the right zone still clips and draws over nothing" '[true, []]' zone_pick "json.dumps([d['right']['clips'], d['right']['over']])"
+  # Last, since the widget keeps its focus for the next time the bar
+  # holds the keyboard.
+  zone_focus "focus on a hidden widget scrolls it into view" True
+  # Controls: each copy drops one rule, and its check reads the fault.
+  zone_control() { # NAME FILE OLD NEW
+    stop_shell
+    zone_plant
+    copy_tree "zone-$1" && edit_tree "zone-$1" "$2" "$3" "$4" || return 1
+    start_shell "$sandbox/tree-zone-$1" "$sandbox/bar-zone-$1.log" || { fail "the zone control $1 starts"; return 1; }
+    expect_poll "control $1: the bar mounts the owner's right section" True zone_mounted
+    # The stand-ins draw their widgets a moment after the mount.
+    geometry expect_poll "control $1: the right section runs under the clock" True zone_pick "d['right']['spans'][0][0] < d['centre'][0] - 8"
+  }
+  if zone_control clip shell/plugins/vgs.bar/Bar.qml '    clip: clipped' '    clip: false'; then
+    geometry expect_poll "control: a zone that does not clip draws over the centre" True zone_pick "bool(d['right']['over'])"
+    if zone_clock_click "control: a right click on the clock over unclipped widgets"; then
+      geometry expect "control: without the clip the hidden widget under the clock opens its menu too" True zone_ever_true ipc smoke readInstance "$(bar_key)" "$zone_under" frameMenuOpen
+    fi
+  fi
+  if zone_control empty shell/plugins/vgs.bar/Bar.qml 'section.parent.contains(section.parent.mapFromItem(bar, x, y)) && ' ''; then
+    zone_empty_menu "control: a bar that counts clipped widgets as drawn keeps its add menu shut" False
+  fi
+  if zone_control buttons shell/plugins/vgs.bar/Bar.qml 'readonly property bool moreAfter: clipped && before < travel - 0.5' 'readonly property bool moreAfter: clipped'; then
+    geometry expect_poll "control: a > button shown at the end fails the resting read" '[true, true, true, []]' zone_ends right
+  fi
+  if zone_control steps shell/plugins/vgs.bar/Bar.qml 'scrollTo(previous === undefined ? 0 : previous.x - inset);' 'scrollTo(before - Theme.bar.gap);'; then
+    zone_place="$(zone_pick "json.dumps(d['right']['spans'][0])")" || fail "control: the right zone is unreadable"
+    zone_press right start || fail "control: the < button click failed"
+    geometry expect "control: the < click moves the zone" True zone_moved right "$zone_place"
+    geometry expect "control: a step by the gap lands no widget edge at the start" False zone_landed right start
+  fi
+  if zone_control wheel shell/plugins/vgs.bar/Bar.qml 'enabled: zone.clipped' 'enabled: false'; then
+    wheel "$zone_wx" "$zone_wy" -1 || fail "control: the wheel over the right zone failed"
+    geometry expect "control: a zone that takes no wheel never leaves its end" False zone_ever "d['right']['end']"
+  fi
+  if zone_control focus shell/plugins/vgs.bar/Bar.qml '        if (!clipped) return;' '        return;'; then
+    zone_focus "control: a zone deaf to focus leaves the focused widget hidden" False
+  fi
+  if zone_control drop shell/Core/Plugins.qml 'const point = entry.widget.mapToItem(null, 0, 0);' 'const point = entry.widget.mapToItem(container, 0, 0);'; then
+    zone_drop "control: a drop that reads the section's own places"
+    geometry expect_poll "control: the drop lands elsewhere than under the pointer" True zone_layout_elsewhere
+  fi
+  release_mode "the nested compositor gives the monitor its own mode back" "$zone_monitor" "$zone_mode" "$zone_scale"
+  mon_w="$zone_saved_w" mon_h="$zone_saved_h"
   stop_shell
   kill -TERM "$fresh_tray_pid" 2>/dev/null || true
   wait "$fresh_tray_pid" 2>/dev/null || true
@@ -758,26 +1085,19 @@ bar_alignment_misplaced() {
   bar_alignment | py_reply 'import json,sys; rows=json.load(sys.stdin); print(any(s.startswith("clock.label.y=") for s in rows) and any(s.startswith("pill0.y=") for s in rows))'
 }
 if copy_tree bar-motion-control \
-  && edit_tree bar-motion-control shell/plugins/vgs.bar/Bar.qml '    Item {
-        id: left
-        readonly property real spacing: Theme.bar.gap' '    Row {
-        move: Transition { NumberAnimation { properties: "x"; duration: 0 } }
-        add: Transition { NumberAnimation { properties: "x"; duration: 0 } }
-        id: left
-        spacing: Theme.bar.gap' \
+  && edit_tree bar-motion-control shell/plugins/vgs.bar/Bar.qml '        Item {
+            id: section
+            readonly property real spacing: Theme.bar.gap' '        Row {
+            move: Transition { NumberAnimation { properties: "x"; duration: 0 } }
+            add: Transition { NumberAnimation { properties: "x"; duration: 0 } }
+            id: section
+            spacing: Theme.bar.gap' \
   && edit_tree bar-motion-control shell/plugins/vgs.bar/Bar.qml '    Item {
         id: center
         readonly property real spacing: Theme.bar.gap' '    Row {
         move: Transition { NumberAnimation { properties: "x"; duration: 0 } }
         add: Transition { NumberAnimation { properties: "x"; duration: 0 } }
         id: center
-        spacing: Theme.bar.gap' \
-  && edit_tree bar-motion-control shell/plugins/vgs.bar/Bar.qml '    Item {
-        id: right
-        readonly property real spacing: Theme.bar.gap' '    Row {
-        move: Transition { NumberAnimation { properties: "x"; duration: 0 } }
-        add: Transition { NumberAnimation { properties: "x"; duration: 0 } }
-        id: right
         spacing: Theme.bar.gap' \
   && edit_tree bar-motion-control shell/Core/Plugins.qml 'container.implicitWidth = Qt.binding(() => {' 'container.width = Qt.binding(() => {'; then
   stop_shell

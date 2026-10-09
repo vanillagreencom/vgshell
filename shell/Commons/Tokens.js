@@ -1036,6 +1036,14 @@ var TOKENS = {
             inset: length(5),
             height: length(12),
             line: color("alpha({bar.foreground}, 0.2)")
+        },
+        // The < and > buttons of a zone whose widgets do not fit: each a
+        // bar item on `backdrop`, beside a fade `fade` wide from
+        // `backdrop` to `clear` over the clipped widgets.
+        scroll: {
+            fade: length("{space.lg}"),
+            backdrop: color("{bar.background}"),
+            clear: color("alpha({bar.background}, 0)")
         }
     }
 };

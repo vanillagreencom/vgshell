@@ -122,6 +122,7 @@ const DEFAULTS = [
     // 12 px lines, two of them the item's 24 px.
     ["bar.stacked.size", 10],
     ["bar.stacked.lineHeight", 12],
+    ["bar.scroll.fade", 12],
     // The control and row rhythm, Radix Themes' button sizes on the 4 px
     // unit: 24, 32 and 40 px controls with mul(4, 2) = 8, mul(4, 3) = 12
     // and mul(4, 4) = 16 a side and mul(4, 1) = 4, 8 and mul(4, 3) = 12
@@ -1044,6 +1045,25 @@ function verifyBarStacked(table) {
 }
 verifyBarStacked(TOKENS);
 
+// A clipped bar zone's button sits on the bar's own colour, and its fade
+// runs from that colour to the same colour clear, in the default theme
+// and every shipped one, so the fade shows no band of another colour.
+function verifyBarScroll(table) {
+    const judge = load(judgeFile);
+    const themes = [["vgs", judge.defaults(table)]];
+    const index = judge.acceptCatalogIndex(table, fs.readFileSync(path.join(repo, "themes/catalog/index.json"), "utf8"));
+    assert.equal(index.ok, true);
+    for (const entry of index.entries)
+        themes.push([entry.name, judge.accept(table, fs.readFileSync(path.join(repo, "themes/catalog", entry.name, "theme.json"), "utf8"))]);
+    for (const [name, result] of themes) {
+        assert.equal(result.ok, true, name);
+        const background = at(result.values, "bar.background");
+        assert.equal(at(result.values, "bar.scroll.backdrop"), background, `${name} bar.scroll.backdrop`);
+        assert.equal(at(result.values, "bar.scroll.clear"), background.slice(0, 7) + "00", `${name} bar.scroll.clear`);
+    }
+}
+verifyBarScroll(TOKENS);
+
 // Each token control edits a copy of the shipped table, and the verifier
 // it names must fail on that copy.
 const tokenSource = fs.readFileSync(path.join(repo, "shell/Commons/Tokens.js"), "utf8");
@@ -1052,7 +1072,9 @@ const TOKEN_CONTROLS = [
     ["bar separator colour", 'line: color("alpha({bar.foreground}, 0.2)")', 'line: color("alpha({bar.foreground}, 0.4)")', verifyBarSeparator],
     ["bar separator height", 'height: length(12),\n            line:', 'height: length("{icon.size.md}"),\n            line:', verifyBarSeparator],
     ["stacked lines rounded past the item", 'lineHeight: length("mul({bar.item.height}, 0.48)")', 'lineHeight: length("mul({bar.item.height}, 0.5)")', verifyBarStacked],
-    ["stacked text at the bar size", 'size: length("mul({bar.item.height}, 0.4)")', 'size: length("{text.bar.size}")', verifyBarStacked]
+    ["stacked text at the bar size", 'size: length("mul({bar.item.height}, 0.4)")', 'size: length("{text.bar.size}")', verifyBarStacked],
+    ["bar scroll fade end", 'clear: color("alpha({bar.background}, 0)")', 'clear: color("alpha({bar.foreground}, 0)")', verifyBarScroll],
+    ["bar scroll backdrop", 'backdrop: color("{bar.background}")', 'backdrop: color("{color.surface}")', verifyBarScroll]
 ];
 fs.mkdirSync(path.join(repo, "tmp"), { recursive: true });
 const tokenControlDir = fs.mkdtempSync(path.join(repo, "tmp", "token-control-"));
