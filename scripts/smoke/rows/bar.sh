@@ -186,6 +186,22 @@ calendar_keys() { type_keys "$@" && echo ok; }
 # before the compositor maps it, so they open the same panel through the
 # core's summon, which the clock's click asks for too.
 calendar_summon() { ipc shell summon panel vgs.bar '{}'; }
+# Pointer input on a shell just started can be lost the same way, so the
+# control presses Left, the keyboard path, again, each press given 3 s,
+# only while the title still names this month: a second press never runs
+# after the first moved the month.
+calendar_back() {
+  local this _ i
+  this="$(calendar_want 0 | cut -d' ' -f1,2)"
+  for _ in 1 2 3 4 5; do
+    calendar_keys -k Left >/dev/null || return
+    for i in $(seq 1 15); do
+      [[ $(calendar_read | cut -d' ' -f1,2) == "$this" ]] || { echo ok; return; }
+      sleep 0.2
+    done
+  done
+  echo unmoved
+}
 calendar_button() { calendar_click_box "$(ipc smoke labelledGeometry panel vgs.bar IconButton "$1")"; }
 calendar_day() { calendar_click_box "$(ipc smoke itemGeometry panel vgs.bar Button "$1")"; }
 expect "a click on the clock reaches it" ok clock_click
@@ -972,7 +988,7 @@ for calendar_case in first first-unguarded; do
   start_shell "$sandbox/tree-calendar-$calendar_case" "$sandbox/calendar-$calendar_case.log" || fail "the $calendar_case calendar tree starts"
   expect "$calendar_case: the calendar opens" ok calendar_summon
   expect_poll "$calendar_case: the calendar marks the 1st of this month" "$(calendar_want 0 1)" calendar_read
-  expect "$calendar_case: Previous month is pressed" ok calendar_button "Previous month"
+  expect "$calendar_case: Left moves the calendar back" ok calendar_back
   if [[ $calendar_case == first ]]; then
     expect_poll "the previous month leaves this month's 1st unmarked among its days" "$(calendar_want -1 none)" calendar_read
   else
