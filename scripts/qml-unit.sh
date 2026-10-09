@@ -20,7 +20,8 @@
 # the qs.Unit module and calls the shipped accept; a stand-in Quickshell
 # module supplies the Singleton and Scope types, a PopupWindow that
 # positions nothing, a ScriptModel that rebuilds its rows whole, a
-# LazyLoader that builds its component while active, a DesktopEntries whose
+# LazyLoader that builds its component while active, a Variants that builds
+# one delegate per model entry, a DesktopEntries whose
 # application list a test replaces and a Quickshell singleton whose env
 # answers "env:NAME", so Paths names directories under it, a QsWindow
 # singleton whose window a test names, and a stand-in
@@ -143,10 +144,10 @@ cp -- "$tests/stand-ins/UnitTheme.qml" "$imports/qs/Unit/UnitTheme.qml"
 # Where the module under test is, for the test that reads its qmldir.
 printf '.pragma library\nvar UI_DIR = %s;\n' "$(python3 -c 'import json, sys; print(json.dumps("file://" + sys.argv[1]))' "$ui")" >"$imports/qs/Unit/UnitPaths.js"
 printf 'module qs.Unit\nsingleton UnitTheme 1.0 UnitTheme.qml\nUnitPaths 1.0 UnitPaths.js\n' >"$imports/qs/Unit/qmldir"
-for file in Singleton.qml Scope.qml PopupWindow.qml Edges.qml PopupAdjustment.qml Quickshell.qml QsWindow.qml DesktopEntries.qml ScriptModel.qml LazyLoader.qml; do
+for file in Singleton.qml Scope.qml PopupWindow.qml Edges.qml PopupAdjustment.qml Quickshell.qml QsWindow.qml DesktopEntries.qml ScriptModel.qml LazyLoader.qml Variants.qml; do
   cp -- "$tests/stand-ins/$file" "$imports/Quickshell/$file"
 done
-printf 'module Quickshell\nSingleton 1.0 Singleton.qml\nScope 1.0 Scope.qml\nPopupWindow 1.0 PopupWindow.qml\nEdges 1.0 Edges.qml\nPopupAdjustment 1.0 PopupAdjustment.qml\nsingleton Quickshell 1.0 Quickshell.qml\nsingleton QsWindow 1.0 QsWindow.qml\nsingleton DesktopEntries 1.0 DesktopEntries.qml\nScriptModel 1.0 ScriptModel.qml\nLazyLoader 1.0 LazyLoader.qml\n' >"$imports/Quickshell/qmldir"
+printf 'module Quickshell\nSingleton 1.0 Singleton.qml\nScope 1.0 Scope.qml\nPopupWindow 1.0 PopupWindow.qml\nEdges 1.0 Edges.qml\nPopupAdjustment 1.0 PopupAdjustment.qml\nsingleton Quickshell 1.0 Quickshell.qml\nsingleton QsWindow 1.0 QsWindow.qml\nsingleton DesktopEntries 1.0 DesktopEntries.qml\nScriptModel 1.0 ScriptModel.qml\nLazyLoader 1.0 LazyLoader.qml\nVariants 1.0 Variants.qml\n' >"$imports/Quickshell/qmldir"
 # The shipped notification panel imports this type for hidden media. The
 # image-free boundary fixture needs its Rectangle interface only; rounded
 # image clipping remains covered by the real shell's notification smoke.

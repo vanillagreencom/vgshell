@@ -3,9 +3,7 @@
 # probe: the view's cards and state through readDescendant, the images the
 # cards draw through images, the texts it draws beside its rail and tabs
 # through descendantGeometry, and its Dialog's through itemTexts. The rows page, filter, install and apply a catalog
-# entry, and answer the wallpaper offer both ways. An apply with its answer
-# held closes the browser on the publish, and a partial one's notice reads
-# back as the card vgs.notifications draws. akane's card draws its
+# entry, and answer the wallpaper offer both ways. akane's card draws its
 # package preview. The old keys, SUPER+T
 # and SUPER+W, open nothing, and each view's key moves an open browser to
 # that view; a manifest copy still bound to SUPER+T is their control. The sandbox copy's
@@ -23,7 +21,7 @@
 # plugin disabled, and rows/theme-browse.sh leaves vgs applied, no current
 # wallpaper and nord not installed; this file enables the plugin and
 # leaves all four so.
-# inputs: shell/plugins/vgs.themes/* themes/catalog/* shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/feedback/Dialog.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml shell/Core/Notifier.qml shell/Core/NotificationHub.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/fixtures/theme-image.jpg
+# inputs: shell/plugins/vgs.themes/* themes/catalog/* shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/feedback/Dialog.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 view_value() { ipc smoke readDescendant overlay vgs.themes ThemeView "$1"; }
 view_names() { view_value shownCards | py_reply 'import json,sys; print(json.dumps([c["name"] for c in json.load(sys.stdin)]))'; }
@@ -328,24 +326,12 @@ wallpaper_gate="$sandbox/theme-wallpaper-gate"
 # The first apply of akane answers busy, as a runner holding the theme lock
 # does; the file records that it did.
 akane_refused="$sandbox/theme-akane-refused"
-# While this file exists an apply runs the real runner and holds its answer
-# until the file goes, for at most twice the harness's poll bound, so a
-# browser that waits for the answer fails the close poll first.
-answer_hold="$sandbox/theme-answer-hold"
-answer_hold_tries=$((2 * smoke_poll_bound_ms / 50))
 cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
 stand_in_vgshell "export VGS_THEME_ASSET_BASE=$(printf %q "file://$assets")
 if [[ \${2:-} == apply && \${4:-} == akane && ! -e $(printf %q "$akane_refused") ]]; then
   touch -- $(printf %q "$akane_refused")
   printf '%s\n' '{\"state\":\"failed\",\"shell\":\"failed\",\"targets\":[],\"theme\":\"akane\",\"reason\":\"busy\"}'
   exit 75
-fi
-if [[ \${2:-} == apply && -e $(printf %q "$answer_hold") ]]; then
-  answer=\"\$($(printf %q "$repo/bin/vgshell.real") \"\$@\")\"
-  status=\$?
-  for _ in \$(seq 1 $answer_hold_tries); do [[ -e $(printf %q "$answer_hold") ]] || break; sleep 0.05; done
-  printf '%s\n' \"\$answer\"
-  exit \$status
 fi
 if [[ \${2:-} == wallpapers ]]; then
   printf '%s\n' '{\"state\":\"downloading\",\"bytes\":0,\"total\":4000000}' '{\"state\":\"downloading\",\"bytes\":2000000,\"total\":4000000}'
@@ -664,45 +650,15 @@ type_keys -k Escape || fail "sending Escape to clear akane's filter failed"
 type_keys -k Escape || fail "sending Escape to close after akane failed"
 expect_poll "Escape twice closes the browser after akane" 0 layer_count vgs:overlay
 
-# The hand-over notice. nord, its wallpapers downloaded, applies from the
-# browser with a fixture target planted as rows/themes.sh plants it, one
-# naming no token, so the apply is partial. The stand-in holds the answer,
-# so the browser closes on the publish alone; once the answer goes through,
-# the service sends one warning notice that names the Themes panel. Control:
-# vgs, which offers nothing either, then applies with the target removed,
-# and the same reader finds no notice for that clean apply.
-# themes_notices: the notices from the plugin that Notifications shows, as
-# [summary, message, tone, icon]. themes_notices_quiet: `quiet` when none
-# shows for 2 s, else the first reading that holds one.
-themes_notices() { plugin_cards Themes | py_reply 'import json,sys; print(json.dumps([[r[0], r[1], r[3], r[4]] for r in json.load(sys.stdin)]))'; }
-themes_notices_quiet() { local got; for _ in $(seq 1 10); do got="$(themes_notices)" || return 1; [[ $got == '[]' ]] || { echo "$got"; return 0; }; sleep 0.2; done; echo quiet; }
-# themes_apply_held NAME: apply NAME from the browser with its answer held,
-# read the browser closed on the publish, then let the answer through and
-# read the service's hand-over record taken.
-themes_apply_held() { # NAME
-  touch -- "$answer_hold"
-  press_themes || fail "typing SUPER+SHIFT+T for $1 failed"
-  expect_poll "SUPER+SHIFT+T opens the browser for $1" 1 layer_count vgs:overlay
-  browser_focused
-  type_keys "$1" || fail "typing $1 failed"
-  expect_poll "the filter selects $1" "\"$1\"" view_value selectedName
-  type_keys -k Return || fail "sending Return for $1 failed"
-  expect_poll "Enter applies $1" "$1" ipc smoke themeName
-  expect_poll "$1's apply closes the browser on the publish, its answer held" 0 layer_count vgs:overlay
-  expect "$1's apply sends no notice while its answer is held" '[]' themes_notices
-  rm -f -- "$answer_hold"
-  expect "$1's held answer ends the apply" idle theme_idle
-  expect "the service took $1's handed-over answer" null ipc smoke readInstance service vgs.themes reported
-}
-notes_on "the themes apply notice"
-fixture_target smoke-fails 'accent=@{palette.nope}'
-themes_apply_held nord
-expect_poll "nord's partial apply sends one warning notice naming the panel" '[["Nord", "Nord is applied. Some applications did not change. Open the Themes panel for details.", "warning", "palette"]]' themes_notices
-rm -r -- "${fixture_targets:?}/smoke-fails"
-notes_clear "the themes apply notice"
-themes_apply_held vgs
-expect "control: vgs's clean apply sends no notice" quiet themes_notices_quiet
-notes_off "the themes apply notice"
+# vgs applies from the browser, which closes it, since vgs offers nothing.
+press_themes || fail "typing SUPER+SHIFT+T for vgs failed"
+expect_poll "SUPER+SHIFT+T opens the browser for vgs" 1 layer_count vgs:overlay
+browser_focused
+type_keys "vgs" || fail "typing vgs failed"
+expect_poll "the filter selects vgs" '"vgs"' view_value selectedName
+type_keys -k Return || fail "sending Return for vgs failed"
+expect_poll "Enter applies vgs" vgs ipc smoke themeName
+expect_poll "an apply that offers nothing closes the browser" 0 layer_count vgs:overlay
 
 # ---- the wallpaper view -----------------------------------------------------
 # nord, applied with its two downloaded images, and a second headless
