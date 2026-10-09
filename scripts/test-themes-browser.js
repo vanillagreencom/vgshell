@@ -2,8 +2,8 @@
 // The browsers' decisions, shell/plugins/vgs.themes/BrowserLogic.js, and
 // the plugin's file URLs, Files.js, under node: the payload and its views;
 // the theme view's cards merged from the list, the catalog and the images,
-// the filter, the selection, the download offer and whether an apply
-// closes on the publish; the wallpaper view's sources, scopes, cards,
+// the filter, the selection, the download offer, whether an apply ends
+// in it and whether an apply closes on the publish; the wallpaper view's sources, scopes, cards,
 // download or update card, keys and selection; the lines the browsers show
 // and the service's apply notice. Every expected value is written out by
 // hand, Qt's key codes from qnamespace.h.
@@ -192,6 +192,12 @@ function verify(logic, files) {
     // The view's apply on the publish: close at once, or wait for the answer.
     const offered = Object.assign({}, nord, { installed: true, displayed: true });
     const plain = Object.assign({}, offered, { imagery: null });
+    for (const [label, downloaded, card, want] of [
+        ["an apply offers the wallpapers it can download", false, offered, true],
+        ["an apply after the download offers nothing", true, offered, false],
+        ["an apply with nothing to download offers nothing", false, plain, false],
+        ["an apply with no card offers nothing", false, null, false]
+    ]) assert.equal(logic.offersAfterApply(downloaded, card), want, label);
     const job = (change) => Object.assign({ step: "apply", name: "nord", shown: false, downloaded: false }, change);
     for (const [label, running, published, card, want] of [
         ["the applied theme's publish closes before the answer", job({}), "nord", plain, true],
@@ -418,8 +424,9 @@ const CONTROLS = [
     ["printable only", "return code >= 32 && code !== 127;", "return true;"],
     ["offer only when displayed", "card.installed && card.displayed && card.imagery", "card.installed && card.imagery"],
     ["offer only with bytes", "&& card.imagery.size > 0", ""],
-    ["the publish closes, not the answer", "return job.downloaded || !downloadOffer(card);", "return false;"],
-    ["the offer waits for the answer", "return job.downloaded || !downloadOffer(card);", "return true;"],
+    ["the publish closes, not the answer", "return !offersAfterApply(job.downloaded, card);", "return false;"],
+    ["the offer waits for the answer", "return !offersAfterApply(job.downloaded, card);", "return true;"],
+    ["the apply after the download offers nothing", "return !downloaded && downloadOffer(card);", "return downloadOffer(card);"],
     ["the displayed theme waits for the answer", "|| job.shown ||", "||"],
     ["only the applied theme's publish closes", "|| published !== job.name) return false;", ") return false;"],
     ["only an apply closes on the publish", "|| job.step !== \"apply\" ||", "||"],

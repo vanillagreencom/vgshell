@@ -242,6 +242,13 @@ function downloadOffer(card) {
     return card !== null && card.installed && card.displayed && card.imagery !== null && !card.imagery.installed && card.imagery.size > 0;
 }
 
+// Whether an apply of CARD, the package's card as applied, ends in the
+// wallpaper offer. An apply that follows the download (DOWNLOADED) never
+// offers it again.
+function offersAfterApply(downloaded, card) {
+    return !downloaded && downloadOffer(card);
+}
+
 // Whether the theme view ends its running JOB, { step, name, shown,
 // downloaded }, when Theme publishes the package PUBLISHED, CARD being
 // that package's card as applied. The theme is then drawn; the judge
@@ -252,7 +259,7 @@ function downloadOffer(card) {
 // package's publish, and while the wallpaper offer needs the answer.
 function closesOnPublish(job, published, card) {
     if (job === null || job.step !== "apply" || job.shown || published !== job.name) return false;
-    return job.downloaded || !downloadOffer(card);
+    return !offersAfterApply(job.downloaded, card);
 }
 
 function sizeText(bytes) {

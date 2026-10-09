@@ -8,14 +8,18 @@
 // when the judge renamed backgrounds.json, theme.json and applied.json
 // into place; `exit` when it exits. While the gate file VGS_LATENCY_HOLD
 // names exists, the process that renamed theme.json holds its exit, so the
-// shell's apply answer waits, for at most HOLD_MS: `held` is when the hold
-// starts, after its line is written. The wait sleeps in SLICE_MS slices on
+// shell's apply answer waits, for at most the VGS_LATENCY_HOLD_MS the row
+// sets past its own poll bound, so a view that waits for the answer fails
+// the row's poll before the hold ends: `held` is when the hold starts,
+// after its line is written. The wait sleeps in SLICE_MS slices on
 // Atomics.wait, which blocks node's main thread without spinning.
 const fs = require("fs");
 const path = require("path");
 const out = process.env.VGS_LATENCY_STAMPS;
 const hold = process.env.VGS_LATENCY_HOLD;
-const HOLD_MS = 30000;
+const holdMs = Number(process.env.VGS_LATENCY_HOLD_MS);
+if (hold !== undefined && hold !== "" && !(Number.isInteger(holdMs) && holdMs > 0))
+    throw new Error("theme-latency-stamps: hold-ms=" + JSON.stringify(process.env.VGS_LATENCY_HOLD_MS));
 const SLICE_MS = 20;
 const stamps = {
     spawned: Math.round(Number(process.env.VGS_LATENCY_SPAWNED) * 1000),
@@ -37,5 +41,5 @@ process.on("exit", () => {
     fs.appendFileSync(out, JSON.stringify(stamps) + "\n");
     if (!holding) return;
     const cell = new Int32Array(new SharedArrayBuffer(4));
-    while (fs.existsSync(hold) && Date.now() - stamps.held < HOLD_MS) Atomics.wait(cell, 0, 0, SLICE_MS);
+    while (fs.existsSync(hold) && Date.now() - stamps.held < holdMs) Atomics.wait(cell, 0, 0, SLICE_MS);
 });

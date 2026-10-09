@@ -375,8 +375,11 @@ latency_gate="$sandbox/latency-catalog-gate"
 latency_started="$sandbox/latency-catalog-started"
 # Each apply's judge stamps its parts into this file, one line a process.
 latency_stamps="$sandbox/latency-apply-stamps"
-# While this file exists the judge holds its exit, so the answer waits.
+# While this file exists the judge holds its exit, so the answer waits,
+# for at most twice the harness's poll bound: a view that waits for the
+# answer fails the close poll before the hold lets the answer through.
 latency_hold="$sandbox/latency-answer-hold"
+latency_hold_ms=$((2 * smoke_poll_bound_ms))
 cat >"$repo/bin/vgshell" <<EOF
 #!/usr/bin/env bash
 if [[ \${1-} == theme && \${2-} == catalog ]]; then
@@ -384,7 +387,7 @@ if [[ \${1-} == theme && \${2-} == catalog ]]; then
   while [[ ! -e '$latency_gate' ]]; do sleep 0.01; done
 fi
 if [[ \${1-} == theme && \${2-} == apply ]]; then
-  export VGS_LATENCY_SPAWNED="\$EPOCHREALTIME" VGS_LATENCY_STAMPS='$latency_stamps' VGS_LATENCY_HOLD='$latency_hold'
+  export VGS_LATENCY_SPAWNED="\$EPOCHREALTIME" VGS_LATENCY_STAMPS='$latency_stamps' VGS_LATENCY_HOLD='$latency_hold' VGS_LATENCY_HOLD_MS='$latency_hold_ms'
   export NODE_OPTIONS="\${NODE_OPTIONS:+\$NODE_OPTIONS }--require=$repo/scripts/smoke/theme-latency-stamps.js"
 fi
 exec '$repo/bin/vgshell.latency-real' "\$@"

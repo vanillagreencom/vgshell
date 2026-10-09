@@ -199,7 +199,7 @@ FocusScope {
         root.refresh(() => {
             const card = root.appliedCard(name);
             root.finish(line);
-            if (!downloaded && BrowserLogic.downloadOffer(card)) root.offer = card;
+            if (BrowserLogic.offersAfterApply(downloaded, card)) root.offer = card;
             else if (line === "") root.closeRequested();
         });
     }
