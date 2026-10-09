@@ -1329,6 +1329,7 @@ async function cases(kit, server, only = null) {
     // notification; in one, Jarvis asks it at the first idle moment, and
     // a turn end is never called finished.
     const QUESTION = "The coding agent asks: Which branch should I use? Your next words are its answer.";
+    const QUESTION_CARD = "The coding agent asks: Which branch should I use? Talk to Jarvis to answer.";
     const WAITING = "The coding agent stopped and is waiting.";
     const SENT = "I sent your answer to the coding agent.";
     // A conversation idle after one brain turn. Answers the count of
@@ -1359,7 +1360,7 @@ async function cases(kit, server, only = null) {
         const question = t.ask("t1", { kind: "question", tool: null, text: "Which branch should I use?" });
         await t.observe();
         await until(() => t.notes.length === 1, "the held prompt is notified");
-        assert.deepEqual(t.notes, [["Coding task", QUESTION]], "with no conversation the prompt is a notification");
+        assert.deepEqual(t.notes, [["Coding task", QUESTION_CARD]], "with no conversation the prompt is a notification");
         assert.deepEqual([control.spoken, w.s().conversation.kind], [[], "ended"], "nothing is spoken with no conversation");
         const asked = await opened(w);
         await spoken(w, asked, QUESTION);
@@ -1484,7 +1485,7 @@ async function cases(kit, server, only = null) {
         w.runner.dispatch({ type: "stop" });
         await until(() => w.s().conversation.kind === "ended" && t.notes.length > 0, "the cut-off prompt is notified");
         await new Promise(resolve => setImmediate(resolve));
-        assert.deepEqual(t.notes, [["Coding task", QUESTION]]);
+        assert.deepEqual(t.notes, [["Coding task", QUESTION_CARD]]);
     }, { tasks: true });
 
     // A task line whose relay turn fails ends the conversation unspoken and
@@ -1563,7 +1564,7 @@ async function cases(kit, server, only = null) {
         const h = w.s().approval;
         w.runner.dispatch({ type: "approval-cancel", gen: h.gen, id: h.id });
         await until(() => t.notes.length === 1 && w.s().turn.kind === "none", "the withheld prompt is notified");
-        assert.deepEqual(t.notes, [["Coding task", QUESTION]]);
+        assert.deepEqual(t.notes, [["Coding task", QUESTION_CARD]]);
         assert.equal(control.spoken.some(sentence => sentence.includes("Which branch")), false, "withheld text is not spoken");
         const next = await say(w, utterance("Never mind."));
         server.replies.push(text(""));
@@ -1583,7 +1584,7 @@ async function taskControls(root, server) {
                 '            }\n            turn.phase = "done";\n            if (turn.relay.ask !== null) c.relay = turn.relay.ask;\n', "task-barge-in"],
             ["relay-heard-prefix", "if (own && turn.relay === null) heard(", "if (own) heard(", "task-barge-in"],
             ["relay-flush-forgotten", "else if (own) unheard(c, turn);", "", "task-barge-in"],
-            ["relay-withheld-silent", "tasks.withheld(c.gen, text, turn.relay.ask);", "void text;", "task-release-declined"],
+            ["relay-withheld-silent", "tasks.withheld(c.gen, text, turn.relay.ask ?? turn.relay.about ?? null);", "void text;", "task-release-declined"],
             ...["task-stop-spoken", "task-line-failed"].map(scenario => ["relay-end-forgets-" + scenario,
                 "        if (c.last !== null) unheard(c, c.last);\n", "", scenario]),
             ["relay-retry-captures", "if (prompt !== null && answer === null && c.retried === c.relay) {",
@@ -1598,6 +1599,8 @@ async function taskControls(root, server) {
         ["permission-maybe", 'return ALLOW.includes(said) ? { v: 1, kind: "allow" }', 'return !DENY.includes(said) ? { v: 1, kind: "allow" }', "task-permission"],
         ["no-conversation-spoken", 'const open = refusal => refusal === null || refusal === "busy";', "const open = () => true;", "task-relay"],
         ["prompt-asked-twice", "        asked.prompts.set(key(prompt), { count: entry(key(prompt)).count + 1, open: true });\n", "", "task-relay"],
+        ["cut-off-card-spoken", '                send(promptLine(prompt, "notification"));', '                send(promptLine(prompt, "voice"));', "task-stop-spoken"],
+        ["withheld-card-spoken", '            if (prompt !== undefined) send(promptLine(prompt, "notification"));', '            if (prompt !== undefined) send(text);', "task-release-declined"],
         ["two-prompts-at-once", "        if (held.some(prompt => entry(key(prompt)).open)) return null;\n", "", "task-two-prompts"],
         ["released-asked-forever", "        return held.find(prompt => entry(key(prompt)).count < ASKS) ?? null;",
             "        return held.find(() => true) ?? null;", "task-permission-release"]

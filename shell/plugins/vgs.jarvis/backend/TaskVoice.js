@@ -27,15 +27,25 @@ function quoted(text) {
     return /[.!?…]$/.test(flat) ? flat : flat + ".";
 }
 
-/** The line that asks the user one held prompt. */
-function promptLine(prompt) {
+// How a prompt line ends on each channel. A spoken line takes the user's
+// next words; a notification card cannot hear them, so it sends the user
+// to Jarvis.
+const ENDINGS = Object.freeze({
+    voice: Object.freeze({ question: "Your next words are its answer.", permission: "Say allow or deny." }),
+    notification: Object.freeze({ question: "Talk to Jarvis to answer.", permission: "Talk to Jarvis to answer." })
+});
+
+/** The line that asks the user one held prompt on channel "voice" or "notification". */
+function promptLine(prompt, channel) {
+    if (!Object.hasOwn(ENDINGS, channel)) fail("channel value=" + channel);
     const text = String(prompt.text).trim();
     switch (prompt.kind) {
     case "question":
         return (text === "" ? "The coding agent asks a question." : "The coding agent asks: " + quoted(text))
-            + " Your next words are its answer.";
+            + " " + ENDINGS[channel].question;
     case "permission":
-        return "The coding agent asks to use " + prompt.tool + (text === "" ? "." : ": " + quoted(text)) + " Say allow or deny.";
+        return "The coding agent asks to use " + prompt.tool + (text === "" ? "." : ": " + quoted(text))
+            + " " + ENDINGS[channel].permission;
     default:
         fail("prompt-kind");
     }
@@ -108,7 +118,7 @@ const line = (text, labels, keep) => ({ text, labels, keep });
 
 /** What Jarvis says when the user's words answer no prompt: ask again. */
 function retry(prompt) {
-    return prompt.kind === "permission" ? line("Say allow or deny.", ["desktop"], true) : line(promptLine(prompt), ["agent"], true);
+    return prompt.kind === "permission" ? line("Say allow or deny.", ["desktop"], true) : line(promptLine(prompt, "voice"), ["agent"], true);
 }
 
 /** What Jarvis says after the relay judged the answer to prompt. */
@@ -148,8 +158,9 @@ const key = prompt => prompt.task + "/" + prompt.id;
  * reports a prompt line cut off before its end with interrupted(gen, ask),
  * which asks it again or, once the conversation ended, notifies it; a prompt
  * whose words went to the brain after one re-ask with released(gen, ask);
- * and a line kept from speech or cut off with withheld(gen, text, ask), ask
- * null for TaskVoice's other lines, which notifies it.
+ * and a line kept from speech or cut off with withheld(gen, text, ask), which
+ * notifies it: a prompt's card is its notification line, any other line's
+ * card is its text.
  */
 function create({ session, state, dispatch, notify, log, defer = queueMicrotask }) {
     // Per task, the facts of the view last seen; null before the first observation.
@@ -201,7 +212,7 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
             for (const prompt of held) {
                 if (told.has(key(prompt))) continue;
                 told.add(key(prompt));
-                send(promptLine(prompt));
+                send(promptLine(prompt, "notification"));
             }
             return;
         }
@@ -230,7 +241,7 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
         if (prompt === null) return;
         asked.prompts.set(key(prompt), { count: entry(key(prompt)).count + 1, open: true });
         told.add(key(prompt));
-        dispatch({ type: "relay", text: promptLine(prompt), ask: { task: prompt.task, prompt: prompt.id, kind: prompt.kind } });
+        dispatch({ type: "relay", text: promptLine(prompt, "voice"), ask: { task: prompt.task, prompt: prompt.id, kind: prompt.kind } });
     }
 
     return Object.freeze({
@@ -269,8 +280,15 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
         withheld(gen, text, ask) {
             if (closed) return;
             // A prompt the release gate keeps from this conversation is not asked in it again.
-            if (ask !== null && gen === asked.gen) asked.prompts.set(ask.task + "/" + ask.prompt, { count: ASKS, open: false });
-            send(text);
+            if (ask === null) {
+                send(text);
+                return;
+            }
+            const name = ask.task + "/" + ask.prompt;
+            if (gen === asked.gen) asked.prompts.set(name, { count: ASKS, open: false });
+            const prompt = held.find(item => key(item) === name);
+            // A prompt that left the relay index needs no answer.
+            if (prompt !== undefined) send(promptLine(prompt, "notification"));
         },
         close() {
             closed = true;

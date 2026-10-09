@@ -1281,7 +1281,7 @@ exit "$failures"
             await task.closed;
             const calls = notified();
             assert.deepEqual(calls.map(call => call.argv), [
-                ["--app-name=Jarvis", "--", "Coding task", "The coding agent asks to use Bash: Run the tests. Say allow or deny."],
+                ["--app-name=Jarvis", "--", "Coding task", "The coding agent asks to use Bash: Run the tests. Talk to Jarvis to answer."],
                 ["--app-name=Jarvis", "--", "Coding task", "The coding task was stopped."]]);
             for (const call of calls) {
                 assert.deepEqual(Object.keys(call.env).sort(), ["LC_ALL", "PATH", "XDG_RUNTIME_DIR"], "only what notify-send reads");

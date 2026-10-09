@@ -468,6 +468,8 @@ async function inside() {
     const WAITING = "The coding agent stopped and is waiting.";
     const DONE = "The coding agent reports the task done.";
     const QUESTION = "The coding agent asks: Which branch should I use? Your next words are its answer.";
+    // A card cannot hear the user's next words: it sends them to Jarvis.
+    const QUESTION_CARD = "The coding agent asks: Which branch should I use? Talk to Jarvis to answer.";
     const Session = loadQml(path.join(backend, "../Session.js"));
     // Session with the gate up and no conversation open.
     const ready = Session.reduce(Session.initial(), { type: "snapshot", at: 0, locked: false, engine: "chained",
@@ -515,9 +517,13 @@ async function inside() {
         assert.equal(Voice.outcomeLine(working, view([started, ["turn-ended"]])), WAITING);
         assert.equal(Voice.outcomeLine(view([started, ["turn-ended"]]), view([started, ["wait", { kind: "idle" }]])), null,
             "an idle notice after a turn end repeats nothing");
-        assert.equal(Voice.promptLine({ kind: "question", tool: null, text: "Which branch should I use?" }), QUESTION);
-        assert.equal(Voice.promptLine({ kind: "permission", tool: "Bash", text: "Run the tests" }),
-            "The coding agent asks to use Bash: Run the tests. Say allow or deny.");
+        const question = { kind: "question", tool: null, text: "Which branch should I use?" };
+        const permission = { kind: "permission", tool: "Bash", text: "Run the tests" };
+        assert.equal(Voice.promptLine(question, "voice"), QUESTION);
+        assert.equal(Voice.promptLine(permission, "voice"), "The coding agent asks to use Bash: Run the tests. Say allow or deny.");
+        assert.equal(Voice.promptLine(question, "notification"), QUESTION_CARD);
+        assert.equal(Voice.promptLine(permission, "notification"), "The coding agent asks to use Bash: Run the tests. Talk to Jarvis to answer.");
+        assert.throws(() => Voice.promptLine(question, "spoken"), /task-voice=channel/);
         cases += 4;
     }
 
@@ -574,7 +580,7 @@ async function inside() {
             await w.runner.observe();
             return notes.some(note => note[1] === text);
         });
-        await told(QUESTION);
+        await told(QUESTION_CARD);
         const question = await w.prompt(id, "question");
         assert.equal(w.runner.answer(id, question.id, { v: 1, kind: "reply", text: "main" }), "answered");
         await told(WAITING);
@@ -582,7 +588,7 @@ async function inside() {
         await until("agent exit", () => w.read(id).process.kind === "exited");
         await told(DONE);
         await w.seen.launchers[0].closed;
-        assert.deepEqual(notes, [["Coding task", QUESTION], ["Coding task", WAITING], ["Coding task", DONE]]);
+        assert.deepEqual(notes, [["Coding task", QUESTION_CARD], ["Coding task", WAITING], ["Coding task", DONE]]);
         assert.deepEqual(dispatched, [], "no conversation is open, so nothing is spoken");
         voice.close();
         w.close();
@@ -707,6 +713,8 @@ async function inside() {
             'const WAITING = "The coding agent finished.";', voiceLines);
         await control("exit-called-done", "TaskVoice.js", 'case "exited": return "The coding agent exited without reporting an outcome.";',
             'case "exited": return "The coding agent is done.";', voiceLines);
+        await control("card-asks-for-words", "TaskVoice.js",
+            'notification: Object.freeze({ question: "Talk to Jarvis to answer."', 'notification: Object.freeze({ question: "Your next words are its answer."', voiceTask);
         await control("permission-maybe", "TaskVoice.js", 'return ALLOW.includes(said) ? { v: 1, kind: "allow" }',
             'return !DENY.includes(said) ? { v: 1, kind: "allow" }', voiceAnswers);
         await control("reply-unbounded", "TaskVoice.js", ".trim().slice(0, MAX_REPLY);", ".trim();", voiceAnswers);

@@ -633,7 +633,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     }
 
     // A relay turn: one fixed task line, never a brain request. relay.ask is
-    // the prompt the line asks, or null; relay.line is TaskVoice's own line,
+    // the prompt the line asks, or null; relay.about is the prompt an answer
+    // turn asks again; relay.line is TaskVoice's own line,
     // null for the engine's reply to an answer; relay.done is set once the
     // line was heard to its end or reported back.
     function relayTurn(c, e, done, relay) {
@@ -667,7 +668,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             } else {
                 record(c, turn, judged.kind === "ask" ? judged.needed : judged.labels, "withhold");
                 turn.relay.done = true;
-                tasks.withheld(c.gen, text, turn.relay.ask);
+                tasks.withheld(c.gen, text, turn.relay.ask ?? turn.relay.about ?? null);
             }
             turn.phase = "done";
             c.turn = null;
@@ -706,6 +707,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 : TaskVoice.answered(prompt, tasks.answer(prompt.task, prompt.id, answer));
         } catch (error) { failed(c, turn, error); return; }
         if (answer === null) c.retried = c.relay;
+        // A re-ask carries the prompt, so a withheld one is notified as that prompt's card.
+        if (reply.labels.includes("agent")) turn.relay.about = c.relay;
         if (!reply.keep) c.relay = null;
         void relayLine(c, turn, reply.text, reply.labels);
     }
