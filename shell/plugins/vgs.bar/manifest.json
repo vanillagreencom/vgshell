@@ -30,7 +30,7 @@
   ],
   "requirements": [
     { "command": "gio", "packages": { "pacman": "glib2", "dnf": "glib2", "nix": "glib" }, "optional": false, "purpose": "Opens a calendar day in the default browser" },
-    { "command": "chromium", "packages": { "pacman": "chromium", "apt": "chromium", "dnf": "chromium", "nix": "chromium" }, "optional": true, "purpose": "Opens a calendar day in a Chromium profile" },
+    { "command": "chromium", "packages": { "pacman": "chromium", "apt": "chromium", "nix": "chromium" }, "optional": true, "purpose": "Opens a calendar day in a Chromium profile" },
     { "command": "google-chrome-stable", "packages": { "aur": "google-chrome", "nix": "google-chrome" }, "optional": true, "purpose": "Opens a calendar day in a Google Chrome profile" },
     { "command": "brave", "packages": { "aur": "brave-bin", "nix": "brave" }, "optional": true, "purpose": "Opens a calendar day in a Brave profile" },
     { "command": "vivaldi-stable", "packages": { "pacman": "vivaldi", "nix": "vivaldi" }, "optional": true, "purpose": "Opens a calendar day in a Vivaldi profile" },
