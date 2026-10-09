@@ -149,7 +149,9 @@ expect "the layer writes no unset option" no layer_mentions natural_scroll
 expect "the options hold no configuration error" '[]' hypr_reload_errors
 expect_poll "no option is overridden while the user sets none after the line" '[]' read_options overridden
 expect_poll "no option has a user value while the user sets none after the line" '[]' read_options userValues
-expect_poll "values holds Hyprland's value of the one readable option the layer does not write" '{"input.natural_scroll":false}' read_options values
+# The core's Appearance options join it: the sandbox's own animations,
+# which the layer leaves to the user while window animations are off.
+expect_poll "values holds Hyprland's value of the one readable option the layer does not write and of the animations it leaves" '{"input.natural_scroll":false,"animations.enabled":false}' read_options values
 expect_poll "the layer's own bind is no foreign bind" False foreign_has SUPER+F7
 
 set_options acme.hyprland '{"repeatRate": 2.5}'
