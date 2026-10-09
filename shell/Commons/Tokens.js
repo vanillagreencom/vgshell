@@ -999,6 +999,15 @@ var TOKENS = {
             // The separator between paired readings: the bar text at a
             // quarter strength, never a state colour.
             separator: color("mix({bar.foreground}, {bar.background}, 0.75)")
+        },
+        // A gap or a separator the user adds from the bar's menu: the gap's
+        // empty width, the room either side of the separator's line, and
+        // the line's height and colour. The owner set 15 and 5 px.
+        spacer: {
+            gap: length(15),
+            inset: length(5),
+            height: length("{icon.size.md}"),
+            line: color("{color.border}")
         }
     }
 };

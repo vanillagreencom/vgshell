@@ -1020,6 +1020,7 @@ const GRID_EXCEPTIONS = [
     [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap|rowAction\.underlineGap|carousel\.sliceName\.shadowOffset)$/, "2 px steps inside one component"],
     [/^textField\.paddingX$/, "optical insets inside one component"],
     [/^(space\.sm|badge\.size\.sm\.paddingX|kbd\.paddingX|tooltip\.paddingY)$/, "6 px padding inside a chip, a key cap or a tooltip"],
+    [/^bar\.spacer\.(gap|inset)$/, "the owner's bar gap and separator room"],
     [/^motion\./, "motion distances"],
     [/\.blur$/, "blur radii"]
 ];

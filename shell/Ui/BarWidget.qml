@@ -29,6 +29,10 @@ Item {
     property var frame: null
     // The widget's own menu entries after Hide, each { label, action }.
     property var frameActions: []
+    // The first entry's text and icon. It runs Hide; a builtin the user
+    // added from the bar's own menu names it as a removal.
+    property string frameHideText: "Hide"
+    property string frameHideIcon: "eye-off"
 
     readonly property int barSize: bar ? bar.barSize : Theme.bar.height
     readonly property bool frameMenuOpen: frameUi.item !== null && frameUi.item.menuOpened
@@ -148,8 +152,8 @@ Item {
                 id: hideMenu
 
                 MenuItem {
-                    text: "Hide"
-                    iconName: "eye-off"
+                    text: root.frameHideText
+                    iconName: root.frameHideIcon
                     // The menu's grab ends before the dialog takes its own.
                     onTriggered: {
                         if (root.frame.describe().builtin) {
