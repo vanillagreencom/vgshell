@@ -106,7 +106,7 @@ for n, (pill, labels) in enumerate(pills):
     check("pill%d.label.y" % n, mid_y(label), mid_y(pill))
     check("pill%d.y" % n, mid_y(pill), centre)
     if n: check("pill%d.gap" % n, pill["box"][0] - (pills[n - 1][0]["box"][0] + pills[n - 1][0]["box"][2]), gap)
-clock_labels = [r for r in clock if r["type"] == "Label" and r["visible"]]
+clock_labels = [r for r in clock if r["type"] in text_types and r["visible"]]
 if len(clock_labels) != 1: out.append("clock labels=%d" % len(clock_labels))
 for label in clock_labels: check("clock.label.y", mid_y(label), centre)
 print(json.dumps(out))
