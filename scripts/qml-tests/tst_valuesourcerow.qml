@@ -125,7 +125,8 @@ Item {
             compare(shownActions(), ["useHyprlandValue", "useThemeValue"]);
             const first = action("useHyprlandValue");
             const second = action("useThemeValue");
-            compare(second.mapToItem(row, 0, 0).x - first.mapToItem(row, first.width, 0).x, Theme.rowAction.gap, "two actions stand the row action gap apart");
+            // RowActions places its children at its next polish.
+            tryVerify(() => second.mapToItem(row, 0, 0).x - first.mapToItem(row, first.width, 0).x === Theme.rowAction.gap, 2000, "two actions stand the row action gap apart");
             row.source = "theme";
             compare(shownActions(), ["useHyprlandValue"], "over the theme's value only Use my Hyprland value");
         }
