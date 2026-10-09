@@ -42,6 +42,11 @@
 #                        session, and `systemctl set-default graphical.target` while
 #                        another target is the default, since only graphical.target
 #                        starts a display manager
+#   reboot-notice        link /etc/pacman.d/hooks/cachyos-reboot-required.hook to
+#                        /dev/null, pacman's own override of the CachyOS hook of
+#                        that name in /usr/share/libalpm/hooks, which turns its
+#                        reboot notice off; make /etc/pacman.d/hooks first while
+#                        it is missing
 #
 # Each step's state is one of:
 #
@@ -74,6 +79,11 @@
 # reason other-account, while another account owns the theme copy's
 # directory. On NixOS it reads ready once display-manager.service names
 # greetd.service and the snippet's directories exist with their owners.
+# The reboot notice reads the link itself, since pacman acts on the link:
+# ready, reason notice-off, while a link to /dev/null is there; needed
+# while nothing is; denied, reason foreign-file, for any other file or
+# link, which apply and undo never touch; absent, reason hook-missing,
+# without the CachyOS hook.
 #
 # `status` prints one `system=<step> state=<state> reason=<key>` line per
 # step in table order; `--json` prints one line, the text the shell's
@@ -105,8 +115,10 @@
 # greeter's files, `enabled=1` when greetd.service was not enabled,
 # `target=<unit>` for the default target it replaced, and `dropin-dir=1`,
 # `greeter-dir=1`, `theme-dir=1`, `copy-dir=1` and `state-dir=1` for each
-# directory it made. `undo` reverts only that: it removes the rule
+# directory it made; `link=1` for the reboot notice's link and `hooks-dir=1`
+# when it made the hooks directory. `undo` reverts only that: it removes the rule
 # and the greeter's files only while their bytes still hash to the record,
+# the reboot notice's link only while it still links to /dev/null,
 # unloads the module and stops the unit only in the boot that changed
 # them, disables only a unit it enabled, restores the default target only
 # while graphical.target is still the default, removes only the
@@ -122,7 +134,8 @@
 # A destination the table names is refused when it is a symbolic link, and
 # a file at it whose bytes no record of VGS's hashes to is refused as
 # foreign, never overwritten: /etc/greetd/config.toml and /etc/pam.d/greetd
-# are never among them. A directory the commands write into, and a record,
+# are never among them. The reboot notice's link is the one link the table
+# writes, and any other file or link at its path is foreign. A directory the commands write into, and a record,
 # must be root's and writable by no one else.
 #
 # On NixOS, detected through the package-manager table when a step reads
@@ -158,6 +171,12 @@ rule_source="${bin_dir%/*}/config/system/udev/60-vgs-apple-displays.rules"
 rules_dir="$prefix/etc/udev/rules.d"
 rule_dest="$rules_dir/60-vgs-apple-displays.rules"
 record_dir="$prefix/var/lib/vgshell/system"
+# The CachyOS reboot hook pacman runs from its system hook directory, and
+# the same name in the hook directory pacman.conf names, which replaces it.
+notice_hook="$prefix/usr/share/libalpm/hooks/cachyos-reboot-required.hook"
+pacman_dir="$prefix/etc/pacman.d"
+hooks_dir="$pacman_dir/hooks"
+notice_link="$hooks_dir/cachyos-reboot-required.hook"
 # The greeter step's sources, read from the install tree beside this script,
 # and its destinations. greeter_home is the path the greeter reads at boot,
 # which the rendered files name; greeter_dir is the same directory under
@@ -189,7 +208,7 @@ dev="$prefix/dev"
 boot_id_file="$prefix/proc/sys/kernel/random/boot_id"
 
 # The closed table, in the order status prints it.
-steps=(apple-displays i2c-dev service-bluetooth service-tailscaled tailscale-operator greeter bandwhich-capture)
+steps=(apple-displays i2c-dev service-bluetooth service-tailscaled tailscale-operator greeter bandwhich-capture reboot-notice)
 capture_caps=cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin
 
 # Character classes spelled out: a range follows the collation of the
@@ -689,6 +708,29 @@ probe_greeter() {
   set_probe ready granted
 }
 
+# Sets notice_state to what is at the reboot notice's link path: none,
+# off for a link to /dev/null, or foreign for any other file or link; 1
+# when the link cannot be read.
+read_notice_link() {
+  local target
+  if [[ -L $notice_link ]]; then
+    target="$(readlink -- "$notice_link")" || return 1
+    if [[ $target == /dev/null ]]; then notice_state=off; else notice_state=foreign; fi
+  elif [[ -e $notice_link ]]; then notice_state=foreign
+  else notice_state=none
+  fi
+}
+
+probe_reboot_notice() {
+  [[ -f $notice_hook ]] || { set_probe absent hook-missing; return; }
+  read_notice_link || { set_probe unknown link-unreadable; return; }
+  case "$notice_state" in
+    off) set_probe ready notice-off ;;
+    none) set_probe needed notice-on ;;
+    *) set_probe denied foreign-file ;;
+  esac
+}
+
 probe() { # STEP
   case "$1" in
     apple-displays) probe_apple_displays ;;
@@ -697,6 +739,7 @@ probe() { # STEP
     tailscale-operator) probe_tailscale_operator ;;
     greeter) probe_greeter ;;
     bandwhich-capture) probe_bandwhich_capture ;;
+    reboot-notice) probe_reboot_notice ;;
     *) refuse 1 "internal=probe step=$1" "the step table has no probe for it" ;;
   esac
 }
@@ -772,6 +815,7 @@ read_record() { # STEP
     tailscale-operator) allowed=' uid operator previous ' ;;
     greeter) allowed=' uid config pam dropin enabled target deferred dropin-dir greeter-dir theme-dir copy-dir state-dir ' ;;
     bandwhich-capture) allowed=' uid binary hash ' ;;
+    reboot-notice) allowed=' uid link hooks-dir ' ;;
     *) refuse 1 "internal=record step=$1" ;;
   esac
   while IFS= read -r line || [[ -n $line ]]; do
@@ -782,7 +826,7 @@ read_record() { # STEP
       uid) [[ $value =~ ^$digit+$ ]] ;;
       rule|config|pam|dropin|hash) [[ $value =~ ^$hex{64}$ ]] ;;
       binary) [[ $value == /* && $value != *$'\r'* ]] ;;
-      loaded|enabled|started|*-dir) [[ $value == 1 ]] ;;
+      loaded|enabled|started|link|*-dir) [[ $value == 1 ]] ;;
       boot|deferred) [[ $value =~ ^($hex|-){36}$ ]] ;;
       target) [[ $value =~ ^($lower|$digit|[@._:-])+\.target$ ]] ;;
       operator) [[ $value =~ $name_pattern ]] ;;
@@ -1062,6 +1106,41 @@ undo_greeter() {
   greeter_kept=1
 }
 
+apply_reboot_notice() {
+  local ln install text="uid=$uid" made_dir=""
+  trusted "$pacman_dir" || refuse 1 "untrusted=$pacman_dir"
+  owned_dir "$hooks_dir"
+  read_notice_link || refuse 1 "link=unreadable path=$notice_link"
+  [[ $notice_state == none ]] || refuse 1 "destination=foreign path=$notice_link" "a file VGS did not write is never replaced"
+  program ln ln
+  # A directory VGS made before stays VGS's to remove.
+  if read_record reboot-notice; then made_dir="${record[hooks-dir]-}"; fi
+  [[ -e $hooks_dir ]] || made_dir=1
+  [[ -z $made_dir ]] || text+=$'\n'"hooks-dir=1"
+  record_put reboot-notice "$text"$'\n'"link=1"
+  if [[ ! -e $hooks_dir ]]; then
+    program install install
+    cmd "$install" -d -m 0755 -o root -g root -- "$hooks_dir"
+  fi
+  cmd "$ln" -s -- /dev/null "$notice_link"
+}
+
+undo_reboot_notice() {
+  local rm rmdir
+  no_symlink "$hooks_dir"
+  read_notice_link || refuse 1 "link=unreadable path=$notice_link"
+  [[ $notice_state != foreign ]] || refuse 1 "destination=foreign path=$notice_link" "a file VGS did not write is never removed"
+  if [[ $notice_state == off && -n ${record[link]+set} ]]; then
+    program rm rm
+    cmd "$rm" -f -- "$notice_link"
+  fi
+  if [[ -n ${record[hooks-dir]+set} && -e $hooks_dir ]]; then
+    program rmdir rmdir
+    cmd "$rmdir" --ignore-fail-on-non-empty -- "$hooks_dir"
+  fi
+  record_drop reboot-notice
+}
+
 undo_apple_displays() {
   local rm
   rule_dest_state "${record[rule]}"
@@ -1108,6 +1187,7 @@ plan() { # VERB STEP
     tailscale-operator) "$1_tailscale_operator" ;;
     greeter) "$1_greeter" ;;
     bandwhich-capture) "$1_bandwhich_capture" ;;
+    reboot-notice) "$1_reboot_notice" ;;
     *) refuse 1 "internal=plan step=$2" ;;
   esac
 }

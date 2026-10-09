@@ -136,6 +136,8 @@ var STATUS_STATE_TONES = { ok: "success", info: "info", warning: "warning", dang
 // `lines` is the further printable lines a state that names several things
 // draws under `text`, at most STATUS_LIST_MAX. `hint` is bounded plain
 // guidance for this state; without it, the declaration's hint applies.
+// A value of `hidden: true` alone (statusStateHidden) keeps the entry's
+// row off the page while its writer finds nothing to show.
 var STATUS_STATE_KEYS = ["tone", "text", "lines", "hint", "action"];
 // A `presenceList` value is a list of at most STATUS_LIST_MAX items, each
 // carrying these keys: a printable `label` and a `presence` value, with an
@@ -157,13 +159,14 @@ var LAUNCHER_ROW_KEYS = ["id", "label", "icon", "description", "aliases", "menu"
 // and exactly one route, STATUS_ACTION_ROUTES: `tui`, a name of the
 // manifest's own `tui` key the core opens in a floating terminal;
 // `install`, a list of the manifest's own requirements the core
-// offers through the requirement notice; or `system`, a step of the
+// offers through the requirement notice; `system`, a step of the
 // manifest's own `systemSteps` the core applies in its `core/system` TUI
-// (D081). An entry of a type in STATUS_ACTION_TYPES takes one. A `state`
+// (D081); or `undo`, such a step the core undoes there. An entry of a
+// type in STATUS_ACTION_TYPES takes one. A `state`
 // entry whose step differs by what its writer found declares `actions`
 // instead: two or more such steps by name, a STATUS_KEY_PATTERN
 // identifier, of which a value names at most one.
-var STATUS_ACTION_ROUTES = ["tui", "install", "system"];
+var STATUS_ACTION_ROUTES = ["tui", "install", "system", "undo"];
 var STATUS_ACTION_KEYS = ["label"].concat(STATUS_ACTION_ROUTES);
 var STATUS_ACTION_TYPES = ["presence", "state"];
 // The refusal reasons of the `manager` capability's `act`.
@@ -174,7 +177,7 @@ var STATUS_ACTION_REASONS = ["undeclared", "disabled", "not-offered"];
 // prints them, and the states a probe reads each one in. The script is the
 // table's owner; scripts/test-vgshell-system.sh reads its status back against
 // this list.
-var SYSTEM_STEPS = ["apple-displays", "i2c-dev", "service-bluetooth", "service-tailscaled", "tailscale-operator", "greeter", "bandwhich-capture"];
+var SYSTEM_STEPS = ["apple-displays", "i2c-dev", "service-bluetooth", "service-tailscaled", "tailscale-operator", "greeter", "bandwhich-capture", "reboot-notice"];
 var SYSTEM_STATES = ["ready", "needed", "denied", "absent", "unknown", "nixos"];
 // A probe's reason: a short key of lower case letters and dashes.
 var SYSTEM_REASON_PATTERN = /^[a-z][a-z-]{0,39}$/;
@@ -663,8 +666,8 @@ function statusEntryActions(entry) {
 // type is in STATUS_ACTION_TYPES, a printable `label` of at most STATUS_LABEL_MAX
 // characters, and exactly one of STATUS_ACTION_ROUTES: `tui`, a name the
 // manifest's TUI key declares; `install`, a non-empty list of requirements the
-// manifest's REQUIREMENTS declare, each once; `system`, a step the
-// manifest's SYSTEM, its `systemSteps`, declares.
+// manifest's REQUIREMENTS declare, each once; `system` or `undo`, a step
+// the manifest's SYSTEM, its `systemSteps`, declares.
 function statusActionError(type, action, at, tui, requirements, system) {
     if (STATUS_ACTION_TYPES.indexOf(type) === -1)
         return at + " needs a type whose value says when it applies, one of " + STATUS_ACTION_TYPES.join(", ");
@@ -679,9 +682,10 @@ function statusActionError(type, action, at, tui, requirements, system) {
         return at + ".label must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters";
     if (STATUS_ACTION_ROUTES.filter(function (route) { return action[route] !== undefined; }).length !== 1)
         return at + " must name exactly one of " + STATUS_ACTION_ROUTES.join(", ");
-    if (action.system !== undefined) {
-        if (typeof action.system !== "string" || !Array.isArray(system) || system.indexOf(action.system) === -1)
-            return at + ".system must name a step of the manifest's systemSteps, got " + JSON.stringify(action.system);
+    var stepRoute = action.system !== undefined ? "system" : action.undo !== undefined ? "undo" : null;
+    if (stepRoute !== null) {
+        if (typeof action[stepRoute] !== "string" || !Array.isArray(system) || system.indexOf(action[stepRoute]) === -1)
+            return at + "." + stepRoute + " must name a step of the manifest's systemSteps, got " + JSON.stringify(action[stepRoute]);
         return "";
     }
     if (action.tui !== undefined) {
@@ -952,6 +956,7 @@ function statusValueFits(type, value) {
     }
     if (type === "state") {
         if (!isPlainObject(value) || !isPlainJson(value)) return false;
+        if (statusStateHidden(value)) return true;
         var keys = Object.keys(value);
         for (var i = 0; i < keys.length; i++)
             if (STATUS_STATE_KEYS.indexOf(keys[i]) === -1) return false;
@@ -965,6 +970,12 @@ function statusValueFits(type, value) {
     if (type === "count" || type === "time") return typeof value === "number" && isFinite(value) && value >= 0 && Math.floor(value) === value && value <= Number.MAX_SAFE_INTEGER;
     if (type === "data") return isPlainJson(value);
     throw new Error("statusValueFits: status type " + JSON.stringify(type) + " passed validation but has no rule");
+}
+
+// Whether VALUE, a plain `state` object, is the hidden value:
+// `hidden: true` and no other key.
+function statusStateHidden(value) {
+    return Object.keys(value).length === 1 && value.hidden === true;
 }
 
 // Whether `item` is one item of a `presenceList` value: plain JSON holding
@@ -1189,7 +1200,8 @@ function tuiWithheldReason(lacking) {
 }
 
 // The Status rows the plugin manager shows for a plugin: one per entry
-// statusDisplayable admits, in manifest key order, as { key, type, label,
+// statusDisplayable admits whose `state` value is not hidden (statusStateHidden),
+// in manifest key order, as { key, type, label,
 // group, hint, info, action, report, value, tone }. `group`, `hint` and
 // `info` are "" when the manifest omits them. `action` is
 // statusRowAction's: null for an entry without one, else { label, offered },
@@ -1201,7 +1213,8 @@ function tuiWithheldReason(lacking) {
 // text names the withheld action.
 function statusRows(manifest, values, missing) {
     return Object.keys(manifest.status).filter(function (key) {
-        return statusDisplayable(manifest.status[key]);
+        var entry = manifest.status[key];
+        return statusDisplayable(entry) && !(entry.type === "state" && hasOwn(values, key) && statusStateHidden(values[key]));
     }).map(function (key) {
         var entry = manifest.status[key];
         var reported = hasOwn(values, key);
@@ -1269,7 +1282,7 @@ function tuiRunFor(manifest, enabled, sourceDir, runner, name, missing) {
 // TUI NAME, { ok: true, kind: "install", commands } to offer its own
 // requirement COMMANDS through the requirement notice, { ok: true, kind:
 // "system", args } to open the core TUI `core/system` with ARGS, `apply`
-// and its declared step, or { ok: false,
+// or `undo` and its declared step, or { ok: false,
 // answer } with `unknown: <id>` or statusActionRefusal's line: `undeclared`
 // for an entry without an action, `disabled` for a disabled plugin and
 // `not-offered` while the published value does not call for it.
@@ -1287,6 +1300,8 @@ function statusActionRequest(manifest, id, enabled, values, key) {
         return { ok: true, kind: "tui", name: action.tui };
     if (action.system !== undefined)
         return { ok: true, kind: "system", args: ["apply", action.system] };
+    if (action.undo !== undefined)
+        return { ok: true, kind: "system", args: ["undo", action.undo] };
     return { ok: true, kind: "install", commands: action.install.slice() };
 }
 

@@ -53,7 +53,7 @@ cp -- "$repo/shell/greeter.qml" "$vgs/shell/greeter.qml"
 # stat stand-in reads it, may write it, and other users read it.
 chmod -R go-w "$vgs"
 chmod 0755 "$vgs" "$vgs/shell" "$vgs/config" "$vgs/config/system" "$greeter_src"
-for tool in awk cat chmod chown env flock id install mkdir mv readlink rm rmdir sed sha256sum sleep kill tee touch; do
+for tool in awk cat chmod chown env flock id install ln mkdir mv readlink rm rmdir sed sha256sum sleep kill tee touch; do
   tool_bin="$(command -v "$tool")" || { echo "$suite: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$tool_bin" "$bin/$tool"
 done
@@ -226,7 +226,7 @@ boot_b=99999999-8888-7777-6666-555555555555
 # no operator, greetd installed and disabled with no display manager
 # enabled, and every record cleared.
 fresh() {
-  rm -rf -- "${root:?}/etc" "${root:?}/sys" "${root:?}/dev" "${root:?}/var" "${root:?}/proc" "${root:?}/run" "$tmp/units"
+  rm -rf -- "${root:?}/etc" "${root:?}/sys" "${root:?}/dev" "${root:?}/var" "${root:?}/proc" "${root:?}/run" "${root:?}/usr/share" "$tmp/units"
   mkdir -p "$root/etc/udev/rules.d" "$root/etc/greetd" "$root/etc/pam.d" "$root/etc/systemd/system" "$root/dev" "$root/var/lib" "$root/proc/sys/kernel/random" "$tmp/units"
   chmod 0755 "$root/etc" "$root/etc/udev" "$root/etc/udev/rules.d" "$root/etc/greetd" "$root/etc/pam.d" "$root/etc/systemd" "$root/etc/systemd/system" "$root/var" "$root/var/lib"
   mkdir -p "$root/sys/class/hidraw/hidraw0/device" "$root/sys/class/hidraw/hidraw1/device"
@@ -314,7 +314,7 @@ last_out_is() { test "$(tail -n 1 "$tmp/out")" == "$1"; }
 sudo_calls() { cat -- "$tmp/sudo.log" 2>/dev/null; }
 no_sudo() { test ! -e "$tmp/sudo.log"; }
 state_json() { # STATE-REASON per step, table order
-  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"}}}' "$@"
+  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"}}}' "$@"
 }
 step_state() { # STEP: the state status --json reads for it
   "${row_env[@]}" "$vgs/bin/vgshell" system status --json </dev/null 2>/dev/null |
@@ -964,6 +964,79 @@ check "an install path with a space reads denied" test "$(spaced_state)" == "den
 fresh; mkdir -p "$greeter_dir/theme/vgshell"; printf '1234 %s\n' "$greeter_dir/theme/vgshell" >"$tmp/owners"
 check "a theme copy directory another account owns reads denied" test "$(step_state greeter)" == "denied other-account"
 
+# reboot-notice: pacman's own override of the CachyOS reboot hook, a link
+# to /dev/null in the hook directory; any other file there is the user's.
+notice_hook="$root/usr/share/libalpm/hooks/cachyos-reboot-required.hook"
+pacman_hooks="$root/etc/pacman.d/hooks"
+notice_link="$pacman_hooks/cachyos-reboot-required.hook"
+notice_fixture() {
+  mkdir -p -- "${notice_hook%/*}" "$root/etc/pacman.d"
+  chmod 0755 "$root/usr/share" "$root/usr/share/libalpm" "${notice_hook%/*}" "$root/etc/pacman.d"
+  printf '[Trigger]\nOperation = Upgrade\nType = Package\nTarget = linux\n' >"$notice_hook"
+}
+hooks_fixture() { mkdir -p -- "$pacman_hooks"; chmod 0755 "$pacman_hooks"; }
+notice_links_null() { [[ -L $notice_link && "$(readlink -- "$notice_link")" == /dev/null ]]; }
+fresh
+check "the reboot notice without the CachyOS hook reads absent" test "$(step_state reboot-notice)" == "absent hook-missing"
+run "apply refuses the reboot notice without the CachyOS hook" 1 "vgs-system: refused: state=absent reason=hook-missing step=reboot-notice" apply reboot-notice
+check "a refused reboot notice runs no sudo" no_sudo
+notice_fixture
+check "the CachyOS hook with nothing over it reads needed" test "$(step_state reboot-notice)" == "needed notice-on"
+run_tty "apply reboot-notice succeeds" 0 apply reboot-notice
+check "reboot-notice records, makes the hook directory, then links /dev/null" test "$(sudo_calls)" == "$(session \
+  "-- $(p install) -d -m 0755 -o root -g root -- $records" \
+  "-- $(p tee) -- $records/.reboot-notice" \
+  "-- $(p mv) -fT -- $records/.reboot-notice $records/reboot-notice" \
+  "-- $(p install) -d -m 0755 -o root -g root -- $pacman_hooks" \
+  "-- $(p ln) -s -- /dev/null $notice_link")"
+check "the link points at /dev/null" notice_links_null
+check "the record names the link and the directory VGS made" test "$(cat "$records/reboot-notice")" == "$(printf 'uid=%s\nhooks-dir=1\nlink=1' "$uid")"
+check "apply reports the reboot notice ready" last_out_is "ok system=reboot-notice state=ready"
+check "the link to /dev/null reads ready" test "$(step_state reboot-notice)" == "ready notice-off"
+rm -f -- "$tmp/sudo.log"
+run_tty "undo reboot-notice succeeds" 0 undo reboot-notice
+check "undo removes the link, the directory VGS made, then the record" test "$(sudo_calls)" == "$(session \
+  "-- $(p rm) -f -- $notice_link" \
+  "-- $(p rmdir) --ignore-fail-on-non-empty -- $pacman_hooks" \
+  "-- $(p rm) -f -- $records/reboot-notice")"
+check "undo leaves no link, no hook directory and no record" test ! -e "$notice_link" -a ! -L "$notice_link" -a ! -e "$pacman_hooks" -a ! -e "$records/reboot-notice"
+check "the CachyOS notice is on again" test "$(step_state reboot-notice)" == "needed notice-on"
+# A hook directory that was there stays, with the user's own hooks in it.
+fresh; notice_fixture; hooks_fixture; printf 'mine\n' >"$pacman_hooks/zz-mine.hook"
+run_tty "apply reboot-notice beside a hook directory" 0 apply reboot-notice
+check "the record of a present directory claims only the link" test "$(cat "$records/reboot-notice")" == "$(printf 'uid=%s\nlink=1' "$uid")"
+rm -f -- "$tmp/sudo.log"
+run_tty "undo reboot-notice beside a hook directory" 0 undo reboot-notice
+check "undo never removes a hook directory VGS did not make" test "$(sudo_calls)" == "$(session \
+  "-- $(p rm) -f -- $notice_link" \
+  "-- $(p rm) -f -- $records/reboot-notice")"
+check "the user's hook stays" test "$(cat "$pacman_hooks/zz-mine.hook")" == mine
+# A file of the user's own at the link's path is never touched.
+fresh; notice_fixture; hooks_fixture; printf 'mine\n' >"$notice_link"
+check "a regular file at the link's path reads denied" test "$(step_state reboot-notice)" == "denied foreign-file"
+run "apply refuses a regular file at the link's path" 1 "vgs-system: refused: state=denied reason=foreign-file step=reboot-notice" apply reboot-notice
+check "the user's file keeps its bytes" test "$(cat "$notice_link")" == mine
+check "a foreign file at the link's path runs no sudo" no_sudo
+rm -f -- "$notice_link"; ln -s -- "$notice_hook" "$notice_link"
+check "another link at the link's path reads denied" test "$(step_state reboot-notice)" == "denied foreign-file"
+# A link replaced after apply is the user's: undo refuses before the
+# question and keeps the record.
+fresh; notice_fixture
+run_tty "apply before the link is replaced" 0 apply reboot-notice
+rm -f -- "$notice_link" "$tmp/sudo.log"; printf 'mine\n' >"$notice_link"
+run "undo refuses a file that replaced the link" 1 "vgs-system: refused: destination=foreign path=$notice_link" undo reboot-notice
+check "the file that replaced the link stays" test "$(cat "$notice_link")" == mine
+check "the record stays for the replaced link" test -e "$records/reboot-notice"
+check "a refused undo runs no sudo" no_sudo
+# A link the user already removed leaves only the record and the directory.
+rm -f -- "$notice_link"
+run_tty "undo after the link was removed" 0 undo reboot-notice
+check "undo after the link was removed removes the directory and the record" test "$(sudo_calls)" == "$(session \
+  "-- $(p rmdir) --ignore-fail-on-non-empty -- $pacman_hooks" \
+  "-- $(p rm) -f -- $records/reboot-notice")"
+fresh; notice_fixture; chmod 0777 "$root/etc/pacman.d"
+run "apply refuses a pacman directory others can write" 1 "vgs-system: refused: untrusted=$root/etc/pacman.d" apply reboot-notice
+
 # The record: root's, of its step's keys, and the caller's own.
 fresh
 run_tty "apply before the record rows" 0 apply service-bluetooth
@@ -1157,6 +1230,30 @@ check "the greeter-dirs-blind mutant removes a directory VGS did not make" test 
 control greeter-account-blind '    owned_by "$greeter_copy" "$uid" || { set_probe denied other-account; return; }' '    true || { set_probe denied other-account; return; }'
 mkdir -p "$greeter_dir/theme/vgshell"; printf '1234 %s\n' "$greeter_dir/theme/vgshell" >"$tmp/owners"
 check "the greeter-account-blind mutant reads another account's theme copy directory needed" test "$(step_state greeter)" == "needed not-set-up"
+
+control notice-ready-any '    if [[ $target == /dev/null ]]; then notice_state=off; else notice_state=foreign; fi' '    notice_state=off'
+notice_fixture; hooks_fixture; ln -s -- "$notice_hook" "$notice_link"
+check "the notice-ready-any mutant reads another link ready" test "$(step_state reboot-notice)" == "ready notice-off"
+control notice-file-ready '  elif [[ -e $notice_link ]]; then notice_state=foreign' '  elif [[ -e $notice_link ]]; then notice_state=off'
+notice_fixture; hooks_fixture; printf 'mine\n' >"$notice_link"
+check "the notice-file-ready mutant reads a regular file ready" test "$(step_state reboot-notice)" == "ready notice-off"
+control notice-undo-any '  [[ $notice_state != foreign ]] || refuse 1 "destination=foreign path=$notice_link" "a file VGS did not write is never removed"
+  if [[ $notice_state == off && -n ${record[link]+set} ]]; then' '  if [[ -n ${record[link]+set} ]]; then'
+notice_fixture
+run_tty "the notice-undo-any mutant applies" 0 apply reboot-notice
+rm -f -- "$notice_link"; printf 'mine\n' >"$notice_link"
+run_tty "the notice-undo-any mutant undoes over a file of the user's" 0 undo reboot-notice
+check "the notice-undo-any mutant removes the user's file" test ! -e "$notice_link"
+control notice-dir-blind '  if [[ -n ${record[hooks-dir]+set} && -e $hooks_dir ]]; then' '  if [[ -e $hooks_dir ]]; then'
+notice_fixture; hooks_fixture
+run_tty "the notice-dir-blind mutant applies beside a hook directory" 0 apply reboot-notice
+run_tty "the notice-dir-blind mutant undoes" 0 undo reboot-notice
+check "the notice-dir-blind mutant removes a hook directory VGS did not make" test ! -e "$pacman_hooks"
+control notice-dir-claimed '  [[ -e $hooks_dir ]] || made_dir=1' '  made_dir=1'
+notice_fixture; hooks_fixture
+run_tty "the notice-dir-claimed mutant applies beside a hook directory" 0 apply reboot-notice
+run_tty "the notice-dir-claimed mutant undoes" 0 undo reboot-notice
+check "the notice-dir-claimed mutant removes a hook directory VGS did not make" test ! -e "$pacman_hooks"
 
 # These assertions use the same state contract as the probe rows above.
 # A mutant must make that contract fail, not merely produce some output.

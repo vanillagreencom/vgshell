@@ -294,6 +294,10 @@ function suite(ctx, check) {
         ["a state not offering its action", "check", { tone: "ok", text: "t", action: false }, "ok"],
         ["a state action that is no boolean", "check", { tone: "warning", text: "t", action: "yes" }, "refused: status=check reason=type"],
         ["a state action on an entry that declares none", "health", { tone: "warning", text: "t", action: true }, "refused: status=health reason=type"],
+        ["a hidden state", "health", { hidden: true }, "ok"],
+        ["a hidden state that is false", "health", { hidden: false }, "refused: status=health reason=type"],
+        ["a hidden state with a text", "health", { hidden: true, tone: "ok", text: "t" }, "refused: status=health reason=type"],
+        ["a hidden key on a shown state", "health", { tone: "ok", text: "t", hidden: false }, "refused: status=health reason=type"],
         ["a text value", "note", "Checked 3 sources", "ok"],
         ["a text value of 200 characters", "note", "x".repeat(200), "ok"],
         ["a text value of 201 characters", "note", "x".repeat(201), "refused: status=note reason=type"],
@@ -379,6 +383,10 @@ function suite(ctx, check) {
     check("statusRows: missing TUI requirements override state guidance", withheldHint.includes("Try again."), false);
     check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", hint: "", info: "", action: null, report: "unreported", value: null, tone: "" });
     check("statusRows: a reported count of 0 is reported, drawn without a tone", [rows[4].report, rows[4].value, rows[4].tone], ["reported", 0, ""]);
+    // A state its writer publishes hidden leaves the page until it shows one.
+    const hiddenHealth = ctx.statusWrite(m, values, "health", { hidden: true }).values;
+    check("statusRows: a hidden state has no row", ctx.statusRows(m, hiddenHealth, []).map(r => r.key), ["token", "tokens", "check", "note", "pending", "lastCheck"]);
+    check("statusRows: a hidden state shown again has its row", ctx.statusRows(m, ctx.statusWrite(m, hiddenHealth, "health", { tone: "ok", text: "Fine" }).values, []).map(r => r.key), ["token", "tokens", "check", "note", "pending", "lastCheck", "health"]);
     check("statusRows: nothing published leaves every row unreported", ctx.statusRows(m, {}, []).map(r => r.report), ["unreported", "unreported", "unreported", "unreported", "unreported", "unreported", "unreported"]);
     // An action is offered while the published value calls for it: a
     // presence while absent, a state while it says so, never unreported.
@@ -514,6 +522,12 @@ function suite(ctx, check) {
     const mSystem = ctx.validateManifest({ schemaVersion: 1, id: "acme.displays", name: "D", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["status", "system"], systemSteps: ["apple-displays"], status: { apple: { type: "state", label: "Apple displays", action: { label: "Allow", system: "apple-displays" } } } }, "/p").manifest;
     const allow = ctx.statusWrite(mSystem, {}, "apple", { tone: "warning", text: "Brightness needs access", action: true }).values;
     check("statusActionRequest: an offered system step applies it in the core TUI", ctx.statusActionRequest(mSystem, "acme.displays", true, allow, "apple"), { ok: true, kind: "system", args: ["apply", "apple-displays"] });
+    // An `undo` action opens the same core TUI with `undo` and its step.
+    const mUndo = ctx.validateManifest({ schemaVersion: 1, id: "acme.notice", name: "N", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["status", "system"], systemSteps: ["reboot-notice"], status: { notice: { type: "state", label: "Reboot notice", actions: { off: { label: "Turn off", system: "reboot-notice" }, on: { label: "Turn on", undo: "reboot-notice" } } } } }, "/p").manifest;
+    const noticeValues = name => ctx.statusWrite(mUndo, {}, "notice", { tone: "info", text: "t", action: name }).values;
+    check("statusActionRequest: an offered undo undoes its step in the core TUI", ctx.statusActionRequest(mUndo, "acme.notice", true, noticeValues("on"), "notice"), { ok: true, kind: "system", args: ["undo", "reboot-notice"] });
+    check("statusActionRequest: the step's apply beside its undo applies it", ctx.statusActionRequest(mUndo, "acme.notice", true, noticeValues("off"), "notice"), { ok: true, kind: "system", args: ["apply", "reboot-notice"] });
+    check("statusActionRequest: a hidden state offers no step", ctx.statusActionRequest(mUndo, "acme.notice", true, ctx.statusWrite(mUndo, {}, "notice", { hidden: true }).values, "notice"), { ok: false, answer: "refused: action=notice reason=not-offered" });
     check("statusActionRequest: a system step not offered is refused", ctx.statusActionRequest(mSystem, "acme.displays", true, ctx.statusWrite(mSystem, {}, "apple", { tone: "ok", text: "Ready" }).values, "apple"), { ok: false, answer: "refused: action=apple reason=not-offered" });
     // A state entry with named actions: its value names the one that
     // applies, and may carry further lines.
@@ -718,6 +732,10 @@ const CONTROLS = [
     ["a secret has a ceiling", "secret.length <= SECRET_VALUE_MAX &&", ""],
     ["a secret goes on stdin, never the argv", ".concat(attributes), input: secret };", ".concat(attributes, [secret]), input: secret };"],
     ["an offered system action applies its own step", "return { ok: true, kind: \"system\", args: [\"apply\", action.system] };", "return { ok: true, kind: \"system\", args: [action.system] };"],
+    ["an offered undo action undoes its own step", "return { ok: true, kind: \"system\", args: [\"undo\", action.undo] };", "return { ok: true, kind: \"system\", args: [\"apply\", action.undo] };"],
+    ["a hidden state is only hidden: true", "return Object.keys(value).length === 1 && value.hidden === true;", "return value.hidden !== undefined;"],
+    ["a hidden state value fits", "        if (statusStateHidden(value)) return true;\n", ""],
+    ["a hidden state has no row", "return statusDisplayable(entry) && !(entry.type === \"state\" && hasOwn(values, key) && statusStateHidden(values[key]));", "return statusDisplayable(entry);"],
     ["a system report needs a started run", "if (completion === null)\n        return failed(\"system: probe=unstarted\");", ""],
     ["a system report needs a clean exit", "if (completion.status !== 0 || completion.code !== 0)\n        return failed(\"system: probe=failed", "if (completion.code !== 0)\n        return failed(\"system: probe=failed"],
     ["a system report is JSON", "return failed(\"system: probe=malformed reason=json\");", "doc = {};"],
