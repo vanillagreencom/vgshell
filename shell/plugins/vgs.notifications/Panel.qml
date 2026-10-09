@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import Quickshell.Hyprland
 import qs.Commons
 import qs.Ui
 import "Appearance.js" as Appearance
@@ -66,9 +67,18 @@ FocusScope {
         });
     }
 
-    onActiveFocusChanged: {
-        root.call("panel-focused", activeFocus ? "on" : "off");
-        if (opened && !activeFocus) root.call("close", "");
+    onActiveFocusChanged: root.call("panel-focused", activeFocus ? "on" : "off")
+
+    // A window that takes the keyboard closes the panel. A layer that takes
+    // it, such as a capture's selector, posts no activewindowv2 event
+    // (FocusState::rawSurfaceFocus, Hyprland v0.56.2), so the panel stays
+    // for the capture to show. rawEvent: Quickshell 0.3.1 HyprlandEvent,
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Hyprland/HyprlandEvent
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) {
+            if (root.opened && event.name === "activewindowv2" && event.data !== "") root.call("close", "");
+        }
     }
 
     function open(payloadJson) {

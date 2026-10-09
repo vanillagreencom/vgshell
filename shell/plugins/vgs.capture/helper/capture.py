@@ -3,7 +3,8 @@
 
 An error's optional reason language-data-unavailable selects its notice title.
 
-While an area is selected, one `cancel` line or stdin EOF ends the selection.
+While an area is selected, and until a screenshot's file is written, one
+`cancel` line or stdin EOF ends the capture with no file and emits cancelled.
 A selection with a request emits selection-ended for focus restoration.
 Countdown ticks report remaining seconds; countdown-hidden confirms its UI was
 removed. Until the recorder writes its file, `cancel` or stdin EOF ends it with
@@ -34,6 +35,10 @@ import sys
 import tempfile
 import time
 from datetime import datetime
+
+
+class CaptureCancelled(Exception):
+    """End a capture the service cancelled after its selection ended."""
 
 
 class CaptureFailure(RuntimeError):
@@ -149,6 +154,11 @@ class Capture:
             child.terminate()
         child.wait()
 
+    def cancelled(self, timeout=0):
+        """Whether a `cancel` line or stdin EOF arrives within TIMEOUT seconds."""
+        ready, _, _ = select.select([sys.stdin], [], [], timeout)
+        return bool(ready) and sys.stdin.readline().strip() in ("", "cancel")
+
     @contextmanager
     def selection(self, request=None):
         """Yield the selected (geometry, groups) over a frozen screen, or None.
@@ -215,16 +225,18 @@ class Capture:
                 source.write("".join(rectangle_geometry(r) + "\n" for r in boxes).encode())
                 source.seek(0)
                 child = self.spawn(argv, stdin=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        cancelled = False
         while child.poll() is None:
-            ready, _, _ = select.select([sys.stdin], [], [], 0.05)
-            if ready and sys.stdin.readline().strip() in ("", "cancel"):
+            if self.cancelled(0.05):
+                cancelled = True
                 child.terminate()
                 break
         out, err = child.communicate()
         geometry = out.decode().strip()
         err = err.strip()
-        if child.returncode or not geometry:
-            if err and err != SELECTION_CANCELLED:
+        # A cancel read as slurp answers wins over the geometry it printed.
+        if cancelled or child.returncode or not geometry:
+            if not cancelled and err and err != SELECTION_CANCELLED:
                 raise RuntimeError("slurp: " + err.decode(errors="replace"))
             if notify:
                 emit("cancelled")
@@ -241,15 +253,12 @@ class Capture:
         # the capture then proceeds after the last try.
         previous = None
         for _ in range(SETTLE_TRIES):
-            if interval:
-                ready, _, _ = select.select([sys.stdin], [], [], interval)
-                if ready and sys.stdin.readline().strip() in ("", "cancel"):
-                    return False
+            if self.cancelled(interval):
+                raise CaptureCancelled()
             frame = self.run(["grim", "-s", SETTLE_SCALE, "-t", "ppm", "-g", geometry, "-"], timeout=timeout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if frame == previous:
-                return True
+                return
             previous = frame
-        return True
 
     def screenshot(self, request):
         request = {**request, "outputs": output_rectangles(request["outputs"])}
@@ -294,9 +303,7 @@ class Capture:
             geometry = args[2] if args[1] == "-g" else next((rectangle_geometry(r) for r in outputs if r.get("name") == request["output"]), None)
             if geometry is None:
                 raise RuntimeError("The focused display has no capture rectangle")
-            if not self.settle(geometry, timeout, interval=0.05):
-                emit("cancelled")
-                return
+            self.settle(geometry, timeout, interval=0.05)
             path, child = self.deliver(request, args)
         if path is None:
             emit("copied")
@@ -353,6 +360,8 @@ class Capture:
             self.run(args + [str(path)], timeout=request.get("timeout", 10), stderr=subprocess.PIPE)
             if path.stat().st_size == 0:
                 raise RuntimeError("grim wrote no image")
+            if self.cancelled():
+                raise CaptureCancelled()
         except BaseException:
             path.unlink(missing_ok=True)
             raise
@@ -783,6 +792,9 @@ def main():
                 capture.probe(request)
             case other:
                 raise RuntimeError(f"Unknown capture action: {other}")
+        return 0
+    except CaptureCancelled:
+        emit("cancelled")
         return 0
     except CaptureFailure as error:
         emit("error", reason=error.reason, message=str(error))

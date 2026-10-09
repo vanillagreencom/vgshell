@@ -9,7 +9,8 @@ slurp reads stdin to EOF when it is not a terminal, as the real slurp does.
 The recorder logs its start and output name, then writes `finalized`, or
 copies the fixture's `video`, only after SIGINT, never on a hard stop.
 ffmpeg copies its input, or writes a small JPEG for a one-frame thumbnail;
-ffmpegHold holds it half way until `ffmpeg-release` exists. pw-dump prints the fixture's
+ffmpegHold holds it half way until `ffmpeg-release` exists. grimHeldCall N
+holds the Nth grim run until `grim-release` exists. pw-dump prints the fixture's
 nodes. tesseract lists the fixture's languages and fails as Tesseract does
 for a requested one it does not hold.
 """
@@ -65,6 +66,10 @@ match tool:
         if config.get("grimHold"):
             (root / "grim-ready").write_text(str(os.getpid()))
             signal.pause()
+        if config.get("grimHeldCall") == [json.loads(line)["tool"] for line in (root / "calls.jsonl").read_text().splitlines()].count("grim"):
+            (root / "grim-ready").write_text(str(os.getpid()))
+            while not (root / "grim-release").exists():
+                time.sleep(0.01)
         # A whole grey 320x240 PNG, which an image reader decodes, then the
         # frame token, which a PNG reader ignores past IEND.
         def chunk(kind, body):

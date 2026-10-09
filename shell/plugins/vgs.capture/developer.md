@@ -29,7 +29,7 @@ vgshell ipc call vgs.capture invoke screenshot-area ''
 
 A screenshot uses the selected Screenshot result. A notification names a saved file or confirms a copy. On a saved screenshot, Open shows the image in the image viewer and Edit opens it in the image editor. On a saved recording, Open plays it in the video player. A click on the notification does what Open does. A button shows only when its program is installed, and Dismiss closes the notification. The notifications need the Notifications plugin or another notification service.
 
-Selection holds the screen still and shades it while the user chooses a box. Escape or the same key cancels selection. A delayed screenshot releases the still screen after selection and captures new content when the countdown ends. Recording offers windows and outputs as boxes like an area screenshot, and a box that covers a whole display records that display.
+Selection holds the screen still and shades it while the user chooses a box. Escape, a right click or the same key cancels selection, and the same key still cancels until the screenshot file is written. A delayed screenshot releases the still screen after selection and captures new content when the countdown ends. Recording offers windows and outputs as boxes like an area screenshot, and a box that covers a whole display records that display.
 
 The next capture can start while Capture finishes the saved recording. A recording that failed to start or stopped early shows the end of the recorder's log in a notice. The original file stays when the trim and level step fails.
 

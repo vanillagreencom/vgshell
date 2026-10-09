@@ -38,8 +38,9 @@ vgs_binds() { binds_of others; }
 active_bar_binds() { binds_of bar; }
 # Every bind whose description starts with vgs, in every submap, as a
 # sorted JSON list of `<submap> <description> x<count>`. The overlay
-# capture binds each plugin bind once more in vgs:capture, so a description
-# alone appears twice by design (docs/architecture/hyprland.md § Keys).
+# capture binds each plugin bind once more in vgs:capture and in
+# vgs:selection, so a description alone appears three times by design
+# (docs/architecture/hyprland.md § Keys).
 bind_census() { hypr -j binds | py_reply '
 import collections, json, sys
 counts = collections.Counter((b.get("submap", "") or "default", b["description"]) for b in json.load(sys.stdin) if b["description"].startswith("vgs"))
@@ -389,7 +390,7 @@ expect "no plugin reports a Hyprland problem" '[]' hypr_problems
 # removed and
 # Hyprland reloaded while no shell runs, so the binds the census reads after
 # the restart are the ones the restarted shell's own write and reload made.
-once_census='["default vgs.bar:toggle x1", "default vgs.launcher:toggle x1", "default vgs.notifications:inbox x1", "default vgs.settings:toggle x1", "vgs:capture vgs.bar:toggle x1", "vgs:capture vgs.launcher:toggle x1", "vgs:capture vgs.notifications:inbox x1", "vgs:capture vgs.settings:toggle x1", "vgs:passthrough vgs:passthrough-cancel x1"]'
+once_census='["default vgs.bar:toggle x1", "default vgs.launcher:toggle x1", "default vgs.notifications:inbox x1", "default vgs.settings:toggle x1", "vgs:capture vgs.bar:toggle x1", "vgs:capture vgs.launcher:toggle x1", "vgs:capture vgs.notifications:inbox x1", "vgs:capture vgs.settings:toggle x1", "vgs:passthrough vgs:passthrough-cancel x1", "vgs:selection vgs.bar:toggle x1", "vgs:selection vgs.launcher:toggle x1", "vgs:selection vgs.notifications:inbox x1", "vgs:selection vgs.settings:toggle x1", "vgs:selection vgs:selection-cancel x1"]'
 expect_poll "before the restart each vgs bind is registered once in its submap" "$once_census" bind_census
 if stop_shell; then
   rm -- "${hypr_layer:?}"
@@ -410,7 +411,7 @@ fi
 # generation, and the census reads each bind twice.
 printf '%s\n' "$wire_line" >>"$hypr_lua"
 expect "the nested instance reloads with the layer loaded twice" ok hypr reload config-only
-expect_poll "control: a layer run twice in one generation registers each vgs bind twice" '["default vgs.bar:toggle x2", "default vgs.launcher:toggle x2", "default vgs.notifications:inbox x2", "default vgs.settings:toggle x2", "vgs:capture vgs.bar:toggle x2", "vgs:capture vgs.launcher:toggle x2", "vgs:capture vgs.notifications:inbox x2", "vgs:capture vgs.settings:toggle x2", "vgs:passthrough vgs:passthrough-cancel x2"]' bind_census
+expect_poll "control: a layer run twice in one generation registers each vgs bind twice" '["default vgs.bar:toggle x2", "default vgs.launcher:toggle x2", "default vgs.notifications:inbox x2", "default vgs.settings:toggle x2", "vgs:capture vgs.bar:toggle x2", "vgs:capture vgs.launcher:toggle x2", "vgs:capture vgs.notifications:inbox x2", "vgs:capture vgs.settings:toggle x2", "vgs:passthrough vgs:passthrough-cancel x2", "vgs:selection vgs.bar:toggle x2", "vgs:selection vgs.launcher:toggle x2", "vgs:selection vgs.notifications:inbox x2", "vgs:selection vgs.settings:toggle x2", "vgs:selection vgs:selection-cancel x2"]' bind_census
 restore_hypr_lua || fail "hyprland.lua is put back after the bind census control"
 expect "the nested instance reloads the consent-wired hyprland.lua after the bind census control" ok hypr reload config-only
 expect_poll "with one loading line again each vgs bind is registered once in its submap" "$once_census" bind_census

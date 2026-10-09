@@ -362,6 +362,29 @@ def delay_holds(root, payload, helper, cancel=False, acknowledge=True):
         proc.communicate(timeout=5)
 
 
+def held_grim_cancel_holds(root, payload, helper):
+    """A cancel during the held grim run ends the capture with no file and the clipboard kept."""
+    config = json.loads((root / "config.json").read_text())
+    (root / "clipboard").write_bytes(b"previous clipboard")
+    control, writer = os.pipe()
+    proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config), stdin=control, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    os.close(control)
+    try:
+        wait_for(root / "grim-ready", proc)
+        os.write(writer, b"cancel\n")
+        (root / "grim-release").touch()
+        try:
+            out, _ = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            return False
+    finally:
+        os.close(writer)
+    return (proc.returncode == 0 and [m["event"] for m in events(out)][-1:] == ["cancelled"]
+            and not list((root / "pictures").glob("*.png")) and (root / "clipboard").read_bytes() == b"previous clipboard")
+
+
 def timeout_holds(root, helper, action):
     payload = request(root, action)
     payload["timeout"] = 1
@@ -452,6 +475,11 @@ def screenshot_choices(base, source):
     for action in ("screenshot", "screenshot-area"):
         root = world("timeout-" + action, grimHold=True)
         assert timeout_holds(root, HELPER, action), action
+    # A cancel while the selection settles, its first grim run, or while the
+    # file is written, the run after two equal settle frames.
+    for kind, (action, call) in HELD_CANCELS.items():
+        root = world(kind, grimHeldCall=call)
+        assert held_grim_cancel_holds(root, request(root, action), HELPER), kind
     mutations = [
         ("invalid-delay-accepted", 'if type(delay) is not int or not 0 <= delay <= 60:', 'if False:', "invalid-delay"),
         ("invalid-timeout-accepted", 'if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or not 1 <= timeout <= 60:', 'if False:', "invalid-timeout"),
@@ -470,6 +498,9 @@ def screenshot_choices(base, source):
         ("no-delay", 'if not self.countdown(delay, timeout):', 'if False:', "delay"),
         ("delay-ignores-cancel", 'ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))\n                if ready and sys.stdin.readline().strip() in ("", "cancel"):\n                    return False', 'ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))\n                if ready and sys.stdin.readline().strip() == "":\n                    return False', "cancel"),
         ("no-timeout", 'child.communicate(timeout=timeout)', 'child.communicate()', "timeout"),
+        ("settle-ignores-cancel", 'if self.cancelled(interval):\n                raise CaptureCancelled()', 'if False:\n                raise CaptureCancelled()', "settle-cancel"),
+        ("written-ignores-cancel", 'if self.cancelled():\n                raise CaptureCancelled()', 'if False:\n                raise CaptureCancelled()', "written-cancel"),
+        ("selector-ignores-cancel", 'if self.cancelled(0.05):', 'if False:', "selector-cancel"),
     ]
     for name, before, after, kind in mutations:
         assert source.count(before) == 1, name
@@ -477,7 +508,9 @@ def screenshot_choices(base, source):
         assert changed != source
         helper = base / (name + ".py")
         helper.write_text(changed)
-        root = world(name, **({"geometry": "30,40 1x1"} if kind == "smart" else {"grimHold": True} if kind == "timeout" else {}))
+        root = world(name, **({"geometry": "30,40 1x1"} if kind == "smart" else {"grimHold": True} if kind == "timeout"
+                              else {"grimHeldCall": HELD_CANCELS[kind][1]} if kind in HELD_CANCELS
+                              else {"hold": True} if kind == "selector-cancel" else {}))
         payload = request(root, "screenshot")
         if kind.startswith("invalid-"):
             setting, value = {"invalid-delay": ("delay", 1.5), "invalid-timeout": ("timeout", 0), "invalid-processing": ("processing", "edit")}[kind]
@@ -491,6 +524,12 @@ def screenshot_choices(base, source):
             holds = delay_holds(root, payload, helper, cancel=kind == "cancel")
         elif kind == "timeout":
             holds = timeout_holds(root, helper, "screenshot")
+        elif kind in HELD_CANCELS:
+            holds = held_grim_cancel_holds(root, request(root, HELD_CANCELS[kind][0]), helper)
+        elif kind == "selector-cancel":
+            # A worker that misses the cancel stays busy past the deadline.
+            code, messages, _ = worker(root, request(root, "screenshot-area"), helper, line="cancel\n", timeout=3)
+            holds = code == 0 and [m["event"] for m in messages][-1:] == ["cancelled"]
         else:
             payload.update(windows=[window], outputs=outputs)
             geometry, boxes, selection = None, None, False
@@ -531,6 +570,11 @@ def screenshot_choices(base, source):
     assert [m["event"] for m in messages] != ["selection-ended", "saved"], "control did not fail: selection-end"
 
 TUI = HELPER.parent.parent / "tui/install-languages.sh"
+# The action and grim run a held cancel arrives in: text's first settle
+# frame, since a screenshot's file check would also read a cancel the
+# settle missed, or a screenshot file's own run after two equal settle
+# frames.
+HELD_CANCELS = {"settle-cancel": ("text", 1), "written-cancel": ("screenshot-area", 3)}
 WEBCAM = ";x=74%;y=69%;width=22%;height=22%;camera_fps=30"
 OUTPUTS = [{"x": -160, "y": -40, "width": 160, "height": 240, "name": "LEFT", "scale": 1, "transform": 0},
            {"x": 0, "y": 20, "width": 320, "height": 180, "name": "NESTED", "scale": 1, "transform": 0}]
@@ -1417,7 +1461,7 @@ def main():
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
     if unmeasured is None:
         recording_controls += ",no-trim"
-    controls = ("undrawn-windows,drawn-window-delegate,model-windows,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,no-selection-end," + recording_controls + "," + notification_controls)
+    controls = ("undrawn-windows,drawn-window-delegate,model-windows,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,settle-ignores-cancel,written-ignores-cancel,selector-ignores-cancel,no-selection-end," + recording_controls + "," + notification_controls)
     if unmeasured is not None:
         # The rest passed, but the real post-process could not run: not a pass.
         print(f"test-capture: status=not-measured cause={unmeasured}; controls={controls}")

@@ -11,7 +11,7 @@ Images come from `scripts/readme-shots.sh` in the nested sandbox.
 ## Features
 
 - Screenshot of the focused output, of an area, of a window, of a chosen display, or one image of all displays.
-- Area selection over a still screen. A click selects the window or display under the pointer. Escape or the same key cancels.
+- Area selection over a still screen. A click selects the window or display under the pointer. Escape, a right click or the same key cancels.
 - Screenshot delay with a countdown in the bar. The same key or a click on the countdown cancels.
 - Choice of save and copy, copy only, or save only. The pointer is optional.
 - Screen recording of an area, a window, a chosen display, the focused display, or what the desktop's screen picker shares.
