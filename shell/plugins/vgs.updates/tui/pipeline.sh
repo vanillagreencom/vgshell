@@ -1149,7 +1149,12 @@ updates_main() {
     vgs_tui_step "Restarting the shell on the updated VGS"
     "$_updates_vgshell" restart || { _updates_diagnostic "updates: restart=failed exit=$?"; vgs_tui_warn "VGS could not restart. Save your work and restart the computer."; }
   fi
-  if [[ ${#_updates_results[@]} -gt 0 ]]; then vgs_tui_header "Update result" "${_updates_results[@]}"; fi
+  # Plain lines, not a box: a cause line can be wider than the window,
+  # and the terminal wraps a line where it would break a box's border.
+  if [[ ${#_updates_results[@]} -gt 0 ]]; then
+    vgs_tui_step "Update result"
+    printf '  %s\n' "${_updates_results[@]}"
+  fi
   rm -f -- "${_updates_cause_file:?}"
   local ended=success
   if [[ $_updates_failures -gt 0 ]]; then ended=failed; fi
