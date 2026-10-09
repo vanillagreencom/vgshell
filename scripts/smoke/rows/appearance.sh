@@ -230,6 +230,25 @@ expect "the glass choice is unset again" ok app_unset glass
 expect "the user file holds no Appearance value after the glass choice" null app_saved
 expect_poll "the layer writes no window glass again" no app_layer_has "$app_glass_line"
 expect_poll "Hyprland's active opacity is as before again" "$app_opacity_was" hypr_float decoration:active_opacity
+# Window glow: while window glass is written, the windows' glow choice
+# writes Hyprland's glow from the hyprland.glow tokens; unset, the layer
+# writes no glow and Hyprland's own switch is back.
+app_glow_line='^[[:space:]]*-- Theme appearance: window glow\.$'
+expect "window glass is written for the glow" ok app_set '{"key":"windowGlass","value":true}'
+expect_poll "the layer writes window glass for the glow" yes app_layer_has "$app_glass_line"
+app_glow_was="$(hypr_bool decoration:glow:enabled)" || fail "Hyprland's glow switch is unreadable"
+expect "window glow maps to Hyprland's glow switch" decoration.glow.enabled app_key_path windowGlow
+expect "the layer writes no window glow before a choice" no app_layer_has "$app_glow_line"
+expect "window glow is written" ok app_set '{"key":"windowGlow","value":true}'
+expect "the user file holds window glass and glow" '{"windowGlass": true, "windowGlow": true}' app_saved
+expect_poll "the layer writes window glow" yes app_layer_has "$app_glow_line"
+expect_poll "Hyprland's glow is on" true hypr_bool decoration:glow:enabled
+expect_poll "Hyprland's glow range is the token's 40" 40 hypr_int decoration:glow:range
+expect "window glow is unset" ok app_unset windowGlow
+expect_poll "the layer writes no window glow again" no app_layer_has "$app_glow_line"
+expect_poll "Hyprland's glow switch is as before" "$app_glow_was" hypr_bool decoration:glow:enabled
+expect "window glass is unset after the glow" ok app_unset windowGlass
+expect "the user file holds no Appearance value after the glow" null app_saved
 expect "disabling the appearance fixture is allowed" ok ipc shell setPluginEnabled acme.appearance false
 expect_poll "the appearance fixture is disabled" False plugin_enabled acme.appearance
 rm -rf -- "${app_fixture:?}"

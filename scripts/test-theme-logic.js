@@ -75,6 +75,14 @@ const DEFAULTS = [
     ["hyprland.window.groupRadius", 0],
     ["hyprland.motion.preset", "smooth"],
     ["hyprland.shadow.color", "#0000008c"],
+    // Black mixed 0.18 toward #ff5a36 (45.9, 16.2, 9.72) and 0.1 toward
+    // #d7d7d9 (21.5, 21.5, 21.7); inactive is black at alpha 0.
+    ["hyprland.glow.color", "#2e100aff"],
+    ["hyprland.glow.colorEnd", "#161616ff"],
+    ["hyprland.glow.angle", 90],
+    ["hyprland.glow.inactive", "#00000000"],
+    ["hyprland.glow.range", 40],
+    ["hyprland.glow.renderPower", 4],
     // mul(15, 2.27) = 34.05, mul(15, 1.33) = 19.95, mul(15, 1.2) = 18, mul(15, 1.07) = 16.05,
     // mul(15, 0.87) = 13.05, mul(15, 0.8) = 12, mul(15, 0.73) = 10.95
     ["text.display.size", 34],
@@ -988,13 +996,13 @@ function verifyAppearance(judge) {
     // Where each value comes from, what the theme shows, and which layer
     // groups the user leaves to Hyprland.
     const plainResult = over(shipped, {}).appearance;
-    assert.deepEqual(plain(plainResult.sources), { windowRadius: "theme", borderWidth: "theme", controlRadius: "theme", motion: "theme", motionStyle: "theme", motionSpeed: "theme", windowAnimations: "hyprland", interfaceFont: "theme", terminalFont: "theme", glass: "surface", windowGlass: "hyprland" }, "every value from the theme, animations and window glass from Hyprland, glass from each surface");
-    assert.deepEqual(plain(plainResult.hyprland), { radius: true, borders: true, motion: false, glass: false }, "the layer writes borders and radius and leaves animations and window glass");
+    assert.deepEqual(plain(plainResult.sources), { windowRadius: "theme", borderWidth: "theme", controlRadius: "theme", motion: "theme", motionStyle: "theme", motionSpeed: "theme", windowAnimations: "hyprland", interfaceFont: "theme", terminalFont: "theme", glass: "surface", windowGlass: "hyprland", windowGlow: "hyprland" }, "every value from the theme, animations, window glass and glow from Hyprland, glass from each surface");
+    assert.deepEqual(plain(plainResult.hyprland), { radius: true, borders: true, motion: false, glass: false, glow: false }, "the layer writes borders and radius and leaves animations, window glass and glow");
     assert.deepEqual(plain(plainResult.theme), { motion: true, motionStyle: "smooth", motionSpeed: 1, windowRadius: 0, borderWidth: 2, controlRadius: 0, interfaceFont: "Inter Variable" }, "the theme's own values");
     assert.equal(over(accepted({ motion: { scale: 2 } }), {}).appearance.theme.motionSpeed, 0.5, "a theme's speed is 1 / its scale");
     const own = over(shipped, { windowRadius: "hyprland", borderWidth: "hyprland", windowAnimations: true, controlRadius: 4 }).appearance;
     assert.deepEqual(plain([own.sources.windowRadius, own.sources.borderWidth, own.sources.windowAnimations, own.sources.controlRadius]), ["hyprland", "hyprland", "user", "user"], "Use my Hyprland value is its own source");
-    assert.deepEqual(plain(own.hyprland), { radius: false, borders: false, motion: true, glass: false }, "the layer leaves the groups the user keeps and writes the motion the user chose");
+    assert.deepEqual(plain(own.hyprland), { radius: false, borders: false, motion: true, glass: false, glow: false }, "the layer leaves the groups the user keeps and writes the motion the user chose");
     // VGlass: the effective window glass is the windows' own choice under
     // the user's `glass`, which turns it on or off for every surface. Each
     // row: [glass, windowGlass, the layer writes window glass].
@@ -1007,6 +1015,18 @@ function verifyAppearance(judge) {
         assert.deepEqual([result.sources.glass, result.sources.windowGlass], [glass === undefined ? "surface" : "user", windowGlass === undefined ? "hyprland" : "user"], "glass sources under glass=" + glass + " windowGlass=" + windowGlass);
     }
     assert.deepEqual(plain(over(shipped, { glass: "off", windowGlass: true }).values), plain(shipped.values), "VGlass draws no token of the shell's table");
+    // Window glow: the windows' own choice, written only while window glass
+    // is. Each row: [glass, windowGlass, windowGlow, the layer writes glow].
+    for (const [glass, windowGlass, windowGlow, want] of [[undefined, undefined, undefined, false], [undefined, true, undefined, false], [undefined, true, true, true], [undefined, undefined, true, false],
+        ["on", undefined, true, true], ["on", undefined, undefined, false], ["off", true, true, false], ["off", undefined, true, false]]) {
+        const user = {};
+        if (glass !== undefined) user.glass = glass;
+        if (windowGlass !== undefined) user.windowGlass = windowGlass;
+        if (windowGlow !== undefined) user.windowGlow = windowGlow;
+        const result = over(shipped, user).appearance;
+        assert.equal(result.hyprland.glow, want, "window glow under " + JSON.stringify(user));
+        assert.equal(result.sources.windowGlow, windowGlow === undefined ? "hyprland" : "user", "glow source under " + JSON.stringify(user));
+    }
     // glassOn: a surface's own choice, which `glass` overrides either way.
     // Each row: [values, optIn, want].
     for (const [values, optIn, want] of [[{}, false, false], [{}, true, true], [{ glass: "on" }, false, true], [{ glass: "on" }, true, true], [{ glass: "off" }, false, false], [{ glass: "off" }, true, false], [{}, "yes", false]])
@@ -1014,15 +1034,15 @@ function verifyAppearance(judge) {
     assert.deepEqual(plain(over(shipped, { windowRadius: "hyprland" }).values), plain(shipped.values), "Use my Hyprland value leaves the shell's surfaces on the theme");
     // A member the judge refuses is left out, listed by key, and shows as
     // Set by theme.
-    const refused = over(shipped, { windowRadius: 40, controlRadius: "hyprland", motion: "yes", motionStyle: "bouncy", motionSpeed: 3, windowAnimations: false, corner: 4, borderWidth: -1, glass: "auto", windowGlass: false });
-    assert.deepEqual(plain(refused.refusals.map(row => row.key)), ["windowRadius", "controlRadius", "motion", "motionStyle", "motionSpeed", "windowAnimations", "corner", "borderWidth", "glass", "windowGlass"], "each bad member is refused by key");
+    const refused = over(shipped, { windowRadius: 40, controlRadius: "hyprland", motion: "yes", motionStyle: "bouncy", motionSpeed: 3, windowAnimations: false, corner: 4, borderWidth: -1, glass: "auto", windowGlass: false, windowGlow: "on" });
+    assert.deepEqual(plain(refused.refusals.map(row => row.key)), ["windowRadius", "controlRadius", "motion", "motionStyle", "motionSpeed", "windowAnimations", "corner", "borderWidth", "glass", "windowGlass", "windowGlow"], "each bad member is refused by key");
     assert.ok(refused.refusals.every(row => row.line.startsWith("refused: ")), "each refusal is a keyed line");
     assert.deepEqual(plain(refused.values), plain(shipped.values), "refused members draw the theme");
     assert.deepEqual(plain(refused.appearance.values), {}, "refused members hold no value");
-    for (const [key, value] of [["windowRadius", 32], ["windowRadius", 0], ["windowRadius", "hyprland"], ["borderWidth", 20], ["borderWidth", "hyprland"], ["controlRadius", 16], ["motion", true], ["motion", false], ["motionStyle", "smooth"], ["motionSpeed", 0.5], ["motionSpeed", 2], ["windowAnimations", true], ["glass", "on"], ["glass", "off"], ["windowGlass", true],
+    for (const [key, value] of [["windowRadius", 32], ["windowRadius", 0], ["windowRadius", "hyprland"], ["borderWidth", 20], ["borderWidth", "hyprland"], ["controlRadius", 16], ["motion", true], ["motion", false], ["motionStyle", "smooth"], ["motionSpeed", 0.5], ["motionSpeed", 2], ["windowAnimations", true], ["glass", "on"], ["glass", "off"], ["windowGlass", true], ["windowGlow", true],
         ["interfaceFont", "Inter Variable"], ["terminalFont", "JetBrainsMono Nerd Font"], ["terminalFont", "Noto Sans Mono CJK JP"], ["terminalFont", "M+ 1mn"], ["interfaceFont", "x".repeat(100)]])
         assert.equal(judge.appearanceRefusal(key, value), "", key + "=" + JSON.stringify(value) + " is accepted");
-    for (const [key, value] of [["windowRadius", 33], ["windowRadius", "12"], ["windowRadius", 12.5], ["borderWidth", 0.5], ["controlRadius", 4.25], ["borderWidth", 21], ["controlRadius", 17], ["controlRadius", "hyprland"], ["motionSpeed", 0.25], ["motionSpeed", "hyprland"], ["motion", "hyprland"], ["windowAnimations", false], ["motionStyle", "none"], ["corner", 1], ["windowRadius", undefined], ["glass", true], ["glass", "auto"], ["glass", "hyprland"], ["windowGlass", false], ["windowGlass", "on"],
+    for (const [key, value] of [["windowRadius", 33], ["windowRadius", "12"], ["windowRadius", 12.5], ["borderWidth", 0.5], ["controlRadius", 4.25], ["borderWidth", 21], ["controlRadius", 17], ["controlRadius", "hyprland"], ["motionSpeed", 0.25], ["motionSpeed", "hyprland"], ["motion", "hyprland"], ["windowAnimations", false], ["motionStyle", "none"], ["corner", 1], ["windowRadius", undefined], ["glass", true], ["glass", "auto"], ["glass", "hyprland"], ["windowGlass", false], ["windowGlass", "on"], ["windowGlow", false], ["windowGlow", "on"],
         // A family: text, with nothing that ends or changes the terminal's
         // configuration line and nothing the resolver reads as a reference.
         ["terminalFont", ""], ["terminalFont", 12], ["terminalFont", ["Fira Code"]], ["terminalFont", " Fira Code"], ["terminalFont", "Fira Code "], ["terminalFont", "x".repeat(101)],
@@ -1336,6 +1356,8 @@ const CONTROLS = [
     ["glass on overrides a surface's choice", "return values.glass === \"on\" || (", "return ("],
     ["glass takes a surface's choice only when true", "values.glass !== \"off\" && optIn === true", "values.glass !== \"off\" && !!optIn"],
     ["window glass follows glassOn", "hyprland.glass = glassOn(values, values.windowGlass === true);", ""],
+    ["window glow follows window glass", "hyprland.glow = hyprland.glass && values.windowGlow === true;", "hyprland.glow = values.windowGlow === true;"],
+    ["glow needs windowGlow", "hyprland.glow = hyprland.glass && values.windowGlow === true;", "hyprland.glow = hyprland.glass && true;"],
     ["glass members unset to the surface", "glass: { type: \"choice\", options: [\"on\", \"off\"], unset: \"surface\" }", "glass: { type: \"choice\", options: [\"on\", \"off\"] }"],
     ["appearance layer groups", "hyprland[member.hyprland] = sources[key] !== \"hyprland\";", "hyprland[member.hyprland] = true;"],
     ["appearance theme speed", "motionSpeed: themeScale > 0 ? 1 / themeScale : 1", "motionSpeed: 1"],

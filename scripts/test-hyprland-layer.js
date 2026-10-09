@@ -31,10 +31,12 @@ const toggle = { shortcut: "toggle", key: "SUPER+SPACE" };
 // The border colours as Theme publishes them, `#aarrggbb`.
 const colours = { accent: "#ff5a3659", border: "#80112233", borderSubtle: "#ff222222", warning: "#ffffaa00", surfaceRaised: "#ff333333", onAccent: "#ff000000", text: "#ffeeeeee", onWarning: "#ff010101" };
 // `groups` as Theme.appearanceState.hyprland gives it with no Appearance
-// value: borders and radius written, motion and window glass left to the
-// user. `glass` is Theme.glass.window, with its colour `#aarrggbb`.
+// value: borders and radius written, motion, window glass and window glow
+// left to the user. `glass` is Theme.glass.window, with its colour
+// `#aarrggbb`; `hyprland.glow` is the glow tokens as Theme publishes them.
+const glowTokens = { color: "#ff1a1020", colorEnd: "#ff202428", angle: 45, inactive: "#00101010", range: 35, renderPower: 2 };
 const glassWindow = { opacity: 0.9, inactiveOpacity: 0.8, blurSize: 6, blurPasses: 3, shadowRange: 20, shadowPower: 2, shadowColor: "#73000000" };
-const theme = { colours, hyprland: { border: { size: 4 }, window: { radius: 8, roundingPower: 3, groupRadius: 8 }, motion: { preset: "snappy" }, shadow: { color: "#99000088" } }, glass: glassWindow, groups: { borders: true, radius: true, motion: false, glass: false }, motionScale: 2, tuiMargins: { bar: 30, gutter: 10 } };
+const theme = { colours, hyprland: { border: { size: 4 }, window: { radius: 8, roundingPower: 3, groupRadius: 8 }, motion: { preset: "snappy" }, shadow: { color: "#99000088" }, glow: glowTokens }, glass: glassWindow, groups: { borders: true, radius: true, motion: false, glass: false, glow: false }, motionScale: 2, tuiMargins: { bar: 30, gutter: 10 } };
 // The floating TUIs' window rules as the layer writes them, byte for byte:
 // in the Lua literal `\\.` is the regex `\.`, a literal dot. Each size is
 // the class's preferred size, at most the output less the fixture's 10 px
@@ -55,7 +57,8 @@ const UNWRITTEN = {
     borders: "-- Theme appearance: borders left to the user's config by shell.json appearance.borderWidth.",
     radius: "-- Theme appearance: radius left to the user's config by shell.json appearance.windowRadius.",
     motion: "-- Theme appearance: motion left to the user's config by shell.json appearance.windowAnimations.",
-    glass: "-- Theme appearance: glass left to the user's config by shell.json appearance.windowGlass."
+    glass: "-- Theme appearance: glass left to the user's config by shell.json appearance.windowGlass.",
+    glow: "-- Theme appearance: glow left to the user's config by shell.json appearance.windowGlow."
 };
 const TUI_SECTION = [
     "-- Floating TUIs: each size class's app-id floats, centred, at its size, clamped to its output.",
@@ -723,7 +726,7 @@ function verify(logic, layer, shellText) {
     const bare = layer.render([], theme, "vgs", 2);
     const bareLines = lines(bare);
     assert.ok(bareLines.includes('hl.on("hyprland.start", function () hl.exec_cmd("vgshell start") end)'), "the layer starts VGS by its command name when Hyprland starts");
-    const groupsOf = (borders, radius, motion, glass = false) => Object.assign({}, theme, { groups: { borders: borders, radius: radius, motion: motion, glass: glass } });
+    const groupsOf = (borders, radius, motion, glass = false, glow = false) => Object.assign({}, theme, { groups: { borders: borders, radius: radius, motion: motion, glass: glass, glow: glow } });
     const quietOut = layer.render([], groupsOf(false, false, false), "vgs", 1);
     const quiet = lines(quietOut);
     same(quiet.slice(APPLIED_AT, quiet.indexOf(TUI_SECTION[0])), [
@@ -736,6 +739,8 @@ function verify(logic, layer, shellText) {
         UNWRITTEN.motion,
         "",
         UNWRITTEN.glass,
+        "",
+        UNWRITTEN.glow,
         "",
         NO_GAPS_OFF,
         ""
@@ -779,7 +784,33 @@ function verify(logic, layer, shellText) {
     assert.ok(!lines(glassy).includes(UNWRITTEN.glass), "written window glass leaves no comment");
     assert.ok(!bareLines.some(line => /active_opacity|blur = \{|render_power/.test(line)), "unwritten window glass sets nothing of Hyprland's decoration");
     same(layer.readType("decoration.active_opacity"), "float", "getoption reads the active opacity as a float");
-    ["borders", "radius", "motion", "glass"].forEach(group => {
+    // Window glow, written: Hyprland's decoration.glow from the theme's
+    // hyprland.glow tokens, after window glass, a gradient from `color` to
+    // `colorEnd` at `angle`; its option is the switch, reported on.
+    const glowing = layer.render([], groupsOf(true, false, false, true, true), "vgs", 1);
+    const GLOW_SECTION = [
+        "-- Theme appearance: window glow.",
+        "hl.config({",
+        "    decoration = {",
+        "        glow = {",
+        "            enabled = true,",
+        "            range = 35,",
+        "            render_power = 2,",
+        "            color = { colors = { \"rgba(1a1020ff)\", \"rgba(202428ff)\" }, angle = 45 },",
+        "            color_inactive = \"rgba(10101000)\",",
+        "        },",
+        "    },",
+        "})"
+    ];
+    const glowApplied = applied(glowing);
+    same(glowApplied.slice(glowApplied.indexOf(GLOW_SECTION[0]), glowApplied.indexOf(GLOW_SECTION[0]) + GLOW_SECTION.length), GLOW_SECTION, "window glow writes Hyprland's glow from the theme's tokens, byte for byte");
+    assert.ok(glowApplied.indexOf(GLASS_SECTION[0]) !== -1 && glowApplied.indexOf(GLASS_SECTION[0]) < glowApplied.indexOf(GLOW_SECTION[0]), "window glow follows window glass");
+    same(glowing.appearance, [{ id: "", setting: "borderWidth", path: "general.border_size", value: 4 }, { id: "", setting: "windowGlass", path: "decoration.active_opacity", value: 0.9 }, { id: "", setting: "windowGlow", path: "decoration.glow.enabled", value: true }], "a written glow group reports its switch on");
+    same(lines(glowing)[APPLIED_AT + 4], "    for _, path in ipairs({ \"general.border_size\", \"decoration.active_opacity\", \"decoration.glow.enabled\" }) do options.start[path] = hl.get_config(path) end", "the recorder reads the glow switch while window glow is written");
+    assert.ok(!lines(glowing).includes(UNWRITTEN.glow), "written window glow leaves no comment");
+    same([lines(glassy).includes(UNWRITTEN.glow), lines(glassy).some(line => /glow = \{|decoration\.glow/.test(line))], [true, false], "unwritten window glow is a comment and sets nothing, so the user's own glow stays");
+    same(layer.readType("decoration.glow.enabled"), "bool", "getoption reads the glow switch as a bool");
+    ["borders", "radius", "motion", "glass", "glow"].forEach(group => {
         const broken = Object.assign({}, theme, { groups: Object.assign({}, theme.groups, { [group]: undefined }) });
         assert.throws(() => layer.render([], broken, "vgs", 1), new RegExp("theme\\.groups\\." + group + " must be a boolean"), "a group the theme does not state is refused: " + group);
     });
@@ -1039,7 +1070,7 @@ function verify(logic, layer, shellText) {
         "hl.config({ input = { sensitivity = 0.35, touchpad = { tap_to_click = false }, kb_layout = \"us,de\" } })"
     ], "the set options are one hl.config, in the manifest's order, applied after the theme's groups");
     same(lines(optionsOut)[APPLIED_AT + 4], "    for _, path in ipairs({ \"input.sensitivity\", \"input.touchpad.tap_to_click\", \"input.kb_layout\", \"general.border_size\", \"decoration.rounding\" }) do options.start[path] = hl.get_config(path) end", "the layer reads each written option and written group's option as it loads");
-    const quietOptions = lines(layer.render([optionSection({ sensitivity: 0.35, touchpad: false })], Object.assign({}, theme, { groups: { borders: false, radius: false, motion: false, glass: false } }), "vgs", 1, ["elan-touchpad"]));
+    const quietOptions = lines(layer.render([optionSection({ sensitivity: 0.35, touchpad: false })], Object.assign({}, theme, { groups: { borders: false, radius: false, motion: false, glass: false, glow: false } }), "vgs", 1, ["elan-touchpad"]));
     same(quietOptions.slice(APPLIED_AT, quietOptions.indexOf(UNWRITTEN.borders) - 1),
         appliedSection(["input.sensitivity"], ["-- acme.keys 1.0.0: input options its settings set", "hl.config({ input = { sensitivity = 0.35 } })"]),
         "the applied section holds the options line, byte for byte, and reads no per-device option");
@@ -1368,7 +1399,11 @@ function verifyAppearanceLayer(layer) {
         const published = Object.assign({}, result.values, { appearanceState: result.appearance, glass: glassOf(result.values) });
         for (const group of ["color", "palette"])
             published[group] = Object.fromEntries(Object.entries(result.values[group]).map(([key, value]) => [key, toColor(value)]));
-        published.hyprland = Object.assign({}, result.values.hyprland, { shadow: { color: toColor(result.values.hyprland.shadow.color) } });
+        const glow = result.values.hyprland.glow;
+        published.hyprland = Object.assign({}, result.values.hyprland, {
+            shadow: { color: toColor(result.values.hyprland.shadow.color) },
+            glow: Object.assign({}, glow, { color: toColor(glow.color), colorEnd: toColor(glow.colorEnd), inactive: toColor(glow.inactive) })
+        });
         const gaps = { id: "vgs.themes", version: "0.1.0", binds: [], layerRules: [], appearance: { noGaps: { setting: "noWindowGaps", enabled: false } }, options: [], monitors: null, pads: null, padRefusals: [], unknownKeys: [] };
         return layer.render([gaps], vm.runInNewContext(binding, { Theme: published }), "vgs", scale === undefined ? 1.5 : scale, null, "", "");
     };
@@ -1413,6 +1448,30 @@ function verifyAppearanceLayer(layer) {
     same(glassLines(render({ glass: "on" })), WINDOW_GLASS, "glass on everywhere writes window glass");
     const offEverywhere = render({ glass: "off", windowGlass: true });
     same([glassLines(offEverywhere), offEverywhere.text.split("\n").includes(UNWRITTEN.glass)], [[], true], "glass off everywhere leaves window decoration to the user, whatever the windows' own choice");
+    // Window glow from the shipped Tokens.js, written only while window
+    // glass is: the vgs palette's background mixed toward its accent and
+    // its foreground, and a transparent inactive colour.
+    const glowLines = out => { const all = block(out); const at = all.indexOf("-- Theme appearance: window glow."); return at === -1 ? [] : all.slice(at, at + 12); };
+    const WINDOW_GLOW = [
+        "-- Theme appearance: window glow.",
+        "hl.config({",
+        "    decoration = {",
+        "        glow = {",
+        "            enabled = true,",
+        "            range = 40,",
+        "            render_power = 4,",
+        "            color = { colors = { \"rgba(2e100aff)\", \"rgba(161616ff)\" }, angle = 90 },",
+        "            color_inactive = \"rgba(00000000)\",",
+        "        },",
+        "    },",
+        "})"
+    ];
+    same(glowLines(render({ windowGlass: true, windowGlow: true })), WINDOW_GLOW, "the windows' glow writes Tokens.js's hyprland.glow values");
+    same(glowLines(render({ glass: "on", windowGlow: true })), WINDOW_GLOW, "glass on everywhere lets the windows' glow write");
+    for (const user of [{ windowGlass: true }, { windowGlow: true }, { glass: "off", windowGlass: true, windowGlow: true }]) {
+        const out = render(user);
+        same([glowLines(out), out.text.split("\n").includes(UNWRITTEN.glow), out.appearance.some(row => row.setting === "windowGlow")], [[], true, false], "no window glow is written, so the user's own glow stays: " + JSON.stringify(user));
+    }
 }
 verifyAppearanceLayer(load(layerFile));
 for (const [member, row] of Object.entries(themeJudge.APPEARANCE).filter(([, row]) => row.hyprland !== undefined))
@@ -1518,13 +1577,24 @@ const CONTROLS = [
     [layerFile, "an unwritten group is a comment", "groups.push(unwrittenGroupLine(group), \"\");", "groups.push(\"\");"],
     [layerFile, "the recorder reads the written groups' options", "var paths = options.written.concat(appearance).filter(", "var paths = options.written.filter("],
     [layerFile, "a written group reports its option", "appearance.push({ id: \"\", setting: APPEARANCE_PATHS[group].member, path: APPEARANCE_PATHS[group].path, value: appearanceValue(group, theme) });", ""],
-    [layerFile, "window glass is an applied group", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\", \"glass\"];", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\"];"],
+    [layerFile, "window glass is an applied group", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\", \"glass\", \"glow\"];", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\", \"glow\"];"],
     [layerFile, "window glass reads its active opacity as a float", "glass: { path: \"decoration.active_opacity\", type: \"float\", member: \"windowGlass\" }", "glass: { path: \"decoration.active_opacity\", type: \"int\", member: \"windowGlass\" }"],
     [layerFile, "window glass reads its active opacity", "glass: { path: \"decoration.active_opacity\", type: \"float\", member: \"windowGlass\" }", "glass: { path: \"decoration.blur.enabled\", type: \"float\", member: \"windowGlass\" }"],
     [layerFile, "window glass writes the inactive opacity", "\"        inactive_opacity = \" + luaNumber(glass.inactiveOpacity) + \",\",", "\"        inactive_opacity = \" + luaNumber(glass.opacity) + \",\","],
     [layerFile, "window glass writes its own shadow colour", "hyprColour(\"glass.window.shadowColor\", glass.shadowColor)", "hyprColour(\"hyprland.shadow.color\", theme.hyprland.shadow.color)"],
     [layerFile, "window glass enables the blur", "\"            enabled = true,\",\n        \"            size = \"", "\"            enabled = false,\",\n        \"            size = \""],
     [layerFile, "a written glass group reports the opacity it wrote", "case \"glass\": return theme.glass.opacity;", "case \"glass\": return theme.glass.inactiveOpacity;"],
+    [layerFile, "window glow is an applied group", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\", \"glass\", \"glow\"];", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\", \"glass\"];"],
+    [layerFile, "window glow follows window glass", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\", \"glass\", \"glow\"];", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\", \"glow\", \"glass\"];"],
+    [layerFile, "window glow reads its switch as a bool", "glow: { path: \"decoration.glow.enabled\", type: \"bool\", member: \"windowGlow\" }", "glow: { path: \"decoration.glow.enabled\", type: \"int\", member: \"windowGlow\" }"],
+    [layerFile, "window glow reads its switch", "glow: { path: \"decoration.glow.enabled\", type: \"bool\", member: \"windowGlow\" }", "glow: { path: \"decoration.glow.range\", type: \"bool\", member: \"windowGlow\" }"],
+    [layerFile, "window glow enables the glow", "\"            enabled = true,\",\n        \"            range = \" + luaNumber(glow.range)", "\"            enabled = false,\",\n        \"            range = \" + luaNumber(glow.range)"],
+    [layerFile, "window glow writes its range", "\"            range = \" + luaNumber(glow.range) + \",\",", "\"            range = \" + luaNumber(glow.renderPower) + \",\","],
+    [layerFile, "window glow writes its render power", "\"            render_power = \" + luaNumber(glow.renderPower) + \",\",", "\"            render_power = 3,\","],
+    [layerFile, "window glow ends its gradient on its own colour", "hyprColour(\"hyprland.glow.colorEnd\", glow.colorEnd)", "hyprColour(\"hyprland.glow.colorEnd\", glow.color)"],
+    [layerFile, "window glow writes its angle", "angle = \" + luaNumber(glow.angle)", "angle = \" + luaNumber(90)"],
+    [layerFile, "window glow writes its inactive colour", "hyprColour(\"hyprland.glow.inactive\", glow.inactive)", "hyprColour(\"hyprland.glow.inactive\", glow.color)"],
+    [layerFile, "a written glow group reports its switch on", "case \"glow\": return true;", "case \"glow\": return false;"],
     [layerFile, "a written motion group reports whether it moves", "case \"motion\": return !(theme.motionScale === 0 || theme.hyprland.motion.preset === \"none\");", "case \"motion\": return true;"],
     [layerFile, "a group names the member that decides it", "radius: { path: \"decoration.rounding\", type: \"int\", member: \"windowRadius\" },", "radius: { path: \"decoration.rounding\", type: \"int\", member: \"cornerRadius\" },"],
     [layerFile, "motion scale zero disables", "if (scale === 0 || preset === \"none\")", "if (preset === \"none\")"],
