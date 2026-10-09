@@ -85,6 +85,24 @@ share_set_region() {
 }
 share_click() { click_in window:Capture window vgs.capture "$1" "$2" || fail "share-picker: clicking $1 failed"; }
 share_result() { ipc vgs.capture invoke share-result "{\"id\":\"$1\"}"; }
+# Count the request and preview objects VGS owns, separately from the
+# compositor's managed sessions, which have no public count API.
+share_owner_counts() {
+  local request previews
+  request="$(ipc smoke readDescendant service vgs.capture ShareSession session)" || return
+  previews="$(ipc smoke itemValues window vgs.capture ScreencopyPreview hasContent)" || return
+  python3 - "$request" "$previews" <<'PY'
+import json,sys
+try:
+    request=json.loads(sys.argv[1]); previews=[] if sys.argv[2]=="absent" else json.loads(sys.argv[2])
+except ValueError:
+    print("unreadable"); raise SystemExit
+if not (request is None or isinstance(request,dict)) or not isinstance(previews,list):
+    print("unreadable"); raise SystemExit
+print(json.dumps({"pickerRequests":int(request is not None),"previewOwners":len(previews)},sort_keys=True))
+PY
+}
+share_owner_released() { expect_poll "$1: VGS releases its request and preview" '{"pickerRequests": 0, "previewOwners": 0}' share_owner_counts; }
 share_replacement_released() {
   if [[ $(share_result "$1") == cancelled && $(share_cancelled "$2") == True ]]; then echo True; else echo False; fi
 }
@@ -309,6 +327,10 @@ share_click Button Cancel
 expect_poll "the next request can cancel independently" True share_cancelled after-replacement
 share_launch keyboard
 share_current_id="$(share_request_id)"
+expect_poll "the held picker has a live preview" true share_read previewReady
+share_held_owner_control() { (failures=0 behaviour_failures=0; share_owner_released held-picker >"$share_world/held-owner-control.log"; echo "$failures"); }
+expect "control: a retained picker fails the same request and preview release check" 1 share_held_owner_control
+cat -- "$share_world/held-owner-control.log"
 expect "control: an old request cannot satisfy a new caller" False share_new_request "$share_current_id" fixture
 rest_pointer || fail "share-picker: parking pointer for keyboard failed"
 expect_poll "the page tabs have the keyboard" true ipc smoke readDescendant window vgs.capture Tabs activeFocus
@@ -328,6 +350,7 @@ share_region_x() { share_read region | py_reply 'import json,sys; print(json.loa
 expect_poll "the keyboard changes the shared area's left edge" 1 share_region_x
 type_keys -k Escape || fail "share-picker: keyboard cancellation failed"
 expect_poll "the keyboard request cancels" True share_cancelled keyboard
+share_owner_released picker-closed
 for share_choice in screens windows area; do
   share_launch "$share_choice" --allow-token
   expect "the token flag checks Remember" true share_read remember
@@ -339,6 +362,7 @@ for share_choice in screens windows area; do
   share_click Button Share
   expect_poll "$share_choice: the executable succeeds" 0 share_exit "$share_choice"
   expect "$share_choice: xdph receives the chosen source" "$share_expected" share_stdout "$share_choice"
+  share_owner_released "$share_choice-finished"
 done
 share_launch remember-off
 expect "Remember starts unchecked without a token flag" false share_read remember
@@ -532,7 +556,12 @@ share_app_phase() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]);
 share_app_start() {
   share_previous="$(share_request_id)"
   spawn "$share_world/app-$1.log" "${share_portal_env[@]}" timeout 90 python3 "$share_fixture/portal-client.py" "$share_world/app-$1" "$share_world/consume" "${@:2}"
+  share_app_pid="$spawn_pid"
 }
+# Isolated PipeWire has no device discovery. These are the portal's video
+# source nodes, not Hyprland's retained managed screenshare sessions.
+share_stream_count() { "${share_portal_env[@]}" pw-dump | py_reply 'import json,sys; rows=json.load(sys.stdin); print(sum(r.get("type")=="PipeWire:Interface:Node" and (r.get("info") or {}).get("props",{}).get("media.class")=="Video/Source" for r in rows))'; }
+share_stream_released() { expect_poll "$1: the portal releases its video-source nodes" 0 share_stream_count; }
 share_app_source() { python3 - "$share_world/app-$1.json" "$2" "$3" "$4" <<'PY'
 import json,pathlib,sys
 p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text()) if p.exists() else {}; rows=d.get("streams",[])
@@ -588,6 +617,8 @@ for share_app in screen window area cancel; do
       expect "the screen stream keeps the output outside the target" False share_app_pixels "$share_app" 40 140
     fi
   fi
+  share_owner_released "app-$share_app"
+  share_stream_released "app-$share_app"
 done
 share_has_token() { python3 -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text()) if p.exists() else {}; print(isinstance(d.get("restore_token"),str) and bool(d["restore_token"]))' "$share_world/app-screen.json"; }
 expect "Remember returns a restore token" True share_has_token
@@ -596,7 +627,29 @@ if [[ $(share_has_token) == True ]]; then
   expect_poll "the app reuses the remembered screen" complete share_app_phase restore
   share_picker_count() { hypr -j clients | py_reply 'import json,sys; print(sum(c["mapped"] and c["title"]=="Capture" for c in json.load(sys.stdin)))'; }
   expect "the remembered source opens no picker" 0 share_picker_count
+  expect_poll "the remembered share releases its portal video source" 0 share_stream_count
 fi
+# A held application keeps the real portal session open after its frame.
+# The same zero-count reading must detect this planted lifetime defect.
+share_app_start quit --hold
+expect_poll "the quit test opens a fresh picker" True share_new_request "$share_previous"
+share_click Button Share
+expect_poll "the application holds its screen-share session" sharing share_app_phase quit
+expect_poll "control: an open portal session retains its video source" 1 share_stream_count
+share_held_stream_control() { (failures=0 behaviour_failures=0; share_stream_released held-app >"$share_world/held-stream-control.log"; echo "$failures"); }
+expect "control: the held app fails the same video-source release check" 1 share_held_stream_control
+cat -- "$share_world/held-stream-control.log"
+share_owner_released selected-before-app-quit
+kill -TERM -- -"$share_app_pid"
+wait "$share_app_pid" 2>/dev/null || true
+share_stream_released app-quit
+share_owner_released app-quit
+share_app_start closed
+expect_poll "the close test opens a fresh picker" True share_new_request "$share_previous"
+type_keys -k Escape || fail "share-picker: closing the application picker failed"
+expect_poll "the app receives picker-close cancellation" cancelled share_app_phase closed
+share_stream_released picker-closed
+share_owner_released app-picker-closed
 cp -R -- "$share_world/." "$share_evidence/runtime"
 for share_process in "$share_frontend_pid" "$share_backend_pid" "$share_permissions_pid" "$share_pipewire_pid"; do kill -TERM -- -"$share_process" 2>/dev/null || true; wait "$share_process" 2>/dev/null || true; done
 close_toplevel "$share_target_pid" "the share target closes"

@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 import uuid
 import gi
 gi.require_version("Gio", "2.0")
@@ -50,7 +51,7 @@ class PortalClient:
         finally:
             self.bus.signal_unsubscribe(listener)
 
-    def run(self, consumer, restore_file=None):
+    def run(self, consumer, restore_file=None, hold=False):
         nonce = "vgs" + uuid.uuid4().hex
         code, data = self.request("CreateSession", ({
             "handle_token": GLib.Variant("s", nonce + "create"),
@@ -86,6 +87,12 @@ class PortalClient:
                            check=True, timeout=30)
         finally:
             os.close(descriptor)
+        if hold:
+            self.phase("sharing")
+            while not self.root.with_suffix(".stop").exists():
+                while GLib.MainContext.default().iteration(False):
+                    pass
+                time.sleep(0.05)
         self.phase("complete")
 
     def close(self):
@@ -98,7 +105,12 @@ class PortalClient:
 if __name__ == "__main__":
     client = PortalClient(sys.argv[1])
     try:
-        client.run(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
+        arguments = sys.argv[3:]
+        hold = "--hold" in arguments
+        arguments = [argument for argument in arguments if argument != "--hold"]
+        if len(arguments) > 1:
+            raise ValueError("unexpected arguments")
+        client.run(sys.argv[2], arguments[0] if arguments else None, hold)
     except Exception as error:
         client.phase("failed")
         print("portal-client: " + str(error), file=sys.stderr)

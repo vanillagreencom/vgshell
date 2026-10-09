@@ -45,6 +45,9 @@ print("private" if any(tool=="nmcli" and "--show-secrets" in args for tool,args 
 PYCALLS
 }
 net_qr_state() { ipc smoke networkShare "$1" | py_reply 'import json,sys; s=sys.stdin.read().strip(); r=json.loads(s) if s.startswith("{") else None; print("ready" if r and r["state"]=="ready" and r["side"]==3 and r["visible"] and r["moduleSize"]>0 and int(r["moduleSize"])==r["moduleSize"] else s)'; }
+# Network shares a Wi-Fi QR image. It opens no screen-capture session.
+net_qr_owner_count() { ipc smoke readDescendant panel vgs.network NetworkBody shareTarget | py_reply 'import json,sys; s=sys.stdin.read().strip(); print(0 if s=="absent" else int(json.loads(s) is not None))'; }
+net_qr_released() { expect_poll "$1: Wi-Fi sharing releases its QR owner" 0 net_qr_owner_count; }
 net_qr_encoder_ready() { if [[ -f $net_qr_dir/ready ]]; then echo yes; else echo no; fi; }
 net_menu_selection() { ipc smoke menus panel vgs.network | py_reply 'import json,sys; print(json.dumps([m["current"] for m in json.load(sys.stdin) if m["opened"]]))'; }
 # Menu.opened can precede its native keyboard focus. End is idempotent:
@@ -297,6 +300,7 @@ expect "the QR lifetime observer retains the view" ok ipc smoke networkRememberS
 type_keys -k Return
 expect_poll "Close QR code removes the matrix owner" closed ipc smoke networkShare panel
 expect_poll "closing Share destroys its collector and view" false ipc smoke networkRememberedShareAlive
+net_qr_released finished
 # Stop a real shipped helper while the private encoder holds its output.
 net_qr_world hold
 rm -f -- "$net_qr_dir/ready"
@@ -309,6 +313,7 @@ expect "the pending QR lifetime observer retains the view" ok ipc smoke networkR
 type_keys -k Return
 expect_poll "closing during encoding destroys the pending owner" false ipc smoke networkRememberedShareAlive
 expect_poll "closing Share stops its owned encoder" stopped net_qr_child_stopped
+net_qr_released cancelled
 expect "buffered output cannot reopen Share" closed ipc smoke networkShare panel
 net_qr_world ready
 device_reply nmcli 0 $'GENERAL.DEVICE:wlan0\nIP4.ADDRESS[1]:192.0.2.2/24' -t device show wlan0
@@ -704,6 +709,10 @@ expect_poll "the QR control reaches the same ready state" ready net_qr_state pan
 expect "the QR control observer retains its view" ok ipc smoke networkRememberShare panel
 type_keys -k Return
 expect_poll "control: a closed QR view stays retained" true ipc smoke networkRememberedShareAlive
+expect "control: the retained QR owner fails the zero-owner reading" 1 net_qr_owner_count
+net_qr_retained_control() { (failures=0 behaviour_failures=0; net_qr_released retained >"$net_qr_dir/retained-control.log"; echo "$failures"); }
+expect "control: the retained QR owner fails the same release check" 1 net_qr_retained_control
+cat -- "$net_qr_dir/retained-control.log"
 expect "the retained QR control closes its flyout" ok ipc shell hide panel vgs.network
 rm -rf -- "${net_copy:?}"
 rescan "the shipped plugin is restored"

@@ -38,6 +38,9 @@ capture_path() { capture_read lastPath | py_reply 'import json,sys; print(json.l
 capture_panel() { ipc smoke readInstance panel vgs.capture recording; }
 capture_panel_geometry() { layers_of vgs:panel | py_reply 'import json,sys; rows=json.load(sys.stdin); print(len(rows) == 1 and rows[0][2] > 0 and rows[0][3] > 0)'; }
 capture_status() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["status"].get("vgs.capture")))'; }
+# The service's exclusive recording action, not a compositor session.
+capture_recording_actions() { capture_status | py_reply 'import json,sys; s=json.load(sys.stdin)["capture"]; print(int(s["action"].startswith("record") and s["phase"]!="idle"))'; }
+capture_recording_released() { expect_poll "$1: Capture releases its recording action" 0 capture_recording_actions; }
 # capture_clipboard: the clipboard stand-in's bytes as text. The helper
 # reports copied once wl-copy's stdin closes, before the stand-in writes, so
 # an earlier image's bytes read as a mismatch to poll past.
@@ -1062,6 +1065,23 @@ capture_record record-output "record output"
 expect "the focused display records that output" "$(capture_words -w "$capture_output" "${capture_defaults[@]}")" capture_argv
 capture_record record-portal "record portal"
 expect "portal recording hands the recorder the portal" "$(capture_words -w portal "${capture_defaults[@]}")" capture_argv
+capture_recording_released finished-portal
+expect "finished portal recording leaves no owned recorder" False capture_recorder_left
+capture_config portalCancel true
+expect "the portal Cancel response reaches Capture" ok ipc vgs.capture invoke record-portal ''
+expect_poll "cancelled portal recording releases its VGS recording action" 0 capture_recording_actions
+capture_config portalCancel false
+capture_config picker true
+rm -f -- "$capture_state/picker-ready"
+expect "Capture starts a recording with a pending picker" ok ipc vgs.capture invoke record-portal ''
+expect_poll "the recorder holds its picker" True capture_marker picker-ready
+expect "the pending picker has one VGS recording action" 1 capture_recording_actions
+capture_open_control() { (failures=0 behaviour_failures=0; capture_recording_released held-picker >"$capture_state/held-picker-control.log"; echo "$failures"); }
+expect "control: the held recorder picker fails the same release check" 1 capture_open_control
+cat -- "$capture_state/held-picker-control.log"
+expect "a second press closes the pending recorder picker" ok ipc vgs.capture invoke record-portal ''
+capture_recording_released closed-recorder-picker
+capture_config picker false
 capture_mutate output-match
 capture_record record-display "control: output match dropped"
 expect "control: dropping the output match fails the display argv" False capture_is capture_argv "$(capture_words -w "$capture_output" "${capture_defaults[@]}")"
