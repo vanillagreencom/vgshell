@@ -25,7 +25,7 @@
     "defaultDuration": {
       "type": "string",
       "label": "Default duration",
-      "description": "The time the question starts on when you turn passwordless sudo on",
+      "description": "The duration the question selects first when you turn passwordless sudo on.",
       "info": "You choose the time again each time you turn it on. Indefinitely keeps passwordless sudo on, also after a restart, until you turn it off.",
       "group": "Turning it on",
       "presets": [

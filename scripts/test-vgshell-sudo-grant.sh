@@ -369,7 +369,7 @@ check "nixos without node writes no sudoers rule" no_rule
 fresh
 run "install succeeds" 0 "" install
 check "install names the boot cleanup and its line" out_has "  $boot  the boot cleanup: r! /etc/sudoers.d/99-vgs-nopasswd-*"
-check "install names the root half" out_has "  $installed  the root half vgshell sudo grant runs through sudo"
+check "install names the root half" out_has "  $installed  the part of passwordless sudo that runs as root"
 check "install prints its paths last" test "$(tail -n 1 "$tmp/out")" == "ok sudo-grant=installed root-half=$installed boot-cleanup=$boot"
 check "install places the boot cleanup, then the root half, then drops the credential" test "$(sudo_calls)" == "install -m 0644 -o root -g root -T -- $template $boot
 install -m 0755 -o root -g root -T -- $helper $installed
@@ -599,12 +599,20 @@ check "the refusal names the ineffective grant" out_has "vgs-sudo-grant: refused
 check "an ineffective grant leaves no file" no_rule
 check "an ineffective grant's timer is stopped" test ! -e "$tmp/timer-active"
 installed; rm -f -- "$boot"
-run_tty "a grant with no boot cleanup is refused" 1 grant
-check "the root half names the absent boot cleanup" out_has "vgs-sudo-grant: refused: boot-cleanup=absent path=$boot"
+root "the root half refuses a grant with no boot cleanup" 1 "vgs-sudo-grant: refused: boot-cleanup=absent path=$boot" __enable "$uid" 15
 check "no boot cleanup, no rule" no_rule
 installed; printf 'r /tmp/x\n' >>"$boot"
-run_tty "a boot cleanup with another line is refused" 1 grant
+root "the root half refuses a boot cleanup with another line" 1 "vgs-sudo-grant: refused: boot-cleanup=absent path=$boot" __enable "$uid" 15
 check "a changed boot cleanup leaves no file" no_rule
+# A grant sets up again a boot cleanup that is gone or changed, so the
+# click the root half's refusal names works.
+for boot_case in gone changed; do
+  installed
+  if [[ $boot_case == gone ]]; then rm -f -- "$boot"; else printf 'r /tmp/x\n' >>"$boot"; fi
+  run_tty "a grant with a $boot_case boot cleanup sets it up first" 0 grant
+  check "the $boot_case boot cleanup is the template again" cmp -s -- "$template" "$boot"
+  check "the grant after a $boot_case boot cleanup is published" test -e "$rule"
+done
 installed; printf '%s\n' "$boot" >"$tmp/foreign"
 run_tty "a boot cleanup another user owns is refused" 1 grant
 check "a foreign boot cleanup leaves no file" no_rule
@@ -626,7 +634,7 @@ fresh
 run_tty "a grant with no root half installs it first" 0 grant
 check "the first grant placed the root half" cmp -s -- "$helper" "$installed"
 check "the first grant placed the boot cleanup" cmp -s -- "$template" "$boot"
-check "the first grant names what it places" out_has "  $installed  the root half vgshell sudo grant runs through sudo"
+check "the first grant names what it places" out_has "  $installed  the part of passwordless sudo that runs as root"
 check "the first grant's rule is published" test -e "$rule"
 check "the first grant installs, then reads the listing" test "$(sed -n '3,5p' "$tmp/sudo.log")" == "install -m 0644 -o root -g root -T -- $template $boot
 install -m 0755 -o root -g root -T -- $helper $installed
@@ -652,8 +660,11 @@ root "the root half reads an expired rule as inactive" 3 "" __status "$uid"
 check "the root half removes an expired rule as found" test ! -e "$rule"
 printf 'vgsuser ALL=(ALL) NOPASSWD: ALL\n' >"$rule"
 run "status with a rule of another form fails" 1 "vgs-sudo-grant: refused: grant=malformed path=$rule" status
-run_tty "grant with a rule of another form fails" 1 grant
-check "a grant leaves the other rule for revoke" test -e "$rule"
+rm -f -- "$tmp/gum.log" "$tmp/gum-choose.log"
+run_tty "a grant removes a rule of another form" 0 grant
+check "a grant removes the other rule as it revokes a grant" test ! -e "$rule"
+check "the grant that removes it asks nothing" test ! -e "$tmp/gum.log" -a ! -e "$tmp/gum-choose.log"
+printf 'vgsuser ALL=(ALL) NOPASSWD: ALL\n' >"$rule"
 run "revoke removes a rule of another form" 0 "" revoke
 check "revoke reports the removal" test "$(cat "$tmp/out")" == "ok sudo-grant=revoked"
 check "the other rule is gone" test ! -e "$rule"
@@ -759,7 +770,15 @@ run_tty "the unsanitized mutant grants" 0 grant
 check "the unsanitized mutant hands the caller's variable to visudo" grep -qxF VGS_PLANTED=1 "$tmp/visudo-env"
 control boot-blind 'trusted "$tmpfiles_d" && trusted "$boot_file" && [[ $(boot_lines "$boot_file") == "$boot_rule" ]] ||' 'true ||'
 rm -f -- "$boot"
-run_tty "the boot-blind mutant grants with no boot cleanup" 0 grant
+root "the boot-blind mutant's root half enables with no boot cleanup" 0 "" __enable "$uid" 15
+control boot-reinstall-blind '[[ $half != current ]] || ! cmp -s -- "$template" "$boot_file"' '[[ $half != current ]]'
+rm -f -- "$boot"
+run_tty "the boot-reinstall-blind mutant's grant fails with no boot cleanup" 1 grant
+check "the boot-reinstall-blind mutant leaves the boot cleanup gone" test ! -e "$boot"
+control malformed-kept 'if [[ $state == active || $state == malformed ]]; then' 'if [[ $state == active ]]; then'
+printf 'vgsuser ALL=(ALL) NOPASSWD: ALL\n' >"$rule"
+run_tty "the malformed-kept mutant's grant fails" 1 grant
+check "the malformed-kept mutant keeps the other rule" test -e "$rule"
 control mode-blind '(((8#${info#* } & 8#022) == 0))' 'true'
 chmod 0777 "$root/etc/sudoers.d"
 run_tty "the mode-blind mutant grants into a writable sudoers.d" 0 grant
@@ -772,7 +791,7 @@ run_tty "the effect-blind mutant reports an ineffective grant" 0 grant
 control check-credential '  sudo -k || refuse 1 "sudo=reset-failed before=check"' '  true'
 fresh; touch "$tmp/sudo-ignores"
 run_tty "the check-credential mutant's install credential answers the check" 0 grant
-control no-toggle 'if [[ $state == active ]]; then' 'if false; then'
+control no-toggle 'if [[ $state == active || $state == malformed ]]; then' 'if false; then'
 run_tty "the no-toggle mutant grants" 0 grant
 rm -f -- "$tmp/gum.log"
 run_tty "the no-toggle mutant fails the second run" 1 grant
@@ -816,7 +835,7 @@ printf 'Indefinitely\n' >"$tmp/gum-choice"
 run_tty "the disable-one mutant grants indefinitely" 0 grant
 run "the disable-one mutant's revoke" 0 "" revoke
 check "the disable-one mutant leaves the indefinite rule" test -e "$perm"
-control inline-install-blind 'if [[ $half != current ]]; then' 'if false; then'
+control inline-install-blind 'if [[ $half != current ]] || ! cmp -s -- "$template" "$boot_file"; then' 'if ! cmp -s -- "$template" "$boot_file"; then'
 printf '# changed\n' >>"$installed"
 run_tty "the inline-install-blind mutant grants through a stale root half" 0 grant
 check "the inline-install-blind mutant keeps the stale root half" test "$(cmp -s -- "$helper" "$installed"; echo $?)" == 1

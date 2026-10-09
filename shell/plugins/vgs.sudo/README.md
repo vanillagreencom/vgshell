@@ -23,4 +23,4 @@ While it is on, any program running as you can run anything as root without a pa
 
 | Setting | What it changes |
 | --- | --- |
-| Default duration | The time the question starts on when you turn passwordless sudo on: 15 minutes, 1 hour, 1 day or Indefinitely. |
+| Default duration | The duration the question selects first when you turn passwordless sudo on: 15 minutes, 1 hour, 1 day or Indefinitely. |

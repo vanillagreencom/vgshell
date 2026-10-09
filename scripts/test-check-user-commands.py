@@ -92,6 +92,10 @@ ROWS = [
     ("a template literal telling the user to run a command", {"Logic.js": '.pragma library\nvar NOTICE = { title: "Missing", message: `Run vgshell doctor for ${name}` };\n'}, "instruction", "Logic.js:2"),
     ("a drawn template literal holding a command", {"Service.qml": qml('    Label { text: `vgshell plugin enable ${id}` }')}, "code-command", "Service.qml:3"),
     ("a drawn binding wrapped over lines", {"Service.qml": qml('    Label {\n        text: ready\n            ? "Done"\n            : "`vgshell doctor` shows it"\n    }')}, "code-command", "Service.qml:6"),
+    ("a TUI script's drawn line telling the user to run a command", {"tui/setup.sh": "#!/usr/bin/env bash\nsource \"$VGS_TUI_LIB\"\nvgs_tui_warn \"Run vgshell plugin enable acme.setup to finish.\"\n"}, "instruction", "tui/setup.sh:3"),
+    ("a command a TUI line's verb takes after or", {"tui/setup.sh": "#!/usr/bin/env bash\nsource \"$VGS_TUI_LIB\"\nvgs_tui_warn \"Run this again, or vgshell plugin disable acme.setup, to end it.\"\n"}, "instruction", "tui/setup.sh:3"),
+    ("a TUI script's comment and other output are not read", {"tui/setup.sh": "#!/usr/bin/env bash\nsource \"$VGS_TUI_LIB\"\n# vgs_tui_warn \"Run vgshell doctor first.\"\nprintf 'Run vgshell doctor first.\\n'\nvgs_tui_step \"Checking the token\"\n"}, None, None),
+    ("a core TUI script's drawn line", {"../../../bin/vgshell-acme": "#!/usr/bin/env bash\nsource \"lib/tui.sh\"\nvgs_tui_warn \"Run vgshell doctor to check it.\"\n"}, "instruction", "bin/vgshell-acme:3"),
     ("a secrets label telling the user to run a command", {"manifest.json": manifest(capabilities='["secrets"]', secrets='{ "service": "acme", "label": "Run `vgshell doctor` first" }')}, "instruction", "manifest.json:secrets.label"),
 ]
 
@@ -102,6 +106,7 @@ def build(tmp, files):
     base = {"manifest.json": MANIFEST, "Service.qml": SERVICE}
     base.update(files)
     for name, text in base.items():
+        os.makedirs(os.path.dirname(os.path.join(plugin, name)), exist_ok=True)
         with open(os.path.join(plugin, name), "w", encoding="utf-8") as fh:
             fh.write(text)
     return os.path.join(tmp, "shell")
@@ -125,7 +130,9 @@ def row_failure(check, row):
         if done.returncode != 0 or not lines or not lines[-1].startswith("check-user-commands: ok "):
             return f"{name}: want a pass, got exit {done.returncode}: {done.stdout.strip()} {done.stderr.strip()}"
         return None
-    found = [line for line in lines if line.startswith(rule + " ") and (os.sep + "acme.setup" + os.sep + where) in line]
+    # A core script sits in bin/ beside the plugins' shell/.
+    fragment = os.sep + where if where.startswith("bin" + os.sep) else os.sep + "acme.setup" + os.sep + where
+    found = [line for line in lines if line.startswith(rule + " ") and fragment in line]
     if done.returncode != 1 or len(found) != 1:
         return f"{name}: want one {rule} at {where} and exit 1, got exit {done.returncode}: {done.stdout.strip()} {done.stderr.strip()}"
     return None
@@ -285,6 +292,10 @@ CONTROLS = [
     ("a tap flag is classified as data", '("hyprland", "binds", "*", "tap"), ', ''),
     ("a clause after or", "|\\b(?:or|then)\\s+)(", ")("),
     ("inline code past a dot", "[.!?;](?=[^\\s`])|", ""),
+    ("the TUI scripts' drawn text", "                findings.append((\"instruction\", path, line_of(code, call.start()), excerpt))", "                pass"),
+    ("the core's TUI scripts", "    if core and os.path.isdir(bin_dir):", "    if False:"),
+    ("a whole-line comment is not read", "    code = blank(read(path), SH_COMMENT)", "    code = read(path)"),
+    ("a command the verb takes after or", "            named = any(first_word(word) in heads for word in ALTERNATIVE.findall(rest))", "            named = False"),
     ("the heads floor", "if len(heads) < HEADS_FLOOR or any(h not in heads for h in REQUIRED_HEADS):", "if False:"),
 ]
 

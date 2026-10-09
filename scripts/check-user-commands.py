@@ -15,7 +15,10 @@ command:
                 the start of the text, after `.`, `!`, `?`, `:` or `;`,
                 after a comma, and after `or` or `then`. A first word that
                 is a path names the command its last part does, so
-                `bin/vgshell` is `vgshell`.
+                `bin/vgshell` is `vgshell`. Outside Markdown, a command
+                head the verb takes as its other object, after a comma or
+                `or`, is one too, as in "Run this again, or vgshell sudo
+                revoke, to end it".
   shell-block   a fenced code block of Markdown, untagged or tagged with a
                 shell of SHELL_FENCES, whose first command word is a command
                 head.
@@ -35,7 +38,12 @@ The text read is every Markdown file and every manifest.json of each plugin
 directory under the root's plugins/, the user-facing strings of each
 manifest (FIELDS, each key the judge admits named there or in EXEMPT), and
 every string literal of every `.qml` and `.js` file
-under the root, comments blanked through scripts/qml_source.py. A
+under the root, comments blanked through scripts/qml_source.py, and the
+text a floating TUI draws: each quoted argument a script hands a drawing
+function of bin/lib/tui.sh (TUI_DRAW), read as `instruction`, in every
+file of a plugin's tui/ and, beside the root, every file of bin/ that
+sources lib/tui.sh. A whole-line `#` comment is not read, and neither is
+other output a script prints, which its command line shares. A
 `<details>` block of Markdown whose `<summary>` reads "Show command" is not
 read.
 
@@ -116,6 +124,13 @@ EXEMPT = (
 CLAUSE = re.compile(r"(?:^|[.!?:;]\s+|,\s*|\b(?:or|then)\s+)(" + "|".join(VERBS) + r")\b((?:`[^`\n]*`|[.!?;](?=[^\s`])|[^.!?;`\n])*)", re.I | re.M)
 SUBJECT = re.compile(r"(?:^|[.!?:;]\s+|,\s*|\b(?:or|then)\s+)`([^`\n]+)`\s+(" + "|".join(SUBJECT_VERBS) + r")\b", re.I | re.M)
 INLINE_CODE = re.compile(r"`([^`\n]+)`")
+# The verb's other objects: what follows a comma, `, or` or `or`.
+ALTERNATIVE = re.compile(r"(?:,\s*(?:or\s+)?|\bor\s+)([^\s,]+)")
+# The functions of bin/lib/tui.sh that draw their arguments, and a shell
+# script's quoted words.
+TUI_DRAW = re.compile(r"\bvgs_tui_(?:header|step|success|warn|error|confirm|failed|refuse)\b([^\n]*)")
+SH_STRING = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'[^\'\n]*\'')
+SH_COMMENT = re.compile(r"(?m)^[ \t]*#.*$")
 # In a string literal, code may run past its end into the next literal a
 # concatenation adds, as `"`vgshell plugin enable " + id + "`"` does.
 LITERAL_CODE = re.compile(r"`([^`\n]+)(?:`|$)")
@@ -270,6 +285,8 @@ def instructions(text, heads, bare):
         named = any(first_word(code) in heads for code in INLINE_CODE.findall(rest))
         if not named and bare:
             named = first_word(rest.lstrip("`\"' ")) in heads
+        if not named and bare:
+            named = any(first_word(word) in heads for word in ALTERNATIVE.findall(rest))
         if named:
             out.append((match.start(1), (match.group(1) + match.group(2)).strip()[:120]))
     for match in SUBJECT.finditer(text):
@@ -288,6 +305,41 @@ def check_markdown(path, heads, findings):
     prose = blank(text, FENCE)
     for index, excerpt in instructions(prose, heads, False):
         findings.append(("instruction", path, line_of(prose, index), excerpt))
+
+
+def tui_scripts(root, dirs, core):
+    """The files whose drawn text a floating TUI shows: every file of each
+    plugin's tui/ in DIRS and, with CORE, every file of bin/ beside ROOT
+    that sources lib/tui.sh."""
+    out = []
+    for d in dirs:
+        tui = os.path.join(d, "tui")
+        if os.path.isdir(tui):
+            try:
+                out.extend(os.path.join(tui, n) for n in sorted(os.listdir(tui)) if os.path.isfile(os.path.join(tui, n)))
+            except OSError as exc:
+                unreadable(tui, exc.strerror)
+    bin_dir = os.path.join(os.path.dirname(root), "bin")
+    if core and os.path.isdir(bin_dir):
+        try:
+            names = sorted(os.listdir(bin_dir))
+        except OSError as exc:
+            unreadable(bin_dir, exc.strerror)
+        out.extend(path for path in (os.path.join(bin_dir, n) for n in names) if os.path.isfile(path) and "lib/tui.sh" in read(path))
+    return out
+
+
+def check_tui_script(path, heads, findings):
+    """Each quoted argument of a TUI_DRAW call in the script at PATH, read
+    as instruction; the count of words read."""
+    code = blank(read(path), SH_COMMENT)
+    words = 0
+    for call in TUI_DRAW.finditer(code):
+        for word in SH_STRING.finditer(call.group(1)):
+            words += 1
+            for _index, excerpt in instructions(word.group(0)[1:-1], heads, True):
+                findings.append(("instruction", path, line_of(code, call.start()), excerpt))
+    return words
 
 
 def resolve(node, pattern, where=()):
@@ -310,9 +362,11 @@ def manifest_strings(doc):
 
 
 def main(argv):
+    core = True
     if len(argv) == 3 and argv[1] == "--plugin":
         root = os.path.realpath(argv[2])
         dirs = [root]
+        core = False
     elif len(argv) <= 2 and (len(argv) == 1 or not argv[1].startswith("-")):
         root = os.path.realpath(argv[1]) if len(argv) == 2 else os.path.join(REPO, "shell")
         dirs = plugin_dirs(root)
@@ -335,6 +389,9 @@ def main(argv):
     strings = 0
     for path in markdown:
         check_markdown(path, heads, findings)
+    scripts = tui_scripts(root, dirs, core)
+    for path in scripts:
+        strings += check_tui_script(path, heads, findings)
     for path, doc in manifests:
         for where, text in manifest_strings(doc):
             strings += 1
@@ -361,7 +418,7 @@ def main(argv):
                     findings.append(("code-command", path, line, value.strip()[:120]))
     except Unreadable as exc:
         unreadable(exc.path, exc.strerror)
-    files = len(markdown) + len(manifests) + code_files
+    files = len(markdown) + len(manifests) + len(scripts) + code_files
     if files == 0:
         unreadable(root, "no file to read: an empty walk certifies nothing")
     for rule, path, where, excerpt in findings:
