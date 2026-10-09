@@ -10,7 +10,7 @@ import "../../shell/plugins/vgs.settings"
 // `stack.heading` on the System monitor, Capture and Displays pages, built
 // from their shipped manifests, whatever row ends the section above: a
 // switch, a select, a segmented control, a slider or a help line, one
-// with descenders or one without (Capture's Text heading). A
+// with descenders or, planted, one without. A
 // section spaced by its box, as before `stack.heading`, is the control the
 // reading must refuse.
 Item {
@@ -68,6 +68,26 @@ Item {
         Section {
             title: "Planted"
             topPadding: Theme.stack.section - Theme.stack.page
+            Field { label: "One"; inline: true; width: parent.width; Label { role: "item"; text: "Ready" } }
+        }
+    }
+
+    // A help line whose letters have no descender: its ink ends at the
+    // baseline, not the font's descent.
+    Column {
+        id: flatHint
+        x: 0
+        y: 0
+        width: 400
+        // No spacing, so the section's own padding holds the whole space.
+        spacing: 0
+        visible: false
+        Section {
+            title: "Recording"
+            Field { label: "Trim"; inline: true; hint: "Removes the first tenth"; width: parent.width; Switch { size: "sm" } }
+        }
+        Section {
+            title: "Text"
             Field { label: "One"; inline: true; width: parent.width; Label { role: "item"; text: "Ready" } }
         }
     }
@@ -159,6 +179,18 @@ Item {
             verify(waitForRendering(page));
             const img = grabImage(root);
             for (const label of headings(page)) verify(Math.abs(gapAbove(img, label) - 44) <= root.tolerance, "\"" + label.text + "\" follows the token");
+        }
+
+        // At 40 px the font's descent lies 8 px or more under the baseline,
+        // past the reading's tolerance.
+        function test_a_help_line_without_descenders() {
+            compare(UnitTheme.override({ text: { hint: { size: 40 } } }), "ok");
+            flatHint.visible = true;
+            verify(waitForRendering(flatHint));
+            const img = grabImage(root);
+            const gap = gapAbove(img, headings(flatHint)[1]);
+            flatHint.visible = false;
+            verify(Math.abs(gap - Theme.stack.heading) <= root.tolerance, "the heading sits " + gap + " px under the help line, not " + Theme.stack.heading);
         }
 
         // The control: a section spaced by its box under a switch row.
