@@ -35,11 +35,9 @@ Field {
     property var capture: null
     property alias actions: input.actions
     property alias hintActions: input.hintActions
-    property alias hintLink: input.hintLink
     readonly property var found: input.found
     readonly property alias shortcutField: input
     signal applyKey(var key)
-    signal hintLinkActivated()
 
     property var alternative: undefined
 
@@ -75,6 +73,7 @@ Field {
         editable: root.editable
         pluginId: root.pluginId
         shortcut: String(root.bind.shortcut)
+        hintLink: root.hintLink
         onCommitted: (key, index) => root.edit(index, key)
         onTyped: (text, index) => root.edit(index, text === "" ? null : text)
         onCleared: index => root.remove(index)

@@ -127,8 +127,10 @@ Item {
             compare(settingRows.height, lineBottom(lastDescribed, "Ends the column."), "the column's end after its last field");
         }
 
+        // The shown LinkText: `linked` is its own, where `hoveredLink` is
+        // also every Text's.
         function linkOf(item) {
-            return descendants(item).find(child => child.hoveredLink !== undefined && child.visible);
+            return descendants(item).find(child => child.linked !== undefined && child.visible);
         }
 
         function test_a_description_link_opens_its_address_by_pointer() {
