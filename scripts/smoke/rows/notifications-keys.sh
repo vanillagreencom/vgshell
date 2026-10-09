@@ -378,7 +378,7 @@ python3 - "$nk_panel" <<'PY'
 import sys
 path = sys.argv[1]
 text = open(path).read()
-room = "readonly property real hintRoom: hintRow.visible ? look.header.gap + look.card.gap + hintRow.implicitHeight : 0"
+room = "readonly property real hintRoom: hintRow.visible ? Math.max(look.header.gap, column.stickyGap) + hintRow.implicitHeight : 0"
 footer = "\n        footer: [\n"
 list_end = "                    }\n                }\n            }\n        }\n"
 in_list = '''                    }
