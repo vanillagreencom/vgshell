@@ -209,20 +209,26 @@ expect_poll "the page change back returns the body to its top" '[0]' page_top
 # ways. The control hands the judge VPN's
 # Details reading with the window at its Settings height and no cue, as
 # with neither the resize nor the cue: the judge reads it cut.
-# fit_state: the Plugins client as [x, y, w, h], the window's mapHeight
-# and where the shown page ends (Probe paneEnd), as one object; a state
-# word while one is absent.
+# fit_state: the Plugins client as [x, y, w, h], its height target, the
+# window's mapHeight within its monitor's work area, and where the shown
+# page ends (Probe paneEnd), as one object; a state word while one is
+# absent.
 fit_state() {
-  local client target
+  local client target monitor area
   client="$(one_window Plugins)" || return
   [[ $client == \[* ]] || { printf 'client-%s\n' "$client"; return; }
   target="$(ipc smoke readInstance window vgs.settings mapHeight)" || return
   [[ $target =~ ^[0-9]+$ ]] || { printf 'target-%s\n' "$target"; return; }
-  ipc smoke paneEnd window vgs.settings | py_reply 'import json,sys; print(json.dumps({"client": json.loads(sys.argv[1]), "target": int(sys.argv[2]), "end": json.load(sys.stdin)}))' "$client" "$target"
+  monitor="$(window_of Plugins monitor)" || return
+  [[ $monitor == \[* ]] || { printf 'monitor-%s\n' "$monitor"; return; }
+  area="$(hypr -j monitors | py_reply 'import json,math,sys; m=[m for m in json.load(sys.stdin) if m["id"] == json.loads(sys.argv[1])[0]]; print(math.floor(m[0]["y"] + m[0]["height"] / m[0]["scale"] - m[0]["reserved"][3]) - math.ceil(m[0]["y"] + m[0]["reserved"][1]) if len(m) == 1 else "monitors=%d" % len(m))' "$monitor")" || return
+  [[ $area =~ ^[0-9]+$ ]] || { printf 'area-%s\n' "$area"; return; }
+  ipc smoke paneEnd window vgs.settings | py_reply 'import json,sys; print(json.dumps({"client": json.loads(sys.argv[1]), "target": min(int(sys.argv[2]), int(sys.argv[3])), "end": json.load(sys.stdin)}))' "$client" "$target" "$area"
 }
-# fit_settled: `settled` once the client is the window's mapHeight and the
-# window's content is the client's height, else those three.
-fit_settled() { fit_state | py_reply 'import json,sys; d=json.load(sys.stdin); h=d["client"][3]; e=d["end"]; print("settled" if h == d["target"] == e["height"] else json.dumps([h, d["target"], e["height"]]))'; }
+# fit_settled: `settled` once the client is its target, or one pixel from
+# it where Window.qml evens out an odd resize step, and the window's
+# content is the client's height, else those three.
+fit_settled() { fit_state | py_reply 'import json,sys; d=json.load(sys.stdin); h=d["client"][3]; e=d["end"]; print("settled" if abs(h - d["target"]) <= 1 and e["height"] == h else json.dumps([h, d["target"], e["height"]]))'; }
 # fit_judge READING [HEIGHT CUE]: one plugin's Details from its fit_state
 # READING: `fits` when its last row ends inside the window's height, `cued`
 # when it ends below it and the bottom cue shows, else `cut`. HEIGHT and

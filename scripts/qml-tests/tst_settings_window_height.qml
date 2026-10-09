@@ -240,14 +240,16 @@ Item {
             waitForRendering(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
             const client = (title, appClass, address, height) => ({ class: appClass, title: title, mapped: true, address: address, monitor: 3, at: [70, 60], size: [512, height] });
-            fakeCompositor.answer([client("Plugins", "kitty", "0xa", settingsHeight), client("Plugins", "org.vgs.shell", "0xb", settingsHeight), client("Other", "org.vgs.shell", "0xc", settingsHeight)]);
+            // An even step from Details' height, so the resize asks for it exactly.
+            const before = window.implicitHeight - 2 * Math.floor((window.implicitHeight - settingsHeight) / 2);
+            fakeCompositor.answer([client("Plugins", "kitty", "0xa", before), client("Plugins", "org.vgs.shell", "0xb", before), client("Other", "org.vgs.shell", "0xc", before)]);
             verify(window.implicitHeight > settingsHeight, "Details is taller than Settings");
             verify(60 + window.implicitHeight <= 1000, "the grown window fits above the work area's bottom");
             compare(fakeCompositor.calls, [["resize", "0xb", 512, window.implicitHeight], ["move", "0xb", 70, 60]], "the Plugins client takes Details' height at its width and keeps its top-left");
             p.tabs.currentIndex = 0;
             waitForRendering(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the return asks for the windows once");
-            fakeCompositor.answer([client("Plugins", "org.vgs.shell", "0xb", settingsHeight)]);
+            fakeCompositor.answer([client("Plugins", "org.vgs.shell", "0xb", window.mapHeight)]);
             compare(fakeCompositor.calls.length, 2, "a client already at the page's height is neither resized nor moved");
         }
 
@@ -265,30 +267,46 @@ Item {
             const wanted = Math.min(room, Math.ceil(p.pane.uncappedHeight));
             verify(wanted > cap(), "the long page runs past the cap: " + wanted + " > " + cap());
             compare(window.implicitHeight, cap(), "the window's own request stays at the cap");
-            fakeCompositor.answer([{ class: "org.vgs.shell", title: "Plugins", mapped: true, address: "0xb", monitor: 3, at: [70, 60], size: [512, 300] }], 2000);
+            fakeCompositor.answer([{ class: "org.vgs.shell", title: "Plugins", mapped: true, address: "0xb", monitor: 3, at: [70, 60], size: [512, wanted - 600] }], 2000);
             compare(fakeCompositor.calls, [["resize", "0xb", 512, wanted], ["move", "0xb", 70, 60]], "the window takes the long page's height, up to the room");
         }
 
-        // A window that would pass the work area's bottom rises by the
-        // overflow alone, and never above the work area's top.
+        // The work area bounds a grown window: one that would pass its
+        // bottom rises by the overflow alone, and a page taller than the
+        // area takes the area's height at its top. Hyprland's resize moves
+        // the box by half the height's change, so an odd change asks one
+        // pixel more, or one less at the area's bound, and a client one
+        // pixel past the page by that rounding is left alone.
         function test_a_grown_window_stays_on_its_monitor_data() {
+            // bottom: the work area's bottom, its top being 40; from: the
+            // client's height before, as a step from the expected height
+            // `to`, the page's own unless at the bound; y: the top-left's y
+            // after, from y 480, given the room left above the area's bottom;
+            // null when nothing is asked.
             return [
-                { tag: "rises by its overflow", bottom: 1000, rise: true },
-                { tag: "stops at the work area's top", bottom: 300, rise: false }
+                { tag: "rises by its overflow", bottom: 1000, from: -200, to: 0, bound: false, y: bottom => bottom },
+                { tag: "takes the work area at its top", bottom: 300, from: -100, to: 0, bound: true, y: bottom => bottom },
+                { tag: "an odd step asks one pixel more", bottom: 2000, from: -101, to: 1, bound: false, y: () => 480 },
+                { tag: "an odd step at the bound asks one pixel less", bottom: 300, from: -101, to: -1, bound: true, y: bottom => bottom },
+                { tag: "one pixel past by rounding is left alone", bottom: 2000, from: 1, to: null, bound: false, y: null }
             ];
         }
         function test_a_grown_window_stays_on_its_monitor(data) {
             const window = opened('{"plugin":"acme.detailed"}');
             const p = parts(window);
-            const settingsHeight = window.implicitHeight;
             fakeCompositor.reads = [];
             p.tabs.currentIndex = 1;
             waitForRendering(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
-            const height = window.implicitHeight;
-            verify(480 + height > data.bottom, "the window at y 480 would pass the work area's bottom: " + height);
-            fakeCompositor.answer([{ class: "org.vgs.shell", title: "Plugins", mapped: true, address: "0xb", monitor: 3, at: [70, 480], size: [512, settingsHeight] }], data.bottom);
-            compare(fakeCompositor.calls, [["resize", "0xb", 512, height], ["move", "0xb", 70, data.rise ? data.bottom - height : 40]]);
+            const page = data.bound ? data.bottom - 40 : window.mapHeight;
+            verify(data.bound ? window.mapHeight > page : window.mapHeight < data.bottom - 40, "the fixture's Details " + (data.bound ? "runs past" : "fits") + " the work area: " + window.mapHeight);
+            fakeCompositor.answer([{ class: "org.vgs.shell", title: "Plugins", mapped: true, address: "0xb", monitor: 3, at: [70, 480], size: [512, page + data.from] }], data.bottom);
+            if (data.to === null) {
+                compare(fakeCompositor.calls, []);
+                return;
+            }
+            const height = page + data.to;
+            compare(fakeCompositor.calls, [["resize", "0xb", 512, height], ["move", "0xb", 70, Math.min(480, data.y(data.bottom - height))]]);
         }
 
         function test_a_short_list_takes_its_content_height() {

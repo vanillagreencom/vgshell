@@ -126,8 +126,9 @@ FocusScope {
     // (https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method).
     onShownPageChanged: if (root.Window.window !== null && root.Window.window.visible) Qt.callLater(fitWindow)
 
-    // Resize the shown window to mapHeight, read once Hyprland answers and
-    // the shown page is laid out, so the last change wins. Hyprland
+    // Resize the shown window to mapHeight within its monitor's work area,
+    // read once Hyprland answers and the shown page is laid out, so the
+    // last change wins. Hyprland
     // owns a mapped window's size, and its floating resize keeps the
     // window's centre, not its corner (v0.56.2
     // src/layout/algorithm/floating/default/DefaultFloatingAlgorithm.cpp:198-203,
@@ -153,8 +154,6 @@ FocusScope {
                 return;
             }
             const client = own[0];
-            const height = root.mapHeight;
-            if (client.size[1] === height) return;
             // Hyprland's j/monitors: x, y, width and height in pixels at
             // `scale`, and `reserved` as [left, top, right, bottom].
             const screens = state.monitors.filter(m => m.id === client.monitor);
@@ -163,7 +162,18 @@ FocusScope {
                 return;
             }
             const m = screens[0];
-            const y = Math.max(Math.ceil(m.y + m.reserved[1]), Math.min(client.at[1], Math.floor(m.y + m.height / m.scale - m.reserved[3] - height)));
+            const top = Math.ceil(m.y + m.reserved[1]);
+            const bottom = Math.floor(m.y + m.height / m.scale - m.reserved[3]);
+            // The work area bounds the height too, so a page never asks for
+            // more than fits under the bar, though the host may map taller.
+            let height = Math.min(root.mapHeight, bottom - top);
+            // resizeTarget moves the box by half the height's change, so an
+            // odd change leaves a half pixel the configure rounds to one
+            // more pixel (909 asked, 910 drawn in the settings smoke row);
+            // an odd change asks one pixel more, or one less at the bound.
+            if ((height - client.size[1]) % 2 !== 0) height += height < bottom - top ? 1 : -1;
+            if (client.size[1] === height) return;
+            const y = Math.max(top, Math.min(client.at[1], bottom - height));
             const resized = shell.compositor.resizeWindow(client.address, client.size[0], height);
             if (!Reply.isOk(resized)) {
                 console.warn("settings: resize " + resized);
