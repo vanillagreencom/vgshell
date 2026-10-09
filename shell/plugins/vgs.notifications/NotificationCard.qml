@@ -49,6 +49,7 @@ Item {
     property var actions: []
     property bool showActions: false
     property int actionIndex: -1
+    property bool keyboardActions: false
     readonly property bool hovered: hoverTracker.hovered
     readonly property real radius: look.radius.full
     signal actionTriggered(string id)
@@ -282,6 +283,10 @@ Item {
                     emphasized: modelData.id !== "dismiss"
                     focusPreview: card.showActions && card.actionIndex === index
                     tabFocusable: false
+                    Tooltip {
+                        text: card.keyboardActions ? modelData.label + (modelData.id === "dismiss"
+                            ? " (Delete)" : " (Left/Right, then Enter)") : ""
+                    }
                     onClicked: card.actionTriggered(modelData.id)
                 }
             }

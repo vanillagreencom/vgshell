@@ -5,7 +5,7 @@
 # through the probe, its state file, the compositor and the lending record.
 # No owner data reaches it: every notification here is made up. The row ends
 # with the plugin disabled and every registration released.
-# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/Ui/feedback/KeyHints.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js bin/lib/qml-library.js themes/catalog/flexoki-light/theme.json
+# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 note_state="$home/.local/state/vgshell/notifications/state.json"
@@ -279,7 +279,7 @@ rows = [] if sys.argv[2] == "absent" else json.loads(sys.argv[2])
 print(next((row["summary"] for row in rows if row["key"] == key), "none"))' "$key" "$rows"
 }
 panel_focused_summary() { ipc smoke focused panel vgs.notifications | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(t if not t.startswith("[") else json.dumps([json.loads(t)[1], json.loads(t)[2], json.loads(t)[3], json.loads(t)[4]]))'; }
-panel_focus_on_list() { ipc smoke activeFocusIn panel vgs.notifications | py_reply 'import sys; print("True" if sys.stdin.read().strip() == "true" else "False")'; }
+panel_focus_on_list() { ipc smoke activeFocusWithin panel vgs.notifications QQuickColumn | py_reply 'import sys; print("True" if sys.stdin.read().strip() == "true" else "False")'; }
 panel_focus_name() { ipc smoke focused panel vgs.notifications | py_reply 'import json,sys; row=json.load(sys.stdin); print(row[1] if isinstance(row, list) and len(row) > 1 else row)'; }
 clock_state() { clock_of "$(key_of "$1")" | cut -d' ' -f1; }
 test_file() { if [[ -f $1 ]]; then echo True; else echo False; fi; }
@@ -1641,17 +1641,16 @@ expect_poll "the restored notification service is built" True record_exists vgs.
 # first card below the header. The list clips what it scrolls, so the first
 # card of a list just opened also starts inside the list's own top: a card
 # between the header's bottom and the list's top shows its top edge cut.
-# The key hints stay in the panel at any scroll, and no card's shown part
-# lies over them.
-# panel_fit_value reads the panel's [x, y, w, h] on its first line and its
-# descendantGeometry on its second, every box in the layer's coordinates:
-# `fits`, or each violation as `clipped=<part>`, `under-header=<part>`,
-# `cut-top=card` or `covered=hints`.
+# The list reaches the panel bottom at every scroll. No hint row remains.
+# panel_fit_value reads the panel box and full descendant geometry.
+# The optional bottom mode checks scrolled lists without requiring their
+# first card to remain visible at the top.
 panel_fit_value() {
   py_reply 'import json,sys
 lines = sys.stdin.read().splitlines()
 px, py, w, h = json.loads(lines[0])
-items = [i for i in json.loads(lines[1]) if i["visible"]]
+all_items = json.loads(lines[1])
+items = [i for i in all_items if i["visible"]]
 def first(pred):
     return next((i for i in items if pred(i)), None)
 header = first(lambda i: i["type"] == "InboxHeader")
@@ -1659,9 +1658,8 @@ views = [i for i in items if i["type"] == "QQuickFlickable"]
 # Pane owns the outer scroll frame; CardScroll owns the last nested view.
 view = views[-1] if views else None
 cards = [i for i in items if i["type"] == "NotificationCard"]
-hints = first(lambda i: i["type"] == "KeyHints")
-if header is None or view is None or hints is None or not cards:
-    print("unread header=%s list=%s hints=%s cards=%d" % (header is not None, view is not None, hints is not None, len(cards)))
+if header is None or view is None or not cards:
+    print("unread header=%s list=%s cards=%d" % (header is not None, view is not None, len(cards)))
     sys.exit()
 bad = []
 def inside(name, box, vertical=True):
@@ -1670,60 +1668,52 @@ def inside(name, box, vertical=True):
         bad.append("clipped=" + name)
 inside("header", header["box"])
 inside("list", view["box"])
-inside("hints", hints["box"])
+if any(i["type"] == "KeyHints" for i in all_items): bad.append("footer=hints")
 scrollbar = first(lambda i: i["name"] == "notificationPanelScrollBar")
 if scrollbar is not None: inside("scrollbar", scrollbar["box"])
 # The cards scroll in the list, which clips them top and bottom; across,
 # each sits inside the list and the window.
 vx, vy, vw, vh = view["box"]
-hx, hy, hw, hh = hints["box"]
+if py + h - vy - vh > 0.5: bad.append("bottom-gap=list")
 for n, card in enumerate(cards):
     name = "card%d" % n
     inside(name, card["box"], vertical=False)
     cx, cy, cw, ch = card["box"]
     if cx < vx - 0.5 or cx + cw > vx + vw + 0.5: bad.append("clipped=%s-in-list" % name)
-    top, bottom = max(cy, vy), min(cy + ch, vy + vh)
-    if bottom - top > 0.5 and min(bottom, hy + hh) - max(top, hy) > 0.5 and min(cx + cw, hx + hw) - max(cx, hx) > 0.5: bad.append("covered=hints")
 header_bottom = header["box"][1] + header["box"][3]
 if view["box"][1] < header_bottom - 0.5: bad.append("under-header=list")
 top = min(cards, key=lambda c: c["box"][1])
-if top["box"][1] < header_bottom - 0.5: bad.append("under-header=card")
-if top["box"][1] < view["box"][1] - 0.5: bad.append("cut-top=card")
-print(" ".join(sorted(set(bad))) if bad else "fits")'
+if sys.argv[1] != "bottom" and top["box"][1] < header_bottom - 0.5: bad.append("under-header=card")
+if sys.argv[1] != "bottom" and top["box"][1] < view["box"][1] - 0.5: bad.append("cut-top=card")
+print(" ".join(sorted(set(bad))) if bad else "fits")' "${1:-top}"
 }
 panel_fit() {
   local panel items
   panel="$(ipc smoke instanceGeometry panel vgs.notifications)" || return 1
   items="$(ipc smoke descendantGeometry panel vgs.notifications)" || return 1
-  printf '%s\n%s\n' "$panel" "$items" | panel_fit_value
+  printf '%s\n%s\n' "$panel" "$items" | panel_fit_value "${1:-top}"
 }
 # Controls: the readings the predicate must refuse. The clipped one is the
 # panel as it drew before its width followed its column; Appearance.js
 # `card.width`, `stack.pad`, `header.height`, `header.gap`, `card.gap` and
 # `scrollbar.width` provide the planted dimensions. The second puts the
 # first card into the header; the third puts it below the header and above
-# the list's top. The fourth is the hints at the end of the scrolled list,
-# below the panel while the list shows its top, as they drew before they
-# left the list; the fifth puts them under a shown card.
-panel_fit_hints_y="$((303 - 20))"
-panel_fit_view_h="$((panel_fit_hints_y - note_card_gap - note_header_gap - note_header_height - note_header_gap))"
-panel_fit_reading() { # PANEL_W HEADER_X CARD_Y HINTS_Y
+# the list top. A reserved footer space must fail the bottom check.
+panel_fit_view_h="$((303 - note_header_height - note_header_gap))"
+panel_fit_reading() { # PANEL_W HEADER_X CARD_Y VIEW_H
   printf '[0, 0, %s, 303]\n' "$1"
   printf '[{"type":"InboxHeader","name":"","box":[%s,0,%s,%s],"visible":true},' "$2" "$note_card_width" "$note_header_height"
-  printf '{"type":"QQuickFlickable","name":"","box":[0,%s,%s,%s],"visible":true},' "$((note_header_height + note_header_gap))" "$((note_card_width + 2 * note_stack_pad))" "$panel_fit_view_h"
-  printf '{"type":"SlimScrollBar","name":"notificationPanelScrollBar","box":[%s,%s,%s,%s],"visible":false},' "$((note_card_width + note_stack_pad + note_scrollbar_width / 3))" "$((note_header_height + note_header_gap))" "$note_scrollbar_width" "$panel_fit_view_h"
-  printf '{"type":"KeyHints","name":"","box":[%s,%s,%s,20],"visible":true},' "$note_stack_pad" "$4" "$note_card_width"
+  printf '{"type":"QQuickFlickable","name":"","box":[0,%s,%s,%s],"visible":true},' "$((note_header_height + note_header_gap))" "$((note_card_width + 2 * note_stack_pad))" "$4"
   printf '{"type":"NotificationCard","name":"","box":[%s,%s,%s,61],"visible":true},' "$note_stack_pad" "$3" "$note_card_width"
   printf '{"type":"NotificationCard","name":"","box":[%s,129,%s,61],"visible":true}]\n' "$note_stack_pad" "$note_card_width"
 }
 panel_fit_width="$((note_card_width + 2 * note_stack_pad))"
 panel_fit_first_card_y="$((note_header_height + note_header_gap + note_card_gap - note_card_gap / 4))"
-expect "the fit predicate passes the panel drawn whole" fits panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" "$panel_fit_hints_y")
-expect "control: the fit predicate refuses the clipped panel" "clipped=card0 clipped=card1 clipped=header clipped=hints clipped=list" panel_fit_value < <(panel_fit_reading "$note_card_width" "$note_stack_pad" "$panel_fit_first_card_y" "$panel_fit_hints_y")
-expect "control: the fit predicate refuses a first card under the header" "cut-top=card under-header=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height - note_stack_pad / 4))" "$panel_fit_hints_y")
-expect "control: the fit predicate refuses a first card the list cuts under the header" "cut-top=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height + note_header_gap - note_header_gap / 2))" "$panel_fit_hints_y")
-expect "control: the fit predicate refuses hints below the panel" "clipped=hints" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" 400)
-expect "control: the fit predicate refuses hints under a shown card" "covered=hints" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" 150)
+expect "the fit check passes the panel drawn whole" fits panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" "$panel_fit_view_h")
+expect "control: the fit check refuses the clipped panel" "clipped=card0 clipped=card1 clipped=header clipped=list" panel_fit_value < <(panel_fit_reading "$note_card_width" "$note_stack_pad" "$panel_fit_first_card_y" "$panel_fit_view_h")
+expect "control: the fit check refuses a first card under the header" "cut-top=card under-header=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height - note_stack_pad / 4))" "$panel_fit_view_h")
+expect "control: the fit check refuses a first card the list cuts under the header" "cut-top=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height + note_header_gap - note_header_gap / 2))" "$panel_fit_view_h")
+expect "control: reserved footer space fails the bottom check" "bottom-gap=list" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" "$((panel_fit_view_h - 20))")
 for n in 1 2 3 4 5 6 7 8; do
   notify smoke-app 0 "Fit $n" "A body long enough to wrap onto a second line of the card, so the card is tall" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
 done
@@ -2595,71 +2585,33 @@ expect_poll "the Settings window is gone after the Position checks" 0 window_cou
 notes dismiss-all >/dev/null
 expect_poll "the Place toasts are gone" 0 layer_count vgs:layer
 
-# Geometry uses files, as the Position readers above do. A full page
-# exceeds the kernel limit for one argument. The image and JSON remain
-# paired under the sandbox for the pixel evidence.
-# Paired frames use the same real state. The probe hides only hint ink;
-# the opaque backing stays drawn. Ratios use both captured RGB values.
-fade_hint_sample_value() { # PNG BACKGROUND ITEMS_FILE SURFACE OUTPUT_WIDTH OUTPUT_HEIGHT [REFERENCE_JSON]
-  python3 -c "$png_rgba_py"'
-image, background = png_rgba(sys.argv[1]), png_rgba(sys.argv[2])
-if isinstance(image,str) or isinstance(background,str): print("png-unreadable"); sys.exit()
-iw,ih,rows=image
-bw,bh,back=background
-if (iw,ih)!=(bw,bh): print("background-size-mismatch"); sys.exit()
-items,surface=json.load(open(sys.argv[3])),json.loads(sys.argv[4])
-sx,sy=iw/float(sys.argv[5]),ih/float(sys.argv[6])
-labels=[i for i in items if i.get("role")=="hint" and i.get("text") in ("dismiss","actions") and i["visible"]]
-if len(labels)!=2: print("hint-labels-unreadable"); sys.exit()
-reference=json.loads(sys.argv[7]) if len(sys.argv)>7 and sys.argv[7] else None
-samples=[]
-for label in labels:
-    x,y,w,h=label["box"]
-    left,top=math.ceil((surface[0]+x)*sx),math.ceil((surface[1]+y)*sy)
-    right,bottom=math.floor((surface[0]+x+w)*sx),math.floor((surface[1]+y+h)*sy)
-    if not (0<=left<right<=iw and 0<=top<bottom<=ih): print("hint-outside-output"); sys.exit()
-    pixels=[]
-    for y in range(top,bottom):
-        for x in range(left,right):
-            pixel=list(rows[y][4*x:4*x+3]);under=list(back[y][4*x:4*x+3])
-            distance=sum((pixel[c]-under[c])**2 for c in range(3))
-            if max(abs(pixel[c]-under[c]) for c in range(3))>=3:
-                pixels.append((distance,x,y,pixel,under))
-    maximum=max((p[0] for p in pixels),default=0)
-    cores=[{"at":[x,y],"RGB":pixel,"backgroundRGB":under} for d,x,y,pixel,under in pixels if d>=maximum*0.95]
-    if reference is not None:
-        kept=next((v for v in reference["samples"] if v["text"]==label["text"]),None)
-        if kept is None: print("reference-word-absent"); sys.exit()
-        cores=[]
-        for core in kept["cores"]:
-            x=left+core["at"][0]-kept["box"][0];y=top+core["at"][1]-kept["box"][1]
-            if not (left<=x<right and top<=y<bottom): print("reference-core-outside-word"); sys.exit()
-            cores.append({"at":[x,y],"RGB":list(rows[y][4*x:4*x+3]),"backgroundRGB":list(back[y][4*x:4*x+3])})
-    samples.append({"text":label["text"],"box":[left,top,right-left,bottom-top],"cores":cores})
-print(json.dumps({"samples":samples,"sampleRule":"captured glyph delta within 95 percent of maximum; controls retain positive coordinates"}))
-' "$@"
-}
-fade_hint_contrast_value() { # SAMPLE_JSON [coverage]
-  node - "$repo" "$1" "${2:-contrast}" <<'JS_HINT'
-const {load}=require(process.argv[2]+"/bin/lib/qml-library.js");
-const logic=load(process.argv[2]+"/shell/Commons/ThemeLogic.js");
-const sample=JSON.parse(process.argv[3]);
-const rgb=values=>({r:values[0]/255,g:values[1]/255,b:values[2]/255,a:1});
-const readings=sample.samples.map(s=>{
-  const ratios=s.cores.map(p=>logic.contrastRatio(rgb(p.RGB),rgb(p.backgroundRGB)));
-  const columns=s.cores.map(p=>p.at[0]);
-  return {text:s.text,box:s.box,glyphPixels:s.cores.length,backgroundPixels:s.cores.length,
-    columnSpan:columns.length?Math.max(...columns)-Math.min(...columns)+1:0,
-    changedPixels:s.cores.filter(p=>p.RGB.some((v,c)=>Math.abs(v-p.backgroundRGB[c])>=3)).length,
-    minimum:ratios.length?Math.min(...ratios):null};
-});
-console.error("notification-hint-contrast: "+JSON.stringify(readings));
-const covered=readings.length===2 && readings.every(s=>s.glyphPixels>0 && s.backgroundPixels>0 && s.changedPixels>0 && s.columnSpan>=s.box[2]/2);
-console.log(covered && (process.argv[4]==="coverage" || readings.every(s=>s.minimum>=4.5))?"True":"False");
-JS_HINT
-}
+# Current service inventory is independent of selected Panel readback.
 # The service snapshot owns the current fixture inventory independently
 # of the selected key and action in Panel. Native release removes a row.
+fade_fixture_count() {
+  ipc smoke modelRows vgs.notifications rows app,origin,leaving | py_reply 'import json,sys;print(sum(r[0]=="smoke-fade" and r[1]=="live" and r[2]=="" for r in json.load(sys.stdin)))'
+}
+fade_fixtures() {
+  local keys key payload
+  keys="$(ipc smoke modelRows vgs.notifications rows key,app,origin,leaving | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+keys=[r[0] for r in rows if r[1]=="smoke-fade" and r[2]=="live" and r[3]==""]
+if any(not isinstance(k,str) or not k or "\n" in k for k in keys): sys.exit(1)
+print("\n".join(keys))')" || return
+  if [[ -n $keys ]]; then
+    while IFS= read -r key; do
+      # These fixtures offer only synthetic actions. Their default action
+      # forgets the owned entry; dismiss would keep it as unread history.
+      payload="$(python3 -c 'import json,sys;print(json.dumps({"key":sys.argv[1],"choice":"action:default"}))' "$key")" || return
+      notes choose "$payload" >/dev/null || return
+    done <<<"$keys"
+  fi
+  expect_poll "the previous owned fade fixtures leave" 0 fade_fixture_count
+  for at in $(seq 1 16); do
+    notify smoke-fade 0 "Fade probe $at" "The release notes are ready for your review. The build finished and the report is attached." '["default", "Open", "reply", "Reply"]' '{"urgency": <byte 2>, "x-vgs-icon": <"circle-x">, "x-vgs-tone": <"danger">}' 0 >/dev/null || return
+  done
+  expect_poll "the owned fade fixtures cover both edges" 16 fade_fixture_count
+}
 fade_inventory() {
   local reply expected
   reply="$(notes panel-state)" || return
@@ -2669,7 +2621,7 @@ try:
     state=json.load(sys.stdin)
     rows=state.get("rows") if isinstance(state,dict) else None
     if not isinstance(rows,list): print("malformed"); sys.exit()
-    if len(rows)<=8: print("insufficient-coverage"); sys.exit()
+    if len(rows)<16: print("insufficient-coverage"); sys.exit()
     keys=set(); summaries=set()
     for row in rows:
         if not isinstance(row,dict): print("malformed"); sys.exit()
@@ -2687,7 +2639,10 @@ try:
 except (ValueError,TypeError,KeyError,StopIteration): print("malformed")
 ' <<<"$reply")" || return
   case "$expected" in
-    malformed|insufficient-coverage|'') printf 'notification-capture: inventory=%s\n' "${expected:-missing}" >&2; return 1 ;;
+    malformed|insufficient-coverage|'')
+      printf '%s\n' "$reply" >"$sandbox/fade-inventory-failure.json" || return
+      printf 'notification-capture: inventory=%s\n' "${expected:-missing}" >&2
+      return 1 ;;
   esac
   IFS=$'\t' read -r fade_newest fade_middle fade_middle_key fade_action_index fade_action_id <<<"$expected" || return
   fade_inventory_json="$reply"
@@ -2711,7 +2666,7 @@ fade_paint_wait() { # METHOD HIDDEN
   smoke_poll_tries 200
   for _ in $(seq 1 "$smoke_poll_n"); do
     reply="$(ipc smoke "$1" panel vgs.notifications "$2")" || return
-    [[ $reply != 2 ]] || return 0
+    [[ ! $reply =~ ^[1-9][0-9]*$ ]] || return 0
     [[ $reply == pending ]] || { printf 'notification-capture: method=%s state=%s\n' "$1" "$reply" >&2; return 1; }
     sleep 0.2
   done
@@ -2752,39 +2707,6 @@ fade_capture_layout() { # ITEMS_FILE
   done
   echo 'notification-capture: layout=unsettled' >&2
   return 1
-}
-fade_hint_sample() { # PNG [REFERENCE_JSON]
-  local items="${1%.png}-items.json" surface background captured=0 restored_sample geometry_same restore_geometry="${1%.png}-restored-items.json"
-  fade_capture_layout "$items" || return
-  surface="$(surface_box vgs:panel)" || return
-  fade_output "$1" || return
-  background="${1%.png}-background.png"
-  if fade_paint_wait hintInk true; then fade_output "$background" || captured=$?; else captured=$?; fi
-  fade_paint_wait hintInk false || captured=$?
-  ipc smoke notificationPaintCleanup panel vgs.notifications >/dev/null || captured=$?
-  [[ $captured == 0 ]] || return "$captured"
-  fade_output "${1%.png}-restored.png" || return
-  ipc smoke descendantGeometry panel vgs.notifications >"$restore_geometry" || return
-  geometry_same="$(fade_capture_geometry_same "$items" "$restore_geometry")" || return
-  [[ $geometry_same == True ]] || { echo 'notification-capture: hints-geometry-changed' >&2; return 1; }
-  restored_sample="$(fade_hint_sample_value "${1%.png}-restored.png" "$background" "$items" "$surface" "$mon_w" "$mon_h" "${2:-}")" || return
-  [[ $(fade_hint_contrast_value "$restored_sample" coverage) == True ]] || { echo 'notification-capture: restored-hints-undrawn' >&2; return 1; }
-  printf '%s\n' "$restored_sample" >"${1%.png}-restored.json"
-  printf 'notification-capture-restored: kind=hints geometry=stable sample=%s\n' "${1%.png}-restored.json" >&2
-  fade_hint_sample_value "$1" "$background" "$items" "$surface" "$mon_w" "$mon_h" "${2:-}"
-}
-fade_hint_drawn() { # PNG
-  local sample
-  sample="$(fade_hint_sample "$1")" || return
-  [[ $sample == \{* ]] || { printf "%s\n" "$sample"; return; }
-  fade_hint_contrast_value "$sample"
-}
-fade_hint_failed_capture() {
-  local status=0 background="$sandbox/fade-failed-capture-background.png"
-  mkdir -- "$background" || return
-  fade_hint_sample "$sandbox/fade-failed-capture.png" >"$sandbox/fade-failed-capture.json" 2>"$sandbox/fade-failed-capture.log" || status=$?
-  rmdir -- "$background" || return
-  printf '%s\n' "$status"
 }
 # A layer flag is not a painted card. Read the nested output inside a
 # notification title wholly above the fade. Neither the header nor the
@@ -2872,153 +2794,239 @@ fade_open_mid() {
   geometry expect_poll "the pixel probe list is at mid-scroll" mid fade_scroll_state
   summon_drawn panel vgs.notifications || fail "the pixel probe panel drew no frame"
 }
-# Compare drawn pixels against the same wallpaper without this panel.
-# Include visible card glow in the central strip below the card's box.
-fade_gap_value() { # PNG BACKGROUND ITEMS_FILE VIEW SURFACE OUTPUT_WIDTH OUTPUT_HEIGHT
-  python3 -c "$png_rgba_py"'
-image, background = png_rgba(sys.argv[1]), png_rgba(sys.argv[2])
-if isinstance(image,str) or isinstance(background,str): print("png-unreadable"); sys.exit()
-iw,ih,rows=image
-bw,bh,back=background
-if (iw,ih)!=(bw,bh): print("background-size-mismatch"); sys.exit()
-items=json.load(open(sys.argv[3]))
-view,surface=map(json.loads,sys.argv[4:6])
-cards=[i for i in items if i["type"]=="NotificationCard" and i["visible"]]
-caps=[i for i in items if i["type"]=="KeyCaps" and i["visible"]]
-if not cards or not caps: print("card-or-chips-absent"); sys.exit()
-last=max(cards,key=lambda i:i["box"][1]+i["box"][3])
-cx,cy,cw,ch=last["box"]
-sx,sy=iw/float(sys.argv[6]),ih/float(sys.argv[7])
-left=math.ceil((surface[0]+cx+cw*0.3)*sx)
-right=math.floor((surface[0]+cx+cw*0.7)*sx)
-start=math.floor((surface[1]+cy+ch-2)*sy)
-clip=math.floor((surface[1]+view["box"][1]+view["box"][3])*sy)
-if not (0<=left<right<=iw and 0<=start<clip<=ih): print("card-edge-outside-output"); sys.exit()
-changed=lambda x,y: max(abs(rows[y][4*x+c]-back[y][4*x+c]) for c in range(3))>=3
-# Ignore isolated noise: the edge must span a quarter of the strip.
-drawn=[y for y in range(start,clip) if sum(changed(x,y) for x in range(left,right)) >= (right-left)/4]
-if not drawn: print("card-edge-undrawn"); sys.exit()
-chip=min(caps,key=lambda i:i["box"][1])
-x,y,w,h=chip["box"]
-cl=math.ceil((surface[0]+x)*sx); cr=math.floor((surface[0]+x+w)*sx)
-ct=math.floor((surface[1]+y)*sy); cb=math.ceil((surface[1]+y+h)*sy)
-if not (0<=cl<cr<=iw and 0<=ct<cb<=ih): print("chip-outside-output"); sys.exit()
-chip_rows=[y for y in range(ct,cb) if sum(changed(x,y) for x in range(cl,cr)) >= (cr-cl)/4]
-if not chip_rows: print("chip-edge-undrawn"); sys.exit()
-edge=(max(drawn)+1)/sy; chip_edge=min(chip_rows)/sy
-travel=view["contentHeight"]-view["height"]
-print(json.dumps({"visibleGap":chip_edge-edge,"cardGlowBottom":edge,"chipDrawnTop":chip_edge,
-"cardBoxBottom":surface[1]+cy+ch,"viewportBottom":surface[1]+view["box"][1]+view["box"][3],
-"atEnd":travel>0 and abs(view["contentY"]-travel)<0.5,"pixelThreshold":3,"strip":[left,right],"drawnRows":len(drawn)}))
-' "$@"
-}
+fade_state_hovered() { ipc smoke itemValues panel vgs.notifications NotificationCard hovered | py_reply 'import json,sys;print(any(v["hovered"] for v in json.load(sys.stdin)))'; }
+fade_state_pressed() { ipc smoke itemValues panel vgs.notifications QQuickMouseArea pressed | py_reply 'import json,sys;print(any(v["pressed"] for v in json.load(sys.stdin)))'; }
 fade_output() { # PNG
   local socket output
   socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return
   output="$(first_name)" || return
   shot_grim "$socket" "$rt_dir" -o "$output" -t png "$1"
 }
-fade_gap_sample() {
-  local items="$sandbox/fade-gap-current-items.json" view surface restored_sample restored_ink geometry_same restore_geometry="$sandbox/fade-gap-restored-items.json"
-  fade_capture_layout "$items" || return
-  view="$(fade_current_view)" || return
-  surface="$(surface_box vgs:panel)" || return
-  fade_output "$sandbox/fade-gap-current.png" || return
-  local background="$sandbox/fade-gap-background.png" capture_rc=0
-  if fade_paint_wait gapPaint true; then fade_output "$background" || capture_rc=$?; else capture_rc=$?; fi
-  fade_paint_wait gapPaint false || capture_rc=$?
-  ipc smoke notificationPaintCleanup panel vgs.notifications >/dev/null || capture_rc=$?
-  (( capture_rc == 0 )) || return "$capture_rc"
-  fade_output "$sandbox/fade-gap-restored.png" || return
-  ipc smoke descendantGeometry panel vgs.notifications >"$restore_geometry" || return
-  geometry_same="$(fade_capture_geometry_same "$items" "$restore_geometry")" || return
-  [[ $geometry_same == True ]] || { echo 'notification-capture: gap-geometry-changed' >&2; return 1; }
-  restored_sample="$(fade_gap_value "$sandbox/fade-gap-restored.png" "$background" "$items" "$view" "$surface" "$mon_w" "$mon_h")" || return
-  [[ $restored_sample == \{* ]] || { printf 'notification-capture: restored-gap=%s\n' "$restored_sample" >&2; return 1; }
-  restored_ink="$(fade_card_sample "$sandbox/fade-gap-restored-ink.png")" || return
-  [[ $(fade_card_value_drawn "$restored_ink") == True ]] || { echo 'notification-capture: restored-cards-undrawn' >&2; return 1; }
-  printf 'notification-capture-restored: kind=gap geometry=stable sample=%s\n' "$restored_sample" >&2
-  fade_gap_value "$sandbox/fade-gap-current.png" "$background" "$items" "$view" "$surface" "$mon_w" "$mon_h"
+# Captured card paint is compared with the same Panel without its mask.
+# The reference changes no geometry, inventory, selection or wallpaper.
+fade_active_value() { # PNG REFERENCE ITEMS VIEW SURFACE INK SUMMARY EDGE BAND OUTPUT_WIDTH OUTPUT_HEIGHT
+  python3 -c "$png_rgba_py"'
+image,reference=png_rgba(sys.argv[1]),png_rgba(sys.argv[2])
+if isinstance(image,str) or isinstance(reference,str): print("png-unreadable");sys.exit()
+iw,ih,pixels=image;rw,rh,ref=reference
+if (iw,ih)!=(rw,rh): print("reference-size-mismatch");sys.exit()
+items=json.load(open(sys.argv[3]));view,surface=map(json.loads,sys.argv[4:6])
+ink=bytes.fromhex(json.loads(sys.argv[6])[-6:]);summary,edge=sys.argv[7:9];band=float(sys.argv[9])
+sx,sy=iw/float(sys.argv[10]),ih/float(sys.argv[11])
+vx,vy,vw,vh=view["box"]
+cards=[i for i in items if i["type"]=="NotificationCard" and i["visible"] and i["text"]==summary]
+if len(cards)!=1: print("current-card-unreadable");sys.exit()
+card=cards[0];cx,cy,cw,ch=card["box"]
+zone_top,zone_bottom=(vy,vy+band) if edge=="top" else (vy+vh-band,vy+vh)
+top,bottom=max(cy,zone_top,vy),min(cy+ch,zone_bottom,vy+vh)
+travel=view["contentHeight"]-view["height"]
+if travel<=0 or not 0<view["contentY"]<travel or bottom-top<=0: print("card-outside-fade");sys.exit()
+titles=[i for i in items if i["name"]=="notificationTitleText" and i["visible"] and i["text"]==summary and i["box"][1]>=cy and i["box"][1]+i["box"][3]<=cy+ch]
+if len(titles)!=1: print("current-title-unreadable");sys.exit()
+tx,ty,tw,th=titles[0]["box"]
+left=math.ceil((surface[0]+tx)*sx);right=math.floor((surface[0]+tx+tw)*sx)
+start=math.ceil((surface[1]+max(ty,top))*sy);end=math.floor((surface[1]+min(ty+th,bottom))*sy)
+if not(0<=left<right<=iw and 0<=start<end<=ih): print("title-outside-fade-output");sys.exit()
+cores=[(x,y) for y in range(start,end) for x in range(left,right) if ref[y][4*x:4*x+3]==ink]
+matched=sum(max(abs(pixels[y][4*x+c]-ref[y][4*x+c]) for c in range(3))<=2 for x,y in cores)
+# Compare the card interior as well as title ink. The shipped edge-light
+# shader animates only signed distances from -14 to 1, so omit that live
+# edge band from same-pixel comparisons rather than freezing its clock.
+cl=math.ceil((surface[0]+cx+cw*0.1)*sx);cr=math.floor((surface[0]+cx+cw*0.9)*sx)
+ct=math.ceil((surface[1]+top)*sy);cb=math.floor((surface[1]+bottom)*sy)
+if not(0<=cl<cr<=iw and 0<=ct<cb<=ih): print("card-outside-output");sys.exit()
+radius=min(cw,ch)/2
+points=[]
+for y in range(ct,cb):
+    for x in range(cl,cr):
+        lx,ly=(x+0.5)/sx-surface[0],(y+0.5)/sy-surface[1]
+        qx=abs(lx-cx-cw/2)-(cw/2-radius)
+        qy=abs(ly-cy-ch/2)-(ch/2-radius)
+        distance=math.hypot(max(qx,0),max(qy,0))+min(max(qx,qy),0)-radius
+        if distance < -14: points.append((x,y))
+paint_count=len(points)
+paint_match=sum(max(abs(pixels[y][4*x+c]-ref[y][4*x+c]) for c in range(3))<=3 for x,y in points)
+print(json.dumps({"summary":summary,"edge":edge,"cardBox":card["box"],"fadeIntersection":[top,bottom],"referenceInkPixels":len(cores),"matchedInkPixels":matched,"cardPixels":paint_count,"matchedCardPixels":paint_match,"contentY":view["contentY"],"travel":travel}))
+' "$@"
 }
-fade_gap_one_step() { # SAMPLE_JSON
-  printf 'notification-visible-gap: %s\n' "$1" >&2
+fade_active_full_value() {
+  printf 'notification-active-card: %s\n' "$1" >&2
   py_reply 'import json,sys
-s=json.load(sys.stdin); expected=float(sys.argv[1])
-print(s["atEnd"] is True and s["drawnRows"]>0 and abs(s["visibleGap"]-expected)<=2)' "$note_header_gap" <<<"$1"
+s=json.load(sys.stdin)
+print(s["referenceInkPixels"]>0 and s["matchedInkPixels"]==s["referenceInkPixels"] and s["cardPixels"]>0 and s["matchedCardPixels"]>=s["cardPixels"]*0.98)' <<<"$1"
 }
-fade_gap_drawn() {
-  local sample
-  sample="$(fade_gap_sample)" || return
-  fade_gap_one_step "$sample"
+fade_active_intersection() { # ITEMS VIEW SUMMARY EDGE BAND
+  python3 - "$@" <<'PY_ACTIVE_INTERSECTION'
+import json,sys
+items=json.load(open(sys.argv[1]));view=json.loads(sys.argv[2]);summary,edge=sys.argv[3:5]
+cards=[i for i in items if i["type"]=="NotificationCard" and i["visible"] and i["text"]==summary]
+if len(cards)!=1: print(False);sys.exit()
+_,cy,_,ch=cards[0]["box"];_,vy,_,vh=view["box"];band=min(float(sys.argv[5]),vh/2)
+top,bottom=(vy,vy+band) if edge=="top" else (vy+vh-band,vy+vh)
+print(0<view["contentY"]<view["contentHeight"]-view["height"] and min(cy+ch,bottom)>max(cy,top))
+PY_ACTIVE_INTERSECTION
 }
-fade_state_hovered() { ipc smoke itemValues panel vgs.notifications NotificationCard hovered | py_reply 'import json,sys;print(any(v["hovered"] for v in json.load(sys.stdin)))'; }
-fade_state_pressed() { ipc smoke itemValues panel vgs.notifications QQuickMouseArea pressed | py_reply 'import json,sys;print(any(v["pressed"] for v in json.load(sys.stdin)))'; }
-fade_state_point() {
-  local items view rect
+fade_active_pair() { # PREFIX SUMMARY EDGE
+  local prefix="$1" summary="$2" edge="$3" require_full="${4:-true}" items="$1-items.json" restore_items="$1-restored-items.json"
+  local view surface ink rc=0 sample restored same saved
+  fade_capture_layout "$items" || return
   fade_inventory || return
-  items="$(ipc smoke descendantGeometry panel vgs.notifications)" || return
-  view="$(view_at_rest panel vgs.notifications "$fade_newest")" || return
-  rect="$(py_reply 'import json,sys
-items=json.load(sys.stdin);v=json.loads(sys.argv[1])["box"];rows=json.loads(sys.argv[2])["rows"]
-cards=[i for i in items if i["type"]=="NotificationCard" and i["visible"] and i["box"][1]>=v[1] and i["box"][1]+i["box"][3]<=v[1]+v[3]]
-known={row["summary"] for row in rows}
-print(json.dumps(cards[-1]["box"]) if cards and cards[-1].get("text") in known else "absent")' "$view" "$fade_inventory_json" <<<"$items")" || return
-  [[ $rect == \[* ]] || { printf 'notification-capture: pointer-card=%s\n' "$rect" >&2; return 1; }
+  [[ $summary == "$fade_middle" ]] || { echo 'notification-capture: selected-inventory-changed' >&2; return 1; }
+  view="$(fade_current_view)" && surface="$(surface_box vgs:panel)" && ink="$(look_at text.foreground)" || return
+  [[ $(fade_active_intersection "$items" "$view" "$summary" "$edge" "$note_fade_height") == True ]] || { echo 'notification-capture: insufficient-fade-intersection' >&2; return 1; }
+  fade_output "$prefix.png" || return
+  if fade_paint_wait notificationFadeReference true; then fade_output "$prefix-reference.png" || rc=$?; else rc=$?; fi
+  fade_paint_wait notificationFadeReference false || rc=$?
+  ipc smoke notificationPaintCleanup panel vgs.notifications >/dev/null || rc=$?
+  fade_output "$prefix-restored.png" || return
+  ipc smoke descendantGeometry panel vgs.notifications >"$restore_items" || return
+  same="$(fade_capture_geometry_same "$items" "$restore_items")" || return
+  [[ $same == True ]] || { echo 'notification-capture: card-geometry-changed' >&2; return 1; }
+  saved="$(fade_active_value "$prefix-restored.png" "$prefix.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$note_fade_height" "$mon_w" "$mon_h")" || return
+  [[ $saved == \{* ]] || { printf 'notification-capture: saved-paint=%s\n' "$saved" >&2; return 1; }
+  printf '%s\n' "$saved" >"$prefix-saved-restoration.json"
+  [[ $(py_reply 'import json,sys
+s=json.load(sys.stdin);print(s["matchedInkPixels"]==s["referenceInkPixels"] and s["cardPixels"]>0 and s["matchedCardPixels"]>=s["cardPixels"]*0.98)' <<<"$saved") == True ]] || { echo 'notification-capture: saved-paint-not-restored' >&2; return 1; }
+  printf 'notification-capture-restored: geometry=stable saved-paint=restored path=%s\n' "$prefix-saved-restoration.json" >&2
+  ((rc==0)) || return "$rc"
+  sample="$(fade_active_value "$prefix.png" "$prefix-reference.png" "$items" "$view" "$surface" "$ink" "$summary" "$edge" "$note_fade_height" "$mon_w" "$mon_h")" || return
+  restored="$(fade_active_value "$prefix-restored.png" "$prefix-reference.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$note_fade_height" "$mon_w" "$mon_h")" || return
+  [[ $sample == \{* && $restored == \{* ]] || { printf 'notification-capture: sample=%s restored=%s\n' "$sample" "$restored" >&2; return 1; }
+  printf '%s\n' "$sample" >"$prefix.json"
+  printf '%s\n' "$restored" >"$prefix-restored.json"
+  [[ $(py_reply 'import json,sys
+before=json.load(sys.stdin);after=json.loads(sys.argv[1])
+print(before["referenceInkPixels"]==after["referenceInkPixels"] and before["matchedInkPixels"]==after["matchedInkPixels"] and before["cardPixels"]==after["cardPixels"] and abs(before["matchedCardPixels"]-after["matchedCardPixels"])<=before["cardPixels"]*0.02)' "$restored" <<<"$sample") == True ]] || { echo 'notification-capture: saved-card-paint-not-restored' >&2; return 1; }
+  printf 'notification-capture-restored: kind=card geometry=stable saved-paint=restored sample=%s\n' "$prefix-restored.json" >&2
+  [[ $require_full != true || $(fade_active_full_value "$restored") == True ]] || { echo 'notification-capture: restored-card-faded' >&2; return 1; }
+  printf '%s\n' "$sample"
+}
+fade_active_point() {
+  local rect
+  fade_inventory || return
+  rect="$(ipc smoke itemGeometry panel vgs.notifications NotificationCard "$fade_middle")" || return
+  [[ $rect == \[* ]] || { echo 'notification-capture: active-card-absent' >&2; return 1; }
   at_centre vgs:panel "$rect"
 }
-# A held native press reaches the real card mouse area. Its process owns
-# the virtual pointer until the captured pair is complete, then releases.
-fade_pressed_hint_pair() { # PNG
+fade_position_active() { # EDGE
+  fade_inventory || return
+  [[ $(panel_selected_summary) == "$fade_middle" && $(panel_selected_key) == "$fade_middle_key" ]] || { echo 'notification-capture: current-selection-wrong' >&2; return 1; }
+  [[ $(ipc smoke notificationFadePosition panel vgs.notifications "$fade_middle" "$1") == ok ]]
+}
+# Read shortcut names from current service actions, then hover each real
+# action pill. The shared tooltip must open with that action's shortcut.
+fade_shortcut_opened() {
+  ipc smoke itemValues panel vgs.notifications Tooltip text,opened | py_reply 'import json,sys;print(any(t.get("text")==sys.argv[1] and t.get("opened") is True for t in json.load(sys.stdin)))' "$1"
+}
+fade_shortcuts() { # MODE
+  local action label hint rect x y action_index=0
+  local -a actions
+  hover 1 1 || return
+  fade_inventory || return
+  type_keys -k Home || return
+  expect_poll "the shortcut setup selects the current newest row" "$fade_newest" panel_selected_summary
+  for _ in $(seq 1 8); do type_keys -k Down || return; done
+  fade_inventory || return
+  expect_poll "the shortcut setup selects its current middle key" "$fade_middle_key" panel_selected_key
+  mapfile -t actions < <(py_reply 'import json,sys
+rows=json.load(sys.stdin)["rows"]
+for action in rows[8]["actions"]: print(json.dumps(action))' <<<"$fade_inventory_json")
+  [[ ${#actions[@]} -gt 0 ]] || return 1
+  for action in "${actions[@]}"; do
+    label="$(py_reply 'import json,sys;print(json.load(sys.stdin)["label"])' <<<"$action")" || return
+    hint="$(py_reply 'import json,sys
+a=json.load(sys.stdin);print(a["label"]+(" (Delete)" if a["id"]=="dismiss" else " (Left/Right, then Enter)"))' <<<"$action")" || return
+    rect="$(ipc smoke scopedWindowGeometry panel vgs.notifications NotificationCard "$fade_middle" PillButton "$label")" || return
+    [[ $rect == \[* ]] || { echo 'notification-shortcut: action-pill-absent' >&2; return 1; }
+    read -r x y < <(at_centre vgs:panel "$rect") || return
+    hover "$x" "$y" || return
+    expect_poll "the $1 $label action shows its shortcut in its tooltip" True fade_shortcut_opened "$hint"
+    fade_output "$sandbox/fade-shortcut-$1-${action_index}.png" || return
+    hover 1 1 || return
+    action_index=$((${action_index}+1))
+  done
+}
+# Hold the real native pointer press until captures and restoration end.
+# Native release removes the row, so later setup reads service inventory anew.
+fade_pressed_card_pair() { # PREFIX SUMMARY EDGE
   local x y line out_fd in_fd pid sample status=0 prior_failures="$failures"
-  read -r x y < <(fade_state_point) || return 1
+  read -r x y < <(fade_active_point) || return 1
   coproc fade_press { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$x" "$y" hold; }
-  out_fd="${fade_press[0]}"; in_fd="${fade_press[1]}"; pid="$fade_press_PID"
-  if ! read -r -t 10 line <&"$out_fd" || [[ $line != "holding $x $y" ]]; then
-    status=1
+  out_fd="${fade_press[0]}";in_fd="${fade_press[1]}";pid="$fade_press_PID"
+  if ! read -r -t 10 line <&"$out_fd" || [[ $line != "holding $x $y" ]]; then status=1
   else
     expect_poll "the captured real card is pressed" True fade_state_pressed >&2
-    if [[ $failures != "$prior_failures" ]]; then status=1; else sample="$(fade_hint_sample "$1")" || status=1; fi
+    if [[ $failures != "$prior_failures" ]]; then status=1; else sample="$(fade_active_pair "$@")" || status=1; fi
   fi
   printf '\n' >&"$in_fd" || status=1
   wait "$pid" || status=1
   [[ $status == 0 ]] || return "$status"
   printf '%s\n' "$sample"
 }
-fade_hint_states() { # MODE
-  local state sample x y prior_failures
-  for state in top-end mid-scroll bottom-end hover pressed keyboard-focus notification-colours; do
-    prior_failures="$failures"
-    hover 1 1 || return
-    expect_poll "the $1 $state pointer rests outside its cards" False fade_state_hovered
-    fade_inventory || return
-    type_keys -k Home || return
-    expect_poll "the $1 $state Home selects its newest card" "$fade_newest" panel_selected_summary
-    if [[ $state != top-end ]]; then
+fade_failed_capture() {
+  local status=0 prefix="$sandbox/fade-card-failed" summary edge=top
+  fade_inventory || return
+  summary="$fade_middle"
+  mkdir -- "$prefix-reference.png" || return
+  fade_active_pair "$prefix" "$summary" "$edge" >"$prefix.json" 2>"$prefix.log" || status=$?
+  rmdir -- "$prefix-reference.png" || return
+  printf '%s\n' "$status"
+}
+fade_active_states() { # MODE
+  local state edge sample x y prefix prior_failures
+  for state in hover keyboard-focus pressed; do
+    for edge in top bottom; do
+      prior_failures="$failures"
+      hover 1 1 || return
+      fade_inventory || return
+      type_keys -k Home || return
+      expect_poll "the $1 $state $edge selects its newest current row" "$fade_newest" panel_selected_summary
       for _ in $(seq 1 8); do type_keys -k Down || return; done
-      expect_poll "the $1 $state selects its mid-scroll card" "$fade_middle" panel_selected_summary
-      expect_poll "the $1 $state selects its current inventory key" "$fade_middle_key" panel_selected_key
-      geometry expect_poll "the $1 $state card passes beside the hints" mid fade_scroll_state
-    fi
-    case "$state" in
-      bottom-end) geometry expect_poll "the $1 state reaches its end" end fade_wheel_end ;;
-      hover|pressed)
-        read -r x y < <(fade_state_point) || return
-        hover "$x" "$y" || return
-        expect_poll "the $1 state has a hovered real card" True fade_state_hovered ;;
-      keyboard-focus|notification-colours)
+      fade_inventory || return
+      expect_poll "the $1 $state $edge selects its current middle row" "$fade_middle" panel_selected_summary
+      expect_poll "the $1 $state $edge selects its current middle key" "$fade_middle_key" panel_selected_key
+      fade_position_active "$edge" || return
+      if [[ $state == keyboard-focus ]]; then
         type_keys -k Right || return
-        expect_poll "the $1 state focuses a real card action" "$fade_action_index" ipc smoke readInstance panel vgs.notifications actionIndex
-        expect_poll "the $1 state focuses its current inventory action" "$fade_action_id" fade_selected_action ;;
-    esac
-    [[ $failures == "$prior_failures" ]] || return 1
-    if [[ $state == pressed ]]; then
-      sample="$(fade_pressed_hint_pair "$sandbox/fade-hints-$1-$state.png")" || return
-    else
-      sample="$(fade_hint_sample "$sandbox/fade-hints-$1-$state.png")" || return
-    fi
-    printf '%s\n' "$sample" >"$sandbox/fade-hints-$1-$state.json"
-    render expect "the $1 $state words reach captured contrast 4.5" True fade_hint_contrast_value "$sample"
-    hover 1 1 || return
+        expect_poll "the $1 $edge focuses the expected action index" "$fade_action_index" ipc smoke readInstance panel vgs.notifications actionIndex
+        expect_poll "the $1 $edge focuses the expected action" "$fade_action_id" fade_selected_action
+        expect_poll "the $1 $edge keeps keyboard focus on the list" True panel_focus_on_list
+      else
+        # Header focus isolates the pointer exemption from keyboard selection.
+        type_keys -k Tab || return
+        expect_poll "the $1 $state $edge has no list keyboard focus" False panel_focus_on_list
+        read -r x y < <(fade_active_point) || return
+        hover "$x" "$y" || return
+        expect_poll "the $1 $state $edge hovers the real card" True fade_state_hovered
+      fi
+      [[ $failures == "$prior_failures" ]] || return 1
+      prefix="$sandbox/fade-active-$1-$state-$edge"
+      if [[ $state == pressed ]]; then sample="$(fade_pressed_card_pair "$prefix" "$fade_middle" "$edge")" || return
+      else
+        sample="$(fade_active_pair "$prefix" "$fade_middle" "$edge")" || return
+        render expect "the same $1 $state $edge card survives repeated captures at full strength" True fade_active_full_value "$(fade_active_pair "$prefix-repeat" "$fade_middle" "$edge")"
+      fi
+      render expect "the $1 $state card paints in full in the $edge fade" True fade_active_full_value "$sample"
+      if [[ $1 == dark && $state == keyboard-focus && $edge == top ]]; then
+        expect "control: a failed card reference capture returns failure" 1 fade_failed_capture
+        render expect "the same Panel restores full card paint after failed capture" True fade_active_full_value "$(fade_active_pair "$prefix-after-failure" "$fade_middle" "$edge")"
+      fi
+      hover 1 1 || return
+      if [[ $state == keyboard-focus ]]; then
+        type_keys -k Tab || return
+        expect_poll "the $1 $edge selected card releases keyboard focus" False panel_focus_on_list
+        sample="$(fade_active_pair "$prefix-unfocused" "$fade_middle" "$edge" false)" || return
+        render expect "the $1 $edge card returns to its fade when focus leaves" True py_reply 'import json,sys
+s=json.load(sys.stdin);print(s["referenceInkPixels"]>0 and s["matchedInkPixels"]<s["referenceInkPixels"] and s["matchedCardPixels"]<s["cardPixels"]*0.98)' <<<"$sample"
+      fi
+      type_keys -k Escape || return
+      expect_poll "the $1 $state $edge panel closes before fresh setup" '""' read_notes panelMode
+      # A native release runs the card action and removes its fixture.
+      # Restore owned coverage before another edge needs the same depth.
+      if [[ $state == pressed ]]; then fade_fixtures || return; fi
+      expect "the $1 $state $edge panel reopens" ok notes inbox
+      expect_poll "the reopened list takes keyboard focus" True panel_focus_on_list
+    done
   done
 }
 # The synthetic wallpaper makes both tones of card glow measurable.
@@ -3031,19 +3039,14 @@ expect "the pixel probe enables its wallpaper host" ok ipc shell setPluginEnable
 "${shell_env[@]}" "$repo/bin/vgshell" theme apply fade-probe >/dev/null || fail "the pixel probe wallpaper applies"
 expect_poll "the pixel probe wallpaper is drawn" 1 layer_count vgs:background
 note_fade_height="$(look_at stack.fadeHeight)" || fail "the fade height is unreadable"
-for at in $(seq 1 12); do
-  fade_latest="Fade probe $at"
-  notify smoke-fade 0 "$fade_latest" "The release notes are ready for your review. The build finished and the report is attached." '["default", "Open", "reply", "Reply"]' '{"urgency": <byte 2>, "x-vgs-icon": <"circle-x">, "x-vgs-tone": <"danger">}' 0 >/dev/null
-done
-expect_poll "the pixel probe has its long list" True has_row live "$fade_latest"
 for fade_mode in dark light; do
   if [[ $fade_mode == light ]]; then
-    fade_light_theme="$(cat "$repo/themes/catalog/flexoki-light/theme.json")" || fail "the light hint theme is unreadable"
+    fade_light_theme="$(cat "$repo/themes/catalog/flexoki-light/theme.json")" || fail "the light theme is unreadable"
     write_theme "$fade_light_theme"
-    expect_poll "the pixel probe uses light ink" '"#ff2a2a2a"' look_at text.foreground
+    expect_poll "the card probe uses light ink" '"#ff2a2a2a"' look_at text.foreground
   else
     write_theme '{"schemaVersion":1,"name":"vgs","tokens":{}}'
-    expect_poll "the pixel probe uses dark ink" '"#ffe8e8e8"' look_at text.foreground
+    expect_poll "the card probe uses dark ink" '"#ffe8e8e8"' look_at text.foreground
   fi
   fade_mode_dir="$home/.config/vgshell/themes/fade-probe-$fade_mode"
   mkdir -p "$fade_mode_dir/backgrounds"
@@ -3055,65 +3058,54 @@ PY_WALL_THEME
   [[ $fade_mode != light ]] || fade_brightness=35
   "$imagemagick" "$repo/scripts/smoke/fixtures/theme-image.jpg" -brightness-contrast "${fade_brightness}x0" "$fade_mode_dir/backgrounds/busy.jpg" || fail "the busy wallpaper variant failed"
   "${shell_env[@]}" "$repo/bin/vgshell" theme apply "fade-probe-$fade_mode" >/dev/null || fail "the busy wallpaper variant applies"
-  expect_poll "the pixel probe panel is absent for its background" 0 layer_count vgs:panel
-  fade_background="$sandbox/fade-background-$fade_mode.png"
-  fade_output "$fade_background" || fail "the pixel probe background is unreadable"
+  fade_fixtures || fail "the $fade_mode owned fade fixtures are incomplete"
   fade_open_mid
-  render expect_poll "the $fade_mode mid-scroll cards draw known ink above the fade" True fade_card_drawn "$sandbox/fade-$fade_mode-mid.png"
-  render expect_poll "the $fade_mode floating words contrast with their captured background" True fade_hint_drawn "$sandbox/fade-hints-$fade_mode.png"
-  if [[ $fade_mode == dark ]]; then
-    expect "control: a failed background capture returns failure" 1 fade_hint_failed_capture
-    render expect "the same panel restores readable words after a failed capture" True fade_hint_drawn "$sandbox/fade-hints-after-failure.png"
-  fi
-  fade_positive_sample="$(fade_hint_sample "$sandbox/fade-hints-reference-$fade_mode.png")" || fail "the positive hint core sample is unreadable"
-  printf "%s\n" "$fade_positive_sample" >"$sandbox/fade-hints-reference-$fade_mode.json"
-  fade_hint_states "$fade_mode"
-  geometry expect_poll "the $fade_mode pixel probe reaches its end" end fade_wheel_end
-  render expect_poll "the $fade_mode end cards draw known ink above the fade" True fade_card_drawn "$sandbox/fade-$fade_mode-end.png"
-  geometry expect_poll "the $fade_mode drawn card glow is one spacing step above the chips" True fade_gap_drawn
-  geometry expect "the same $fade_mode panel keeps its painted gap across repeated captures" True fade_gap_drawn
-  expect "the $fade_mode pixel probe closes" ok notes close
+  geometry expect "the row-free list reaches the panel bottom at mid-scroll" fits panel_fit bottom
+  render expect_poll "the $fade_mode mid-scroll cards draw actual known title ink" True fade_card_drawn "$sandbox/fade-$fade_mode-mid.png"
+  geometry expect_poll "the $fade_mode panel reaches the bottom end" end fade_wheel_end
+  geometry expect "the row-free list reaches the panel bottom at its end" fits panel_fit bottom
+  render expect_poll "the $fade_mode end cards draw actual known ink" True fade_card_drawn "$sandbox/fade-$fade_mode-end.png"
+  fade_shortcuts "$fade_mode" || fail "the $fade_mode action shortcuts are absent"
+  fade_active_states "$fade_mode" || fail "the $fade_mode active card captures failed"
+  expect "the $fade_mode card probe closes" ok notes close
 done
-# Plant the actual muted-text defect once, then read both real themes.
-fade_hints_qml="$repo/shell/Ui/feedback/KeyHints.qml"
-cp -- "$fade_hints_qml" "$sandbox/KeyHints.contrast-kept.qml"
-python3 - "$fade_hints_qml" <<'PY_HINT_MUTANT'
-import pathlib,sys
-p=pathlib.Path(sys.argv[1]);text=p.read_text();needle="color: Theme.keyHints.foreground"
-assert text.count(needle)==1
-changed=text.replace(needle,"color: Qt.tint(Theme.keyHints.background, Qt.rgba(0.5, 0.5, 0.5, 0.7))")
-assert changed!=text
-p.write_text(changed)
-PY_HINT_MUTANT
-# A fresh shell reads the changed shared Ui module.
-stop_shell
-start_shell "$repo" "$sandbox/notifications-muted-hints.log" || fail "the muted hint shell failed"
-expect_poll "the muted hint shell builds notifications" True record_exists vgs.notifications
-for fade_mode in dark light; do
-  if [[ $fade_mode == light ]]; then
-    write_theme "$fade_light_theme"
-    expect_poll "the muted probe uses light ink" '"#ff2a2a2a"' look_at text.foreground
+# Must fail: remove only active-card exemptions in the shared mask.
+# The same real pointer and keyboard assertions then read faded title ink.
+fade_fixtures || fail "the active exemption control fixtures are incomplete"
+fade_qml="$repo/shell/plugins/vgs.notifications/CardScroll.qml"
+cp -- "$fade_qml" "$sandbox/CardScroll.active-kept.qml"
+python3 - "$fade_qml" <<'PY_ACTIVE_MUTANT'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]);text=p.read_text();needle="model: root.fadeCards"
+assert text.count(needle)==1;p.write_text(text.replace(needle,"model: []"))
+PY_ACTIVE_MUTANT
+rescan "a rescan removes only the active-card exemptions"
+expect_poll "the active exemption control is built" True record_exists vgs.notifications
+for state in hover keyboard-focus; do
+  fade_open_mid
+  fade_position_active top || fail "the active exemption control card is not placed"
+  if [[ $state == hover ]]; then
+    type_keys -k Tab || fail "the control releases list focus"
+    read -r x y < <(fade_active_point) || fail "the control card point is unreadable"
+    hover "$x" "$y" || fail "the control pointer failed"
+    expect_poll "the active exemption control hovers its real card" True fade_state_hovered
   else
-    write_theme '{"schemaVersion":1,"name":"vgs","tokens":{}}'
-    expect_poll "the muted probe uses dark ink" '"#ffe8e8e8"' look_at text.foreground
+    type_keys -k Right || fail "the control action focus failed"
+    fade_inventory || fail "the control inventory is unreadable"
+    expect_poll "the control selects its current action" "$fade_action_id" fade_selected_action
   fi
-  fade_background="$sandbox/fade-background-$fade_mode.png"
-  fade_positive_sample="$(cat "$sandbox/fade-hints-reference-$fade_mode.json")" || fail "the positive wallpaper sample is unreadable"
-  fade_open_mid
-  fade_muted_sample="$(fade_hint_sample "$sandbox/fade-muted-hints-$fade_mode.png" "$fade_positive_sample")"
-  printf "%s\n" "$fade_muted_sample" >"$sandbox/fade-muted-hints-$fade_mode.json"
-  render expect "the muted $fade_mode control keeps a real wallpaper sample" True fade_hint_contrast_value "$fade_muted_sample" coverage
-  fade_muted_control() {
-    (failures=0; behaviour_failures=0; render expect "the floating words contrast with their captured background" True fade_hint_contrast_value "$fade_muted_sample" >"$sandbox/fade-muted-hints-$fade_mode-control.log"; echo "$failures")
+  fade_control_sample="$(fade_active_pair "$sandbox/fade-no-active-$state" "$fade_middle" top false)" || fail "the active exemption control capture failed"
+  fade_active_control() {
+    (failures=0;behaviour_failures=0;render expect "the active card paints in full inside its fade" True fade_active_full_value "$fade_control_sample" >"$sandbox/fade-no-active-$state-control.log";echo "$failures")
   }
-  expect "control: muted $fade_mode words fail the same typed contrast assertion" 1 fade_muted_control
-  expect "the muted $fade_mode probe closes" ok notes close
-
+  expect "control: the same $state paint assertion fails without active exemptions" 1 fade_active_control
+  hover 1 1 || fail "the control pointer leaves"
+  expect "the active exemption control closes" ok notes close
 done
-cp -- "$sandbox/KeyHints.contrast-kept.qml" "$fade_hints_qml"
-stop_shell
-start_shell "$repo" "$sandbox/notifications-restored-hints.log" || fail "the restored hint shell failed"
-expect_poll "the restored hint shell builds notifications" True record_exists vgs.notifications
+cp -- "$sandbox/CardScroll.active-kept.qml" "$fade_qml"
+rescan "a rescan restores active-card exemptions"
+expect_poll "the active exemption service is restored" True record_exists vgs.notifications
 # The same positive assertion must fail when only card content is hidden.
 # Opacity preserves every list and title box, so geometry cannot detect it.
 fade_qml="$repo/shell/plugins/vgs.notifications/CardScroll.qml"
@@ -3138,37 +3130,6 @@ expect "the hidden-card control closes" ok notes close
 cp -- "$sandbox/CardScroll.fade-kept.qml" "$fade_qml"
 rescan "a rescan restores the painted notification cards"
 expect_poll "the restored pixel probe service is built" True record_exists vgs.notifications
-# Increase only the real scroll tail. The viewport gap stays fixed, but
-# the last card moves further from the hints when scrolled to the end.
-# The added64 exceeds shadow blur30 plus vertical offset10, so the real
-# painted glow leaves the clipped edge and the unchanged assertion fails.
-cp -- "$fade_qml" "$sandbox/CardScroll.gap-kept.qml"
-python3 - "$fade_qml" <<'PY_GAP_MUTANT'
-import pathlib,sys
-p=pathlib.Path(sys.argv[1]);text=p.read_text()
-needle="contentHeight: cards.implicitHeight + root.look.stack.tail"
-assert text.count(needle)==1
-p.write_text(text.replace(needle,needle+" + 64"))
-PY_GAP_MUTANT
-rescan "a rescan increases only the notification scroll tail"
-expect_poll "the extra-tail control service is built" True record_exists vgs.notifications
-fade_open_mid
-geometry expect_poll "the extra-tail control reaches its end" end fade_wheel_end
-fade_extra_gap="$(fade_gap_sample)"
-geometry expect "the extra-tail control enlarges the visible gap" True py_reply 'import json,sys
-s=json.load(sys.stdin);print(s["atEnd"] is True and s["visibleGap"] > float(sys.argv[1])+2)' "$note_header_gap" <<<"$fade_extra_gap"
-fade_gap_control() {
-  (failures=0; behaviour_failures=0; geometry expect "the drawn card glow is one spacing step above the chips" True fade_gap_one_step "$fade_extra_gap" >"$sandbox/fade-gap-control.log"; echo "$failures")
-}
-expect "control: extra scroll tail fails the same gap assertion" 1 fade_gap_control
-expect "the extra-tail control closes" ok notes close
-cp -- "$sandbox/CardScroll.gap-kept.qml" "$fade_qml"
-rescan "a rescan restores the notification scroll tail"
-expect_poll "the restored gap probe service is built" True record_exists vgs.notifications
-fade_open_mid
-geometry expect_poll "the restored gap probe reaches its end" end fade_wheel_end
-geometry expect_poll "the restored card glow is one spacing step above the chips" True fade_gap_drawn
-expect "the restored gap probe closes" ok notes close
 "${shell_env[@]}" "$repo/bin/vgshell" theme apply vgs >/dev/null || fail "the pixel probe restores the theme"
 expect_poll "the pixel probe wallpaper leaves" 0 layer_count vgs:background
 expect "the pixel probe restores its wallpaper host enablement" ok ipc shell setPluginEnabled vgs.themes "$fade_themes_enabled"

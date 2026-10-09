@@ -25,10 +25,8 @@
 # control is a Panel.qml copy whose list keeps its whole height, which ran
 # the list past the panel's bottom (clipped=list) on all eight opens in the
 # sandbox on 2026-10-02.
-# One more open of the long inbox, read at the list's top and again with
-# the list wheeled to the end of its scroll, shows the key hints inside
-# the panel with no card over them; its control is a Panel.qml copy whose
-# hints are the scrolled list's last row, below the panel at the top.
+# One more open shows the list at the panel bottom at both scroll ends.
+# A copy with a reserved bottom gap must fail the same reading.
 # No latency is measured; each reading polls every 200 ms for up to 5 s.
 # A press that reaches nothing changes nothing to poll for, so the
 # controls read after a native key marker on the same virtual keyboard.
@@ -199,7 +197,7 @@ long_inbox_shown() {
 # the header stays there, so a reading that stays off fits for the settle
 # is the cut. The settle is counted on the clock, since one reading of
 # forty cards takes longer than a poll's sleep. Prints the last reading,
-# `unread...` when panel_fit read no header, list, hints or card.
+# `unread...` when panel_fit read no header, list or card.
 long_inbox_settle_s=1
 long_inbox_settled() {
   local reading opened began
@@ -255,18 +253,10 @@ long_inbox_warm() {
   for _ in $(seq 1 25); do [[ $(layer_count vgs:panel) == 0 ]] && return 0; sleep 0.2; done
   return 1
 }
-# long_inbox_ends TOGGLE...: one open of the long inbox by TOGGLE, read
-# with long_inbox_settled at the list's top and again once wheel notches
-# over the list have scrolled it to its end, where the scroll rests at its
-# whole travel. The end reading keeps only its words about the hints,
-# `fits` when there are none, since the scrolled list's first card then
-# lies above the list's top by design. Prints `top=<reading>
-# end=<reading>`, or the step that failed: long_inbox_shown's failure,
-# `view=<answer>`, `wheel-failed`, `not-at-end <view>` or a toggle that
-# failed. The pointer leaves the panel before it closes, so no later open
-# starts with a card under it.
+# One open, read at the list top and at the full scroll travel. The end
+# reading checks the bottom without requiring the first card in view.
 long_inbox_ends() {
-  local shown top end hints="" word view spot x y
+  local shown top end view spot x y
   "$@" >/dev/null || { echo toggle-failed; return; }
   shown="$(long_inbox_shown)"
   [[ $shown == shown ]] || { echo "$shown"; return; }
@@ -280,10 +270,7 @@ long_inbox_ends() {
     wheel "$x" "$y" 10 || { echo wheel-failed; return; }
   done
   [[ $spot == end ]] || { echo "not-at-end $view"; return; }
-  end="$(long_inbox_settled)"
-  for word in $end; do [[ $word == *hints* ]] && hints+="${hints:+ }$word"; done
-  [[ $end == unread* ]] && hints="$end"
-  end="${hints:-fits}"
+  end="$(panel_fit bottom)"
   read -r x y < <(nk_panel_outside_point) && hover "$x" "$y"
   "$@" >/dev/null || { echo close-toggle-failed; return; }
   for _ in $(seq 1 25); do [[ $(layer_count vgs:panel) == 0 ]] && break; sleep 0.2; done
@@ -346,7 +333,7 @@ expect_poll "the last Escape closes the inbox" closed inbox_shown
 expect "the long inbox's toasts leave the screen" 0 long_inbox_rows
 geometry expect "a long inbox opened by the key eight times shows its first card whole each time" fits long_inbox_cut nk_press
 ok "long inbox readings: $(long_inbox_readings)"
-geometry expect "the long inbox shows its key hints whole and uncovered at the list's top and at the end of its scroll" "top=fits end=fits" long_inbox_ends nk_press
+geometry expect "the long inbox list reaches the panel bottom at both scroll ends" "top=fits end=fits" long_inbox_ends nk_press
 expect "disabling the notifications before the panel copy is allowed" ok ipc shell setPluginEnabled vgs.notifications false
 expect_poll "the compositor lists no inbox shortcut before the panel copy" 0 note_shortcuts
 nk_panel="$repo/shell/plugins/vgs.notifications/Panel.qml"
@@ -369,49 +356,26 @@ ok "control long inbox readings: $(long_inbox_readings)"
 cp -- "$sandbox/Panel.qml.keys-kept" "$nk_panel"
 rescan "a rescan restores the panel"
 expect_poll "the service is built beside the restored panel" True record_exists vgs.notifications
-# Control: the key hints as the last row of the scrolled list, as they drew
-# before they left it, sit below the panel while the list shows its top.
-expect "disabling the notifications before the in-list hints copy is allowed" ok ipc shell setPluginEnabled vgs.notifications false
-expect_poll "the compositor lists no inbox shortcut before the in-list hints copy" 0 note_shortcuts
+# Control: a real list with a reserved bottom gap fails both scroll ends.
+expect "disabling notifications before the bottom-gap copy is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+expect_poll "the bottom-gap copy has no inbox shortcut yet" 0 note_shortcuts
 cp -- "$nk_panel" "$sandbox/Panel.qml.keys-kept"
-python3 - "$nk_panel" <<'PY'
+python3 - "$nk_panel" <<'PY_BOTTOM_GAP'
+from pathlib import Path
 import sys
-path = sys.argv[1]
-text = open(path).read()
-room = "readonly property real hintRoom: hintRow.visible ? Math.max(look.header.gap, column.stickyGap) + hintRow.implicitHeight : 0"
-footer = "\n        footer: [\n"
-list_end = "                    }\n                }\n            }\n        }\n"
-in_list = '''                    }
-                KeyHints {
-                    id: hintRow
-                    Layout.preferredWidth: root.look.card.width
-                    visible: root.rows.length > 0
-                    hints: [
-                        { key: "Delete", text: "dismiss" },
-                        { key: "Left/Right", text: "actions" }
-                    ]
-                }
-                }
-            }
-        }
-'''
-assert text.count(room) == 1, "the hints' room under the list occurs once"
-assert text.count(footer) == 1, "the hints' footer occurs once"
-head, tail = text.split(footer)
-assert head.endswith(list_end), "the list ends immediately before the footer"
-head = head[:-len(list_end)] + in_list
-text = head + "    }\n}\n"
-open(path, "w").write(text.replace(room, "readonly property real hintRoom: 0"))
-PY
-rescan "a rescan reads the in-list hints panel copy"
-expect "enabling the notifications beside the in-list hints copy is allowed" ok ipc shell setPluginEnabled vgs.notifications true
-expect_poll "the service is built beside the in-list hints copy" True record_exists vgs.notifications
-expect_poll "the inbox shortcut is listed beside the in-list hints copy" 1 note_shortcuts
-long_inbox_warm nk_press || fail "the in-list hints copy's first open failed"
-geometry expect "control: a panel whose key hints end its scrolled list shows them below the panel at the list's top" "top=clipped=hints end=fits" long_inbox_ends nk_press
+p=Path(sys.argv[1]); text=p.read_text()
+needle="                anchors.fill: parent\n"
+assert text.count(needle)==1
+replacement="                anchors { left: parent.left; right: parent.right; top: parent.top; bottom: parent.bottom; bottomMargin: root.look.header.gap }\n"
+p.write_text(text.replace(needle,replacement))
+PY_BOTTOM_GAP
+rescan "a rescan reads the bottom-gap copy"
+expect "enabling notifications with the bottom-gap copy is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "the bottom-gap service is built" True record_exists vgs.notifications
+geometry expect "control: a real reserved bottom gap fails at both ends" "top=bottom-gap=list end=bottom-gap=list" long_inbox_ends nk_press
 cp -- "$sandbox/Panel.qml.keys-kept" "$nk_panel"
-rescan "a rescan restores the panel after the in-list hints copy"
-expect_poll "the service is built beside the panel restored after the in-list hints copy" True record_exists vgs.notifications
+rescan "a rescan restores the row-free panel"
+expect_poll "the restored panel service is built" True record_exists vgs.notifications
 notes dismiss-all >/dev/null # `none` once every toast's clock ran out
 expect "clearing the long inbox's history is allowed" ok notes clear-history
 

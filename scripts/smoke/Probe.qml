@@ -26,23 +26,23 @@ Scope {
     property int holdMarkers: 0
     property var holdMarker: null
     Component {
-        id: hintInkBinding
+        id: notificationPaintBinding
         Binding {
             id: captureBinding
-            objectName: "captureHintInk"
+            objectName: "captureNotificationPaint"
             property: "color"
             value: "transparent"
             when: false
-            property int presentedFrames: 0
+            property int queuedFrames: 0
             readonly property var captureWindow: target === null ? null : target.Window.window
-            // frameSwapped follows presentation. Ask for another frame to
-            // drain any frame already in flight before the property change:
+            // frameSwapped acknowledges a queued Qt frame, not compositor
+            // presentation. Actual output captures prove the painted state:
             // doc.qt.io/qt-6/qml-qtquick-window.html#frameSwapped-signal.
             property QtObject frameListener: Connections {
                 target: captureBinding.captureWindow
                 function onFrameSwapped() {
-                    captureBinding.presentedFrames += 1;
-                    if (captureBinding.presentedFrames < 2) captureBinding.captureWindow.update();
+                    captureBinding.queuedFrames += 1;
+                    if (captureBinding.queuedFrames < 2) captureBinding.captureWindow.update();
                 }
             }
         }
@@ -58,7 +58,7 @@ Scope {
         for (const target of targets) {
             let binding = Array.from(target.data).find(child => child.objectName === name);
             if (binding === undefined && hidden) {
-                binding = hintInkBinding.createObject(target, { objectName: name, target: target, property: property, value: value });
+                binding = notificationPaintBinding.createObject(target, { objectName: name, target: target, property: property, value: value });
                 if (binding === null) {
                     for (const owner of targets) {
                         const created = Array.from(owner.data).find(child => child.objectName === name);
@@ -74,11 +74,11 @@ Scope {
             if (binding === undefined) continue;
             bindings.push(binding);
             if (binding.when !== hidden) {
-                binding.presentedFrames = 0;
+                binding.queuedFrames = 0;
                 binding.when = hidden;
                 if (binding.captureWindow !== null) binding.captureWindow.update();
             }
-            if (binding.captureWindow === null || binding.presentedFrames < 2) pending = true;
+            if (binding.captureWindow === null || binding.queuedFrames < 2) pending = true;
         }
         if (pending) return "pending";
         if (!hidden) for (const binding of bindings) root.releaseCapturePaint(binding);
@@ -1767,27 +1767,31 @@ Scope {
             return root.json(root.descendants(item).filter(child => root.typeName(child) === type).map(found =>
                 root.descendants(found).filter(child => child !== found && child.visible && root.typeName(child) === childType).map(child => ThemeLogic.formatColor(child.color))));
         }
-        // Paired gap captures keep the layout and background in place.
-        function gapPaint(hostKey: string, id: string, hidden: bool): string {
+        // A test-owned Binding removes the fade for the reference capture.
+        // Restoring it gives the same Panel its original layer expression.
+        function notificationFadeReference(hostKey: string, id: string, enabled: bool): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
             const scrolls = root.descendants(item).filter(child => root.typeName(child) === "CardScroll");
-            const hints = root.descendants(item).filter(child => root.typeName(child) === "KeyHints");
-            if (scrolls.length !== 1 || hints.length !== 1) return "gap-targets-absent";
-            const targets = [scrolls[0].cards, hints[0]];
-            return root.notificationCapturePaint(targets, "captureGapPaint", "opacity", 0, hidden);
+            if (scrolls.length !== 1) return "scroll-target-absent";
+            return root.notificationCapturePaint([scrolls[0].flickable], "captureNotificationPaint", "layer.enabled", false, enabled);
         }
-        // A paired capture removes only word ink. The live backing, card
-        // states and wallpaper remain painted at the same coordinates.
-        // Binding restores the original ink expression when disabled:
-        // doc.qt.io/qt-6/qml-qtqml-binding.html#conditional-bindings.
-        function hintInk(hostKey: string, id: string, hidden: bool): string {
+        // Place a real card inside a named fade band. The row supplies its
+        // independently checked current service summary before this call.
+        function notificationFadePosition(hostKey: string, id: string, summary: string, edge: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
-            const hints = root.descendants(item).filter(child => root.typeName(child) === "KeyHints" && child.visible);
-            const labels = hints.reduce((all, hint) => all.concat(root.descendants(hint).filter(child => root.typeName(child) === "Label" && child.role === "hint" && child.visible)), []);
-            if (labels.length === 0) return "ink-absent";
-            return root.notificationCapturePaint(labels, "captureHintInk", "color", "transparent", hidden);
+            const target = root.descendants(item).find(child => root.typeName(child) === "NotificationCard" && child.summary === summary);
+            if (target === undefined) return "card-absent";
+            const view = root.viewOf(hostKey, id, summary);
+            if (typeof view === "string") return view;
+            if (edge !== "top" && edge !== "bottom") return "edge-refused";
+            const scroll = root.descendants(item).find(child => root.typeName(child) === "CardScroll");
+            const inset = scroll.look.card.gap;
+            const desired = edge === "top" ? inset : view.height - target.height - inset;
+            const position = target.mapToItem(view, 0, 0);
+            view.contentY = Math.max(0, Math.min(view.contentHeight - view.height, view.contentY + position.y - desired));
+            return "ok";
         }
         // A failed capture still restores every acquired property and
         // releases its child frame listener, even if no frame arrives.
@@ -1796,7 +1800,7 @@ Scope {
             if (item === null) return "absent";
             for (const target of root.descendants(item)) {
                 for (const binding of Array.from(target.data || [])) {
-                    if (binding.objectName === "captureHintInk" || binding.objectName === "captureGapPaint") root.releaseCapturePaint(binding);
+                    if (binding.objectName === "captureNotificationPaint") root.releaseCapturePaint(binding);
                 }
             }
             return "ok";

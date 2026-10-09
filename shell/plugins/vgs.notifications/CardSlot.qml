@@ -51,6 +51,9 @@ Item {
     property real hover: face.hovered && leaving === "" ? 1 : 0
     Behavior on hover { Anim { duration: slot.look.motion.duration.short4; curve: slot.look.motion.curve.standard } }
     readonly property real orbness: 1 - stretch
+    readonly property bool fadeActive: face.hovered && leaving === ""
+    readonly property rect fadeArea: host ? Qt.rect(host.look.stack.pad + x + face.x,
+        y + face.y - host.scrollView.contentY, face.width, face.height) : Qt.rect(0, 0, 0, 0)
 
     // The hover actions, read when the pointer arrives, since a live
     // notification's actions are not observable.

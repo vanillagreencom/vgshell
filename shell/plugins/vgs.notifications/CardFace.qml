@@ -25,6 +25,7 @@ Item {
     property var actions: []
     property bool showActions: false
     property int actionIndex: -1
+    property bool keyboardActions: false
     property real orb: 0
     property real edgeSpin: 0
     property real edgeBoost: 1
@@ -73,6 +74,7 @@ Item {
         actions: face.actions
         showActions: face.showActions
         actionIndex: face.actionIndex
+        keyboardActions: face.keyboardActions
         onActionTriggered: id => face.actionTriggered(id)
         onCloseRequested: face.closeRequested()
         onCardClicked: face.cardClicked()

@@ -30,6 +30,9 @@ Item {
     // While holdEnd writes the view's place, which that write must not move.
     property bool holding: false
     property string scrollObjectName: "notificationScrollBar"
+    // Existing card children whose fadeActive and view-relative fadeArea
+    // own the active-card exception. A caller can supply a nested list.
+    property var fadeCards: Array.from(cards.children)
     default property alias content: cards.data
     readonly property real textColumn: Math.ceil(Inset.clearing(look.card.pad, look.radius.full, look.card.width, look.card.maxHeight, look.radius.clearance, look.card.pad))
     readonly property alias flickable: view
@@ -145,6 +148,23 @@ Item {
             GradientStop { position: root.fadePoint(0.5).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.5).alpha, root.bottomStrength)) }
             GradientStop { position: root.fadePoint(0.75).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.75).alpha, root.bottomStrength)) }
             GradientStop { position: 1; color: root.maskColor(root.edgeAlpha(0, root.bottomStrength)) }
+        }
+
+        // One rectangle follows each existing card child for its lifetime.
+        // The caller's fadeActive and view-relative fadeArea change only
+        // this mask's alpha. Hover motion does not rebuild the model.
+        Repeater {
+            model: root.fadeCards
+            Rectangle {
+                required property var modelData
+                readonly property rect area: modelData === null || modelData.fadeArea === undefined
+                    ? Qt.rect(0, 0, 0, 0) : modelData.fadeArea
+                x: area.x
+                y: area.y
+                width: area.width
+                height: area.height
+                color: root.maskColor(modelData !== null && modelData.fadeActive === true ? 1 : 0)
+            }
         }
     }
 

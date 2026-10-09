@@ -24,6 +24,9 @@ Item {
             id: content
             Layout.preferredWidth: 420
             Layout.preferredHeight: 300
+            readonly property bool fadeActive: activePointer.containsMouse || activeCard.activeFocus
+            readonly property rect fadeArea: Qt.rect(frame.look.stack.pad + activeCard.x,
+                activeCard.y - frame.flickable.contentY, activeCard.width, activeCard.height)
 
             // Paint through the scroll frame's tail as well. Otherwise an
             // end-state grab would sample empty padding instead of proving
@@ -33,12 +36,73 @@ Item {
                 height: Math.max(parent.height + frame.look.stack.tail, frame.height)
                 color: "#ff00ff"
             }
+
+            Rectangle {
+                id: activeCard
+                x: 80
+                width: 120
+                height: 40
+                color: "#ff00ff"
+                activeFocusOnTab: true
+                MouseArea {
+                    id: activePointer
+                    anchors.fill: parent
+                    hoverEnabled: true
+                }
+            }
         }
     }
 
     TestCase {
         name: "notification_scroll"
         when: windowShown
+
+        function cleanup() {
+            activeCard.focus = false;
+            mouseMove(frame, frame.width + 20, 0);
+        }
+
+        function test_active_card_data() {
+            return [
+                { tag: "hover top", top: true, keyboard: false },
+                { tag: "hover bottom", top: false, keyboard: false },
+                { tag: "focus top", top: true, keyboard: true },
+                { tag: "focus bottom", top: false, keyboard: true }
+            ];
+        }
+
+        function test_active_card(row) {
+            content.Layout.preferredHeight = 700;
+            tryCompare(frame.flickable, "contentHeight", 700 + frame.look.stack.tail);
+            frame.flickable.contentY = 200;
+            const viewportY = row.top ? 8 : frame.height - activeCard.height - 8;
+            activeCard.y = frame.flickable.contentY + viewportY;
+            mouseMove(frame, frame.width + 20, 0);
+            if (row.keyboard) activeCard.forceActiveFocus(Qt.TabFocusReason);
+            else mouseMove(activeCard, activeCard.width / 2, activeCard.height / 2);
+            tryCompare(content, "fadeActive", true);
+            compare(content.fadeArea, Qt.rect(frame.look.stack.pad + activeCard.x,
+                viewportY, activeCard.width, activeCard.height));
+            frame.Window.window.update();
+            verify(waitForRendering(frame));
+            const image = grabImage(frame);
+            const x = Math.floor(frame.look.stack.pad + activeCard.x + activeCard.width / 2);
+            for (const inset of [2, activeCard.height / 2, activeCard.height - 3]) {
+                const y = Math.floor(viewportY + inset);
+                compare(image.red(x, y), 255, "the active card keeps its full paint inside the fade");
+                compare(image.green(x, y), 0, "the exemption adds no colour");
+                compare(image.blue(x, y), 255, "the exemption changes alpha only");
+                verify(image.red(frame.look.stack.pad + 20, y) < 230,
+                    "other content at the same edge keeps its smooth fade");
+            }
+            cleanup();
+            tryCompare(content, "fadeActive", false);
+            frame.Window.window.update();
+            verify(waitForRendering(frame));
+            const released = grabImage(frame);
+            verify(released.red(x, Math.floor(viewportY + activeCard.height / 2)) < 230,
+                "the card returns to the fade after pointer and focus leave");
+        }
 
         function test_edge_fades_data() {
             return [

@@ -34,10 +34,7 @@ FocusScope {
     // scroll bar sits, wider than the header they sit under.
     implicitWidth: Math.max(header.implicitWidth, listScroll.implicitWidth) + 2 * column.contentInset
     readonly property real panelMaxHeight: 2 * column.contentInset + look.header.height + Math.max(column.headerBodyGap, column.stickyGap) + look.panel.rowCap * (look.card.maxHeight + look.card.gap) + look.stack.tail
-    // The key hints sit under the list, outside its scroll, and the list
-    // gives up their room within the panel's cap.
-    readonly property real hintRoom: hintRow.visible ? Math.max(look.header.gap, column.stickyGap) + hintRow.implicitHeight : 0
-    implicitHeight: Math.min(2 * column.contentInset + column.headerHeight + Math.max(column.headerBodyGap, column.stickyGap) + listScroll.implicitHeight + hintRoom, panelMaxHeight)
+    implicitHeight: Math.min(2 * column.contentInset + column.headerHeight + Math.max(column.headerBodyGap, column.stickyGap) + listScroll.implicitHeight, panelMaxHeight)
 
     onCurrentIndexChanged: {
         if (refreshing) return;
@@ -310,7 +307,8 @@ FocusScope {
                 anchors.fill: parent
                 scrollObjectName: "notificationPanelScrollBar"
                 look: root.look
-                maxHeight: root.panelMaxHeight - 2 * column.contentInset - column.headerHeight - Math.max(column.headerBodyGap, column.stickyGap) - root.hintRoom
+                maxHeight: root.panelMaxHeight - 2 * column.contentInset - column.headerHeight - Math.max(column.headerBodyGap, column.stickyGap)
+                fadeCards: Array.from(list.children)
 
                 Label {
                     Layout.preferredWidth: root.look.card.width
@@ -368,6 +366,9 @@ FocusScope {
                             required property int index
                             readonly property bool selected: root.currentIndex === index
                             readonly property real hover: selected || face.hovered ? 1 : 0
+                            readonly property bool fadeActive: face.hovered || (selected && list.activeFocus)
+                            readonly property rect fadeArea: Qt.rect(listScroll.look.stack.pad + list.x + slot.x + face.x,
+                                list.y + slot.y + face.y - listScroll.flickable.contentY, face.width, face.height)
                             width: root.look.card.width
                             height: face.height + root.look.card.gap
 
@@ -398,6 +399,7 @@ FocusScope {
                                 actions: slot.modelData.actions || []
                                 showActions: (slot.selected || hovered) && actions.length > 0
                                 actionIndex: slot.selected ? root.actionIndex : -1
+                                keyboardActions: true
                                 edgeVisible: slot.hover > 0
                                 edgeBoost: 1 + root.look.edge.hoverBoost * slot.hover
                                 onHoverRequested: (key, on) => root.setHover(key, on)
@@ -410,23 +412,5 @@ FocusScope {
                 }
             }
         }
-
-        footer: [
-            Item {
-                width: column.contentWidth
-                implicitHeight: hintRow.visible ? hintRow.implicitHeight : 0
-                height: implicitHeight
-                KeyHints {
-                    id: hintRow
-                    width: root.look.card.width
-                    x: (parent.width - width) / 2
-                    visible: root.rows.length > 0
-                    hints: [
-                        { key: "Delete", text: "dismiss" },
-                        { key: "Left/Right", text: "actions" }
-                    ]
-                }
-            }
-        ]
     }
 }

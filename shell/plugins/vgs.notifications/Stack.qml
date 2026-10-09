@@ -38,6 +38,7 @@ Item {
     readonly property real sideInset: gap - look.stack.pad
     readonly property real topInset: gap - look.card.gap
     readonly property real bottomInset: gap - look.card.gap - look.stack.tail
+    readonly property alias scrollView: scroll.flickable
 
     ColumnLayout {
         id: column
