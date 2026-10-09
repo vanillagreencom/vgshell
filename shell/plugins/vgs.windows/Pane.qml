@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
 
@@ -7,8 +6,9 @@ import qs.Ui
 // Set by theme until the user moves it. The corner radius is one base:
 // windows take it, flyouts three quarters of it and grouped window tabs
 // half of it (ThemeLogic.APPEARANCE_RATIOS). Both map to a Hyprland option,
-// so each row also offers the user's own Hyprland value. A slider saves on
-// release, and only a value it moved to.
+// so each row also offers the user's own Hyprland value. Each slider runs
+// between the bounds the `appearance` capability lends for its value, the
+// judge's own.
 FocusScope {
     id: root
 
@@ -40,52 +40,7 @@ FocusScope {
     function themeOf(key) { return appearance === null ? 0 : appearance.theme[key]; }
     function valueOf(key) { return appearance === null ? undefined : appearance.values[key]; }
     function pathOf(key) { return appearance === null ? "" : appearance.keys[key].hyprland; }
-
-    // A slider that saves on release, and only a value it moved to: the
-    // rebound slider holds the shown value within its range, as Slider
-    // clamps value, so a press that moved nothing saves nothing.
-    component SavedSlider: Item {
-        id: holder
-
-        property real from: 0
-        property real to: 1
-        property real stepSize: 1
-        property real shown: 0
-        readonly property alias slider: control
-        signal saved(real value)
-
-        width: parent.width
-        implicitHeight: Math.max(control.implicitHeight, reading.implicitHeight)
-
-        function commit() {
-            const wanted = control.value;
-            control.value = Qt.binding(() => holder.shown);
-            if (wanted !== control.value) holder.saved(wanted);
-        }
-
-        Slider {
-            id: control
-            width: parent.width - reading.width - Theme.field.labelGap
-            anchors.verticalCenter: parent.verticalCenter
-            from: holder.from
-            to: holder.to
-            stepSize: holder.stepSize
-            snapMode: T.Slider.SnapAlways
-            value: holder.shown
-            onPressedChanged: if (!pressed) holder.commit()
-            onMoved: if (!pressed) holder.commit()
-        }
-
-        Label {
-            id: reading
-            role: "label"
-            text: Math.round(control.value) + " px"
-            width: Math.max(implicitWidth, Theme.size.control.md)
-            horizontalAlignment: Text.AlignRight
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-        }
-    }
+    function boundOf(key, bound) { return appearance === null ? 0 : appearance.keys[key][bound]; }
 
     Column {
         id: content
@@ -119,8 +74,10 @@ FocusScope {
                 info: "Windows use this radius. Flyouts use three quarters of it. Grouped window tabs use half of it."
                 SavedSlider {
                     id: radius
-                    from: 0
-                    to: 32
+                    width: parent.width
+                    from: root.boundOf("windowRadius", "min")
+                    to: root.boundOf("windowRadius", "max")
+                    formatValue: value => Math.round(value) + " px"
                     shown: radiusRow.shownValue === undefined ? 0 : radiusRow.shownValue
                     onSaved: value => root.answer(root.shell.appearance.set("windowRadius", Math.round(value)))
                 }
@@ -142,8 +99,10 @@ FocusScope {
                 onOpenHyprlandConfig: root.openHyprlandConfig()
                 info: "Use my Hyprland value also keeps the border colours from your Hyprland config."
                 SavedSlider {
-                    from: 0
-                    to: 20
+                    width: parent.width
+                    from: root.boundOf("borderWidth", "min")
+                    to: root.boundOf("borderWidth", "max")
+                    formatValue: value => Math.round(value) + " px"
                     shown: borderRow.shownValue === undefined ? 0 : borderRow.shownValue
                     onSaved: value => root.answer(root.shell.appearance.set("borderWidth", Math.round(value)))
                 }

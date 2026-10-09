@@ -13,7 +13,9 @@ import qs.Ui
 // while VGS writes none, `hyprlandConfigValue`, the value the user's
 // Hyprland configuration gave the option, which VGS replaced, and
 // `overridden`, Hyprland reading the option back as another value than VGS
-// wrote; each is undefined or false while unread. The configured value and
+// wrote; each is undefined or false while unread. Each of the three reads
+// its member of `hyprland` once: the capability builds a member's answer
+// again on every read. The configured value and
 // the override are a warning that links the Hyprland configuration and
 // outranks the theme's line. `formatValue` writes a value
 // as the row's message shows it. `shownValue` is what the row's control
@@ -35,14 +37,19 @@ FormRow {
     property var userValue
     property var hyprland: null
     property string path: ""
-    readonly property var hyprlandValue: hyprland !== null && hyprland.values !== null && hyprland.values !== undefined
-        && Object.prototype.hasOwnProperty.call(hyprland.values, path) ? hyprland.values[path] : undefined
+    readonly property var hyprlandValue: {
+        const values = hyprland === null ? null : hyprland.values;
+        return values !== null && values !== undefined && Object.prototype.hasOwnProperty.call(values, path) ? values[path] : undefined;
+    }
     readonly property var hyprlandConfigValue: {
         const rows = hyprland === null ? null : hyprland.userValues;
         const row = Array.isArray(rows) ? rows.find(entry => entry.path === path) : undefined;
         return row === undefined ? undefined : row.value;
     }
-    readonly property bool overridden: hyprland !== null && Array.isArray(hyprland.overridden) && hyprland.overridden.indexOf(path) !== -1
+    readonly property bool overridden: {
+        const paths = hyprland === null ? null : hyprland.overridden;
+        return Array.isArray(paths) && paths.indexOf(path) !== -1;
+    }
     property var formatValue: value => String(value)
     readonly property var shownValue: source === "theme" ? themeValue
         : source === "user" ? userValue

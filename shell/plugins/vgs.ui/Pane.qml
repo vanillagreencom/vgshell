@@ -1,19 +1,18 @@
 import QtQuick
-import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
 
 // UI pane: the corner radius of buttons, text fields and segmented
 // controls over the theme, Set by theme until the user moves it, with a
 // preview of the three. Bar items and checkboxes keep the theme's. The
-// slider saves on release, and only a value it moved to.
+// slider runs between the bounds the `appearance` capability lends.
 FocusScope {
     id: root
 
     property var shell: null
     property string problem: ""
     readonly property var appearance: shell === null ? null : shell.appearance
-    readonly property Item initialFocus: radius
+    readonly property Item initialFocus: radius.slider
 
     function open(payloadJson) {}
     function close() {}
@@ -53,42 +52,14 @@ FocusScope {
                 formatValue: value => value + " px"
                 onUseThemeValue: root.answer(root.shell.appearance.unset("controlRadius"))
 
-                Item {
-                    id: radiusHolder
+                SavedSlider {
+                    id: radius
                     width: parent.width
-                    implicitHeight: Math.max(radius.implicitHeight, radiusValue.implicitHeight)
-
-                    // The rebound slider holds the shown value within its
-                    // range, as Slider clamps value, so a press that moved
-                    // nothing saves nothing.
-                    function commit() {
-                        const wanted = radius.value;
-                        radius.value = Qt.binding(() => radiusRow.shownValue === undefined ? 0 : radiusRow.shownValue);
-                        if (wanted !== radius.value) root.answer(root.shell.appearance.set("controlRadius", Math.round(wanted)));
-                    }
-
-                    Slider {
-                        id: radius
-                        width: parent.width - radiusValue.width - Theme.field.labelGap
-                        anchors.verticalCenter: parent.verticalCenter
-                        from: 0
-                        to: 16
-                        stepSize: 1
-                        snapMode: T.Slider.SnapAlways
-                        value: radiusRow.shownValue === undefined ? 0 : radiusRow.shownValue
-                        onPressedChanged: if (!pressed) radiusHolder.commit()
-                        onMoved: if (!pressed) radiusHolder.commit()
-                    }
-
-                    Label {
-                        id: radiusValue
-                        role: "label"
-                        text: Math.round(radius.value) + " px"
-                        width: Math.max(implicitWidth, Theme.size.control.md)
-                        horizontalAlignment: Text.AlignRight
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
+                    from: root.appearance === null ? 0 : root.appearance.keys.controlRadius.min
+                    to: root.appearance === null ? 0 : root.appearance.keys.controlRadius.max
+                    formatValue: value => Math.round(value) + " px"
+                    shown: radiusRow.shownValue === undefined ? 0 : radiusRow.shownValue
+                    onSaved: value => root.answer(root.shell.appearance.set("controlRadius", Math.round(value)))
                 }
             }
         }

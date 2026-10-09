@@ -289,6 +289,9 @@ Item {
                 Field { label: "Times"; hint: "Sorted time chips"; width: parent.width; TimeChipList { width: parent.width; times: ["09:00", "17:30"] } }
                 Slider { from: 0; to: 100; value: 40; width: parent.width }
                 Slider { from: 0; to: 100; value: 70; width: parent.width; enabled: false }
+                // SavedSlider beside its reading; a release keeps the value.
+                // Its slider is the Slider whose focus example stands below.
+                SavedSlider { id: savedSample; property real kept: 12; width: parent.width; from: 0; to: 32; shown: kept; formatValue: value => Math.round(value) + " px"; onSaved: value => savedSample.kept = value }
 
                 }
                 Section {

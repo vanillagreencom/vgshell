@@ -37,7 +37,7 @@ Item {
 
         function test_layout_bounds_data() {
             const compact = ["Button", "IconButton", "InfoButton", "ToggleButton", "BarItem", "TitleButton", "Switch", "Checkbox", "Radio"];
-            const fields = ["Select", "Slider", "TextField", "TextArea", "ShortcutField", "DateField", "PathField", "LevelSlider", "SegmentedControl", "TileGroup", "WeekdayChipGroup", "TimeChipList", "TimeField"];
+            const fields = ["Select", "Slider", "TextField", "TextArea", "ShortcutField", "DateField", "PathField", "LevelSlider", "SavedSlider", "SegmentedControl", "TileGroup", "WeekdayChipGroup", "TimeChipList", "TimeField"];
             return compact.map(type => ({tag: type, type: type, minimum: Theme.control.minWidth}))
                 .concat(fields.map(type => ({tag: type, type: type, minimum: Theme.field.minWidth})));
         }
@@ -45,7 +45,7 @@ Item {
         function test_layout_bounds(data) {
             const input = createTemporaryQmlObject("import QtQuick; import QtQuick.Layouts; import qs.Ui; " + data.type + " { " + fixtureProperties(data.type) + "Layout.fillWidth: true }", layout);
             verify(input !== null);
-            if (data.type === "LevelSlider") verify(input.minimumWidth >= data.minimum);
+            if (data.type === "LevelSlider" || data.type === "SavedSlider") verify(input.minimumWidth >= data.minimum);
             else compare(input.minimumWidth, data.minimum);
             compare(input.maximumWidth, Theme.control.maxWidth);
             compareWidth(input, Theme.control.maxWidth);
@@ -108,6 +108,16 @@ Item {
                 && button.x + button.width <= input.slider.x
                 && input.slider.x + input.slider.width + input.spacing <= readout.x
                 && readout.x + readout.width <= input.width);
+        }
+
+        function test_saved_minimum_keeps_input_and_reading_apart() {
+            const input = createTemporaryQmlObject("import QtQuick; import qs.Ui; SavedSlider { width: minimumWidth }", parent);
+            verify(input !== null);
+            const reading = input.children.find(child => child.role !== undefined);
+            verify(reading !== undefined);
+            tryVerify(() => input.slider.width >= input.slider.minimumWidth
+                && input.slider.x + input.slider.width + Theme.field.labelGap <= reading.x
+                && reading.x + reading.width <= input.width);
         }
 
         function test_form_slot_bounds_composite_rows() {

@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
 
@@ -7,15 +6,16 @@ import qs.Ui
 // each Set by theme until the user changes it, for the shell and for the
 // windows Hyprland moves. Window animations is the one split (D054):
 // Hyprland has a source the shell lacks, the user's own animations in
-// their Hyprland config, which VGS keeps until the user turns it on. A
-// slider saves on release, and only a value it moved to.
+// their Hyprland config, which VGS keeps until the user turns it on. The
+// styles and the speed's bounds are the ones the `appearance` capability
+// lends, the judge's own; the pane holds their names alone.
 FocusScope {
     id: root
 
     property var shell: null
     property string problem: ""
     readonly property var appearance: shell === null ? null : shell.appearance
-    readonly property var styles: ["smooth", "snappy"]
+    readonly property var styles: appearance === null ? [] : appearance.keys.motionStyle.options
     readonly property var styleNames: ({ smooth: "Smooth", snappy: "Snappy", none: "None" })
     readonly property Item initialFocus: motionSwitch
 
@@ -95,7 +95,7 @@ FocusScope {
                 onUseThemeValue: root.answer(root.shell.appearance.unset("motionStyle"))
                 formatValue: value => root.styleNames[value] || String(value)
                 SegmentedControl {
-                    model: root.styles.map(style => root.styleNames[style])
+                    model: root.styles.map(style => root.styleNames[style] || style)
                     currentIndex: root.styles.indexOf(styleRow.shownValue)
                     onActivated: index => root.answer(root.shell.appearance.set("motionStyle", root.styles[index]))
                 }
@@ -111,42 +111,14 @@ FocusScope {
                 userValue: root.valueOf("motionSpeed")
                 onUseThemeValue: root.answer(root.shell.appearance.unset("motionSpeed"))
                 formatValue: value => root.speedText(value)
-                Item {
-                    id: speedHolder
+                SavedSlider {
                     width: parent.width
-                    implicitHeight: Math.max(speed.implicitHeight, speedValue.implicitHeight)
-
-                    // The rebound slider holds the shown value within its
-                    // range, as Slider clamps value, so a press that moved
-                    // nothing saves nothing.
-                    function commit() {
-                        const wanted = speed.value;
-                        speed.value = Qt.binding(() => speedRow.shownValue === undefined ? 1 : speedRow.shownValue);
-                        if (wanted !== speed.value) root.answer(root.shell.appearance.set("motionSpeed", wanted));
-                    }
-
-                    Slider {
-                        id: speed
-                        width: parent.width - speedValue.width - Theme.field.labelGap
-                        anchors.verticalCenter: parent.verticalCenter
-                        from: 0.5
-                        to: 2
-                        stepSize: 0.25
-                        snapMode: T.Slider.SnapAlways
-                        value: speedRow.shownValue === undefined ? 1 : speedRow.shownValue
-                        onPressedChanged: if (!pressed) speedHolder.commit()
-                        onMoved: if (!pressed) speedHolder.commit()
-                    }
-
-                    Label {
-                        id: speedValue
-                        role: "label"
-                        text: root.speedText(speed.value)
-                        width: Math.max(implicitWidth, Theme.size.control.md)
-                        horizontalAlignment: Text.AlignRight
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
+                    from: root.appearance === null ? 1 : root.appearance.keys.motionSpeed.min
+                    to: root.appearance === null ? 1 : root.appearance.keys.motionSpeed.max
+                    stepSize: 0.25
+                    formatValue: value => root.speedText(value)
+                    shown: speedRow.shownValue === undefined ? 1 : speedRow.shownValue
+                    onSaved: value => root.answer(root.shell.appearance.set("motionSpeed", value))
                 }
             }
 

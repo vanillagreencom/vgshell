@@ -16,7 +16,7 @@ import qs.Unit
 // tooltip role; the control shows the source's
 // value, the theme's while Hyprland is unread; an action emits its signal
 // and hands the keys back to the row's control; the link opens the
-// configuration.
+// configuration; the row reads each member the capability lends once.
 Item {
     id: root
     width: 640
@@ -176,6 +176,27 @@ Item {
             keyClick(Qt.Key_Space);
             compare(themeUses.count, 1);
             compare(control.activeFocus, true, "past the link and the other action");
+        }
+
+        // The capability builds `values`, `userValues` and `overridden`
+        // again on each read, so a row that reads one twice doubles the
+        // work of every Hyprland reload. The engine may evaluate the three
+        // bindings more than once for one capability, each as often as the
+        // others, so the reads of `values` and `overridden` are compared
+        // with those of `userValues`, one an evaluation.
+        function test_each_lent_member_is_read_once() {
+            const reads = { values: 0, userValues: 0, overridden: 0 };
+            row.source = "hyprland";
+            row.hyprland = {
+                get values() { reads.values += 1; return { "decoration.rounding": 10 }; },
+                get userValues() { reads.userValues += 1; return [{ path: "decoration.rounding", value: 10 }]; },
+                get overridden() { reads.overridden += 1; return ["decoration.rounding"]; }
+            };
+            compare([row.hyprlandValue, row.hyprlandConfigValue, row.overridden], [10, 10, true]);
+            const evaluations = reads.userValues;
+            verify(evaluations >= 1, "the row read the capability");
+            compare(reads.values, evaluations, "Hyprland's values are read once an evaluation");
+            compare(reads.overridden, evaluations, "the overrides are read once an evaluation");
         }
 
         function test_the_link_opens_the_configuration() {
