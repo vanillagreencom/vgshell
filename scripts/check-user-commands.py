@@ -99,6 +99,7 @@ FIELDS = (
     ("tui", "*", "title"), ("tui", "*", "entry", "label"), ("tui", "*", "entry", "group"),
     ("menu", "*", "label"), ("menu", "*", "description"), ("menu", "*", "toggle", "label"),
     ("hyprland", "binds", "*", "info"),
+    ("sounds", "*", "label"), ("sounds", "*", "description"), ("sounds", "*", "own"),
     ("secrets", "label"),
 )
 # The keys the judge admits that the check does not read, and why: an
@@ -114,6 +115,7 @@ EXEMPT = (
     ("tui", "*", "script"), ("tui", "*", "size"), ("tui", "*", "presentation"), ("tui", "*", "requires"), ("tui", "*", "entry", "icon"),
     ("menu", "*", "icon"), ("menu", "*", "aliases"), ("menu", "*", "shortcut"), ("menu", "*", "tui"), ("menu", "*", "tuiGroup"), ("menu", "*", "provider"), ("menu", "*", "toggle", "setting"), ("menu", "*", "toggle", "icon"),
     ("secrets", "service"),
+    ("sounds", "*", "default"),
     ("hyprland", "binds", "*", "shortcut"), ("hyprland", "binds", "*", "key"), ("hyprland", "binds", "*", "hold"), ("hyprland", "binds", "*", "tap"), ("hyprland", "appearance"),
     ("hyprland", "layerRules", "*", "namespace"), ("hyprland", "layerRules", "*", "blur"), ("hyprland", "layerRules", "*", "ignoreAlpha"),
     ("hyprland", "options"), ("hyprland", "pads"), ("hyprland", "monitors"),

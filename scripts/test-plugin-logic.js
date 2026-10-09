@@ -1903,7 +1903,7 @@ const CONTROLS = [
     ["sounds holds an event", "if (!isPlainObject(sounds) || Object.keys(sounds).length === 0)", "if (!isPlainObject(sounds))"],
     ["sounds needs its capability", 'if (capabilities.indexOf("sounds") === -1)\n        return "sounds needs capability sounds";', ""],
     ["the sounds capability needs the key", '} else if (capabilities.indexOf("sounds") !== -1) {', "} else if (false) {"],
-    ["a sound event name is judged", 'if (!NAME_PATTERN.test(names[i]))\n            return "sounds has malformed event name "', 'if (false)\n            return "sounds has malformed event name "'],
+    ["a sound event name is judged", 'if (!NAME_PATTERN.test(name))\n            return "sounds has malformed event name "', 'if (false)\n            return "sounds has malformed event name "'],
     ["a sound event is an object", 'if (!isPlainObject(event))\n            return at + " must be an object";', ""],
     ["a sound event's keys are known", "if (SOUND_EVENT_KEYS.indexOf(keys[k]) === -1)", "if (false)"],
     ["a sound event has a label", "if (!isPrintableLine(event.label, STATUS_LABEL_MAX))", "if (false)"],

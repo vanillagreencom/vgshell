@@ -925,10 +925,11 @@ function soundsError(sounds, capabilities) {
         return "sounds needs capability sounds";
     var names = Object.keys(sounds);
     for (var i = 0; i < names.length; i++) {
-        var at = "sounds." + names[i];
-        var event = sounds[names[i]];
-        if (!NAME_PATTERN.test(names[i]))
-            return "sounds has malformed event name " + JSON.stringify(names[i]);
+        var name = names[i];
+        var at = "sounds." + name;
+        var event = sounds[name];
+        if (!NAME_PATTERN.test(name))
+            return "sounds has malformed event name " + JSON.stringify(name);
         if (!isPlainObject(event))
             return at + " must be an object";
         var keys = Object.keys(event);
