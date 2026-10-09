@@ -10,7 +10,9 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // control height of `Theme.size.control` and a group of
 // `Theme.button.size`, which holds that size's padding, gap and icon. An
 // unknown name is logged and drawn as the default. `iconName` draws a
-// Lucide icon before the text. The template supplies press, hover, focus,
+// Lucide icon before the text. The label is placed by capital height and
+// sized to its optical width, so its ink sits on the button's centre. The
+// template supplies press, hover, focus,
 // Space and Enter activation and the checked state; a checkable button draws
 // `Theme.button.checked` while checked, with its own hover and press. The
 // fill animates between states on `motion.duration.fast`. Under a rounded
@@ -77,7 +79,8 @@ T.Button {
             color: root.foreground
             font.weight: root.tokens.weight
             font.variableAxes: ({ wght: root.tokens.weight })
-            anchors.verticalCenter: parent.verticalCenter
+            width: opticalWidth
+            y: topForCapCenter(parent.height)
         }
     }
 

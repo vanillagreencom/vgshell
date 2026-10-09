@@ -51,6 +51,12 @@
 # `critical: ` to the message of an attributed line. Debug and info lines
 # are not judged, and no declaration excuses a script error.
 #
+# The offscreen platform holds two screens: `one` at scale 1, where a test's
+# own window opens, and `two` at scale 2, right of it, where a test opens a
+# window to draw at 2x. The screen's `dpr` key alone reports the ratio and
+# still draws at scale 1, so QT_SCREEN_SCALE_FACTORS sets it; a run under
+# qmltestrunner 6.11.2 drew a half-pixel step as one device pixel there.
+#
 # QML_UNIT_RUNNER names the qmltestrunner binary; unset, the one on PATH
 # or under /usr/lib/qt6/bin is used. Exit 0 when every test passed, 1 when
 # one failed, logged an unexpected line or could not load, 2 on a refusal,
@@ -100,6 +106,7 @@ printf '%s\n' "$root" >>"$VGSHELL_FENCE_LEDGER"
 imports="$root/imports"
 mkdir -p "$imports/qs/Commons" "$imports/qs/Core" "$imports/qs/Unit" "$imports/Quickshell/Io" "$imports/Qt/labs/folderlistmodel" "$root/home" "$root/runtime"
 chmod 700 "$root/runtime"
+printf '{"screens": [{"name": "one", "x": 0, "y": 0, "width": 800, "height": 600, "logicalDpi": 96, "logicalBaseDpi": 96}, {"name": "two", "x": 800, "y": 0, "width": 1600, "height": 1200, "logicalDpi": 96, "logicalBaseDpi": 96}]}\n' >"$root/screens.json"
 # A plugin's footer test builds the real Displays pane offscreen. Its
 # inactive modal still resolves its window imports, so only this interface
 # is replaced. The nested Displays row tests the actual modal host.
@@ -221,7 +228,7 @@ for file in "${files[@]}"; do
   echo "== $(basename -- "$file")"
   file_status=0
   out="$(env -i HOME="$root/home" PATH="/usr/bin:/usr/lib/qt6/bin" LC_ALL=C.UTF-8 \
-    QT_QPA_PLATFORM=offscreen XDG_RUNTIME_DIR="$root/runtime" QML_XHR_ALLOW_FILE_READ=1 \
+    QT_QPA_PLATFORM="offscreen:configfile=$root/screens.json" QT_SCREEN_SCALE_FACTORS="one=1;two=2" XDG_RUNTIME_DIR="$root/runtime" QML_XHR_ALLOW_FILE_READ=1 \
     QT_FORCE_STDERR_LOGGING=1 QT_MESSAGE_PATTERN='%{if-warning}warning: %{endif}%{if-critical}critical: %{endif}%{if-category}%{category}: %{endif}%{message}' \
     "$runner" -import "$imports" -input "$file" 2>&1)" || file_status=$?
   # grep exits 1 when every line was filtered, which is the quiet pass.

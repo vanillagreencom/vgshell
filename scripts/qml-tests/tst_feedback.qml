@@ -7,8 +7,8 @@ import qs.Unit
 // Spinner, ProgressBar, Badge and Kbd: the spinner turns only while the
 // theme's duration is above zero, the bar's fill follows its position and
 // slides while indeterminate, a badge draws its tone and logs an unknown
-// one, a badge's drawn ink sits on its chip's centre, a verbatim badge
-// keeps its text's case on the same box, and a key cap sizes to its text
+// one, a badge's, a button's and a form row's drawn label ink sits on its
+// box's centre at scale 1 and 2, a verbatim badge keeps its text's case on the same box, and a key cap sizes to its text
 // and draws it in the kbd role.
 Item {
     id: root
@@ -25,6 +25,10 @@ Item {
     Badge { id: badgeVerbatim; text: "voxtype-bin"; verbatim: true; x: 150; y: 70 }
     Kbd { id: kbd; text: "Ctrl"; y: 160 }
     Kbd { id: key; text: "K"; y: 190; x: 100 }
+    Component {
+        id: scaledWindow
+        Window { width: 640; height: 240; color: "black" }
+    }
 
     TestCase {
         name: "feedback"
@@ -124,21 +128,22 @@ Item {
             fuzzyCompare(badgeIcon.width, 2 * Theme.badge.size.sm.paddingX + icon.width + Theme.badge.gap + iconLabel.opticalWidth, 0.5);
         }
 
-        // The drawn label's ink box against the chip: the offset of the ink
-        // box's centre from the chip's centre, in pixels. A pixel is ink by
-        // its colour distance from the chip's fill, as a share of the
+        // The drawn label's ink box against its box, in device pixels: the
+        // offset of the ink box's centre from the box's centre. `img` holds
+        // the window's device pixels and `ratio` device pixels a pixel; `at`
+        // is the box's top left in the window and `inset` the pixels kept
+        // clear on each side, the corner radius or a border. A pixel is ink
+        // by its colour distance from the box's fill, as a share of the
         // strongest ink pixel, and a partly inked edge pixel counts by that
-        // share. Columns within the corner radius of a side are not read.
-        function inkOffset(chip) {
-            const img = grabImage(root);
-            const at = chip.mapToItem(root, 0, 0);
-            const centreX = at.x + chip.width / 2;
-            const centreY = at.y + chip.height / 2;
-            const x0 = Math.ceil(at.x + chip.radius) + 1;
-            const x1 = Math.floor(at.x + chip.width - chip.radius) - 1;
-            const y0 = Math.ceil(at.y) + 1;
-            const y1 = Math.floor(at.y + chip.height) - 1;
-            const fx = Math.round(centreX), fy = y0;
+        // share.
+        function inkOffset(img, ratio, at, width, height, insetX, insetY) {
+            const centreX = (at.x + width / 2) * ratio;
+            const centreY = (at.y + height / 2) * ratio;
+            const x0 = Math.ceil((at.x + insetX) * ratio) + 1;
+            const x1 = Math.floor((at.x + width - insetX) * ratio) - 1;
+            const y0 = Math.ceil((at.y + insetY) * ratio) + 1;
+            const y1 = Math.floor((at.y + height - insetY) * ratio) - 1;
+            const fx = x0, fy = y0;
             const distance = (x, y) => Math.abs(img.red(x, y) - img.red(fx, fy)) + Math.abs(img.green(x, y) - img.green(fx, fy)) + Math.abs(img.blue(x, y) - img.blue(fx, fy));
             let strongest = 0;
             for (let x = x0; x < x1; x++)
@@ -153,43 +158,81 @@ Item {
                 }
             const inked = table => Object.keys(table).map(Number).filter(key => table[key] > 0.1).sort((a, b) => a - b);
             const xs = inked(columns), ys = inked(rows);
-            verify(xs.length > 0 && ys.length > 0, "the chip draws ink");
+            verify(xs.length > 0 && ys.length > 0, "the box draws ink");
             const left = xs[0] + 1 - columns[xs[0]], right = xs[xs.length - 1] + columns[xs[xs.length - 1]];
             const top = ys[0] + 1 - rows[ys[0]], bottom = ys[ys.length - 1] + rows[ys[ys.length - 1]];
             return { x: (left + right) / 2 - centreX, y: (top + bottom) / 2 - centreY };
         }
 
-        // A number's digits and a text label draw their ink within half a
-        // pixel of the chip's centre on both axes, in both sizes; a whole
-        // pixel baseline cannot do better for an odd ink height in an even
-        // chip. The shifted rows are the check's must-fail controls: a
-        // label moved a pixel left, or a pixel up, is off centre.
-        function test_badge_ink_centred_data() {
-            return [
-                { tag: "one digit sm", text: "1", size: "sm", shiftX: 0, shiftY: 0, centred: true },
-                { tag: "one digit md", text: "1", size: "md", shiftX: 0, shiftY: 0, centred: true },
-                { tag: "other digit sm", text: "2", size: "sm", shiftX: 0, shiftY: 0, centred: true },
-                { tag: "other digit md", text: "2", size: "md", shiftX: 0, shiftY: 0, centred: true },
-                { tag: "two digits sm", text: "12", size: "sm", shiftX: 0, shiftY: 0, centred: true },
-                { tag: "two digits md", text: "12", size: "md", shiftX: 0, shiftY: 0, centred: true },
-                { tag: "text sm", text: "Signed out", size: "sm", shiftX: 0, shiftY: 0, centred: true },
-                { tag: "text md", text: "Signed out", size: "md", shiftX: 0, shiftY: 0, centred: true },
-                { tag: "control: a pixel left", text: "2", size: "md", shiftX: -1, shiftY: 0, centred: false },
-                { tag: "control: a pixel up", text: "2", size: "md", shiftX: 0, shiftY: -1, centred: false }
-            ];
+        // A Badge, a Button and a FormRow label draw their ink within half
+        // a device pixel of their box's centre at scale 1 and at scale 2, a
+        // badge and a button on both axes and a row's start-aligned label
+        // on the vertical one; a whole device pixel baseline cannot do
+        // better for an odd ink height in an even box. The window opens on
+        // the offscreen screen of the row's scale (scripts/qml-unit.sh). The
+        // shifted rows are the check's must-fail controls: a label moved a
+        // device pixel left, or a device pixel up, is off centre, and at
+        // scale 2 that is the half pixel a whole-pixel baseline leaves.
+        function test_label_ink_centred_data() {
+            const rows = [];
+            for (const scale of [1, 2]) {
+                const at = " at " + scale + "x";
+                for (const size of ["sm", "md"]) {
+                    rows.push({ tag: "badge one digit " + size + at, kind: "badge", text: "1", size: size, scale: scale });
+                    rows.push({ tag: "badge other digit " + size + at, kind: "badge", text: "2", size: size, scale: scale });
+                    rows.push({ tag: "badge two digits " + size + at, kind: "badge", text: "12", size: size, scale: scale });
+                    rows.push({ tag: "badge text " + size + at, kind: "badge", text: "Signed out", size: size, scale: scale });
+                    rows.push({ tag: "button " + size + at, kind: "button", text: "Apply", size: size, scale: scale });
+                }
+                rows.push({ tag: "row label" + at, kind: "row", text: "Speed", scale: scale });
+                rows.push({ tag: "control: badge a device pixel left" + at, kind: "badge", text: "2", size: "md", scale: scale, shiftX: -1, centred: false });
+                rows.push({ tag: "control: badge a device pixel up" + at, kind: "badge", text: "2", size: "md", scale: scale, shiftY: -1, centred: false });
+                rows.push({ tag: "control: button a device pixel up" + at, kind: "button", text: "Apply", size: "md", scale: scale, shiftY: -1, centred: false });
+                rows.push({ tag: "control: row label a device pixel up" + at, kind: "row", text: "Speed", scale: scale, shiftY: -1, centred: false });
+            }
+            return rows;
         }
 
-        function test_badge_ink_centred(data) {
-            const chip = Qt.createQmlObject("import qs.Ui\nBadge { x: 160; y: 120; tone: \"accent\" }", root);
-            chip.text = data.text;
-            chip.size = data.size;
-            const label = badgeLabel(chip);
-            label.x += data.shiftX;
-            label.y += data.shiftY;
-            const offset = inkOffset(chip);
-            chip.destroy();
-            const centred = Math.abs(offset.x) <= 0.5 && Math.abs(offset.y) <= 0.5;
-            compare(centred, data.centred, "ink offset x " + offset.x + " y " + offset.y);
+        function test_label_ink_centred(data) {
+            const screen = Qt.application.screens[data.scale - 1];
+            const window = scaledWindow.createObject(null, { screen: screen, x: screen.virtualX + 10, y: screen.virtualY + 10 });
+            window.visible = true;
+            const made = {
+                badge: () => Qt.createQmlObject("import qs.Ui\nBadge { tone: \"accent\" }", window.contentItem),
+                button: () => Qt.createQmlObject("import qs.Ui\nButton {}", window.contentItem),
+                row: () => Qt.createQmlObject("import qs.Ui\nFormRow { width: 300 }", window.contentItem)
+            }[data.kind]();
+            made.x = 8;
+            made.y = 8;
+            if (data.kind === "row") {
+                made.label = data.text;
+            } else {
+                made.text = data.text;
+                made.size = data.size;
+            }
+            const label = data.kind === "badge" ? badgeLabel(made) : data.kind === "button" ? made.contentItem.children.find(child => child.role === "button") : made.children.find(child => child.objectName === "fieldLabel");
+            const ratio = label.Screen.devicePixelRatio;
+            compare(ratio, data.scale, "the window draws at its screen's scale");
+            // A button's label is anchored, so the controls move the drawn
+            // label rather than its position.
+            label.transform = Qt.createQmlObject("import QtQuick\nTranslate {}", label);
+            label.transform[0].x = (data.shiftX || 0) / ratio;
+            label.transform[0].y = (data.shiftY || 0) / ratio;
+            waitForRendering(window.contentItem);
+            // The grab of a scaled window's content item holds its device
+            // pixels from the top left, as many as the item's size in
+            // pixels: qmltestrunner 6.11.2, read in a run. The window is
+            // twice as large as the box needs.
+            const img = grabImage(window.contentItem);
+            const at = made.mapToItem(window.contentItem, 0, 0);
+            const box = data.kind === "row" ? { x: label.x, width: label.width, height: made.boxHeight, insetX: 0, insetY: 0 }
+                : data.kind === "button" ? { x: 0, width: made.width, height: made.height, insetX: Theme.button.radius + Theme.button.border, insetY: Theme.button.border }
+                : { x: 0, width: made.width, height: made.height, insetX: made.radius, insetY: 0 };
+            verify((at.x + box.x + box.width) * ratio <= img.width && (at.y + box.height) * ratio <= img.height, "the box lies in the grab");
+            const offset = inkOffset(img, ratio, Qt.point(at.x + box.x, at.y), box.width, box.height, box.insetX, box.insetY);
+            window.destroy();
+            const centred = (data.kind === "row" || Math.abs(offset.x) <= 0.5) && Math.abs(offset.y) <= 0.5;
+            compare(centred, data.centred !== false, "ink offset in device pixels x " + offset.x + " y " + offset.y);
         }
 
         // A package name keeps its case: the default badge draws capitals,

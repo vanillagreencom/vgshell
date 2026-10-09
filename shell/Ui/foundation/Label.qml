@@ -12,13 +12,12 @@ import qs.Commons
 // fixed line. `capCentre` is the first line's capital centre from the
 // label top. `opticalWidth` removes the tracking Qt adds after the last
 // glyph. `topForCapCenter()` gives the top that puts the capital centre on
-// a box centre with the baseline on a whole device pixel, `pixelRatio`
-// device pixels a pixel: 1 by default, so the baseline is whole in pixels.
+// a box centre with the baseline on a whole device pixel of the label's own
+// screen, since a whole pixel spans two device pixels on a 2x screen.
 Text {
     id: root
 
     property string role: "body"
-    property real pixelRatio: 1
     readonly property var typography: typographyOf(role)
     readonly property real fontHeight: metrics.height
     readonly property real lineBox: Math.max(Math.round(typography.size * typography.lineHeight), Math.ceil(fontHeight))
@@ -44,7 +43,7 @@ Text {
     lineHeightMode: lineBox > fontHeight ? Text.FixedHeight : Text.ProportionalHeight
 
     function topForCapCenter(boxHeight) {
-        return Math.round((boxHeight / 2 + metrics.capitalHeight / 2) * pixelRatio) / pixelRatio - metrics.ascent;
+        return Math.round((boxHeight / 2 + metrics.capitalHeight / 2) * Screen.devicePixelRatio) / Screen.devicePixelRatio - metrics.ascent;
     }
 
     FontMetrics {
