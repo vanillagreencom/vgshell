@@ -147,8 +147,8 @@ status_control_restore() {
 }
 
 if copy_tree status-repeated-write && edit_tree status-repeated-write shell/Core/PluginStatus.qml \
-    'if (current !== null && JSON.stringify(current.values) === JSON.stringify(result.values)) return "ok";' \
-    'if (false && current !== null && JSON.stringify(current.values) === JSON.stringify(result.values)) return "ok";'; then
+    'if (current !== null && hadKey === hasKey && (!hasKey || JSON.stringify(current.values[key]) === JSON.stringify(result.values[key]))) return "ok";' \
+    'if (false && current !== null && hadKey === hasKey && (!hasKey || JSON.stringify(current.values[key]) === JSON.stringify(result.values[key]))) return "ok";'; then
   stop_shell || :
   if start_shell "$sandbox/tree-status-repeated-write" "$sandbox/status-repeated-write-qs.log"; then
     expect "control: enabling the repeated-write fixture is allowed" ok ipc shell setPluginEnabled acme.status true

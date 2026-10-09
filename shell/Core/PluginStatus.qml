@@ -84,7 +84,9 @@ Singleton {
         if (!result.ok) return result.error;
         // TUI record reads and requirement scans can repeat a service's
         // accepted values. Keep their serial and bindings unchanged.
-        if (current !== null && JSON.stringify(current.values) === JSON.stringify(result.values)) return "ok";
+        const hadKey = current !== null && Logic.hasOwn(current.values, key);
+        const hasKey = Logic.hasOwn(result.values, key);
+        if (current !== null && hadKey === hasKey && (!hasKey || JSON.stringify(current.values[key]) === JSON.stringify(result.values[key]))) return "ok";
         serial += 1;
         const next = Object.assign({}, records);
         next[ctx.id] = Object.freeze({ revision: revision, serial: serial, values: result.values, bytes: result.bytes });
