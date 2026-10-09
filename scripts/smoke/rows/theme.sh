@@ -106,7 +106,7 @@ fi
 
 copy_tree theme-no-publish
 if edit_tree theme-no-publish shell/Commons/ThemeSource.qml \
-    '        values = accepted.values;' \
+    '        values = result.values;' \
     '        values = values;'; then
   theme_control_reset_file
   theme_control_start theme-no-publish
@@ -130,7 +130,7 @@ fi
 
 copy_tree theme-removal-stale
 if edit_tree theme-removal-stale shell/Commons/ThemeSource.qml \
-    '                if (source.values !== source.defaults.values) source.publish(source.defaults);' \
+    '                if (source.accepted !== source.defaults) source.publish(source.defaults);' \
     ''; then
   theme_control_reset_file
   theme_control_start theme-removal-stale

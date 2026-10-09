@@ -13,12 +13,12 @@
 # unset puts the theme's values back. Only the fixture holds the capability.
 #
 # In the Windows section it reads the corner radius Set by theme, clicks the
-# slider to 24, adds a user line `rounding = 10` after the VGS loading line,
+# slider to about 24, adds a user line `rounding = 10` after the VGS loading line,
 # reads that the section's value holds over it and that the row names the
 # user's 10, clicks Use my Hyprland value and reads the setting, the layer's
 # radius group and VGS's rounding gone, Hyprland's 10 shown and the keys on
-# the slider, then Use theme value. A section the keyboard opens shows its
-# focus ring and one a click on the sidebar opens shows none. In the Motion
+# the slider, then Use theme value. A section a click on the sidebar opens
+# shows no focus ring, and the keyboard's way back into it shows one. In the Motion
 # section Space turns Motion off and every duration goes still, Use theme
 # value moves them again, and Window animations writes Hyprland's
 # animations. In the UI section End sets the control radius to 16 for
@@ -44,6 +44,8 @@ app_set() { ipc smoke invokeInstance service acme.appearance set "$1"; }
 app_unset() { ipc smoke invokeInstance service acme.appearance unset "$1"; }
 app_refused() { app_set "$1" | py_reply 'import sys; print("refused" if sys.stdin.read().startswith("refused: ") else "accepted")'; }
 app_key_path() { app_read keys | py_reply 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]]["hyprland"])' "$1"; }
+# Whether the file's corner radius is a whole number within 2 of WANT.
+app_saved_radius() { python3 -c 'import json,sys; v=(json.load(open(sys.argv[1])).get("appearance") or {}).get("windowRadius"); print("near" if isinstance(v, int) and abs(v - int(sys.argv[2])) <= 2 else json.dumps(v))' "$app_file" "$1"; }
 app_holders() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["holders"].get("appearance", [])))'; }
 # The user file's `appearance`, `null` for none.
 app_saved() { python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])).get("appearance"), sort_keys=True))' "$app_file"; }
@@ -139,16 +141,17 @@ expect "the Windows section summons" ok ipc shell summon window vgs.system '{"pa
 expect_poll "the Windows section is mounted" '["vgs.windows"]' window_panes
 expect_poll "the corner radius row reads Set by theme" '"theme"' app_row vgs.windows "Corner radius" messageKind
 expect "the border width row reads Set by theme" '"theme"' app_row vgs.windows "Border width" messageKind
-expect_poll "a section the keyboard opens shows its focus ring" true app_visual_focus vgs.windows
 read -r sx sy < <(app_slider_point vgs.windows 0.75) || fail "the corner radius slider has no box"
 hover "$sx" "$sy" || fail "hovering the corner radius slider failed"
 click "$sx" "$sy" || fail "clicking the corner radius slider failed"
-expect_poll "the slider writes a corner radius of 24" '{"windowRadius": 24}' app_saved
+# Three quarters along the slider is about 24, as the click lands.
+expect_poll "the slider writes a corner radius of about 24" near app_saved_radius 24
+app_radius="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["appearance"]["windowRadius"])' "$app_file")" || app_radius=unread
 expect_poll "the row reads the user's value" '"user"' app_row vgs.windows "Corner radius" messageKind
-expect_poll "Hyprland's rounding is the section's 24" 24 hypr_int decoration:rounding
+expect_poll "Hyprland's rounding is the section's $app_radius" "$app_radius" hypr_int decoration:rounding
 printf '%s\n' 'hl.config({ decoration = { rounding = 10 } })' >>"$home/.config/hypr/hyprland.lua"
 expect "the nested instance reloads with the user's rounding" ok hypr reload config-only
-expect_poll "the section's radius holds over the user's later line" 24 hypr_int decoration:rounding
+expect_poll "the section's radius holds over the user's later line" "$app_radius" hypr_int decoration:rounding
 expect_poll "the row names the user's own rounding" 10 app_row vgs.windows "Corner radius" hyprlandConfigValue
 expect_poll "the row warns of the user's own line" '"config"' app_row vgs.windows "Corner radius" messageKind
 app_click_action vgs.windows useHyprlandValue
@@ -176,6 +179,11 @@ if read -r ex ey < <(at_centre "window:System Settings" "$app_entry"); then
   expect_poll "a click on the Windows entry mounts its section" '["vgs.windows"]' window_panes
   expect_poll "the clicked section's slider holds the keys" '["Slider",null]' app_focus vgs.windows
   expect "a section a click opens shows no focus ring" false app_visual_focus vgs.windows
+  # The keyboard's way back in, Escape to the sidebar and Return on the
+  # shown section, keeps its reason, so the same slider shows its ring.
+  type_keys -k Escape || fail "Escape out of the Windows section failed"
+  type_keys -k Return || fail "Return on the Windows entry failed"
+  expect_poll "the keyboard's way into the section shows its focus ring" true app_visual_focus vgs.windows
 else
   fail "the Windows entry of the sidebar has no box: $app_entry"
 fi
@@ -209,7 +217,7 @@ expect "the UI section summons" ok ipc shell summon window vgs.system '{"pane":"
 expect_poll "the UI section is mounted" '["vgs.ui"]' window_panes
 expect_poll "the keyboard starts on the control radius slider" '["Slider",null]' app_focus vgs.ui
 type_keys -k End || fail "End on the control radius slider failed"
-expect_poll "End writes a control radius of 16" '{"controlRadius": 16}' app_saved
+expect_poll "End writes a control radius of 16 beside the window animations" '{"controlRadius": 16, "windowAnimations": true}' app_saved
 expect_poll "buttons take the control radius" 16 ipc smoke themeValue button.radius
 expect_poll "text fields take the control radius" 16 ipc smoke themeValue textField.radius
 expect_poll "segmented controls take the control radius" 16 ipc smoke themeValue segmented.radius
