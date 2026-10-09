@@ -2,9 +2,10 @@
 // The browsers' decisions, shell/plugins/vgs.themes/BrowserLogic.js, and
 // the plugin's file URLs, Files.js, under node: the payload and its views;
 // the theme view's cards merged from the list, the catalog and the images,
-// the filter, the selection and the download offer; the wallpaper view's
-// sources, scopes, cards, download or update card, keys and selection; and
-// the lines the browsers show. Every expected value is written out by
+// the filter, the selection, the download offer and whether an apply
+// closes on the publish; the wallpaper view's sources, scopes, cards,
+// download or update card, keys and selection; the lines the browsers show
+// and the service's apply notice. Every expected value is written out by
 // hand, Qt's key codes from qnamespace.h.
 //
 // The controls at the end edit a copy of the logic, one rule at a time,
@@ -188,6 +189,21 @@ function verify(logic, files) {
     ]) assert.equal(logic.downloadOffer(Object.assign({}, nord, change)), false, label);
     assert.equal(logic.downloadOffer(null), false);
 
+    // The view's apply on the publish: close at once, or wait for the answer.
+    const offered = Object.assign({}, nord, { installed: true, displayed: true });
+    const plain = Object.assign({}, offered, { imagery: null });
+    const job = (change) => Object.assign({ step: "apply", name: "nord", shown: false, downloaded: false }, change);
+    for (const [label, running, published, card, want] of [
+        ["the applied theme's publish closes before the answer", job({}), "nord", plain, true],
+        ["a publish with no card closes", job({}), "nord", null, true],
+        ["the wallpaper offer waits for the answer", job({}), "nord", offered, false],
+        ["an apply after the download closes over the offer", job({ downloaded: true }), "nord", offered, true],
+        ["the displayed theme publishes nothing, so it waits", job({ shown: true }), "nord", plain, false],
+        ["another theme's publish waits", job({}), "akane", plain, false],
+        ["an install waits", job({ step: "install" }), "nord", plain, false],
+        ["no job waits", null, "nord", plain, false]
+    ]) assert.equal(logic.closesOnPublish(running, published, card), want, label);
+
     // Sizes and progress.
     assert.equal(logic.sizeText(41617647), "42 MB");
     assert.equal(logic.sizeText(1), "1 MB");
@@ -220,6 +236,11 @@ function verify(logic, files) {
     assert.equal(logic.problem("set", "a.jpg", { state: "ok", reason: null }), "");
     assert.equal(logic.problem("set", "a.jpg", { state: "failed", reason: "outside" }), "Could not set a.jpg. The theme files are not supported. Choose another theme.");
     assert.throws(() => logic.problem("remove", "nord", { state: "ok" }), /step="remove"/);
+    // The service's notice for an answer the closed browser handed over.
+    assert.equal(logic.applyNotice("nord", { state: "applied", reason: null }), null);
+    assert.equal(logic.applyNotice("nord", { state: "unchanged", reason: null }), null);
+    same(logic.applyNotice("nord", { state: "partial", reason: null }), { title: "Nord", message: "Nord is applied. Some applications did not change. Open the Themes panel for details.", tone: "warning", icon: "palette" });
+    same(logic.applyNotice("nord", { state: "failed", reason: "busy" }), { title: "Nord", message: "Could not apply Nord. Another theme action is running. Wait for it to finish.", tone: "danger", icon: "palette" });
 
     verifyWallpapers(logic);
 
@@ -397,6 +418,12 @@ const CONTROLS = [
     ["printable only", "return code >= 32 && code !== 127;", "return true;"],
     ["offer only when displayed", "card.installed && card.displayed && card.imagery", "card.installed && card.imagery"],
     ["offer only with bytes", "&& card.imagery.size > 0", ""],
+    ["the publish closes, not the answer", "return job.downloaded || !downloadOffer(card);", "return false;"],
+    ["the offer waits for the answer", "return job.downloaded || !downloadOffer(card);", "return true;"],
+    ["the displayed theme waits for the answer", "|| job.shown ||", "||"],
+    ["only the applied theme's publish closes", "|| published !== job.name) return false;", ") return false;"],
+    ["only an apply closes on the publish", "|| job.step !== \"apply\" ||", "||"],
+    ["an applied partial notice warns", "tone: applied(result) ? \"warning\" : \"danger\"", "tone: \"danger\""],
     ["rail key holds the generation", "return JSON.stringify([generation, key]);", "return JSON.stringify([key]);"],
     ["key holds the preview inputs", "return JSON.stringify([card.name, card.label, card.previewImage, card.palette, card.tokens, card.terminal]);", "return JSON.stringify([card.name, card.label]);"],
     ["swatches read the raised surface", '    ["color", "surfaceRaised"],\n', ""],

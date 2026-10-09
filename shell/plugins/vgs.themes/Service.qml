@@ -16,7 +16,10 @@ import "SetupLogic.js" as SetupLogic
 // page offers Install browser theming, that TUI, while the browser row says
 // so (D061). Settings asks for a scan each time it opens, so the row also
 // reads a setup run from a terminal or a package installed while the shell
-// ran.
+// ran. The theme browser closes on the publish of an apply it ran, before
+// the answer, and hands the answer here through `report-apply`; the next
+// apply result, as the queue runs one job at a time, is that apply's, and a
+// failure or a partial apply becomes one notice.
 //   shortcut vgs.themes:themes              SUPER+SHIFT+T from the manifest's
 //                                            `hyprland` binds (README)
 //   shortcut vgs.themes:wallpapers          SUPER+SHIFT+W, the same way
@@ -56,6 +59,7 @@ Item {
         shell.ipc.handle("gaps", () => root.toggleGaps());
         shell.ipc.handle("browser-data", revision => revision === String(root.dataRevision) ? "" : root.dataText);
         shell.ipc.handle("refresh-browser-data", () => { root.refreshData(); return "ok"; });
+        shell.ipc.handle("report-apply", name => { root.reported = { name: name, before: root.applyResult }; return "ok"; });
         refreshData();
         checkSetup();
     }
@@ -77,6 +81,18 @@ Item {
     readonly property string themeLastText: JSON.stringify(themeLast)
     onThemeLastTextChanged: {
         if (registeredWith !== null) checkSetup();
+    }
+    readonly property var applyResult: themeLast === null ? null : themeLast.result
+    // The apply the browser handed over, { name, before }, `before` the
+    // apply result current at the hand-over; null when none waits.
+    property var reported: null
+    onApplyResultChanged: {
+        if (reported === null || applyResult === reported.before) return;
+        const notice = BrowserLogic.applyNotice(reported.name, applyResult);
+        reported = null;
+        if (notice === null) return;
+        const reply = shell.notify.send(notice);
+        if (reply !== "ok") console.error("themes: notice " + reply);
     }
     property var cards: []
     property var cardKeys: ({})

@@ -242,6 +242,19 @@ function downloadOffer(card) {
     return card !== null && card.installed && card.displayed && card.imagery !== null && !card.imagery.installed && card.imagery.size > 0;
 }
 
+// Whether the theme view ends its running JOB, { step, name, shown,
+// downloaded }, when Theme publishes the package PUBLISHED, CARD being
+// that package's card as applied. The theme is then drawn; the judge
+// writes applied.json and runs the applications' reload hooks after the
+// theme file, so the view closes at once and hands the answer to the
+// service. It waits for the answer instead for an apply of the theme it
+// found displayed (`shown`), which publishes nothing, for another
+// package's publish, and while the wallpaper offer needs the answer.
+function closesOnPublish(job, published, card) {
+    if (job === null || job.step !== "apply" || job.shown || published !== job.name) return false;
+    return job.downloaded || !downloadOffer(card);
+}
+
 function sizeText(bytes) {
     return Math.max(1, Math.round(bytes / MEGABYTE)) + " MB";
 }
@@ -538,4 +551,14 @@ function problem(step, name, result) {
     default:
         throw new Error("step=" + JSON.stringify(step));
     }
+}
+
+// The notice the service sends for apply RESULT of package NAME once the
+// browser closed before it: null for an apply that did what it was asked,
+// else the browser's line, as a warning when the package is applied and an
+// error when it is not.
+function applyNotice(name, result) {
+    var line = problem("apply", name, result);
+    if (line === "") return null;
+    return { title: label(name), message: line, tone: applied(result) ? "warning" : "danger", icon: "palette" };
 }

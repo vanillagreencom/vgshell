@@ -12,6 +12,8 @@
 
 `ipc`: the `gaps` function, the same toggle over IPC.
 
+`notify`: one notice when an apply fails or leaves some applications unchanged after the theme browser closed. The browser closes once the new theme shows, before the applications finish.
+
 `screens`: count the monitors for the wallpaper browser's monitor choice, and name the monitor it shows on.
 
 The generated Hyprland layer captures the keyboard while a full-screen browser is open, so a user window bind on the same keys does not reach the windows behind it. The user's Hyprland directional focus keys move through the cards while a browser is open.

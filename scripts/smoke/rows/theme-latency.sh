@@ -19,7 +19,9 @@
 # Wallpaper keeps its 150 ms bound.
 # Each theme change prints a split line, the ms of each part of the change
 # (latency_split), and each reading keeps the probe's marks, its frame
-# starts and presents and the probe's own ms.
+# starts and presents and the probe's own ms. A held-answer reading after
+# the six, outside their median, holds the judge's exit while the browser
+# must close on the publish alone.
 # inputs: shell/plugins/vgs.themes/* shell/Core/ThemeRunner.qml shell/Commons/Theme* shell/Ui/layout/CardCarousel.qml themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/ThemeLatencyProbe.qml scripts/smoke/theme-latency-stamps.js scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 # Exercise the actual QML reader under Node with controlled presented frames.
@@ -191,9 +193,12 @@ expect "contention keeps unavailable pressure distinct from zero" '{"cpu_some_pc
 # bin/vgshell to node; boot: node's start; judge: the judge up to the
 # theme file; seen: to the shell's watcher; read: the read and the judge
 # in the shell to the new name; bound: the tokens bound to the revision;
-# reply: the process's exit to the answer; close: the later of the
-# revision and the answer to the browser's removal; frame: to the drawn
-# frame. A part whose ends are missing is null.
+# close: the revision to the browser's removal; frame: to the drawn frame.
+# Off the drawn path: hooks: applied.json and the reload hooks, which run
+# after the theme file, to the process's exit; reply: the exit to the
+# answer; answer: the browser's removal to the answer, positive when the
+# answer came after the browser was gone. A part whose ends are missing is
+# null.
 latency_split() { # VALUE [STAMPS]
   printf '%s' "$1" | py_reply 'import json,sys
 x=json.load(sys.stdin)
@@ -207,16 +212,28 @@ p={k:v-start for k,v in mine[-1].items()} if mine else {}
 x["process"]=p
 q=next((j["queued"] for j in x.get("jobs",[]) if j["verb"]=="apply"),None)
 def gap(a,b): return None if a is None or b is None else b-a
-later=None if x.get("published") is None or x.get("answered") is None else max(x["published"],x["answered"])
-x["split"]={"queue":q,"launch":gap(q,p.get("spawned")),"runner":gap(p.get("spawned"),p.get("node")),"boot":gap(p.get("node"),p.get("ready")),"judge":gap(p.get("ready"),p.get("theme")),"seen":gap(p.get("theme"),x.get("seen")),"read":gap(x.get("seen"),x.get("named")),"bound":gap(x.get("named"),x.get("published")),"reply":gap(p.get("exit"),x.get("answered")),"close":gap(later,x.get("uncovered")),"frame":gap(x.get("uncovered"),x.get("drawn"))}
+x["split"]={"queue":q,"launch":gap(q,p.get("spawned")),"runner":gap(p.get("spawned"),p.get("node")),"boot":gap(p.get("node"),p.get("ready")),"judge":gap(p.get("ready"),p.get("theme")),"seen":gap(p.get("theme"),x.get("seen")),"read":gap(x.get("seen"),x.get("named")),"bound":gap(x.get("named"),x.get("published")),"close":gap(x.get("published"),x.get("uncovered")),"frame":gap(x.get("uncovered"),x.get("drawn")),"hooks":gap(p.get("applied"),p.get("exit")),"reply":gap(p.get("exit"),x.get("answered")),"answer":gap(x.get("uncovered"),x.get("answered"))}
 print(json.dumps(x))' "${2-$latency_stamps}"
 }
 latency_split_field() { latency_split "$@" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["split"], sort_keys=True))'; }
 latency_split_control="$sandbox/latency-split-control"
-printf '%s\n' '{"spawned":900,"node":1015,"ready":1030,"theme":1080,"exit":1090}' '{"spawned":1012,"node":1020,"ready":1035,"theme":1070,"exit":1075}' >"$latency_split_control"
-expect "the split reads the reading's own apply process" '{"boot": 15, "bound": 8, "close": 4, "frame": 30, "judge": 35, "launch": 4, "queue": 8, "read": 12, "reply": 2, "runner": 8, "seen": 5}' latency_split_field '{"started":1000,"jobs":[{"verb":"list","queued":2},{"verb":"apply","queued":8}],"seen":75,"named":87,"published":95,"answered":77,"uncovered":99,"drawn":129}' "$latency_split_control"
-expect "the split takes no earlier reading's process and leaves its parts null" '{"boot": null, "bound": null, "close": null, "frame": null, "judge": null, "launch": null, "queue": null, "read": null, "reply": null, "runner": null, "seen": null}' latency_split_field '{"started":5000,"jobs":[]}' "$latency_split_control"
+printf '%s\n' '{"spawned":900,"node":1015,"ready":1030,"theme":1080,"applied":1082,"exit":1090}' '{"spawned":1012,"node":1020,"ready":1035,"theme":1070,"applied":1072,"exit":1110}' >"$latency_split_control"
+expect "the split reads the reading's own apply process" '{"answer": 14, "boot": 15, "bound": 8, "close": 4, "frame": 30, "hooks": 38, "judge": 35, "launch": 4, "queue": 8, "read": 12, "reply": 3, "runner": 8, "seen": 5}' latency_split_field '{"started":1000,"jobs":[{"verb":"list","queued":2},{"verb":"apply","queued":8}],"seen":75,"named":87,"published":95,"uncovered":99,"answered":113,"drawn":129}' "$latency_split_control"
+expect "the split takes no earlier reading's process and leaves its parts null" '{"answer": null, "boot": null, "bound": null, "close": null, "frame": null, "hooks": null, "judge": null, "launch": null, "queue": null, "read": null, "reply": null, "runner": null, "seen": null}' latency_split_field '{"started":5000,"jobs":[]}' "$latency_split_control"
 rm -- "$latency_split_control"
+# What closed the browser in theme reading VALUE: `publish` when the probe
+# saw it removed before the apply's answer, or with no answer yet, else
+# `answer`.
+latency_close_on_publish() { # VALUE
+  printf '%s' "$1" | py_reply 'import json,sys
+x=json.load(sys.stdin)
+u=x.get("uncovered"); a=x.get("answered")
+print("publish" if type(u) is int and (a is None or a>u) else "answer")'
+}
+# The split line a theme reading prints: its parts beside the probe's marks.
+latency_split_line() { # VALUE
+  printf '%s' "$1" | py_reply 'import json,sys; x=json.load(sys.stdin); print(json.dumps(dict(x["split"], drawn=x.get("drawn"), wallReady=x.get("wallReady"), hyprReloaded=x.get("hyprReloaded"), probeMs=x.get("probeMs"), frames=x.get("frames",{}))))'
+}
 latency_read() { ipc theme-latency themeLatencyRead; }
 latency_done() { latency_read | py_reply 'import json,sys; print("drawn" if "drawn" in json.load(sys.stdin) else "pending")'; }
 latency_report() {
@@ -252,7 +269,7 @@ latency_report() {
     expect "$1 rejects a reading over its bound" over latency_verdict "$planted" "$bound"
   fi
   printf 'theme-latency: reading=%s value=%s\n' "$1" "$value"
-  [[ $1 != theme ]] || printf 'theme-latency: split=%s\n' "$(printf '%s' "$value" | py_reply 'import json,sys; x=json.load(sys.stdin); print(json.dumps(dict(x["split"], drawn=x.get("drawn"), wallReady=x.get("wallReady"), hyprReloaded=x.get("hyprReloaded"), probeMs=x.get("probeMs"), frames=x.get("frames",{}))))')"
+  [[ $1 != theme ]] || printf 'theme-latency: split=%s\n' "$(latency_split_line "$value")"
   printf 'theme-latency: load=%s cpu_some_pct=%s pressure_window_ms=%s\n' "$latency_load" "$pressure" "$((end_ms - latency_window_start))"
 }
 latency_pressure_start() {
@@ -358,6 +375,8 @@ latency_gate="$sandbox/latency-catalog-gate"
 latency_started="$sandbox/latency-catalog-started"
 # Each apply's judge stamps its parts into this file, one line a process.
 latency_stamps="$sandbox/latency-apply-stamps"
+# While this file exists the judge holds its exit, so the answer waits.
+latency_hold="$sandbox/latency-answer-hold"
 cat >"$repo/bin/vgshell" <<EOF
 #!/usr/bin/env bash
 if [[ \${1-} == theme && \${2-} == catalog ]]; then
@@ -365,7 +384,7 @@ if [[ \${1-} == theme && \${2-} == catalog ]]; then
   while [[ ! -e '$latency_gate' ]]; do sleep 0.01; done
 fi
 if [[ \${1-} == theme && \${2-} == apply ]]; then
-  export VGS_LATENCY_SPAWNED="\$EPOCHREALTIME" VGS_LATENCY_STAMPS='$latency_stamps'
+  export VGS_LATENCY_SPAWNED="\$EPOCHREALTIME" VGS_LATENCY_STAMPS='$latency_stamps' VGS_LATENCY_HOLD='$latency_hold'
   export NODE_OPTIONS="\${NODE_OPTIONS:+\$NODE_OPTIONS }--require=$repo/scripts/smoke/theme-latency-stamps.js"
 fi
 exec '$repo/bin/vgshell.latency-real' "\$@"
@@ -502,6 +521,31 @@ latency_theme_status="$(printf '%s' "$latency_theme_result" | py_reply 'import j
 if [[ $latency_theme_status != unmeasured ]]; then
   expect "six theme changes meet the median and single-reading limits" within latency_theme_bound "$latency_theme_samples"
 fi
+
+# The held-answer reading: the judge holds its exit, after applied.json and
+# the reload hooks, until the gate goes, so the browser must close on the
+# publish before the release.
+latency_answer_state() { latency_read | py_reply 'import json,sys; print("answered" if "answered" in json.load(sys.stdin) else "held")'; }
+touch -- "$latency_hold"
+type_keys -M logo -M shift -k t -m shift -m logo || fail "the held-answer browser open failed"
+expect_poll "the held-answer browser reads cards" true latency_theme_value loaded
+expect_poll "the held-answer browser holds the keyboard" true latency_theme_value activeFocus
+type_keys latency || fail "the held-answer filter failed"
+expect_poll "the held-answer card is selected" '"latency"' latency_theme_value selectedName
+expect "the held-answer apply starts from a different published theme" "$latency_previous" ipc smoke themeName
+expect "the held-answer reader arms" ok ipc theme-latency themeLatencyBegin theme latency "file://$home/.config/vgshell/themes/latency/backgrounds/a.jpg"
+type_keys -k Return || fail "the held-answer apply key failed"
+expect_poll "the browser closes on the publish while the answer is held" 0 layer_count vgs:overlay
+expect "the apply answer is still held after the browser closed" held latency_answer_state
+rm -- "${latency_hold:?}"
+expect "the queue settles once the answer is released" idle theme_idle
+latency_held="$(latency_split "$(latency_read)")" || fail "the held-answer reading is unreadable"
+printf 'theme-latency: reading=held-answer value=%s\n' "$latency_held"
+printf 'theme-latency: split=%s\n' "$(latency_split_line "$latency_held")"
+expect "the held-answer browser closed before the answer" publish latency_close_on_publish "$latency_held"
+latency_planted="$(printf '%s' "$latency_held" | py_reply 'import json,sys; x=json.load(sys.stdin); a=x.get("answered", x.get("uncovered", 0)); x["answered"]=a; x["uncovered"]=a+1; print(json.dumps(x))')" || latency_planted=unread
+expect "the close check rejects a browser removed after the answer" answer latency_close_on_publish "$latency_planted"
+latency_previous=latency
 
 type_keys -M logo -M shift -k w -m shift -m logo || fail "the wallpaper browser open failed"
 expect_poll "the wallpaper browser reads cards" true latency_wall_value loaded

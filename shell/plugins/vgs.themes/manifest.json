@@ -27,9 +27,9 @@
     "surfaces",
     "theme",
     "tui",
+    "notify",
     "requirements",
-    "status",
-    "ipc"
+    "status"
   ],
   "settings": {
     "placement": "top-right",

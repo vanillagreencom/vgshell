@@ -15,7 +15,9 @@ import "BrowserLogic.js" as BrowserLogic
 // download lane, shows its progress from `last.downloading` and applies the
 // theme again, so its first wallpaper shows. A step that fails leaves the
 // view open with a line naming it and the reason; a step that succeeds and
-// offers nothing asks the browser to close.
+// offers nothing asks the browser to close. An apply that changes the
+// displayed theme asks it on the publish, before the answer, and hands the
+// answer to the service, which reports a failure or a partial apply.
 //
 // Keys: Left, Right, Home, End and the wheel move through the rail, and Up
 // and Down step as Left and Right do. Tab and Shift+Tab switch the top
@@ -57,7 +59,9 @@ FocusScope {
     readonly property var selected: carousel.currentIndex >= 0 && carousel.currentIndex < shownCards.length ? shownCards[carousel.currentIndex] : null
 
     // The step this view runs, { step, name } with `step` `install`,
-    // `apply` or `download`, or null.
+    // `apply` or `download`, or null. An apply also holds `shown`, whether
+    // its theme was displayed when it started, and `downloaded`, whether it
+    // follows a wallpaper download.
     property var job: null
     // Only a successful catalog install lends its imagery to an installed
     // card before the catalog's installed flag has caught up.
@@ -171,8 +175,11 @@ FocusScope {
     // Apply NAME; once the refreshed cards hold its catalog state, offer its
     // wallpapers or ask to close.
     function apply(name, downloaded = false) {
-        job = { step: "apply", name: name };
+        const started = { step: "apply", name: name, shown: Theme.name === name, downloaded: downloaded };
+        job = started;
         const reply = shell.theme.apply(name, result => {
+            // An apply handed over on the publish is the service's to report.
+            if (root.job !== started) return;
             const line = BrowserLogic.problem("apply", name, result);
             if (!BrowserLogic.applied(result)) {
                 root.finish(line);
@@ -190,13 +197,30 @@ FocusScope {
         }
         pendingApply = null;
         root.refresh(() => {
-            const found = root.cards.find(c => c.name === name) || null;
-            const card = found === null ? null : Object.assign({}, found, { installed: true, displayed: true,
-                imagery: found.imagery === null ? root.installedImagery[name] || null : found.imagery });
+            const card = root.appliedCard(name);
             root.finish(line);
             if (!downloaded && BrowserLogic.downloadOffer(card)) root.offer = card;
             else if (line === "") root.closeRequested();
         });
+    }
+
+    // NAME's card as applied: displayed and installed, with the imagery a
+    // catalog install lent it before the catalog caught up; null for none.
+    function appliedCard(name) {
+        const found = cards.find(c => c.name === name) || null;
+        return found === null ? null : Object.assign({}, found, { installed: true, displayed: true,
+            imagery: found.imagery === null ? installedImagery[name] || null : found.imagery });
+    }
+
+    // Theme published the running apply's package: ask the service to
+    // report the answer, then close. A refused hand-over throws with the
+    // job still running, so the answer ends the apply as before.
+    function handOver() {
+        const reply = shell.ipc.call("report-apply", job.name);
+        if (reply !== "ok") throw new Error("themes: report-apply " + reply);
+        refresh();
+        finish("");
+        closeRequested();
     }
 
     function download() {
@@ -250,6 +274,7 @@ FocusScope {
         target: Theme
         function onDocumentRevisionChanged() {
             if (root.pendingApply !== null) root.completeApply(root.pendingApply.name, root.pendingApply.line, root.pendingApply.downloaded);
+            else if (BrowserLogic.closesOnPublish(root.job, Theme.name, root.job === null ? null : root.appliedCard(root.job.name))) root.handOver();
             else if (!root.busy) root.refresh();
         }
     }
