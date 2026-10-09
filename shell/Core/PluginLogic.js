@@ -3845,6 +3845,38 @@ function builtinOwner(config, manifests, defaultBarId, builtinNames, id) {
         && builtinNames.indexOf(id.slice(prefix.length)) !== -1 ? bar : null;
 }
 
+// The family of registration NAME, `<family>-<n>` with FAMILY one of
+// FAMILIES and n a positive integer, or "" for any other name. A bar draws
+// one builtin per placed member, such as one gap per gap entry.
+function builtinFamilyOf(name, families) {
+    var match = /^([a-z][a-z0-9]*)-([1-9][0-9]*)$/.exec(name);
+    return match !== null && Array.isArray(families) && families.indexOf(match[1]) !== -1 ? match[1] : "";
+}
+
+// The member names of FAMILIES under bar BARID that CONFIG's layout places,
+// each once, in section order. With a bar's fixed names they make the
+// catalogue builtinOwner reads.
+function placedFamilyNames(config, barId, families) {
+    var prefix = barId + "/";
+    var out = [];
+    layoutIds(config).forEach(function (id) {
+        var name = id.slice(0, prefix.length) === prefix ? id.slice(prefix.length) : "";
+        if (builtinFamilyOf(name, families) !== "" && out.indexOf(name) === -1) out.push(name);
+    });
+    return out;
+}
+
+// The member of FAMILY under bar BARID that CONFIG places nowhere: one past
+// the highest placed number, so a removed member's name is not reused while
+// a later one stands.
+function nextFamilyName(config, barId, family) {
+    var highest = 0;
+    placedFamilyNames(config, barId, [family]).forEach(function (name) {
+        highest = Math.max(highest, Number(name.slice(family.length + 1)));
+    });
+    return family + "-" + (highest + 1);
+}
+
 // One section order for enabled plugin widgets and advertised builtins.
 // A registration has one object, so only its first placement is drawn.
 function effectiveLayout(config, manifests, defaultBarId, builtinNames) {
@@ -4058,6 +4090,21 @@ function withMoved(user, manifest, from, section, index, effective, id) {
     var target = out.bar.layout[section];
     var at = Math.max(0, Math.min(index, target.length));
     target.splice(at, 0, entry);
+    return out;
+}
+
+// The user-file change that adds a new layout entry for builtin ID at
+// INDEX of SECTION, the target section's entry index, as barDropIndex
+// answers it with no source entry. The caller checks placedRefusal and
+// that no entry holds ID first.
+function withBuiltinAt(user, id, section, index, effective) {
+    var out = isPlainObject(user) ? clone(user) : {};
+    if (out.version === undefined) out.version = CONFIG_VERSION;
+    seedUserBar(out, effective);
+    if (!isPlainObject(out.bar.layout)) out.bar.layout = { left: [], center: [], right: [] };
+    if (!Array.isArray(out.bar.layout[section])) out.bar.layout[section] = [];
+    var target = out.bar.layout[section];
+    target.splice(Math.max(0, Math.min(index, target.length)), 0, { id: id });
     return out;
 }
 

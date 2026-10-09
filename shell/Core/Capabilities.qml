@@ -172,7 +172,8 @@ Singleton {
         }),
         panes: ctx => root.panesProvider(ctx),
         builtins: ctx => ({
-            register: (name, item) => Plugins.recordBuiltin(ctx, name, item)
+            register: (name, item) => Plugins.recordBuiltin(ctx, name, item),
+            add: (family, x) => Plugins.addBuiltin(ctx, family, x)
         }),
         surfaces: ctx => ({
             summon: (kind, payloadJson, anchor) => root.surfaceRoute(ctx, "summon", kind, payloadJson, anchor),
