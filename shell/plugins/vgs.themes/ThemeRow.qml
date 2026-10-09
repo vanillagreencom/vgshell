@@ -6,8 +6,7 @@ import qs.Ui
 // uninstalled catalog row runs its action, and a row with neither is not a
 // click target. The row shows the package name, source or catalog metadata,
 // badges, a swatch, an optional RowAction and problem lines; the action
-// and the lines start at the row's text column, `stack.row` under the row
-// and each other.
+// sits inside the item. Problem lines start at the row's text column.
 Column {
     id: root
 
@@ -78,63 +77,94 @@ Column {
         highlighted: root.selected
         cursor: root.cursor
         enabled: root.applicable || (root.actionLabel !== "" && root.actionEnabled)
+        topPadding: Theme.stack.row
+        bottomPadding: Theme.stack.row
         onPointed: root.pointed(root.rowKey)
         onClicked: root.activate()
-        trailing: [
-            Badge { visible: root.displayed; text: "Displayed"; tone: "accent" },
-            Badge { visible: root.installed; text: "Installed"; tone: "accent" },
-            Badge { visible: root.modified; text: "Modified"; tone: "warning" },
-            Badge { visible: root.applying; text: "Applying"; tone: "info" },
-            Badge { visible: root.definitionUpdate; text: "Update"; tone: "warning" },
-            Badge { visible: root.imageryUpdate; text: "Wallpaper update"; tone: "warning" },
-            Badge { visible: root.packageState === "shadowed"; text: "Hidden by another copy"; tone: "neutral" },
-            Badge { visible: root.packageState === "refused"; text: "Unavailable"; tone: "danger" },
-            Row {
-                visible: root.busyText !== ""
-                spacing: Theme.control.gap
-                anchors.verticalCenter: parent.verticalCenter
-                Spinner { anchors.verticalCenter: parent.verticalCenter }
-                Label {
-                    role: "hint"
-                    text: root.busyText
-                    anchors.verticalCenter: parent.verticalCenter
-                }
-            },
-            Row {
-                visible: root.secondaryShortcutShown
-                spacing: Theme.space.xxs
-                anchors.verticalCenter: parent.verticalCenter
-                KeyCaps {
-                    anchors.verticalCenter: parent.verticalCenter
-                    shortcut: "ALT+D"
-                }
-            },
-            Row {
-                visible: root.swatch !== null
-                spacing: Theme.stack.row
-                anchors.verticalCenter: parent.verticalCenter
-                Repeater {
-                    model: root.swatch === null ? [] : Object.keys(root.swatch)
-                    Surface {
-                        required property string modelData
-                        width: Theme.icon.size.sm
-                        height: Theme.icon.size.sm
-                        radius: Theme.radius.sm
-                        color: root.swatch[modelData]
+        contentItem: Item {
+            implicitHeight: body.implicitHeight
+            Icon {
+                name: row.iconName
+                size: Theme.icon.size.md
+                color: row.highlighted ? Theme.listItem.selectedForeground : Theme.color.textMuted
+            }
+            Item {
+                id: body
+                x: row.textStart - row.leftPadding
+                width: parent.width - x
+                implicitHeight: details.y + details.height
+                Column {
+                    id: names
+                    width: parent.width
+                    spacing: Theme.row.lineGap
+                    Label {
+                        role: "item"
+                        text: root.name
+                        textFormat: Text.PlainText
+                        width: parent.width
+                        wrapMode: Text.Wrap
+                        color: row.highlighted ? Theme.listItem.selectedForeground : Theme.color.text
+                    }
+                    Label {
+                        role: "itemHint"
+                        text: row.secondary
+                        textFormat: Text.PlainText
+                        width: parent.width
+                        wrapMode: Text.Wrap
                     }
                 }
+                Flow {
+                    id: details
+                    y: action.visible ? action.y + action.height + Theme.row.lineGap : names.height + Theme.row.lineGap
+                    width: parent.width
+                    spacing: Theme.listItem.gap
+                    Badge { visible: root.displayed; text: "Displayed"; tone: "accent" }
+                    Badge { visible: root.installed; text: "Installed"; tone: "accent" }
+                    Badge { visible: root.modified; text: "Modified"; tone: "warning" }
+                    Badge { visible: root.applying; text: "Applying"; tone: "info" }
+                    Badge { visible: root.definitionUpdate; text: "Update"; tone: "warning" }
+                    Badge { visible: root.imageryUpdate; text: "Wallpaper update"; tone: "warning" }
+                    Badge { visible: root.packageState === "shadowed"; text: "Hidden by another copy"; tone: "neutral" }
+                    Badge { visible: root.packageState === "refused"; text: "Unavailable"; tone: "danger" }
+                    Row {
+                        visible: root.busyText !== ""
+                        spacing: Theme.control.gap
+                        Spinner { anchors.verticalCenter: parent.verticalCenter }
+                        Label {
+                            role: "hint"
+                            text: root.busyText
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+                    KeyCaps { visible: root.secondaryShortcutShown; shortcut: "ALT+D" }
+                    Row {
+                        visible: root.swatch !== null
+                        spacing: Theme.stack.row
+                        Repeater {
+                            model: root.swatch === null ? [] : Object.keys(root.swatch)
+                            Surface {
+                                required property string modelData
+                                width: Theme.icon.size.sm
+                                height: Theme.icon.size.sm
+                                radius: Theme.radius.sm
+                                color: root.swatch[modelData]
+                            }
+                        }
+                    }
+                }
+                // keyboard-path: the owning list runs this secondary action with Alt+D on the selected row
+                RowAction {
+                    id: action
+                    y: names.height + Theme.row.lineGap
+                    visible: root.actionLabel !== ""
+                    text: root.actionLabel
+                    width: Math.min(implicitWidth, parent.width)
+                    enabled: root.actionEnabled
+                    focusPolicy: Qt.NoFocus
+                    onClicked: root.actionRequested()
+                }
             }
-        ]
-    }
-
-    // keyboard-path: the owning list runs this secondary action with Alt+D on the selected row
-    RowAction {
-        visible: root.actionLabel !== ""
-        x: row.textStart
-        text: root.actionLabel
-        enabled: root.actionEnabled
-        focusPolicy: Qt.NoFocus
-        onClicked: root.actionRequested()
+        }
     }
 
     Repeater {
