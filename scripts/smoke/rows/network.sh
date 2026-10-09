@@ -47,7 +47,10 @@ PYCALLS
 net_qr_state() { ipc smoke networkShare "$1" | py_reply 'import json,sys; s=sys.stdin.read().strip(); r=json.loads(s) if s.startswith("{") else None; print("ready" if r and r["state"]=="ready" and r["side"]==3 and r["visible"] and r["moduleSize"]>0 and int(r["moduleSize"])==r["moduleSize"] else s)'; }
 # Network shares a Wi-Fi QR image. It opens no screen-capture session.
 net_qr_owner_count() { ipc smoke readDescendant panel vgs.network NetworkBody shareTarget | py_reply 'import json,sys; s=sys.stdin.read().strip(); print(0 if s=="absent" else int(json.loads(s) is not None))'; }
-net_qr_released() { expect_poll "$1: Wi-Fi sharing releases its QR owner" 0 net_qr_owner_count; }
+net_qr_released() {
+  expect_poll "$1: Wi-Fi sharing releases its QR owner" 0 net_qr_owner_count
+  printf 'network-lifetime: case=%s qrOwners=%s\n' "$1" "$(net_qr_owner_count)"
+}
 net_qr_encoder_ready() { if [[ -f $net_qr_dir/ready ]]; then echo yes; else echo no; fi; }
 net_menu_selection() { ipc smoke menus panel vgs.network | py_reply 'import json,sys; print(json.dumps([m["current"] for m in json.load(sys.stdin) if m["opened"]]))'; }
 # Menu.opened can precede its native keyboard focus. End is idempotent:

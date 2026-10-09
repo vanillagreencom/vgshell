@@ -102,7 +102,10 @@ if not (request is None or isinstance(request,dict)) or not isinstance(previews,
 print(json.dumps({"pickerRequests":int(request is not None),"previewOwners":len(previews)},sort_keys=True))
 PY
 }
-share_owner_released() { expect_poll "$1: VGS releases its request and preview" '{"pickerRequests": 0, "previewOwners": 0}' share_owner_counts; }
+share_owner_released() {
+  expect_poll "$1: VGS releases its request and preview" '{"pickerRequests": 0, "previewOwners": 0}' share_owner_counts
+  printf 'picker-lifetime: case=%s counts=%s\n' "$1" "$(share_owner_counts)"
+}
 share_replacement_released() {
   if [[ $(share_result "$1") == cancelled && $(share_cancelled "$2") == True ]]; then echo True; else echo False; fi
 }
@@ -561,7 +564,10 @@ share_app_start() {
 # Isolated PipeWire has no device discovery. These are the portal's video
 # source nodes, not Hyprland's retained managed screenshare sessions.
 share_stream_count() { "${share_portal_env[@]}" pw-dump | py_reply 'import json,sys; rows=json.load(sys.stdin); print(sum(r.get("type")=="PipeWire:Interface:Node" and (r.get("info") or {}).get("props",{}).get("media.class")=="Video/Source" for r in rows))'; }
-share_stream_released() { expect_poll "$1: the portal releases its video-source nodes" 0 share_stream_count; }
+share_stream_released() {
+  expect_poll "$1: the portal releases its video-source nodes" 0 share_stream_count
+  printf 'portal-lifetime: case=%s videoSourceNodes=%s\n' "$1" "$(share_stream_count)"
+}
 share_app_source() { python3 - "$share_world/app-$1.json" "$2" "$3" "$4" <<'PY'
 import json,pathlib,sys
 p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text()) if p.exists() else {}; rows=d.get("streams",[])

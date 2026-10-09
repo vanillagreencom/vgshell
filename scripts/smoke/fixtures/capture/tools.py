@@ -128,6 +128,7 @@ match tool:
                 signal.pause()
     case "gpu-screen-recorder":
         target = Path(sys.argv[sys.argv.index("-o") + 1])
+        (root / "owned-recorder").write_text(str(os.getpid()))
         print(f"fixture recorder started {target.name}", file=sys.stderr, flush=True)
         if config.get("portalCancel"):
             # The recorder's exit when the user cancels the portal picker.
