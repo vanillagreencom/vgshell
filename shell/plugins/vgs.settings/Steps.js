@@ -22,7 +22,7 @@ function requirementApplies(requirement) {
 }
 
 // The words a `presence` value reads as on the page.
-var PRESENCE_WORDS = { present: "Present", absent: "Absent", locked: "Locked", unavailable: "Unavailable", unsafe: "Unsafe" };
+var PRESENCE_WORDS = { present: "Present", absent: "Absent", locked: "Locked", unavailable: "Unavailable", unsafe: "Unsafe", "signed-out": "Signed out" };
 
 // A schema field's guidance: its fixed description, or the live hint of
 // its declared state row. Discovery and disabled plugins report no state.

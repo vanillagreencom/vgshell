@@ -785,7 +785,7 @@ class Accounts {
      * typed facts AccountStatus.js words its hint from, whether Sign in
      * serves it (a signed-out account of a provider with a sign-in), the
      * brain choices, and the search's found count and partial reason. No
-     * reason code leaves. A signed-out account reads absent. The brain
+     * reason code leaves. A signed-out account reads signed-out. The brain
      * choices are the accounts accepted() takes, grouped by
      * provider and sorted by email: a harness with one account reads as its
      * name; with more accounts it reads each by the sign-in email, or by the
@@ -797,7 +797,7 @@ class Accounts {
             const out = signedOut(item.source, item.state.kind);
             let value;
             switch (item.state.kind) {
-            case "found": case "unchecked": case "signed-in": case "verifying": case "verified": value = out ? "absent" : "present"; break;
+            case "found": case "unchecked": case "signed-in": case "verifying": case "verified": value = out ? "signed-out" : "present"; break;
             case "locked": value = "locked"; break;
             case "unavailable": value = "unavailable"; break;
             default: fail("state=unknown");

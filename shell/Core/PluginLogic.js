@@ -126,8 +126,8 @@ var STATUS_MAX_BYTES = 65536;
 // A `presence` value, and the badge tone Settings draws it with: the thing is
 // stored and readable; not stored; stored but locked, so a background probe
 // cannot read it without prompting; its store cannot be asked; stored where
-// another user can read it.
-var STATUS_PRESENCE_TONES = { present: "success", absent: "warning", locked: "info", unavailable: "neutral", unsafe: "danger" };
+// another user can read it; an account that is there but signed out.
+var STATUS_PRESENCE_TONES = { present: "success", absent: "warning", locked: "info", unavailable: "neutral", unsafe: "danger", "signed-out": "warning" };
 // A `state` value's `tone`, and the badge tone Settings draws it with.
 var STATUS_STATE_TONES = { ok: "success", info: "info", warning: "warning", danger: "danger" };
 // The keys a `state` value carries. `action` is its writer's to decide
@@ -197,8 +197,10 @@ var SECRET_ACCOUNT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/;
 var SECRET_VALUE_MAX = 4096;
 // What the Settings page offers a `presenceList` item with a `secret`, by
 // its presence: Connect while nothing is stored, Disconnect while something
-// is, and nothing while the store cannot be asked.
-var SECRET_ACCESS = { absent: "connect", present: "disconnect", locked: "disconnect", unsafe: "disconnect", unavailable: "" };
+// is, and nothing while the store cannot be asked. A signed-out account takes
+// a new credential, so it offers Connect: a store whose attributes match an
+// item updates that item (libsecret secret_password_store).
+var SECRET_ACCESS = { absent: "connect", present: "disconnect", locked: "disconnect", unsafe: "disconnect", unavailable: "", "signed-out": "connect" };
 var SECRET_VERBS = { store: "connect", clear: "disconnect" };
 var SECRET_REASONS = ["undeclared", "disabled", "unlisted", "not-offered", "value", "busy"];
 

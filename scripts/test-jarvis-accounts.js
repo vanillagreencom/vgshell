@@ -572,7 +572,7 @@ world(async () => {
     }
     cases++;
     // A signed-out folder, the vendor's own not logged in answer, is listed
-    // absent, with Sign in for a provider that has one, and is neither
+    // signed-out, with Sign in for a provider that has one, and is neither
     // offered nor chosen; signed in, it is offered and chosen. A Copilot
     // folder, which no status command checks, stays offered.
     const copilotWorld = worldOf("copilot");
@@ -590,7 +590,7 @@ world(async () => {
                     const at = rows.findIndex(row => row.source.directory === folder);
                     assert.ok(at >= 0, label + "fixture folder");
                     assert.deepEqual([rows[at].state.kind, status.accounts[at].state, status.accounts[at].value, status.accounts[at].signIn],
-                        [state, state, out ? "absent" : "present", out], label + "listed");
+                        [state, state, out ? "signed-out" : "present", out], label + "listed");
                     assert.equal(status.brains.some(choice => choice.value === rows[at].id), !out, label + "offered");
                     assert.deepEqual(judge.choose(rows[at].id), out ? { kind: "refused", cause: "signed-out" }
                         : { kind: "accepted", account: { id: rows[at].id, provider: name, label: rows[at].label, source: rows[at].source, model: "" } },
@@ -611,7 +611,8 @@ world(async () => {
     for (const [name, needle, replacement] of [
         ["signed-out-accepted", 'if (signedOut(resolved.source, state)) return { kind: "refused", cause: "signed-out" };', ""],
         ["signed-out-choice-unchecked", "accepted(resolved, account.state.kind);", "accepted(resolved, null);"],
-        ["signed-out-reads-present", 'value = out ? "absent" : "present";', 'value = "present";'],
+        ["signed-out-reads-present", 'value = out ? "signed-out" : "present";', 'value = "present";'],
+        ["signed-out-reads-absent", 'value = out ? "signed-out" : "present";', 'value = out ? "absent" : "present";'],
         ["signed-out-no-sign-in", "signIn: out && Array.isArray(row.signIn) };", "signIn: false };"],
         ["copilot-signed-out", 'return source.kind === "cli" && state === "found";', 'return source.kind === "cli" && ["found", "unchecked"].includes(state);']]) {
         await mutant("backend/Accounts.js", name, needle, replacement, folder => signedOutRule(judgeIn(folder)));

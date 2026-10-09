@@ -249,6 +249,7 @@ function suite(ctx, check) {
         ["a presence value locked", "token", "locked", "ok"],
         ["a presence value unavailable", "token", "unavailable", "ok"],
         ["a presence value unsafe", "token", "unsafe", "ok"],
+        ["a presence value signed-out", "token", "signed-out", "ok"],
         ["a presence value outside the set", "token", "stored", "refused: status=token reason=type"],
         ["a presence value that is a boolean", "token", true, "refused: status=token reason=type"],
         ["a presence value that is an inherited key", "token", "toString", "refused: status=token reason=type"],
@@ -388,20 +389,21 @@ function suite(ctx, check) {
     check("statusRows: an offered TUI action names its TUI", actionTuis({ token: "absent" }), [["token", "setup"], ["check", ""]]);
     check("statusRows: an action not offered names no TUI", actionTuis({ token: "present" }), [["token", ""], ["check", ""]]);
     check("statusRows: nothing published offers no action", actionsOffered({}), [["token", false], ["check", false]]);
-    for (const [presence, want] of [["absent", true], ["present", false], ["locked", false], ["unavailable", false], ["unsafe", false]])
+    for (const [presence, want] of [["absent", true], ["present", false], ["locked", false], ["unavailable", false], ["unsafe", false], ["signed-out", false]])
         check("statusRows: a presence " + presence + (want ? " offers" : " offers no") + " action", actionsOffered(ctx.statusWrite(m, {}, "token", presence).values)[0], ["token", want]);
     check("statusRows: a state that says so offers its action", actionsOffered(ctx.statusWrite(m, {}, "check", { tone: "warning", text: "t", action: true }).values)[1], ["check", true]);
     check("statusRows: a state that says no offers none", actionsOffered(ctx.statusWrite(m, {}, "check", { tone: "warning", text: "t", action: false }).values)[1], ["check", false]);
     check("statusRows: a state that says nothing offers none", actionsOffered(ctx.statusWrite(m, {}, "check", { tone: "warning", text: "t" }).values)[1], ["check", false]);
     // A presence list's row carries each item with its own tone, an omitted
     // hint as "", and no tone of its own.
-    const listed = ctx.statusRows(m, ctx.statusWrite(m, {}, "tokens", [{ label: "Acme (acme)", value: "present", secret: "acme:T1" }, { label: "Globex", value: "locked", hint: "Served elsewhere", secret: "acme:T2" }, { label: "Initech", value: "absent", secret: "acme:T3" }, { label: "Hooli", value: "unavailable", secret: "acme:T4" }, { label: "Umbrella", value: "unsafe", secret: "acme:T5" }, { label: "Plain", value: "absent" }]).values, [])[1];
+    const listed = ctx.statusRows(m, ctx.statusWrite(m, {}, "tokens", [{ label: "Acme (acme)", value: "present", secret: "acme:T1" }, { label: "Globex", value: "locked", hint: "Served elsewhere", secret: "acme:T2" }, { label: "Initech", value: "absent", secret: "acme:T3" }, { label: "Hooli", value: "unavailable", secret: "acme:T4" }, { label: "Umbrella", value: "unsafe", secret: "acme:T5" }, { label: "Oscorp", value: "signed-out", secret: "acme:T6" }, { label: "Plain", value: "absent" }]).values, [])[1];
     check("statusRows: a presence list carries each item with its tone and its secret's access", [listed.report, listed.tone, listed.value], ["reported", "", [
         { label: "Acme (acme)", value: "present", hint: "", tone: "success", secret: "acme:T1", access: "disconnect" },
         { label: "Globex", value: "locked", hint: "Served elsewhere", tone: "info", secret: "acme:T2", access: "disconnect" },
         { label: "Initech", value: "absent", hint: "", tone: "warning", secret: "acme:T3", access: "connect" },
         { label: "Hooli", value: "unavailable", hint: "", tone: "neutral", secret: "acme:T4", access: "" },
         { label: "Umbrella", value: "unsafe", hint: "", tone: "danger", secret: "acme:T5", access: "disconnect" },
+        { label: "Oscorp", value: "signed-out", hint: "", tone: "warning", secret: "acme:T6", access: "connect" },
         { label: "Plain", value: "absent", hint: "", tone: "warning", secret: "", access: "" }
     ]]);
     check("statusRows: an empty presence list is reported empty", ctx.statusRows(m, ctx.statusWrite(m, {}, "tokens", []).values, [])[1].value, []);
@@ -411,7 +413,7 @@ function suite(ctx, check) {
     // The tone tables: each presence and state value has one badge tone, the
     // set the Badge component draws.
     const badges = ["neutral", "accent", "success", "warning", "danger", "info"];
-    check("statusTone: presence tones", ["present", "absent", "locked", "unavailable", "unsafe"].map(v => ctx.statusTone("presence", v)), ["success", "warning", "info", "neutral", "danger"]);
+    check("statusTone: presence tones", ["present", "absent", "locked", "unavailable", "unsafe", "signed-out"].map(v => ctx.statusTone("presence", v)), ["success", "warning", "info", "neutral", "danger", "warning"]);
     check("statusTone: state tones", ["ok", "info", "warning", "danger"].map(t => ctx.statusTone("state", { tone: t, text: "t" })), ["success", "info", "warning", "danger"]);
     check("statusTone: every tone is a badge tone", Object.values(ctx.STATUS_PRESENCE_TONES).concat(Object.values(ctx.STATUS_STATE_TONES)).every(t => badges.indexOf(t) !== -1), true);
     check("statusTone: a text type has none", ["text", "count", "time"].map(t => ctx.statusTone(t, 1)), ["", "", ""]);
@@ -681,6 +683,8 @@ const CONTROLS = [
     ["an unreported row says so", "report: reported ? \"reported\" : \"unreported\",", "report: \"reported\","],
     ["a presence has its tone", "if (type === \"presence\") return STATUS_PRESENCE_TONES[value];", "if (type === \"presence\") return \"neutral\";"],
     ["a locked presence is info", "locked: \"info\"", "locked: \"warning\""],
+    ["a signed-out presence is admitted", "unsafe: \"danger\", \"signed-out\": \"warning\" }", "unsafe: \"danger\" }"],
+    ["a signed-out presence is a warning", "\"signed-out\": \"warning\"", "\"signed-out\": \"neutral\""],
     ["a state has its tone", "if (type === \"state\") return STATUS_STATE_TONES[value.tone];", "if (type === \"state\") return \"neutral\";"],
     ["a write fits its declaration", "|| !statusDeclarationFits(manifest, manifest.status[key], value))", ")"],
     ["null clears a non-data value", "if (value === null && manifest.status[key].type !== \"data\") {", "if (false) {"],
@@ -695,6 +699,7 @@ const CONTROLS = [
     ["a row item carries its secret", "secret: item.secret === undefined ? \"\" : item.secret,", "secret: \"\","],
     ["a row item's access follows its presence", "access: item.secret === undefined ? \"\" : SECRET_ACCESS[item.value]", "access: item.secret === undefined ? \"\" : \"connect\""],
     ["a locked secret disconnects", "locked: \"disconnect\"", "locked: \"\""],
+    ["a signed-out secret connects", "\"signed-out\": \"connect\"", "\"signed-out\": \"\""],
     ["a presence offers its action while absent", "case \"presence\": return value === \"absent\" ? entry.action : null;", "case \"presence\": return entry.action;"],
     ["a state offers its action while it says so", "return value.action === true ? entry.action : null;", "return entry.action;"],
     ["a state offers the one of its actions it names", "return typeof value.action === \"string\" ? entry.actions[value.action] : null;", "return entry.actions[Object.keys(entry.actions)[0]];"],
