@@ -104,18 +104,22 @@ Item {
             const header = title.parent.parent;
             tryVerify(() => view.contentHeight > view.height);
             const headerBottom = header.mapToItem(panel, 0, header.height).y;
+            const headerInset = header.mapToItem(panel, 0, 0).y;
+            const stickyGap = headerInset + Theme.divider.thickness
+                + Theme.focusRing.width + Theme.focusRing.offset;
+            const boundary = headerBottom + stickyGap;
             const viewTop = view.mapToItem(panel, 0, 0).y;
-            compare(viewTop, headerBottom, "the shipped viewport starts at the actual header bottom");
+            compare(viewTop, boundary, "the shipped viewport starts below the shared sticky header region");
             compare(view.mapToItem(panel, 0, view.height).y, panel.height,
                 "the shipped viewport reaches the panel bottom in its available room");
-            compare(scroll.parent.mapToItem(panel, 0, 0).y, headerBottom,
+            compare(scroll.parent.mapToItem(panel, 0, 0).y, boundary,
                 "the list frame starts at the same boundary");
             verify(view.clip, "the shipped viewport clips its content");
             const masks = Array.from(scroll.children).filter(child => child.gradient !== undefined);
             compare(masks.length, 1, "one alpha gradient owns both list edges");
             const mask = masks[0];
-            compare(mask.mapToItem(panel, 0, 0).y, headerBottom,
-                "the alpha mask starts at the actual header bottom");
+            compare(mask.mapToItem(panel, 0, 0).y, boundary,
+                "the alpha mask starts below the shared sticky header region");
             compare(mask.height, view.height);
             compare(mask.gradient.stops[0].position, 0, "the gradient starts at the clip edge");
 
@@ -136,7 +140,7 @@ Item {
                 const x = Math.floor(view.mapToItem(scene, 10, 0).x);
                 const edge = Math.floor(view.mapToItem(scene, 0, 0).y);
                 for (const distance of [1, 8, 15]) {
-                    compare(painted.red(x, edge - distance), 0, "no painted card strip escapes above the header boundary");
+                    compare(painted.red(x, edge - distance), 0, "no painted card strip escapes above the viewport boundary");
                     compare(painted.blue(x, edge - distance), 0);
                 }
                 if (row.progress === 0) {
@@ -146,7 +150,7 @@ Item {
                     const middle = painted.red(x, edge + Math.floor(scroll.fadeExtent / 2));
                     const centre = painted.red(x, edge + Math.ceil(scroll.fadeExtent));
                     verify(near < 8 && middle > near && middle < centre,
-                        "one smooth painted fade rises from the header boundary");
+                        "one smooth painted fade rises from the viewport boundary");
                     compare(centre, 255);
                     compare(painted.green(x, edge + 1), 0, "the gradient adds no colour");
                     compare(painted.blue(x, edge + 1), near, "the gradient changes alpha only");

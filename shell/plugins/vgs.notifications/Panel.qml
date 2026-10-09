@@ -267,7 +267,7 @@ FocusScope {
         container: "panel"
         padding: 0
         cornerRadius: 0
-        // The list viewport, its clip and its alpha mask share the header's bottom.
+        // The list viewport, clip and alpha mask start below the shared sticky header region.
         gap: 0
 
         header: [

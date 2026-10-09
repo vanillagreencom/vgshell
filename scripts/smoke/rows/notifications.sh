@@ -5,7 +5,7 @@
 # through the probe, its state file, the compositor and the lending record.
 # No owner data reaches it: every notification here is made up. The row ends
 # with the plugin disabled and every registration released.
-# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json
+# inputs: shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 note_state="$home/.local/state/vgshell/notifications/state.json"
@@ -1636,10 +1636,10 @@ rescan "a rescan restores the drawer gear"
 expect_poll "the restored notification service is built" True record_exists vgs.notifications
 
 # The inbox's content against the panel's own box, the size the panel asks
-# for: the header, the card list, its scroll bar and the key hints inside
+# for: the header, the card list and its scroll bar inside
 # it, every card inside the list and the panel across, and the list and its
-# first card below the header. The list clips what it scrolls, so the first
-# card of a list just opened also starts inside the list's own top: a card
+# first card below the shared sticky header region. The list clips its
+# scrolling cards. The first card of a list just opened starts inside its top: a card
 # between the header's bottom and the list's top shows its top edge cut.
 # The list reaches the panel bottom at every scroll. No hint row remains.
 # panel_fit_value reads the panel box and full descendant geometry.
@@ -1681,11 +1681,16 @@ for n, card in enumerate(cards):
     cx, cy, cw, ch = card["box"]
     if cx < vx - 0.5 or cx + cw > vx + vw + 0.5: bad.append("clipped=%s-in-list" % name)
 header_bottom = header["box"][1] + header["box"][3]
-if view["box"][1] < header_bottom - 0.5: bad.append("under-header=list")
+# The divider leaves the measured header inset below the header, then its
+# thickness and the shared focus-ring room. Read theme tokens independently.
+sticky_gap = header["box"][1] - py + sum(map(float, sys.argv[2:5]))
+boundary = header_bottom + sticky_gap
+if vy < boundary - 0.5: bad.append("under-header=list")
+if vy > boundary + 0.5: bad.append("header-gap=list")
 top = min(cards, key=lambda c: c["box"][1])
 if sys.argv[1] != "bottom" and top["box"][1] < header_bottom - 0.5: bad.append("under-header=card")
 if sys.argv[1] != "bottom" and top["box"][1] < view["box"][1] - 0.5: bad.append("cut-top=card")
-print(" ".join(sorted(set(bad))) if bad else "fits")' "${1:-top}"
+print(" ".join(sorted(set(bad))) if bad else "fits")' "${1:-top}" "$(ipc smoke themeValue divider.thickness)" "$(ipc smoke themeValue focusRing.width)" "$(ipc smoke themeValue focusRing.offset)"
 }
 panel_fit() {
   local panel items
@@ -1695,24 +1700,25 @@ panel_fit() {
 }
 # Controls: the readings the predicate must refuse. The clipped one is the
 # panel as it drew before its width followed its column; Appearance.js
-# `card.width`, `stack.pad`, `header.height`, `header.gap`, `card.gap` and
+# `card.width`, `stack.pad`, `header.height`, `card.gap` and
 # `scrollbar.width` provide the planted dimensions. The second puts the
 # first card into the header; the third puts it below the header and above
 # the list top. A reserved footer space must fail the bottom check.
-panel_fit_view_h="$((303 - note_header_height - note_header_gap))"
+panel_fit_header_gap="$(( $(ipc smoke themeValue divider.thickness) + $(ipc smoke themeValue focusRing.width) + $(ipc smoke themeValue focusRing.offset) ))"
+panel_fit_view_h="$((303 - note_header_height - panel_fit_header_gap))"
 panel_fit_reading() { # PANEL_W HEADER_X CARD_Y VIEW_H
   printf '[0, 0, %s, 303]\n' "$1"
   printf '[{"type":"InboxHeader","name":"","box":[%s,0,%s,%s],"visible":true},' "$2" "$note_card_width" "$note_header_height"
-  printf '{"type":"QQuickFlickable","name":"","box":[0,%s,%s,%s],"visible":true},' "$((note_header_height + note_header_gap))" "$((note_card_width + 2 * note_stack_pad))" "$4"
+  printf '{"type":"QQuickFlickable","name":"","box":[0,%s,%s,%s],"visible":true},' "$((note_header_height + panel_fit_header_gap))" "$((note_card_width + 2 * note_stack_pad))" "$4"
   printf '{"type":"NotificationCard","name":"","box":[%s,%s,%s,61],"visible":true},' "$note_stack_pad" "$3" "$note_card_width"
   printf '{"type":"NotificationCard","name":"","box":[%s,129,%s,61],"visible":true}]\n' "$note_stack_pad" "$note_card_width"
 }
 panel_fit_width="$((note_card_width + 2 * note_stack_pad))"
-panel_fit_first_card_y="$((note_header_height + note_header_gap + note_card_gap - note_card_gap / 4))"
+panel_fit_first_card_y="$((note_header_height + panel_fit_header_gap + note_card_gap - note_card_gap / 4))"
 expect "the fit check passes the panel drawn whole" fits panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" "$panel_fit_view_h")
 expect "control: the fit check refuses the clipped panel" "clipped=card0 clipped=card1 clipped=header clipped=list" panel_fit_value < <(panel_fit_reading "$note_card_width" "$note_stack_pad" "$panel_fit_first_card_y" "$panel_fit_view_h")
 expect "control: the fit check refuses a first card under the header" "cut-top=card under-header=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height - note_stack_pad / 4))" "$panel_fit_view_h")
-expect "control: the fit check refuses a first card the list cuts under the header" "cut-top=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height + note_header_gap - note_header_gap / 2))" "$panel_fit_view_h")
+expect "control: the fit check refuses a first card the list cuts under the header" "cut-top=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height + panel_fit_header_gap - panel_fit_header_gap / 2))" "$panel_fit_view_h")
 expect "control: reserved footer space fails the bottom check" "bottom-gap=list" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" "$((panel_fit_view_h - 20))")
 for n in 1 2 3 4 5 6 7 8; do
   notify smoke-app 0 "Fit $n" "A body long enough to wrap onto a second line of the card, so the card is tall" '[]' '{"urgency": <byte 0>}' 0 >/dev/null

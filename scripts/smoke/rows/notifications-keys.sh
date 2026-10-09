@@ -340,7 +340,7 @@ import sys
 p=Path(sys.argv[1]); text=p.read_text()
 needle="                anchors.fill: parent\n"
 assert text.count(needle)==1
-replacement="                anchors { left: parent.left; right: parent.right; top: parent.top; bottom: parent.bottom; bottomMargin: root.look.header.gap }\n"
+replacement="                anchors { left: parent.left; right: parent.right; top: parent.top; bottom: parent.bottom; bottomMargin: Math.max(root.look.header.gap, column.stickyGap) }\n"
 p.write_text(text.replace(needle,replacement))
 PY_BOTTOM_GAP
 rescan "a rescan reads the bottom-gap copy"
