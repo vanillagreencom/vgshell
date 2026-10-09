@@ -133,6 +133,7 @@ const DEFAULTS = [
     ["bar.stacked.icon", 10],
     ["bar.stacked.iconStroke", 1],
     ["bar.scroll.fade", 12],
+    ["bar.scroll.hold", 400],
     // The control and row rhythm, Radix Themes' button sizes on the 4 px
     // unit: 24, 32 and 40 px controls with mul(4, 2) = 8, mul(4, 3) = 12
     // and mul(4, 4) = 16 a side and mul(4, 1) = 4, 8 and mul(4, 3) = 12

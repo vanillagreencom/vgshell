@@ -51,7 +51,9 @@ Singleton {
     property var failedBuilds: Object.create(null)
     // Null, or the current bar-widget drag target for one bar host.
     // `held` is true while the press holds the widget and false while a
-    // release far outside the bar asks whether to remove it.
+    // release far outside the bar asks whether to remove it. `point` is the
+    // drag's last pointer point and `edge` the end of its section's shown
+    // widgets that point stands past (barDragEdge).
     property var barDrag: null
     // The focus grab that holds a bar widget drag's press, or null. It ends
     // with the press, or with the remove question that release opened, not
@@ -343,7 +345,8 @@ Singleton {
         barPressGrab.active = true;
         barDrag = { hostKey: hostKey, id: id, item: item, gap: gap, held: true,
             offset: { x: point.pressX - origin.x, y: point.pressY - origin.y },
-            from: Object.assign({ id: id }, locator), section: locator.section, before: null, index: 0 };
+            from: Object.assign({ id: id }, locator), section: locator.section, before: null, index: 0,
+            point: point, edge: 0 };
         // Visual parenting keeps the QObject and its pointer grab alive;
         // placement.sh reads that identity and holds the same press across it.
         item.parent = bar;
@@ -358,7 +361,12 @@ Singleton {
         const mount = mounts[hostKey];
         const container = sectionContainer(mount.row, section);
         if (container === null) return { x: 0, width: 0, widgets: [] };
-        const sectionPoint = container.mapToItem(null, 0, 0);
+        const drawn = container.mapToItem(null, 0, 0);
+        // A section its bar scrolls slides to the scroll a step asked for,
+        // so its drawn x lags as a sliding neighbour's does. Its widgets
+        // stand from the x it settles at (vgs-plugin references/api.md).
+        const scrolled = typeof container.viewWidth === "number";
+        const sectionPoint = scrolled ? container.parent.mapToItem(null, container.settledX, 0) : drawn;
         const placed = mount.sections[section].placed;
         const widgets = [];
         for (const entry of mount.sections[section].entries) {
@@ -373,11 +381,42 @@ Singleton {
         const geometry = { x: sectionPoint.x, width: container.width, widgets: widgets };
         // A section its bar scrolls names the box it draws in and the part
         // that shows whole widgets (vgs-plugin references/api.md).
-        if (typeof container.viewWidth === "number") {
-            geometry.view = { x: sectionPoint.x + container.viewX, width: container.viewWidth };
-            geometry.shown = { x: sectionPoint.x + container.shownX, width: container.shownWidth };
+        if (scrolled) {
+            geometry.view = { x: drawn.x + container.viewX, width: container.viewWidth };
+            geometry.shown = { x: drawn.x + container.shownX, width: container.shownWidth };
         }
         return geometry;
+    }
+
+    // The end of the widgets CONTAINER shows whole that bar-window X lies
+    // past, while widgets lie hidden beyond that end: -1 for the start, 1
+    // for the end, else 0. Only a section its bar scrolls hides widgets; at
+    // an end that hides some, the part that shows whole widgets is narrower
+    // than the box the section draws in.
+    function barDragEdge(container, x) {
+        if (typeof container.viewWidth !== "number") return 0;
+        const start = container.mapToItem(null, container.shownX, 0).x;
+        if (container.shownX > container.viewX + 0.5 && x < start) return -1;
+        if (container.shownX + container.shownWidth < container.viewX + container.viewWidth - 0.5 && x >= start + container.shownWidth) return 1;
+        return 0;
+    }
+
+    // A drag held past the widgets its section shows whole scrolls that
+    // section one widget every Theme.bar.scroll.hold, through the section's
+    // own `step`; the preview gap stands in that section. A held pointer
+    // sends no motion (BarWidget's DragHandler calls dragMove on a
+    // translation change alone), so each step picks the slot again from the
+    // drag's last point. The binding stops the timer with the drag, a
+    // release that asks included, and at the section's end.
+    Timer {
+        interval: Theme.bar.scroll.hold
+        repeat: true
+        running: root.barDrag !== null && root.barDrag.held && root.barDrag.edge !== 0
+        onTriggered: {
+            const drag = root.barDrag;
+            drag.gap.parent.step(drag.edge);
+            root.dragMove(drag.hostKey, drag.point);
+        }
     }
 
     // A section its bar scrolls shows ITEM, a drag's preview gap or the
@@ -407,6 +446,8 @@ Singleton {
             positionBar(hostKey, barDrag);
             revealInSection(barDrag.gap);
         }
+        // Read after the reveal, whose scroll can hide widgets at an end.
+        barDrag = Object.assign({}, barDrag, { point: point, edge: barDragEdge(barDrag.gap.parent, point.x) });
     }
 
     // The release of a drag: "drop" writes the previewed slot, "ask" keeps

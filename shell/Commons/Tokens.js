@@ -1056,11 +1056,14 @@ var TOKENS = {
         },
         // The < and > buttons of a zone whose widgets do not fit: each a
         // bar item on `backdrop`, beside a fade `fade` wide from
-        // `backdrop` to `clear` over the clipped widgets.
+        // `backdrop` to `clear` over the clipped widgets. A dragged widget
+        // held at a button scrolls the zone one widget every `hold`
+        // milliseconds, a count that motion does not scale.
         scroll: {
             fade: length("{space.lg}"),
             backdrop: color("{bar.background}"),
-            clear: color("alpha({bar.background}, 0)")
+            clear: color("alpha({bar.background}, 0)"),
+            hold: number(400, 0, 5000)
         }
     }
 };

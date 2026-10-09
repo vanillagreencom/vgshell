@@ -174,10 +174,11 @@ Item {
     // its content and draws it alone. A zone that does not fit clips its
     // content to `room` and shows a "<" button at its start while a widget
     // lies hidden before the shown ones, and a ">" button at its end while one
-    // lies hidden after them. The buttons, the wheel over the zone and keyboard
-    // focus on a hidden widget scroll it by whole widgets: each step lands a
-    // widget's edge beside the fade, or at the zone's edge where no button
-    // shows. At rest the widgets nearest the zone's bar edge show.
+    // lies hidden after them. The buttons, the wheel over the zone, keyboard
+    // focus on a hidden widget and a dragged widget held at a button scroll
+    // it by whole widgets: each step lands a widget's edge beside the fade, or
+    // at the zone's edge where no button shows. At rest the widgets nearest
+    // the zone's bar edge show.
     component Zone: Item {
         id: zone
 
@@ -205,14 +206,15 @@ Item {
         readonly property bool moreAfter: clipped && before < travel - 0.5
         // The room a shown button and its fade take from the view.
         readonly property real inset: startScroller.width
-        // The scroll drawn now. Only a step slides it; a content width
-        // change moves the content at once.
-        property real drawnScroll: 0
-        property bool stepping: false
-        onScrollChanged: if (!stepping) {
-            slide.stop();
-            drawnScroll = scroll;
-        }
+        // The scroll drawn now: the scroll and `lag`, how far the drawn
+        // content stands from it. A step leaves the content where it is
+        // drawn and slides the lag to nothing. A content width change moves
+        // the content at once and leaves that slide running: the core moves
+        // a widget between slots through no parent, where it is not visible
+        // (Qt 6.11 QQuickItemPrivate::calcEffectiveVisible), so the content
+        // loses that widget's width and has it back within one turn.
+        property real lag: 0
+        readonly property real drawnScroll: scroll + lag
         // A zone that still fits once the turn that made it fit has ended
         // starts at rest when it clips again.
         function settleFit() {
@@ -224,7 +226,8 @@ Item {
         NumberAnimation {
             id: slide
             target: zone
-            property: "drawnScroll"
+            property: "lag"
+            to: 0
             duration: Theme.motion.duration.normal
             easing.type: Theme.motion.easing.standard
         }
@@ -245,13 +248,11 @@ Item {
         // Scroll so `hidden` of the content lies before the view.
         function scrollTo(hidden) {
             const at = Math.max(0, Math.min(travel, hidden));
-            stepping = true;
+            const drawn = drawnScroll;
+            slide.stop();
             resting = edge === Qt.RightEdge && at >= travel - 0.5;
             held = at;
-            stepping = false;
-            slide.stop();
-            slide.from = drawnScroll;
-            slide.to = scroll;
+            lag = drawn - scroll;
             slide.start();
         }
 
@@ -317,8 +318,10 @@ Item {
 
         // The section the core fills. The core's drop reads the box the
         // zone draws in and the part of it that shows whole widgets, in
-        // section coordinates, and hands `reveal` a drag's preview gap and
-        // the widget it drops.
+        // section coordinates, and `settledX`, the x the section comes to
+        // once a step's slide ends. The core hands `reveal` a drag's preview
+        // gap and the widget it drops, and calls `step` while a drag is held
+        // past the widgets shown whole.
         Item {
             id: section
             readonly property real spacing: Theme.bar.gap
@@ -326,7 +329,9 @@ Item {
             readonly property real viewWidth: zone.width
             readonly property real shownX: -x + (zone.moreBefore ? zone.inset : 0)
             readonly property real shownWidth: zone.width - (zone.moreBefore ? zone.inset : 0) - (zone.moreAfter ? zone.inset : 0)
+            readonly property real settledX: -zone.before
             function reveal(item) { zone.reveal(item); }
+            function step(direction) { zone.step(direction); }
             x: zone.edge === Qt.LeftEdge ? -zone.drawnScroll : zone.width - width + zone.drawnScroll
             height: zone.height
         }
