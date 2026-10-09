@@ -166,10 +166,10 @@ FocusScope {
                     onMoved: index => root.select(index)
                     onActivated: index => root.share()
                 }
+                ListCursor { id: sourceCursor }
                 Column {
                     id: sourceColumn
                     width: parent.width
-                    ListCursor { id: sourceCursor }
                     Repeater {
                         model: root.rows
                         // keyboard-path: sourceKeys moves and activates the list's selection
