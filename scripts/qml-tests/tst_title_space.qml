@@ -46,7 +46,7 @@ Item {
         function test_explicit_space_below_one_body_line_is_refused() {
             for (const family of ["Inter Variable", "JetBrains Mono"]) {
                 const typography = {family: family, lineHeight: 0.8};
-                compare(UnitTheme.override({text: {body: typography}}), "ok");
+                compare(UnitTheme.override({text: {body: typography}, stack: {titleSpace: 1}}), "ok");
                 waitForRendering(bodyLine);
                 compare(Theme.stack.titleSpace, bodyLine.lineBox);
                 const revision = Theme.revision;
@@ -55,6 +55,23 @@ Item {
                 compare(Theme.revision, revision);
                 compare(Theme.stack.titleSpace, bodyLine.lineBox);
             }
+        }
+
+        function test_default_gap_has_two_drawn_body_lines() {
+            const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 300; fitToContent: true; title: "Title"; Item { objectName: "bodyMarker"; height: 20 } }', root);
+            waitForRendering(made);
+            const block = titleBlock(made);
+            const marker = findChild(made, "bodyMarker");
+            compare(itemTop(marker, made) - (itemTop(block, made) + block.height), 2 * bodyLine.lineBox);
+            made.destroy();
+        }
+        function test_untitled_description_keeps_existing_body_gap() {
+            const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 300; fitToContent: true; subtitle: [ Label { text: "Description"; role: "body" } ]; Item { objectName: "bodyMarker"; height: 20 } }', root);
+            waitForRendering(made);
+            const block = titleBlock(made);
+            const marker = findChild(made, "bodyMarker");
+            compare(itemTop(marker, made) - (itemTop(block, made) + block.height), Theme.stack.group);
+            made.destroy();
         }
 
         function titleBlock(pane) { return pane.children[0]; }

@@ -16,7 +16,7 @@
 # WAYLAND_DISPLAY and XDG_RUNTIME_DIR included, plus grim.
 #
 
-# SCENE is gallery, settings, wide-settings, focus, focus-open, plugin-pages, manager, launcher,
+# SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, tooltips, capture,
 # keyhints, clipboard, voice, voice-setup, jarvis-console, jarvis-setup, plugin-messages, traffic, ai-usage, sysmon or theme-previews. settings takes the
@@ -221,7 +221,7 @@ while [[ $# -gt 0 ]]; do
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|gallery|settings|wide-settings|focus|focus-open|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|plugin-messages|traffic|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
+    sysmon|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-keys|jarvis-console|jarvis-setup|plugin-messages|traffic|ai-usage|devtools|system|network|vpn|bluetooth|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|tooltips|screensaver|theme-previews) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -318,6 +318,7 @@ scene_ships() {
     gallery) ships_plugin vgs.gallery ;;
     focus) ships_plugin vgs.gallery vgs.settings ;;
     focus-open) ships_plugin vgs.settings vgs.network vgs.system ;;
+    flyout-titles) ships_plugin vgs.sysmon vgs.network vgs.sound vgs.updates ;;
     launcher|notifications) ships_plugin "vgs.$1" ;;
     automations) ships_plugin vgs.automations ;;
     screensaver) ships_plugin vgs.screensaver ;;
@@ -415,7 +416,7 @@ if [[ " ${scenes[*]} " == *" traffic "* ]]; then
 fi
 source "$checkout/scripts/smoke/harness.sh"
 source "$checkout/scripts/smoke/power-fakes.sh"
-if [[ " ${scenes[*]} " == *" sysmon "* ]]; then
+if [[ " ${scenes[*]} " == *" sysmon "* || " ${scenes[*]} " == *" flyout-titles "* ]]; then
   # Presence draws See all; the scene never invokes this stand-in.
   printf '#!/usr/bin/env bash\nexit 1\n' >"$shim/btop"
   chmod 755 "$shim/btop"
@@ -3644,6 +3645,7 @@ for scene in "${scenes[@]}"; do
     tooltips) need_setup launcher; need_setup panels; need_setup bar; need_setup tooltips ;;
     focus) need_setup settings ;;
     focus-open) need_setup focus-open ;;
+    flyout-titles) need_setup panels ;;
     narrow) for s in launcher panels bar devtools dialog notifications gallery; do need_setup "$s"; done
       ! scene_ships lock || need_setup lock ;;
     *) need_setup "$scene" ;;
@@ -3991,6 +3993,97 @@ scene_sysmon() {
   expect_poll "the System Monitor flyout is built" '"System Monitor"' ipc smoke readDescendant panel vgs.sysmon Pane title
   take "sysmon-$mode-flyout-see-all"
   expect "the flyout closes" ok ipc shell hide panel vgs.sysmon
+}
+
+# Title-block spacing uses the actual Pane geometry, including the next
+# rendered item, so the capture log states pixels rather than a font guess.
+flyout_title_measure() { # MODE HOST ID
+  local measured token title
+  token="$(ipc smoke themeValue stack.titleSpace)" || { fail "the title token is unreadable"; return; }
+  title="$(ipc smoke readDescendant "$2" "$3" Pane title)" || { fail "the $3 title is unreadable"; return; }
+  measured="$(ipc smoke descendantGeometry "$2" "$3" | py_reply '
+import json,sys
+rows=json.load(sys.stdin)
+if not isinstance(rows,list):
+    print("absent")
+    sys.exit(0)
+pane=next((i for i,row in enumerate(rows) if row.get("type")=="Pane"),None)
+if pane is None:
+    print("absent")
+    sys.exit(0)
+children=[i for i,row in enumerate(rows) if row.get("parent")==pane]
+if len(children)<5:
+    print("partial")
+    sys.exit(0)
+block,header,scroll,footer=(children[i] for i in [0,2,3,4])
+def within(index,parent):
+    at=rows[index].get("parent",-1)
+    while at>=0:
+        if at==parent: return True
+        at=rows[at].get("parent",-1)
+    return False
+column=next((i for i,row in enumerate(rows) if row.get("type")=="QQuickColumn" and within(i,scroll)),None)
+body=None if column is None else next((i for i,row in enumerate(rows) if row.get("parent")==column and row.get("visible") and row["box"][3]>0),None)
+following=header if rows[header]["box"][3]>0 else footer if body is None else body
+box=rows[block]["box"]
+print(json.dumps({"paneBox":rows[pane]["box"],"titleBlockBox":box,"titleGap":rows[following]["box"][1]-box[1]-box[3]}))
+')" || { fail "the $3 title geometry is unreadable"; return; }
+  printf 'sandbox-shots: title-geometry source=%s theme=%s id=%s title=%s token=%s value=%s\n' "${rev:-$(git -C "$checkout" rev-parse HEAD)}" "$1" "$3" "$title" "$token" "$measured"
+  expect "the $3 rendered title gap equals its token" True py_reply 'import json,sys; d=json.load(sys.stdin); print(isinstance(d,dict) and d.get("titleGap") == float(sys.argv[1]) and d.get("titleGap",0)>0)' "$token" <<<"$measured"
+}
+scene_flyout-titles() { # MODE
+  local mode="$1"
+  tree_rescan "the System Monitor stand-in is scanned"
+  expect "System Monitor enables for its title shot" ok ipc shell setPluginEnabled vgs.sysmon true
+  sysmon_shot_settings 7 true true percent false
+  sysmon_shot_fixture normal
+  expect "System Monitor opens for its title shot" ok ipc smoke invokeInstance "$(bar_key)" vgs.sysmon toggle ''
+  expect_poll "System Monitor draws its title" '"System Monitor"' ipc smoke readDescendant panel vgs.sysmon Pane title
+  park_pointer
+  flyout_title_measure "$mode" panel vgs.sysmon
+  take_posed "flyout-titles-$mode-system-monitor-opened"
+  expect "System Monitor closes after its title shot" ok ipc shell hide panel vgs.sysmon
+
+  devices_ready title-shot || return 0
+  device_reply systemctl 0 $'LoadState=loaded\nActiveState=active' show --property=LoadState --property=ActiveState NetworkManager.service
+  device_reply nmcli 0 'org.freedesktop.NetworkManager.network-control:yes' -t -f PERMISSION,VALUE general permissions
+  expect "Network enables for its title shot" ok ipc shell setPluginEnabled vgs.network true
+  expect "Network refreshes its title-shot replies" ok ipc vgs.network invoke refresh ''
+  expect_poll "Network reads its allowed permission" '"allowed"' ipc smoke readInstance service vgs.network access
+  expect_poll "Network reads its running service" '"running"' ipc smoke readInstance service vgs.network serviceState
+  expect "Network is placed for its title shot" ok ipc shell setPluginPlaced vgs.network true
+  expect_poll "Network builds its title-shot widget" True record_exists vgs.network
+  click_centre "$(bar_key)" vgs.network || fail "Network did not open from its widget"
+  expect_poll "Network draws its title" '"Network"' ipc smoke readDescendant panel vgs.network Pane title
+  park_pointer
+  flyout_title_measure "$mode" panel vgs.network
+  take_posed "flyout-titles-$mode-network-opened"
+  expect "Network closes after its title shot" ok ipc shell hide panel vgs.network
+  expect "Network disables after its title shot" ok ipc shell setPluginEnabled vgs.network false
+  device_reply_clear nmcli
+  device_reply_clear systemctl
+
+  devices_audio_play
+  expect "Sound enables for its title shot" ok ipc shell setPluginEnabled vgs.sound true
+  expect "Sound is placed for its title shot" ok ipc shell setPluginPlaced vgs.sound true
+  expect_poll "Sound builds its title-shot widget" True record_exists vgs.sound
+  click_centre "$(bar_key)" vgs.sound || fail "Sound did not open from its widget"
+  title_sound_stream() { ipc smoke itemTexts panel vgs.sound FormRow | py_reply 'import json,sys; print(str(any("Smoke Player" in text for row in json.load(sys.stdin) for text in row)).lower())'; }
+  expect_poll "Sound draws its test stream" true title_sound_stream
+  expect_poll "Sound draws its title" '"Sound"' ipc smoke readDescendant panel vgs.sound Pane title
+  park_pointer
+  flyout_title_measure "$mode" panel vgs.sound
+  take_posed "flyout-titles-$mode-sound-opened"
+  expect "Sound closes after its title shot" ok ipc shell hide panel vgs.sound
+  expect "Sound disables after its title shot" ok ipc shell setPluginEnabled vgs.sound false
+  kill -- "-$devices_player_pid" 2>/dev/null || true
+
+  expect "Updates opens its window for its title shot" ok ipc shell summon window vgs.updates '{}'
+  expect_poll "Updates draws its title" '"Updates"' ipc smoke readDescendant window vgs.updates Pane title
+  park_pointer
+  flyout_title_measure "$mode" window vgs.updates
+  take_posed "flyout-titles-$mode-updates-opened"
+  expect "Updates closes after its title shot" ok ipc shell hide window vgs.updates
 }
 
 # The first shot is the bare desktop; every later shot must differ from the

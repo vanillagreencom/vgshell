@@ -42,7 +42,7 @@ Item {
     Component { id: devices; DeviceList { width: 350; rows: [{key:"one", text:"Only device"}] } }
     Component { id: traffic; Traffic.Panel {
         width: 600; height: implicitHeight
-        shell: ({status:{values:{traffic:{state:"ready", apps:[{name:"Alpha",down:100,up:2,connections:1},{name:"Beta",down:20,up:1,connections:1}]}}}})
+        shell: ({settings:{kbDecimals:0,mbDecimals:1},status:{values:{traffic:{state:"ready", apps:[{name:"Alpha",down:100,up:2,connections:1},{name:"Beta",down:20,up:1,connections:1}]}}}})
     } }
 
     TestCase {

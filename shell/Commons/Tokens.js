@@ -370,7 +370,7 @@ var TOKENS = {
         group: length("{space.lg}"),
         page: length("{space.xl}"),
         section: length("{space.xxl}"),
-        titleSpace: bodyLines(1),
+        titleSpace: bodyLines(2),
         inline: length("{space.md}")
     },
 
