@@ -251,6 +251,24 @@ Item {
             compare(fakeCompositor.calls.length, 2, "a client already at the page's height is neither resized nor moved");
         }
 
+        // A page past the cap resizes the window to its full height up to
+        // the screen's room, the height the window host maps it at, not to
+        // the cap.
+        function test_a_long_page_resizes_the_window_to_the_room() {
+            const window = opened('{"plugin":"acme.short"}');
+            fakeCompositor.reads = [];
+            compare(window.openPlugin("acme.long", Qt.TabFocusReason), "ok");
+            waitForRendering(window);
+            tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
+            const p = parts(window);
+            const room = root.screen.height - 2 * Theme.size.window.gutter;
+            const wanted = Math.min(room, Math.ceil(p.pane.uncappedHeight));
+            verify(wanted > cap(), "the long page runs past the cap: " + wanted + " > " + cap());
+            compare(window.implicitHeight, cap(), "the window's own request stays at the cap");
+            fakeCompositor.answer([{ class: "org.vgs.shell", title: "Plugins", mapped: true, address: "0xb", monitor: 3, at: [70, 60], size: [512, 300] }], 2000);
+            compare(fakeCompositor.calls, [["resize", "0xb", 512, wanted], ["move", "0xb", 70, 60]], "the window takes the long page's height, up to the room");
+        }
+
         // A window that would pass the work area's bottom rises by the
         // overflow alone, and never above the work area's top.
         function test_a_grown_window_stays_on_its_monitor_data() {

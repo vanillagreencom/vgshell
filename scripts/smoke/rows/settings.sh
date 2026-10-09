@@ -200,25 +200,29 @@ expect_poll "the page change back returns the body to its top" '[0]' page_top
 # tab change resizes its Hyprland client to the page's height, at its width
 # and its top-left corner, and the window's content takes the client's
 # height, so no part of it is blank. VPN's Details is taller than its
-# Settings: the window grows on Details, as tall as Details up to the cap,
-# and returns on Settings. Then every plugin the manager lists is judged on
+# Settings: the window grows on Details, as tall as Details up to the
+# screen's room, the window host's map rule (the window's mapHeight), and
+# returns on Settings. Then every plugin the manager lists is judged on
 # Details by one judge: its last row ends inside the window, or the scroll
-# area's bottom edge cue shows. Jarvis's Details reaches the cap and reads
-# the cue, and the Bar's fits under the cap without it, so the cue reads
-# both ways. The control hands the judge VPN's
+# area's bottom edge cue shows. Jarvis's Details runs past the room and
+# reads the cue, and the Bar's fits without it, so the cue reads both
+# ways. The control hands the judge VPN's
 # Details reading with the window at its Settings height and no cue, as
 # with neither the resize nor the cue: the judge reads it cut.
-# fit_state: the Plugins client as [x, y, w, h] and where the shown page
-# ends (Probe paneEnd), as one object; a state word while either is absent.
+# fit_state: the Plugins client as [x, y, w, h], the window's mapHeight
+# and where the shown page ends (Probe paneEnd), as one object; a state
+# word while one is absent.
 fit_state() {
-  local client
+  local client target
   client="$(one_window Plugins)" || return
   [[ $client == \[* ]] || { printf 'client-%s\n' "$client"; return; }
-  ipc smoke paneEnd window vgs.settings | py_reply 'import json,sys; print(json.dumps({"client": json.loads(sys.argv[1]), "end": json.load(sys.stdin)}))' "$client"
+  target="$(ipc smoke readInstance window vgs.settings mapHeight)" || return
+  [[ $target =~ ^[0-9]+$ ]] || { printf 'target-%s\n' "$target"; return; }
+  ipc smoke paneEnd window vgs.settings | py_reply 'import json,sys; print(json.dumps({"client": json.loads(sys.argv[1]), "target": int(sys.argv[2]), "end": json.load(sys.stdin)}))' "$client" "$target"
 }
-# fit_settled: `settled` once the client is the window's implicit height
-# and the window's content is the client's height, else those three.
-fit_settled() { fit_state | py_reply 'import json,sys; d=json.load(sys.stdin); h=d["client"][3]; e=d["end"]; print("settled" if h == e["implicitHeight"] == e["height"] else json.dumps([h, e["implicitHeight"], e["height"]]))'; }
+# fit_settled: `settled` once the client is the window's mapHeight and the
+# window's content is the client's height, else those three.
+fit_settled() { fit_state | py_reply 'import json,sys; d=json.load(sys.stdin); h=d["client"][3]; e=d["end"]; print("settled" if h == d["target"] == e["height"] else json.dumps([h, d["target"], e["height"]]))'; }
 # fit_judge READING [HEIGHT CUE]: one plugin's Details from its fit_state
 # READING: `fits` when its last row ends inside the window's height, `cued`
 # when it ends below it and the bottom cue shows, else `cut`. HEIGHT and
@@ -269,7 +273,9 @@ for fit_id in $fit_ids; do
     *) fail "$fit_id Details ends inside the window or shows the bottom cue: $fit_verdict reading=$fit_reading" ;;
   esac
 done
-expect "Jarvis Details runs past the capped window and shows the bottom cue" cued fit_judge "$jarvis_details"
+expect "Jarvis Details runs past the window and shows the bottom cue" cued fit_judge "$jarvis_details"
+jarvis_past_cap() { printf '%s\n' "$1" | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["client"][3] > d["end"]["implicitHeight"])'; }
+expect "the window takes Jarvis's Details past the cap, to the room" True jarvis_past_cap "$jarvis_details"
 expect "Jarvis Details shows the bottom cue" true fit_field "$jarvis_details" end cueBelow
 expect "the Bar's Details ends inside the window" fits fit_judge "$bar_details"
 expect "the Bar's Details that fits shows no bottom cue" false fit_field "$bar_details" end cueBelow

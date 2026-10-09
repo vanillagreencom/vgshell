@@ -10,11 +10,12 @@ import qs.Ui
 // is less, and as tall as the page it shows, the list or a plugin page's
 // shown tab, up to `size.window.tallHeightShare` of the monitor's height,
 // or its height less the gutter a side when that is less, read from the
-// screen its `screens` capability gives. That height sizes the window as
-// it maps; once it shows, each change of the shown page, the list, another
-// plugin's page or the other tab, resizes it to the new page's height
-// through its `compositor` capability, keeping its width. A change inside
-// a page, such as a rescan's rows, keeps the size.
+// screen its `screens` capability gives. The window host maps it at the
+// larger of that and the page's full height, up to the screen's room;
+// once it shows, each change of the shown page, the list, another
+// plugin's page or the other tab, resizes it by the same rule through its
+// `compositor` capability, keeping its width. A change inside a page, such
+// as a rescan's rows, keeps the size.
 // The pages fill whatever size the window has, and a page taller than it
 // scrolls, with the scroll area's edge cue. The list page and the plugin page
 // sit side by side and slide on `motion.duration.normal`, so a
@@ -106,6 +107,12 @@ FocusScope {
     // implicit size only while hidden (floatingwindow.cpp trySetHeight), so
     // fitWindow() asks Hyprland for it after a page change.
     implicitHeight: Math.min(maxHeight, Math.ceil(page === "" ? list.fitHeight : detail.fitHeight))
+    // The height the window host maps the window at, so a page is as tall
+    // reached after the map as at it: the host's rule
+    // (shell/Hosts/AppWindow.qml implicitHeight, VGS-1111) takes the larger
+    // of implicitHeight and the shown Pane's full height, the page's
+    // fitHeight, up to the screen's room.
+    readonly property int mapHeight: Math.floor(Math.min(OverlayState.room(screen).height, Math.max(implicitHeight, Math.ceil(page === "" ? list.fitHeight : detail.fitHeight))))
     // The page shown, as a page change resizes the window: the list, or a
     // plugin id and its tab.
     readonly property string shownPage: page === "" ? "" : page + "/" + detail.tab
@@ -119,8 +126,8 @@ FocusScope {
     // (https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method).
     onShownPageChanged: if (root.Window.window !== null && root.Window.window.visible) Qt.callLater(fitWindow)
 
-    // Resize the shown window to implicitHeight, read once Hyprland answers
-    // and the shown page is laid out, so the last change wins. Hyprland
+    // Resize the shown window to mapHeight, read once Hyprland answers and
+    // the shown page is laid out, so the last change wins. Hyprland
     // owns a mapped window's size, and its floating resize keeps the
     // window's centre, not its corner (v0.56.2
     // src/layout/algorithm/floating/default/DefaultFloatingAlgorithm.cpp:198-203,
@@ -146,7 +153,7 @@ FocusScope {
                 return;
             }
             const client = own[0];
-            const height = root.implicitHeight;
+            const height = root.mapHeight;
             if (client.size[1] === height) return;
             // Hyprland's j/monitors: x, y, width and height in pixels at
             // `scale`, and `reserved` as [left, top, right, bottom].
