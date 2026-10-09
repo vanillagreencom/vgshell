@@ -14,7 +14,7 @@ import "ThemeLogic.js" as ThemeLogic
 // reads it, so an edit that lands during a read is read again.
 //
 // The user's Appearance values, `userText`, resolve over the accepted theme
-// here and nowhere else (ThemeLogic.withAppearance, D103), so every surface
+// here and nowhere else (ThemeLogic.withAppearance, D104), so every surface
 // and the Hyprland layer read one result. A member the judge refuses is
 // logged and shows as Set by theme.
 Scope {

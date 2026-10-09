@@ -4,7 +4,7 @@ Read before touching the Hyprland layer, a manifest's `hyprland` key, a `plugins
 
 ## The approach
 
-The core renders one Lua file from judged manifest data and theme tokens, `shell/Core/HyprlandLayer.js`. [D028](../decisions/D028-one-generated-hyprland-layer.md) governs its loading line, appearance switches, explicit options and guarded monitor rules. The theme's border, radius and motion groups follow the user's Appearance values, which `Theme` resolves once ([D103](../decisions/D103-appearance-values-over-the-theme.md)). VGS edits no line of the user's files but its own loading line and a bind line the user confirms Settings may remove. A user's own later `hl.monitor` line still wins.
+The core renders one Lua file from judged manifest data and theme tokens, `shell/Core/HyprlandLayer.js`. [D028](../decisions/D028-one-generated-hyprland-layer.md) governs its loading line, appearance switches, explicit options and guarded monitor rules. The theme's border, radius and motion groups follow the user's Appearance values, which `Theme` resolves once ([D104](../decisions/D104-appearance-values-over-the-theme.md)). VGS edits no line of the user's files but its own loading line and a bind line the user confirms Settings may remove. A user's own later `hl.monitor` line still wins.
 
 Every Hyprland request at run time leaves the shell through one queue, `Compositor`, and `Dispatch.js` is the one judge of its arguments. Only a state read after the reply proves a dispatcher acted. Hyprland is the only compositor ([D001](../decisions/D001-hyprland-only.md)).
 

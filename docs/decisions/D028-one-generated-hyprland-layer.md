@@ -4,7 +4,7 @@
 
 **Date**: 2026-09-28
 
-**Status**: Active (keyboard capture → [D067](D067-overlay-keyboard-capture.md); theme group switches → [D103](D103-appearance-values-over-the-theme.md))
+**Status**: Active (keyboard capture → [D067](D067-overlay-keyboard-capture.md); theme group switches → [D104](D104-appearance-values-over-the-theme.md))
 
 **Research**: [VGS-489](https://linear.app/vanillagreen/issue/VGS-489), [VGS-585](https://linear.app/vanillagreen/issue/VGS-585), [VGS-694](https://linear.app/vanillagreen/issue/VGS-694), [VGS-695](https://linear.app/vanillagreen/issue/VGS-695), [VGS-696](https://linear.app/vanillagreen/issue/VGS-696), [VGS-744](https://linear.app/vanillagreen/issue/VGS-744), [VGS-707](https://linear.app/vanillagreen/issue/VGS-707), [VGS-924](https://linear.app/vanillagreen/issue/VGS-924)
 

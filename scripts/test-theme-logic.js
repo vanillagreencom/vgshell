@@ -862,7 +862,7 @@ function verify(judge) {
     verifyAppearance(judge);
 }
 
-// The user's Appearance values over the theme (D103). Each expected value
+// The user's Appearance values over the theme (D104). Each expected value
 // is the arithmetic its comment names, never read from the judge.
 function verifyAppearance(judge) {
     const shipped = judge.defaults(TOKENS);

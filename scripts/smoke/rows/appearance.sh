@@ -1,4 +1,4 @@
-# The user's Appearance values over the theme (D103): capability
+# The user's Appearance values over the theme (D104): capability
 # `appearance`, the one writer of shell.json `appearance`, Theme's one
 # resolution of it, the Hyprland layer that writes it, and the Motion,
 # Windows and UI sections of the System window that set it.

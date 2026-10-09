@@ -32,7 +32,7 @@ vgshell ipc call shell summon panel vgs.themes '{}'
 vgshell ipc call vgs.themes invoke gaps ''
 ```
 
-Whether the theme's window borders, corner radius and animations reach Hyprland is the user's Appearance values, shell.json `appearance`, which the `vgs.windows` and `vgs.motion` pages set: [D103](../../../docs/decisions/D103-appearance-values-over-the-theme.md).
+Whether the theme's window borders, corner radius and animations reach Hyprland is the user's Appearance values, shell.json `appearance`, which the `vgs.windows` and `vgs.motion` pages set: [D104](../../../docs/decisions/D104-appearance-values-over-the-theme.md).
 
 ## Apply
 

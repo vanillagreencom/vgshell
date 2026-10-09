@@ -217,7 +217,7 @@ Singleton {
         secrets: secrets.provider,
         hyprland: hyprlandState.provider,
         monitors: monitorState.provider,
-        // The user's Appearance values over the theme (D103): what each
+        // The user's Appearance values over the theme (D104): what each
         // member holds, shows while the user sets none and comes from, as
         // Theme resolved them, and the one write of shell.json
         // `appearance`. `set` and `unset` answer `ok` once the file holds

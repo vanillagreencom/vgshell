@@ -4,7 +4,7 @@
 
 **Date**: 2026-09-26
 
-**Status**: Active (a plugin-owned look → [D023](D023-plugin-owned-appearance.md); user Appearance values → [D103](D103-appearance-values-over-the-theme.md))
+**Status**: Active (a plugin-owned look → [D023](D023-plugin-owned-appearance.md); user Appearance values → [D104](D104-appearance-values-over-the-theme.md))
 
 **Research**: [VGS-585](https://linear.app/vanillagreen/issue/VGS-585)
 

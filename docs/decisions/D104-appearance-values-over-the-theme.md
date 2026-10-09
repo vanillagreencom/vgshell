@@ -1,4 +1,4 @@
-# D103: Appearance values sit over the theme, resolved once
+# D104: Appearance values sit over the theme, resolved once
 
 [← Decision Index](INDEX.md)
 

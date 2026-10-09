@@ -1005,7 +1005,7 @@ function paths(tokens) {
     return out;
 }
 
-// --- Appearance values over the theme (D103)
+// --- Appearance values over the theme (D104)
 
 // The share of a user's base value each token takes: windows the base,
 // flyouts three quarters, grouped window tabs half, controls the base. A
