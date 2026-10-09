@@ -309,6 +309,8 @@ A `schema` entry or drawn `status` entry may declare `info`, one printable expla
 
 The Settings window draws one field per entry in key order, ungrouped entries first, then each `group` in the order its first entry appears. A boolean uses a switch. An enum with at most three options uses a segmented control, and a larger enum a select. A string with `optionsFrom`, or a string or number with `presets`, uses a select, which adds Custom… when `allowCustom` is true. A bounded number uses a slider. A `unit` of `seconds`, `minutes`, `hours` or `days` shows the largest whole unit; `%` and `×` are drawn after the number. `format: "datetime"` previews a Qt date and time format. A `list` has its own section, and `shell/Core/Pads.js` judges its items.
 
+A flat entry's `link`, `{ text, url }`, draws `text`, words its `description` holds, as a link that the pointer, Return, Enter and Space open in the default browser. `url` is an https address with a host and no user part; the judge refuses any other scheme. A key field names where to get its key this way, never as an address to copy.
+
 `optionsFrom` names a `choices` status entry of the same plugin, and the select offers its published choices. The first offer stands for the empty string and reads as its own label, so the plugin offers first what "" resolves to; for an entry that declares `placeholder`, "" means nothing is chosen: no offer stands for it, and the select reads that text. The core delivers and stores the configured string unchanged. A configured value no longer offered stays stored and shows as unavailable. A status update never writes a setting.
 
 ### Hyprland appearance
