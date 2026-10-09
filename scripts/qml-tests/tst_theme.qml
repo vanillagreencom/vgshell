@@ -24,19 +24,24 @@ Item {
     property int revisionsSeen: 0
     property string accentAtRevision: ""
     property int radiusAtRevision: -1
-    // One binding on each of two groups, counted where it evaluates. The
-    // count is a member of a plain object, which no binding follows.
-    readonly property var evaluations: ({ color: 0, space: 0 })
+    // One binding on each of three groups, counted where it evaluates. The
+    // count is a member of a plain object, which no binding follows. `color`
+    // and `space` hold values alone; `motion` holds groups of its own, and
+    // its binding reads a value inside one.
+    readonly property var evaluations: ({ color: 0, space: 0, motion: 0 })
     function counted(group, value) { evaluations[group] += 1; return value; }
     readonly property string accentRead: counted("color", Theme.color.accent)
     readonly property real spaceRead: counted("space", Theme.space.md)
+    readonly property int fastRead: counted("motion", Theme.motion.duration.fast)
     property int colorChanges: 0
     property int spaceChanges: 0
+    property int motionChanges: 0
     Connections {
         target: Theme
         function onRevisionChanged() { root.revisionsSeen += 1; root.accentAtRevision = Theme.color.accent; root.radiusAtRevision = Theme.popover.radius; }
         function onColorChanged() { root.colorChanges += 1; }
         function onSpaceChanged() { root.spaceChanges += 1; }
+        function onMotionChanged() { root.motionChanges += 1; }
     }
 
     TestCase {
@@ -84,21 +89,25 @@ Item {
         }
 
         // One theme change from the defaults per row: the group it changes
-        // with the value its binding then reads, and the group it leaves.
+        // with the value its binding then reads, and the groups it leaves.
+        // The length reaches `motion` too, whose `list.rise` is a space.
         function test_a_change_runs_the_bindings_of_its_groups_alone_data() {
             return [
-                { tag: "a colour", tokens: { palette: { accent: "#00ff00" } }, changed: "color", read: "accentRead", value: "#ff00ff00", left: "space" },
-                { tag: "a length", tokens: { space: { unit: 8 } }, changed: "space", read: "spaceRead", value: 16, left: "color" },
+                { tag: "a colour", tokens: { palette: { accent: "#00ff00" } }, changed: "color", read: "accentRead", value: "#ff00ff00", left: ["space", "motion"] },
+                { tag: "a length", tokens: { space: { unit: 8 } }, changed: "space", read: "spaceRead", value: 16, left: ["color"] },
+                { tag: "a value inside a group's group", tokens: { motion: { duration: { fast: 50 } } }, changed: "motion", read: "fastRead", value: 50, left: ["color", "space"] },
             ];
         }
 
         function test_a_change_runs_the_bindings_of_its_groups_alone(row) {
             const evaluations = Object.assign({}, root.evaluations);
-            const changes = { color: root.colorChanges, space: root.spaceChanges };
+            const changes = { color: root.colorChanges, space: root.spaceChanges, motion: root.motionChanges };
             const seen = root.revisionsSeen;
             compare(UnitTheme.override(row.tokens), "ok");
-            compare(root.evaluations[row.left], evaluations[row.left], "no binding on the group left ran");
-            compare(root[row.left + "Changes"], changes[row.left], "the group left emitted no change");
+            for (const left of row.left) {
+                compare(root.evaluations[left], evaluations[left], left + ": no binding on a group left ran");
+                compare(root[left + "Changes"], changes[left], left + ": a group left emitted no change");
+            }
             verify(root.evaluations[row.changed] > evaluations[row.changed], "the binding on the changed group ran");
             compare(root[row.read], row.value);
             compare(root[row.changed + "Changes"], changes[row.changed] + 1);
@@ -112,6 +121,7 @@ Item {
             compare(UnitTheme.override({ palette: { accent: "#00ff00" } }), "ok");
             compare(root.evaluations.color, evaluations.color);
             compare(root.evaluations.space, evaluations.space);
+            compare(root.evaluations.motion, evaluations.motion);
             compare(root.revisionsSeen, seen + 1, "a handler on the revision still runs");
         }
 
