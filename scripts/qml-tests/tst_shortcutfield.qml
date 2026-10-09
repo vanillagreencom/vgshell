@@ -117,6 +117,10 @@ Item {
             pair.stopTyping();
             mouseMove(before);
             before.forceActiveFocus(Qt.TabFocusReason);
+            // Ending typing can leave its tool-row width until the next
+            // layout pass. Settle every positioner before a case reads it.
+            // https://doc.qt.io/qt-6/qml-qttest-testcase.html#waitForPolish-method
+            verify(waitForPolish(root.Window.window));
         }
 
         function descendant(f, matches) {
@@ -156,10 +160,11 @@ Item {
             const clear = buttonLabelled(field, "Unbind");
             compare(keyboard.button, null);
             compare(clear.button, null);
-            waitForItemPolished(keyboard.parent);
+            verify(waitForPolish(root.Window.window));
             const width = box(field).width;
             mouseMove(keyboard);
             tryVerify(() => keyboard.button !== null && clear.button !== null);
+            verify(waitForPolish(root.Window.window));
             compare(keyboard.button.tooltip, "Type the keys");
             compare(clear.button.tooltip, "Unbind");
             compare(box(field).width, width);

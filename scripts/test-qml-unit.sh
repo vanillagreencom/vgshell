@@ -186,6 +186,7 @@ mutations=(
   "a bind row labels with the shortcut name over its description|controls/BindField.qml|label: bind.description ? String(bind.description) : String(bind.shortcut)|label: String(bind.shortcut)|tst_bindfield.qml"
   "unbound drops its clear-button slot|controls/ShortcutField.qml|visible: root.editable; enabled: root.editable|visible: root.editable && root.key !== \"\"; enabled: root.editable|tst_shortcutfield.qml"
   "idle shortcut tools create their buttons eagerly|controls/ShortcutField.qml|tool.inUse|true|tst_shortcutfield.qml"
+  "loaded shortcut tools take more room|controls/ShortcutField.qml|width: Math.max(Theme.control.minWidth, Math.min(Theme.control.maxWidth, Theme.size.control.sm))|width: (control.item === null ? 0 : Theme.textField.gap) + Math.max(Theme.control.minWidth, Math.min(Theme.control.maxWidth, Theme.size.control.sm))|tst_shortcutfield.qml"
   "reverse Tab skips an unloaded shortcut tool|controls/ShortcutField.qml|activeFocusOnTab: !control.active|activeFocusOnTab: false|tst_shortcutfield.qml"
   "hidden shortcut tools keep their loaded buttons|controls/ShortcutField.qml|active: tool.visible && tool.enabled &&|active: !tool.visible ? tool.enabled : tool.visible && tool.enabled &&|tst_shortcutfield.qml"
   "a loaded shortcut tool sends no action|controls/ShortcutField.qml|onClicked: tool.clicked()|onClicked: {}|tst_shortcutfield.qml"
