@@ -359,12 +359,16 @@ Singleton {
         const container = sectionContainer(mount.row, section);
         if (container === null) return { x: 0, width: 0, widgets: [] };
         const sectionPoint = container.mapToItem(null, 0, 0);
+        const placed = mount.sections[section].placed;
         const widgets = [];
         for (const entry of mount.sections[section].entries) {
             if (entry.widget === null || !barItemParticipates(entry.widget) || (barDrag !== null && entry.locator.id === barDrag.id && entry.locator.section === barDrag.from.section && entry.locator.nth === barDrag.from.nth))
                 continue;
-            const point = entry.widget.mapToItem(null, 0, 0);
-            widgets.push({ x: point.x, width: entry.widget.width, locator: entry.locator });
+            // While a drag is on a neighbour slides to its place (BarWidget,
+            // Behavior on x), so its drawn x lags the layout. The slot comes
+            // from the place it settles at, whatever the slide has reached.
+            const x = sectionPoint.x + restX(placed.slice(0, placed.indexOf(entry.widget)), container.spacing);
+            widgets.push({ x: x, width: entry.widget.width, locator: entry.locator });
         }
         const geometry = { x: sectionPoint.x, width: container.width, widgets: widgets };
         // A section its bar scrolls names the box it draws in and the part
@@ -534,7 +538,7 @@ Singleton {
 
     function mountBar(hostKey, row) {
         const sections = {};
-        for (const section of Logic.SECTIONS) sections[section] = { entries: [] };
+        for (const section of Logic.SECTIONS) sections[section] = { entries: [], placed: [] };
         const next = Object.assign(Object.create(null), mounts);
         next[hostKey] = { row: row, sections: sections };
         mounts = next;
@@ -623,6 +627,13 @@ Singleton {
         return item.visible && item.width > 0 && item.height > 0;
     }
 
+    // The x a section's layout gives the item that follows BEFORE: past
+    // each of them that takes room, and the section's spacing after it.
+    function restX(before, spacing) {
+        return before.filter(item => barItemParticipates(item))
+            .reduce((x, item) => x + item.width + spacing, 0);
+    }
+
     // Passive containers keep the centering binding live while BarWidget
     // animates x. Row transition writes remove that y binding, as the
     // cold-transition control in smoke/rows/bar.sh observes.
@@ -637,6 +648,7 @@ Singleton {
                 const at = drag.before === null ? items.length : entries.findIndex(entry => Logic.locatorEquals(drag.before, entry.locator.id, entry.locator.section, entry.locator.nth));
                 items.splice(at < 0 ? items.length : at, 0, drag.gap);
             }
+            mount.sections[section].placed = items;
             container.implicitWidth = Qt.binding(() => {
                 const participating = items.filter(item => barItemParticipates(item));
                 return participating.reduce((width, item) => width + item.width, 0)
@@ -656,8 +668,7 @@ Singleton {
                 item.width = Qt.binding(() => item.implicitWidth || (drag !== null && item === drag.gap ? drag.item.width : 0));
                 item.height = Qt.binding(() => item.implicitHeight || (drag !== null && item === drag.gap ? drag.item.height : 0));
                 const before = items.slice(0, i);
-                item.x = Qt.binding(() => before.filter(previous => barItemParticipates(previous))
-                    .reduce((x, previous) => x + previous.width + container.spacing, 0));
+                item.x = Qt.binding(() => restX(before, container.spacing));
                 item.y = Qt.binding(() => (container.height - item.height) / 2);
             }
         }

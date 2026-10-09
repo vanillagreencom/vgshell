@@ -22,7 +22,9 @@
 # a release outside the bar, a copy whose grab leaves the bar's keyboard
 # interactivity alone, a copy with neither the focus grab nor that step,
 # and a copy whose remove question takes the keyboard's focus reason once
-# its window is active. The row restores the
+# its window is active. A copy whose neighbours slide for a minute must
+# still pick the slot before the plugin neighbour, and that copy reading
+# the neighbours' drawn boxes picks the slot after it. The row restores the
 # user file byte for byte, so rows after it find the fixture placed as
 # before. The disabled widget the refusals name is acme.tick, disabled for
 # them and enabled again.
@@ -425,8 +427,13 @@ done
 cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
 # Hold the builtin's own shared frame across a section move into a plugin
 # neighbour. The same pointer barrier proves it stays the grabbed object.
-placement_held_builtin() {
-  local x y tx ty barrier out_fd in_fd hold_pid
+# PATH `stepped` holds the drag just inside the centre third until the
+# preview stands there, then sends the one motion to the target, so that
+# motion reads neighbours the gap has displaced, whatever the shell's pace.
+# WANT is the slot the preview must name under the name SLOT; LABEL starts
+# every other check's name.
+placement_held_builtin() { # PATH WANT SLOT LABEL
+  local path="$1" want="$2" slot="$3" label="$4" x y tx ty px barrier out_fd in_fd hold_pid
   read -r x y < <(placement_point vgs.bar/left-workspaces) || return 1
   # One pixel left of the tick's left edge: a slot comes from the
   # neighbours' shifted boxes (Plugins.dragMove), and whether the preview
@@ -435,29 +442,38 @@ placement_held_builtin() {
   # whatever path the pointer took.
   read -r tx ty < <(placement_point acme.tick) || return 1
   tx="$(ipc smoke instanceGeometry "$(bar_key)" acme.tick | py_reply 'import json,sys; print(int(json.load(sys.stdin)[0]) - 1)')" || return 1
-  expect "the builtin drag snapshot includes all widgets" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.bar/left-workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
+  px="$tx"
+  if [[ $path == stepped ]]; then
+    px="$(surface_box vgs:bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x+w/3)+2)')" || return 1
+  fi
+  expect "${label}the builtin drag snapshot includes all widgets" '["acme.probe","acme.tick","vgs.bar/center-clock","vgs.bar/left-workspaces"]' ipc smoke rememberBarWidgets "$(bar_key)"
   hover "$((x + 1))" "$y" || return 1
-  coproc builtin_hold { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$tx" "$ty" hold; }
+  coproc builtin_hold { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$px" "$ty" hold; }
   out_fd="${builtin_hold[0]}" in_fd="${builtin_hold[1]}" hold_pid="$builtin_hold_PID"
   read -r -t 10 barrier <&"$out_fd" || return 1
-  [[ $barrier == "holding $tx $ty" ]] || return 1
-  expect_poll "the builtin drag holds keyboard capture" vgs:passthrough key_submap
-  expect "the builtin's press stays held across visual section transfer" true ipc smoke readInstance "$(bar_key)" vgs.bar/left-workspaces frameDragging
-  expect "the held builtin preview keeps every widget object" '[]' ipc smoke barWidgetIdentities
-  expect "the builtin preview selects before its plugin neighbour" '["center", 1]' placement_preview_slot
+  [[ $barrier == "holding $px $ty" ]] || return 1
+  if [[ $path == stepped ]]; then
+    expect_poll "${label}the builtin preview enters the centre before the clock" '["center", 0]' placement_preview_slot
+    hover "$tx" "$ty" || return 1
+  fi
+  expect_poll "${label}the builtin drag holds keyboard capture" vgs:passthrough key_submap
+  expect "${label}the builtin's press stays held across visual section transfer" true ipc smoke readInstance "$(bar_key)" vgs.bar/left-workspaces frameDragging
+  expect "${label}the held builtin preview keeps every widget object" '[]' ipc smoke barWidgetIdentities
+  # The last motion publishes the slot, and no later one changes it.
+  expect_poll "$slot" "$want" placement_preview_slot
   printf '\n' >&"$in_fd"
   exec {in_fd}>&-
   read -r -t 10 barrier <&"$out_fd" || return 1
   wait "$hold_pid" || return 1
   exec {out_fd}<&-
   pointer_at="$tx $ty"
-  expect_poll "the builtin pointer drop persists its new section" '["center"]' placement_builtin_section vgs.bar/left-workspaces
-  expect "the builtin pointer drop keeps every object" '[]' ipc smoke barWidgetIdentities
-  expect_poll "the builtin drop releases keyboard capture" default key_submap
-  expect "the builtin drag snapshot is released" ok ipc smoke forgetBarWidgets
+  expect_poll "${label}the builtin pointer drop persists its new section" '["center"]' placement_builtin_section vgs.bar/left-workspaces
+  expect "${label}the builtin pointer drop keeps every object" '[]' ipc smoke barWidgetIdentities
+  expect_poll "${label}the builtin drop releases keyboard capture" default key_submap
+  expect "${label}the builtin drag snapshot is released" ok ipc smoke forgetBarWidgets
 }
 placement_preview_slot() { ipc smoke barDragGeometry "$(bar_key)" | py_reply 'import json,sys; state=json.load(sys.stdin); print(json.dumps([state["section"],state["index"]]) if isinstance(state,dict) else "absent")'; }
-placement_held_builtin || fail "the builtin held pointer move completes"
+placement_held_builtin paced '["center", 1]' "the builtin preview selects before its plugin neighbour" "" || fail "the builtin held pointer move completes"
 expect "workspaces returns to left after its pointer move" ok ipc shell movePluginWidget vgs.bar/left-workspaces left 0
 cp -- "$placement_file" "$sandbox/shell-before-builtin-escape.json"
 read -r tick_x tick_y < <(placement_point acme.tick) || fail "the builtin Escape target is unreadable"
@@ -978,6 +994,29 @@ if copy_tree placement-clock-before-control \
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$repo" "$sandbox/placement-clock-before-restored.log" || fail "the shell starts after the clock neighbor control"
+fi
+
+# A neighbour slides to its place while a drag is on, and the slot must not
+# read how far that slide has come. Both copies slide for a minute, so the
+# neighbours still stand where the gap's arrival left them when the last
+# motion picks the slot. The second copy reads their drawn boxes.
+placement_slide='NumberAnimation { duration: Theme.motion.duration.normal; easing.type: Theme.motion.easing.standard }'
+if copy_tree placement-slide \
+  && edit_tree placement-slide shell/Ui/BarWidget.qml "$placement_slide" 'NumberAnimation { duration: 60000 }' \
+  && copy_tree placement-slide-control \
+  && edit_tree placement-slide-control shell/Ui/BarWidget.qml "$placement_slide" 'NumberAnimation { duration: 60000 }' \
+  && edit_tree placement-slide-control shell/Core/Plugins.qml 'const x = sectionPoint.x + restX(placed.slice(0, placed.indexOf(entry.widget)), container.spacing);' 'const x = entry.widget.mapToItem(null, 0, 0).x;'; then
+  stop_shell
+  cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$sandbox/tree-placement-slide" "$sandbox/placement-slide.log" || fail "the slow slide copy starts"
+  placement_held_builtin stepped '["center", 1]' "slow slide: the builtin preview selects before its plugin neighbour while the neighbours slide" "slow slide: " || fail "the slow slide held pointer move completes"
+  stop_shell
+  cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$sandbox/tree-placement-slide-control" "$sandbox/placement-slide-control.log" || fail "the slide control starts"
+  placement_held_builtin stepped '["center", 2]' "control: a slot read from the neighbours' drawn boxes makes the same reader name the slot after the plugin neighbour" "control: " || fail "control: the held pointer move over drawn boxes completes"
+  stop_shell
+  cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  start_shell "$repo" "$sandbox/placement-slide-restored.log" || fail "the shell starts after the slide control"
 fi
 
 if copy_tree placement-clock-hide-control \
