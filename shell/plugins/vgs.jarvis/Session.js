@@ -12,6 +12,11 @@ var PLAYBACK_TIMEOUT_MS = 300000;
 var APPROVAL_TIMEOUT_MS = 60000;
 var APPROVAL_DRAW_MS = 700;
 var VOICE_QUIET_MS = 1000;
+// How long a request the wake word opened waits for its first words. The
+// captions model decodes in 560 ms chunks (artifacts.json, nemotron), so
+// speech shows as a partial within about a second; the rest is the pause a
+// speaker takes after the start sound. A design choice, not a measurement.
+var WAKE_SILENCE_MS = 6000;
 var TRANSCRIPT_CHARS = 4096;
 var EVENTS = [
     "snapshot", "indicator", "talk-down", "talk-up", "toggle", "mute", "unmute", "mute-toggle",
@@ -246,7 +251,7 @@ function reconcile(s, effects, at) {
     }
     if (!canCapture(s)) closeCapture(s, effects);
     else if (s.capture.kind === "closed") {
-        var mode = s.input.kind === "held" ? "hold" : s.input.kind;
+        var mode = s.input.kind === "held" ? "hold" : s.input.kind === "woken" ? "conversation" : s.input.kind;
         var e = effect(s, effects, "capture-open", { mode: mode });
         s.capture = { kind: "opening", gen: e.gen, op: e.op, mode: mode };
     }
@@ -348,7 +353,7 @@ function toggle(s, effects, at) {
 // heard ends the conversation, as Toggle does, and the word is awaited again.
 function listenNow(s, effects, at) {
     if (bounced(s, at)) return;
-    if (s.input.kind === "conversation" && s.turn.kind === "collecting") {
+    if ((s.input.kind === "conversation" || s.input.kind === "woken") && s.turn.kind === "collecting") {
         s.toggleAt = at;
         end(s, effects, at, "toggle", false);
         return;
@@ -361,9 +366,14 @@ function listenNow(s, effects, at) {
 }
 
 function expire(s, effects, at) {
+    // A woken request that heard nothing was a false wake: Always mode goes
+    // back to waiting for the word, with no fault to clear first.
     if (s.turn.kind === "collecting" && s.turn.deadline !== null && at >= s.turn.deadline) {
-        s.fault = { kind: "error", reason: "speech=collect-timeout", retry: 0 };
-        end(s, effects, at, "collect-timeout", false);
+        if (s.input.kind === "woken") end(s, effects, at, "wake-silence", false);
+        else {
+            s.fault = { kind: "error", reason: "speech=collect-timeout", retry: 0 };
+            end(s, effects, at, "collect-timeout", false);
+        }
     }
     if (["playing", "feedback"].indexOf(s.playback.kind) !== -1 && s.playback.deadline !== null && at >= s.playback.deadline) {
         s.fault = { kind: "error", reason: "playback-timeout", retry: 0 };
@@ -494,7 +504,7 @@ function reduce(state, e) {
     case "capture-opened":
         if (!live(s, e, "capture", ["opening"])) { stale(s); break; }
         s.capture.kind = "open";
-        if (s.turn.kind === "collecting") s.turn.deadline = null;
+        if (s.turn.kind === "collecting") s.turn.deadline = s.input.kind === "woken" ? e.at + WAKE_SILENCE_MS : null;
         if (s.fault.kind === "retrying") s.fault = { kind: "none" };
         break;
     case "capture-failed": {
@@ -511,7 +521,7 @@ function reduce(state, e) {
     // start sound, through a fresh capture that collects the utterance.
     case "wake":
         if (!live(s, e, "capture", ["open"]) || s.capture.mode !== "armed") { stale(s); break; }
-        start(s, effects, "conversation", e.at);
+        start(s, effects, "woken", e.at);
         break;
     case "capture-closed":
         if (!live(s, e, "capture", ["closing"])) { stale(s); break; }
@@ -521,6 +531,11 @@ function reduce(state, e) {
     case "partial":
         if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
         s.turn.partial = e.text;
+        // Words were heard: the request is collected as a Talk-started one.
+        if (s.input.kind === "woken") {
+            s.input = { kind: "conversation" };
+            if (s.capture.kind === "open") s.turn.deadline = null;
+        }
         break;
     case "delegation":
     case "final":
@@ -748,7 +763,7 @@ var REGIONS = {
     action: { none: "", running: "gen op tool brain limit cancellation" },
     approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain" },
     fault: { none: "", error: "reason retry", retrying: "reason retry" }, conversation: { ended: "", active: "", interrupted: "" },
-    input: { released: "", held: "", conversation: "", "follow-up": "", armed: "" },
+    input: { released: "", held: "", conversation: "", "follow-up": "", armed: "", woken: "" },
     indicator: { gone: "", shown: "" }, duplex: { half: "" },
     engine: { chained: "", duplex: "" }, speech: { closed: "", open: "gen op reply" }
 };
