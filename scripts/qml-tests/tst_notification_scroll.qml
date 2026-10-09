@@ -76,17 +76,24 @@ Item {
 
         function cleanup() {
             panel.visible = false;
+            panel.height = 300;
             frame.visible = true;
             activeCard.focus = false;
             mouseMove(frame, frame.width + 20, 0);
         }
 
         function test_shipped_panel_boundary_data() {
-            return [{ tag: "top end", progress: 0 }, { tag: "mid scroll", progress: 0.5 }];
+            return [
+                { tag: "top end", progress: 0, height: 300 },
+                { tag: "mid scroll", progress: 0.5, height: 300 },
+                { tag: "short top end", progress: 0, height: 180 },
+                { tag: "short mid scroll", progress: 0.5, height: 180 }
+            ];
         }
 
         function test_shipped_panel_boundary(row) {
             frame.visible = false;
+            panel.height = row.height;
             panel.visible = true;
             const scrollbar = findChild(panel, "notificationPanelScrollBar");
             verify(scrollbar !== null);
@@ -99,6 +106,8 @@ Item {
             const headerBottom = header.mapToItem(panel, 0, header.height).y;
             const viewTop = view.mapToItem(panel, 0, 0).y;
             compare(viewTop, headerBottom, "the shipped viewport starts at the actual header bottom");
+            compare(view.mapToItem(panel, 0, view.height).y, panel.height,
+                "the shipped viewport reaches the panel bottom in its available room");
             compare(scroll.parent.mapToItem(panel, 0, 0).y, headerBottom,
                 "the list frame starts at the same boundary");
             verify(view.clip, "the shipped viewport clips its content");

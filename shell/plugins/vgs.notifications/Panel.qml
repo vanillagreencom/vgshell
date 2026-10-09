@@ -33,8 +33,8 @@ FocusScope {
     // As wide as the column: the cards with their side room, where the
     // scroll bar sits, wider than the header they sit under.
     implicitWidth: Math.max(header.implicitWidth, listScroll.implicitWidth) + 2 * column.contentInset
-    readonly property real panelMaxHeight: 2 * column.contentInset + look.header.height + Math.max(column.headerBodyGap, column.stickyGap) + look.panel.rowCap * (look.card.maxHeight + look.card.gap) + look.stack.tail
-    implicitHeight: Math.min(2 * column.contentInset + column.headerHeight + Math.max(column.headerBodyGap, column.stickyGap) + listScroll.implicitHeight, panelMaxHeight)
+    readonly property real panelMaxHeight: column.contentInset + look.header.height + Math.max(column.headerBodyGap, column.stickyGap) + look.panel.rowCap * (look.card.maxHeight + look.card.gap) + look.stack.tail
+    implicitHeight: Math.min(column.contentInset + column.headerHeight + Math.max(column.headerBodyGap, column.stickyGap) + listScroll.implicitHeight, panelMaxHeight)
 
     onCurrentIndexChanged: {
         if (refreshing) return;
@@ -262,6 +262,8 @@ FocusScope {
     Pane {
         id: column
         anchors.fill: parent
+        // Keep the header inset; let the list consume the pane's bottom inset.
+        anchors.bottomMargin: -contentInset
         container: "panel"
         padding: 0
         cornerRadius: 0
@@ -308,7 +310,7 @@ FocusScope {
                 anchors.fill: parent
                 scrollObjectName: "notificationPanelScrollBar"
                 look: root.look
-                maxHeight: root.panelMaxHeight - 2 * column.contentInset - column.headerHeight - Math.max(column.headerBodyGap, column.stickyGap)
+                maxHeight: root.panelMaxHeight - column.contentInset - column.headerHeight - Math.max(column.headerBodyGap, column.stickyGap)
                 fadeCards: Array.from(list.children)
 
                 Label {
