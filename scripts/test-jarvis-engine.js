@@ -118,7 +118,8 @@ function rig(kit, server, options = {}) {
         policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => faults.push(reason),
         captionLimit: options.captionLimit ?? Protocol.TRANSCRIPT_CHARS, dispatch: e => runner.dispatch(e), clock: runnerClock,
         directories: options.directories, configured, tasks: tasks?.port ?? null,
-        ...(options.home === undefined ? {} : { home: options.home }) });
+        ...(options.home === undefined ? {} : { home: options.home }),
+        ...(options.trace === undefined ? {} : { trace: options.trace }) });
     ports.release = engine.release;
     const actionApproval = ports.approval;
     const daemonSource = fs.readFileSync(path.join(kit.folder, "backend/jarvisd.js"), "utf8");
@@ -914,6 +915,30 @@ async function cases(kit, server, only = null) {
             && row.effect === "external"), "each utterance, request and sentence is audited before transfer");
         assert.deepEqual([...control.labels], ["speech"], "frames and sentences reach the adapter as labelled items");
     });
+
+    // A test run's trace holds the brain's text as it wrote it, each text
+    // event under its turn, while only its sentences reach speech: the one
+    // that names a tool does not. Without the marker no file is made.
+    for (const marker of ["1", undefined]) {
+        const file = path.join(fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "brain-trace-")), "brain.jsonl");
+        await run("brain-trace", async w => {
+            const first = await say(w, utterance("Read my notes."));
+            await requested(w, first + 1, "first request");
+            const reply = ["Calling `files_read` now. ", "Your notes say **noon**."];
+            server.replies.push(text(...reply));
+            await until(() => w.s().turn.kind === "none", "the reply completes");
+            await playOut(w);
+            assert.deepEqual(control.spoken, ["Your notes say noon."], "a sentence that names a tool is not spoken");
+            if (marker !== "1") {
+                assert.equal(fs.existsSync(file), false, "without the test-run marker the path is ignored");
+                return;
+            }
+            const rows = fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line));
+            assert.equal(rows.map(row => row.text).join(""), reply.join(""), "the trace holds the text as the brain wrote it");
+            assert.deepEqual([...new Set(rows.map(row => row.gen))], [w.s().gen], "under the conversation's generation");
+            assert.equal(new Set(rows.map(row => row.op)).size, 1, "and one turn");
+        }, { trace: { marker, file } });
+    }
 
     // Barge-in during speech, after the reply completed: the next request
     // carries exactly the heard prefix, read at the loopback server.
@@ -1857,6 +1882,29 @@ function brainPlan(Engine) {
     }
 }
 
+// The trace's own rules, at the engine's creation: only the test-run marker
+// with an absolute path makes the file, the run's own and never a link's
+// target.
+function tracePaths(Engine) {
+    const folder = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "trace-paths-"));
+    const open = trace => Engine.create({ captionLimit: 1, trace });
+    for (const marker of [undefined, "", "0", "true"]) {
+        open({ marker, file: path.join(folder, "unmarked") }).close();
+        assert.equal(fs.existsSync(path.join(folder, "unmarked")), false, "marker " + JSON.stringify(marker) + " writes no file");
+    }
+    open({ marker: "1" }).close();
+    assert.throws(() => open({ marker: "1", file: path.relative(process.cwd(), path.join(folder, "relative")) }),
+        { message: "jarvis: engine=trace-path" });
+    fs.writeFileSync(path.join(folder, "other"), "kept");
+    fs.symlinkSync(path.join(folder, "other"), path.join(folder, "link"));
+    assert.throws(() => open({ marker: "1", file: path.join(folder, "link") }), { message: "jarvis: engine=trace-open cause=ELOOP" });
+    assert.throws(() => open({ marker: "1", file: path.join(folder, "absent/brain.jsonl") }), { message: "jarvis: engine=trace-open cause=ENOENT" });
+    // The mode is the engine's own, whatever the caller's mask allows.
+    const mask = process.umask(0);
+    try { open({ marker: "1", file: path.join(folder, "made") }).close(); } finally { process.umask(mask); }
+    assert.equal(fs.statSync(path.join(folder, "made")).mode & 0o777, 0o600, "the trace is the owner's alone");
+}
+
 world(async () => {
     const root = process.env.JARVIS_TEST_ROOT;
     // Without local setup's marker the stock table's local row is the cause.
@@ -1899,6 +1947,18 @@ world(async () => {
             ["always-wake-row", ' && speech.wake !== true))', "))"]]) {
             const { Engine } = Fixture.copy(root, [[needle, replacement]]);
             assert.throws(() => selection(Engine), assert.AssertionError, name + " must turn red");
+            console.log("control=" + name + " detected");
+            controls++;
+        }
+        tracePaths(Fixture.copy(root).Engine);
+        for (const [name, needle, replacement] of [
+            ["trace-unmarked", 'if (trace.marker !== "1" || trace.file === undefined) return null;', "if (trace.file === undefined) return null;"],
+            ["trace-relative", 'if (typeof trace.file !== "string" || !path.isAbsolute(trace.file)) fail("trace-path");', ""],
+            ["trace-link", "O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o600", "O_WRONLY | O_APPEND | O_CREAT, 0o600"],
+            ["trace-open-cause", 'catch (error) { failed("open", error); }', "catch (error) { throw error; }"],
+            ["trace-mode", "O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o600", "O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o644"]]) {
+            const { Engine } = Fixture.copy(root, [[needle, replacement]]);
+            assert.throws(() => tracePaths(Engine), assert.AssertionError, name + " must turn red");
             console.log("control=" + name + " detected");
             controls++;
         }
@@ -2002,6 +2062,9 @@ world(async () => {
             ["partial-to-brain", 'utterance.collection?.done("partial", event.text);', 'utterance.collection?.done("final", event.text);', "turn-loop"],
             ["speakable-bypass", "for (const sentence of text.push(event.text)) say(c, turn, sentence);",
                 "text.push(event.text); say(c, turn, event.text);", "turn-loop"],
+            ["tool-names-spoken", "const text = Speakable.create(LANGUAGE, TOOL_NAMES);", "const text = Speakable.create(LANGUAGE);", "brain-trace"],
+            ["trace-not-written", "                    brainText?.write(turn, event.text);\n", "", "brain-trace"],
+            ["trace-after-speakable", "brainText?.write(turn, event.text);", "for (const sentence of Speakable.create(LANGUAGE).push(event.text)) brainText?.write(turn, sentence);", "brain-trace"],
             ["unlabelled-frames", 'return { value: Policy.item(chunk, ["speech"]), done: false };',
                 'return { value: Policy.item(chunk, ["desktop"]), done: false };', "turn-loop"],
             ["result-identity", 'if (turn !== null && turn.op === value.op && turn.phase === "routing" && turn.routing?.id === id) {',

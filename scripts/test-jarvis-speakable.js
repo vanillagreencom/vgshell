@@ -6,7 +6,7 @@ const { assert, path, backend, world, control } = require("./fixtures/jarvis-voi
 const Speakable = require(path.join(backend, "Speakable.js"));
 const fixtures = require("./fixtures/jarvis-voice/speakable.json");
 function spoken(logic, row, chunks = [row.text]) {
-    const stream = logic.create(row.language);
+    const stream = logic.create(row.language, row.tools);
     const early = chunks.flatMap(chunk => stream.push(chunk));
     if (row.incremental) assert.deepEqual(early, row.sentences, row.name + " before finish");
     const output = early.concat(stream.finish());
@@ -15,11 +15,21 @@ function spoken(logic, row, chunks = [row.text]) {
         for (const [kind, expected] of Object.entries(row.counts)) assert.equal(stream.counts()[kind], expected, row.name + " " + kind);
     if (row.violations === 0) assert.equal(Object.values(stream.counts()).reduce((a, b) => a + b, 0), 0, row.name + " measurement");
 }
-assert.equal(fixtures.length, 55, "sanitation coverage floor");
+assert.ok(fixtures.length >= 73, "sanitation coverage floor");
 const long = { name: "bounded-sentences-after-comparison", language: "en", incremental: true,
     text: "If a<b then stop. " + "Next sentence. ".repeat(300),
     sentences: ["If a b then stop.", ...Array(300).fill("Next sentence.")] };
 assert.ok(long.text.length > Speakable.limits.token, "aggregate reaches the old held-candidate overflow");
+// An element the reply never closes is kept for its end only to a bound: a
+// longer one stays silent. A closed one and a JSON value are read as they
+// arrive, so neither is retained and neither reaches a bound.
+const open = { name: "element-open-past-bound", language: "en", text: "Go. <x>" + "Word. ".repeat(1000), sentences: ["Go."] };
+const closed = { name: "element-closed-past-bound", language: "en", text: "<x>" + "a".repeat(10000) + "</x> Done. ", sentences: ["Done."] };
+const value = { name: "json-past-bound", language: "en", text: '{"a": "' + "x".repeat(10000) + '"} Done. ', sentences: ["Done."] };
+for (const row of [open, closed, value]) {
+    assert.ok(row.text.length > Speakable.limits.element && row.text.length > Speakable.limits.token, row.name + " reaches the bounds");
+    spoken(Speakable, row);
+}
 for (const row of [...fixtures, long]) {
     spoken(Speakable, row);
     spoken(Speakable, row, row.text.split(""));
@@ -65,7 +75,7 @@ world("js", root => {
             'note("path"); plain(pending.slice(0, length), output);',
             logic => spoken(logic, fixtures.find(row => row.name === "paths"))],
         ["comparison-prose", 'plain("<", output); pending = pending.slice(1); continue;',
-            'plain("<", output); mode = "code"; fence = ">"; pending = pending.slice(1); continue;',
+            'plain("<", output); mode = { kind: "code", fence: ">", fresh: false }; pending = pending.slice(1); continue;',
             logic => spoken(logic, fixtures.find(row => row.name === "comparison-spaced"))],
         ["unterminated-prose", 'if (!final && tag.kind === "pending") return;',
             'if (tag.kind === "pending") { if (final) pending = ""; return; }',
@@ -93,7 +103,35 @@ world("js", root => {
         ["lifetime", 'lifecycle !== "open"', 'false', logic => {
             const stream = logic.create("en"); stream.finish();
             assert.throws(() => stream.push("Later"), { message: "jarvis: speakable=stream-closed" });
-        }]
+        }],
+        // One row for each rule of what stays silent. A rule's control reads
+        // the fixture only that rule keeps silent, and the whole reply too.
+        ...[
+            ["element-content", 'if (tag.element !== null) mode = { kind: "element", closer: "</" + tag.element.toLowerCase(), held: "" };', "", "element"],
+            ["element-name", "[A-Za-z_:][A-Za-z0-9_:-]*(?:\\.[A-Za-z0-9_:-]+)*", "[A-Za-z][A-Za-z0-9:-]*", "element-names"],
+            ["element-end", 'if (end !== null) { pending = rest.slice(end[0].length); mode = PROSE; plain(" ", output); continue; }', "", "element"],
+            ["element-letter-case", "if (pending.toLowerCase().startsWith(mode.closer)) {", "if (pending.startsWith(mode.closer)) {", "element-letter-case"],
+            ["element-unclosed", 'while (mode.kind === "element" && mode.held !== null) {', "while (false) {", "element-unclosed"],
+            ["json-value", 'if (judged === "json") {', "if (false) {", "json-object"],
+            ["json-string", "else if (char === '\"') mode.quoted = true;", "", "json-object"],
+            ["json-array", 'if (rest[0] === "{") return "json";', "", "json-array"],
+            ["json-bare-values", "const scalar = JSON_SCALAR.exec(rest);", "const scalar = null;", "json-array"],
+            ["json-link-label", 'scalar[2] === "(" && scalar[1] === "]" ? "prose" : "json"', '"json"', "json-prose"],
+            ["json-unfinished", "if (rest[0] === '\"' || rest[0] === (text[0] === \"{\" ? \"}\" : \"]\")) return \"json\";",
+                "if (rest[0] === (text[0] === \"{\" ? \"}\" : \"]\")) return \"json\";", "json-unfinished"],
+            ["table-row", 'if (first === "|" && /(?:^|\\n)[ \\t]*$/u.test(sentence)) {', "if (false) {", "table"],
+            ["tool-name", "if (names.length !== 0 && !/[\\p{L}\\p{N}_.]$/u.test(sentence)) {", "if (false) {", "tool-line"],
+            ["tool-name-in-code", "if (mode.fresh) {", "if (false) {", "tool-code"],
+            ["tool-line-words", 'sentence = sentence.slice(0, sentence.lastIndexOf("\\n") + 1);', "", "tool-line"],
+            ["tool-sentence-end", "/^(?:\\n|[.!?]+(?=\\s))/u.exec(pending)", "/^(?:\\n)/u.exec(pending)", "tool-line"],
+            ["tool-line-end", "/^(?:\\n|[.!?]+(?=\\s))/u.exec(pending)", "/^(?:[.!?]+(?=\\s))/u.exec(pending)", "tool-lines"],
+            ["tool-one-word", "tools.filter(name => /[._]/u.test(name))", "tools", "tool-word"],
+            ["tool-word-start", "!/[\\p{L}\\p{N}_.]$/u.test(sentence)", "true", "tool-boundary"],
+            ["tool-word-end", "!/[\\p{L}\\p{N}_]/u.test(pending[name.length])", "true", "tool-boundary"]
+        ].flatMap(([name, needle, replacement, fixture]) => [
+            [name, needle, replacement, logic => spoken(logic, fixtures.find(row => row.name === fixture))]]),
+        ["element-bound", "mode.held.length < LIMITS.element ? mode.held + pending[0] : null", "mode.held + pending[0]",
+            logic => spoken(logic, open)]
     ];
     for (const [name, needle, replacement, check] of rows) {
         control(root, name, "Speakable.js", needle, replacement, check); controls++;

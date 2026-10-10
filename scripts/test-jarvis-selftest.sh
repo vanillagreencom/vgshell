@@ -301,21 +301,25 @@ control plant "a runner that takes a setup with no ready marker" '  [[ -f $marke
 echo "--- what the run makes before its shell starts"
 echo 0 >"$tmp/fence-answer"
 sandbox="$tmp/sandbox"
+# The run's own word for every shell it starts: where the daemon writes its
+# trace of brain text.
+trace_word="VGS_JARVIS_TRACE=$sandbox/selftest-brain.jsonl"
 row_of() { python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); print(json.dumps([r for r in c["plugins"] if r["id"] == "vgs.jarvis"] + [c["disabledPlugins"]], sort_keys=True))' "$sandbox/home/.config/vgshell/shell.json"; }
 starts() { run --type hello --brain "$sign_in" "$@"; [[ $status -eq 0 ]]; }
 plugin_restored() { starts && diff -r -q -- "$repo/shell/plugins/vgs.jarvis" "$sandbox/repo/shell/plugins/vgs.jarvis" >/dev/null; }
-account_alone() { starts && [[ "$(<"$tmp/harness.log")" == "harness-reached"$'\n'"stop_shell"$'\n'"start_shell CLAUDE_CONFIG_DIR=$world/.claude" ]]; }
+account_alone() { starts && [[ "$(<"$tmp/harness.log")" == "harness-reached"$'\n'"stop_shell"$'\n'"start_shell CLAUDE_CONFIG_DIR=$world/.claude $trace_word" ]]; }
 settings_named() {
   starts && [[ "$(row_of)" == "[{\"brain\": \"$sign_in\", \"id\": \"vgs.jarvis\", \"microphone\": \"vgs-smoke-voice\", \"mode\": \"toggle\", \"speaker\": \"vgs-smoke-speakers\", \"voiceProvider\": \"local\"}, [\"vgs.jarvis\"]]" ]]
 }
 voice_linked() { starts && [[ $sandbox/home/.local/share/vgshell/jarvis/local -ef $voice_root ]] && cmp -s -- "$tmp/voice/.local/state/vgshell/jarvis/local-ready.json" "$sandbox/home/.local/state/vgshell/jarvis/local-ready.json"; }
 holds "the sandbox's Jarvis plugin is the checkout's, byte for byte" plugin_restored
-holds "the shell starts with the account's directory variable as its one extra word" account_alone
+holds "the shell starts with two extra words: the account's directory variable and the run's own trace path" account_alone
 holds "Jarvis's settings name the brain, the feed's source and the null speakers, with Jarvis still disabled" settings_named
 holds "the prepared setup is linked as the sandbox's local voice, with its marker" voice_linked
 control plant "a runner that keeps the harness's instrumented plugin" \
   'rm -rf -- "${repo:?}/shell/plugins/vgs.jarvis"'$'\n''cp -R -- "$plugin" "$repo/shell/plugins/vgs.jarvis"' ':' plugin_restored
 control plant "a runner that hands the shell another word of the caller's" 'bar "${account_word[@]}"' 'bar "${account_word[@]}" "HOME=$HOME"' account_alone
+control plant "a runner that names the daemon no trace path" ' "VGS_JARVIS_TRACE=$sandbox/selftest-brain.jsonl" || stopped shell-not-started' ' || stopped shell-not-started' account_alone
 control plant "a runner that leaves the microphone to the default" '"microphone": microphone,' '' settings_named
 
 # The device guard: the run goes on only where the guard reads the shell
@@ -334,7 +338,7 @@ guard_case() { # ROW
   rm -- "${tmp:?}/guard-answer"
   [[ $went == no ]] || steps=$'\n'"ipc shell setPluginEnabled vgs.jarvis true"
   [[ $status -eq 1 && "$(tail -n 1 -- "$tmp/out")" == "$line" &&
-    "$(<"$tmp/harness.log")" == "harness-reached"$'\n'"stop_shell"$'\n'"start_shell CLAUDE_CONFIG_DIR=$world/.claude$steps" ]] || held=1
+    "$(<"$tmp/harness.log")" == "harness-reached"$'\n'"stop_shell"$'\n'"start_shell CLAUDE_CONFIG_DIR=$world/.claude $trace_word$steps" ]] || held=1
   return "$held"
 }
 for row in "${guard_rows[@]}"; do holds "${row%%|*}" guard_case "$row"; done
@@ -541,7 +545,7 @@ SH
   answered() { [[ "$(<"$tmp/probe.$1.status")" == "$2" ]]; }
   key_read() { key_run present "${brain_key[@]}" && [[ $status -eq 0 ]] && answered own 0 && [[ "$(<"$tmp/probe.own")" == stand-in-key ]]; }
   key_alone() {
-    key_run present "${brain_key[@]}" && [[ "$(tail -n 1 -- "$tmp/harness.log")" == "start_shell " ]] &&
+    key_run present "${brain_key[@]}" && [[ "$(tail -n 1 -- "$tmp/harness.log")" == "start_shell $trace_word" ]] &&
       python3 -c 'import json,sys; saved, world = (json.load(open(a)) for a in sys.argv[1:]); sys.exit(saved != [r for r in world if r["provider"] == "openai"])' "$tmp/probe.keys" "$state/keys.json"
   }
   foreign_stays() { key_run present "${brain_key[@]}" && answered foreign 1 && ! grep -q -F vgs-notifications -- "$tmp/keyring.calls"; }
@@ -582,7 +586,7 @@ SH
     : >"$tmp/voice.wav"
     inputs=()
     key_run present --wav "$tmp/voice.wav" --brain "$sign_in" --voice realtime
-    [[ $status -eq 0 && "$(tail -n 1 -- "$tmp/harness.log")" == "start_shell CLAUDE_CONFIG_DIR=$world/.claude" && ! -e $sandbox/home/.local/share/vgshell/jarvis/local &&
+    [[ $status -eq 0 && "$(tail -n 1 -- "$tmp/harness.log")" == "start_shell CLAUDE_CONFIG_DIR=$world/.claude $trace_word" && ! -e $sandbox/home/.local/share/vgshell/jarvis/local &&
       "$(row_of)" == "[{\"brain\": \"$sign_in\", \"id\": \"vgs.jarvis\", \"microphone\": \"vgs-smoke-voice\", \"mode\": \"toggle\", \"speaker\": \"vgs-smoke-speakers\", \"voiceAccount\": \"$saved_key\", \"voiceProvider\": \"realtime\"}, [\"vgs.jarvis\"]]" ]] || held=1
     inputs=("${voice_inputs[@]}")
     return "$held"
@@ -716,6 +720,13 @@ cat >"$tmp/audit/2026-10-10.jsonl" <<'JSONL'
 {"time": "2026-10-10T00:00:01.000Z", "kind": "release", "gen": 1, "op": 4, "tool": "release", "args": {}, "effect": null, "decision": "send", "confirmed": "none", "outcome": "completed"}
 {"time": "2026-10-10T00:00:02.000Z", "kind": "action", "gen": 1, "op": 3, "tool": "shell.argv", "args": {"argv": "PLANTED-ARGUMENT"}, "effect": "exec", "decision": "confirm", "confirmed": "physical", "outcome": "completed"}
 JSONL
+# The daemon's own trace of brain text: one turn in two text events, then a
+# second turn.
+cat >"$tmp/brain.jsonl" <<'JSONL'
+{"gen": 1, "op": 5, "text": "It is **noon**. "}
+{"gen": 1, "op": 5, "text": "`date` says so."}
+{"gen": 1, "op": 8, "text": "Anything else?"}
+JSONL
 # planted_trace USER_FINAL [FORM]: a turn whose answer is two sentences in
 # one caption segment, which closes, and a second segment that repeats the
 # first sentence and stays open. In the `sentences` form, ChainedEngine.js's,
@@ -743,7 +754,7 @@ json.dump(events, open(sys.argv[1], "w"))
 PY
 }
 record() { # END KEPT [VOICE] [MAILBOX] → the verdict word; the record in record.json
-  call selftest_record "$tmp/trace.json" "$tmp/audit" "$tmp/record.json" idle "" wav /voice.wav cli:b "/a home" "${3:-local}" key "${4:-}" "$1" "$2"
+  call selftest_record "$tmp/trace.json" "$tmp/audit" "$tmp/record.json" idle "" wav /voice.wav cli:b "/a home" "${3:-local}" key "${4:-}" "$1" "$2" "$tmp/brain.jsonl"
 }
 # sentences_are VOICE FORM WANT_JSON: the record's sentences for a trace of
 # FORM read as VOICE's.
@@ -762,6 +773,7 @@ import json, sys
 want = {"input": {"kind": "wav", "value": "/voice.wav"}, "brain": "cli:b", "home": "/a home", "voice": "local", "confirm": "key",
         "heard": "What time is it?",
         "sentences": [{"ms": 1000, "text": "It is noon."}, {"ms": 1500, "text": "Anything else?"}, {"ms": 2000, "text": "It is noon."}],
+        "raw": ["It is **noon**. `date` says so.", "Anything else?"],
         "tools": [{"tool": "shell.argv", "decision": "confirm", "confirmed": "none", "outcome": "pending"},
                   {"tool": "shell.argv", "decision": "confirm", "confirmed": "physical", "outcome": "completed"}],
         "mailbox": [],
@@ -779,7 +791,7 @@ names_only() { planted_trace final; record completed true >/dev/null && ! grep -
 mailbox_is() {
   planted_trace final
   call selftest_record "$tmp/trace.json" "$tmp/audit" "$tmp/record.json" idle "" wav /voice.wav cli:b "$2" local key \
-    "$mail_row"$'\n''{"id":"1791633001-1-2","text":"a second row"}' completed true >/dev/null || return 1
+    "$mail_row"$'\n''{"id":"1791633001-1-2","text":"a second row"}' completed true "$tmp/brain.jsonl" >/dev/null || return 1
   python3 -c 'import json,sys; sys.exit(json.load(open(sys.argv[1]))["mailbox"] != json.loads(sys.argv[2]))' "$tmp/record.json" "$1"
 }
 mailbox_rows() { mailbox_is "[$mail_row, {\"id\": \"1791633001-1-2\", \"text\": \"a second row\"}]" "/a home"; }
@@ -792,13 +804,15 @@ not_passed() { # "END KEPT USER_FINAL"
   planted_trace "$final"
   [[ "$(record "$end" "$kept")" == failed && "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["passed"])' "$tmp/record.json")" == False ]]
 }
-holds "the record holds the heard text, each released sentence, each tool call's names, the widget states and the end" record_holds
+holds "the record holds the heard text, each released sentence, each turn's brain text, each tool call's names, the widget states and the end" record_holds
 holds "the record holds no argument of a tool call" names_only
 holds "the record holds each row the mailbox read printed, whole" mailbox_rows
 holds "a run with no home folder records no mailbox" mailbox_none
 holds "the realtime voice's record holds each caption segment whole, timed at its first words" realtime_sentences
 for row in "${failed_rows[@]}"; do holds "a record for [$row] is not marked passed" not_passed "$row"; done
 control cut_functions "a record that keeps the audit record whole" 'tools.append({key: row[key] for key in ("tool", "decision", "confirmed", "outcome")})' 'tools.append(row)' names_only
+control cut_functions "a record that drops the brain's own text" '"raw": raw,' '"raw": [],' record_holds
+control cut_functions "a record that reads two turns' brain text as one" '    if (row["gen"], row["op"]) != turn:' '    if turn is None:' record_holds
 control cut_functions "a record that drops the mailbox rows" '[json.loads(line) for line in mailbox.splitlines()] if home' '[] if home' mailbox_rows
 control cut_functions "a record that lists a mailbox for a run with no home folder" ' if home else None,' ',' mailbox_none
 control cut_functions "a record that reads the realtime voice's fragments as sentences" '    if voice == "realtime":' '    if False:' realtime_sentences
@@ -838,7 +852,7 @@ finish_case() { # ROW
     checks) checks=1 ;;
   esac
   call selftest_finish "$turn" "$sum" "$tmp/auth.calls" "$checks" "$tmp/trace.json" "$tmp/audit" "$tmp/record.json" \
-    idle "" wav /voice.wav cli:b "$folder" local key "$repo" "$finish_copy" >"$tmp/out" 2>"$tmp/err" || status=$?
+    idle "" wav /voice.wav cli:b "$folder" local key "$repo" "$finish_copy" "$tmp/brain.jsonl" >"$tmp/out" 2>"$tmp/err" || status=$?
   [[ $status -eq $want_status && "$(tail -n 1 -- "$tmp/out")" == "selftest=$end record=$tmp/record.json" ]] || return 1
   [[ "$(python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print(r["end"]["kind"], r["passed"])' "$tmp/record.json")" == "$end $passed" ]]
 }
@@ -853,7 +867,7 @@ control cut_functions "a verdict that reads no home checksum" '[[ $sum == "$home
 control cut_functions "a verdict that passes a run that reached an authentication stand-in" 'if [[ -s $auth_log ]]; then kept=false;' 'if [[ -s $auth_log ]]; then' finish_case "${finish_rows[6]}"
 control cut_functions "a verdict that passes a run with a failed sandbox check" '[[ $failures -eq 0 ]] || { kept=false;' '[[ $failures -eq 0 ]] || {' finish_case "${finish_rows[7]}"
 control cut_functions "a run whose exit status is not its record's mark" '  [[ $verdict == passed ]] || exit 1' '  :' finish_case "${finish_rows[6]}"
-control cut_functions "a record written before the run's rules are read" '"$end" "$kept")"' '"$end" true)"'$'\n''  [[ $kept == true ]] || verdict=failed' finish_case "${finish_rows[6]}"
+control cut_functions "a record written before the run's rules are read" '"$end" "$kept" "$brain_text")"' '"$end" true "$brain_text")"'$'\n''  [[ $kept == true ]] || verdict=failed' finish_case "${finish_rows[6]}"
 
 echo "--- the mailbox"
 # hands BACKEND HOME TEXT_JSON: the text TEXT_JSON spells as a JSON string,
@@ -887,7 +901,7 @@ finish_mail() { # BACKEND
   call selftest_mailbox "$repo" "$finish_copy" >/dev/null || return 1
   id="$(hands "$1" "$finish_copy" '"Rebase the lanes.\nThen report \ud83d."')" || return 1
   call selftest_finish ended=idle "$sum" "$tmp/auth.calls" 0 "$tmp/trace.json" "$tmp/audit" "$tmp/record.json" \
-    idle "" type hello cli:b "$folder" local key "$repo" "$finish_copy" >"$tmp/out" 2>"$tmp/err" || return 1
+    idle "" type hello cli:b "$folder" local key "$repo" "$finish_copy" "$tmp/brain.jsonl" >"$tmp/out" 2>"$tmp/err" || return 1
   python3 - "$tmp/record.json" "$id" <<'PY'
 import json, re, sys
 rows = json.load(open(sys.argv[1]))["mailbox"]

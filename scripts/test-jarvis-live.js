@@ -1221,7 +1221,8 @@ world(async () => {
             conn.play("updated");
             await wait(() => last()?.capture.kind === "open", "synthetic capture opens behind the indicator");
             send({ type: "intent", intent: "talk-up" });
-            const answer = "**Completed.** Visit https://example.com.";
+            // What a brain may write around its words: a tool call as an element, a bare JSON value and markup.
+            const answer = '<tool_call>{"name": "files_delete"}</tool_call> {"deleted": true} **Completed.** Visit https://example.com.';
             if (only === "action") server.replies.push(BrainFixture.calls({ id: "delete_call", name: "files_delete", arguments: { path: victim } }),
                 BrainFixture.text(answer));
             else if (only === "release") server.replies.push(BrainFixture.calls({ id: "read_call", name: "files_read", arguments: { path: victim } }),
@@ -1263,8 +1264,7 @@ world(async () => {
                 const observed = fs.readFileSync(frameAudits, "utf8").trim().split("\n").map(JSON.parse)
                     .filter(value => value.frame.type === SPEAK);
                 const commentary = conn.events.filter(value => value.type === SPEAK);
-                assert.ok(commentary.every(value => !words(value).includes("https://") && !words(value).includes("**")));
-                assert.ok(commentary.map(words).join(" ").includes("Completed."));
+                assert.deepEqual(commentary.map(words), ["Completed.", "Visit example."], "the voice reads the brain's sentences and nothing else of its text");
                 assert.ok(rows().some(row => row.kind === "action" && row.effect === "destructive" && row.confirmed === "physical"));
                 assert.deepEqual(observed.map(value => value.frame), commentary);
                 assert.deepEqual({ check: "commentary-audit-before-send", audited: observed.every(value =>

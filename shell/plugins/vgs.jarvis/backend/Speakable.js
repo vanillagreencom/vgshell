@@ -1,34 +1,46 @@
-// TTS input boundary for chained consumers. create(language) owns a text
-// stream: push(chunk) and finish() return sentence arrays; counts() returns
-// detected violations without retaining a transcript. violations(text,
-// language) measures a final duplex transcript. It never receives audio.
+// TTS input boundary for chained consumers. create(language, tools) owns a
+// text stream: push(chunk) and finish() return sentence arrays; counts()
+// returns detected violations without retaining a transcript. Only a reply's
+// sentences leave it: an element's content, a JSON value, code, a table row
+// and a sentence that names one of tools are silent, and the prose around
+// them is spoken. violations(text, language) measures a final duplex
+// transcript. It never receives audio.
 // Limits are allocation bounds in UTF-16 code units, not latency budgets.
 // Any overflow throws, clears retained text and makes the stream unusable.
 "use strict";
 const { languageCode, expand } = require("./SpeechLanguage.js");
-const LIMITS = Object.freeze({ chunk: 16384, token: 4096, sentence: 4096, output: 65536 });
+const LIMITS = Object.freeze({ chunk: 16384, token: 4096, sentence: 4096, output: 65536, element: 4096 });
 const KINDS = ["markdown", "code", "url", "path", "symbol", "number", "unit", "date", "time"];
 const URL_START = /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\.|mailto:)/u;
 // A brain can split any URI scheme across tokens. Hold one possible scheme
 // until punctuation/whitespace disproves it, rather than maintain a scheme list.
 const SCHEME_PART = /^[A-Za-z][A-Za-z0-9+.-]*(?::\/{0,2})?$/u;
 const ABBREVIATIONS = /(?:\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Sra|Srta|Ud|Uds)|\b[A-Z])\.$/u;
+// The first value of a JSON array of bare values, to the "," or "]" that
+// ends it, and a prefix of one.
+const JSON_SCALAR = /^(?:-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)\s*([,\]])(.?)/su;
+const JSON_SCALAR_PART = /^(?:-?[\d.eE+-]*|t(?:r(?:ue?)?)?|f(?:a(?:l(?:se?)?)?)?|n(?:u(?:ll?)?)?)\s*$/u;
+const PROSE = Object.freeze({ kind: "prose" });
 
-// Judge both complete HTML and prefixes of its token grammar. An impossible
+// Judge both complete tags and prefixes of the tag grammar. An impossible
 // prefix is prose immediately; only an unfinished valid token stays pending.
+// A tag name is an XML name: letters, digits, "_", "-" and ":", with "."
+// between them. element is the name of a tag that opens an element, null for
+// a closing tag, a self-closing one and a comment.
 function htmlCandidate(text) {
     if ("<!--".startsWith(text)) return { kind: "pending" };
     if (text.startsWith("<!--")) {
         const end = text.indexOf("-->", 4);
-        return end < 0 ? { kind: "pending" } : { kind: "tag", length: end + 3 };
+        return end < 0 ? { kind: "pending" } : { kind: "tag", length: end + 3, element: null };
     }
-    const head = /^<\/?[A-Za-z][A-Za-z0-9:-]*/u.exec(text);
+    const head = /^<\/?[A-Za-z_:][A-Za-z0-9_:-]*(?:\.[A-Za-z0-9_:-]+)*/u.exec(text);
     if (head === null) return { kind: text === "<" || text === "</" ? "pending" : "prose" };
     let at = head[0].length;
     while (at < text.length) {
         const end = /^\/?>/u.exec(text.slice(at));
-        if (end !== null) return { kind: "tag", length: at + end[0].length };
-        if (text.slice(at) === "/") return { kind: "pending" };
+        if (end !== null) return { kind: "tag", length: at + end[0].length,
+            element: end[0] === ">" && !text.startsWith("</") ? head[0].slice(1) : null };
+        if (text.slice(at) === "/" || text.slice(at) === ".") return { kind: "pending" };
         const space = /^\s+/u.exec(text.slice(at));
         if (space === null) return { kind: "prose" };
         at += space[0].length;
@@ -56,6 +68,23 @@ function htmlCandidate(text) {
     return { kind: "pending" };
 }
 
+// Whether text, which starts with "{" or "[", opens a JSON value: "json",
+// "prose", or "pending" while its first token is unfinished. Prose holds
+// neither `{"` nor `[{`, so that token decides an object and an array of
+// objects, strings or arrays. An array of bare values is judged at its first
+// value's end, and one a "(" follows is a Markdown link's label.
+function jsonCandidate(text, final) {
+    const rest = text.slice(1).replace(text[0] === "{" ? /^\s+/u : /^[\[\s]+/u, "");
+    if (rest === "") return final ? "prose" : "pending";
+    if (rest[0] === '"' || rest[0] === (text[0] === "{" ? "}" : "]")) return "json";
+    if (text[0] === "{") return "prose";
+    if (rest[0] === "{") return "json";
+    const scalar = JSON_SCALAR.exec(rest);
+    if (scalar === null) return !final && JSON_SCALAR_PART.test(rest) ? "pending" : "prose";
+    if (scalar[1] === "," || scalar[2] !== "") return scalar[2] === "(" && scalar[1] === "]" ? "prose" : "json";
+    return final ? "json" : "pending";
+}
+
 function siteName(raw) {
     try {
         const parsed = new URL(raw.startsWith("www.") ? "https://" + raw : raw);
@@ -69,13 +98,21 @@ function siteName(raw) {
     }
 }
 
-/** Own one brain-text stream. The engine sends only returned strings to TTS. */
-function create(language) {
+/**
+ * Own one brain-text stream. The engine sends only returned strings to TTS.
+ * tools is every name a brain may know a tool by. A one-word name, as help
+ * is, reads as an ordinary word, so only a name with "." or "_" marks a
+ * sentence as a status line.
+ */
+function create(language, tools = []) {
     const code = languageCode(language);
+    const names = tools.filter(name => /[._]/u.test(name));
     let pending = "";
     let sentence = "";
-    let mode = "prose";
-    let fence = "";
+    // prose; code to its fence; element to its closing tag; json to the end
+    // of its value; row to the end of its line; status to the end of its
+    // sentence or line.
+    let mode = PROSE;
     let lifecycle = "open";
     const counts = Object.fromEntries(KINDS.map(kind => [kind, 0]));
 
@@ -113,27 +150,94 @@ function create(language) {
             from = 0;
         }
     }
+    // Whether pending starts with a tool's name: "tool", "none", or "pending"
+    // while more text could finish one.
+    function toolAt(final) {
+        let open = false;
+        for (const name of names) {
+            if (!pending.startsWith(name)) open ||= name.startsWith(pending);
+            else if (pending.length === name.length ? final : !/[\p{L}\p{N}_]/u.test(pending[name.length])) return "tool";
+            else open ||= pending.length === name.length;
+        }
+        return open && !final ? "pending" : "none";
+    }
+    // A sentence that names a tool says what Jarvis does, not what the user
+    // asked for. The words of its line not yet spoken go with it.
+    function status() {
+        note("code");
+        sentence = sentence.slice(0, sentence.lastIndexOf("\n") + 1);
+        mode = { kind: "status" };
+    }
     function drain(final, output) {
         while (pending !== "") {
-            if (mode !== "prose") {
-                switch (mode) {
-                case "code":
-                    if (pending.startsWith(fence)) { pending = pending.slice(fence.length); mode = "prose"; plain(" ", output); }
-                    else if (!final && fence.startsWith(pending)) return;
-                    else pending = pending.slice(1);
-                    continue;
-                default: throw new Error("jarvis: speakable=mode");
+            switch (mode.kind) {
+            case "prose": break;
+            case "code":
+                // A name in code marks a status line as a bare one does.
+                if (mode.fresh) {
+                    const named = toolAt(final);
+                    if (named === "pending") return;
+                    mode.fresh = false;
+                    if (named === "tool") { status(); continue; }
                 }
+                if (pending.startsWith(mode.fence)) { pending = pending.slice(mode.fence.length); mode = PROSE; plain(" ", output); }
+                else if (!final && mode.fence.startsWith(pending)) return;
+                else pending = pending.slice(1);
+                continue;
+            case "element": {
+                // The first closing tag of the name, in any letter case, ends
+                // the element. Its content is kept, up to a bound, for a
+                // reply that never closes it (run).
+                const rest = pending.slice(mode.closer.length);
+                if (pending.toLowerCase().startsWith(mode.closer)) {
+                    const end = /^\s*>/u.exec(rest);
+                    if (end !== null) { pending = rest.slice(end[0].length); mode = PROSE; plain(" ", output); continue; }
+                    if (!final && rest.trim() === "") return;
+                } else if (!final && mode.closer.startsWith(pending.toLowerCase())) return;
+                if (mode.held !== null) mode.held = mode.held.length < LIMITS.element ? mode.held + pending[0] : null;
+                pending = pending.slice(1);
+                continue;
+            }
+            case "json": {
+                // Only strings and brackets are read: a value that never
+                // balances stays silent to the end of the reply.
+                const char = pending[0];
+                pending = pending.slice(1);
+                if (mode.quoted) {
+                    if (mode.escaped) mode.escaped = false;
+                    else if (char === "\\") mode.escaped = true;
+                    else if (char === '"') mode.quoted = false;
+                } else if (char === '"') mode.quoted = true;
+                else if (char === "{" || char === "[") mode.depth++;
+                else if ((char === "}" || char === "]") && --mode.depth === 0) { mode = PROSE; plain(" ", output); }
+                continue;
+            }
+            case "row":
+                if (pending[0] !== "\n") pending = pending.slice(1);
+                else mode = PROSE;
+                continue;
+            case "status": {
+                const stop = /^(?:\n|[.!?]+(?=\s))/u.exec(pending);
+                if (stop !== null) { pending = pending.slice(stop[0] === "\n" ? 0 : stop[0].length); mode = PROSE; continue; }
+                if (!final && /^[.!?]+$/u.test(pending)) return;
+                pending = pending.slice(1);
+                continue;
+            }
+            default: throw new Error("jarvis: speakable=mode");
             }
             const first = pending[0];
             // A chunk may end inside a UTF-16 pair. Preserve it for the next.
             if (!final && pending.length === 1 && /[\uD800-\uDBFF]/u.test(first)) return;
+            if (names.length !== 0 && !/[\p{L}\p{N}_.]$/u.test(sentence)) {
+                const named = toolAt(final);
+                if (named === "pending") return;
+                if (named === "tool") { status(); continue; }
+            }
             const ticks = /^(`+|~{3,})/.exec(pending);
             if (ticks) {
                 if (!final && ticks[0].length === pending.length) return;
-                fence = ticks[0];
                 pending = pending.slice(ticks[0].length);
-                mode = "code";
+                mode = { kind: "code", fence: ticks[0], fresh: true };
                 note("code");
                 continue;
             }
@@ -145,7 +249,9 @@ function create(language) {
                 if (!final && SCHEME_PART.test(pending.slice(1))) return;
                 const tag = htmlCandidate(pending);
                 if (tag.kind === "tag") {
-                    note("markdown"); pending = pending.slice(tag.length); plain(" ", output); continue;
+                    note("markdown"); pending = pending.slice(tag.length); plain(" ", output);
+                    if (tag.element !== null) mode = { kind: "element", closer: "</" + tag.element.toLowerCase(), held: "" };
+                    continue;
                 }
                 if (!final && tag.kind === "pending") return;
                 plain("<", output); pending = pending.slice(1); continue;
@@ -164,6 +270,15 @@ function create(language) {
                 continue;
             }
             if (!final && SCHEME_PART.test(pending)) return;
+            if (first === "{" || first === "[") {
+                const judged = jsonCandidate(pending, final);
+                if (judged === "pending") return;
+                if (judged === "json") {
+                    note("code");
+                    mode = { kind: "json", depth: 0, quoted: false, escaped: false };
+                    continue;
+                }
+            }
             const image = pending.startsWith("![");
             if (first === "[" || image) {
                 const start = image ? 2 : 1;
@@ -191,6 +306,10 @@ function create(language) {
                 note("path"); plain(" " + trailing, output); pending = pending.slice(length); continue;
             }
             if (!final && (pending === "/" || pending === "~" || /^[A-Za-z]:?\\?$/.test(pending))) return;
+            // A line that starts with "|" is a table's row.
+            if (first === "|" && /(?:^|\n)[ \t]*$/u.test(sentence)) {
+                note("markdown"); mode = { kind: "row" }; continue;
+            }
             if (/^[*_~#>|\\\[\]]/u.test(first)) {
                 note("markdown"); pending = pending.slice(1); plain(" ", output); continue;
             }
@@ -228,13 +347,20 @@ function create(language) {
             }
             if (final) {
                 drain(true, output);
+                // A tag the reply never closed opened no element: the text
+                // after it is prose, read again by every other rule.
+                while (mode.kind === "element" && mode.held !== null) {
+                    pending = mode.held;
+                    mode = PROSE;
+                    drain(true, output);
+                }
                 emit(sentence, output);
-                sentence = ""; fence = ""; mode = "prose";
+                sentence = ""; mode = PROSE;
                 lifecycle = "closed";
             }
             return output;
         } catch (error) {
-            pending = ""; sentence = ""; fence = ""; mode = "prose"; lifecycle = "failed";
+            pending = ""; sentence = ""; mode = PROSE; lifecycle = "failed";
             throw error;
         }
     }

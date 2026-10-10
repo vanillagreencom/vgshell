@@ -649,6 +649,9 @@ Item {
             WAYLAND_DISPLAY: Quickshell.env("WAYLAND_DISPLAY"),
             DBUS_SESSION_BUS_ADDRESS: Quickshell.env("DBUS_SESSION_BUS_ADDRESS"),
             YDOTOOL_SOCKET: Quickshell.env("YDOTOOL_SOCKET"),
+            // A test run's marker and its trace path: under both, and only
+            // then, the engine writes what the brain wrote (ChainedEngine.js).
+            VGS_TEST_RUN: Quickshell.env("VGS_TEST_RUN"), VGS_JARVIS_TRACE: Quickshell.env("VGS_JARVIS_TRACE"),
             LANG: "C.UTF-8"
         }, AccountDirectories.accountVariables(name => Quickshell.env(name)))
         stdout: SplitParser { splitMarker: ""; onRead: data => root.receive(data) }

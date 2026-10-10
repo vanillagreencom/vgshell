@@ -6,12 +6,15 @@
 "use strict";
 const { Readable, Writable } = require("node:stream");
 const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
 const Policy = require("./Policy.js");
 const Providers = require("./Providers.js");
 const { PROVIDERS, unlistedChoice } = require("../AccountProviders.js");
 const Net = require("./net.js");
 const Guidance = require("./Guidance.js");
 const Speakable = require("./Speakable.js");
+const Tools = require("./Tools.js");
 const OpenAIChat = require("./OpenAIChat.js");
 const AnthropicMessages = require("./AnthropicMessages.js");
 const CodexHarness = require("./CodexHarness.js");
@@ -30,6 +33,9 @@ const TaskVoice = require("./TaskVoice.js");
 const SPEECH = Object.freeze({ local: LocalSpeech.row });
 const DRIVERS = Object.freeze({ "openai-chat": OpenAIChat, "anthropic-messages": AnthropicMessages,
     "codex-app-server": CodexHarness, "copilot-acp": CopilotHarness, "pi-rpc": PiHarness, "claude-code": ClaudeCode });
+// Every name a brain may know a tool by: its id and its model-facing name.
+// Speakable keeps a sentence that holds one out of speech.
+const TOOL_NAMES = Object.freeze([...Object.keys(Tools.TABLE), ...Tools.wireNames(Object.keys(Tools.TABLE)).keys()]);
 // The hello carries no language setting; empty selects English.
 const LANGUAGE = "";
 // Object-mode chunks queued toward Audio, below its playback allowance.
@@ -63,6 +69,35 @@ function keyed(error) {
     const message = error?.message ?? "";
     return /^jarvis(?:-[a-z]+)?: [a-z-]+=[^\n]*$/.test(message)
         ? message.replace(/^jarvis: /, "").slice(0, 180) : "engine=unexpected";
+}
+
+// A test run's record of what a brain wrote: one {gen, op, text} line for
+// each text event, before Speakable reads it. trace is {marker, file}, the
+// daemon's VGS_TEST_RUN and VGS_JARVIS_TRACE. Only the test-run marker with a
+// path opens the file, so no session of a user's writes a transcript to disk
+// (docs/architecture/jarvis.md § Capture and records). The file is the
+// run's own: made 0600, never through a link, and only added to. A run's
+// environment is its caller's to set, and a path that is not absolute would
+// land in the daemon's working folder, so it is refused.
+function tracer(trace) {
+    if (trace.marker !== "1" || trace.file === undefined) return null;
+    if (typeof trace.file !== "string" || !path.isAbsolute(trace.file)) fail("trace-path");
+    const { O_WRONLY, O_APPEND, O_CREAT, O_NOFOLLOW } = fs.constants;
+    const failed = (step, error) => fail("trace-" + step + " cause=" + (error.code ?? "unknown"));
+    let fd;
+    try { fd = fs.openSync(trace.file, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o600); }
+    catch (error) { failed("open", error); }
+    return {
+        write(turn, text) {
+            try { fs.writeSync(fd, JSON.stringify({ gen: turn.gen, op: turn.op, text }) + "\n"); }
+            catch (error) { failed("write", error); }
+        },
+        // Teardown can run again after a failure inside it.
+        close() {
+            if (fd !== null) fs.closeSync(fd);
+            fd = null;
+        }
+    };
 }
 
 // One wake point per waiter; notify releases every current waiter.
@@ -201,10 +236,12 @@ function selectBrain(settings, accounts) {
  * prompt, value) answers one, and interrupted(gen, ask), released(gen, ask)
  * and withheld(gen, text, ask) report back to TaskVoice. home answers the
  * daemon's judgement of the user's home folder: {kind: "none"}, {kind:
- * "ready", path} or {kind: "refused", cause}.
+ * "ready", path} or {kind: "refused", cause}. trace is {marker, file}, the
+ * daemon's test-run marker and trace path, which tracer judges.
  */
-function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, log = () => {}, home = () => ({ kind: "none" }) }) {
+function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, log = () => {}, home = () => ({ kind: "none" }), trace = {} }) {
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
+    const brainText = tracer(trace);
     let plan = unconfigured("engine=starting");
     let conversation = null;
     let retired = null;
@@ -649,7 +686,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             // History can carry an earlier turn's untrusted content.
             router.observe(turn, reply.release.labels);
             const events = reply.events[Symbol.asyncIterator]();
-            const text = Speakable.create(LANGUAGE);
+            const text = Speakable.create(LANGUAGE, TOOL_NAMES);
             const calls = [];
             // A request with no released content refuses before it is sent.
             let step = await (reply.release.labels.length === 0 ? events.next()
@@ -659,6 +696,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 const event = step.value;
                 switch (event.kind) {
                 case "text":
+                    brainText?.write(turn, event.text);
                     if (event.text.trim() !== "") quiet(turn);
                     for (const sentence of text.push(event.text)) say(c, turn, sentence);
                     break;
@@ -1109,6 +1147,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             end();
             closed = true;
             daemonSpeech?.close();
+            brainText?.close();
         }
     });
 }

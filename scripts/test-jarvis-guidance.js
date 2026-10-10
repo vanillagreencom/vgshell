@@ -26,6 +26,34 @@ for (const [engine, brain, language, cause] of invalid)
         { message: cause.startsWith("speech") ? "jarvis: " + cause : "jarvis: guidance=" + cause });
 
 let controls = 0;
+// The words a brain reads, the one consumer of these files: every brain is
+// told to write nothing before a tool call and to speak only its result, and
+// no layer asks it to narrate.
+function quietTools(logic) {
+    for (const row of fixtures.filter(row => row.class !== "duplex")) {
+        const text = logic.compose(row.engine, row.class, row.language).instructions;
+        assert.deepEqual(["Write nothing before a tool call", "speak only its result"].map(words => text.includes(words)), [true, true],
+            row.engine + " " + row.class + ": silent before a tool call, the result after it");
+        assert.equal(/narrat/i.test(text), false, row.engine + " " + row.class + ": no narration");
+    }
+}
+quietTools(Guidance);
+world("jg", root => {
+    for (const [name, layer, needle, replacement] of [
+        ["tool-silence", "core.md", "Write nothing before a tool call: ", ""],
+        ["tool-result", "core.md", "speak only its result", "say what you did"],
+        ["tool-narration", "turns.md", "Ask before a long action.", "Ask before a long action. Narrate progress."]
+    ]) {
+        const copy = path.join(root, name);
+        fs.cpSync(backend, copy, { recursive: true });
+        const file = path.join(copy, "skills/voice", layer);
+        const source = fs.readFileSync(file, "utf8");
+        assert.equal(source.split(needle).length - 1, 1, name + " mutation match");
+        fs.writeFileSync(file, source.replace(needle, replacement));
+        assert.throws(() => quietTools(require(path.join(copy, "Guidance.js"))), assert.AssertionError, name + " must turn red");
+        controls++;
+    }
+});
 world("jg", root => {
     const rows = [
         ["voice-layers", '? ["class/duplex.md"]', '? ["core.md", "class/duplex.md"]', logic => composed(logic, fixtures[0])],

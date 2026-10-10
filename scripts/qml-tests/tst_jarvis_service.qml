@@ -26,7 +26,8 @@ Item {
             const expected = { LANG: "C.UTF-8" };
             for (const name of ["PATH", "HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME",
                 "XDG_RUNTIME_DIR", "HYPRLAND_INSTANCE_SIGNATURE", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS",
-                "YDOTOOL_SOCKET", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME", "PI_CODING_AGENT_DIR"])
+                "YDOTOOL_SOCKET", "VGS_TEST_RUN", "VGS_JARVIS_TRACE", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME",
+                "PI_CODING_AGENT_DIR"])
                 expected[name] = "env:" + name;
             const sorted = value => Object.keys(value).sort().map(name => name + "=" + value[name]).join("\n");
             compare(sorted(process.environment), sorted(expected));

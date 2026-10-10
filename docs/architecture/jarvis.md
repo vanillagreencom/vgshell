@@ -41,6 +41,7 @@ A model can pick an action from untrusted file, page or screen content, so no ex
 - Never judge the wake phrase from a transcript's first word; the wake model judges it. The small tier's Moonshine can mishear a short first word at a sharp onset, where Parakeet in the medium and large tiers does not ([VGS-1251](https://linear.app/vanillagreen/issue/VGS-1251/jarvis-mishears-the-first-word-of-a-fed-voice)).
 - Never let talk or stop clear mute, never copy mute into the mode setting, and register talk through the core hold-shortcut contract. `scripts/smoke/rows/jarvis-keys.sh` pins it.
 - Do call `Audit.before` after authorization and before an executor or transfer starts, never put a value, image, transcript or key in a record, and use `cleanup` for stop, mute and teardown so an unwritable store cannot block privacy teardown. `scripts/test-jarvis-audit.js` and `scripts/test-jarvis-redact.js` pin each.
+- Never write a brain's text to disk, with one exception: under the test-run marker `VGS_TEST_RUN=1` and an explicit `VGS_JARVIS_TRACE` path, the engine writes each brain turn's raw text to that file, which the self-test's record includes. `scripts/test-jarvis-engine.js` pins the marker, the path and the file.
 
 ### Adapters
 
