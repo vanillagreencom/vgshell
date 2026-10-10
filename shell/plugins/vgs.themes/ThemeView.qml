@@ -214,11 +214,11 @@ FocusScope {
 
     // Theme published the running apply's package: ask the service to
     // report the answer, then close. A refused hand-over throws with the
-    // job still running, so the answer ends the apply as before.
+    // job still running, so the answer ends the apply as before. The cards
+    // are not drawn again: the close destroys this view.
     function handOver() {
         const reply = shell.ipc.call("report-apply", job.name);
         if (reply !== "ok") throw new Error("themes: report-apply " + reply);
-        refresh();
         finish("");
         closeRequested();
     }

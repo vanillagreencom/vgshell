@@ -88,8 +88,8 @@ Scope {
     function catalogReady(item) { return catalogWaiting(browserParts(item)) === ""; }
 
     function latencyMark(stage) {
-        if (themeLatency !== null && themeLatency[stage] === undefined)
-            themeLatency[stage] = Date.now() - themeLatency.started;
+        if (root.themeLatency !== null && root.themeLatency[stage] === undefined)
+            root.themeLatency[stage] = Date.now() - root.themeLatency.started;
     }
 
     // The theme file's change as the shell's own watcher sees it, beside
@@ -119,8 +119,32 @@ Scope {
         }
     }
 
+    // The browser's Qt window, kept after its plugin row leaves the built
+    // list: that window covers the desktop for as long as it is mapped,
+    // whatever the row says.
+    property var browserWindow: null
+    readonly property var builtBrowserWindow: {
+        const row = (Plugins.built.overlay || []).find(row => row.id === "vgs.themes");
+        return row === undefined ? null : row.instance.Window.window;
+    }
+    onBuiltBrowserWindowChanged: if (builtBrowserWindow !== null) browserWindow = builtBrowserWindow
+    Connections {
+        target: root.browserWindow
+        function onVisibleChanged() { root.coverChanged(); }
+    }
+
     function desktopExposed() {
-        return !(Plugins.built.overlay || []).some(row => row.id === "vgs.themes");
+        const window = root.browserWindow;
+        return !window || !window.visible;
+    }
+
+    // The browser's window hid or showed: a pending change is `uncovered`
+    // at the hide.
+    function coverChanged() {
+        const reading = root.themeLatency;
+        if (reading === null || reading.drawn !== undefined || ["theme", "wallpaper"].indexOf(reading.kind) === -1 || !desktopExposed()) return;
+        latencyMark("uncovered");
+        requestDesktopFrame();
     }
 
     function backgroundReady(source) {
@@ -131,7 +155,7 @@ Scope {
         return false;
     }
 
-    // Removing the browser exposes retained buffers without changing them.
+    // Hiding the browser exposes retained buffers without changing them.
     // Request a probe frame so a static desktop still has a native endpoint.
     function requestDesktopFrame() {
         const windows = [];
@@ -315,10 +339,9 @@ Scope {
         target: Plugins
         function onBuiltChanged() {
             if (root.themeLatency !== null && root.themeLatency.kind === "open" && (Plugins.built.overlay || []).some(row => row.id === "vgs.themes")) root.latencyMark("built");
-            if (root.themeLatency !== null && root.themeLatency.drawn === undefined && ["theme", "wallpaper"].indexOf(root.themeLatency.kind) !== -1 && root.desktopExposed()) {
-                root.latencyMark("uncovered");
-                root.requestDesktopFrame();
-            }
+            // `unbuilt`: the browser's row left the built list, which the
+            // row reads against `uncovered` for the host's hide order.
+            if (root.themeLatency !== null && ["theme", "wallpaper"].indexOf(root.themeLatency.kind) !== -1 && !(Plugins.built.overlay || []).some(row => row.id === "vgs.themes")) root.latencyMark("unbuilt");
         }
     }
     // ThemeSource sets the name, then the values every token binding reads,

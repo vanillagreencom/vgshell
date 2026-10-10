@@ -10,15 +10,17 @@ import "../Core/HyprlandLayer.js" as Layer
 // PluginLogic.summonSurface names: a layer surface, a popup under an
 // anchor, or for `window` an application window whatever the anchor. It
 // builds the plugin inside it and calls its `open(payloadJson)`; `hide`
-// calls `close()` first, except that an anchored popup stays mapped through
+// calls `close()` before the plugin is destroyed. A layer surface leaves
+// the screen first, ahead of `close()` and of its teardown, which runs on
+// later turns of the event loop; an anchored popup stays mapped through
 // its close motion and calls `close()` when it ends. One surface per plugin
 // id; summoning an open one hands it the new payload. A plugin disabled
-// while open is closed the same way. An open()
-// that throws is logged and refuses the summon; a close() that throws is
-// logged and the surface still goes. A window the user closes through
-// Hyprland is hidden the same way. `hide` first asks an instance that has
-// a `holdsHide()`: one that answers true stays open, to ask its user about
-// what the hide would lose, and hides itself once that is answered.
+// while open is closed the same way. An open() that throws is logged and
+// refuses the summon; a close() that throws is logged and the surface still
+// goes. A window the user closes through Hyprland is hidden the same way.
+// `hide` first asks an instance that has a `holdsHide()`: one that answers
+// true stays open, to ask its user about what the hide would lose, and
+// hides itself once that is answered.
 Scope {
     id: host
 
@@ -40,6 +42,10 @@ Scope {
     property var closingReaders: ({})
     // id -> the error open() threw, read by summon.
     property var openErrors: ({})
+
+    // `id` is being dropped and its state is still whole: a layer surface
+    // takes itself off the screen here.
+    signal dropping(string id)
 
     Component.onCompleted: Plugins.registerHost(kind, host)
 
@@ -166,6 +172,7 @@ Scope {
 
     function drop(id) {
         if (openIds.indexOf(id) === -1) return;
+        dropping(id);
         const nextInstances = Object.assign({}, instances);
         delete nextInstances[id];
         instances = nextInstances;
@@ -246,6 +253,7 @@ Scope {
             Component {
                 id: layer
                 SummonLayer {
+                    id: layerSurface
                     pluginId: entry.modelData
                     kind: host.kind
                     request: entry.request
@@ -254,6 +262,11 @@ Scope {
                         if (host.built(entry.modelData, instance)) focusInitial();
                     }
                     onDismissed: Qt.callLater(() => host.drop(entry.modelData))
+
+                    Connections {
+                        target: host
+                        function onDropping(id) { if (id === entry.modelData) layerSurface.unmap(); }
+                    }
                 }
             }
         }

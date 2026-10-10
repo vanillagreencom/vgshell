@@ -49,7 +49,24 @@ PanelWindow {
         if (place.error !== "") console.error("summon host: " + pluginId + " " + place.error);
         if (exclusiveKeyboard) keyboardRelease = Compositor.keyboardLayer();
     }
+    // The release stays with the destruction, which every way out reaches.
+    // The host unmaps the surface before it drops it, so the release
+    // follows the unmap, and Compositor's reveal reads the state after it.
     Component.onDestruction: if (keyboardRelease !== null) keyboardRelease()
+
+    // Take the surface off the screen ahead of its teardown. Quickshell
+    // hides a layer surface's Qt window when `visible` goes false and
+    // deletes that window on a later turn of the event loop
+    // (WlrLayershell::deleteOnInvisible and
+    // ProxyWindowBase::setVisibleDirect, src/window/proxywindow.cpp). A
+    // surface left to its destruction stays mapped until the end of that
+    // deletion, the scene graph teardown, which held the GUI thread 19 to
+    // 24 ms in five theme changes (event-loop marks and
+    // qt.scenegraph.time.renderloop in the theme-latency row, cachy,
+    // 2026-10-10, load 9.6 to 11.8, CPU pressure 0.3 to 4.5%).
+    function unmap() {
+        visible = false;
+    }
 
     function focusInitial() {
         slot.focusInitial();

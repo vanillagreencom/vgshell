@@ -19,13 +19,17 @@
 # Wallpaper keeps its 150 ms bound.
 # Each theme change prints a split line, the ms of each part of the change
 # (latency_split), and each reading keeps the probe's marks, its frame
-# starts and presents and the probe's own ms. A held-answer reading after
+# starts and presents and the probe's own ms. The browser is off the screen
+# when its window hides, the split's `close`, and the summon host hides
+# that window before the plugin unloads, which each theme change checks
+# (latency_hide_order). A held-answer reading after
 # the six, outside their median, holds the judge's exit while the browser
 # must close on the publish alone.
-# inputs: shell/plugins/vgs.themes/* shell/Core/ThemeRunner.qml shell/Commons/Theme* shell/Ui/layout/CardCarousel.qml themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/ThemeLatencyProbe.qml scripts/smoke/theme-latency-stamps.js scripts/smoke/fixtures/theme-image.jpg
+# inputs: shell/plugins/vgs.themes/* shell/Core/ThemeRunner.qml shell/Commons/Theme* shell/Ui/layout/CardCarousel.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/ThemeLatencyProbe.qml scripts/smoke/theme-latency-stamps.js scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 # Exercise the actual QML reader under Node with controlled presented frames.
-# These controls hold dismissal, wallpaper readiness and selected content.
+# These controls hold dismissal, which is the hide of the browser's window,
+# wallpaper readiness and selected content.
 node - "$repo/scripts/smoke/ThemeLatencyProbe.qml" <<'JS'
 const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict');
 const source = fs.readFileSync(process.argv[2], 'utf8');
@@ -45,14 +49,14 @@ function declaration(text, name) {
 class Image { constructor(source, status = Image.Ready) { this.source = source; this.status = status; this.visible = true; this.sourceSize = { width: 200, height: 100 }; } }
 Image.Ready = 1; Image.Loading = 2;
 function item(type, children = []) {
-    const result = { children, visible: true, toString: () => type };
+    const result = { children, visible: true, Window: { window: null }, toString: () => type };
     for (const child of children) child.parent = result;
     return result;
 }
 function reader(text) {
     let clock = 10;
-    const context = vm.createContext({ root: { themeLatency: null }, Theme: { name: 'latency' }, Plugins: { built: { overlay: [] } }, Image, Date: { now: () => clock++ } });
-    for (const name of ['typeName', 'descendants', 'browserParts', 'catalogWaiting', 'visibleInTree', 'desktopExposed', 'backgroundReady', 'selectedCard', 'cardPicture', 'selectedPictureReady', 'latencyFrame', 'readFrame', 'frameLog']) vm.runInContext(declaration(text, name), context);
+    const context = vm.createContext({ root: { themeLatency: null, browserWindow: null }, Theme: { name: 'latency' }, Plugins: { built: { overlay: [] } }, Image, Date: { now: () => clock++ } });
+    for (const name of ['typeName', 'descendants', 'browserParts', 'catalogWaiting', 'visibleInTree', 'desktopExposed', 'coverChanged', 'latencyMark', 'requestDesktopFrame', 'backgroundReady', 'selectedCard', 'cardPicture', 'selectedPictureReady', 'latencyFrame', 'readFrame', 'frameLog']) vm.runInContext(declaration(text, name), context);
     context.root.selectedPictureReady = context.selectedPictureReady;
     context.begin = (kind, want, background = '') => { context.root.themeLatency = { kind, want, background, started: 0, jobs: [] }; };
     return context;
@@ -65,20 +69,29 @@ function verify(text) {
     assert.equal(c.root.themeLatency.drawn, undefined, 'ready wallpaper must still present a requested background frame');
     c.latencyFrame(background, 'background');
     assert.equal(typeof c.root.themeLatency.drawn, 'number');
+    // The browser's window is still mapped and its plugin row has already
+    // left the built list, as when the window is left to its destruction.
+    const browserWindow = { visible: true };
     c.begin('theme', 'latency', 'file:///a.jpg');
-    c.Plugins.built.overlay = [{ id: 'vgs.themes' }];
+    c.root.browserWindow = browserWindow;
+    c.coverChanged();
+    assert.equal(c.root.themeLatency.uncovered, undefined, 'a window mapped after its row left the built list must not stamp uncovered');
     c.latencyFrame(bar, 'bar'); c.latencyFrame(background, 'background');
     assert.equal(c.root.themeLatency.drawn, undefined, 'mapped browser must block theme completion');
+    browserWindow.visible = false; c.coverChanged();
+    assert.equal(typeof c.root.themeLatency.uncovered, 'number', 'the hidden window must stamp uncovered');
+    browserWindow.visible = true;
     c.begin('wallpaper', 'file:///a.jpg');
     c.latencyFrame(background, 'background');
     assert.equal(c.root.themeLatency.drawn, undefined, 'mapped browser must block wallpaper completion');
-    c.Plugins.built.overlay = [];
+    browserWindow.visible = false;
     c.latencyFrame(bar, 'bar');
     assert.equal(typeof c.root.themeLatency.drawn, 'number', 'exposed frame must complete with the retained ready wallpaper');
     c.begin('theme', 'latency', 'file:///a.jpg');
-    c.Plugins.built.overlay = [{ id: 'vgs.themes' }];
+    browserWindow.visible = true;
     c.latencyFrame(bar, 'bar'); c.latencyFrame(background, 'background');
-    image.status = Image.Loading; c.Plugins.built.overlay = [];
+    // A deleted window reads as null.
+    image.status = Image.Loading; c.root.browserWindow = null;
     c.latencyFrame(bar, 'bar');
     assert.equal(c.root.themeLatency.drawn, undefined, 'retained frames must not complete after requested wallpaper loses readiness');
     image.status = Image.Ready; c.latencyFrame(bar, 'bar');
@@ -142,6 +155,8 @@ function verify(text) {
 verify(source);
 const controls = [
     ['browser dismissal', 'if (["bar", "background"].indexOf(kind) === -1 || !desktopExposed()) return;', ''],
+    ['window mapped after its row left', 'return !window || !window.visible;', 'return !(Plugins.built.overlay || []).some(row => row.id === "vgs.themes");'],
+    ['uncovered waits for the hide', ' || !desktopExposed()) return;\n        latencyMark("uncovered");', ') return;\n        latencyMark("uncovered");'],
     ['wallpaper readiness', 'if (reading.barFrame === undefined || (reading.background !== "" && reading.backgroundFrame === undefined)) return;', 'if (reading.barFrame === undefined) return;'],
     ['live requested wallpaper', 'if (background !== "" && !backgroundReady(background)) return;', ''],
     ['missing selected picture', 'if (card === undefined || !visibleInTree(card)) { reading.late = (reading.late || 0) + 1; return; }', 'if (card === undefined || !visibleInTree(card)) return;'],
@@ -157,7 +172,7 @@ for (const [label, needle, replacement] of controls) {
     assert.equal(source.split(needle).length, 2, label + ': exact control match');
     assert.throws(() => verify(source.replace(needle, replacement)), { name: 'AssertionError' }, label + ': reader without this rule must fail');
 }
-console.log('theme-latency-reader: ok controls=11 browser-held=refused wallpaper-loading=refused retained-live=refused selected-missing=refused selected-low=refused low-full=refused unmeasured-low=refused bar-unpublished=refused wallpaper-before-publish=refused open-pictures=refused open-cards=refused');
+console.log('theme-latency-reader: ok controls=13 browser-held=refused window-mapped=refused uncovered-mapped=refused wallpaper-loading=refused retained-live=refused selected-missing=refused selected-low=refused low-full=refused unmeasured-low=refused bar-unpublished=refused wallpaper-before-publish=refused open-pictures=refused open-cards=refused');
 JS
 
 cp -- "$repo/scripts/smoke/ThemeLatencyProbe.qml" "$repo/shell/ThemeLatencyProbe.qml"
@@ -193,11 +208,14 @@ expect "contention keeps unavailable pressure distinct from zero" '{"cpu_some_pc
 # bin/vgshell to node; boot: node's start; judge: the judge up to the
 # theme file; seen: to the shell's watcher; read: the read and the judge
 # in the shell to the new name; bound: the tokens bound to the revision;
-# close: the revision to the browser's removal; frame: to the drawn frame.
+# close: the revision to the hide of the browser's window, when the browser
+# is off the screen; frame: to the drawn frame, which waits behind the
+# teardown of that window: the bar's frame swaps on the render thread, and
+# its stamp is handled on the GUI thread after the teardown.
 # Off the drawn path: hooks: applied.json and the reload hooks, which run
 # after the theme file, to the process's exit; reply: the exit to the
-# answer; answer: the browser's removal to the answer, positive when the
-# answer came after the browser was gone. A part whose ends are missing is
+# answer; answer: the hide to the answer, positive when the answer came
+# after the browser was off the screen. A part whose ends are missing is
 # null.
 latency_split() { # VALUE [STAMPS]
   printf '%s' "$1" | py_reply 'import json,sys
@@ -222,14 +240,28 @@ expect "the split reads the reading's own apply process" '{"answer": 14, "boot":
 expect "the split takes no earlier reading's process and leaves its parts null" '{"answer": null, "boot": null, "bound": null, "close": null, "frame": null, "hooks": null, "judge": null, "launch": null, "queue": null, "read": null, "reply": null, "runner": null, "seen": null}' latency_split_field '{"started":5000,"jobs":[]}' "$latency_split_control"
 rm -- "$latency_split_control"
 # What closed the browser in theme reading VALUE: `publish` when the probe
-# saw it removed before the apply's answer, or with no answer yet, else
-# `answer`.
+# saw its window hidden before the apply's answer, or with no answer yet,
+# else `answer`.
 latency_close_on_publish() { # VALUE
   printf '%s' "$1" | py_reply 'import json,sys
 x=json.load(sys.stdin)
 u=x.get("uncovered"); a=x.get("answered")
 print("publish" if type(u) is int and (a is None or a>u) else "answer")'
 }
+# Which went first in theme reading VALUE: `window-first` when the
+# browser's window hid no later than its plugin row left the built list, as
+# the summon host orders a hide; `teardown-first` when the window outlived
+# the row, as a window left to its destruction does; `unread` without both
+# marks.
+latency_hide_order() { # VALUE
+  printf '%s' "$1" | py_reply 'import json,sys
+x=json.load(sys.stdin)
+u=x.get("uncovered"); b=x.get("unbuilt")
+print("unread" if type(u) is not int or type(b) is not int else "window-first" if u<=b else "teardown-first")'
+}
+expect "the hide order takes a window hidden in the turn its row leaves" window-first latency_hide_order '{"uncovered":99,"unbuilt":99}'
+expect "the hide order rejects a window that outlived its row" teardown-first latency_hide_order '{"uncovered":127,"unbuilt":107}'
+expect "the hide order refuses a reading without the hide" unread latency_hide_order '{"unbuilt":107}'
 # The split line a theme reading prints: its parts beside the probe's marks.
 latency_split_line() { # VALUE
   printf '%s' "$1" | py_reply 'import json,sys; x=json.load(sys.stdin); print(json.dumps(dict(x["split"], drawn=x.get("drawn"), wallReady=x.get("wallReady"), hyprReloaded=x.get("hyprReloaded"), probeMs=x.get("probeMs"), frames=x.get("frames",{}))))'
@@ -249,6 +281,7 @@ latency_report() {
   contention="$(latency_contention "$pressure" "$memory_pressure" "$io_pressure" "$((end_ms - latency_window_start))" "$latency_load")" || return 1
   value="$(printf '%s' "$value" | py_reply 'import json,sys; value=json.load(sys.stdin); value["contention"]=json.loads(sys.argv[1]); print(json.dumps(value))' "$contention")" || return 1
   [[ $1 != theme ]] || value="$(latency_split "$value")" || return 1
+  [[ $1 != theme ]] || expect "the browser's window hides before its plugin unloads" window-first latency_hide_order "$value"
   if [[ $1 != open-cold ]]; then
     local bound=150 planted verdict drawn reading=$1
     [[ $1 == open-warm ]] && bound=240
