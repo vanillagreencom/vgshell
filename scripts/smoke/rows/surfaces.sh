@@ -697,9 +697,12 @@ expect_poll "Escape closes an anchored panel the plugin leaves unaccepted" absen
 # follows it the same way when the tail widget grows again. The menu is
 # what the screen draws below the bar that a frame taken before it opened
 # does not, and it stands at the widget's left edge, at the height it opened
-# at. Both frames hold the pointer parked in the output's bottom-left
-# corner: on the widget, its image reaches below the bar and changes shape
-# once the growth moves the widget from under it, which reads as menu.
+# at. Every frame the check reads holds the pointer parked at the output's
+# bottom-left pixel: on the widget, its image reaches below the bar and
+# changes shape once the growth moves the widget from under it, which reads
+# as menu. At (1, height - 1) only the tip's row stays on the output, not
+# the ten rows the harness's rest point (rest_pointer) leaves, and the check
+# holds while that row keeps one shape.
 surf_menu_ref="$sandbox/surfaces-menu-ref.ppm"
 surf_menu_grab() { local socket; socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" && shot_grim "$socket" "$rt_dir" -o "$screen_name" -t ppm "$1"; }
 # surf_menu_still: `still` once a frame equals the one before it.
