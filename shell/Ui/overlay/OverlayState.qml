@@ -7,7 +7,8 @@ import qs.Commons
 // Which overlays are open, for the tooltip policy: a tooltip does not open
 // while a popover, a menu or a select list is open, so hover under an
 // open overlay never raises one. Overlays register on open and leave on
-// close; the count is what a tooltip reads.
+// close, and a bar widget held in a drag registers for the drag; the count
+// is what a tooltip reads.
 QtObject {
     id: state
 

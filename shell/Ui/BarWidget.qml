@@ -55,6 +55,18 @@ Item {
 
     opacity: frameDragging ? Theme.opacity.disabled : 1
 
+    // A held drag takes a share of OverlayState, as an open menu does, so
+    // no tooltip opens over the widget the user moves or the slot it aims
+    // at, and one already shown closes.
+    property bool dragCounted: false
+    function shareDrag(held) {
+        if (held === dragCounted) return;
+        dragCounted = held;
+        if (held) OverlayState.opened(); else OverlayState.closed();
+    }
+    onFrameDraggingChanged: shareDrag(frameDragging)
+    Component.onDestruction: shareDrag(false)
+
     // Behavior animates changes to this x property alone:
     // https://doc.qt.io/qt-6/qml-qtquick-behavior.html
     // The grabbed widget follows the pointer directly. At rest, intrinsic

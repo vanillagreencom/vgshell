@@ -158,15 +158,37 @@ Item {
         id: leftZone
         objectName: "bar-zone-left"
         edge: Qt.LeftEdge
-        room: center.x - Theme.bar.gap - Theme.bar.padding
         anchors { left: parent.left; leftMargin: Theme.bar.padding; top: parent.top; bottom: parent.bottom }
     }
     Zone {
         id: rightZone
         objectName: "bar-zone-right"
         edge: Qt.RightEdge
-        room: bar.width - Theme.bar.padding - center.x - center.width - Theme.bar.gap
         anchors { right: parent.right; rightMargin: Theme.bar.padding; top: parent.top; bottom: parent.bottom }
+    }
+
+    // Whether a widget of this bar is dragged: the core parents the held
+    // widget to the bar for the drag.
+    readonly property bool dragging: children.some(item => item.frameDragging === true)
+    // While a drag is held the zones keep the room they had when it began.
+    // The preview gap widens the centre while it stands there, which would
+    // move each zone's end under a still pointer, and the core reads a
+    // point inside a zone's box as that zone's section. Binding.RestoreNone
+    // leaves the last value while `when` is false
+    // (https://doc.qt.io/qt-6/qml-qtqml-binding.html#restoreMode-prop).
+    Binding {
+        target: leftZone
+        property: "room"
+        value: center.x - Theme.bar.gap - Theme.bar.padding
+        when: !bar.dragging
+        restoreMode: Binding.RestoreNone
+    }
+    Binding {
+        target: rightZone
+        property: "room"
+        value: bar.width - Theme.bar.padding - center.x - center.width - Theme.bar.gap
+        when: !bar.dragging
+        restoreMode: Binding.RestoreNone
     }
 
     // A side zone of the bar: `content`, the section the core fills and

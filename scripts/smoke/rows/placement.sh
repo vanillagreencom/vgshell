@@ -32,11 +32,18 @@
 # zone slides for a minute, which must still reach the last slot and still
 # slide then, that copy reading the section's drawn place, that copy ending
 # its slide on every scroll change, and a copy that keeps the end the drag
-# once stood past. The row restores the
+# once stood past. Over a right zone crowded before its widgets, a drag
+# held at its start reaches the section's first slot and drops there, and
+# one held at its end reaches the last slot. No tooltip opens while a drag
+# is held, and at rest a zone button's tooltip opens on hover. A drag held
+# over the centre leaves both zones' room as it was before the drag.
+# Controls run a copy whose right zone scrolls as a left zone, and a copy
+# whose held drag takes no tooltip share and whose zones follow the
+# centre during a drag. The row restores the
 # user file byte for byte, so rows after it find the fixture placed as
 # before. The disabled widget the refusals name is acme.tick, disabled for
 # them and enabled again.
-# inputs: shell/plugins/vgs.bar/* config/shell.json scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Hosts/BarHost.qml shell/shell.qml shell/Ui/BarWidget.qml shell/Ui/feedback/Dialog.qml shell/Ui/controls/Button.qml shell/Commons/Theme.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/overlay/DismissScope.qml scripts/smoke/pointer/click.c scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh scripts/smoke/rows/sources.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/capabilities.sh shell/Commons/Tokens.js
+# inputs: shell/plugins/vgs.bar/* config/shell.json scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Hosts/BarHost.qml shell/shell.qml shell/Ui/BarWidget.qml shell/Ui/feedback/Dialog.qml shell/Ui/controls/Button.qml shell/Commons/Theme.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/overlay/DismissScope.qml shell/Ui/overlay/Tooltip.qml shell/Ui/overlay/OverlayState.qml shell/Ui/controls/BarItem.qml scripts/smoke/pointer/click.c scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/rows/plugins.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh scripts/smoke/rows/sources.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/capabilities.sh shell/Commons/Tokens.js
 set -euo pipefail
 placement_file="$home/.config/vgshell/shell.json"
 placement_saved="$sandbox/shell-before-placement.json"
@@ -1029,63 +1036,84 @@ fi
 
 # A side zone that does not fit scrolls by whole widgets, and a dragged
 # widget held past the widgets it shows steps it there, one widget every
-# bar.scroll.hold, with no pointer motion. Separators crowd the left zone
-# until five of them do not fit, so the zone rests at its start with a >
-# button. placement_edge_zone reads that zone: its view's x and width on
-# the screen, the bar's middle line, whether a button shows at each end,
-# and whether its scroll has finished drawing.
+# bar.scroll.hold, with no pointer motion. Separators crowd a side zone
+# until five of them do not fit: after the left section's entries, so the
+# left zone rests at its start with a > button, and before the right
+# section's, so the right zone rests at its end with a < button. The
+# helpers read the zone placement_edge_side names, left or right.
+# placement_edge_zone reads that zone: its view's x and width on the
+# screen, the bar's middle line, whether a button shows at each end, and
+# whether its scroll has finished drawing.
+placement_edge_side=left
 placement_edge_zone() {
   local key bar zones
   key="$(bar_key)" && bar="$(ipc smoke instanceGeometry "$key" vgs.bar)" \
     && zones="$(ipc smoke itemValues "$key" vgs.bar Zone objectName,x,width,room,moreBefore,moreAfter,scroll,drawnScroll)" || return 1
   py_reply 'import json,sys
 bar=json.loads(sys.argv[1]) if sys.argv[1].startswith("[") else None
-zone=[z for z in json.load(sys.stdin) if z["objectName"]=="bar-zone-left"]
+zone=[z for z in json.load(sys.stdin) if z["objectName"]=="bar-zone-"+sys.argv[2]]
 if bar is None or not zone: print("absent"); sys.exit()
 z=zone[0]
-print(json.dumps({"x":bar[0]+z["x"],"y":bar[1]+bar[3]/2,"width":z["width"],"room":z["room"],"start":z["moreBefore"],"end":z["moreAfter"],"settled":abs(z["scroll"]-z["drawnScroll"])<0.5}))' "$bar" <<<"$zones"
+print(json.dumps({"x":bar[0]+z["x"],"y":bar[1]+bar[3]/2,"width":z["width"],"room":z["room"],"start":z["moreBefore"],"end":z["moreAfter"],"settled":abs(z["scroll"]-z["drawnScroll"])<0.5}))' "$bar" "$placement_edge_side" <<<"$zones"
 }
+# The ends a crowded zone rests with: a left zone at its start, a right
+# zone at its end.
+placement_edge_rest() { if [[ $placement_edge_side == left ]]; then echo '[false, true, true]'; else echo '[true, false, true]'; fi; }
 placement_edge_ends() { placement_edge_zone | py_reply 'import json,sys; z=json.load(sys.stdin); print(json.dumps([z["start"],z["end"],z["settled"]]))'; }
 # placement_edge_point start|middle|end: a point on the bar's middle line
-# two pixels inside that end of the left zone's view, past every shown
-# widget's middle, or at the view's middle.
+# two pixels inside that end of the zone's view, past every shown widget's
+# middle and on the button there, or at the view's middle.
 placement_edge_point() {
   placement_edge_zone | py_reply 'import json,sys; z=json.load(sys.stdin); print("%d %d" % ({"start":z["x"]+2,"middle":z["x"]+z["width"]/2,"end":z["x"]+z["width"]-2}[sys.argv[1]],z["y"]))' "$1"
 }
-# The separators that leave five outside the left zone's room, from the
-# room its widgets leave now and a separator's width with the bar's gap.
+# The separators that leave at least five outside the zone's room, from
+# the room its widgets leave now and a separator's width with the bar's
+# gap.
 placement_edge_count() {
   local inset line gap
   inset="$(ipc smoke themeValue bar.spacer.inset)" && line="$(ipc smoke themeValue divider.thickness)" && gap="$(ipc smoke themeValue bar.gap)" || return 1
-  placement_edge_zone | py_reply 'import json,sys; z=json.load(sys.stdin); inset,line,gap=(float(v) for v in sys.argv[1:]); print(int((z["room"]-z["width"])//(2*inset+line+gap))+5)' "$inset" "$line" "$gap"
+  placement_edge_zone | py_reply 'import json,sys; z=json.load(sys.stdin); inset,line,gap=(float(v) for v in sys.argv[1:]); print(max(5,int((z["room"]-z["width"])//(2*inset+line+gap))+5))' "$inset" "$line" "$gap"
 }
 # placement_edge_plant COUNT: COUNT separators after the user file's left
-# entries, under names no entry holds.
+# entries or before its right ones, under names no entry holds.
 placement_edge_plant() {
   python3 -c 'import json,os,sys
-path,count=sys.argv[1],int(sys.argv[2]); config=json.load(open(path)); layout=config["bar"]["layout"]
+path,count,side=sys.argv[1],int(sys.argv[2]),sys.argv[3]; config=json.load(open(path)); layout=config["bar"]["layout"]
 held={e["id"] for s in layout.values() for e in s}
-free=[i for i in ("vgs.bar/separator-%d" % n for n in range(1,count+len(held)+1)) if i not in held][:count]
-layout["left"]+=[{"id":i} for i in free]
+free=[{"id":i} for i in ("vgs.bar/separator-%d" % n for n in range(1,count+len(held)+1)) if i not in held][:count]
+layout[side]=layout[side]+free if side=="left" else free+layout[side]
 with open(path+".tmp","w") as out: json.dump(config,out)
-os.replace(path+".tmp",path)' "$placement_file" "$1"
+os.replace(path+".tmp",path)' "$placement_file" "$1" "$placement_edge_side"
 }
-# The left section's slot before the workspaces and its last slot, as
-# Plugins.dragMove counts them: over the entries without the fixture.
+# The zone section's first and last slots, as Plugins.dragMove counts them:
+# over the entries without the fixture. The left section's first is the
+# slot before the workspaces, the right section's the slot before its
+# first separator.
 placement_edge_slots() {
-  ipc shell listShellConfig | py_reply 'import json,sys; left=[e["id"] for e in json.load(sys.stdin)["bar"]["layout"]["left"] if e["id"]!="acme.probe"]; print("%d %d" % (left.index("vgs.bar/left-workspaces"),len(left)))'
+  ipc shell listShellConfig | py_reply 'import json,sys; side=sys.argv[1]; ids=[e["id"] for e in json.load(sys.stdin)["bar"]["layout"][side] if e["id"]!="acme.probe"]; print("%d %d" % (ids.index("vgs.bar/left-workspaces") if side=="left" else 0,len(ids)))' "$placement_edge_side"
 }
+# The text of each tooltip the bar shows open now, one a line, the held
+# widget's own included: the core parents it to the bar for the drag.
+placement_edge_open_tips() {
+  ipc smoke itemValues "$(bar_key)" vgs.bar Tooltip opened,text | py_reply 'import json,sys; [print(t["text"]) for t in json.load(sys.stdin) if t["opened"]]'
+}
+# `opened` once a tooltip of the bar is open, else `none`.
+placement_edge_tip_open() { if [[ -n $(placement_edge_open_tips) ]]; then echo opened; else echo none; fi; }
+# `opened` when placement_edge_reach saw a tooltip open during the last
+# held drag, else `none`; placement_edge_tip_note prints the texts it saw.
+placement_edge_tip_file="$sandbox/placement-edge-tips"
+placement_edge_tips() { if [[ -s $placement_edge_tip_file ]]; then echo opened; else echo none; fi; }
+placement_edge_tip_note() { printf '  placement-tips seen=[%s] label=%s\n' "$(sort -u -- "$placement_edge_tip_file" | paste -sd, -)" "$1"; }
 # placement_edge_hold X: a held drag of the fixture from its centre to the
-# left zone's middle, then to X on the bar's middle line, and no motion
-# after it. The preview gap widens the centre section while it stands
-# there, which narrows the zone's room; from the zone's middle the gap
-# stands in the left section and the zone's end is where
-# placement_edge_point read it. The drag's pipes are placement_edge_out
-# and placement_edge_in and its pid placement_edge_pid.
+# zone's middle, then to X on the bar's middle line, and no motion after
+# it. The zones keep their room while the drag is held, so the zone's
+# ends stay where placement_edge_point read them. The drag's pipes are
+# placement_edge_out and placement_edge_in and its pid placement_edge_pid.
 placement_edge_hold() {
   local x y mx line
   read -r x y < <(placement_point acme.probe) && read -r mx _ < <(placement_edge_point middle) || return 1
   hover "$((x + 1))" "$y" || return 1
+  : >"$placement_edge_tip_file"
   placement_edge_to="$1 $y"
   coproc placement_edge_press { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$mx" "$y" "$1" "$y" hold; }
   placement_edge_out="${placement_edge_press[0]}" placement_edge_in="${placement_edge_press[1]}" placement_edge_pid="$placement_edge_press_PID"
@@ -1102,20 +1130,22 @@ placement_edge_release() {
   return "$status"
 }
 # placement_edge_reach SLOT DEPTH: `reached` once the held drag's preview
-# names the left section's SLOT, polled as expect_poll polls under
+# names the zone section's SLOT, polled as expect_poll polls under
 # smoke_poll_tries' DEPTH; at the bound `short` for a preview on another
-# slot of the left section, else `elsewhere`.
+# slot of that section, else `elsewhere`. Each poll adds the tooltips
+# open then to placement_edge_tips.
 placement_edge_reach() {
   local got
   smoke_poll_tries 200 "$2"
   for _ in $(seq 1 "$smoke_poll_n"); do
+    placement_edge_open_tips >>"$placement_edge_tip_file" || return 1
     got="$(placement_preview_slot)" || return 1
-    [[ $got == "[\"left\", $1]" ]] && { echo reached; return; }
+    [[ $got == "[\"$placement_edge_side\", $1]" ]] && { echo reached; return; }
     sleep 0.2
   done
-  if [[ $got == "[\"left\", "* ]]; then echo short; else echo elsewhere; fi
+  if [[ $got == "[\"$placement_edge_side\", "* ]]; then echo short; else echo elsewhere; fi
 }
-# placement_edge_scrolls start|end DEPTH: True once the left zone shows no
+# placement_edge_scrolls start|end DEPTH: True once the zone shows no
 # button at that end, having scrolled all the way there, or False at the
 # bound smoke_poll_tries gives DEPTH.
 placement_edge_scrolls() {
@@ -1128,20 +1158,21 @@ placement_edge_scrolls() {
   done
   echo False
 }
-# Where the user file's left section holds the fixture: `last`, `first`
-# right before the workspaces, `inner` anywhere else in it, or `away`.
+# Where the user file's zone section holds the fixture: `last`, `first` on
+# the section's first slot, placement_edge_first, `inner` anywhere else in
+# it, or `away`.
 placement_edge_dropped() {
-  python3 -c 'import json,sys; left=[e["id"] for e in json.load(open(sys.argv[1]))["bar"]["layout"]["left"]]
-at=left.index("acme.probe") if "acme.probe" in left else -1
-print("away" if at<0 else "last" if at==len(left)-1 else "first" if left[at+1]=="vgs.bar/left-workspaces" else "inner")' "$placement_file"
+  python3 -c 'import json,sys; ids=[e["id"] for e in json.load(open(sys.argv[1]))["bar"]["layout"][sys.argv[2]]]
+at=ids.index("acme.probe") if "acme.probe" in ids else -1
+print("away" if at<0 else "last" if at==len(ids)-1 else "first" if at==int(sys.argv[3]) else "inner")' "$placement_file" "$placement_edge_side" "$placement_edge_first"
 }
 # placement_edge_held END SLOT DEPTH REACH LABEL: the fixture held at the
-# left zone's END, start or end; LABEL holds when the preview reads REACH
-# for the left section's SLOT. Then the release.
+# zone's END, start or end; LABEL holds when the preview reads REACH for
+# the zone section's SLOT. Then the release.
 placement_edge_held() {
   local x y
-  read -r x y < <(placement_edge_point "$1") || { fail "$5: the left zone's $1 is unreadable"; return; }
-  placement_edge_hold "$x" || { fail "$5: the held drag reaches the left zone's $1"; return; }
+  read -r x y < <(placement_edge_point "$1") || { fail "$5: the $placement_edge_side zone's $1 is unreadable"; return; }
+  placement_edge_hold "$x" || { fail "$5: the held drag reaches the $placement_edge_side zone's $1"; return; }
   expect "$5" "$4" placement_edge_reach "$2" "$3"
   placement_edge_release || fail "$5: the held drag releases"
   expect_poll "$5: the release leaves rearrange mode" absent ipc smoke barDragGeometry "$(bar_key)"
@@ -1158,20 +1189,21 @@ placement_edge_leave() {
   placement_edge_release || fail "$3: the held drag releases"
   expect_poll "$3: the release leaves rearrange mode" absent ipc smoke barDragGeometry "$(bar_key)"
 }
-# placement_edge_start NAME: the shell from the copy NAME over the crowded
-# layout, its left zone at rest.
+# placement_edge_start NAME: the shell from the copy NAME over the layout
+# crowded at placement_edge_side, its zone at rest.
 placement_edge_start() {
   stop_shell
-  cp -- "$sandbox/shell-placement-edge.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+  cp -- "$sandbox/shell-placement-edge-$placement_edge_side.json" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$sandbox/tree-$1" "$sandbox/$1.log" || { fail "the $1 copy starts"; return 1; }
-  geometry expect_poll "$1: the crowded left zone rests at its start" '[false, true, true]' placement_edge_ends
+  geometry expect_poll "$1: the crowded $placement_edge_side zone rests" "$(placement_edge_rest)" placement_edge_ends
 }
 placement_edge_separators="$(placement_edge_count)" || fail "the left zone's room is unreadable"
 placement_edge_plant "$placement_edge_separators" || fail "the separators are planted in the left section"
-cp -- "$placement_file" "$sandbox/shell-placement-edge.json"
+cp -- "$placement_file" "$sandbox/shell-placement-edge-left.json"
 geometry expect_poll "the crowded left zone clips and rests at its start" '[false, true, true]' placement_edge_ends
 read -r placement_edge_first placement_edge_last < <(placement_edge_slots) || fail "the left section's slots are unreadable"
 placement_edge_held end "$placement_edge_last" 1 reached "a drag held at the clipped zone's end reaches the left section's last slot"
+expect "no tooltip opens during the drag held at the left zone's end" none placement_edge_tips
 expect_poll "the release at the end lands the fixture last in the left section" last placement_edge_dropped
 geometry expect_poll "the held drag left the zone at its end" '[true, false, true]' placement_edge_ends
 # The fixture is now the zone's last widget; held at the < button it
@@ -1226,6 +1258,79 @@ fi
 stop_shell
 cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
 start_shell "$repo" "$sandbox/placement-edge-restored.log" || fail "the shell starts after the edge controls"
+
+# The right zone takes its own path through the same code: its scroll
+# counts from its bar edge and its section stands from the zone's right
+# end. Over a right zone crowded before its widgets, a drag held at the <
+# button steps the zone to its start and drops on the section's first
+# slot, and one held at the > button steps it back and drops last. While
+# a drag is held no tooltip opens, neither the button's under the pointer
+# nor the held widget's own, and at rest the > button's tooltip opens on
+# hover. A drag from the right section held over the bar's middle stands
+# its preview gap in the centre, and neither zone's room changes.
+# placement_room_reading LABEL: the fixture held over the bar's middle
+# until its preview stands in the centre section; `steady` when both
+# zones read the room they read before the drag, else `changed`. Both
+# readings are printed. Then the release.
+placement_edge_rooms() { ipc smoke itemValues "$(bar_key)" vgs.bar Zone objectName,room | py_reply 'import json,sys; print(json.dumps({z["objectName"]:z["room"] for z in json.load(sys.stdin)}, sort_keys=True))'; }
+placement_preview_section() { placement_preview_slot | py_reply 'import json,sys; s=sys.stdin.read().strip(); print(json.loads(s)[0] if s.startswith("[") else s)'; }
+placement_room_reading() {
+  local before during x
+  before="$(placement_edge_rooms)" && x="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar | py_reply 'import json,sys; b=json.load(sys.stdin); print(int(b[0]+b[2]/2))')" || { fail "$1: the zones' room is unreadable"; return; }
+  placement_edge_hold "$x" || { fail "$1: the held drag reaches the bar's middle"; return; }
+  expect_poll "$1: the preview gap stands in the centre section" center placement_preview_section
+  during="$(placement_edge_rooms)" || fail "$1: the zones' room during the drag is unreadable"
+  printf '  placement-room before=%s during=%s label=%s\n' "$before" "$during" "$1"
+  if [[ $before == "$during" ]]; then echo steady >"$sandbox/placement-room"; else echo changed >"$sandbox/placement-room"; fi
+  placement_edge_release || fail "$1: the held drag releases"
+  expect_poll "$1: the release leaves rearrange mode" absent ipc smoke barDragGeometry "$(bar_key)"
+}
+placement_edge_side=right
+placement_edge_separators="$(placement_edge_count)" || fail "the right zone's room is unreadable"
+placement_edge_plant "$placement_edge_separators" || fail "the separators are planted in the right section"
+cp -- "$placement_file" "$sandbox/shell-placement-edge-right.json"
+geometry expect_poll "the crowded right zone clips and rests at its end" '[true, false, true]' placement_edge_ends
+read -r placement_edge_first placement_edge_last < <(placement_edge_slots) || fail "the right section's slots are unreadable"
+placement_edge_held start "$placement_edge_first" 1 reached "a drag held at the clipped right zone's start reaches the right section's first slot"
+expect "no tooltip opens during the drag held at the right zone's start" none placement_edge_tips
+expect_poll "the release at the right zone's start lands the fixture first in the right section" first placement_edge_dropped
+geometry expect_poll "the held drag left the right zone at its start" '[false, true, true]' placement_edge_ends
+read -r placement_tip_x placement_tip_y < <(placement_edge_point end) && hover "$placement_tip_x" "$placement_tip_y" || fail "the pointer reaches the right zone's > button"
+expect_poll "at rest the > button's tooltip opens on hover" opened placement_edge_tip_open
+rest_pointer || fail "the pointer leaves the bar"
+placement_edge_held end "$placement_edge_last" 1 reached "a drag held at the clipped right zone's end reaches the right section's last slot"
+expect_poll "the release at the right zone's end lands the fixture last in the right section" last placement_edge_dropped
+geometry expect_poll "the held drag left the right zone at its end" '[true, false, true]' placement_edge_ends
+placement_room_reading "a drag from the right section held over the centre"
+expect "a side zone's room holds while the preview gap stands in the centre" steady cat "$sandbox/placement-room"
+# Controls. In a copy whose right zone scrolls as a left zone does, the
+# zone never shows the section's first widget whole, so a drag held at its
+# start stays short of the first slot and drops there. A copy whose held drag
+# takes no share of OverlayState and whose zones follow the centre during
+# a drag opens the < button's tooltip during the hold, and the preview gap
+# in the centre narrows the zones.
+placement_right_scroll='readonly property real scroll: edge === Qt.LeftEdge ? Math.min(held, travel) : resting ? 0 : Math.max(0, travel - held)'
+if copy_tree placement-edge-right-control \
+  && edit_tree placement-edge-right-control shell/plugins/vgs.bar/Bar.qml "$placement_right_scroll" 'readonly property real scroll: Math.min(held, travel)' \
+  && copy_tree placement-tip-room-control \
+  && edit_tree placement-tip-room-control shell/Ui/BarWidget.qml 'onFrameDraggingChanged: shareDrag(frameDragging)' 'onFrameDraggingChanged: shareDrag(false)' \
+  && edit_tree placement-tip-room-control shell/plugins/vgs.bar/Bar.qml 'readonly property bool dragging: children.some(item => item.frameDragging === true)' 'readonly property bool dragging: false'; then
+  if placement_edge_start placement-edge-right-control; then
+    placement_edge_held start "$placement_edge_first" 0 short "control: a right zone scrolled as a left zone stays short of the first slot"
+    expect_poll "control: in a right zone scrolled as a left zone the release lands the fixture short of the first slot" inner placement_edge_dropped
+  fi
+  if placement_edge_start placement-tip-room-control; then
+    placement_edge_held start "$placement_edge_first" 1 reached "control: a drag held at the right zone's start with no tooltip share reaches the first slot"
+    expect "control: with no tooltip share the < button's tooltip opens during the hold" opened placement_edge_tips
+    placement_edge_tip_note "control: no tooltip share"
+    placement_room_reading "control: a drag held over the centre with zones that follow it"
+    expect "control: zones that follow the centre change their room while the preview gap stands there" changed cat "$sandbox/placement-room"
+  fi
+fi
+placement_edge_side=left
+stop_shell
+cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
+start_shell "$repo" "$sandbox/placement-edge-right-restored.log" || fail "the shell starts after the right zone controls"
 
 if copy_tree placement-clock-hide-control \
   && edit_tree placement-clock-hide-control shell/Core/Plugins.qml 'hide: () => root.setPlaced(id, false),' 'hide: () => "ok",'; then
