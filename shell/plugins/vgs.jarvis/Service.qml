@@ -196,9 +196,11 @@ Item {
         const home = Quickshell.env("HOME");
         const message = {
             v: 1, type: "hello", gen: sessionState === null ? 0 : sessionState.gen,
-            // The one place a voice is chosen for a user who chose none.
+            // The one place a voice, and a model with no list read, is
+            // chosen for a user who chose none.
             settings: Object.assign({}, shell.settings, { sounds: feedbackSounds,
-                voiceProvider: Gate.voiceProvider(shell.settings, accountReader.voiceKeys) }),
+                voiceProvider: Gate.voiceProvider(shell.settings, accountReader.voiceKeys) },
+                Providers.unlistedChoice(shell.settings, accountReader.providers[shell.settings.brain])),
             directories: {
                 state: Paths.stateDir + "/jarvis",
                 data: (Quickshell.env("XDG_DATA_HOME") || home + "/.local/share") + "/vgshell/jarvis",

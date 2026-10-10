@@ -12,6 +12,8 @@ const { childEnvironment } = require("./Secrets.js");
 
 // After its stdin closes the program has this long to exit before KILL.
 const CLOSE_MS = 2000;
+// One model list read: a bound on a stalled program, not a latency budget.
+const MODELS_MS = 20000;
 
 /**
  * The one judge of a model name: "" for the program's own default, or at
@@ -249,4 +251,4 @@ function stream({ run, interrupt, settled, detach }) {
     return { handle, events };
 }
 
-module.exports = { program, release, stream, isModel, isEffort, offers };
+module.exports = { program, release, stream, isModel, isEffort, offers, MODELS_MS };

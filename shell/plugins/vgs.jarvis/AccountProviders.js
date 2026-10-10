@@ -76,11 +76,18 @@ function modelKeyProvider(row) {
 // sign-in that offers none runs its program's own default model and effort.
 var PREFERRED_MODELS = ["claude-fable-5-1", "claude-opus-5-5"];
 var PREFERRED_EFFORT = "high";
+// The sign-in program that offers the first preferred model (owner,
+// 2026-10-10): with no model saved Jarvis hands it that model, with no list
+// read. Every other program then runs its own.
+var PREFERRED_PROGRAM = "claude";
 // The effort choice that hands the program no effort, where a model takes
 // levels and its program names no default among them, as Claude Code's
 // list does for a model Jarvis does not prefer. No program's level has this
 // name: Claude Code 2.1.289 lists low to max and Codex 0.160.0 low to ultra.
 var OWN_EFFORT = "default";
+// The one model choice a failed read shows for a program that runs its own
+// model. It leads its list, so the page keeps the setting unset.
+var OWN_MODEL = "default";
 var EFFORT_LABELS = { xhigh: "Extra high" };
 
 // Whether VALUE, a model as its program lists it, is the model ID. Claude
@@ -120,34 +127,52 @@ function effortOffers(offer, preferred) {
     });
 }
 
-// What the Jarvis page offers as model and effort for SETTINGS, the
-// plugin's, and the model and effort it saves. LISTED is the page's read of
-// the chosen sign-in's own list, { kind, offers }: "read" with offers, each
+// The model and effort Jarvis runs for SETTINGS, the plugin's, while no list
+// names them, each "" for the program's own: the saved ones, and with no
+// model saved the first preferred model for a sign-in of PROVIDER
+// PREFERRED_PROGRAM, at the saved effort or the preferred one. The service
+// sends them to the daemon.
+function unlistedChoice(settings, provider) {
+    return settings.model !== "" || provider !== PREFERRED_PROGRAM ? { model: settings.model, effort: settings.effort }
+        : { model: PREFERRED_MODELS[0], effort: settings.effort || PREFERRED_EFFORT };
+}
+
+// What the Jarvis page offers as model and effort for SETTINGS, and the
+// model and effort it saves. LISTED is the page's read of the chosen
+// sign-in's own list, { kind, offers }: "read" with offers, each
 // { value, label, efforts, effort }, its program's own default first;
 // "failed" for a read its program did not answer; else no read, as while
-// the page is closed. With no list `models` and `efforts` hold the saved
-// choice alone, the model marked while its list could not be read, and
-// `model` and `effort` are the saved ones. With a list they are the page's
+// the page is closed. PROVIDER is the sign-in's. With no list `models` and
+// `efforts` hold the saved choice alone, and after a failed read what
+// unlistedChoice runs, the model marked. With a list they are the page's
 // choices, each led by what its unset setting runs
 // (docs/architecture/design-system.md § Settings pages), and `model` and
-// `effort` are what the page saves: the saved choice while the sign-in
-// offers it, else that first choice, and "" for the program's own.
-function modelChoice(settings, listed) {
-    if (listed.kind !== "read")
+// `effort` are what the page saves: the first choice while none is saved,
+// and "" for the program's own. A saved model the list does not name stays
+// saved with its effort, and the core shows it as unavailable.
+function modelChoice(settings, listed, provider) {
+    var one = function (effort) { return effort === "" ? [] : [{ label: effortLabel(effort), value: effort }]; };
+    if (listed.kind !== "read") {
+        var failed = listed.kind === "failed";
+        var runs = failed ? unlistedChoice(settings, provider) : settings;
+        var mark = failed ? " (list not read)" : "";
         return { model: settings.model, effort: settings.effort,
-            models: settings.model === "" ? [] : [{ label: settings.model + (listed.kind === "failed" ? " (list not read)" : ""), value: settings.model }],
-            efforts: settings.effort === "" ? [] : [{ label: effortLabel(settings.effort), value: settings.effort }] };
+            models: runs.model !== "" ? [{ label: runs.model + mark, value: runs.model }]
+                : failed ? [{ label: "App default" + mark, value: OWN_MODEL }] : [],
+            efforts: one(runs.effort) };
+    }
     var offers = listed.offers;
-    if (offers.length === 0) return { model: "", effort: "", models: [], efforts: [] };
+    if (offers.length === 0) return { model: settings.model, effort: settings.effort, models: [], efforts: [] };
     var preferred = preferredOffer(offers);
     var ordered = preferred === null ? offers
         : [preferred].concat(offers.filter(function (offer) { return offer !== preferred; }));
-    var chosen = ordered.filter(function (offer) { return offer.value === settings.model; })[0] || ordered[0];
+    var models = ordered.map(function (offer) { return { label: offer.label, value: offer.value }; });
+    var chosen = ordered.filter(function (offer) { return settings.model === "" || offer.value === settings.model; })[0];
+    if (chosen === undefined) return { model: settings.model, effort: settings.effort, models: models, efforts: one(settings.effort) };
     var efforts = effortOffers(chosen, PREFERRED_MODELS.some(function (id) { return namesModel(chosen.value, id); }));
     var effort = efforts.some(function (level) { return level.value === settings.effort; }) ? settings.effort
         : efforts.length === 0 ? "" : efforts[0].value;
-    return { model: chosen.value, effort: effort === OWN_EFFORT ? "" : effort,
-        models: ordered.map(function (offer) { return { label: offer.label, value: offer.value }; }), efforts: efforts };
+    return { model: chosen.value, effort: effort === OWN_EFFORT ? "" : effort, models: models, efforts: efforts };
 }
 
 // The setup terminal's choice lines, LABEL<TAB>VALUE for
@@ -248,6 +273,6 @@ function probeFailure(completion, diagnostic) {
 }
 
 if (typeof module !== "undefined") module.exports = { PROVIDERS: PROVIDERS, runtimeDirectory: runtimeDirectory,
-    keyPresence: keyPresence, keyProvider: keyProvider, modelProvider: modelProvider, modelKeyProvider: modelKeyProvider, modelChoice: modelChoice, parseWidth: parseWidth, fitText: fitText, choiceLine: choiceLine,
+    keyPresence: keyPresence, keyProvider: keyProvider, modelProvider: modelProvider, modelKeyProvider: modelKeyProvider, unlistedChoice: unlistedChoice, modelChoice: modelChoice, parseWidth: parseWidth, fitText: fitText, choiceLine: choiceLine,
     providerChoices: providerChoices, FAILURE_KEYS: FAILURE_KEYS, feedDiagnostic: feedDiagnostic,
     helperFailure: helperFailure, probeFailure: probeFailure };

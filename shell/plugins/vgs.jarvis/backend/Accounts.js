@@ -445,13 +445,14 @@ class Accounts {
      * have no such list, and a signed-out or unavailable account is not
      * asked: { kind: "none" }. A failed read is { kind: "failed", reason },
      * its program's keyed cause. The Jarvis page asks while it is open; no
-     * other reader does.
+     * other reader does. It needs no discovery: of the vendor status
+     * commands only this sign-in's runs.
      */
     async readOffers(id) {
         const resolved = this.resolve(id);
         if (resolved === null || resolved.source.kind !== "cli" || !Object.hasOwn(MODEL_LISTS, resolved.provider)) return { kind: "none" };
-        const account = this.accounts.find(item => item.id === resolved.id);
-        if (account === undefined || account.state.kind === "unavailable" || signedOut(account.source, account.state.kind)) return { kind: "none" };
+        const account = this.cliAccount({ provider: resolved.provider, directory: resolved.source.directory, label: resolved.label });
+        if (account === null || account.state.kind === "unavailable" || signedOut(account.source, account.state.kind)) return { kind: "none" };
         try {
             const offers = await MODEL_LISTS[resolved.provider].models({ directory: resolved.source.directory, env: this.env, runtime: this.runtime });
             return { kind: "read", offers: offers.slice(0, MAX_ROWS) };
@@ -863,7 +864,10 @@ class Accounts {
         const voiceAccounts = offered.filter(item => item.provider === "openai")
             .map(item => ({ value: item.id, label: ("OpenAI / " + item.label).slice(0, 60) }))
             .sort((left, right) => order(left.label, right.label) || order(left.value, right.value));
-        return { accounts, brains, voiceAccounts, search: { found: accounts.length, partial: this.partial } };
+        // Each offered account's provider by its id: the service chooses an
+        // unset model by it (AccountProviders.unlistedChoice).
+        const providers = Object.fromEntries(offered.map(item => [item.id, item.provider]));
+        return { accounts, brains, providers, voiceAccounts, search: { found: accounts.length, partial: this.partial } };
     }
 }
 

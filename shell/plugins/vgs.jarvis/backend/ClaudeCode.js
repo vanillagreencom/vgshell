@@ -32,8 +32,6 @@ const TOOLS = 64;
 const TURNS = 40;
 // The plan's cancel bound: the turn holds in cancelling at most 2 s.
 const CANCEL_MS = 2000;
-// One model list read: a bound on a stalled program, not a latency budget.
-const MODELS_MS = 20000;
 const MODELS_REQUEST = "vgs-models";
 // Claude Code's own list entry that points at the model it runs unasked.
 const OWN_DEFAULT = "default";
@@ -97,6 +95,11 @@ function messageOf(line) {
             fail("harness-assistant");
         // No Agent tool exists, so no subagent can speak in this stream.
         if (value.parent_tool_use_id !== null) fail("harness-subagent");
+        // SDKAssistantMessageError (claude-agent-sdk 0.3.287 sdk.d.ts). Claude
+        // Code 2.1.289 answered a model its account does not have with this
+        // error on a message of its own words, then a result with
+        // api_error_status 404, and ran no other model (a run on 2026-10-10).
+        if (value.error === "model_not_found") return { kind: "model-refused" };
         const blocks = message.content.map(block => {
             if (!plain(block) || typeof block.type !== "string") fail("harness-block");
             switch (block.type) {
@@ -212,6 +215,39 @@ function program(args, options) {
     return cp.spawn("setpriv", ["--pdeathsig", "KILL", "--", COMMAND, ...args], options);
 }
 
+// Signal the program's process group; one already gone takes none.
+function signal(child, name) {
+    if (child.pid === undefined) return; // The spawn failed; close reports its cause.
+    try { process.kill(-child.pid, name); }
+    catch (error) { if (error.code !== "ESRCH") throw error; }
+}
+
+// Hand each line of the program's stdout to line(text), and to refuse(error)
+// a line, complete or not, past LINE_BYTES; no later line of that chunk
+// is read.
+function readLines(child, line, refuse) {
+    const decoder = new StringDecoder("utf8");
+    let tail = "";
+    child.stdout.on("data", chunk => {
+        tail += decoder.write(chunk);
+        let end;
+        while ((end = tail.indexOf("\n")) >= 0) {
+            const text = tail.slice(0, end);
+            tail = tail.slice(end + 1);
+            if (Buffer.byteLength(text) > LINE_BYTES) { refuse(new Error("jarvis: brain=harness-line-limit")); return; }
+            if (text.trim() !== "") line(text);
+        }
+        // An unterminated line past the bound fails before it completes.
+        if (Buffer.byteLength(tail) > LINE_BYTES) refuse(new Error("jarvis: brain=harness-line-limit"));
+    });
+}
+
+// The keyed end of a program: cause is its failed start's, else null.
+function exitError(cause, code, signalName) {
+    return new Error("jarvis: brain=harness-exit " + (cause !== null ? "cause=" + cause
+        : signalName !== null ? "signal=" + signalName : "code=" + code));
+}
+
 /**
  * The one owner of a harness conversation, shared by the engine's brain and
  * Verify. directory is the Claude account directory (CLAUDE_CONFIG_DIR);
@@ -282,12 +318,6 @@ function conversation({ directory, model, effort = "", recipients, bridge, gen, 
         if (!interrupts.delete(message.id)) fail("harness-control");
     }
 
-    function signal(record, name) {
-        if (record.child.pid === undefined) return; // The spawn failed; close reports its cause.
-        try { process.kill(-record.child.pid, name); }
-        catch (error) { if (error.code !== "ESRCH") throw error; }
-    }
-
     async function spawn() {
         process_ = { kind: "starting" };
         workdir = privateFolder(parent);
@@ -303,30 +333,15 @@ function conversation({ directory, model, effort = "", recipients, bridge, gen, 
             exited: null };
         record.exited = new Promise(resolve => child.once("close", (code, signalName) => {
             record.kind = "exited";
-            const status = record.cause !== null ? "cause=" + record.cause
-                : signalName !== null ? "signal=" + signalName : "code=" + code;
             if (process_ === record) process_ = { kind: "ended" };
-            record.consumer?.exit("harness-exit " + status);
+            record.consumer?.fault(exitError(record.cause, code, signalName));
             resolve();
         }));
         child.once("error", error => { record.cause = named(error.code ?? "unknown"); });
         child.stdin.on("error", () => {});
         // Stderr can echo conversation text; it is drained and never kept.
         child.stderr.resume();
-        const decoder = new StringDecoder("utf8");
-        let tail = "";
-        child.stdout.on("data", chunk => {
-            tail += decoder.write(chunk);
-            let end;
-            while ((end = tail.indexOf("\n")) >= 0) {
-                const line = tail.slice(0, end);
-                tail = tail.slice(end + 1);
-                if (Buffer.byteLength(line) > LINE_BYTES) { fault(record, new Error("jarvis: brain=harness-line-limit")); return; }
-                if (line.trim() !== "") deliver(record, line);
-            }
-            // An unterminated line past the bound fails before it completes.
-            if (Buffer.byteLength(tail) > LINE_BYTES) fault(record, new Error("jarvis: brain=harness-line-limit"));
-        });
+        readLines(child, line => deliver(record, line), error => fault(record, error));
         process_ = record;
         owned = record;
         return record;
@@ -356,7 +371,7 @@ function conversation({ directory, model, effort = "", recipients, bridge, gen, 
         record.kind = "faulted";
         if (process_ === record) process_ = { kind: "ended" };
         record.consumer?.fault(error);
-        signal(record, "SIGKILL");
+        signal(record.child, "SIGKILL");
     }
 
     function encode(turn, grants) {
@@ -438,6 +453,8 @@ function conversation({ directory, model, effort = "", recipients, bridge, gen, 
                 case "init": admit(record, message); return;
                 case "control": return acknowledge(message);
                 case "control-request": return fail("harness-control-request");
+                // No other model is tried; the fault names the one refused.
+                case "model-refused": return fail("harness-model-refused model=" + model);
                 case "stream-start":
                     if (!record.initialized) fail("harness-order");
                     streaming = { id: message.id, block: null };
@@ -498,7 +515,6 @@ function conversation({ directory, model, effort = "", recipients, bridge, gen, 
                 }
             },
             fault: failed,
-            exit(status) { failed(new Error("jarvis: brain=" + status)); },
             cancel() {
                 switch (state.kind) {
                 case "unstarted":
@@ -607,8 +623,8 @@ function conversation({ directory, model, effort = "", recipients, bridge, gen, 
         let exited = Promise.resolve();
         if (record !== null && record.kind !== "exited") {
             record.child.stdin.end();
-            signal(record, "SIGTERM");
-            const timer = clock.set(() => signal(record, "SIGKILL"), CANCEL_MS);
+            signal(record.child, "SIGTERM");
+            const timer = clock.set(() => signal(record.child, "SIGKILL"), CANCEL_MS);
             exited = record.exited.finally(() => clock.clear(timer));
         }
         ended(exited.then(() => {
@@ -677,8 +693,8 @@ async function verify({ directory, model, recipients, item, grants, parent, envi
  * answer to one stream-json list_models request. No prompt is sent and no
  * tool or MCP server is offered. directory is the account's, env the
  * caller's environment and runtime the private runtime directory. Past
- * MODELS_MS the program is ended and the read fails with its exit; its
- * group is ended and its folder removed either way.
+ * Harness.MODELS_MS the program is ended and the read fails with its exit;
+ * its group is ended and its folder removed either way.
  */
 async function models({ directory, env, runtime, clock = CLOCK }) {
     const workdir = privateFolder(runtime);
@@ -687,41 +703,28 @@ async function models({ directory, env, runtime, clock = CLOCK }) {
     const child = program(argvOf({ config, instructions: "", model: "", effort: "" }),
         { cwd: path.join(workdir, "cwd"), env: environmentOf(env, directory), stdio: ["pipe", "pipe", "ignore"], detached: true });
     const closed = new Promise(resolve => child.once("close", resolve));
-    const end = () => {
-        if (child.pid === undefined) return; // The spawn failed; close follows its error.
-        try { process.kill(-child.pid, "SIGKILL"); } catch (error) { if (error.code !== "ESRCH") throw error; }
-    };
-    const timer = clock.set(end, MODELS_MS);
+    const timer = clock.set(() => signal(child, "SIGKILL"), Harness.MODELS_MS);
     try {
         return await new Promise((resolve, reject) => {
-            child.once("error", error => reject(new Error("jarvis: brain=harness-exit cause=" + named(error.code ?? "unknown"))));
-            child.once("close", (code, signalName) => reject(
-                new Error("jarvis: brain=harness-exit " + (signalName !== null ? "signal=" + signalName : "code=" + code))));
+            let cause = null;
+            child.once("error", error => { cause = named(error.code ?? "unknown"); });
+            child.once("close", (code, signalName) => reject(exitError(cause, code, signalName)));
             child.stdin.on("error", () => {});
-            child.stdout.setEncoding("utf8");
-            let tail = "";
-            child.stdout.on("data", chunk => {
+            readLines(child, line => {
                 try {
-                    tail += chunk;
-                    for (let at; (at = tail.indexOf("\n")) >= 0; tail = tail.slice(at + 1)) {
-                        const line = tail.slice(0, at);
-                        if (line.trim() === "") continue;
-                        const message = messageOf(line);
-                        if (message.kind !== "control" || message.id !== MODELS_REQUEST) continue;
-                        if (message.subtype !== "success") fail("harness-models");
-                        resolve(offersOf(message.body));
-                        return;
-                    }
-                    if (Buffer.byteLength(tail) > LINE_BYTES) fail("harness-line-limit");
+                    const message = messageOf(line);
+                    if (message.kind !== "control" || message.id !== MODELS_REQUEST) return;
+                    if (message.subtype !== "success") fail("harness-models");
+                    resolve(offersOf(message.body));
                 } catch (error) { reject(error); }
-            });
+            }, reject);
             // SDKControlListModelsRequest; the answer's `models` are ModelInfo
             // (claude-agent-sdk 0.3.287 sdk.d.ts).
             child.stdin.write(JSON.stringify({ type: "control_request", request_id: MODELS_REQUEST, request: { subtype: "list_models" } }) + "\n");
         });
     } finally {
         clock.clear(timer);
-        end();
+        signal(child, "SIGKILL");
         await closed;
         fs.rmSync(workdir, { recursive: true, force: true });
     }

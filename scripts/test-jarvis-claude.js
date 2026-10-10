@@ -375,6 +375,15 @@ world(async () => {
                 const w = await make(folder, { turns: [[...say("before"), ...steps]] });
                 await w.fails(w.say("go"), key);
             }
+            // A model the account does not have: the program's own error
+            // line and result, as a run of Claude Code 2.1.289 wrote them on
+            // 2026-10-10. The fault names the model, the line's words are
+            // not handed on, and no other model is tried.
+            const refused = await make(folder, { turns: [[{ raw: JSON.stringify({ type: "assistant", parent_tool_use_id: null, error: "model_not_found",
+                message: { id: "m1", role: "assistant", model: "<synthetic>", content: [{ type: "text", text: "The program's own words." }] } }) },
+                { result: "api-error" }]] }, { model: "claude-fable-5-1" });
+            await refused.fails(refused.say("go"), "harness-model-refused model=claude-fable-5-1");
+            assert.equal(refused.account.calls().length, 1, "no second program for a refused model");
             // Notices and thinking pass unread.
             const w = await make(folder, { turns: [[{ retry: true }, { thinking: true }, ...say("after")]] });
             assert.deepEqual(await w.read(w.say("go")), { texts: ["after"], reason: "stop" });
@@ -716,6 +725,8 @@ world(async () => {
         // A list that is no list refuses; a program that exits fails keyed.
         for (const [script, reason] of [[{ models: "silent", rawModels: { models: "none" } }, "harness-models"],
             [{ models: "silent", rawModels: { models: [{ value: 7, displayName: "Seven" }] } }, "harness-models"],
+            // A whole answer line past the conversation's line bound.
+            [{ models: "silent", rawModels: { models: [], pad: "x".repeat(1024 * 1024) } }, "harness-line-limit"],
             [{ models: [{ value: "bad" }] }, "harness-exit code=3"]])
             assert.equal(await bounded(read(account(script)), "refused list"), "jarvis: brain=" + reason);
         // A program that never answers: the bound ends the read and the program.
@@ -729,12 +740,20 @@ world(async () => {
         assert.equal(fs.existsSync(path.dirname(silent.calls()[0].cwd)), false, "a failed read's working directory is removed");
         // The account judge reads the selected sign-in's list and no other's.
         fs.writeFileSync(path.join(verifyAccount.directory, "script.json"), JSON.stringify({ tree, models: LISTED }));
+        const other = account({ models: LISTED }, path.join(process.env.HOME, ".claude-other"));
         fs.mkdirSync(state, { recursive: true });
         const { Accounts } = require(path.join(folder, "Accounts.js"));
+        const found = new Accounts(state, env, presence);
+        const chosen = found.discover().find(row => row.source.kind === "cli" && row.source.directory === verifyAccount.directory);
+        assert.equal(Object.hasOwn(found.status(), "models"), false, "the account answer holds no model list");
+        assert.equal(found.status().providers[chosen.id], "claude", "the account answer names each choice's provider");
+        // The read needs no discovery, as the helper's models verb runs it:
+        // of the status commands only the selected sign-in's runs.
         const judge = new Accounts(state, env, presence);
-        const chosen = judge.discover().find(row => row.source.kind === "cli" && row.source.directory === verifyAccount.directory);
-        assert.equal(Object.hasOwn(judge.status(), "models"), false, "the account answer holds no model list");
+        const [mine, others] = [verifyAccount.calls().length, other.calls().length];
         assert.deepEqual(await bounded(judge.readOffers(chosen.id), "account offers"), { kind: "read", offers: OFFERED });
+        assert.deepEqual(verifyAccount.calls().slice(mine).map(call => call.args[0]), ["auth", "-p"], "the sign-in's status command, then its list read");
+        assert.equal(other.calls().length, others, "no command of another account runs");
         const before = verifyAccount.calls().length;
         for (const id of ["", "unknown-choice"]) {
             assert.deepEqual(await judge.readOffers(id), { kind: "none" }, "no sign-in, no list: " + JSON.stringify(id));
@@ -809,7 +828,10 @@ world(async () => {
                 'if (RESULT_ERRORS.includes(value.subtype)) return { kind: "result", outcome: "success" };', "results"],
             ["line-raised", "const LINE_BYTES = 1024 * 1024;", "const LINE_BYTES = 1024 * 1024 + 1;", "bounds"],
             ["line-lowered", "const LINE_BYTES = 1024 * 1024;", "const LINE_BYTES = 1024 * 1024 - 1;", "bounds"],
-            ["line-tail", 'if (Buffer.byteLength(tail) > LINE_BYTES) fault(record, new Error("jarvis: brain=harness-line-limit"));', "", "bounds"],
+            ["line-tail", 'if (Buffer.byteLength(tail) > LINE_BYTES) refuse(new Error("jarvis: brain=harness-line-limit"));', "", "bounds"],
+            ["models-line", 'if (Buffer.byteLength(text) > LINE_BYTES) { refuse(new Error("jarvis: brain=harness-line-limit")); return; }', "", "models"],
+            ["model-refused", 'if (value.error === "model_not_found") return { kind: "model-refused" };', "", "results"],
+            ["model-refused-name", 'case "model-refused": return fail("harness-model-refused model=" + model);', 'case "model-refused": return fail("harness-model-refused");', "results"],
             ["turn-raised", "const TURN_BYTES = 8 * 1024 * 1024;", "const TURN_BYTES = 8 * 1024 * 1024 + 1;", "bounds"],
             ["turn-lowered", "const TURN_BYTES = 8 * 1024 * 1024;", "const TURN_BYTES = 8 * 1024 * 1024 - 1;", "bounds"],
             ["context-bound", "const TURNS = 40;", "const TURNS = 41;", "bounds"],
@@ -830,8 +852,7 @@ world(async () => {
             ["models-own-entry", ".filter(entry => entry.alias !== OWN_DEFAULT)", "", "models"],
             ["models-effortless", "entry.supportsEffort === true ? entry.supportedEffortLevels : []", "entry.supportedEffortLevels ?? []", "models"],
             ["models-shape", 'if (!plain(body) || !Array.isArray(body.models)) fail("harness-models");', "if (!plain(body) || !Array.isArray(body.models)) return [];", "models"],
-            ["models-bound", "const timer = clock.set(end, MODELS_MS);", "const timer = clock.set(() => {}, MODELS_MS);", "models"],
-            ["models-bound-ms", "const MODELS_MS = 20000;", "const MODELS_MS = 20001;", "models"],
+            ["models-bound", 'const timer = clock.set(() => signal(child, "SIGKILL"), Harness.MODELS_MS);', "const timer = clock.set(() => {}, Harness.MODELS_MS);", "models"],
             ["models-workdir", "await closed;\n        fs.rmSync(workdir, { recursive: true, force: true });", "await closed;", "models"],
             ["models-prompt-free", 'child = program(argvOf({ config, instructions: "", model: "", effort: "" }),', 'child = program(argvOf({ config, instructions: "Fixture", model: "", effort: "" }),', "models"],
             ["verify-deadline", "const timer = clock.set(() => { expired = true; void brain.close(); }, deadline);",
@@ -849,6 +870,7 @@ world(async () => {
             ["model-flag", '&& !value.startsWith("-")', "", "verify"],
             ["effort-word", "/^[a-z]{0,16}$/.test(value)", "/^.{0,16}$/.test(value)", "model-effort"],
             ["effort-size", "/^[a-z]{0,16}$/.test(value)", "/^[a-z]*$/.test(value)", "model-effort"],
+            ["models-bound-ms", "const MODELS_MS = 20000;", "const MODELS_MS = 20001;", "models"],
             ["offer-once", "|| kept.some(offer => offer.value === entry.value)) continue;", ") continue;", "models"],
             ["offer-flag", 'if (entry.value === "" || !isModel(entry.value) || ', "if (", "models"],
             ["offer-label", "!/^[^\\x00-\\x1f\\x7f]{1,60}$/.test(entry.label)", "false", "models"],
@@ -856,6 +878,9 @@ world(async () => {
         ]) await control(sharedFile, name, needle, replacement, row);
         for (const [name, needle, replacement] of [
             ["offers-selected", "if (resolved === null || resolved.source.kind !== \"cli\" || !Object.hasOwn(MODEL_LISTS, resolved.provider)) return { kind: \"none\" };", "if (resolved === null) return { kind: \"read\", offers: [] };"],
+            ["offers-one-status", "const account = this.cliAccount({ provider: resolved.provider, directory: resolved.source.directory, label: resolved.label });",
+                "this.discover();\n        const account = this.accounts.find(item => item.id === resolved.id) ?? null;"],
+            ["offers-providers", "const providers = Object.fromEntries(offered.map(item => [item.id, item.provider]));", "const providers = {};"],
             ["offers-failed", 'return { kind: "failed", reason: key === null ? "models-failed" : key[1] };', 'return { kind: "read", offers: [] };'],
             ["offers-claude", "const MODEL_LISTS = { claude: ClaudeCode, ", "const MODEL_LISTS = { "]
         ]) await control(accountsFile, name, needle, replacement, "models");

@@ -104,8 +104,10 @@ const COPILOT = [offer("auto", "Auto", []), offer("claude-opus-5.5", "Claude Opu
 const CODEX = [offer("gpt-6.1-sol", "GPT-6.1-Sol", [...LEVELS, "ultra"], "low"), offer("gpt-6-luna", "GPT-6-Luna", LEVELS, "medium")];
 const read = offers => ({ kind: "read", offers });
 const CLAUDE_VALUES = ["claude-fable-5-1", "claude-opus-5-5[1m]", "claude-haiku-4-5", "claude-sonnet-5-5"];
+const FAILED = { kind: "failed", reason: "harness-exit" };
 // [label, the saved model and effort, the page's read, the model and effort
-// the page saves, the page's model and effort choices by value].
+// the page saves, the page's model and effort choices by value, the
+// sign-in's provider where the row needs one].
 const CHOICE = [
     ["Claude Code and nothing saved", {}, read(CLAUDE), ["claude-fable-5-1", "high"], CLAUDE_VALUES, ["high", "low", "medium", "xhigh", "max"]],
     ["Copilot, which offers Opus 5.5, no Fable and no effort level", { effort: "high" }, read(COPILOT), ["claude-opus-5.5", ""], ["claude-opus-5.5", "auto", "gpt-6.1-sol"], []],
@@ -115,22 +117,36 @@ const CHOICE = [
     ["a saved model and effort", { model: "claude-sonnet-5-5", effort: "low" }, read(CLAUDE), ["claude-sonnet-5-5", "low"], CLAUDE_VALUES, ["default", "low", "high", "xhigh"]],
     ["a saved model whose program names no effort", { model: "claude-sonnet-5-5" }, read(CLAUDE), ["claude-sonnet-5-5", ""], CLAUDE_VALUES, ["default", "low", "high", "xhigh"]],
     ["the second preferred model saved beside the first", { model: "claude-opus-5-5[1m]" }, read(CLAUDE), ["claude-opus-5-5[1m]", "high"], CLAUDE_VALUES, ["high", "low", "medium", "xhigh", "max"]],
-    ["a saved model the sign-in does not offer", { model: "gpt-6.1-sol", effort: "max" }, read(CLAUDE), ["claude-fable-5-1", "max"], CLAUDE_VALUES, ["high", "low", "medium", "xhigh", "max"]],
+    ["a saved model the list does not name", { model: "gpt-6.1-sol", effort: "max" }, read(CLAUDE), ["gpt-6.1-sol", "max"], CLAUDE_VALUES, ["max"]],
     ["a saved effort the model does not offer", { model: "claude-fable-5-1", effort: "ultra" }, read(CLAUDE), ["claude-fable-5-1", "high"], CLAUDE_VALUES, ["high", "low", "medium", "xhigh", "max"]],
     ["a saved model that takes no effort", { model: "claude-haiku-4-5", effort: "high" }, read(CLAUDE), ["claude-haiku-4-5", ""], CLAUDE_VALUES, []],
-    ["a sign-in whose list is empty", { model: "claude-fable-5-1", effort: "high" }, read([]), ["", ""], [], []],
+    ["a sign-in whose list is empty", { model: "claude-fable-5-1", effort: "high" }, read([]), ["claude-fable-5-1", "high"], [], []],
     ["no read, as while the page is closed", { model: "claude-fable-5-1", effort: "xhigh" }, { kind: "none" }, ["claude-fable-5-1", "xhigh"], ["claude-fable-5-1"], ["xhigh"]],
-    ["a read that has not answered and nothing saved", {}, { kind: "reading" }, ["", ""], [], []],
-    ["a read its program did not answer", { model: "claude-fable-5-1", effort: "high" }, { kind: "failed", reason: "harness-exit" }, ["claude-fable-5-1", "high"], ["claude-fable-5-1"], ["high"]]
+    ["a read that has not answered and nothing saved", {}, { kind: "reading" }, ["", ""], [], [], "claude"],
+    ["a read its program did not answer", { model: "claude-fable-5-1", effort: "high" }, FAILED, ["claude-fable-5-1", "high"], ["claude-fable-5-1"], ["high"]],
+    // Nothing saved and no list: the page shows what Jarvis runs, and saves nothing.
+    ["a failed read and nothing saved, for Claude Code", {}, FAILED, ["", ""], ["claude-fable-5-1"], ["high"], "claude"],
+    ["a failed read and nothing saved, for a program that runs its own model", {}, FAILED, ["", ""], ["default"], [], "codex"]
+];
+// What the daemon gets with no list read. [label, the saved model and
+// effort, the chosen sign-in's provider as the last account read names it,
+// undefined before one, the model and effort in the hello].
+const UNLISTED = [
+    ["Claude Code and nothing saved", {}, "claude", ["claude-fable-5-1", "high"]],
+    ["Claude Code and an effort saved alone", { effort: "max" }, "claude", ["claude-fable-5-1", "max"]],
+    ["Claude Code and a saved model", { model: "claude-haiku-4-5" }, "claude", ["claude-haiku-4-5", ""]],
+    ["Codex and nothing saved", {}, "codex", ["", ""]],
+    ["Copilot and a saved model", { model: "auto" }, "copilot", ["auto", ""]],
+    ["no account read yet", {}, undefined, ["", ""]]
 ];
 
 // The shipped choice rule against the manifest and the page's select model.
 function verifyModelChoice(providers) {
     const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
     try {
-        for (const [label, saved, listed, want, models, efforts] of CHOICE) {
+        for (const [label, saved, listed, want, models, efforts, provider] of CHOICE) {
             const settings = { ...plain(manifest.settings), brain: "claude-team", ...saved };
-            const choice = providers.modelChoice(settings, listed);
+            const choice = providers.modelChoice(settings, listed, provider);
             assert.deepEqual([choice.model, choice.effort], want, label + ": the model and effort the page saves");
             assert.deepEqual([choice.models.map(row => row.value), choice.efforts.map(row => row.value)], [models, efforts], label + ": the page's choices");
             const values = {};
@@ -141,6 +157,10 @@ function verifyModelChoice(providers) {
             // A field with nothing offered is not drawn, whatever is saved.
             const page = plain(judge.settingChoices(manifest, values, settings));
             assert.deepEqual([page.model.length === 0, page.effort.length === 0], [models.length === 0, efforts.length === 0], label + ": the fields the page draws");
+            // A drawn Model field holds the saved model, offered or not,
+            // and with none saved its first choice keeps the setting unset.
+            if (models.length > 0) assert.equal(page.model.some((row, index) => row.value === settings.model && (settings.model !== "" || index === 0)), true,
+                label + ": the Model field shows what is saved");
         }
         // Labels a user reads: a level by its word, the program's own by
         // name, a model with no list by its saved name, marked when its
@@ -160,18 +180,23 @@ function verifyModelChoice(providers) {
 // The shipped account reader's model list read, run as the page drives it:
 // its bindings, its functions and its process's end, over a stand-in
 // process. VIEWED is whether the Settings window shows the Jarvis page.
+// A call the reader queues with Qt.callLater runs at settle(), once per
+// function, as the engine runs it back in the event loop. The engine's own
+// order of a binding's update and its handlers is
+// scripts/qml-tests/tst_jarvis_accounts.qml's to hold.
 function listReader(accountsSource, providers, saved, viewed) {
     const binding = name => accountsSource.match(new RegExp("^    readonly property \\w+ " + name + ": (.*)$", "m"));
     const fn = name => accountsSource.match(new RegExp("^    function " + name + "\\([^)]*\\) \\{\\n[\\s\\S]*?^    \\}", "m"));
-    const changed = accountsSource.match(/^    onBrainChanged: \{\n([\s\S]*?)^    \}/m);
+    const changed = accountsSource.match(/^    onBrainChanged: (.*)$/m);
     const ended = accountsSource.match(/^        id: lister\n[\s\S]*?^        onRunningChanged: \{\n([\s\S]*?)^        \}/m);
     const settings = { brain: "claude-team", model: "", effort: "", ...saved };
-    const writes = [], warnings = [], values = {};
-    const root = { program: "/fixture/accounts.js", listed: { brain: "", kind: "none" }, seenBrain: null,
+    const writes = [], warnings = [], values = {}, queued = [];
+    const root = { program: "/fixture/accounts.js", listed: { brain: "", kind: "none" }, seenBrain: null, providers: {},
         lister: { running: false, dropped: false, output: "", command: [] },
         shell: { settings, status: { viewed, set: (key, value) => { values[key] = value; return "ok"; } },
             configure: { set: (key, value) => { writes.push([key, value]); settings[key] = value; return "ok"; } } } };
-    const globals = { root, Providers: providers, Quickshell: { shellDir: "/fixture/shell" }, console: { warn: text => warnings.push(text) } };
+    const globals = { root, Providers: providers, Quickshell: { shellDir: "/fixture/shell" }, console: { warn: text => warnings.push(text) },
+        Qt: { callLater: call => { if (!queued.includes(call)) queued.push(call); } } };
     const run = text => vm.runInNewContext("(function() { with(root) { return (" + text + "); } })()", globals);
     for (const name of ["brain", "wanted", "list", "choice"]) {
         assert.ok(binding(name), "the reader binds " + name);
@@ -183,7 +208,10 @@ function listReader(accountsSource, providers, saved, viewed) {
     }
     assert.ok(changed && ended);
     return { root, settings, writes, warnings, values,
-        brainChanged: () => run("(function() { " + changed[1] + " })()"),
+        brainChanged: () => { run(changed[1]); },
+        settle() { while (queued.length > 0) queued.shift()(); },
+        // The choice's change handler, then the turn's queued calls.
+        publish() { root.publishChoice(); this.settle(); },
         // The process ends: with OUTPUT on its stdout, or ended by readList.
         end(output) {
             root.lister.running = false;
@@ -199,13 +227,15 @@ function verifyListRead(providers, accountsSource) {
         const closed = listReader(accountsSource, providers, { model: "claude-fable-5-1", effort: "high" }, false);
         assert.equal(closed.root.wanted, "", "no list is wanted while the page is closed");
         closed.root.readList();
-        closed.root.publishChoice();
+        closed.publish();
         assert.deepEqual(plain([closed.root.lister.running, closed.root.lister.command, closed.root.listed.kind, closed.values.models, closed.writes]),
             [false, [], "none", [{ label: "claude-fable-5-1", value: "claude-fable-5-1" }], []], "no read with the page closed");
         // A sign-in changed with the page closed keeps what is saved.
         closed.brainChanged();
+        closed.settle();
         closed.settings.brain = "codex-team";
         closed.brainChanged();
+        closed.settle();
         assert.deepEqual(closed.writes, [], "only a sign-in changed on the page drops the saved choice");
         // The page opens: one read for the chosen sign-in, and its list's
         // default is saved.
@@ -215,57 +245,73 @@ function verifyListRead(providers, accountsSource) {
         // the saved sign-in for the first time: no change, nothing dropped.
         const rebuilt = listReader(accountsSource, providers, { model: "claude-haiku-4-5" }, true);
         rebuilt.brainChanged();
+        rebuilt.settle();
         assert.deepEqual(rebuilt.writes, [], "the first sight of the saved sign-in drops nothing");
         open.brainChanged();
+        open.settle();
         open.root.readList();
         assert.deepEqual(plain([open.root.lister.running, open.root.lister.command.slice(-2), open.root.listed]),
             [true, ["models", "claude-team"], { brain: "claude-team", kind: "reading" }], "one read for the chosen sign-in");
         open.end(JSON.stringify(read(CLAUDE)));
         open.root.publishChoice();
+        assert.deepEqual(open.writes, [], "a save waits for the turn's end");
+        open.settle();
         assert.deepEqual(plain([open.values.models.map(row => row.value), open.values.efforts.map(row => row.value), open.writes]),
             [CLAUDE_VALUES, ["high", "low", "medium", "xhigh", "max"], [["model", "claude-fable-5-1"], ["effort", "high"]]],
             "a read list offers its models and efforts and saves its default");
-        open.root.publishChoice();
+        open.publish();
         assert.equal(open.writes.length, 2, "a saved choice is not written again");
         // The sign-in changes on the page while its read runs: the saved
-        // choice is dropped, the running read is ended and its answer is
-        // not taken, and the new sign-in's read starts at that end.
+        // choice is dropped, the running read runs to its end and its
+        // answer is not taken, and the new sign-in's read starts at that end.
         open.settings.brain = "codex-team";
         open.brainChanged();
+        open.publish();
         assert.deepEqual(open.writes.slice(2), [["model", ""], ["effort", ""]], "a sign-in changed on the page drops the saved model and effort");
         open.root.readList();
         assert.equal(open.root.lister.running, true);
         open.settings.brain = "copilot-team";
         open.root.readList();
-        assert.equal(open.root.lister.running, false, "a changed sign-in ends the running read");
+        assert.deepEqual(plain([open.root.lister.running, open.root.lister.command.slice(-2)]), [true, ["models", "codex-team"]],
+            "a changed sign-in leaves the running read to its end");
         open.end(JSON.stringify(read(CLAUDE)));
         assert.deepEqual(plain([open.root.listed, open.root.lister.running, open.root.lister.command.slice(-2)]),
             [{ brain: "copilot-team", kind: "reading" }, true, ["models", "copilot-team"]], "the ended read's answer is dropped and the next read starts");
         // A list read for an earlier sign-in changes nothing.
         open.end(JSON.stringify(read(COPILOT)));
         open.settings.brain = "claude-team";
-        open.root.publishChoice();
+        open.publish();
         assert.deepEqual(plain([open.root.list, open.values.models, open.writes.slice(4)]), [{ kind: "none" }, [], []], "a list for another sign-in offers and saves nothing");
         // A read its program does not answer: the saved choice with its
         // note, the cause in the log, nothing written.
         const failed = listReader(accountsSource, providers, { model: "claude-fable-5-1", effort: "high" }, true);
         failed.root.readList();
-        failed.end(JSON.stringify({ kind: "failed", reason: "harness-exit" }));
-        failed.root.publishChoice();
+        failed.end(JSON.stringify(FAILED));
+        failed.publish();
         assert.deepEqual(plain([failed.values.models, failed.warnings, failed.writes]),
             [[{ label: "claude-fable-5-1 (list not read)", value: "claude-fable-5-1" }], ["jarvis-accounts: models=harness-exit"], []], "a failed read");
+        // With nothing saved the page shows what Jarvis runs for the
+        // sign-in's provider, and saves nothing without a read list.
+        const unsaved = listReader(accountsSource, providers, {}, true);
+        unsaved.root.providers = { "claude-team": "claude" };
+        unsaved.root.readList();
+        unsaved.end(JSON.stringify(FAILED));
+        unsaved.publish();
+        assert.deepEqual(plain([unsaved.values.models.map(row => row.value), unsaved.writes]), [["claude-fable-5-1"], []], "a failed read with nothing saved");
         // A helper that prints no answer is a failed read, whatever an
         // earlier read printed.
         failed.root.readList();
         failed.end();
         assert.deepEqual(plain([failed.root.listed, failed.warnings.slice(1)]), [{ brain: "claude-team", kind: "failed", reason: "helper" }, ["jarvis-accounts: models=helper"]],
             "a helper that prints no answer");
-        // The page closes: the running read is ended and none starts.
+        // The page closes: the running read runs to its end, its answer is
+        // not taken and none starts.
         failed.root.readList();
         failed.root.shell.status.viewed = false;
         failed.root.readList();
-        failed.end();
-        assert.deepEqual(plain([failed.root.listed, failed.root.lister.running]), [{ brain: "", kind: "none" }, false], "a closed page ends its read");
+        assert.equal(failed.root.lister.running, true, "a closed page leaves the running read to its end");
+        failed.end(JSON.stringify(read(CLAUDE)));
+        assert.deepEqual(plain([failed.root.listed, failed.root.lister.running]), [{ brain: "", kind: "none" }, false], "a closed page takes no answer and starts no read");
     } catch (error) {
         if (error instanceof assert.AssertionError) error.check = "model-choice";
         throw error;
@@ -360,23 +406,46 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
 // Run the shipped hello and the shipped account publication: the daemon's
 // own protocol judge accepts each hello, whose voice is the row's, and the
 // Voice group's key row offers Add key until a key is stored.
-function verifyVoice(gate, serviceSource, accountsSource) {
+// The settings of the hello the shipped service writes for SETTINGS and
+// READER, its account reader's last read.
+function helloSettings(gate, serviceSource, providers, manifest, settings, reader, label) {
     const hello = serviceSource.match(/^    function hello\(\) \{\n[\s\S]*?^    \}/m);
-    const publishAccounts = accountsSource.match(/^    function publish\(\) \{\n[\s\S]*?^    \}/m);
-    assert.ok(hello && publishAccounts);
-    const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
+    assert.ok(hello);
     const keys = Object.fromEntries(manifest.hyprland.binds.map(bind => [bind.shortcut, bind.key]));
+    let wire = null;
+    const root = { accountReader: reader, shell: { settings,
+        shortcut: { keys }, manifest: { hyprland: manifest.hyprland, __revision: "a".repeat(64) } },
+        child: { running: true, write: text => { wire = text; } }, cause: "", lifetime: { kind: "starting" }, sessionState: null,
+        feedbackSounds: false, lockObservation: () => false, broken: reason => assert.fail(label + ": the daemon refuses the hello: " + reason) };
+    vm.runInNewContext("(function() { with(root) { return (" + hello[0] + ").call(root); } })()", { root, Gate: gate, Protocol: protocol,
+        Quickshell: { env: name => "/fixture/" + name }, Paths: { stateDir: "/fixture/state" }, Providers: { ...providers, runtimeDirectory: () => "/fixture/run" } });
+    return JSON.parse(wire).settings;
+}
+
+// The model and effort the daemon gets with no list read.
+function verifyUnlisted(gate, providers, serviceSource) {
+    const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
+    try {
+        for (const [label, saved, provider, want] of UNLISTED) {
+            const settings = { ...plain(manifest.settings), brain: "claude-team", ...saved };
+            const sent = helloSettings(gate, serviceSource, providers, manifest, settings,
+                { voiceKeys: [], providers: provider === undefined ? {} : { "claude-team": provider } }, label);
+            assert.deepEqual([sent.model, sent.effort], want, label + ": the model and effort in the hello");
+        }
+    } catch (error) {
+        if (error instanceof assert.AssertionError) error.check = "model-choice";
+        throw error;
+    }
+}
+
+function verifyVoice(gate, serviceSource, accountsSource) {
+    const publishAccounts = accountsSource.match(/^    function publish\(\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(publishAccounts);
+    const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
     try {
         for (const [label, changed, offered, want] of VOICE) {
             const settings = { ...plain(manifest.settings), ...changed };
-            let wire = null;
-            const root = { accountReader: { voiceKeys: offered }, shell: { settings,
-                shortcut: { keys }, manifest: { hyprland: manifest.hyprland, __revision: "a".repeat(64) } },
-                child: { running: true, write: text => { wire = text; } }, cause: "", lifetime: { kind: "starting" }, sessionState: null,
-                feedbackSounds: false, lockObservation: () => false, broken: reason => assert.fail(label + ": the daemon refuses the hello: " + reason) };
-            vm.runInNewContext("(function() { with(root) { return (" + hello[0] + ").call(root); } })()", { root, Gate: gate, Protocol: protocol,
-                Quickshell: { env: name => "/fixture/" + name }, Paths: { stateDir: "/fixture/state" }, Providers: { runtimeDirectory: () => "/fixture/run" } });
-            assert.equal(JSON.parse(wire).settings.voiceProvider, want, label);
+            assert.equal(helloSettings(gate, serviceSource, require(providersFile), manifest, settings, { voiceKeys: offered, providers: {} }, label).voiceProvider, want, label);
         }
         assert.equal(plain(gate.readiness({ kind: "answered", causes: [] })).setup.tone, "ok", "no cause, as a fresh install with its local voice set up: ready");
         for (const [label, offered, want] of VOICE_KEY) {
@@ -386,12 +455,13 @@ function verifyVoice(gate, serviceSource, accountsSource) {
                 values[key] = value;
                 return "ok";
             } } };
-            const root = { shell, modelAccess: { kind: "checking" }, voiceKeys: "unread", pending: false, completion: { kind: "exited", code: offered === null ? 1 : 0 },
+            const root = { shell, modelAccess: { kind: "checking" }, voiceKeys: "unread", providers: "unread", pending: false, completion: { kind: "exited", code: offered === null ? 1 : 0 },
                 diagnostic: { kind: "collected", text: "" }, refreshed: () => {},
-                output: JSON.stringify({ accounts: [], brains: [], voiceAccounts: offered ?? [], search: { found: 0, partial: "" } }) };
+                output: JSON.stringify({ accounts: [], brains: [], providers: { "claude-team": "claude" }, voiceAccounts: offered ?? [], search: { found: 0, partial: "" } }) };
             vm.runInNewContext("(function() { with(root) { return (" + publishAccounts[0] + ").call(root); } })()",
                 { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
             assert.deepEqual(plain({ keys: root.voiceKeys }), plain({ keys: offered ?? undefined }), label + ": the keys the reader hands the service");
+            assert.deepEqual(plain(root.providers), offered === null ? {} : { "claude-team": "claude" }, label + ": the providers the reader hands the service");
             const entry = judge.statusRows(manifest, values, []).find(item => item.key === "voiceKey");
             assert.deepEqual(plain([entry.group, entry.tone, entry.action.offered, entry.action.tui]),
                 ["Voice", { info: "info", ok: "success", warning: "warning" }[want[0]], want[1], want[1] ? "add-key" : ""], label + ": the Voice group's key row");
@@ -570,6 +640,7 @@ function verify(gate) {
     verifyModelConsumers(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
     verifyVoice(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
     verifyModelChoice(require(providersFile));
+    verifyUnlisted(gate, require(providersFile), fs.readFileSync(serviceFile, "utf8"));
     verifyListRead(require(providersFile), fs.readFileSync(accountsFile, "utf8"));
     for (const [label, value, requires, missing, names] of SETUP) {
         const got = gate.setupValue(value, requires, missing);
@@ -679,11 +750,13 @@ try {
         console.log("test-jarvis-setup-gate: control=" + target + " check=setup-model-action rejected=true");
     }
     for (const [target, original, needle, replacement] of [
-        ["Service.qml", serviceSource, "voiceProvider: Gate.voiceProvider(shell.settings, accountReader.voiceKeys) }),", "voiceProvider: shell.settings.voiceProvider }),"],
+        ["Service.qml", serviceSource, "voiceProvider: Gate.voiceProvider(shell.settings, accountReader.voiceKeys) },", "voiceProvider: shell.settings.voiceProvider },"],
         ["Accounts.qml", accountsSource, "voiceKeys = value.voiceAccounts;", "voiceKeys = [];"],
         ["Accounts.qml", accountsSource, "voiceKeys = undefined;", "voiceKeys = [];"],
         ["Accounts.qml", accountsSource, "Gate.voiceKey(value.voiceAccounts)", "Gate.voiceKey([])"],
-        ["Accounts.qml", accountsSource, "Gate.voiceKey(null)", "Gate.voiceKey([])"]
+        ["Accounts.qml", accountsSource, "Gate.voiceKey(null)", "Gate.voiceKey([])"],
+        ["Accounts.qml", accountsSource, "providers = value.providers;", "providers = {};"],
+        ["Accounts.qml", accountsSource, "providers = {};", "providers = providers;"]
     ]) {
         assert.equal(original.split(needle).length, 2);
         let failure = null;
@@ -706,28 +779,43 @@ try {
         ["AccountProviders.js", "var first = preferred && offer.efforts.indexOf(PREFERRED_EFFORT) !== -1 ? PREFERRED_EFFORT", "var first = preferred ? PREFERRED_EFFORT"],
         ["AccountProviders.js", ": offer.efforts.indexOf(offer.effort) !== -1 ? offer.effort : OWN_EFFORT;", ": OWN_EFFORT;"],
         ["AccountProviders.js", "var ordered = preferred === null ? offers\n        : [preferred].concat(offers.filter(function (offer) { return offer !== preferred; }));", "var ordered = offers;"],
-        ["AccountProviders.js", "var chosen = ordered.filter(function (offer) { return offer.value === settings.model; })[0] || ordered[0];", "var chosen = ordered[0];"],
-        ["AccountProviders.js", "return { model: chosen.value, effort:", "return { model: settings.model || chosen.value, effort:"],
+        ["AccountProviders.js", 'var chosen = ordered.filter(function (offer) { return settings.model === "" || offer.value === settings.model; })[0];', "var chosen = ordered[0];"],
+        ["AccountProviders.js", "if (chosen === undefined) return { model: settings.model, effort: settings.effort, models: models, efforts: one(settings.effort) };", "if (chosen === undefined) chosen = ordered[0];"],
+        ["AccountProviders.js", "if (chosen === undefined) return { model: settings.model, effort: settings.effort, models: models, efforts: one(settings.effort) };",
+            "if (chosen === undefined) return { model: settings.model, effort: settings.effort, models: models, efforts: [] };"],
         ["AccountProviders.js", "var effort = efforts.some(function (level) { return level.value === settings.effort; }) ? settings.effort", 'var effort = settings.effort !== "" ? settings.effort'],
         ["AccountProviders.js", 'effort: effort === OWN_EFFORT ? "" : effort,', "effort: effort,"],
         ["AccountProviders.js", "PREFERRED_MODELS.some(function (id) { return namesModel(chosen.value, id); })", "chosen === ordered[0]"],
         ["AccountProviders.js", 'return level === OWN_EFFORT ? "Model default"', 'return level === OWN_EFFORT ? "default"'],
         ["AccountProviders.js", "Object.prototype.hasOwnProperty.call(EFFORT_LABELS, level) ? EFFORT_LABELS[level]", "false ? EFFORT_LABELS[level]"],
         ["AccountProviders.js", 'if (listed.kind !== "read")', 'if (listed.kind !== "read" && listed.kind !== "reading")'],
-        ["AccountProviders.js", '(listed.kind === "failed" ? " (list not read)" : "")', '""'],
-        ["AccountProviders.js", 'models: settings.model === "" ? [] : [{', "models: [{"],
-        ["AccountProviders.js", 'efforts: settings.effort === "" ? [] : [{ label: effortLabel(settings.effort),', "efforts: [{ label: settings.effort,"],
-        ["AccountProviders.js", 'if (offers.length === 0) return { model: "", effort: "", models: [], efforts: [] };', "if (offers.length === 0) return { model: settings.model, effort: settings.effort, models: [], efforts: [] };"],
+        ["AccountProviders.js", 'var mark = failed ? " (list not read)" : "";', 'var mark = "";'],
+        ["AccountProviders.js", ': failed ? [{ label: "App default" + mark, value: OWN_MODEL }] : [],', ': true ? [{ label: "App default" + mark, value: OWN_MODEL }] : [],'],
+        ["AccountProviders.js", ': failed ? [{ label: "App default" + mark, value: OWN_MODEL }] : [],', ": [],"],
+        ["AccountProviders.js", "var runs = failed ? unlistedChoice(settings, provider) : settings;", "var runs = settings;"],
+        ["AccountProviders.js", "var runs = failed ? unlistedChoice(settings, provider) : settings;", "var runs = unlistedChoice(settings, provider);"],
+        ["AccountProviders.js", 'return effort === "" ? [] : [{ label: effortLabel(effort), value: effort }];', "return [{ label: effort, value: effort }];"],
+        ["AccountProviders.js", "if (offers.length === 0) return { model: settings.model, effort: settings.effort, models: [], efforts: [] };", ""],
+        ["AccountProviders.js", "if (offers.length === 0) return { model: settings.model, effort: settings.effort, models: [], efforts: [] };", 'if (offers.length === 0) return { model: "", effort: "", models: [], efforts: [] };'],
+        ["AccountProviders.js", 'var PREFERRED_PROGRAM = "claude";', 'var PREFERRED_PROGRAM = "codex";'],
+        ["AccountProviders.js", 'return settings.model !== "" || provider !== PREFERRED_PROGRAM ?', "return provider !== PREFERRED_PROGRAM ?"],
+        ["AccountProviders.js", "effort: settings.effort || PREFERRED_EFFORT };", "effort: PREFERRED_EFFORT };"],
+        ["AccountProviders.js", "effort: settings.effort || PREFERRED_EFFORT };", "effort: settings.effort };"],
+        ["Service.qml", "Providers.unlistedChoice(shell.settings, accountReader.providers[shell.settings.brain])),", "{}),"],
+        ["Service.qml", "Providers.unlistedChoice(shell.settings, accountReader.providers[shell.settings.brain])),", 'Providers.unlistedChoice(shell.settings, "claude")),'],
+        ["Accounts.qml", "shell.settings, list, providers[brain])", "shell.settings, list)"],
         ["Accounts.qml", 'readonly property string wanted: shell !== null && shell.status.viewed ? brain : ""', "readonly property string wanted: brain"],
-        ["Accounts.qml", 'if (shell !== null && seenBrain !== null && shell.status.viewed) save("", "");', 'if (shell !== null && seenBrain !== null) save("", "");'],
-        ["Accounts.qml", 'if (shell !== null && seenBrain !== null && shell.status.viewed) save("", "");', 'if (shell !== null && shell.status.viewed) save("", "");'],
-        ["Accounts.qml", 'if (shell !== null && seenBrain !== null && shell.status.viewed) save("", "");', ""],
-        ["Accounts.qml", "seenBrain = shell === null ? null : brain;", ""],
+        ["Accounts.qml", "const changed = seenBrain !== null && seenBrain !== brain && shell.status.viewed;", "const changed = seenBrain !== null && seenBrain !== brain;"],
+        ["Accounts.qml", "const changed = seenBrain !== null && seenBrain !== brain && shell.status.viewed;", "const changed = seenBrain !== brain && shell.status.viewed;"],
+        ["Accounts.qml", "const changed = seenBrain !== null && seenBrain !== brain && shell.status.viewed;", "const changed = false;"],
+        ["Accounts.qml", "        seenBrain = brain;\n", ""],
+        ["Accounts.qml", "        Qt.callLater(save);\n", ""],
+        ["Accounts.qml", "        Qt.callLater(save);\n", "        save();\n"],
         ["Accounts.qml", 'readonly property var list: listed.brain === brain ? listed : ({ kind: "none" })', "readonly property var list: listed"],
-        ["Accounts.qml", 'if (list.kind === "read") save(choice.model, choice.effort);', ""],
-        ["Accounts.qml", "(model !== shell.settings.model && shell.configure.set", "(shell.configure.set"],
+        ["Accounts.qml", 'list.kind === "read" ? choice : shell.settings;', "shell.settings;"],
+        ["Accounts.qml", "if (wanted[key] !== shell.settings[key] && shell.configure.set", "if (shell.configure.set"],
         ["Accounts.qml", "            lister.dropped = true;\n", ""],
-        ["Accounts.qml", "            lister.running = false;\n            return;", "            return;"],
+        ["Accounts.qml", "            lister.dropped = true;\n", "            lister.dropped = true;\n            lister.running = false;\n"],
         ["Accounts.qml", "                dropped = false;\n                root.readList();", "                dropped = false;"],
         ["Accounts.qml", 'listed = { brain: wanted, kind: wanted === "" ? "none" : "reading" };\n        if (wanted === "") return;', 'listed = { brain: wanted, kind: "reading" };'],
         ["Accounts.qml", '        lister.output = "";\n', ""],
@@ -738,7 +826,7 @@ try {
         ["manifest.json", '"optionsFrom": "efforts", "hideEmpty": true,', '"optionsFrom": "efforts",']
     ];
     for (const [target, needle, replacement] of CHOICE_CONTROLS) {
-        const original = { "AccountProviders.js": providersSource, "Accounts.qml": accountsSource, "manifest.json": fs.readFileSync(manifestFile, "utf8") }[target];
+        const original = { "AccountProviders.js": providersSource, "Accounts.qml": accountsSource, "Service.qml": serviceSource, "manifest.json": fs.readFileSync(manifestFile, "utf8") }[target];
         assert.equal(original.split(needle).length, 2, "the text to replace occurs once: " + needle);
         const changed = original.replace(needle, () => replacement);
         const copy = path.join(temp, "choice-" + target);
@@ -750,6 +838,7 @@ try {
         try {
             const providers = target === "AccountProviders.js" ? require(copy) : require(providersFile);
             verifyModelChoice(providers);
+            verifyUnlisted(load(file), providers, target === "Service.qml" ? changed : serviceSource);
             verifyListRead(providers, target === "Accounts.qml" ? changed : accountsSource);
         } catch (error) { failure = error; }
         finally { fs.readFileSync = readFile; }
@@ -789,4 +878,4 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + CHOICE.length} controls=${CONTROLS.length + 8 + 38}`);
+console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + CHOICE.length + UNLISTED.length} controls=${CONTROLS.length + 10 + 52}`);

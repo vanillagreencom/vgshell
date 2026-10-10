@@ -13,8 +13,11 @@
 # levels and saves the list's default, a choice is saved and reaches the
 # daemon, and a model that takes no effort draws no effort field. The list
 # is read only while the page is open: a reader that ignores the page fails
-# both closed-page readings, and a list that is not read leaves the saved
-# model, marked. No latency budget.
+# both closed-page readings. With nothing saved and no list read the daemon
+# gets Fable 5.1 at high for the Claude Code account. A list that is not
+# read leaves the saved model, marked, and with nothing saved the model the
+# daemon gets. The shell's log holds no unexpected line from these steps.
+# No latency budget.
 # Poll once per nested IPC round trip. Only J09's process double and the
 # allow-listed TUI fixtures run here.
 # inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh shell/Commons/AnchorTracker.qml
@@ -232,19 +235,27 @@ print(json.dumps([detail["state"]["settings"]["model"], detail["state"]["setting
 '; }
 # How many model list reads the world's worker has run.
 page_reads() { if [[ -f "$sandbox/jarvis-world/model-reads" ]]; then wc -l <"$sandbox/jarvis-world/model-reads" | tr -d ' '; else echo 0; fi; }
-# Take each named Jarvis setting out of the user file.
+# Take each named Jarvis setting out of the user file: out of the plugin's
+# row and its widget's layout entries, which the service's writes both hold,
+# so the page and the service read the same settings.
 page_settings_drop() {
   python3 - "$home/.config/vgshell/shell.json" "$@" <<'PY'
 import json,sys
 from pathlib import Path
 p=Path(sys.argv[1]); value=json.loads(p.read_text())
-for row in value.get("plugins", []):
-    if row["id"] == "vgs.jarvis":
+entries=list(value.get("plugins", []))
+for section in value.get("bar", {}).get("layout", {}).values():
+    if isinstance(section, list): entries+=section
+for row in entries:
+    if isinstance(row, dict) and row.get("id") == "vgs.jarvis":
         for key in sys.argv[2:]: row.pop(key, None)
 p.write_text(json.dumps(value))
 PY
   expect "the user file's Jarvis settings are read again" ok ipc shell reloadConfig
 }
+# Where the shell's log stands before the model steps: they end with a
+# check of what they logged.
+page_log_start="$(wc -c <"$instance_log")"
 printf 'signed-in\n' >"$sandbox/jarvis-world/account-mode"
 page_open accountSearch accounts "Jarvis accounts"
 expect_poll "the signed-in Claude Code account is offered as the AI model" '[["Claude Code"], "", ""]' page_choice_state brain
@@ -303,12 +314,16 @@ expect_poll "the first choice saves Fable 5.1 at high" '["claude-fable-5-1", "hi
 expect_poll "the daemon gets Fable 5.1 at high again" '["claude-fable-5-1", "high"]' page_daemon_choice
 
 # The list is read only while the Jarvis page is open. With the page closed
-# Jarvis runs what is saved, here nothing, and a changed setting reads no
-# list.
+# a changed setting reads no list and nothing is saved, and for the Claude
+# Code account with nothing saved the daemon gets Fable 5.1 at high. Opus
+# 5.5 is saved first, so that reading follows the drop.
+expect "choosing Opus 5.5 again is allowed" chosen page_choose model 1
+expect_poll "the daemon gets Opus 5.5 while it is saved" '["claude-opus-5-5[1m]", "high"]' page_daemon_choice
 settings_page_close vgs.jarvis
 page_reads_closed="$(page_reads)"
 page_settings_drop model effort
-expect_poll "with the page closed the daemon gets what is saved" '["", ""]' page_daemon_choice
+expect_poll "with nothing saved and no list read the daemon gets Fable 5.1 at high" '["claude-fable-5-1", "high"]' page_daemon_choice
+expect "with the page closed nothing is saved" '["", ""]' page_saved
 expect "a setting changed with the page closed reads no list" "$page_reads_closed" page_reads
 # The control: a reader that wants the list whatever the page shows reads
 # it with the page closed and saves its default.
@@ -325,10 +340,10 @@ assert s.count(needle)==1
 p.write_text(s.replace(needle, 'readonly property string wanted: brain'))
 PY
 jarvis_rescan
-expect_poll "the control's reader reads the list with the page closed" '["claude-fable-5-1", "high"]' page_daemon_choice
+expect_poll "the control's reader reads the list with the page closed" '["claude-fable-5-1", "high"]' page_saved
 page_closed_control() {
   (failures=0 behaviour_failures=0
-   expect "with the page closed the daemon gets what is saved" '["", ""]' page_daemon_choice >"$sandbox/jarvis-page-closed-control.log"
+   expect "with the page closed nothing is saved" '["", ""]' page_saved >"$sandbox/jarvis-page-closed-control.log"
    expect "a setting changed with the page closed reads no list" "$page_reads_closed" page_reads >>"$sandbox/jarvis-page-closed-control.log"
    echo "$failures")
 }
@@ -336,24 +351,37 @@ expect "a list read with the page closed breaks both closed-page readings" 2 pag
 cp -- "$sandbox/page-reader-original" "$page_reader"
 jarvis_rescan
 page_settings_drop model effort
-expect_poll "the restored reader leaves the saved choice alone" '["", ""]' page_daemon_choice
+expect_poll "the restored reader runs the unsaved default" '["claude-fable-5-1", "high"]' page_daemon_choice
+expect "the restored reader saves nothing with the page closed" '["", ""]' page_saved
 # Opening the page reads the list once and saves its default.
 page_reads_closed="$(page_reads)"
 settings_page_open vgs.jarvis
 expect_poll "opening the page saves the list's default" '["claude-fable-5-1", "high"]' page_saved
 expect "opening the page read the list once" "$((page_reads_closed + 1))" page_reads
-# A list its program does not give: the page shows the saved model, marked.
+# A list its program does not give: the page shows the saved model, marked,
+# and with nothing saved the model the daemon gets, marked and not saved.
+# The reader logs the read's cause.
 settings_page_close vgs.jarvis
 printf 'list-failed\n' >"$sandbox/jarvis-world/account-mode"
+expected_errors+=('jarvis-accounts: models=harness-exit')
 settings_page_open vgs.jarvis
 expect_poll "a list that is not read leaves the saved model, marked" \
   '[["claude-fable-5-1 (list not read)"], "claude-fable-5-1 (list not read)", "claude-fable-5-1"]' page_choice_state model
 expect "the saved choice stays in the file" '["claude-fable-5-1", "high"]' page_saved
-page_settings_drop brain model effort
+page_settings_drop model effort
+expect_poll "with nothing saved a list that is not read shows the model the daemon gets, marked" \
+  '[["claude-fable-5-1 (list not read)"], "claude-fable-5-1 (list not read)", ""]' page_choice_state model
+expect "a list that is not read saves nothing" '["", ""]' page_saved
+page_settings_drop brain
 expect_poll "with the sign-in unchosen the model field leaves the page" absent page_choice model
 printf 'none\n' >"$sandbox/jarvis-world/account-mode"
 page_open accountSearch accounts "Jarvis accounts"
 settings_page_close vgs.jarvis
+# The model steps wrote the settings from the reader and from the page. The
+# next row starts a new shell, so what this shell logged in those steps is
+# read here.
+tail -c "+$((page_log_start + 1))" -- "$instance_log" >"$sandbox/jarvis-page-model-steps.log"
+check_unexpected_log "the shell's log of the model steps" "$sandbox/jarvis-page-model-steps.log"
 
 cp -- "$sandbox/page-add-key-original" "$page_tuis/add-key.sh"
 cp -- "$sandbox/page-accounts-original" "$page_tuis/accounts.sh"

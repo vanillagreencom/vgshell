@@ -21,16 +21,13 @@ Item {
     // The stored OpenAI keys of the last read, undefined while no read has
     // an answer: before the first one and after a failed one.
     property var voiceKeys: undefined
+    // The provider of each offered AI model choice by its id, from the last
+    // read; none before its answer and after a failed one.
+    property var providers: ({})
     readonly property string brain: shell === null ? "" : shell.settings.brain
-    // The sign-in this reader last saw, null before its first sight of one.
+    // The sign-in save() last saw, null before its first sight of one.
     property var seenBrain: null
-    // A model belongs to its sign-in's list: a sign-in changed on the page
-    // drops the saved model and effort, and the new list's read saves its
-    // own. The first sight of the saved sign-in is no change.
-    onBrainChanged: {
-        if (shell !== null && seenBrain !== null && shell.status.viewed) save("", "");
-        seenBrain = shell === null ? null : brain;
-    }
+    onBrainChanged: Qt.callLater(save)
     // The sign-in whose model list the page wants: the chosen one while the
     // Jarvis page is shown, else none. Nothing else starts a list read: not
     // the shell's start and not another setting's change.
@@ -42,8 +39,8 @@ Item {
     // The chosen sign-in's own read: one for another sign-in counts as none.
     readonly property var list: listed.brain === brain ? listed : ({ kind: "none" })
     // The page's model and effort choices, and the model and effort a read
-    // list saves: Jarvis runs what is saved, with no list read.
-    readonly property var choice: Providers.modelChoice(shell === null ? ({ model: "", effort: "" }) : shell.settings, list)
+    // list saves.
+    readonly property var choice: Providers.modelChoice(shell === null ? ({ model: "", effort: "" }) : shell.settings, list, providers[brain])
     onChoiceChanged: publishChoice()
     readonly property var tuiState: shell === null ? null : shell.tui.state["accounts"]
     readonly property var keyState: shell === null ? null : shell.tui.state["add-key"]
@@ -68,26 +65,42 @@ Item {
                 throw new Error("jarvis-accounts: status=refused");
     }
 
-    function save(model, effort) {
-        if ((model !== shell.settings.model && shell.configure.set("model", model) !== "ok")
-                || (effort !== shell.settings.effort && shell.configure.set("effort", effort) !== "ok"))
-            console.warn("jarvis-accounts: model-selection=refused");
+    // Write the model and effort the page's state asks for. A model belongs
+    // to its sign-in's list: a sign-in changed on the page drops the saved
+    // model and effort, the first sight of the saved sign-in is no change,
+    // and a read list saves its choice. configure.set replaces `shell`
+    // before it returns, so a call from the change handler of `brain` or
+    // `choice` updates that binding inside its own update: Qt logs a
+    // binding loop and keeps the old value, as a run of
+    // scripts/qml-tests/tst_jarvis_accounts.qml under qmltestrunner 6.11.2
+    // shows. Qt.callLater runs this once the engine is back in the event
+    // loop, one call for the changes of a turn
+    // (https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method), so it
+    // judges the sign-in, the list and the settings it finds then.
+    function save() {
+        if (shell === null) return;
+        const changed = seenBrain !== null && seenBrain !== brain && shell.status.viewed;
+        seenBrain = brain;
+        const wanted = changed ? { model: "", effort: "" } : list.kind === "read" ? choice : shell.settings;
+        for (const key of ["model", "effort"])
+            if (wanted[key] !== shell.settings[key] && shell.configure.set(key, wanted[key]) !== "ok")
+                console.warn("jarvis-accounts: model-selection=refused");
     }
 
     function publishChoice() {
         if (shell === null) return;
         if (shell.status.set("models", choice.models) !== "ok" || shell.status.set("efforts", choice.efforts) !== "ok")
             throw new Error("jarvis-accounts: status=refused");
-        if (list.kind === "read") save(choice.model, choice.effort);
+        Qt.callLater(save);
     }
 
-    // Start the read `wanted` names. A running read is ended first and its
-    // end starts this one, so one program runs at a time and the answer of
-    // a read for an earlier sign-in, or for a page since closed, is dropped.
+    // Start the read `wanted` names. A running read runs to its end, where
+    // its helper removes its program's private folder; that end drops its
+    // answer and starts this read. One program runs at a time, and an answer
+    // for an earlier sign-in, or for a page since closed, changes nothing.
     function readList() {
         if (lister.running) {
             lister.dropped = true;
-            lister.running = false;
             return;
         }
         listed = { brain: wanted, kind: wanted === "" ? "none" : "reading" };
@@ -122,6 +135,7 @@ Item {
             const value = JSON.parse(output);
             modelAccess = Gate.accountAccess(value.accounts);
             voiceKeys = value.voiceAccounts;
+            providers = value.providers;
             const accounts = value.accounts.map(item => Words.accountHint(item) === "" ? { label: item.label, value: item.value }
                 : { label: item.label, value: item.value, hint: Words.accountHint(item) });
             const search = Words.searchValue({ kind: "found", found: value.search.found, partial: value.search.partial });
@@ -141,6 +155,7 @@ Item {
         } catch (error) {
             modelAccess = { kind: "checking" };
             voiceKeys = undefined;
+            providers = {};
             const reason = Providers.probeFailure(completion, diagnostic);
             console.warn(reason);
             const replies = [shell.status.set("accounts", []), shell.status.set("brains", []), shell.status.set("voiceAccounts", []),
@@ -177,7 +192,7 @@ Item {
     }
     Process {
         id: lister
-        // True while its end is one readList asked for.
+        // True while readList waits for its end to start another read.
         property bool dropped: false
         property string output: ""
         clearEnvironment: true

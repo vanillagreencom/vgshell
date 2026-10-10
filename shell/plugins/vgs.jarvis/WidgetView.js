@@ -58,10 +58,14 @@ var SETUP_TEXT = [
 // speech=local-not-ready), the home folder causes of a conversation's
 // first turn (home=link, guidance=home-too-large) and Audio's capture and
 // playback failures (audio-start: ..., device-probe: ..., playback-busy).
+// A model its app refused carries the model's name (ClaudeCode:
+// brain=harness-model-refused model=claude-fable-5-1).
+var MODEL_REFUSED = /^brain=harness-model-refused model=(.*)$/;
 var FAULT_KINDS = [
     [/^thinking-timeout$/, "slow"],
     [/^device-lost$/, "device"],
     [/^(home=|guidance=home-)/, "home"],
+    [MODEL_REFUSED, "model"],
     [/^(brain|net)=/, "brain"],
     [/^speech=/, "voice"],
     [/^(audio-start|device-probe|capture|playback)/, "audio"]
@@ -70,13 +74,15 @@ var FAULT_KINDS = [
 // to do. Only a changed device setting or a restart clears a fault, so a
 // device fault asks for a device and every other for a restart. A home
 // folder fault asks for the folder: Jarvis reads it again at the next
-// request.
+// request. A refused model asks for another: a changed model clears the
+// fault, and its title ends with the model's name.
 var RESTART = "Turn Jarvis off and on again in Settings > Jarvis.";
 var FAULT_TEXT = {
     "slow": { title: "The AI model took too long to answer", action: RESTART },
     "device": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another in Settings > Jarvis." },
     "home": { title: "Jarvis cannot use the home folder", action: "Check AGENTS.md, MEMORY.md and the skills in the folder, or choose another folder in Settings > Jarvis." },
     "brain": { title: "The AI model did not answer", action: RESTART },
+    "model": { title: "The AI app cannot use the model", action: "Choose another model in Settings > Jarvis." },
     "voice": { title: "Local voice stopped working", action: RESTART },
     "audio": { title: "The microphone or speaker stopped working", action: RESTART },
     "other": { title: "Jarvis stopped after a problem", action: RESTART }
@@ -177,6 +183,7 @@ function faultKind(fault) {
 // What FAULT, a Session fault that is not none, says: { title, action }.
 function faultText(fault) {
     var kind = faultKind(fault);
+    if (kind === "model") return { title: FAULT_TEXT.model.title + " " + MODEL_REFUSED.exec(fault.reason)[1], action: FAULT_TEXT.model.action };
     return fault.kind === "retrying" ? RETRYING : FAULT_TEXT[kind];
 }
 

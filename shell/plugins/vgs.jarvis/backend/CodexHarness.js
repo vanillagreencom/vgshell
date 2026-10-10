@@ -20,8 +20,6 @@ const TURNS = 40;
 const HANDSHAKE_MS = 30000;
 // One Verify turn: a bound on a stalled provider, not a latency budget.
 const PROBE_MS = 60000;
-// One model list read: a bound on a stalled program, not a latency budget.
-const MODELS_MS = 20000;
 const PROBE_INSTRUCTIONS = "Answer in one word.";
 
 function fail(code) { throw new Error("jarvis: brain=codex-" + code); }
@@ -33,41 +31,53 @@ function program({ directory, env, cwd }, listener) {
         refused: (call, value) => new Error("jarvis: brain=codex-refused method=" + call.method + " code=" + value.code) }, listener);
 }
 
+async function shut(session) {
+    await session.program.close();
+    fs.rmSync(session.cwd, { recursive: true, force: true });
+}
+
+/**
+ * The program in a new private folder under runtime, initialized, as
+ * started {program, cwd}: where a thread and a model list read both begin.
+ * listener(value, started) receives what the program sends. use(started)
+ * runs under the bound: a program that outlives ms is closed, and when the
+ * start or use fails the program ends and its folder goes.
+ */
+async function start({ directory, env, runtime }, listener, ms, use) {
+    Private.directory(runtime);
+    const cwd = fs.mkdtempSync(path.join(runtime, "codex-"));
+    const started = { program: program({ directory, env, cwd }, value => listener(value, started)), cwd };
+    const timer = setTimeout(() => started.program.close(), ms);
+    try {
+        await started.program.call(id => Codex.initialize(id));
+        started.program.write(Codex.initialized());
+        return await use(started);
+    } catch (error) {
+        await shut(started);
+        throw error;
+    } finally { clearTimeout(timer); }
+}
+
 /**
  * One thread on one program, locked down and verified before its first turn.
  * hooks: {event(event), request(id, request, session)} for the owner's
  * turn and approval handling, and ended(error).
  */
-async function open({ directory, env, runtime, model, effort, instructions, bridge }, hooks) {
-    Private.directory(runtime);
-    const cwd = fs.mkdtempSync(path.join(runtime, "codex-"));
+function open({ directory, env, runtime, model, effort, instructions, bridge }, hooks) {
     let session = null;
-    const p = program({ directory, env, cwd }, value => {
+    return start({ directory, env, runtime }, (value, started) => {
         if (value.kind === "notification") hooks.event(value.event);
         // Before the thread exists a request is answered on the bare program.
-        else if (value.kind === "request") hooks.request(value.id, value.request, session ?? { program: p, thread: null });
+        else if (value.kind === "request") hooks.request(value.id, value.request, session ?? { program: started.program, thread: null });
         // A handshake failure rejects its pending call instead.
         else if (session !== null) hooks.ended(value.error);
-    });
-    const timer = setTimeout(() => p.close(), HANDSHAKE_MS);
-    try {
-        await p.call(id => Codex.initialize(id));
-        p.write(Codex.initialized());
+    }, HANDSHAKE_MS, async ({ program: p, cwd }) => {
         const foreign = Codex.servers(await p.call(id => Codex.configRead(id, cwd)));
         const thread = Codex.thread(await p.call(id => Codex.threadStart(id, { cwd, model, effort, instructions, foreign, bridge })));
         Codex.features(await p.call(id => Codex.featureList(id, thread)));
         session = { program: p, thread, cwd };
         return session;
-    } catch (error) {
-        await p.close();
-        fs.rmSync(cwd, { recursive: true, force: true });
-        throw error;
-    } finally { clearTimeout(timer); }
-}
-
-async function shut(session) {
-    await session.program.close();
-    fs.rmSync(session.cwd, { recursive: true, force: true });
+    });
 }
 
 /**
@@ -293,25 +303,16 @@ async function probe({ directory, env, runtime, model, text }) {
 /**
  * The models the account's own program offers, Harness.offers' list, from
  * its model/list answer. No thread starts and no prompt is sent. Past
- * MODELS_MS the program is ended and the read fails with its exit.
+ * Harness.MODELS_MS the program is ended and the read fails with its exit.
  */
 async function models({ directory, env, runtime }) {
-    Private.directory(runtime);
-    const cwd = fs.mkdtempSync(path.join(runtime, "codex-"));
     // No thread exists, so a request names none: each is declined.
-    const p = program({ directory, env, cwd }, value => {
-        if (value.kind === "request") p.write(Codex.answer(value.id, value.request, false));
-    });
-    const timer = setTimeout(() => p.close(), MODELS_MS);
-    try {
-        await p.call(id => Codex.initialize(id));
-        p.write(Codex.initialized());
-        return Harness.offers(Codex.models(await p.call(id => Codex.modelList(id))));
-    } finally {
-        clearTimeout(timer);
-        await p.close();
-        fs.rmSync(cwd, { recursive: true, force: true });
-    }
+    const read = await start({ directory, env, runtime }, (value, started) => {
+        if (value.kind === "request") started.program.write(Codex.answer(value.id, value.request, false));
+    }, Harness.MODELS_MS, async started => ({ started,
+        offers: Harness.offers(Codex.models(await started.program.call(id => Codex.modelList(id)))) }));
+    await shut(read.started);
+    return read.offers;
 }
 
 module.exports = { create, probe, models };

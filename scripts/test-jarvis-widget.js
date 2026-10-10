@@ -111,6 +111,9 @@ const CASES = [
         ["a link in the home folder", "home=link", "home"],
         ["an unexpected engine failure", "engine=unexpected", "other"]].map(([label, reason, kind]) =>
         [label, up({ fault: { kind: "error", reason, retry: 0 } }), ["problem", "circle-alert", "danger", WITH(fault(kind), [MUTE])]]),
+    // A model its app refused reads with the model's name, from the reason.
+    ["a refused model", up({ fault: { kind: "error", reason: "brain=harness-model-refused model=claude-fable-5-1", retry: 0 } }),
+        ["problem", "circle-alert", "danger", WITH(v => ({ title: v.FAULT_TEXT.model.title + " claude-fable-5-1", action: v.FAULT_TEXT.model.action }), [MUTE])]],
     ["muted", up(MUTED), ["muted", "mic-off", "neutral", tip("Jarvis is muted", [UNMUTE])]],
     ["muted while locked", up({ ...MUTED, ...down("locked") }), ["muted", "mic-off", "neutral", tip("Jarvis is muted", [UNMUTE])]],
     ["muted over a cancelling turn", up({ ...MUTED, turn: { kind: "cancelling", gen: 1, op: 4, deadline: 70 } }),
@@ -299,6 +302,8 @@ const CONTROLS = [
     ["an unexpected phase reads ready", 'refuse("phase", detail.phase);', 'return look("ready", "Jarvis is ready", [readyAction(effectiveMode, effectiveKeys)], muteOn, effectiveKeys);'],
     ["a fault shows its keyed reason", 'return fault.kind === "retrying" ? RETRYING : FAULT_TEXT[kind];', 'return { title: "Problem: " + fault.reason, action: RESTART };'],
     ["a brain fault reads as another", '[/^(brain|net)=/, "brain"],', ""],
+    ["a refused model reads as any brain fault", '    [MODEL_REFUSED, "model"],\n', ""],
+    ["a refused model is not named", 'title: FAULT_TEXT.model.title + " " + MODEL_REFUSED.exec(fault.reason)[1]', "title: FAULT_TEXT.model.title"],
     ["a home folder fault reads as another", '[/^(home=|guidance=home-)/, "home"],', ""],
     ["a home text fault reads as another", '[/^(home=|guidance=home-)/, "home"],', '[/^home=/, "home"],'],
     ["a slow answer reads as another", '[/^thinking-timeout$/, "slow"],', ""],

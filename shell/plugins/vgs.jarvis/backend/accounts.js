@@ -71,7 +71,6 @@ async function main() {
         break;
     case "models":
         if (args.length !== 2) throw new Error("jarvis-accounts: arguments=models");
-        judge.discover();
         value = await judge.readOffers(args[1]);
         break;
     case "list":

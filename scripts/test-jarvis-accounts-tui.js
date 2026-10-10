@@ -359,8 +359,13 @@ if(outcome==="failure-signed-in") process.exit(7);
             // asks for the chosen sign-in's list in a request of its own.
             assert.equal(records().filter(item => item.args.includes("--input-format")).length, listsBefore, "no list read in the account answer");
             if (vendor === "claude") {
+                const status = () => records().filter(item => JSON.stringify(item.args) === JSON.stringify(["auth", "status"]));
+                const statusBefore = status().length;
                 assert.equal(JSON.parse(cli(folder, "models", account.id)).kind, "read");
                 assert.equal(records().filter(item => item.args.includes("--input-format")).length, listsBefore + 1, "one list read for the request");
+                // The request judges its own sign-in alone: one status
+                // command, for its folder, whatever other accounts exist.
+                assert.deepEqual(status().slice(statusBefore).map(item => item.env[variable]), [target], "the list read runs its sign-in's status command and no other");
             }
           }
         }
@@ -548,6 +553,8 @@ if(outcome==="failure-signed-in") process.exit(7);
         '"-" + label', successfulSignIn);
     await control("backend/accounts.js", "presence-list-read", "await Promise.all([judge.readEmails(), judge.readModels()]);\n        value = judge.status();",
         "await Promise.all([judge.readEmails(), judge.readModels(), ...judge.accounts.map(item => judge.readOffers(item.id))]);\n        value = judge.status();", successfulSignIn);
+    await control("backend/accounts.js", "models-one-status", "value = await judge.readOffers(args[1]);",
+        "judge.discover();\n        value = await judge.readOffers(args[1]);", successfulSignIn);
     await control("backend/Accounts.js", "sign-in-additional-folder", 'folders.length === 0 ? "" : "-" + label',
         '""', successfulSignIn);
     await control("backend/Accounts.js", "sign-in-existing-folder", 'directory: entry.directory, label: entry.label };',
