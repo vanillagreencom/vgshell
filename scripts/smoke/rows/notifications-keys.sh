@@ -29,7 +29,7 @@
 # No latency is measured; each reading polls every 200 ms for up to 5 s.
 # A press that reaches nothing changes nothing to poll for, so the
 # controls read after a native key marker on the same virtual keyboard.
-# inputs: shell/plugins/vgs.notifications/* shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml scripts/smoke/toplevel/* scripts/smoke/rows/notifications.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.notifications/* shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js scripts/smoke/toplevel/* scripts/smoke/rows/notifications.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 nk_hypr_lua="$home/.config/hypr/hyprland.lua"
@@ -292,23 +292,30 @@ nk_view_settled() {
 }
 # nk_room_shrink: the room shrinks under the open long inbox. It opens the
 # inbox in the whole room, rests the pointer beside the panel, so no card
-# changes hover as the layout moves, selects the last card with End, which
-# scrolls the list to its end, and enables the short-room fixture,
-# whose layer takes the screen's bottom from the panel. Prints panel_fit's
-# selected reading once the panel reads shorter than its panelMaxHeight
-# and nk_view_settled reads a shorter view: `fits`, or
+# changes hover as the layout moves, selects the last card with End once
+# the list holds the keyboard, which scrolls the list to its end, and
+# enables the short-room fixture, whose layer takes the screen's bottom
+# from the panel. Prints panel_fit's selected reading once the panel reads
+# shorter than its panelMaxHeight, polled every 200 ms for up to
+# smoke_poll_bound_ms, and nk_view_settled reads a shorter view: `fits`, or
 # `cut-bottom=selected` where the view kept its place. Where the
 # instrument could not reach that reading it prints the step that failed.
 # The view before and after and the reading go to
 # $sandbox/room-shrink.txt, which nk_room_shrink_readings prints. It
 # leaves the inbox closed and the fixture enabled.
 nk_room_shrink() {
-  local shown x y selected=none fit=unread capped=unread before after reply reading
+  local shown x y focused=False selected=none fit=unread capped=unread before after reply reading
   rm -f -- "${sandbox:?}/room-shrink.txt"
   nk_press >/dev/null || { echo open-failed; return; }
   shown="$(long_inbox_shown)"
   [[ $shown == shown ]] || { echo "$shown"; return; }
   read -r x y < <(nk_panel_outside_point) && hover "$x" "$y" || { echo hover-failed; return; }
+  for _ in $(seq 1 25); do
+    focused="$(panel_focus_on_list)" || focused=unread
+    [[ $focused == True ]] && break
+    sleep 0.2
+  done
+  [[ $focused == True ]] || { echo "list-focus=$focused"; return; }
   type_keys -k End || { echo end-key-failed; return; }
   for _ in $(seq 1 25); do
     selected="$(panel_selected_summary)" || selected=unread
@@ -324,7 +331,7 @@ nk_room_shrink() {
   [[ $before == \{* ]] || { echo "view-before=$before"; return; }
   reply="$(ipc shell setPluginEnabled acme.notifications-short-room true)" || reply=failed
   [[ $reply == ok ]] || { echo "fixture=$reply"; return; }
-  for _ in $(seq 1 25); do
+  for _ in $(seq 1 $((smoke_poll_bound_ms / 200))); do
     capped="$(room_caps)" || capped=unread
     [[ $capped == True ]] && break
     sleep 0.2
