@@ -36,6 +36,10 @@
 #   (bluetooth/bluez.cpp, network/nm/backend.cpp,
 #   services/pipewire/connection.cpp), so a row calls it before it enables
 #   a plugin that reads one.
+# - devices_voice_feed FILE plays a recorded voice into the private
+#   PipeWire's loopback, whose source side a capture names as its
+#   microphone, and devices_voice_feed_state reads whether a capture reads
+#   it, for the Jarvis self-test (scripts/jarvis-selftest.sh).
 # - devices_ready ROW, a device row's first line: devices_up, then
 #   devices_guard over the running shell. A missing prerequisite or a
 #   guard that reads a leak records ROW not measured and returns 1, and
@@ -276,6 +280,34 @@ for o in objects:
             if key is not None and isinstance(entry.get("value"), dict): defaults[key] = entry["value"].get("name")
 print(json.dumps({"defaults": defaults, "nodes": nodes, "links": sorted([list(l) for l in links])}, sort_keys=True))
 '
+}
+# The voice feed, the loopback the private PipeWire's configuration holds:
+# a recorded voice reaches a capture only through it.
+# devices_voice_feed_state: the feed as `pw-dump` reads it in the sandbox's
+# environment alone: `ready` when its sink and its source are there and a
+# capture stream reads the source, else the first part missing,
+# `absent=sink`, `absent=source` or `absent=recorder`. The loopback joins
+# its two sides without a link, so a link that leaves the source is a
+# reader's. A failed dump fails.
+# devices_voice_feed FILE: FILE, a sound file, played into the feed's sink
+# in the sandbox's environment alone, until it ends. The stream names the
+# sink as its only target, so it plays nowhere when the sink is not there.
+devices_voice_feed_sink=vgs-smoke-voice-feed
+devices_voice_feed_source=vgs-smoke-voice
+devices_voice_feed_state() {
+  "${shell_env[@]}" pw-dump | python3 -c '
+import json, sys
+sink, source = sys.argv[1:]
+objects = json.load(sys.stdin)
+ids = {o["id"]: ((o.get("info") or {}).get("props") or {}).get("node.name") for o in objects if o.get("type") == "PipeWire:Interface:Node"}
+names = set(ids.values())
+readers = {ids.get((o.get("info") or {}).get("output-node-id")) for o in objects if o.get("type") == "PipeWire:Interface:Link"}
+print("absent=sink" if sink not in names else "absent=source" if source not in names else "absent=recorder" if source not in readers else "ready")
+' "$devices_voice_feed_sink" "$devices_voice_feed_source"
+}
+devices_voice_feed() { # FILE
+  "${shell_env[@]}" pw-cat --playback --target "$devices_voice_feed_sink" \
+    -P '{ node.name = "smoke-voice-player" node.dont-fallback = true node.dont-reconnect = true }' -- "$1"
 }
 devices_failed() { # KEY LOG
   devices_state="failed=$1"

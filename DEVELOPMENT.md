@@ -55,6 +55,27 @@ Quickshell links jemalloc, so glibc's `MALLOC_PERTURB_` does nothing. Start a sh
 - `bin/vgshell-system` reads the device fakes' tree in the sandbox, so a system step that probes a host file finds it absent. The scene plants that file under `$devices_system_root` before it enables the plugin.
 - The stand-in terminal starts no terminal. A floating TUI shot starts `kitty` with the presenter's argv in its scene, one theme per run, and copies in only the `gum` target: the `kitty` target's reload signals every kitty the user runs.
 
+## Jarvis self-test
+
+`scripts/jarvis-selftest.sh` runs one real Jarvis turn in the nested sandbox, with a real AI model and the local or the realtime voice, and writes one JSON record. Its header holds the options, the record and the exit codes; [validation.md § Jarvis self-test](docs/architecture/validation.md#jarvis-self-test) holds its rules. `scripts/validate` never runs it.
+
+```sh
+# Once: a local voice setup under a scratch HOME, made by the plugin's own setup. The small tier holds the voice --tts speaks with.
+env -u XDG_STATE_HOME -u XDG_DATA_HOME HOME="$PWD/tmp/jarvis-local" python3 -I shell/plugins/vgs.jarvis/setup-local install small
+export JARVIS_LOCAL_MODELS="$PWD/tmp/jarvis-local/.local/share/vgshell/jarvis/local/models"
+export JARVIS_LOCAL_PYTHON="$PWD/tmp/jarvis-local/.local/share/vgshell/jarvis/local/venv/bin/python"
+
+node shell/plugins/vgs.jarvis/backend/accounts.js --tree "$PWD" sign-in-folders claude 120   # each Claude Code sign-in folder, then its id
+scripts/jarvis-selftest.sh --wav shell/plugins/vgs.jarvis/fixtures/probe.wav --brain <id>   # a recorded voice
+scripts/jarvis-selftest.sh --tts "What time is it?" --brain <id>                            # a sentence the pinned voice speaks
+scripts/jarvis-selftest.sh --type "What time is it?" --brain <id>                           # a typed line
+```
+
+- The record goes under `tmp/selftest-records/` unless `--out` names a file. The last line of the run is `selftest=<key>`, and exit 77 means the run could not run.
+- The sandbox's shell finds the brain's program on the caller's `PATH` and runs it under the sandbox's HOME. A launcher that needs the caller's HOME, such as a version manager's shim, fails there: put the directory of the program itself first on `PATH`.
+- The run needs what `scripts/qml-smoke.sh` needs, and `pipewire`, `wireplumber` and `python-dbusmock` for the device fakes.
+- A brain that is a saved key, and `--voice realtime`, read that key from your keyring through a filtered bus, which needs `xdg-dbus-proxy`. A locked keyring or a key that is not stored ends the run with exit 77; the run never asks you to unlock.
+
 ## Regenerate
 
 ```sh

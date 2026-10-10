@@ -36,6 +36,26 @@ Scope {
         target: Capabilities.tuis
         function onPendingChanged() { root.traceRun("pending", Capabilities.tuis.pending.map(p => p.key)); }
     }
+    // The Jarvis self-test's trace (scripts/jarvis-selftest.sh). While
+    // jarvisTraceBar names the bar that holds the Jarvis widget, each change
+    // of the widget's state, of the Session phase and of the caption the
+    // service publishes is kept with its Date.now stamp, and a mark the
+    // runner sets is stamped by the same clock. The caption is compared as
+    // text: the service's values are a new object on every status write.
+    property string jarvisTraceBar: ""
+    property var jarvisTraceEvents: []
+    readonly property var jarvisTraceWidget: jarvisTraceBar === "" ? null : root.instance(jarvisTraceBar, "vgs.jarvis")
+    readonly property var jarvisTraceService: jarvisTraceBar === "" ? null : root.instance("service", "vgs.jarvis")
+    readonly property var jarvisTraceValues: jarvisTraceService === null ? null : jarvisTraceService.shell.status.values
+    readonly property string jarvisTraceState: jarvisTraceWidget === null ? "" : jarvisTraceWidget.view.state
+    readonly property string jarvisTracePhase: jarvisTraceValues === null || !jarvisTraceValues.detail ? "" : jarvisTraceValues.detail.phase
+    readonly property string jarvisTraceCaption: jarvisTraceValues === null || !jarvisTraceValues.transcript ? "" : JSON.stringify(jarvisTraceValues.transcript)
+    onJarvisTraceStateChanged: root.traceJarvis("widget", jarvisTraceState)
+    onJarvisTracePhaseChanged: root.traceJarvis("phase", jarvisTracePhase)
+    onJarvisTraceCaptionChanged: if (jarvisTraceCaption !== "") root.traceJarvis("caption", JSON.parse(jarvisTraceCaption))
+    function traceJarvis(kind, value) {
+        if (jarvisTraceBar !== "") jarvisTraceEvents = jarvisTraceEvents.concat([{ kind: kind, at: Date.now(), value: value }]);
+    }
     property string rememberedBarHost: ""
     property var rememberedNetworkDevice: null
     property Item rememberedNetworkShare: null
@@ -910,6 +930,30 @@ Scope {
             root.runTraceKey = "";
             root.runTraceEvents = [];
             return root.json(events);
+        }
+        // The self-test's trace: begin over the bar HOSTKEY names, a mark
+        // the runner sets at its input's start, and the events so far.
+        function beginJarvisTrace(hostKey: string): string {
+            root.jarvisTraceBar = "";
+            root.jarvisTraceEvents = [];
+            root.jarvisTraceBar = hostKey;
+            return "ok";
+        }
+        function markJarvisTrace(name: string): string {
+            if (root.jarvisTraceBar === "") return "off";
+            root.traceJarvis("mark", name);
+            return "ok";
+        }
+        function jarvisTrace(): string { return root.json(root.jarvisTraceEvents); }
+        // The Confirm key's handler as Service.qml registers it: the request
+        // the bubble shows, confirmed as a key press; `none` with none shown.
+        function jarvisConfirm(): string {
+            const service = root.instance("service", "vgs.jarvis");
+            if (service === null) return "absent";
+            const hold = service.displayedApproval();
+            if (hold === null) return "none";
+            service.confirmApproval(hold, "key");
+            return "sent";
         }
         function pageChars(): int { return IpcPages.replyChars; }
         // The shell process's value of an environment variable after its

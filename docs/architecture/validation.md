@@ -6,7 +6,7 @@ Read before changing `scripts/validate`, a row or its verdict, a row's inputs, a
 
 `scripts/validate` runs the rows a change reaches, once, on the final diff: [D100](../decisions/D100-validation-selects-by-inputs.md). A row whose inputs it cannot read runs.
 
-Every check runs in a world it owns and leaves the owner's machine as it found it. A row runs in a scratch home under the test-run marker. The nested smoke runs in a Hyprland the harness builds from the repository, never in the live session. A Jarvis suite runs inside `jarvis_env_run`. No process a run starts opens an amdgpu node: [D099](../decisions/D099-no-amdgpu-node-in-validation-runs.md).
+Every check runs in a world it owns and leaves the owner's machine as it found it. A row runs in a scratch home under the test-run marker. The nested smoke runs in a Hyprland the harness builds from the repository, never in the live session. A Jarvis suite runs inside `jarvis_env_run`. The Jarvis self-test is the one run that takes a real account and a real model, under its own rules. No process a run starts opens an amdgpu node: [D099](../decisions/D099-no-amdgpu-node-in-validation-runs.md).
 
 A check that could not run says so, and that is never a pass: exit 77 in [AGENTS.md](../../AGENTS.md) § Commands. A sandbox fault excuses only a reading the sandbox can spoil. A budget stands beside the run that measured it.
 
@@ -40,7 +40,7 @@ A broken environment that reads as a pass hides the regression the check exists 
 
 ### Host safety
 
-- Never authenticate, and never run a real PAM, polkit, sudo, faillock or keyring step. The core row `scripts/smoke/rows/auth-sentinel.sh` and `scripts/sandbox-shots.sh` fail a run that reached an authentication stand-in.
+- Never authenticate, and never run a real PAM, polkit, sudo, faillock or keyring step; the one exception is the stored key the Jarvis self-test reads under its rules below. The core row `scripts/smoke/rows/auth-sentinel.sh` and `scripts/sandbox-shots.sh` fail a run that reached an authentication stand-in.
 - Never let the stand-in terminal run a shipped plugin's TUI script; it runs a fixture copy. `scripts/check-smoke-terminal.py` refuses a row that writes its own, and `scripts/smoke/rows/tui-guard.sh` checks the stand-in at the end of a run.
 - Do assert the argv a stand-in recorded, never the effect of the script it stands in for. Review holds it.
 - Never add a device fake or a device-command stand-in in a row; `scripts/smoke/devices.sh` owns them. Review holds it.
@@ -80,6 +80,20 @@ A broken environment that reads as a pass hides the regression the check exists 
 - Never map a scratch or helper failure to exit 77. `scripts/test-jarvis-env.js` holds it.
 - Do check every protocol fixture against its schema or sanitized recording. `scripts/fixtures/schema-check.js` holds it.
 - Do give a consumer that runs an absolute host executable its own proof: `jarvis_env_run` confines command lookup, not the filesystem. Review holds it.
+
+### Jarvis self-test
+
+`scripts/jarvis-selftest.sh` runs one turn of the shipped daemon, engine, speech sidecar and audio children in the nested sandbox, outside `jarvis_env_run`, and writes one record. The Jarvis rules above bind suites; these bind the self-test.
+
+- Never select the self-test from `scripts/validate`; a person or a lane runs it by hand, and `validate` holds only its host-side test. Review holds it.
+- Do run the checkout's Jarvis plugin unchanged: no stand-in, scripted port or instrumented copy. `scripts/test-jarvis-selftest.sh` holds it.
+- Do hand the sandbox the accounts the run names and no other value of the caller's environment: a sign-in's directory variable, or a saved key's reference, which holds no secret. `scripts/test-jarvis-selftest.sh` holds it.
+- Do read a stored key only here, the one keyring step the owner allows any run: Jarvis's lookup goes to the caller's session bus through a filter that passes `org.freedesktop.secrets` its lookup calls and nothing else. No other test or row gets that bus. `scripts/test-jarvis-selftest.sh` holds the filter.
+- Never unlock, store or clear a key, and never let a prompt show: a locked keyring ends as `selftest=keyring-locked` and a key that is not stored as `selftest=keyring-no-key`, each exit 77. `scripts/test-jarvis-selftest.sh` holds both and the refused unlock.
+- Never point a test of the self-test at the caller's keyring; it reads a stand-in secrets service on a scratch bus. Review holds it.
+- Do copy the home folder the run names and hand Jarvis the copy; never write the folder itself. `scripts/test-jarvis-selftest.sh` holds the copy and its checksum.
+- Do feed a recorded voice only through the voice feed of the sandbox's PipeWire, after the device guard passes and the widget reads the microphone open; a run without the feed ends as `selftest=no-voice-feed`. `scripts/smoke/rows/device-fakes.sh` holds the guard and the feed, and `scripts/test-jarvis-selftest.sh` the refusal.
+- Never mark a record passed unless the turn completed and Jarvis committed a user turn. `scripts/test-jarvis-selftest.sh` holds it.
 
 ## The canonical example
 

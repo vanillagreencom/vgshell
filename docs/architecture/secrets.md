@@ -20,7 +20,7 @@ An argument sits in every process list, an IPC reply in the shell's log, a statu
 - Do check both clipboard secret marks before reading any data, and refuse a run with no `CLIPBOARD_STATE`. `scripts/test-clipboard.py` and `scripts/smoke/rows/clipboard.sh` pin it.
 - Never put copied data in a log line or an IPC refusal; print its length alone. Gap: no check reads the logs or refusals for copied data.
 - Never log a Bluetooth code, passkey, PIN or answer; log an unknown prompt with every digit run as `#`. `scripts/test-bluetooth-agent.js` pins it.
-- Never run a real PAM, polkit, sudo or keyring step in a test. `scripts/smoke/rows/auth-sentinel.sh` pins it.
+- Never run a real PAM, polkit, sudo or keyring step in a test; the one exception is the stored key the Jarvis self-test reads, under [validation.md § Jarvis self-test](validation.md#jarvis-self-test). `scripts/smoke/rows/auth-sentinel.sh` pins it.
 
 ## The canonical example
 

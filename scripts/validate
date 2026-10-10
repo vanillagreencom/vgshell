@@ -489,6 +489,7 @@ rows=(
   "tools|Jarvis actual local models|scripts/check-jarvis-local.sh|shell/plugins/vgs.jarvis/* scripts/lib/jarvis-env.sh scripts/fixtures/jarvis-local/* \$JARVIS_LOCAL_MODELS \$JARVIS_LOCAL_PYTHON bin/lib/anchored.js bin/lib/account-folders.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js"
   "tools|Jarvis local speech sidecar controls|python3 scripts/test-jarvis-local-speech.py|shell/plugins/vgs.jarvis/backend/local-speech.py shell/plugins/vgs.jarvis/setup-local shell/plugins/vgs.jarvis/measure-local shell/plugins/vgs.jarvis/artifacts.json shell/plugins/vgs.jarvis/fixtures/* scripts/lib/jarvis-env.sh scripts/check-jarvis-local-speech.sh"
   "tools|Jarvis actual local speech models|scripts/check-jarvis-local-speech.sh|shell/plugins/vgs.jarvis/backend/local-speech.py shell/plugins/vgs.jarvis/setup-local shell/plugins/vgs.jarvis/measure-local shell/plugins/vgs.jarvis/artifacts.json shell/plugins/vgs.jarvis/fixtures/* scripts/lib/jarvis-env.sh scripts/fixtures/jarvis-local-speech/real.py \$JARVIS_LOCAL_MODELS \$JARVIS_LOCAL_PYTHON"
+  "tools|Jarvis self-test host-side controls|scripts/test-jarvis-selftest.sh|scripts/jarvis-selftest.sh scripts/smoke/devices.sh scripts/smoke/harness.sh shell/plugins/vgs.jarvis/* bin/lib/anchored.js bin/lib/account-folders.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js"
   "repo|whitespace errors against the base|whitespace_check|"
   "repo|every test file has a row|rows_cover_tests|"
   "repo|the runtime loads nothing under scripts/|runtime_reads_no_scripts|"

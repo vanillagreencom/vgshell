@@ -4,7 +4,10 @@
 # reads it: the acme.devices fixture lists the BlueZ mock's adapter and
 # device, the NetworkManager mock's Wi-Fi device and the private PipeWire's
 # null nodes through Quickshell's singletons, and runs rfkill through the
-# shell's own PATH. It reads that neither the sandbox PipeWire nor its
+# shell's own PATH. It reads the voice feed end to end: a tone played into
+# its sink is in what a recorder on its source took, the feed reads ready
+# only while that recorder reads it, and a recorder with nothing played
+# takes silence. It reads that neither the sandbox PipeWire nor its
 # WirePlumber holds a sound or camera node after WirePlumber has loaded
 # its profile, that the rfkill block changed
 # the stand-in's state file alone, that a stand-in answers only what a row
@@ -36,10 +39,54 @@ expect_poll "Quickshell's Bluetooth lists the mock's adapter, powered, with its 
   '[{"id":"hci0","name":"VGS Smoke","enabled":true,"state":"Enabled","devices":[{"address":"00:1B:66:AA:BB:01","name":"Smoke Headphones","paired":true,"bonded":true,"connected":true}]}]' devices_read adapters
 expect_poll "Quickshell's Networking lists the mock's Wi-Fi device and the network it scans" \
   '[{"name":"wlan0","address":"11:22:33:44:55:66","networks":["VGS Smoke Wi-Fi"]}]' devices_read wifi
-expect_poll "Quickshell's Pipewire lists the two null sinks and the filter-chain sink" \
-  '["vgs-smoke-equalizer","vgs-smoke-headphones","vgs-smoke-speakers"]' devices_read sinks
-expect_poll "Quickshell's Pipewire lists the one source" '["vgs-smoke-microphone"]' devices_read sources
-expect_poll "WirePlumber's defaults are the speakers and the source" '["vgs-smoke-speakers","vgs-smoke-microphone"]' devices_read defaults
+expect_poll "Quickshell's Pipewire lists the two null sinks, the filter-chain sink and the voice feed's sink" \
+  '["vgs-smoke-equalizer","vgs-smoke-headphones","vgs-smoke-speakers","vgs-smoke-voice-feed"]' devices_read sinks
+expect_poll "Quickshell's Pipewire lists the test tone and the voice feed's source" '["vgs-smoke-microphone","vgs-smoke-voice"]' devices_read sources
+expect_poll "WirePlumber's defaults are the speakers and the test tone, not the voice feed" '["vgs-smoke-speakers","vgs-smoke-microphone"]' devices_read defaults
+# The voice feed: one second of a 440 Hz tone, played into the feed's sink
+# while a recorder reads its source by name, as Jarvis's pw-record does.
+feed_tone="$sandbox/voice-feed-tone.wav"
+python3 - "$feed_tone" <<'TONE'
+import array, math, sys, wave
+with wave.open(sys.argv[1], "wb") as file:
+    file.setnchannels(1)
+    file.setsampwidth(2)
+    file.setframerate(16000)
+    file.writeframes(array.array("h", (round(16000 * math.sin(2 * math.pi * 440 * n / 16000)) for n in range(16000))).tobytes())
+TONE
+feed_record() { # NAME
+  spawn "$sandbox/voice-feed-$1.log" "${shell_env[@]}" pw-record --raw --rate 16000 --channels 1 --format s16 \
+    --target "$devices_voice_feed_source" -P '{ node.dont-fallback = true node.dont-reconnect = true }' "$sandbox/voice-feed-$1.raw"
+  feed_recorder="$spawn_pid"
+}
+# What the recorder NAME took so far: `none` before its first frame, then
+# `sound` when a sample is louder than a sixteenth of full scale, else
+# `silence`.
+feed_took() { # NAME
+  python3 - "$sandbox/voice-feed-$1.raw" <<'TOOK'
+import array, os, sys
+samples = array.array("h")
+if os.path.exists(sys.argv[1]):
+    data = open(sys.argv[1], "rb").read()
+    samples.frombytes(data[:len(data) // 2 * 2])
+print("none" if not samples else "sound" if max(abs(v) for v in samples) > 2048 else "silence")
+TOOK
+}
+feed_stop() {
+  kill -TERM -- "-$feed_recorder" 2>/dev/null || true
+  for _ in $(seq 1 50); do kill -0 "$feed_recorder" 2>/dev/null || break; sleep 0.1; done
+}
+expect "the voice feed reads no recorder before one starts" absent=recorder devices_voice_feed_state
+feed_record quiet
+expect_poll "a recorder on the feed's source makes the feed ready" ready devices_voice_feed_state
+expect_poll "control: a recorder with nothing played into the feed takes silence" silence feed_took quiet
+feed_stop
+expect_poll "the feed reads no recorder once it stopped" absent=recorder devices_voice_feed_state
+feed_record tone
+expect_poll "a second recorder makes the feed ready again" ready devices_voice_feed_state
+if devices_voice_feed "$feed_tone" >"$sandbox/voice-feed-player.log" 2>&1; then ok "the tone plays into the feed's sink to its end"; else fail "the tone did not play into the feed's sink: $sandbox/voice-feed-player.log"; fi
+expect_poll "the tone played into the feed's sink is in what the recorder on its source took" sound feed_took tone
+feed_stop
 # The private PipeWire and WirePlumber hold no sound or camera node after
 # WirePlumber has loaded its profile and monitors.
 for name in pipewire wireplumber; do
