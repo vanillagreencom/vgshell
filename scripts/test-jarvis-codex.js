@@ -731,7 +731,7 @@ world(async () => {
             ["models-failed-directory", "backend/CodexHarness.js", [["        await shut(started);\n        throw error;", "        await started.program.close();\n        throw error;"]], "models"],
             ["offer-effort-word", "backend/HarnessProgram.js", [['entry.efforts.filter(level => level !== "" && isEffort(level))', "entry.efforts"]], "models"],
             ["offer-own-effort", "backend/HarnessProgram.js", [['effort: efforts.includes(entry.effort) ? entry.effort : "", own', 'effort: "", own']], "models"],
-            ["offers-codex", "backend/Accounts.js", [["codex: CodexHarness, copilot: CopilotHarness };", "copilot: CopilotHarness };"]], "models"],
+            ["offers-codex", "backend/Accounts.js", [["codex: CodexHarness, copilot: CopilotHarness, ", "copilot: CopilotHarness, "]], "models"],
             ["offers-rows", "backend/Accounts.js", [["offers: offers.slice(0, MAX_ROWS) };", "offers };"]], "models"],
             ["handoff-audit", "backend/Accounts.js", [["release.start(() => CodexHarness.probe(",
                 "(send => send())(() => CodexHarness.probe("]], "verify"],

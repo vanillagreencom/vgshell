@@ -208,12 +208,12 @@ function selectBrain(settings, accounts) {
     const provider = Providers.select(account.provider);
     if (!Object.hasOwn(DRIVERS, provider.driver)) fail("driver");
     const target = Net.endpoint(provider.base);
-    // A key without a model list, a local server and a Pi choice name their
-    // own model. An Anthropic key and every other sign-in program run the
-    // saved model and effort, each "" for a program's own, and with no model
-    // saved the choice unlistedChoice makes for the provider of the account
-    // resolved here: a hello sent before the account reader's first answer
-    // could not name it. On a hello that made the choice it changes nothing.
+    // A key without a model list and a local server name their own model.
+    // An Anthropic key and every sign-in program run the saved model and
+    // effort, each "" for a program's own, and with no model saved the
+    // choice unlistedChoice makes for the provider of the account resolved
+    // here: a hello sent before the account reader's first answer could not
+    // name it. On a hello that made the choice it changes nothing.
     const chosen = account.model !== "" ? { model: account.model, effort: "" } : unlistedChoice(settings, account.provider);
     return { kind: "ready", brain: { provider, model: chosen.model, effort: chosen.effort,
         account: account.source,

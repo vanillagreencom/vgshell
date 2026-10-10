@@ -695,7 +695,7 @@ world(async () => {
             ["models-offers", H, [["return Harness.offers(Copilot.models(session.created));", "return Copilot.models(session.created);"]], "models"],
             ["models-toolless", H, [['model: "", bridge: null },\n', 'model: "", bridge: { command: "x", args: [], env: {} } },\n']], "models"],
             ["models-shut", H, [["finally { await shut(session); }", "finally { await session.program.close(); }"]], "models"],
-            ["offers-copilot", "backend/Accounts.js", [[", copilot: CopilotHarness };", " };"]], "models"],
+            ["offers-copilot", "backend/Accounts.js", [[", copilot: CopilotHarness, ", ", "]], "models"],
             ["instructions-first", H, [["const texts = turns === 0 ? [instructions, text] : [text];", "const texts = [text];"]], "turn"],
             ["instructions-once", H, [["const texts = turns === 0 ? [instructions, text] : [text];", "const texts = [instructions, text];"]], "turn"],
             ["release", S, [["const decision = Policy.release(item, recipients, grants);",

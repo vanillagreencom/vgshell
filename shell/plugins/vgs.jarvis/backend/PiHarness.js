@@ -77,11 +77,12 @@ function version(env, timeout = VERSION_MS) {
  * server. The bridge's variables travel only in that folder's 0600
  * mcp.json, never in Pi's environment: Pi starts the user's own MCP servers
  * with its environment (seen in a Pi 1.1.0 run), and the token would reach
- * them. model, a "provider/id" reference or "", is set before the first
- * turn. hooks: {event(event), request(id, request, session)},
+ * them. model, a "provider/id" reference or "", and effort, one of Pi's
+ * thinking levels or "", are set before the first turn, each "" for Pi's
+ * own. hooks: {event(event), request(id, request, session)},
  * and ended(error).
  */
-async function open({ directory, env, runtime, model, instructions, bridge }, hooks) {
+async function open({ directory, env, runtime, model, effort, instructions, bridge }, hooks) {
     Private.directory(runtime);
     const cwd = fs.mkdtempSync(path.join(runtime, "pi-"));
     let session = null;
@@ -107,6 +108,7 @@ async function open({ directory, env, runtime, model, instructions, bridge }, ho
         timer = setTimeout(() => p.close(), HANDSHAKE_MS);
         await p.call(id => Pi.noCompaction(id));
         if (model !== "") await p.call(id => Pi.setModel(id, Pi.model(model)));
+        if (effort !== "") await p.call(id => Pi.setThinkingLevel(id, Pi.level(effort)));
         session = { program: p, cwd };
         return session;
     } catch (error) {
@@ -133,17 +135,18 @@ function request(id, value, current) {
 /**
  * The conversation's brain, behind the plan's interface: start, send as a
  * stream of text and done, cancel with an acknowledgement, and close. options
- * carries the engine's {provider, model, recipients} and the harness facts:
+ * carries the engine's {provider, model, effort, recipients} and the harness facts:
  * account (the Pi folder), gen, and {bridge, env, runtime}. A harness turn
  * yields no tool-call event: Pi's tool calls reach the router through the
  * bridge itself.
  */
-function create({ provider, model, recipients, account, gen, harness }) {
+function create({ provider, model, effort, recipients, account, gen, harness }) {
     Policy.assertRecipients(recipients);
     if (provider?.id !== "pi") fail("provider");
     if (!account || account.kind !== "cli" || typeof account.directory !== "string") fail("account");
     if (!harness) fail("unwired");
     if (model !== "") Pi.model(model);
+    if (effort !== "") Pi.level(effort);
     const { bridge, env, runtime } = harness;
     let instructions = null;
     let opening = null;
@@ -175,7 +178,7 @@ function create({ provider, model, recipients, account, gen, harness }) {
             launch = await bridge.open({ gen, recipients });
             // A close during the open found no launch to end.
             if (closed) { launch.close(); fail("closed"); }
-            const opened = await open({ directory: account.directory, env, runtime: runtime(), model, instructions,
+            const opened = await open({ directory: account.directory, env, runtime: runtime(), model, effort, instructions,
                 bridge: launch }, { event, request, ended: error => { ended ??= error; (running ?? active)?.fault(error); } });
             if (closed) { await shut(opened); fail("closed"); }
             session = opened;
@@ -290,7 +293,7 @@ async function bare({ directory, env, runtime, model, deadline, key }, work) {
     let timer;
     try {
         // The handshake keeps its own bound; the deadline covers the work.
-        session = await open({ directory, env, runtime, model, instructions: PROBE_INSTRUCTIONS, bridge: null }, hooks);
+        session = await open({ directory, env, runtime, model, effort: "", instructions: PROBE_INSTRUCTIONS, bridge: null }, hooks);
         const limit = new Promise((resolve, reject) => {
             timer = setTimeout(() => reject(new Error("jarvis: brain=pi-" + key + "-deadline")), deadline);
         });
@@ -317,13 +320,36 @@ async function probe({ directory, env, runtime, model, text }) {
     });
 }
 
-/**
- * The models the user's own Pi offers, from its own list: PiRpc.menu's
- * {provider, id} values, the selected model first. Sends no prompt.
- */
-async function models({ directory, env, runtime }) {
-    return bare({ directory, env, runtime, model: "", deadline: MODELS_MS, key: "models" }, async session =>
-        Pi.menu(await session.program.call(id => Pi.models(id)), await session.program.call(id => Pi.state(id))));
+// One Pi program's own model list: PiRpc.menu's {provider, id} values, the
+// selected model first.
+async function listed(session) {
+    return Pi.menu(await session.program.call(id => Pi.models(id)), await session.program.call(id => Pi.state(id)));
 }
 
-module.exports = { version, create, probe, models };
+/**
+ * The models the user's own Pi lists: a setup that lists one is signed in.
+ * Sends no prompt and sets no model.
+ */
+async function menu({ directory, env, runtime }) {
+    return bare({ directory, env, runtime, model: "", deadline: MODELS_MS, key: "models" }, listed);
+}
+
+/**
+ * The models the user's own Pi offers, Harness.offers' list, from its own
+ * list: each by its "provider/id" reference, with the effort levels Pi
+ * reports while that model is set. Pi names no level as a model's own, so
+ * each effort is "". Sends no prompt.
+ */
+async function models({ directory, env, runtime }) {
+    return bare({ directory, env, runtime, model: "", deadline: MODELS_MS, key: "models" }, async session => {
+        const entries = [];
+        for (const model of await listed(session)) {
+            await session.program.call(id => Pi.setModel(id, model));
+            entries.push({ value: Pi.reference(model), label: Pi.reference(model).slice(0, 60), effort: "", own: false,
+                efforts: Pi.levels(await session.program.call(id => Pi.thinkingLevels(id))) });
+        }
+        return Harness.offers(entries);
+    });
+}
+
+module.exports = { version, create, probe, menu, models };

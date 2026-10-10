@@ -16,6 +16,9 @@
 // test writes to $XDG_STATE_HOME/pi-scenario.json:
 //   { crash: "handshake", hang: "handshake", refuse: command type (answered
 //     success false), models: [model], state: {get_state data},
+//     levels: {"provider/id": [level]} (the thinking levels of the model
+//     set_model named; a model it leaves out answers ["off"], as Pi 1.1.0
+//     answered for a model without reasoning in a run on 2026-10-10),
 //     reply: "text" (any prompt), turns: [[step, ...], ...], leak: true,
 //     version: the line `pi --version` prints, "1.1.0" when left out }
 // A step is {text} (one text_delta), {tool: {name, durationMs?, hold?}} (a
@@ -65,7 +68,7 @@ const auth = read(path.join(process.env.PI_CODING_AGENT_DIR ?? "", "auth.json"))
 const key = scenario.leak && auth !== null ? JSON.parse(auth).stub.key : null;
 if (key !== null) process.stderr.write("pi: using key " + key + "\n");
 const answers = new Map();
-let prompts = 0, uiId = 0, aborted = null, abortSeen = false;
+let prompts = 0, uiId = 0, aborted = null, abortSeen = false, selected = null;
 const recordedModel = recorded.find(row => row.direction === "out" && row.line.command === "get_available_models").line.data.models[0];
 
 function auditLines() {
@@ -162,7 +165,13 @@ function handle(message) {
         if (scenario.hang === "handshake") { keepalive(); return; }
         respond(message);
         return;
-    case "set_model": respond(message, { ...recordedModel, provider: message.provider, id: message.modelId }); return;
+    case "set_model":
+        selected = message.provider + "/" + message.modelId;
+        respond(message, { ...recordedModel, provider: message.provider, id: message.modelId });
+        return;
+    case "get_available_thinking_levels": respond(message, { levels: scenario.levels?.[selected] ?? ["off"] }); return;
+    // Pi 1.1.0 answers a level with no data, known to the model or not.
+    case "set_thinking_level": respond(message); return;
     case "get_available_models": respond(message, { models: models() }); return;
     case "get_state": respond(message, scenario.state ?? recorded.find(row => row.direction === "out" && row.line.command === "get_state").line.data); return;
     case "prompt": {

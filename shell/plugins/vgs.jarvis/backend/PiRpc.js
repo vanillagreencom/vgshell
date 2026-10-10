@@ -22,10 +22,13 @@ const STOPS = Object.freeze(["stop", "length", "toolUse", "error", "aborted"]);
 const DIALOGS = Object.freeze(["select", "confirm", "input", "editor"]);
 // A model menu offers at most this many of one Pi setup's models.
 const MODELS = 16;
-// A reference's bounds keep a choice, its account id, "/" and the
-// reference, within a choices value's 200 characters.
+// A reference's bounds keep a model choice, the reference, within a choices
+// value's 200 characters.
 const PROVIDER_CHARS = 40;
 const ID_CHARS = 120;
+// Pi's thinking levels, which the Jarvis page calls effort
+// (https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc-commands.md, "set_thinking_level").
+const LEVELS = Object.freeze(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 function fail(code) { throw new Error("jarvis: brain=pi-" + code); }
 function plain(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
@@ -45,6 +48,8 @@ function state(id) { return command(id, "get_state"); }
 /** Jarvis never lets Pi summarise its history: the context bound refuses instead. */
 function noCompaction(id) { return command(id, "set_auto_compaction", { enabled: false }); }
 function setModel(id, model) { return command(id, "set_model", { provider: model.provider, modelId: model.id }); }
+function thinkingLevels(id) { return command(id, "get_available_thinking_levels"); }
+function setThinkingLevel(id, value) { return command(id, "set_thinking_level", { level: value }); }
 /** Every dialog an extension opens is answered cancelled: no one is at Pi's side. */
 function cancelDialog(id) { return { type: "extension_ui_response", id, cancelled: true }; }
 
@@ -63,6 +68,29 @@ function fits(value) {
     return printable(value.provider, PROVIDER_CHARS) && printable(value.id, ID_CHARS);
 }
 function reference(value) { return value.provider + "/" + value.id; }
+
+/**
+ * An effort level as a setting carries it: one of LEVELS, returned; anything
+ * else refuses. Pi answers success for a word it does not know and keeps
+ * its level (seen in a Pi 1.1.0 run), so the refusal is here.
+ */
+function level(value) {
+    if (!LEVELS.includes(value)) fail("effort");
+    return value;
+}
+
+/**
+ * The effort levels of a get_available_thinking_levels result, the selected
+ * model's. Pi answers ["off"] for a model without reasoning support
+ * (rpc-commands.md), which takes no effort. A level LEVELS does not name,
+ * as a later Pi may list, is left out, not refused: level() would refuse it
+ * as a choice.
+ */
+function levels(result) {
+    if (!plain(result) || !Array.isArray(result.levels)) fail("level-list");
+    const known = result.levels.filter(value => LEVELS.includes(value));
+    return known.length === 1 && known[0] === "off" ? [] : known;
+}
 
 function modelOf(value) {
     if (!plain(value) || !string(value.provider) || value.provider.includes("/") || !string(value.id)) fail("model-list");
@@ -143,5 +171,5 @@ function accept(line) {
     }
 }
 
-module.exports = { LINE_BYTES, SERVER, TOOL_PREFIX, prompt, abort, models, state, noCompaction, setModel, cancelDialog,
-    model, reference, menu, started, accept };
+module.exports = { LINE_BYTES, SERVER, TOOL_PREFIX, prompt, abort, models, state, noCompaction, setModel, thinkingLevels,
+    setThinkingLevel, cancelDialog, model, reference, level, levels, menu, started, accept };

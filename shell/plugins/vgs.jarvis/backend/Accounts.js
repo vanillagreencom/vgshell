@@ -18,10 +18,9 @@ const CodexHarness = require("./CodexHarness.js");
 const CopilotHarness = require("./CopilotHarness.js");
 const Harness = require("./HarnessProgram.js");
 const PiHarness = require("./PiHarness.js");
-const PiRpc = require("./PiRpc.js");
 const MAX_ROWS = 32; // The core's presenceList and choices ceiling.
 // The sign-in programs whose own model list the Jarvis page offers.
-const MODEL_LISTS = { claude: ClaudeCode, codex: CodexHarness, copilot: CopilotHarness };
+const MODEL_LISTS = { claude: ClaudeCode, codex: CodexHarness, copilot: CopilotHarness, pi: PiHarness };
 const MAX_BYTES = 64 * 1024;
 const PROBE_TEXT = "Reply OK.";
 // Every Verify route's bound on a stalled provider or program, not a latency budget.
@@ -85,10 +84,6 @@ function accepted(resolved, state) {
     return { kind: "accepted", account: resolved };
 }
 // Only a label that is itself an email names an identity to compare.
-// A Pi choice's model reference, or "" for none it can name.
-function piModel(reference) {
-    try { return PiRpc.reference(PiRpc.model(reference)); } catch { return ""; }
-}
 function identityOf(label, email) {
     return { kind: email && label.includes("@") && email !== label ? "mismatch" : "match" };
 }
@@ -415,18 +410,18 @@ class Accounts {
     }
 
     /**
-     * The models each found Pi setup offers, read by the user's own Pi from
-     * its own list, all at once, each bounded, with no prompt sent: a setup
-     * that lists one is signed in, one that lists none is found, and a failed
-     * read leaves it unavailable with its keyed cause.
+     * Whether each found Pi setup lists a model, read by the user's own Pi
+     * from its own list, all at once, each bounded, with no prompt sent: a
+     * setup that lists one is signed in, one that lists none is found, and a
+     * failed read leaves it unavailable with its keyed cause.
      */
     async readModels() {
         await Promise.all(this.accounts.filter(item => item.provider === "pi" && item.source.kind === "cli")
             .map(async item => {
                 if (this.runtime === "") { item.state = { kind: "unavailable", reason: "runtime-directory" }; return; }
                 try {
-                    item.models = await PiHarness.models({ directory: item.source.directory, env: this.env, runtime: this.runtime });
-                    item.state = { kind: item.models.length === 0 ? "found" : "signed-in" };
+                    const menu = await PiHarness.menu({ directory: item.source.directory, env: this.env, runtime: this.runtime });
+                    item.state = { kind: menu.length === 0 ? "found" : "signed-in" };
                 } catch (error) {
                     // One setup's failed read leaves the other accounts listed.
                     const key = /^jarvis: brain=(pi-[a-z0-9-]+)(?: |$)/.exec(error?.message ?? "");
@@ -442,12 +437,12 @@ class Accounts {
      * its own program from its own list, bounded, with no prompt sent:
      * { kind: "read", offers }, Harness.offers' list, MAX_ROWS at most. A
      * stored key whose row lists its models offers that list, with no
-     * command run and nothing sent. Another key, a local server and a Pi
-     * choice, which names its model itself, have no such list, and a
-     * signed-out or unavailable account is not asked: { kind: "none" }. A
-     * failed read is { kind: "failed", reason }, its program's keyed cause.
-     * The Jarvis page asks while it is open; no other reader does. It needs
-     * no discovery: of the vendor status commands only this sign-in's runs.
+     * command run and nothing sent. Another key and a local server have no
+     * such list, and a signed-out or unavailable account is not asked:
+     * { kind: "none" }. A failed read is { kind: "failed", reason }, its
+     * program's keyed cause. The Jarvis page asks while it is open; no other
+     * reader does. It needs no discovery: of the vendor status commands only
+     * this sign-in's runs.
      */
     async readOffers(id) {
         const resolved = this.resolve(id);
@@ -578,12 +573,9 @@ class Accounts {
                     model: row.probe === undefined || (source.kind === "keyring" && row.models !== undefined) ? "" : row.probe.model };
             }
             for (const candidate of candidates) {
-                const account = identity("cli", [candidate.provider, candidate.directory]);
-                // A Pi choice is its account's id and the model it names.
-                const model = candidate.provider === "pi" && id.startsWith(account + "/") ? piModel(id.slice(account.length + 1)) : "";
-                if (id !== account && model === "") continue;
-                return { id: account, provider: candidate.provider, label: candidate.label.slice(0, 60),
-                    source: { kind: "cli", directory: candidate.directory }, model };
+                if (identity("cli", [candidate.provider, candidate.directory]) !== id) continue;
+                return { id, provider: candidate.provider, label: candidate.label.slice(0, 60),
+                    source: { kind: "cli", directory: candidate.directory }, model: "" };
             }
             return null;
         };
@@ -855,16 +847,13 @@ class Accounts {
         const order = (left, right) => left < right ? -1 : left > right ? 1 : 0;
         // Every label starts with its provider's name, so label order groups
         // the choices by provider and orders a harness's by email.
-        const brains = offered.flatMap(item => {
+        const brains = offered.map(item => {
             const row = provider(item.provider);
             let label = row.label + " / " + item.label;
             const one = offered.filter(other => other.provider === item.provider).length === 1;
-            // Pi offers each model of its own list; it runs none it does not list.
-            if (item.provider === "pi") return (item.models ?? []).map(model => ({ value: item.id + "/" + PiRpc.reference(model),
-                label: ((one ? row.label : row.label + " / " + item.label) + " / " + PiRpc.reference(model)).slice(0, 60) }));
             if (item.source.kind === "cli")
                 label = one ? row.label : item.email ? row.label + " / " + item.email : row.label + " / " + item.label;
-            return [{ value: item.id, label: label.slice(0, 60) }];
+            return { value: item.id, label: label.slice(0, 60) };
         }).sort((left, right) => order(left.label, right.label) || order(left.value, right.value)).slice(0, MAX_ROWS);
         const voiceAccounts = offered.filter(item => item.provider === "openai")
             .map(item => ({ value: item.id, label: ("OpenAI / " + item.label).slice(0, 60) }))

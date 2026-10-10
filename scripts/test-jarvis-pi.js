@@ -99,7 +99,7 @@ world(async () => {
             brain: { kind: "network", provider: "pi", account: "fixture", origin: "https://pi.dev" },
             speech: [{ kind: "local", provider: "fixture-speech", account: "" }] });
         const create = (value = bridge) => Harness.create({ provider: Providers.select("pi"), model: options.model ?? "",
-            recipients, account: { kind: "cli", directory: account }, gen: runner.state.gen,
+            effort: options.effort ?? "", recipients, account: { kind: "cli", directory: account }, gen: runner.state.gen,
             harness: { bridge: value, env, runtime: () => runtime } });
         const brain = create();
         brain.start({ instructions: "Be brief.", tools: [] });
@@ -242,15 +242,20 @@ world(async () => {
             assert.deepEqual(recordedRows.find(row => row.direction === "user-server").line, { tokenSeen: false, bridgeTokenSeen: true });
             assert.deepEqual(recordedRows.find(row => row.direction === "user-extension").line, { loaded: false });
         },
-        // A model chosen in the menu is set before the first prompt.
+        // The model and the effort chosen on the page are set before the
+        // first prompt, the effort as Pi's thinking level.
         async model(folder) {
             scenario({ turns: [[{ stop: "stop" }]] });
-            const w = make(folder, { model: "openrouter/openai/gpt-5" });
+            const w = make(folder, { model: "openrouter/openai/gpt-5", effort: "high" });
             await drain(w.say("hi"));
             assert.deepEqual(received("set_model").map(m => [m.provider, m.modelId]), [["openrouter", "openai/gpt-5"]]);
-            const types = read("pi-log").filter(row => row.direction === "in").map(row => row.message.type);
-            assert.ok(types.indexOf("set_model") < types.indexOf("prompt"));
+            assert.deepEqual(received("set_thinking_level").map(m => m.level), ["high"]);
+            assert.deepEqual(read("pi-log").filter(row => row.direction === "in").map(row => row.message.type),
+                ["set_auto_compaction", "set_model", "set_thinking_level", "prompt"]);
             assert.throws(() => make(folder, { model: "no-slash" }), { message: "jarvis: brain=pi-model" });
+            // A saved effort that is none of Pi's levels starts no program.
+            for (const effort of ["ultra", "High", "--thinking"])
+                assert.throws(() => make(folder, { effort }), { message: "jarvis: brain=pi-effort" }, effort);
             validWrites();
         },
         // Only released content reaches the program; a file needs a grant.
@@ -392,15 +397,15 @@ world(async () => {
             const w = make(engineFolder);
             const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
                 accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "pi", label: "default",
-                    source: { kind: "cli", directory: account }, model: "stub/stub-1" } }) }),
+                    source: { kind: "cli", directory: account }, model: "" } }) }),
                 policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail("fault " + reason),
                 captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: { now: () => 0, set: () => ({}), clear() {} },
                 harness: { bridge: w.bridge, gate: null, env, runtime: () => w.runtime } });
             owners.unshift(() => engine.close());
             let plan;
-            assert.doesNotThrow(() => { // A Pi choice names its own model: a model and effort saved for
-            // another sign-in do not replace it.
-            plan = engine.configure({ brain: "pi-fixture", model: "claude-fable-5-1", effort: "high" }); }, "the engine has the Pi driver");
+            // The engine hands Pi the saved model and effort, as it does any sign-in program.
+            assert.doesNotThrow(() => { plan = engine.configure({ brain: "pi-fixture", model: "stub/stub-1", effort: "high" }); },
+                "the engine has the Pi driver");
             assert.deepEqual(plan, { kind: "ready" });
             const { gen, turn: { op } } = w.runner.state;
             // A turn's verdict, or the error the engine threw starting it.
@@ -410,7 +415,8 @@ world(async () => {
             });
             for (let turn = 0; turn < 40; turn++) assert.deepEqual(await send("turn " + turn), ["brain-done", undefined]);
             assert.deepEqual(await send("one more"), ["brain-ended", { reason: "brain=context-limit" }]);
-            assert.deepEqual(received("set_model").map(m => [m.provider, m.modelId]), [["stub", "stub-1"]], "the choice's own model");
+            assert.deepEqual(received("set_model").map(m => [m.provider, m.modelId]), [["stub", "stub-1"]], "the saved model");
+            assert.deepEqual(received("set_thinking_level").map(m => m.level), ["high"], "the saved effort");
             assert.equal(received("prompt").length, 40);
         },
         // Verify: no tools, no MCP, one prompt after the release record.
@@ -434,8 +440,10 @@ world(async () => {
             await noProgramOrDir(runtime, "hung probe");
             validWrites();
         },
-        // The menu's models: the selected first, each narrowed to its names,
-        // one a choice cannot carry left out, at most sixteen; no prompt.
+        // Pi's own list: the selected model first, each narrowed to its names,
+        // one a choice cannot carry left out, at most sixteen. The page's
+        // offers name each by its reference, with the levels Pi reports
+        // while that model is set. No prompt.
         async models(folder) {
             const Harness = require(path.join(folder, "backend/PiHarness.js"));
             const runtime = path.join(process.env.JARVIS_TEST_ROOT, "models");
@@ -443,39 +451,48 @@ world(async () => {
                 { provider: "b", id: "two" }, { provider: "c", id: "x".repeat(121) },
                 ...Array.from({ length: 20 }, (_, i) => ({ provider: "d", id: "m" + i }))];
             scenario({ models: listed, state: { model: { provider: "b", id: "two" } } });
-            const menu = await Harness.models({ directory: account, env, runtime });
+            const menu = await Harness.menu({ directory: account, env, runtime });
             assert.deepEqual(menu.slice(0, 3), [{ provider: "b", id: "two" }, { provider: "a", id: "one" }, { provider: "d", id: "m0" }]);
             assert.equal(menu.length, 16);
-            assert.deepEqual(received("prompt"), []);
+            assert.deepEqual(received("prompt").concat(received("set_model")), [], "a setup's list sets no model");
             assert.deepEqual(program().args.slice(LOCKDOWN.length, -2), ["--no-approve", "--no-tools", "--no-mcp"]);
+            // "ultra" stands for a level a later Pi lists; a model whose one level is off takes no effort.
+            scenario({ models: listed, state: { model: { provider: "b", id: "two" } }, levels: { "b/two": ["off", "low", "ultra", "high"] } });
+            const offers = await Harness.models({ directory: account, env, runtime });
+            assert.deepEqual(offers.slice(0, 2), [{ value: "b/two", label: "b/two", efforts: ["off", "low", "high"], effort: "" },
+                { value: "a/one", label: "a/one", efforts: [], effort: "" }]);
+            assert.deepEqual(received("set_model").map(m => m.provider + "/" + m.modelId), offers.map(offer => offer.value), "each model is set for its levels");
+            assert.deepEqual(received("prompt"), []);
+            scenario({ levels: { "stub/stub-1": "high" } });
+            await assert.rejects(Harness.models({ directory: account, env, runtime }), { message: "jarvis: brain=pi-level-list" });
             const short = require(path.join(shortBounds(folder), "backend/PiHarness.js"));
             scenario({ hang: "handshake" });
-            await assert.rejects(bounded(short.models({ directory: account, env, runtime })), { message: /^jarvis: brain=pi-(closed|exited code=null signal=SIGKILL)$/ });
+            await assert.rejects(bounded(short.menu({ directory: account, env, runtime })), { message: /^jarvis: brain=pi-(closed|exited code=null signal=SIGKILL)$/ });
             killLivePrograms();
             validWrites();
         },
         // Discovery finds ~/.pi/agent, the model read signs it in and the
-        // menu offers "Pi / provider/id", which resolves to its model.
-        // Verify writes the release record before the one prompt.
+        // menu offers it as "Pi", whose models and their effort levels the
+        // page reads from Pi. Verify writes the release record before the
+        // one prompt.
         async accounts(folder) {
             const runtime = path.join(process.env.JARVIS_TEST_ROOT, "accounts-runtime");
             const { judge, directory } = accounts(folder, runtime);
             fs.rmSync(path.join(directory, "audit"), { recursive: true, force: true });
-            scenario({ reply: "OK" });
+            scenario({ reply: "OK", levels: { "stub/stub-1": ["off", "low", "high"] } });
             const found = judge.discover();
             const pi = found.find(item => item.provider === "pi");
             assert.ok(pi, "discovery finds the Pi folder");
             assert.deepEqual([pi.source, pi.state, pi.marker], [{ kind: "cli", directory: account }, { kind: "unchecked" }, "present"]);
             assert.deepEqual(read("pi-calls"), [], "discovery starts no Pi program");
-            assert.deepEqual(judge.status().brains.filter(choice => choice.value.startsWith(pi.id)), [], "no model is offered before the read");
             await judge.readModels();
             assert.deepEqual(pi.state, { kind: "signed-in" });
-            const choices = judge.status().brains.filter(choice => choice.value.startsWith(pi.id));
-            assert.deepEqual(choices, [{ value: pi.id + "/stub/stub-1", label: "Pi / stub/stub-1" }]);
-            assert.deepEqual(judge.resolve(choices[0].value), { id: pi.id, provider: "pi", label: "default",
-                source: { kind: "cli", directory: account }, model: "stub/stub-1" });
-            assert.equal(judge.resolve(pi.id + "/no-slash"), null, "a reference Pi cannot name resolves to nothing");
-            assert.deepEqual(judge.choose(choices[0].value).kind, "accepted");
+            assert.deepEqual(judge.status().brains.filter(choice => choice.value.startsWith(pi.id)), [{ value: pi.id, label: "Pi" }]);
+            assert.deepEqual(judge.resolve(pi.id), { id: pi.id, provider: "pi", label: "default",
+                source: { kind: "cli", directory: account }, model: "" });
+            assert.deepEqual(await judge.readOffers(pi.id), { kind: "read",
+                offers: [{ value: "stub/stub-1", label: "stub/stub-1", efforts: ["off", "low", "high"], effort: "" }] });
+            assert.deepEqual(judge.choose(pi.id).kind, "accepted");
             assert.deepEqual(await judge.verify(pi.id, "user"), { kind: "verified" });
             assert.deepEqual(read("pi-log").filter(row => row.direction === "audit").map(row => row.message.lines), [1],
                 "the release record precedes the program's prompt");
@@ -531,11 +548,11 @@ world(async () => {
             const status = judge.status();
             assert.equal(status.accounts.find(row => row.provider === "pi").update, true, "the account reads that Pi needs an update");
             assert.deepEqual(status.brains.filter(choice => choice.value.startsWith(pi.id)), []);
-            assert.deepEqual(judge.choose(pi.id + "/stub/stub-1"), { kind: "refused", cause: "pi-update" });
+            assert.deepEqual(judge.choose(pi.id), { kind: "refused", cause: "pi-update" });
             assert.deepEqual(read("pi-calls").map(call => call.args), [["--version"], ["--version"], ["--version"]], "no Pi RPC program starts");
             // A version the choice cannot read leaves the turn to report its own failure.
             scenario({ version: "pi 1.1.0" });
-            assert.equal(judge.choose(pi.id + "/stub/stub-1").kind, "accepted");
+            assert.equal(judge.choose(pi.id).kind, "accepted");
         },
         // No credential crosses from Pi into Jarvis: the key planted in Pi's
         // own setup and the daemon's environment, which the stand-in puts in
@@ -555,7 +572,7 @@ world(async () => {
             const Harness = require(path.join(folder, "backend/PiHarness.js"));
             await Harness.probe({ directory: account, env, runtime, model: "a/b", text: "x" }).catch(error => seen.push(error.message));
             scenario({ leak: true, reply: "OK" });
-            seen.push(await Harness.models({ directory: account, env, runtime }));
+            seen.push(await Harness.menu({ directory: account, env, runtime }), await Harness.models({ directory: account, env, runtime }));
             const { judge, directory } = accounts(folder, runtime);
             judge.discover();
             await judge.readModels();
@@ -566,7 +583,7 @@ world(async () => {
                     .filter(row => row.variable).map(row => [row.variable, false])))],
             { env: { ...env, XDG_RUNTIME_DIR: path.dirname(path.dirname(runtime)) }, encoding: "utf8", timeout: 20000 });
             assert.equal(helper.status, 0, helper.stderr);
-            assert.ok(JSON.parse(helper.stdout).brains.some(choice => choice.label === "Pi / stub/stub-1"), "the helper read the leaking Pi");
+            assert.ok(JSON.parse(helper.stdout).accounts.some(row => row.provider === "pi" && row.state === "signed-in"), "the helper read the leaking Pi");
             seen.push(helper.stdout, helper.stderr);
             const text = JSON.stringify(seen);
             assert.equal(text.includes(PLANTED), false, "Jarvis never receives the key");
@@ -604,6 +621,9 @@ world(async () => {
             ["no-compaction", H, [["await p.call(id => Pi.noCompaction(id));", ""]], "turn"],
             ["set-model", H, [['if (model !== "") await p.call(id => Pi.setModel(id, Pi.model(model)));', ""]], "model"],
             ["model-shape", H, [['if (model !== "") Pi.model(model);', ""]], "model"],
+            ["set-effort", H, [['if (effort !== "") await p.call(id => Pi.setThinkingLevel(id, Pi.level(effort)));', ""]], "model"],
+            ["effort-judged", H, [['if (effort !== "") Pi.level(effort);', ""]], "model"],
+            ["effort-closed", R, [['if (!LEVELS.includes(value)) fail("effort");', ""]], "model"],
             ["release-empty", H, [['if (labels.length === 0) fail("release-empty");', ""]], "release"],
             ["bridge-launch", H, [["instructions,\n                bridge: launch }", "instructions,\n                bridge: null }"]], "bridge"],
             ["tripwire", H, [['if (e.kind === "tool" && !e.bridge && session !== null) {', "if (false) {"]], "builtin"],
@@ -628,15 +648,19 @@ world(async () => {
             ["menu-selected", R, [["const ordered = selected === null ? all", "const ordered = true ? all"]], "models"],
             ["menu-bound", R, [["\n        .slice(0, MODELS));", ");"]], "models"],
             ["menu-fits", R, [["ordered.filter((m, i) => fits(m) && ", "ordered.filter((m, i) => "]], "models"],
+            ["levels-model", H, [["            await session.program.call(id => Pi.setModel(id, model));\n", ""]], "models"],
+            ["levels-read", H, [["efforts: Pi.levels(await session.program.call(id => Pi.thinkingLevels(id))) });", "efforts: [] });"]], "models"],
+            ["levels-off", R, [['return known.length === 1 && known[0] === "off" ? [] : known;', "return known;"]], "models"],
+            ["levels-known", R, [["const known = result.levels.filter(value => LEVELS.includes(value));", "const known = result.levels;"]], "models"],
+            ["levels-shape", R, [['if (!plain(result) || !Array.isArray(result.levels)) fail("level-list");', ""]], "models"],
+            ["models-offers", H, [["return Harness.offers(entries);", "return entries;"]], "models"],
             ["menu-narrow", R, [["return Object.freeze({ provider: value.provider, id: value.id });", "return Object.freeze({ ...value });"]], "credential"],
             ["stderr-dropped", "backend/HarnessProgram.js", [["child.stderr.resume();", "child.stderr.on(\"data\", chunk => process.stderr.write(chunk));"]], "credential"],
             ["environment-scrub", "backend/HarnessProgram.js", [["env: { ...childEnvironment(env), ...extra }", "env: { ...env, ...extra }"]], "credential"],
-            ["models-state", A, [['item.state = { kind: item.models.length === 0 ? "found" : "signed-in" };', ""]], "accounts"],
+            ["models-state", A, [['item.state = { kind: menu.length === 0 ? "found" : "signed-in" };', ""]], "accounts"],
+            ["model-list", A, [[", copilot: CopilotHarness, pi: PiHarness };", ", copilot: CopilotHarness };"]], "accounts"],
             ["models-read", "backend/accounts.js", [["await Promise.all([judge.readEmails(), judge.readModels()]);\n        value = judge.status();",
                 "await judge.readEmails();\n        value = judge.status();"]], "credential"],
-            ["choice-model", A, [['const model = candidate.provider === "pi" && id.startsWith(account + "/") ? piModel(id.slice(account.length + 1)) : "";',
-                'const model = "";']], "accounts"],
-            ["choice-label", A, [['" / " + PiRpc.reference(model)).slice(0, 60)', '" / " + model.id).slice(0, 60)']], "accounts"],
             ["handoff-route", A, [['case "pi":', 'case "pi-removed":']], "accounts"],
             ["handoff-audit", A, [["release.start(() => PiHarness.probe(", "(send => send())(() => PiHarness.probe("]], "accounts"],
             ["command-missing", A, [['? "command-missing" : key[1]', '? key[1] : key[1]']], "absent"],
@@ -649,7 +673,7 @@ world(async () => {
             ["choice-floor", A, [["try { PiHarness.version(this.env, CHOOSE_STATUS_MS); } catch (error) {", "try { } catch (error) {"]], "floor"],
             ["choice-update", A, [["if (/^jarvis: brain=pi-update /.test(error.message)) return", "if (true) return"]], "floor"],
             ["account-update", A, [['update: item.state.kind === "unavailable" && item.state.reason === "pi-update" }', "update: false }"]], "floor"],
-            ["engine-own-model", "backend/ChainedEngine.js", [["account.model !== \"\" ? { model: account.model,", "false ? { model: account.model,"]], "limit"]
+            ["engine-effort", "backend/ChainedEngine.js", [['effort: chosen.effort,', 'effort: "",']], "limit"]
         ]) {
             await variant(relative, edits, folder => CASES[row](folder));
             controls++;
