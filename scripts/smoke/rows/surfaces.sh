@@ -178,9 +178,9 @@ text = text.replace(marker, marker + "import QtQuick.Window\nimport QtQml.Models
 old = "    readonly property AnchorTracker tracker: AnchorTracker {\n"
 assert text.count(old) == 1, "the SummonPopup tracker must occur once"
 text = text.replace(old, inline + "    readonly property var tracker: AnchorTrackerNoCommit {\n")
-marker = "    function finishDismiss() {\n        visible = false;\n    }\n"
+marker = "    function finishDismiss() {\n"
 assert text.count(marker) == 1, "the SummonPopup finishDismiss function must occur once"
-target.write_text(text.replace(marker, marker + "\n    function disableCommit() { tracker.skipCommit = true; }\n", 1))
+target.write_text(text.replace(marker, "    function disableCommit() { tracker.skipCommit = true; }\n\n" + marker, 1))
 PYEDIT
 python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_input_copy" <<'PYEDIT'
 import pathlib, sys
@@ -687,18 +687,19 @@ expect "the widget toggles its panel open for host-close motion" ok ipc smoke in
 expect_poll "the host-close panel is open before toggle close" 1 ipc smoke readInstance panel acme.surfaces opened
 expect "the widget toggle starts the host-close motion" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces toggleHere '{}'
 expect "toggle close keeps the panel instance during the motion" 1 ipc smoke readInstance panel acme.surfaces opened
-expect "toggle close called the panel's close() once" 1 smoke_close_marks
+expect "toggle close calls no close() before the motion ends" 0 smoke_close_marks
 expect "a widget toggle during close reopens the same panel" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces toggleHere "{\"closeMarker\":\"$sandbox/closed-by-ipc-motion\"}"
 expect_poll "toggle during close calls open() on the same panel" 2 ipc smoke readInstance panel acme.surfaces opened
-expect_poll "toggle close called the panel's close() before the motion" yes marker "$sandbox/closed-by-toggle-motion"
+expect "a reopen during the motion leaves close() uncalled" 0 smoke_close_marks
 expect "IPC hide starts the host-close motion" ok ipc shell hide panel acme.surfaces
-expect_poll "IPC hide called the panel's close() before the motion" yes marker "$sandbox/closed-by-ipc-motion"
 expect "IPC hide keeps the panel instance during the motion" 2 ipc smoke readInstance panel acme.surfaces opened
+expect "IPC hide calls no close() before the motion ends" 0 smoke_close_marks
+expect_poll "IPC hide called the panel's close() when the motion ended" yes marker "$sandbox/closed-by-ipc-motion"
 expect_poll "IPC hide destroys the panel after the close motion" absent ipc smoke readInstance panel acme.surfaces opened
 expect "the widget opens a panel for Escape-close reopen" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces summonHere ''
 expect_poll "the Escape-close panel opens" 1 ipc smoke readInstance panel acme.surfaces opened
 type_keys -k Escape || fail "sending Escape to the slowed panel failed"
-expect "Escape close called close() exactly once" 1 smoke_close_marks
+expect "Escape close calls no close() before the motion ends" 0 smoke_close_marks
 expect "summon during Escape close reopens the panel" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces summonHere ''
 expect_poll "summon during Escape close keeps the panel open" 2 ipc smoke readInstance panel acme.surfaces opened
 type_keys -k Escape || fail "sending Escape to the slowed panel for toggle failed"

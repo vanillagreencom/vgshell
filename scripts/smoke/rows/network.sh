@@ -551,6 +551,66 @@ expect "the dropdown is a popup under the widget, not a centred layer" 0 layer_c
 expect_poll "the dropdown lists both wired devices with their states" "[[\"enp10s0\", \"$(net_wired_text connected)\"], [\"enp11s0\", \"$(net_wired_text no-cable)\"]]" net_wired_rows panel
 click 40 "$((mon_h - 40))" || fail "the press outside the dropdown failed"
 expect_poll "a press outside closes the dropdown" hidden net_shown panel
+# The dropdown keeps its content through its close motion. A SummonPopup
+# copy under the widget closes with the motion slowed, and the scan lease
+# and the Wi-Fi rows are read at the close frame. Control: a copy that
+# closes the plugin before the motion.
+net_motion_theme="$home/.config/vgshell/theme.json"
+net_motion_had_theme=false
+if [[ -f $net_motion_theme ]]; then
+  cp -- "$net_motion_theme" "$sandbox/network-motion-theme.json"
+  net_motion_had_theme=true
+fi
+printf '%s\n' '{"schemaVersion":1,"name":"network-motion","tokens":{"motion":{"scale":4}}}' >"$net_motion_theme.tmp"
+mv -T -- "$net_motion_theme.tmp" "$net_motion_theme"
+expect_poll "the flyout motion is slowed for the close-frame check" 400 ipc smoke themeValue motion.flyout.travel.duration
+net_close_first="$repo/shell/Hosts/SummonPopupCloseFirst.qml"
+python3 - "$repo/shell/Hosts/SummonPopup.qml" "$net_close_first" <<'PYCLOSE'
+import pathlib,sys
+source,first=map(pathlib.Path,sys.argv[1:])
+s=source.read_text()
+old="        closing = true;\n"
+assert s.count(old)==1, "the SummonPopup close start must occur once"
+first.write_text(s.replace(old,old+"        slot.closeInstance();\n"))
+PYCLOSE
+net_close_state() {
+  local scan rows
+  scan="$(ipc smoke networkScan)" || return 1
+  rows="$(net_rows panel)" || return 1
+  printf '%s rows=%s\n' "$scan" "$rows"
+}
+# net_close_frame LABEL NAME FILE: opens the dropdown in the SummonPopup
+# copy FILE under the widget, starts its close and sets net_close to `kept`
+# when the close frame reads as the open card did, `changed` with both
+# readings when it does not, or `late` when the motion ended first.
+net_close_frame() {
+  local before during progress
+  expect "$1: the probe builds the popup copy" ok ipc smoke popupLoad "$2" "$3" "$(bar_key)" vgs.network '{"pluginId":"vgs.network","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
+  expect "$1: the copy's dropdown opens" '' ipc smoke invokeInstance panel vgs.network open '{}'
+  expect_poll "$1: the copy's dropdown comes to rest" 1 ipc smoke popupRead "$2" motionProgress
+  before="$(net_close_state)" || before=unread
+  ipc smoke popupCall "$2" requestDismiss >/dev/null
+  during="$(net_close_state)" || during=unread
+  progress="$(ipc smoke popupRead "$2" motionProgress)" || progress=unread
+  if ! python3 -c 'import sys; sys.exit(0 if 0 < float(sys.argv[1]) < 1 else 1)' "$progress" 2>/dev/null; then net_close="late progress=$progress"
+  elif [[ $before == unread || $during != "$before" ]]; then net_close="changed before=$before during=$during"
+  else net_close=kept; fi
+  expect_poll "$1: the copy releases its popup after closing" false ipc smoke popupRead "$2" visible
+  expect "$1: the probe drops the copy" ok ipc smoke popupDrop "$2"
+  expect_poll "$1: the copy's dropdown leaves the build records" absent ipc smoke readInstance panel vgs.network payload
+}
+net_close_frame "Close frame" network-close "$repo/shell/Hosts/SummonPopup.qml"
+expect "the dropdown keeps its scan and rows at the close frame" kept printf '%s\n' "$net_close"
+net_close_frame "Close-first control" network-close-first "$net_close_first"
+expect "control: closing the plugin before the motion changes the close frame" changed printf '%s\n' "${net_close%% *}"
+rm -f -- "${net_close_first:?}"
+if [[ $net_motion_had_theme == true ]]; then
+  cp -- "$sandbox/network-motion-theme.json" "$net_motion_theme.tmp"
+  mv -T -- "$net_motion_theme.tmp" "$net_motion_theme"
+else
+  rm -f -- "${net_motion_theme:?}"
+fi
+expect_poll "the flyout motion returns after the close-frame check" 100 ipc smoke themeValue motion.flyout.travel.duration
 device_reply nmcli 0 $'GENERAL.DEVICE:enp10s0\nIP4.ADDRESS[1]:192.0.2.10/24' -t device show enp10s0
 net_details_layout "Details"
 expect "Details expands with a stable layout" steady printf '%s\n' "$net_layout"

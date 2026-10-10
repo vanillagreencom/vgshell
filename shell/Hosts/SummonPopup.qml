@@ -84,14 +84,17 @@ PopupWindow {
         flyoutMotion.start();
     }
 
+    // The plugin hears close() when the card has left, not as it starts
+    // to: a plugin that clears its content on close() would empty the card
+    // during the motion.
     function requestDismiss() {
         if (closing) return;
         closing = true;
-        slot.closeInstance();
         setMotion(0, true);
     }
 
     function finishDismiss() {
+        slot.closeInstance();
         visible = false;
     }
 
