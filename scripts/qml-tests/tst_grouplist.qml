@@ -13,11 +13,14 @@ import "../../shell/plugins/vgs.settings"
 // a line's own lines, its value and its hint sit `field.gap` apart, less
 // than the gap between groups. A state too long for the value column
 // elides inside its chip, and its sentence wraps under it, both inside
-// the line.
+// the line. A line that is a secret's presence draws Change key and
+// Disconnect after its chip, or Add key on the value column while nothing
+// is stored, and either opens the masked field, whose Save hands on what
+// was typed.
 Item {
     id: root
     width: 480
-    height: 1420
+    height: 1560
 
     GroupList {
         id: list
@@ -50,6 +53,10 @@ Item {
     StatusLine { id: longHint; x: 0; y: 1000; width: 400; label: "Accounts"; hint: "Signed in does not prove that the AI answers. A test request may cost money, so check it yourself." }
     StatusLine { id: longStep; x: 0; y: 820; width: 400; label: "While logged out"; tone: "warning"; text: "Automations run only while you are logged in"; actionLabel: "Enable while logged out"; actionOffered: true }
     StatusLine { id: longState; x: 0; y: 1220; width: 260; label: "Check"; tone: "danger"; text: "The update check failed. Select Refresh to try again."; hint: "The update source could not be reached. Check your connection and select Refresh." }
+
+    StatusLine { id: storedKey; x: 0; y: 1420; width: 400; label: "Acme"; tone: "success"; text: "Present"; access: "disconnect"; secretLabel: "Acme key" }
+    StatusLine { id: absentKey; x: 0; y: 1480; width: 400; label: "Globex"; access: "connect"; secretLabel: "Acme key" }
+    SignalSpy { id: stores; target: storedKey; signalName: "storeSecret" }
 
     TestCase {
         name: "grouplist"
@@ -213,6 +220,51 @@ Item {
             verify(sentenceBox.y >= chipBox.bottom, "the sentence sits under the chip");
             verify(sentenceBox.x + sentence.contentWidth <= longState.width + 0.5, "the sentence ends inside the line");
             verify(sentenceBox.bottom <= longState.height + 0.5, "the line holds every wrapped line of the sentence");
+        }
+
+        // A stored secret's line: its chip, Change key and Disconnect on
+        // one centre, `stack.inline` apart. A secret nothing is stored for
+        // draws no chip, and Add key starts on the value column.
+        function test_a_secret_line_draws_its_steps() {
+            const chip = box(chipOf(storedKey), storedKey);
+            const change = findChild(storedKey, IconButton), disconnect = stepOf(storedKey);
+            verify(change !== null, "a stored secret's line draws Change key");
+            verify(disconnect !== null && disconnect.text === "Disconnect", "a stored secret's line draws Disconnect");
+            const changeBox = box(change, storedKey), actionBox = box(disconnect, storedKey);
+            compare(changeBox.x, chip.right + Theme.stack.inline, "Change key stands right after the chip");
+            compare(actionBox.x, changeBox.right + Theme.stack.inline, "Disconnect stands right after Change key");
+            fuzzyCompare(changeBox.y + (changeBox.bottom - changeBox.y) / 2, chip.y + (chip.bottom - chip.y) / 2, 1);
+            fuzzyCompare(actionBox.y + (actionBox.bottom - actionBox.y) / 2, chip.y + (chip.bottom - chip.y) / 2, 1);
+            compare(chipOf(absentKey), null, "a secret nothing is stored for draws no chip");
+            compare(findChild(absentKey, IconButton), null, "it draws no Change key");
+            const add = stepOf(absentKey);
+            verify(add !== null && add.text === "Add key", "it draws Add key");
+            const field = absentKey.children.find(child => child.valueX !== undefined);
+            compare(box(add, absentKey).x, field.valueX, "Add key starts on the value column");
+        }
+
+        // Change key and Add key open the masked field in the steps'
+        // place; Enter hands on what was typed and closes it, and Escape
+        // closes it with nothing handed on.
+        function test_a_secret_step_opens_the_masked_field() {
+            stores.clear();
+            compare(findChild(storedKey, TextField), null, "a closed line holds no field");
+            findChild(storedKey, IconButton).clicked();
+            tryVerify(() => findChild(storedKey, TextField) !== null, 1000, "Change key opens the field");
+            const field = findChild(storedKey, TextField);
+            verify(field.password, "the field masks what is typed");
+            compare(field.text, "", "the field opens empty");
+            compare(findChild(storedKey, IconButton), null, "the steps hide while the field is open");
+            field.text = "typed-key";
+            field.accepted();
+            compare(stores.count, 1);
+            compare(stores.signalArguments[0][0], "typed-key");
+            tryVerify(() => findChild(storedKey, TextField) === null, 1000, "Save closes the field");
+            stepOf(absentKey).clicked();
+            tryVerify(() => findChild(absentKey, TextField) !== null, 1000, "Add key opens the field");
+            keyClick(Qt.Key_Escape);
+            tryVerify(() => findChild(absentKey, TextField) === null, 1000, "Escape closes the field");
+            compare(stores.count, 1, "a closed field hands on nothing");
         }
 
         function test_a_groups_own_lines_sit_close() {

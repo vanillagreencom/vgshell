@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The public app manifest contains no credential. Only Settings Connect
+# The public app manifest contains no credential. Only Settings' Add key
 # takes the installed app's token, through the core's masked field.
 set -euo pipefail
 # shellcheck source=/dev/null
@@ -17,7 +17,7 @@ printf '%s\n' \
   'Copy the User OAuth Token.' \
   'Sign in to this workspace in the Slack desktop app.' \
   'Return to Notifications in Settings. Turn on Slack photos.' \
-  'Select Connect beside that workspace. Paste the token into the masked field.' \
+  'Under Setup, select Add key beside that workspace. Paste the token into the masked field.' \
   'If your workspace requires approval, ask its administrator to approve the app.'
 while :; do
   slack_action="$(gum choose 'Close' 'Show details')"

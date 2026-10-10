@@ -6,7 +6,8 @@
 // while it carries `action: true` or names one of its entry's actions, so a
 // failing state its writer gives no action shows none. The core decides when
 // a step applies (PluginLogic.statusActionOffered, SECRET_ACCESS,
-// requirementRows); this file decides what the page then draws.
+// requirementRows); this file decides what the page then draws, and where:
+// a stored key in the Setup section, a state on Details.
 
 // What the line of ENTRY, one row of PluginLogic.statusRows, draws of its
 // step: { offered }, whether the action's button shows.
@@ -66,9 +67,17 @@ function statusView(entry, timeText) {
     return out;
 }
 
+// What a line draws of ITEM's presence, one item of a presence list:
+// { tone, text }, its chip, or neither for a secret nothing is stored for,
+// whose line offers Add key in the chip's place.
+function itemView(item) {
+    if (item.access === "connect" && item.value === "absent") return { tone: "", text: "" };
+    return { tone: item.tone, text: PRESENCE_WORDS[item.value] };
+}
+
 // ITEMS, a presence list's, each with the `key` a line keeps across
 // writes, so a status write elsewhere, which hands the page new objects,
-// keeps each line's delegate, an open Connect field and what it holds with
+// keeps each line's delegate, an open masked field and what it holds with
 // it: its secret's account, else its label, with its count among earlier
 // equal names after a second one.
 function itemsKeyed(items) {
@@ -85,9 +94,30 @@ function itemsKeyed(items) {
 // the step.
 var SETUP_GROUP = "Setup";
 
-// The entries of STATUS, a manager row's status rows, in SETUP_GROUP.
+// Whether ENTRY, one of a manager row's status rows, lists keys and tokens
+// the plugin stores: the presence list of a manifest that declares
+// `secrets` (PluginLogic.statusRows' `secrets`), whose keys the core
+// stores, or a presence list its manifest groups under SETUP_GROUP, the
+// keys a plugin stores through a setup screen of its own.
+function listsKeys(entry) {
+    return entry.secrets || (entry.type === "presenceList" && entry.group === SETUP_GROUP);
+}
+
+// The entries of STATUS, a manager row's status rows, that list the
+// plugin's stored keys and tokens: a page draws each in its Setup section,
+// where a key is added, changed and removed (keyEntries), and every other
+// entry read-only on Details (detailEntries).
+function keyEntries(status) {
+    return status.filter(listsKeys);
+}
+function detailEntries(status) {
+    return status.filter(function (entry) { return !listsKeys(entry); });
+}
+
+// The entries of STATUS, a manager row's status rows, in SETUP_GROUP, but
+// for the stored keys, which the section draws after them (keyEntries).
 function setupEntries(status) {
-    return status.filter(function (entry) { return entry.group === SETUP_GROUP; });
+    return status.filter(function (entry) { return entry.group === SETUP_GROUP && !listsKeys(entry); });
 }
 
 // The Setup section's rows for TUIS, a manager row's listed TUIs, and

@@ -367,7 +367,7 @@ function suite(ctx, check) {
     const values = ctx.statusWrite(m, ctx.statusWrite(m, ctx.statusWrite(m, {}, "token", "locked").values, "check", { tone: "ok", text: "Up to date" }).values, "pending", 0).values;
     const rows = ctx.statusRows(m, values, []);
     check("statusRows: one row per displayable entry, in manifest order", rows.map(r => r.key), ["token", "tokens", "check", "note", "pending", "lastCheck", "health"]);
-    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", link: null, action: { label: "Set up token", offered: false, tui: "" }, report: "reported", value: "locked", tone: "info" });
+    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", hint: "Needed", info: "Explains this status", link: null, secrets: false, action: { label: "Set up token", offered: false, tui: "" }, report: "reported", value: "locked", tone: "info" });
     check("statusRows: a declaration carries info", rows[0].info, "Explains this status");
     check("statusRows: a declaration carries its hint's link", rows[6].link, { text: "vendor page", url: "https://vendor.example/health" });
     check("statusRows: a reported state carries its tone", [rows[2].report, rows[2].value, rows[2].tone], ["reported", { tone: "ok", text: "Up to date" }, "success"]);
@@ -382,7 +382,7 @@ function suite(ctx, check) {
     const withheldHint = ctx.statusRows(guidedTui, guidance, ["acme-sync"]).find(r => r.key === "check").hint;
     check("statusRows: missing TUI requirements name their command", withheldHint.includes("acme-sync"), true);
     check("statusRows: missing TUI requirements override state guidance", withheldHint.includes("Try again."), false);
-    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", hint: "", info: "", link: null, action: null, report: "unreported", value: null, tone: "" });
+    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", hint: "", info: "", link: null, secrets: false, action: null, report: "unreported", value: null, tone: "" });
     check("statusRows: a reported count of 0 is reported, drawn without a tone", [rows[4].report, rows[4].value, rows[4].tone], ["reported", 0, ""]);
     // A state its writer publishes hidden leaves the page until it shows one.
     const hiddenHealth = ctx.statusWrite(m, values, "health", { hidden: true }).values;
@@ -416,6 +416,11 @@ function suite(ctx, check) {
         { label: "Plain", value: "absent", hint: "", tone: "warning", secret: "", access: "" }
     ]]);
     check("statusRows: an empty presence list is reported empty", ctx.statusRows(m, ctx.statusWrite(m, {}, "tokens", []).values, [])[1].value, []);
+    // The entry that lists the stored keys is the presence list of a
+    // manifest that declares `secrets`, whatever it has published.
+    const secretLists = manifest => ctx.statusRows(manifest, {}, []).filter(r => r.secrets).map(r => r.key);
+    check("statusRows: the presence list of a manifest with secrets lists its stored keys", secretLists(m), ["tokens"]);
+    check("statusRows: a presence list of a manifest without secrets lists none", [secretLists(mBare), ctx.statusRows(mBare, {}, []).some(r => r.type === "presenceList")], [[], true]);
     const noStatus = ctx.validateManifest({ schemaVersion: 1, id: "acme.none", name: "N", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" } }, "/p").manifest;
     check("statusRows: a plugin without a status key has none", ctx.statusRows(noStatus, {}, []), []);
 
@@ -599,7 +604,7 @@ function suite(ctx, check) {
         ["a store for an absent account", m, true, items, "tokens", "acme:T1", "store", "xoxp-1", { ok: true, argv: ["secret-tool", "store", "--label=Acme token acme:T1"].concat(attributes("acme:T1")), input: "xoxp-1" }],
         ["a clear for a present account", m, true, items, "tokens", "acme:T2", "clear", null, { ok: true, argv: ["secret-tool", "clear"].concat(attributes("acme:T2")), input: null }],
         ["a secret of 4096 characters", m, true, items, "tokens", "acme:T1", "store", "x".repeat(4096), { ok: true, argv: ["secret-tool", "store", "--label=Acme token acme:T1"].concat(attributes("acme:T1")), input: "x".repeat(4096) }],
-        ["a store for a present account", m, true, items, "tokens", "acme:T2", "store", "xoxp-1", { ok: false, answer: "refused: secret=acme:T2 reason=not-offered" }],
+        ["a store that replaces a present account's key", m, true, items, "tokens", "acme:T2", "store", "xoxp-1", { ok: true, argv: ["secret-tool", "store", "--label=Acme token acme:T2"].concat(attributes("acme:T2")), input: "xoxp-1" }],
         ["a clear for an absent account", m, true, items, "tokens", "acme:T1", "clear", null, { ok: false, answer: "refused: secret=acme:T1 reason=not-offered" }],
         ["a store where the store cannot be asked", m, true, items, "tokens", "acme:T3", "store", "xoxp-1", { ok: false, answer: "refused: secret=acme:T3 reason=not-offered" }],
         ["an account no item lists", m, true, items, "tokens", "acme:T9", "store", "xoxp-1", { ok: false, answer: "refused: secret=acme:T9 reason=unlisted" }],
@@ -729,7 +734,11 @@ const CONTROLS = [
     ["a secret write needs secrets and a presence list", "if (manifest.secrets === undefined || typeof key !== \"string\" || !hasOwn(manifest.status, key) || manifest.status[key].type !== \"presenceList\")", "if (typeof key !== \"string\" || !hasOwn(manifest.status, key))"],
     ["a secret write needs an enabled plugin", "if (!enabled)\n        return refused(\"disabled\");", ""],
     ["a secret write needs a listed account", "if (item === null)\n        return refused(\"unlisted\");", "if (item === null)\n        item = { value: \"absent\" };"],
-    ["a secret write needs its access", "if (SECRET_ACCESS[item.value] !== SECRET_VERBS[verb])", "if (false)"],
+    ["a secret write needs its access", "if (SECRET_VERBS[verb].indexOf(SECRET_ACCESS[item.value]) === -1)", "if (false)"],
+    ["a store replaces a stored key", "store: [\"connect\", \"disconnect\"]", "store: [\"connect\"]"],
+    ["a clear needs a stored key", "clear: [\"disconnect\"]", "clear: [\"connect\", \"disconnect\"]"],
+    ["the stored keys' entry is a presence list", "secrets: entry.type === \"presenceList\" && manifest.secrets !== undefined,", "secrets: manifest.secrets !== undefined,"],
+    ["the stored keys' entry needs declared secrets", "secrets: entry.type === \"presenceList\" && manifest.secrets !== undefined,", "secrets: entry.type === \"presenceList\","],
     ["a secret is judged", "if (!secretValueValid(secret))", "if (false)"],
     ["a secret has a ceiling", "secret.length <= SECRET_VALUE_MAX &&", ""],
     ["a secret goes on stdin, never the argv", ".concat(attributes), input: secret };", ".concat(attributes, [secret]), input: secret };"],

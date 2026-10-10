@@ -44,7 +44,7 @@
       "description": "Draw notifications as frosted glass with a moving edge light.",
       "info": "VGlass in Appearance, Windows can turn glass on or off for every glass surface. This switch then has no effect."
     },
-    "slackPhotos": {"type": "boolean", "label": "Slack photos", "group": "Slack", "description": "Show sender photos from your Slack workspace.", "info": "Set up Slack photos opens Slack app creation with the app details filled. Sign in if asked. Select your workspace. Review the permissions. Create and install the app. Allow access. Copy its User OAuth Token. Sign in to the workspace in the Slack desktop app. Select Connect and paste the token into the masked field. This adds photos, workspace icons and custom emoji."},
+    "slackPhotos": {"type": "boolean", "label": "Slack photos", "group": "Slack", "description": "Show sender photos from your Slack workspace.", "info": "Set up Slack photos opens Slack app creation with the app details filled. Sign in if asked. Select your workspace. Review the permissions. Create and install the app. Allow access. Copy its User OAuth Token. Sign in to the workspace in the Slack desktop app. Under Setup, select Add key and paste the token into the masked field. This adds photos, workspace icons and custom emoji."},
     "duration": {
       "type": "number",
       "label": "Notification duration",
@@ -75,7 +75,6 @@
     "slackTokens": {
       "type": "presenceList",
       "label": "Slack tokens",
-      "group": "Slack",
       "hint": "Connect each workspace to show sender photos.",
       "info": "Select Set up Slack photos to open Slack app creation with the app details filled. Complete the workspace and access steps. Then connect each workspace with its User OAuth Token. VGS stores the token in your keyring. The token adds sender photos, workspace icons and custom emoji."
     }

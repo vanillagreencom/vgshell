@@ -302,6 +302,15 @@ tree_has shell/plugins/vgs.settings/ListPage.qml '"Clear search"' && has_clear_s
 has_tab_pages=false
 tree_has shell/plugins/vgs.settings/PluginPage.qml "TabPages {" && has_tab_pages=true
 page_details() { ! "$has_tab_pages" || settings_details; }
+# A tree whose plugin page draws a plugin's stored keys in the Setup section
+# of its Settings tab offers Add key there; an older tree draws them on
+# Details, in the entry's own section, with Connect. page_keys moves the
+# open page to the tab that draws them.
+has_setup_keys=false
+tree_has shell/plugins/vgs.settings/Steps.js "function keyEntries(" && has_setup_keys=true
+keys_action=Connect
+! "$has_setup_keys" || keys_action="Add key"
+page_keys() { "$has_setup_keys" || page_details; }
 # A tree whose plugin page holds a save bar keeps a typed value until it is
 # saved and asks before a page with one is left.
 has_save_bar=false
@@ -937,11 +946,14 @@ jarvis_notice_close() {
   expect_poll "the scan that finds Jarvis's required commands closes its notice" 0 layer_count vgs:notice
   jarvis_restore_requirements
 }
-# slack_section: the Slack section through Globex's Connect action.
+# slack_section: the section that draws the Slack tokens, through Globex's
+# action that takes one.
 slack_section() {
-  settings_section Slack StatusLine "Globex" RowAction "Connect"
+  local heading=Slack
+  ! "$has_setup_keys" || heading=Setup
+  settings_section "$heading" StatusLine "Globex" RowAction "$keys_action"
 }
-# The setup steps of D061 on the open Settings window: Globex's Connect with
+# The setup steps of D061 on the open Settings window: Globex's Add key with
 # its masked field typed into, the status fixture's Set up token and Install
 # the tool, Automations' Enable while logged out, Agent Warden's Set up, Dev
 # Tools' Install mise, and Themes' Install browser theming once the chromium
@@ -978,7 +990,7 @@ scene_setup_steps() { # MODE
     read -r start end height <<<"$section"
     settings_scroll_to "$((start - 12))" || fail "the scroll to the Slack section failed"
   fi
-  settings_press --type RowAction "Connect" StatusLine "Globex" || fail "the click on Globex's Connect failed"
+  settings_press --type RowAction "$keys_action" StatusLine "Globex" || fail "the click on Globex's $keys_action failed"
   type_keys "xoxp-shot-token" || fail "typing into the masked field failed"
   park_pointer
   take_posed "setup-$1-slack-connect"
@@ -1407,9 +1419,9 @@ EOF
   park_pointer
   expect "the window opens the notifications' page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.notifications
   expect_poll "the notifications' page is shown" '"vgs.notifications"' settings_page
-  page_details
+  page_keys
   expect_poll "the notifications' status rows are reported" True page_reported vgs.notifications
-  # The Slack section in view: its heading at the top, and, when the
+  # The Slack tokens' section in view: its heading at the top, and, when the
   # section is taller than the area, a second shot with its last line at
   # the bottom, so every line and command shows across the two.
   if section="$(slack_section)"; then

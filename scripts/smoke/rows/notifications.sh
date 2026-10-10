@@ -15,7 +15,7 @@
 # not for a shown one: "a shown notification starts one player" failed,
 # reading 0, and "a silenced notification starts no player" failed, reading
 # one player more.
-# inputs: shell/Core/Sounds.qml shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
+# inputs: shell/Core/Sounds.qml shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 note_state="$home/.local/state/vgshell/notifications/state.json"
@@ -2447,7 +2447,8 @@ expect_poll "the last toast's exit has played" 0 layer_count vgs:layer
 
 # The Slack token rows: the service publishes whether the stub libsecret
 # holds each listed workspace's token, never a
-# token, and the Settings page draws a line per account. The probe runs
+# token, and the Settings page draws a line per account in the Setup
+# section of its Settings tab, and none on Details. The probe runs
 # when the service starts, so each set of states is read after a disable
 # and an enable. No state here makes the photo helper call Slack.
 token_hint="Connect each workspace to show sender photos."
@@ -2463,15 +2464,15 @@ what, items, hint = sys.argv[1], sys.argv[2], sys.argv[3]
 labels = {"slack:T0ACME": "Acme Corp (acme)", "slack:T0GLOBEX": "Globex"}
 tones = {"present": "success", "absent": "warning", "locked": "info"}
 words = {"present": "Present", "absent": "Absent", "locked": "Locked"}
-# A line offers Connect while its token is absent, and Disconnect while one
-# is stored.
-steps = {"present": "Disconnect", "absent": "Connect", "locked": "Disconnect"}
+# A line offers Add key in the chip's place while its token is absent, and
+# Disconnect after the chip while one is stored; Change key draws no text.
+steps = {"present": ["Present", "Disconnect"], "absent": ["Add key"], "locked": ["Locked", "Disconnect"]}
 accesses = {"present": "disconnect", "absent": "connect", "locked": "disconnect"}
 rows, drawn = [], ["Slack tokens", hint]
 for item in items.split(";"):
     account, state = item.split(",")
     rows.append({"label": labels[account], "value": state, "hint": "", "tone": tones[state], "secret": account, "access": accesses[state]})
-    drawn += [labels[account], words[state], steps[state]]
+    drawn += [labels[account]] + steps[state]
 print(json.dumps([["Slack tokens", "reported", "", rows]]) if what == "rows" else json.dumps([drawn]))
 PY
 }
@@ -2481,11 +2482,14 @@ restart_notes() {
   expect "the notifications are enabled to read the tokens $1" ok ipc shell setPluginEnabled vgs.notifications true
   expect_poll "the service is built to read the tokens $1" True record_exists vgs.notifications
 }
+# change_offered ACCOUNT_LABEL: whether that account's line draws Change key.
+change_offered() { [[ $(ipc smoke scopedWindowGeometry window vgs.settings StatusLine "$1" IconButton "Change key") == \[* ]] && echo true || echo false; }
 expect "the notifications' Settings page opens" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
-settings_details
+expect_poll "the page opens on its Settings tab" 0 settings_tab
 first_items="slack:T0ACME,present;slack:T0GLOBEX,present"
 expect_poll "the page reads each workspace's token" "$(want_rows rows "$first_items")" token_row
-expect_poll "the page draws a line per account with its step, and no Show command" "$(want_rows drawn "$first_items")" drawn_token_row
+expect_poll "Setup draws a line per account with its step, and no Show command" "$(want_rows drawn "$first_items")" drawn_token_row
+expect "a stored token's line draws Change key" true change_offered "Acme Corp (acme)"
 # Flips: label | the stub's states | the items the page reads.
 flips=(
   "locked|slack:T0ACME locked;slack:T0GLOBEX locked|slack:T0ACME,locked;slack:T0GLOBEX,locked"
@@ -2499,18 +2503,21 @@ for flip in "${flips[@]}"; do
   expect_poll "the page draws the tokens $label with their steps" "$(want_rows drawn "$items")" drawn_token_row
 done
 
-# Connect and Disconnect, D061: an absent token's Connect opens one masked
-# field on its line, and Enter hands what was typed to the core, which
-# runs `secret-tool store` with the account on its argv and the token on
-# stdin alone, whole and with no newline. The write's end probes again, so
-# the line reads Present and offers Disconnect, which runs `secret-tool
-# clear`, and the line reads Absent again. The controls: the manager
-# refuses a clear the absent line does not offer, a store the stored line
-# does not offer and an account the plugin does not list, and none
-# reaches secret-tool; each step that then succeeds on the line clears its
-# refusal; the typed token enters no argv, status record, manager row or
-# log line.
+# Add key, Change key and Disconnect, D061: an absent token's Add key opens
+# one masked field on its line, and Enter hands what was typed to the core,
+# which runs `secret-tool store` with the account on its argv and the token
+# on stdin alone, whole and with no newline. The write's end probes again,
+# so the line reads Present and offers Change key, whose field stores
+# another token over the first, and Disconnect, which runs `secret-tool
+# clear`, and the line reads Absent again. Details then draws no token
+# line. The controls: the manager refuses a clear the absent line does not
+# offer and an account the plugin does not list, and neither reaches
+# secret-tool; each step that then succeeds on the line clears its
+# refusal; neither typed token enters an argv, status record, manager row
+# or log line; and a copy of the page that draws its keys on Details, with
+# a Change key that opens nothing, fails the same readings.
 typed_token="xoxp-smoke-typed-$SRANDOM"
+changed_token="$typed_token-changed"
 expected_errors+=('settings: vgs\.notifications/slackTokens/slack:T0(ACME|NOPE) refused: secret=slack:T0(ACME|NOPE) reason=(not-offered|unlisted|undeclared)')
 secret_calls() { if [[ -e $shim/secret-tool.calls ]]; then wc -l <"$shim/secret-tool.calls"; else echo 0; fi; }
 last_secret_call() { if [[ -e $shim/secret-tool.calls ]]; then tail -n 1 -- "$shim/secret-tool.calls"; else echo none; fi; }
@@ -2520,7 +2527,8 @@ calls_before="$(secret_calls)"
 # The core runs secret-tool by the shell's PATH: the row's stand-in, never
 # the host's keyring.
 expect "secret-tool resolves to the stand-in on the shell's PATH" "$shim/secret-tool" shell_resolves secret-tool
-expect "the absent Acme line takes no edit before Connect" '[[]]' row_inputs
+expect "the absent Acme line takes no edit before Add key" '[[]]' row_inputs
+expect "an absent token's line draws no Change key" false change_offered "Acme Corp (acme)"
 expect "the manager refuses a clear the absent line does not offer" "refused: secret=slack:T0ACME reason=not-offered" ipc smoke invokeInstance window vgs.settings clearSecret '{"id":"vgs.notifications","key":"slackTokens","account":"slack:T0ACME"}'
 # A status write anywhere hands the page new rows. The open field keeps its
 # line, what was typed into it and the keyboard through one from another
@@ -2531,8 +2539,8 @@ expect "enabling the status fixture beside the token rows is allowed" ok ipc she
 expect_poll "the status fixture is built beside the token rows" True record_exists acme.status
 row_fields() { ipc smoke statusRowFields window vgs.settings | py_reply 'import json,sys; print(json.dumps([f for r in json.load(sys.stdin) for f in r]))'; }
 fixture_note() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; r=[s for p in json.load(sys.stdin) if p["id"] == "acme.status" for s in p["status"] if s["key"] == "note"]; print(json.dumps(r[0]["value"] if r else None))'; }
-settings_press --type RowAction "Connect" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Connect failed"
-expect_poll "Connect opens one masked field on the line" '[["TextField"]]' row_inputs
+settings_press --type RowAction "Add key" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Add key failed"
+expect_poll "Add key opens one masked field on the line" '[["TextField"]]' row_inputs
 masked() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; print(json.dumps([t for r in json.load(sys.stdin) for t in r if t in ("Save", "Cancel")]))'; }
 expect_poll "the field's Save and Cancel are drawn" '["Save", "Cancel"]' masked
 type_keys "$typed_token" || fail "typing the token failed"
@@ -2542,11 +2550,10 @@ expect_poll "the page reads the other plugin's write" '"unrelated"' fixture_note
 expect "the field outlives the write with what was typed and the keyboard" "[[${#typed_token}, true]]" row_fields
 expect "the Settings window hides for the field's control" ok ipc shell hide window vgs.settings
 expect "the Settings window is summoned again on the notifications' page" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
-settings_details
 expect_poll "control: a page built anew holds no field" '[]' row_fields
 expect "disabling the status fixture beside the token rows is allowed" ok ipc shell setPluginEnabled acme.status false
-settings_press --type RowAction "Connect" StatusLine "Acme Corp (acme)" || fail "the second click on Acme's Connect failed"
-expect_poll "Connect opens the masked field again" '[["TextField"]]' row_inputs
+settings_press --type RowAction "Add key" StatusLine "Acme Corp (acme)" || fail "the second click on Acme's Add key failed"
+expect_poll "Add key opens the masked field again" '[["TextField"]]' row_inputs
 type_keys "$typed_token" || fail "typing the token again failed"
 type_keys -k Return || fail "sending Enter to the field failed"
 expect_poll "Save stores the token through secret-tool store, naming the account" "store --label=VGS notifications Slack token slack:T0ACME service vgs-notifications account slack:T0ACME" last_secret_call
@@ -2558,20 +2565,32 @@ expected_errors+=('notifications-slack-photos: account=slack:T0ACME api=team\.in
 expect_log "the stored token runs the photo helper at once" 1 'notifications-slack-photos: account=slack:T0ACME api=team\.info curl=failed'
 expect_poll "the write's end probes again: Acme reads Present with Disconnect" "$(want_rows drawn "slack:T0ACME,present;slack:T0GLOBEX,absent")" drawn_token_row
 expect "the closed field leaves no input on the line" '[[]]' row_inputs
-expect "the manager refuses a store the stored line does not offer" "refused: secret=slack:T0ACME reason=not-offered" ipc smoke invokeInstance window vgs.settings storeSecret '{"id":"vgs.notifications","key":"slackTokens","account":"slack:T0ACME","secret":"xoxp-smoke-refused"}'
 expect "the manager refuses an account the plugin does not list" "refused: secret=slack:T0NOPE reason=unlisted" ipc smoke invokeInstance window vgs.settings storeSecret '{"id":"vgs.notifications","key":"slackTokens","account":"slack:T0NOPE","secret":"xoxp-smoke-refused"}'
-expect "of the steps so far only the Connect reached secret-tool" "$((calls_before + 1))" secret_calls
+expect "of the steps so far only Add key reached secret-tool" "$((calls_before + 1))" secret_calls
+settings_press --type IconButton "Change key" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Change key failed"
+expect_poll "Change key opens one masked field on the stored line" '[["TextField"]]' row_inputs
+expect_poll "the field of Change key opens empty and holds the keyboard" '[[0, true]]' row_fields
+type_keys "$changed_token" || fail "typing the second token failed"
+type_keys -k Return || fail "sending Enter to the field of Change key failed"
+expect_poll "Change key stores over the account through secret-tool store" "$((calls_before + 2))" secret_calls
+expect "the second store names the same account" "store --label=VGS notifications Slack token slack:T0ACME service vgs-notifications account slack:T0ACME" last_secret_call
+expect "the second token replaced the first on stdin, whole, with no newline" "b'$changed_token'" acme_stdin
+expect_poll "the changed token's line still reads Present with Disconnect" "$(want_rows drawn "slack:T0ACME,present;slack:T0GLOBEX,absent")" drawn_token_row
+expect_poll "the closed field of Change key leaves no input on the line" '[[]]' row_inputs
 settings_press --type RowAction "Disconnect" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Disconnect failed"
 expect_poll "Disconnect clears the account through secret-tool clear" "clear service vgs-notifications account slack:T0ACME" last_secret_call
-expect_poll "the write's end probes again: Acme reads Absent with Connect" "$(want_rows drawn "slack:T0ACME,absent;slack:T0GLOBEX,absent")" drawn_token_row
+expect_poll "the write's end probes again: Acme reads Absent with Add key" "$(want_rows drawn "slack:T0ACME,absent;slack:T0GLOBEX,absent")" drawn_token_row
+settings_details
+expect "Details draws no token line" '[[]]' drawn_token_row
+# Both typed tokens start with the first, so one search finds either.
 typed_in_argv() { grep -c -F -- "$typed_token" "$shim/secret-tool.calls" || true; }
-expect "no secret-tool argv holds the typed token" 0 typed_in_argv
+expect "no secret-tool argv holds a typed token" 0 typed_in_argv
 typed_leaks() {
   local text
   text="$(ipc shell lent)" && text+="$(ipc smoke readInstance window vgs.settings plugins)" && text+="$(ipc smoke readInstance window vgs.settings replies)" || return
   grep -c -F -- "$typed_token" <<<"$text" || true
 }
-expect "no status record, manager row or reply holds the typed token" 0 typed_leaks
+expect "no status record, manager row or reply holds a typed token" 0 typed_leaks
 typed_in_log() { log_lines "$typed_token"; }
 expect "the shell's log holds no typed token" 0 typed_in_log
 # The lending record and the manager rows, read whole, hold the plugin's
@@ -2590,12 +2609,45 @@ expect "the probe answered every state with the stub" 0 probe_failures
 token_in_log() { log_lines 'xoxp-smoke'; }
 expect "the shell's log holds no token" 0 token_in_log
 expect "the Settings window closes after the token rows" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone before the placement control" 0 window_count Plugins
+# The control: a copy of the Settings plugin, over the shipped one, whose
+# page keeps the stored keys out of Setup and draws them on Details, and
+# whose Change key opens nothing, read by the same readers.
+expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.settings')
+slack_states "slack:T0ACME present;slack:T0GLOBEX absent"
+restart_notes "for the placement control"
+keys_copy="$home/.config/vgshell/plugins/vgs.settings"
+rm -rf -- "${keys_copy:?}"
+mkdir -p -- "$(dirname -- "$keys_copy")"
+cp -R -- "$repo/shell/plugins/vgs.settings" "$keys_copy"
+keys_copy_edit() { python3 "$source_repo/scripts/smoke/fixtures/ai-usage/edit.py" "$keys_copy/$1" "$2" "$3"; }
+if keys_copy_edit Steps.js 'return status.filter(listsKeys);' 'return [];' \
+  && keys_copy_edit Steps.js 'return !listsKeys(entry);' 'return true;' \
+  && keys_copy_edit StatusLine.qml $'label: "Change key"\n                    onClicked: line.entering = true' $'label: "Change key"\n                    onClicked: {}'
+then ok "the control copy draws its keys on Details and its Change key opens nothing"; else fail "the control copy could not be written"; fi
+rescan "a rescan picks the placement control copy"
+control_items="slack:T0ACME,present;slack:T0GLOBEX,absent"
+expect "the control copy's Settings page opens" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
+expect_poll "the control copy reads each workspace's token" "$(want_rows rows "$control_items")" token_row
+expect_poll "control: a page that draws its keys on Details draws no token line under Setup" '[[]]' drawn_token_row
+settings_details
+expect_poll "control: that page draws the token lines on Details" "$(want_rows drawn "$control_items")" drawn_token_row
+settings_press --type IconButton "Change key" StatusLine "Acme Corp (acme)" || fail "control: the click on the copy's Change key failed"
+sleep 1 # The real Change key opens its field within one poll, 200 ms.
+expect "control: a Change key that opens nothing leaves no field" '[[]]' row_inputs
+expect "the Settings window closes after the placement control" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone after the placement control" 0 window_count Plugins
+rm -rf -- "${keys_copy:?}"
+rescan "a rescan drops the placement control copy"
+expect "the Settings window opens on the shipped page again" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
+expect_poll "the shipped page draws the token lines under Setup again" "$(want_rows drawn "$control_items")" drawn_token_row
+expect "the Settings window closes after the token rows' control" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone after the token rows" 0 window_count Plugins
 seed_slack_photos
 slack_states "slack:T0ACME present;slack:T0GLOBEX present"
 
 # Fresh defaults leave photos off. The presence probe still gives Settings
-# each workspace's Connect row, but the photo helper reads no token and
+# each workspace's Add key row, but the photo helper reads no token and
 # calls no Slack API. Turning photos on is the control for the same page.
 off_calls="$sandbox/slack-photos-off.calls"
 : >"$off_calls"
@@ -2630,17 +2682,16 @@ expect_poll "the helper's run swept the photos" '[]' photo_teams
 expect "photos off reads no token and calls no Slack API" "" off_token_calls
 expect_poll "photos off still publishes the workspace token rows" True lent_has_tokens
 expect "the notifications' Settings page opens with photos off" ok ipc shell summon window vgs.settings '{"plugin":"vgs.notifications"}'
-settings_details
 settings_photo_setup() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]; print("slackTokens" in [s["key"] for s in p["status"]] and {"curl", "secret-tool"}.issubset(r["name"] for r in p["requirements"]) and p["schema"].get("slackPhotos", {}).get("type") == "boolean")'; }
-expect_poll "photos off keeps Connect, its requirements and the switch in Settings" True settings_photo_setup
-expect_poll "photos off draws Connect for each workspace" "$(want_rows drawn "slack:T0ACME,absent;slack:T0GLOBEX,absent")" drawn_token_row
-settings_press --type RowAction "Connect" StatusLine "Acme Corp (acme)" || fail "Connect with photos off failed"
-expect_poll "Connect with photos off opens the masked field" '[["TextField"]]' row_inputs
+expect_poll "photos off keeps Add key, its requirements and the switch in Settings" True settings_photo_setup
+expect_poll "photos off draws Add key for each workspace" "$(want_rows drawn "slack:T0ACME,absent;slack:T0GLOBEX,absent")" drawn_token_row
+settings_press --type RowAction "Add key" StatusLine "Acme Corp (acme)" || fail "Add key with photos off failed"
+expect_poll "Add key with photos off opens the masked field" '[["TextField"]]' row_inputs
 settings_press "Cancel" StatusLine "Acme Corp (acme)" || fail "Cancel with photos off failed"
-expect "the unused Connect field reads no token and calls no Slack API" "" off_token_calls
+expect "the unused Add key field reads no token and calls no Slack API" "" off_token_calls
 # The control: the same Settings readers with photos on again.
 set_slack_photos on
-expect_poll "photos on keeps Connect, its requirements and the switch in Settings" True settings_photo_setup
+expect_poll "photos on keeps Add key, its requirements and the switch in Settings" True settings_photo_setup
 probe_logged() { if grep -q '^secret-tool search service vgs-notifications account ' -- "$off_calls"; then echo True; else echo False; fi; }
 expect_poll "the call log reads the workspace presence probe" True probe_logged
 expect_poll "the service publishes its token rows with photos on" True lent_has_tokens

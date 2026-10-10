@@ -17,8 +17,9 @@ import "Steps.js" as Steps
 // "Not reported". A presence
 // list draws its label and hint alone, "None detected" while the list is
 // empty, then one line per item: the item's label beside a Badge of its
-// presence, its hint, and Connect or Disconnect for an item that is a secret's
-// presence. Each line is one
+// presence, its hint, and, for an item that is a secret's presence, Add key
+// in the chip's place while nothing is stored, or Change key and Disconnect
+// after the chip (Steps.itemView). Each line is one
 // group of the row's GroupList, divided from the next as the rows of a
 // section are. No row takes an edit of a value: a step goes to the manager
 // through `panel` (D061).
@@ -32,7 +33,7 @@ GroupList {
     // `replyOf` and `writing` each line reads, and the plugin's id.
     required property Item panel
     required property string pluginId
-    // The plugin's `secrets` label, which a Connect's field asks for.
+    // The plugin's `secrets` label, which a line's masked field asks for.
     property string secretLabel: ""
 
     signal openLink(string url)
@@ -75,11 +76,12 @@ GroupList {
         }
         StatusLine {
             required property var modelData
+            readonly property var presence: Steps.itemView(modelData)
             width: row.width
             label: modelData.label
             hint: modelData.hint
-            tone: modelData.tone
-            text: Steps.PRESENCE_WORDS[modelData.value]
+            tone: presence.tone
+            text: presence.text
             access: modelData.access
             secretLabel: row.secretLabel
             busy: row.panel !== null && row.panel.writing !== ""

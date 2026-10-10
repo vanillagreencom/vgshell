@@ -52,7 +52,7 @@ Scope {
     property bool emojiEnabled: false
     property bool photosEnabled: false
     // The count of token writes the core ended for this plugin, the
-    // `secrets` capability's revision: a Connect or Disconnect on the
+    // `secrets` capability's revision: a token stored or cleared on the
     // Settings page probes and loads again at once, rather than at the next
     // retry.
     property int secretRevision: 0

@@ -16,10 +16,12 @@ import qs.Ui
 //
 // The step is one of: `actionLabel` while `actionOffered`, an action that
 // emits `act`; or, for a line that is the presence of a secret, by
-// `access`: `connect`, a Connect action that opens a masked field under the
-// line whose Save, or Enter, emits `storeSecret` with what was typed and
-// closes it, and `disconnect`, a Disconnect action that emits
-// `clearSecret`. `busy` disables the step while its write runs; `error`,
+// `access`: `connect`, an Add key action, and `disconnect`, a Change key
+// icon button before a Disconnect action that emits `clearSecret`. Add key
+// and Change key open a masked field under the line whose Save, or Enter,
+// emits `storeSecret` with what was typed and closes it. A line with no
+// value, such as a secret nothing is stored for, starts its step on the
+// value column. `busy` disables the step while its write runs; `error`,
 // when set, reads in the hint's place in the error colour.
 Column {
     id: line
@@ -39,25 +41,31 @@ Column {
     property string error: ""
     // What the masked field asks for: the plugin's `secrets` label.
     property string secretLabel: ""
-    // Whether the masked field of a Connect is open.
-    property bool connecting: false
-    readonly property bool stepShown: (actionLabel !== "" && actionOffered) || access !== ""
+    // Whether the masked field is open.
+    property bool entering: false
+    // What the line offers for its secret: Add key, or Change key and
+    // Disconnect.
+    readonly property bool adds: access === "connect"
+    readonly property bool stored: access === "disconnect"
+    readonly property bool stepShown: (actionLabel !== "" && actionOffered) || adds || stored
 
     signal act()
     signal hintLinkActivated()
     signal storeSecret(string value)
     signal clearSecret()
 
-    onAccessChanged: if (access !== "connect") cancelConnect()
+    // The secret's presence changed under an open field, so what the
+    // field was opened for no longer holds.
+    onAccessChanged: cancelEntry()
 
-    function cancelConnect() {
-        connecting = false;
+    function cancelEntry() {
+        entering = false;
     }
 
     // Close the field, which destroys it and what it held, then hand VALUE
     // on.
     function saveSecret(value) {
-        connecting = false;
+        entering = false;
         storeSecret(value);
     }
 
@@ -111,35 +119,50 @@ Column {
                 y: valueRow.stepBelow ? 0 : Math.round(valueRow.centre - valueRow.firstLine / 2)
                 sourceComponent: line.tone !== "" ? badge : line.text !== "" ? plain : line.hint !== "" ? hintValue : null
             }
-            RowActions {
+            // A Row places only its visible children, so a line with no
+            // stored secret draws its actions alone.
+            Row {
                 id: step
-                x: valueRow.stepBelow ? 0 : value.width + Theme.stack.inline
+                x: valueRow.stepBelow ? 0 : value.width > 0 ? value.width + Theme.stack.inline : 0
                 y: valueRow.stepBelow ? value.height + Theme.field.gap : Math.round(valueRow.centre - height / 2)
-                visible: line.stepShown && !line.connecting
-                RowAction {
-                    visible: line.actionLabel !== "" && line.actionOffered
+                spacing: Theme.stack.inline
+                visible: line.stepShown && !line.entering
+                IconButton {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: line.stored
                     enabled: !line.busy
-                    text: line.actionLabel
-                    onClicked: line.act()
+                    size: "sm"
+                    iconName: "pencil"
+                    label: "Change key"
+                    onClicked: line.entering = true
                 }
-                RowAction {
-                    visible: line.access === "connect"
-                    enabled: !line.busy
-                    text: "Connect"
-                    onClicked: line.connecting = true
-                }
-                RowAction {
-                    visible: line.access === "disconnect"
-                    enabled: !line.busy
-                    text: "Disconnect"
-                    onClicked: line.clearSecret()
+                RowActions {
+                    anchors.verticalCenter: parent.verticalCenter
+                    RowAction {
+                        visible: line.actionLabel !== "" && line.actionOffered
+                        enabled: !line.busy
+                        text: line.actionLabel
+                        onClicked: line.act()
+                    }
+                    RowAction {
+                        visible: line.adds
+                        enabled: !line.busy
+                        text: "Add key"
+                        onClicked: line.entering = true
+                    }
+                    RowAction {
+                        visible: line.stored
+                        enabled: !line.busy
+                        text: "Disconnect"
+                        onClicked: line.clearSecret()
+                    }
                 }
             }
         }
     }
 
-    // The masked field of a Connect, built while it is open and destroyed
-    // on Save or Cancel, so a line with no secret holds no input and a
+    // The masked field of Add key and Change key, built while it is open
+    // and destroyed on Save or Cancel, so a closed line holds no input and a
     // typed secret outlives neither. What is typed stays in the field
     // alone until Save hands it to the core, which stores it through
     // libsecret.
@@ -147,7 +170,7 @@ Column {
         id: form
         x: field.valueX
         width: line.width - x - field.rightPadding
-        active: line.connecting
+        active: line.entering
         visible: active
         sourceComponent: Row {
             spacing: Theme.stack.inline
@@ -160,7 +183,7 @@ Column {
                 placeholderText: line.secretLabel
                 onAccepted: if (text !== "") line.saveSecret(text)
                 Keys.onEscapePressed: event => {
-                    line.cancelConnect();
+                    line.cancelEntry();
                     event.accepted = true;
                 }
             }
@@ -177,7 +200,7 @@ Column {
                 text: "Cancel"
                 variant: "ghost"
                 anchors.verticalCenter: parent.verticalCenter
-                onClicked: line.cancelConnect()
+                onClicked: line.cancelEntry()
             }
         }
     }

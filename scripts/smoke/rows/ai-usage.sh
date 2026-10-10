@@ -17,15 +17,20 @@
 # mode on that Check now, which keeps the figures, marked limited, with a
 # plain note and no warning, then ten opens and closes of the panel that
 # send no request; a refused token's expired warning and a failed
-# request's stale figures; and that no read changed a credential file's
-# bytes or modification time.
+# request's stale figures; that no read changed a credential file's
+# bytes or modification time; and the AI Gateway key's line in the Setup
+# section of the Settings tab, whose Add key, Change key and Disconnect
+# write the row's libsecret stand-in through the core, the key on stdin
+# alone, with no key line on Details.
 # Controls: a widget copy shown with no account, a panel copy capped at its
 # output's whole height, a panel copy whose open asks for a read, a panel
 # copy whose Check now asks for none, a helper copy that writes the
 # credential file, one that reads a failed request as 0 % and a panel host
-# copy whose slot opens Settings with no page each fail their own reading.
+# copy whose slot opens Settings with no page each fail their own reading,
+# and a Settings copy that draws its stored keys on Details fails the key
+# line's reading on each tab.
 # This row has no latency ceiling; every reading polls through expect_poll.
-# inputs: shell/plugins/vgs.ai-usage/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js scripts/fixtures/ai-usage/* scripts/smoke/fixtures/ai-usage/* shell/plugins/vgs.settings/* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/SurfaceHeight.qml shell/Ui/layout/Pane.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/feedback/Badge.qml shell/Ui/feedback/ProgressBar.qml shell/Commons/Time.qml config/shell.json bin/vgshell-tui scripts/qml-smoke.sh shell/Commons/Duration.js shell/Commons/qmldir shell/Ui/foundation/KeyNavLogic.js
+# inputs: shell/plugins/vgs.ai-usage/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js scripts/fixtures/ai-usage/* scripts/smoke/fixtures/ai-usage/* shell/plugins/vgs.settings/* shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/SecretWriter.qml shell/Core/TuiRunner.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/SurfaceHeight.qml shell/Ui/layout/Pane.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/feedback/Badge.qml shell/Ui/feedback/ProgressBar.qml shell/Commons/Time.qml config/shell.json bin/vgshell-tui scripts/qml-smoke.sh shell/Commons/Duration.js shell/Commons/qmldir shell/Ui/foundation/KeyNavLogic.js
 set -euo pipefail
 usage_dir="$sandbox/ai-usage"
 mkdir -p -- "$usage_dir"
@@ -661,6 +666,139 @@ expect "an absent Codex logo fails the ready mark reading" 1 usage_control "$usa
 expect "the absent logo panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the absent logo panel is gone" absent usage_panel
 cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
+
+# The AI Gateway key, D061. The row's libsecret stand-in holds at most one
+# item, the key a store hands it on stdin, and answers a search as
+# libsecret's secret-tool does; the helper copy asks the endpoint stand-in
+# for the gateway's credits, so each check sends it the stored key, which
+# the endpoint logs as a hash. With no key, Setup draws the key's line with
+# Add key, whose masked field stores what was typed; the stored key's line
+# reads Present with Change key, whose field stores another key over the
+# first, and Disconnect, which clears it. Details draws no key line, and
+# neither typed key enters an argv, a status record, a manager row, a reply
+# or the log.
+cp -- "$usage_dir/usage.js.stand-in" "$usage_helper"
+usage_edit "$usage_helper" 'const GATEWAY_ORIGIN = "https://ai-gateway.vercel.sh";' "const GATEWAY_ORIGIN = \"$usage_origin\";" || fail "the helper copy's gateway origin edit failed"
+usage_key_item="$usage_dir/gateway-key.stdin"
+usage_key_calls="$usage_dir/gateway-key.calls"
+: >"$usage_key_calls"
+sentinel_stand_over "$shim/secret-tool" <<SH
+#!/usr/bin/env bash
+item="service vgs-ai-usage account ai-gateway"
+case "\${1:-}" in
+  store)
+    [[ \${2:-} == --label=* && "\${*:3}" == "\$item" ]] || exit 1
+    cat >"$usage_key_item.next" && mv -f -- "$usage_key_item.next" "$usage_key_item"
+    printf '%s\\n' "\$*" >>"$usage_key_calls" ;;
+  clear)
+    [[ "\${*:2}" == "\$item" ]] || exit 1
+    : >"$usage_key_item.cleared" && mv -f -- "$usage_key_item.cleared" "$usage_key_item"
+    printf '%s\\n' "\$*" >>"$usage_key_calls" ;;
+  search)
+    [[ "\${*:2}" == "\$item" && -s "$usage_key_item" ]] || exit 0
+    printf '[/1]\\nlabel = VGS AI Usage AI Gateway key ai-gateway\\nsecret = %s\\n' "\$(cat -- "$usage_key_item")"
+    printf 'attribute.service = vgs-ai-usage\\nattribute.account = ai-gateway\\n' >&2 ;;
+  *) exit 1 ;;
+esac
+SH
+rescan "the gateway key stand-ins are scanned"
+expect "secret-tool resolves to the row's stand-in on the shell's PATH" "$shim/secret-tool" shell_resolves secret-tool
+# usage_key_want absent|present: the texts the key's StatusRow draws, its
+# label and hint the manifest's.
+usage_key_want() {
+  python3 - "$usage_plugin/manifest.json" "$1" <<'PY'
+import json, sys
+entry = json.load(open(sys.argv[1]))["status"]["gatewayKey"]
+steps = {"absent": ["Add key"], "present": ["Present", "Disconnect"]}
+print(json.dumps([entry["label"], entry["hint"], "AI Gateway"] + steps[sys.argv[2]]))
+PY
+}
+usage_key_row() { status_row vgs.ai-usage gatewayKey | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([[i["label"], i["value"], i["secret"], i["access"]] for i in r["value"] or []]))'; }
+usage_key_drawn() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; label=json.load(open(sys.argv[1]))["status"]["gatewayKey"]["label"]; r=[r for r in json.load(sys.stdin) if r and r[0] == label]; print(json.dumps(r[0]) if len(r) == 1 else "rows=%d" % len(r))' "$usage_plugin/manifest.json"; }
+usage_key_inputs() { ipc smoke statusRowInputs window vgs.settings | py_reply 'import json,sys; print(json.dumps([name for row in json.load(sys.stdin) for name in row]))'; }
+usage_key_change() { [[ $(ipc smoke scopedWindowGeometry window vgs.settings StatusLine "AI Gateway" IconButton "Change key") == \[* ]] && echo true || echo false; }
+# usage_key_line: whether the key's line draws Change key, then the inputs
+# its row holds.
+usage_key_line() { printf '%s %s\n' "$(usage_key_change)" "$(usage_key_inputs)"; }
+usage_key_call_count() { wc -l <"$usage_key_calls"; }
+usage_key_last_call() { if [[ -s $usage_key_calls ]]; then tail -n 1 -- "$usage_key_calls"; else echo none; fi; }
+# The bytes the stand-in holds: `absent` before any store, b'' once cleared.
+usage_key_bytes() { python3 -c 'import os,sys; p=sys.argv[1]; print(repr(open(p, "rb").read()) if os.path.exists(p) else "absent")' "$usage_key_item"; }
+# The hash of the key the gateway stand-in was last asked with, or `none`.
+usage_gateway_token() {
+  python3 -c 'import json,sys
+rows=[json.loads(line) for line in open(sys.argv[1]) if line.strip()]
+rows=[row for row in rows if row["path"] == "/v1/credits"]
+print(rows[-1]["token"] if rows else "none")' "$usage_dir/requests"
+}
+usage_key_hash() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+usage_typed_key="vck-smoke-typed-$SRANDOM"
+usage_changed_key="$usage_typed_key-changed"
+expect "Settings opens on AI Usage's page for its key" ok ipc shell summon window vgs.settings '{"plugin":"vgs.ai-usage"}'
+expect_poll "the page opens on its Settings tab" 0 settings_tab
+expect_poll "the service lists the key absent, with Add key" '[["AI Gateway", "absent", "ai-gateway", "connect"]]' usage_key_row
+expect_poll "with no key Setup draws the key's line with Add key" "$(usage_key_want absent)" usage_key_drawn
+expect "an absent key's line draws no Change key and takes no edit" 'false []' usage_key_line
+expect "with no key the gateway was asked nothing" none usage_gateway_token
+settings_press --type RowAction "Add key" StatusLine "AI Gateway" || fail "the click on the key's Add key failed"
+expect_poll "Add key opens one masked field on the line" '["TextField"]' usage_key_inputs
+type_keys "$usage_typed_key" || fail "typing the key failed"
+type_keys -k Return || fail "sending Enter to the key's field failed"
+expect_poll "Add key stores the key through secret-tool store, naming the account" "store --label=VGS AI Usage AI Gateway key ai-gateway service vgs-ai-usage account ai-gateway" usage_key_last_call
+expect "the key reached secret-tool on stdin alone, whole, with no newline" "b'$usage_typed_key'" usage_key_bytes
+expect_poll "the write's end probes again: the line reads Present with Disconnect" "$(usage_key_want present)" usage_key_drawn
+expect "the stored key's line draws Change key and holds no input" 'true []' usage_key_line
+expect_poll "the check after the store asks the gateway with the stored key" "$(usage_key_hash "$usage_typed_key")" usage_gateway_token
+settings_press --type IconButton "Change key" StatusLine "AI Gateway" || fail "the click on the key's Change key failed"
+expect_poll "Change key opens one masked field on the stored line" '["TextField"]' usage_key_inputs
+type_keys "$usage_changed_key" || fail "typing the second key failed"
+type_keys -k Return || fail "sending Enter to the field of Change key failed"
+expect_poll "Change key stores over the same account" 2 usage_key_call_count
+expect "the second store names the same account" "store --label=VGS AI Usage AI Gateway key ai-gateway service vgs-ai-usage account ai-gateway" usage_key_last_call
+expect "the second key replaced the first on stdin, whole, with no newline" "b'$usage_changed_key'" usage_key_bytes
+expect_poll "the check after the change asks the gateway with the changed key" "$(usage_key_hash "$usage_changed_key")" usage_gateway_token
+expect_poll "the changed key's line still reads Present with Disconnect" "$(usage_key_want present)" usage_key_drawn
+# Both typed keys start with the first, so one search finds either.
+usage_key_leaks() {
+  local text
+  text="$(cat -- "$usage_key_calls")" && text+="$(ipc shell lent)" && text+="$(ipc smoke readInstance window vgs.settings plugins)" && text+="$(ipc smoke readInstance window vgs.settings replies)" || return
+  [[ $text == *'"vgs.ai-usage"'* && $text == *gatewayKey* ]] || { echo unread; return; }
+  grep -c -F -- "$usage_typed_key" <<<"$text" || true
+}
+expect "no secret-tool argv, status record, manager row or reply holds a typed key" 0 usage_key_leaks
+expect "the shell's log holds no typed key" 0 log_lines "$usage_typed_key"
+settings_press --type RowAction "Disconnect" StatusLine "AI Gateway" || fail "the click on the key's Disconnect failed"
+expect_poll "Disconnect clears the account through secret-tool clear" "clear service vgs-ai-usage account ai-gateway" usage_key_last_call
+expect_poll "the write's end probes again: the line offers Add key" "$(usage_key_want absent)" usage_key_drawn
+expect "the cleared key is gone from the stand-in" "b''" usage_key_bytes
+settings_details
+expect "Details draws no key line" rows=0 usage_key_drawn
+expect "the Settings window closes after the key's line" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone after the key's line" 0 window_count Plugins
+# The control: a copy of the Settings plugin, over the shipped one, whose
+# page keeps the stored keys out of Setup and draws them on Details, read
+# by the same reader on each tab.
+expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.settings')
+usage_keys_copy="$home/.config/vgshell/plugins/vgs.settings"
+rm -rf -- "${home:?}/.config/vgshell/plugins/vgs.settings"
+mkdir -p -- "$home/.config/vgshell/plugins"
+cp -R -- "$repo/shell/plugins/vgs.settings" "$usage_keys_copy"
+if usage_edit "$usage_keys_copy/Steps.js" 'return status.filter(listsKeys);' 'return [];' \
+  && usage_edit "$usage_keys_copy/Steps.js" 'return !listsKeys(entry);' 'return true;'
+then ok "the control copy draws its stored keys on Details"; else fail "the control copy could not be written"; fi
+rescan "a rescan picks the key placement control copy"
+expect "the control copy's page opens" ok ipc shell summon window vgs.settings '{"plugin":"vgs.ai-usage"}'
+expect_poll "the control copy lists the key absent" '[["AI Gateway", "absent", "ai-gateway", "connect"]]' usage_key_row
+settings_details
+expect_poll "control: a page that draws its keys on Details draws the key's line there" "$(usage_key_want absent)" usage_key_drawn
+settings_tab_click Settings || fail "control: the click back to the Settings tab failed"
+expect_poll "control: the copy shows its Settings tab" 0 settings_tab
+expect "control: that page draws no key line under Setup" rows=0 usage_key_drawn
+expect "the Settings window closes after the key placement control" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone after the key placement control" 0 window_count Plugins
+rm -rf -- "${home:?}/.config/vgshell/plugins/vgs.settings"
+rescan "a rescan drops the key placement control copy"
+sentinel_restore "$shim/secret-tool"
 
 expect "AI Usage is disabled after the row" ok ipc shell setPluginEnabled vgs.ai-usage false
 expect_poll "disabled AI Usage releases its service" False record_exists vgs.ai-usage

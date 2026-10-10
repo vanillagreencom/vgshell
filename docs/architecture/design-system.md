@@ -119,6 +119,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 - Do show a bind row with no info icon. Show its explanation in the shared tooltip on label hover and keyboard focus.
 
 - Do put a switch on its label's row in the value column, never below the label; review holds it.
+- Do set a key or token a plugin stores in the Setup section of its Settings tab, one line per key with its chip. A key the core stores takes Add key on its line while none is stored, and Change key and Disconnect while one is. Never draw a stored key on Details, which holds what a user reads. `scripts/test-settings-steps.js` pins the placement and `scripts/qml-tests/tst_grouplist.qml` the line.
 - Do keep each setting in its settings group. If a setting applies to the whole group, say so in its help instead of placing it above the group; review holds it.
 - Do give bar widgets with like settings one order: a widget that offers `layout` groups every field, leads with the Readings group, and starts it with the shared fields it offers in the order `layout`, `labelStyle`, `refreshSeconds`. `bin/lib/check-manifests.js` refuses another order.
 - Do declare a plugin's settings in its manifest schema, and never ship page code for its Settings page. `scripts/test-plugin-logic.js` pins the schema.

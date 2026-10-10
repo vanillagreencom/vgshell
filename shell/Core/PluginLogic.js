@@ -223,12 +223,15 @@ var SECRET_ACCOUNT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/;
 // most two UTF-8 bytes each fit.
 var SECRET_VALUE_MAX = 4096;
 // What the Settings page offers a `presenceList` item with a `secret`, by
-// its presence: Connect while nothing is stored, Disconnect while something
-// is, and nothing while the store cannot be asked. A signed-out account takes
-// a new credential, so it offers Connect: a store whose attributes match an
-// item updates that item (libsecret secret_password_store).
+// its presence: `connect`, Add key, while nothing is stored; `disconnect`,
+// a change of the key and Disconnect, while something is; and nothing
+// while the store cannot be asked. A signed-out account takes a new
+// credential, so it offers Add key. SECRET_VERBS names the accesses that
+// offer each write: a store also replaces a stored key, since a store whose
+// attributes match an item updates that item (libsecret
+// secret_password_store).
 var SECRET_ACCESS = { absent: "connect", present: "disconnect", locked: "disconnect", unsafe: "disconnect", unavailable: "", "signed-out": "connect" };
-var SECRET_VERBS = { store: "connect", clear: "disconnect" };
+var SECRET_VERBS = { store: ["connect", "disconnect"], clear: ["disconnect"] };
 var SECRET_REASONS = ["undeclared", "disabled", "unlisted", "not-offered", "value", "busy"];
 
 // A name a plugin registers a shortcut, an IPC target or a built-in widget
@@ -1324,9 +1327,12 @@ function tuiWithheldReason(lacking) {
 // The Status rows the plugin manager shows for a plugin: one per entry
 // statusDisplayable admits whose `state` value is not hidden (statusStateHidden),
 // in manifest key order, as { key, type, label,
-// group, hint, info, link, action, report, value, tone }. `group`, `hint` and
-// `info` are "" when the manifest omits them, and `link`, the words of the
-// declared hint that open an https address, null. `action` is
+// group, hint, info, link, secrets, action, report, value, tone }. `group`,
+// `hint` and `info` are "" when the manifest omits them, and `link`, the
+// words of the declared hint that open an https address, null. `secrets`
+// holds for the entry that lists the plugin's stored keys, a `presenceList`
+// of a manifest that declares `secrets`, which a page draws with its setup.
+// `action` is
 // statusRowAction's: null for an entry without one, else { label, offered },
 // `offered` false while unreported. `report` is `reported` with the published `value`
 // (statusRowValue) and its `tone`, or `unreported` with `value` null and
@@ -1357,6 +1363,7 @@ function statusRows(manifest, values, missing) {
             hint: hint,
             info: entry.info === undefined ? "" : entry.info,
             link: entry.link === undefined ? null : { text: entry.link.text, url: entry.link.url },
+            secrets: entry.type === "presenceList" && manifest.secrets !== undefined,
             action: statusRowAction(entry, value, lacking),
             report: reported ? "reported" : "unreported",
             value: reported ? statusRowValue(entry.type, value) : null,
@@ -1452,8 +1459,9 @@ function secretValueValid(secret) {
 // KEY of plugin MANIFEST, null for an id no plugin has, ENABLED and VALUES
 // its published values. The core writes only an account the plugin itself
 // lists: an item of the `presenceList` entry KEY whose `secret` is ACCOUNT,
-// and only the verb its access offers, `store` for `connect` and `clear` for
-// `disconnect`. { ok: true, argv, input } with the secret-tool argv and the
+// and only a verb its access offers (SECRET_VERBS): `store` while the store
+// can be asked and `clear` while something is stored. { ok: true, argv,
+// input } with the secret-tool argv and the
 // text for its stdin, the secret for a store and null for a clear, so no
 // secret reaches an argv; or { ok: false, answer } with `unknown: <id>` or
 // secretRefusal's line: `undeclared` for a manifest without `secrets` or a
@@ -1476,7 +1484,7 @@ function secretRequest(manifest, id, enabled, values, key, account, verb, secret
         if (items[i].secret !== undefined && items[i].secret === account) item = items[i];
     if (item === null)
         return refused("unlisted");
-    if (SECRET_ACCESS[item.value] !== SECRET_VERBS[verb])
+    if (SECRET_VERBS[verb].indexOf(SECRET_ACCESS[item.value]) === -1)
         return refused("not-offered");
     var attributes = ["service", manifest.secrets.service, "account", account];
     if (verb === "clear")

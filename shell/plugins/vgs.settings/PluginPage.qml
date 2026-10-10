@@ -19,7 +19,10 @@ import "Steps.js" as Steps
 // `Setup` group at its top, the first a Status row and each further one a
 // step row under its own label, whose value is a Badge chip in its tone,
 // beside it a step's offered screen as a RowAction, with its lines and
-// hint under it (Steps.setupRows), then, one group space below, on an
+// hint under it (Steps.setupRows), then the plugin's stored keys and
+// tokens, each entry a StatusRow with one line per key, whose steps add,
+// change and remove a key the core stores (Steps.keyEntries), then, one
+// group space below, on an
 // unlabelled row from the value column, one RowAction per other setup
 // screen the manifest lists, which opens it through the manager: a screen
 // an offered status action opens first, with the action's label, then the
@@ -36,7 +39,8 @@ import "Steps.js" as Steps
 // Details holds what a user reads: the description, in the hint role in
 // the muted colour, the capabilities, the listing metadata, the Update and
 // Remove actions of an installed plugin, one status section per status
-// group (entries without a group first, under `Status`), whose values are
+// group (entries without a group first, under `Status`), but for the
+// entries that list stored keys (Steps.detailEntries), whose values are
 // read-only and whose setup steps run through the manager (D061), and the
 // Requirements section with an Install all missing button while one is
 // missing. A disabled plugin's status rows say it has not reported.
@@ -80,7 +84,7 @@ FocusScope {
     // or null.
     readonly property var paneHolder: row === null || row.paneHolder === "" ? null : panel.plugins.find(p => p.id === row.paneHolder) || null
     // Whether the Settings page holds nothing below its switches.
-    readonly property bool bare: row !== null && row.builtins.length === 0 && row.tuis.length === 0 && setupEntries.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0 && paneHolder === null
+    readonly property bool bare: row !== null && row.builtins.length === 0 && row.tuis.length === 0 && setupEntries.length === 0 && keyEntries.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0 && paneHolder === null
     // Whether a field of the page holds an unsaved edit.
     readonly property bool dirty: unsaved.edited
 
@@ -105,20 +109,23 @@ FocusScope {
     }
 
     readonly property var lists: row === null ? [] : Object.keys(row.schema).filter(key => row.schema[key].type === "list")
-    // The status entries the Setup section draws at its top, and its
-    // actions in drawn order.
+    // The status entries the Setup section draws at its top, but for the
+    // stored keys, and its actions in drawn order.
     readonly property var setupEntries: row === null ? [] : Steps.setupEntries(row.status)
     readonly property var setupRows: row === null ? [] : Steps.setupRows(row.tuis, row.status)
     readonly property var setupButtons: row === null ? [] : Steps.setupButtons(row.tuis, row.status)
+    // The keys of the status entries that list the plugin's stored keys.
+    readonly property var keyEntries: row === null ? [] : Steps.keyEntries(row.status).map(entry => entry.key)
 
-    // The displayable status entries' keys by section, as `sections` holds
-    // the schema's: [{ group, keys }], ungrouped first, then each group in
-    // the order its first entry appears. The row's `status` is in manifest
-    // order and holds no `data`, `choices` or hidden entry.
+    // The keys of the status entries Details draws, by section, as
+    // `sections` holds the schema's: [{ group, keys }], ungrouped first,
+    // then each group in the order its first entry appears. The row's
+    // `status` is in manifest order and holds no `data`, `choices` or
+    // hidden entry.
     readonly property var statusSections: {
         if (row === null) return [];
         const out = [{ group: "", keys: [] }];
-        for (const entry of row.status) {
+        for (const entry of Steps.detailEntries(row.status)) {
             let section = out.find(s => s.group === entry.group);
             if (section === undefined) {
                 section = { group: entry.group, keys: [] };
@@ -326,7 +333,7 @@ FocusScope {
                     Section {
                         id: setup
                         width: parent.width
-                        visible: page.row !== null && (page.row.tuis.length > 0 || page.setupEntries.length > 0)
+                        visible: page.row !== null && (page.row.tuis.length > 0 || page.setupEntries.length > 0 || page.keyEntries.length > 0)
                         title: "Setup"
                         rowSpacing: Theme.stack.group
 
@@ -390,6 +397,27 @@ FocusScope {
                                             onClicked: page.panel.openTui(page.row.id, setupState.modelData.button.name)
                                         }
                                     }
+                                }
+                            }
+                        }
+
+                        // The stored keys, beside the screen that gets
+                        // one. Keyed by entry, so a status write keeps
+                        // each line and a masked field open on it.
+                        GroupList {
+                            width: setup.width
+                            visible: page.keyEntries.length > 0
+                            Repeater {
+                                model: ScriptModel {
+                                    values: page.keyEntries
+                                }
+                                StatusRow {
+                                    required property string modelData
+                                    width: setup.width
+                                    entry: page.statusEntry(modelData)
+                                    panel: page.panel
+                                    pluginId: page.row === null ? "" : page.row.id
+                                    secretLabel: page.row === null ? "" : page.row.secretLabel
                                 }
                             }
                         }

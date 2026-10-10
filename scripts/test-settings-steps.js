@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // The Settings page's setup-step rule, shell/plugins/vgs.settings/Steps.js,
 // under node: a status row, a presence list's item and a requirement each
-// show their step button only while it applies. The rows are the core's
+// show their step button only while it applies, and an entry that lists a
+// plugin's stored keys draws in the Setup section alone. The rows are the core's
 // own, PluginLogic.statusRows and requirementRows over a manifest written
 // here, so the rule is read against what the Settings page is handed; every
 // expected value is written out by hand.
@@ -111,6 +112,37 @@ const ROWS = [
         [["setup", "Set up"], ["configure", "Configure"]]]
 ];
 
+// A plugin that stores keys: a state and the presence list of its accounts.
+const KEYED = {
+    requirements: [],
+    tui: {},
+    secrets: { service: "acme-keys", label: "Acme key" },
+    status: {
+        check: { type: "state", label: "Check" },
+        keys: { type: "presenceList", label: "Acme keys" }
+    }
+};
+// A plugin that stores keys through a setup screen of its own: its manifest
+// groups their presence list under Setup, beside a state of that group and
+// a presence list that lists no key.
+const OWN = {
+    requirements: [],
+    tui: {},
+    status: {
+        summary: { type: "state", label: "Setup", group: "Setup" },
+        keys: { type: "presenceList", label: "Provider keys", group: "Setup" },
+        accounts: { type: "presenceList", label: "Accounts", group: "AI model" }
+    }
+};
+// A presence list's item as a line draws it: [label, item, { tone, text }].
+const ITEMS = [
+    ["a secret nothing is stored for draws no chip", { label: "A", value: "absent", secret: "acme:a" }, { tone: "", text: "" }],
+    ["a stored secret draws its chip", { label: "A", value: "present", secret: "acme:a" }, { tone: "success", text: "Present" }],
+    ["a locked secret draws its chip", { label: "A", value: "locked", secret: "acme:a" }, { tone: "info", text: "Locked" }],
+    ["a signed-out account keeps its chip", { label: "A", value: "signed-out", secret: "acme:a" }, { tone: "warning", text: "Signed out" }],
+    ["an absent item that is no secret keeps its chip", { label: "A", value: "absent" }, { tone: "warning", text: "Absent" }]
+];
+
 function verify(logic) {
     const hintSpec = { hintFrom: "warden" };
     for (const [label, values, want] of [
@@ -129,6 +161,19 @@ function verify(logic) {
     }
     // setupEntries: the Setup group's entries alone.
     same(logic.setupEntries(producer.statusRows(MANIFEST, {}, [])).map(entry => entry.key), ["warden"], "the Setup section takes the Setup group's entries");
+    // keyEntries and detailEntries: the entry that lists the stored keys
+    // draws with the setup, and every other entry on Details.
+    const keyed = producer.statusRows(KEYED, {}, []);
+    same([logic.keyEntries(keyed).map(entry => entry.key), logic.detailEntries(keyed).map(entry => entry.key)], [["keys"], ["check"]], "the stored keys' entry leaves Details for the Setup section");
+    const own = producer.statusRows(OWN, {}, []);
+    same([logic.keyEntries(own).map(entry => entry.key), logic.detailEntries(own).map(entry => entry.key), logic.setupEntries(own).map(entry => entry.key)],
+        [["keys"], ["summary", "accounts"], ["summary"]], "a presence list grouped under Setup draws as stored keys, off Details and off the step rows");
+    const plain = producer.statusRows(MANIFEST, {}, []);
+    same([logic.keyEntries(plain).map(entry => entry.key), logic.detailEntries(plain).map(entry => entry.key)], [[], ["token", "warden", "bare", "pending", "accounts"]], "a plugin that stores no key keeps every entry on Details");
+    for (const [label, item, want] of ITEMS) {
+        const drawn = producer.statusRows(KEYED, { keys: [item] }, []).find(entry => entry.key === "keys").value[0];
+        same(logic.itemView(drawn), want, "itemView: " + label);
+    }
     // setupButtons: [label, published values, missing requirements, the
     // actions as [name, label]]. The manager row lists setup and
     // configure; a step is drawn first, with its action's label.
@@ -171,7 +216,16 @@ const CONTROLS = [
     ["a live hint is drawn", 'return entry === undefined || entry.report !== "reported" ? "" : entry.hint;', 'return "";'],
     ["a declared action is always offered", "entry.action !== null && entry.action.offered", "entry.action !== null"],
     ["a present requirement still offers its install", "return requirement.state === \"missing\";", "return true;"],
-    ["the Setup section takes every group", "return entry.group === SETUP_GROUP;", "return true;"],
+    ["the Setup section takes every group", "entry.group === SETUP_GROUP && !listsKeys(entry)", "!listsKeys(entry)"],
+    ["the stored keys draw among the step rows too", "entry.group === SETUP_GROUP && !listsKeys(entry)", "entry.group === SETUP_GROUP"],
+    ["every entry draws among the stored keys", "return status.filter(listsKeys);", "return status;"],
+    ["the stored keys' entry stays on Details", "return !listsKeys(entry);", "return true;"],
+    ["the core's stored keys stay on Details", "return entry.secrets || (", "return ("],
+    ["a plugin's own stored keys stay on Details", ' || (entry.type === "presenceList" && entry.group === SETUP_GROUP)', ""],
+    ["a Setup state draws among the stored keys", 'entry.type === "presenceList" && entry.group === SETUP_GROUP', "entry.group === SETUP_GROUP"],
+    ["a presence list of any group draws among the stored keys", 'entry.type === "presenceList" && entry.group === SETUP_GROUP', 'entry.type === "presenceList"'],
+    ["a secret nothing is stored for draws its chip", 'if (item.access === "connect" && item.value === "absent") return { tone: "", text: "" };', ""],
+    ["a signed-out account loses its chip", 'item.access === "connect" && item.value === "absent"', 'item.access === "connect"'],
     ["an offered step keeps its screen's label", "add(tui, entry.action.label, true);", "add(tui, tui.label, true);"],
     ["a screen draws twice", "if (tui !== undefined && !has(tui.name))", "if (tui !== undefined)"],
     ["a button's key ignores its label and state", "key: tui.name + \" \" + label + \" \" + enabled,", "key: tui.name,"],

@@ -5,7 +5,10 @@
 # setting reads its empty text, closed, beside Add key; without a command
 # only Accounts needs, the search row offers Install requirements and Add
 # key stays offered. With a Copilot account, and only then, Setup shows the
-# Copilot Memory step and its link to GitHub. No latency budget.
+# Copilot Memory step and its link to GitHub. With the fixture's key stored,
+# the Setup section of the Settings tab draws the key list, a line per key
+# with its chip, and Details draws none; a manifest copy that groups the
+# list outside Setup fails both Setup readings. No latency budget.
 # Poll once per nested IPC round trip. Only J09's process double and the
 # allow-listed TUI fixtures run here.
 # inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/Capabilities.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh
@@ -210,5 +213,51 @@ printf 'signed-in\n' >"$sandbox/jarvis-world/account-mode"
 printf 'present\n' >"$sandbox/jarvis-world/key-mode"
 jarvis_rescan
 expect_poll "the restored world publishes its fixture key" matched jarvis_key_value present
+
+# The key list with the fixture's key stored. The Settings tab draws it in
+# its Setup section, beside Add key: the list's label and hint, then the
+# key's line with its chip. Details draws no key list.
+page_keys_want="$(python3 -c 'import json,sys; e=json.load(open(sys.argv[1]))["status"]["keys"]; print(json.dumps([e["label"], e["hint"], "fixture / test", "Present"]))' "$page_manifest")"
+# The key list's row as the shown tab draws it, `rows=0` where it draws none.
+page_keys_drawn() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; label=json.load(open(sys.argv[1]))["status"]["keys"]["label"]; r=[r for r in json.load(sys.stdin) if r and r[0] == label]; print(json.dumps(r[0]) if len(r) == 1 else "rows=%d" % len(r))' "$page_manifest"; }
+# Whether the shown Setup section holds the key's line, its chip and Add key.
+page_keys_in_setup() { ipc smoke setupSection window vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); s=json.loads(t) if t.startswith("{") else {"lines": [], "chips": [], "buttons": []}; print(str("fixture / test" in s["lines"] and ["Present", "success"] in s["chips"] and "Add key" in [b[0] for b in s["buttons"]]).lower())'; }
+settings_page_open vgs.jarvis
+expect_poll "the page opens on its Settings tab for the key list" 0 settings_tab
+expect_poll "the Settings tab draws the key list with the stored key's chip" "$page_keys_want" page_keys_drawn
+expect "the key's line and chip stand in the Setup section, with Add key" true page_keys_in_setup
+settings_details
+expect "Details draws no key list" rows=0 page_keys_drawn
+# The control: a manifest copy that groups the key list under AI model, so
+# the page draws it on Details. The same readers then find it there and
+# not under Setup.
+python3 - "$page_manifest" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+assert not p.is_symlink()
+s=p.read_text()
+needle='"keys": { "type": "presenceList", "label": "Provider keys", "group": "Setup",'
+assert s.count(needle)==1
+changed=s.replace(needle, needle.replace('"group": "Setup"', '"group": "AI model"'))
+assert changed != s
+p.write_text(changed)
+PY
+jarvis_rescan
+expect_poll "control: a key list grouped outside Setup draws on Details" "$page_keys_want" page_keys_drawn
+settings_tab_click Settings || fail "control: the click back to the Settings tab failed"
+expect_poll "control: the copy's page shows its Settings tab" 0 settings_tab
+page_keys_control() {
+  (failures=0 behaviour_failures=0
+   expect "the Settings tab draws the key list" "$page_keys_want" page_keys_drawn >"$sandbox/jarvis-page-keys-control.log"
+   expect "the key's line stands in the Setup section" true page_keys_in_setup >>"$sandbox/jarvis-page-keys-control.log"
+   echo "$failures")
+}
+expect "a key list grouped outside Setup breaks both Setup readings" 2 page_keys_control
+cp -- "$sandbox/page-manifest-original" "$page_manifest"
+jarvis_rescan
+expect_poll "the restored page draws the key list under Setup again" "$page_keys_want" page_keys_drawn
+expect "the restored key's line stands in the Setup section" true page_keys_in_setup
+settings_page_close vgs.jarvis
 jarvis_disable
 jarvis_notice_close

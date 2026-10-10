@@ -833,16 +833,16 @@ expect_poll "a disabled plugin's dynamic Select is read-only and has no offered 
 settings_details
 expect_poll "a disabled plugin's rows all read not reported" '[["Check", "Not reported"], ["Last check", "Not reported"], ["Note", "Not reported"], ["Token", "Not reported", "Needed for the fixture'"'"'s sync"], ["Pending", "Not reported"]]' drawn_status
 expect "the window opens the notifications' page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.notifications
-settings_details
+expect_poll "the notifications' page opens on its Settings tab" 0 settings_tab
 slack_tokens_hint="Connect each workspace to show sender photos."
-# The Slack token connection remains available when photos are off.
+# The Slack token rows stay in the Setup section when photos are off.
 # A disabled plugin reports no account state and offers no token edit.
 expect_poll "with Slack photos off the disabled notifications list the Slack tokens row unreported" '[["Slack tokens", "unreported", null, ""]]' status_of vgs.notifications
-expect_poll "the page draws the Slack tokens row with its hint while photos are off" "$(python3 -c 'import json,sys; print(json.dumps([["Slack tokens", "Not reported", sys.argv[1]]]))' "$slack_tokens_hint")" drawn_status
+expect_poll "Setup draws the Slack tokens row with its hint while photos are off" "$(python3 -c 'import json,sys; print(json.dumps([["Slack tokens", "Not reported", sys.argv[1]]]))' "$slack_tokens_hint")" drawn_status
 # Changing the photos setting keeps the same supported connection path.
 set_slack_photos on
 expect_poll "the disabled notifications list the Slack tokens row unreported" '[["Slack tokens", "unreported", null, ""]]' status_of vgs.notifications
-expect_poll "the page draws the Slack tokens row with its hint and no line per account" "$(python3 -c 'import json,sys; print(json.dumps([["Slack tokens", "Not reported", sys.argv[1]]]))' "$slack_tokens_hint")" drawn_status
+expect_poll "Setup draws the Slack tokens row with its hint and no line per account" "$(python3 -c 'import json,sys; print(json.dumps([["Slack tokens", "Not reported", sys.argv[1]]]))' "$slack_tokens_hint")" drawn_status
 expect "no Slack tokens row takes an edit" '[[]]' ipc smoke statusRowInputs window vgs.settings
 set_slack_photos absent
 expect_poll "turning photos off again keeps the Slack tokens row unreported" '[["Slack tokens", "unreported", null, ""]]' status_of vgs.notifications
