@@ -43,7 +43,8 @@
 # --home PATH copies that folder into the run's scratch and names the copy
 # as the Jarvis home folder; the folder itself is read twice, for its
 # checksums before and after, and never written.
-# --confirm key confirms each request Jarvis shows as its Confirm key does;
+# --confirm key confirms each request Jarvis shows as its Confirm key does,
+# with one press a request, made once Session's draw guard has passed;
 # none, the default, answers none, so a request ends on Jarvis's own bound.
 # --out FILE is the record; the default is a new file under
 # tmp/selftest-records/.
@@ -57,13 +58,16 @@
 #
 # The record is one JSON object: `input` {kind, value}, `brain`, `home`,
 # `voice`, `confirm`, `heard` (the text Session committed as the user turn),
-# `sentences` (each sentence released to speech as {ms, text}), `tools`
+# `sentences` (each sentence released to speech as {ms, text}; with --voice
+# realtime, whose transcript of its own speech arrives in fragments, each
+# assistant caption segment whole as {ms of its first words, text}), `tools`
 # (each audit record of a tool call as {tool, decision, confirmed, outcome},
 # names only), `widget` (each bar widget state as {ms, state}), `end`
 # {kind, phase, fault} and `passed`. Every ms counts from the input's start
 # on the shell's own clock. `end.kind` is completed, fault, gate-down or
-# timeout; `passed` is true only for a completed turn with a heard text
-# whose --home folder, when named, reads as before.
+# timeout; `passed` is true only for a completed turn with a heard text, in
+# a run whose --home folder, when named, reads as before, that reached no
+# authentication stand-in and failed no sandbox check.
 #
 # The last line is `selftest=<key>`: `selftest=<end.kind> record=<file>`
 # after a turn, else the reason no turn ran. Exit 0 for a passed record, 1
@@ -272,19 +276,74 @@ selftest_wait() { # SECONDS WANT CMD...
   done
 }
 
-# selftest_record TRACE AUDIT OUT END PHASE FAULT KIND VALUE BRAIN HOME VOICE
-# CONFIRM UNCHANGED: the record the header describes, written to OUT by
+# selftest_draw_ms TREE: Session's draw guard in milliseconds, from TREE's
+# own Session.js: how long after a request is shown Session refuses a
+# confirm of it as early.
+selftest_draw_ms() { # TREE
+  env -i "$selftest_node" - "$1" <<'JS'
+    const path = require("node:path");
+    const [tree] = process.argv.slice(2);
+    const { load } = require(path.join(tree, "bin/lib/qml-library.js"));
+    const bound = load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js")).APPROVAL_DRAW_MS;
+    if (!Number.isSafeInteger(bound) || bound < 0) process.exit(1);
+    console.log(bound);
+JS
+}
+
+# selftest_shown: the request Jarvis holds and has shown, from the probe's
+# jarvisProcess reply on stdin, as `<gen>:<id>`; `none` with no request held
+# or one Session has no shown time for yet.
+selftest_shown() {
+  py_reply '
+import json, sys
+detail = json.load(sys.stdin)["status"].get("detail")
+held = detail["state"]["approval"] if detail else {"kind": "none"}
+print("%s:%s" % (held["gen"], held["id"]) if held["kind"] == "held" and held["shownAt"] is not None else "none")
+'
+}
+
+# selftest_confirm DRAW_MS NOW_MS REQUEST: the Confirm key pressed once for
+# REQUEST, selftest_shown's word, and no sooner than DRAW_MS after this run
+# first read it as shown, which is later than the time Session counts from.
+# Session refuses an earlier press and the audit records that as a refused
+# tool call, which the record would list as Jarvis's own refusal. A press
+# the probe did not send is made again at a later call. `confirm_seen`,
+# `confirm_seen_ms` and `confirm_pressed` carry the request between calls.
+selftest_confirm() { # DRAW_MS NOW_MS REQUEST
+  local reply
+  [[ $3 == *:* && $3 != "${confirm_pressed:-}" ]] || return 0
+  if [[ $3 != "${confirm_seen:-}" ]]; then confirm_seen="$3" confirm_seen_ms="$2"; fi
+  (($2 - confirm_seen_ms >= $1)) || return 0
+  reply="$(ipc smoke jarvisConfirm)" || return 0
+  [[ $reply != sent ]] || confirm_pressed="$3"
+}
+
+# selftest_end TURN: the record's end.kind for selftest_turn's last word: a
+# turn a fault stopped is fault, one the gate stopped is gate-down, any
+# other ended turn is completed, and a turn that never ended is timeout.
+selftest_end() { # TURN
+  case "$1" in
+    ended=error) echo fault ;;
+    ended=down) echo gate-down ;;
+    ended=*) echo completed ;;
+    *) echo timeout ;;
+  esac
+}
+
+# selftest_record TRACE AUDIT OUT PHASE FAULT KIND VALUE BRAIN HOME VOICE
+# CONFIRM END KEPT: the record the header describes, written to OUT by
 # rename, from the probe's trace in the file TRACE and the audit records
-# under AUDIT, which may be absent. HOME is "" for none and UNCHANGED says
-# whether its folder reads as before. Prints `passed` or `failed`.
+# under AUDIT, which may be absent. HOME is "" for none, END is
+# selftest_end's word and KEPT says whether the run kept every rule
+# selftest_finish reads. Prints `passed` or `failed`.
 selftest_record() {
   python3 - "$@" <<'PY'
 import json, os, sys
-trace, audit, out, end, phase, fault, kind, value, brain, home, voice, confirm, unchanged = sys.argv[1:]
+trace, audit, out, phase, fault, kind, value, brain, home, voice, confirm, end, kept = sys.argv[1:]
 events = json.load(open(trace))
 first = next(i for i, e in enumerate(events) if e["kind"] == "mark" and e["value"] == "input")
 start = events[first]["at"]
-heard, sentences, shown = None, [], ""
+heard, sentences, shown, segment = None, [], "", None
 for event in events[first:]:
     if event["kind"] != "caption":
         continue
@@ -292,10 +351,22 @@ for event in events[first:]:
     if caption["role"] != "assistant":
         if heard is None and caption["stage"] == "final":
             heard = caption["text"]
-        shown = ""
+        shown, segment = "", None
         continue
-    # A caption segment grows by one released sentence a write.
     text = caption["text"]
+    if voice == "realtime":
+        # Realtime.js writes a segment once for each fragment of the voice's
+        # transcript, so a write is no sentence: the segment is one entry,
+        # timed at its first write and holding its last.
+        if segment is None and text.strip():
+            segment = {"ms": event["at"] - start, "text": ""}
+            sentences.append(segment)
+        if segment is not None:
+            segment["text"] = text.strip()
+        if caption["stage"] == "final":
+            segment = None
+        continue
+    # ChainedEngine.js grows a segment by one released sentence a write.
     new = (text[len(shown):] if text.startswith(shown) else text).strip()
     if new:
         sentences.append({"ms": event["at"] - start, "text": new})
@@ -306,7 +377,7 @@ for name in sorted(os.listdir(audit)) if os.path.isdir(audit) else []:
         row = json.loads(line)
         if row["kind"] == "action":
             tools.append({key: row[key] for key in ("tool", "decision", "confirmed", "outcome")})
-passed = end == "completed" and heard is not None and unchanged == "true"
+passed = end == "completed" and heard is not None and kept == "true"
 record = {"input": {"kind": kind, "value": value}, "brain": brain, "home": home or None, "voice": voice,
           "confirm": confirm, "heard": heard, "sentences": sentences, "tools": tools,
           "widget": [{"ms": e["at"] - start, "state": e["value"]} for e in events if e["kind"] == "widget" and e["value"]],
@@ -337,6 +408,31 @@ stopped() {
   [[ -z ${instance_log:-} ]] || { echo "--- instance log tail"; tail -n 25 -- "$instance_log" || true; }
   printf 'selftest=%s\n' "$*"
   exit 1
+}
+# selftest_finish TURN HOME_SUM AUTH_LOG FAILURES TRACE AUDIT OUT PHASE FAULT
+# KIND VALUE BRAIN HOME VOICE CONFIRM: the run's one verdict. It reads what
+# the run broke outside its turn: the folder HOME, when named, no longer
+# sums to HOME_SUM; an authentication stand-in was reached, a keyring store
+# or unlock among them (harness.sh's sentinels), which AUTH_LOG lists; the
+# harness counted FAILURES failed sandbox checks. selftest_record gets that
+# with the end of the turn TURN, selftest_turn's last word, so the record's
+# `passed` and the exit status are one answer. Prints a line for each rule
+# broken, then the run's last line, and exits 0 for a passed record and 1
+# for any other.
+selftest_finish() {
+  local turn="$1" home_sum="$2" auth_log="$3" failures="$4" out="$7" home_source="${13}" end sum kept=true verdict
+  end="$(selftest_end "$turn")"
+  if [[ -n $home_source ]]; then
+    sum="$(selftest_tree_sum "$home_source")" || stopped home-unread
+    [[ $sum == "$home_sum" ]] || { kept=false; printf 'selftest: the home folder changed during the run: %s\n' "$home_source"; }
+  fi
+  if [[ -s $auth_log ]]; then kept=false; printf 'selftest: an authentication stand-in was reached: %s\n' "$auth_log"; sed 's/^/        /' -- "$auth_log"; fi
+  [[ $failures -eq 0 ]] || { kept=false; printf 'selftest: %s sandbox check(s) failed above\n' "$failures"; }
+  mkdir -p -- "$(dirname -- "$out")"
+  verdict="$(selftest_record "${@:5}" "$end" "$kept")" || stopped record-not-written
+  printf 'selftest=%s record=%s\n' "$end" "$out"
+  [[ $verdict == passed ]] || exit 1
+  exit 0
 }
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -412,6 +508,8 @@ keep=false timeout_s=60
 source "$repo/scripts/smoke/harness.sh"
 # From here $repo is the sandbox's copy and $source_repo the checkout.
 plugin="$source_repo/shell/plugins/vgs.jarvis"
+draw_ms=0
+if [[ $confirm == key ]]; then draw_ms="$(selftest_draw_ms "$source_repo")" || stopped draw-guard-unread; fi
 
 if [[ $input_kind == tts ]]; then
   wav="$sandbox/selftest-input.wav"
@@ -535,17 +633,12 @@ turn_until=$((SECONDS + 300))
 while ((SECONDS < turn_until)); do
   turn="$(ipc smoke jarvisTrace | selftest_turn)" || turn=unread
   [[ $turn != ended=* ]] || break
-  # A press before Jarvis has shown the request is refused there, and the
-  # next poll presses again, as a user would.
-  if [[ $turn == confirming && $confirm == key ]]; then ipc smoke jarvisConfirm >/dev/null || true; fi
+  if [[ $turn == confirming && $confirm == key ]]; then
+    request="$(ipc smoke jarvisProcess | selftest_shown)" || request=none
+    selftest_confirm "$draw_ms" "$(now_ms)" "$request"
+  fi
   sleep 0.2
 done
-case "$turn" in
-  ended=error) end=fault ;;
-  ended=down) end=gate-down ;;
-  ended=*) end=completed ;;
-  *) end=timeout ;;
-esac
 phase="$(traced phase)" || phase=unread
 fault="$(ipc smoke jarvisProcess | py_reply 'import json,sys; d=json.load(sys.stdin)["status"].get("detail"); print(d["state"]["fault"].get("reason", "") if d else "")')" || fault=unread
 # Toggle mode listens again after its answer; Stop ends the conversation, so
@@ -554,15 +647,5 @@ ipc vgs.jarvis invoke stop "" >/dev/null || true
 selftest_wait 10 idle traced phase || true
 ipc smoke jarvisTrace >"$sandbox/selftest-trace.json" || stopped trace-unread
 
-unchanged=true
-if [[ -n $home_source && $(selftest_tree_sum "$home_source") != "$home_sum" ]]; then unchanged=false; fi
-mkdir -p -- "$(dirname -- "$out")"
-verdict="$(selftest_record "$sandbox/selftest-trace.json" "$home/.local/state/vgshell/jarvis/audit" "$out" "$end" "$phase" "$fault" \
-  "$input_kind" "$input_value" "$brain" "$home_source" "$voice" "$confirm" "$unchanged")" || stopped record-not-written
-# No run may reach an authentication stand-in, a keyring store or unlock
-# among them (harness.sh's sentinels).
-if [[ -s $auth_log ]]; then verdict=failed; printf 'selftest: an authentication stand-in was reached: %s\n' "$auth_log"; sed 's/^/        /' -- "$auth_log"; fi
-[[ $unchanged == true ]] || printf 'selftest: the home folder changed during the run: %s\n' "$home_source"
-[[ $failures -eq 0 ]] || { verdict=failed; printf 'selftest: %s sandbox check(s) failed above\n' "$failures"; }
-printf 'selftest=%s record=%s\n' "$end" "$out"
-[[ $verdict == passed ]]
+selftest_finish "$turn" "$home_sum" "$auth_log" "$failures" "$sandbox/selftest-trace.json" "$home/.local/state/vgshell/jarvis/audit" "$out" \
+  "$phase" "$fault" "$input_kind" "$input_value" "$brain" "$home_source" "$voice" "$confirm"

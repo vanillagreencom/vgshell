@@ -475,7 +475,7 @@ rows=(
   "tools|smoke teardown controls|scripts/test-smoke-teardown.sh|scripts/smoke/teardown.sh scripts/smoke/harness.sh scripts/smoke/rows/read-only-prefix.sh"
   "tools|smoke configuration restore controls|python3 scripts/test-smoke-user-config.py|scripts/test-smoke-user-config.py scripts/smoke/user-config.sh scripts/smoke/harness.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-widget.sh scripts/smoke/rows/sound.sh scripts/smoke/rows/network.sh scripts/smoke/rows/vpn.sh"
   "tools|sandbox shot controls|scripts/test-sandbox-shots.sh|scripts/smoke/shot.sh scripts/smoke/host-window.sh scripts/smoke/tree.sh scripts/sandbox-shots.sh scripts/smoke/harness.sh scripts/smoke/gpu-fence.sh bin/lib/ipc-reply.sh"
-  "tools|GPU fence controls|scripts/test-gpu-fence.sh|scripts/smoke/gpu-fence.sh scripts/smoke/harness.sh scripts/qml-smoke.sh scripts/smoke/rows.list scripts/sandbox-shots.sh scripts/measure-shader.sh scripts/qml-unit.sh"
+  "tools|GPU fence controls|scripts/test-gpu-fence.sh|scripts/smoke/gpu-fence.sh scripts/smoke/harness.sh scripts/qml-smoke.sh scripts/smoke/rows.list scripts/sandbox-shots.sh scripts/measure-shader.sh scripts/qml-unit.sh scripts/jarvis-selftest.sh"
   "tools|smoke owner controls|scripts/test-smoke-owner.sh|scripts/smoke/gpu-fence.sh scripts/smoke/teardown.sh"
   "tools|plugin README images|python3 scripts/check-readme-images.py|shell/plugins/* docs/images/*"
   "tools|plugin README image controls|python3 scripts/test-check-readme-images.py|scripts/check-readme-images.py"

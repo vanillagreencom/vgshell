@@ -33,7 +33,8 @@
 #
 # The wiring cases run a copy of each entry point beside a stand-in fence.
 # Each must hand its own path and arguments to the fence before it makes
-# anything, and go on by itself where the fence's check passes. A copy of
+# anything, and go on by itself where the fence's check passes. The tree
+# holds a stand-in for what an entry point reads before the fence. A copy of
 # the harness, cut after its check, must stop where the check fails, having
 # started none of its tools but pkg-config, which its prerequisite check
 # asks first. The stand-ins for the harness's tools are the list the
@@ -708,33 +709,51 @@ chmod +x "$TMP_ROOT/fence-stand-in" "$TMP_ROOT/runner"
 
 # Entry points: the script and the arguments each case hands it, one of
 # them holding a space.
-entry_points=(qml-smoke.sh sandbox-shots.sh measure-shader.sh qml-unit.sh)
+entry_points=(qml-smoke.sh sandbox-shots.sh measure-shader.sh qml-unit.sh jarvis-selftest.sh)
 entry_words() {
   case "$1" in
     qml-smoke.sh) words=(--timeout "6 0" --keep) ;;
     sandbox-shots.sh) words=(--out "o ut" --scale 2 gallery) ;;
     measure-shader.sh) words=(--calibrate "out file.json" --keep) ;;
     qml-unit.sh) words=(--ui "$TMP_ROOT/u i") ;;
+    jarvis-selftest.sh) words=(--type "two words" --brain stand-in) ;;
     *) printf '        no words for entry point: %s\n' "$1"; return 1 ;;
   esac
 }
+# What jarvis-selftest.sh reads before the fence. It asks its tree's account
+# judge for the account of --brain, so the scratch tree holds a judge that
+# answers a model server on this computer for any id, an account with no
+# folder and no key. It reads the prepared local voice its two variables
+# name: a setup of empty files. It finds node through PATH, where node may
+# be a version manager's shim that fails under a scratch HOME, so its PATH
+# leads with the directory of the binary itself.
+node_bin="$(node -e 'process.stdout.write(process.execPath)')" || { echo "test-gpu-fence: missing=node" >&2; exit 1; }
+voice_root="$TMP_ROOT/voice/.local/share/vgshell/jarvis/local"
+mkdir -p "$voice_root/models" "$voice_root/venv/bin" "$TMP_ROOT/voice/.local/state/vgshell/jarvis"
+printf '#!/bin/sh\nexit 0\n' >"$voice_root/venv/bin/python"
+chmod +x "$voice_root/venv/bin/python"
+echo '{}' >"$TMP_ROOT/voice/.local/state/vgshell/jarvis/local-ready.json"
 # entry FILE NAME ANSWER: FILE as scripts/NAME of a scratch tree whose
 # fence is the stand-in answering ANSWER, whose harness is a stand-in
 # that only says it was reached, and which holds the repository's smoke
-# row list, which qml-smoke.sh reads before the fence. Leaves the calls in fence.log.
+# row list, which qml-smoke.sh reads before the fence, and the stand-in
+# account judge. Leaves the calls in fence.log.
 entry() {
   local file="$1" name="$2" tree="$TMP_ROOT/tree-$2"
   entry_words "$name" || return 1
   rm -rf -- "$tree" "$TMP_ROOT/entry-tmp"
-  mkdir -p "$tree/scripts/smoke" "$TMP_ROOT/entry-tmp"
+  mkdir -p "$tree/scripts/smoke" "$tree/shell/plugins/vgs.jarvis/backend" "$TMP_ROOT/entry-tmp"
   cp -- "$file" "$tree/scripts/$name"
   cp -- "$TMP_ROOT/fence-stand-in" "$tree/scripts/smoke/gpu-fence.sh"
   cp -- "$repo/scripts/smoke/rows.list" "$tree/scripts/smoke/rows.list"
   printf 'echo harness-reached\nexit 0\n' >"$tree/scripts/smoke/harness.sh"
+  echo 'exports.use = () => {};' >"$tree/shell/plugins/vgs.jarvis/backend/Core.js"
+  echo 'exports.Accounts = class { resolve() { return { source: { kind: "local" } }; } };' >"$tree/shell/plugins/vgs.jarvis/backend/Accounts.js"
   : >"$TMP_ROOT/fence.log"
   echo "$3" >"$TMP_ROOT/fence-answer"
   status=0
-  (cd -- "$TMP_ROOT/cwd" && env -i PATH="$PATH" HOME="$TMP_ROOT" TMPDIR="$TMP_ROOT/entry-tmp" QML_UNIT_RUNNER="$TMP_ROOT/runner" \
+  (cd -- "$TMP_ROOT/cwd" && env -i PATH="$(dirname -- "$node_bin"):$PATH" HOME="$TMP_ROOT" TMPDIR="$TMP_ROOT/entry-tmp" QML_UNIT_RUNNER="$TMP_ROOT/runner" \
+    JARVIS_LOCAL_MODELS="$voice_root/models" JARVIS_LOCAL_PYTHON="$voice_root/venv/bin/python" \
     "$BASH" "$tree/scripts/$name" "${words[@]}") >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
 }
 # enters FILE NAME: where the check fails, the fence gets the script's own
