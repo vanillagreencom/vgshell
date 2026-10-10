@@ -1,5 +1,5 @@
 // The private-directory helper the audit store and the tool bridge's runtime
-// directory share.
+// directory share, and the private MCP config file the harnesses write.
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -29,4 +29,16 @@ function directory(target) {
     fs.chmodSync(target, 0o700);
 }
 
-module.exports = { directory };
+/**
+ * Write a harness's MCP config file naming launch, the tool bridge's
+ * {command, args, env}, as its one stdio server under name, or no server for
+ * a null launch. The file is newly created with mode 0600, so the bridge
+ * token rides in it and never in argv.
+ */
+function mcpConfig(file, name, launch) {
+    const servers = launch === null ? {} : { [name]: { type: "stdio", command: launch.command,
+        args: [...launch.args], env: { ...launch.env } } };
+    fs.writeFileSync(file, JSON.stringify({ mcpServers: servers }), { mode: 0o600, flag: "wx" });
+}
+
+module.exports = { directory, mcpConfig };

@@ -239,9 +239,17 @@ function proposal(value, announced, cwd) {
 
 /**
  * Whether a narrowed call is one of the bridge's: Copilot 1.0.91 titles an MCP
- * call `<server>-<tool>`, as in `vgs_jarvis-files_list`.
+ * call `<server>-<tool>`, as in `vgs_jarvis-files_list`, and its rawInput is
+ * the call's arguments. tools are the bridge's MCP tools ({name, inputSchema});
+ * a title naming none of them, or an argument the tool does not declare, is
+ * not the bridge's.
  */
-function bridged(call) { return string(call.title) && call.title.startsWith(SERVER + "-"); }
+function bridged(call, tools) {
+    const tool = tools.find(entry => call.title === SERVER + "-" + entry.name);
+    if (tool === undefined) return false;
+    const declared = Object.keys(tool.inputSchema.properties ?? {});
+    return absent(call.rawInput) || (plain(call.rawInput) && Object.keys(call.rawInput).every(key => declared.includes(key)));
+}
 
 module.exports = { LINE_BYTES, SERVER, initialize, sessionNew, prompt, cancel, answer, agent, sessionId, stopReason,
     accept, proposal, bridged };

@@ -357,11 +357,19 @@ world(async () => {
                 for (const owner of owners.splice(0)) owner();
             }
         },
-        // Another server whose name only starts with the bridge's is not the bridge.
+        // A built-in call is not the bridge's for a title alone: another
+        // server's name, a tool the bridge does not serve, or an argument the
+        // bridge tool does not declare still ends the conversation.
         async foreignTitle(folder) {
-            scenario({ turns: [[announce("read", { title: "vgs_jarvisx-files_list" }), progress("completed"), { stop: "end_turn" }]] });
-            const w = make(folder);
-            await assert.rejects(drain(w.say("read")), { message: "jarvis: brain=copilot-builtin kind=read" });
+            for (const [label, kind, extra] of [
+                ["another server", "read", { title: "vgs_jarvisx-windows_list" }],
+                ["an unserved tool", "execute", { title: "vgs_jarvis-shell", rawInput: {} }],
+                ["an undeclared argument", "execute", { title: "vgs_jarvis-windows_list", rawInput: { command: "sh" } }]]) {
+                scenario({ turns: [[announce(kind, extra), progress("completed"), { stop: "end_turn" }]] });
+                const w = make(folder);
+                await assert.rejects(drain(w.say(label)), { message: "jarvis: brain=copilot-builtin kind=" + kind }, label);
+                for (const owner of owners.splice(0)) owner();
+            }
         },
         // The program's handshake must name the agent at its floor, signed in.
         async handshake(folder) {
@@ -616,7 +624,7 @@ world(async () => {
                     + "command: bridge.command, args: [...bridge.args], env: Object.entries(bridge.env).map(([name, value]) => ({ name, value })) }] } })"]], "bridge"],
             ["token-argv", H, [['path.join(cwd, "mcp.json");', 'path.join(cwd, "mcp.json#" + bridge.env.VGS_JARVIS_TOOLS_TOKEN);']], "turn"],
             ["server-name", "backend/CopilotAcp.js", [['const SERVER = "vgs_jarvis";', 'const SERVER = "jarvis";']], "turn"],
-            ["config-mode", "backend/ToolBridge.js", [["{ mode: 0o600, flag: \"wx\" });", "{ mode: 0o600, flag: \"wx\" }); fs.chmodSync(file, 0o644);"]], "turn"],
+            ["config-mode", "backend/Private.js", [["{ mode: 0o600, flag: \"wx\" });", "{ mode: 0o600, flag: \"wx\" }); fs.chmodSync(file, 0o644);"]], "turn"],
             ["providers-config", H, [[', COPILOT_PROVIDERS_CONFIG: path.join(cwd, "no-providers", "providers.json")', ""]], "turn"],
             ["parent-death", S, [['"--pdeathsig", "KILL"', '"--pdeathsig", "clear"']], "turn"],
             ["denied-kind", H, [['"--deny-tool", "shell", "write", "read",', '"--deny-tool", "shell", "write",']], "turn"],
@@ -640,9 +648,10 @@ world(async () => {
             ["gate-routing", H, [["gate.ask(gen, Copilot.proposal(", "({ ask: (gen, proposal, port) => port.accept() }).ask(gen, Copilot.proposal("]], "allowed"],
             ["session-binding", H, [[" || value.sessionId !== current.id || value.allow === null)", " || value.allow === null)"]], "stale"],
             ["allow-option", H, [[" || value.allow === null)", ")"]], "stale"],
-            ["builtin-tripwire", H, [["if (!BUILTIN.includes(merged.kind) || Copilot.bridged(merged) || turn.asked.has(call.id) || !RAN.includes(merged.status)) return;", "return;"]], "builtin"],
-            ["bridge-call", H, [["|| Copilot.bridged(merged) ", ""]], "bridge"],
-            ["bridge-title", "backend/CopilotAcp.js", [['call.title.startsWith(SERVER + "-")', "call.title.startsWith(SERVER)"]], "foreignTitle"],
+            ["builtin-tripwire", H, [["if (!BUILTIN.includes(merged.kind) || Copilot.bridged(merged, launch.tools) || turn.asked.has(call.id) || !RAN.includes(merged.status)) return;", "return;"]], "builtin"],
+            ["bridge-call", H, [["|| Copilot.bridged(merged, launch.tools) ", ""]], "bridge"],
+            ["bridge-title", "backend/CopilotAcp.js", [['call.title === SERVER + "-" + entry.name', "call.title.startsWith(SERVER)"]], "foreignTitle"],
+            ["bridge-arguments", "backend/CopilotAcp.js", [["Object.keys(call.rawInput).every(key => declared.includes(key))", "true"]], "foreignTitle"],
             ["builtin-kind", H, [['"execute", ', ""]], "builtin"],
             ["builtin-asked", H, [["turn.asked.has(call.id) || !RAN", "!RAN"]], "refused"],
             ["builtin-pending", H, [[" || !RAN.includes(merged.status)) return;", ") return;"]], "allowed"],

@@ -11,7 +11,6 @@ const path = require("node:path");
 const { StringDecoder } = require("node:string_decoder");
 const Policy = require("./Policy.js");
 const Private = require("./Private.js");
-const ToolBridge = require("./ToolBridge.js");
 const Tools = require("./Tools.js");
 
 const COMMAND = "claude";
@@ -258,7 +257,7 @@ function conversation({ directory, model, recipients, bridge, gen, parent, envir
         // close() ran while the session opened; it could not close it then.
         if (closing !== null) { launch?.close(); fail("closed"); }
         const config = path.join(workdir, "mcp.json");
-        ToolBridge.config(config, SERVER, launch);
+        Private.mcpConfig(config, SERVER, launch);
         // setpriv execs the program under the spawned pid: the group signals
         // still reach it, and a daemon that dies outright takes it along.
         const child = cp.spawn("setpriv", ["--pdeathsig", "KILL", "--", COMMAND,

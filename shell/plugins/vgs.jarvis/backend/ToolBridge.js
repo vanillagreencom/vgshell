@@ -88,6 +88,8 @@ function create({ router, state, audit, directory, release, clock = { set: setTi
         return Object.freeze({
             command: process.execPath, args: Object.freeze([SHIM]),
             env: Object.freeze({ VGS_JARVIS_TOOLS_SOCKET: socketPath, VGS_JARVIS_TOOLS_TOKEN: token }),
+            // The MCP tools this session serves, for a harness that judges its program's reports.
+            tools: offered.tools,
             close: () => end(current)
         });
     }
@@ -264,15 +266,4 @@ function create({ router, state, audit, directory, release, clock = { set: setTi
     });
 }
 
-/**
- * Write a harness's MCP config file naming launch as its one stdio server
- * under name, or no server for a null launch. The file is private (0600) and
- * newly created, so the token rides in it and never in argv.
- */
-function config(file, name, launch) {
-    const servers = launch === null ? {} : { [name]: { type: "stdio", command: launch.command,
-        args: [...launch.args], env: { ...launch.env } } };
-    fs.writeFileSync(file, JSON.stringify({ mcpServers: servers }), { mode: 0o600, flag: "wx" });
-}
-
-module.exports = { create, config };
+module.exports = { create };

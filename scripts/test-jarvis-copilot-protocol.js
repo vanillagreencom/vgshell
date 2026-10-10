@@ -185,7 +185,7 @@ world(() => {
     for (const [name, needle, replacement] of [
         ["fs-capability", "fs: { readTextFile: false, writeTextFile: false }", "fs: { readTextFile: true, writeTextFile: false }"],
         ["terminal-capability", "}, terminal: false }, clientInfo", "}, terminal: true }, clientInfo"],
-        ["session-servers", '{ cwd, mcpServers: [] }', '{ cwd, mcpServers: [{ name: SERVER }] }'],
+        ["session-servers", '{ cwd, mcpServers: [] }', '{ cwd, mcpServers: [{ name: SERVER, command: "x", args: [], env: [] }] }'],
         ["protocol-version", "result.protocolVersion !== VERSION", "false"],
         ["agent-name", "info.name !== row.agent || ", ""],
         ["version-floor", 'if (part < floor[i]) fail("agent-version");', ""],
