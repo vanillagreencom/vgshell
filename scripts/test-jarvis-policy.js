@@ -24,6 +24,7 @@ world(() => {
         external: call("browser", { command: "submit", args: { ref: "@e1" } }),
         destructive: call("files.delete", { path: existing })
     };
+    const memoryWrite = call("memory.replace", { id: "facts/a.md", text: "new", hash: "a".repeat(64) });
     // Independent J47/J51 call contracts. Key facts name an unbound key so
     // target refusals cannot pass by hitting the own-chord guard instead.
     const inputRoutes = [
@@ -70,6 +71,8 @@ world(() => {
                 input: taintEffect === "external" ? site : input, grants: ["application:org.example.Editor"] };
             assert.deepEqual(Policy.decide(effects[taintEffect], current), { kind: "confirm", effect: taintEffect, physical: false });
         }
+        assert.deepEqual(Policy.decide(memoryWrite, { ...context, profile, taint: { kind: "tainted" } }),
+            { kind: "allow", effect: "persistent" }, "tainted memory writes reach Memory.js quarantine");
         for (const effect of ["read", "reversible", "destructive"])
             assert.deepEqual(Policy.decide(effects[effect], { ...context, profile, taint: { kind: "tainted" } }),
                 expected(effect, effect === "destructive" ? "physical" : "allow"));
@@ -361,6 +364,10 @@ world(() => {
     control("taint-upgrade", 'if (context.taint.kind === "tainted" && ["persistent", "exec", "input", "external"].includes(effect))',
         'if (false && context.taint.kind === "tainted" && ["persistent", "exec", "input", "external"].includes(effect))',
         logic => assert.deepEqual(logic.decide(effects.persistent, { ...context, taint: { kind: "tainted" } }), expected("persistent", "confirm")));
+    control("memory-taint-quarantine", 'if (context.taint.kind === "tainted" && refined.executor === "memory"\n            && (refined.call.id === "memory.propose" || refined.call.id === "memory.replace"))\n        return { kind: "allow", effect };',
+        '',
+        logic => assert.deepEqual(logic.decide(memoryWrite, { ...context, taint: { kind: "tainted" } }),
+            { kind: "allow", effect: "persistent" }));
     // External already confirms in every profile. Removing only its taint
     // entry cannot change a decision; the profile matrix pins that guarantee.
     for (const effect of ["persistent", "exec", "input"]) {

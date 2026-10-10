@@ -22,7 +22,7 @@ const indicator = { v: 1, type: "indicator", gen: 0, revision: hello.revision, s
 const status = { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready", causes: [] };
 const shellStatus = { v: 1, type: "shell-status", gen: 0, revision: hello.revision, availability: { kind: "available" } };
 const memory = { v: 1, type: "memory", gen: 0, revision: hello.revision, cause: "memory=sqlite" };
-const memoryEntry = { id, target: "facts/new.md", kind: "propose", title: "New memory", labels: ["home", "web"], text: "Remember this.", hash: "b".repeat(64) };
+const memoryEntry = { id, target: "facts/new.md", kind: "propose", title: "New memory", labels: ["home", "web"], text: "Remember this.", hash: "b".repeat(64), problem: "" };
 const memoryInbox = { v: 1, type: "memory-inbox", gen: 0, revision: hello.revision, entries: [memoryEntry] };
 const memoryConfirm = { ...intent, intent: "memory-confirm", id, hash: memoryEntry.hash };
 const memoryDiscard = { ...intent, intent: "memory-discard", id, hash: memoryEntry.hash };
@@ -133,6 +133,7 @@ const cases = [
     ["memory-entry-labels", changed(memoryInbox, { entries: [{ ...memoryEntry, labels: ["home", "home"] }] }), "daemon", "memory-entry"],
     ["memory-entry-text", changed(memoryInbox, { entries: [{ ...memoryEntry, text: "x".repeat(16 * 1024 + 1) }] }), "daemon", "memory-entry"],
     ["memory-entry-hash", changed(memoryInbox, { entries: [{ ...memoryEntry, hash: "B".repeat(64) }] }), "daemon", "memory-entry"],
+    ["memory-entry-problem", changed(memoryInbox, { entries: [{ ...memoryEntry, problem: "other" }] }), "daemon", "memory-entry"],
     ["audio-fault-direction", JSON.stringify(audioFault), "shell", "direction-audio-fault"],
     ["audio-fault", changed(audioFault, { reason: "" }), "daemon", "audio-fault"],
     ["device-setting", changed(hello, { settings: { ...hello.settings, microphone: 1 } }), "shell", "device-setting"],
@@ -430,11 +431,12 @@ try {
         ["memory-inbox-shape", 'keys(message, ["v", "type", "gen", "revision", "entries"], "memory-inbox");',
             'if (false) keys(message, [], "memory-inbox");', "memory-inbox-shape"],
         ["memory-inbox-bound", 'message.entries.length > MEMORY_INBOX_MAX', 'false', "memory-inbox-bound"],
-        ["memory-entry-shape", 'keys(value, ["id", "target", "kind", "title", "labels", "text", "hash"], "memory-entry");',
+        ["memory-entry-shape", 'keys(value, ["id", "target", "kind", "title", "labels", "text", "hash", "problem"], "memory-entry");',
             'if (false) keys(value, [], "memory-entry");', "memory-entry-shape"],
         ["memory-entry-target", '!memoryTarget(value.target)', 'false', "memory-entry-target"],
         ["memory-entry-text", '!memoryText(value.text)', 'false', "memory-entry-text"],
         ["memory-entry-labels", '!memoryLabels(value.labels)', 'false', "memory-entry-labels"],
+        ["memory-entry-problem", '!/^(|exists|conflict|link|secret|hash|bootstrap)$/.test(value.problem)', 'false', "memory-entry-problem"],
         ["memory-intent-shape", 'keys(message, fields.concat(["id", "hash"]), "memory-intent");',
             'if (false) keys(message, [], "memory-intent");', "memory-confirm-shape"],
         ["memory-intent-hash", '!hash(message.hash)', 'false', "memory-confirm-hash"],

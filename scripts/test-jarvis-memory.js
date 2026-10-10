@@ -20,6 +20,7 @@ world(() => {
     const Denied = require(path.join(backend, "Denied.js"));
     const Policy = require(path.join(backend, "Policy.js"));
     const Session = load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js"));
+    const Protocol = load(path.join(tree, "shell/plugins/vgs.jarvis/JarvisProtocol.js"));
     const { SessionRunner, unavailable } = require(path.join(backend, "session-runner.js"));
     const fixtures = seed();
     let serial = 0;
@@ -48,6 +49,10 @@ world(() => {
         return { installed, search, read, writeCall, logs };
     }
     const sha = text => crypto.createHash("sha256").update(text).digest("hex");
+    const receipts = state => {
+        const folder = path.join(state, "memory-receipts");
+        return fs.existsSync(folder) ? fs.readdirSync(folder).map(name => JSON.parse(fs.readFileSync(path.join(folder, name), "utf8"))) : [];
+    };
 
     function make(logic = Memory) {
         const root = path.join(process.env.JARVIS_TEST_ROOT, "memory-" + ++serial);
@@ -126,12 +131,19 @@ world(() => {
     let proposed = writes.writeCall("memory.propose", { id: "facts/proposed.md", text: "# Proposed\nclean-proposed\n" });
     assert.equal(proposed.outcome, "completed");
     assert.deepEqual(JSON.parse(proposed.content), { status: "written", id: "facts/proposed.md", kind: "propose" });
+    assert.deepEqual(writes.writeCall("memory.propose", { id: "MEMORY.md", text: "bootstrap" }).content, "memory-propose:bootstrap");
     assert.equal(writes.search({ query: "clean-proposed" }).body.results[0].id, "facts/proposed.md");
     writes.installed.close();
     Object.assign(writes, attach(Memory, writes.folder, writes.state));
     assert.equal(writes.search({ query: "clean-proposed" }).body.results[0].id, "facts/proposed.md", "proposed note survives restart");
     const readProposed = writes.read(["facts/proposed.md"]).body.notes[0];
     assert.equal(readProposed.hash, sha(readProposed.text));
+    writes.write("facts/crlf-replace.md", "# CRLF\r\nold\r\n");
+    const crlf = writes.read(["facts/crlf-replace.md"]).body.notes[0];
+    assert.equal(crlf.hash, sha("# CRLF\r\nold\r\n"));
+    const crlfAnswer = writes.writeCall("memory.replace", { id: "facts/crlf-replace.md", text: "# CRLF\r\nnew-crlf-token\r\n", hash: crlf.hash });
+    assert.equal(crlfAnswer.outcome, "completed");
+    assert.equal(writes.search({ query: "new-crlf-token" }).body.results[0].id, "facts/crlf-replace.md");
     const replaced = writes.writeCall("memory.replace", { id: "facts/proposed.md", text: "# Proposed\nreplacement-token\n", hash: readProposed.hash });
     assert.equal(replaced.outcome, "completed");
     assert.equal(writes.search({ query: "replacement-token" }).body.results[0].id, "facts/proposed.md");
@@ -146,6 +158,7 @@ world(() => {
     const pending = tainted.writeCall("memory.propose", { id: "facts/web.md", text: "# Web\nweb-pending-token\n" },
         { labels: ["home", "web"], tainted: true });
     assert.equal(pending.outcome, "completed");
+    assert.deepEqual(Object.keys(JSON.parse(pending.content)).sort(), ["id", "kind", "status"]);
     assert.deepEqual(tainted.search({ query: "web-pending-token" }).body.results, [], "pending text is not searched");
     assert.equal(tainted.read(["facts/web.md"]).answer.outcome, "failed", "pending target is not read");
     const waiting = tainted.installed.pending();
@@ -153,22 +166,65 @@ world(() => {
     assert.deepEqual([waiting[0].target, waiting[0].kind, waiting[0].labels], ["facts/web.md", "propose", ["home", "web"]]);
     assert.throws(() => tainted.installed.confirm(waiting[0].id, "0".repeat(64)), { message: "jarvis: memory=hash" });
     assert.equal(tainted.installed.pending().length, 1, "hash mismatch keeps the inbox entry");
-    assert.deepEqual(tainted.installed.confirm(waiting[0].id, waiting[0].hash), { kind: "confirmed", target: "facts/web.md" });
+    const waitingAfterHash = tainted.installed.pending()[0];
+    assert.deepEqual(tainted.installed.confirm(waitingAfterHash.id, waitingAfterHash.hash), { kind: "confirmed", target: "facts/web.md" });
+    assert.equal(receipts(tainted.state).some(row => row.inbox === waiting[0].id), false, "confirm removes inbox receipt");
     assert.equal(tainted.search({ query: "web-pending-token" }).body.results[0].id, "facts/web.md");
     assert.deepEqual(tainted.read(["facts/web.md"]).body.notes[0].sources, ["home", "web"], "confirmed note keeps host origin label");
+    const duplicatePending = tainted.writeCall("memory.propose", { id: "facts/web.md", text: "duplicate" },
+        { labels: ["home", "web"], tainted: true });
+    assert.deepEqual([duplicatePending.outcome, duplicatePending.content], ["failed", "memory-propose:exists"]);
+    const stalePending = tainted.writeCall("memory.replace", { id: "facts/web.md", text: "stale", hash: "0".repeat(64) },
+        { labels: ["home", "web"], tainted: true });
+    assert.deepEqual([stalePending.outcome, stalePending.content], ["failed", "memory-replace:conflict"]);
     const confirmedNote = tainted.read(["facts/web.md"]).body.notes[0];
     tainted.writeCall("memory.replace", { id: "facts/web.md", text: "# Web\nconfirmed-replace-token\n", hash: confirmedNote.hash },
         { labels: ["home", "web"], tainted: true });
     const replaceWait = tainted.installed.pending()[0];
     fs.writeFileSync(path.join(tainted.folder, "memory/facts/web.md"), "# Web\nuser conflict\n");
     assert.throws(() => tainted.installed.confirm(replaceWait.id, replaceWait.hash), { message: "jarvis: memory=conflict" });
+    assert.equal(tainted.installed.pending()[0].problem, "conflict");
     assert.equal(fs.readFileSync(path.join(tainted.folder, "memory/facts/web.md"), "utf8"), "# Web\nuser conflict\n");
 
     const discarded = make();
     discarded.writeCall("memory.propose", { id: "facts/no.md", text: "discard-token" }, { labels: ["home", "web"], tainted: true });
     const waitingDiscard = discarded.installed.pending()[0];
     assert.deepEqual(discarded.installed.discard(waitingDiscard.id, waitingDiscard.hash), { kind: "discarded", target: "facts/no.md" });
+    assert.equal(receipts(discarded.state).some(row => row.inbox === waitingDiscard.id), false, "discard removes inbox receipt");
     assert.deepEqual(discarded.search({ query: "discard-token" }).body.results, []);
+
+    const inboxBound = make();
+    const longTitle = "L".repeat(200);
+    inboxBound.writeCall("memory.propose", { id: "facts/long-title.md", text: "# " + longTitle + "\nlong-title-token\n" },
+        { labels: ["home", "web"], tainted: true });
+    fs.writeFileSync(path.join(inboxBound.folder, "memory/inbox/bad.json"), "{not json");
+    for (let n = 0; n < 70; n++)
+        inboxBound.writeCall("memory.propose", { id: "many/note-" + n + ".md", text: "# Note " + n + "\n" + "x".repeat(200) },
+            { labels: ["home", "web"], tainted: true });
+    const inboxEntries = inboxBound.installed.pending();
+    assert.equal(inboxEntries.length, 64, "wire inbox is capped by count");
+    assert.ok(inboxEntries.some(entry => entry.target === "facts/long-title.md" && entry.title.length <= 128));
+    assert.doesNotThrow(() => Protocol.accept(JSON.stringify({ v: 1, type: "memory-inbox", gen: 1,
+        revision: "a".repeat(64), entries: inboxEntries }), "daemon"));
+
+    const inherited = make();
+    inherited.write("facts/labelled.md", "---\nsources: [web]\n---\n# Labelled\noriginal-label\n");
+    const labelled = inherited.read(["facts/labelled.md"]).body.notes[0];
+    inherited.writeCall("memory.replace", { id: "facts/labelled.md", text: "# Labelled\nclean-replace\n", hash: labelled.hash });
+    assert.deepEqual(inherited.read(["facts/labelled.md"]).body.notes[0].sources, ["home", "web"], "replace keeps existing source labels");
+
+    const symlinkRoot = path.join(process.env.JARVIS_TEST_ROOT, "memory-link-root-" + ++serial);
+    const realParent = path.join(symlinkRoot, "real");
+    const linkParent = path.join(symlinkRoot, "link");
+    fs.mkdirSync(realParent, { recursive: true });
+    fs.symlinkSync(realParent, linkParent);
+    const linkedHome = path.join(linkParent, "home");
+    Home.layout(linkedHome);
+    const linkedState = path.join(symlinkRoot, "state");
+    fs.mkdirSync(linkedState);
+    const linked = attach(Memory, linkedHome, linkedState);
+    assert.equal(linked.writeCall("memory.propose", { id: "facts/symlink-parent.md", text: "symlink-parent-token" }).outcome, "completed");
+    assert.equal(linked.search({ query: "symlink-parent-token" }).body.results[0].id, "facts/symlink-parent.md");
 
     const guarded = make();
     const outside = path.join(guarded.root, "outside.md");
@@ -179,6 +235,8 @@ world(() => {
     assert.equal(fs.readFileSync(outside, "utf8"), "outside-safe\n");
     const secret = guarded.writeCall("memory.propose", { id: "facts/secret.md", text: "token sk-ant-synthetic-secret-token-value" });
     assert.deepEqual([secret.outcome, secret.content], ["failed", "memory-propose:secret"]);
+    assert.deepEqual(guarded.writeCall("memory.propose", { id: "sk-ant-synthetic-secret-token-value.md", text: "title" }).content,
+        "memory-propose:secret");
     assert.equal(fs.existsSync(path.join(guarded.folder, "memory/facts/secret.md")), false);
 
     for (const loader of [() => { throw new Error("missing"); }, () => ({ DatabaseSync: class {
@@ -233,7 +291,6 @@ world(() => {
         assert.equal(item.content.includes("web-taint"), true);
         runner.dispatch({ type: "cancel" });
         runner.dispatch({ type: "talk-down" }); transcript("final", "fixture user");
-        router.observe(turn(), ["web"]);
         router.route({ kind: "tool-call", id: "remember", tool: "memory.propose",
             arguments: { id: "facts/routed.md", text: "# Routed\nrouter-origin-token\n" } }, turn());
         assert.deepEqual(memoryInstall.pending().map(row => [row.target, row.labels]),
@@ -304,8 +361,12 @@ world(() => {
         assert.deepEqual(x.search({ query: "web-pending-token" }).body.results, [], "tainted proposal must wait outside the index");
     });
     controls++;
-    mutant(memoryFile, "memory-replace-conflict", "if (hashText(current) !== expectedHash) throw new Error(\"jarvis: memory=conflict\");",
-        "if (false && hashText(current) !== expectedHash) throw new Error(\"jarvis: memory=conflict\");", logic => {
+    mutant(memoryFile, "memory-replace-conflict", [
+        ["if (hashText(current) !== expectedHash) throw new Error(\"jarvis: memory=conflict\");",
+            "if (false) throw new Error(\"jarvis: memory=conflict\");"],
+        ["if (hashText(current) !== expectedHash) {\n                throw new Error(\"jarvis: memory=conflict\");\n            }",
+            "if (false) {\n                throw new Error(\"jarvis: memory=conflict\");\n            }"]
+    ], null, logic => {
             const x = make(logic);
             x.writeCall("memory.propose", { id: "facts/a.md", text: "# A\nold\n" });
             const note = x.read(["facts/a.md"]).body.notes[0];
@@ -315,8 +376,8 @@ world(() => {
         });
     controls++;
     mutant(memoryFile, "memory-secret-refusal", [
-        ['if (Redact.secret(text)) throw new Error("jarvis: memory=secret");', 'if (false && Redact.secret(text)) throw new Error("jarvis: memory=secret");'],
-        ['if (Redact.secret(args.text)) throw new Error("jarvis: memory=secret");', 'if (false && Redact.secret(args.text)) throw new Error("jarvis: memory=secret");']
+        ['if (Redact.secret(id) || Redact.secret(text)) {\n            throw new Error("jarvis: memory=secret");\n        }', 'if (false) {\n            throw new Error("jarvis: memory=secret");\n        }'],
+        ['if (Redact.secret(id) || Redact.secret(text)) throw new Error("jarvis: memory=secret");', 'if (false) throw new Error("jarvis: memory=secret");']
     ], null, logic => {
         const x = make(logic);
         const answer = x.writeCall("memory.propose", { id: "facts/secret.md", text: "token sk-ant-synthetic-secret-token-value" });
@@ -324,8 +385,10 @@ world(() => {
     });
     controls++;
     mutant(memoryFile, "memory-symlink-target", [
-        ['if (entryKind(parent, name) === "link") throw new Error("jarvis: memory=link");',
-            'if (false && entryKind(parent, name) === "link") throw new Error("jarvis: memory=link");'],
+        ['function atomicWrite(parent, name, text, { replace }) {\n        if (entryKind(parent, name) === "link") throw new Error("jarvis: memory=link");',
+            'function atomicWrite(parent, name, text, { replace }) {\n        if (false && entryKind(parent, name) === "link") throw new Error("jarvis: memory=link");'],
+        ['const currentKind = withParent(id, true, (parent, name) => entryKind(parent, name));\n        if (!replace && currentKind !== "absent") throw new Error(currentKind === "link" ? "jarvis: memory=link" : "jarvis: memory=exists");\n        let writeLabels = labels;',
+            'const currentKind = withParent(id, true, (parent, name) => entryKind(parent, name));\n        if (!replace && currentKind !== "absent" && currentKind !== "link") throw new Error(currentKind === "link" ? "jarvis: memory=link" : "jarvis: memory=exists");\n        let writeLabels = labels;'],
         ['if (!replace && currentKind !== "absent") throw new Error(currentKind === "link" ? "jarvis: memory=link" : "jarvis: memory=exists");',
             'if (!replace && currentKind !== "absent" && currentKind !== "link") throw new Error(currentKind === "link" ? "jarvis: memory=link" : "jarvis: memory=exists");']
     ], null, logic => {
@@ -346,9 +409,70 @@ world(() => {
             assert.equal(x.read(["facts/a.md"]).body.notes[0].edited, true);
         });
     controls++;
+    mutant(memoryFile, "memory-crlf-raw-hash", "const currentHash = hashText(text);", "const currentHash = hashText(parsed.text);", logic => {
+        const x = make(logic);
+        x.write("facts/crlf.md", "# CRLF\r\nold\r\n");
+        const note = x.read(["facts/crlf.md"]).body.notes[0];
+        assert.equal(note.hash, sha("# CRLF\r\nold\r\n"));
+    });
+    controls++;
+    mutant(memoryFile, "memory-remove-inbox-receipt",
+        'removeInbox(id);\n        removeReceipt("inbox/" + id);\n        publishInbox();\n        return { kind: "confirmed", target: record.target };',
+        'removeInbox(id);\n        void id;\n        publishInbox();\n        return { kind: "confirmed", target: record.target };', logic => {
+        const x = make(logic);
+        x.writeCall("memory.propose", { id: "facts/a.md", text: "a" }, { labels: ["home", "web"], tainted: true });
+        const row = x.installed.pending()[0];
+        x.installed.confirm(row.id, row.hash);
+        assert.equal(receipts(x.state).some(receipt => receipt.inbox === row.id), false);
+    });
+    controls++;
+    mutant(memoryFile, "memory-replace-keeps-labels", "writeLabels = uniqueLabels([...parseNote(id, current).labels, ...labels]);",
+        "writeLabels = labels;", logic => {
+            const x = make(logic);
+            x.write("facts/a.md", "---\nsources: [web]\n---\n# A\nold\n");
+            const note = x.read(["facts/a.md"]).body.notes[0];
+            x.writeCall("memory.replace", { id: "facts/a.md", text: "# A\nnew\n", hash: note.hash });
+            assert.deepEqual(x.read(["facts/a.md"]).body.notes[0].sources, ["home", "web"]);
+        });
+    controls++;
+    mutant(memoryFile, "memory-bootstrap-target", [
+        ['if (id === "MEMORY.md") throw new Error("jarvis: memory=bootstrap");', 'if (false) throw new Error("jarvis: memory=bootstrap");'],
+        ['if (id === "MEMORY.md") {\n            throw new Error("jarvis: memory=bootstrap");\n        }',
+            'if (false) {\n            throw new Error("jarvis: memory=bootstrap");\n        }']
+    ], null, logic => {
+        const x = make(logic);
+        assert.equal(x.writeCall("memory.propose", { id: "MEMORY.md", text: "bootstrap" }).content, "memory-propose:bootstrap");
+    });
+    controls++;
+    mutant(memoryFile, "memory-pending-count-bound", "kept.length === 64", "false", logic => {
+        const x = make(logic);
+        for (let n = 0; n < 70; n++)
+            x.writeCall("memory.propose", { id: "many/note-" + n + ".md", text: "x" }, { labels: ["home", "web"], tainted: true });
+        assert.equal(x.installed.pending().length, 64);
+    });
+    controls++;
+    mutant(memoryFile, "memory-pending-result-hidden", 'done({ outcome: "completed", content: JSON.stringify({ status: "pending", id: args.id, kind }) });',
+        'done({ outcome: "completed", content: JSON.stringify({ status: "pending", id: args.id, kind, inbox: "leaked" }) });',
+        logic => {
+            const x = make(logic);
+            const answer = x.writeCall("memory.propose", { id: "facts/a.md", text: "x" }, { labels: ["home", "web"], tainted: true });
+            assert.deepEqual(Object.keys(JSON.parse(answer.content)).sort(), ["id", "kind", "status"]);
+        });
+    controls++;
+    mutant(memoryFile, "memory-secret-id-refusal", [
+        ['if (Redact.secret(id) || Redact.secret(text)) {\n            throw new Error("jarvis: memory=secret");\n        }',
+            'if (Redact.secret(text)) {\n            throw new Error("jarvis: memory=secret");\n        }'],
+        ['if (Redact.secret(id) || Redact.secret(text)) throw new Error("jarvis: memory=secret");',
+            'if (Redact.secret(text)) throw new Error("jarvis: memory=secret");']
+    ], null, logic => {
+        const x = make(logic);
+        assert.equal(x.writeCall("memory.propose", { id: "sk-ant-synthetic-secret-token-value.md", text: "title" }).content,
+            "memory-propose:secret");
+    });
+    controls++;
     mutant(routerFile, "memory-origin-labels",
-        "for (const label of labels) {\n            taint = Policy.observe(taint, label);\n            originLabels.add(label);\n        }",
-        "for (const label of labels) {\n            taint = Policy.observe(taint, label);\n        }", routerWorld);
+        "conversationLabels.add(label);",
+        "void label;", routerWorld);
     controls++;
     console.log("test-jarvis-memory: ok controls=" + controls);
 });

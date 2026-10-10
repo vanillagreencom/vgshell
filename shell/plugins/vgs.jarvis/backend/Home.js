@@ -247,6 +247,33 @@ function within(home, entry, flags, act) {
     } finally { fs.closeSync(fd); }
 }
 
+function directory(home, entry) {
+    const child = Core.anchored().child;
+    let fd = hold(home, false);
+    try {
+        for (const part of entry.split("/")) {
+            let next;
+            try {
+                const kind = kindOf(fd, part);
+                if (kind === "absent") fail(kind);
+                if (kind === "link") {
+                    fail(kind);
+                }
+                if (kind !== "directory") fail("kind");
+                next = fs.openSync(child(fd, part), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+            } catch (error) {
+                if (/^jarvis: home=/.test(error.message)) throw error;
+                return fail("unreadable");
+            }
+            fs.closeSync(fd);
+            fd = next;
+        }
+        const result = fd;
+        fd = undefined;
+        return result;
+    } finally { if (fd !== undefined) fs.closeSync(fd); }
+}
+
 // At most limit + 1 bytes of a regular file, or all of it where limit is null.
 function bytes(fd, limit) {
     if (!fs.fstatSync(fd).isFile()) fail("kind");
@@ -523,4 +550,4 @@ function hand(home, text, now = Date.now()) {
     });
 }
 
-module.exports = { PACKAGE, resolve, layout, guard, read, skills, skill, note, notes, mailbox, hand };
+module.exports = { PACKAGE, resolve, layout, guard, read, skills, skill, note, notes, mailbox, hand, directory };

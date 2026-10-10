@@ -245,10 +245,10 @@ function memoryLabels(value) {
 }
 
 function memoryEntry(value) {
-    keys(value, ["id", "target", "kind", "title", "labels", "text", "hash"], "memory-entry");
+    keys(value, ["id", "target", "kind", "title", "labels", "text", "hash", "problem"], "memory-entry");
     if (!memoryInboxId(value.id) || !memoryTarget(value.target) || ["propose", "replace"].indexOf(value.kind) === -1
             || !printable(value.title, 1, FIELD_MAX) || !memoryLabels(value.labels) || !memoryText(value.text)
-            || !hash(value.hash)) fail("memory-entry");
+            || !hash(value.hash) || !/^(|exists|conflict|link|secret|hash|bootstrap)$/.test(value.problem)) fail("memory-entry");
 }
 
 // The engine's failing setup steps (ChainedEngine select): at most one keyed

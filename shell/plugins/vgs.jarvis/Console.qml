@@ -92,18 +92,42 @@ FocusScope {
             problem = "Jarvis did not stop";
             console.warn("jarvis console: " + reply);
         }
+    }
 
-        function answerMemory(kind, entry) {
-            if (shell === null) return;
-            const reply = shell.ipc.call(kind === "confirm" ? "memory-confirm" : "memory-discard",
-                JSON.stringify({ id: entry.id, hash: entry.hash }));
-            if (reply === "ok") {
-                problem = "";
-                return;
-            }
-            problem = kind === "confirm" ? "Memory note not confirmed" : "Memory note not discarded";
-            console.warn("jarvis console: " + reply);
+    function answerMemory(kind, entry, index) {
+        if (shell === null) return;
+        const reply = shell.ipc.call(kind === "confirm" ? "memory-confirm" : "memory-discard",
+            JSON.stringify({ id: entry.id, hash: entry.hash }));
+        if (reply === "ok") {
+            problem = "";
+            focusAfterMemory(index);
+            return;
         }
+        problem = kind === "confirm" ? "Memory note not confirmed" : "Memory note not discarded";
+        console.warn("jarvis console: " + reply);
+    }
+
+    function focusAfterMemory(index) {
+        Qt.callLater(() => Qt.callLater(() => {
+            const item = memoryList.itemAt(index) || memoryList.itemAt(index - 1);
+            if (item !== null && item.confirmButton !== undefined) item.confirmButton.forceActiveFocus();
+            else entryField.forceActiveFocus();
+        }));
+    }
+
+    function originText(labels) {
+        const shown = labels.filter(label => label !== "home");
+        return "Sources: " + (shown.length === 0 ? "home" : shown.join(", "));
+    }
+
+    function memoryProblemText(problem) {
+        if (problem === "exists") return "Not saved. The note already exists.";
+        if (problem === "conflict") return "Not saved. The note changed after Jarvis read it.";
+        if (problem === "link") return "Not saved. The note path contains a link.";
+        if (problem === "secret") return "Not saved. The note contains a secret.";
+        if (problem === "hash") return "Not saved. The pending note changed.";
+        if (problem === "bootstrap") return "Not saved. Jarvis cannot rewrite MEMORY.md.";
+        return "";
     }
 
     function followEnd() {
@@ -143,57 +167,6 @@ FocusScope {
             width: layout.contentWidth
             spacing: Theme.stack.row
 
-            Repeater {
-                model: root.memoryInbox
-                Surface {
-                    required property var modelData
-                    width: layout.contentWidth
-                    height: card.implicitHeight + 2 * Theme.stack.group
-                    level: "raised"
-
-                    Column {
-                        id: card
-                        anchors.centerIn: parent
-                        width: parent.width - 2 * Theme.stack.group
-                        spacing: Theme.stack.inline
-                        Label {
-                            width: parent.width
-                            role: "label"
-                            text: "Memory note waiting"
-                            color: Theme.color.textMuted
-                        }
-                        Label {
-                            width: parent.width
-                            role: "bodyStrong"
-                            text: String(modelData.title)
-                            wrapMode: Text.Wrap
-                        }
-                        Label {
-                            width: parent.width
-                            role: "body"
-                            text: String(modelData.text)
-                            wrapMode: Text.Wrap
-                            maximumLineCount: 6
-                            elide: Text.ElideRight
-                        }
-                        Row {
-                            spacing: Theme.control.gap
-                            Button {
-                                text: "Confirm"
-                                iconName: "check"
-                                onClicked: root.answerMemory("confirm", modelData)
-                            }
-                            Button {
-                                text: "Discard"
-                                iconName: "trash-2"
-                                variant: "danger"
-                                onClicked: root.answerMemory("discard", modelData)
-                            }
-                        }
-                    }
-                }
-            }
-
             // Conversation rows are read-only transcript entries. They
             // take no selection, so this list has no ListCursor.
             Repeater {
@@ -221,9 +194,81 @@ FocusScope {
             }
             EmptyState {
                 width: layout.contentWidth
-                visible: root.transcriptRows.length === 0
+                visible: root.transcriptRows.length === 0 && root.memoryInbox.length === 0
                 iconName: "message-circle"
                 text: "No conversation yet. Type a message to start."
+            }
+
+            Repeater {
+                id: memoryList
+                model: root.memoryInbox
+                Surface {
+                    required property var modelData
+                    required property int index
+                    property alias confirmButton: confirmButton
+                    width: layout.contentWidth
+                    height: card.implicitHeight + 2 * Theme.stack.group
+                    level: "raised"
+
+                    Column {
+                        id: card
+                        anchors.centerIn: parent
+                        width: parent.width - 2 * Theme.stack.group
+                        spacing: Theme.stack.inline
+                        Label {
+                            width: parent.width
+                            role: "label"
+                            text: modelData.kind === "replace" ? "Memory note edit waiting" : "Memory note waiting"
+                            color: Theme.color.textMuted
+                            textFormat: Text.PlainText
+                        }
+                        Label {
+                            width: parent.width
+                            role: "bodyStrong"
+                            text: String(modelData.title)
+                            wrapMode: Text.Wrap
+                            textFormat: Text.PlainText
+                        }
+                        Label {
+                            width: parent.width
+                            role: "hint"
+                            text: (modelData.kind === "replace" ? "Replaces " : "Adds ") + String(modelData.target) + ". " + root.originText(modelData.labels)
+                            wrapMode: Text.Wrap
+                            textFormat: Text.PlainText
+                        }
+                        Label {
+                            width: parent.width
+                            role: "body"
+                            visible: modelData.problem !== ""
+                            text: root.memoryProblemText(modelData.problem)
+                            color: Theme.color.danger
+                            wrapMode: Text.Wrap
+                            textFormat: Text.PlainText
+                        }
+                        Label {
+                            width: parent.width
+                            role: "body"
+                            text: String(modelData.text)
+                            wrapMode: Text.Wrap
+                            textFormat: Text.PlainText
+                        }
+                        Row {
+                            spacing: Theme.control.gap
+                            Button {
+                                id: confirmButton
+                                text: "Confirm"
+                                iconName: "check"
+                                onClicked: root.answerMemory("confirm", modelData, index)
+                            }
+                            Button {
+                                text: "Discard"
+                                iconName: "trash-2"
+                                variant: "danger"
+                                onClicked: root.answerMemory("discard", modelData, index)
+                            }
+                        }
+                    }
+                }
             }
         }
 

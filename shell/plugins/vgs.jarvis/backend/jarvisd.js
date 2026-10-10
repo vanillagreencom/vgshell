@@ -297,10 +297,22 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         if (!process.stdout.write(wire + "\n")) process.stdin.pause();
     }
 
+    function memoryInboxMessage(entries = null) {
+        const kept = [];
+        let bytes = 0;
+        for (const entry of (entries === null ? memory.pending() : entries)) {
+            const size = Buffer.byteLength(JSON.stringify(entry)) + 1;
+            if (kept.length === Protocol.MEMORY_INBOX_MAX || bytes + size > Protocol.MAX_LINE_BYTES - 4096) break;
+            kept.push(entry);
+            bytes += size;
+        }
+        return { v: 1, type: "memory-inbox", gen: runner.state.gen, revision: context.revision, entries: kept };
+    }
+
     function writeMemoryInbox(entries = null) {
-        if (!ending && context !== null && memory !== null)
-            write({ v: 1, type: "memory-inbox", gen: runner.state.gen, revision: context.revision,
-                entries: entries === null ? memory.pending() : entries });
+        if (ending || context === null || memory === null) return;
+        try { write(memoryInboxMessage(entries)); }
+        catch (error) { process.stderr.write("jarvis: memory=inbox-publish\n"); }
     }
     const audio = new Audio({
         session: Session, environment: process.env, clock: {

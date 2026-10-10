@@ -60,6 +60,7 @@ function create({ session, state, dispatch, context, audit, result }) {
     let turnOp = null;
     let taint = { kind: "clean" };
     let originLabels = new Set(["home"]);
+    let conversationLabels = new Set(["home"]);
     // The rows marked once that may have acted, each as "gen:op:tool".
     const spent = new Set();
     let closed = false;
@@ -68,12 +69,21 @@ function create({ session, state, dispatch, context, audit, result }) {
         if (generation !== s.gen || s.conversation.kind === "ended") {
             grants = new Set();
             generation = s.gen;
+            conversationLabels = new Set(["home"]);
         }
         if (s.turn.kind === "thinking" && turnOp !== s.turn.op) {
             turnOp = s.turn.op;
             spent.clear();
             taint = { kind: "clean" };
             originLabels = new Set(["home"]);
+        }
+    }
+
+    function observeLabels(labels) {
+        for (const label of labels) {
+            taint = Policy.observe(taint, label);
+            originLabels.add(label);
+            conversationLabels.add(label);
         }
     }
 
@@ -100,10 +110,7 @@ function create({ session, state, dispatch, context, audit, result }) {
     function deliver(value, outcome, content, labels = [], final = true, image = undefined) {
         const s = state();
         if (s.gen === value.turn.gen && s.turn.kind === "thinking" && s.turn.op === value.turn.op)
-            for (const label of labels) {
-                taint = Policy.observe(taint, label);
-                originLabels.add(label);
-            }
+            observeLabels(labels);
         const item = answer(content, labels);
         result({ gen: value.turn.gen, op: value.turn.op, outcome, final, kind: "tool-results",
             results: [{ id: value.request, item, ...(image === undefined ? {}
@@ -117,10 +124,7 @@ function create({ session, state, dispatch, context, audit, result }) {
     function observe(turn, labels) {
         const s = state();
         if (s.gen !== turn.gen || s.turn.kind !== "thinking" || s.turn.op !== turn.op) return;
-        for (const label of labels) {
-            taint = Policy.observe(taint, label);
-            originLabels.add(label);
-        }
+        observeLabels(labels);
     }
 
     /**
@@ -324,7 +328,8 @@ function create({ session, state, dispatch, context, audit, result }) {
             if (accepted && prior.scope !== undefined) grants.add(prior.scope);
             try {
                 const origin = Tools.TABLE[value.call.id].origin === true
-                    ? Object.freeze({ labels: Policy.labels([...originLabels]), tainted: taint.kind === "tainted" })
+                    ? Object.freeze({ labels: Policy.labels([...conversationLabels]),
+                        tainted: Policy.TAINT_SOURCES.some(label => conversationLabels.has(label)) })
                     : undefined;
                 value.executor.start(value.call, answer => {
                     if (closed) return;

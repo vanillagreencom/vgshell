@@ -9,11 +9,13 @@ const Home = require("./Home.js");
 const Policy = require("./Policy.js");
 const Private = require("./Private.js");
 const Redact = require("./Redact.js");
+const Tools = require("./Tools.js");
 
 const VERSION = 1;
 const LIMIT = 8;
 const SOURCES = new Set(Policy.SOURCES);
 const TEXT_BYTES = 16 * 1024;
+const WIRE_BYTES = 240 * 1024;
 const { O_RDONLY, O_WRONLY, O_CREAT, O_EXCL, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK } = fs.constants;
 
 function json(value) { return JSON.stringify(value); }
@@ -26,6 +28,15 @@ function homeCause(error) { return /^jarvis: home=([a-z-]+)$/.exec(error.message
 function sqliteBroken(error) { return ["SQLITE_CORRUPT", "SQLITE_NOTADB"].includes(error?.code) || /corrupt|not a database/i.test(error?.message ?? ""); }
 function sourceItem(value) { return value.trim().replace(/^(\"|')(.*)\1$/, "$2"); }
 function uniqueLabels(values) { return Policy.labels(values); }
+function clipText(text, limit) {
+    const bytes = Buffer.from(text);
+    if (bytes.length <= limit) return text;
+    return new TextDecoder().decode(bytes.subarray(0, limit), { stream: true });
+}
+function printable(text, fallback = "") {
+    const value = String(text ?? "").replace(/[\x00-\x1f\x7f]/g, " ").trim();
+    return value === "" ? fallback : value;
+}
 
 function listValue(value) {
     if (Array.isArray(value)) return value.map(item => sourceItem(String(item))).filter(Boolean);
@@ -272,10 +283,13 @@ function install({ router, directory, home, sqlite = () => require("node:sqlite"
     function openMemory() {
         const folder = home();
         if (folder === null) throw new Error("jarvis: memory=home");
-        const opened = Core.anchored().directory(path.join(folder, "memory"));
-        if (opened.kind === "directory") return opened.fd;
-        if (opened.kind === "link") throw new Error("jarvis: memory=link");
-        throw new Error("jarvis: memory=kind");
+        try { return Home.directory(folder, "memory"); }
+        catch (error) {
+            const cause = homeCause(error);
+            if (cause === "link") throw new Error("jarvis: memory=link");
+            if (cause !== null) throw new Error("jarvis: memory=" + cause);
+            throw error;
+        }
     }
 
     function withParent(id, create, act) {
@@ -319,16 +333,13 @@ function install({ router, directory, home, sqlite = () => require("node:sqlite"
         try {
             fs.writeFileSync(fd, text);
             fs.fsyncSync(fd);
-        } finally { fs.closeSync(fd); }
-        try {
             const target = Core.anchored().child(parent, name);
             if (replace) fs.renameSync(scratchPath, target);
             else fs.linkSync(scratchPath, target);
             fs.fsyncSync(parent);
-        } finally {
-            try { fs.unlinkSync(scratchPath); }
-            catch (error) { if (error.code !== "ENOENT") throw error; }
-        }
+        } finally { fs.closeSync(fd); }
+        try { fs.unlinkSync(scratchPath); }
+        catch (error) { if (error.code !== "ENOENT") throw error; }
     }
 
     function receiptName(id) {
@@ -342,11 +353,17 @@ function install({ router, directory, home, sqlite = () => require("node:sqlite"
         const scratch = path.join(receipts, "." + name + "." + process.pid + "." + crypto.randomUUID());
         const body = JSON.stringify({ v: 1, ...record }, null, 2) + "\n";
         const fd = fs.openSync(scratch, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600);
+        let owned = true;
         try {
             fs.writeFileSync(fd, body);
             fs.fsyncSync(fd);
+            fs.renameSync(scratch, path.join(receipts, name));
+            owned = false;
         } finally { fs.closeSync(fd); }
-        fs.renameSync(scratch, path.join(receipts, name));
+        if (owned) {
+            try { fs.unlinkSync(scratch); }
+            catch (error) { if (error.code !== "ENOENT") throw error; }
+        }
         const dir = fs.openSync(receipts, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
         try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
     }
@@ -358,6 +375,11 @@ function install({ router, directory, home, sqlite = () => require("node:sqlite"
             try { return JSON.parse(fs.readFileSync(fd, "utf8")); }
             finally { fs.closeSync(fd); }
         } catch { return null; }
+    }
+
+    function removeReceipt(id) {
+        try { fs.unlinkSync(path.join(receipts, receiptName(id))); }
+        catch (error) { if (error.code !== "ENOENT") throw error; }
     }
 
     function edited(id, text) {
@@ -376,28 +398,44 @@ function install({ router, directory, home, sqlite = () => require("node:sqlite"
                 const entries = [];
                 for (const name of fs.readdirSync("/proc/self/fd/" + parent).sort()) {
                     if (!/^[0-9a-f-]{36}\.json$/.test(name)) continue;
-                    const kind = entryKind(parent, name);
-                    if (kind !== "file") continue;
-                    const text = fs.readFileSync(Core.anchored().child(parent, name), "utf8");
-                    const record = JSON.parse(text);
-                    if (record.v !== 1) continue;
-                    entries.push({ id: record.id, target: record.target, kind: record.kind,
-                        title: parseNote(record.target, record.text).title, labels: record.labels,
-                        text: record.text.slice(0, TEXT_BYTES), hash: hashText(text) });
+                    try {
+                        const kind = entryKind(parent, name);
+                        if (kind !== "file") continue;
+                        const text = fs.readFileSync(Core.anchored().child(parent, name), "utf8");
+                        const record = JSON.parse(text);
+                        if (record.v !== 1 || record.id !== name.slice(0, -5) || !Tools.memoryNote(record.target)
+                                || !["propose", "replace"].includes(record.kind) || typeof record.text !== "string"
+                                || Buffer.byteLength(record.text) > TEXT_BYTES) continue;
+                        const labels = Policy.labels(record.labels);
+                        const title = clipText(printable(parseNote(record.target, record.text).title, path.basename(record.target, ".md")), 128);
+                        entries.push({ id: record.id, target: record.target, kind: record.kind, title, labels,
+                            text: clipText(record.text.replace(/\u0000/g, ""), TEXT_BYTES),
+                            hash: hashText(text), problem: printable(record.problem, ""), time: record.time ?? "" });
+                    } catch { /* one bad inbox file must not hide the others */ }
                 }
-                return entries;
+                const kept = [];
+                let bytes = 0;
+                for (const entry of entries.sort((left, right) => left.time < right.time ? -1 : left.time > right.time ? 1 : 0)) {
+                    const { time: _time, ...wire } = entry;
+                    const size = Buffer.byteLength(JSON.stringify(wire)) + 1;
+                    if (kept.length === 64 || bytes + size > WIRE_BYTES) break;
+                    kept.push(wire);
+                    bytes += size;
+                }
+                return kept;
             });
         } catch { return []; }
     }
 
     function publishInbox() {
-        notify(pendingEntries());
+        try { notify(pendingEntries()); }
+        catch (error) { logCause("inbox-publish"); }
     }
 
     function inboxRecord(kind, target, text, labels, expectedHash) {
         const id = crypto.randomUUID();
         return { v: 1, id, kind, target, text, labels: uniqueLabels(labels), sourceHash: hashText(text),
-            time: new Date().toISOString(), ...(expectedHash === undefined ? {} : { expectedHash }) };
+            time: new Date().toISOString(), problem: "", ...(expectedHash === undefined ? {} : { expectedHash }) };
     }
 
     function writeInbox(record) {
@@ -407,7 +445,6 @@ function install({ router, directory, home, sqlite = () => require("node:sqlite"
             writeReceipt("inbox/" + record.id, { note: record.target, inbox: record.id, kind: record.kind,
                 labels: record.labels, sourceHash: record.sourceHash, time: record.time,
                 approvedHash: hashText(body), ...(record.expectedHash === undefined ? {} : { expectedHash: record.expectedHash }) });
-            publishInbox();
             return record;
         });
     }
@@ -431,35 +468,68 @@ function install({ router, directory, home, sqlite = () => require("node:sqlite"
         });
     }
 
+    function setInboxProblem(id, problem) {
+        return withParent("inbox/" + id + ".json", false, (parent, name) => {
+            const kind = entryKind(parent, name);
+            if (kind !== "file") throw new Error("jarvis: memory=absent");
+            const text = fs.readFileSync(Core.anchored().child(parent, name), "utf8");
+            const record = JSON.parse(text);
+            record.problem = problem;
+            atomicWrite(parent, name, JSON.stringify(record, null, 2) + "\n", { replace: true });
+        });
+    }
+
     function writeNote(id, text, labels, expectedHash, replace) {
+        if (id === "MEMORY.md") throw new Error("jarvis: memory=bootstrap");
         if (Buffer.byteLength(text) > TEXT_BYTES) throw new Error("jarvis: memory=size");
-        if (Redact.secret(text)) throw new Error("jarvis: memory=secret");
+        if (Redact.secret(id) || Redact.secret(text)) {
+            throw new Error("jarvis: memory=secret");
+        }
+        const currentKind = withParent(id, true, (parent, name) => entryKind(parent, name));
+        if (!replace && currentKind !== "absent") throw new Error(currentKind === "link" ? "jarvis: memory=link" : "jarvis: memory=exists");
+        let writeLabels = labels;
+        if (replace) {
+            const current = readNote(id);
+            if (hashText(current) !== expectedHash) throw new Error("jarvis: memory=conflict");
+            writeLabels = uniqueLabels([...parseNote(id, current).labels, ...labels]);
+        }
+        const written = withSources(text, writeLabels);
+        withParent(id, true, (parent, name) => atomicWrite(parent, name, written, { replace }));
+        writeReceipt(id, receiptRecord(id, writeLabels, text, written, replace ? { expectedHash } : {}));
+        return written;
+    }
+
+    function checkWrite(id, text, labels, expectedHash, replace) {
+        if (id === "MEMORY.md") {
+            throw new Error("jarvis: memory=bootstrap");
+        }
+        if (Buffer.byteLength(text) > TEXT_BYTES) throw new Error("jarvis: memory=size");
+        if (Redact.secret(id) || Redact.secret(text)) throw new Error("jarvis: memory=secret");
         const currentKind = withParent(id, true, (parent, name) => entryKind(parent, name));
         if (!replace && currentKind !== "absent") throw new Error(currentKind === "link" ? "jarvis: memory=link" : "jarvis: memory=exists");
         if (replace) {
             const current = readNote(id);
-            if (hashText(current) !== expectedHash) throw new Error("jarvis: memory=conflict");
+            if (hashText(current) !== expectedHash) {
+                throw new Error("jarvis: memory=conflict");
+            }
         }
-        const written = withSources(text, labels);
-        withParent(id, true, (parent, name) => atomicWrite(parent, name, written, { replace }));
-        writeReceipt(id, receiptRecord(id, labels, text, written, replace ? { expectedHash } : {}));
-        return written;
+        return labels;
     }
 
     function writeOrInbox(kind, args, origin, done) {
         const prefix = kind === "replace" ? "memory-replace:" : "memory-propose:";
         const labels = origin?.labels ?? ["home"];
         try {
-            if (Buffer.byteLength(args.text) > TEXT_BYTES) throw new Error("jarvis: memory=size");
-            if (Redact.secret(args.text)) throw new Error("jarvis: memory=secret");
+            checkWrite(args.id, args.text, labels, args.hash, kind === "replace");
             if (origin?.tainted === true) {
-                const record = writeInbox(inboxRecord(kind, args.id, args.text, labels, args.hash));
-                done({ outcome: "completed", content: JSON.stringify({ status: "pending", id: args.id, kind, inbox: record.id }) });
+                writeInbox(inboxRecord(kind, args.id, args.text, labels, args.hash));
+                publishInbox();
+                done({ outcome: "completed", content: JSON.stringify({ status: "pending", id: args.id, kind }) });
                 return;
             }
             writeNote(args.id, args.text, labels, args.hash, kind === "replace");
-            done({ outcome: "completed", content: JSON.stringify({ status: "written", id: args.id, kind }) });
             publishInbox();
+            done({ outcome: "completed", content: JSON.stringify({ status: "written", id: args.id, kind }) });
         } catch (error) {
             const cause = /^jarvis: memory=([a-z-]+)$/.exec(error.message)?.[1] ?? "write";
             failMemory(prefix, cause, done);
@@ -468,10 +538,19 @@ function install({ router, directory, home, sqlite = () => require("node:sqlite"
 
     function confirm(id, hash) {
         const entry = readInbox(id);
-        if (entry.hash !== hash) throw new Error("jarvis: memory=hash");
+        if (entry.hash !== hash) {
+            setInboxProblem(id, "hash");
+            throw new Error("jarvis: memory=hash");
+        }
         const record = entry.record;
-        writeNote(record.target, record.text, record.labels, record.expectedHash, record.kind === "replace");
+        try { writeNote(record.target, record.text, record.labels, record.expectedHash, record.kind === "replace"); }
+        catch (error) {
+            const cause = /^jarvis: memory=([a-z-]+)$/.exec(error.message)?.[1] ?? "write";
+            setInboxProblem(id, cause);
+            throw error;
+        }
         removeInbox(id);
+        removeReceipt("inbox/" + id);
         publishInbox();
         return { kind: "confirmed", target: record.target };
     }
@@ -480,6 +559,7 @@ function install({ router, directory, home, sqlite = () => require("node:sqlite"
         const entry = readInbox(id);
         if (entry.hash !== hash) throw new Error("jarvis: memory=hash");
         removeInbox(id);
+        removeReceipt("inbox/" + id);
         publishInbox();
         return { kind: "discarded", target: entry.record.target };
     }
@@ -648,14 +728,14 @@ function install({ router, directory, home, sqlite = () => require("node:sqlite"
                 catch { notes.push({ id, error: "absent" }); continue; }
                 if (text.trim() === "") { notes.push({ id, error: "empty" }); continue; }
                 const parsed = parseNote(id, text);
-                const currentHash = hashText(parsed.text);
+                const currentHash = hashText(text);
                 const resolved = indexedNotes().filter(note => note.id !== id).concat([{ id, title: parsed.title, aliases: parsed.aliases, rawLinks: parsed.rawLinks }]);
                 resolveLinks(resolved);
                 const links = resolved.find(note => note.id === id)?.links ?? [];
                 readAny = true;
                 labelRows.push({ labels: json(parsed.labels) });
                 notes.push({ id, title: parsed.title, ...(parsed.date === null ? {} : { date: parsed.date }),
-                    sources: parsed.labels, hash: currentHash, edited: edited(id, parsed.text),
+                    sources: parsed.labels, hash: currentHash, edited: edited(id, text),
                     links, backlinks: statements.backlinks.all(id).map(link => link.source), text: parsed.text });
             }
         } catch (error) {
