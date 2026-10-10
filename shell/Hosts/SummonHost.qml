@@ -10,9 +10,10 @@ import "../Core/HyprlandLayer.js" as Layer
 // PluginLogic.summonSurface names: a layer surface, a popup under an
 // anchor, or for `window` an application window whatever the anchor. It
 // builds the plugin inside it and calls its `open(payloadJson)`; `hide`
-// calls `close()` first, and an anchored popup stays mapped until its close
-// motion ends. One surface per plugin id; summoning an open one hands it the new
-// payload. A plugin disabled while open is closed the same way. An open()
+// calls `close()` first, except that an anchored popup stays mapped through
+// its close motion and calls `close()` when it ends. One surface per plugin
+// id; summoning an open one hands it the new payload. A plugin disabled
+// while open is closed the same way. An open()
 // that throws is logged and refuses the summon; a close() that throws is
 // logged and the surface still goes. A window the user closes through
 // Hyprland is hidden the same way. `hide` first asks an instance that has

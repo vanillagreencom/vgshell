@@ -573,6 +573,7 @@ old="        closing = true;\n"
 assert s.count(old)==1, "the SummonPopup close start must occur once"
 first.write_text(s.replace(old,old+"        slot.closeInstance();\n"))
 PYCLOSE
+net_leases() { ipc smoke networkScan | py_reply 'import json,sys; print(json.load(sys.stdin)["leases"])'; }
 net_close_state() {
   local scan rows
   scan="$(ipc smoke networkScan)" || return 1
@@ -584,7 +585,8 @@ net_close_state() {
 # when the close frame reads as the open card did, `changed` with both
 # readings when it does not, or `late` when the motion ended first.
 net_close_frame() {
-  local before during progress
+  local before during progress leases
+  leases="$(net_leases)"
   expect "$1: the probe builds the popup copy" ok ipc smoke popupLoad "$2" "$3" "$(bar_key)" vgs.network '{"pluginId":"vgs.network","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
   expect "$1: the copy's dropdown opens" '' ipc smoke invokeInstance panel vgs.network open '{}'
   expect_poll "$1: the copy's dropdown comes to rest" 1 ipc smoke popupRead "$2" motionProgress
@@ -596,6 +598,7 @@ net_close_frame() {
   elif [[ $before == unread || $during != "$before" ]]; then net_close="changed before=$before during=$during"
   else net_close=kept; fi
   expect_poll "$1: the copy releases its popup after closing" false ipc smoke popupRead "$2" visible
+  expect_poll "$1: the plugin heard close() when the motion ended" "$leases" net_leases
   expect "$1: the probe drops the copy" ok ipc smoke popupDrop "$2"
   expect_poll "$1: the copy's dropdown leaves the build records" absent ipc smoke readInstance panel vgs.network payload
 }
