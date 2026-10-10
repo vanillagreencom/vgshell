@@ -184,9 +184,10 @@ app_style() {
   app_qt_first "$all" "$first"
 }
 # Whether the Fonts section's select whose placeholder is PLACEHOLDER, the
-# interface font's has none, offers NAME: `absent` for a family and not
-# NAME, else `empty` or `listed`.
-app_font_list() { ipc smoke readMatchingDescendant window vgs.fonts Select placeholderText "$1" model | py_reply 'import json,sys; m=json.load(sys.stdin); print("empty" if not m else "listed" if sys.argv[1] in m else "absent")' "$2"; }
+# interface font's has none, offers NAME: `held-out` for a family and not
+# NAME, else `empty` or `listed`. The pass word is one no probe reply is: a
+# select the probe cannot find reads `absent`.
+app_font_list() { ipc smoke readMatchingDescendant window vgs.fonts Select placeholderText "$1" model | py_reply 'import json,sys; m=json.load(sys.stdin); print("empty" if not m else "listed" if sys.argv[1] in m else "held-out")' "$2"; }
 # The lines the runner logged for a follow that ended.
 app_follows() { log_lines 'INFO qml: theme: follow='; }
 
@@ -399,21 +400,21 @@ expect_poll "the action leaves the keys on the row's select" '["Select",""]' app
 if ! app_plain="$(app_proportional)"; then
   fail "fontconfig's family names are unreadable"
 elif [[ -n $app_plain ]]; then
-  expect_poll "the terminal font's list holds fixed-width families alone" absent app_font_list "Your terminal's font" "$app_plain"
+  expect_poll "the terminal font's list holds fixed-width families alone" held-out app_font_list "Your terminal's font" "$app_plain"
 else
   not_measured appearance missing=proportional-family
 fi
 if ! app_icon="$(app_textless)"; then
   fail "fontconfig's fixed-width family names are unreadable"
 elif [[ -n $app_icon ]]; then
-  expect_poll "the terminal font's list leaves out fixed-width fonts that draw no text" absent app_font_list "Your terminal's font" "$app_icon"
+  expect_poll "the terminal font's list leaves out fixed-width fonts that draw no text" held-out app_font_list "Your terminal's font" "$app_icon"
 else
   not_measured appearance missing=textless-fixed-width-family
 fi
 if ! app_style_name="$(app_style)"; then
   fail "fontconfig's first family names are unreadable"
 elif [[ -n $app_style_name ]]; then
-  expect_poll "the interface font's list holds no style name" absent app_font_list "" "$app_style_name"
+  expect_poll "the interface font's list holds no style name" held-out app_font_list "" "$app_style_name"
 else
   not_measured appearance missing=style-name
 fi
