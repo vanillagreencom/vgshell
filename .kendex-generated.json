@@ -544,6 +544,7 @@
   ".codex/agents/runtime.toml",
   ".codex/agents/scout.toml",
   ".codex/agents/tpm.toml",
+  ".codex/config.toml",
   ".codex/hooks.json",
   ".codex/hooks/block-argv-kill.sh",
   ".codex/hooks/block-bare-cd.sh",
