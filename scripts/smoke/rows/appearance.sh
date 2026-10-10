@@ -52,11 +52,14 @@
 # for no follow when the terminal font changes: the four checks that a
 # terminal font "ends with a theme follow" failed, and no other check did.
 # Control runs on 2026-10-09, host cachy, through this row after
-# hyprland-consent, each on a source_tree copy of the shell: one whose
-# Fonts section asks fontconfig for every font, its command without
-# `:spacing=mono`, and one whose terminal font's select takes every family
-# Qt lists. On each, "the terminal font's list holds fixed-width families
-# alone" failed, reading proportional, and no other check did.
+# hyprland-consent, each on a source_tree copy of the shell with one rule
+# of vgs.fonts's FontsLogic.js removed, and on each only the named check
+# failed, reading listed: a terminal font that need not draw printable
+# ASCII, "the terminal font's list leaves out fixed-width fonts that draw
+# no text"; an interface list that keeps style names, "the interface font's
+# list holds no style name"; and a terminal font that need not be
+# fixed-width, its Fonts section printing every font's charset, "the
+# terminal font's list holds fixed-width families alone".
 #
 # No latency is budgeted: each reading polls through expect_poll every
 # 0.2 s for up to the harness's poll bound. The row leaves the user file,
