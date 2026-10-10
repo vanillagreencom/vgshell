@@ -717,14 +717,14 @@ async function cases(kit, server, only = null) {
         }
     }, { sounds: true });
 
-    for (const [kind, reply] of [["text", held => text("Words without a full sentence", { wait: held.wait })],
+    for (const [kind, reply] of [["text", held => text("A sentence for speech. ", { wait: held.wait })],
         ["tool", () => calls({ id: "focus", name: "windows_focus", arguments: { window: "0x1f" } })]]) {
         await run("feedback-suppressed-" + kind, async w => {
             const first = await say(w, utterance("Hello."));
             await requested(w, first + 1, "the request reaches the server");
             const held = gate();
             // The injected clock advances only after the real stream adapter
-            // has consumed the substantive text or tool event.
+            // has consumed the released sentence or the tool event.
             server.replies.push(reply(held));
             await until(() => ![...w.timers.values()].some(timer => timer.at === 1200),
                 "substantive provider output retires the feedback timer");
@@ -734,6 +734,24 @@ async function cases(kit, server, only = null) {
             w.runner.dispatch({ type: "stop" });
         }, { sounds: true, holdTools: kind === "tool" });
     }
+
+    // Text that stays silent, as a brain writes before a tool call, is no
+    // speech: the working sound still covers the wait. The trace shows the
+    // engine has read the text, since it is written before Speakable reads.
+    const silenced = path.join(fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "silenced-")), "brain.jsonl");
+    await run("feedback-silenced-text", async w => {
+        const first = await say(w, utterance("Hello."));
+        await requested(w, first + 1, "the request reaches the server");
+        const held = gate();
+        server.replies.push(text('<tool_call>{"name": "windows_focus"}</tool_call> Calling `mcp__vgs-jarvis__windows_focus` now. ', { wait: held.wait }));
+        await until(() => fs.readFileSync(silenced, "utf8").includes("Calling"), "the engine reads the silenced text");
+        assert.ok([...w.timers.values()].some(timer => timer.at === 1200), "silenced text leaves the working sound due");
+        w.advanceRunner(1200);
+        assert.deepEqual([w.s().playback.kind, w.s().playback.cue], ["feedback", "working"], "the working sound covers the wait");
+        assert.deepEqual(control.spoken, [], "and none of the text is spoken");
+        held.open();
+        w.runner.dispatch({ type: "stop" });
+    }, { sounds: true, trace: { marker: "1", file: silenced } });
 
     await run("feedback-disable-working", async w => {
         const first = await say(w, utterance("Hello."));
@@ -924,7 +942,7 @@ async function cases(kit, server, only = null) {
         await run("brain-trace", async w => {
             const first = await say(w, utterance("Read my notes."));
             await requested(w, first + 1, "first request");
-            const reply = ["Calling `files_read` now. ", "Your notes say **noon**."];
+            const reply = ["Calling `mcp__vgs-jarvis__files_read` now. ", "Your notes say **noon**."];
             server.replies.push(text(...reply));
             await until(() => w.s().turn.kind === "none", "the reply completes");
             await playOut(w);
@@ -1583,6 +1601,48 @@ async function cases(kit, server, only = null) {
         assert.deepEqual([t.notes, w.faults], [[], []]);
     }, { tasks: true });
 
+    // A permission prompt as the shipped hook writes it, backend/claude-hook:
+    // the tool's name, a space and its input as JSON. Jarvis speaks the
+    // command the user is asked to allow, and the words that say how to
+    // answer, also where TaskRelay cut a long input short.
+    await run("task-permission-command", async w => {
+        const t = w.tasks;
+        await t.observe();
+        await opened(w);
+        t.task("t5");
+        const hook = input => "Bash " + JSON.stringify(input);
+        const first = t.ask("t5", { kind: "permission", tool: "Bash", text: hook({ command: "rm -rf build", description: "Remove the build folder" }) });
+        let from = control.spoken.length;
+        await t.observe();
+        await spoken(w, from, 'The coding agent asks to use Bash: Bash "command":"rm -rf build","description":"Remove the build folder". Say allow or deny.');
+        from = control.spoken.length;
+        await say(w, utterance("Deny."));
+        await spoken(w, from, SENT);
+        assert.deepEqual(t.Relay.answerTo(t.prompts, first), { v: 1, kind: "deny" });
+        // One word a sentence, so the line plays out in a few seconds.
+        const word = "remove" + "-build".repeat(10);
+        const long = hook({ command: (word + ". ").repeat(80) });
+        assert.ok(Buffer.byteLength(long) > 4096, "the input passes TaskRelay's bound");
+        const cut = t.ask("t5", { kind: "permission", tool: "Bash", text: long });
+        from = control.spoken.length;
+        await t.observe();
+        const said = () => control.spoken.slice(from);
+        await wait(() => {
+            if (said().some(sentence => sentence.endsWith("Say allow or deny.")) || w.s().fault.kind !== "none") return true;
+            w.audioClock.advance(20);
+            return false;
+        }, "the cut prompt is spoken to its end", OBSERVE_MS, 1);
+        assert.ok(said().at(-1).endsWith("Say allow or deny."), "the cut prompt still says how to answer");
+        assert.ok(said()[0].startsWith('The coding agent asks to use Bash: Bash "command":"' + word), "the cut prompt names the tool and starts its command");
+        assert.ok(said().filter(sentence => sentence === word + ".").length >= 50, "the command's words are spoken");
+        await playOut(w);
+        from = control.spoken.length;
+        await say(w, utterance("Allow."));
+        await spoken(w, from, SENT);
+        assert.deepEqual(t.Relay.answerTo(t.prompts, cut), { v: 1, kind: "allow" });
+        assert.deepEqual(w.faults, []);
+    }, { tasks: true });
+
     // Talk during the question flushes it: the user's words go to the brain
     // and the prompt is asked again at the next idle moment.
     await run("task-barge-in", async w => {
@@ -1752,7 +1812,9 @@ async function taskControls(root, server) {
             ...["task-stop-spoken", "task-line-failed"].map(scenario => ["relay-end-forgets-" + scenario,
                 "        if (c.last !== null) unheard(c, c.last);\n", "", scenario]),
             ["relay-retry-captures", "if (prompt !== null && answer === null && c.retried === c.relay) {",
-                "if (false) {", "task-permission-release"]
+                "if (false) {", "task-permission-release"],
+            ["relay-reply-rules", "const speakable = Speakable.create(LANGUAGE);", "const speakable = Speakable.create(LANGUAGE, { tools: [] });",
+                "task-permission-command"]
     ]) {
         await assert.rejects(() => cases(Fixture.copy(root, [[needle, replacement]]), server, scenario), assert.AssertionError,
             name + " must turn its scenario red");
@@ -2034,7 +2096,7 @@ world(async () => {
                 'pcm.writeInt16LE(0, frame * 2);', "feedback-start"],
             ["working-earcon-silenced", 'c.turn.speech.readable.push(earcon("working"));',
                 'c.turn.speech.readable.push(Buffer.alloc(5760));', "feedback-working"],
-            ["feedback-text-suppression", 'if (event.text.trim() !== "") quiet(turn);', 'void event;', "feedback-suppressed-text"],
+            ["feedback-text-suppression", "                        quiet(turn);\n                        say(c, turn, sentence);", "                        say(c, turn, sentence);", "feedback-suppressed-text"],
             ["feedback-tool-suppression", 'case "done":\n                    quiet(turn);',
                 'case "done":\n                    void turn;', "feedback-suppressed-tool"],
             ["feedback-disable-stream", 'turn.speech = null;\n            }\n            if (s.playback.kind',
@@ -2060,9 +2122,11 @@ world(async () => {
                 'heard(c, turn, "Hello there. The time is noon.");', "barge-in"],
             ["cancel-heard", '            if (c.live === null && turn.relay === null) heard(c, turn, "");\n', "", "cancel-thinking"],
             ["partial-to-brain", 'utterance.collection?.done("partial", event.text);', 'utterance.collection?.done("final", event.text);', "turn-loop"],
-            ["speakable-bypass", "for (const sentence of text.push(event.text)) say(c, turn, sentence);",
+            ["speakable-bypass", "for (const sentence of text.push(event.text)) {\n                        quiet(turn);\n                        say(c, turn, sentence);\n                    }",
                 "text.push(event.text); say(c, turn, event.text);", "turn-loop"],
-            ["tool-names-spoken", "const text = Speakable.create(LANGUAGE, TOOL_NAMES);", "const text = Speakable.create(LANGUAGE);", "brain-trace"],
+            ["feedback-silenced-text-cancels", "for (const sentence of text.push(event.text)) {\n                        quiet(turn);",
+                "quiet(turn);\n                    for (const sentence of text.push(event.text)) {", "feedback-silenced-text"],
+            ["tool-names-spoken", "const text = Speakable.create(LANGUAGE, { tools: TOOL_NAMES });", "const text = Speakable.create(LANGUAGE, { tools: [] });", "brain-trace"],
             ["trace-not-written", "                    brainText?.write(turn, event.text);\n", "", "brain-trace"],
             ["trace-after-speakable", "brainText?.write(turn, event.text);", "for (const sentence of Speakable.create(LANGUAGE).push(event.text)) brainText?.write(turn, sentence);", "brain-trace"],
             ["unlabelled-frames", 'return { value: Policy.item(chunk, ["speech"]), done: false };',

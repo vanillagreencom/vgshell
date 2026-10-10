@@ -33,8 +33,9 @@ const TaskVoice = require("./TaskVoice.js");
 const SPEECH = Object.freeze({ local: LocalSpeech.row });
 const DRIVERS = Object.freeze({ "openai-chat": OpenAIChat, "anthropic-messages": AnthropicMessages,
     "codex-app-server": CodexHarness, "copilot-acp": CopilotHarness, "pi-rpc": PiHarness, "claude-code": ClaudeCode });
-// Every name a brain may know a tool by: its id and its model-facing name.
-// Speakable keeps a sentence that holds one out of speech.
+// A tool's id and its model-facing name. A harness shows a brain that name
+// behind its own prefix, which ends before the name starts. Speakable keeps
+// a sentence of a brain's reply that holds one out of speech.
 const TOOL_NAMES = Object.freeze([...Object.keys(Tools.TABLE), ...Tools.wireNames(Object.keys(Tools.TABLE)).keys()]);
 // The hello carries no language setting; empty selects English.
 const LANGUAGE = "";
@@ -686,7 +687,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             // History can carry an earlier turn's untrusted content.
             router.observe(turn, reply.release.labels);
             const events = reply.events[Symbol.asyncIterator]();
-            const text = Speakable.create(LANGUAGE, TOOL_NAMES);
+            const text = Speakable.create(LANGUAGE, { tools: TOOL_NAMES });
             const calls = [];
             // A request with no released content refuses before it is sent.
             let step = await (reply.release.labels.length === 0 ? events.next()
@@ -697,8 +698,13 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 switch (event.kind) {
                 case "text":
                     brainText?.write(turn, event.text);
-                    if (event.text.trim() !== "") quiet(turn);
-                    for (const sentence of text.push(event.text)) say(c, turn, sentence);
+                    // Only a sentence for speech ends the wait the working
+                    // sound covers: text Speakable keeps silent, as before a
+                    // tool call, leaves the sound due.
+                    for (const sentence of text.push(event.text)) {
+                        quiet(turn);
+                        say(c, turn, sentence);
+                    }
                     break;
                 case "tool-call": calls.push(event); break;
                 case "done":
@@ -760,7 +766,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
 
     // The line leaves through the brain's own path: the release gate,
     // Speakable, captions and playback. A line the gate keeps from the
-    // conversation's recipients goes to TaskVoice instead.
+    // conversation's recipients goes to TaskVoice instead. Speakable reads it
+    // as text, not as a brain's reply: a prompt holds the command the user
+    // is asked to allow, as JSON, and every word of it is theirs to hear.
     async function relayLine(c, turn, text, labels) {
         try {
             if (tasks === null) fail("tasks-port");

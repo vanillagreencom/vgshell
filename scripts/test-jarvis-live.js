@@ -1258,7 +1258,7 @@ world(async () => {
                 assert.ok(server.requests[1].body.messages.some(value => value.role === "tool" && value.tool_call_id === "delete_call"));
                 // The words leave one response at a time, so the sentence
                 // count is the barrier; the assertions below read the frames.
-                const speakable = require(path.join(kit.folder, "Speakable.js")).create("");
+                const speakable = require(path.join(kit.folder, "Speakable.js")).create("", { tools: [] });
                 const sentences = [...speakable.push(answer), ...speakable.finish()].length;
                 await wait(() => conn.count(SPEAK) === sentences && last()?.turn.kind === "none", "every sentence of the result is spoken");
                 const observed = fs.readFileSync(frameAudits, "utf8").trim().split("\n").map(JSON.parse)

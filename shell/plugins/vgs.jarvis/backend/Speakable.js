@@ -1,15 +1,19 @@
-// TTS input boundary for chained consumers. create(language, tools) owns a
+// TTS input boundary for chained consumers. create(language, reply) owns a
 // text stream: push(chunk) and finish() return sentence arrays; counts()
-// returns detected violations without retaining a transcript. Only a reply's
-// sentences leave it: an element's content, a JSON value, code, a table row
-// and a sentence that names one of tools are silent, and the prose around
-// them is spoken. violations(text, language) measures a final duplex
-// transcript. It never receives audio.
+// returns detected violations without retaining a transcript. Of a brain's
+// reply, the stream create makes with reply, only the sentences leave it: an
+// element's content, a JSON value, code, a table row and a sentence that
+// names a tool are silent, and the prose around them is spoken. Any other
+// text keeps its words: a task's line can hold the command a user is asked
+// to allow. violations(text, language) measures a final duplex transcript.
+// It never receives audio.
 // Limits are allocation bounds in UTF-16 code units, not latency budgets.
 // Any overflow throws, clears retained text and makes the stream unusable.
+// element is how much text a reply's open element holds back while its
+// closing tag may still come: the wait a stray tag costs, kept short.
 "use strict";
 const { languageCode, expand } = require("./SpeechLanguage.js");
-const LIMITS = Object.freeze({ chunk: 16384, token: 4096, sentence: 4096, output: 65536, element: 4096 });
+const LIMITS = Object.freeze({ chunk: 16384, token: 4096, sentence: 4096, output: 65536, element: 256 });
 const KINDS = ["markdown", "code", "url", "path", "symbol", "number", "unit", "date", "time"];
 const URL_START = /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\.|mailto:)/u;
 // A brain can split any URI scheme across tokens. Hold one possible scheme
@@ -24,23 +28,24 @@ const PROSE = Object.freeze({ kind: "prose" });
 
 // Judge both complete tags and prefixes of the tag grammar. An impossible
 // prefix is prose immediately; only an unfinished valid token stays pending.
-// A tag name is an XML name: letters, digits, "_", "-" and ":", with "."
-// between them. element is the name of a tag that opens an element, null for
-// a closing tag, a self-closing one and a comment.
-function htmlCandidate(text) {
+// With xml, a brain's reply, a tag name is an XML name: letters, digits, "_",
+// "-" and ":", with "." between them; without it, an HTML name. element is
+// the name of a tag that opens an element, null for a closing tag, a
+// self-closing one and a comment.
+function htmlCandidate(text, xml) {
     if ("<!--".startsWith(text)) return { kind: "pending" };
     if (text.startsWith("<!--")) {
         const end = text.indexOf("-->", 4);
         return end < 0 ? { kind: "pending" } : { kind: "tag", length: end + 3, element: null };
     }
-    const head = /^<\/?[A-Za-z_:][A-Za-z0-9_:-]*(?:\.[A-Za-z0-9_:-]+)*/u.exec(text);
+    const head = (xml ? /^<\/?[A-Za-z_:][A-Za-z0-9_:-]*(?:\.[A-Za-z0-9_:-]+)*/u : /^<\/?[A-Za-z][A-Za-z0-9:-]*/u).exec(text);
     if (head === null) return { kind: text === "<" || text === "</" ? "pending" : "prose" };
     let at = head[0].length;
     while (at < text.length) {
         const end = /^\/?>/u.exec(text.slice(at));
         if (end !== null) return { kind: "tag", length: at + end[0].length,
             element: end[0] === ">" && !text.startsWith("</") ? head[0].slice(1) : null };
-        if (text.slice(at) === "/" || text.slice(at) === ".") return { kind: "pending" };
+        if (text.slice(at) === "/" || xml && text.slice(at) === ".") return { kind: "pending" };
         const space = /^\s+/u.exec(text.slice(at));
         if (space === null) return { kind: "prose" };
         at += space[0].length;
@@ -99,14 +104,15 @@ function siteName(raw) {
 }
 
 /**
- * Own one brain-text stream. The engine sends only returned strings to TTS.
- * tools is every name a brain may know a tool by. A one-word name, as help
- * is, reads as an ordinary word, so only a name with "." or "_" marks a
- * sentence as a status line.
+ * Own one text stream. The engine sends only returned strings to TTS.
+ * reply is null, or {tools} for a brain's reply, the one text the element,
+ * JSON, table and tool rules read. tools is every name a brain may know a
+ * tool by. A one-word name, as help is, reads as an ordinary word, so only a
+ * name with "." or "_" marks a sentence as a status line.
  */
-function create(language, tools = []) {
+function create(language, reply = null) {
     const code = languageCode(language);
-    const names = tools.filter(name => /[._]/u.test(name));
+    const names = reply === null ? [] : reply.tools.filter(name => /[._]/u.test(name));
     let pending = "";
     let sentence = "";
     // prose; code to its fence; element to its closing tag; json to the end
@@ -150,8 +156,13 @@ function create(language, tools = []) {
             from = 0;
         }
     }
+    // Whether the spoken text so far ends outside a word, so the next
+    // character starts one.
+    const wordStart = () => !/[\p{L}\p{N}]$/u.test(sentence);
     // Whether pending starts with a tool's name: "tool", "none", or "pending"
-    // while more text could finish one.
+    // while more text could finish one. A caller asks only at a word's
+    // start, after a character that is no letter and no digit, so the prefix
+    // a harness gives a name, which ends in "_" or "-", hides none.
     function toolAt(final) {
         let open = false;
         for (const name of names) {
@@ -173,28 +184,34 @@ function create(language, tools = []) {
             switch (mode.kind) {
             case "prose": break;
             case "code":
-                // A name in code marks a status line as a bare one does.
-                if (mode.fresh) {
+                // A name in a code span marks a status line as a bare one
+                // does. A fenced block is no line of the reply: it stays
+                // code to its fence.
+                if (mode.span && !mode.word) {
                     const named = toolAt(final);
                     if (named === "pending") return;
-                    mode.fresh = false;
                     if (named === "tool") { status(); continue; }
                 }
                 if (pending.startsWith(mode.fence)) { pending = pending.slice(mode.fence.length); mode = PROSE; plain(" ", output); }
                 else if (!final && mode.fence.startsWith(pending)) return;
-                else pending = pending.slice(1);
+                else { mode.word = /[\p{L}\p{N}]/u.test(pending[0]); pending = pending.slice(1); }
                 continue;
             case "element": {
                 // The first closing tag of the name, in any letter case, ends
-                // the element. Its content is kept, up to a bound, for a
-                // reply that never closes it (run).
+                // the element, and its content is never spoken. A tag with
+                // no closing tag within the bound, or by the reply's end
+                // (run), opened no element: the text kept since it is read
+                // again as prose, by every other rule, so a stray tag costs
+                // a short wait and no words, and a tool call's JSON stays
+                // silent by its own rule.
                 const rest = pending.slice(mode.closer.length);
                 if (pending.toLowerCase().startsWith(mode.closer)) {
                     const end = /^\s*>/u.exec(rest);
                     if (end !== null) { pending = rest.slice(end[0].length); mode = PROSE; plain(" ", output); continue; }
                     if (!final && rest.trim() === "") return;
                 } else if (!final && mode.closer.startsWith(pending.toLowerCase())) return;
-                if (mode.held !== null) mode.held = mode.held.length < LIMITS.element ? mode.held + pending[0] : null;
+                if (mode.held.length === LIMITS.element) { pending = mode.held + pending; mode = PROSE; continue; }
+                mode.held += pending[0];
                 pending = pending.slice(1);
                 continue;
             }
@@ -228,7 +245,7 @@ function create(language, tools = []) {
             const first = pending[0];
             // A chunk may end inside a UTF-16 pair. Preserve it for the next.
             if (!final && pending.length === 1 && /[\uD800-\uDBFF]/u.test(first)) return;
-            if (names.length !== 0 && !/[\p{L}\p{N}_.]$/u.test(sentence)) {
+            if (names.length !== 0 && wordStart()) {
                 const named = toolAt(final);
                 if (named === "pending") return;
                 if (named === "tool") { status(); continue; }
@@ -237,7 +254,7 @@ function create(language, tools = []) {
             if (ticks) {
                 if (!final && ticks[0].length === pending.length) return;
                 pending = pending.slice(ticks[0].length);
-                mode = { kind: "code", fence: ticks[0], fresh: true };
+                mode = { kind: "code", fence: ticks[0], span: /^`{1,2}$/u.test(ticks[0]), word: false };
                 note("code");
                 continue;
             }
@@ -247,10 +264,10 @@ function create(language, tools = []) {
                 if (!final && pending === "<") return;
                 if (URL_START.test(pending.slice(1))) { pending = pending.slice(1); continue; }
                 if (!final && SCHEME_PART.test(pending.slice(1))) return;
-                const tag = htmlCandidate(pending);
+                const tag = htmlCandidate(pending, reply !== null);
                 if (tag.kind === "tag") {
                     note("markdown"); pending = pending.slice(tag.length); plain(" ", output);
-                    if (tag.element !== null) mode = { kind: "element", closer: "</" + tag.element.toLowerCase(), held: "" };
+                    if (reply !== null && tag.element !== null) mode = { kind: "element", closer: "</" + tag.element.toLowerCase(), held: "" };
                     continue;
                 }
                 if (!final && tag.kind === "pending") return;
@@ -270,7 +287,7 @@ function create(language, tools = []) {
                 continue;
             }
             if (!final && SCHEME_PART.test(pending)) return;
-            if (first === "{" || first === "[") {
+            if (reply !== null && (first === "{" || first === "[")) {
                 const judged = jsonCandidate(pending, final);
                 if (judged === "pending") return;
                 if (judged === "json") {
@@ -296,7 +313,7 @@ function create(language, tools = []) {
                 note("markdown"); pending = pending.slice(start); continue;
             }
             if (!final && pending === "!") return;
-            const pathBoundary = sentence === "" || !/[\p{L}\p{N}]$/u.test(sentence);
+            const pathBoundary = wordStart();
             const path = pathBoundary && /^(?:\/[\p{L}\p{N}_.]|~\/|[A-Za-z]:\\)/u.test(pending);
             if (path) {
                 const end = pending.search(/\s/u);
@@ -307,7 +324,7 @@ function create(language, tools = []) {
             }
             if (!final && (pending === "/" || pending === "~" || /^[A-Za-z]:?\\?$/.test(pending))) return;
             // A line that starts with "|" is a table's row.
-            if (first === "|" && /(?:^|\n)[ \t]*$/u.test(sentence)) {
+            if (reply !== null && first === "|" && /(?:^|\n)[ \t]*$/u.test(sentence)) {
                 note("markdown"); mode = { kind: "row" }; continue;
             }
             if (/^[*_~#>|\\\[\]]/u.test(first)) {
@@ -347,9 +364,7 @@ function create(language, tools = []) {
             }
             if (final) {
                 drain(true, output);
-                // A tag the reply never closed opened no element: the text
-                // after it is prose, read again by every other rule.
-                while (mode.kind === "element" && mode.held !== null) {
+                while (mode.kind === "element") {
                     pending = mode.held;
                     mode = PROSE;
                     drain(true, output);
