@@ -1324,8 +1324,11 @@ function suite(ctx, check) {
     check("validateManifest normalizes absent sounds to an object", ctx.validateManifest(svc, "/p").manifest.sounds, {});
     check("soundSettings is a known capability and not exclusive", [ctx.validateManifest(Object.assign({}, svc, { capabilities: ["soundSettings"] }), "/p").ok, ctx.EXCLUSIVE_CAPABILITIES.indexOf("soundSettings")], [true, -1]);
     // The table against the tree: every sound names a shipped file, and
-    // every shipped file is a sound a choice can name.
-    const soundFiles = fs.readdirSync(SOUND_DIR).sort();
+    // every shipped file is a sound a choice can name, beside the one
+    // record of the sounds' origin and licence.
+    const shippedSoundFiles = fs.readdirSync(SOUND_DIR);
+    const soundFiles = shippedSoundFiles.filter(f => f !== "LICENSE").sort();
+    check("the sounds' origin and licence record ships beside them", shippedSoundFiles.length - soundFiles.length, 1);
     check("every sound of the set names a shipped file, and every shipped file is in the set", ctx.SOUNDS.map(s => s.file).sort(), soundFiles);
     check("the set holds a sound", soundFiles.length > 0, true);
     check("sound ids are unique and none is the own value", [new Set(ctx.SOUNDS.map(s => s.id)).size, ctx.SOUNDS.some(s => s.id === ctx.SOUND_OWN || s.id === ctx.SOUND_OFF)], [ctx.SOUNDS.length, false]);
