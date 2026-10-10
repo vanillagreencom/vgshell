@@ -1457,11 +1457,14 @@ function verifyAppearanceLayer(layer) {
     assert.ok(shippedOut.text.split("\n").includes(UNWRITTEN.glass), "with no Appearance value the user's own window decoration stays");
     same(glassLines(render({ windowGlass: true })), WINDOW_GLASS, "the windows' own glass writes Glass.js's window values");
     same(glassLines(render({ glass: "on" })), WINDOW_GLASS, "glass on everywhere writes window glass");
-    // Glass on everywhere also blurs popups and the shell's own layers,
-    // below a pixel alpha of 0.6; the windows' own glass alone does not.
-    const SURFACE_RULE = "hl.layer_rule({ name = \"vgs:glass\", match = { namespace = \"^vgs:(panel|menu|overlay|layer|notice|dialog)$\" }, blur = true, ignore_alpha = 0.6 })";
-    const surfaceLines = out => block(out).filter(line => /popups/.test(line)).concat(out.text.split("\n").filter(line => line === SURFACE_RULE));
-    same(surfaceLines(render({ glass: "on" })), ["            popups = true,", "            popups_ignorealpha = 0.6,", SURFACE_RULE], "glass on everywhere blurs popups and, at the top level, the shell's own layers");
+    // Glass on everywhere also blurs toplevel popups, the shell's own layers
+    // and their popups, and the bar's popups alone, each below a pixel alpha
+    // of 0.7, above the scrim's 0.6 and under the glass fill's 0.8; the
+    // windows' own glass alone does none of it.
+    const SURFACE_RULE = "hl.layer_rule({ name = \"vgs:glass\", match = { namespace = \"^vgs:(panel|menu|overlay|layer|notice|dialog)$\" }, blur = true, blur_popups = true, ignore_alpha = 0.7 })";
+    const BAR_RULE = "hl.layer_rule({ name = \"vgs:glass-bar\", match = { namespace = \"^vgs:bar$\" }, blur_popups = true, ignore_alpha = 0.7 })";
+    const surfaceLines = out => block(out).filter(line => /popups/.test(line)).concat(out.text.split("\n").filter(line => /^hl\.layer_rule\(\{ name = "vgs:glass/.test(line)));
+    same(surfaceLines(render({ glass: "on" })), ["            popups = true,", "            popups_ignorealpha = 0.7,", SURFACE_RULE, BAR_RULE], "glass on everywhere blurs toplevel popups and, at the top level, the shell's own layers, their popups and the bar's popups");
     same(surfaceLines(render({ windowGlass: true })), [], "the windows' own glass blurs no popup and no shell layer");
     same(surfaceLines(render({ glass: "off", windowGlass: true })), [], "glass off everywhere blurs no popup and no shell layer");
     const offEverywhere = render({ glass: "off", windowGlass: true });
@@ -1608,6 +1611,11 @@ const CONTROLS = [
     [layerFile, "glass on everywhere blurs the shell's layers", "if (theme.groups.surfaceBlur === true) lines", "if (false) lines"],
     [layerFile, "the windows' own glass blurs no shell layer", "if (theme.groups.surfaceBlur === true) lines", "if (theme.groups.glass) lines"],
     [layerFile, "the windows' own glass leaves popups and shell layers", "var surfaces = theme.groups.surfaceBlur === true;", "var surfaces = true;"],
+    [layerFile, "the shell's layers blur their popups", "blur = true, blur_popups = true, \" + alpha", "blur = true, \" + alpha"],
+    [layerFile, "the bar's popups take the blur", "        \"hl.layer_rule({ name = \\\"vgs:glass-bar\\\"", "        \"-- hl.layer_rule({ name = \\\"vgs:glass-bar\\\""],
+    [layerFile, "the bar itself takes no blur", "\"\\\" }, blur_popups = true, \" + alpha", "\"\\\" }, blur = true, blur_popups = true, \" + alpha"],
+    [layerFile, "the bar rule matches the bar alone", "popupsOnly: \"^vgs:bar$\"", "popupsOnly: \"^vgs:(bar|panel)$\""],
+    [layerFile, "the blur ignores pixels at the scrim's alpha", "ignoreAlpha: 0.7 };", "ignoreAlpha: 0.6 };"],
     [layerFile, "window glow reads its switch as a bool", "glow: { path: \"decoration.glow.enabled\", type: \"bool\", member: \"windowGlow\" }", "glow: { path: \"decoration.glow.enabled\", type: \"int\", member: \"windowGlow\" }"],
     [layerFile, "window glow reads its switch", "glow: { path: \"decoration.glow.enabled\", type: \"bool\", member: \"windowGlow\" }", "glow: { path: \"decoration.glow.range\", type: \"bool\", member: \"windowGlow\" }"],
     [layerFile, "window glow enables the glow", "\"            enabled = true,\",\n        \"            range = \" + luaNumber(glow.range)", "\"            enabled = false,\",\n        \"            range = \" + luaNumber(glow.range)"],

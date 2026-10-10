@@ -10,6 +10,31 @@ Rectangle {
 
     signal clicked()
 
+    // Whether something its parent draws lies under the scrim: a child of
+    // the parent painted before it, at a lower `z` or at the same `z` earlier
+    // in `children` (Qt 6 Item.z reference), that is visible, has an opacity
+    // above 0 and a width and a height. Only the parent's children are read:
+    // a scrim fills its parent, so that is what it washes; a host above it
+    // draws nothing, a VGS layer being transparent, and its input catchers,
+    // such as SummonLayer's MouseArea, are not content. A GlassSurface over a
+    // scrim that holds it draws no glass (GlassSurface.qml overContent).
+    readonly property bool overContent: washesContent()
+    // The marker GlassSurface reads to find a scrim among the items under it.
+    readonly property bool scrim: true
+
+    function washesContent() {
+        if (parent === null) return false;
+        const kids = parent.children;
+        let index = 0;
+        while (index < kids.length && kids[index] !== root) index++;
+        for (let i = 0; i < kids.length; i++) {
+            const other = kids[i];
+            if (other === root || other.z > root.z || (other.z === root.z && i > index)) continue;
+            if (other.visible && other.opacity > 0 && other.width > 0 && other.height > 0) return true;
+        }
+        return false;
+    }
+
     anchors.fill: parent
     color: Theme.color.scrim
 

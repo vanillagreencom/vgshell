@@ -11,30 +11,30 @@ import qs.Commons
 // another size rounds to another corner that shows past the surface's
 // curve. The compositor blurs what is behind it when a layer rule asks it
 // to, which reaches only what lies under the surface's own window: glass
-// is `drawn` where it is `on` and is its window's `backdrop`. While not
-// `drawn`, it draws `standard`, the surface's own look without glass: a
-// token group's `background` and `border` at its `radius`, the raised
-// surface's unless the surface hands its own, such as `Theme.popover`,
-// with no shadow, sheen or hairline. `optIn` is the surface's own VGlass
-// choice; the user's Appearance values decide `on` from it
-// (ThemeLogic.glassOn). `follow` lays it under another item, taking that
-// item's geometry, opacity, scale and transform origin. Children go into
-// the clipped body, above the sheen and below the hairline.
+// is `drawn` where it is `on` and nothing its window draws lies under it.
+// While not `drawn`, it draws `standard`, the surface's own look without
+// glass: a token group's `background` and `border` at its `radius`, the
+// raised surface's unless the surface hands its own, such as
+// `Theme.popover`, with no shadow, sheen or hairline. `optIn` is the
+// surface's own VGlass choice; the user's Appearance values decide `on`
+// from it (ThemeLogic.glassOn). `follow` lays it under another item, taking
+// that item's geometry, opacity, scale and transform origin. Children go
+// into the clipped body, above the sheen and below the hairline.
 Item {
     id: glass
 
     property bool optIn: false
     readonly property bool on: Theme.glassOn(optIn)
-    // Whether the compositor's blur can reach what lies under this surface:
-    // the first thing its window draws there, in a window whose own colour
-    // is transparent, a VGS layer or popup, and inside no other
-    // GlassSurface. Under a surface drawn over its window's own content, a
-    // dialog inline in a page or a card in an application window, that
-    // content shows through unblurred, so such a surface draws its standard
-    // look. A sibling drawn under it in the same window is not read.
-    readonly property bool backdrop: Window.window !== null && Window.window.color.a === 0 && !heldBy(parent)
-    readonly property bool drawn: on && backdrop
-    // What heldBy reads to find another GlassSurface among the ancestors.
+    // Whether glass is drawn: `on`, in a window whose own colour is
+    // transparent, as every VGS layer and popup is, and over nothing that
+    // window draws (overContent). Under a surface drawn over its window's own
+    // content, a dialog inline in a page, a menu over a glass card or a card
+    // in an application window, that content shows through unblurred, so
+    // such a surface draws its standard look. `on` comes first, so a surface
+    // without glass reads none of its window's items.
+    readonly property bool drawn: on && Window.window !== null && Window.window.color.a === 0 && !overContent()
+    // The markers overContent reads to find a GlassSurface among the items
+    // under another, and Scrim.qml has its own `scrim`.
     readonly property bool glassSurface: true
     default property alias content: body.data
     property color fill: Theme.glass.glass.fill
@@ -56,9 +56,35 @@ Item {
     // or the standard look's.
     readonly property real corner: drawn ? Math.min(radius, width / 2, height / 2) : standard.radius
 
-    function heldBy(item) {
-        for (let at = item; at !== null; at = at.parent)
-            if (at.glassSurface === true) return true;
+    // Whether this window draws something glass would show unblurred under
+    // this surface. Walking from the surface up through its ancestors: an
+    // ancestor that is a GlassSurface, or, at each level, a sibling of that
+    // level's item painted under it that is visible, has an opacity above 0,
+    // overlaps it and is a GlassSurface or a Scrim whose `overContent` holds.
+    // Qt paints a lower `z` first and, at the same `z`, the earlier item in
+    // `children` first (Qt 6 Item.z reference). Overlap compares x, y, width
+    // and height in the shared parent's coordinates; a transform or scale is
+    // not read. A sibling's other properties are read only after its marker
+    // matched, so a long list binds this to its items' markers alone; the
+    // binding reads each level's `children`, so it runs again when they
+    // change.
+    function overContent() {
+        for (let at = glass; at.parent !== null; at = at.parent) {
+            const level = at.parent;
+            if (level.glassSurface === true) return true;
+            const kids = level.children;
+            let index = 0;
+            while (index < kids.length && kids[index] !== at) index++;
+            for (let i = 0; i < kids.length; i++) {
+                const other = kids[i];
+                if (other === at || (other.glassSurface !== true && other.scrim !== true)) continue;
+                if (other.z > at.z || (other.z === at.z && i > index)) continue;
+                if (!other.visible || other.opacity <= 0) continue;
+                if (other.x >= at.x + at.width || at.x >= other.x + other.width || other.y >= at.y + at.height || at.y >= other.y + other.height) continue;
+                if (other.glassSurface === true) return true;
+                if (other.overContent === true) return true;
+            }
+        }
         return false;
     }
 

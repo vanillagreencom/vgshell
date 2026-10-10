@@ -10,11 +10,16 @@ import qs.Unit
 // raised surface's by default, and none of the glass. The surface's own
 // choice decides until the user's `glass` Appearance value turns glass on or
 // off everywhere, for the qs.Ui surfaces built on it too: a panel's Surface,
-// a LevelOsd and a Dialog. Glass is drawn only where the surface is its
-// window's backdrop: a window whose colour is transparent, as every VGS
-// layer and popup is, and no GlassSurface around it; the test window is
-// made transparent for the rest. `follow` lays it under another item. Expected values are worked by hand from Glass.js and
-// Tokens.js, never read from Theme: the hairline is #e8e8e8 at alpha 0.09,
+// a LevelOsd and a Dialog. Glass is drawn only over nothing its own window
+// draws: a window whose colour is transparent, as every VGS layer and popup
+// is, no GlassSurface around it, and none or a Scrim over content painted
+// under it; the test window is made transparent before each test. The
+// groups below y 300 stand for the shell's callers: an inline dialog over
+// its page (clipboard, themes), a modal dialog in its own layer, a launcher
+// card with a flyout over it, cards side by side and a scrim shown only
+// while a dialog asks. `follow` lays it under another item. Expected
+// values are worked by hand from Glass.js and Tokens.js, never read from
+// Theme: the hairline is #e8e8e8 at alpha 0.09,
 // round(22.95) = 23 = 0x17; the tight shadow black at 0.45, round(114.75) =
 // 115 = 0x73; the wide one at 0.55, round(140.25) = 140 = 0x8c; the default
 // fill #101010 at 0.8, 204 = 0xcc; the raised surface neutral(0.075),
@@ -78,18 +83,59 @@ Item {
     LevelOsd { id: osd; x: 220; y: 150; level: 0.5 }
     Dialog { id: dialog; x: 10; y: 260; width: 200; title: "Glass" }
 
+    // A dialog over a scrim over its own page.
+    Item {
+        x: 0; y: 400; width: 400; height: 200
+        Surface { id: inlinePage; anchors.fill: parent }
+        Scrim { id: inlineScrim }
+        Dialog { id: inlineDialog; anchors.centerIn: parent; width: 200; title: "Inline" }
+    }
+
+    // A dialog over a scrim first in its layer, after items that draw
+    // nothing: hidden, transparent and of no size.
+    Item {
+        x: 0; y: 650; width: 400; height: 200
+        Rectangle { anchors.fill: parent; visible: false }
+        Rectangle { anchors.fill: parent; opacity: 0 }
+        Item {}
+        Scrim { id: modalScrim }
+        Dialog { id: modalDialog; anchors.centerIn: parent; width: 200; title: "Modal" }
+    }
+
+    // A glass card after a click-away area, and a glass flyout over it.
+    Item {
+        x: 0; y: 900; width: 400; height: 200
+        MouseArea { anchors.fill: parent }
+        GlassSurface { id: card; x: 10; y: 10; width: 300; height: 180; optIn: true }
+        GlassSurface { id: flyout; x: 100; y: 50; width: 120; height: 80; optIn: true }
+    }
+
+    // Two glass cards side by side.
+    Item {
+        x: 0; y: 1150; width: 400; height: 200
+        GlassSurface { id: leftCard; x: 0; y: 0; width: 180; height: 100; optIn: true }
+        GlassSurface { id: rightCard; x: 200; y: 0; width: 180; height: 100; optIn: true }
+    }
+
+    // A dialog over content and a scrim shown only while it asks.
+    Item {
+        x: 0; y: 1400; width: 400; height: 200
+        Rectangle { anchors.fill: parent; color: "#808080" }
+        Scrim { id: askingScrim; visible: false }
+        Dialog { id: askingDialog; anchors.centerIn: parent; width: 200; title: "Asking" }
+    }
+
     TestCase {
         name: "glasssurface"
         when: windowShown
 
-        function initTestCase() {
-            root.Window.window.color = "transparent";
-        }
-
         function init() {
+            root.Window.window.color = "transparent";
             UnitTheme.reset();
             Theme.appearanceInput = "";
             unnamed.elevation = "wide";
+            askingScrim.visible = false;
+            askingScrim.opacity = 1;
         }
 
         function shadowOf(glass) { return glass.children[0]; }
@@ -160,18 +206,52 @@ Item {
         // content keeps its standard look: one inside another GlassSurface,
         // and every one in a window whose colour is not transparent. Its
         // `on` still answers the user's and its own choice.
-        function test_glass_is_drawn_only_as_its_window_backdrop() {
+        function test_glass_is_drawn_only_over_a_transparent_window() {
             Theme.appearanceInput = JSON.stringify({ glass: "on" });
-            compare([outer.on, outer.backdrop, outer.drawn], [true, true, true]);
-            compare([inner.on, inner.backdrop, inner.drawn], [true, false, false]);
+            compare([outer.on, outer.drawn], [true, true]);
+            compare([inner.on, inner.drawn], [true, false]);
             verify(!shadowOf(inner).visible);
             compare(String(bodyOf(inner).color), "#101010");
             root.Window.window.color = "#ffffff";
-            compare([chosen.on, chosen.backdrop, chosen.drawn], [true, false, false]);
+            compare([chosen.on, chosen.drawn], [true, false]);
             compare(String(bodyOf(chosen).color), "#101010");
             root.Window.window.color = "transparent";
             verify(chosen.drawn);
             compare(String(bodyOf(chosen).color), "#33445566");
+        }
+
+        // A sibling painted under a surface, or under one of its ancestors,
+        // and overlapping it, keeps its glass from being drawn when it is a
+        // visible GlassSurface or a Scrim over content. Each row: [name,
+        // surface, on, drawn].
+        function test_glass_is_drawn_only_over_nothing_its_window_draws() {
+            Theme.appearanceInput = JSON.stringify({ glass: "on" });
+            const rows = [
+                ["the page under an inline dialog", inlinePage, true, true],
+                ["an inline dialog over a scrim over its page", inlineDialog.children[0], true, false],
+                ["a modal dialog over its own scrim", modalDialog.children[0], true, true],
+                ["a card after a click-away area", card, true, true],
+                ["a flyout over a glass card", flyout, true, false],
+                ["the left of two cards side by side", leftCard, true, true],
+                ["the right of two cards side by side", rightCard, true, true],
+                ["a dialog over a hidden scrim", askingDialog.children[0], true, true]
+            ];
+            for (const [name, surface, on, drawn] of rows)
+                compare([surface.on, surface.drawn], [on, drawn], name);
+            compare([inlineScrim.overContent, modalScrim.overContent], [true, false], "a scrim is over content when its parent draws something under it");
+        }
+
+        // A scrim counts only while it is painted: visible, with an opacity
+        // above 0.
+        function test_a_scrim_counts_only_while_it_is_painted() {
+            Theme.appearanceInput = JSON.stringify({ glass: "on" });
+            const asking = askingDialog.children[0];
+            verify(asking.drawn, "hidden");
+            askingScrim.visible = true;
+            verify(askingScrim.overContent);
+            verify(!asking.drawn, "shown");
+            askingScrim.opacity = 0;
+            verify(asking.drawn, "transparent");
         }
 
         function test_the_default_fill_and_elevation() {
