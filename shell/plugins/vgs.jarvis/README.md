@@ -107,11 +107,13 @@ The AI models never run inside this folder. A setting, hook or server that you k
 
 Jarvis searches notes in `memory/`. Its search index is private Jarvis state and rebuilds itself when it is missing.
 
-Optional add-ons can write the notes. Install them yourself and point them at `memory/` as read-only when Jarvis reads the folder.
+Optional add-ons give another app its own view of the notes. Install them yourself and point each at `memory/` read-only.
 
 - Basic Memory can use the folder. Basic Memory is AGPL software. VGS never bundles it.
 - Obsidian can use the folder as a vault.
 - QMD can use the folder for Markdown notes.
+
+A note can carry front matter fields that Jarvis reads: `title`, `aliases`, `date` as `YYYY-MM-DD`, and `sources`. A `sources` value such as `web` tells Jarvis where the note came from, so it keeps asking before it sends that note's text out. `[[note]]` links connect notes and give backlinks when Jarvis reads them.
 
 Semantic search is not built yet. VGS adds it only after measured search misses show that keyword search is not enough.
 

@@ -6,8 +6,8 @@
 // the user's Jarvis home folder or null: a brain gets the base package's
 // persona and the home's AGENTS.md after the shipped layers, then the index of
 // its skills, each read on demand through the help tool, then memory/MEMORY.md,
-// the index of its memory notes, each read on demand through the memory.read
-// tool. The voice model only reads the brain's words aloud and gets no
+// the memory bootstrap that points to the memory tools when they are offered.
+// The voice model only reads the brain's words aloud and gets no
 // home text (D105).
 // Read failures and bounds throw keyed errors. No cache or session store.
 "use strict";
@@ -69,7 +69,7 @@ function homeLayers(home) {
     const memory = Home.read(home, "memory/MEMORY.md", MAX_MEMORY_BYTES);
     if (memory.kind !== "text") throw new Error("jarvis: guidance=home-memory-too-large");
     if (memory.text.trim() !== "")
-        out.push(["home/MEMORY.md", "The user's memory notes. Search notes with the memory search tool before you answer from memory. Read notes with the memory read tool by id, the path below memory/. Read several ids in one call when needed. A note can change between turns. Say which note the answer came from. The memory/MEMORY.md bootstrap in the user's Jarvis home folder:\n\n" + memory.text.trim()]);
+        out.push(["home/MEMORY.md", "The user's memory notes. When offered, use memory search before answering from memory, then memory read by id. Say which note the answer came from. The memory/MEMORY.md bootstrap:\n\n" + memory.text.trim()]);
     return out;
 }
 

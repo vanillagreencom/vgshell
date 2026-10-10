@@ -175,9 +175,8 @@ function create({ session, state, dispatch, context, audit, result }) {
     }
 
     // A harness program proposes its own actions; no brain is offered them.
-    // Nor the memory.read row while the guidance executor can read no note:
-    // with no home folder chosen, a call to it could only fail. Nor the
-    // master.request row while the home holds no mailbox of the master's.
+    // Nor the master.request row while the home holds no mailbox of the
+    // master's. Other rows depend on their executor's own availability.
     function offer() {
         if (closed) return [];
         const mailbox = registry.get("guidance")?.mailbox;

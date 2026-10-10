@@ -68,6 +68,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     let input = null;
     let browser = null;
     let memory = null;
+    let memoryReconcileHome = null;
+    let memoryReconcileQueued = false;
     let files = null;
     let shell = null;
     let requirementsScan = -1;
@@ -115,6 +117,19 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     function judgeSetup() {
         homeFolder = judgeHome(context.settings.home);
         configured(engine.configure(context.settings));
+        scheduleMemoryReconcile();
+    }
+
+    function scheduleMemoryReconcile() {
+        if (memory === null || homeFolder.state.kind !== "ready" || memoryReconcileHome === homeFolder.state.path
+                || memoryReconcileQueued) return;
+        const target = homeFolder.state.path;
+        memoryReconcileQueued = true;
+        setImmediate(() => {
+            memoryReconcileQueued = false;
+            if (ending || memory === null || homeFolder.state.kind !== "ready" || homeFolder.state.path !== target) return;
+            if (memory.reconcileStart()) memoryReconcileHome = target;
+        });
     }
 
     function teardown() {
@@ -132,7 +147,10 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
             try { browser.close(); }
             catch (error) { process.stderr.write(error.message + "\n"); process.exitCode = 74; }
         }
-        if (memory !== null) memory.close();
+        if (memory !== null) {
+            try { memory.close(); }
+            catch (error) { process.stderr.write(error.message + "\n"); process.exitCode = 74; }
+        }
         if (requests !== null) requests.close();
         if (audit !== null) audit.close();
         if (tasks !== null) tasks.close();

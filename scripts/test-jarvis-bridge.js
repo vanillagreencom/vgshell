@@ -214,7 +214,7 @@ world(async () => {
                 assert.deepEqual(entry.inputSchema, JSON.parse(JSON.stringify(Tools.TABLE[expected[index]].schema)));
                 assert.equal(entry.description, Tools.TABLE[expected[index]].sentence);
                 assert.deepEqual(entry.annotations, { readOnlyHint: Tools.TABLE[expected[index]].effect === "read",
-                    destructiveHint: Tools.TABLE[expected[index]].effect === "destructive" });
+                    destructiveHint: !["read", "reversible", "input"].includes(Tools.TABLE[expected[index]].effect) });
             }
             const previous = w.shim();
             previous.send(initialize(1, "2025-06-18"));

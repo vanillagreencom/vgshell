@@ -53,8 +53,8 @@ function content(id, text, isError, image = null) {
 function toolAnnotations(id) {
     const row = Tools.TABLE[id];
     if (row === undefined) throw new Error("jarvis: mcp=tool");
-    const effect = id === "browser" ? null : row.effect;
-    return { readOnlyHint: effect === "read", destructiveHint: effect === "destructive" };
+    const effect = id === "browser" ? "external" : row.effect;
+    return { readOnlyHint: effect === "read", destructiveHint: !["read", "reversible", "input"].includes(effect) };
 }
 
 /**

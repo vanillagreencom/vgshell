@@ -84,8 +84,10 @@ world(() => {
     results(Mcp);
     const annotations = logic => {
         assert.deepEqual(logic.toolAnnotations("windows.list"), { readOnlyHint: true, destructiveHint: false });
+        assert.deepEqual(logic.toolAnnotations("windows.focus"), { readOnlyHint: false, destructiveHint: false });
+        assert.deepEqual(logic.toolAnnotations("files.write"), { readOnlyHint: false, destructiveHint: true });
         assert.deepEqual(logic.toolAnnotations("files.delete"), { readOnlyHint: false, destructiveHint: true });
-        assert.deepEqual(logic.toolAnnotations("browser"), { readOnlyHint: false, destructiveHint: false });
+        assert.deepEqual(logic.toolAnnotations("browser"), { readOnlyHint: false, destructiveHint: true });
     };
     annotations(Mcp);
 
@@ -121,8 +123,8 @@ world(() => {
     }
     for (const [name, needle, replacement] of [
         ["annotations-read", 'readOnlyHint: effect === "read"', 'readOnlyHint: false'],
-        ["annotations-destructive", 'destructiveHint: effect === "destructive"', 'destructiveHint: false'],
-        ["annotations-browser", 'const effect = id === "browser" ? null : row.effect;', 'const effect = "destructive";']
+        ["annotations-destructive", 'destructiveHint: !["read", "reversible", "input"].includes(effect)', 'destructiveHint: false'],
+        ["annotations-browser", 'const effect = id === "browser" ? "external" : row.effect;', 'const effect = id === "browser" ? "read" : row.effect;']
     ]) {
         mutant(file, name, needle, replacement, annotations);
         controls++;

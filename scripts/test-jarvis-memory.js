@@ -22,9 +22,11 @@ world(() => {
     const fixtures = seed();
     let serial = 0;
 
-    function attach(logic, folder, state) {
+    function attach(logic, folder, state, options = {}) {
         const router = { record: null, register(id, executor) { assert.equal(id, "memory"); this.record = executor; } };
-        const installed = logic.install({ router, directory: path.join(state, "memory"), home: () => folder, log() {} });
+        const logs = [];
+        const installed = logic.install({ router, directory: path.join(state, "memory"), home: () => folder,
+            log: line => logs.push(line), ...options });
         assert.equal(installed.kind, "installed");
         const call = (id, args) => {
             let answer;
@@ -40,7 +42,7 @@ world(() => {
             const answer = call("memory.read", { ids });
             return { answer, body: answer.content.startsWith("{") ? JSON.parse(answer.content) : null };
         };
-        return { installed, search, read };
+        return { installed, search, read, logs };
     }
 
     function make(logic = Memory) {
@@ -71,6 +73,10 @@ world(() => {
     assert.deepEqual(found.body.results.map(row => row.id).slice(0, 2), ["facts/title.md", "facts/body.md"], "title rank beats body rank");
     assert.deepEqual(found.answer.labels, ["home", "web"]);
     assert.deepEqual(found.body.results.find(row => row.id === "facts/title.md").sources, ["home", "web"]);
+    w.write("facts/crlf.md", "---\r\ntitle: CRLF note\r\nsources: [web]\r\n---\r\n# CRLF\r\ncrlf-token\r\n");
+    w.write("facts/quoted.md", "---\ntitle: Quoted source\nsources: [\"web\"]\n---\n# Quoted\nquoted-token\n");
+    assert.deepEqual(w.search({ query: "crlf-token" }).body.results[0].sources, ["home", "web"]);
+    assert.deepEqual(w.search({ query: "quoted-token" }).body.results[0].sources, ["home", "web"]);
     assert.equal(found.body.results.some(row => row.id === "inbox/pending.md"), false, "inbox is not searched");
     assert.deepEqual(w.search({ query: "alpha", title: "body" }).body.results.map(row => row.id), ["facts/body.md"]);
     assert.deepEqual(w.search({ query: "alpha", alias: "rocket" }).body.results.map(row => row.id), ["facts/title.md"]);
@@ -97,9 +103,19 @@ world(() => {
     fs.writeFileSync(path.join(rebuilt.folder, "memory/facts/body.md"), "# Body note\nfresh-live term\n");
     assert.deepEqual(rebuilt.search({ query: "fresh-live" }).body.results.map(row => row.id), ["facts/body.md"], "a live edit is found next search");
     rebuilt.installed.close();
-    fs.writeFileSync(path.join(rebuilt.folder, "memory/facts/body.md"), "# Body note\nfresh-down term\n");
+    const downFile = path.join(rebuilt.folder, "memory/facts/body.md");
+    const downStat = fs.statSync(downFile);
+    fs.writeFileSync(downFile, "# Body note\nfresh-down term\n");
+    fs.truncateSync(downFile, downStat.size);
+    fs.utimesSync(downFile, downStat.atime, downStat.mtime);
     Object.assign(rebuilt, attach(Memory, rebuilt.folder, rebuilt.state));
     assert.deepEqual(rebuilt.search({ query: "fresh-down" }).body.results.map(row => row.id), ["facts/body.md"], "a down edit is reconciled on start");
+    const unavailableHome = { value: null };
+    const late = attach(Memory, rebuilt.folder, path.join(rebuilt.root, "late"), { home: () => unavailableHome.value });
+    assert.equal(late.installed.kind, "installed");
+    unavailableHome.value = rebuilt.folder;
+    late.installed.reconcileStart();
+    assert.deepEqual(late.search({ query: "fresh-down" }).body.results.map(row => row.id), ["facts/body.md"], "start reconcile runs after a home appears");
 
     for (const loader of [() => { throw new Error("missing"); }, () => ({ DatabaseSync: class {
         exec(sql) { if (String(sql).includes("fts5")) throw new Error("no fts"); }
@@ -109,6 +125,12 @@ world(() => {
             directory: path.join(process.env.JARVIS_TEST_ROOT, "sqlite-" + ++serial), home: () => w.folder, sqlite: loader, log() {} });
         assert.deepEqual(refused, { kind: "refused", cause: "memory=sqlite" });
     }
+    const bad = make();
+    bad.write("facts/good.md", "# Good\nhealthy-token\n");
+    bad.write("latin1.md", Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
+    const good = bad.search({ query: "healthy-token" });
+    assert.deepEqual(good.body.results.map(row => row.id), ["facts/good.md"], "one bad note does not stop the index");
+    assert.equal(bad.logs.some(line => /^jarvis: memory=note-text id=latin1\.md$/.test(line)), true, "bad note is logged by id");
 
     function routerWorld() {
         let transcript, at = 0;
@@ -127,15 +149,30 @@ world(() => {
         runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
         runner.dispatch({ type: "indicator", shown: true });
         runner.dispatch({ type: "talk-down" }); transcript("final", "fixture user");
+        const turn = () => ({ gen: runner.state.gen, op: runner.state.turn.op });
         const m = make();
         m.write("facts/web.md", "---\ntitle: Web memory\nsources: [web]\n---\n# Web memory\nweb-taint\n");
-        Memory.install({ router, directory: path.join(m.state, "router-memory"), home: () => m.folder, log() {} });
-        const turn = () => ({ gen: runner.state.gen, op: runner.state.turn.op });
+        let offeredHome = null;
+        Memory.install({ router, directory: path.join(m.state, "router-memory"), home: () => offeredHome, log() {} });
+        assert.equal(router.offer().some(row => row.id.startsWith("memory.")), false, "no home means no memory row");
+        offeredHome = m.folder;
+        assert.equal(router.offer().some(row => row.id === "memory.read"), true, "a chosen home offers memory read");
+        offeredHome = null;
+        assert.equal(router.route({ kind: "tool-call", id: "lost", tool: "memory.read", arguments: { ids: ["facts/web.md"] } }, turn()).reason,
+            "executor-unavailable", "a home lost after offer is refused before reading");
+        offeredHome = m.folder;
         router.route({ kind: "tool-call", id: "mem", tool: "memory.read", arguments: { ids: ["facts/web.md"] } }, turn());
         const item = results.at(-1).results[0].item;
         assert.deepEqual(item.labels, ["home", "web"], "the router keeps recorded labels");
         assert.equal(router.route({ kind: "tool-call", id: "write", tool: "files.write",
             arguments: { path: path.join(fixtures.project, "new"), text: "x" } }, turn()).kind, "held", "web-labelled memory taints the turn");
+        assert.equal(item.content.includes("web-taint"), true);
+        router.register("windows", { commands: ["hyprctl"], timeoutMs: 1000, cancellable: false,
+            start(call, done) { done({ outcome: "completed", content: "bad labels", labels: ["web"] }); } });
+        runner.dispatch({ type: "cancel" });
+        runner.dispatch({ type: "talk-down" }); transcript("final", "fixture user");
+        assert.throws(() => router.route({ kind: "tool-call", id: "bad", tool: "windows.list", arguments: {} }, turn()),
+            { message: "jarvis: router=labels" });
         audit.close();
     }
     routerWorld();
@@ -148,21 +185,45 @@ world(() => {
     };
     mutant(homeFile, "memory-inbox-skip", [
         ['if (prefix === "" && entry.name === "inbox") continue;', ""],
+        ['    if (!Tools.memoryNote(entry)) fail("absent");\n', ""],
         ["if (!stat.isFile() || !entry.name.endsWith(\".md\") || !Tools.memoryNote(id)) continue;", "if (!stat.isFile() || !entry.name.endsWith(\".md\")) continue;"]
     ], null, checkInbox, "Memory.js");
     controls++;
-    mutant(memoryFile, "memory-hash-compare", "prior?.hash === note.hash && prior?.stat === note.stat", "true", logic => {
+    mutant(memoryFile, "memory-hash-compare", "prior !== undefined && prior.hash === read.hash", "prior !== undefined", logic => {
         const x = make(logic); x.write("facts/a.md", "# A\noldterm\n"); assert.deepEqual(x.search({ query: "oldterm" }).body.results.map(row => row.id), ["facts/a.md"]);
-        x.installed.close(); x.write("facts/a.md", "# A\nnewterm\n"); Object.assign(x, attach(logic, x.folder, x.state));
+        const file = path.join(x.folder, "memory/facts/a.md");
+        const stat = fs.statSync(file);
+        x.installed.close(); x.write("facts/a.md", "# A\nnewterm\n"); fs.truncateSync(file, stat.size); fs.utimesSync(file, stat.atime, stat.mtime); Object.assign(x, attach(logic, x.folder, x.state));
         assert.deepEqual(x.search({ query: "newterm" }).body.results.map(row => row.id), ["facts/a.md"]);
     });
     controls++;
-    mutant(memoryFile, "memory-stat-reconcile", "try { reconcile(); database = open(); } catch { fail(\"memory-search:\", \"index\", done); return; }",
-        "try { database = open(); } catch { fail(\"memory-search:\", \"index\", done); return; }", logic => {
+    mutant(memoryFile, "memory-stat-reconcile", "const database = reconcileFor(\"memory-search:\", done);",
+        "const database = open();", logic => {
             const x = make(logic); x.write("facts/a.md", "# A\noldterm\n"); assert.deepEqual(x.search({ query: "oldterm" }).body.results.map(row => row.id), ["facts/a.md"]);
             x.write("facts/a.md", "# A\nnewterm\n");
             assert.deepEqual(x.search({ query: "newterm" }).body.results.map(row => row.id), ["facts/a.md"]);
         });
+    controls++;
+    mutant(memoryFile, "memory-offer-home", "available: () => home() !== null", "available: () => true", logic => {
+        const folder = path.join(process.env.JARVIS_TEST_ROOT, "offer-" + ++serial);
+        const state = path.join(process.env.JARVIS_TEST_ROOT, "offer-state-" + serial);
+        fs.mkdirSync(folder, { recursive: true }); fs.mkdirSync(state, { recursive: true });
+        let transcript;
+        const audit = Audit.create({ state: path.join(state, "audit"), now: () => Date.UTC(2026, 9, 1) });
+        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
+            capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
+            brain: { send() {}, cancel: (e, done) => done(), close() {}, outcome() {} } };
+        const runner = new SessionRunner(Session, ports, { now: () => 0, set: fn => ({ fn }), clear() {} }, () => {});
+        const router = Router.create({ session: Session, state: () => runner.state, dispatch: e => runner.dispatch(e),
+            audit, context: () => ({ profile: "standard", locked: false, denied: Denied.create(fixtures.roots) }), result() {} });
+        Object.assign(ports, router.ports);
+        logic.install({ router, directory: path.join(state, "memory"), home: () => null, log() {} });
+        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
+        runner.dispatch({ type: "indicator", shown: true });
+        runner.dispatch({ type: "talk-down" }); transcript("final", "fixture");
+        assert.equal(router.offer().some(row => row.id.startsWith("memory.")), false);
+        audit.close();
+    });
     controls++;
     console.log("test-jarvis-memory: ok controls=" + controls);
 });

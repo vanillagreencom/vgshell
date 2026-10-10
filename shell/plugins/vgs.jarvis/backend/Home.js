@@ -404,8 +404,7 @@ function note(home, entry) {
 /**
  * The memory notes the search index may read: Markdown files below memory/,
  * never inbox/, dot entries, links or non-regular files. Each row carries the
- * opened file's stat facts, so the index owner can reconcile without trusting
- * a pathname it has not re-opened through Home.note.
+ * entry's stat facts, so the index owner can select what Home.note re-opens.
  */
 function notes(home) {
     return within(home, "memory", O_RDONLY | O_DIRECTORY, fd => {
@@ -413,31 +412,36 @@ function notes(home) {
         const child = Core.anchored().child;
         function walk(parent, prefix, depth) {
             if (depth > NOTE_DEPTH) fail("notes-too-many");
-            const directory = fs.opendirSync("/proc/self/fd/" + parent);
+            let directory;
+            try { directory = fs.opendirSync("/proc/self/fd/" + parent); }
+            catch { fail("unreadable"); }
             try {
-                for (let entry = directory.readSync(); entry !== null; entry = directory.readSync()) {
+                for (;;) {
+                    let entry;
+                    try { entry = directory.readSync(); }
+                    catch { fail("unreadable"); }
+                    if (entry === null) break;
                     if (entry.name.startsWith(".")) continue;
                     if (prefix === "" && entry.name === "inbox") continue;
                     const id = prefix + entry.name;
                     let stat;
                     try { stat = fs.lstatSync(child(parent, entry.name), { bigint: true }); }
-                    catch (error) { if (error.code === "ENOENT") continue; throw error; }
+                    catch (error) {
+                        if (error.code === "ENOENT") continue;
+                        fail("unreadable");
+                    }
                     if (stat.isSymbolicLink()) continue;
                     if (stat.isDirectory()) {
-                        const held = fs.openSync(child(parent, entry.name), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+                        let held;
+                        try { held = fs.openSync(child(parent, entry.name), O_RDONLY | O_DIRECTORY | O_NOFOLLOW); }
+                        catch { fail("unreadable"); }
                         try { walk(held, id + "/", depth + 1); }
                         finally { fs.closeSync(held); }
                         continue;
                     }
                     if (!stat.isFile() || !entry.name.endsWith(".md") || !Tools.memoryNote(id)) continue;
-                    const held = fs.openSync(child(parent, entry.name), O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
-                    try {
-                        const opened = fs.fstatSync(held, { bigint: true });
-                        if (!opened.isFile()) continue;
-                        found.push({ id, size: opened.size, mtimeNs: opened.mtimeNs,
-                            ctimeNs: opened.ctimeNs, ino: opened.ino });
-                        if (found.length > NOTE_ENTRIES) fail("notes-too-many");
-                    } finally { fs.closeSync(held); }
+                    found.push({ id, size: stat.size, mtimeNs: stat.mtimeNs, ctimeNs: stat.ctimeNs, ino: stat.ino });
+                    if (found.length > NOTE_ENTRIES) fail("notes-too-many");
                 }
             } finally { directory.closeSync(); }
         }

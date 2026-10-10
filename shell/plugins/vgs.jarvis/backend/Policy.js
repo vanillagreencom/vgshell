@@ -254,4 +254,4 @@ function decide(call, context) {
     throw new Error("jarvis: policy=unhandled-effect");
 }
 
-module.exports = { decide, observe, item, summary, recipients, assertRecipients, release, labels };
+module.exports = { decide, observe, item, summary, recipients, assertRecipients, release, labels, SOURCES };
