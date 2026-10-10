@@ -613,7 +613,7 @@ world(async () => {
         ["signed-out-choice-unchecked", "accepted(resolved, account.state.kind);", "accepted(resolved, null);"],
         ["signed-out-reads-present", 'value = out ? "signed-out" : "present";', 'value = "present";'],
         ["signed-out-reads-absent", 'value = out ? "signed-out" : "present";', 'value = out ? "absent" : "present";'],
-        ["signed-out-no-sign-in", "signIn: out && Array.isArray(row.signIn) };", "signIn: false };"],
+        ["signed-out-no-sign-in", "signIn: out && Array.isArray(row.signIn),", "signIn: false,"],
         ["copilot-signed-out", 'return source.kind === "cli" && state === "found";', 'return source.kind === "cli" && ["found", "unchecked"].includes(state);']]) {
         await mutant("backend/Accounts.js", name, needle, replacement, folder => signedOutRule(judgeIn(folder)));
         controls++;

@@ -16,7 +16,8 @@
 // test writes to $XDG_STATE_HOME/pi-scenario.json:
 //   { crash: "handshake", hang: "handshake", refuse: command type (answered
 //     success false), models: [model], state: {get_state data},
-//     reply: "text" (any prompt), turns: [[step, ...], ...], leak: true }
+//     reply: "text" (any prompt), turns: [[step, ...], ...], leak: true,
+//     version: the line `pi --version` prints, "1.1.0" when left out }
 // A step is {text} (one text_delta), {tool: {name, durationMs?, hold?}} (a
 // tool's execution events; hold never ends the tool), {mcp: {tool, arguments}} (a tools/call through the
 // server cwd/.pi/mcp.json names, with its environment, tools/list first,
@@ -51,6 +52,10 @@ fs.appendFileSync(path.join(state, "pi-calls"), JSON.stringify({ args, env: proc
     parent: process.ppid, deathsig, instructions: prompt === null ? null : read(prompt),
     mcp: read(path.join(process.cwd(), ".pi/mcp.json")),
     mcpMode: fs.existsSync(path.join(process.cwd(), ".pi/mcp.json")) ? fs.statSync(path.join(process.cwd(), ".pi/mcp.json")).mode & 0o777 : null }) + "\n");
+if (args.length === 1 && args[0] === "--version") {
+    process.stdout.write((JSON.parse(fs.readFileSync(path.join(state, "pi-scenario.json"), "utf8")).version ?? "1.1.0") + "\n");
+    process.exit(0);
+}
 if (args[0] !== "--mode" || args[1] !== "rpc") process.exit(9);
 const scenario = JSON.parse(fs.readFileSync(path.join(state, "pi-scenario.json"), "utf8"));
 const recorded = fs.readFileSync(path.join(state, "pi-recorded.ndjson"), "utf8").trim().split("\n").map(line => JSON.parse(line));

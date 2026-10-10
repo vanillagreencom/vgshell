@@ -81,13 +81,14 @@ function stateLabel(state, source) {
 
 /**
  * The hint of one account item from Accounts.status(), "" for none: its
- * state, source, plan, email and whether the email disagrees with the folder
- * name. A signed-out row's badge already says so, so its hint names only a
+ * state, source, plan, email, whether its Pi needs an update and whether
+ * the email disagrees with the folder name. A signed-out row's badge already says so, so its hint names only a
  * mismatch.
  */
 function accountHint(account) {
     var mismatch = account.mismatch === true ? "The email does not match the folder name." : "";
     if (account.value === "signed-out") return mismatch;
+    if (account.update === true) return "Jarvis needs Pi 1.1.0 or later. Update Pi to use this setup.";
     var text = stateLabel(account.state, account.source);
     if (account.state === "signed-in")
         text += (account.plan !== "" ? ", " + account.plan + " plan" : "") + (account.email !== "" ? ", " + account.email : "");

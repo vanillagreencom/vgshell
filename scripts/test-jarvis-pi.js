@@ -502,6 +502,32 @@ world(async () => {
             assert.deepEqual(pi.state, { kind: "unavailable", reason: "command-missing" });
             assert.deepEqual(judge.status().brains.filter(choice => choice.value.startsWith(pi.id)), []);
         },
+        // A Pi older than the Pi brain's floor starts no RPC program: the
+        // model read refuses it, the account reads that Pi needs an update,
+        // and the engine's choice refuses it before any turn.
+        async floor(folder) {
+            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "floor-runtime");
+            const Harness = require(path.join(folder, "backend/PiHarness.js"));
+            const below = "jarvis: brain=pi-update need=1.1.0";
+            for (const [line, want] of [["1.0.2", below], ["0.99.2", below], ["1.0.99", below], ["pi 1.1.0", "jarvis: brain=pi-version-shape"],
+                ["1.1.0", "1.1.0"], ["1.1.1", "1.1.1"], ["1.10.0", "1.10.0"], ["2.0.0", "2.0.0"]]) {
+                scenario({ version: line });
+                if (want.startsWith("jarvis: ")) assert.throws(() => Harness.version(env), { message: want }, line);
+                else assert.equal(Harness.version(env), want, line);
+            }
+            scenario({ version: "1.0.2", reply: "OK" });
+            await assert.rejects(bounded(Harness.models({ directory: account, env, runtime })), { message: below });
+            const { judge } = accounts(folder, runtime);
+            judge.discover();
+            await judge.readModels();
+            const pi = judge.accounts.find(item => item.provider === "pi");
+            assert.deepEqual(pi.state, { kind: "unavailable", reason: "pi-update" });
+            const status = judge.status();
+            assert.equal(status.accounts.find(row => row.provider === "pi").update, true, "the account reads that Pi needs an update");
+            assert.deepEqual(status.brains.filter(choice => choice.value.startsWith(pi.id)), []);
+            assert.deepEqual(judge.choose(pi.id + "/stub/stub-1"), { kind: "refused", cause: "pi-update" });
+            assert.deepEqual(read("pi-calls").map(call => call.args), [["--version"], ["--version"], ["--version"]], "no Pi RPC program starts");
+        },
         // No credential crosses from Pi into Jarvis: the key planted in Pi's
         // own setup and the daemon's environment, which the stand-in puts in
         // every field Jarvis must leave unread, appears in no event, error,
@@ -607,7 +633,13 @@ world(async () => {
             ["command-missing", A, [['? "command-missing" : key[1]', '? key[1] : key[1]']], "absent"],
             ["harness-reason", A, [["(?:harness|codex|copilot|pi)-", "(?:harness|codex|copilot)-"]], "accounts"],
             ["account-row", "AccountProviders.js", [['{ id: "pi", label: "Pi", kind: "cli", command: null },', ""]], "accounts"],
-            ["engine-driver", "backend/ChainedEngine.js", [['"pi-rpc": PiHarness, ', ""]], "limit"]
+            ["engine-driver", "backend/ChainedEngine.js", [['"pi-rpc": PiHarness, ', ""]], "limit"],
+            ["floor", H, [['if (part < floor[i]) fail("update need=" + FLOOR);', ""]], "floor"],
+            ["floor-read", H, [["    version(env);\n    let session = null;", "    let session = null;"]], "floor"],
+            ["version-scrub", H, [["{ env: childEnvironment(env),\n", "{ env,\n"]], "credential"],
+            ["choice-floor", A, [["try { PiHarness.version(this.env); } catch (error) {", "try { } catch (error) {"]], "floor"],
+            ["choice-update", A, [['/^jarvis: brain=pi-update /.test(error.message) ? "pi-update" : "account-unavailable"', '"account-unavailable"']], "floor"],
+            ["account-update", A, [['update: item.state.kind === "unavailable" && item.state.reason === "pi-update" }', "update: false }"]], "floor"]
         ]) {
             await variant(relative, edits, folder => CASES[row](folder));
             controls++;

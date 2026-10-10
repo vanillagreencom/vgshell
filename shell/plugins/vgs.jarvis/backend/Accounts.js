@@ -561,14 +561,21 @@ class Accounts {
      * answer. A subscription's login is its vendor status command's answer
      * through cliAccount, bounded by CHOOSE_STATUS_MS, once per engine
      * configure, each hello; an absent folder is account-unavailable. Pi
-     * has no status command. No other account runs a command or reads a
-     * port here.
+     * has no status command: its version is read instead, refused
+     * pi-update below the Pi brain's floor and account-unavailable when it
+     * cannot be read. No other account runs a command or reads a port here.
      */
     choose(id) {
         const resolved = this.resolve(id);
         if (resolved === null || resolved.source.kind !== "cli") return accepted(resolved, null);
         const account = this.cliAccount({ provider: resolved.provider, directory: resolved.source.directory, label: resolved.label }, CHOOSE_STATUS_MS);
-        return account === null ? accepted(null, null) : accepted(resolved, account.state.kind);
+        if (account === null) return accepted(null, null);
+        if (resolved.provider === "pi") {
+            try { PiHarness.version(this.env); } catch (error) {
+                return { kind: "refused", cause: /^jarvis: brain=pi-update /.test(error.message) ? "pi-update" : "account-unavailable" };
+            }
+        }
+        return accepted(resolved, account.state.kind);
     }
 
     /**
@@ -783,8 +790,8 @@ class Accounts {
     /**
      * The page's account facts: each account's label, provider, presence and the
      * typed facts AccountStatus.js words its hint from, whether Sign in
-     * serves it (a signed-out account of a provider with a sign-in), the
-     * brain choices, and the search's found count and partial reason. No
+     * serves it (a signed-out account of a provider with a sign-in),
+     * whether its Pi is older than the Pi brain's floor, the brain choices, and the search's found count and partial reason. No
      * reason code leaves. A signed-out account reads signed-out. The brain
      * choices are the accounts accepted() takes, grouped by
      * provider and sorted by email: a harness with one account reads as its
@@ -804,7 +811,8 @@ class Accounts {
             }
             return { label: (row.label + " / " + item.label).slice(0, 60), value, provider: item.provider, state: item.state.kind,
                 source: item.source.kind, plan: item.plan || "", email: item.email || "",
-                mismatch: item.identity.kind === "mismatch", signIn: out && Array.isArray(row.signIn) };
+                mismatch: item.identity.kind === "mismatch", signIn: out && Array.isArray(row.signIn),
+                update: item.state.kind === "unavailable" && item.state.reason === "pi-update" };
         });
         const resolve = this.resolver();
         const offered = this.accounts.filter(item => ["found", "unchecked", "signed-in", "verified"].includes(item.state.kind)

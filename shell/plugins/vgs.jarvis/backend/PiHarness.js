@@ -10,12 +10,21 @@
 // environment.
 // Contract: docs/architecture/jarvis.md § Adapters.
 "use strict";
+const cp = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const Pi = require("./PiRpc.js");
 const Harness = require("./HarnessProgram.js");
 const Policy = require("./Policy.js");
 const Private = require("./Private.js");
+const { childEnvironment } = require("./Secrets.js");
+
+// The Pi release PiRpc's records were written to: Pi 1.0.2 settles a run
+// with no `aborted` field. Pi's RPC mode names no version, so its
+// `--version` line is the reader.
+const FLOOR = "1.1.0";
+// One version read: a bound on a stalled program, not a latency budget.
+const VERSION_MS = 10000;
 
 // Pi 1.1.0's CLI (https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/cli.md): no discovered or configured extension,
 // skill, prompt template, theme or context file, no saved session and no
@@ -40,6 +49,27 @@ const MODELS_MS = 10000;
 const PROBE_INSTRUCTIONS = "Answer in one word.";
 
 function fail(code) { throw new Error("jarvis: brain=pi-" + code); }
+
+/**
+ * The installed Pi's version, refused as pi-update below FLOOR. Synchronous:
+ * the engine's account choice reads it inside its one blocking judgement.
+ * Setpriv exits 127 when it finds no pi to run.
+ */
+function version(env) {
+    const result = cp.spawnSync("setpriv", ["--pdeathsig", "KILL", "--", "pi", "--version"], { env: childEnvironment(env),
+        stdio: ["ignore", "pipe", "ignore"], encoding: "utf8", timeout: VERSION_MS, maxBuffer: 1024 });
+    if (result.error) fail("version cause=" + (result.error.code ?? "unknown"));
+    if (result.status !== 0) fail("exited code=" + result.status + " signal=" + result.signal);
+    const found = /^(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.+-]*)?\s*$/.exec(result.stdout);
+    if (found === null) fail("version-shape");
+    const floor = FLOOR.split(".").map(Number);
+    for (let i = 0; i < 3; i++) {
+        const part = Number(found[i + 1]);
+        if (part > floor[i]) break;
+        if (part < floor[i]) fail("update need=" + FLOOR);
+    }
+    return found[0].trim();
+}
 
 /**
  * One Pi program in a fresh private folder under runtime, its system prompt
@@ -235,10 +265,12 @@ function create({ provider, model, recipients, account, gen, harness }) {
  * One bounded run of a Pi program with no tools: work(session, outcome)
  * sends its commands, outcome resolving with the first settled run's
  * {aborted, stop, reply} and rejecting when the program ends first. Throws
- * a keyed error when the program, the run or the deadline fails. The caller
+ * a keyed error when the version, the program, the run or the deadline
+ * fails. The caller
  * owns release and audit.
  */
 async function bare({ directory, env, runtime, model, deadline, key }, work) {
+    version(env);
     let session = null;
     let reply = "", stop = null, failed = null, settle;
     const outcome = new Promise((resolve, reject) => { settle = { resolve, reject }; });
@@ -294,4 +326,4 @@ async function models({ directory, env, runtime }) {
         Pi.menu(await session.program.call(id => Pi.models(id)), await session.program.call(id => Pi.state(id))));
 }
 
-module.exports = { create, probe, models };
+module.exports = { version, create, probe, models };

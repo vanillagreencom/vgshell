@@ -38,6 +38,7 @@ var TODO = {
     "brain=account-unavailable": "The chosen AI model cannot be used. Add a key or sign in, then choose it below.",
     "brain=model-required": "The chosen AI model cannot be used. Choose another AI model below.",
     "brain=signed-out": "The chosen AI model is not signed in. Sign in, then choose it below.",
+    "brain=pi-update": "Jarvis needs Pi 1.1.0 or later. Update Pi, or choose another AI model below.",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Open Accounts to check them.",
     "speech=live-account-unselected": "Add an OpenAI key under Setup at the top of this page.",
     "speech=live-account-unreadable": "Jarvis could not read your OpenAI key. Use Accounts in Setup to check it.",
