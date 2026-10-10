@@ -165,6 +165,30 @@ function copilotMemory(accounts) {
         ? { tone: "info", text: "Your step" } : { hidden: true };
 }
 
+// The voice the daemon runs for SETTINGS, the plugin's: the provider the
+// user chose, or for "auto" Realtime while the Realtime key setting names
+// a stored OpenAI key, else Local. Always talk mode listens on this
+// computer, so "auto" stays Local in it. OFFERED is the account reader's
+// stored OpenAI keys, undefined while it has no answer, before its first
+// read and after a failed one: the named key then counts as stored, so a
+// start loads no local voice the first answer would replace, and the
+// daemon judges a key it cannot read. Jarvis names a sole stored key
+// itself (Accounts.qml).
+function voiceProvider(settings, offered) {
+    if (settings.voiceProvider !== "auto") return settings.voiceProvider;
+    if (settings.mode === "always" || settings.voiceAccount === "") return "local";
+    var stored = offered === undefined || offered.some(function (key) { return key.value === settings.voiceAccount; });
+    return stored ? "realtime" : "local";
+}
+
+// The Voice group's key row for OFFERED, the stored OpenAI keys, or null
+// while the account reader could not read them: Add key is offered until
+// one is stored. The entry's hint says what the key unlocks (D075).
+function voiceKey(offered) {
+    if (offered === null) return { tone: "warning", text: "Could not check", action: true };
+    return offered.length === 0 ? { tone: "info", text: "No key stored", action: true } : { tone: "ok", text: "Key stored", action: false };
+}
+
 // The optional steps, by their status key. Their guidance is declared by
 // the manifest and does not change with their state.
 var OPTIONAL = {

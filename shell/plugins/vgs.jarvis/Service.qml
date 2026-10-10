@@ -196,7 +196,9 @@ Item {
         const home = Quickshell.env("HOME");
         const message = {
             v: 1, type: "hello", gen: sessionState === null ? 0 : sessionState.gen,
-            settings: Object.assign({}, shell.settings, { sounds: feedbackSounds }),
+            // The one place a voice is chosen for a user who chose none.
+            settings: Object.assign({}, shell.settings, { sounds: feedbackSounds,
+                voiceProvider: Gate.voiceProvider(shell.settings, accountReader.voiceKeys) }),
             directories: {
                 state: Paths.stateDir + "/jarvis",
                 data: (Quickshell.env("XDG_DATA_HOME") || home + "/.local/share") + "/vgshell/jarvis",

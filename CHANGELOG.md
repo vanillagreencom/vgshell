@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Jarvis's Voice provider has a new first choice, Auto, which is the default: Realtime when an OpenAI key is stored, else Local. Storing or removing the key changes the voice with no restart, and a choice of Local or Realtime stays. With no key the Jarvis page asks for none; the OpenAI key row under Details > Voice offers Add key.
 - Jarvis's cloud voice is OpenAI's Realtime voice, which replaces the earlier cloud voice. Settings > Voice > Voice provider offers Local and Realtime, and Realtime key names the OpenAI key it uses. OpenAI hears you and speaks; the AI model you chose answers each request, and the voice reads its reply aloud word for word.
 - Settings > Appearance has a new Sounds page. It lists the sounds of each enabled plugin: a new notification, the dictation tones and Jarvis's feedback tones. A notification has a list of sounds with Off first, and Test plays the chosen sound; it plays no sound until you choose one. The dictation tones and the Jarvis tones are each On or Off.
 - Dictation sounds on the Sounds page turns voxtype's own tones on or off: VGS changes the setting in your voxtype config and restarts voxtype. The page shows the value your voxtype config holds, so a change you make in voxtype's Configure screen shows there too.

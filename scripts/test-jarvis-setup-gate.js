@@ -18,6 +18,7 @@ const vm = require("node:vm");
 const { load } = require("../bin/lib/qml-library.js");
 const judge = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
 const settings = load(path.join(__dirname, "..", "shell", "plugins", "vgs.settings", "Steps.js"));
+const protocol = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "JarvisProtocol.js"));
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "SetupGate.js");
 const ABSENT = { tone: "warning", text: "Browser needs setup", action: true };
@@ -68,6 +69,26 @@ const BRAIN_CAUSES = ["brain=unselected", "brain=account-unavailable", "brain=mo
 // The TUI each of the AI model's named actions opens, from the manifest.
 const MODEL_TUI = { key: "add-key", signIn: "sign-in" };
 const plain = value => JSON.parse(JSON.stringify(value));
+// The voice the daemon hears of: [label, the settings a user changed over the
+// manifest's own, the stored OpenAI keys the account reader holds or
+// undefined while it has no answer, the voice]. A fresh settings file holds
+// only the manifest's values.
+const KEY = [{ value: "openai-1", label: "OpenAI / fixture" }];
+const VOICE = [
+    ["a fresh settings file with no key", {}, [], "local"],
+    ["a stored key and no choice", { voiceAccount: "openai-1" }, KEY, "realtime"],
+    ["a stored key the Realtime key setting does not name", {}, KEY, "local"],
+    ["the named key removed", { voiceAccount: "openai-1" }, [], "local"],
+    ["the named key before the reader answers", { voiceAccount: "openai-1" }, undefined, "realtime"],
+    ["no key before the reader answers", {}, undefined, "local"],
+    ["Local chosen beside a stored key", { voiceProvider: "local", voiceAccount: "openai-1" }, KEY, "local"],
+    ["Realtime chosen with no key", { voiceProvider: "realtime" }, [], "realtime"],
+    ["Always talk mode beside a stored key", { mode: "always", voiceAccount: "openai-1" }, KEY, "local"],
+    ["Always talk mode with Realtime chosen", { mode: "always", voiceProvider: "realtime", voiceAccount: "openai-1" }, KEY, "realtime"]
+];
+// The Voice group's key row: [label, the stored keys or null for a failed
+// read, its tone and whether it offers Add key].
+const VOICE_KEY = [["no key", [], ["info", true]], ["a stored key", KEY, ["ok", false]], ["keys unread", null, ["warning", true]]];
 
 // Execute the shipped Details row accessor and the shipped Settings row
 // projection against the same published status. This checks their source
@@ -151,6 +172,51 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
             error.case = row.name;
             throw error;
         }
+    }
+}
+// Run the shipped hello and the shipped account publication: the daemon's
+// own protocol judge accepts each hello, whose voice is the row's, and the
+// Voice group's key row offers Add key until a key is stored.
+function verifyVoice(gate, serviceSource, accountsSource) {
+    const hello = serviceSource.match(/^    function hello\(\) \{\n[\s\S]*?^    \}/m);
+    const publishAccounts = accountsSource.match(/^    function publish\(\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(hello && publishAccounts);
+    const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
+    const keys = Object.fromEntries(manifest.hyprland.binds.map(bind => [bind.shortcut, bind.key]));
+    try {
+        for (const [label, changed, offered, want] of VOICE) {
+            const settings = { ...plain(manifest.settings), ...changed };
+            let wire = null;
+            const root = { accountReader: { voiceKeys: offered }, shell: { settings,
+                shortcut: { keys }, manifest: { hyprland: manifest.hyprland, __revision: "a".repeat(64) } },
+                child: { running: true, write: text => { wire = text; } }, cause: "", lifetime: { kind: "starting" }, sessionState: null,
+                feedbackSounds: false, lockObservation: () => false, broken: reason => assert.fail(label + ": the daemon refuses the hello: " + reason) };
+            vm.runInNewContext("(function() { with(root) { return (" + hello[0] + ").call(root); } })()", { root, Gate: gate, Protocol: protocol,
+                Quickshell: { env: name => "/fixture/" + name }, Paths: { stateDir: "/fixture/state" }, Providers: { runtimeDirectory: () => "/fixture/run" } });
+            assert.equal(JSON.parse(wire).settings.voiceProvider, want, label);
+        }
+        assert.equal(plain(gate.readiness({ kind: "answered", causes: [] })).setup.tone, "ok", "no cause, as a fresh install with its local voice set up: ready");
+        for (const [label, offered, want] of VOICE_KEY) {
+            const values = {};
+            const shell = { settings: { voiceAccount: "openai-1" }, status: { values, set: (key, value) => {
+                assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": accepted status " + key);
+                values[key] = value;
+                return "ok";
+            } } };
+            const root = { shell, modelAccess: { kind: "checking" }, voiceKeys: "unread", pending: false, completion: { kind: "exited", code: offered === null ? 1 : 0 },
+                diagnostic: { kind: "collected", text: "" }, refreshed: () => {},
+                output: JSON.stringify({ accounts: [], brains: [], voiceAccounts: offered ?? [], search: { found: 0, partial: "" } }) };
+            vm.runInNewContext("(function() { with(root) { return (" + publishAccounts[0] + ").call(root); } })()",
+                { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
+            assert.deepEqual(plain({ keys: root.voiceKeys }), plain({ keys: offered ?? undefined }), label + ": the keys the reader hands the service");
+            const entry = judge.statusRows(manifest, values, []).find(item => item.key === "voiceKey");
+            assert.deepEqual(plain([entry.group, entry.tone, entry.action.offered, entry.action.tui]),
+                ["Voice", { info: "info", ok: "success", warning: "warning" }[want[0]], want[1], want[1] ? "add-key" : ""], label + ": the Voice group's key row");
+            assert.equal(typeof entry.hint === "string" && entry.hint !== "", true, label + ": the row says what the key unlocks");
+        }
+    } catch (error) {
+        error.check = "voice-default";
+        throw error;
     }
 }
 function verifyVoiceConsumers(gate, pageSource) {
@@ -319,6 +385,7 @@ function verifyReadiness(gate) {
 function verify(gate) {
     verifyReadiness(gate);
     verifyModelConsumers(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
+    verifyVoice(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
     for (const [label, value, requires, missing, names] of SETUP) {
         const got = gate.setupValue(value, requires, missing);
         if (names === null) {
@@ -362,6 +429,14 @@ const CONTROLS = [
     ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
     ["loading is initial checking", "out.setupVoice = LOADING;", "out.setupVoice = CHECKING;"],
     ["loading offers setup", 'if (cause === "speech=local-loading") {', 'if (false) {'],
+    ["a stored key replaces the voice the user chose", 'if (settings.voiceProvider !== "auto") return settings.voiceProvider;', 'if (false) return settings.voiceProvider;'],
+    ["no named key runs Realtime", ' || settings.voiceAccount === "") return "local";', ') return "local";'],
+    ["a removed key keeps Realtime", "offered.some(function (key) { return key.value === settings.voiceAccount; })", "true"],
+    ["a start loads the local voice beside a named key", "var stored = offered === undefined || ", "var stored = offered !== undefined && "],
+    ["Always talk mode runs Realtime", 'if (settings.mode === "always" || ', "if ("],
+    ["no key offers no Add key", 'text: "No key stored", action: true }', 'text: "No key stored", action: false }'],
+    ["a stored key still offers Add key", 'text: "Key stored", action: false }', 'text: "Key stored", action: true }'],
+    ["a failed key read offers no Add key", 'text: "Could not check", action: true }', 'text: "Could not check", action: false }'],
     ["a missing command does not withhold setup", "return missing.indexOf(command) !== -1; });", "return false; });"],
     ["the withheld step keeps its action", 'lacking.join(" and "), action: false', 'lacking.join(" and "), action: value.action'],
     ["any missing command withholds setup", "var lacking = requires.filter(", "var lacking = missing.filter("],
@@ -417,6 +492,22 @@ try {
         assert.equal(failure.check, "setup-model-action");
         console.log("test-jarvis-setup-gate: control=" + target + " check=setup-model-action rejected=true");
     }
+    for (const [target, original, needle, replacement] of [
+        ["Service.qml", serviceSource, "voiceProvider: Gate.voiceProvider(shell.settings, accountReader.voiceKeys) }),", "voiceProvider: shell.settings.voiceProvider }),"],
+        ["Accounts.qml", accountsSource, "voiceKeys = value.voiceAccounts;", "voiceKeys = [];"],
+        ["Accounts.qml", accountsSource, "voiceKeys = undefined;", "voiceKeys = [];"],
+        ["Accounts.qml", accountsSource, "Gate.voiceKey(value.voiceAccounts)", "Gate.voiceKey([])"],
+        ["Accounts.qml", accountsSource, "Gate.voiceKey(null)", "Gate.voiceKey([])"]
+    ]) {
+        assert.equal(original.split(needle).length, 2);
+        let failure = null;
+        try { verifyVoice(load(file), target === "Service.qml" ? original.replace(needle, replacement) : serviceSource,
+            target === "Accounts.qml" ? original.replace(needle, replacement) : accountsSource); }
+        catch (error) { failure = error; }
+        assert.ok(failure instanceof assert.AssertionError);
+        assert.equal(failure.check, "voice-default");
+        console.log("test-jarvis-setup-gate: control=" + target + " check=voice-default rejected=true");
+    }
     const needle = "row.status.find(entry => entry.key === key)";
     assert.equal(pageSource.split(needle).length, 2);
     const secondSource = pageSource.replace(needle, 'row.status.find(entry => entry.key === (key === "setupVoice" ? "localRuntime" : key))');
@@ -449,4 +540,4 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length} controls=${CONTROLS.length + 3}`);
+console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length} controls=${CONTROLS.length + 8}`);

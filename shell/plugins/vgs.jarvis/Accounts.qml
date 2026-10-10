@@ -16,6 +16,9 @@ Item {
     property var diagnostic: ({ kind: "collected", text: "" })
     property string output: ""
     property var modelAccess: ({ kind: "checking" })
+    // The stored OpenAI keys of the last read, undefined while no read has
+    // an answer: before the first one and after a failed one.
+    property var voiceKeys: undefined
     readonly property var tuiState: shell === null ? null : shell.tui.state["accounts"]
     readonly property var keyState: shell === null ? null : shell.tui.state["add-key"]
     readonly property var signInState: shell === null ? null : shell.tui.state["sign-in"]
@@ -56,11 +59,13 @@ Item {
             if (code !== 0) throw new Error("probe");
             const value = JSON.parse(output);
             modelAccess = Gate.accountAccess(value.accounts);
+            voiceKeys = value.voiceAccounts;
             const accounts = value.accounts.map(item => Words.accountHint(item) === "" ? { label: item.label, value: item.value }
                 : { label: item.label, value: item.value, hint: Words.accountHint(item) });
             const search = Words.searchValue({ kind: "found", found: value.search.found, partial: value.search.partial });
             if (shell.status.set("accounts", accounts) !== "ok" || shell.status.set("brains", value.brains) !== "ok"
                 || shell.status.set("voiceAccounts", value.voiceAccounts) !== "ok"
+                || shell.status.set("voiceKey", Gate.voiceKey(value.voiceAccounts)) !== "ok"
                 || shell.status.set("accountSearch", search) !== "ok"
                 || shell.status.set("copilotMemory", Gate.copilotMemory(value.accounts)) !== "ok"
                 || shell.status.set("setupSignIn", { tone: "info", text: "Optional", action: true }) !== "ok") throw new Error("status");
@@ -73,11 +78,12 @@ Item {
             }
         } catch (error) {
             modelAccess = { kind: "checking" };
+            voiceKeys = undefined;
             const reason = Providers.probeFailure(completion, diagnostic);
             console.warn(reason);
             const replies = [shell.status.set("accounts", []), shell.status.set("brains", []), shell.status.set("voiceAccounts", []),
                 shell.status.set("accountSearch", Words.searchValue({ kind: "failed", reason: reason })),
-                shell.status.set("copilotMemory", Gate.copilotMemory([])),
+                shell.status.set("copilotMemory", Gate.copilotMemory([])), shell.status.set("voiceKey", Gate.voiceKey(null)),
                 shell.status.set("setupSignIn", { tone: "info", text: "Optional", action: true })];
             if (replies.some(reply => reply !== "ok")) throw new Error("jarvis-accounts: status=refused");
         }
