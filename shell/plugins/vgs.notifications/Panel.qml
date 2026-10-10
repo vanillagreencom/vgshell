@@ -415,12 +415,14 @@ FocusScope {
                     crossAxis: true
                     viewHeight: listScroll.flickable.height
                     rowHeight: root.look.card.maxHeight + root.look.card.gap
-                    // The list takes its cards' height a layout pass
-                    // after a refresh, so the refresh's reveal measured
-                    // the empty list and scrolled a long list's first
-                    // card under the header; reveal again whenever the
-                    // scroll view's height changes, which stops at the
-                    // panel's cap. A move reveals through onMoved.
+                    // The view shrinks when the room does under the
+                    // open panel, and a Flickable keeps its place then,
+                    // which leaves a selected card near the list's end
+                    // past the view's bottom edge (read in the
+                    // notifications-keys smoke row, on a copy without
+                    // this handler); reveal it again whenever the
+                    // view's height changes. A move reveals through
+                    // onMoved.
                     onViewHeightChanged: root.revealRow(root.currentIndex)
                     labelAt: index => {
                         const row = root.rowAt(index);

@@ -14,7 +14,8 @@
 # - the notifications inbox at scale 2, the owner's display scale: a long
 #   inbox opened eight times shows its first card whole each time, under
 #   the header and inside the list's clip (rows/notifications-keys.sh's
-#   long_inbox_cut, whose control holds it at scale 1).
+#   long_inbox_cut; rows/notifications.sh holds the controls of its
+#   reading, panel_fit, on planted panels).
 # Controls: the scale alone drops to 1 under the hold, the compositor
 # reports that scale and the hold reads it as a reset, so the reading is
 # the scale the compositor applied; with the hold file removed, the same

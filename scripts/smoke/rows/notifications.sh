@@ -1816,7 +1816,9 @@ expect_poll "the restored notification service is built" True record_exists vgs.
 # No hint row remains.
 # panel_fit_value reads the panel box and full descendant geometry.
 # The optional bottom mode checks scrolled lists without requiring their
-# first card to remain visible at the top.
+# first card to remain visible at the top. The selected mode does the same
+# and reads a third line, the selected card's box: the list's view holds
+# that card whole, top and bottom.
 panel_fit_value() {
   py_reply 'import json,sys
 lines = sys.stdin.read().splitlines()
@@ -1832,6 +1834,11 @@ view = views[-1] if views else None
 cards = [i for i in items if i["type"] == "NotificationCard"]
 if header is None or view is None or not cards:
     print("unread header=%s list=%s cards=%d" % (header is not None, view is not None, len(cards)))
+    sys.exit()
+mode = sys.argv[1]
+selected = lines[2] if len(lines) > 2 else ""
+if mode == "selected" and not selected.startswith("["):
+    print("unread selected=%s" % (selected or "none"))
     sys.exit()
 bad = []
 def inside(name, box, vertical=True):
@@ -1860,16 +1867,24 @@ gutter = header["box"][1] - py + sum(map(float, sys.argv[2:5]))
 if vy < header_bottom - 0.5: bad.append("under-header=list")
 if vy > header_bottom + 0.5: bad.append("header-gap=list")
 top = min(cards, key=lambda c: c["box"][1])
-if sys.argv[1] != "bottom" and top["box"][1] < header_bottom - 0.5: bad.append("under-header=card")
-if sys.argv[1] != "bottom" and top["box"][1] < view["box"][1] - 0.5: bad.append("cut-top=card")
-if sys.argv[1] != "bottom" and top["box"][1] < header_bottom + gutter - 0.5: bad.append("in-gutter=card")
+if mode == "top" and top["box"][1] < header_bottom - 0.5: bad.append("under-header=card")
+if mode == "top" and top["box"][1] < view["box"][1] - 0.5: bad.append("cut-top=card")
+if mode == "top" and top["box"][1] < header_bottom + gutter - 0.5: bad.append("in-gutter=card")
+if mode == "selected":
+    sx, sy, sw, sh = json.loads(selected)
+    if sy < vy - 0.5: bad.append("cut-top=selected")
+    if sy + sh > vy + vh + 0.5: bad.append("cut-bottom=selected")
 print(" ".join(sorted(set(bad))) if bad else "fits")' "${1:-top}" "$(ipc smoke themeValue divider.thickness)" "$(ipc smoke themeValue focusRing.width)" "$(ipc smoke themeValue focusRing.offset)"
 }
 panel_fit() {
-  local panel items
+  local panel items selected=""
   panel="$(ipc smoke instanceGeometry panel vgs.notifications)" || return 1
   items="$(ipc smoke descendantGeometry panel vgs.notifications)" || return 1
-  printf '%s\n%s\n' "$panel" "$items" | panel_fit_value "${1:-top}"
+  if [[ ${1:-top} == selected ]]; then
+    selected="$(panel_selected_summary)" || return 1
+    selected="$(ipc smoke itemGeometry panel vgs.notifications NotificationCard "$selected")" || return 1
+  fi
+  printf '%s\n%s\n%s\n' "$panel" "$items" "$selected" | panel_fit_value "${1:-top}"
 }
 # Controls: the readings the predicate must refuse. The clipped one is the
 # panel as it drew before its width followed its column; Appearance.js
@@ -1878,7 +1893,9 @@ panel_fit() {
 # first card into the header; the third puts it in the gutter, above
 # where a list at rest starts. The fourth starts the list below the gutter, where its
 # cards cut off at its top edge rather than passing behind the header. A
-# reserved footer space must fail the bottom check.
+# reserved footer space must fail the bottom check. The selected mode
+# passes the second planted card as the selected one, refuses it one pixel
+# past the view's bottom or above its top, and reads no selection as unread.
 panel_fit_header_gap="$(( $(ipc smoke themeValue divider.thickness) + $(ipc smoke themeValue focusRing.width) + $(ipc smoke themeValue focusRing.offset) ))"
 panel_fit_view_h="$((303 - note_header_height))"
 panel_fit_reading() { # PANEL_W HEADER_X CARD_Y VIEW_H [VIEW_Y]
@@ -1896,6 +1913,14 @@ expect "control: the fit check refuses a first card under the header" "cut-top=c
 expect "control: the fit check refuses a first card at rest in the gutter" "in-gutter=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height + panel_fit_header_gap - panel_fit_header_gap / 2))" "$panel_fit_view_h")
 expect "control: the fit check refuses a list that starts below the gutter" "header-gap=list" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" "$((panel_fit_view_h - panel_fit_header_gap))" "$((note_header_height + panel_fit_header_gap))")
 expect "control: reserved footer space fails the bottom check" "bottom-gap=list" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" "$((panel_fit_view_h - 20))")
+panel_fit_selected_reading() { # CARD_Y
+  panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" "$panel_fit_view_h"
+  printf '[%s, %s, %s, 61]\n' "$note_stack_pad" "$1" "$note_card_width"
+}
+expect "the fit check passes a selected card the view holds whole" fits panel_fit_value selected < <(panel_fit_selected_reading 129)
+expect "control: the fit check refuses a selected card past the view's bottom" "cut-bottom=selected" panel_fit_value selected < <(panel_fit_selected_reading "$((303 - 61 + 1))")
+expect "control: the fit check refuses a selected card above the view's top" "cut-top=selected" panel_fit_value selected < <(panel_fit_selected_reading "$((note_header_height - 1))")
+expect "control: the fit check reads no selected card as unread" "unread selected=absent" panel_fit_value selected < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" "$panel_fit_view_h"; echo absent)
 for n in 1 2 3 4 5 6 7 8; do
   notify smoke-app 0 "Fit $n" "A body long enough to wrap onto a second line of the card, so the card is tall" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
 done

@@ -21,6 +21,11 @@
 # the list past the panel's bottom (clipped=list) on all eight opens.
 # One more open shows the list at the panel bottom at both scroll ends.
 # A copy with a reserved bottom gap must fail the same reading.
+# The room shrinks under the open long inbox, its last card selected: the
+# short-room fixture maps while the inbox stands, and the view holds the
+# selected card whole (panel_fit's selected mode). The control is a
+# Panel.qml copy whose view-height handler does nothing, which leaves that
+# card past the shrunken view's bottom (cut-bottom=selected).
 # No latency is measured; each reading polls every 200 ms for up to 5 s.
 # A press that reaches nothing changes nothing to poll for, so the
 # controls read after a native key marker on the same virtual keyboard.
@@ -270,6 +275,70 @@ long_inbox_ends() {
   for _ in $(seq 1 25); do [[ $(layer_count vgs:panel) == 0 ]] && break; sleep 0.2; done
   echo "top=$top end=$end"
 }
+# nk_view_settled: the long inbox's view, the probe's viewHolding reading,
+# once two readings 0.1 s apart match whole, height and place both, so a
+# resize of the panel's card is over; `unsettled` with the last reading at
+# smoke_poll_bound_ms, and the probe's answer for a missing view.
+nk_view_settled() {
+  local view last=""
+  for _ in $(seq 1 $((smoke_poll_bound_ms / 100))); do
+    view="$(ipc smoke viewHolding panel vgs.notifications "Long 1")" || return 1
+    [[ $view == \{* ]] || { echo "$view"; return 0; }
+    [[ $view == "$last" ]] && { echo "$view"; return 0; }
+    last="$view"
+    sleep 0.1
+  done
+  echo "unsettled $view"
+}
+# nk_room_shrink: the room shrinks under the open long inbox. It opens the
+# inbox in the whole room, rests the pointer beside the panel, so no card
+# changes hover as the layout moves, selects the last card with End, which
+# scrolls the list to its end, and enables the short-room fixture,
+# whose layer takes the screen's bottom from the panel. Prints panel_fit's
+# selected reading once the panel reads shorter than its panelMaxHeight
+# and nk_view_settled reads a shorter view: `fits`, or
+# `cut-bottom=selected` where the view kept its place. Where the
+# instrument could not reach that reading it prints the step that failed.
+# The view before and after and the reading go to
+# $sandbox/room-shrink.txt, which nk_room_shrink_readings prints. It
+# leaves the inbox closed and the fixture enabled.
+nk_room_shrink() {
+  local shown x y selected=none fit=unread capped=unread before after reply reading
+  rm -f -- "${sandbox:?}/room-shrink.txt"
+  nk_press >/dev/null || { echo open-failed; return; }
+  shown="$(long_inbox_shown)"
+  [[ $shown == shown ]] || { echo "$shown"; return; }
+  read -r x y < <(nk_panel_outside_point) && hover "$x" "$y" || { echo hover-failed; return; }
+  type_keys -k End || { echo end-key-failed; return; }
+  for _ in $(seq 1 25); do
+    selected="$(panel_selected_summary)" || selected=unread
+    fit="$(panel_fit selected)" || fit=unread
+    [[ $selected == "Long 1" && $fit == fits ]] && break
+    sleep 0.2
+  done
+  [[ $selected == "Long 1" ]] || { echo "selected=$selected"; return; }
+  [[ $fit == fits ]] || { echo "before=$fit"; return; }
+  capped="$(room_caps)" || capped=unread
+  [[ $capped == False ]] || { echo "whole-room=$capped"; return; }
+  before="$(view_at_rest panel vgs.notifications "Long 1")" || before=unread
+  [[ $before == \{* ]] || { echo "view-before=$before"; return; }
+  reply="$(ipc shell setPluginEnabled acme.notifications-short-room true)" || reply=failed
+  [[ $reply == ok ]] || { echo "fixture=$reply"; return; }
+  for _ in $(seq 1 25); do
+    capped="$(room_caps)" || capped=unread
+    [[ $capped == True ]] && break
+    sleep 0.2
+  done
+  [[ $capped == True ]] || { echo "short-room=$capped"; return; }
+  after="$(nk_view_settled)" || after=unread
+  [[ $after == \{* ]] || { echo "view-after=$after"; return; }
+  reading="$(panel_fit selected)" || reading=unread
+  printf 'before=%s after=%s reading=%s' "$before" "$after" "$reading" >"$sandbox/room-shrink.txt"
+  nk_press >/dev/null || { echo close-failed; return; }
+  for _ in $(seq 1 25); do [[ $(layer_count vgs:panel) == 0 ]] && break; sleep 0.2; done
+  python3 -c 'import json,sys; before,after=map(json.loads,sys.argv[1:3]); print(sys.argv[3] if after["height"] < before["height"] else "view-not-shorter")' "$before" "$after" "$reading"
+}
+nk_room_shrink_readings() { if [[ -f $sandbox/room-shrink.txt ]]; then cat -- "$sandbox/room-shrink.txt"; else echo "none read"; fi; }
 # PRESSES LABEL: five presses from a closed inbox, each read before the next.
 nk_presses() {
   local want=open n
@@ -373,9 +442,10 @@ nk_short_reserve="$(nk_short_room_reserve "$nk_panel_max")" || { fail "the short
 nk_install_short_room_fixture "$nk_short_reserve" || fail "the short-room fixture is written"
 rescan "a rescan discovers the short-room fixture"
 expect_poll "the short-room fixture is known" True plugin_known acme.notifications-short-room
-expect "enabling the short-room fixture is allowed" ok ipc shell setPluginEnabled acme.notifications-short-room true
-expect_poll "the short-room fixture reserves bottom space it owns" True nk_bottom_reserved_at_least "$((nk_short_reserved_before + nk_short_reserve))"
 expect "the short room's long inbox toasts leave the screen" 0 long_inbox_rows
+geometry expect "the selected last card of a long inbox stays whole in the view when the room shrinks under the open inbox" fits nk_room_shrink
+ok "room shrink readings: $(nk_room_shrink_readings)"
+expect_poll "the short-room fixture reserves bottom space it owns" True nk_bottom_reserved_at_least "$((nk_short_reserved_before + nk_short_reserve))"
 nk_press || fail "the short room's open press failed"
 expect_poll "the short room lays the inbox out shorter than its panelMaxHeight" True room_caps
 nk_press || fail "the short room's close press failed"
@@ -402,6 +472,29 @@ geometry expect "control: a panel whose list keeps its whole height runs a long 
 ok "control short room readings: $(long_inbox_readings)"
 cp -- "$sandbox/Panel.qml.keys-kept" "$nk_panel"
 rescan "a rescan restores the panel after the short room"
+# Control: a panel that reveals nothing when its view's height changes.
+# The room is whole again first, so the same shrink runs under its inbox.
+expect "disabling the short-room fixture before the idle view-height copy is allowed" ok ipc shell setPluginEnabled acme.notifications-short-room false
+expect_poll "the room is whole again before the idle view-height copy" "$nk_short_reserved_before" nk_bottom_reserved
+expect "disabling the notifications before the idle view-height copy is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+expect_poll "the compositor lists no inbox shortcut before the idle view-height copy" 0 note_shortcuts
+python3 - "$nk_panel" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+needle = "                    onViewHeightChanged: root.revealRow(root.currentIndex)\n"
+assert text.count(needle) == 1, "the view-height handler occurs once"
+open(path, "w").write(text.replace(needle, "                    onViewHeightChanged: {}\n"))
+PY
+rescan "a rescan reads the idle view-height copy"
+expect "enabling the notifications beside the idle view-height copy is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+expect_poll "the service is built beside the idle view-height copy" True record_exists vgs.notifications
+expect_poll "the inbox shortcut is listed beside the idle view-height copy" 1 note_shortcuts
+long_inbox_warm nk_press || fail "the idle view-height copy's first open failed"
+geometry expect "control: a panel that reveals nothing on a view-height change leaves the selected last card past the shrunken view's bottom" "cut-bottom=selected" nk_room_shrink
+ok "control room shrink readings: $(nk_room_shrink_readings)"
+cp -- "$sandbox/Panel.qml.keys-kept" "$nk_panel"
+rescan "a rescan restores the panel after the idle view-height copy"
 notes dismiss-all >/dev/null # `none` once every toast's clock ran out
 expect "clearing the short room's history is allowed" ok notes clear-history
 expect "disabling the short-room fixture is allowed" ok ipc shell setPluginEnabled acme.notifications-short-room false
