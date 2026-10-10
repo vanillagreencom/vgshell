@@ -93,8 +93,8 @@ var TOKENS = {
     },
 
     card: {
-        // The card's and the flyout's glass fill, handed to GlassSurface
-        // of qs.Ui, which draws the rest of the glass (Theme.glass).
+        // The card's glass fill, handed to GlassSurface of qs.Ui, which
+        // draws the rest of the glass (Theme.glass).
         fill: color("alpha(#151515, 0.78)"),
         width: length(640),
         // Half the header plus the padding, 17 + 18: the bare search field
@@ -225,6 +225,10 @@ var TOKENS = {
     },
 
     flyout: {
+        // The flyout's glass fill. It opens over the card's own rows, which
+        // no compositor blur reaches, so it is opaque: a row's key hint
+        // must not show through it.
+        fill: color("#1c1c1c"),
         width: length(240),
         padding: length(6),
         radius: length(16),
@@ -264,6 +268,9 @@ var LIGHT = {
     },
     card: {
         fill: "alpha(#efefef, 0.8)"
+    },
+    flyout: {
+        fill: "#f5f5f5"
     },
     row: {
         divider: "alpha({text.foreground}, 0.08)"

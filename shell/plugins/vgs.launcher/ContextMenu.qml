@@ -104,7 +104,7 @@ Item {
     GlassSurface {
         id: panel
         optIn: menu.glass
-        fill: menu.look.card.fill
+        fill: menu.look.flyout.fill
         width: menu.look.flyout.width
         height: implicitHeight
         implicitHeight: column.implicitHeight + 2 * menu.look.flyout.padding

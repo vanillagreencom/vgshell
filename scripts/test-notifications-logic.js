@@ -1192,8 +1192,8 @@ function drawn(launcherTable, notesTable, glassTable, mode) {
     const glass = lookIn(glassTable.TOKENS, glassTable.LIGHT, mode);
     const shared = { sheen: glass.glass.sheen, sheenEnd: glass.glass.sheenEnd, sheenHeight: glass.glass.sheenHeight, hairline: glass.glass.hairline, hairlineWidth: glass.glass.hairlineWidth };
     return {
-        // Launcher.qml and ContextMenu.qml hand card.fill and the wide or
-        // the tight elevation; the dividers read row.
+        // Launcher.qml hands card.fill and the wide elevation, ContextMenu.qml
+        // the tight one; the dividers read row.
         launcher: Object.assign({ fill: launcher.card.fill }, shared, { divider: launcher.row.divider, dividerWidth: launcher.row.dividerWidth, wide: glass.shadow.wide, tight: glass.shadow.tight }),
         // CardFace.qml and InboxHeader.qml hand card.fill and the tight
         // elevation; Orb.qml reads orb; the faces mix card.base.
@@ -1211,5 +1211,22 @@ for (const [label, launcherTable, notesTable, glassTable] of [
     ["the notifications base", launcherAppearance, moved(appearance, t => { t.TOKENS.card.base.value = "#111111"; }), glassAppearance]
 ])
     assert.throws(() => same(drawn(launcherTable, notesTable, glassTable, "dark"), DRAWN_BEFORE.dark), { code: "ERR_ASSERTION" }, "control: " + label + " moved fails today's glass");
+
+// ContextMenu.qml draws the flyout with flyout.fill over the card's rows: a
+// key hint at the full foreground under it shows through by no visible
+// step, over black and white wallpapers. The control hands it card.fill.
+const contextMenuSource = fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.launcher", "ContextMenu.qml"), "utf8");
+assert.ok(/fill: menu\.look\.flyout\.fill\n/.test(contextMenuSource), "the flyout draws its own fill");
+function hintShowsThrough(table, mode, fillOf) {
+    const look = lookIn(table.TOKENS, table.LIGHT, mode), fill = themeLogic.parseColor(fillOf(look));
+    return WALLPAPERS.filter(wallpaper => {
+        const card = over(themeLogic.parseColor(look.card.fill), themeLogic.parseColor(wallpaper));
+        return themeLogic.contrastRatio(over(fill, over(themeLogic.parseColor(look.text.foreground), card)), over(fill, card)) >= 1.01;
+    });
+}
+for (const mode of ["dark", "light"]) {
+    same(hintShowsThrough(launcherAppearance, mode, look => look.flyout.fill), [], mode + ": no key hint shows through the flyout");
+    same(hintShowsThrough(launcherAppearance, mode, look => look.card.fill), WALLPAPERS, "control: " + mode + " card.fill on the flyout shows the hint");
+}
 
 console.log(`test-notifications-logic: ok bodies=${BODIES.length} states=${STATE_REFUSED.length} hints=${HINT_ROWS.length} enriched=${ENRICHED.length} controls=${CONTROLS.length}`);
