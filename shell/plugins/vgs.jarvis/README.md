@@ -8,20 +8,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 
 ## Features
 
-- A bar icon that shows whether Jarvis is off, ready, listening, working, muted or has a problem. A click toggles mute.
-
-Bar icon states:
-
-| State | Icon | When | What the tooltip tells you |
-| --- | --- | --- | --- |
-| Off | `power-off` | Jarvis needs setup, a requirement, or an unlocked screen. | What setting or action turns Jarvis on. |
-| Loading | `loader` | Jarvis starts, checks setup or loads local voice. | What is loading and to wait. |
-| Ready | `mic` | Jarvis can listen. | How to talk: hold Talk, press Talk, or say Hey Jarvis. |
-| Listening | `audio-lines` | The microphone is open. | Speak now, or say Hey Jarvis in Always mode. |
-| Working | `brain` | Jarvis is thinking, waiting for confirmation or using a tool. | What Jarvis is doing and the Stop or Confirm key to use. |
-| Speaking | `volume-2` | Jarvis plays its answer. | That Jarvis is speaking and the Stop key to use. |
-| Muted | `mic-off` | Privacy mute is on. | Click or press the Mute key to unmute. |
-| Problem | `circle-alert` | Jarvis or audio stopped with a fault. | What failed and what action to take. |
+- A bar icon that shows whether Jarvis is off, loading, ready, listening, working, speaking, muted or has a problem. Its tooltip says what to do next. A click toggles mute.
 
 - Talk, Mute, Stop and Console keys. Talk is Super with Right Alt, Mute is Super with Shift and Right Alt, Stop is Super with Alt and Period, and Console is Super with Alt and C.
 - The Console window lets you type a message to Jarvis, review the conversation, and stop the current turn without using the microphone.
@@ -44,6 +31,19 @@ Bar icon states:
 - A private browser from Set up browser. Jarvis asks for input access to each site, a submit needs your confirmation, and password entry stays with you.
 - Coding tasks in their own tmux session or a floating terminal. Plugins shows how many are running. A stop ends every process of the task before it is recorded as stopped.
 - Jarvis speaks a coding agent's question and sends your spoken answer back to it. It calls a task done only when the agent reports it done. With no conversation open, it shows these as desktop notifications.
+
+### Bar icon states
+
+| State | Icon | When | What the tooltip tells you |
+| --- | --- | --- | --- |
+| Off | `power-off` | Jarvis needs setup, a requirement, or an unlocked screen. | What setting or action turns Jarvis on. |
+| Loading | `loader` | Jarvis starts, checks setup or loads local voice. | What is loading and to wait. |
+| Ready | `mic` | Jarvis can listen. | How to talk: hold Talk, press Talk, or say Hey Jarvis. |
+| Listening | `audio-lines` | The microphone is open. | Speak now, or say Hey Jarvis in Always mode. |
+| Working | `brain` | Jarvis is thinking, waiting for confirmation or using a tool. | What Jarvis is doing and the Stop or Confirm key to use. |
+| Speaking | `volume-2` | Jarvis plays its answer. | That Jarvis is speaking and the Stop key to use. |
+| Muted | `mic-off` | Privacy mute is on. | Click or press the Mute key to unmute. |
+| Problem | `circle-alert` | Jarvis or audio stopped with a fault. | What failed and what action to take. |
 
 ## Setup
 
