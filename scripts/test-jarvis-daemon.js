@@ -65,7 +65,7 @@ async function inside() {
         causes: ["speech=local-not-set-up", "brain=unselected"] });
     function states(locks) {
         let seq = 0;
-        const lines = [{ v: 1, type: "memory", gen: 0, revision: hello.revision, available: true }];
+        const lines = [];
         for (const locked of locks) {
             lines.push(reply(locked, seq === 0 ? 0 : 1));
             lines.push({ v: 1, type: "state", gen: 1, revision: hello.revision,

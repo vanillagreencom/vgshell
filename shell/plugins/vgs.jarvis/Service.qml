@@ -517,10 +517,8 @@ Item {
                     continue;
                 }
                 if (message.type === "memory") {
-                    const value = message.available ? { hidden: true }
-                        : { tone: "warning", text: "Off",
-                            hint: "jarvis: memory=sqlite. Memory search needs Node 22.13 or later with SQLite. Jarvis still answers without it." };
-                    const reply = shell.status.set("memory", value);
+                    const reply = shell.status.set("memory", { tone: "warning", text: "Off",
+                        hint: "jarvis: memory=sqlite. Memory search needs Node 22.13 or later with SQLite. Jarvis still answers without it." });
                     if (reply !== "ok") throw new Error("jarvis: " + reply);
                     continue;
                 }

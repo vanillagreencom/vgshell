@@ -374,10 +374,8 @@ function accept(line, direction) {
         break;
     case "memory":
         if (direction !== "daemon") fail("direction-memory");
-        keys(message, message.available ? ["v", "type", "gen", "revision", "available"]
-            : ["v", "type", "gen", "revision", "available", "cause"], "memory");
-        if (typeof message.available !== "boolean") fail("memory");
-        if (!message.available && message.cause !== "memory=sqlite") fail("memory-cause");
+        keys(message, ["v", "type", "gen", "revision", "cause"], "memory");
+        if (message.cause !== "memory=sqlite") fail("memory-cause");
         break;
     case "task-prompts":
         if (direction !== "daemon") fail("direction-task-prompts");

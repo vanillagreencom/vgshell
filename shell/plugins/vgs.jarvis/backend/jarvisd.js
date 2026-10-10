@@ -476,10 +476,9 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         log: line => process.stderr.write(line + "\n") });
                     if (memory.kind === "refused") {
                         process.stderr.write("jarvis: " + memory.cause + "\n");
-                        write({ v: 1, type: "memory", gen: runner.state.gen, revision: context.revision,
-                            available: false, cause: memory.cause });
+                        write({ v: 1, type: "memory", gen: runner.state.gen, revision: context.revision, cause: memory.cause });
                         memory = null;
-                    } else write({ v: 1, type: "memory", gen: runner.state.gen, revision: context.revision, available: true });
+                    }
                     const routerSync = runner.ports.tools.sync;
                     runner.ports.tools.sync = state => {
                         routerSync(state);
