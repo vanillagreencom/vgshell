@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- A click on the Voice mic in the bar starts dictation, and a second click stops it, as the dictation key does. Without voxtype, a click offers to install it. Before, a click opened voxtype's Configure screen. Configure is now Voxtype Settings in the mic's right-click menu.
+- A click on the Voice mic in the bar starts dictation, and a second click stops it, as the dictation key does. Without voxtype, a click offers to install it, then opens Set up. Before, a click opened voxtype's Configure screen. Configure is now Voxtype Settings in the mic's right-click menu.
 - The Jarvis page has two new settings under AI model: Model and Effort. They list the models of the app you chose as the AI model, read from that app while the page is open: Claude Code, Codex, GitHub Copilot or Pi. Effort lists the levels a Claude Code, Codex or Pi model takes; GitHub Copilot sets its own. When you choose an app, Jarvis saves Fable 5.1 at high effort where the app offers it, else Opus 5.5 at high effort, else the app's own model and effort. Your choice is saved and reaches the app. A Pi setup is one AI model choice, with its models under Model. For a Pi setup, Jarvis saves Pi's own model and that model's own effort. An Anthropic API key shows both, with Opus 5.5 at high effort by default; other API keys and a local server show neither setting.
 - Jarvis with an Anthropic API key runs Claude Opus 5.5 at high effort. Before, it ran Claude Haiku 4.5.
 - A plugin's `optionsFrom` setting may declare `hideEmpty: true`: the Settings page then draws no field while nothing is offered for it.

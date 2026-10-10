@@ -90,12 +90,14 @@
 # toggle key does" failed, reading no record line, with the terminal handed
 # Configure, and "the menu holds Hide, then Voxtype Settings, then
 # Settings" failed, reading ["Hide","Settings"].
-# Without voxtype, a click on the widget starts no record and raises
-# Voice's notice for voxtype alone, with no screen to open after it.
+# Without voxtype, a click on the widget starts no record and raises the
+# notice Set up's press raises, holding Set up to open after the install;
+# Not now drops the Set up, and a click after it raises the notice again.
 # Control run on 2026-10-10, host cachy, through this row on a source_tree
-# copy of the widget whose click offers no requirement: "a click on the
-# Voice widget without voxtype raises the notice for voxtype" failed,
-# reading null.
+# copy of the widget whose click only offers the notice for voxtype: "the
+# click's notice holds Set up to open after the install" failed, reading
+# {}, and "a click on the Voice widget after Not now raises the notice
+# again" failed, reading null.
 # inputs: shell/Core/Sounds.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* shell/Core/IpcRegistry.qml shell/Ui/BarWidget.qml shell/Ui/controls/BarItem.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Capabilities.qml
 set -euo pipefail
 
@@ -966,18 +968,24 @@ expect "without voxtype a dictation sounds choice is refused" 'refused: feedback
 expect "a choice refused without voxtype writes nothing and restarts nothing" "$voice_feedback_calls_before" voice_feedback_calls
 
 # The bar widget's click without voxtype: the service starts no record, and
-# the click raises Voice's notice for voxtype alone, the command it asked
-# for, with no screen to open after. Not now closes it; the opens below are
-# the user's own requests, which that answer does not hold back.
+# the click is Set up's press, so it raises the notice that press raises,
+# every missing command of Voice, holding Set up to open after the install.
+# Not now closes it and drops the Set up; a press never rests, so a second
+# click raises the notice again, as the opens below do.
 expect_poll "without voxtype the bar widget reads idle" '"idle"' voice_dictation
 expect "no notice shows before the click without voxtype" null notice_shown
 voice_widget_pointer="$pointer_at"
 voice_widget_point
 hover "$((voice_widget_x - 1))" "$voice_widget_y" && click "$voice_widget_x" "$voice_widget_y" || fail "the click on the Voice widget without voxtype failed"
-expect_poll "a click on the Voice widget without voxtype raises the notice for voxtype" '["vgs.voice", ["voxtype"], ["voxtype"], false]' notice_shown
+expect_poll "a click on the Voice widget without voxtype raises the notice Set up raises" "$voice_asked" notice_shown
 expect "the click without voxtype starts no record" '""' ipc smoke readInstance service vgs.voice activeVerb
-expect "the click's notice holds no screen to open after the install" '{}' voice_resumes
+expect "the click's notice holds Set up to open after the install" '{"vgs.voice": "setup"}' voice_resumes
 voice_notice_escape "the click's notice"
+expect "Not now drops the click's Set up" '{}' voice_resumes
+hover "$((voice_widget_x - 1))" "$voice_widget_y" && click "$voice_widget_x" "$voice_widget_y" || fail "the click on the Voice widget after Not now failed"
+expect_poll "a click on the Voice widget after Not now raises the notice again" "$voice_asked" notice_shown
+expect "the notice after Not now holds Set up again" '{"vgs.voice": "setup"}' voice_resumes
+voice_notice_escape "the notice after Not now"
 read -r voice_widget_back_x voice_widget_back_y <<<"${voice_widget_pointer:-10 $((mon_h - 10))}"
 hover "$voice_widget_back_x" "$voice_widget_back_y" || fail "putting the pointer back after the click without voxtype failed"
 
