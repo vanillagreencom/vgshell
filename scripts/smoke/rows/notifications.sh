@@ -673,15 +673,13 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   # the service records that the panel holds the keyboard.
   expect_poll "the inbox holds the keyboard before the focus moves" true read_notes panelFocused
 
-  # The control of inbox_closed, the miss open_card waits out. With the
-  # shell stopped while the focus moves and the nested compositor stopped
-  # before the shell runs again, the reply to the leave's sync cannot reach
-  # the shell: the compositor already names the other window focused and
-  # the panel still stands, with its row. Once the compositor runs the
-  # inbox closes, and a press where the row stood reaches the window under
-  # it and delivers nothing. The guard runs the compositor again after 30 s
-  # only if the panel reading never returns; it is killed as soon as the
-  # reads end, so a slow read on a loaded host still reads the stalled state.
+  # The control of inbox_closed, the miss open_card waits out. The shell is
+  # stopped while the focus moves, and both readings are the compositor's,
+  # taken before the shell runs again: it names the other window focused
+  # and still lists the panel's layer. A stopped shell closes nothing, so no
+  # reading waits on the shell and host load cannot put the close before
+  # one. Once the shell runs the inbox closes, and a press where the row
+  # stood reaches the window under it and delivers nothing.
   stale_at=""
   if summon_drawn panel vgs.notifications && stale_box="$(ipc smoke itemGeometry panel vgs.notifications NotificationCard "Held for the inbox")" && [[ $stale_box == \[* ]]; then
     stale_at="$(panel_point "$stale_box" - -)" || stale_at=""
@@ -690,16 +688,10 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   if [[ -n $stale_at ]]; then
     kill -STOP "$shell_qs_pid"
     expect "control: a focus dispatch starts while the shell is stopped" ok hypr dispatch "hl.dsp.focus({ window = \"address:$other_window\" })"
-    kill -STOP "$compositor_pid"
-    ( sleep 30; kill -CONT "$compositor_pid" ) >/dev/null 2>&1 &
-    stale_guard=$!
+    stale_focus="$(active_window)" || stale_focus=unread
+    stale_layers="$(layer_count vgs:panel)" || stale_layers=unread
     kill -CONT "$shell_qs_pid"
-    if panel_stands; then stale_panel=stands; else stale_panel=closed; fi
-    stale_row="$(has_row panel "Held for the inbox")" || stale_row=unread
-    kill -CONT "$compositor_pid"
-    kill "$stale_guard" 2>/dev/null || true
-    wait "$stale_guard" 2>/dev/null || true
-    expect "control: the inbox and its row still stand once the compositor names the other window focused" "stands True" echo "$stale_panel $stale_row"
+    expect "control: the compositor names the other window focused while the inbox's layer still stands" "$other_focused 1" echo "$stale_focus $stale_layers"
     if inbox_closed; then ok "control: that inbox closes once the leave's reply reaches the shell"; else fail "control: that inbox never closed after the leave's reply"; fi
     expect_poll "control: the other window has the focus after the stalled close" "$other_focused" active_window
     presses_before="$(window_presses)"
