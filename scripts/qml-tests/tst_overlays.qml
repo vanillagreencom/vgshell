@@ -25,7 +25,9 @@ import qs.Unit
 // exactly while the bar shows. Under a rounded theme a list is cut to its
 // window's rounded interior, so a filled row half scrolled past the top and
 // the bar's thumb at the top stay inside the curve; a square list draws no
-// layer.
+// layer. A short menu is as wide as its longest entry, with equal side
+// gaps, and only a menu of one short word takes the minimum width; an
+// entry's icon is as tall as its text's capitals.
 // A press in the anchor's window closes each overlay and reaches no item
 // under it. The nested sandbox proves placement, real keys and the
 // compositor's dismissal.
@@ -50,6 +52,14 @@ Item {
         }
         Menu { id: mid
             MenuItem { text: "Rescan every plugin"; iconName: "refresh-cw"; shortcut: "R" }
+        }
+        // A bar widget's menu, and a menu of one short word.
+        Menu { id: barMenu
+            MenuItem { id: hideEntry; text: "Hide"; iconName: "eye-off" }
+            MenuItem { id: settingsEntry; text: "Settings"; iconName: "settings" }
+        }
+        Menu { id: oneWord
+            MenuItem { text: "Off" }
         }
         Tooltip { id: tip; text: "hint" }
         Tooltip { id: longTip; text: "method=unknown path=/home/user/.local/share/vgshell/repo is where VGS runs from, and no package manager owns it" }
@@ -83,6 +93,7 @@ Item {
     property int reached: 0
     MouseArea { id: under; x: 250; width: 50; height: 30; onPressed: root.reached += 1 }
     SignalSpy { id: activations; target: roled; signalName: "activated" }
+    FontMetrics { id: itemMetrics; font: settingsEntry.contentItem.children[1].font }
 
     TestCase {
         name: "overlays"
@@ -235,6 +246,41 @@ Item {
             menu.close();
         }
 
+        // A short menu is as wide as its longest entry: that entry's text
+        // ends as far from the right edge as it starts from the left. Only a
+        // menu of one short word takes the minimum width. An entry's icon is
+        // as tall as its text's capitals, and the capitals start a side
+        // padding below the entry's top.
+        function test_a_short_menu_fits_its_entries() {
+            barMenu.open();
+            const window = windowOf(barMenu);
+            const opening = window.width;
+            const longest = settingsEntry;
+            tryCompare(longest, "width", window.width - 2 * Theme.border.thin);
+            compare(window.width, opening, "the menu opens at the width it settles at");
+            verify(longest.implicitWidth > hideEntry.implicitWidth, "Settings is the longest entry");
+            compare(window.width, Math.ceil(longest.implicitWidth) + 2 * Theme.border.thin);
+            const icon = longest.contentItem.children[0];
+            const title = longest.contentItem.children[1];
+            const left = Theme.border.thin + longest.contentItem.x + icon.x;
+            const right = window.width - (Theme.border.thin + longest.contentItem.x + title.x + title.implicitWidth);
+            compare(left, Theme.border.thin + longest.sidePadding);
+            verify(Math.abs(right - left) <= 1, "the text ends as far from the right edge as the icon starts from the left: " + left + " and " + right);
+            const capitals = itemMetrics.capitalHeight;
+            for (const entry of [hideEntry, settingsEntry]) {
+                const glyph = entry.contentItem.children[0];
+                const ink = glyph.painted[3] - glyph.painted[1];
+                verify(Math.abs(ink - capitals) <= 1, entry.text + "'s icon ink " + ink + " is within a pixel of the capitals " + capitals);
+            }
+            const capTop = longest.contentItem.y + title.y + title.baselineOffset - capitals;
+            verify(Math.abs(capTop - longest.sidePadding) <= 1, "the capitals start " + capTop + " below the entry's top, its side padding " + longest.sidePadding);
+            barMenu.close();
+            oneWord.open();
+            verify(oneWord.items()[0].implicitWidth + 2 * Theme.border.thin < Theme.menu.minWidth, "the one word is narrower than the minimum");
+            compare(windowOf(oneWord).width, Theme.menu.minWidth);
+            oneWord.close();
+        }
+
         function longWindow() {
             for (let i = 0; i < long.resources.length; i++)
                 if (long.resources[i].anchor !== undefined) return long.resources[i];
@@ -293,7 +339,7 @@ Item {
             verify(item.y + item.height <= long.scrollArea.contentY + long.scrollArea.height && item.y >= long.scrollArea.contentY, "the checked entry opens in view");
             compare(item.indicator.visible, true);
             compare(item.indicator.name, "check");
-            compare(item.rightPadding, Theme.menu.item.paddingX + Theme.scrollArea.gutter + Theme.icon.size.sm + item.spacing);
+            compare(item.rightPadding, Theme.menu.item.paddingX + Theme.scrollArea.gutter + Theme.menu.item.icon + item.spacing);
             compare(item.indicator.x + item.indicator.width, item.width - item.sidePadding - item.barRoom, "the check mark ends a side padding before the bar");
             compare(long.items()[0].indicator.visible, false);
             compare(long.items()[0].rightPadding, Theme.menu.item.paddingX + Theme.scrollArea.gutter);
@@ -407,7 +453,7 @@ Item {
             nested.open();
             compare(chevron(submenuEntry).visible, true);
             compare(chevron(submenuEntry).x + chevron(submenuEntry).width, submenuEntry.width - submenuEntry.sidePadding - submenuEntry.barRoom, "the chevron ends a side padding before the bar");
-            compare(uncheckedSubmenu.rightPadding, uncheckedSubmenu.sidePadding + uncheckedSubmenu.barRoom + Theme.icon.size.sm + uncheckedSubmenu.spacing, "the chevron takes the check mark's room");
+            compare(uncheckedSubmenu.rightPadding, uncheckedSubmenu.sidePadding + uncheckedSubmenu.barRoom + Theme.menu.item.icon + uncheckedSubmenu.spacing, "the chevron takes the check mark's room");
             compare(chevron(uncheckedSubmenu).visible, true);
             compare(submenuEntry.indicator.visible, false, "a checked submenu entry draws its chevron, not its check mark");
             compare(chevron(backEntry).visible, false);

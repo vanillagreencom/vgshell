@@ -813,9 +813,11 @@ var TOKENS = {
 
     // `maxHeight` is the height the entries take before the menu scrolls,
     // nine entries; `typeahead` the milliseconds the letters typed to jump
-    // to an entry are kept.
+    // to an entry are kept. A menu is as wide as its widest entry, so an
+    // entry's text ends a side padding from the border; `minWidth` is the
+    // floor only a menu of one short word reaches.
     menu: {
-        minWidth: length(160),
+        minWidth: length(80),
         maxHeight: length("mul({menu.item.height}, 9)"),
         typeahead: number(1000, 0, 5000),
         radius: length("{radius.md}"),
@@ -827,11 +829,15 @@ var TOKENS = {
         border: color("{color.borderStrong}"),
         // An entry's fill reaches the menu's border on every side, so its
         // corner follows the menu's: a fill as round as the menu's inner
-        // corner fits in it.
+        // corner fits in it. An entry is a list row: at the row height the
+        // space above its text's capitals matches its side padding. `icon`
+        // draws the entry's icon, check mark and chevron, a glyph as tall as
+        // the text's capitals.
         item: {
-            height: length("{size.control.md}"),
+            height: length("{row.height}"),
             paddingX: length("{row.paddingX}"),
             gap: length("{control.gap}"),
+            icon: length("{icon.size.xs}"),
             radius: length("{menu.radius}"),
             hover: color("{color.surfaceHover}"),
             pressed: color("{color.border}"),

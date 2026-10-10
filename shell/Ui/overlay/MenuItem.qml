@@ -43,7 +43,7 @@ T.MenuItem {
     leftPadding: sidePadding
     // The check mark or the chevron stands at the end.
     readonly property bool endMark: checked ? true : opensSubmenu
-    rightPadding: sidePadding + barRoom + (endMark ? Theme.icon.size.sm + spacing : 0)
+    rightPadding: sidePadding + barRoom + (endMark ? Theme.menu.item.icon + spacing : 0)
     spacing: Theme.menu.item.gap
     hoverEnabled: true
     focusPolicy: Qt.NoFocus
@@ -68,7 +68,7 @@ T.MenuItem {
             id: icon
             visible: root.iconName !== ""
             name: root.iconName
-            size: Theme.icon.size.md
+            size: Theme.menu.item.icon
             color: Theme.menu.item.foreground
             anchors.verticalCenter: parent.verticalCenter
         }
@@ -98,7 +98,7 @@ T.MenuItem {
     indicator: Icon {
         name: "check"
         visible: root.checked && !root.opensSubmenu
-        size: Theme.icon.size.sm
+        size: Theme.menu.item.icon
         color: Theme.menu.item.check
         x: root.width - root.sidePadding - root.barRoom - width
         y: Math.round((root.height - height) / 2)
@@ -108,7 +108,7 @@ T.MenuItem {
     Icon {
         name: "chevron-right"
         visible: root.opensSubmenu
-        size: Theme.icon.size.sm
+        size: Theme.menu.item.icon
         color: Theme.menu.item.shortcut
         x: root.indicator.x
         y: root.indicator.y

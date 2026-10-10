@@ -275,8 +275,9 @@ const DEFAULTS = [
     ["size.window.heightShare", 0.5],
     ["size.window.tallHeightShare", 0.65],
     ["size.window.gutter", 12],
-    // Nine 32 px entries before a menu scrolls: mul(32, 9) = 288.
-    ["menu.maxHeight", 288],
+    // Nine 36 px entries before a menu scrolls: mul(36, 9) = 324.
+    ["menu.maxHeight", 324],
+    ["menu.item.icon", 12],
     ["menu.typeahead", 1000],
     ["menu.item.check", "#ff5a36ff"],
     // The scroll bar: 4 px thick, 2 px in, inside an 8 px gutter, a thumb
@@ -384,8 +385,8 @@ const ACCEPTED = [
     // One shared token moves every control that follows the rhythm.
     { tokens: { control: { paddingX: 12, gap: 5 } }, want: [["button.paddingX", 12], ["textField.paddingX", 10], ["segmented.paddingX", 12], ["button.gap", 5], ["textField.gap", 5], ["listItem.gap", 5], ["menu.item.gap", 5], ["checkbox.gap", 5], ["bar.item.iconGap", 5], ["bar.item.paddingX", 8]] },
     // Control sizes move the controls and never the rows' density.
-    { tokens: { size: { control: { md: 34, lg: 44 } } }, want: [["textField.height", 34], ["segmented.height", 34], ["menu.item.height", 34], ["menu.maxHeight", 306], ["row.height", 36], ["listItem.height", 36], ["listItem.twoLineHeight", 56]] },
-    { tokens: { row: { height: 40, twoLineHeight: 60 } }, want: [["listItem.height", 40], ["listItem.twoLineHeight", 60], ["textField.height", 32]] },
+    { tokens: { size: { control: { md: 34, lg: 44 } } }, want: [["textField.height", 34], ["segmented.height", 34], ["menu.item.height", 36], ["menu.maxHeight", 324], ["row.height", 36], ["listItem.height", 36], ["listItem.twoLineHeight", 56]] },
+    { tokens: { row: { height: 40, twoLineHeight: 60 } }, want: [["listItem.height", 40], ["listItem.twoLineHeight", 60], ["menu.item.height", 40], ["menu.maxHeight", 360], ["textField.height", 32]] },
     { tokens: { row: { paddingX: 16 } }, want: [["listItem.paddingX", 16], ["menu.item.paddingX", 16], ["field.paddingX", 0], ["button.paddingX", 12]] },
     { tokens: { field: { paddingX: 6 } }, want: [["field.paddingX", 6], ["listItem.paddingX", 12]] },
     // A menu entry's fill rounds with the menu, never with the small radius.
@@ -1480,7 +1481,7 @@ function gridShortfalls(values) {
     assert.deepEqual(gridShortfalls(judge.defaults(TOKENS).values), [], "every shipped length is on the 4 px grid or in a named exception");
     const moved = judge.accept(TOKENS, document({ row: { height: 30 } }));
     assert.equal(moved.ok, true, "the grid control document is accepted");
-    assert.deepEqual(gridShortfalls(moved.values), ["row.height=30", "listItem.height=30"], "control: a row height off the grid is named with the list row that reads it");
+    assert.deepEqual(gridShortfalls(moved.values), ["row.height=30", "listItem.height=30", "menu.maxHeight=270", "menu.item.height=30"], "control: a row height off the grid is named with the list and menu rows that read it");
     // The theme browser's reference geometry is walked like every other
     // group: a card height and an overlap off the grid are named.
     const offGrid = judge.accept(TOKENS, document({ carousel: { expandedHeight: 475, overlap: 30 } }));

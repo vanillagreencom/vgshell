@@ -109,11 +109,16 @@ Item {
     }
 
     // The widest entry by its own content, before the column sets every
-    // entry's width.
+    // entry's width, with the bar's strip while the entries pass
+    // `maxHeight`. The strip is read from the entries' heights, not from
+    // their `barRoom`: the list takes the window's size only after the
+    // window shows and overflows until then. Read from `barRoom`, a menu
+    // that fits opened a strip wider than it settled (scripts/qml-unit.sh,
+    // 2026-10-10: 112 px, then 104).
     readonly property real widest: {
         let width = 0;
-        for (const item of items()) width = Math.max(width, item.implicitWidth);
-        return width;
+        for (const item of items()) width = Math.max(width, item.implicitWidth - item.barRoom);
+        return width + (column.implicitHeight - root.maxHeight >= 0.5 ? Theme.scrollArea.gutter : 0);
     }
 
     onCurrentIndexChanged: {
