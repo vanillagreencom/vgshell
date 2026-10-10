@@ -23,6 +23,9 @@ import qs.Ui
 // control for the message, such as a RowAction that undoes what the message
 // names: it draws on the message's line, on the row's end edge, only while
 // the row has a message, and the message wraps `stack.inline` before it.
+// It centres on the message and keeps the message's height: an action
+// taller than the message overhangs it and does not count in `inkBelow()`,
+// so showing or hiding it moves no row and no heading below.
 // Where that would leave the message less than `field.labelWidth`, as in a
 // narrow flyout, the action goes on a line of its own, `field.gap` under
 // the message, from the value column's start. While the row has a message
@@ -35,7 +38,8 @@ import qs.Ui
 // value column starts, for content that belongs under it. Width comes from
 // the parent. `inkBelow()` is how far above its bottom edge the row's
 // lowest drawn part ends, its label, its control as drawn, its message or
-// that message's action, since the control centres in a taller row box.
+// an action on a line of its own under that message, since the control
+// centres in a taller row box.
 Item {
     id: root
 
@@ -52,7 +56,7 @@ Item {
     readonly property Item actionItem: actionSlot.visibleChildren.length > 0 ? actionSlot.visibleChildren[0] : null
     readonly property bool actionBelow: actionItem !== null && valueRoom - actionItem.width - Theme.stack.inline < Theme.field.labelWidth
     readonly property real actionRoom: actionItem === null || actionBelow ? 0 : actionItem.width + Theme.stack.inline
-    readonly property real messageLine: actionBelow ? message.height + Theme.field.gap + actionItem.height : Math.max(message.height, actionItem === null ? 0 : actionItem.height)
+    readonly property real messageLine: actionBelow ? message.height + Theme.field.gap + actionItem.height : message.height
     readonly property real valueX: labelColumn ? Theme.field.labelWidth + Theme.field.labelGap : 0
     readonly property real valueRoom: Math.max(0, width - valueX)
     readonly property real messageRoom: warning === "" ? 0 : Theme.field.gap + messageLine
@@ -68,7 +72,7 @@ Item {
             if (child.visible) bottom = Math.max(bottom, slot.y + child.y + child.height - Theme.inkBelow(child));
         }
         if (message.visible) bottom = Math.max(bottom, message.y + message.height - message.inkBelow());
-        if (actionSlot.visible) bottom = Math.max(bottom, actionSlot.y + actionSlot.height);
+        if (actionSlot.visible && root.actionBelow) bottom = Math.max(bottom, actionSlot.y + actionSlot.height);
         return height - bottom;
     }
 
@@ -135,7 +139,7 @@ Item {
         color: root.toneColor(root.warningTone)
         visible: root.warning !== ""
         x: slot.x
-        y: root.boxHeight + Theme.field.gap + (root.actionBelow ? 0 : Math.round((root.messageLine - height) / 2))
+        y: root.boxHeight + Theme.field.gap
         width: root.valueRoom - root.actionRoom
         wrapMode: Text.Wrap
         onActivated: root.warningLinkActivated()

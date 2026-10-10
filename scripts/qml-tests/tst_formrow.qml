@@ -13,7 +13,8 @@ import qs.Unit
 // the row by the gap and its own
 // height, and moves neither the label nor the control; an action draws on
 // the message's line, on the row's end edge, the message wrapping before
-// it, only while the row has a message and the action shows, and goes on a
+// it, only while the row has a message and the action shows, at the
+// message's height so it moves no row below it, and goes on a
 // line of its own under the message where it would leave the message less
 // than the label column's width; without a label
 // column the control takes the full width at its own height; the smoke's
@@ -163,8 +164,8 @@ Item {
             compare(undo.mapToItem(acted, 0, 0).x + undo.width, acted.width, "the action ends on the row's end edge");
             compare(xIn(message, acted), acted.valueX);
             compare(message.width, acted.width - acted.valueX - undo.width - Theme.stack.inline, "the message runs under the action");
-            compare(acted.height, Theme.row.height + Theme.field.gap + undo.height + room(), "the row grows by the taller of the two");
-            compare(undo.mapToItem(acted, 0, 0).y, Theme.row.height + Theme.field.gap);
+            compare(acted.height, Theme.row.height + Theme.field.gap + message.height + room(), "the row grows for a taller action");
+            compare(message.y, Theme.row.height + Theme.field.gap);
             fuzzyCompare(centreIn(message, acted), centreIn(undo, acted), 1, "the message leaves the action's line");
             fuzzyCompare(centreIn(actedToggle, acted), Theme.row.height / 2, 1, "the control leaves the row box's centre");
         }
@@ -181,7 +182,7 @@ Item {
             const beside = messageOf(roomy);
             compare(beside.width, Theme.field.labelWidth, "one more pixel keeps the action beside the message");
             compare(roomyUndo.mapToItem(roomy, 0, 0).x + roomyUndo.width, roomy.width);
-            compare(roomy.height, Theme.row.height + Theme.field.gap + roomyUndo.height + room());
+            compare(roomy.height, Theme.row.height + Theme.field.gap + beside.height + room());
         }
 
         function test_a_hidden_action_takes_no_room() {
@@ -191,6 +192,19 @@ Item {
             compare(acted.height, Theme.row.height + Theme.field.gap + message.height + room());
             undo.visible = true;
             compare(message.width, acted.width - acted.valueX - undo.width - Theme.stack.inline);
+        }
+
+        // An action taller than the message, such as a RowAction in the
+        // shell's font beside a hint, keeps the message's height, so
+        // showing or hiding it moves no row below and no heading spaced
+        // from the row's ink.
+        function test_an_action_keeps_the_rows_height() {
+            const message = messageOf(acted);
+            verify(undo.visible && undo.height > message.height, "the action is no taller than the message");
+            const shown = [acted.height, acted.inkBelow(), message.y];
+            undo.visible = false;
+            compare([acted.height, acted.inkBelow(), message.y], shown, "hiding the action moves the row's end, its ink or its message");
+            undo.visible = true;
         }
 
         function test_a_row_without_a_message_draws_no_action() {
