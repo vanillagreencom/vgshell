@@ -918,6 +918,7 @@ function verify(judge) {
 // 0x29. The surface values are pinned in scripts/test-notifications-logic.js
 // beside the looks that hand them.
 const GLASS = load(path.join(repo, "shell", "Commons", "Glass.js"));
+const LAUNCHER = load(path.join(repo, "shell", "plugins", "vgs.launcher", "Appearance.js"));
 function verifyGlass(judge, glass = GLASS) {
     const shipped = judge.defaults(TOKENS).values;
     for (const [mode, shadow] of [["dark", "#00000073"], ["light", "#00000029"]]) {
@@ -1021,6 +1022,12 @@ function verifyAppearance(judge) {
     lookFollowsInterfaceFont(judge, FONT_LOOK, {}, overMono);
     for (const [label, look] of FIXED_FAMILY_LOOKS)
         assert.throws(() => lookFollowsInterfaceFont(judge, look, {}, fonts), /follows the interface font/, "control: " + label);
+    // The launcher's look draws its text in it; its control is the look
+    // with its old fixed family back.
+    lookFollowsInterfaceFont(judge, LAUNCHER.TOKENS, LAUNCHER.LIGHT, fonts);
+    lookFollowsInterfaceFont(judge, LAUNCHER.TOKENS, LAUNCHER.LIGHT, overMono);
+    const fixedLauncher = Object.assign({}, LAUNCHER.TOKENS, { font: { family: { type: "family", value: "JetBrains Mono" } } });
+    assert.throws(() => lookFollowsInterfaceFont(judge, fixedLauncher, LAUNCHER.LIGHT, fonts), /follows the interface font/, "control: the launcher's fixed JetBrains Mono");
     const terminal = over(shipped, { terminalFont: "Fira Code" });
     assert.deepEqual(plain(terminal.values), plain(shipped.values), "the terminal font sets no token");
     assert.deepEqual([terminal.appearance.values.terminalFont, terminal.appearance.sources.terminalFont, Object.hasOwn(terminal.appearance.theme, "terminalFont")], ["Fira Code", "user", false], "and is the user's value, with none of the theme's to show");

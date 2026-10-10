@@ -114,7 +114,7 @@ Item {
             text: row.label
             color: row.look.text.foreground
             opacity: row.hasCursor ? 1 : row.look.text.label.rest
-            font.family: row.look.font.family
+            font.family: row.look.font.family.sans
             font.pixelSize: row.look.text.label.size
             font.weight: row.look.text.label.weight
             style: Text.Raised
@@ -133,7 +133,7 @@ Item {
                 text: row.detail
                 color: row.look.text.foreground
                 opacity: row.look.text.detail.opacity
-                font.family: row.look.font.family
+                font.family: row.look.font.family.sans
                 font.pixelSize: row.look.text.detail.size
                 elide: Text.ElideRight
             }
@@ -150,7 +150,7 @@ Item {
                     text: "open with"
                     color: row.look.text.foreground
                     opacity: row.look.text.detail.opacity
-                    font.family: row.look.font.family
+                    font.family: row.look.font.family.sans
                     font.pixelSize: row.look.text.detail.size
                     anchors.verticalCenter: parent.verticalCenter
                 }

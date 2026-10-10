@@ -208,7 +208,7 @@ Item {
                             text: entry.modelData.label || ""
                             color: menu.look.text.foreground
                             elide: Text.ElideRight
-                            font.family: menu.look.font.family
+                            font.family: menu.look.font.family.sans
                             font.pixelSize: menu.look.text.flyout.size
                         }
 
@@ -222,7 +222,7 @@ Item {
                             text: entry.modelData.detail || ""
                             color: menu.look.text.foreground
                             opacity: menu.look.text.detail.opacity
-                            font.family: menu.look.font.family
+                            font.family: menu.look.font.family.sans
                             font.pixelSize: menu.look.text.flyout.detail
                         }
 

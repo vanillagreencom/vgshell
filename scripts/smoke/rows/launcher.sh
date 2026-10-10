@@ -729,17 +729,21 @@ expect "the host hides the user's themes menu" ok ipc shell hide overlay vgs.lau
 expect_poll "the user's themes menu closed" 0 layer_count vgs:overlay
 rm -f -- "${user_menu:?}"
 
-# The look: the theme reaches it through its mode and accent alone. Every
-# other token of the theme moves and the look stays; the accent moves the
-# accent; light mode applies the light glass.
+# The look: the theme reaches it through its mode, accent, motion scale and
+# interface font alone. Every other token of the theme moves and the look
+# stays; the accent moves the accent; the interface family moves the text's
+# family; light mode applies the light glass.
 expect "the launcher summons for its look" ok ipc shell summon overlay vgs.launcher '{}'
 expect_poll "the look resolved" '"#c7151515"' look_at card.fill
 if ! look_before="$(read_launcher look)"; then fail "the launcher's look is unreadable"; fi
-write_theme '{ "schemaVersion": 1, "name": "unrelated", "tokens": { "palette": { "foreground": "#ff00ff", "background": "#00ff00", "success": "#123456" }, "font": { "size": 22, "family": { "mono": "Serif", "sans": "Serif" } }, "space": { "unit": 7 }, "radius": { "md": 9 }, "text": { "body": { "size": 30 } }, "color": { "surface": "#ff0000" } } }'
+write_theme '{ "schemaVersion": 1, "name": "unrelated", "tokens": { "palette": { "foreground": "#ff00ff", "background": "#00ff00", "success": "#123456" }, "font": { "size": 22, "family": { "mono": "Serif" } }, "space": { "unit": 7 }, "radius": { "md": 9 }, "text": { "body": { "size": 30 } }, "color": { "surface": "#ff0000" } } }'
 expected_errors+=('theme: font=Serif unavailable')
 expect_poll "the unrelated theme is accepted" unrelated ipc smoke themeName
 unchanged_look() { [[ "$(read_launcher look)" == "$look_before" ]] && echo same || echo moved; }
 expect_poll "every unrelated token leaves the launcher's look as it was" same unchanged_look
+expect "the launcher's text draws in the shipped interface font" '"Inter Variable"' look_at font.family.sans
+write_theme '{ "schemaVersion": 1, "name": "typeface", "tokens": { "font": { "family": { "sans": "JetBrains Mono" } } } }'
+expect_poll "the interface font reaches the launcher's text" '"JetBrains Mono"' look_at font.family.sans
 write_theme '{ "schemaVersion": 1, "name": "accent", "tokens": { "palette": { "accent": "#7aa2f7" } } }'
 expect_poll "the accent reaches the launcher" '"#ff7aa2f7"' look_at palette.accent
 expect "the accent reaches the caret's halo" '"#2e7aa2f7"' look_at caret.halo

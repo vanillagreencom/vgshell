@@ -1050,7 +1050,7 @@ Item {
                         : root.filterText || (root.requestMode ? root.prompt : (root.spotlightRoot || !root.items[root.activeMenu] ? "Search" : (root.items[root.activeMenu].title || root.items[root.activeMenu].label)))
                     color: root.look.text.foreground
                     opacity: root.filterText ? 1 : root.look.text.header.idle
-                    font.family: root.look.font.family
+                    font.family: root.look.font.family.sans
                     font.pixelSize: root.look.text.header.size
                     font.letterSpacing: root.look.text.header.letterSpacing
                     style: Text.Raised
@@ -1153,7 +1153,7 @@ Item {
                     text: "No results"
                     color: root.look.text.foreground
                     opacity: root.look.text.empty.opacity
-                    font.family: root.look.font.family
+                    font.family: root.look.font.family.sans
                     font.pixelSize: root.look.text.empty.size
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter

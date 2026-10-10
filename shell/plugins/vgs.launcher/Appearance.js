@@ -8,8 +8,9 @@
 // there: Style.space(n) is n at the default spacing scale, and the font
 // sizes are the Style.font steps at the 12 px base (caption 10, bodySmall
 // 11, body 12, heading 16). The active theme reaches this table through
-// two inputs alone, `palette.accent` and `motion.scale`, plus its
-// `scheme.mode`, which applies LIGHT; no other theme value can.
+// three inputs alone, `palette.accent`, `motion.scale` and
+// `font.family.sans`, plus its `scheme.mode`, which applies LIGHT; no
+// other theme value can.
 
 function color(value) { return { type: "color", value: value }; }
 function length(value) { return { type: "length", value: value }; }
@@ -61,10 +62,12 @@ var TOKENS = {
         debounce: wait(45)
     },
 
-    // The bundled mono family, the design the reference's JetBrainsMono
-    // Nerd Font draws.
+    // The resolved interface font replaces this default, so the user's
+    // Fonts choice reaches every line of text the launcher draws.
     font: {
-        family: family("JetBrains Mono")
+        family: {
+            sans: family("Inter Variable")
+        }
     },
 
     text: {
