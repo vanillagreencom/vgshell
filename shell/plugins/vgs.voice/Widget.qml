@@ -16,6 +16,16 @@ BarWidget {
 
     implicitWidth: item.implicitWidth
     implicitHeight: barSize
+    frameActions: [{ label: "Voxtype Settings", icon: "sliders-horizontal", action: root.configure }]
+
+    // The service owns dictation: the click asks it for the toggle its keys
+    // run, and never starts a recording itself. `busy` is a toggle the
+    // service holds until the one in flight ends.
+    function toggle() {
+        const reply = shell.ipc.call("toggle", "");
+        if (reply !== "ok" && reply !== "busy") console.warn("voice: toggle " + reply);
+        return reply;
+    }
 
     function configure() {
         const reply = shell.tui.run("configure");
@@ -32,6 +42,6 @@ BarWidget {
         spinning: root.transcribing
         tone: root.itemTone
         tooltip: root.recording ? "Recording" : root.transcribing ? "Transcribing" : root.stopped ? "Voice stopped" : "Voice"
-        onClicked: root.configure()
+        onClicked: root.toggle()
     }
 }

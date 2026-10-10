@@ -16,6 +16,7 @@
     "bar-widget": "Widget.qml"
   },
   "capabilities": [
+    "ipc",
     "layers",
     "notify",
     "requirements",

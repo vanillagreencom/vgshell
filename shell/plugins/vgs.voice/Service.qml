@@ -69,8 +69,9 @@ Item {
         if (shell === null) return;
         if (registeredWith === null) {
             registeredWith = shell;
-            shell.shortcut.register("toggle", "Start or stop dictation", () => root.record("toggle"));
-            shell.shortcut.register("tap", "Tap a key to dictate", () => root.record("toggle"));
+            shell.shortcut.register("toggle", "Start or stop dictation", root.toggle);
+            shell.shortcut.register("tap", "Tap a key to dictate", root.toggle);
+            shell.ipc.handle("toggle", root.toggle);
             shell.shortcut.register("talk", "Dictate while held", () => root.record("start"), () => root.record("stop"));
             shell.layers.show(osdLayer);
             const held = shell.sounds.hold("feedback", { read: () => root.readFeedback(), choose: value => root.chooseFeedback(value) });
@@ -244,6 +245,13 @@ Item {
         if (parsed.kind !== "frame") return;
         level = VoiceLogic.frameLevel(parsed.peak, parsed.rms);
         frame(level);
+    }
+
+    // The one start or stop of dictation: the toggle key, the tap key and
+    // the bar widget's click, which asks through the ipc handler, each run
+    // this function, so a change to it reaches all three.
+    function toggle() {
+        return root.record("toggle");
     }
 
     function record(verb) {

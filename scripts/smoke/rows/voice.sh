@@ -77,7 +77,20 @@
 # Sounds section reaches voxtype's config and its read back" failed,
 # reading ["own",""], and "without voxtype a dictation sounds choice is
 # refused" failed, reading ok.
-# inputs: shell/Core/Sounds.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
+# The bar widget: the stub's record toggle moves the status stream, as
+# voxtype's daemon does, while the row asks. The row reads one record
+# toggle, the widget at recording and the display presented after the typed
+# toggle key, then the same three after a pointer click on the widget,
+# which opens no Configure; a second click stops the dictation. A right
+# click opens the widget menu, which reads Hide, Voxtype Settings,
+# Settings, and Voxtype Settings hands the terminal Configure.
+# Control run on 2026-10-10, host cachy, through this row on a source_tree
+# copy of the widget whose click runs configure() and which hands the menu
+# no entry: "a click on the Voice widget runs one record toggle, as the
+# toggle key does" failed, reading no record line, with the terminal handed
+# Configure, and "the menu holds Hide, then Voxtype Settings, then
+# Settings" failed, reading ["Hide","Settings"].
+# inputs: shell/Core/Sounds.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* shell/Core/IpcRegistry.qml shell/Ui/BarWidget.qml shell/Ui/controls/BarItem.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml
 set -euo pipefail
 
 voice_log="$sandbox/voice-record.log"
@@ -95,6 +108,7 @@ voice_feedback_sets="$sandbox/voice-feedback-sets"
 voice_feedback_unreadable="$sandbox/voice-feedback-unreadable"
 voice_feedback_refused="$sandbox/voice-feedback-refused"
 voice_feedback_dropped="$sandbox/voice-feedback-dropped"
+voice_toggle_follows="$sandbox/voice-toggle-follows"
 printf 'true\n' >"$voice_feedback"
 : >"$voice_feedback_sets"
 voice_bridge_stub="$shim/voxtype-audio-bridge"
@@ -108,7 +122,15 @@ case "\$*" in
     [[ -e "$voice_status_hold" ]] && exec sleep infinity
     exec tail -n +1 -f "$voice_states"
     ;;
-  'record toggle'|'record start'|'record stop') printf '%s\n' "\$*" >>"$voice_log" ;;
+  'record toggle'|'record start'|'record stop')
+    printf '%s\n' "\$*" >>"$voice_log"
+    # While the row asks, a toggle moves the status stream as voxtype's
+    # daemon does: idle to recording, any other state to idle.
+    if [[ "\$*" == 'record toggle' && -e "$voice_toggle_follows" ]]; then
+      if [[ "\$(tail -n 1 "$voice_states")" == '{"state":"idle"}' ]]; then next=recording; else next=idle; fi
+      printf '{"state":"%s"}\n' "\$next" >>"$voice_states"
+    fi
+    ;;
   '--version') printf '%s\n' 'voxtype 1.1.0' ;;
   'config get engine --json') printf '%s\n' '{"value":"parakeet"}' ;;
   'config get parakeet.model --json') printf '%s\n' '{"value":"parakeet-tdt-0.6b-v3"}' ;;
@@ -732,6 +754,76 @@ expect_poll "a click under the ring reaches the client with press and release" o
 expect "the default osd setting is restored" ok voice_set_osd default
 expect_poll "the default draws the plasma orb again" "plasma=1 ring=0" voice_osd_drawn
 voice_osd_orb=Plasma
+
+# The bar widget's click, read beside the toggle key: each runs one record
+# toggle, after which the stub moves the status stream, so the widget and
+# the display read the same dictation after either.
+voice_widget_pointer="$pointer_at"
+voice_set_state idle
+expect_poll "idle unmaps the display before the toggle key" unmapped voice_osd
+expect_poll "the bar widget reads idle before the toggle key" '"idle"' voice_dictation
+touch -- "$voice_toggle_follows"
+before="$(wc -l <"$voice_log")"
+voice_toggle_key
+voice_sync "the Voice keyboard delivered the toggle keys for the widget's reading"
+expect_poll "the toggle key runs one record toggle" ok voice_toggle_only
+expect_poll "the toggle key's dictation reaches the bar widget as recording" '"recording"' voice_dictation
+expect_poll "the toggle key's dictation presents the display" presented voice_osd
+voice_set_state idle
+expect_poll "idle unmaps the display before the widget's click" unmapped voice_osd
+expect_poll "the bar widget reads idle before its click" '"idle"' voice_dictation
+voice_widget_box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.voice)" || voice_widget_box=""
+if [[ $voice_widget_box == \[* ]]; then
+  read -r voice_widget_x voice_widget_y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$voice_widget_box")
+else
+  fail "the Voice widget has no box: $voice_widget_box"
+  # The rest corner, over the Voice client: a click there reaches no
+  # widget, so each reading below fails on its own.
+  voice_widget_x=10 voice_widget_y="$((mon_h - 10))"
+fi
+forget_record
+before="$(wc -l <"$voice_log")"
+hover "$((voice_widget_x - 1))" "$voice_widget_y" && click "$voice_widget_x" "$voice_widget_y" || fail "the click on the Voice widget failed"
+expect_poll "a click on the Voice widget runs one record toggle, as the toggle key does" ok voice_toggle_only
+expect_poll "the click's dictation reaches the bar widget as recording" '"recording"' voice_dictation
+expect_poll "the click's dictation presents the display" presented voice_osd
+expect "the click ran no second record toggle" ok voice_toggle_only
+expect "a click on the Voice widget opens no Configure" absent recorded
+before="$(wc -l <"$voice_log")"
+click "$voice_widget_x" "$voice_widget_y" || fail "the second click on the Voice widget failed"
+expect_poll "a second click on the Voice widget runs one more record toggle" ok voice_toggle_only
+expect_poll "the second click's stop reaches the bar widget as idle" '"idle"' voice_dictation
+expect_poll "the second click's stop unmaps the display" unmapped voice_osd
+rm -f -- "${voice_toggle_follows:?}"
+# The widget menu: Voxtype Settings sits between the bar's own Hide and
+# Settings, and opens Configure. The stand-in terminal records the run and
+# runs none of voxtype's own screen.
+voice_menu() { ipc smoke readInstance "$(bar_key)" vgs.voice "$1"; }
+before="$(wc -l <"$voice_log")"
+hover "$((voice_widget_x - 1))" "$voice_widget_y" && right_click "$voice_widget_x" "$voice_widget_y" || fail "the right click on the Voice widget failed"
+expect_poll "a right click on the Voice widget opens its menu" true voice_menu frameMenuOpen
+expect "the menu holds Hide, then Voxtype Settings, then Settings" '["Hide","Voxtype Settings","Settings"]' voice_menu frameMenuEntries
+expect "a right click on the Voice widget opens no Configure" absent recorded
+voice_menu_index="$(voice_menu frameMenuEntries | py_reply 'import json,sys; rows=json.load(sys.stdin); print(rows.index("Voxtype Settings") if "Voxtype Settings" in rows else "absent")')" || voice_menu_index=unreadable
+if [[ $voice_menu_index =~ ^[0-9]+$ ]]; then
+  type_keys -k Home || fail "Home on the Voice widget's menu failed"
+  for ((voice_menu_step = 0; voice_menu_step < voice_menu_index; voice_menu_step++)); do type_keys -k Down || fail "Down on the Voice widget's menu failed"; done
+  type_keys -k Return || fail "Return on the Voice widget's menu failed"
+  expect_poll "Voxtype Settings hands the terminal Configure" "$(words vgs.voice/configure tui/configure.sh)" recorded_tail
+  expect_poll "Voxtype Settings closes the menu" false voice_menu frameMenuOpen
+  expect_run_end "the Configure run from the menu ends" vgs.voice/configure
+else
+  fail "the Voice widget's menu has no Voxtype Settings: $voice_menu_index"
+  type_keys -k Escape || fail "Escape on the Voice widget's menu failed"
+  expect_poll "Escape closes the Voice widget's menu" false voice_menu frameMenuOpen
+fi
+expect "the right click and the menu ran no record toggle" "" voice_new_lines
+forget_record
+expect_poll "the Voice client has keyboard focus again after the menu" '["smoke.voice-client", "Voice client"]' active_window
+read -r voice_widget_back_x voice_widget_back_y <<<"${voice_widget_pointer:-10 $((mon_h - 10))}"
+hover "$voice_widget_back_x" "$voice_widget_back_y" || fail "putting the pointer back after the Voice widget's menu failed"
+voice_set_state recording
+expect_poll "recording presents the display again after the widget's menu" presented voice_osd
 # Monitor focus held while the second output comes and goes, as sound.sh
 # holds it: under Hyprland's default mouse focus the add and the remove move
 # the cursor and the focus that the later rows' selectors and pads start from.
