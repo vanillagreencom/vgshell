@@ -74,6 +74,19 @@ world(() => {
     check(Tools, ["task.start", { goal: "task", cwd: project, agent: "claude", account: "work" }, "exec", "agent"]);
     assert.doesNotThrow(() => JSON.parse(JSON.stringify(Tools.TABLE)));
     assert.doesNotThrow(() => JSON.parse(JSON.stringify(Tools.BROWSER)));
+    const schemaKeywords = new Set(["type", "properties", "required", "additionalProperties", "minLength",
+        "maxLength", "pattern", "enum", "format", "minimum", "maximum", "minItems", "maxItems", "items"]);
+    function checkSchemaKeywords(value, at = "schema") {
+        assert.equal(value !== null && typeof value === "object" && !Array.isArray(value), true, at + " is an object");
+        for (const [key, child] of Object.entries(value)) {
+            assert.equal(schemaKeywords.has(key), true, at + " keyword " + key);
+            if (key === "properties") {
+                for (const [name, rule] of Object.entries(child)) checkSchemaKeywords(rule, at + ".properties." + name);
+            } else if (key === "items") checkSchemaKeywords(child, at + ".items");
+        }
+    }
+    for (const [id, row] of Object.entries(Tools.TABLE)) checkSchemaKeywords(row.schema, id);
+    for (const [id, row] of Object.entries(Tools.BROWSER)) checkSchemaKeywords(row.schema, "browser." + id);
     // Independent inventory, not a set extracted from the production table.
     assert.deepEqual(Object.keys(Tools.TABLE).sort(), [...new Set(cases.map(row => row[0]))].sort());
     const bad = (logic, call, reason) => {
@@ -105,6 +118,7 @@ world(() => {
         ["memory.read", { ids: [] }],
         ["memory.read", { ids: ["facts/a.md", "facts/b.md", "facts/c.md", "facts/d.md", "facts/e.md", "facts/f.md"] }],
         ["memory.propose", { id: "facts/new.md", text: "x".repeat(16 * 1024 + 1) }],
+        ["memory.propose", { id: "facts/new.md", text: "😀".repeat(16 * 1024) + "x" }],
         ["memory.replace", { id: "facts/new.md", text: "Remember this.", hash: "A".repeat(64) }]
     ];
     for (const [id, args] of badArgs) bad(Tools, { id, args }, "argument-shape");
@@ -270,8 +284,24 @@ world(() => {
     for (const [name, path, change] of noteRules)
         control("memory-note-" + name, noteLine, change(noteLine), logic => bad(logic, { id: "memory.read", args: { ids: [path] } }, "argument-shape"));
     control("memory-note-judge", "new RegExp(notePath.pattern).test(value)", "true", logic => assert.equal(logic.memoryNote("inbox/pending.md"), false));
-    control("memory-text-bound", "if (rule.maxBytes !== undefined && Buffer.byteLength(value) > rule.maxBytes) return false;", "",
+    check(Tools, ["memory.propose", { id: "facts/emoji.md", text: "😀".repeat(16 * 1024) }, "reversible"]);
+    control("memory-text-bound", "if (rule.maxLength !== undefined && [...value].length > rule.maxLength) return false;", "",
         logic => bad(logic, { id: "memory.propose", args: { id: "facts/new.md", text: "x".repeat(16 * 1024 + 1) } }, "argument-shape"));
+    control("schema-standard-keywords", "const memoryText = { ...text, minLength: 0, maxLength: MEMORY_TEXT_BYTES };",
+        "const memoryText = { ...text, minLength: 0, maxLength: MEMORY_TEXT_BYTES, maxBytes: MEMORY_TEXT_BYTES };",
+        logic => {
+            const schemaKeywords = new Set(["type", "properties", "required", "additionalProperties", "minLength",
+                "maxLength", "pattern", "enum", "format", "minimum", "maximum", "minItems", "maxItems", "items"]);
+            function walk(value) {
+                for (const [key, child] of Object.entries(value)) {
+                    assert.equal(schemaKeywords.has(key), true, "keyword " + key);
+                    if (key === "properties") for (const rule of Object.values(child)) walk(rule);
+                    else if (key === "items") walk(child);
+                }
+            }
+            for (const row of Object.values(logic.TABLE)) walk(row.schema);
+            for (const row of Object.values(logic.BROWSER)) walk(row.schema);
+        });
     const referenceLine = toolsSource.split("\n").find(line => line.startsWith("const reference ="));
     control("browser-reference", referenceLine, referenceLine.replace(/pattern: "(?:\\.|[^"])*"/, 'pattern: ".*"'),
         logic => bad(logic, { id: "browser", args: { command: "click", args: { ref: "--cdp" } } }, "browser-arguments"));

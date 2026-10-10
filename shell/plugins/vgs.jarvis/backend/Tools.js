@@ -42,7 +42,7 @@ const MEMORY_NOTE = "(?!inbox/)(?=[^\\u0000-\\u001f\\u007f]{1,255}$)(?:[^./][^/]
 const notePath = { type: "string", pattern: "^" + MEMORY_NOTE + "$(?![\\s\\S])" };
 const MEMORY_BATCH = 5;
 const MEMORY_TEXT_BYTES = 16 * 1024;
-const memoryText = { ...text, minLength: 0, maxBytes: MEMORY_TEXT_BYTES };
+const memoryText = { ...text, minLength: 0, maxLength: MEMORY_TEXT_BYTES };
 const sha256 = { type: "string", pattern: "^[0-9a-f]{64}$(?![\\s\\S])" };
 
 // Each row owns its argument shape, effect, executor, requirement and output
@@ -141,7 +141,7 @@ function valid(value, rule) {
     case "string":
         if (typeof value !== "string") return false;
         if (rule.minLength !== undefined && value.length < rule.minLength) return false;
-        if (rule.maxBytes !== undefined && Buffer.byteLength(value) > rule.maxBytes) return false;
+        if (rule.maxLength !== undefined && [...value].length > rule.maxLength) return false;
         if (rule.pattern !== undefined && !new RegExp(rule.pattern).test(value)) return false;
         if (rule.enum !== undefined && !rule.enum.includes(value)) return false;
         if (rule.format === "uri") {
