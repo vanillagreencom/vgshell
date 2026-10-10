@@ -10,7 +10,7 @@ A target is data too: one `target.json` and its templates under `themes/targets/
 
 An apply lands whole or not at all. It stages every file beside its destination, swaps under the theme lock, and writes the shell's theme file last ([D021](../decisions/D021-theme-apply-writes-beside-each-destination.md)). A target that fails costs only itself and keeps its last files.
 
-VGS never overwrites what the user placed. Application entries and selection keys follow [D022](../decisions/D022-theme-apply-keeps-managed-links-in-application-directories.md). A follow never replaces a hand-edited theme file. A package changes only as a whole, and no layer merges over it ([D025](../decisions/D025-no-theme-override-layer.md)) but the user's Appearance values. No target renders them except the terminal font, which no package states ([D104](../decisions/D104-appearance-values-over-the-theme.md)).
+An applied VGS theme replaces whatever theme the user had in each application VGS supports, with no confirmation. Application entries and selection keys follow [D022](../decisions/D022-theme-apply-keeps-managed-links-in-application-directories.md). A follow applies a changed package over whatever the theme file holds. A package changes only as a whole, and no layer merges over it ([D025](../decisions/D025-no-theme-override-layer.md)) but the user's Appearance values. No target renders them except the terminal font, which no package states ([D104](../decisions/D104-appearance-values-over-the-theme.md)).
 
 A catalog package earns no trust of its own. The Catalog and Backgrounds rules below govern catalog installs and wallpaper state.
 
@@ -22,7 +22,7 @@ A judge with no I/O runs under node and in the shell, so a script and the shell 
 
 A rename in one directory is atomic, so no reader sees half a theme. Writing the shell last keeps the displayed theme from running ahead of the applications.
 
-A managed form proves itself, so the runner tells its own file from the user's with no marker file. Without the hash check, a follow would overwrite a user's edit.
+A managed form proves itself, so the runner tells its own file from the user's with no marker file, and disable removes only its own. A theme the user must confirm over their own file is a theme that silently fails to apply.
 
 A wallpaper another program draws must not be covered by a bare background colour, so no image means no surface. A download on the theme lock or the queue would hold every list and apply behind it. A hidden panel is destroyed, so a result it owned would vanish mid-apply.
 
@@ -48,7 +48,7 @@ A wallpaper another program draws must not be covered by a bare background colou
 - Do keep a target as data rendered by `bin/lib/theme-render.js`, text in and text out. `scripts/test-theme-render.js` pins the renderer.
 - Do declare `runsCode` on every target, and never take an installed package's curated file on a target that runs code. `scripts/test-vgshell-targets.sh` pins both.
 - Never run a target's `detect` entry. `scripts/test-vgshell.sh` pins it.
-- Never replace anything at an entry path that is not a managed form; skip the target as `entry-occupied`. `scripts/test-vgshell-entries.sh` pins it.
+- Do replace whatever stands at an entry path with its managed form by rename, a file, a foreign link or an edited copy, and never delete a directory there; the target fails instead. `scripts/test-vgshell-entries.sh` pins it.
 - Never create an absent settings file for a `select`, and never change a byte outside its declared theme selection keys. The one exception is an editor's settings file, which an editor writes only once a setting changes, so an editors target creates it. `scripts/test-vgshell-agents.sh`, `scripts/test-theme-select.js` and `scripts/test-vgshell-vscode.sh` pin all three.
 - Do serve every editor of one family from one target: an `editors` target wires each editor whose own command is on PATH with one generated extension, its version made from its theme's bytes, registered in that editor's `extensions.json` and unmarked in its `.obsolete`, with every other version removed. `scripts/test-theme-render.js` and `scripts/test-vgshell-vscode.sh` pin it.
 - Never prompt during an apply: skip a target whose privileged `setup` is absent, and give its writer the narrowest argument grammar ([D029](../decisions/D029-chromium-policy-writer.md)). `scripts/test-vgshell-browsers.sh`, `scripts/test-vgshell-browser-policy.sh` and `scripts/test-themes-setup.js` pin them.
@@ -65,7 +65,7 @@ A wallpaper another program draws must not be covered by a bare background colou
 - Never create a file through a dangling symlink. `scripts/test-vgshell.sh` pins it.
 - Do refuse the whole apply when a configuration layer is refused. `scripts/test-vgshell.sh` pins it.
 - Do record every due target as pending before the swap, so `vgshell theme reload` can retry it. `scripts/test-vgshell-reload.sh` pins it.
-- Never follow over a theme file whose hash is not the one the apply recorded. `scripts/test-vgshell-follow.sh` pins it.
+- Do follow a changed package or terminal font whatever the theme file holds, and write nothing when neither changed. `scripts/test-vgshell-follow.sh` pins it.
 - Do keep the background state through a follow that renders an unchanged package again, as for a new terminal font. `scripts/test-vgshell-backgrounds.sh` pins it.
 
 ### Catalog
