@@ -90,7 +90,13 @@
 # toggle key does" failed, reading no record line, with the terminal handed
 # Configure, and "the menu holds Hide, then Voxtype Settings, then
 # Settings" failed, reading ["Hide","Settings"].
-# inputs: shell/Core/Sounds.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* shell/Core/IpcRegistry.qml shell/Ui/BarWidget.qml shell/Ui/controls/BarItem.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml
+# Without voxtype, a click on the widget starts no record and raises
+# Voice's notice for voxtype alone, with no screen to open after it.
+# Control run on 2026-10-10, host cachy, through this row on a source_tree
+# copy of the widget whose click offers no requirement: "a click on the
+# Voice widget without voxtype raises the notice for voxtype" failed,
+# reading null.
+# inputs: shell/Core/Sounds.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/plugins/vgs.voice/* shell/plugins/vgs.voice/shaders/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Hosts/OverlaySurface.qml shell/Core/ShortcutRegistry.qml shell/Core/HyprlandLayer.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell-tui shell/plugins/vgs.settings/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* shell/Core/IpcRegistry.qml shell/Ui/BarWidget.qml shell/Ui/controls/BarItem.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Capabilities.qml
 set -euo pipefail
 
 voice_log="$sandbox/voice-record.log"
@@ -513,6 +519,19 @@ voice_hold_pair() {
   got="$(voice_new_lines)"
   [[ $got == "record start|record stop" ]] && echo ok || echo "$got"
 }
+# The centre of the Voice bar widget, as voice_widget_x and voice_widget_y.
+voice_widget_point() {
+  local box
+  box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.voice)" || box=""
+  if [[ $box == \[* ]]; then
+    read -r voice_widget_x voice_widget_y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$box")
+  else
+    fail "the Voice widget has no box: $box"
+    # The rest corner, clear of the bar: a click there reaches no widget,
+    # so each reading after it fails on its own.
+    voice_widget_x=10 voice_widget_y="$((mon_h - 10))"
+  fi
+}
 
 voice_saved_config="$sandbox/shell-before-voice.json"
 voice_pointer="$(hypr -j cursorpos | py_reply 'import json,sys; p=json.load(sys.stdin); print(p["x"], p["y"])')"
@@ -772,15 +791,7 @@ expect_poll "the toggle key's dictation presents the display" presented voice_os
 voice_set_state idle
 expect_poll "idle unmaps the display before the widget's click" unmapped voice_osd
 expect_poll "the bar widget reads idle before its click" '"idle"' voice_dictation
-voice_widget_box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.voice)" || voice_widget_box=""
-if [[ $voice_widget_box == \[* ]]; then
-  read -r voice_widget_x voice_widget_y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$voice_widget_box")
-else
-  fail "the Voice widget has no box: $voice_widget_box"
-  # The rest corner, over the Voice client: a click there reaches no
-  # widget, so each reading below fails on its own.
-  voice_widget_x=10 voice_widget_y="$((mon_h - 10))"
-fi
+voice_widget_point
 forget_record
 before="$(wc -l <"$voice_log")"
 hover "$((voice_widget_x - 1))" "$voice_widget_y" && click "$voice_widget_x" "$voice_widget_y" || fail "the click on the Voice widget failed"
@@ -953,6 +964,22 @@ expect_poll "Voice without voxtype is built" True record_exists vgs.voice
 expect_poll "without voxtype Voice states no dictation sounds value and names voxtype" '[null,"missing"]' voice_feedback_state
 expect "without voxtype a dictation sounds choice is refused" 'refused: feedback="" reason=voxtype-missing' voice_feedback_choose ""
 expect "a choice refused without voxtype writes nothing and restarts nothing" "$voice_feedback_calls_before" voice_feedback_calls
+
+# The bar widget's click without voxtype: the service starts no record, and
+# the click raises Voice's notice for voxtype alone, the command it asked
+# for, with no screen to open after. Not now closes it; the opens below are
+# the user's own requests, which that answer does not hold back.
+expect_poll "without voxtype the bar widget reads idle" '"idle"' voice_dictation
+expect "no notice shows before the click without voxtype" null notice_shown
+voice_widget_pointer="$pointer_at"
+voice_widget_point
+hover "$((voice_widget_x - 1))" "$voice_widget_y" && click "$voice_widget_x" "$voice_widget_y" || fail "the click on the Voice widget without voxtype failed"
+expect_poll "a click on the Voice widget without voxtype raises the notice for voxtype" '["vgs.voice", ["voxtype"], ["voxtype"], false]' notice_shown
+expect "the click without voxtype starts no record" '""' ipc smoke readInstance service vgs.voice activeVerb
+expect "the click's notice holds no screen to open after the install" '{}' voice_resumes
+voice_notice_escape "the click's notice"
+read -r voice_widget_back_x voice_widget_back_y <<<"${voice_widget_pointer:-10 $((mon_h - 10))}"
+hover "$voice_widget_back_x" "$voice_widget_back_y" || fail "putting the pointer back after the click without voxtype failed"
 
 # openTui, the route of the launcher and Dev Tools, judges the screen's
 # `requires` as Set up's press does: Configure without voxtype raises the

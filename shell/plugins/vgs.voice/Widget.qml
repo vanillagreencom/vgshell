@@ -20,10 +20,16 @@ BarWidget {
 
     // The service owns dictation: the click asks it for the toggle its keys
     // run, and never starts a recording itself. `busy` is a toggle the
-    // service holds until the one in flight ends.
+    // service holds until the one in flight ends. Without voxtype the
+    // service starts none, and the click raises the notice that installs it.
     function toggle() {
         const reply = shell.ipc.call("toggle", "");
-        if (reply !== "ok" && reply !== "busy") console.warn("voice: toggle " + reply);
+        if (reply === "refused: voxtype=missing") {
+            const offered = shell.requirements.offer(["voxtype"]);
+            if (offered !== "ok" && offered !== "satisfied") console.warn("voice: requirements " + offered);
+        } else if (reply !== "ok" && reply !== "busy") {
+            console.warn("voice: toggle " + reply);
+        }
         return reply;
     }
 

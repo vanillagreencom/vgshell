@@ -16,7 +16,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Each key changes under Keys on the plugin's Settings page.
 - A plasma orb at the bottom centre of the focused screen swells with your voice while you speak and pulses while your words are recognised. It takes no key and no click.
 - A tone plays when dictation starts, stops or fails. Sounds in System Settings turns the tones off or on.
-- The bar mic uses the accent colour while recording and spins while your words are recognised. A click starts dictation, and a second click stops it. A right click shows Voxtype Settings, which opens Configure.
+- The bar mic uses the accent colour while recording and spins while your words are recognised. A click starts dictation, and a second click stops it. Without voxtype, a click offers to install it. A right click shows Voxtype Settings, which opens Configure.
 - Configure and Choose model open voxtype's own screens. Voice warns first when your voxtype config is a symlink, because those screens can replace it.
 
 ## Setup
