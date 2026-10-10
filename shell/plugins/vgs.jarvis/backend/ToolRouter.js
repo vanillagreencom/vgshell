@@ -59,6 +59,8 @@ function create({ session, state, dispatch, context, audit, result }) {
     let generation = null;
     let turnOp = null;
     let taint = { kind: "clean" };
+    // The rows marked once that may have acted, each as "gen:op:tool".
+    const spent = new Set();
     let closed = false;
 
     function sync(s) {
@@ -68,6 +70,7 @@ function create({ session, state, dispatch, context, audit, result }) {
         }
         if (s.turn.kind === "thinking" && turnOp !== s.turn.op) {
             turnOp = s.turn.op;
+            spent.clear();
             taint = { kind: "clean" };
         }
     }
@@ -151,7 +154,8 @@ function create({ session, state, dispatch, context, audit, result }) {
      * Optional available() must return literal true at offer, route and start.
      * The guidance executor's optional topics() lists the help topics it can
      * read now, each one the help row's own rule admits, and its optional
-     * notes() must return literal true at offer for the memory.read row.
+     * notes() must return literal true at offer for the memory.read row, as
+     * its optional mailbox() must for the master.request row.
      */
     function register(id, executor) {
         if (closed || registry.has(id) || !Object.values(Tools.TABLE).some(row => row.executor === id)
@@ -174,12 +178,15 @@ function create({ session, state, dispatch, context, audit, result }) {
 
     // A harness program proposes its own actions; no brain is offered them.
     // Nor the memory.read row while the guidance executor can read no note:
-    // with no home folder chosen, a call to it could only fail.
+    // with no home folder chosen, a call to it could only fail. Nor the
+    // master.request row while the home holds no mailbox of the master's.
     function offer() {
         if (closed) return [];
         const notes = registry.get("guidance")?.notes;
+        const mailbox = registry.get("guidance")?.mailbox;
         return Object.entries(Tools.TABLE).filter(([id, row]) => row.proposer === undefined && available(row) !== null
-                && (id !== "memory.read" || notes === undefined || notes() === true))
+                && (id !== "memory.read" || notes === undefined || notes() === true)
+                && (id !== "master.request" || mailbox === undefined || mailbox() === true))
             .map(([id, row]) => {
                 const parameters = structuredClone(row.schema);
                 if (id === "help" && registry.get("guidance").topics !== undefined) {
@@ -217,6 +224,8 @@ function create({ session, state, dispatch, context, audit, result }) {
         if (refined.kind === "refuse") return refuse(value, refined.reason);
         value.call = refined.call;
         value.refined = refined;
+        // One request reaches the master for what the user said in a turn.
+        if (row.once === true && spent.has(turn.gen + ":" + turn.op + ":" + value.call.id)) return refuse(value, "turn-limit");
         value.executor = available(refined);
         if (value.executor === null) return refuse(value, "executor-unavailable");
         const decision = judge(value);
@@ -343,6 +352,9 @@ function create({ session, state, dispatch, context, audit, result }) {
         const final = state().action.kind === "none";
         if (value.refusal !== undefined) refuse(value, value.refusal, final);
         else {
+            // A call that failed did not act, so the turn may try it again.
+            if (Tools.TABLE[value.call.id].once === true && e.outcome !== "failed")
+                spent.add(value.turn.gen + ":" + value.turn.op + ":" + value.call.id);
             const written = record(value, value.decision.kind, e.outcome);
             deliver(value, e.outcome, written.kind === "refuse" ? JSON.stringify(written)
                 : value.answer?.content ?? "tool-outcome:" + e.outcome, value.refined.source, final,

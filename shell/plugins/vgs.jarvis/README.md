@@ -15,7 +15,8 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Mute stays on across restarts and blocks talk input.
 - A listening bubble whose orb and text let clicks reach the application below.
 - Always talk mode: say Hey Jarvis to start a request. The word is heard by the local voice on this computer; nothing reaches the AI model until you speak after it. While Jarvis waits for the word its bubble shows a still orb.
-- A home folder you choose for what Jarvis knows: your instructions, skills, memory and state. Every AI model uses them the same way, and no AI model can change anything in the folder but its `state/` part.
+- A home folder you choose for what Jarvis knows: your instructions, skills, memory and state. Every AI model uses them the same way. No AI model can change anything in the folder but its `state/` part, apart from the request in the next item.
+- A request for your agent fleet goes to the master session that runs it. Jarvis shows you the text and asks you to confirm it, then adds it as one row to that session's mailbox in the home folder, `tmp/lane-mail/overseer`, and tells you the row's id. A turn hands over one request. Jarvis never makes the mailbox: the master session makes it when it first reads its mail, and Jarvis offers the request only after that.
 - An AI model from an API key you added, or from an app you are signed in to, such as Claude Code, Codex, GitHub Copilot or Pi with its own providers.
 - Local voice: speech to text and spoken replies on your computer, with no network access, after Set up local voice.
 - Realtime voice with a saved OpenAI key. OpenAI hears you and speaks the reply. The selected AI model answers each request through Jarvis's action and release checks.

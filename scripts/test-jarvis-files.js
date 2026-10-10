@@ -235,11 +235,12 @@ world(async () => {
         assert.equal(read(row[1]), "beta protected secret\n", row[0] + " untouched");
     }
     // The Jarvis home folder (D105): the write, move and delete tools refuse
-    // every path in it and leave every byte, no new file is made in it, one
-    // a harness session there would read among them, and state/ takes all
-    // three.
+    // every path in it and leave every byte, the master session's mailbox
+    // among them, no new file is made in it, one a harness session there
+    // would read among them, and state/ takes all three.
     const jarvis = path.join(home, "work/jarvis");
-    const knowledge = ["AGENTS.md", "CLAUDE.md", "skills/own/alpha.md", "memory/MEMORY.md", "memory/inbox/note.md", ".claude/settings.json", ".codex/config.toml"];
+    const knowledge = ["AGENTS.md", "CLAUDE.md", "skills/own/alpha.md", "memory/MEMORY.md", "memory/inbox/note.md", ".claude/settings.json", ".codex/config.toml",
+        "tmp/lane-mail/overseer/to-lane.jsonl"];
     const jarvisHome = require(path.join(backend, "Home.js")).guard(jarvis);
     const homeGate = async (Files, judge = Denied) => {
         for (const name of [...knowledge, "state/handoff.md"]) {
@@ -255,9 +256,9 @@ world(async () => {
                 await expectRun("home-" + name + "-" + id, gated(), id, args, "failed", /^Refused: protected-path for /);
             assert.equal(read(target), "home knowledge\n", name + " keeps every byte");
         }
-        for (const folder of ["skills", "memory", ".claude", ".codex", "."])
+        for (const folder of ["skills", "memory", ".claude", ".codex", "tmp", "."])
             await expectRun("home-folder-" + folder, gated(), "files.delete", { path: path.join(jarvis, folder) }, "failed", /^Refused: protected-path for /);
-        for (const name of ["skills/own/planted.md", ".mcp.json", "AGENTS.override.md", "notes/plan.md"]) {
+        for (const name of ["skills/own/planted.md", ".mcp.json", "AGENTS.override.md", "notes/plan.md", "tmp/lane-mail/overseer/to-lane.cursor"]) {
             await expectRun("home-new-" + name, gated(), "files.write", { path: path.join(jarvis, name), text: "model text" },
                 "failed", /^Refused: protected-path for /);
             await expectRun("home-moved-in-" + name, gated(), "files.move", { from: handoff, to: path.join(jarvis, name) },

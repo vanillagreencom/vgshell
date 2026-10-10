@@ -1,7 +1,8 @@
 // One on-demand owner for help: the computer-family files VGS installs, one
 // regular Markdown file per family, and the skills of the user's Jarvis home
 // folder and its memory notes, read through Home.js. Browser readiness adds
-// its provider to this same owner.
+// its provider to this same owner. As the one executor that holds the home,
+// it also hands a request to the master session's mailbox there.
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -9,6 +10,8 @@ const Tools = require("./Tools.js");
 const Home = require("./Home.js");
 const ROOT = path.join(__dirname, "skills/computer");
 const LIMIT = 8192;
+// The key a failed call's cause follows, by row; a help read's otherwise.
+const FAILED = { "memory.read": "memory-read:", "master.request": "master-request:" };
 /**
  * create(root, browser, home) builds the guidance executor. home() answers
  * the home folder's path, or null while none is usable.
@@ -33,6 +36,11 @@ function create(root = ROOT, browser = null, home = () => null) {
         topics: () => shipped.concat(skills(home())),
         // Read at each offer too: a note is read only from a chosen home.
         notes: () => home() !== null,
+        // And the mailbox at each offer: the master session makes it.
+        mailbox() {
+            const folder = home();
+            return folder !== null && Home.mailbox(folder);
+        },
         // Verified readiness extends the offer once.
         enableBrowser() {
             if (browser === null) throw new Error("help-browser-unavailable");
@@ -47,6 +55,15 @@ function create(root = ROOT, browser = null, home = () => null) {
                     const text = Home.note(folder, call.args.path).trim();
                     if (text === "") throw new Error("note-empty");
                     done({ outcome: "completed", content: text });
+                    return;
+                }
+                if (call.id === "master.request") {
+                    const chosen = home();
+                    if (chosen === null) throw new Error("home-unchosen");
+                    const row = Home.hand(chosen, call.args.text);
+                    done(row.kind === "handed"
+                        ? { outcome: "completed", content: "Handed the request to the master session. Read back: row " + row.id + " is in its mailbox." }
+                        : { outcome: "unknown", content: "The request was written to the master session's mailbox, but row " + row.id + " did not read back." });
                     return;
                 }
                 const topic = call.args.topic;
@@ -68,7 +85,7 @@ function create(root = ROOT, browser = null, home = () => null) {
                 const content = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, size)).trim();
                 if (content === "") throw new Error("help-file-empty");
                 done({ outcome: "completed", content });
-            } catch (error) { done({ outcome: "failed", content: (call.id === "memory.read" ? "memory-read:" : "help-read:") + (error.code || error.message) }); }
+            } catch (error) { done({ outcome: "failed", content: (FAILED[call.id] ?? "help-read:") + (error.code || error.message) }); }
             finally { if (fd !== undefined) fs.closeSync(fd); }
         } };
 }

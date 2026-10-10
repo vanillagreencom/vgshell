@@ -13,6 +13,7 @@ world(() => {
     const cases = [
         ["help", { topic: "files" }, "read"],
         ["memory.read", { path: "facts/My team.md" }, "read", "home"],
+        ["master.request", { text: "Rebase the lanes.\nThen report." }, "exec"],
         ["windows.list", {}, "read"], ["windows.focus", { window }, "reversible"],
         ["windows.reveal", { window }, "reversible"],
         ["windows.move", { window, x: 0, y: -1 }, "reversible"],
@@ -91,6 +92,7 @@ world(() => {
         ["shell.argv", { argv: ["date"], cwd: "relative", network: false }],
         ["task.start", { goal: "synthetic task" }], ["harness.command", { command: "ls" }],
         ["files.read", { path: target, effect: "read" }],
+        ["master.request", { text: "" }], ["master.request", { text: "request", to: "overseer" }],
         ["files.read", { path: target + "\n" }], ["files.write", { path: target }],
         ["media.volume", { value: 1.01 }], ["media.volume", { value: NaN }],
         ["media.brightness", { value: 0 }], ["media.brightness", { value: 101 }], ["media.brightness", { value: 1.5 }],

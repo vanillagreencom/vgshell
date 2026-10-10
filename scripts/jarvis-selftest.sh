@@ -42,7 +42,11 @@
 # through that filter whether each key is there and unlocked.
 # --home PATH copies that folder into the sandbox's HOME and names the copy
 # as the Jarvis home folder; the folder itself is read twice, for its
-# checksums before and after, and never written.
+# checksums before and after, and never written. The run reads the copy's
+# master session mailbox as the master does, with the checkout's lane-mail:
+# once before Jarvis starts, which makes the mailbox where the folder has
+# none and marks the rows it holds as read, and once after the turn, for
+# the rows the turn added.
 # --confirm key confirms each request Jarvis shows as its Confirm key does,
 # with one press a request, made once Session's draw guard has passed;
 # none, the default, answers none, so a request ends on Jarvis's own bound.
@@ -62,7 +66,9 @@
 # realtime, whose transcript of its own speech arrives in fragments, each
 # assistant caption segment whole as {ms of its first words, text}), `tools`
 # (each audit record of a tool call as {tool, decision, confirmed, outcome},
-# names only), `widget` (each bar widget state as {ms, state}), `end`
+# names only), `mailbox` (with --home, each row the master session's read of
+# its mailbox hands over after the turn, as lane-mail prints it; null
+# without), `widget` (each bar widget state as {ms, state}), `end`
 # {kind, phase, fault} and `passed`. Every ms counts from the input's start
 # on the shell's own clock. `end.kind` is completed, fault, gate-down or
 # timeout; `passed` is true only for a completed turn with a heard text, in
@@ -220,6 +226,14 @@ selftest_home_copy() { # SOURCE DEST
   cp -a -- "$1" "$2"
 }
 
+# selftest_mailbox TREE HOME: the master session's read of its mailbox in the
+# Jarvis home folder HOME, by TREE's own lane-mail, the reader the master
+# runs: each row no read handed over before, one JSON object a line. The
+# read moves the mailbox's cursor, and a first read makes the mailbox.
+selftest_mailbox() { # TREE HOME
+  env -i PATH="$PATH" "$BASH" "$1/.agents/skills/orch/scripts/lane-mail" inbox --item overseer --root "$2"
+}
+
 # selftest_daemon WANT_JSON: `applied` once the Jarvis service on stdin, the
 # probe's jarvisProcess reply, is ready and its Session holds every setting
 # of WANT_JSON; else the first thing still missing: the probe's own word,
@@ -331,15 +345,15 @@ selftest_end() { # TURN
 }
 
 # selftest_record TRACE AUDIT OUT PHASE FAULT KIND VALUE BRAIN HOME VOICE
-# CONFIRM END KEPT: the record the header describes, written to OUT by
-# rename, from the probe's trace in the file TRACE and the audit records
-# under AUDIT, which may be absent. HOME is "" for none, END is
-# selftest_end's word and KEPT says whether the run kept every rule
-# selftest_finish reads. Prints `passed` or `failed`.
+# CONFIRM MAILBOX END KEPT: the record the header describes, written to OUT
+# by rename, from the probe's trace in the file TRACE and the audit records
+# under AUDIT, which may be absent. HOME is "" for none, MAILBOX is
+# selftest_mailbox's lines, END is selftest_end's word and KEPT says whether
+# the run kept every rule selftest_finish reads. Prints `passed` or `failed`.
 selftest_record() {
   python3 - "$@" <<'PY'
 import json, os, sys
-trace, audit, out, phase, fault, kind, value, brain, home, voice, confirm, end, kept = sys.argv[1:]
+trace, audit, out, phase, fault, kind, value, brain, home, voice, confirm, mailbox, end, kept = sys.argv[1:]
 events = json.load(open(trace))
 first = next(i for i, e in enumerate(events) if e["kind"] == "mark" and e["value"] == "input")
 start = events[first]["at"]
@@ -380,6 +394,7 @@ for name in sorted(os.listdir(audit)) if os.path.isdir(audit) else []:
 passed = end == "completed" and heard is not None and kept == "true"
 record = {"input": {"kind": kind, "value": value}, "brain": brain, "home": home or None, "voice": voice,
           "confirm": confirm, "heard": heard, "sentences": sentences, "tools": tools,
+          "mailbox": [json.loads(line) for line in mailbox.splitlines()] if home else None,
           "widget": [{"ms": e["at"] - start, "state": e["value"]} for e in events if e["kind"] == "widget" and e["value"]],
           "end": {"kind": end, "phase": phase, "fault": fault or None}, "passed": passed}
 with open(out + ".next", "w") as file:
@@ -410,26 +425,29 @@ stopped() {
   exit 1
 }
 # selftest_finish TURN HOME_SUM AUTH_LOG FAILURES TRACE AUDIT OUT PHASE FAULT
-# KIND VALUE BRAIN HOME VOICE CONFIRM: the run's one verdict. It reads what
-# the run broke outside its turn: the folder HOME, when named, no longer
-# sums to HOME_SUM; an authentication stand-in was reached, a keyring store
-# or unlock among them (harness.sh's sentinels), which AUTH_LOG lists; the
-# harness counted FAILURES failed sandbox checks. selftest_record gets that
+# KIND VALUE BRAIN HOME VOICE CONFIRM TREE HOME_COPY: the run's one verdict.
+# It reads the rows the turn added to the mailbox of HOME_COPY, Jarvis's copy
+# of HOME, with TREE's lane-mail, and what the run broke outside its turn:
+# the folder HOME, when named, no longer sums to HOME_SUM; an authentication
+# stand-in was reached, a keyring store or unlock among them (harness.sh's
+# sentinels), which AUTH_LOG lists; the harness counted FAILURES failed
+# sandbox checks. selftest_record gets that
 # with the end of the turn TURN, selftest_turn's last word, so the record's
 # `passed` and the exit status are one answer. Prints a line for each rule
 # broken, then the run's last line, and exits 0 for a passed record and 1
 # for any other.
 selftest_finish() {
-  local turn="$1" home_sum="$2" auth_log="$3" failures="$4" out="$7" home_source="${13}" end sum kept=true verdict
+  local turn="$1" home_sum="$2" auth_log="$3" failures="$4" out="$7" home_source="${13}" tree="${16}" home_copy="${17}" end sum kept=true verdict mailbox=""
   end="$(selftest_end "$turn")"
   if [[ -n $home_source ]]; then
+    mailbox="$(selftest_mailbox "$tree" "$home_copy")" || stopped mailbox-unread
     sum="$(selftest_tree_sum "$home_source")" || stopped home-unread
     [[ $sum == "$home_sum" ]] || { kept=false; printf 'selftest: the home folder changed during the run: %s\n' "$home_source"; }
   fi
   if [[ -s $auth_log ]]; then kept=false; printf 'selftest: an authentication stand-in was reached: %s\n' "$auth_log"; sed 's/^/        /' -- "$auth_log"; fi
   [[ $failures -eq 0 ]] || { kept=false; printf 'selftest: %s sandbox check(s) failed above\n' "$failures"; }
   mkdir -p -- "$(dirname -- "$out")"
-  verdict="$(selftest_record "${@:5}" "$end" "$kept")" || stopped record-not-written
+  verdict="$(selftest_record "${@:5:11}" "$mailbox" "$end" "$kept")" || stopped record-not-written
   printf 'selftest=%s record=%s\n' "$end" "$out"
   [[ $verdict == passed ]] || exit 1
   exit 0
@@ -573,6 +591,9 @@ if [[ -n $home_source ]]; then
   home_copy="$home/jarvis-home"
   home_sum="$(selftest_tree_sum "$home_source")" || stopped home-unread
   selftest_home_copy "$home_source" "$home_copy" || stopped home-not-copied
+  # The master's read before the turn: the read after it hands over only
+  # the rows the turn added.
+  selftest_mailbox "$source_repo" "$home_copy" >/dev/null || stopped mailbox-unread
 fi
 # The settings Jarvis starts with, written while it is still disabled.
 # Speech plays to a null sink and never into the feed, and the microphone is
@@ -650,4 +671,4 @@ selftest_wait 10 idle traced phase || true
 ipc smoke jarvisTrace >"$sandbox/selftest-trace.json" || stopped trace-unread
 
 selftest_finish "$turn" "$home_sum" "$auth_log" "$failures" "$sandbox/selftest-trace.json" "$home/.local/state/vgshell/jarvis/audit" "$out" \
-  "$phase" "$fault" "$input_kind" "$input_value" "$brain" "$home_source" "$voice" "$confirm"
+  "$phase" "$fault" "$input_kind" "$input_value" "$brain" "$home_source" "$voice" "$confirm" "$source_repo" "$home_copy"

@@ -2,7 +2,7 @@
 // Synthetic action contracts from the Jarvis plan §3.7, 2026-10-01.
 // The real reducer, runner, Policy and Audit run only in the J09 scratch world.
 "use strict";
-const { assert, fs, path, tree, world, seed, mutant, qmlCopy } = require("./fixtures/jarvis/policy.js");
+const { assert, fs, path, tree, world, seed, mutant, qmlCopy, fsFault } = require("./fixtures/jarvis/policy.js");
 const { load } = require("../bin/lib/qml-library.js");
 const backend = path.join(tree, "shell/plugins/vgs.jarvis/backend");
 const routerFile = path.join(backend, "ToolRouter.js");
@@ -547,6 +547,65 @@ world(async () => {
             assert.equal(offersNotes(), false, "no home, no memory.read row");
             assert.deepEqual(recall("facts/team.md").slice(0, 2), ["failed", "memory-read:home-unchosen"], "a home lost after the offer reads no note");
         }],
+        // A request for the master session: offered while the home holds the
+        // master's mailbox, held for the user's confirmation, and answered
+        // with the id of the row it added. A turn hands one; a call that
+        // failed added none, so the turn may try again, and one that may
+        // have added a row counts.
+        ["master-request", (implementation, _folder, Help = require(path.join(backend, "ComputerHelp.js"))) => {
+            const folder = fs.mkdtempSync(path.join(fixtures.home, "jarvis-home-"));
+            for (const set of ["base", "own"]) fs.mkdirSync(path.join(folder, "skills", set), { recursive: true });
+            const box = path.join(folder, "tmp/lane-mail/overseer");
+            let chosen = folder;
+            const w = make(implementation);
+            w.router.register("guidance", Help.create(undefined, null, () => chosen));
+            const offered = () => w.router.offer().some(row => row.id === "master.request");
+            const rows = () => fs.readFileSync(path.join(box, "to-lane.jsonl"), "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line));
+            let at = 0;
+            // The call, then the user's Confirm key once the draw guard has passed.
+            const ask = text => {
+                assert.equal(w.call("master.request", { text }).kind, "held", "a request for the master waits for the user");
+                w.show(); w.time(at += 700);
+            };
+            const confirmed = () => {
+                w.confirm();
+                return [w.results.at(-1).outcome, w.results.at(-1).results[0].item.content];
+            };
+            const hand = text => { ask(text); return confirmed(); };
+            const turn = () => { w.dispatch({ type: "stop" }); w.newTurn(); };
+            assert.equal(offered(), false, "no mailbox, no master.request row");
+            fs.mkdirSync(box, { recursive: true });
+            assert.equal(offered(), true, "the master's mailbox offers the row");
+            const [outcome, content] = hand("Rebase the lanes.");
+            assert.equal(outcome, "completed");
+            assert.deepEqual(rows().map(row => [row.kind, row.from, row.text]), [["directive", "owner", "Rebase the lanes."]]);
+            assert.equal(content.includes(rows()[0].id), true, "the answer carries the row's id");
+            assert.deepEqual(w.call("master.request", { text: "And one more." }), { kind: "refuse", reason: "turn-limit" }, "a second request in one turn");
+            assert.equal(rows().length, 1);
+            turn();
+            assert.equal(hand("Next turn.")[0], "completed", "the next turn hands one again");
+            assert.equal(rows().length, 2);
+            turn();
+            fs.renameSync(box, box + "-away");
+            assert.deepEqual(hand("No mailbox."), ["failed", "master-request:jarvis: home=absent"]);
+            fs.renameSync(box + "-away", box);
+            assert.equal(hand("Tried again.")[0], "completed", "a call that failed leaves the turn its one request");
+            assert.equal(rows().length, 3);
+            turn();
+            ask("Not read back.");
+            // The read of a row comes back empty; the audit's and the
+            // mailbox's one-byte reads of a file's last byte stay as they are.
+            fsFault("readSync", (original, fd, buffer, ...rest) => {
+                const count = original(fd, buffer, ...rest);
+                if (buffer.length > 1) buffer.fill(0);
+                return count;
+            }, () => assert.equal(confirmed()[0], "unknown", "a row that does not read back is not reported as handed"));
+            assert.equal(w.call("master.request", { text: "After it." }).reason, "turn-limit", "a request that may have landed counts");
+            turn();
+            chosen = null;
+            assert.equal(offered(), false, "no home, no master.request row");
+            assert.deepEqual(hand("No home."), ["failed", "master-request:home-unchosen"]);
+        }],
         ["help-topics", implementation => {
             const w = make(implementation);
             w.router.register("guidance", { commands: [], timeoutMs: 10, cancellable: false, start() {}, topics: () => ["input", "own/../secret"] });
@@ -746,6 +805,12 @@ world(async () => {
             ["result-size", "bytes.length <= RESULT_BYTES", "true", "result-size"],
             ["home-whole", 'source === "home" || bytes.length <= RESULT_BYTES', "bytes.length <= RESULT_BYTES", "home-help"],
             ["note-offer", '(id !== "memory.read" || notes === undefined || notes() === true)', "true", "home-help"],
+            ["mailbox-offer", '(id !== "master.request" || mailbox === undefined || mailbox() === true)', "true", "master-request"],
+            ["once-limit", 'if (row.once === true && spent.has(turn.gen + ":" + turn.op + ":" + value.call.id)) return refuse(value, "turn-limit");', "", "master-request"],
+            ["once-failed", ' && e.outcome !== "failed")', ")", "master-request"],
+            ["once-turn", [['spent.has(turn.gen + ":" + turn.op + ":" + value.call.id)', "spent.has(value.call.id)"],
+                ['spent.add(value.turn.gen + ":" + value.turn.op + ":" + value.call.id);', "spent.add(value.call.id);"],
+                ["            spent.clear();\n", ""]], null, "master-request"],
             ["final-timeout", 'const final = state().action.kind === "none";', "const final = true;", "timeout-and-cleanup"],
             ["final-field", 'outcome, final, kind: "tool-results",', 'outcome, final: false, kind: "tool-results",', "allow"],
             ["unavailable-executor", 'if (value.executor === null) return refuse(value, "executor-unavailable");',
@@ -765,7 +830,7 @@ world(async () => {
             mutant(routerFile, name, needle, replacement, byName(row));
             controls++; console.log("control=" + name + " detected");
         }
-        for (const [name, source, needle, replacement, consumer] of [
+        for (const [name, source, needle, replacement, consumer, row = "home-help"] of [
             ["home-label", "Tools.js", 'if (call.id === "help" && homeTopic(call.args.topic) !== null) refined = { ...row, source: "home" };', "", "ToolRouter.js"],
             ["home-taint", "Policy.js", 'const TAINT_SOURCES = ["file", "screen", "web", "agent"];', 'const TAINT_SOURCES = ["file", "screen", "web", "agent", "home"];', "ToolRouter.js"],
             ["home-topics", "ComputerHelp.js", "topics: () => shipped.concat(skills(home())),", "topics: () => shipped,", "ComputerHelp.js"],
@@ -776,10 +841,15 @@ world(async () => {
             ["note-empty", "ComputerHelp.js", '                    if (text === "") throw new Error("note-empty");\n', "", "ComputerHelp.js"],
             ["note-fresh", "ComputerHelp.js", "const text = Home.note(folder, call.args.path).trim();",
                 "const text = (create[call.args.path] ??= Home.note(folder, call.args.path).trim());", "ComputerHelp.js"],
-            ["note-label", "Tools.js", 'schema: { path: notePath }, source: "home" }', 'schema: { path: notePath }, source: "file" }', "ToolRouter.js"]
+            ["note-label", "Tools.js", 'schema: { path: notePath }, source: "home" }', 'schema: { path: notePath }, source: "file" }', "ToolRouter.js"],
+            ["request-mailbox", "ComputerHelp.js", "return folder !== null && Home.mailbox(folder);", "return folder !== null;", "ComputerHelp.js", "master-request"],
+            ["request-unchosen", "ComputerHelp.js", 'if (chosen === null) throw new Error("home-unchosen");', "", "ComputerHelp.js", "master-request"],
+            ["request-unread", "ComputerHelp.js", 'done(row.kind === "handed"', "done(true", "ComputerHelp.js", "master-request"],
+            ["request-once", "Tools.js", "command: null, once: true, schema: { text: text } }", "command: null, schema: { text: text } }", "ToolRouter.js", "master-request"],
+            ["request-confirmed", "Tools.js", 'effect: "exec", executor: "guidance"', 'effect: "reversible", executor: "guidance"', "ToolRouter.js", "master-request"]
         ]) {
             mutant(path.join(backend, source), name, needle, replacement,
-                consumer === "ToolRouter.js" ? byName("home-help") : help => byName("home-help")(Router, null, help), consumer);
+                consumer === "ToolRouter.js" ? byName(row) : help => byName(row)(Router, null, help), consumer);
             controls++; console.log("control=" + name + " detected");
         }
         for (const [name, needle, replacement, row] of [

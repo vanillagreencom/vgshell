@@ -20,7 +20,9 @@
 # measured and the file exits 77 once the others have run.
 # The function cases run the runner's own functions, cut from its file,
 # over planted traces, audit records and folders, with the harness's own
-# py_reply.
+# py_reply. The mailbox cases run the checkout's lane-mail over a row the
+# plugin's own Home.js wrote, so the row Jarvis writes is one the master
+# session's reader hands over.
 # Each control plants one defect in a copy of the runner and requires the
 # case that rule owns to go red. A defect whose text the runner no longer
 # holds fails its control. The runner's call of the fence is held by
@@ -110,7 +112,8 @@ prepared "$tmp/other-voice"
 voice_root="$tmp/voice/.local/share/vgshell/jarvis/local"
 voice_inputs=(JARVIS_LOCAL_MODELS="$voice_root/models" JARVIS_LOCAL_PYTHON="$voice_root/venv/bin/python")
 
-# The scratch tree: the runner's copy, the checkout's shell and bin, a fence
+# The scratch tree: the runner's copy, the checkout's shell, bin and agent
+# skills, a fence
 # that answers --check from fence-answer and records every other call, and
 # the harness stand-in. The stand-in holds the harness's own spawn and
 # sentinel stand-over, cut from its file, a secret-tool sentinel that
@@ -125,6 +128,7 @@ tree="$tmp/tree"
 mkdir -p "$tree/scripts/smoke"
 ln -s -- "$repo/shell" "$tree/shell"
 ln -s -- "$repo/bin" "$tree/bin"
+ln -s -- "$repo/.agents" "$tree/.agents"
 cat >"$tree/scripts/smoke/gpu-fence.sh" <<SH
 #!/usr/bin/env bash
 if [[ \${1:-} == --check ]]; then echo check >>"$tmp/fence.log"; exit "\$(<"$tmp/fence-answer")"; fi
@@ -199,7 +203,7 @@ plant() { cp -- "$1" "$tree/scripts/jarvis-selftest.sh"; }
 functions="$tmp/functions.sh"
 cut_functions() { # RUNNER
   { sed -n '/^py_reply() {/,/^}/p' "$repo/scripts/smoke/harness.sh"
-    for name in selftest_tree_sum selftest_home_copy selftest_daemon selftest_last selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
+    for name in selftest_tree_sum selftest_home_copy selftest_mailbox selftest_daemon selftest_last selftest_turn selftest_wait selftest_draw_ms selftest_shown selftest_confirm \
       selftest_end selftest_record stopped selftest_finish; do sed -n "/^$name() {/,/^}/p" "$1"; done; } >"$functions"
 }
 call() { selftest_node="$node_bin" bash -c 'set -euo pipefail; source "$1"; shift; "$@"' _ "$functions" "$@"; }
@@ -361,6 +365,29 @@ holds "a write under the home copy's state/ leaves the named folder byte for byt
 control plant "a runner whose home copy is the folder itself" '  cp -a -- "$1" "$2"' '  ln -s -- "$1" "$2"' home_untouched
 control plant "a runner whose home copy lies outside the sandbox's HOME" '  home_copy="$home/jarvis-home"' '  home_copy="$sandbox/jarvis-home"' home_untouched
 control plant "a runner whose settings name the folder itself" '"$devices_voice_feed_source" "$home_copy" "$voice"' '"$devices_voice_feed_source" "$home_source" "$voice"' home_untouched
+# The master session's mailbox in the home copy: the run reads it before
+# Jarvis starts, as the master does, which makes it where the folder has
+# none and leaves no row the folder held to be taken as the turn's.
+mail_row='{"id":"1791633000-1-1","kind":"directive","at":"2026-10-10T11:50:00Z","from":"owner","text":"an earlier request"}'
+mail_made() {
+  make_folder
+  starts --home "$folder" || return 1
+  [[ -d $sandbox/home/jarvis-home/tmp/lane-mail/overseer && ! -e $folder/tmp ]]
+}
+mail_read_before() {
+  local rows
+  make_folder
+  mkdir -p "$folder/tmp/lane-mail/overseer"
+  printf '%s\n' "$mail_row" >"$folder/tmp/lane-mail/overseer/to-lane.jsonl"
+  starts --home "$folder" || return 1
+  rows="$(call selftest_mailbox "$repo" "$sandbox/home/jarvis-home")" || return 1
+  [[ -z $rows ]]
+}
+holds "a folder with no mailbox gets one in the home copy alone" mail_made
+holds "a row the folder's mailbox held is read before Jarvis starts" mail_read_before
+control plant "a runner that makes no mailbox in the home copy" '  selftest_mailbox "$source_repo" "$home_copy" >/dev/null || stopped mailbox-unread' '  :' mail_made
+control plant "a runner that leaves the folder's own mail unread" '  selftest_mailbox "$source_repo" "$home_copy" >/dev/null || stopped mailbox-unread' '  :' mail_read_before
+control plant "a reader that leaves the mailbox's cursor where it was" 'inbox --item overseer' 'inbox --peek --item overseer' mail_read_before
 # The checksum is the instrument: each kind of change must move it.
 make_folder
 sum_moves() { # CHANGE...
@@ -715,8 +742,8 @@ events += [caption(2600, "assistant", "It is noon. Anything else?", "final"),
 json.dump(events, open(sys.argv[1], "w"))
 PY
 }
-record() { # END KEPT [VOICE] → the verdict word; the record in record.json
-  call selftest_record "$tmp/trace.json" "$tmp/audit" "$tmp/record.json" idle "" wav /voice.wav cli:b "/a home" "${3:-local}" key "$1" "$2"
+record() { # END KEPT [VOICE] [MAILBOX] → the verdict word; the record in record.json
+  call selftest_record "$tmp/trace.json" "$tmp/audit" "$tmp/record.json" idle "" wav /voice.wav cli:b "/a home" "${3:-local}" key "${4:-}" "$1" "$2"
 }
 # sentences_are VOICE FORM WANT_JSON: the record's sentences for a trace of
 # FORM read as VOICE's.
@@ -737,6 +764,7 @@ want = {"input": {"kind": "wav", "value": "/voice.wav"}, "brain": "cli:b", "home
         "sentences": [{"ms": 1000, "text": "It is noon."}, {"ms": 1500, "text": "Anything else?"}, {"ms": 2000, "text": "It is noon."}],
         "tools": [{"tool": "shell.argv", "decision": "confirm", "confirmed": "none", "outcome": "pending"},
                   {"tool": "shell.argv", "decision": "confirm", "confirmed": "physical", "outcome": "completed"}],
+        "mailbox": [],
         "widget": [{"ms": -100, "state": "ready"}, {"ms": 40, "state": "listening"}, {"ms": 250, "state": "working"}, {"ms": 2100, "state": "ready"}],
         "end": {"kind": "completed", "phase": "idle", "fault": None}, "passed": True}
 got = json.load(open(sys.argv[1]))
@@ -746,6 +774,16 @@ if got != want:
 PY
 }
 names_only() { planted_trace final; record completed true >/dev/null && ! grep -q -F PLANTED-ARGUMENT -- "$tmp/record.json"; }
+# mailbox_is WANT_JSON HOME: the record's mailbox for a run of the home HOME
+# whose last mailbox read printed two rows.
+mailbox_is() {
+  planted_trace final
+  call selftest_record "$tmp/trace.json" "$tmp/audit" "$tmp/record.json" idle "" wav /voice.wav cli:b "$2" local key \
+    "$mail_row"$'\n''{"id":"1791633001-1-2","text":"a second row"}' completed true >/dev/null || return 1
+  python3 -c 'import json,sys; sys.exit(json.load(open(sys.argv[1]))["mailbox"] != json.loads(sys.argv[2]))' "$tmp/record.json" "$1"
+}
+mailbox_rows() { mailbox_is "[$mail_row, {\"id\": \"1791633001-1-2\", \"text\": \"a second row\"}]" "/a home"; }
+mailbox_none() { mailbox_is null ""; }
 # One table for the mark: END, KEPT and the user's final caption.
 failed_rows=("timeout true final" "fault true final" "gate-down true final" "completed false final" "completed true none")
 not_passed() { # "END KEPT USER_FINAL"
@@ -756,9 +794,13 @@ not_passed() { # "END KEPT USER_FINAL"
 }
 holds "the record holds the heard text, each released sentence, each tool call's names, the widget states and the end" record_holds
 holds "the record holds no argument of a tool call" names_only
+holds "the record holds each row the mailbox read printed, whole" mailbox_rows
+holds "a run with no home folder records no mailbox" mailbox_none
 holds "the realtime voice's record holds each caption segment whole, timed at its first words" realtime_sentences
 for row in "${failed_rows[@]}"; do holds "a record for [$row] is not marked passed" not_passed "$row"; done
 control cut_functions "a record that keeps the audit record whole" 'tools.append({key: row[key] for key in ("tool", "decision", "confirmed", "outcome")})' 'tools.append(row)' names_only
+control cut_functions "a record that drops the mailbox rows" '[json.loads(line) for line in mailbox.splitlines()] if home' '[] if home' mailbox_rows
+control cut_functions "a record that lists a mailbox for a run with no home folder" ' if home else None,' ',' mailbox_none
 control cut_functions "a record that reads the realtime voice's fragments as sentences" '    if voice == "realtime":' '    if False:' realtime_sentences
 control cut_functions "a record that reads the local voice's sentences as one segment" '    if voice == "realtime":' '    if True:' local_sentences
 control cut_functions "a mark that passes a turn that did not complete" 'end == "completed" and ' '' not_passed "${failed_rows[0]}"
@@ -779,12 +821,15 @@ finish_rows=(
   "an authentication stand-in the run reached|ended=idle|auth|1|completed|False"
   "a sandbox check the harness counted as failed|ended=idle|checks|1|completed|False"
 )
+finish_copy="$tmp/finish copy"
 finish_case() { # ROW
   local turn broke want_status end passed sum checks=0 status=0
   IFS='|' read -r _ turn broke want_status end passed <<<"$1"
   planted_trace final
   make_folder
   sum="$(call selftest_tree_sum "$folder")" || return 1
+  rm -rf -- "${finish_copy:?}"
+  cp -a -- "$folder" "$finish_copy"
   : >"$tmp/auth.calls"
   rm -f -- "${tmp:?}/record.json"
   case "$broke" in
@@ -793,7 +838,7 @@ finish_case() { # ROW
     checks) checks=1 ;;
   esac
   call selftest_finish "$turn" "$sum" "$tmp/auth.calls" "$checks" "$tmp/trace.json" "$tmp/audit" "$tmp/record.json" \
-    idle "" wav /voice.wav cli:b "$folder" local key >"$tmp/out" 2>"$tmp/err" || status=$?
+    idle "" wav /voice.wav cli:b "$folder" local key "$repo" "$finish_copy" >"$tmp/out" 2>"$tmp/err" || status=$?
   [[ $status -eq $want_status && "$(tail -n 1 -- "$tmp/out")" == "selftest=$end record=$tmp/record.json" ]] || return 1
   [[ "$(python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print(r["end"]["kind"], r["passed"])' "$tmp/record.json")" == "$end $passed" ]]
 }
@@ -809,6 +854,61 @@ control cut_functions "a verdict that passes a run that reached an authenticatio
 control cut_functions "a verdict that passes a run with a failed sandbox check" '[[ $failures -eq 0 ]] || { kept=false;' '[[ $failures -eq 0 ]] || {' finish_case "${finish_rows[7]}"
 control cut_functions "a run whose exit status is not its record's mark" '  [[ $verdict == passed ]] || exit 1' '  :' finish_case "${finish_rows[6]}"
 control cut_functions "a record written before the run's rules are read" '"$end" "$kept")"' '"$end" true)"'$'\n''  [[ $kept == true ]] || verdict=failed' finish_case "${finish_rows[6]}"
+
+echo "--- the mailbox"
+# hands BACKEND HOME TEXT: TEXT handed to the master session's mailbox in
+# HOME by the Home.js of the plugin backend BACKEND, as Jarvis hands a
+# request; prints the row's id.
+hands() { # BACKEND HOME TEXT
+  env -i PATH="$path" "$node_bin" - "$repo" "$@" <<'JS'
+    const path = require("node:path");
+    const [tree, backend, home, text] = process.argv.slice(2);
+    require(path.join(backend, "Core.js")).use(tree);
+    const handed = require(path.join(backend, "Home.js")).hand(home, text);
+    if (handed.kind !== "handed") process.exit(1);
+    console.log(handed.id);
+JS
+}
+# finish_mail BACKEND: a request the Home.js of BACKEND hands over between
+# the run's two mailbox reads is in the record with its id, as the master's
+# reader prints it. The mailbox is there before either read, as in a home
+# the master session works in.
+finish_mail() { # BACKEND
+  local sum id
+  planted_trace final
+  make_folder
+  sum="$(call selftest_tree_sum "$folder")" || return 1
+  rm -rf -- "${finish_copy:?}"
+  cp -a -- "$folder" "$finish_copy"
+  mkdir -p "$finish_copy/tmp/lane-mail/overseer"
+  : >"$tmp/auth.calls"
+  call selftest_mailbox "$repo" "$finish_copy" >/dev/null || return 1
+  id="$(hands "$1" "$finish_copy" $'Rebase the lanes.\nThen report.')" || return 1
+  call selftest_finish ended=idle "$sum" "$tmp/auth.calls" 0 "$tmp/trace.json" "$tmp/audit" "$tmp/record.json" \
+    idle "" type hello cli:b "$folder" local key "$repo" "$finish_copy" >"$tmp/out" 2>"$tmp/err" || return 1
+  python3 - "$tmp/record.json" "$id" <<'PY'
+import json, re, sys
+rows = json.load(open(sys.argv[1]))["mailbox"]
+want = [{"id": sys.argv[2], "kind": "directive", "from": "owner", "text": "Rebase the lanes.\nThen report."}]
+got = [{key: row[key] for key in row if key != "at"} for row in rows]
+sys.exit(got != want or not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", rows[0]["at"]))
+PY
+}
+backend="$repo/shell/plugins/vgs.jarvis/backend"
+holds "a request Jarvis's own writer hands over during the turn is in the record, as the master's reader prints it" finish_mail "$backend"
+control cut_functions "a verdict that reads no mailbox" '    mailbox="$(selftest_mailbox "$tree" "$home_copy")" || stopped mailbox-unread' '    :' finish_mail "$backend"
+control cut_functions "a reader of another lane's mailbox" 'inbox --item overseer' 'inbox --item other' finish_mail "$backend"
+# The reader is the instrument: a writer whose row ends on no newline writes
+# a line the master's reader does not hand over.
+mkdir "$tmp/backend-mutant"
+cp -- "$backend/Core.js" "$backend/Tools.js" "$tmp/backend-mutant/"
+if ! mutate "$backend/Home.js" 'from: "owner", text }) + "\n");' 'from: "owner", text }));' "$tmp/backend-mutant/Home.js"; then
+  fail "control: a writer whose row ends on no newline: its defect did not apply"
+elif finish_mail "$tmp/backend-mutant"; then
+  fail "control: a writer whose row ends on no newline stayed green"
+else
+  ok "control: a writer whose row ends on no newline"
+fi
 
 if [[ $failures -gt 0 ]]; then
   printf 'test-jarvis-selftest: %d failure(s)\n' "$failures"
