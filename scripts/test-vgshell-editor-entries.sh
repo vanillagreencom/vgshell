@@ -103,10 +103,10 @@ check "flexoki-light marks zed's theme light" json_value "$zed_link" 'd["themes"
 THEME_PATH="$with_stubs" tinst "the shipped vgs package lands" "$cfg" "$rt_empty" 0 "$(result written written vgs)" "" theme apply --json vgs
 check "vgs marks zed's theme dark" json_value "$zed_link" 'd["themes"][0]["appearance"]' dark
 
-# A theme of the user's at helix's link path is kept and skips the target.
+# A theme of the user's at helix's link path is replaced by the managed link.
 rm -- "$helix_link"; printf 'mine\n' >"$helix_link"
-THEME_PATH="$with_stubs" tinst "a user's vgs.toml" "$cfg" "$rt_empty" 0 "$(result skipped:entry-occupied written dusk)" "" theme apply --json dusk
-check "the user's vgs.toml is kept" test "$(cat -- "$helix_link")" == mine
+THEME_PATH="$with_stubs" tinst "a user's vgs.toml" "$cfg" "$rt_empty" 0 "$(result written written dusk)" "" theme apply --json dusk
+check "the user's vgs.toml is replaced by the managed link" links_to "$helix_link" "$live/helix.toml"
 check "detection ran no editor" test ! -e "$tmp/ran-helix" -a ! -e "$tmp/ran-zeditor"
 
 # An upstream build's command alone detects its editor: hx for helix, zed

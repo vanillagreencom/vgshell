@@ -67,16 +67,21 @@ backgrounds/a.png|image|current|unchanged
 EOF
 check "the followed terminal.json lands in the state directory" cmp -s "$dusk/terminal.json" "$state/theme/terminal.json"
 
-# A hand edit stays and is modified, whatever the package does.
+# A hand edit is modified, and a follow of an unchanged package writes
+# nothing over it; a changed package's follow replaces a hand-edited or a
+# deleted theme file.
 printf '\n' >>"$file"; cp -- "$file" "$tmp/edited.json"
 check "a hand-edited file is modified" test "$(modified_of "$cfg")" == true
+tinst "follow of an unchanged package over a hand edit is current" "$cfg" "$rt_empty" 0 "$(follow_line current dusk unchanged)" "" theme follow
+check "a current follow leaves the hand edit byte for byte" cmp -s "$tmp/edited.json" "$file"
 theme_pkg "$dusk" "$(doc dusk '{ "palette": { "accent": "#131313" } }')"
-tinst "follow leaves a hand-edited file" "$cfg" "$rt_empty" 0 "$(follow_line edited dusk unchanged)" "" theme follow
-check "the hand edit stays byte for byte" cmp -s "$tmp/edited.json" "$file"
-check "the hand-edited file stays modified" test "$(modified_of "$cfg")" == true
+tinst "follow re-applies over a hand-edited file" "$cfg" "$rt_empty" 0 "$(follow_line reapplied dusk applied)" "" theme follow
+check "the re-apply replaces the hand edit with the package's bytes" cmp -s "$dusk/theme.json" "$file"
+check "the replaced file is unmodified" test "$(modified_of "$cfg")" == false
 rm -- "$file"
-tinst "follow leaves a deleted theme file" "$cfg" "$rt_empty" 0 "$(follow_line edited dusk unchanged)" "" theme follow
-check "the deleted theme file stays deleted" test ! -e "$file"
+theme_pkg "$dusk" "$(doc dusk '{ "palette": { "accent": "#141414" } }')"
+tinst "follow re-applies over a deleted theme file" "$cfg" "$rt_empty" 0 "$(follow_line reapplied dusk applied)" "" theme follow
+check "the re-apply writes the deleted theme file again" cmp -s "$dusk/theme.json" "$file"
 
 tinst "fern applies" "$cfg" "$rt_empty" 0 "ok theme=fern state=applied shell=applied" "" theme apply fern
 mv -- "$themes/fern" "$tmp/fern"
@@ -90,11 +95,13 @@ printf '{ "schemaVersion": 1, "name": "fern" }\n' >"$record"
 tinst "follow refuses a malformed record" "$cfg" "$rt_empty" 1 '{"state":"failed","shell":"unchanged","targets":[],"theme":null,"reason":"malformed","follow":null}' "vgshell: refused: follow=applied reason=malformed path=$record" theme follow --json
 tinst "list refuses a malformed record" "$cfg" "$rt_empty" 1 "" "vgshell: refused: themes=malformed path=$record" theme list
 # A record's terminal font is one the judge accepts.
-python3 -c 'import json; print(json.dumps({"schemaVersion": 1, "name": "fern", "file": "0" * 64, "package": "0" * 64, "terminalFont": 5}))' >"$record"
+font_record() { python3 -c 'import json; print(json.dumps({"schemaVersion": 1, "name": "fern", "file": "0" * 64, "package": "0" * 64, "terminalFont": 5}))' >"$record"; }
+font_record
 tinst "follow refuses a record whose terminal font is no family" "$cfg" "$rt_empty" 1 "" "vgshell: refused: follow=applied reason=malformed path=$record" theme follow
 judge_control record-font '(!hasFont || logic.appearanceRefusal("terminalFont", doc.terminalFont) === "");' 'true;'
-tinst "the record-font mutant follows that record" "$cfg" "$rt_empty" 0 "$(follow_line edited fern unchanged)" "" theme follow
+tinst "the record-font mutant follows that record" "$cfg" "$rt_empty" 0 "$(follow_line reapplied fern unchanged)" "" theme follow
 unset THEME_BIN
+font_record
 tinst "an apply over a malformed record succeeds" "$cfg" "$rt_empty" 0 "ok theme=fern state=unchanged shell=unchanged" "" theme apply fern
 check "the apply replaces the malformed record" record_is fern "$file"
 
@@ -140,14 +147,13 @@ check "the updated file is unmodified" test "$(modified_of "$cfg")" == false
 theme_commit reed theme.json "$(doc reed '{ "palette": { "accent": "#654321" } }')"
 tinst "update of a package that is not applied follows nothing" "$cfg" "$rt_empty" 0 "$(follow_line none - unchanged)" "" theme update --yes reed
 check "an update of another package leaves the theme file" cmp -s "$themes/moss/theme.json" "$file"
-printf '\n' >>"$file"; cp -- "$file" "$tmp/edited.json"
+printf '\n' >>"$file"
 theme_commit moss theme.json "$(doc moss '{ "palette": { "accent": "#123457" } }')"
-tinst "update leaves a hand-edited file" "$cfg" "$rt_empty" 0 "$(follow_line edited moss unchanged)" "" theme update --yes moss
-check "update keeps the hand edit byte for byte" cmp -s "$tmp/edited.json" "$file"
-check "the hand-edited file stays modified after an update" test "$(modified_of "$cfg")" == true
+tinst "update re-applies over a hand-edited file" "$cfg" "$rt_empty" 0 "$(follow_line reapplied moss applied)" "" theme update --yes moss
+check "update replaces the hand edit with the new version's bytes" cmp -s "$themes/moss/theme.json" "$file"
+check "the replaced file is unmodified after an update" test "$(modified_of "$cfg")" == false
 
 # A follow that is partial makes update's exit 3: a target that fails.
-tinst "moss applies over the hand edit" "$cfg" "$rt_empty" 0 "ok theme=moss state=applied shell=applied" "" theme apply moss
 target_dir fails "$(target_json fails hex6 '[]' 'include=@{state}/fails.conf' true)" 'x=@{palette.nope}'
 theme_commit moss theme.json "$(doc moss '{ "palette": { "accent": "#123458" } }')"
 tinst "update whose follow is partial exits 3" "$cfg" "$rt_empty" 3 "partial follow=reapplied theme=moss state=partial" 'vgshell: refused: target=fails reason=placeholder template=fails.conf placeholder="palette.nope"' theme update --yes moss
@@ -179,10 +185,11 @@ tinst "the curated mutant takes a changed curated file as current" "$cfg" "$rt_e
 rm -r -- "$themes/fern/targets"
 
 fern_changed '#242424'
-printf '\n' >>"$file"
-judge_control edited 'if (bytes === undefined || sha256(bytes) !== applied.file) return settled("edited");' ''
-tinst "the edited mutant follows over a hand edit" "$cfg" "$rt_empty" 0 "$(follow_line reapplied fern applied)" "" theme follow
-check "the edited mutant overwrites the hand edit" cmp -s "$themes/fern/theme.json" "$file"
+printf '\n' >>"$file"; cp -- "$file" "$tmp/edited.json"
+judge_control hash-check '    result.theme = applied.name;' '    result.theme = applied.name;
+    if (sha256(fs.readFileSync(path.join(configDir, "theme.json"))) !== applied.file) return settled("edited");'
+tinst "the hash-check mutant leaves a hand edit" "$cfg" "$rt_empty" 0 "$(follow_line edited fern unchanged)" "" theme follow
+check "the hash-check mutant keeps the hand edit byte for byte" cmp -s "$tmp/edited.json" "$file"
 
 fern_changed '#252525'
 judge_control modified 'return !(applied !== null && applied.name === file.name && sha256(file.bytes) === applied.file);' 'return true;'

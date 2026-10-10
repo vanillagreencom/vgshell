@@ -244,17 +244,17 @@ selected() { # every settings file holds its selection and the rest of its text
     has_text "$codex_config" "$codex_selected" && has_text "$codex_second_config" "$codex_selected" && has_text "$gemini_settings" "$gemini_selected" &&
     has_text "$hermes_config" "$hermes_selected" && has_text "$omp_config" "$omp_selected" && has_text "$opencode_tui" "$opencode_selected" && has_text "$pi_settings" "$pi_selected"
 }
-codex_unselected() {
-  has_text "$codex_config" "$codex_text" && has_text "$codex_second_config" "$codex_text"
+codex_selected_all() {
+  has_text "$codex_config" "$codex_selected" && has_text "$codex_second_config" "$codex_selected"
 }
 seed
 mkdir -p "$home/.2codex/themes"
 printf 'owner-v1
 ' >"$home/.2codex/themes/vgs.tmTheme"
-apply_json "a Codex occupied account entry" 0 dusk
-check "an occupied Codex account skips the whole target" test "$(target_state codex)" == "skipped entry-occupied"
-check "the occupied Codex entry is left byte for byte" has_text "$home/.2codex/themes/vgs.tmTheme" $'owner-v1\n'
-check "an occupied Codex account writes no Codex selection" codex_unselected
+apply_json "a Codex account holding the user's entry" 0 dusk
+check "a Codex account holding the user's entry is written" test "$(target_state codex)" == "written None"
+check "the user's Codex entry is replaced by the managed link" links_to "$home/.2codex/themes/vgs.tmTheme" "$live/codex.tmTheme"
+check "every Codex account gets its selection" codex_selected_all
 rm -f -- "$home/.2codex/themes/vgs.tmTheme"
 rm -rf -- "$state/theme" "$state/applied.json" "$state/theme.name"
 seed

@@ -2,9 +2,9 @@
 # Controls for the entry wiring of `vgshell theme apply`: a target whose wiring
 # names links keeps one symlink per link in its application's theme or
 # extension directory, pointing at its file in the state directory's
-# theme/, and edits no configuration file. A path something else holds is
-# never replaced, and a disabled target loses only its own links and its
-# owned directory. Only fixture targets run here, every command is a stub on
+# theme/, and edits no configuration file. Whatever else holds an entry
+# path is replaced by its managed form, except a directory, which stays, and
+# a disabled target loses only its own links and its owned directory. Only fixture targets run here, every command is a stub on
 # the rows' PATH, and HOME and XDG_RUNTIME_DIR are temporary, so no row
 # reaches a real application or the developer's session.
 set -euo pipefail
@@ -71,8 +71,8 @@ check "nothing else is written in the application's directory" names_in "$tmp/do
 check "an owned directory is created under HOME holding only its links" names_in "$ext_dir" "package.json vgs-color-theme.json "
 check "an owned directory's links name their state files" links_to "$ext_dir/package.json" "$live/ext.pkg.json"
 check "each link names its own state file" links_to "$ext_dir/vgs-color-theme.json" "$live/ext.json"
-check "a path holding the user's file skips its target" test "$(target_state occ)" == "skipped entry-occupied"
-check "the user's file is never replaced" test "$(cat "$cfg/occ/themes/vgs.toml")" == mine
+check "a path holding the user's file is written" test "$(target_state occ)" == "written None"
+check "the user's file is replaced by the managed link" links_to "$cfg/occ/themes/vgs.toml" "$live/occ.toml"
 if ! inode="$(stat -c %i -- "$cfg/lnk/themes/vgs.toml")"; then fail "the link can be read before the second package"; inode=none; fi
 if ! copy_stamp="$(stamp "$cfg/cpy/themes/vgs.toml")"; then fail "the copy can be read before the second package"; copy_stamp=none; fi
 apply_json "an unchanged package" 0 dusk
@@ -87,29 +87,36 @@ fresh symlink
 mkdir -p "$cfg/cpy/themes"
 ln -s -- "$live/cpy.toml" "$cfg/cpy/themes/vgs.toml"
 apply_json "a symlink at a copy path" 0 dusk
-check "a symlink skips the copy target" test "$(target_state cpy)" == "skipped entry-occupied"
-check "the symlink at the copy path stays" links_to "$cfg/cpy/themes/vgs.toml" "$live/cpy.toml"
+check "a symlink at a copy path is written" test "$(target_state cpy)" == "written None"
+check "the symlink at the copy path is replaced by the copy" regular_with "$cfg/cpy/themes/vgs.toml" $'accent = "#111111"\n'
 
 fresh edited
 apply_json "a copy before editing" 0 dusk
 
 printf 'mine\n' >"$cfg/cpy/themes/vgs.toml"
 apply_json "an edited copy path" 0 nord
-check "an edited copy skips its target" test "$(target_state cpy)" == "skipped entry-occupied"
-check "an edited copy is kept" regular_with "$cfg/cpy/themes/vgs.toml" $'mine\n'
+check "an edited copy's target is written" test "$(target_state cpy)" == "written None"
+check "an edited copy is replaced by the new render" regular_with "$cfg/cpy/themes/vgs.toml" $'accent = "#222222"\n'
 
-# Something other than the managed link at a link's path, or a file where
-# the directory belongs, is the user's: the target is skipped and the path
-# kept as it was.
+# A foreign link at a link's path, dangling here, is replaced. A directory
+# at an entry path, or a file where the entry directory belongs, fails its
+# target and stays as it was.
 rm -- "$cfg/occ/themes/vgs.toml"; ln -s -- "$tmp/elsewhere.toml" "$cfg/occ/themes/vgs.toml"
 apply_json "a foreign link at a link's path" 0 dusk
-check "a foreign link skips its target" test "$(target_state occ)" == "skipped entry-occupied"
-check "a foreign link is kept" links_to "$cfg/occ/themes/vgs.toml" "$tmp/elsewhere.toml"
+check "a foreign link's target is written" test "$(target_state occ)" == "written None"
+check "a foreign link is replaced by the managed link" links_to "$cfg/occ/themes/vgs.toml" "$live/occ.toml"
+rm -- "$cfg/occ/themes/vgs.toml" "$cfg/cpy/themes/vgs.toml"
+mkdir -- "$cfg/occ/themes/vgs.toml" "$cfg/cpy/themes/vgs.toml"
+printf 'mine\n' >"$cfg/occ/themes/vgs.toml/notes"; printf 'mine\n' >"$cfg/cpy/themes/vgs.toml/notes"
+apply_json "a directory at each entry path" 3 nord "vgshell: refused: target=cpy reason=unwritable path=$cfg/cpy/themes/vgs.toml error=EISDIR"
+check "a directory at a copy path fails its target" test "$(target_state cpy)" == "failed unwritable"
+check "a directory at a link path fails its target" test "$(target_state occ)" == "failed unwritable"
+check "the directory at the copy path keeps its content" regular_with "$cfg/cpy/themes/vgs.toml/notes" $'mine\n'
+check "the directory at the link path keeps its content" regular_with "$cfg/occ/themes/vgs.toml/notes" $'mine\n'
 rm -r -- "$cfg/occ/themes"; printf 'mine\n' >"$cfg/occ/themes"
-apply_json "a file where the directory belongs" 0 nord
-check "a file at the directory skips its target" test "$(target_state occ)" == "skipped entry-occupied"
-check "the file at the directory is kept" test "$(cat "$cfg/occ/themes")" == mine
-rm -- "$cfg/occ/themes"; mkdir -p "$cfg/occ/themes"; printf 'mine\n' >"$cfg/occ/themes/vgs.toml"
+apply_json "a file where the directory belongs" 3 nord "vgshell: refused: target=cpy reason=unwritable path=$cfg/cpy/themes/vgs.toml error=EISDIR"
+check "a file at the directory fails its target" test "$(target_state occ)" == "failed unwritable"
+check "the file at the directory is kept" regular_with "$cfg/occ/themes" $'mine\n'
 
 # A disabled target loses its own links and its owned directory once that
 # is empty; the application's directory, anything the user put there and a
@@ -118,7 +125,7 @@ printf 'yours\n' >"$cfg/lnk/themes/other.toml"
 fresh disabled
 apply_json "entry targets before disable" 0 dusk
 printf 'yours\n' >"$cfg/lnk/themes/other.toml"
-printf 'mine\n' >"$cfg/occ/themes/vgs.toml"
+rm -- "$cfg/occ/themes/vgs.toml"; printf 'mine\n' >"$cfg/occ/themes/vgs.toml"
 disable '"lnk", "cpy", "ext", "occ"'
 apply_json "disabling the entry targets" 0 dusk
 check "a disabled target is skipped" test "$(target_state lnk)" == "skipped disabled"
@@ -154,14 +161,22 @@ control symlink-managed '        if (!stat.isFile()) return "occupied";' '      
 mkdir -p "$cfg/cpy/themes"
 ln -s -- "$live/cpy.toml" "$cfg/cpy/themes/vgs.toml"
 apply_json "the symlink-managed mutant applies" 0 dusk
-check "the symlink-managed mutant accepts the copy path" test "$(target_state cpy)" != "skipped entry-occupied"
-control any-copy-managed 'if ((item.oldBytes !== undefined && bytes.equals(item.oldBytes)) || (item.newBytes !== undefined && bytes.equals(item.newBytes))) return "managed";' 'return "managed";'
+check "the symlink-managed mutant keeps the symlink at the copy path" links_to "$cfg/cpy/themes/vgs.toml" "$live/cpy.toml"
+control any-copy-managed 'return item.newBytes !== undefined && bytes.equals(item.newBytes) ? "managed" : "occupied";' 'return "managed";'
 mkdir -p "$cfg/cpy/themes"; printf 'mine\n' >"$cfg/cpy/themes/vgs.toml"
 apply_json "the any-copy mutant applies" 0 dusk
-check "the any-copy mutant replaces the user's copy" regular_with "$cfg/cpy/themes/vgs.toml" $'accent = "#111111"\n'
-control no-plan-check 'return entryOccupied(plan) === null ? plan : "entry-occupied";' 'return plan;'
-apply_json "the no-plan-check mutant applies" 3 dusk "vgshell: refused: target=occ reason=entry-occupied path=$cfg/occ/themes/vgs.toml"
-check "the no-plan-check mutant fails the occupied target instead of skipping it" test "$(target_state occ)" == "failed entry-occupied"
+check "the any-copy mutant keeps the user's copy" regular_with "$cfg/cpy/themes/vgs.toml" $'mine\n'
+control leave-present 'if (entryState(file, item) === "managed") continue;' 'if (entryState(file, item) !== "absent") continue;'
+apply_json "the leave-present mutant applies" 0 dusk
+check "the leave-present mutant keeps the user's file at a link path" regular_with "$cfg/occ/themes/vgs.toml" $'mine\n'
+control rm-entry 'if (item.kind === "link") writing(file, key, () => linkByRename(item.to, file));' 'if (item.kind === "link") writing(file, key, () => { fs.rmSync(file, { recursive: true, force: true }); linkByRename(item.to, file); });'
+rm -- "$cfg/occ/themes/vgs.toml"; mkdir -- "$cfg/occ/themes/vgs.toml"; printf 'mine\n' >"$cfg/occ/themes/vgs.toml/notes"
+apply_json "the rm-entry mutant applies" 0 dusk
+check "the rm-entry mutant deletes the directory at the link path" test ! -e "$cfg/occ/themes/vgs.toml/notes"
+control rm-dir-file 'writing(dir, key, () => fs.mkdirSync(dir, { recursive: true }));' 'writing(dir, key, () => { if (fs.lstatSync(dir, { throwIfNoEntry: false })?.isFile()) fs.unlinkSync(dir); fs.mkdirSync(dir, { recursive: true }); });'
+rm -r -- "$cfg/occ/themes"; printf 'mine\n' >"$cfg/occ/themes"
+apply_json "the rm-dir-file mutant applies" 0 dusk
+check "the rm-dir-file mutant deletes the file where the directory belongs" test -d "$cfg/occ/themes"
 control never-rmdir 'if (target.wiring.owned) writing(dir, key, () => {' 'if (false) writing(dir, key, () => {'
 apply_json "the never-rmdir mutant applies" 0 dusk
 disable '"ext"'
