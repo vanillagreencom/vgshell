@@ -1833,6 +1833,30 @@ function selection(Engine) {
             source: { kind: "cli", directory }, model: "" }), true), { kind: "ready" }, provider);
 }
 
+// The brain plan's model and effort: the saved pair, else the choice
+// AccountProviders.unlistedChoice makes for the provider of the account the
+// daemon resolved, which a hello sent before the account reader's first
+// answer could not make. The copy's engine also answers its plan.
+const PLAN = ["        homeHeld: () => homeHeld,", "        homeHeld: () => homeHeld,\n        plan: () => plan,"];
+function brainPlan(Engine) {
+    const accepted = (provider, source) => () => ({ kind: "accepted", account: { id: "a", provider, label: "fixture", source, model: "" } });
+    const key = accepted("anthropic", { kind: "keyring", reference: { provider: "anthropic", account: "fixture", origin: "https://api.anthropic.com" } });
+    const claude = accepted("claude", { kind: "cli", directory: "/home/fixture/.claude" });
+    const codex = accepted("codex", { kind: "cli", directory: "/home/fixture/.codex" });
+    for (const [label, choose, saved, want] of [
+        ["an Anthropic key and nothing saved", key, {}, ["claude-opus-5-5", "high"]],
+        ["an Anthropic key and an effort saved alone", key, { effort: "max" }, ["claude-opus-5-5", "max"]],
+        ["an Anthropic key and a saved model", key, { model: "claude-haiku-4-5" }, ["claude-haiku-4-5", ""]],
+        ["Claude Code and nothing saved", claude, {}, ["claude-fable-5-1", "high"]],
+        ["Claude Code and a saved model and effort", claude, { model: "claude-opus-5-5", effort: "max" }, ["claude-opus-5-5", "max"]],
+        ["Codex and nothing saved", codex, {}, ["", ""]]]) {
+        Fixture.reset({ ready: true });
+        const engine = Engine.create({ accounts: () => ({ secrets: null, choose }), captionLimit: 1 });
+        assert.deepEqual(engine.configure({ brain: "a", model: "", effort: "", ...saved }), { kind: "ready" }, label);
+        assert.deepEqual([engine.plan().brain.model, engine.plan().brain.effort], want, label);
+    }
+}
+
 world(async () => {
     const root = process.env.JARVIS_TEST_ROOT;
     // Without local setup's marker the stock table's local row is the cause.
@@ -1851,6 +1875,11 @@ world(async () => {
         await assert.rejects(wait(() => false, "unobserved", 20), { operator: "until" });
         await assert.rejects(settled(() => false, () => true, "settled elsewhere"), error => error.operator === "==");
         selection(Fixture.copy(root).Engine);
+        brainPlan(Fixture.copy(root, [PLAN]).Engine);
+        assert.throws(() => brainPlan(Fixture.copy(root, [PLAN, ["unlistedChoice(settings, account.provider);",
+            "{ model: settings.model, effort: settings.effort };"]]).Engine), assert.AssertionError, "brain-plan-unlisted must turn red");
+        console.log("control=brain-plan-unlisted detected");
+        controls++;
         for (const [name, needle, replacement = ""] of [
             ["speech-first", "const failing = [speech, brain]", "const failing = [brain, speech]"],
             ["home-step", "            plan = heldByHome(plan, home());\n"],

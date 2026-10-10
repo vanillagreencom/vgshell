@@ -8,7 +8,7 @@ const { Readable, Writable } = require("node:stream");
 const crypto = require("node:crypto");
 const Policy = require("./Policy.js");
 const Providers = require("./Providers.js");
-const { PROVIDERS } = require("../AccountProviders.js");
+const { PROVIDERS, unlistedChoice } = require("../AccountProviders.js");
 const Net = require("./net.js");
 const Guidance = require("./Guidance.js");
 const Speakable = require("./Speakable.js");
@@ -174,10 +174,12 @@ function selectBrain(settings, accounts) {
     const target = Net.endpoint(provider.base);
     // A key without a model list, a local server and a Pi choice name their
     // own model. An Anthropic key and every other sign-in program run the
-    // model and effort the service chose from its list, each "" for a
-    // program's own.
-    const own = account.model !== "";
-    return { kind: "ready", brain: { provider, model: own ? account.model : settings.model, effort: own ? "" : settings.effort,
+    // saved model and effort, each "" for a program's own, and with no model
+    // saved the choice unlistedChoice makes for the provider of the account
+    // resolved here: a hello sent before the account reader's first answer
+    // could not name it. On a hello that made the choice it changes nothing.
+    const chosen = account.model !== "" ? { model: account.model, effort: "" } : unlistedChoice(settings, account.provider);
+    return { kind: "ready", brain: { provider, model: chosen.model, effort: chosen.effort,
         account: account.source,
         key: account.source.kind === "keyring" ? { secrets: judge.secrets, reference: account.source.reference } : null,
         recipient: { kind: "network", provider: provider.id, account: account.id, origin: target.origin },
