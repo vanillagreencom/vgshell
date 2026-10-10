@@ -10,7 +10,10 @@ import qs.Unit
 // raised surface's by default, and none of the glass. The surface's own
 // choice decides until the user's `glass` Appearance value turns glass on or
 // off everywhere, for the qs.Ui surfaces built on it too: a panel's Surface,
-// a LevelOsd and a Dialog. `follow` lays it under another item. Expected values are worked by hand from Glass.js and
+// a LevelOsd and a Dialog. Glass is drawn only where the surface is its
+// window's backdrop: a window whose colour is transparent, as every VGS
+// layer and popup is, and no GlassSurface around it; the test window is
+// made transparent for the rest. `follow` lays it under another item. Expected values are worked by hand from Glass.js and
 // Tokens.js, never read from Theme: the hairline is #e8e8e8 at alpha 0.09,
 // round(22.95) = 23 = 0x17; the tight shadow black at 0.45, round(114.75) =
 // 115 = 0x73; the wide one at 0.55, round(140.25) = 140 = 0x8c; the default
@@ -64,6 +67,13 @@ Item {
         standard: ({ background: "#203040", border: "#506070", radius: 7 })
     }
 
+    GlassSurface {
+        id: outer
+        x: 330; y: 10; width: 60; height: 60
+        optIn: true
+        GlassSurface { id: inner; anchors.fill: parent; optIn: true }
+    }
+
     Surface { id: panel; x: 220; y: 80; width: 100; height: 60 }
     LevelOsd { id: osd; x: 220; y: 150; level: 0.5 }
     Dialog { id: dialog; x: 10; y: 260; width: 200; title: "Glass" }
@@ -71,6 +81,10 @@ Item {
     TestCase {
         name: "glasssurface"
         when: windowShown
+
+        function initTestCase() {
+            root.Window.window.color = "transparent";
+        }
 
         function init() {
             UnitTheme.reset();
@@ -140,6 +154,24 @@ Item {
                     else verify(String(bodyOf(surface).color) !== "#cc101010", name + " stays solid");
                 }
             }
+        }
+
+        // Under glass on everywhere, a surface over its window's own
+        // content keeps its standard look: one inside another GlassSurface,
+        // and every one in a window whose colour is not transparent. Its
+        // `on` still answers the user's and its own choice.
+        function test_glass_is_drawn_only_as_its_window_backdrop() {
+            Theme.appearanceInput = JSON.stringify({ glass: "on" });
+            compare([outer.on, outer.backdrop, outer.drawn], [true, true, true]);
+            compare([inner.on, inner.backdrop, inner.drawn], [true, false, false]);
+            verify(!shadowOf(inner).visible);
+            compare(String(bodyOf(inner).color), "#101010");
+            root.Window.window.color = "#ffffff";
+            compare([chosen.on, chosen.backdrop, chosen.drawn], [true, false, false]);
+            compare(String(bodyOf(chosen).color), "#101010");
+            root.Window.window.color = "transparent";
+            verify(chosen.drawn);
+            compare(String(bodyOf(chosen).color), "#33445566");
         }
 
         function test_the_default_fill_and_elevation() {

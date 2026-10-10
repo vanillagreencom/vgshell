@@ -99,14 +99,14 @@ Item {
 
         Orb {
             look: face.look
-            amount: glass.on ? face.orb : 0
+            amount: glass.drawn ? face.orb : 0
         }
     }
 
     EdgeLight {
         look: face.look
         follow: card
-        visible: face.edgeVisible && glass.on
+        visible: face.edgeVisible && glass.drawn
         active: face.urgency === Logic.URGENCY.critical
         spin: face.edgeSpin
         boost: face.edgeBoost

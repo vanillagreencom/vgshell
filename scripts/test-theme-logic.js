@@ -1045,21 +1045,24 @@ function verifyAppearance(judge) {
     // groups the user leaves to Hyprland.
     const plainResult = over(shipped, {}).appearance;
     assert.deepEqual(plain(plainResult.sources), { windowRadius: "theme", borderWidth: "theme", controlRadius: "theme", motion: "theme", motionStyle: "theme", motionSpeed: "theme", windowAnimations: "hyprland", interfaceFont: "theme", terminalFont: "theme", glass: "surface", windowGlass: "hyprland", windowGlow: "hyprland" }, "every value from the theme, animations, window glass and glow from Hyprland, glass from each surface");
-    assert.deepEqual(plain(plainResult.hyprland), { radius: true, borders: true, motion: false, glass: false, glow: false }, "the layer writes borders and radius and leaves animations, window glass and glow");
+    assert.deepEqual(plain(plainResult.hyprland), { radius: true, borders: true, motion: false, glass: false, glow: false, surfaceBlur: false }, "the layer writes borders and radius and leaves animations, window glass and glow");
     assert.deepEqual(plain(plainResult.theme), { motion: true, motionStyle: "smooth", motionSpeed: 1, windowRadius: 0, borderWidth: 2, controlRadius: 0, interfaceFont: "Inter Variable" }, "the theme's own values");
     assert.equal(over(accepted({ motion: { scale: 2 } }), {}).appearance.theme.motionSpeed, 0.5, "a theme's speed is 1 / its scale");
     const own = over(shipped, { windowRadius: "hyprland", borderWidth: "hyprland", windowAnimations: true, controlRadius: 4 }).appearance;
     assert.deepEqual(plain([own.sources.windowRadius, own.sources.borderWidth, own.sources.windowAnimations, own.sources.controlRadius]), ["hyprland", "hyprland", "user", "user"], "Use my Hyprland value is its own source");
-    assert.deepEqual(plain(own.hyprland), { radius: false, borders: false, motion: true, glass: false, glow: false }, "the layer leaves the groups the user keeps and writes the motion the user chose");
+    assert.deepEqual(plain(own.hyprland), { radius: false, borders: false, motion: true, glass: false, glow: false, surfaceBlur: false }, "the layer leaves the groups the user keeps and writes the motion the user chose");
     // VGlass: the effective window glass is the windows' own choice under
-    // the user's `glass`, which turns it on or off for every surface. Each
-    // row: [glass, windowGlass, the layer writes window glass].
-    for (const [glass, windowGlass, want] of [[undefined, undefined, false], [undefined, true, true], ["on", undefined, true], ["on", true, true], ["off", undefined, false], ["off", true, false]]) {
+    // the user's `glass`, which turns it on or off for every surface; the
+    // shell's own layers and popups take the blur only while every surface
+    // draws glass. Each row: [glass, windowGlass, the layer writes window
+    // glass, the layer blurs the shell's surfaces].
+    for (const [glass, windowGlass, want, surfaces] of [[undefined, undefined, false, false], [undefined, true, true, false], ["on", undefined, true, true], ["on", true, true, true], ["off", undefined, false, false], ["off", true, false, false]]) {
         const user = {};
         if (glass !== undefined) user.glass = glass;
         if (windowGlass !== undefined) user.windowGlass = windowGlass;
         const result = over(shipped, user).appearance;
         assert.equal(result.hyprland.glass, want, "window glass under glass=" + glass + " windowGlass=" + windowGlass);
+        assert.equal(result.hyprland.surfaceBlur, surfaces, "surface blur under glass=" + glass + " windowGlass=" + windowGlass);
         assert.deepEqual([result.sources.glass, result.sources.windowGlass], [glass === undefined ? "surface" : "user", windowGlass === undefined ? "hyprland" : "user"], "glass sources under glass=" + glass + " windowGlass=" + windowGlass);
     }
     assert.deepEqual(plain(over(shipped, { glass: "off", windowGlass: true }).values), plain(shipped.values), "VGlass draws no token of the shell's table");
@@ -1410,6 +1413,7 @@ const CONTROLS = [
     ["appearance unset source", "(member.unset || \"theme\")", "\"theme\""],
     ["glass off overrides a surface's choice", "(values.glass !== \"off\" && optIn === true)", "(optIn === true)"],
     ["glass on overrides a surface's choice", "return values.glass === \"on\" || (", "return ("],
+    ["the shell's surfaces take the blur only while every surface draws glass", "hyprland.surfaceBlur = glassOn(values, false);", "hyprland.surfaceBlur = hyprland.glass;"],
     ["glass takes a surface's choice only when true", "values.glass !== \"off\" && optIn === true", "values.glass !== \"off\" && !!optIn"],
     ["window glass follows glassOn", "hyprland.glass = glassOn(values, values.windowGlass === true);", ""],
     ["window glow follows window glass", "hyprland.glow = hyprland.glass && values.windowGlow === true;", "hyprland.glow = values.windowGlow === true;"],

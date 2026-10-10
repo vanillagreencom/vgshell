@@ -1163,6 +1163,11 @@ function withAppearance(tokens, theme, user) {
     hyprland.glass = glassOn(values, values.windowGlass === true);
     // Glow follows window glass: off whenever window glass is off.
     hyprland.glow = hyprland.glass && values.windowGlow === true;
+    // The shell's own layers and popups take the compositor's blur while
+    // every surface draws glass, their own choice being none: the blur a
+    // GlassSurface shows through is the compositor's. Written with window
+    // glass, which is on whenever this is.
+    hyprland.surfaceBlur = glassOn(values, false);
     var moving = hasOwn(values, "motion") ? values.motion : themeScale > 0;
     if (!moving && hasOwn(values, "motion"))
         stated[MOTION_SCALE] = 0;
