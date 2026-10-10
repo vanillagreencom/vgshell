@@ -57,9 +57,6 @@ Item {
     // timers follow too, so a toast's motion and its row's end agree.
     readonly property bool glassOn: service !== null && service.glassOn
     readonly property var plain: Logic.toastMotion(look.motion.duration, false)
-    readonly property bool fadeActive: face.hovered && leaving === ""
-    readonly property rect fadeArea: host ? Qt.rect(host.look.stack.pad + x + face.x,
-        y + face.y - host.scrollView.contentY, face.width, face.height) : Qt.rect(0, 0, 0, 0)
 
     // The hover actions, read when the pointer arrives, since a live
     // notification's actions are not observable.

@@ -10,6 +10,9 @@ import qs.Ui
 // Qt 6.11's GridLayout puts a child with a row at that row as given and
 // fills the rest in order (QQuickGridLayout::insertLayoutItems), and it
 // lays them out at polish, once a Repeater has renumbered every card.
+// Each edge fades the content's alpha while more content lies beyond it,
+// the same for every card: nothing lifts the fade, so a hovered, pressed or
+// selected card in a band fades as the content around it does.
 Item {
     id: root
 
@@ -30,19 +33,25 @@ Item {
     // While holdEnd writes the view's place, which that write must not move.
     property bool holding: false
     property string scrollObjectName: "notificationScrollBar"
-    // Existing card children whose fadeActive and view-relative fadeArea
-    // own the active-card exception. A caller can supply a nested list.
-    property var fadeCards: Array.from(cards.children)
+    // Room above the first card that the top band spans, such as the
+    // panel's gutter under its header: the cards start this far down the
+    // view, so at rest the first card sits below the band, and a card
+    // scrolled up fades across it, from full at its bottom to nothing at
+    // the view's top. The gutter is empty while the view is at its start,
+    // so the band holds full strength. With none the top band is
+    // `fadeExtent` tall and grows in as the view leaves its start.
+    property real topGutter: 0
     default property alias content: cards.data
     readonly property real textColumn: Math.ceil(Inset.clearing(look.card.pad, look.radius.full, look.card.width, look.card.maxHeight, look.radius.clearance, look.card.pad))
     readonly property alias flickable: view
     readonly property alias cards: cards
     readonly property real fadeExtent: Math.min(look.stack.fadeHeight, view.height / 2)
-    readonly property real topStrength: fadeStrength(view.contentY)
+    readonly property real topExtent: topGutter > 0 ? Math.min(topGutter, view.height / 2) : fadeExtent
+    readonly property real topStrength: topGutter > 0 ? 1 : fadeStrength(view.contentY)
     readonly property real bottomStrength: fadeStrength(view.contentHeight - view.height - view.contentY)
 
     implicitWidth: cards.implicitWidth + look.stack.pad * 2
-    implicitHeight: Math.min(cards.implicitHeight + look.stack.tail, maxHeight)
+    implicitHeight: Math.min(cards.implicitHeight + look.stack.tail + topGutter, maxHeight)
 
     onFromEndChanged: {
         if (!fromEnd) {
@@ -64,15 +73,16 @@ Item {
         return { duration: duration, easing: Easing.BezierSpline, curve: [curve.x1, curve.y1, curve.x2, curve.y2, 1, 1] };
     }
 
-    // Sample the look's cubic curve in space, rather than time. The mask
-    // changes only content alpha, so the wallpaper receives no colour band.
-    function fadePoint(t) {
+    // Sample the look's cubic curve in space, rather than time, across a
+    // band `extent` tall: the stop's distance from the band's edge as a
+    // share of the view, and its alpha. The mask changes only content
+    // alpha, so the wallpaper receives no colour band.
+    function fadePoint(t, extent) {
         const curve = look.stack.fadeCurve;
         const back = 1 - t;
         const x = 3 * back * back * t * curve.x1 + 3 * back * t * t * curve.x2 + t * t * t;
         const y = 3 * back * back * t * curve.y1 + 3 * back * t * t * curve.y2 + t * t * t;
-        const span = fadeExtent / Math.max(1, view.height);
-        return { position: 1 - span + span * x, alpha: 1 - y };
+        return { position: extent / Math.max(1, view.height) * (1 - x), alpha: 1 - y };
     }
 
     function fadeStrength(distance) {
@@ -96,7 +106,7 @@ Item {
         id: view
         anchors.fill: parent
         contentWidth: width
-        contentHeight: cards.implicitHeight + root.look.stack.tail
+        contentHeight: cards.implicitHeight + root.look.stack.tail + root.topGutter
         boundsBehavior: Flickable.StopAtBounds
         interactive: contentHeight > height
         acceptedButtons: Qt.NoButton
@@ -125,6 +135,7 @@ Item {
         GridLayout {
             id: cards
             x: root.look.stack.pad
+            y: root.topGutter
             width: root.look.card.width
             columns: 1
             rowSpacing: 0
@@ -139,32 +150,15 @@ Item {
         layer.smooth: true
         gradient: Gradient {
             GradientStop { position: 0; color: root.maskColor(root.edgeAlpha(0, root.topStrength)) }
-            GradientStop { position: 1 - root.fadePoint(0.75).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.75).alpha, root.topStrength)) }
-            GradientStop { position: 1 - root.fadePoint(0.5).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.5).alpha, root.topStrength)) }
-            GradientStop { position: 1 - root.fadePoint(0.25).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.25).alpha, root.topStrength)) }
-            GradientStop { position: 1 - root.fadePoint(0).position; color: root.maskColor(1) }
-            GradientStop { position: root.fadePoint(0).position; color: root.maskColor(1) }
-            GradientStop { position: root.fadePoint(0.25).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.25).alpha, root.bottomStrength)) }
-            GradientStop { position: root.fadePoint(0.5).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.5).alpha, root.bottomStrength)) }
-            GradientStop { position: root.fadePoint(0.75).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.75).alpha, root.bottomStrength)) }
+            GradientStop { position: root.fadePoint(0.75, root.topExtent).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.75, root.topExtent).alpha, root.topStrength)) }
+            GradientStop { position: root.fadePoint(0.5, root.topExtent).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.5, root.topExtent).alpha, root.topStrength)) }
+            GradientStop { position: root.fadePoint(0.25, root.topExtent).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.25, root.topExtent).alpha, root.topStrength)) }
+            GradientStop { position: root.fadePoint(0, root.topExtent).position; color: root.maskColor(1) }
+            GradientStop { position: 1 - root.fadePoint(0, root.fadeExtent).position; color: root.maskColor(1) }
+            GradientStop { position: 1 - root.fadePoint(0.25, root.fadeExtent).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.25, root.fadeExtent).alpha, root.bottomStrength)) }
+            GradientStop { position: 1 - root.fadePoint(0.5, root.fadeExtent).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.5, root.fadeExtent).alpha, root.bottomStrength)) }
+            GradientStop { position: 1 - root.fadePoint(0.75, root.fadeExtent).position; color: root.maskColor(root.edgeAlpha(root.fadePoint(0.75, root.fadeExtent).alpha, root.bottomStrength)) }
             GradientStop { position: 1; color: root.maskColor(root.edgeAlpha(0, root.bottomStrength)) }
-        }
-
-        // One rectangle follows each existing card child for its lifetime.
-        // The caller's fadeActive and view-relative fadeArea change only
-        // this mask's alpha. Hover motion does not rebuild the model.
-        Repeater {
-            model: root.fadeCards
-            Rectangle {
-                required property var modelData
-                readonly property rect area: modelData === null || modelData.fadeArea === undefined
-                    ? Qt.rect(0, 0, 0, 0) : modelData.fadeArea
-                x: area.x
-                y: area.y
-                width: area.width
-                height: area.height
-                color: root.maskColor(modelData !== null && modelData.fadeActive === true ? 1 : 0)
-            }
         }
     }
 

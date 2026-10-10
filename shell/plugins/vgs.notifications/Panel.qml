@@ -38,7 +38,7 @@ FocusScope {
     // scroll bar sits, wider than the header they sit under.
     implicitWidth: Math.max(header.implicitWidth, listScroll.implicitWidth) + 2 * column.contentInset
     readonly property real panelMaxHeight: column.contentInset + look.header.height + Math.max(column.headerBodyGap, column.stickyGap) + look.panel.rowCap * (look.card.maxHeight + look.card.gap) + look.stack.tail
-    implicitHeight: Math.min(column.contentInset + column.headerHeight + Math.max(column.headerBodyGap, column.stickyGap) + listScroll.implicitHeight, panelMaxHeight)
+    implicitHeight: Math.min(column.contentInset + column.headerHeight + listScroll.implicitHeight, panelMaxHeight)
 
     onCurrentIndexChanged: {
         if (refreshing) return;
@@ -50,7 +50,7 @@ FocusScope {
         }
         actionIndex = -1;
         updateSelectionHover();
-        nav.reveal(currentIndex);
+        revealRow(currentIndex);
     }
 
     onStatusRevisionChanged: {
@@ -179,7 +179,7 @@ FocusScope {
             if (selectedKey !== previousKey || actionIndex >= actionsOf(currentIndex).length) actionIndex = -1;
             refreshing = false;
             updateSelectionHover();
-            nav.reveal(currentIndex);
+            revealRow(currentIndex);
         } catch (e) {
             console.warn("notifications panel: state " + e.message);
             refreshing = true;
@@ -227,7 +227,23 @@ FocusScope {
         }
         refreshing = false;
         updateSelectionHover();
-        nav.reveal(currentIndex);
+        revealRow(currentIndex);
+    }
+
+    // Scroll the list so the row at `index` stands clear of both fades:
+    // its slot's top at or below the gutter, its bottom at or above the
+    // bottom band, the top first when the row is taller than the room
+    // between them, inside the scroll's travel. Nothing lifts the fade
+    // from a selected card, so a reveal into the view alone, as KeyNav's,
+    // would leave it faded at an edge.
+    function revealRow(index) {
+        const slot = rowRepeater.itemAt(index);
+        if (slot === null) return;
+        const view = listScroll.flickable;
+        const top = slot.mapToItem(view.contentItem, 0, 0).y;
+        const fromBottom = Math.max(view.contentY, top + slot.height - view.height + listScroll.fadeExtent);
+        const place = Math.min(fromBottom, top - listScroll.topGutter);
+        view.contentY = Math.max(0, Math.min(place, view.contentHeight - view.height));
     }
 
     function rowAt(index) {
@@ -311,15 +327,18 @@ FocusScope {
         if (selectedHoverKey !== "") setHover(selectedHoverKey, true);
     }
 
+    // The Pane keeps the header and its gutter; the list lies outside the
+    // Pane's body, whose clip stops at the ring room above it, so the list's
+    // view starts at the header's bottom edge and its cards pass behind the
+    // header through the gutter.
     Pane {
         id: column
         anchors.fill: parent
-        // Keep the header inset; let the list consume the pane's bottom inset.
-        anchors.bottomMargin: -contentInset
         container: "panel"
         padding: 0
         cornerRadius: 0
-        // The list viewport, clip and alpha mask start below the shared sticky header region.
+        // The gutter under the header is the shared sticky header region,
+        // `bodyGap`, which the list's top fade spans.
         gap: 0
 
         header: [
@@ -350,120 +369,124 @@ FocusScope {
                 }
             }
         ]
+    }
 
-        Item {
-            id: listFrame
-            width: listScroll.implicitWidth
-            x: (parent.width - width) / 2
-            implicitHeight: listScroll.implicitHeight
-            height: Math.min(implicitHeight, column.bodyRoom)
+    // Declared after the Pane, so Tab reaches the list after the header.
+    Item {
+        id: listFrame
+        width: listScroll.implicitWidth
+        x: column.contentInset + (column.contentWidth - width) / 2
+        y: column.contentInset + column.headerHeight
+        height: Math.max(0, Math.min(listScroll.implicitHeight, root.height - y))
 
-            CardScroll {
-                id: listScroll
-                anchors.fill: parent
-                scrollObjectName: "notificationPanelScrollBar"
-                look: root.look
-                maxHeight: root.panelMaxHeight - column.contentInset - column.headerHeight - Math.max(column.headerBodyGap, column.stickyGap)
-                fadeCards: Array.from(list.children)
+        CardScroll {
+            id: listScroll
+            anchors.fill: parent
+            scrollObjectName: "notificationPanelScrollBar"
+            look: root.look
+            maxHeight: root.panelMaxHeight - column.contentInset - column.headerHeight
+            topGutter: column.bodyGap
 
-                Label {
-                    Layout.preferredWidth: root.look.card.width
-                    role: "hint"
-                    visible: root.rows.length === 0
-                    text: root.mode === "history" ? "No saved notifications" : "No unread notifications"
-                    horizontalAlignment: Text.AlignHCenter
+            Label {
+                Layout.preferredWidth: root.look.card.width
+                role: "hint"
+                visible: root.rows.length === 0
+                text: root.mode === "history" ? "No saved notifications" : "No unread notifications"
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            // focus-indicator: the selected notification card lifts and shows its actions
+            Column {
+                id: list
+                Layout.preferredWidth: root.look.card.width
+                width: root.look.card.width
+                activeFocusOnTab: true
+                focusPolicy: Qt.StrongFocus
+                focus: true
+                Accessible.name: "Notifications list"
+                Keys.onPressed: event => event.accepted = nav.handle(event)
+
+                KeyNav {
+                    id: nav
+                    count: root.rows.length
+                    currentIndex: root.currentIndex
+                    wrap: false
+                    crossAxis: true
+                    viewHeight: listScroll.flickable.height
+                    rowHeight: root.look.card.maxHeight + root.look.card.gap
+                    // The list takes its cards' height a layout pass
+                    // after a refresh, so the refresh's reveal measured
+                    // the empty list and scrolled a long list's first
+                    // card under the header; reveal again whenever the
+                    // scroll view's height changes, which stops at the
+                    // panel's cap. A move reveals through onMoved.
+                    onViewHeightChanged: root.revealRow(root.currentIndex)
+                    labelAt: index => {
+                        const row = root.rowAt(index);
+                        return row === null ? "" : row.summary;
+                    }
+                    onMoved: index => root.selectIndex(index)
+                    onActivated: index => root.actionIndex >= 0 ? root.pressAction() : root.openSelected()
+                    onRemoved: index => root.dismissSelected()
+                    onCrossed: delta => root.moveAction(delta)
                 }
 
-                // focus-indicator: the selected notification card lifts and shows its actions
-                Column {
-                    id: list
-                    Layout.preferredWidth: root.look.card.width
-                    width: root.look.card.width
-                    activeFocusOnTab: true
-                    focusPolicy: Qt.StrongFocus
-                    focus: true
-                    Accessible.name: "Notifications list"
-                    Keys.onPressed: event => event.accepted = nav.handle(event)
+                Repeater {
+                    id: rowRepeater
+                    model: root.rows
 
-                    KeyNav {
-                        id: nav
-                        count: root.rows.length
-                        currentIndex: root.currentIndex
-                        wrap: false
-                        crossAxis: true
-                        viewHeight: listScroll.flickable.height
-                        rowHeight: root.look.card.maxHeight + root.look.card.gap
-                        // The list takes its cards' height a layout pass
-                        // after a refresh, so the refresh's reveal measured
-                        // the empty list and scrolled a long list's first
-                        // card under the header; reveal again whenever the
-                        // scroll view's height changes, which stops at the
-                        // panel's cap.
-                        onViewHeightChanged: reveal(root.currentIndex)
-                        flickable: listScroll.flickable
-                        itemAt: index => rowRepeater.itemAt(index)
-                        labelAt: index => {
-                            const row = root.rowAt(index);
-                            return row === null ? "" : row.summary;
-                        }
-                        onMoved: index => root.selectIndex(index)
-                        onActivated: index => root.actionIndex >= 0 ? root.pressAction() : root.openSelected()
-                        onRemoved: index => root.dismissSelected()
-                        onCrossed: delta => root.moveAction(delta)
-                    }
+                    // The slot, the gap above its card and the card, is the
+                    // card's hover area: the slots tile the list with no
+                    // gap and no overlap, so the pointer is on exactly one,
+                    // and the card's lift under the pointer moves no edge
+                    // of it.
+                    Item {
+                        id: slot
+                        required property var modelData
+                        required property int index
+                        readonly property bool selected: root.currentIndex === index
+                        readonly property real hover: selected || face.hovered ? 1 : 0
+                        width: root.look.card.width
+                        height: face.height + root.look.card.gap
 
-                    Repeater {
-                        id: rowRepeater
-                        model: root.rows
+                        onSelectedChanged: if (selected) root.updateSelectionHover()
 
-                        Item {
-                            id: slot
-                            required property var modelData
-                            required property int index
-                            readonly property bool selected: root.currentIndex === index
-                            readonly property real hover: selected || face.hovered ? 1 : 0
-                            readonly property bool fadeActive: face.hovered || (selected && list.activeFocus)
-                            readonly property rect fadeArea: Qt.rect(listScroll.look.stack.pad + list.x + slot.x + face.x,
-                                list.y + slot.y + face.y - listScroll.flickable.contentY, face.width, face.height)
-                            width: root.look.card.width
-                            height: face.height + root.look.card.gap
+                        HoverHandler { id: pointer }
 
-                            onSelectedChanged: if (selected) root.updateSelectionHover()
-
-                            CardFace {
-                                id: face
-                                look: root.look
-                                key: slot.modelData.key || ""
-                                textColumn: listScroll.textColumn
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                y: root.look.card.gap - root.look.card.lift * slot.hover
-                                width: card.fullWidth
-                                height: card.fullHeight
-                                app: slot.modelData.app || ""
-                                appIcon: slot.modelData.appIcon || ""
-                                summary: slot.modelData.summary || ""
-                                body: slot.modelData.body || ""
-                                image: slot.modelData.image || ""
-                                desktopEntry: slot.modelData.desktopEntry || ""
-                                urgency: slot.modelData.urgency === undefined ? Logic.URGENCY.normal : slot.modelData.urgency
-                                hintIcon: slot.modelData.hintIcon || ""
-                                hintTone: slot.modelData.hintTone || ""
-                                workspace: slot.modelData.workspace || ""
-                                workspaceIcon: slot.modelData.workspaceIcon || ""
-                                faceImages: slot.modelData.faceImages || []
-                                emoji: slot.modelData.emoji || null
-                                actions: slot.modelData.actions || []
-                                showActions: (slot.selected || hovered) && actions.length > 0
-                                actionIndex: slot.selected ? root.actionIndex : -1
-                                keyboardActions: true
-                                glassChoice: root.glassChoice
-                                edgeVisible: slot.hover > 0
-                                edgeBoost: 1 + root.look.edge.hoverBoost * slot.hover
-                                onHoverRequested: (key, on) => root.setHover(key, on)
-                                onActionTriggered: id => root.choose(slot.modelData.key, id)
-                                onCloseRequested: root.choose(slot.modelData.key, "dismiss")
-                                onCardClicked: root.choose(slot.modelData.key, "open")
-                            }
+                        CardFace {
+                            id: face
+                            look: root.look
+                            key: slot.modelData.key || ""
+                            textColumn: listScroll.textColumn
+                            hovered: pointer.hovered
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            y: root.look.card.gap - root.look.card.lift * slot.hover
+                            width: card.fullWidth
+                            height: card.fullHeight
+                            app: slot.modelData.app || ""
+                            appIcon: slot.modelData.appIcon || ""
+                            summary: slot.modelData.summary || ""
+                            body: slot.modelData.body || ""
+                            image: slot.modelData.image || ""
+                            desktopEntry: slot.modelData.desktopEntry || ""
+                            urgency: slot.modelData.urgency === undefined ? Logic.URGENCY.normal : slot.modelData.urgency
+                            hintIcon: slot.modelData.hintIcon || ""
+                            hintTone: slot.modelData.hintTone || ""
+                            workspace: slot.modelData.workspace || ""
+                            workspaceIcon: slot.modelData.workspaceIcon || ""
+                            faceImages: slot.modelData.faceImages || []
+                            emoji: slot.modelData.emoji || null
+                            actions: slot.modelData.actions || []
+                            showActions: (slot.selected || hovered) && actions.length > 0
+                            actionIndex: slot.selected ? root.actionIndex : -1
+                            keyboardActions: true
+                            glassChoice: root.glassChoice
+                            edgeVisible: slot.hover > 0
+                            edgeBoost: 1 + root.look.edge.hoverBoost * slot.hover
+                            onHoverRequested: (key, on) => root.setHover(key, on)
+                            onActionTriggered: id => root.choose(slot.modelData.key, id)
+                            onCloseRequested: root.choose(slot.modelData.key, "dismiss")
+                            onCardClicked: root.choose(slot.modelData.key, "open")
                         }
                     }
                 }

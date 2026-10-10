@@ -1813,11 +1813,12 @@ expect_poll "the restored notification service is built" True record_exists vgs.
 
 # The inbox's content against the panel's own box, the size the panel asks
 # for: the header, the card list and its scroll bar inside
-# it, every card inside the list and the panel across, and the list and its
-# first card below the shared sticky header region. The list clips its
-# scrolling cards. The first card of a list just opened starts inside its top: a card
-# between the header's bottom and the list's top shows its top edge cut.
-# The list reaches the panel bottom at every scroll. No hint row remains.
+# it, every card inside the list and the panel across, the list from the
+# header's bottom edge, so its cards pass behind the header through the
+# gutter under it, the shared sticky header region, and the first card of
+# a list just opened below that gutter, clear of its fade. The list clips
+# its scrolling cards. The list reaches the panel bottom at every scroll.
+# No hint row remains.
 # panel_fit_value reads the panel box and full descendant geometry.
 # The optional bottom mode checks scrolled lists without requiring their
 # first card to remain visible at the top.
@@ -1857,15 +1858,16 @@ for n, card in enumerate(cards):
     cx, cy, cw, ch = card["box"]
     if cx < vx - 0.5 or cx + cw > vx + vw + 0.5: bad.append("clipped=%s-in-list" % name)
 header_bottom = header["box"][1] + header["box"][3]
-# The divider leaves the measured header inset below the header, then its
-# thickness and the shared focus-ring room. Read theme tokens independently.
-sticky_gap = header["box"][1] - py + sum(map(float, sys.argv[2:5]))
-boundary = header_bottom + sticky_gap
-if vy < boundary - 0.5: bad.append("under-header=list")
-if vy > boundary + 0.5: bad.append("header-gap=list")
+# The gutter is the measured header inset below the header, then the
+# thickness of the divider and the shared focus-ring room. Read theme
+# tokens independently.
+gutter = header["box"][1] - py + sum(map(float, sys.argv[2:5]))
+if vy < header_bottom - 0.5: bad.append("under-header=list")
+if vy > header_bottom + 0.5: bad.append("header-gap=list")
 top = min(cards, key=lambda c: c["box"][1])
 if sys.argv[1] != "bottom" and top["box"][1] < header_bottom - 0.5: bad.append("under-header=card")
 if sys.argv[1] != "bottom" and top["box"][1] < view["box"][1] - 0.5: bad.append("cut-top=card")
+if sys.argv[1] != "bottom" and top["box"][1] < header_bottom + gutter - 0.5: bad.append("in-gutter=card")
 print(" ".join(sorted(set(bad))) if bad else "fits")' "${1:-top}" "$(ipc smoke themeValue divider.thickness)" "$(ipc smoke themeValue focusRing.width)" "$(ipc smoke themeValue focusRing.offset)"
 }
 panel_fit() {
@@ -1878,14 +1880,16 @@ panel_fit() {
 # panel as it drew before its width followed its column; Appearance.js
 # `card.width`, `stack.pad`, `header.height`, `card.gap` and
 # `scrollbar.width` provide the planted dimensions. The second puts the
-# first card into the header; the third puts it below the header and above
-# the list top. A reserved footer space must fail the bottom check.
+# first card into the header; the third puts it in the gutter, inside the
+# list's top fade. The fourth starts the list below the gutter, where its
+# cards cut off at its top edge rather than passing behind the header. A
+# reserved footer space must fail the bottom check.
 panel_fit_header_gap="$(( $(ipc smoke themeValue divider.thickness) + $(ipc smoke themeValue focusRing.width) + $(ipc smoke themeValue focusRing.offset) ))"
-panel_fit_view_h="$((303 - note_header_height - panel_fit_header_gap))"
-panel_fit_reading() { # PANEL_W HEADER_X CARD_Y VIEW_H
+panel_fit_view_h="$((303 - note_header_height))"
+panel_fit_reading() { # PANEL_W HEADER_X CARD_Y VIEW_H [VIEW_Y]
   printf '[0, 0, %s, 303]\n' "$1"
   printf '[{"type":"InboxHeader","name":"","box":[%s,0,%s,%s],"visible":true},' "$2" "$note_card_width" "$note_header_height"
-  printf '{"type":"QQuickFlickable","name":"","box":[0,%s,%s,%s],"visible":true},' "$((note_header_height + panel_fit_header_gap))" "$((note_card_width + 2 * note_stack_pad))" "$4"
+  printf '{"type":"QQuickFlickable","name":"","box":[0,%s,%s,%s],"visible":true},' "${5:-$note_header_height}" "$((note_card_width + 2 * note_stack_pad))" "$4"
   printf '{"type":"NotificationCard","name":"","box":[%s,%s,%s,61],"visible":true},' "$note_stack_pad" "$3" "$note_card_width"
   printf '{"type":"NotificationCard","name":"","box":[%s,129,%s,61],"visible":true}]\n' "$note_stack_pad" "$note_card_width"
 }
@@ -1893,8 +1897,9 @@ panel_fit_width="$((note_card_width + 2 * note_stack_pad))"
 panel_fit_first_card_y="$((note_header_height + panel_fit_header_gap + note_card_gap - note_card_gap / 4))"
 expect "the fit check passes the panel drawn whole" fits panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" "$panel_fit_view_h")
 expect "control: the fit check refuses the clipped panel" "clipped=card0 clipped=card1 clipped=header clipped=list" panel_fit_value < <(panel_fit_reading "$note_card_width" "$note_stack_pad" "$panel_fit_first_card_y" "$panel_fit_view_h")
-expect "control: the fit check refuses a first card under the header" "cut-top=card under-header=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height - note_stack_pad / 4))" "$panel_fit_view_h")
-expect "control: the fit check refuses a first card the list cuts under the header" "cut-top=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height + panel_fit_header_gap - panel_fit_header_gap / 2))" "$panel_fit_view_h")
+expect "control: the fit check refuses a first card under the header" "cut-top=card in-gutter=card under-header=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height - note_stack_pad / 4))" "$panel_fit_view_h")
+expect "control: the fit check refuses a first card at rest in the gutter" "in-gutter=card" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$((note_header_height + panel_fit_header_gap - panel_fit_header_gap / 2))" "$panel_fit_view_h")
+expect "control: the fit check refuses a list that starts below the gutter" "header-gap=list" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" "$((panel_fit_view_h - panel_fit_header_gap))" "$((note_header_height + panel_fit_header_gap))")
 expect "control: reserved footer space fails the bottom check" "bottom-gap=list" panel_fit_value < <(panel_fit_reading "$panel_fit_width" "$note_stack_pad" "$panel_fit_first_card_y" "$((panel_fit_view_h - 20))")
 for n in 1 2 3 4 5 6 7 8; do
   notify smoke-app 0 "Fit $n" "A body long enough to wrap onto a second line of the card, so the card is tall" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
@@ -1903,7 +1908,7 @@ expect_poll "the fit toasts are listed" True has_row live "Fit 8"
 expect "the inbox shortcut opens the panel for the fit check" ok hypr dispatch 'hl.dsp.global("vgs.notifications:inbox")'
 expect_poll "the fit inbox is open" '"inbox"' read_notes panelMode
 expect_poll "the fit inbox lists the eight toasts" True has_row panel "Fit 1"
-geometry expect_poll "the inbox draws whole inside its own box, its list below the header" fits panel_fit
+geometry expect_poll "the inbox draws whole inside its own box, its list from the header's edge and its first card below the gutter" fits panel_fit
 
 # A press beside the panel closes it, on the desktop and over a client
 # window (SummonLayer's catcher; rows/surfaces.sh holds the control); a
@@ -3199,11 +3204,33 @@ paint_match=sum(max(abs(pixels[y][4*x+c]-ref[y][4*x+c]) for c in range(3))<=3 fo
 print(json.dumps({"summary":summary,"edge":edge,"cardBox":card["box"],"fadeIntersection":[top,bottom],"referenceInkPixels":len(cores),"matchedInkPixels":matched,"cardPixels":paint_count,"matchedCardPixels":paint_match,"contentY":view["contentY"],"travel":travel}))
 ' "$@"
 }
-fade_active_full_value() {
+# Whether a captured card keeps its band's fade: its title ink and its
+# interior differ from the same card with the mask removed.
+fade_active_faded_value() {
   printf 'notification-active-card: %s\n' "$1" >&2
   py_reply 'import json,sys
 s=json.load(sys.stdin)
-print(s["referenceInkPixels"]>0 and s["matchedInkPixels"]==s["referenceInkPixels"] and s["cardPixels"]>0 and s["matchedCardPixels"]>=s["cardPixels"]*0.98)' <<<"$1"
+print(s["referenceInkPixels"]>0 and s["matchedInkPixels"]<s["referenceInkPixels"] and s["cardPixels"]>0 and s["matchedCardPixels"]<s["cardPixels"]*0.98)' <<<"$1"
+}
+# The gutter under the panel's header, the list's top band: the measured
+# header inset, then the divider's thickness and the shared focus-ring
+# room, as panel_fit_value reads it.
+note_panel_gutter() {
+  local panel items
+  panel="$(ipc smoke instanceGeometry panel vgs.notifications)" || return
+  items="$(ipc smoke descendantGeometry panel vgs.notifications)" || return
+  printf '%s\n%s\n' "$panel" "$items" | py_reply 'import json,sys
+lines=sys.stdin.read().splitlines()
+try:
+    py=json.loads(lines[0])[1]
+    header=next((i for i in json.loads(lines[1]) if i["type"]=="InboxHeader" and i["visible"]),None)
+except (ValueError,IndexError,TypeError,KeyError): header=None
+print("unread" if header is None else header["box"][1]-py+sum(map(float,sys.argv[1:4])))' "$(ipc smoke themeValue divider.thickness)" "$(ipc smoke themeValue focusRing.width)" "$(ipc smoke themeValue focusRing.offset)"
+}
+# The height of the panel list's fade band at EDGE: the gutter at the top,
+# the look's fade height at the bottom.
+fade_band() { # EDGE
+  if [[ $1 == top ]]; then note_panel_gutter; else printf '%s\n' "$note_fade_height"; fi
 }
 fade_active_intersection() { # ITEMS VIEW SUMMARY EDGE BAND
   python3 - "$@" <<'PY_ACTIVE_INTERSECTION'
@@ -3217,13 +3244,14 @@ print(0<view["contentY"]<view["contentHeight"]-view["height"] and min(cy+ch,bott
 PY_ACTIVE_INTERSECTION
 }
 fade_active_pair() { # PREFIX SUMMARY EDGE
-  local prefix="$1" summary="$2" edge="$3" require_full="${4:-true}" items="$1-items.json" restore_items="$1-restored-items.json"
-  local view surface ink rc=0 sample restored same saved
+  local prefix="$1" summary="$2" edge="$3" items="$1-items.json" restore_items="$1-restored-items.json"
+  local view surface ink band rc=0 sample restored same saved
   fade_capture_layout "$items" || return
   fade_inventory || return
   [[ $summary == "$fade_middle" ]] || { echo 'notification-capture: selected-inventory-changed' >&2; return 1; }
-  view="$(fade_current_view)" && surface="$(surface_box vgs:panel)" && ink="$(look_at text.foreground)" || return
-  [[ $(fade_active_intersection "$items" "$view" "$summary" "$edge" "$note_fade_height") == True ]] || { echo 'notification-capture: insufficient-fade-intersection' >&2; return 1; }
+  view="$(fade_current_view)" && surface="$(surface_box vgs:panel)" && ink="$(look_at text.foreground)" && band="$(fade_band "$edge")" || return
+  [[ $band =~ ^[0-9]+(\.[0-9]+)?$ ]] || { printf 'notification-capture: band=%s\n' "$band" >&2; return 1; }
+  [[ $(fade_active_intersection "$items" "$view" "$summary" "$edge" "$band") == True ]] || { echo 'notification-capture: insufficient-fade-intersection' >&2; return 1; }
   fade_output "$prefix.png" || return
   if fade_paint_wait notificationFadeReference true; then fade_output "$prefix-reference.png" || rc=$?; else rc=$?; fi
   fade_paint_wait notificationFadeReference false || rc=$?
@@ -3232,15 +3260,15 @@ fade_active_pair() { # PREFIX SUMMARY EDGE
   ipc smoke descendantGeometry panel vgs.notifications >"$restore_items" || return
   same="$(fade_capture_geometry_same "$items" "$restore_items")" || return
   [[ $same == True ]] || { echo 'notification-capture: card-geometry-changed' >&2; return 1; }
-  saved="$(fade_active_value "$prefix-restored.png" "$prefix.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$note_fade_height" "$mon_w" "$mon_h")" || return
+  saved="$(fade_active_value "$prefix-restored.png" "$prefix.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$band" "$mon_w" "$mon_h")" || return
   [[ $saved == \{* ]] || { printf 'notification-capture: saved-paint=%s\n' "$saved" >&2; return 1; }
   printf '%s\n' "$saved" >"$prefix-saved-restoration.json"
   [[ $(py_reply 'import json,sys
 s=json.load(sys.stdin);print(s["matchedInkPixels"]==s["referenceInkPixels"] and s["cardPixels"]>0 and s["matchedCardPixels"]>=s["cardPixels"]*0.98)' <<<"$saved") == True ]] || { echo 'notification-capture: saved-paint-not-restored' >&2; return 1; }
   printf 'notification-capture-restored: geometry=stable saved-paint=restored path=%s\n' "$prefix-saved-restoration.json" >&2
   ((rc==0)) || return "$rc"
-  sample="$(fade_active_value "$prefix.png" "$prefix-reference.png" "$items" "$view" "$surface" "$ink" "$summary" "$edge" "$note_fade_height" "$mon_w" "$mon_h")" || return
-  restored="$(fade_active_value "$prefix-restored.png" "$prefix-reference.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$note_fade_height" "$mon_w" "$mon_h")" || return
+  sample="$(fade_active_value "$prefix.png" "$prefix-reference.png" "$items" "$view" "$surface" "$ink" "$summary" "$edge" "$band" "$mon_w" "$mon_h")" || return
+  restored="$(fade_active_value "$prefix-restored.png" "$prefix-reference.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$band" "$mon_w" "$mon_h")" || return
   [[ $sample == \{* && $restored == \{* ]] || { printf 'notification-capture: sample=%s restored=%s\n' "$sample" "$restored" >&2; return 1; }
   printf '%s\n' "$sample" >"$prefix.json"
   printf '%s\n' "$restored" >"$prefix-restored.json"
@@ -3248,7 +3276,6 @@ s=json.load(sys.stdin);print(s["matchedInkPixels"]==s["referenceInkPixels"] and 
 before=json.load(sys.stdin);after=json.loads(sys.argv[1])
 print(before["referenceInkPixels"]==after["referenceInkPixels"] and before["matchedInkPixels"]==after["matchedInkPixels"] and before["cardPixels"]==after["cardPixels"] and abs(before["matchedCardPixels"]-after["matchedCardPixels"])<=before["cardPixels"]*0.02)' "$restored" <<<"$sample") == True ]] || { echo 'notification-capture: saved-card-paint-not-restored' >&2; return 1; }
   printf 'notification-capture-restored: kind=card geometry=stable saved-paint=restored sample=%s\n' "$prefix-restored.json" >&2
-  [[ $require_full != true || $(fade_active_full_value "$restored") == True ]] || { echo 'notification-capture: restored-card-faded' >&2; return 1; }
   printf '%s\n' "$sample"
 }
 fade_active_point() {
@@ -3342,7 +3369,7 @@ fade_active_states() { # MODE
         expect_poll "the $1 $edge focuses the expected action" "$fade_action_id" fade_selected_action
         expect_poll "the $1 $edge keeps keyboard focus on the list" True panel_focus_on_list
       else
-        # Header focus isolates the pointer exemption from keyboard selection.
+        # Header focus leaves the pointer alone on the card.
         type_keys -k Tab || return
         expect_poll "the $1 $state $edge has no list keyboard focus" False panel_focus_on_list
         read -r x y < <(fade_active_point) || return
@@ -3354,21 +3381,14 @@ fade_active_states() { # MODE
       if [[ $state == pressed ]]; then sample="$(fade_pressed_card_pair "$prefix" "$fade_middle" "$edge")" || return
       else
         sample="$(fade_active_pair "$prefix" "$fade_middle" "$edge")" || return
-        render expect "the same $1 $state $edge card survives repeated captures at full strength" True fade_active_full_value "$(fade_active_pair "$prefix-repeat" "$fade_middle" "$edge")"
+        render expect "the same $1 $state $edge card keeps its fade over repeated captures" True fade_active_faded_value "$(fade_active_pair "$prefix-repeat" "$fade_middle" "$edge")"
       fi
-      render expect "the $1 $state card paints in full in the $edge fade" True fade_active_full_value "$sample"
+      render expect "the $1 $state card keeps the $edge band's fade" True fade_active_faded_value "$sample"
       if [[ $1 == dark && $state == keyboard-focus && $edge == top ]]; then
         expect "control: a failed card reference capture returns failure" 1 fade_failed_capture
-        render expect "the same Panel restores full card paint after failed capture" True fade_active_full_value "$(fade_active_pair "$prefix-after-failure" "$fade_middle" "$edge")"
+        render expect "the same Panel restores its fade after a failed capture" True fade_active_faded_value "$(fade_active_pair "$prefix-after-failure" "$fade_middle" "$edge")"
       fi
       hover 1 1 || return
-      if [[ $state == keyboard-focus ]]; then
-        type_keys -k Tab || return
-        expect_poll "the $1 $edge selected card releases keyboard focus" False panel_focus_on_list
-        sample="$(fade_active_pair "$prefix-unfocused" "$fade_middle" "$edge" false)" || return
-        render expect "the $1 $edge card returns to its fade when focus leaves" True py_reply 'import json,sys
-s=json.load(sys.stdin);print(s["referenceInkPixels"]>0 and s["matchedInkPixels"]<s["referenceInkPixels"] and s["matchedCardPixels"]<s["cardPixels"]*0.98)' <<<"$sample"
-      fi
       type_keys -k Escape || return
       expect_poll "the $1 $state $edge panel closes before fresh setup" '""' read_notes panelMode
       # A native release runs the card action and removes its fixture.
@@ -3378,6 +3398,92 @@ s=json.load(sys.stdin);print(s["referenceInkPixels"]>0 and s["matchedInkPixels"]
       expect_poll "the reopened list takes keyboard focus" True panel_focus_on_list
     done
   done
+}
+# The summaries of the cards whose slot holds the pointer, as JSON.
+panel_hovered_faces() { ipc smoke itemValues panel vgs.notifications CardFace hovered,summary | py_reply 'import json,sys;print(json.dumps([v["summary"] for v in json.load(sys.stdin) if v["hovered"]]))'; }
+panel_at_rest() { fade_current_view | py_reply 'import json,sys
+try: print(json.load(sys.stdin)["contentY"]==0)
+except (ValueError,KeyError,TypeError): print("unsettled")'; }
+panel_sheet_shot() { # MODE NAME
+  local path="$sandbox/panel-sheet-$1-$2.png"
+  fade_capture_layout "$sandbox/panel-sheet-$1-$2-items.json" || return
+  fade_output "$path" || return
+  printf 'panel-sheet: %s\n' "$path" >&2
+}
+# The pointer on the centre of the card SUMMARY, its slot alone hovered and
+# the layout at rest.
+panel_sheet_card() { # MODE SUMMARY
+  local rect x y want
+  rect="$(ipc smoke itemGeometry panel vgs.notifications NotificationCard "$2")" || return
+  [[ $rect == \[* ]] || { echo 'panel-sheet: card-absent' >&2; return 1; }
+  read -r x y < <(at_centre vgs:panel "$rect") || return
+  hover "$x" "$y" || return
+  want="$(python3 -c 'import json,sys;print(json.dumps([sys.argv[1]]))' "$2")" || return
+  expect_poll "the $1 sheet hovers the card $2" "$want" panel_hovered_faces
+  fade_capture_layout "$sandbox/panel-sheet-$1-settle-items.json"
+}
+# One sweep frame: the pointer DY below the top of RECT, which the card
+# OWNER's slot alone then holds.
+panel_sheet_sweep() { # MODE FRAME RECT DY OWNER
+  local x y want
+  read -r x y < <(panel_point "$3" - "$4") || return
+  hover "$x" "$y" || return
+  want="$(python3 -c 'import json,sys;print(json.dumps([sys.argv[1]]))' "$5")" || return
+  expect_poll "the $1 sheet sweep frame $2 hovers one card" "$want" panel_hovered_faces
+  panel_sheet_shot "$1" "sweep-$2"
+}
+# The frames of the labelled sheet, in one theme: the panel at rest as it
+# opens, at mid-scroll with the pointer off the cards, a hover over a card
+# in the top band and in the bottom band, and three frames of the pointer
+# crossing the gap between two cards: low in the upper card, in the gap,
+# and high in the lower card, where the slot under the gap is the lower
+# card's. Each is taken once its state reads back and the layout rests.
+panel_sheet() { # MODE
+  local upper lower rect next points x y at edge
+  hover 1 1 || return
+  expect "the $1 sheet inbox opens" ok notes inbox
+  expect_poll "the $1 sheet inbox holds its list focus" True panel_focus_on_list
+  fade_inventory || return
+  expect_poll "the $1 sheet inbox selects its newest card" "$fade_newest" panel_selected_summary
+  geometry expect_poll "the $1 sheet list rests at its top" True panel_at_rest
+  summon_drawn panel vgs.notifications || return
+  panel_sheet_shot "$1" rest || return
+  for _ in $(seq 1 8); do type_keys -k Down || return; done
+  expect_poll "the $1 sheet selects its mid-scroll card" "$fade_middle" panel_selected_summary
+  geometry expect_poll "the $1 sheet list is at mid-scroll" mid fade_scroll_state
+  expect_poll "the $1 sheet pointer rests outside its cards" '[]' panel_hovered_faces
+  panel_sheet_shot "$1" mid || return
+  IFS=$'\t' read -r upper lower < <(py_reply 'import json,sys
+rows=json.load(sys.stdin)["rows"];print(rows[6]["summary"]+"\t"+rows[7]["summary"])' <<<"$fade_inventory_json") || return
+  # A hover can grow a card as its actions show, so each point is read in
+  # the layout its frame shows: low in the upper card while it holds the
+  # pointer, then the gap and high in the lower card while that one does.
+  panel_sheet_card "$1" "$upper" || return
+  rect="$(ipc smoke itemGeometry panel vgs.notifications NotificationCard "$upper")" || return
+  [[ $rect == \[* ]] || { echo 'panel-sheet: sweep-card-absent' >&2; return 1; }
+  points="$(python3 -c 'import json,sys;u=json.loads(sys.argv[1]);print(u[3]-3)' "$rect")" || return
+  panel_sheet_sweep "$1" 1 "$rect" "$points" "$upper" || return
+  panel_sheet_card "$1" "$lower" || return
+  rect="$(ipc smoke itemGeometry panel vgs.notifications NotificationCard "$upper")" || return
+  next="$(ipc smoke itemGeometry panel vgs.notifications NotificationCard "$lower")" || return
+  [[ $rect == \[* && $next == \[* ]] || { echo 'panel-sheet: sweep-cards-absent' >&2; return 1; }
+  points="$(python3 -c 'import json,sys
+u=json.loads(sys.argv[1]);l=json.loads(sys.argv[2]);bottom=u[1]+u[3]
+print(bottom+(l[1]-bottom)/2-u[1], l[1]-u[1]+3)' "$rect" "$next")" || return
+  read -r at next <<<"$points"
+  panel_sheet_sweep "$1" 2 "$rect" "$at" "$lower" || return
+  panel_sheet_sweep "$1" 3 "$rect" "$next" "$lower" || return
+  for edge in top bottom; do
+    hover 1 1 || return
+    fade_position_active "$edge" || return
+    read -r x y < <(fade_active_point) || return
+    hover "$x" "$y" || return
+    expect_poll "the $1 sheet hovers the card in the $edge band" True fade_state_hovered
+    panel_sheet_shot "$1" "hover-$edge" || return
+  done
+  hover 1 1 || return
+  expect "the $1 sheet inbox closes" ok notes close
+  expect_poll "the $1 sheet inbox is closed" '""' read_notes panelMode
 }
 # The synthetic wallpaper makes both tones of card glow measurable.
 fade_theme_dir="$home/.config/vgshell/themes/fade-probe"
@@ -3409,6 +3515,7 @@ PY_WALL_THEME
   "$imagemagick" "$repo/scripts/smoke/fixtures/theme-image.jpg" -brightness-contrast "${fade_brightness}x0" "$fade_mode_dir/backgrounds/busy.jpg" || fail "the busy wallpaper variant failed"
   "${shell_env[@]}" "$repo/bin/vgshell" theme apply "fade-probe-$fade_mode" >/dev/null || fail "the busy wallpaper variant applies"
   fade_fixtures || fail "the $fade_mode owned fade fixtures are incomplete"
+  panel_sheet "$fade_mode" || fail "the $fade_mode sheet frames failed"
   fade_open_mid
   geometry expect "the row-free list reaches the panel bottom at mid-scroll" fits panel_fit bottom
   render expect_poll "the $fade_mode mid-scroll cards draw actual known title ink" True fade_card_drawn "$sandbox/fade-$fade_mode-mid.png"
@@ -3419,43 +3526,48 @@ PY_WALL_THEME
   fade_active_states "$fade_mode" || fail "the $fade_mode active card captures failed"
   expect "the $fade_mode card probe closes" ok notes close
 done
-# Must fail: remove only active-card exemptions in the shared mask.
-# The same real pointer and keyboard assertions then read faded title ink.
-fade_fixtures || fail "the active exemption control fixtures are incomplete"
-fade_qml="$repo/shell/plugins/vgs.notifications/CardScroll.qml"
-cp -- "$fade_qml" "$sandbox/CardScroll.active-kept.qml"
-python3 - "$fade_qml" <<'PY_ACTIVE_MUTANT'
+# Must fail: a copy whose hover and list focus lift the list's fade. The
+# same real pointer and keyboard captures then read the card in full, and
+# the assertion that it keeps the band's fade fails.
+fade_fixtures || fail "the lifted fade control fixtures are incomplete"
+fade_panel_qml="$repo/shell/plugins/vgs.notifications/Panel.qml"
+cp -- "$fade_panel_qml" "$sandbox/Panel.lifted-kept.qml"
+python3 - "$fade_panel_qml" <<'PY_LIFTED_MUTANT'
 from pathlib import Path
 import sys
-p=Path(sys.argv[1]);text=p.read_text();needle="model: root.fadeCards"
-assert text.count(needle)==1;p.write_text(text.replace(needle,"model: []"))
-PY_ACTIVE_MUTANT
-rescan "a rescan removes only the active-card exemptions"
-expect_poll "the active exemption control is built" True record_exists vgs.notifications
+p=Path(sys.argv[1]);text=p.read_text()
+hover="HoverHandler { id: pointer }"
+focus="                Accessible.name: \"Notifications list\"\n"
+assert text.count(hover)==1 and text.count(focus)==1
+text=text.replace(hover,"HoverHandler { id: pointer; onHoveredChanged: listScroll.flickable.layer.enabled = !hovered }")
+p.write_text(text.replace(focus,focus+"                onActiveFocusChanged: listScroll.flickable.layer.enabled = !activeFocus\n"))
+PY_LIFTED_MUTANT
+rescan "a rescan builds the panel whose hover and focus lift the fade"
+expect_poll "the lifted fade control is built" True record_exists vgs.notifications
 for state in hover keyboard-focus; do
   fade_open_mid
-  fade_position_active top || fail "the active exemption control card is not placed"
+  fade_position_active top || fail "the lifted fade control card is not placed"
   if [[ $state == hover ]]; then
     type_keys -k Tab || fail "the control releases list focus"
     read -r x y < <(fade_active_point) || fail "the control card point is unreadable"
     hover "$x" "$y" || fail "the control pointer failed"
-    expect_poll "the active exemption control hovers its real card" True fade_state_hovered
+    expect_poll "the lifted fade control hovers its real card" True fade_state_hovered
   else
     type_keys -k Right || fail "the control action focus failed"
     fade_inventory || fail "the control inventory is unreadable"
     expect_poll "the control selects its current action" "$fade_action_id" fade_selected_action
   fi
-  fade_control_sample="$(fade_active_pair "$sandbox/fade-no-active-$state" "$fade_middle" top false)" || fail "the active exemption control capture failed"
-  fade_active_control() {
-    (failures=0;behaviour_failures=0;render expect "the active card paints in full inside its fade" True fade_active_full_value "$fade_control_sample" >"$sandbox/fade-no-active-$state-control.log";echo "$failures")
+  fade_control_sample="$(fade_active_pair "$sandbox/fade-lifted-$state" "$fade_middle" top)" || fail "the lifted fade control capture failed"
+  fade_lifted_control() {
+    (failures=0;behaviour_failures=0;render expect "the active card keeps the top band's fade" True fade_active_faded_value "$fade_control_sample" >"$sandbox/fade-lifted-$state-control.log";echo "$failures")
   }
-  expect "control: the same $state paint assertion fails without active exemptions" 1 fade_active_control
+  expect "control: the same $state fade assertion fails when the card lifts the fade" 1 fade_lifted_control
   hover 1 1 || fail "the control pointer leaves"
-  expect "the active exemption control closes" ok notes close
+  expect "the lifted fade control closes" ok notes close
 done
-cp -- "$sandbox/CardScroll.active-kept.qml" "$fade_qml"
-rescan "a rescan restores active-card exemptions"
-expect_poll "the active exemption service is restored" True record_exists vgs.notifications
+cp -- "$sandbox/Panel.lifted-kept.qml" "$fade_panel_qml"
+rescan "a rescan restores the panel that keeps the fade"
+expect_poll "the panel that keeps the fade is restored" True record_exists vgs.notifications
 # The same positive assertion must fail when only card content is hidden.
 # Opacity preserves every list and title box, so geometry cannot detect it.
 fade_qml="$repo/shell/plugins/vgs.notifications/CardScroll.qml"

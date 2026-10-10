@@ -7,10 +7,16 @@ import "../../shell/plugins/vgs.notifications/Appearance.js" as Appearance
 
 // The shipped scroll frame fades each edge while more content lies beyond it.
 // Both the notification panel and toast stack instantiate this component.
+// In the panel the list's view starts at the header's bottom edge and its
+// top band is the gutter under the header; nothing lifts the fade from a
+// hovered or keyboard-selected card, a pointer crossing the gap between two
+// cards moves the hover from one to the other once, and a keyboard move
+// reveals the selected card clear of both bands.
 Item {
     id: scene
     width: 600
-    height: 300
+    // Room for the tallest shipped panel a test opens.
+    height: 640
 
     Rectangle { anchors.fill: parent; color: "#000000" }
 
@@ -25,9 +31,6 @@ Item {
             id: content
             Layout.preferredWidth: 420
             Layout.preferredHeight: 300
-            readonly property bool fadeActive: activePointer.containsMouse || activeCard.activeFocus
-            readonly property rect fadeArea: Qt.rect(frame.look.stack.pad + activeCard.x,
-                activeCard.y - frame.flickable.contentY, activeCard.width, activeCard.height)
 
             // Paint through the scroll frame's tail as well. Otherwise an
             // end-state grab would sample empty padding instead of proving
@@ -36,20 +39,6 @@ Item {
                 width: parent.width
                 height: Math.max(parent.height + frame.look.stack.tail, frame.height)
                 color: "#ff00ff"
-            }
-
-            Rectangle {
-                id: activeCard
-                x: 80
-                width: 120
-                height: 40
-                color: "#ff00ff"
-                activeFocusOnTab: true
-                MouseArea {
-                    id: activePointer
-                    anchors.fill: parent
-                    hoverEnabled: true
-                }
             }
         }
     }
@@ -75,11 +64,64 @@ Item {
         when: windowShown
 
         function cleanup() {
+            mouseMove(scene, scene.width - 1, scene.height - 1);
+            if (panel.visible) {
+                panel.selectIndex(0);
+                panelParts().view.contentY = 0;
+            }
             panel.visible = false;
             panel.height = 300;
             frame.visible = true;
-            activeCard.focus = false;
-            mouseMove(frame, frame.width + 20, 0);
+        }
+
+        function descendants(item) {
+            const found = [];
+            for (const child of item.children) found.push(child, ...descendants(child));
+            return found;
+        }
+
+        // The shipped panel's parts, read through the names it ships and
+        // its structure: the scroll frame, its view, the header and the
+        // card faces with the slots that hold them, in list order. The
+        // gutter is the header's inset, the divider and the focus ring's
+        // room, read from the tokens, independent of the Pane's own sum.
+        function panelParts() {
+            const scrollbar = findChild(panel, "notificationPanelScrollBar");
+            verify(scrollbar !== null);
+            const title = findChild(panel, "notificationHeaderTitleText");
+            verify(title !== null);
+            const header = title.parent.parent;
+            const view = scrollbar.flickable;
+            const faces = descendants(view.contentItem).filter(child => child.reportHover !== undefined && child.card !== undefined);
+            const headerInset = header.mapToItem(panel, 0, 0).y;
+            return {
+                scroll: scrollbar.parent, view: view, header: header, faces: faces,
+                headerBottom: header.mapToItem(panel, 0, header.height).y,
+                gutter: headerInset + Theme.divider.thickness + Theme.focusRing.width + Theme.focusRing.offset
+            };
+        }
+
+        function showPanel(height) {
+            frame.visible = false;
+            panel.height = height;
+            panel.visible = true;
+            const parts = panelParts();
+            tryVerify(() => parts.view.contentHeight > parts.view.height && parts.faces.length === panel.rows.length);
+            return parts;
+        }
+
+        function grabPanel() {
+            panel.Window.window.update();
+            verify(waitForRendering(panel));
+            return grabImage(scene);
+        }
+
+        // Test ink over a slot, which a card's lift does not move, so the
+        // same pixels read the mask alone whatever the card draws.
+        function inkOver(slot) {
+            const ink = boundaryInk.createObject(slot, { x: 0, y: 0, width: slot.width, height: slot.height });
+            verify(ink !== null);
+            return ink;
         }
 
         function test_shipped_panel_boundary_data() {
@@ -87,71 +129,72 @@ Item {
                 { tag: "top end", progress: 0, height: 300 },
                 { tag: "mid scroll", progress: 0.5, height: 300 },
                 { tag: "short top end", progress: 0, height: 180 },
-                { tag: "short mid scroll", progress: 0.5, height: 180 }
+                { tag: "short mid scroll", progress: 0.5, height: 180 },
+                // A card that has just started under the header fades at
+                // the gutter's full strength.
+                { tag: "just left the top", offset: 12, height: 300 }
             ];
         }
 
         function test_shipped_panel_boundary(row) {
-            frame.visible = false;
-            panel.height = row.height;
-            panel.visible = true;
-            const scrollbar = findChild(panel, "notificationPanelScrollBar");
-            verify(scrollbar !== null);
-            const scroll = scrollbar.parent;
-            const view = scrollbar.flickable;
-            const title = findChild(panel, "notificationHeaderTitleText");
-            verify(title !== null);
-            const header = title.parent.parent;
-            tryVerify(() => view.contentHeight > view.height);
-            const headerBottom = header.mapToItem(panel, 0, header.height).y;
-            const headerInset = header.mapToItem(panel, 0, 0).y;
-            const stickyGap = headerInset + Theme.divider.thickness
-                + Theme.focusRing.width + Theme.focusRing.offset;
-            const boundary = headerBottom + stickyGap;
+            const parts = showPanel(row.height);
+            const view = parts.view;
+            const scroll = parts.scroll;
             const viewTop = view.mapToItem(panel, 0, 0).y;
-            compare(viewTop, boundary, "the shipped viewport starts below the shared sticky header region");
+            compare(viewTop, parts.headerBottom, "the shipped viewport starts at the header's bottom edge");
             compare(view.mapToItem(panel, 0, view.height).y, panel.height,
                 "the shipped viewport reaches the panel bottom in its available room");
-            compare(scroll.parent.mapToItem(panel, 0, 0).y, boundary,
-                "the list frame starts at the same boundary");
+            compare(scroll.parent.mapToItem(panel, 0, 0).y, parts.headerBottom,
+                "the list frame starts at the same edge");
             verify(view.clip, "the shipped viewport clips its content");
             const masks = Array.from(scroll.children).filter(child => child.gradient !== undefined);
             compare(masks.length, 1, "one alpha gradient owns both list edges");
             const mask = masks[0];
-            compare(mask.mapToItem(panel, 0, 0).y, boundary,
-                "the alpha mask starts below the shared sticky header region");
+            compare(mask.mapToItem(panel, 0, 0).y, parts.headerBottom,
+                "the alpha mask starts at the header's bottom edge");
             compare(mask.height, view.height);
             compare(mask.gradient.stops[0].position, 0, "the gradient starts at the clip edge");
 
             const travel = view.contentHeight - view.height;
-            view.contentY = travel * row.progress;
-            if (row.progress > 0) verify(view.contentY > 0 && view.contentY < travel);
-            // Test ink crosses the shipped clip. It occupies the side gutter,
-            // outside the header and active-card mask rectangles. This proves
-            // actual clipped and faded paint without relying on card colours.
+            view.contentY = row.offset !== undefined ? row.offset : travel * row.progress;
+            const rest = view.contentY === 0;
+            if (!rest) verify(view.contentY > 0 && view.contentY < travel);
+            const firstFace = parts.faces[0].mapToItem(panel, 0, 0).y;
+            if (rest) verify(firstFace >= parts.headerBottom + parts.gutter,
+                "at rest the first card sits below the gutter: " + firstFace);
+            // Test ink crosses the shipped clip in the side room, beside
+            // the cards and the header. This proves actual clipped and
+            // faded paint without relying on card colours.
             const ink = boundaryInk.createObject(view.contentItem, {
                 x: 0, y: view.contentY - 16, width: view.width, height: view.height + 32
             });
             verify(ink !== null);
             try {
-                panel.Window.window.update();
-                verify(waitForRendering(panel));
-                const painted = grabImage(scene);
+                const painted = grabPanel();
                 const x = Math.floor(view.mapToItem(scene, 10, 0).x);
                 const edge = Math.floor(view.mapToItem(scene, 0, 0).y);
+                const gutter = Math.ceil(parts.gutter);
                 for (const distance of [1, 8, 15]) {
-                    compare(painted.red(x, edge - distance), 0, "no painted card strip escapes above the viewport boundary");
+                    compare(painted.red(x, edge - distance), 0, "no painted card strip escapes above the header's bottom edge");
                     compare(painted.blue(x, edge - distance), 0);
                 }
-                if (row.progress === 0) {
-                    compare(painted.red(x, edge + 1), 255, "the top end retains full content paint");
+                if (rest) {
+                    const face = parts.faces[0];
+                    const top = Math.ceil(face.mapToItem(scene, 0, 0).y);
+                    for (let y = top; y < top + face.height && y < edge + view.height - parts.scroll.fadeExtent; y += 4)
+                        compare(painted.red(x, y), 255, "the first card at rest paints in full between the bands");
                 } else {
                     const near = painted.red(x, edge + 1);
-                    const middle = painted.red(x, edge + Math.floor(scroll.fadeExtent / 2));
-                    const centre = painted.red(x, edge + Math.ceil(scroll.fadeExtent));
+                    const middle = painted.red(x, edge + Math.floor(gutter / 2));
+                    const centre = painted.red(x, edge + gutter);
                     verify(near < 8 && middle > near && middle < centre,
-                        "one smooth painted fade rises from the viewport boundary");
-                    compare(centre, 255);
+                        "one smooth painted fade rises across the gutter: " + [near, middle, centre]);
+                    compare(centre, 255, "content below the gutter paints in full");
+                    let previous = near;
+                    for (let y = edge + 1; y <= edge + gutter; y++) {
+                        verify(painted.red(x, y) >= previous - 1, "the fade rises without a step back at " + (y - edge));
+                        previous = painted.red(x, y);
+                    }
                     compare(painted.green(x, edge + 1), 0, "the gradient adds no colour");
                     compare(painted.blue(x, edge + 1), near, "the gradient changes alpha only");
                 }
@@ -160,7 +203,7 @@ Item {
             }
         }
 
-        function test_active_card_data() {
+        function test_active_card_keeps_the_fade_data() {
             return [
                 { tag: "hover top", top: true, keyboard: false },
                 { tag: "hover bottom", top: false, keyboard: false },
@@ -169,37 +212,125 @@ Item {
             ];
         }
 
-        function test_active_card(row) {
-            content.Layout.preferredHeight = 700;
-            tryCompare(frame.flickable, "contentHeight", 700 + frame.look.stack.tail);
-            frame.flickable.contentY = 200;
-            const viewportY = row.top ? 8 : frame.height - activeCard.height - 8;
-            activeCard.y = frame.flickable.contentY + viewportY;
-            mouseMove(frame, frame.width + 20, 0);
-            if (row.keyboard) activeCard.forceActiveFocus(Qt.TabFocusReason);
-            else mouseMove(activeCard, activeCard.width / 2, activeCard.height / 2);
-            tryCompare(content, "fadeActive", true);
-            compare(content.fadeArea, Qt.rect(frame.look.stack.pad + activeCard.x,
-                viewportY, activeCard.width, activeCard.height));
-            frame.Window.window.update();
-            verify(waitForRendering(frame));
-            const image = grabImage(frame);
-            const x = Math.floor(frame.look.stack.pad + activeCard.x + activeCard.width / 2);
-            for (const inset of [2, activeCard.height / 2, activeCard.height - 3]) {
-                const y = Math.floor(viewportY + inset);
-                compare(image.red(x, y), 255, "the active card keeps its full paint inside the fade");
-                compare(image.green(x, y), 0, "the exemption adds no colour");
-                compare(image.blue(x, y), 255, "the exemption changes alpha only");
-                verify(image.red(frame.look.stack.pad + 20, y) < 230,
-                    "other content at the same edge keeps its smooth fade");
+        // A hovered card, and the selected card while the list holds the
+        // keyboard, paint the same pixels inside a fade band as they do
+        // without the pointer or the keyboard: the band's alpha is kept.
+        function test_active_card_keeps_the_fade(row) {
+            const parts = showPanel(400);
+            const view = parts.view;
+            const face = parts.faces[6];
+            const slot = face.parent;
+            const list = slot.parent;
+            if (row.keyboard) panel.selectIndex(6);
+            // Place the card's face in the band: its top just under the
+            // header's edge, or its bottom just above the view's bottom.
+            const faceTop = row.top ? 2 : view.height - face.height - 2;
+            view.contentY = face.mapToItem(view.contentItem, 0, 0).y - faceTop;
+            const band = row.top ? parts.gutter : parts.scroll.fadeExtent;
+            verify(view.contentY > 0 && view.contentY < view.contentHeight - view.height);
+            const ink = inkOver(slot);
+            try {
+                const x = Math.floor(slot.mapToItem(scene, slot.width / 2, 0).x);
+                const edge = Math.floor(view.mapToItem(scene, 0, 0).y);
+                // The rows of the band the slot's ink covers, in the view.
+                const slotTop = slot.mapToItem(view, 0, 0).y;
+                const first = Math.ceil(Math.max(row.top ? 0 : view.height - band, slotTop)) + 1;
+                const last = Math.floor(Math.min(row.top ? band : view.height, slotTop + slot.height)) - 1;
+                const rows = [];
+                for (let y = first; y < last; y += 2) rows.push(edge + y);
+                verify(rows.length > 2, "the slot crosses the band");
+                const rest = grabPanel();
+                if (row.keyboard) {
+                    list.forceActiveFocus(Qt.TabFocusReason);
+                    tryCompare(list, "activeFocus", true);
+                } else {
+                    mouseMove(slot, slot.width / 2, row.top ? slot.height - 4 : 4);
+                    tryCompare(face, "hovered", true);
+                }
+                const active = grabPanel();
+                let faded = 0;
+                for (const y of rows) {
+                    verify(Math.abs(active.red(x, y) - rest.red(x, y)) <= 1,
+                        "the active card keeps the fade's alpha at " + y + ": " + [rest.red(x, y), active.red(x, y)]);
+                    compare(active.green(x, y), 0, "the band adds no colour");
+                    if (rest.red(x, y) < 230) faded += 1;
+                }
+                verify(faded > 0, "the sampled card lies in the band's fade");
+            } finally {
+                ink.destroy();
+                list.focus = false;
             }
-            cleanup();
-            tryCompare(content, "fadeActive", false);
-            frame.Window.window.update();
-            verify(waitForRendering(frame));
-            const released = grabImage(frame);
-            verify(released.red(x, Math.floor(viewportY + activeCard.height / 2)) < 230,
-                "the card returns to the fade after pointer and focus leave");
+        }
+
+        // A pointer swept in 1 px steps from the middle of one card down
+        // across the gap into the next: the hover passes from the first
+        // card to the second once, and no step reads neither or both.
+        function test_pointer_crosses_the_gap_once() {
+            const parts = showPanel(600);
+            const upper = parts.faces[1];
+            const lower = parts.faces[2];
+            const x = upper.parent.mapToItem(panel, upper.parent.width / 2, 0).x;
+            const from = Math.round(upper.mapToItem(panel, 0, upper.height / 2).y);
+            const to = Math.round(lower.mapToItem(panel, 0, lower.height / 2).y);
+            verify(lower.mapToItem(panel, 0, lower.height).y < panel.height - parts.scroll.fadeExtent,
+                "both cards sit inside the view");
+            const sweep = read => {
+                const states = [];
+                for (let y = from; y <= to; y++) {
+                    mouseMove(panel, x, y);
+                    const state = (read(upper) ? "upper" : "") + (read(lower) ? "lower" : "");
+                    if (states.length === 0 || states[states.length - 1].state !== state) states.push({ state: state, y: y });
+                }
+                mouseMove(scene, scene.width - 1, scene.height - 1);
+                tryVerify(() => !read(upper) && !read(lower));
+                return states;
+            };
+            const shipped = sweep(face => face.hovered);
+            compare(shipped.map(step => step.state), ["upper", "lower"],
+                "the hover changes once across the gap: " + JSON.stringify(shipped));
+            // Control: the cards' own hover, the source before the slots
+            // carried it, sees the gap between the faces as neither card.
+            const own = sweep(face => face.card.hovered);
+            verify(own.some(step => step.state === "") || own.length > 2,
+                "the cards' own hover shows the gap the sweep must cross: " + JSON.stringify(own));
+        }
+
+        function test_keyboard_reveal_clears_the_bands() {
+            const parts = showPanel(300);
+            const view = parts.view;
+            const list = parts.faces[0].parent.parent;
+            list.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(list, "activeFocus", true);
+            const check = (index, key) => {
+                compare(panel.currentIndex, index);
+                const slot = parts.faces[index].parent;
+                const top = slot.mapToItem(view.contentItem, 0, 0).y;
+                const travel = view.contentHeight - view.height;
+                verify(top >= view.contentY + parts.gutter - 0.5 || view.contentY <= 0,
+                    key + " " + index + " leaves the card in the gutter: " + [top, view.contentY]);
+                verify(top + slot.height <= view.contentY + view.height - parts.scroll.fadeExtent + 0.5 || view.contentY >= travel - 0.5,
+                    key + " " + index + " leaves the card in the bottom band: " + [top + slot.height, view.contentY]);
+                const ink = inkOver(slot);
+                try {
+                    const painted = grabPanel();
+                    const face = parts.faces[index];
+                    const x = Math.floor(slot.mapToItem(scene, slot.width / 2, 0).x);
+                    const faceTop = Math.ceil(face.mapToItem(scene, 0, 0).y) + 1;
+                    for (let y = faceTop; y < faceTop + face.height - 2; y += 3)
+                        compare(painted.red(x, y), 255, key + " " + index + " paints the selected card in full at " + y);
+                } finally {
+                    ink.destroy();
+                }
+            };
+            for (let index = 1; index < panel.rows.length; index++) {
+                keyClick(Qt.Key_Down);
+                check(index, "Down");
+            }
+            for (let index = panel.rows.length - 2; index >= 0; index--) {
+                keyClick(Qt.Key_Up);
+                check(index, "Up");
+            }
+            list.focus = false;
         }
 
         function test_edge_fades_data() {

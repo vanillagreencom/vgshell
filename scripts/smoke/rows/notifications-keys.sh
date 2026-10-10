@@ -12,14 +12,13 @@
 # leaves the inbox open on the second press.
 # A long inbox, forty rows whose newest carries actions, opened by the
 # key eight times, shows its first card whole each time: panel_fit
-# (rows/notifications.sh) reads its top under the header and inside the
-# list's clip. rows/hidpi.sh reads the same opens at scale 2. The same
+# (rows/notifications.sh) reads its top below the gutter under the header,
+# clear of the list's top fade. rows/hidpi.sh reads the same opens at scale 2. The same
 # opens hold on the first monitor at a scale that leaves a room shorter
 # than the panel's
 # panelMaxHeight, where the list takes what is under the header; their
-# control is a Panel.qml copy whose list keeps its whole height, which ran
-# the list past the panel's bottom (clipped=list) on all eight opens in the
-# sandbox on 2026-10-02.
+# control is a Panel.qml copy whose list keeps its whole height, which runs
+# the list past the panel's bottom (clipped=list) on all eight opens.
 # One more open shows the list at the panel bottom at both scroll ends.
 # A copy with a reserved bottom gap must fail the same reading.
 # No latency is measured; each reading polls every 200 ms for up to 5 s.
@@ -209,7 +208,7 @@ long_inbox_settled() {
 # long_inbox_cut TOGGLE...: eight opens of the long inbox by the command
 # TOGGLE, which also closes it, each read with long_inbox_settled once
 # long_inbox_shown. Prints the one reading every open gave, such as `fits`
-# or `cut-top=card under-header=card`, `mixed` when the opens differ, or
+# or `cut-top=card in-gutter=card under-header=card`, `mixed` when the opens differ, or
 # `open=<n> <failure>` at the first open the instrument could not read:
 # long_inbox_shown's failure, `unread`, or a toggle that failed. Each
 # open's reading goes to $sandbox/long-inbox.txt, which long_inbox_readings
@@ -345,9 +344,9 @@ python3 - "$nk_panel" <<'PY_BOTTOM_GAP'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]); text=p.read_text()
-needle="                anchors.fill: parent\n"
+needle="            anchors.fill: parent\n"
 assert text.count(needle)==1
-replacement="                anchors { left: parent.left; right: parent.right; top: parent.top; bottom: parent.bottom; bottomMargin: Math.max(root.look.header.gap, column.stickyGap) }\n"
+replacement="            anchors { left: parent.left; right: parent.right; top: parent.top; bottom: parent.bottom; bottomMargin: Math.max(root.look.header.gap, column.stickyGap) }\n"
 p.write_text(text.replace(needle,replacement))
 PY_BOTTOM_GAP
 rescan "a rescan reads the bottom-gap copy"
@@ -390,16 +389,16 @@ python3 - "$nk_panel" <<'PY'
 import sys
 path = sys.argv[1]
 text = open(path).read()
-needle = "            height: Math.min(implicitHeight, column.bodyRoom)\n"
+needle = "        height: Math.max(0, Math.min(listScroll.implicitHeight, root.height - y))\n"
 assert text.count(needle) == 1, "the list's room under the header occurs once"
-open(path, "w").write(text.replace(needle, "            height: implicitHeight\n"))
+open(path, "w").write(text.replace(needle, "        height: listScroll.implicitHeight\n"))
 PY
 rescan "a rescan reads the whole-height list copy"
 expect "enabling the notifications beside the whole-height list copy is allowed" ok ipc shell setPluginEnabled vgs.notifications true
 expect_poll "the service is built beside the whole-height list copy" True record_exists vgs.notifications
 expect_poll "the inbox shortcut is listed beside the whole-height list copy" 1 note_shortcuts
 long_inbox_warm nk_press || fail "the whole-height list copy's first open failed"
-geometry expect "control: a panel whose list keeps its whole height runs a long inbox past the short room's panel on every open" "clipped=list clipped=scrollbar under-header=card under-header=list" long_inbox_cut nk_press
+geometry expect "control: a panel whose list keeps its whole height runs a long inbox past the short room's panel on every open" "clipped=list" long_inbox_cut nk_press
 ok "control short room readings: $(long_inbox_readings)"
 cp -- "$sandbox/Panel.qml.keys-kept" "$nk_panel"
 rescan "a rescan restores the panel after the short room"

@@ -35,7 +35,9 @@ Item {
     property bool reportHover: true
     // The notifications' own VGlass choice, their `glass` setting.
     property bool glassChoice: false
-    readonly property bool hovered: card.hovered
+    // Whether the pointer is on the card: the card's own hover, unless the
+    // surface hands the hover of the slot that holds the card.
+    property bool hovered: card.hovered
     readonly property alias card: card
 
     signal actionTriggered(string id)

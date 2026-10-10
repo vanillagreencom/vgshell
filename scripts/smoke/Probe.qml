@@ -1833,6 +1833,9 @@ Scope {
         }
         // Place a real card inside a named fade band. The row supplies its
         // independently checked current service summary before this call.
+        // The top band can be as short as the panel's gutter, so a card
+        // placed there centres its title in the band and passes behind
+        // the edge above it; at the bottom the whole card sits in the band.
         function notificationFadePosition(hostKey: string, id: string, summary: string, edge: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
@@ -1842,8 +1845,10 @@ Scope {
             if (typeof view === "string") return view;
             if (edge !== "top" && edge !== "bottom") return "edge-refused";
             const scroll = root.descendants(item).find(child => root.typeName(child) === "CardScroll");
+            const title = root.descendants(target).find(child => child.objectName === "notificationTitleText");
+            if (title === undefined) return "title-absent";
             const inset = scroll.look.card.gap;
-            const desired = edge === "top" ? inset : view.height - target.height - inset;
+            const desired = edge === "top" ? scroll.topExtent / 2 - title.mapToItem(target, 0, title.height / 2).y : view.height - target.height - inset;
             const position = target.mapToItem(view, 0, 0);
             view.contentY = Math.max(0, Math.min(view.contentHeight - view.height, view.contentY + position.y - desired));
             return "ok";
