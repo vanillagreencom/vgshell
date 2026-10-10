@@ -137,6 +137,17 @@ FocusScope {
     }
 
     onTranscriptRowsChanged: Qt.callLater(followEnd)
+    // A view at its end stays there while rows and memory cards lay out, so
+    // the newest card shows whole; a view the user scrolled up stays put.
+    property bool atEnd: true
+    Connections {
+        target: layout.scrollArea
+        function onContentYChanged() {
+            const view = layout.scrollArea;
+            root.atEnd = view.contentY >= view.contentHeight - view.height - 1;
+        }
+        function onContentHeightChanged() { if (root.atEnd) Qt.callLater(root.followEnd); }
+    }
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
     implicitHeight: Math.floor(Math.min(Theme.size.panel.maxHeight, OverlayState.room(screen).height))
     focus: true
