@@ -452,6 +452,11 @@ for share_mode in dark light; do
     rest_pointer || fail "share-picker: parking pointer failed"
     shot "$share_mode-$share_tab" || fail "share-picker: After $share_mode $share_tab failed"
     if [[ $share_tab == area ]]; then
+      # The controls frame shows a slider moved, so it differs from the
+      # Area frame whatever else the output draws: shot refuses a frame
+      # that matches the one before it.
+      share_args setRegion '{"args":["x",64]}'
+      expect_poll "$share_mode Area's left slider moves its region edge" 64 share_region_x
       share_area_check
       shot "$share_mode-area-controls" || fail "share-picker: After $share_mode Area controls failed"
     fi
