@@ -1356,11 +1356,19 @@ capture_pills() {
   python3 -c 'import json,sys; t=sys.argv[2]; rows=[] if t == "absent" else json.loads(t); r=next((r for r in rows if r["app"] == "Capture" and r["summary"] == sys.argv[1] and r["origin"] == "live"), None); print("none" if r is None else json.dumps([r["key"], [a["label"] for a in r["actions"]]]))' "$1" "$rows"
 }
 capture_labels() { capture_pills "$1" | py_reply 'import json,sys; t=sys.stdin.read().strip(); print("none" if t == "none" else json.dumps(json.loads(t)[1]))'; }
-capture_choose() { # SUMMARY CHOICE
+# capture_key SUMMARY: the key of the Capture toast on screen with SUMMARY,
+# from the service's own rows, or none. A summoned panel's first rows
+# reading can come before its rows, so a choice keyed by it chose nothing.
+capture_key() { ipc smoke modelRows vgs.notifications rows key,app,summary,leaving | py_reply 'import json,sys; print(next((k for k, a, s, l in json.load(sys.stdin) if a == "Capture" and s == sys.argv[1] and l == ""), "none"))' "$1"; }
+# capture_choose SUMMARY CHOICE: the service's reply to CHOICE on that
+# toast. An action or an open answers `kept`: the toast leaves into the
+# history, which the panel lists.
+capture_choose() {
   local key
-  key="$(capture_pills "$1" | py_reply 'import json,sys; print(json.load(sys.stdin)[0])')" || return 1
+  key="$(capture_key "$1")" || return 1
   ipc smoke invokeInstance service vgs.notifications chooseFromPanel "$(python3 -c 'import json,sys; print(json.dumps({"key": sys.argv[1], "choice": sys.argv[2]}))' "$key" "$2")"
 }
+capture_choose_unshown() { capture_choose "Screenshot unshown" action:edit; }
 capture_opened() { python3 -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); print(json.dumps([json.loads(l) for l in p.read_text().splitlines()][-1] if p.exists() else None))' "$capture_open/$1.calls"; }
 capture_held_count() { ipc vgs.notifications invoke status '' | py_reply 'import json,sys; print(json.load(sys.stdin)["held"])'; }
 # capture_notify_left: the notify-send processes on the sandbox's session
@@ -1390,18 +1398,19 @@ capture_quiet "screenshot notification"
 expect "a screenshot for its notification" ok ipc vgs.capture invoke screenshot ''
 expect_poll "the screenshot for its notification finishes" idle capture_phase
 expect_poll "the saved screenshot offers Open, Edit and Dismiss" '["Open", "Edit", "Dismiss"]' capture_labels "Screenshot saved"
-expect "Edit is chosen on the screenshot's notification" left capture_choose "Screenshot saved" action:edit
+expect "control: a choice keyed to no toast on screen fails the Edit reading" False capture_is capture_choose_unshown kept
+expect "Edit is chosen on the screenshot's notification" kept capture_choose "Screenshot saved" action:edit
 expect_poll "Edit hands the editor the saved file" "$(python3 -c 'import json,sys; print(json.dumps(["--filename", sys.argv[1], "--output-filename", sys.argv[1]]))' "$(capture_path)")" capture_opened editor
 capture_quiet "screenshot click"
 expect "a screenshot for a click on its notification" ok ipc vgs.capture invoke screenshot ''
 expect_poll "the clicked screenshot finishes" idle capture_phase
 expect_poll "the clicked screenshot's notification shows" '["Open", "Edit", "Dismiss"]' capture_labels "Screenshot saved"
-expect "a click opens the screenshot's notification" left capture_choose "Screenshot saved" open
+expect "a click opens the screenshot's notification" kept capture_choose "Screenshot saved" open
 expect_poll "a click hands the viewer the saved file" "$(capture_words "$(capture_path)")" capture_opened viewer
 capture_quiet "recording notification"
 capture_record record-output "notification"
 expect_poll "the saved recording offers Open and Dismiss" '["Open", "Dismiss"]' capture_labels "Recording saved"
-expect "Open is chosen on the recording's notification" left capture_choose "Recording saved" action:default
+expect "Open is chosen on the recording's notification" kept capture_choose "Recording saved" action:default
 expect_poll "Open hands the player the saved file last" "$(capture_words "$(capture_path)")" capture_opened player
 expect "the recording's link is on the clipboard" True capture_uri
 capture_quiet "text notification"
