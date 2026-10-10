@@ -69,7 +69,7 @@ world(() => {
                 shipped(folder);
                 assert.equal(fs.readFileSync(path.join(folder, "skills/base/jarvis/persona.md")).length <= 3072, true, "the persona's bound");
                 assert.deepEqual(Home.skills(folder).skills.map(skill => skill.topic), ["base/jarvis", ...REFERENCES]);
-                assert.match(Home.skill(folder, REFERENCES[0], 16384).text, /^# /, "a reference reads by its topic");
+                assert.match(Home.skill(folder, REFERENCES[0]), /^# /, "a reference reads by its topic");
             }
         },
         // A folder that already holds files keeps every byte of them, a
@@ -238,6 +238,10 @@ world(() => {
             write("own/empty-folder/readme.md", "no skill\n");
             write("own/bad dir/SKILL.md", "no skill\n");
             write("own/beta/references/one.md", "# One reference\nONE-BODY\n");
+            // A reference is read on demand: no size bound holds it back.
+            const long = "# Long reference\n" + "long line\n".repeat(4096);
+            assert.ok(Buffer.byteLength(long) > 40 * 1024);
+            write("own/beta/references/long.md", long);
             write("own/beta/references/bad name.md", "no skill\n");
             write("own/beta/references/notes.txt", "no skill\n");
             write("own/empty-folder/references/orphan.md", "no skill\n");
@@ -254,18 +258,19 @@ world(() => {
                 { topic: "base/gamma", file: "skills/base/gamma.md", line: "Gamma first line" },
                 { topic: "own/alpha", file: "skills/own/alpha.md", line: "Alpha skill" },
                 { topic: "own/beta", file: "skills/own/beta/SKILL.md", line: "Load for beta work." },
+                { topic: "own/beta/long", file: "skills/own/beta/references/long.md", line: "Long reference" },
                 { topic: "own/beta/one", file: "skills/own/beta/references/one.md", line: "One reference" },
                 { topic: "own/delta", file: "skills/own/delta.md", line: "" },
                 { topic: "own/epsilon", file: "skills/own/epsilon.md", line: "Epsilon first line" },
                 { topic: "own/eta", file: "skills/own/eta.md", line: "Eta first line" },
                 { topic: "own/zeta", file: "skills/own/zeta/SKILL.md", line: "Zeta" }] });
-            assert.deepEqual(Home.skill(folder, "own/alpha", 64), { kind: "text", text: "\n# Alpha skill\nbody\n" });
-            assert.equal(Home.skill(folder, "own/beta", 128).text.includes("# Beta"), true, "a folder's SKILL.md is its body");
-            assert.deepEqual(Home.skill(folder, "own/beta/one", 64), { kind: "text", text: "# One reference\nONE-BODY\n" });
-            assert.deepEqual(Home.skill(folder, "own/alpha", 8), { kind: "too-large" });
+            assert.equal(Home.skill(folder, "own/alpha"), "\n# Alpha skill\nbody\n");
+            assert.equal(Home.skill(folder, "own/beta").includes("# Beta"), true, "a folder's SKILL.md is its body");
+            assert.equal(Home.skill(folder, "own/beta/one"), "# One reference\nONE-BODY\n");
+            assert.equal(Home.skill(folder, "own/beta/long"), long, "a 40 KB reference reads whole");
             for (const [topic, cause] of [["own/missing", "absent"], ["own/../../secret", "absent"], ["other/alpha", "absent"],
                 ["own/linked", "link"], ["own/linked-folder", "link"], ["own/beta/two", "absent"]])
-                keyed(() => Home.skill(folder, topic, 64), cause, topic);
+                keyed(() => Home.skill(folder, topic), cause, topic);
             // A set past its entry bound answers incomplete, never a part as the whole.
             for (let index = 0; index < 257; index++) write("base/s" + index + ".md", "x\n");
             assert.equal(Home.skills(folder).complete, false);
@@ -301,7 +306,7 @@ world(() => {
         ["path-bound", " || Buffer.byteLength(file) > PATH_BYTES", "", "resolves"],
         ["control-characters", ' || /[\\x00-\\x1f\\x7f]/.test(named)', "", "resolves"],
         ["open-entry", 'const OPEN = "state";', 'const OPEN = "skills";', "resolves"],
-        ["read-bound", 'if (content.length > limit) return { kind: "too-large" };', "", "reads"],
+        ["read-bound", 'if (limit !== null && content.length > limit) return { kind: "too-large" };', "", "reads"],
         ["read-utf8", '{ kind: "text", text: new TextDecoder("utf-8", { fatal: true })', '{ kind: "text", text: new TextDecoder("utf-8", { fatal: false })', "reads"],
         ["read-kind", 'if (!fs.fstatSync(fd).isFile()) fail("kind");', "", "reads"],
         ["read-link", [['if (kind === "absent" || kind === "link") fail(kind);', 'if (kind === "absent") fail(kind);'],
@@ -309,7 +314,8 @@ world(() => {
         ["skill-name", " && Tools.homeTopic(topic) !== null)", ")", "skills"],
         ["folder-name", "if (Tools.homeTopic(topic) === null) continue;\n            // An entry", "// An entry", "skills"],
         ["reference-topics", '            flat(references, topic + "/", inside);\n', "", "empty"],
-        ["reference-read", 'if (named.reference !== null) return read(home, base + "/references/" + named.reference + ".md", limit);', "", "skills"],
+        ["reference-read", 'if (named.reference !== null) return whole(base + "/references/" + named.reference + ".md");', "", "skills"],
+        ["skill-whole", "const whole = file => read(home, file, null).text;", "const whole = file => read(home, file, 16384).text;", "skills"],
         ["skill-description", 'if (value !== "" && !BLOCK_SCALAR.test(value)) return value.slice(0, LINE_CHARS);', "", "skills"],
         ["skill-folded", " && !BLOCK_SCALAR.test(value)", "", "skills"],
         ["skill-folded-marks", "const BLOCK_SCALAR = /^[>|][-+1-9]{0,2}$/;", "const BLOCK_SCALAR = /^[>|]$/;", "skills"],

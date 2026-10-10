@@ -9,8 +9,6 @@ const Tools = require("./Tools.js");
 const Home = require("./Home.js");
 const ROOT = path.join(__dirname, "skills/computer");
 const LIMIT = 8192;
-// A home skill may fill the router's whole result (ToolRouter RESULT_BYTES).
-const SKILL_LIMIT = 16 * 1024;
 /**
  * create(root, browser, home) builds the guidance executor. home() answers
  * the home folder's path, or null while none is usable.
@@ -45,10 +43,9 @@ function create(root = ROOT, browser = null, home = () => null) {
                 if (Tools.homeTopic(topic) !== null) {
                     const folder = home();
                     if (folder === null) throw new Error("help-topic-unavailable");
-                    const body = Home.skill(folder, topic, SKILL_LIMIT);
-                    if (body.kind !== "text") throw new Error("help-file-too-large");
-                    if (body.text.trim() === "") throw new Error("help-file-empty");
-                    done({ outcome: "completed", content: body.text.trim() });
+                    const text = Home.skill(folder, topic).trim();
+                    if (text === "") throw new Error("help-file-empty");
+                    done({ outcome: "completed", content: text });
                     return;
                 }
                 if (!shipped.includes(topic)) throw new Error("help-topic-unavailable");

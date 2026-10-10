@@ -229,9 +229,10 @@ function within(home, entry, flags, act) {
     } finally { fs.closeSync(fd); }
 }
 
-// At most limit + 1 bytes of a regular file.
+// At most limit + 1 bytes of a regular file, or all of it where limit is null.
 function bytes(fd, limit) {
     if (!fs.fstatSync(fd).isFile()) fail("kind");
+    if (limit === null) return fs.readFileSync(fd);
     const buffer = Buffer.alloc(limit + 1);
     let size = 0;
     while (size < buffer.length) {
@@ -243,15 +244,16 @@ function bytes(fd, limit) {
 }
 
 /**
- * Read ENTRY of the home as UTF-8 text of at most LIMIT bytes:
- * {kind: "text", text}, or {kind: "too-large"}; never a cut text. Throws
- * jarvis: home=absent, link, kind, unreadable or text.
+ * Read ENTRY of the home as UTF-8 text of at most LIMIT bytes, or of any
+ * size where LIMIT is null: {kind: "text", text}, or {kind: "too-large"};
+ * never a cut text. Throws jarvis: home=absent, link, kind, unreadable or
+ * text.
  */
 function read(home, entry, limit) {
     // O_NONBLOCK: a FIFO in the file's place answers at once, as not a file.
     return within(home, entry, O_RDONLY | O_NONBLOCK, fd => {
         const content = bytes(fd, limit);
-        if (content.length > limit) return { kind: "too-large" };
+        if (limit !== null && content.length > limit) return { kind: "too-large" };
         try { return { kind: "text", text: new TextDecoder("utf-8", { fatal: true }).decode(content) }; }
         catch { return fail("text"); }
     });
@@ -352,18 +354,21 @@ function skills(home) {
 }
 
 /**
- * The body of the skill TOPIC names, as read() answers it. Throws
- * jarvis: home=absent for a topic the home does not hold.
+ * The whole text of the skill TOPIC names. A skill is read on demand, so no
+ * size bound applies; the bounds are on what every brain gets at its start.
+ * Throws as read() does, and jarvis: home=absent for a topic the home does
+ * not hold.
  */
-function skill(home, topic, limit) {
+function skill(home, topic) {
     const named = Tools.homeTopic(topic);
     if (named === null) fail("absent");
     const base = "skills/" + named.set + "/" + named.name;
-    if (named.reference !== null) return read(home, base + "/references/" + named.reference + ".md", limit);
-    try { return read(home, base + ".md", limit); }
+    const whole = file => read(home, file, null).text;
+    if (named.reference !== null) return whole(base + "/references/" + named.reference + ".md");
+    try { return whole(base + ".md"); }
     catch (error) {
         if (error.message !== "jarvis: home=absent") throw error;
-        return read(home, base + "/SKILL.md", limit);
+        return whole(base + "/SKILL.md");
     }
 }
 

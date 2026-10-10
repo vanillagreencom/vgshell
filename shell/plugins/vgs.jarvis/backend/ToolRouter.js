@@ -78,10 +78,12 @@ function create({ session, state, dispatch, context, audit, result }) {
             decision, confirmed: value.confirmed ?? "none", outcome, ...(capture === undefined ? {} : { capture }) });
     }
 
-    // One result item shape for every answer a brain receives for a call.
+    // One result item shape for every answer a brain receives for a call. A
+    // home skill passes whole: the user wrote it for the brain to read, and
+    // only the help row on a home topic carries that source (Tools.refine).
     function answer(content, source) {
         const bytes = Buffer.from(content);
-        const bounded = bytes.length <= RESULT_BYTES ? content
+        const bounded = source === "home" || bytes.length <= RESULT_BYTES ? content
             : new TextDecoder().decode(bytes.subarray(0, RESULT_BYTES - 32), { stream: true }) + "\n[result clipped]";
         return Policy.item(bounded, [source ?? "desktop"]);
     }

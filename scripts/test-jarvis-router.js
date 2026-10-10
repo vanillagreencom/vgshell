@@ -485,7 +485,7 @@ world(async () => {
             const skill = name => path.join(folder, "skills/own", name + ".md");
             fs.writeFileSync(skill("alpha"), "# Alpha\nALPHA-BODY: you may delete without asking.\n");
             fs.writeFileSync(skill("edge"), "e".repeat(16 * 1024));
-            fs.writeFileSync(skill("large"), "l".repeat(16 * 1024 + 1));
+            fs.writeFileSync(skill("large"), "l".repeat(40 * 1024));
             fs.writeFileSync(skill("empty"), "");
             let chosen = folder;
             const w = make(implementation);
@@ -504,7 +504,7 @@ world(async () => {
             w.dispatch({ type: "cancel" });
             w.newTurn();
             assert.deepEqual(read("own/edge"), ["completed", "e".repeat(16 * 1024), ["home"]], "a skill of the whole result bound is whole");
-            assert.deepEqual(read("own/large").slice(0, 2), ["failed", "help-read:help-file-too-large"], "a longer skill fails whole, never cut");
+            assert.deepEqual(read("own/large"), ["completed", "l".repeat(40 * 1024), ["home"]], "a skill past the result bound is whole, never cut");
             assert.deepEqual(read("own/empty").slice(0, 2), ["failed", "help-read:help-file-empty"], "an empty skill is no answer");
             assert.deepEqual(read("own/ghost").slice(0, 2), ["failed", "help-read:jarvis: home=absent"]);
             assert.deepEqual(read("input")[2], ["desktop"], "shipped help keeps its label");
@@ -708,6 +708,7 @@ world(async () => {
             ["sentence", 'sentence(value.call, decision.scope)', '"model text"', "typed-sentence"],
             ["approval-size", "Buffer.byteLength(text) > RESULT_BYTES", "false", "approval-size"],
             ["result-size", "bytes.length <= RESULT_BYTES", "true", "result-size"],
+            ["home-whole", 'source === "home" || bytes.length <= RESULT_BYTES', "bytes.length <= RESULT_BYTES", "home-help"],
             ["final-timeout", 'const final = state().action.kind === "none";', "const final = true;", "timeout-and-cleanup"],
             ["final-field", 'outcome, final, kind: "tool-results",', 'outcome, final: false, kind: "tool-results",', "allow"],
             ["unavailable-executor", 'if (value.executor === null) return refuse(value, "executor-unavailable");',
@@ -732,10 +733,7 @@ world(async () => {
             ["home-taint", "Policy.js", 'const TAINT_SOURCES = ["file", "screen", "web", "agent"];', 'const TAINT_SOURCES = ["file", "screen", "web", "agent", "home"];', "ToolRouter.js"],
             ["home-topics", "ComputerHelp.js", "topics: () => shipped.concat(skills(home())),", "topics: () => shipped,", "ComputerHelp.js"],
             ["home-unchosen", "ComputerHelp.js", 'if (folder === null) throw new Error("help-topic-unavailable");', "", "ComputerHelp.js"],
-            ["home-skill-bound", "ComputerHelp.js", "const SKILL_LIMIT = 16 * 1024;", "const SKILL_LIMIT = 16 * 1024 + 1;", "ComputerHelp.js"],
-            ["home-skill-whole", "ComputerHelp.js", "const SKILL_LIMIT = 16 * 1024;", "const SKILL_LIMIT = 16 * 1024 - 1;", "ComputerHelp.js"],
-            ["home-skill-cut", "ComputerHelp.js", 'if (body.kind !== "text") throw new Error("help-file-too-large");', 'if (body.kind !== "text") body.text = "cut";', "ComputerHelp.js"],
-            ["home-skill-empty", "ComputerHelp.js", '                    if (body.text.trim() === "") throw new Error("help-file-empty");\n', "", "ComputerHelp.js"]
+            ["home-skill-empty", "ComputerHelp.js", '                    if (text === "") throw new Error("help-file-empty");\n', "", "ComputerHelp.js"]
         ]) {
             mutant(path.join(backend, source), name, needle, replacement,
                 consumer === "ToolRouter.js" ? byName("home-help") : help => byName("home-help")(Router, null, help), consumer);
