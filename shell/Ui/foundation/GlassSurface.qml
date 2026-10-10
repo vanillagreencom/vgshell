@@ -12,14 +12,16 @@ import qs.Commons
 // curve. The compositor blurs what is behind it when a layer rule asks it
 // to, which reaches only what lies under the surface's own window: glass
 // is `drawn` where it is `on` and nothing its window draws lies under it.
-// While not `drawn`, it draws `standard`, the surface's own look without
-// glass: a token group's `background` and `border` at its `radius`, the
-// raised surface's unless the surface hands its own, such as
-// `Theme.popover`, with no shadow, sheen or hairline. `optIn` is the
-// surface's own VGlass choice; the user's Appearance values decide `on`
-// from it (ThemeLogic.glassOn). `follow` lays it under another item, taking
-// that item's geometry, opacity, scale and transform origin. Children go
-// into the clipped body, above the sheen and below the hairline.
+// Glass that is `on` but not drawn is `solid`: the same fill at full
+// opacity, corner and hairline, with no shadow or sheen. While glass is
+// off, it draws `standard`, the surface's own look without glass: a token
+// group's `background` and `border` at its `radius`, the raised surface's
+// unless the surface hands its own, such as `Theme.popover`, with no
+// shadow, sheen or hairline. `optIn` is the surface's own VGlass choice;
+// the user's Appearance values decide `on` from it (ThemeLogic.glassOn).
+// `follow` lays it under another item, taking that item's geometry,
+// opacity, scale and transform origin. Children go into the clipped body,
+// above the sheen and below the hairline.
 Item {
     id: glass
 
@@ -29,10 +31,14 @@ Item {
     // transparent, as every VGS layer and popup is, and over nothing that
     // window draws (overContent). Under a surface drawn over its window's own
     // content, a dialog inline in a page, a menu over a glass card or a card
-    // in an application window, that content shows through unblurred, so
-    // such a surface draws its standard look. `on` comes first, so a surface
-    // without glass reads none of its window's items.
+    // in an application window, that content would show through unblurred.
+    // `on` comes first, so a surface without glass reads none of its
+    // window's items.
     readonly property bool drawn: on && Window.window !== null && Window.window.color.a === 0 && !overContent()
+    // Glass that is on but not drawn: its fill at full opacity hides the
+    // content under it, and every such surface draws the one glass material
+    // whatever `standard` it hands.
+    readonly property bool solid: on && !drawn
     // The markers overContent reads to find a GlassSurface among the items
     // under another, and Scrim.qml has its own `scrim`.
     readonly property bool glassSurface: true
@@ -51,10 +57,10 @@ Item {
     property Item follow: null
     property real padding: 0
     readonly property real contentInset: padding
-    // The corner the body rounds to: the handed radius as a real radius,
-    // which a pill-shaped radius larger than a side needs for the shadow,
-    // or the standard look's.
-    readonly property real corner: drawn ? Math.min(radius, width / 2, height / 2) : standard.radius
+    // The corner the body rounds to while glass is on: the handed radius
+    // as a real radius, which a pill-shaped radius larger than a side needs
+    // for the shadow; while it is off, the standard look's.
+    readonly property real corner: on ? Math.min(radius, width / 2, height / 2) : standard.radius
 
     // Whether this window draws something glass would show unblurred under
     // this surface. Walking from the surface up through its ancestors: an
@@ -118,7 +124,7 @@ Item {
         id: body
         anchors.fill: parent
         radius: glass.corner
-        color: glass.drawn ? glass.fill : glass.standard.background
+        color: glass.drawn ? glass.fill : glass.solid ? Theme.glassSolid(glass.fill) : glass.standard.background
         clip: true
 
         // Light falling on the top of the glass, fading out `sheenHeight`
@@ -141,7 +147,7 @@ Item {
         anchors.fill: parent
         radius: body.radius
         color: "transparent"
-        border.width: glass.drawn ? Theme.glass.glass.hairlineWidth : Theme.surface.border
-        border.color: glass.drawn ? Theme.glass.glass.hairline : glass.standard.border
+        border.width: glass.on ? Theme.glass.glass.hairlineWidth : Theme.surface.border
+        border.color: glass.on ? Theme.glass.glass.hairline : glass.standard.border
     }
 }

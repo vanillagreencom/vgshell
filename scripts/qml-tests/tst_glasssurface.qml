@@ -6,18 +6,21 @@ import qs.Unit
 
 // GlassSurface: with glass on it draws the shadow, the handed fill and
 // radius, the sheen and the hairline, from Theme.glass and the elevation it
-// is handed; with glass off it draws the standard look it is handed, the
-// raised surface's by default, and none of the glass. The surface's own
-// choice decides until the user's `glass` Appearance value turns glass on or
-// off everywhere, for the qs.Ui surfaces built on it too: a panel's Surface,
-// a LevelOsd and a Dialog. Glass is drawn only over nothing its own window
-// draws: a window whose colour is transparent, as every VGS layer and popup
-// is, no GlassSurface around it, and none or a Scrim over content painted
-// under it; the test window is made transparent before each test. The
-// groups below y 300 stand for the shell's callers: an inline dialog over
-// its page (clipboard, themes), a modal dialog in its own layer, a launcher
-// card with a flyout over it, cards side by side and a scrim shown only
-// while a dialog asks. `follow` lays it under another item. Expected
+// is handed; with glass on over its window's own content, the same fill at
+// full opacity, radius and hairline; with glass off it draws the standard
+// look it is handed, the raised surface's by default, and none of the
+// glass. The surface's own choice decides until the user's `glass`
+// Appearance value turns glass on or off everywhere, for the qs.Ui surfaces
+// built on it too: a panel's Surface, a LevelOsd and a Dialog. Glass is
+// drawn only over nothing its own window draws: a window whose colour is
+// transparent, as every VGS layer and popup is, no GlassSurface around it,
+// and none or a Scrim over content painted under it; the test window is
+// made transparent before each test. The groups below y 300 stand for the
+// shell's callers: an inline dialog over its page (clipboard, themes), a
+// modal dialog in its own layer, a launcher card with a flyout over it,
+// cards side by side, a scrim shown only while a dialog asks, and a menu
+// and a dialog of different standard looks over content. `follow` lays it
+// under another item. Expected
 // values are worked by hand from Glass.js and Tokens.js, never read from
 // Theme: the hairline is #e8e8e8 at alpha 0.09,
 // round(22.95) = 23 = 0x17; the tight shadow black at 0.45, round(114.75) =
@@ -125,6 +128,33 @@ Item {
         Dialog { id: askingDialog; anchors.centerIn: parent; width: 200; title: "Asking" }
     }
 
+    // A menu over a glass card, as the launcher's, and a dialog over a
+    // scrim over its page, as Settings', handing the same fill and radius
+    // and standard looks of other colours and corners.
+    Item {
+        x: 0; y: 1650; width: 400; height: 200
+        GlassSurface { id: menuCard; x: 0; y: 0; width: 180; height: 200; optIn: true }
+        GlassSurface {
+            id: menuOver
+            x: 20; y: 20; width: 120; height: 80
+            fill: "#99d0c8b8"
+            radius: 14
+            standard: ({ background: "#edeadf", border: "#c0b8a8", radius: 0 })
+        }
+        Item {
+            x: 200; y: 0; width: 200; height: 200
+            Surface { anchors.fill: parent }
+            Scrim {}
+            GlassSurface {
+                id: dialogOver
+                x: 20; y: 20; width: 120; height: 80
+                fill: "#99d0c8b8"
+                radius: 14
+                standard: ({ background: "#ebebe8", border: "#a0a0a0", radius: 6 })
+            }
+        }
+    }
+
     TestCase {
         name: "glasssurface"
         when: windowShown
@@ -203,9 +233,10 @@ Item {
         }
 
         // Under glass on everywhere, a surface over its window's own
-        // content keeps its standard look: one inside another GlassSurface,
-        // and every one in a window whose colour is not transparent. Its
-        // `on` still answers the user's and its own choice.
+        // content draws its fill at full opacity with no shadow: one inside
+        // another GlassSurface, its default #cc101010 as #101010, and every
+        // one in a window whose colour is not transparent, #33445566 as
+        // #445566. Its `on` still answers the user's and its own choice.
         function test_glass_is_drawn_only_over_a_transparent_window() {
             Theme.appearanceInput = JSON.stringify({ glass: "on" });
             compare([outer.on, outer.drawn], [true, true]);
@@ -214,7 +245,8 @@ Item {
             compare(String(bodyOf(inner).color), "#101010");
             root.Window.window.color = "#ffffff";
             compare([chosen.on, chosen.drawn], [true, false]);
-            compare(String(bodyOf(chosen).color), "#101010");
+            verify(!shadowOf(chosen).visible);
+            compare(String(bodyOf(chosen).color), "#445566");
             root.Window.window.color = "transparent";
             verify(chosen.drawn);
             compare(String(bodyOf(chosen).color), "#33445566");
@@ -252,6 +284,29 @@ Item {
             verify(!asking.drawn, "shown");
             askingScrim.opacity = 0;
             verify(asking.drawn, "transparent");
+        }
+
+        // Under glass on everywhere, a surface over its window's own
+        // content draws one material whatever standard look it hands: the
+        // handed fill at full opacity, #99d0c8b8 as #d0c8b8, at its own
+        // radius under the hairline. With glass off the same two draw their
+        // own standard looks, which differ from it and from each other, so
+        // the comparison tells the glass from either look.
+        function test_glass_over_content_draws_one_material_whatever_standard() {
+            function look(surface) {
+                const edge = edgeOf(surface);
+                return [String(bodyOf(surface).color), bodyOf(surface).radius, edge.border.width, String(edge.border.color), edge.radius];
+            }
+            Theme.appearanceInput = JSON.stringify({ glass: "on" });
+            for (const [name, surface] of [["menu", menuOver], ["dialog", dialogOver]]) {
+                compare([surface.on, surface.drawn], [true, false], name);
+                verify(!shadowOf(surface).visible, name + " shadow");
+                verify(!sheenOf(surface).visible, name + " sheen");
+                compare(look(surface), ["#d0c8b8", 14, 1, "#17e8e8e8", 14], name);
+            }
+            Theme.appearanceInput = JSON.stringify({ glass: "off" });
+            compare(look(menuOver), ["#edeadf", 0, 1, "#c0b8a8", 0], "menu without glass");
+            compare(look(dialogOver), ["#ebebe8", 6, 1, "#a0a0a0", 6], "dialog without glass");
         }
 
         function test_the_default_fill_and_elevation() {

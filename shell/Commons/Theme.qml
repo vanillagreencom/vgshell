@@ -51,6 +51,11 @@ Singleton {
     function glassOn(optIn) {
         return ThemeLogic.glassOn(appearanceState.values, optIn);
     }
+    // The glass material drawn solid, for glass that is on where it cannot
+    // be drawn over what lies under it: the fill at full opacity.
+    function glassSolid(fill) {
+        return Qt.rgba(fill.r, fill.g, fill.b, 1);
+    }
 
     readonly property var scheme: published.scheme
     readonly property var palette: published.palette
