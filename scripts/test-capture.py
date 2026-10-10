@@ -21,7 +21,7 @@ import time
 REPO = Path(__file__).resolve().parent.parent
 HELPER = REPO / "shell/plugins/vgs.capture/helper/capture.py"
 FIXTURE = REPO / "scripts/smoke/fixtures/capture/tools.py"
-TOOLS = ("grim", "slurp", "hyprpicker", "tesseract", "wl-copy", "gpu-screen-recorder", "ffmpeg", "pw-dump")
+TOOLS = ("grim", "slurp", "hyprpicker", "hyprctl", "tesseract", "wl-copy", "gpu-screen-recorder", "ffmpeg", "pw-dump")
 
 
 def service_rectangles():
@@ -1330,6 +1330,7 @@ def main():
             ("text", "text", {}, None, "copied"),
             ("empty-text", "text", {"text": ""}, None, "error"),
             ("freeze-failure", "screenshot-area", {"fail": "hyprpicker"}, None, "error"),
+            ("late-freeze-failure", "screenshot-area", {"fail": "hyprpicker", "failAfter": 0.5}, None, "error"),
             ("selection-failure", "text", {"fail": "slurp"}, None, "error"),
             ("grim-failure", "screenshot", {"fail": "grim"}, None, "error"),
             ("clipboard-failure", "screenshot", {"fail": "wl-copy"}, None, "error"),
@@ -1347,7 +1348,7 @@ def main():
             assert not alive(root, "slurp") and not alive(root, "hyprpicker"), (name, "selector or freeze left running")
             if name in cancels:
                 assert not (root / "pictures").exists() and not (root / "videos").exists() and (root / "clipboard").read_bytes() == b"previous clipboard", name
-            if name == "freeze-failure":
+            if name in ("freeze-failure", "late-freeze-failure"):
                 assert "hyprpicker exited 1: fixture failure" in messages[-1]["message"] and not any(c["tool"] == "slurp" for c in calls(root))
             if name == "text":
                 assert (root / "clipboard").read_bytes() == b"Nested capture text"
@@ -1422,16 +1423,23 @@ def main():
             payload["output"] = output
             holds = record_holds(root, payload, helper) if action == "record" else screenshot_holds(root, payload, helper, dimensions)
             assert not holds, f"control did not fail: {name}"
-        for name, before, after, check in [
-            ("inherited-stdin", 'kwargs.setdefault("stdin", subprocess.DEVNULL)', 'pass', lambda root, helper: area_holds(root, request(root, "screenshot-area"), helper)),
-            ("kept-freeze", "            self.stop(freeze)\n", "            pass\n", lambda root, helper: freeze_released_holds(root, request(root, "screenshot-area"), config, helper)),
+        def late_freeze_failure_holds(root, helper):
+            """A freeze that fails after 0.5 s is an error, and no selector starts."""
+            code, messages, err = worker(root, request(root, "screenshot-area"), helper)
+            return code == 1 and messages[-1:] and messages[-1]["event"] == "error" and not tool_calls(root, "slurp") and not (root / "pictures").exists()
+        for name, before, after, check, extra in [
+            ("inherited-stdin", 'kwargs.setdefault("stdin", subprocess.DEVNULL)', 'pass', lambda root, helper: area_holds(root, request(root, "screenshot-area"), helper), {}),
+            ("kept-freeze", "            self.stop(freeze)\n", "            pass\n", lambda root, helper: freeze_released_holds(root, request(root, "screenshot-area"), config, helper), {"clipboardHold": True}),
+            # The fixed wait this judge replaced.
+            ("slept-freeze", "            self.frozen(freeze)\n", "            time.sleep(0.1)\n            if freeze.poll() is not None:\n                raise RuntimeError('hyprpicker exited')\n",
+             late_freeze_failure_holds, {"fail": "hyprpicker", "failAfter": 0.5}),
         ]:
             assert source.count(before) == 1, name
             changed = source.replace(before, after)
             assert changed != source
             helper = base / f"{name}.py"
             helper.write_text(changed)
-            root = world(name, clipboardHold=name == "kept-freeze")
+            root = world(name, **extra)
             assert not check(root, helper), f"control did not fail: {name}"
         root = world("xdg")
         dirs = root / "home/.config"
@@ -1479,7 +1487,7 @@ def main():
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
     if unmeasured is None:
         recording_controls += ",no-trim"
-    controls = ("undrawn-windows,drawn-window-delegate,model-windows,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,settle-ignores-cancel,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
+    controls = ("undrawn-windows,drawn-window-delegate,model-windows,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,slept-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,settle-ignores-cancel,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
     if unmeasured is not None:
         # The rest passed, but the real post-process could not run: not a pass.
         print(f"test-capture: status=not-measured cause={unmeasured}; controls={controls}")

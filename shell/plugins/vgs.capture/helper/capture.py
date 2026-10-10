@@ -53,6 +53,9 @@ class CaptureFailure(RuntimeError):
 # without the pointer, -z and -d draw no lens or colour preview into the frame
 # the capture reads.
 FREEZE = ["hyprpicker", "-r", "-z", "-d", "-q"]
+# How long hyprpicker may take to map its layer on every output before the
+# freeze counts as failed.
+FREEZE_TIMEOUT = 10
 # slurp's default wash, white at 25%, shows on a dark desktop where a dark dim
 # does not: on host cachy on 2026-10-04 grim read DP-1's mean level 16 -> 76
 # under the default and 14 -> 8 under -b #00000066.
@@ -170,12 +173,7 @@ class Capture:
         freeze = self.spawn(FREEZE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         ended = False
         try:
-            # A layer maps above the layers mapped before it. hyprpicker maps
-            # within 4 ms (hyprctl layers poll, host cachy, 2026-10-04), and
-            # slurp must map after it to stay on top and receive input.
-            time.sleep(0.1)
-            if freeze.poll() is not None:
-                raise RuntimeError(f"hyprpicker exited {freeze.returncode}: {freeze.communicate()[1].decode(errors='replace').strip()}")
+            self.frozen(freeze)
             boxes = None
             args = list(SELECT)
             mode = None
@@ -215,6 +213,28 @@ class Capture:
             self.stop(freeze)
             if request is not None and not ended:
                 emit("selection-ended")
+
+    def frozen(self, freeze):
+        """Return once FREEZE's layer is mapped on every output.
+
+        A layer maps above the layers mapped before it, so slurp must map
+        after the freeze to stay on top and receive input. hyprpicker maps
+        within 4 ms (hyprctl layers poll, host cachy, 2026-10-04), but a
+        loaded machine can delay both its map and its failure, so only
+        Hyprland's layer list or hyprpicker's exit decides.
+        """
+        deadline = time.monotonic() + FREEZE_TIMEOUT
+        while True:
+            outputs = json.loads(self.run(["hyprctl", "-j", "layers"], timeout=FREEZE_TIMEOUT, stdout=subprocess.PIPE, stderr=subprocess.PIPE))
+            # Read after the layers, so a freeze that mapped and then exited
+            # is a failure.
+            if freeze.poll() is not None:
+                raise RuntimeError(f"hyprpicker exited {freeze.returncode}: {freeze.communicate()[1].decode(errors='replace').strip()}")
+            if outputs and all(any(layer["pid"] == freeze.pid for layers in output["levels"].values() for layer in layers) for output in outputs.values()):
+                return
+            if time.monotonic() >= deadline:
+                raise CaptureFailure("timeout", "hyprpicker did not freeze the screen")
+            time.sleep(0.01)
 
     def pick(self, argv, boxes=None, notify=True):
         if boxes is None:

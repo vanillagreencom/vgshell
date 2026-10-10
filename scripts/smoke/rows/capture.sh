@@ -19,8 +19,10 @@ capture_real_slurp="$(command -v slurp)" || { fail "capture: slurp is unavailabl
 capture_real_picker="$(command -v hyprpicker)" || { fail "capture: hyprpicker is unavailable"; return 0; }
 cp -- "$home/.config/vgshell/shell.json" "$capture_saved"
 mkdir -p "$capture_state/saved-shims"
-for capture_tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
-  if [[ -e $shim/$capture_tool ]]; then mv -- "$shim/$capture_tool" "$capture_state/saved-shims/$capture_tool"; fi
+# The shell runs hyprctl through its shim all the row, so each stand-in
+# replaces a saved shim by rename, never leaving a gap.
+for capture_tool in grim slurp hyprpicker hyprctl tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
+  if [[ -e $shim/$capture_tool ]]; then cp -P -- "$shim/$capture_tool" "$capture_state/saved-shims/$capture_tool"; fi
 done
 python3 - "$source_repo/scripts/test-capture.py" "$capture_state" "$shim" "$capture_real_grim" "$nested_socket" "$rt_dir" <<'PY'
 import importlib.util, json, os, sys
@@ -28,9 +30,10 @@ source, state, shim, grim, display, runtime = sys.argv[1:]
 spec = importlib.util.spec_from_file_location("capture_test", source)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-module.plant(module.Path(state), {"real": {"grim": grim}, "display": display, "runtime": runtime, "clipboardHold": True})
+module.plant(module.Path(state), {"real": {"grim": grim}, "hyprctl": os.path.join(state, "saved-shims", "hyprctl"), "display": display, "runtime": runtime, "clipboardHold": True})
 for tool in module.TOOLS:
-    os.symlink(os.path.join(state, "bin", tool), os.path.join(shim, tool))
+    os.symlink(os.path.join(state, "bin", tool), os.path.join(shim, tool + ".next"))
+    os.replace(os.path.join(shim, tool + ".next"), os.path.join(shim, tool))
 PY
 capture_read() { ipc smoke readInstance service vgs.capture "$1"; }
 capture_phase() { capture_read phase | py_reply 'import json,sys; print(json.load(sys.stdin))'; }
@@ -1663,9 +1666,8 @@ expect_poll "disabled capture releases its service" False record_exists vgs.capt
 expect_poll "disabling capture ends a held selection's selector and freeze" 0 capture_left
 expect_poll "disabled capture releases its status" null capture_status
 expect_poll "disabling capture releases all owned clipboard providers" True capture_released
-for capture_tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
-  rm -f -- "${shim:?}/$capture_tool"
-  if [[ -e $capture_state/saved-shims/$capture_tool ]]; then mv -- "$capture_state/saved-shims/$capture_tool" "$shim/$capture_tool"; fi
+for capture_tool in grim slurp hyprpicker hyprctl tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
+  if [[ -e $capture_state/saved-shims/$capture_tool ]]; then mv -fT -- "$capture_state/saved-shims/$capture_tool" "${shim:?}/$capture_tool"; else rm -f -- "${shim:?}/$capture_tool"; fi
 done
 cp -- "$capture_saved" "$home/.config/vgshell/shell.json.next" && mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
 rescan "the capture fixture cleanup is rescanned"

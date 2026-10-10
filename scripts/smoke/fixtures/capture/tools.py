@@ -4,7 +4,11 @@ forward to the real tool on a nested socket.
 
 The fixture config names allowed display/runtime, geometry, text and failures.
 Each tool writes `<tool>-pid-<pid>` before it runs, so a check can read
-whether that process is still alive.
+whether that process is still alive. A failing tool fails after `failAfter`
+seconds. hyprpicker writes `hyprpicker-mapped-<pid>` once it holds the
+freeze; while hyprpicker is a stand-in, `hyprctl -j layers` lists one output
+with the layers of the live mapped stand-ins. Every other hyprctl call goes
+to the real `hyprctl` the config names, unlogged, so the shell keeps its own.
 slurp reads stdin to EOF when it is not a terminal, as the real slurp does.
 The recorder logs its start and output name, then writes `finalized`, or
 copies the fixture's `video`, only after SIGINT, never on a hard stop.
@@ -36,16 +40,39 @@ THUMBNAIL = bytes.fromhex(
 root = Path(os.environ["VGS_CAPTURE_FIXTURE"])
 tool = os.environ["VGS_CAPTURE_TOOL"]
 config = json.loads((root / "config.json").read_text())
+
+
+def nested():
+    if os.environ.get("WAYLAND_DISPLAY") != config["display"] or os.environ.get("XDG_RUNTIME_DIR") != config["runtime"]:
+        sys.exit("capture-fixture: refused non-nested socket")
+
+
+if tool == "hyprctl":
+    if sys.argv[1:] == ["-j", "layers"] and "hyprpicker" not in config.get("real", {}):
+        layers = []
+        for marker in root.glob("hyprpicker-mapped-*"):
+            pid = int(marker.name.removeprefix("hyprpicker-mapped-"))
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                continue
+            layers.append({"namespace": "hyprpicker", "pid": pid})
+        print(json.dumps({"NESTED": {"levels": {"3": layers}}}))
+        sys.exit(0)
+    if "hyprctl" not in config:
+        sys.exit("capture-fixture: no real hyprctl")
+    nested()
+    os.execv(config["hyprctl"], [config["hyprctl"], *sys.argv[1:]])
 with (root / "calls.jsonl").open("a") as log:
     log.write(json.dumps({"tool": tool, "args": sys.argv[1:]}) + "\n")
 (root / f"{tool}-pid-{os.getpid()}").touch()
 if config.get("fail") == tool:
+    time.sleep(config.get("failAfter", 0))
     print("fixture failure", file=sys.stderr)
     sys.exit(1)
 real = config.get("real", {}).get(tool)
 if real:
-    if os.environ.get("WAYLAND_DISPLAY") != config["display"] or os.environ.get("XDG_RUNTIME_DIR") != config["runtime"]:
-        sys.exit("capture-fixture: refused non-nested socket")
+    nested()
     os.execv(real, [real, *sys.argv[1:]])
 match tool:
     case "slurp":
@@ -73,6 +100,7 @@ match tool:
             sys.exit(1)
         print(config.get("geometry", "10,20 80x60"))
     case "hyprpicker":
+        (root / f"hyprpicker-mapped-{os.getpid()}").touch()
         signal.pause()
     case "grim":
         if config.get("grimHold"):
