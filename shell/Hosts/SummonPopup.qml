@@ -19,7 +19,7 @@ PopupWindow {
     readonly property bool returnFocusWasVisual: !!(request && request.returnFocusWasVisual)
     property bool closing: false
     property real motionProgress: 0
-    readonly property real cardOpacity: sized.opacity
+    readonly property real cardOpacity: card.opacity
     readonly property real cardTranslateY: cardOffset.y
     signal built(var instance)
     signal dismissed()
@@ -158,59 +158,72 @@ PopupWindow {
         onStopped: if (dismissAfter && popup.closing && popup.motionProgress === 0) popup.finishDismiss()
     }
 
-    SurfaceHeight {
-        id: sized
-        room: Math.min(popup.roomBelow(), popup.room.height)
-        target: slot.instance ? Math.max(1, Math.min(slot.instance.implicitHeight, sized.room > 0 ? sized.room : popup.room.height)) : 1
+    // The card fades as one image. Qt applies an item's opacity to each
+    // child on its own, so a plugin's opaque fill over its card's fill let
+    // the faded card show through it and stood out lighter mid-motion; a
+    // layer draws the subtree at full opacity, then fades that texture
+    // (Qt 6 Item, "Layer Opacity vs Item Opacity"). The layer covers the
+    // window, not the card, so a glass shadow past the card's edge fades
+    // with it. It exists only while the card moves.
+    Item {
+        id: card
+        anchors.fill: parent
         opacity: popup.motionProgress
+        layer.enabled: popup.motionProgress < 1
         transform: Translate {
             id: cardOffset
             y: -Theme.motion.flyout.slide * (1 - popup.motionProgress)
         }
 
-        PluginSlot {
-            id: slot
-            kind: popup.kind
-            pluginId: popup.pluginId
-            hostKey: popup.kind
-            settingsPage: Registry.settingsPageOf(popup.kind, popup.pluginId)
-            screen: popup.screen
-            closeOnUnload: true
-            anchors.fill: parent
-            // The slot gives its focus to the key sink below while the card
-            // closes, and a reopen takes it back with the focus the plugin
-            // had inside it.
-            focus: !popup.closing
-            Keys.onEscapePressed: popup.requestDismiss()
-            onBuilt: instance => {
-                popup.built(instance);
-                slot.focusInitial();
+        SurfaceHeight {
+            id: sized
+            room: Math.min(popup.roomBelow(), popup.room.height)
+            target: slot.instance ? Math.max(1, Math.min(slot.instance.implicitHeight, sized.room > 0 ? sized.room : popup.room.height)) : 1
+
+            PluginSlot {
+                id: slot
+                kind: popup.kind
+                pluginId: popup.pluginId
+                hostKey: popup.kind
+                settingsPage: Registry.settingsPageOf(popup.kind, popup.pluginId)
+                screen: popup.screen
+                closeOnUnload: true
+                anchors.fill: parent
+                // The slot gives its focus to the key sink below while the card
+                // closes, and a reopen takes it back with the focus the plugin
+                // had inside it.
+                focus: !popup.closing
+                Keys.onEscapePressed: popup.requestDismiss()
+                onBuilt: instance => {
+                    popup.built(instance);
+                    slot.focusInitial();
+                }
+                onBuildFailed: key => popup.requestDismiss()
             }
-            onBuildFailed: key => popup.requestDismiss()
-        }
 
-        // A closing card takes no key: the sink holds the focus and accepts
-        // every key. Without it Tab would focus a control in the card, since
-        // Qt's tab chain enters any enabled item and the card stays enabled.
-        Item {
-            focus: popup.closing
-            Keys.onPressed: event => event.accepted = true
-        }
+            // A closing card takes no key: the sink holds the focus and accepts
+            // every key. Without it Tab would focus a control in the card, since
+            // Qt's tab chain enters any enabled item and the card stays enabled.
+            Item {
+                focus: popup.closing
+                Keys.onPressed: event => event.accepted = true
+            }
 
-        // A closing card takes no press or wheel, and stays enabled: every
-        // qs.Ui control draws its disabled look from `enabled`. A pointer
-        // handler under this area is still offered the press. Hidden, it
-        // still makes Qt skip the card's children for a press outside the
-        // card: Qt 6.11 QQuickItemPrivate::effectivelyClipsEventHandlingChildren
-        // reads a child's accepted buttons, not its visibility, and keeps
-        // the last child's answer. Outside the card is outside the mask.
-        // keyboard-path: none, as this blocks input and takes no action
-        // pointer-cursor-exempt: it covers a closing card, not a control
-        MouseArea {
-            anchors.fill: parent
-            visible: popup.closing
-            acceptedButtons: Qt.AllButtons
-            onWheel: wheel => wheel.accepted = true
+            // A closing card takes no press or wheel, and stays enabled: every
+            // qs.Ui control draws its disabled look from `enabled`. A pointer
+            // handler under this area is still offered the press. Hidden, it
+            // still makes Qt skip the card's children for a press outside the
+            // card: Qt 6.11 QQuickItemPrivate::effectivelyClipsEventHandlingChildren
+            // reads a child's accepted buttons, not its visibility, and keeps
+            // the last child's answer. Outside the card is outside the mask.
+            // keyboard-path: none, as this blocks input and takes no action
+            // pointer-cursor-exempt: it covers a closing card, not a control
+            MouseArea {
+                anchors.fill: parent
+                visible: popup.closing
+                acceptedButtons: Qt.AllButtons
+                onWheel: wheel => wheel.accepted = true
+            }
         }
     }
 }

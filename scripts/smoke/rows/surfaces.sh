@@ -79,6 +79,23 @@ insert = '''    Rectangle {
 '''
 assert text.count(marker) == 1, "the menu anchor container must occur once"
 text = text.replace(marker, insert + marker, 1)
+# The swatch is an opaque white fill with an opaque white child over its
+# right half, as a chip sits on a card. Faded as one image, both halves
+# match mid-close; faded item by item, the child's half is lighter.
+insert = '''    Rectangle {
+        id: smokeSwatch
+        x: 164
+        y: 4
+        width: 32
+        height: 60
+        color: "#ffffff"
+        Rectangle { x: 16; width: 16; height: 60; color: "#ffffff" }
+    }
+'''
+text = text.replace(marker, insert + marker, 1)
+marker = "    function smokeButtonGeometry() {"
+assert text.count(marker) == 1, "smokeButtonGeometry must occur once"
+text = text.replace(marker, "    function smokeSwatchGeometry() { const p = smokeSwatch.mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, smokeSwatch.width, smokeSwatch.height]); }\n" + marker, 1)
 path.write_text(text)
 PYEDIT
 respaced() { "$@" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
@@ -164,6 +181,8 @@ summon_copy="$repo/shell/Hosts/SummonPopupNoGrab.qml"
 summon_no_commit="$repo/shell/Hosts/SummonPopupNoCommit.qml"
 summon_input_copy="$repo/shell/Hosts/SummonPopupInputEnabled.qml"
 summon_mask_copy="$repo/shell/Hosts/SummonPopupItemMask.qml"
+summon_fade_copy="$repo/shell/Hosts/SummonPopupFadeHeld.qml"
+summon_fade_control="$repo/shell/Hosts/SummonPopupItemFade.qml"
 layer_copy="$repo/shell/Hosts/SummonLayerNoCatch.qml"
 python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_noescape" <<'PYEDIT'
 import pathlib, sys
@@ -222,6 +241,21 @@ text = source.read_text()
 old = "    mask: Region { x: sized.x; y: sized.y; width: Math.ceil(sized.width); height: Math.ceil(sized.height) }\n"
 assert text.count(old) == 1, "the SummonPopup card mask must occur once"
 target.write_text(text.replace(old, "    mask: Region { item: sized }\n"))
+PYEDIT
+# The fade copies stop a real close half way, so a frame reads the card at
+# one known progress. The control fades the card item by item, as before
+# the layer.
+python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_fade_copy" "$summon_fade_control" <<'PYEDIT'
+import pathlib, sys
+source, held, control = (pathlib.Path(arg) for arg in sys.argv[1:4])
+text = source.read_text()
+marker = "    function finishDismiss() {\n"
+assert text.count(marker) == 1, "the SummonPopup finishDismiss function must occur once"
+text = text.replace(marker, "    function holdHalfway() { requestDismiss(); flyoutMotion.stop(); motionProgress = 0.5; }\n\n" + marker, 1)
+held.write_text(text)
+old = "        layer.enabled: popup.motionProgress < 1\n"
+assert text.count(old) == 1, "the SummonPopup card layer must occur once"
+control.write_text(text.replace(old, ""))
 PYEDIT
 python3 - "$repo/shell/Hosts/SummonLayer.qml" "$layer_copy" <<'PYEDIT'
 import pathlib, sys
@@ -539,6 +573,43 @@ moving = 0 < progress < 1 and 0 <= opacity < 1 and y < 0
 print("moving" if moving else "progress=%.3f opacity=%.3f y=%.3f" % (progress, opacity, y))
 PY
 }
+# popup_swatch_fade: the fixture swatch in one frame of the screen, read
+# on its middle row: `rest` while its fill still reads white, `one` when
+# its two halves match, else `patch` with both colours.
+popup_swatch_fade() {
+  local box socket frame="$sandbox/surfaces-swatch.ppm"
+  box="$(ipc smoke invokeInstance panel acme.surfaces smokeSwatchGeometry '')" || return 1
+  socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return 1
+  shot_grim "$socket" "$rt_dir" -o "$screen_name" -t ppm "$frame" || return 1
+  python3 - "$frame" "$box" <<'PY'
+import json, sys
+head = open(sys.argv[1], "rb").read().split(b"\n", 3)
+if len(head) != 4 or head[0] != b"P6" or head[2] != b"255":
+    print("unreadable")
+    sys.exit()
+w, h = map(int, head[1].split())
+try:
+    x, y, bw, bh = json.loads(sys.argv[2])
+except Exception:
+    print("swatch=%s" % sys.argv[2])
+    sys.exit()
+row = int(y + bh / 2)
+def at(cx):
+    i = (row * w + int(cx)) * 3
+    return tuple(head[3][i:i + 3])
+if not (0 <= row < h and 0 <= x and x + bw < w) or len(head[3]) != w * h * 3:
+    print("swatch=%s frame=%dx%d" % (sys.argv[2], w, h))
+    sys.exit()
+left, right = at(x + bw / 4), at(x + 3 * bw / 4)
+if min(left) >= 250:
+    print("rest")
+elif max(abs(a - b) for a, b in zip(left, right)) <= 3:
+    print("one")
+else:
+    print("patch left=#%02x%02x%02x right=#%02x%02x%02x" % (left + right))
+PY
+}
+popup_swatch_patch() { local state; state="$(popup_swatch_fade)" || return 1; [[ $state == patch* ]] && echo patch || echo "$state"; }
 install_tail_widget() {
   local tail="$home/.config/vgshell/plugins/acme.surfaces-tail"
   mkdir -p "$tail"
@@ -798,6 +869,24 @@ expect "the item-mask copy's bottom-edge marker press is sent" ok popup_marker_p
 expect_poll "control: a mask mapped through the slide dismisses the card on a bottom-edge press" false ipc smoke popupRead summon-mask-control visible
 expect "the probe drops the item-mask copy" ok ipc smoke popupDrop summon-mask-control
 expect_poll "the item-mask copy's panel leaves the build records" absent ipc smoke readInstance panel acme.surfaces opened
+# A card stopped half way through its close fades as one image: the
+# swatch's white child matches the white fill under it. The control, faded
+# item by item, shows the child lighter, as the light theme's chips were.
+for fade in "summon-fade:$summon_fade_copy:one:popup_swatch_fade" "summon-fade-control:$summon_fade_control:patch:popup_swatch_patch"; do
+  IFS=: read -r fade_name fade_file fade_want fade_read <<<"$fade"
+  expect "the probe builds the $fade_name copy" ok ipc smoke popupLoad "$fade_name" "$fade_file" "bar:$screen_name" acme.surfaces '{"pluginId":"acme.surfaces","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
+  expect "the $fade_name copy's panel takes a payload" '' ipc smoke invokeInstance panel acme.surfaces open '{}'
+  expect_poll "the $fade_name copy reaches rest" rest popup_motion_state "$fade_name"
+  render expect_poll "the $fade_name copy's swatch reads white at rest" rest popup_swatch_fade
+  expect "the $fade_name copy stops its close half way" ok ipc smoke popupCall "$fade_name" holdHalfway
+  expect "the $fade_name copy holds its close at progress 0.5" 0.5 ipc smoke popupRead "$fade_name" motionProgress
+  [[ $fade_want == one ]] && fade_label="half way through the close, the swatch's child fades with its fill" || fade_label="control: faded item by item, the swatch's child stands lighter than its fill"
+  render expect_poll "$fade_label" "$fade_want" "$fade_read"
+  expect "the $fade_name copy finishes its close" ok ipc smoke popupCall "$fade_name" finishDismiss
+  expect_poll "the $fade_name copy releases its popup" false ipc smoke popupRead "$fade_name" visible
+  expect "the probe drops the $fade_name copy" ok ipc smoke popupDrop "$fade_name"
+  expect_poll "the $fade_name copy's panel leaves the build records" absent ipc smoke readInstance panel acme.surfaces opened
+done
 printf '%s\n' '{"schemaVersion":1,"name":"surface-motion-off","tokens":{"motion":{"scale":0}}}' >"$surface_motion_theme.tmp"
 mv -T -- "$surface_motion_theme.tmp" "$surface_motion_theme"
 expect_poll "motion scale 0 stills the flyout duration" 0 ipc smoke themeValue motion.flyout.travel.duration
