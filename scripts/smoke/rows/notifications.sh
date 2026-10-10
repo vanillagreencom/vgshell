@@ -2633,8 +2633,12 @@ expect_poll "control: a page that draws its keys on Details draws no token line 
 settings_details
 expect_poll "control: that page draws the token lines on Details" "$(want_rows drawn "$control_items")" drawn_token_row
 settings_press --type IconButton "Change key" StatusLine "Acme Corp (acme)" || fail "control: the click on the copy's Change key failed"
-sleep 1 # The real Change key opens its field within one poll, 200 ms.
-expect "control: a Change key that opens nothing leaves no field" '[[]]' row_inputs
+change_key_control() {
+  (failures=0 behaviour_failures=0
+   expect_poll "Change key opens one masked field on the stored line" '[["TextField"]]' row_inputs >"$sandbox/notifications-change-key-control.log"
+   echo "$failures")
+}
+expect "control: a Change key that opens nothing fails the field reading" 1 change_key_control
 expect "the Settings window closes after the placement control" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone after the placement control" 0 window_count Plugins
 rm -rf -- "${keys_copy:?}"
