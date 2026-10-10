@@ -527,6 +527,9 @@ world(async () => {
             assert.deepEqual(status.brains.filter(choice => choice.value.startsWith(pi.id)), []);
             assert.deepEqual(judge.choose(pi.id + "/stub/stub-1"), { kind: "refused", cause: "pi-update" });
             assert.deepEqual(read("pi-calls").map(call => call.args), [["--version"], ["--version"], ["--version"]], "no Pi RPC program starts");
+            // A version the choice cannot read leaves the turn to report its own failure.
+            scenario({ version: "pi 1.1.0" });
+            assert.equal(judge.choose(pi.id + "/stub/stub-1").kind, "accepted");
         },
         // No credential crosses from Pi into Jarvis: the key planted in Pi's
         // own setup and the daemon's environment, which the stand-in puts in
@@ -637,8 +640,8 @@ world(async () => {
             ["floor", H, [['if (part < floor[i]) fail("update need=" + FLOOR);', ""]], "floor"],
             ["floor-read", H, [["    version(env);\n    let session = null;", "    let session = null;"]], "floor"],
             ["version-scrub", H, [["{ env: childEnvironment(env),\n", "{ env,\n"]], "credential"],
-            ["choice-floor", A, [["try { PiHarness.version(this.env); } catch (error) {", "try { } catch (error) {"]], "floor"],
-            ["choice-update", A, [['/^jarvis: brain=pi-update /.test(error.message) ? "pi-update" : "account-unavailable"', '"account-unavailable"']], "floor"],
+            ["choice-floor", A, [["try { PiHarness.version(this.env, CHOOSE_STATUS_MS); } catch (error) {", "try { } catch (error) {"]], "floor"],
+            ["choice-update", A, [["if (/^jarvis: brain=pi-update /.test(error.message)) return", "if (true) return"]], "floor"],
             ["account-update", A, [['update: item.state.kind === "unavailable" && item.state.reason === "pi-update" }', "update: false }"]], "floor"]
         ]) {
             await variant(relative, edits, folder => CASES[row](folder));

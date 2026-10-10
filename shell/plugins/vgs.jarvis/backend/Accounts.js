@@ -561,9 +561,11 @@ class Accounts {
      * answer. A subscription's login is its vendor status command's answer
      * through cliAccount, bounded by CHOOSE_STATUS_MS, once per engine
      * configure, each hello; an absent folder is account-unavailable. Pi
-     * has no status command: its version is read instead, refused
-     * pi-update below the Pi brain's floor and account-unavailable when it
-     * cannot be read. No other account runs a command or reads a port here.
+     * has no status command: its version is read instead, under the same
+     * bound, and refused pi-update below the Pi brain's floor; a version it
+     * cannot read leaves the turn to report its own failure, as a status
+     * command's timeout does. No other account runs a command or reads a
+     * port here.
      */
     choose(id) {
         const resolved = this.resolve(id);
@@ -571,8 +573,8 @@ class Accounts {
         const account = this.cliAccount({ provider: resolved.provider, directory: resolved.source.directory, label: resolved.label }, CHOOSE_STATUS_MS);
         if (account === null) return accepted(null, null);
         if (resolved.provider === "pi") {
-            try { PiHarness.version(this.env); } catch (error) {
-                return { kind: "refused", cause: /^jarvis: brain=pi-update /.test(error.message) ? "pi-update" : "account-unavailable" };
+            try { PiHarness.version(this.env, CHOOSE_STATUS_MS); } catch (error) {
+                if (/^jarvis: brain=pi-update /.test(error.message)) return { kind: "refused", cause: "pi-update" };
             }
         }
         return accepted(resolved, account.state.kind);

@@ -51,13 +51,13 @@ const PROBE_INSTRUCTIONS = "Answer in one word.";
 function fail(code) { throw new Error("jarvis: brain=pi-" + code); }
 
 /**
- * The installed Pi's version, refused as pi-update below FLOOR. Synchronous:
- * the engine's account choice reads it inside its one blocking judgement.
- * Setpriv exits 127 when it finds no pi to run.
+ * The installed Pi's version, refused as pi-update below FLOOR, bounded by
+ * timeout. Synchronous: the engine's account choice reads it inside its one
+ * blocking judgement. Setpriv exits 127 when it finds no pi to run.
  */
-function version(env) {
+function version(env, timeout = VERSION_MS) {
     const result = cp.spawnSync("setpriv", ["--pdeathsig", "KILL", "--", "pi", "--version"], { env: childEnvironment(env),
-        stdio: ["ignore", "pipe", "ignore"], encoding: "utf8", timeout: VERSION_MS, maxBuffer: 1024 });
+        stdio: ["ignore", "pipe", "ignore"], encoding: "utf8", timeout, maxBuffer: 1024 });
     if (result.error) fail("version cause=" + (result.error.code ?? "unknown"));
     if (result.status !== 0) fail("exited code=" + result.status + " signal=" + result.signal);
     const found = /^(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.+-]*)?\s*$/.exec(result.stdout);
