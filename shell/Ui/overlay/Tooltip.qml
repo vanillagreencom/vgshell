@@ -101,12 +101,10 @@ Item {
                 top: Theme.tooltip.paddingY
             }
 
-            Rectangle {
+            GlassSurface {
                 anchors.fill: parent
-                radius: Theme.tooltip.radius
-                color: Theme.tooltip.background
-                border.width: Theme.border.thin
-                border.color: Theme.tooltip.border
+                standard: Theme.tooltip
+                elevation: "tight"
             }
 
             Item {

@@ -6,10 +6,11 @@ import qs.Unit
 
 // GlassSurface: with glass on it draws the shadow, the handed fill and
 // radius, the sheen and the hairline, from Theme.glass and the elevation it
-// is handed; with glass off it draws the standard raised surface and none
-// of the glass. The surface's own choice decides until the user's `glass`
-// Appearance value turns glass on or off everywhere. `follow` lays it under
-// another item. Expected values are worked by hand from Glass.js and
+// is handed; with glass off it draws the standard look it is handed, the
+// raised surface's by default, and none of the glass. The surface's own
+// choice decides until the user's `glass` Appearance value turns glass on or
+// off everywhere, for the qs.Ui surfaces built on it too: a panel's Surface,
+// a LevelOsd and a Dialog. `follow` lays it under another item. Expected values are worked by hand from Glass.js and
 // Tokens.js, never read from Theme: the hairline is #e8e8e8 at alpha 0.09,
 // round(22.95) = 23 = 0x17; the tight shadow black at 0.45, round(114.75) =
 // 115 = 0x73; the wide one at 0.55, round(140.25) = 140 = 0x8c; the default
@@ -56,6 +57,16 @@ Item {
         id: unnamed
         optIn: true
     }
+
+    GlassSurface {
+        id: handed
+        x: 220; y: 10; width: 100; height: 60
+        standard: ({ background: "#203040", border: "#506070", radius: 7 })
+    }
+
+    Surface { id: panel; x: 220; y: 80; width: 100; height: 60 }
+    LevelOsd { id: osd; x: 220; y: 150; level: 0.5 }
+    Dialog { id: dialog; x: 10; y: 260; width: 200; title: "Glass" }
 
     TestCase {
         name: "glasssurface"
@@ -104,6 +115,31 @@ Item {
             compare([edge.border.width, String(edge.border.color)], [1, "#3a3a3b"]);
             compare(UnitTheme.override({ surface: { radius: 6 } }), "ok");
             compare([bodyOf(plain).radius, edgeOf(plain).radius], [6, 6]);
+        }
+
+        function test_without_glass_the_handed_standard_look() {
+            verify(!handed.on);
+            compare([String(bodyOf(handed).color), bodyOf(handed).radius], ["#203040", 7]);
+            compare([edgeOf(handed).border.width, String(edgeOf(handed).border.color), edgeOf(handed).radius], [1, "#506070", 7]);
+            // The glass takes the standard look's corner unless handed one.
+            compare(handed.radius, 7);
+        }
+
+        // Each qs.Ui surface built on GlassSurface asks the user's value
+        // with its own choice, none: unset keeps its look, `on` turns it to
+        // the default glass fill, `off` keeps it solid.
+        function test_the_user_glass_reaches_every_surface() {
+            const surfaces = [["panel", panel], ["osd", osd], ["dialog", dialog.children[0]]];
+            const rows = [["", false], [JSON.stringify({ glass: "on" }), true], [JSON.stringify({ glass: "off" }), false]];
+            for (const [input, on] of rows) {
+                Theme.appearanceInput = input;
+                for (const [name, surface] of surfaces) {
+                    compare(surface.on, on, name + " glass=" + input);
+                    compare(shadowOf(surface).visible, on, name + " shadow glass=" + input);
+                    if (on) compare(String(bodyOf(surface).color), "#cc101010", name + " fill");
+                    else verify(String(bodyOf(surface).color) !== "#cc101010", name + " stays solid");
+                }
+            }
         }
 
         function test_the_default_fill_and_elevation() {

@@ -15,16 +15,13 @@ Item {
 
     visible: shown
 
-    Rectangle {
+    GlassSurface {
         id: card
         anchors.horizontalCenter: parent.horizontalCenter
         y: Theme.dialog.margin
         width: Math.min(parent.width - 2 * Theme.dialog.margin, Theme.dialog.width)
         height: content.implicitHeight
-        radius: Theme.dialog.radius
-        color: Theme.dialog.background
-        border.width: Theme.border.thin
-        border.color: Theme.dialog.border
+        standard: Theme.dialog
 
         Pane {
             id: content

@@ -10,9 +10,10 @@ import qs.Commons
 // corner: `clip` cuts only to the bounding box, and a layer of another size
 // rounds to another corner that shows past the surface's curve. The
 // compositor blurs what is behind it when a layer rule asks it to. While
-// not `on`, it draws the standard treatment every surface without glass
-// takes: the raised surface's background and border at the surface radius,
-// with no shadow, sheen or hairline. `optIn` is the surface's own VGlass
+// not `on`, it draws `standard`, the surface's own look without glass: a
+// token group's `background` and `border` at its `radius`, the raised
+// surface's unless the surface hands its own, such as `Theme.popover`, with
+// no shadow, sheen or hairline. `optIn` is the surface's own VGlass
 // choice; the user's Appearance values decide `on` from it
 // (ThemeLogic.glassOn). `follow` lays it under another item, taking that
 // item's geometry, opacity, scale and transform origin. Children go into
@@ -24,7 +25,8 @@ Item {
     readonly property bool on: Theme.glassOn(optIn)
     default property alias content: body.data
     property color fill: Theme.glass.glass.fill
-    property real radius: Theme.surface.radius
+    property var standard: ({ background: Theme.surface.level.raised.background, border: Theme.surface.level.raised.border, radius: Theme.surface.radius })
+    property real radius: standard.radius
     // `wide` for a large card, `tight` for a small transient surface: a
     // group of `Theme.glass.shadow`. One the table lacks is logged and
     // drawn as wide.
@@ -38,8 +40,8 @@ Item {
     readonly property real contentInset: padding
     // The corner the body rounds to: the handed radius as a real radius,
     // which a pill-shaped radius larger than a side needs for the shadow,
-    // or the standard surface's.
-    readonly property real corner: on ? Math.min(radius, width / 2, height / 2) : Theme.surface.radius
+    // or the standard look's.
+    readonly property real corner: on ? Math.min(radius, width / 2, height / 2) : standard.radius
 
     function shadowOf(name) {
         const found = Theme.glass.shadow[name];
@@ -70,8 +72,8 @@ Item {
     Rectangle {
         id: body
         anchors.fill: parent
-        radius: glass.on ? glass.radius : Theme.surface.radius
-        color: glass.on ? glass.fill : Theme.surface.level.raised.background
+        radius: glass.corner
+        color: glass.on ? glass.fill : glass.standard.background
         clip: true
 
         // Light falling on the top of the glass, fading out `sheenHeight`
@@ -95,6 +97,6 @@ Item {
         radius: body.radius
         color: "transparent"
         border.width: glass.on ? Theme.glass.glass.hairlineWidth : Theme.surface.border
-        border.color: glass.on ? Theme.glass.glass.hairline : Theme.surface.level.raised.border
+        border.color: glass.on ? Theme.glass.glass.hairline : glass.standard.border
     }
 }

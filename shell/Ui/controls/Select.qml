@@ -177,12 +177,10 @@ T.AbstractButton {
             popup: list
             anchor: root
 
-            Rectangle {
+            GlassSurface {
                 anchors.fill: parent
-                radius: Theme.menu.radius
-                color: Theme.menu.background
-                border.width: Theme.border.thin
-                border.color: Theme.menu.border
+                standard: Theme.menu
+                elevation: "tight"
             }
 
             ListView {

@@ -65,6 +65,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 
 - Do give every input a minimum and maximum width from theme tokens. Enforce these bounds in `qs.Ui` components and the shared form row. Wide windows keep controls on the value column's start edge. Never set a width limit in a page or plugin.
 - Do compose `qs.Ui` components, and never write a private control for something a component draws. Review holds it.
+- Do draw a surface's background, a panel's, a flyout's, a popover's, a menu's, a tooltip's, a dialog's or an OSD's, with `Surface` or `GlassSurface`, handing it the surface's own token group as `standard`, so the user's `glass` value reaches it. `glass-bypass` in `scripts/check-design-tokens.py` refuses a background read of such a group outside it.
 - Do add a new component to the Gallery in the same change, in every variant and state, with a focus example for a focusable control. `scripts/smoke/rows/gallery.sh` refuses a component `qmldir` lists that the Gallery lacks, and a missing focus example.
 - Never give a decorative component, such as `VoiceOrb` or `QrMatrix`, a pointer handler, a process, a file, a cache or a secret store, so a passive layer that draws it stays input-free ([D026](../decisions/D026-passive-layers-are-a-capability.md)). `scripts/qml-tests/tst_voiceorb.qml` and `tst_qrmatrix.qml` pin it.
 

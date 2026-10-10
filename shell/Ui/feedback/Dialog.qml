@@ -233,12 +233,9 @@ FocusScope {
         onActivated: root.cycle(-1)
     }
 
-    Rectangle {
+    GlassSurface {
         anchors.fill: parent
-        radius: Theme.dialog.radius
-        color: Theme.dialog.background
-        border.width: Theme.border.thin
-        border.color: Theme.dialog.border
+        standard: Theme.dialog
 
         // pointer-cursor-exempt: the card's empty space, not a control
         // keyboard-path: the card takes no action; its actions take Tab, Enter and Escape

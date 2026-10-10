@@ -189,12 +189,10 @@ Item {
                 event.accepted = nav.handle(event);
             }
 
-            Rectangle {
+            GlassSurface {
                 anchors.fill: parent
-                radius: Theme.menu.radius
-                color: Theme.menu.background
-                border.width: Theme.border.thin
-                border.color: Theme.menu.border
+                standard: Theme.menu
+                elevation: "tight"
             }
 
             // The entries span the list inside the border; the bar draws

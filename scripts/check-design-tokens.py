@@ -35,6 +35,16 @@ fixed geometry is what a placement row measures:
                      strokeWidth
   literal-opacity    a numeric literal other than 0 and 1 assigned to opacity
   literal-duration   a numeric literal assigned to a duration
+  glass-bypass       a `Theme.<group>.background` read where <group> is a
+                     surface's look some shipped file hands GlassSurface as
+                     `standard`, such as `popover`: a surface that draws its
+                     own background stays solid under the user's `glass: on`.
+                     The groups come from the shipped QML of shell/Ui,
+                     shell/Hosts and shell/plugins, never a second list, and
+                     a walk that finds none is unreadable. Not judged: a
+                     surface level, `Theme.surface.level.<level>.background`,
+                     which an application window draws under Hyprland's own
+                     window glass
 A value that is more than one literal, such as `2 * inset`, is layout and
 passes. Comments are blanked and strings kept, through scripts/qml_source.py.
 Appearance rules, on a plugin whose manifest declares `appearance` (each
@@ -168,6 +178,10 @@ METRIC_ASSIGNMENT = re.compile(ASSIGNMENT.format(names=METRIC_NAMES))
 OPACITY_ASSIGNMENT = re.compile(ASSIGNMENT.format(names="opacity"))
 DURATION_ASSIGNMENT = re.compile(ASSIGNMENT.format(names="duration"))
 IS_NUMBER = re.compile(r"^" + NUMBER + r"$")
+# A surface's look handed to GlassSurface, and a read of a group's
+# background.
+STANDARD_GROUP = re.compile(r"(?<![\w.])standard\s*:\s*Theme\.([A-Za-z_]\w*)\b(?!\s*\.)")
+GROUP_BACKGROUND = re.compile(r"(?<![\w.$])Theme\.([A-Za-z_]\w*)\.background\b")
 IS_PROPERTY_PATH = re.compile(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$")
 IS_LITERAL = re.compile(r"^(?:" + LITERAL + r")$")
 QUOTED = re.compile(r"^[\"']([^\"']*)[\"']$")
@@ -209,6 +223,19 @@ def literal_findings(line, tokens=("Theme.",)):
         if IS_NUMBER.match(m.group(2).strip()):
             out.append(("literal-duration", m.group(1) + ": " + m.group(2).strip()))
     return out
+
+
+def standard_groups(repo):
+    """Every token group a shipped file hands GlassSurface as its
+    `standard` look."""
+    shell = os.path.join(repo, "shell")
+    groups = set()
+    for tree in ("Ui", "Hosts", "plugins"):
+        for _path, _number, line in source_lines(os.path.join(shell, tree)):
+            groups.update(STANDARD_GROUP.findall(line))
+    if not groups:
+        raise Unreadable(shell, "no file hands GlassSurface a standard look; the surface scan is broken")
+    return groups
 
 
 def unknown_prefix(dotted, paths, leaves):
@@ -340,7 +367,7 @@ def look_of(looks, path):
     return None
 
 
-def check_tree(root, table, literal, looks, findings, notices):
+def check_tree(root, table, literal, looks, surfaces, findings, notices):
     """Check every source file under `root`; answer the file count."""
     files = set()
     for path, text in source_texts(root):
@@ -374,6 +401,9 @@ def check_tree(root, table, literal, looks, findings, notices):
                     findings.append(f"look-unknown {path}:{number} look.{unknown}")
         if literal is None or (look is not None and path == look.file):
             continue
+        for m in GROUP_BACKGROUND.finditer(line):
+            if m.group(1) in surfaces:
+                (findings if literal == "finding" else notices).append(f"glass-bypass {path}:{number} Theme.{m.group(1)}.background")
         for rule, detail in literal_findings(line, ("Theme.",) if look is None else ("Theme.", "look.")):
             (findings if literal == "finding" else notices).append(f"{rule} {path}:{number} {detail}")
     if not files:
@@ -402,12 +432,13 @@ def main(argv):
     files = 0
     try:
         table = Table(repo)
+        surfaces = standard_groups(repo)
         for group in table.unpublished:
             findings.append(f"group-unpublished {table.theme}:{table.members_line} {group}")
         for refusal in table.glass_refusals:
             findings.append(f"appearance-refused {table.glass_file}:1 {refusal}")
         for root, literal, plugins in trees:
-            files += check_tree(root, table, literal, plugin_looks(repo, root, plugins), findings, notices)
+            files += check_tree(root, table, literal, plugin_looks(repo, root, plugins), surfaces, findings, notices)
     except Unreadable as exc:
         print(f"check-design-tokens: unreadable: {exc.path}: {exc.strerror}")
         return 2

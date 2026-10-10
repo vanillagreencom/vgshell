@@ -26,7 +26,10 @@ Item {
         name: "levelosd"
         when: windowShown
 
-        function partsOf(item) { return item.children[0].children; }
+        // The row sits in the body of the GlassSurface the card is, after
+        // its sheen; the edge above it draws the border.
+        function bodyOf(item) { return item.children[1]; }
+        function partsOf(item) { return bodyOf(item).children[1].children; }
         function iconOf(item) { return partsOf(item)[0]; }
         function barOf(item) { return partsOf(item)[1]; }
         function labelOf(item) { return partsOf(item)[2].children[1]; }
@@ -48,9 +51,9 @@ Item {
             compare(osd.height, 2 * Theme.osd.padding + partsOf(osd)[2].height);
             for (const part of [icon, bar])
                 fuzzyCompare(part.mapToItem(osd, 0, part.height / 2).y, osd.height / 2, 1);
-            compare(String(osd.color), String(Qt.color(Theme.osd.background)));
-            compare(String(osd.border.color), String(Qt.color(Theme.osd.border)));
-            compare(osd.radius, Theme.osd.radius);
+            compare(String(bodyOf(osd).color), String(Qt.color(Theme.osd.background)));
+            compare(String(osd.children[2].border.color), String(Qt.color(Theme.osd.border)));
+            compare(bodyOf(osd).radius, Theme.osd.radius);
         }
 
         function test_the_bar_fills_to_the_held_level() {

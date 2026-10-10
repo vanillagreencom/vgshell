@@ -79,12 +79,10 @@ Item {
             popup: window
             anchor: root.anchorItem
 
-            Rectangle {
+            GlassSurface {
                 anchors.fill: parent
-                radius: Theme.popover.radius
-                color: Theme.popover.background
-                border.width: Theme.border.thin
-                border.color: Theme.popover.border
+                standard: Theme.popover
+                elevation: "tight"
             }
 
             Pane {

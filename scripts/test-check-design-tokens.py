@@ -30,7 +30,9 @@ TREES = ("shell/Ui", "shell/Hosts", "shell/plugins/acme.widget", ".agents/skills
 # file per tree. Counted from the two lists above, so a file added to
 # SHIPPED moves every row's count at once.
 FIXTURE_FILES = sum(1 for f in SHIPPED if f.startswith("shell/") and f.endswith((".qml", ".js"))) + len(TREES)
-CLEAN = "import QtQuick\nimport qs.Commons\nItem {\n    color: Theme.color.surface\n    radius: Theme.radius.md\n    width: 2 * Theme.space.md\n}\n"
+# Each clean file hands GlassSurface the popover's look, so `popover` is a
+# surface's group in every fixture.
+CLEAN = "import QtQuick\nimport qs.Commons\nItem {\n    color: Theme.color.surface\n    radius: Theme.radius.md\n    width: 2 * Theme.space.md\n    standard: Theme.popover\n}\n"
 WIDGET_MANIFEST = '{"schemaVersion": 1, "id": "acme.widget", "name": "Widget", "version": "1", "author": "a", "description": "d", "kinds": ["service"], "entryPoints": {"service": "Clean.qml"}}'
 UI = "shell/Ui/Thing.qml"
 
@@ -100,6 +102,13 @@ ROWS = [
     ("a literal in a skill template is a finding", ".agents/skills/vgs-plugin/templates/Thing.qml", "Rectangle { radius: 4 }\n", "literal-radius"),
     ("a literal in the core is not a finding", "shell/Core/Thing.qml", 'QtObject { property color c: "#fff"; property int radius: 4 }\n', None),
     ("a literal in a smoke fixture is not a finding", "scripts/smoke/fixtures/plugins/acme.probe/Wide.qml", "Item { implicitWidth: 10; radius: 4 }\n", None),
+    ("a surface's background drawn outside GlassSurface", UI, "Rectangle { color: Theme.popover.background }\n", "glass-bypass"),
+    ("a surface's background in a shipped plugin", "shell/plugins/acme.widget/Card.qml", "Rectangle { color: Theme.popover.background }\n", "glass-bypass"),
+    ("a group handed as a look by the planted file", UI, "Item { GlassSurface { standard: Theme.tooltip } Rectangle { color: Theme.tooltip.background } }\n", "glass-bypass"),
+    ("a surface's look handed to GlassSurface is not a finding", UI, "GlassSurface { standard: Theme.tooltip }\n", None),
+    ("the background of a group no surface hands GlassSurface is not a finding", UI, "Rectangle { color: Theme.card.background }\n", None),
+    ("a surface level's background is not a finding", UI, "Rectangle { color: Theme.surface.level.raised.background }\n", None),
+    ("a surface's background in the core is not a finding", "shell/Core/Thing.qml", "QtObject { property color c: Theme.popover.background }\n", None),
 ]
 
 
@@ -271,6 +280,19 @@ def main():
                 fh.write(text)
         proc = run_check(root, look)
         results.append(report("a refused appearance in a checked plugin directory is a finding and a literal a notice", proc.returncode == 1 and keys_of(proc) == {"appearance-refused"} and any(line.startswith("notice literal-metric ") for line in proc.stdout.splitlines()), proc))
+    with tempfile.TemporaryDirectory() as tmp:
+        root = build_repo(tmp)
+        for tree in TREES:
+            with open(os.path.join(root, tree, "Clean.qml"), "w", encoding="utf-8") as fh:
+                fh.write(CLEAN.replace("    standard: Theme.popover\n", ""))
+        proc = run_check(root)
+        results.append(report("a repository where no file hands GlassSurface a look exits 2", proc.returncode == 2 and proc.stdout.startswith(f"check-design-tokens: unreadable: {root}/shell: no file hands GlassSurface"), proc))
+        plugin = os.path.join(tmp, "acme.other")
+        os.makedirs(plugin)
+        with open(os.path.join(plugin, "Widget.qml"), "w", encoding="utf-8") as fh:
+            fh.write("Rectangle { color: Theme.popover.background }\n")
+        proc = run_check(build_repo(os.path.join(tmp, "second")), plugin)
+        results.append(report("a surface's background in a checked plugin directory is a notice", proc.returncode == 0 and proc.stdout.splitlines()[0].startswith(f"notice glass-bypass {plugin}/Widget.qml:1 "), proc))
     proc = run_check("/nonexistent/repo")
     results.append(report("an unreadable repository exits 2", proc.returncode == 2 and proc.stdout.startswith("check-design-tokens: unreadable: "), proc))
     if all(results):

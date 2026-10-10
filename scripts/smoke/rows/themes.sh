@@ -195,7 +195,7 @@ expect "the vgs package is applied again" "unchanged unchanged vgs None" applied
 # removed, so later rows start from the defaults.
 # One example per section of the gallery: SECTION TYPE PROPERTY TOKEN.
 gallery_colours=(
-  "Surfaces Surface color surface.level.base.background"
+  "Surfaces Surface children.1.color surface.level.base.background"
   "Typography Label color text.display.color"
   "Buttons Button fill button.variant.primary.background"
   "Choices Switch indicator.color toggle.off"

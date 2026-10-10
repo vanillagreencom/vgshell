@@ -110,7 +110,10 @@ Item {
             outside.forceActiveFocus();
         }
 
-        function card(of) { return of.children[0]; }
+        // The card's GlassSurface: its body draws the fill, its edge the
+        // border.
+        function card(of) { return of.children[0].children[1]; }
+        function edge(of) { return of.children[0].children[2]; }
         function pane(of) { return of.children[1]; }
         function titleLabel(of) { return pane(of).children[0].children[0]; }
         function messageLabel(of) { return pane(of).children[0].children[4].contentItem.children[0]; }
@@ -123,7 +126,7 @@ Item {
         function test_draws_its_tokens() {
             compare(dialog.width, Theme.dialog.width);
             compare(String(card(dialog).color), String(Qt.color(Theme.dialog.background)));
-            compare(String(card(dialog).border.color), String(Qt.color(Theme.dialog.border)));
+            compare(String(edge(dialog).border.color), String(Qt.color(Theme.dialog.border)));
             compare(card(dialog).radius, Theme.dialog.radius);
             compare(pane(dialog).contentInset, Theme.dialog.padding);
             compare(pane(dialog).subtitleGap, Theme.row.lineGap);

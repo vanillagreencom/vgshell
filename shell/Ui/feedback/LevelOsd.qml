@@ -13,7 +13,7 @@ import qs.Ui
 // `osd.labelMaxWidth`, where the text elides, so the bar keeps its place
 // while the level changes. It takes no focus and no pointer input; the
 // layer that shows it places it.
-Rectangle {
+GlassSurface {
     id: root
 
     property string iconName: ""
@@ -23,10 +23,8 @@ Rectangle {
 
     implicitWidth: 2 * Theme.osd.padding + content.width
     implicitHeight: 2 * Theme.osd.padding + content.height
-    radius: Theme.osd.radius
-    color: Theme.osd.background
-    border.width: Theme.border.thin
-    border.color: Theme.osd.border
+    standard: Theme.osd
+    elevation: "tight"
     Accessible.role: Accessible.ProgressBar
     Accessible.name: text
 
