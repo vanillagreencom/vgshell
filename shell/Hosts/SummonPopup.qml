@@ -133,15 +133,12 @@ PopupWindow {
     // line is the validation rows' readback until then. A hidden anchor
     // closes the popup through its own close motion.
     readonly property AnchorTracker tracker: AnchorTracker {
-        popup: hostWindow
-        anchor: hostWindow.anchorItem
+        popup: popup
+        anchor: popup.anchorItem
         closeOnHide: false
-        onFollowed: console.info("summon popup: anchor updated for " + hostWindow.pluginId)
-        onAnchorHidden: hostWindow.requestDismiss()
+        onFollowed: console.info("summon popup: anchor updated for " + popup.pluginId)
+        onAnchorHidden: popup.requestDismiss()
     }
-    // The tracker's own `popup` property would shadow this window's id
-    // inside its block.
-    readonly property PopupWindow hostWindow: popup
 
     NumberAnimation {
         id: flyoutMotion

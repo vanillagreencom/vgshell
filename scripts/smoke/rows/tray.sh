@@ -30,7 +30,7 @@
 # apps, restores the user file and the theme file, reads the tray's
 # settings back, removes its copies and puts the pointer back.
 # This row has no latency ceiling; every reading polls through expect_poll.
-# inputs: shell/plugins/vgs.tray/* shell/plugins/vgs.bar/Bar.qml scripts/smoke/fixtures/tray/* scripts/smoke/fixtures/ai-usage/edit.py shell/Ui/BarWidget.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/controls/ToggleButton.qml shell/Ui/overlay/* shell/Ui/layout/SectionHeader.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Core/Capabilities.qml shell/Core/IpcRegistry.qml shell/Commons/Theme.qml shell/Commons/ThemeLogic.js
+# inputs: shell/plugins/vgs.tray/* shell/plugins/vgs.bar/Bar.qml scripts/smoke/fixtures/tray/* scripts/smoke/fixtures/ai-usage/edit.py shell/Ui/BarWidget.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/controls/ToggleButton.qml shell/Ui/overlay/* shell/Ui/layout/SectionHeader.qml shell/Ui/foundation/Divider.qml shell/Core/PluginLogic.js shell/Core/PluginStatus.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Core/Capabilities.qml shell/Core/IpcRegistry.qml shell/Commons/Theme.qml shell/Commons/ThemeLogic.js shell/Commons/AnchorTracker.qml
 set -euo pipefail
 tray_file="$home/.config/vgshell/shell.json"
 tray_saved="$sandbox/shell-before-tray.json"

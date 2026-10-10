@@ -7,7 +7,7 @@
 # card, and takes its window down when hidden. Summoned again, it
 # is read as every application window is (app_window_rows,
 # scripts/smoke/app-window.sh), ending closed by Escape.
-# inputs: shell/plugins/vgs.gallery/* shell/Ui/* shell/Core/Notifier.qml shell/plugins/vgs.notifications/* shell/Hosts/AppWindow.qml scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.gallery/* shell/Ui/* shell/Core/Notifier.qml shell/plugins/vgs.notifications/* shell/Hosts/AppWindow.qml scripts/smoke/rows/hyprland-consent.sh shell/Commons/AnchorTracker.qml
 set -euo pipefail
 expect "the gallery summons over IPC" ok ipc shell summon window vgs.gallery '{}'
 expect_poll "the gallery maps one window" 1 window_count "VGS Components"
