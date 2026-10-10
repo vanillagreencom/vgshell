@@ -231,18 +231,19 @@ FocusScope {
     }
 
     // Scroll the list so the row at `index` stands clear of both fades:
-    // its slot's top at or below the gutter, its bottom at or above the
+    // its slot's top at or below the top band, its bottom at or above the
     // bottom band, the top first when the row is taller than the room
-    // between them, inside the scroll's travel. Nothing lifts the fade
-    // from a selected card, so a reveal into the view alone, as KeyNav's,
-    // would leave it faded at an edge.
+    // between them, inside the scroll's travel. A band has no strength at
+    // the end the view rests at, so the first and last rows stand clear
+    // there. Nothing lifts the fade from a selected card, so a reveal into
+    // the view alone, as KeyNav's, would leave it faded at an edge.
     function revealRow(index) {
         const slot = rowRepeater.itemAt(index);
         if (slot === null) return;
         const view = listScroll.flickable;
         const top = slot.mapToItem(view.contentItem, 0, 0).y;
         const fromBottom = Math.max(view.contentY, top + slot.height - view.height + listScroll.fadeExtent);
-        const place = Math.min(fromBottom, top - listScroll.topGutter);
+        const place = Math.min(fromBottom, top - listScroll.fadeExtent);
         view.contentY = Math.max(0, Math.min(place, view.contentHeight - view.height));
     }
 
@@ -329,8 +330,8 @@ FocusScope {
 
     // The Pane keeps the header and its gutter; the list lies outside the
     // Pane's body, whose clip stops at the ring room above it, so the list's
-    // view starts at the header's bottom edge and its cards pass behind the
-    // header through the gutter.
+    // view starts at the header's bottom edge and its cards fade out as
+    // they pass behind the header.
     Pane {
         id: column
         anchors.fill: parent
@@ -338,7 +339,7 @@ FocusScope {
         padding: 0
         cornerRadius: 0
         // The gutter under the header is the shared sticky header region,
-        // `bodyGap`, which the list's top fade spans.
+        // `bodyGap`, which the list's first card starts below.
         gap: 0
 
         header: [

@@ -1816,7 +1816,7 @@ expect_poll "the restored notification service is built" True record_exists vgs.
 # it, every card inside the list and the panel across, the list from the
 # header's bottom edge, so its cards pass behind the header through the
 # gutter under it, the shared sticky header region, and the first card of
-# a list just opened below that gutter, clear of its fade. The list clips
+# a list just opened below that gutter. The list clips
 # its scrolling cards. The list reaches the panel bottom at every scroll.
 # No hint row remains.
 # panel_fit_value reads the panel box and full descendant geometry.
@@ -1880,8 +1880,8 @@ panel_fit() {
 # panel as it drew before its width followed its column; Appearance.js
 # `card.width`, `stack.pad`, `header.height`, `card.gap` and
 # `scrollbar.width` provide the planted dimensions. The second puts the
-# first card into the header; the third puts it in the gutter, inside the
-# list's top fade. The fourth starts the list below the gutter, where its
+# first card into the header; the third puts it in the gutter, above
+# where a list at rest starts. The fourth starts the list below the gutter, where its
 # cards cut off at its top edge rather than passing behind the header. A
 # reserved footer space must fail the bottom check.
 panel_fit_header_gap="$(( $(ipc smoke themeValue divider.thickness) + $(ipc smoke themeValue focusRing.width) + $(ipc smoke themeValue focusRing.offset) ))"
@@ -3267,26 +3267,6 @@ fade_active_faded_value() {
 s=json.load(sys.stdin)
 print(s["referenceInkPixels"]>0 and s["matchedInkPixels"]<s["referenceInkPixels"] and s["cardPixels"]>0 and s["matchedCardPixels"]<s["cardPixels"]*0.98)' <<<"$1"
 }
-# The gutter under the panel's header, the list's top band: the measured
-# header inset, then the divider's thickness and the shared focus-ring
-# room, as panel_fit_value reads it.
-note_panel_gutter() {
-  local panel items
-  panel="$(ipc smoke instanceGeometry panel vgs.notifications)" || return
-  items="$(ipc smoke descendantGeometry panel vgs.notifications)" || return
-  printf '%s\n%s\n' "$panel" "$items" | py_reply 'import json,sys
-lines=sys.stdin.read().splitlines()
-try:
-    py=json.loads(lines[0])[1]
-    header=next((i for i in json.loads(lines[1]) if i["type"]=="InboxHeader" and i["visible"]),None)
-except (ValueError,IndexError,TypeError,KeyError): header=None
-print("unread" if header is None else header["box"][1]-py+sum(map(float,sys.argv[1:4])))' "$(ipc smoke themeValue divider.thickness)" "$(ipc smoke themeValue focusRing.width)" "$(ipc smoke themeValue focusRing.offset)"
-}
-# The height of the panel list's fade band at EDGE: the gutter at the top,
-# the look's fade height at the bottom.
-fade_band() { # EDGE
-  if [[ $1 == top ]]; then note_panel_gutter; else printf '%s\n' "$note_fade_height"; fi
-}
 fade_active_intersection() { # ITEMS VIEW SUMMARY EDGE BAND
   python3 - "$@" <<'PY_ACTIVE_INTERSECTION'
 import json,sys
@@ -3300,13 +3280,12 @@ PY_ACTIVE_INTERSECTION
 }
 fade_active_pair() { # PREFIX SUMMARY EDGE
   local prefix="$1" summary="$2" edge="$3" items="$1-items.json" restore_items="$1-restored-items.json"
-  local view surface ink band rc=0 sample restored same saved
+  local view surface ink rc=0 sample restored same saved
   fade_capture_layout "$items" || return
   fade_inventory || return
   [[ $summary == "$fade_middle" ]] || { echo 'notification-capture: selected-inventory-changed' >&2; return 1; }
-  view="$(fade_current_view)" && surface="$(surface_box vgs:panel)" && ink="$(look_at text.foreground)" && band="$(fade_band "$edge")" || return
-  [[ $band =~ ^[0-9]+(\.[0-9]+)?$ ]] || { printf 'notification-capture: band=%s\n' "$band" >&2; return 1; }
-  [[ $(fade_active_intersection "$items" "$view" "$summary" "$edge" "$band") == True ]] || { echo 'notification-capture: insufficient-fade-intersection' >&2; return 1; }
+  view="$(fade_current_view)" && surface="$(surface_box vgs:panel)" && ink="$(look_at text.foreground)" || return
+  [[ $(fade_active_intersection "$items" "$view" "$summary" "$edge" "$note_fade_height") == True ]] || { echo 'notification-capture: insufficient-fade-intersection' >&2; return 1; }
   fade_output "$prefix.png" || return
   if fade_paint_wait notificationFadeReference true; then fade_output "$prefix-reference.png" || rc=$?; else rc=$?; fi
   fade_paint_wait notificationFadeReference false || rc=$?
@@ -3315,15 +3294,15 @@ fade_active_pair() { # PREFIX SUMMARY EDGE
   ipc smoke descendantGeometry panel vgs.notifications >"$restore_items" || return
   same="$(fade_capture_geometry_same "$items" "$restore_items")" || return
   [[ $same == True ]] || { echo 'notification-capture: card-geometry-changed' >&2; return 1; }
-  saved="$(fade_active_value "$prefix-restored.png" "$prefix.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$band" "$mon_w" "$mon_h")" || return
+  saved="$(fade_active_value "$prefix-restored.png" "$prefix.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$note_fade_height" "$mon_w" "$mon_h")" || return
   [[ $saved == \{* ]] || { printf 'notification-capture: saved-paint=%s\n' "$saved" >&2; return 1; }
   printf '%s\n' "$saved" >"$prefix-saved-restoration.json"
   [[ $(py_reply 'import json,sys
 s=json.load(sys.stdin);print(s["matchedInkPixels"]==s["referenceInkPixels"] and s["cardPixels"]>0 and s["matchedCardPixels"]>=s["cardPixels"]*0.98)' <<<"$saved") == True ]] || { echo 'notification-capture: saved-paint-not-restored' >&2; return 1; }
   printf 'notification-capture-restored: geometry=stable saved-paint=restored path=%s\n' "$prefix-saved-restoration.json" >&2
   ((rc==0)) || return "$rc"
-  sample="$(fade_active_value "$prefix.png" "$prefix-reference.png" "$items" "$view" "$surface" "$ink" "$summary" "$edge" "$band" "$mon_w" "$mon_h")" || return
-  restored="$(fade_active_value "$prefix-restored.png" "$prefix-reference.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$band" "$mon_w" "$mon_h")" || return
+  sample="$(fade_active_value "$prefix.png" "$prefix-reference.png" "$items" "$view" "$surface" "$ink" "$summary" "$edge" "$note_fade_height" "$mon_w" "$mon_h")" || return
+  restored="$(fade_active_value "$prefix-restored.png" "$prefix-reference.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$note_fade_height" "$mon_w" "$mon_h")" || return
   [[ $sample == \{* && $restored == \{* ]] || { printf 'notification-capture: sample=%s restored=%s\n' "$sample" "$restored" >&2; return 1; }
   printf '%s\n' "$sample" >"$prefix.json"
   printf '%s\n' "$restored" >"$prefix-restored.json"

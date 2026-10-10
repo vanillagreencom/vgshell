@@ -8,10 +8,12 @@ import "../../shell/plugins/vgs.notifications/Appearance.js" as Appearance
 // The shipped scroll frame fades each edge while more content lies beyond it.
 // Both the notification panel and toast stack instantiate this component.
 // In the panel the list's view starts at the header's bottom edge and its
-// top band is the gutter under the header; nothing lifts the fade from a
-// hovered or keyboard-selected card, a pointer crossing the gap between two
-// cards moves the hover from one to the other once, and a keyboard move
-// reveals the selected card clear of both bands.
+// first card below the gutter under the header; the top edge fades across
+// the same band as the bottom, with no strength while the view rests at its
+// start; nothing lifts the fade from a hovered or keyboard-selected card, a
+// pointer crossing the gap between two cards moves the hover from one to
+// the other once, and a keyboard move reveals the selected card clear of
+// both bands.
 Item {
     id: scene
     width: 600
@@ -130,9 +132,10 @@ Item {
                 { tag: "mid scroll", progress: 0.5, height: 300 },
                 { tag: "short top end", progress: 0, height: 180 },
                 { tag: "short mid scroll", progress: 0.5, height: 180 },
-                // A card that has just started under the header fades at
-                // the gutter's full strength.
-                { tag: "just left the top", offset: 12, height: 300 }
+                // The top band grows in as the view leaves its start, so
+                // a card that has just started under the header has
+                // barely begun to fade.
+                { tag: "just left the top", offset: 12, height: 300, growing: true }
             ];
         }
 
@@ -159,9 +162,8 @@ Item {
             view.contentY = row.offset !== undefined ? row.offset : travel * row.progress;
             const rest = view.contentY === 0;
             if (!rest) verify(view.contentY > 0 && view.contentY < travel);
-            const firstFace = parts.faces[0].mapToItem(panel, 0, 0).y;
-            if (rest) verify(firstFace >= parts.headerBottom + parts.gutter,
-                "at rest the first card sits below the gutter: " + firstFace);
+            if (rest) fuzzyCompare(parts.faces[0].parent.mapToItem(panel, 0, 0).y, parts.headerBottom + parts.gutter, 0.5,
+                "at rest the first card's slot starts where the gutter ends");
             // Test ink crosses the shipped clip in the side room, beside
             // the cards and the header. This proves actual clipped and
             // faded paint without relying on card colours.
@@ -173,25 +175,33 @@ Item {
                 const painted = grabPanel();
                 const x = Math.floor(view.mapToItem(scene, 10, 0).x);
                 const edge = Math.floor(view.mapToItem(scene, 0, 0).y);
-                const gutter = Math.ceil(parts.gutter);
+                const band = Math.ceil(scroll.fadeExtent);
                 for (const distance of [1, 8, 15]) {
                     compare(painted.red(x, edge - distance), 0, "no painted card strip escapes above the header's bottom edge");
                     compare(painted.blue(x, edge - distance), 0);
                 }
                 if (rest) {
-                    const face = parts.faces[0];
-                    const top = Math.ceil(face.mapToItem(scene, 0, 0).y);
-                    for (let y = top; y < top + face.height && y < edge + view.height - parts.scroll.fadeExtent; y += 4)
-                        compare(painted.red(x, y), 255, "the first card at rest paints in full between the bands");
+                    // The top band has no strength at the view's start:
+                    // the gutter and the first card paint in full, down
+                    // to the bottom band.
+                    for (let y = edge + 1; y < edge + view.height - band; y += 2)
+                        compare(painted.red(x, y), 255, "at rest the top of the list paints in full at " + (y - edge));
                 } else {
                     const near = painted.red(x, edge + 1);
-                    const middle = painted.red(x, edge + Math.floor(gutter / 2));
-                    const centre = painted.red(x, edge + gutter);
-                    verify(near < 8 && middle > near && middle < centre,
-                        "one smooth painted fade rises across the gutter: " + [near, middle, centre]);
-                    compare(centre, 255, "content below the gutter paints in full");
+                    const pastGutter = painted.red(x, edge + Math.ceil(parts.gutter) + 2);
+                    const middle = painted.red(x, edge + Math.floor(band / 2));
+                    const centre = painted.red(x, edge + band);
+                    compare(centre, 255, "content below the top band paints in full");
+                    if (row.growing) {
+                        verify(near >= 240 && near < 255, "the top band has begun to grow in, short of its strength: " + near);
+                    } else {
+                        verify(view.contentY >= band, "the view has left its start by the band's height");
+                        verify(near < 8 && middle > near && middle < centre,
+                            "one smooth painted fade rises across the top band: " + [near, middle, centre]);
+                        verify(pastGutter < 64, "the fade reaches past the gutter: " + pastGutter);
+                    }
                     let previous = near;
-                    for (let y = edge + 1; y <= edge + gutter; y++) {
+                    for (let y = edge + 1; y <= edge + band; y++) {
                         verify(painted.red(x, y) >= previous - 1, "the fade rises without a step back at " + (y - edge));
                         previous = painted.red(x, y);
                     }
@@ -226,7 +236,7 @@ Item {
             // header's edge, or its bottom just above the view's bottom.
             const faceTop = row.top ? 2 : view.height - face.height - 2;
             view.contentY = face.mapToItem(view.contentItem, 0, 0).y - faceTop;
-            const band = row.top ? parts.gutter : parts.scroll.fadeExtent;
+            const band = parts.scroll.fadeExtent;
             verify(view.contentY > 0 && view.contentY < view.contentHeight - view.height);
             const ink = inkOver(slot);
             try {
@@ -259,6 +269,35 @@ Item {
             } finally {
                 ink.destroy();
                 list.focus = false;
+            }
+        }
+
+        // Scrolled past the band's height, a card whose middle lies halfway
+        // through the top band paints half faded, dimmer than a card between
+        // the bands, and that band is taller than the gutter.
+        function test_scrolled_card_fades_in_the_top_band() {
+            const parts = showPanel(440);
+            const view = parts.view;
+            const band = parts.scroll.fadeExtent;
+            verify(band > 2 * parts.gutter, "the band is taller than the gutter: " + [band, parts.gutter]);
+            const faded = parts.faces[5];
+            view.contentY = faded.mapToItem(view.contentItem, 0, faded.height / 2).y - band / 2;
+            verify(view.contentY >= band && view.contentY < view.contentHeight - view.height);
+            const clear = parts.faces.find(face => {
+                const top = face.parent.mapToItem(view, 0, 0).y;
+                return top >= band && top + face.parent.height <= view.height - band;
+            });
+            verify(clear !== undefined, "a card stands between the bands");
+            const inks = [inkOver(faded.parent), inkOver(clear.parent)];
+            try {
+                const painted = grabPanel();
+                const x = Math.floor(faded.parent.mapToItem(scene, faded.parent.width / 2, 0).x);
+                const middle = face => painted.red(x, Math.floor(face.mapToItem(scene, 0, face.height / 2).y));
+                compare(middle(clear), 255, "a card between the bands paints in full");
+                verify(middle(faded) >= 95 && middle(faded) <= 160,
+                    "a card halfway through the top band is half faded: " + middle(faded));
+            } finally {
+                inks.forEach(ink => ink.destroy());
             }
         }
 
@@ -296,9 +335,11 @@ Item {
         }
 
         function test_keyboard_reveal_clears_the_bands() {
-            const parts = showPanel(300);
+            const parts = showPanel(480);
             const view = parts.view;
             const list = parts.faces[0].parent.parent;
+            verify(parts.faces.every(face => face.parent.height <= view.height - 2 * parts.scroll.fadeExtent),
+                "every card fits between the bands");
             list.forceActiveFocus(Qt.TabFocusReason);
             tryCompare(list, "activeFocus", true);
             const check = (index, key) => {
@@ -306,8 +347,8 @@ Item {
                 const slot = parts.faces[index].parent;
                 const top = slot.mapToItem(view.contentItem, 0, 0).y;
                 const travel = view.contentHeight - view.height;
-                verify(top >= view.contentY + parts.gutter - 0.5 || view.contentY <= 0,
-                    key + " " + index + " leaves the card in the gutter: " + [top, view.contentY]);
+                verify(top >= view.contentY + parts.scroll.fadeExtent - 0.5 || view.contentY <= 0,
+                    key + " " + index + " leaves the card in the top band: " + [top, view.contentY]);
                 verify(top + slot.height <= view.contentY + view.height - parts.scroll.fadeExtent + 0.5 || view.contentY >= travel - 0.5,
                     key + " " + index + " leaves the card in the bottom band: " + [top + slot.height, view.contentY]);
                 const ink = inkOver(slot);

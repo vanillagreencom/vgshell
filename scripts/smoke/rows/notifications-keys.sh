@@ -12,8 +12,8 @@
 # leaves the inbox open on the second press.
 # A long inbox, forty rows whose newest carries actions, opened by the
 # key eight times, shows its first card whole each time: panel_fit
-# (rows/notifications.sh) reads its top below the gutter under the header,
-# clear of the list's top fade. rows/hidpi.sh reads the same opens at scale 2. The same
+# (rows/notifications.sh) reads its top below the gutter under the header.
+# rows/hidpi.sh reads the same opens at scale 2. The same
 # opens hold on the first monitor at a scale that leaves a room shorter
 # than the panel's
 # panelMaxHeight, where the list takes what is under the header; their
