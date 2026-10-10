@@ -8,7 +8,8 @@ import "HyprlandLayer.js" as Layer
 
 // The one writer of the Hyprland layer: HyprlandLayer.js renders the theme's
 // Hyprland appearance groups, each written while the user's Appearance
-// values leave it to the theme or set it (Theme.appearanceState), the floating TUIs' window rules, clamped by
+// values leave it to the theme or set it (Theme.appearanceState), the floating TUIs' window rules, a share of
+// the output no smaller than a count of terminal cells and clamped by
 // the bar's height and the window gutter, and every
 // enabled plugin's `hyprland` manifest data, the input options with the
 // touchpads Capabilities.hyprland reads, and this writes the text to
@@ -77,7 +78,8 @@ Scope {
         glass: Theme.glass.window,
         groups: Theme.appearanceState.hyprland,
         motionScale: Theme.motion.scale,
-        tuiMargins: { bar: Theme.bar.height, gutter: Theme.size.window.gutter }
+        tuiMargins: { bar: Theme.bar.height, gutter: Theme.size.window.gutter },
+        tuiCell: { width: Math.ceil(terminalCell.averageCharacterWidth), height: Math.ceil(terminalCell.lineSpacing) }
     })
     readonly property var rendered: inputsReady ? Layer.render(sections, themeAppearance, Theme.name, highestMonitorScale, Capabilities.hyprland.touchpads, Capabilities.hyprland.devicesFailure, Registry.monitorRuleOwnerId) : null
 
@@ -121,6 +123,35 @@ Scope {
         if (machine.failure !== "")
             out.push({ id: "", dir: path, error: "hyprland: " + machine.failure });
         return out;
+    }
+
+    // One terminal cell as the shell estimates it, in logical pixels: the
+    // floating TUIs' smallest size counts in it (HyprlandLayer.TUI_WINDOWS).
+    // The shell reads no terminal's cell. Qt measures the user's terminal
+    // font while one is set, the family the kitty and Ghostty theme targets
+    // write, else the theme's mono family, at 16 px: 12 points at 96 dpi,
+    // the size Ghostty 1.3.1 opens at (`font-size = 12` in `ghostty
+    // +show-config --default --docs`). The width is the font's average
+    // glyph width and the height "the distance from one base line to the
+    // next" (https://doc.qt.io/qt-6/qml-qtquick-fontmetrics.html), each
+    // rounded up to a whole pixel.
+    //
+    // The terminal's own cell differs from it by four things the shell
+    // neither sets nor reads: the terminal's font size, as its ratio to 12
+    // points (kitty 0.49.2 opens at 11, its options/definition.py); a cell
+    // adjustment such as Ghostty's `adjust-cell-height`; the terminal's
+    // rounding to whole device pixels (Ghostty takes "the nearest integer
+    // pixel size" of a font size, the same documentation); and a family Qt
+    // cannot find, which it measures as the replacement font its matching
+    // selects (https://doc.qt.io/qt-6/qfont.html). A terminal with larger
+    // cells than this opens with fewer cells than its class counts.
+    //
+    // themeAppearance reads both metrics, so a change of either family
+    // renders the layer again.
+    FontMetrics {
+        id: terminalCell
+        font.family: Theme.appearanceState.values.terminalFont || Theme.font.family.mono
+        font.pixelSize: 16
     }
 
     Binding { target: Registry; property: "hyprlandProblems"; value: root.problems }

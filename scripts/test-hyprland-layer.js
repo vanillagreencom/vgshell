@@ -36,12 +36,14 @@ const colours = { accent: "#ff5a3659", border: "#80112233", borderSubtle: "#ff22
 // `#aarrggbb`; `hyprland.glow` is the glow tokens as Theme publishes them.
 const glowTokens = { color: "#ff1a1020", colorEnd: "#ff202428", angle: 45, inactive: "#00101010", range: 35, renderPower: 2 };
 const glassWindow = { opacity: 0.9, inactiveOpacity: 0.8, blurSize: 6, blurPasses: 3, shadowRange: 20, shadowPower: 2, shadowColor: "#73000000" };
-const theme = { colours, hyprland: { border: { size: 4 }, window: { radius: 8, roundingPower: 3, groupRadius: 8 }, motion: { preset: "snappy" }, shadow: { color: "#99000088" }, glow: glowTokens }, glass: glassWindow, groups: { borders: true, radius: true, motion: false, glass: false, glow: false }, motionScale: 2, tuiMargins: { bar: 30, gutter: 10 } };
+const theme = { colours, hyprland: { border: { size: 4 }, window: { radius: 8, roundingPower: 3, groupRadius: 8 }, motion: { preset: "snappy" }, shadow: { color: "#99000088" }, glow: glowTokens }, glass: glassWindow, groups: { borders: true, radius: true, motion: false, glass: false, glow: false }, motionScale: 2, tuiMargins: { bar: 30, gutter: 10 }, tuiCell: { width: 10, height: 22 } };
 // The floating TUIs' window rules as the layer writes them, byte for byte:
 // in the Lua literal `\\.` is the regex `\.`, a literal dot. Each size is
-// the class's preferred size, at most the output less the fixture's 10 px
-// gutter a side and, in height, less its 30 px bar. Hyprland v0.56.2 reads
-// these fields back in scripts/smoke/rows/hyprland.sh.
+// the class's share of the output, at least its cells and the padding's 2
+// columns and 1 row at the fixture's 10 by 22 px cell, at most the output
+// less the fixture's 10 px gutter a side and, in height, less its 30 px
+// bar. Hyprland v0.56.2 reads these fields back in
+// scripts/smoke/rows/hyprland.sh.
 // No window gaps as the layer writes it while its switch is on: zero gaps
 // as a workspace rule on the empty selector, which matches every
 // workspace, so a user's `general` gaps after the loading line leave it in
@@ -61,11 +63,25 @@ const UNWRITTEN = {
     glow: "-- Theme appearance: glow left to the user's config by shell.json appearance.windowGlow."
 };
 const TUI_SECTION = [
-    "-- Floating TUIs: each size class's app-id floats, centred, at its size, clamped to its output.",
-    "hl.window_rule({ name = \"vgs:tui\", match = { class = \"^org\\\\.vgs\\\\.tui$\" }, float = true, center = true, size = { \"min(875,monitor_w-20)\", \"min(600,monitor_h-50)\" } })",
-    "hl.window_rule({ name = \"vgs:tui-wide\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.wide$\" }, float = true, center = true, size = { \"min(1200,monitor_w-20)\", \"min(720,monitor_h-50)\" } })",
-    "hl.window_rule({ name = \"vgs:tui-tall\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.tall$\" }, float = true, center = true, size = { \"min(875,monitor_w-20)\", \"min(900,monitor_h-50)\" } })"
+    "-- Floating TUIs: each size class's app-id floats, centred, at its share of its output, never under its cells nor past the output's margins.",
+    "hl.window_rule({ name = \"vgs:tui\", match = { class = \"^org\\\\.vgs\\\\.tui$\" }, float = true, center = true, size = { \"min(max(monitor_w*0.4,820),monitor_w-20)\", \"min(max(monitor_h*0.5,814),monitor_h-50)\" } })",
+    "hl.window_rule({ name = \"vgs:tui-wide\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.wide$\" }, float = true, center = true, size = { \"min(max(monitor_w*0.55,1120),monitor_w-20)\", \"min(max(monitor_h*0.6,968),monitor_h-50)\" } })",
+    "hl.window_rule({ name = \"vgs:tui-tall\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.tall$\" }, float = true, center = true, size = { \"min(max(monitor_w*0.4,820),monitor_w-20)\", \"min(max(monitor_h*0.75,1210),monitor_h-50)\" } })"
 ];
+// The size a floating TUI rule line gives a window on an output WIDTH by
+// HEIGHT logical pixels, as [width, height]. Hyprland v0.56.2 hands each
+// expression to muParser with `monitor_w` and `monitor_h` set; the layer
+// writes only those names, numbers, `min`, `max`, `*` and `-`, which mean
+// in JavaScript what they mean there, so a line with any other text is
+// refused, not evaluated.
+function tuiSize(line, width, height) {
+    const sizes = / size = \{ "([^"]*)", "([^"]*)" \} \}\)$/.exec(line);
+    assert.ok(sizes !== null, "a floating TUI rule ends with its two size expressions: " + line);
+    return sizes.slice(1).map(text => {
+        assert.match(text, /^(?:min\(|max\(|monitor_[wh]|[0-9]+(?:\.[0-9]+)?|[*,)-])+$/, "a size expression holds only what tuiSize evaluates: " + text);
+        return Number(new Function("min", "max", "monitor_w", "monitor_h", "return " + text + ";")(Math.min, Math.max, width, height).toFixed(6));
+    });
+}
 // The shell's application window rule, byte for byte: no size, so each
 // window keeps the size it asks for.
 const APP_SECTION = [
@@ -924,7 +940,33 @@ function verify(logic, layer, shellText) {
     ].forEach(([label, margins, error]) => {
         assert.throws(() => layer.render([], Object.assign({}, theme, { tuiMargins: margins }), "vgs", 1), error, label + " is refused");
     });
-    assert.ok(lines(layer.render([], Object.assign({}, theme, { tuiMargins: { bar: 0, gutter: 0 } }), "vgs", 1)).includes("hl.window_rule({ name = \"vgs:tui-tall\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.tall$\" }, float = true, center = true, size = { \"min(875,monitor_w-0)\", \"min(900,monitor_h-0)\" } })"), "zero margins clamp to the whole output");
+    assert.ok(lines(layer.render([], Object.assign({}, theme, { tuiMargins: { bar: 0, gutter: 0 } }), "vgs", 1)).includes("hl.window_rule({ name = \"vgs:tui-tall\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.tall$\" }, float = true, center = true, size = { \"min(max(monitor_w*0.4,820),monitor_w-0)\", \"min(max(monitor_h*0.75,1210),monitor_h-0)\" } })"), "zero margins clamp to the whole output");
+    // A cell HyprlandLayer.qml could not measure is refused by name, never
+    // written as a floor.
+    [
+        ["absent cell", undefined, /tuiCell\.width must be a finite number above 0, got undefined/],
+        ["absent height", { width: 10 }, /tuiCell\.height must be a finite number above 0, got undefined/],
+        ["zero width", { width: 0, height: 22 }, /tuiCell\.width must be a finite number above 0, got 0/],
+        ["negative height", { width: 10, height: -22 }, /tuiCell\.height must be a finite number above 0, got -22/],
+        ["infinite width", { width: Infinity, height: 22 }, /tuiCell\.width must be a finite number above 0, got null/],
+        ["NaN height", { width: 10, height: NaN }, /tuiCell\.height must be a finite number above 0, got null/],
+        ["string width", { width: "10", height: 22 }, /tuiCell\.width must be a finite number above 0, got "10"/]
+    ].forEach(([label, cell, error]) => {
+        assert.throws(() => layer.render([], Object.assign({}, theme, { tuiCell: cell }), "vgs", 1), error, label + " is refused");
+    });
+    // The default class's 80 columns and 2 of padding at 8.2 px are 672.4
+    // px, and its 36 rows and 1 of padding at 19.5 px are 721.5 px.
+    assert.ok(lines(layer.render([], Object.assign({}, theme, { tuiCell: { width: 8.2, height: 19.5 } }), "vgs", 1)).includes("hl.window_rule({ name = \"vgs:tui\", match = { class = \"^org\\\\.vgs\\\\.tui$\" }, float = true, center = true, size = { \"min(max(monitor_w*0.4,673),monitor_w-20)\", \"min(max(monitor_h*0.5,722),monitor_h-50)\" } })"), "a floor is its cells and the padding's at the cell, rounded up to a whole pixel");
+    // Each class's size on an output, in the layer's order: default, wide,
+    // tall. A 1366x768 output less the fixture's margins is 1346 by 718, so
+    // every class there is its cells wide, more than its share, and as
+    // tall as the margins leave. On a 3840x2160 output every share is over
+    // its cells and under the margins, so each class is its share alone.
+    const tuiRules = bareLines.filter(line => line.startsWith("hl.window_rule({ name = \"vgs:tui"));
+    [
+        [1366, 768, [[820, 718], [1120, 718], [820, 718]], "a small output gets each class at its cells, clamped inside the margins"],
+        [3840, 2160, [[1536, 1080], [2112, 1296], [1536, 1620]], "a large output gets each class at its share and no more"]
+    ].forEach(([width, height, want, label]) => same(tuiRules.map(line => tuiSize(line, width, height)), want, label));
 
     const switched = layer.render([], groupsOf(false, false, true), "vgs", 1.5);
     const switchedLines = lines(switched);
@@ -1308,6 +1350,9 @@ function glassOf(values) {
     assert.equal(result.ok, true);
     return { window: Object.assign({}, result.values.window, { shadowColor: toColor(result.values.window.shadowColor) }) };
 }
+// What HyprlandLayer.qml's FontMetrics reads for the terminal cell, here a
+// 16 px font whose glyphs are 0.6 em wide on a 1.32 em line.
+const TERMINAL_CELL = { averageCharacterWidth: 9.6, lineSpacing: 21.12 };
 function verifyStatusAppearance(source, layer = load(layerFile)) {
     const bindings = [...source.matchAll(/^    readonly property var themeAppearance: (\(\{[\s\S]*?^    \}\))/gm)];
     assert.equal(bindings.length, 1);
@@ -1322,7 +1367,8 @@ function verifyStatusAppearance(source, layer = load(layerFile)) {
         });
         published.appearanceState = themeJudge.published(tokens, result, "").appearance;
         published.glass = glassOf(result.values);
-        const appearance = vm.runInNewContext(bindings[0][1], { Theme: published });
+        const appearance = vm.runInNewContext(bindings[0][1], { Theme: published, terminalCell: TERMINAL_CELL });
+        same(appearance.tuiCell, { width: 10, height: 22 }, `${entry.name}: the floating TUIs' cell is whole pixels`);
         const lines = layer.borderLines(appearance, entry.name).join("\n");
         assert.match(lines, /^\s+gradients = true,$/m);
         const fills = [...lines.matchAll(/^\s+locked_active = "rgba\(([0-9a-f]{8})\)",$/gm)];
@@ -1339,6 +1385,11 @@ function verifyStatusAppearance(source, layer = load(layerFile)) {
 }
 const appearanceSource = fs.readFileSync(path.join(__dirname, "..", "shell", "Core", "HyprlandLayer.qml"), "utf8");
 verifyStatusAppearance(appearanceSource);
+// Controls: a cell side handed to the layer as Qt measured it, a fraction.
+for (const side of ["Math.ceil(terminalCell.averageCharacterWidth)", "Math.ceil(terminalCell.lineSpacing)"]) {
+    assert.equal(appearanceSource.split(side).length, 2);
+    assert.throws(() => verifyStatusAppearance(appearanceSource.replace(side, side.slice("Math.ceil(".length, -1))), { code: "ERR_ASSERTION" });
+}
 
 // The applied block the layer wrote for the shipped theme before
 // Appearance values existed, byte for byte (main at 6210e945, vgs.themes'
@@ -1416,7 +1467,7 @@ function verifyAppearanceLayer(layer) {
             glow: Object.assign({}, glow, { color: toColor(glow.color), colorEnd: toColor(glow.colorEnd), inactive: toColor(glow.inactive) })
         });
         const gaps = { id: "vgs.themes", version: "0.1.0", binds: [], layerRules: [], appearance: { noGaps: { setting: "noWindowGaps", enabled: false } }, options: [], monitors: null, pads: null, padRefusals: [], unknownKeys: [] };
-        return layer.render([gaps], vm.runInNewContext(binding, { Theme: published }), "vgs", scale === undefined ? 1.5 : scale, null, "", "");
+        return layer.render([gaps], vm.runInNewContext(binding, { Theme: published, terminalCell: TERMINAL_CELL }), "vgs", scale === undefined ? 1.5 : scale, null, "", "");
     };
     const block = out => {
         const all = out.text.split("\n");
@@ -1636,16 +1687,24 @@ const CONTROLS = [
     [layerFile, "zero gaps are a workspace rule", "\"hl.workspace_rule({ workspace = \\\"\\\", gaps_in = 0, gaps_out = 0 })\"", "\"hl.config({ general = { gaps_in = 0, gaps_out = 0 } })\""],
     [layerFile, "the gap rule matches every workspace", "workspace = \\\"\\\", gaps_in", "workspace = \\\"s[false]\\\", gaps_in"],
     [layerFile, "appearance owner sorted", "}).sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });", "});"],
-    [layerFile, "floating TUI rules written", "[\"\"], tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines());", "[\"\"], appWindowLines());"],
-    [layerFile, "floating TUI rules after appearance", "var lines = [\"\"].concat(groups, [\"\"], tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines());", "var lines = [\"\"].concat(tuiWindowLines(theme.tuiMargins), [\"\"], groups, [\"\"], appWindowLines());"],
+    [layerFile, "floating TUI rules written", "[\"\"], tuiWindowLines(theme.tuiMargins, theme.tuiCell), [\"\"], appWindowLines());", "[\"\"], appWindowLines());"],
+    [layerFile, "floating TUI rules after appearance", "var lines = [\"\"].concat(groups, [\"\"], tuiWindowLines(theme.tuiMargins, theme.tuiCell), [\"\"], appWindowLines());", "var lines = [\"\"].concat(tuiWindowLines(theme.tuiMargins, theme.tuiCell), [\"\"], groups, [\"\"], appWindowLines());"],
     [layerFile, "floating TUI width keeps the gutter", "var across = luaNumber(2 * tuiMargin(margins, \"gutter\"));", "var across = luaNumber(0 * tuiMargin(margins, \"gutter\"));"],
     [layerFile, "floating TUI height keeps the bar", "var down = luaNumber(tuiMargin(margins, \"bar\") + 2 * tuiMargin(margins, \"gutter\"));", "var down = luaNumber(0 * tuiMargin(margins, \"bar\") + 2 * tuiMargin(margins, \"gutter\"));"],
-    [layerFile, "floating TUI size is clamped", "size = { \" + width + \", \" + height + \" } })\";", "size = { \" + row.width + \", \" + row.height + \" } })\";"],
+    [layerFile, "floating TUI size is clamped", "return \"\\\"min(max(\" + axis + \"*\" + luaNumber(share) + \",\" + luaNumber(Math.ceil(cells * cell)) + \"),\" + axis + \"-\" + margin + \")\\\"\";", "return \"\\\"max(\" + axis + \"*\" + luaNumber(share) + \",\" + luaNumber(Math.ceil(cells * cell)) + \")\\\"\";"],
+    [layerFile, "floating TUI sizes are no fixed pixels", "        var width = tuiLength(\"monitor_w\", row.widthShare, row.columns + TUI_PADDING.columns, tuiCell(cell, \"width\"), across);\n        var height = tuiLength(\"monitor_h\", row.heightShare, row.rows + TUI_PADDING.rows, tuiCell(cell, \"height\"), down);\n", "        var fixed = { \"default\": [875, 600], wide: [1200, 720], tall: [875, 900] }[size];\n        var width = \"\\\"min(\" + fixed[0] + \",monitor_w-\" + across + \")\\\"\";\n        var height = \"\\\"min(\" + fixed[1] + \",monitor_h-\" + down + \")\\\"\";\n"],
+    [layerFile, "floating TUI takes its share of the output", "axis + \"*\" + luaNumber(share)", "axis + \"*0\""],
+    [layerFile, "floating TUI is never under its cells", "luaNumber(Math.ceil(cells * cell))", "\"0\""],
+    [layerFile, "a TUI floor rounds up to a whole pixel", "Math.ceil(cells * cell)", "Math.round(cells * cell)"],
+    [layerFile, "a TUI floor counts the padding's columns", "row.columns + TUI_PADDING.columns", "row.columns"],
+    [layerFile, "a TUI floor counts the padding's rows", "row.rows + TUI_PADDING.rows", "row.rows"],
+    [layerFile, "a TUI cell of no size is refused", "|| value <= 0)", "|| value < 0)"],
+    [layerFile, "a TUI cell that is no number is refused", "if (typeof value !== \"number\" || !isFinite(value) || value <= 0)", "if (value <= 0)"],
     [layerFile, "a negative TUI margin is refused", "if (typeof value !== \"number\" || !isFinite(value) || value < 0)", "if (typeof value !== \"number\" || !isFinite(value))"],
     [layerFile, "floating TUI class escapes each dot", ".join(\"\\\\\\\\.\")", ".join(\".\")"],
     [layerFile, "floating TUI class anchored", "return \"\\\"^\" + appId.split(\".\").join(\"\\\\\\\\.\") + \"$\\\"\";", "return \"\\\"\" + appId.split(\".\").join(\"\\\\\\\\.\") + \"\\\"\";"],
-    [layerFile, "application window rule written", "tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines());", "tuiWindowLines(theme.tuiMargins));"],
-    [layerFile, "application window rule after the TUIs", "tuiWindowLines(theme.tuiMargins), [\"\"], appWindowLines());", "appWindowLines(), [\"\"], tuiWindowLines(theme.tuiMargins));"],
+    [layerFile, "application window rule written", "tuiWindowLines(theme.tuiMargins, theme.tuiCell), [\"\"], appWindowLines());", "tuiWindowLines(theme.tuiMargins, theme.tuiCell));"],
+    [layerFile, "application window rule after the TUIs", "tuiWindowLines(theme.tuiMargins, theme.tuiCell), [\"\"], appWindowLines());", "appWindowLines(), [\"\"], tuiWindowLines(theme.tuiMargins, theme.tuiCell));"],
     [layerFile, "session lock restore written", "keyPassthroughLines(), [\"\"], sessionLockLines());", "keyPassthroughLines());"],
     [layerFile, "user binds' recorder written", "[\"\"], userBindLines(), [\"\"], overlayCaptureLines(plan)", "[\"\"], overlayCaptureLines(plan)"],
     [layerFile, "user binds' recorder records the user's call sites", "binds.rows[#binds.rows + 1] = { file = ", "local _ = { file = "],

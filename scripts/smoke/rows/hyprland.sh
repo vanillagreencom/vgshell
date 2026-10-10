@@ -10,10 +10,11 @@
 # hyprland.lua as the consent row left it. The window rules are read back on
 # windows the harness's toplevel helper maps, each stopped by the pid the
 # row started: each floating TUI class fits the output at the sandbox's
-# own mode, takes its preferred size on a 3008x1692 output and is clamped
-# on a 1440x900 one, which the row holds on the first monitor and then
-# gives back its own mode. It restarts the shell, reloads Hyprland and
-# reads each vgs bind once in its submap.
+# own mode, takes its own size, its share of the output or its cells,
+# unclamped on a 3008x1692 output and is clamped on a 1440x900 one, which
+# the row holds on the first monitor and then gives back its own mode. It
+# restarts the shell, reloads Hyprland and reads each vgs bind once in its
+# submap.
 #
 # Hyprland v0.56.2 reads no layer rule back, so the rows hold the layer rules
 # through the written file and an empty configerrors, where Hyprland lists a
@@ -120,37 +121,43 @@ close_tui() {
   wait "$tui_pid" || status=$?
   if [[ $status -eq 0 ]]; then ok "$1"; else fail "$1: exit=$status"; fi
 }
-# The nested instance's client of pid PID as `<class> floating=<bool>`, its
-# size as `<w>x<h>`, or clients=<n> when that pid has not one client.
-tui_client() { hypr -j clients | py_reply '
+# The nested instance's client of pid PID as `<class> floating=<bool>`, or
+# clients=<n> when that pid has not one client.
+tui_floating() { hypr -j clients | py_reply '
 import json, sys
-cs = [c for c in json.load(sys.stdin) if c["pid"] == int(sys.argv[2])]
+cs = [c for c in json.load(sys.stdin) if c["pid"] == int(sys.argv[1])]
 if len(cs) != 1: print("clients=%d" % len(cs))
-elif sys.argv[1] == "floating": print("%s floating=%s" % (cs[0]["class"], str(cs[0]["floating"]).lower()))
-else: print("%dx%d" % tuple(cs[0]["size"]))' "$1" "$2"; }
-tui_floating() { tui_client floating "$1"; }
-tui_size() { tui_client size "$1"; }
-# tui_area TARGET PREF_W PREF_H [MODE]: how a floating TUI of preferred
-# size PREF_W x PREF_H sits on a monitor's work area: its logical box less
-# the reserved space, [left, top, right, bottom], and less
-# general:float_gaps, CSS order, where Hyprland v0.56.2 centres a floating
-# window. The monitor, the clients
+else: print("%s floating=%s" % (cs[0]["class"], str(cs[0]["floating"]).lower()))' "$1"; }
+# tui_area TARGET CLASS [MODE]: how a floating TUI of app-id CLASS sits on
+# a monitor's work area: its logical box less the reserved space, [left,
+# top, right, bottom], and less general:float_gaps, CSS order, where
+# Hyprland v0.56.2 centres a floating window. The monitor, the clients
 # and the gaps come from one batched request, which the compositor answers
 # from one state. Given MODE, the mode a row holds, a monitor at another
 # mode reads ["mode=<WxH> want=<MODE>"] and nothing is measured on it.
 #
-# TARGET pid:<n>, a client: [] when it is min(PREF_W, width - 2 *
-# size.window.gutter) wide and min(PREF_H, height - reserved top - reserved
-# bottom - 2 * size.window.gutter) tall, its whole box lies inside the work
-# area and it is centred on it, each within one pixel, since hyprctl prints
-# whole pixels; else the misfits.
-# TARGET monitor:<name>, no client: `inside` when a PREF_W x PREF_H box
-# centred on that monitor's work area lies inside it, else `outside`.
+# The class's size comes from its rule in the written layer, never from a
+# table here. Per axis the rule reads `min(max(monitor_<axis>*<share>,
+# <floor>),monitor_<axis>-<margin>)` (HyprlandLayer.tuiLength), and the
+# class's own size on the monitor is the larger of that share of the
+# monitor's logical length and the floor. A layer that holds not one rule
+# for CLASS reads ["rule=<n> class=<CLASS>"], a rule whose sizes are
+# another text ["rule=unread class=<CLASS>"], and a layer that cannot be
+# read ["layer=unreadable"].
+#
+# TARGET pid:<n>, a client: [] when it is its own size, at most the width
+# less 2 * size.window.gutter wide and the height less reserved top,
+# reserved bottom and 2 * size.window.gutter tall, its whole box lies
+# inside the work area and it is centred on it, each within one pixel,
+# since hyprctl prints whole pixels and a share is seldom one; else the
+# misfits.
+# TARGET monitor:<name>, no client: `inside` when a box of the class's own
+# size centred on that monitor's work area lies inside it, else `outside`.
 tui_area() {
   local gutter
   gutter="$(ipc smoke themeValue size.window.gutter)" || return
   hypr --batch 'j/monitors; j/clients; j/getoption general:float_gaps' | py_reply '
-import json, sys
+import json, re, sys
 text = sys.stdin.read()
 decoder, at, parts = json.JSONDecoder(), 0, []
 while len(parts) < 3:
@@ -158,7 +165,7 @@ while len(parts) < 3:
     part, at = decoder.raw_decode(text, at)
     parts.append(part)
 monitors, clients, gaps = parts
-target, pref_w, pref_h, held, gutter = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], json.loads(sys.argv[5])
+target, tui_class, held, gutter, layer = sys.argv[1], sys.argv[2], sys.argv[3], json.loads(sys.argv[4]), sys.argv[5]
 kind, _, key = target.partition(":")
 if kind == "pid":
     cs = [c for c in clients if c["pid"] == int(key) and c["mapped"]]
@@ -175,39 +182,52 @@ m = mon[0]
 mode = "%dx%d" % (m["width"], m["height"])
 if held and mode != held:
     print(json.dumps(["mode=%s want=%s" % (mode, held)])); sys.exit()
+try:
+    with open(layer) as written: lines = written.read().split("\n")
+except OSError:
+    print(json.dumps(["layer=unreadable"])); sys.exit()
+rules = [line for line in lines if "match = { class = \"^%s$\" }" % tui_class.replace(".", "\\\\.") in line]
+if len(rules) != 1:
+    print(json.dumps(["rule=%d class=%s" % (len(rules), tui_class)])); sys.exit()
+number = "([0-9]+(?:\\.[0-9]+)?)"
+axis = "\"min\\(max\\(monitor_{0}\\*" + number + "," + number + "\\),monitor_{0}-[0-9]+(?:\\.[0-9]+)?\\)\""
+sizes = re.search("size = \\{ " + axis.format("w") + ", " + axis.format("h") + " \\} \\}\\)$", rules[0])
+if sizes is None:
+    print(json.dumps(["rule=unread class=%s" % tui_class])); sys.exit()
+share_w, floor_w, share_h, floor_h = (float(v) for v in sizes.groups())
 mw, mh = m["width"] / m["scale"], m["height"] / m["scale"]
+own_w, own_h = max(mw * share_w, floor_w), max(mh * share_h, floor_h)
 top, right, bottom, left = (int(v) for v in gaps["css"].split())
 rl, rt, rr, rb = m["reserved"]
 area_x, area_y = m["x"] + rl + left, m["y"] + rt + top
 area_w, area_h = mw - rl - rr - left - right, mh - rt - rb - top - bottom
 if kind == "monitor":
-    x, y = area_x + (area_w - pref_w) / 2, area_y + (area_h - pref_h) / 2
-    inside = x >= area_x and y >= area_y and x + pref_w <= area_x + area_w and y + pref_h <= area_y + area_h
+    x, y = area_x + (area_w - own_w) / 2, area_y + (area_h - own_h) / 2
+    inside = x >= area_x and y >= area_y and x + own_w <= area_x + area_w and y + own_h <= area_y + area_h
     print("inside" if inside else "outside"); sys.exit()
 x, y, w, h = cs[0]["at"] + cs[0]["size"]
-want_w, want_h = min(pref_w, mw - 2 * gutter), min(pref_h, mh - rt - rb - 2 * gutter)
+want_w, want_h = min(own_w, mw - 2 * gutter), min(own_h, mh - rt - rb - 2 * gutter)
 out = []
 for key, got, want in (("w", w, want_w), ("h", h, want_h), ("x", x, area_x + (area_w - want_w) / 2), ("y", y, area_y + (area_h - want_h) / 2)):
     if abs(got - want) > 1: out.append("%s=%s want=%s" % (key, got, want))
 for key, box, area, inward in (("left", x, area_x, 1), ("top", y, area_y, 1), ("right", x + w, area_x + area_w, -1), ("bottom", y + h, area_y + area_h, -1)):
     if (box - area) * inward < -1: out.append("%s=%s area=%s" % (key, box, area))
-print(json.dumps(out))' "$1" "$2" "$3" "${4:-}" "$gutter"
+print(json.dumps(out))' "$1" "$2" "${3:-}" "$gutter" "$hypr_layer"
 }
-tui_fits() { tui_area "pid:$1" "$2" "$3" "${4:-}"; }
-# The floating TUI classes as `<app-id> <preferred width> <preferred
-# height>`, the sizes HyprlandLayer.TUI_WINDOWS gives them.
-tui_classes=("org.vgs.tui 875 600" "org.vgs.tui.wide 1200 720" "org.vgs.tui.tall 875 900")
-# tui_fit_rows LABEL [MODE [exact]]: a window of each class floats and
+tui_fits() { tui_area "pid:$1" "$2" "${3:-}"; }
+# The floating TUI classes' app-ids, HyprlandLayer.TUI_WINDOWS' own.
+tui_classes=(org.vgs.tui org.vgs.tui.wide org.vgs.tui.tall)
+# tui_fit_rows LABEL [MODE [unclamped]]: a window of each class floats and
 # fits the output, the monitor at MODE when one is given, and, given
-# exact, takes its preferred size; each helper is stopped by its pid.
+# unclamped, the class's own size lies inside $tui_monitor's work area, so
+# the fit read no clamp; each helper is stopped by its pid.
 tui_fit_rows() {
-  local label="$1" mode="${2:-}" exact="${3:-}" tui tui_class tui_w tui_h
-  for tui in "${tui_classes[@]}"; do
-    read -r tui_class tui_w tui_h <<<"$tui"
+  local label="$1" mode="${2:-}" unclamped="${3:-}" tui_class
+  for tui_class in "${tui_classes[@]}"; do
     if open_tui "$tui_class"; then
       expect_poll "$label: a $tui_class window floats" "$tui_class floating=true" tui_floating "$tui_pid"
-      [[ -z $exact ]] || geometry expect_poll "$label: a $tui_class window is its preferred ${tui_w}x${tui_h}" "${tui_w}x${tui_h}" tui_size "$tui_pid"
-      geometry expect_poll "$label: a $tui_class window fits the work area, clamped and centred" '[]' tui_fits "$tui_pid" "$tui_w" "$tui_h" "$mode"
+      [[ -z $unclamped ]] || geometry expect_poll "$label: a $tui_class window's own size lies inside the work area" inside tui_area "monitor:$tui_monitor" "$tui_class" "$mode"
+      geometry expect_poll "$label: a $tui_class window fits the work area at its rule's size, clamped and centred" '[]' tui_fits "$tui_pid" "$tui_class" "$mode"
       close_tui "$label: the $tui_class helper exits 0 on SIGTERM"
       expect_poll "$label: the $tui_class window is gone" clients=0 tui_floating "$tui_pid"
     else
@@ -336,18 +356,18 @@ expect "vgs applies after the Hyprland appearance probe" "ok theme=vgs" applied 
 rm -rf -- "$probe_theme"
 
 # The floating TUIs' window rules: a window of each class floats, centred
-# on the work area, at its preferred size clamped to the output, at the
+# on the work area, at its rule's size clamped to the output, at the
 # sandbox's own mode, on a large output and on a small one.
 tui_fit_rows "at the sandbox's own mode"
 tui_monitor="$(first_name)" || fail "the first monitor's name is unreadable"
 tui_base_mode="$(first_mode)" || fail "the first monitor's mode is unreadable"
 hold_mode "the nested compositor holds $tui_monitor at 3008x1692 for the floating TUIs" "$tui_monitor" 3008x1692
-tui_fit_rows "on a 3008x1692 output" 3008x1692 exact
+tui_fit_rows "on a 3008x1692 output" 3008x1692 unclamped
 release_mode "the nested compositor gives $tui_monitor its own mode after 3008x1692" "$tui_monitor" "$tui_base_mode"
 hold_mode "the nested compositor holds $tui_monitor at 1440x900 for the floating TUIs" "$tui_monitor" 1440x900
-# Control: the tall class's preferred box does not fit this work area, so
-# the rows below read the clamp, not a size that fits unclamped.
-geometry expect_poll "control: a tall TUI at its preferred 875x900 leaves the 1440x900 work area" outside tui_area "monitor:$tui_monitor" 875 900 1440x900
+# Control: the tall class's own box does not fit this work area, so the
+# rows below read the clamp, not a size that fits unclamped.
+geometry expect_poll "control: a tall TUI at its own size leaves the 1440x900 work area" outside tui_area "monitor:$tui_monitor" org.vgs.tui.tall 1440x900
 tui_fit_rows "on a 1440x900 output" 1440x900
 release_mode "the nested compositor gives $tui_monitor its own mode after 1440x900" "$tui_monitor" "$tui_base_mode"
 # A rule disabled by name after the line stops floating its class alone.

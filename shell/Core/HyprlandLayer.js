@@ -56,14 +56,29 @@ var BORDERS = [
 // them. A floating TUI's terminal opens with its class's app-id, which
 // bin/vgshell-tui reads from here under node, and the layer writes one window
 // rule per class, named `rule`, that floats the window, centres it and
-// gives it its preferred width by height, clamped to its output
-// (tuiWindowLines). Only the core writes window rules: no plugin sets a
-// size or a class pattern.
+// sizes it by one rule (tuiWindowLines): `widthShare` by `heightShare` of
+// its output, never under `columns` by `rows` terminal cells, never past
+// the output's margins. A class holds no pixel size, so a window is the
+// same part of a large output and of a small one and fills a small one
+// before it loses a cell. `default`'s cells are what btop asks of its
+// terminal, in the words of its own refusal: "Needed for current config:
+// Width = 80 Height = 36" (btop in the System Monitor's window on the
+// owner's desktop, 2026-10-10). `wide` is 11/8 as wide and 6/5 as tall,
+// and `tall` 3/2 as tall, in share and in cells. Only the core writes
+// window rules: no plugin sets a size or a class pattern.
 var TUI_WINDOWS = {
-    "default": { appId: "org.vgs.tui", rule: "vgs:tui", width: 875, height: 600 },
-    "wide": { appId: "org.vgs.tui.wide", rule: "vgs:tui-wide", width: 1200, height: 720 },
-    "tall": { appId: "org.vgs.tui.tall", rule: "vgs:tui-tall", width: 875, height: 900 }
+    "default": { appId: "org.vgs.tui", rule: "vgs:tui", widthShare: 0.4, heightShare: 0.5, columns: 80, rows: 36 },
+    "wide": { appId: "org.vgs.tui.wide", rule: "vgs:tui-wide", widthShare: 0.55, heightShare: 0.6, columns: 110, rows: 43 },
+    "tall": { appId: "org.vgs.tui.tall", rule: "vgs:tui-tall", widthShare: 0.4, heightShare: 0.75, columns: 80, rows: 54 }
 };
+
+// What a terminal keeps of its window beside the grid, counted in cells so
+// it grows with the font the floor is measured in: the terminal's own
+// padding, which the shell neither sets nor reads, and the part of a cell
+// left over where the window is no whole number of cells. Ghostty 1.3.1
+// pads 2 points a side unless told otherwise and kitty 0.49.2 pads none
+// (`ghostty +show-config --default --docs`; kitty's options/definition.py).
+var TUI_PADDING = { columns: 2, rows: 1 };
 
 // The shell's application windows, the summon host's `window` kind. Every
 // toplevel the shell maps carries the process's one app-id, which
@@ -581,20 +596,49 @@ function tuiMargin(margins, name) {
     return value;
 }
 
-// MARGINS is { bar, gutter }: Theme.bar.height and size.window.gutter. Each
-// size is two Hyprland expressions, which v0.56.2 evaluates against the
-// monitor's logical size when the window maps: the preferred size, never
-// wider than the output less `gutter` a side, nor taller than the output
-// less the bar and `gutter` a side. Hyprland offers no reserved-area
-// variable, so the bar's height is taken whether or not a bar is up, and a
-// screen with no bar leaves a clamped TUI that many pixels short.
-function tuiWindowLines(margins) {
+// One side of CELL, a length in logical pixels, refused unless it is a
+// finite number above 0: HyprlandLayer.qml measures it from a font, and a
+// side Qt could not measure would write a floor of no size.
+function tuiCell(cell, name) {
+    var value = cell === undefined || cell === null ? undefined : cell[name];
+    if (typeof value !== "number" || !isFinite(value) || value <= 0)
+        throw new Error("HyprlandLayer: tuiCell." + name + " must be a finite number above 0, got " + JSON.stringify(value));
+    return value;
+}
+
+// One axis of a floating TUI's size, a Hyprland expression: SHARE of the
+// output's length along AXIS, `monitor_w` or `monitor_h`, never under
+// CELLS cells of CELL logical pixels each, rounded up to a whole pixel,
+// and never over the output less MARGIN, which wins where the two
+// disagree, so a small output gets the window nearly whole. Hyprland
+// v0.56.2 evaluates the text with muParser (Math::CExpression,
+// src/helpers/math/Expression.cpp), whose `min`, `max` and `*` this
+// uses: libmuparser 2.3.5 answered 820 for
+// `min(max(monitor_w*0.4,820),monitor_w-20)` with monitor_w 1366 and 1536
+// with 3840 (a C++ run against the installed library, 2026-10-10). A share
+// is seldom a whole number of pixels, and Hyprland keeps the fraction
+// (DefaultFloatingAlgorithm.cpp takes the computed size as it is).
+function tuiLength(axis, share, cells, cell, margin) {
+    return "\"min(max(" + axis + "*" + luaNumber(share) + "," + luaNumber(Math.ceil(cells * cell)) + ")," + axis + "-" + margin + ")\"";
+}
+
+// MARGINS is { bar, gutter }: Theme.bar.height and size.window.gutter. CELL
+// is { width, height }, one terminal cell as HyprlandLayer.qml estimates
+// it. Each size is two Hyprland expressions (tuiLength), which v0.56.2
+// evaluates against the monitor's logical size when the window maps: the
+// class's share of the output, never under its cells with TUI_PADDING's,
+// never wider than the output less `gutter` a side, nor taller than the
+// output less the bar and `gutter` a side. Hyprland offers no
+// reserved-area variable, so the bar's height is taken whether or not a
+// bar is up, and a screen with no bar leaves a clamped TUI that many
+// pixels short.
+function tuiWindowLines(margins, cell) {
     var across = luaNumber(2 * tuiMargin(margins, "gutter"));
     var down = luaNumber(tuiMargin(margins, "bar") + 2 * tuiMargin(margins, "gutter"));
-    return ["-- Floating TUIs: each size class's app-id floats, centred, at its size, clamped to its output."].concat(Object.keys(TUI_WINDOWS).map(function (size) {
+    return ["-- Floating TUIs: each size class's app-id floats, centred, at its share of its output, never under its cells nor past the output's margins."].concat(Object.keys(TUI_WINDOWS).map(function (size) {
         var row = TUI_WINDOWS[size];
-        var width = "\"min(" + luaNumber(row.width) + ",monitor_w-" + across + ")\"";
-        var height = "\"min(" + luaNumber(row.height) + ",monitor_h-" + down + ")\"";
+        var width = tuiLength("monitor_w", row.widthShare, row.columns + TUI_PADDING.columns, tuiCell(cell, "width"), across);
+        var height = tuiLength("monitor_h", row.heightShare, row.rows + TUI_PADDING.rows, tuiCell(cell, "height"), down);
         return "hl.window_rule({ name = \"" + row.rule + "\", match = { class = " + classLiteral(row.appId) + " }, float = true, center = true, size = { " + width + ", " + height + " } })";
     }));
 }
@@ -1305,8 +1349,9 @@ function appliedLines(values, paths) {
 // wrote, the same namespace and effects, is written once. THEME gives the
 // theme's colours and Hyprland tokens, `glass`, the window glass values
 // (Theme.glass.window), `groups`, whether each of
-// APPLIED_GROUPS is written, and `tuiMargins`, the margins
-// tuiWindowLines keeps the floating TUIs from the output's edges. After
+// APPLIED_GROUPS is written, `tuiMargins`, the margins
+// tuiWindowLines keeps the floating TUIs from the output's edges, and
+// `tuiCell`, the terminal cell it counts their smallest size in. After
 // the header comes appliedLines: the APPLIED_GROUPS the theme writes, in
 // order, then each section's `hl.config` options line under its heading.
 // A group the theme leaves to the user is a comment after it, naming the
@@ -1348,7 +1393,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     });
     if (switches.groups.noGaps.enabled) groups = groups.concat(noGapsLines());
     else groups.push(disabledGroupLine("noGaps", switches.groups.noGaps.setting));
-    var lines = [""].concat(groups, [""], tuiWindowLines(theme.tuiMargins), [""], appWindowLines());
+    var lines = [""].concat(groups, [""], tuiWindowLines(theme.tuiMargins, theme.tuiCell), [""], appWindowLines());
     if (theme.groups.surfaceBlur === true) lines = lines.concat([""], surfaceBlurLines());
     if (tapTrackerWanted(plan)) lines = lines.concat([""], tapTrackerLines());
     lines = lines.concat([""], userBindLines(), [""], overlayCaptureLines(plan), [""], keyPassthroughLines(), [""], sessionLockLines());
