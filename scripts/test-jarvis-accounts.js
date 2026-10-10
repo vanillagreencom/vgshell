@@ -350,9 +350,14 @@ world(async () => {
         const judge = new Judge(directory, env);
         const found = store.discover();
         const before = [calls("cli-calls").length, calls("port-calls").length, calls("secret-calls").length];
+        // An Anthropic key runs the model of the settings; another key its
+        // row's own.
         const keyring = found.find(item => item.source.reference?.account === "chosen label");
         assert.deepEqual(judge.resolve(keyring.id), { id: keyring.id, provider: "anthropic", label: "chosen label",
-            source: keyring.source, model: "claude-haiku-4-5" });
+            source: keyring.source, model: "" });
+        const other = found.find(item => item.source.reference?.account === "other");
+        assert.deepEqual(judge.resolve(other.id), { id: other.id, provider: "openai", label: other.label,
+            source: other.source, model: "gpt-4.1-nano" });
         const local = store.account(PROVIDERS.find(row => row.id === "ollama"), "local", { kind: "found" },
             { kind: "local", origin: "http://127.0.0.1:11434" });
         assert.deepEqual(judge.resolve(local.id), { id: local.id, provider: "ollama", label: "local",
@@ -376,8 +381,39 @@ world(async () => {
             "resolution runs no vendor command, port read or key lookup");
     };
     resolution(Accounts);
-    await mutant("backend/Accounts.js", "resolve-unsupported", 'if (source.kind === "keyring" && !keyProvider(row)) return null;', "",
-        folder => resolution(require(path.join(folder, "backend/Accounts.js")).Accounts));
+    for (const [name, needle, replacement] of [
+        ["resolve-unsupported", 'if (source.kind === "keyring" && !keyProvider(row)) return null;', ""],
+        ["resolve-key-list", ' || (source.kind === "keyring" && row.models !== undefined)', ""]]) {
+        await mutant("backend/Accounts.js", name, needle, replacement,
+            folder => resolution(require(path.join(folder, "backend/Accounts.js")).Accounts));
+        controls++;
+    }
+    cases++;
+    // An Anthropic key offers its row's own list, read with no command,
+    // port or key lookup. Another key, a local server and a speech-only
+    // key offer none.
+    const LEVELS = ["low", "medium", "high", "xhigh", "max"];
+    const keyOffers = async Judge => {
+        const judge = new Judge(directory, env);
+        const found = store.discover();
+        const before = [calls("cli-calls").length, calls("port-calls").length, calls("secret-calls").length];
+        const answers = [];
+        for (const account of ["chosen label", "other", "voice"])
+            answers.push(await judge.readOffers(found.find(item => item.source.reference?.account === account).id));
+        const local = store.account(PROVIDERS.find(row => row.id === "ollama"), "local", { kind: "found" },
+            { kind: "local", origin: "http://127.0.0.1:11434" });
+        answers.push(await judge.readOffers(local.id));
+        assert.deepEqual(answers, [{ kind: "read", offers: [
+            { value: "claude-opus-5-5", label: "Claude Opus 5.5", efforts: LEVELS, effort: "medium" },
+            { value: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", efforts: LEVELS, effort: "high" },
+            { value: "claude-haiku-4-5", label: "Claude Haiku 4.5", efforts: [], effort: "" }] },
+        { kind: "none" }, { kind: "none" }, { kind: "none" }]);
+        assert.deepEqual([calls("cli-calls").length, calls("port-calls").length, calls("secret-calls").length], before,
+            "a key's list runs no vendor command, port read or key lookup");
+    };
+    await keyOffers(Accounts);
+    await mutant("backend/Accounts.js", "key-offers", "if (listed !== undefined) return", "if (false) return",
+        folder => keyOffers(require(path.join(folder, "backend/Accounts.js")).Accounts));
     controls++;
     cases++;
     safe(fs.readFileSync(references.file, "utf8"));
@@ -638,7 +674,7 @@ world(async () => {
         assert.deepEqual(judge.choose(ollama.id), { kind: "refused", cause: "model-required" }, "a local server");
         assert.deepEqual(judge.choose(cerebras.id), { kind: "refused", cause: "model-required" }, "Cerebras");
         assert.deepEqual(judge.choose(key.id), { kind: "accepted", account: { id: key.id, provider: "anthropic",
-            label: "chosen label", source: key.source, model: "claude-haiku-4-5" } }, "a stored key");
+            label: "chosen label", source: key.source, model: "" } }, "a stored key");
         for (const item of [claude, codex])
             assert.deepEqual(judge.choose(item.id), { kind: "accepted", account: { id: item.id, provider: item.provider,
                 label: item.label, source: item.source, model: "" } }, item.provider);

@@ -4,7 +4,7 @@
     "version": "2023-06-01",
     "fetched": "2026-10-01",
     "documentation": "https://platform.claude.com/docs/en/build-with-claude/streaming",
-    "kind": "Synthetic scripts from the documented text and tool-use event sequences. No recording or account data."
+    "kind": "Synthetic scripts from the documented text, tool-use and thinking event sequences. No recording or account data."
   },
   "start": {"type":"message_start","message":{"id":"msg_fixture","type":"message","role":"assistant","model":"fixture-model","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":1}}},
   "scripts": {
@@ -35,6 +35,45 @@
       {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}},
       {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Thinking"}},
       {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" queued"}}
+    ],
+    "thinking": [
+      {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}},
+      {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"fixture-signature-answer"}},
+      {"type":"content_block_stop","index":0},
+      {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}},
+      {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Hello there."}},
+      {"type":"content_block_stop","index":1},
+      {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":3}},
+      {"type":"message_stop"}
+    ],
+    "thinkingOnly": [
+      {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}},
+      {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Nothing to say."}},
+      {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"fixture-signature-silent"}},
+      {"type":"content_block_stop","index":0},
+      {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":3}},
+      {"type":"message_stop"}
+    ],
+    "thinkingTools": [
+      {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}},
+      {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Focus the window"}},
+      {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" first."}},
+      {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"fixture-signature-tools"}},
+      {"type":"content_block_stop","index":0},
+      {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_focus","name":"windows_focus","input":{}}},
+      {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"window\":\"0x1f\"}"}},
+      {"type":"content_block_stop","index":1},
+      {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":10}},
+      {"type":"message_stop"}
+    ],
+    "redactedTools": [
+      {"type":"content_block_start","index":0,"content_block":{"type":"redacted_thinking","data":"fixture-redacted-data"}},
+      {"type":"content_block_stop","index":0},
+      {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_focus","name":"windows_focus","input":{}}},
+      {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"window\":\"0x1f\"}"}},
+      {"type":"content_block_stop","index":1},
+      {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":10}},
+      {"type":"message_stop"}
     ],
     "error": [
       {"type":"error","error":{"type":"overloaded_error","message":"test-key-must-stay-private provider-private-detail"}}

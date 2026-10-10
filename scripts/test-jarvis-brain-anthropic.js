@@ -17,6 +17,7 @@ const clone = value => structuredClone(value);
 const start = () => clone(fixture.start);
 const text = () => [start(), ...clone(fixture.scripts.text)];
 const tools = () => [start(), ...clone(fixture.scripts.tools)];
+const scripted = name => [start(), ...clone(fixture.scripts[name])];
 const end = reason => [
     { type: "message_delta", delta: { stop_reason: reason, stop_sequence: null }, usage: { output_tokens: 1 } },
     { type: "message_stop" }
@@ -93,7 +94,8 @@ world(async () => {
         { id: "windows.focus", description: "Focus a window.", parameters: { type: "object", properties: { window: { type: "string" } } } },
         { id: "files.read", description: "Read a file.", parameters: { type: "object", properties: { path: { type: "string" } } } }
     ];
-    function open(kit, sequence = [{ events: text() }], { remoteVoice = false, cloudVision = "ask", wrap = door => door, tools: offered = TOOLS } = {}) {
+    function open(kit, sequence = [{ events: text() }], { remoteVoice = false, cloudVision = "ask", wrap = door => door, tools: offered = TOOLS,
+        model = "fixture-" + ++counter, effort = "" } = {}) {
         const provider = kit.Providers.select("anthropic");
         const recipients = kit.Policy.recipients({ conversation: "fixture", profile: "standard", cloudVision,
             brain: { kind: "network", provider: "anthropic", account: "fixture", origin },
@@ -102,9 +104,8 @@ world(async () => {
         const net = kit.Net.create(recipients);
         doors.push(net);
         const secrets = new kit.Secrets.Secrets(path.join(env.XDG_STATE_HOME, "vgshell/jarvis"), env);
-        const model = "fixture-" + ++counter;
         scripts.set(model, clone(sequence));
-        const brain = kit.Brain.create({ provider, model, net: wrap(net), recipients,
+        const brain = kit.Brain.create({ provider, model, effort, net: wrap(net), recipients,
             key: { secrets, reference: kit.Secrets.ownReference("anthropic", "fixture", origin) } });
         brain.start({ instructions: "Fixture guidance.", tools: offered });
         return { brain, recipients, model };
@@ -131,7 +132,7 @@ world(async () => {
             { kind: "text", text: "Hello" }, { kind: "text", text: " there." }, { kind: "done", reason: "stop" }] });
         assert.deepEqual(last().body, { model, system: "Fixture guidance.", messages: [
             { role: "user", content: [{ type: "text", text: "What time is it?" }] }],
-            max_tokens: 4096, stream: true, tools: TOOLS.map(tool =>
+            max_tokens: 32000, stream: true, tools: TOOLS.map(tool =>
                 ({ name: tool.id.replaceAll(".", "_"), description: tool.description, input_schema: tool.parameters })) });
         assert.deepEqual([last().headers["x-api-key"], last().headers.authorization, last().headers["anthropic-version"],
             last().headers.accept, last().headers["content-type"]], [KEY, undefined, "2023-06-01", "text/event-stream", "application/json"]);
@@ -170,6 +171,60 @@ world(async () => {
         await drain(brain.send(user(kit), [{ recipients, labels: ["file"] }]));
         assert.equal(last().body.messages[2].content[1].content, "PRIVATE notes", "result labels survive in history");
         assert.throws(() => brain.send(user(kit)), { message: "jarvis: brain=history-release" });
+    }
+    const FOCUS = { type: "tool_use", id: "toolu_focus", name: "windows_focus", input: { window: "0x1f" } };
+    const QUESTION = { role: "user", content: [{ type: "text", text: "What time is it?" }] };
+    const AGAIN = { role: "user", content: [{ type: "text", text: "Again" }] };
+    const FOCUSED = { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_focus", content: "focused" }] };
+    const focused = kit => ({ kind: "tool-results", results: [{ id: "toolu_focus", item: kit.Policy.item("focused", ["desktop"]) }] });
+    // Thinking never reaches the reply's text. The current turn's tool loop
+    // sends its thinking back unchanged; a later turn leaves it out.
+    async function thinkingTurns(kit) {
+        const { brain } = open(kit, [{ events: scripted("thinkingTools") }, { events: scripted("thinking") }, { events: text() }], { remoteVoice: true });
+        assert.deepEqual(await drain(brain.send(user(kit))), { error: null, events: [expectedCalls[0], { kind: "done", reason: "tool-calls" }] },
+            "a thinking block yields no text");
+        assert.deepEqual(await drain(brain.send(focused(kit))), { error: null, events: [{ kind: "text", text: "Hello there." }, { kind: "done", reason: "stop" }] },
+            "an empty signed thinking block, then text");
+        assert.deepEqual(last().body.messages, [QUESTION,
+            { role: "assistant", content: [{ type: "thinking", thinking: "Focus the window first.", signature: "fixture-signature-tools" }, FOCUS] }, FOCUSED],
+            "the tool loop sends its thinking back unchanged");
+        await drain(brain.send(user(kit, [speech(kit, "Again")])));
+        assert.deepEqual(last().body.messages, [QUESTION, { role: "assistant", content: [FOCUS] }, FOCUSED,
+            { role: "assistant", content: [{ type: "text", text: "Hello there." }] }, AGAIN], "a later turn sends no earlier thinking");
+    }
+    // A redacted block, and a thinking start that leaves out its empty
+    // fields, go back as received in the tool loop and not after it.
+    async function thinkingBlocks(kit) {
+        const bare = altered(scripted("thinkingTools"), events => {
+            delete events[1].content_block.thinking;
+            delete events[1].content_block.signature;
+        });
+        for (const [label, script, block] of [
+            ["redacted", { events: scripted("redactedTools") }, { type: "redacted_thinking", data: "fixture-redacted-data" }],
+            ["bare start", bare, { type: "thinking", thinking: "Focus the window first.", signature: "fixture-signature-tools" }]]) {
+            const { brain } = open(kit, [script, { events: text() }], { remoteVoice: true });
+            assert.deepEqual(await drain(brain.send(user(kit))), { error: null, events: [expectedCalls[0], { kind: "done", reason: "tool-calls" }] }, label);
+            await drain(brain.send(focused(kit)));
+            assert.deepEqual(last().body.messages[1], { role: "assistant", content: [block, FOCUS] }, label + " in the tool loop");
+            await drain(brain.send(user(kit, [speech(kit, "Again")])));
+            assert.deepEqual(last().body.messages[1], { role: "assistant", content: [FOCUS] }, label + " after the turn");
+        }
+    }
+    // An earlier reply of thinking alone is no message.
+    async function silentThinking(kit) {
+        const { brain } = open(kit, [{ events: scripted("thinkingOnly") }, { events: text() }]);
+        assert.deepEqual(await drain(brain.send(user(kit))), { error: null, events: [{ kind: "done", reason: "stop" }] });
+        await drain(brain.send(user(kit, [speech(kit, "Again")])));
+        assert.deepEqual(last().body.messages, [QUESTION, AGAIN]);
+    }
+    // The chosen effort is sent; "" sends none, as textTurns pins.
+    async function efforts(kit) {
+        const { brain, model } = open(kit, undefined, { effort: "high" });
+        assert.equal((await drain(brain.send(user(kit)))).error, null);
+        assert.deepEqual([last().body.model, last().body.output_config], [model, { effort: "high" }]);
+        for (const [options, cause] of [[{ effort: "High" }, "effort"], [{ effort: "-max" }, "effort"], [{ effort: null }, "effort"],
+            [{ model: "" }, "model-required"]])
+            assert.throws(() => open(kit, undefined, options), { message: "jarvis: brain=" + cause }, JSON.stringify(options));
     }
     const PNG = Buffer.from("89504e470d0a1a0a", "hex");
     // A result's image is a block of its own tool_result, released as its text is.
@@ -258,7 +313,17 @@ world(async () => {
         ["text-delta", altered(text(), events => events[3].delta.text = 7), "brain=delta-shape"],
         ["tool-delta", altered(tools(), events => events[5].delta.partial_json = 7), "brain=delta-shape"],
         ["delta-type", altered(tools(), events => events[5].delta.type = "text_delta"), "brain=delta-shape"],
-        ["unsupported-block", altered(text(), events => events[1].content_block.type = "thinking"), "brain=block-unsupported"],
+        ["unsupported-block", altered(text(), events => events[1].content_block.type = "server_tool_use"), "brain=block-unsupported"],
+        ["thinking-shape", altered(scripted("thinkingTools"), events => events[1].content_block.thinking = 7), "brain=block-shape"],
+        ["signature-shape", altered(scripted("thinkingTools"), events => events[1].content_block.signature = 7), "brain=block-shape"],
+        ["unsigned", altered(scripted("thinkingTools"), events => events.splice(4, 1)), "brain=block-shape"],
+        ["redacted-shape", altered(scripted("redactedTools"), events => events[1].content_block.data = 7), "brain=block-shape"],
+        ["redacted-empty", altered(scripted("redactedTools"), events => events[1].content_block.data = ""), "brain=block-shape"],
+        ["thinking-delta", altered(scripted("thinkingTools"), events => events[2].delta.thinking = 7), "brain=delta-shape"],
+        ["signature-delta", altered(scripted("thinkingTools"), events => events[4].delta.signature = 7), "brain=delta-shape"],
+        ["thinking-delta-type", altered(scripted("thinkingTools"), events => events[2].delta.type = "text_delta"), "brain=delta-shape"],
+        ["redacted-delta", altered(scripted("redactedTools"), events => events.splice(2, 0,
+            { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "" } })), "brain=delta-shape"],
         ["early-ending", { events: [start(), ...clone(fixture.scripts.hold), ...end("end_turn")] }, "brain=event-order"],
         ["block-after-ending", { events: [...text().slice(0, -1),
             { ...clone(fixture.scripts.text[0]), index: 1 }] }, "brain=event-order"],
@@ -407,7 +472,7 @@ world(async () => {
         const secrets = new kit.Secrets.Secrets(path.join(env.XDG_STATE_HOME, "vgshell/jarvis"), env);
         const sent = [];
         let closed = false;
-        const options = { provider: Providers.select("anthropic"), model: "fixture-model", recipients,
+        const options = { provider: Providers.select("anthropic"), model: "fixture-model", effort: "", recipients,
             key: { secrets, reference: kit.Secrets.ownReference("anthropic", "fixture", "https://api.anthropic.com") },
             net: { request: async (item, value) => {
                 sent.push(value);
@@ -428,7 +493,8 @@ world(async () => {
     }
     try {
         const kit = kitFrom(backend);
-        for (const check of [textTurns, toolTurns, toolImages, images, bounds, endings, cancellation, races, drivers]) await check(kit);
+        for (const check of [textTurns, toolTurns, thinkingTurns, thinkingBlocks, silentThinking, efforts, toolImages, images, bounds, endings,
+            cancellation, races, drivers]) await check(kit);
         for (const [name] of refusals) await refusal(name)(kit);
         const statuses = [[400, "request-rejected"], [401, "unauthorized"], [402, "billing"], [403, "forbidden"],
             [404, "not-found"], [409, "conflict"], [413, "request-too-large"], [429, "rate-limited"],
@@ -443,12 +509,38 @@ world(async () => {
         }
         const mutations = [
             ["wire-tool-schema", "input_schema: structuredClone(tool.parameters)", "input_schema: {}", textTurns],
-            ["system", "({ model, system, messages, max_tokens: 4096, stream: true })", "({ model, messages, max_tokens: 4096, stream: true })", textTurns],
-            ["tokens", "max_tokens: 4096", "max_tokens: 1", textTurns],
+            ["system", "({ model, system, messages, max_tokens: 32000, stream: true })", "({ model, messages, max_tokens: 32000, stream: true })", textTurns],
+            ["tokens", "max_tokens: 32000", "max_tokens: 1", textTurns],
             ["version", '"anthropic-version": "2023-06-01"', '"anthropic-version": "wrong"', textTurns],
             ["key-header", 'header: "x-api-key"', 'header: "authorization"', drivers],
             ["endpoint", 'path: "/messages"', 'path: "/chat/completions"', drivers],
-            ["history-blocks", "content: entry.content", 'content: [{ type: "text", text: entry.text }]', toolTurns],
+            ["history-blocks", "            : entry.content;", '            : [{ type: "text", text: entry.text }];', toolTurns],
+            // The old driver: a thinking block fails the turn block-unsupported.
+            ["thinking-block", 'case "thinking": {', 'case "thinking-removed": {', thinkingTurns],
+            ["redacted-block", 'case "redacted_thinking":', 'case "redacted-removed":', thinkingBlocks],
+            ["thinking-text", "block.thinking += value.delta.thinking;", "", thinkingTurns],
+            ["thinking-replay", 'content.push({ type: "thinking", thinking: block.thinking, signature: block.signature });',
+                'content.push({ type: "text", text: "" });', thinkingTurns],
+            ["thinking-earlier", "const content = earlier ? entry.content.filter(", "const content = false ? entry.content.filter(", thinkingTurns],
+            ["thinking-current", "const content = earlier ? entry.content.filter(", "const content = true ? entry.content.filter(", thinkingTurns],
+            ["redacted-earlier", ' && block.type !== "redacted_thinking"', "", thinkingBlocks],
+            ["empty-earlier", 'return content.length === 0 ? [] : [{ role: "assistant", content }];', 'return [{ role: "assistant", content }];', silentThinking],
+            ["absent-thinking", 'start.thinking === undefined ? "" : start.thinking', "start.thinking", thinkingBlocks],
+            ["absent-signature", 'start.signature === undefined ? "" : start.signature', "start.signature", thinkingBlocks],
+            ["thinking-shape", 'typeof thinking !== "string" || ', "", refusal("thinking-shape")],
+            ["signature-shape", ' || typeof signature !== "string"', "", refusal("signature-shape")],
+            ["unsigned", 'if (block.signature === "") fail("block-shape");', "", refusal("unsigned")],
+            ["redacted-shape", 'typeof start.data !== "string" || ', "", refusal("redacted-shape")],
+            ["redacted-empty", ' || start.data === ""', "", refusal("redacted-empty")],
+            ["thinking-delta-shape", 'if (typeof value.delta.thinking !== "string") fail("delta-shape");', "", refusal("thinking-delta")],
+            ["signature-delta-shape", 'if (typeof value.delta.signature !== "string") fail("delta-shape");', "", refusal("signature-delta")],
+            ["thinking-delta-type", '                default: fail("delta-shape");', "                default: break;", refusal("thinking-delta-type")],
+            ["redacted-delta", 'case "redacted": return fail("delta-shape");', 'case "redacted": break;', refusal("redacted-delta")],
+            ["effort-sent", 'const effort = options.effort === "" ? {} : { output_config: { effort: options.effort } };', "const effort = {};", efforts],
+            ["effort-unset", 'const effort = options.effort === "" ? {} : { output_config: { effort: options.effort } };',
+                "const effort = { output_config: { effort: options.effort || null } };", textTurns],
+            ["effort-judge", 'if (!Harness.isEffort(options.effort)) fail("effort");', "", efforts],
+            ["model-required", 'if (options.model === "") fail("model-required");', "", efforts],
             ["result-id", "tool_use_id: result.id", 'tool_use_id: "wrong"', toolTurns],
             ["result-role", 'results => [{ role: "user"', 'results => [{ role: "assistant"', toolTurns],
             ["image-media", "media_type: image.type", 'media_type: "image/png"', images],
@@ -510,7 +602,9 @@ world(async () => {
             ["driver", 'if (provider.driver !== protocol.driver) fail("driver");', "", drivers, path.join(backend, "WireBrain.js")],
             ["instruction-encoder", " || protocol.instruction === undefined", "", toolTurns, path.join(backend, "WireBrain.js")],
             ["earlier-images", "decision: index < current ? EARLIER_IMAGE : released(image.item)", "decision: released(image.item)",
-                toolImages, path.join(backend, "WireBrain.js")]
+                toolImages, path.join(backend, "WireBrain.js")],
+            ["earlier-thinking", "protocol.assistant(entry, index < current)", "protocol.assistant(entry, false)",
+                thinkingTurns, path.join(backend, "WireBrain.js")]
         ];
         for (const [name, needle, replacement, check, target] of mutations) await control(name, needle, replacement, check, target);
         for (const reason of ["max_tokens", "refusal", "pause_turn", "model_context_window_exceeded", "unknown"])

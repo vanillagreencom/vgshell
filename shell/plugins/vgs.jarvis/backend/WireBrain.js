@@ -119,7 +119,7 @@ function create({ provider, model, net, recipients, key }, protocol) {
                 break;
             case "assistant":
                 if (released(entry.item).kind !== "send") fail("history-release");
-                messages.push(protocol.assistant(entry));
+                messages.push(...protocol.assistant(entry, index < current));
                 break;
             case "tool-results":
                 messages.push(...protocol.results(entry.results.map(result => ({ id: result.id,

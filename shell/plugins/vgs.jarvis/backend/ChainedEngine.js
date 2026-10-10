@@ -172,9 +172,10 @@ function selectBrain(settings, accounts) {
     const provider = Providers.select(account.provider);
     if (!Object.hasOwn(DRIVERS, provider.driver)) fail("driver");
     const target = Net.endpoint(provider.base);
-    // A key, a local server and a Pi choice name their own model. Any other
-    // sign-in program runs the model and effort the service chose from that
-    // program's own list, each "" for the program's own.
+    // A key without a model list, a local server and a Pi choice name their
+    // own model. An Anthropic key and every other sign-in program run the
+    // model and effort the service chose from its list, each "" for a
+    // program's own.
     const own = account.model !== "";
     return { kind: "ready", brain: { provider, model: own ? account.model : settings.model, effort: own ? "" : settings.effort,
         account: account.source,

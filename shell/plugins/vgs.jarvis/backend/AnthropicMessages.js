@@ -3,6 +3,7 @@
 // Contract: docs/architecture/jarvis.md § Adapters.
 "use strict";
 const WireBrain = require("./WireBrain.js");
+const Harness = require("./HarnessProgram.js");
 const TOOL_CALLS = 16;
 function fail(code) { throw new Error("jarvis: brain=" + code); }
 function plain(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
@@ -82,6 +83,20 @@ function reader(names) {
                 if (!names.has(start.name)) fail("tool-call-name");
                 block = { kind: "tool", id: start.id, name: start.name, input: start.input, fragments: "" };
                 break;
+            // Thinking never reaches the reply's text. Its block goes back to
+            // the API unchanged, so it is kept whole. Its start may leave
+            // out its empty fields; its signature arrives as a delta.
+            case "thinking": {
+                const thinking = start.thinking === undefined ? "" : start.thinking;
+                const signature = start.signature === undefined ? "" : start.signature;
+                if (typeof thinking !== "string" || typeof signature !== "string") fail("block-shape");
+                block = { kind: "thinking", thinking, signature };
+                break;
+            }
+            case "redacted_thinking":
+                if (typeof start.data !== "string" || start.data === "") fail("block-shape");
+                block = { kind: "redacted", data: start.data };
+                break;
             default: return fail("block-unsupported");
             }
             break;
@@ -99,6 +114,20 @@ function reader(names) {
                 if (value.delta.type !== "input_json_delta" || typeof value.delta.partial_json !== "string") fail("delta-shape");
                 block.fragments += value.delta.partial_json;
                 break;
+            case "thinking":
+                switch (value.delta.type) {
+                case "thinking_delta":
+                    if (typeof value.delta.thinking !== "string") fail("delta-shape");
+                    block.thinking += value.delta.thinking;
+                    break;
+                case "signature_delta":
+                    if (typeof value.delta.signature !== "string") fail("delta-shape");
+                    block.signature = value.delta.signature;
+                    break;
+                default: fail("delta-shape");
+                }
+                break;
+            case "redacted": return fail("delta-shape");
             default: throw new Error("jarvis: brain=block-state");
             }
             break;
@@ -118,6 +147,12 @@ function reader(names) {
                 content.push({ type: "tool_use", id: block.id, name: block.name, input: parsed });
                 break;
             }
+            // An unsigned block cannot go back to the API.
+            case "thinking":
+                if (block.signature === "") fail("block-shape");
+                content.push({ type: "thinking", thinking: block.thinking, signature: block.signature });
+                break;
+            case "redacted": content.push({ type: "redacted_thinking", data: block.data }); break;
             default: throw new Error("jarvis: brain=block-state");
             }
             block = null;
@@ -153,13 +188,36 @@ const protocol = {
     tool: (name, tool) => ({ name, description: tool.description, input_schema: structuredClone(tool.parameters) }),
     // A fixed output allowance, not a model-window claim. The session owns
     // context budgeting; a response that reaches this allowance fails.
-    request: (model, system, messages) => ({ model, system, messages, max_tokens: 4096, stream: true }),
+    // Thinking counts toward it, so it leaves room for high effort and
+    // stays within Claude Haiku 4.5's 64K output limit.
+    request: (model, system, messages) => ({ model, system, messages, max_tokens: 32000, stream: true }),
     user: (texts, images) => ({ role: "user", content: [...texts.map(text => ({ type: "text", text })), ...images.map(imageBlock)] }),
-    assistant: entry => ({ role: "assistant", content: entry.content }),
+    // A thinking block's signature binds the conversation before it, and an
+    // earlier turn renders differently once a new turn starts (an image
+    // becomes its marker, a grant may lapse). So only the current turn's
+    // thinking goes back, unchanged, as its tool loop requires; an earlier
+    // turn's is left out, which the API allows from the front of the
+    // history. An earlier reply that held only thinking is no message: the
+    // API joins the user turns around it.
+    assistant(entry, earlier) {
+        const content = earlier ? entry.content.filter(block => block.type !== "thinking" && block.type !== "redacted_thinking")
+            : entry.content;
+        return content.length === 0 ? [] : [{ role: "assistant", content }];
+    },
     // A result's image is a block of its own tool_result's content.
     results: results => [{ role: "user", content: results.map(result => ({ type: "tool_result", tool_use_id: result.id,
         content: result.image === null ? result.content : [{ type: "text", text: result.content }, imageBlock(result.image)] })) }]
 };
-/** Create the Messages implementation of the shared brain contract. */
-function create(options) { return WireBrain.create(options, protocol); }
+/**
+ * Create the Messages implementation of the shared brain contract. The model
+ * comes from the settings and is required; effort is "" for the model's own
+ * and is sent only when chosen, as a model without levels refuses the field.
+ */
+function create(options) {
+    if (options.model === "") fail("model-required");
+    if (!Harness.isEffort(options.effort)) fail("effort");
+    const effort = options.effort === "" ? {} : { output_config: { effort: options.effort } };
+    return WireBrain.create(options, { ...protocol,
+        request: (model, system, messages) => ({ ...protocol.request(model, system, messages), ...effort }) });
+}
 module.exports = { create };

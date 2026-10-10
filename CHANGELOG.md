@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- The Jarvis page has two new settings under AI model: Model and Effort. They list the models of the app you chose as the AI model, read from that app while the page is open: Claude Code, Codex or GitHub Copilot. Effort lists the levels a Claude Code or Codex model takes; GitHub Copilot sets its own. When you choose an app, Jarvis saves Fable 5.1 at high effort where the app offers it, else Opus 5.5 at high effort, else the app's own model and effort. Your choice is saved and reaches the app. An API key, a local server and a Pi choice show neither setting.
+- The Jarvis page has two new settings under AI model: Model and Effort. They list the models of the app you chose as the AI model, read from that app while the page is open: Claude Code, Codex or GitHub Copilot. Effort lists the levels a Claude Code or Codex model takes; GitHub Copilot sets its own. When you choose an app, Jarvis saves Fable 5.1 at high effort where the app offers it, else Opus 5.5 at high effort, else the app's own model and effort. Your choice is saved and reaches the app. An Anthropic API key shows both, with Opus 5.5 at high effort by default; other API keys, a local server and a Pi choice show neither setting.
+- Jarvis with an Anthropic API key runs Claude Opus 5.5 at high effort. Before, it ran Claude Haiku 4.5.
 - A plugin's `optionsFrom` setting may declare `hideEmpty: true`: the Settings page then draws no field while nothing is offered for it.
 - A plugin can read `shell.status.viewed`: it is true while the Settings window shows that plugin's page.
 - Jarvis's Voice provider has a new first choice, Auto, which is the default: Realtime when an OpenAI key is stored, else Local. Storing or removing the key changes the voice with no restart, and a choice of Local or Realtime stays. With no key the Jarvis page asks for none; the OpenAI key row under Details > Voice offers Add key.

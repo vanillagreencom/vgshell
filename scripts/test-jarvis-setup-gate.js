@@ -102,6 +102,9 @@ const HAIKU = offer("claude-haiku-4-5", "Haiku 4.5", []), SONNET = offer("claude
 const CLAUDE = [OPUS, FABLE, HAIKU, SONNET];
 const COPILOT = [offer("auto", "Auto", []), offer("claude-opus-5.5", "Claude Opus 5.5", []), offer("gpt-6.1-sol", "GPT-6.1-Sol", [])];
 const CODEX = [offer("gpt-6.1-sol", "GPT-6.1-Sol", [...LEVELS, "ultra"], "low"), offer("gpt-6-luna", "GPT-6-Luna", LEVELS, "medium")];
+// An Anthropic key's list, its row's own, each at the API's own default.
+const ANTHROPIC_KEY = [offer("claude-opus-5-5", "Claude Opus 5.5", LEVELS, "medium"), offer("claude-sonnet-5-5", "Claude Sonnet 5.5", LEVELS, "high"),
+    offer("claude-haiku-4-5", "Claude Haiku 4.5", [], "")];
 const read = offers => ({ kind: "read", offers });
 const CLAUDE_VALUES = ["claude-fable-5-1", "claude-opus-5-5[1m]", "claude-haiku-4-5", "claude-sonnet-5-5"];
 const FAILED = { kind: "failed", reason: "harness-exit" };
@@ -126,7 +129,12 @@ const CHOICE = [
     ["a read its program did not answer", { model: "claude-fable-5-1", effort: "high" }, FAILED, ["claude-fable-5-1", "high"], ["claude-fable-5-1"], ["high"]],
     // Nothing saved and no list: the page shows what Jarvis runs, and saves nothing.
     ["a failed read and nothing saved, for Claude Code", {}, FAILED, ["", ""], ["claude-fable-5-1"], ["high"], "claude"],
-    ["a failed read and nothing saved, for a program that runs its own model", {}, FAILED, ["", ""], ["default"], [], "codex"]
+    ["a failed read and nothing saved, for a program that runs its own model", {}, FAILED, ["", ""], ["default"], [], "codex"],
+    ["an Anthropic key and nothing saved", {}, read(ANTHROPIC_KEY), ["claude-opus-5-5", "high"],
+        ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"], ["high", "low", "medium", "xhigh", "max"], "anthropic"],
+    ["an Anthropic key and its model saved at the API's default", { model: "claude-sonnet-5-5", effort: "high" }, read(ANTHROPIC_KEY),
+        ["claude-sonnet-5-5", "high"], ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"], ["high", "low", "medium", "xhigh", "max"], "anthropic"],
+    ["no read and nothing saved, for an Anthropic key", {}, FAILED, ["", ""], ["claude-opus-5-5"], ["high"], "anthropic"]
 ];
 // What the daemon gets with no list read. [label, the saved model and
 // effort, the chosen sign-in's provider as the last account read names it,
@@ -137,6 +145,10 @@ const UNLISTED = [
     ["Claude Code and a saved model", { model: "claude-haiku-4-5" }, "claude", ["claude-haiku-4-5", ""]],
     ["Codex and nothing saved", {}, "codex", ["", ""]],
     ["Copilot and a saved model", { model: "auto" }, "copilot", ["auto", ""]],
+    ["an Anthropic key and nothing saved", {}, "anthropic", ["claude-opus-5-5", "high"]],
+    ["an Anthropic key and an effort saved alone", { effort: "max" }, "anthropic", ["claude-opus-5-5", "max"]],
+    ["an Anthropic key and a saved model", { model: "claude-haiku-4-5" }, "anthropic", ["claude-haiku-4-5", ""]],
+    ["an OpenAI key and nothing saved", {}, "openai", ["", ""]],
     ["no account read yet", {}, undefined, ["", ""]]
 ];
 
@@ -788,7 +800,7 @@ try {
         ["AccountProviders.js", "PREFERRED_MODELS.some(function (id) { return namesModel(chosen.value, id); })", "chosen === ordered[0]"],
         ["AccountProviders.js", 'return level === OWN_EFFORT ? "Model default"', 'return level === OWN_EFFORT ? "default"'],
         ["AccountProviders.js", "Object.prototype.hasOwnProperty.call(EFFORT_LABELS, level) ? EFFORT_LABELS[level]", "false ? EFFORT_LABELS[level]"],
-        ["AccountProviders.js", 'if (listed.kind !== "read")', 'if (listed.kind !== "read" && listed.kind !== "reading")'],
+        ["AccountProviders.js", 'var failed = listed.kind === "failed";', 'var failed = listed.kind !== "none";'],
         ["AccountProviders.js", 'var mark = failed ? " (list not read)" : "";', 'var mark = "";'],
         ["AccountProviders.js", ': failed ? [{ label: "App default" + mark, value: OWN_MODEL }] : [],', ': true ? [{ label: "App default" + mark, value: OWN_MODEL }] : [],'],
         ["AccountProviders.js", ': failed ? [{ label: "App default" + mark, value: OWN_MODEL }] : [],', ": [],"],
@@ -798,7 +810,8 @@ try {
         ["AccountProviders.js", "if (offers.length === 0) return { model: settings.model, effort: settings.effort, models: [], efforts: [] };", ""],
         ["AccountProviders.js", "if (offers.length === 0) return { model: settings.model, effort: settings.effort, models: [], efforts: [] };", 'if (offers.length === 0) return { model: "", effort: "", models: [], efforts: [] };'],
         ["AccountProviders.js", 'var PREFERRED_PROGRAM = "claude";', 'var PREFERRED_PROGRAM = "codex";'],
-        ["AccountProviders.js", 'return settings.model !== "" || provider !== PREFERRED_PROGRAM ?', "return provider !== PREFERRED_PROGRAM ?"],
+        ["AccountProviders.js", 'var model = settings.model !== "" ? "" :', "var model ="],
+        ["AccountProviders.js", ": listedKeyModel(provider);", ': "";'],
         ["AccountProviders.js", "effort: settings.effort || PREFERRED_EFFORT };", "effort: PREFERRED_EFFORT };"],
         ["AccountProviders.js", "effort: settings.effort || PREFERRED_EFFORT };", "effort: settings.effort };"],
         ["Service.qml", "Providers.unlistedChoice(shell.settings, accountReader.providers[shell.settings.brain])),", "{}),"],
@@ -825,11 +838,12 @@ try {
         ["Accounts.qml", 'shell.status.set("efforts", choice.efforts) !== "ok"', 'shell.status.set("efforts", []) !== "ok"'],
         ["manifest.json", '"optionsFrom": "efforts", "hideEmpty": true,', '"optionsFrom": "efforts",']
     ];
-    for (const [target, needle, replacement] of CHOICE_CONTROLS) {
+    for (const [index, [target, needle, replacement]] of CHOICE_CONTROLS.entries()) {
         const original = { "AccountProviders.js": providersSource, "Accounts.qml": accountsSource, "Service.qml": serviceSource, "manifest.json": fs.readFileSync(manifestFile, "utf8") }[target];
         assert.equal(original.split(needle).length, 2, "the text to replace occurs once: " + needle);
         const changed = original.replace(needle, () => replacement);
-        const copy = path.join(temp, "choice-" + target);
+        // One file a control: require caches a module by its path.
+        const copy = path.join(temp, "choice-" + index + "-" + target);
         fs.writeFileSync(copy, changed);
         let failure = null;
         // A manifest copy is read in place of the plugin's while the row runs.
@@ -878,4 +892,4 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + CHOICE.length + UNLISTED.length} controls=${CONTROLS.length + 10 + 52}`);
+console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + CHOICE.length + UNLISTED.length} controls=${CONTROLS.length + 10 + 53}`);

@@ -115,7 +115,7 @@ const protocol = {
         const message = { role: "assistant", content: entry.text === "" ? null : entry.text };
         if (entry.calls.length !== 0) message.tool_calls = entry.calls.map(call =>
             ({ id: call.id, type: "function", function: { name: call.name, arguments: call.arguments } }));
-        return message;
+        return [message];
     },
     // A tool message carries text parts only, so the results' images follow
     // them in one user message, each after a line naming its call.

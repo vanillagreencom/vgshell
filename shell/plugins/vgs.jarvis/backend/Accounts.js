@@ -441,15 +441,18 @@ class Accounts {
      * The models the sign-in the saved Brain choice ID names offers, read by
      * its own program from its own list, bounded, with no prompt sent:
      * { kind: "read", offers }, Harness.offers' list, MAX_ROWS at most. A
-     * key, a local server and a Pi choice, which names its model itself,
-     * have no such list, and a signed-out or unavailable account is not
-     * asked: { kind: "none" }. A failed read is { kind: "failed", reason },
-     * its program's keyed cause. The Jarvis page asks while it is open; no
-     * other reader does. It needs no discovery: of the vendor status
-     * commands only this sign-in's runs.
+     * stored key whose row lists its models offers that list, with no
+     * command run and nothing sent. Another key, a local server and a Pi
+     * choice, which names its model itself, have no such list, and a
+     * signed-out or unavailable account is not asked: { kind: "none" }. A
+     * failed read is { kind: "failed", reason }, its program's keyed cause.
+     * The Jarvis page asks while it is open; no other reader does. It needs
+     * no discovery: of the vendor status commands only this sign-in's runs.
      */
     async readOffers(id) {
         const resolved = this.resolve(id);
+        const listed = resolved === null || resolved.source.kind !== "keyring" ? undefined : provider(resolved.provider).models;
+        if (listed !== undefined) return { kind: "read", offers: Harness.offers(listed).slice(0, MAX_ROWS) };
         if (resolved === null || resolved.source.kind !== "cli" || !Object.hasOwn(MODEL_LISTS, resolved.provider)) return { kind: "none" };
         const account = this.cliAccount({ provider: resolved.provider, directory: resolved.source.directory, label: resolved.label });
         if (account === null || account.state.kind === "unavailable" || signedOut(account.source, account.state.kind)) return { kind: "none" };
@@ -549,13 +552,14 @@ class Accounts {
 
     /**
      * The saved Brain account id's account among keyring references, local
-     * servers and subscription directories, with its row's Verify probe
-     * model, "" for a row without one; a subscription's model is "", its
-     * program's own default. Whether the engine runs it is accepted()'s. It
-     * runs no vendor command and reads no port, so it proves neither login
-     * nor a listening server; choose() runs a subscription's status
-     * command. A reference to an unsupported provider and an unknown id are
-     * null.
+     * servers and subscription directories, with the model it names: its
+     * row's Verify probe model, "" for a row without one. A key whose row
+     * lists its models and a subscription name none, "": the engine runs
+     * the model and effort of the settings, "" for a program's own default.
+     * Whether the engine runs it is accepted()'s. It runs no vendor command
+     * and reads no port, so it proves neither login nor a listening server;
+     * choose() runs a subscription's status command. A reference to an
+     * unsupported provider and an unknown id are null.
      */
     resolve(id) {
         return this.resolver()(id);
@@ -570,7 +574,8 @@ class Accounts {
             for (const { row, label, source } of rows) {
                 if (this.account(row, label, { kind: "found" }, source).id !== id) continue;
                 if (source.kind === "keyring" && !keyProvider(row)) return null;
-                return { id, provider: row.id, label, source, model: row.probe === undefined ? "" : row.probe.model };
+                return { id, provider: row.id, label, source,
+                    model: row.probe === undefined || (source.kind === "keyring" && row.models !== undefined) ? "" : row.probe.model };
             }
             for (const candidate of candidates) {
                 const account = identity("cli", [candidate.provider, candidate.directory]);

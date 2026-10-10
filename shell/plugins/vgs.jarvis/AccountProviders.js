@@ -3,7 +3,8 @@
 // row's id names its harness in shell/Commons/AccountDirectories.js, the
 // core's account rule, which holds its folder, variable and marker. A key
 // row's keyPage is the vendor's page that creates an API key, which Add key
-// names beside a provider it offers.
+// names beside a provider it offers. A key row's models, where it has them,
+// are the models its account runs, as the Jarvis page offers them.
 var PROVIDERS = [
     { id: "claude", label: "Claude Code", kind: "cli", origin: "https://api.anthropic.com", command: ["claude", "auth", "status"], signIn: ["claude", "auth", "login"] },
     { id: "codex", label: "Codex", kind: "cli", command: ["codex", "login", "status"], signIn: ["codex", "login"] },
@@ -15,7 +16,15 @@ var PROVIDERS = [
     { id: "openai", label: "OpenAI", kind: "key", variable: "OPENAI_API_KEY", origin: "https://api.openai.com", keyPage: "https://platform.openai.com/api-keys",
         probe: { driver: "chat", path: "/v1/chat/completions", model: "gpt-4.1-nano", limit: "max_completion_tokens", header: "authorization", prefix: "Bearer " } },
     { id: "anthropic", label: "Anthropic", kind: "key", variable: "ANTHROPIC_API_KEY", origin: "https://api.anthropic.com", keyPage: "https://console.anthropic.com/settings/keys",
-        probe: { driver: "messages", path: "/v1/messages", model: "claude-haiku-4-5", header: "x-api-key", prefix: "" } },
+        probe: { driver: "messages", path: "/v1/messages", model: "claude-haiku-4-5", header: "x-api-key", prefix: "" },
+        // A fixed list (2026-10-10): the models backend/AnthropicMessages.js
+        // runs, each with the effort levels the Messages API takes for it
+        // and the API's own default. Reading the vendor's Models API would
+        // be a new outbound path that carries the key.
+        models: [
+            { value: "claude-opus-5-5", label: "Claude Opus 5.5", efforts: ["low", "medium", "high", "xhigh", "max"], effort: "medium", own: false },
+            { value: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", efforts: ["low", "medium", "high", "xhigh", "max"], effort: "high", own: false },
+            { value: "claude-haiku-4-5", label: "Claude Haiku 4.5", efforts: [], effort: "", own: false }] },
     { id: "openrouter", label: "OpenRouter", kind: "key", variable: "OPENROUTER_API_KEY", origin: "https://openrouter.ai", keyPage: "https://openrouter.ai/keys",
         probe: { driver: "chat", path: "/api/v1/chat/completions", model: "openai/gpt-4.1-nano", limit: "max_tokens", header: "authorization", prefix: "Bearer " } },
     { id: "groq", label: "Groq", kind: "key", variable: "GROQ_API_KEY", origin: "https://api.groq.com", keyPage: "https://console.groq.com/keys",
@@ -129,12 +138,21 @@ function effortOffers(offer, preferred) {
 
 // The model and effort Jarvis runs for SETTINGS, the plugin's, while no list
 // names them, each "" for the program's own: the saved ones, and with no
-// model saved the first preferred model for a sign-in of PROVIDER
-// PREFERRED_PROGRAM, at the saved effort or the preferred one. The service
-// sends them to the daemon.
+// model saved, at the saved effort or the preferred one, the first
+// preferred model for a sign-in of PROVIDER PREFERRED_PROGRAM, or the
+// preferred model of a key row of PROVIDER that lists its models. The
+// service sends them to the daemon.
 function unlistedChoice(settings, provider) {
-    return settings.model !== "" || provider !== PREFERRED_PROGRAM ? { model: settings.model, effort: settings.effort }
-        : { model: PREFERRED_MODELS[0], effort: settings.effort || PREFERRED_EFFORT };
+    var model = settings.model !== "" ? "" : provider === PREFERRED_PROGRAM ? PREFERRED_MODELS[0] : listedKeyModel(provider);
+    return model === "" ? { model: settings.model, effort: settings.effort }
+        : { model: model, effort: settings.effort || PREFERRED_EFFORT };
+}
+
+// The preferred model of the key row PROVIDER names, where the row lists its
+// models, else "".
+function listedKeyModel(provider) {
+    var row = PROVIDERS.filter(function (each) { return each.id === provider && each.models !== undefined; })[0];
+    return row === undefined ? "" : preferredOffer(row.models).value;
 }
 
 // What the Jarvis page offers as model and effort for SETTINGS, and the
