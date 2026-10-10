@@ -241,6 +241,8 @@ world(() => {
             write("own/beta/references/bad name.md", "no skill\n");
             write("own/beta/references/notes.txt", "no skill\n");
             write("own/empty-folder/references/orphan.md", "no skill\n");
+            write("own/zeta/SKILL.md", "# Zeta\n");
+            write("own/zeta/references", "a file, not a folder\n");
             const outside = path.join(path.dirname(folder), "outside-skill.md");
             fs.writeFileSync(outside, "OUTSIDE-SECRET\n");
             fs.symlinkSync(outside, path.join(folder, "skills/own/linked.md"));
@@ -255,7 +257,8 @@ world(() => {
                 { topic: "own/beta/one", file: "skills/own/beta/references/one.md", line: "One reference" },
                 { topic: "own/delta", file: "skills/own/delta.md", line: "" },
                 { topic: "own/epsilon", file: "skills/own/epsilon.md", line: "Epsilon first line" },
-                { topic: "own/eta", file: "skills/own/eta.md", line: "Eta first line" }] });
+                { topic: "own/eta", file: "skills/own/eta.md", line: "Eta first line" },
+                { topic: "own/zeta", file: "skills/own/zeta/SKILL.md", line: "Zeta" }] });
             assert.deepEqual(Home.skill(folder, "own/alpha", 64), { kind: "text", text: "\n# Alpha skill\nbody\n" });
             assert.equal(Home.skill(folder, "own/beta", 128).text.includes("# Beta"), true, "a folder's SKILL.md is its body");
             assert.deepEqual(Home.skill(folder, "own/beta/one", 64), { kind: "text", text: "# One reference\nONE-BODY\n" });
@@ -304,14 +307,14 @@ world(() => {
         ["read-link", [['if (kind === "absent" || kind === "link") fail(kind);', 'if (kind === "absent") fail(kind);'],
             ["(last ? flags : O_RDONLY | O_DIRECTORY) | O_NOFOLLOW", "(last ? flags : O_RDONLY | O_DIRECTORY)"]], null, "reads"],
         ["skill-name", " && Tools.homeTopic(topic) !== null)", ")", "skills"],
-        ["folder-name", " || Tools.homeTopic(topic) === null) continue;", ") continue;", "skills"],
-        ["skill-kind", "!entry.isDirectory() || ", "", "skills"],
+        ["folder-name", "if (Tools.homeTopic(topic) === null) continue;\n            // An entry", "// An entry", "skills"],
         ["reference-topics", '            flat(references, topic + "/", inside);\n', "", "empty"],
         ["reference-read", 'if (named.reference !== null) return read(home, base + "/references/" + named.reference + ".md", limit);', "", "skills"],
         ["skill-description", 'if (value !== "" && !BLOCK_SCALAR.test(value)) return value.slice(0, LINE_CHARS);', "", "skills"],
         ["skill-folded", " && !BLOCK_SCALAR.test(value)", "", "skills"],
         ["skill-folded-marks", "const BLOCK_SCALAR = /^[>|][-+1-9]{0,2}$/;", "const BLOCK_SCALAR = /^[>|]$/;", "skills"],
         ["skill-heading", '.replace(/^#+\\s*/, "")', "", "skills"],
+        ["folder-kind", ' && (!last || flags & O_DIRECTORY)) fail("kind");', ' && !last) fail("kind");', "skills"],
         ["set-bound", "if (entries.length === SET_ENTRIES) return { entries, complete: false };", "", "skills"]
     ]) {
         const result = mutant(file, name, needle, replacement, logic => CASES[row](logic));

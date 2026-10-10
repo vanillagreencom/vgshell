@@ -216,6 +216,7 @@ function within(home, entry, flags, act) {
                 // The kind names the refusal; O_NOFOLLOW is what holds it.
                 const kind = kindOf(fd, part);
                 if (kind === "absent" || kind === "link") fail(kind);
+                if (kind !== "directory" && (!last || flags & O_DIRECTORY)) fail("kind");
                 next = fs.openSync(child(fd, part), (last ? flags : O_RDONLY | O_DIRECTORY) | O_NOFOLLOW);
             } catch (error) {
                 if (/^jarvis: home=/.test(error.message)) throw error;
@@ -330,8 +331,9 @@ function skills(home) {
         flat(folder, set + "/", listed);
         for (const entry of listed.entries) {
             const topic = set + "/" + entry.name;
-            if (!entry.isDirectory() || Tools.homeTopic(topic) === null) continue;
-            // A folder without SKILL.md, or with a link in its place, is no skill.
+            if (Tools.homeTopic(topic) === null) continue;
+            // An entry that is no folder, a folder without SKILL.md, or one with a
+            // link in its place, is no skill.
             const skill = indexed(home, topic, folder + "/" + entry.name + "/SKILL.md", true);
             if (skill === null) continue;
             found.push(skill);
