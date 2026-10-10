@@ -15,7 +15,7 @@
       "command": "fc-list",
       "packages": { "pacman": "fontconfig", "apt": "fontconfig", "dnf": "fontconfig", "xbps": "fontconfig", "emerge": "media-libs/fontconfig", "nix": "fontconfig" },
       "optional": false,
-      "purpose": "Lists the fixed-width fonts for the terminal font"
+      "purpose": "Lists the installed fonts for the interface and terminal fonts"
     }
   ],
   "pane": { "group": "Appearance", "order": 40 }

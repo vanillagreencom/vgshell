@@ -12,8 +12,10 @@ import "FontsLogic.js" as Fonts
 // theme is applied, and no theme states one, so Set by theme leaves each
 // terminal its own font. kitty takes a new family when its configuration
 // reloads (kitty 0.49.2, boss.py apply_new_options). The interface select
-// offers the families Qt lists, and the terminal select those of them that
-// fontconfig lists as fixed-width.
+// offers the families Qt lists less the style names fontconfig lists, so
+// each family shows once, and the terminal select those of them that are
+// the family of a fixed-width font that draws printable ASCII, so no icon
+// or emoji font is offered.
 FocusScope {
     id: root
 
@@ -24,10 +26,11 @@ FocusScope {
     // Array.isArray, which Select counts its model with (a run under
     // qmltestrunner, Qt 6.11.2), so the selects take a copy that is one.
     readonly property var families: Array.from(Qt.fontFamilies())
-    // fontconfig's fixed-width family names: `reading` until the pane's one
-    // read ends, then `read` with the names, or `failed`.
-    property var fixedWidth: ({ state: "reading", names: [] })
-    readonly property var terminalFamilies: Fonts.fixedWidth(families, fixedWidth.names)
+    // fontconfig's fonts: `reading` until the pane's one read ends, then
+    // `read` with the fonts, or `failed`.
+    property var fonts: ({ state: "reading", list: [] })
+    readonly property var interfaceFamilies: Fonts.families(families, fonts.list)
+    readonly property var terminalFamilies: Fonts.terminal(families, fonts.list)
     readonly property Item initialFocus: interfaceSelect
 
     function open(payloadJson) {}
@@ -39,28 +42,32 @@ FocusScope {
     }
 
     // One read a pane, in a process of its own, so the UI thread never
-    // waits for fontconfig. The enumerate format prints each name of a font
-    // on a line of its own as fontconfig holds it; the default output joins
-    // a font's names with commas and puts a backslash before a hyphen or a
-    // comma inside one (fc-pattern, fontconfig 2.18.3).
+    // waits for fontconfig. The format prints one line a font: its spacing,
+    // `100` for fixed-width and empty when the font has no spacing element,
+    // then its charset only when it has one, then each name of the font as
+    // fontconfig holds it, the family first, a tab before each; the default
+    // output joins a font's names with commas and puts a backslash before a
+    // hyphen or a comma inside one. Every font is listed, no pattern, so a
+    // style name of any font leaves the interface list (FcPatternFormat,
+    // fc-pattern, fontconfig 2.18.3).
     Process {
         // The run's exit, { code, status }, null until `exited` arrives: a
         // command that fails to start emits `runningChanged` alone.
         property var completion: null
 
-        command: ["fc-list", "--format", "%{[]family{%{family}\\n}}", ":spacing=mono"]
+        command: ["fc-list", "--format", "%{spacing}\\t%{?spacing{%{charset}}{}}%{[]family{\\t%{family}}}\\n"]
         running: true
-        stdout: StdioCollector { id: fixedWidthOut }
-        stderr: StdioCollector { id: fixedWidthErr }
+        stdout: StdioCollector { id: fontsOut }
+        stderr: StdioCollector { id: fontsErr }
         onExited: (code, status) => { completion = { code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
             if (completion !== null && completion.code === 0 && completion.status === 0) {
-                root.fixedWidth = { state: "read", names: Fonts.listed(fixedWidthOut.text) };
+                root.fonts = { state: "read", list: Fonts.listed(fontsOut.text) };
                 return;
             }
-            root.fixedWidth = { state: "failed", names: [] };
-            console.warn("fonts: fixed-width=unread " + JSON.stringify(completion) + " " + fixedWidthErr.text.trim().split("\n")[0]);
+            root.fonts = { state: "failed", list: [] };
+            console.warn("fonts: fc-list=unread " + JSON.stringify(completion) + " " + fontsErr.text.trim().split("\n")[0]);
         }
     }
 
@@ -104,7 +111,7 @@ FocusScope {
                     id: interfaceSelect
                     width: parent.width
                     Accessible.name: "Interface font"
-                    model: Fonts.offers(root.families, interfaceRow.shownValue)
+                    model: Fonts.offers(root.interfaceFamilies, interfaceRow.shownValue)
                     currentIndex: model.indexOf(interfaceRow.shownValue)
                     onActivated: index => {
                         const wanted = model[index];
@@ -130,7 +137,7 @@ FocusScope {
                     Accessible.name: "Terminal font"
                     model: Fonts.offers(root.terminalFamilies, terminalRow.shownValue)
                     placeholderText: "Your terminal's font"
-                    emptyText: root.fixedWidth.state === "read" ? "No fixed-width fonts" : ""
+                    emptyText: root.fonts.state === "read" ? "No fixed-width fonts" : ""
                     currentIndex: model.indexOf(terminalRow.shownValue)
                     onActivated: index => {
                         const wanted = model[index];
@@ -152,11 +159,11 @@ FocusScope {
         }
 
         Label {
-            visible: root.fixedWidth.state === "failed"
+            visible: root.fonts.state === "failed"
             width: parent.width
             role: "hint"
             color: Theme.color.danger
-            text: "VGS could not read the fixed-width fonts."
+            text: "VGS could not read the system's fonts."
             wrapMode: Text.Wrap
         }
 

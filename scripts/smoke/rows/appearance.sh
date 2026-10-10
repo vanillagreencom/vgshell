@@ -29,12 +29,18 @@
 # animations. In the UI section End sets the control radius to 16 for
 # buttons, text fields and segmented controls. In the Fonts section the
 # keys start on the interface font's select, Down chooses the next family
-# Qt lists, which the reading text and the bar then draw in, and Use theme
-# value puts the theme's back; the terminal font's list holds a family and
-# not the proportional one the row takes from fontconfig, the first name
-# fontconfig lists for no fixed-width font that Qt lists too, a click opens
-# the list, Down and Enter choose its first family, and the choice ends with
-# a follow. A sandbox with no such family leaves that check not measured.
+# the list offers, which the reading text and the bar then draw in, and Use theme
+# value puts the theme's back. The row takes three names from fontconfig in
+# the shell's environment, each the first one Qt lists too: a proportional
+# name, one fontconfig lists for no fixed-width font; an icon name, the
+# first name of a fixed-width font that misses a printable ASCII character,
+# such as an icon or emoji font, that no fixed-width font covering them
+# shares; and a style name, one fontconfig lists for a font that no font has
+# as its first name. The terminal font's list holds a family and neither the
+# proportional nor the icon name, and the interface font's list holds a
+# family and not the style name. A click opens the terminal font's list,
+# Down and Enter choose its first family, and the choice ends with a follow.
+# A sandbox with no such name leaves that check not measured.
 #
 # Control run on 2026-10-08, host cachy, through this row after
 # hyprland-consent, on a source_tree copy of the shell whose
@@ -134,22 +140,53 @@ app_visual_focus() { ipc smoke readShownDescendant window "$1" Slider visualFocu
 # The user file's Appearance member NAME as JSON, `null` for none.
 app_member() { python3 -c 'import json,sys; print(json.dumps((json.load(open(sys.argv[1])).get("appearance") or {}).get(sys.argv[2])))' "$app_file" "$1"; }
 # fontconfig's family names under PATTERN, every font's without one, one a
-# line as the Fonts section reads them, in the shell's own environment.
-app_fc_names() { "${shell_env[@]}" "${shell_start_words[@]}" fc-list --format '%{[]family{%{family}\n}}' "$@"; }
-# The first name fontconfig lists for no fixed-width font that Qt lists
-# too, nothing when there is none: a family the terminal font's list holds
-# only when its filter lets a proportional font through.
-app_proportional() {
-  local all="$sandbox/appearance-fc-all" mono="$sandbox/appearance-fc-mono" name
-  app_fc_names | LC_ALL=C sort -u >"$all" && [[ -s $all ]] || return 1
-  app_fc_names :spacing=mono | LC_ALL=C sort -u >"$mono" || return 1
+# line, in the shell's own environment, sorted and unique: every name of a
+# font, or with `first` its first name alone, the font's family.
+app_fc() {
+  local format='%{[]family{%{family}\n}}'
+  [[ $1 == first ]] && format='%{family[0]}\n'
+  shift
+  "${shell_env[@]}" "${shell_start_words[@]}" fc-list --format "$format" "$@" | LC_ALL=C sort -u
+}
+# The first name in sorted file A and not in sorted file B that Qt lists
+# too, nothing when there is none.
+app_qt_first() {
+  local name
   while IFS= read -r name; do
     if [[ $(ipc smoke fontAvailable "$name") == true ]]; then printf '%s\n' "$name"; return 0; fi
-  done < <(LC_ALL=C comm -23 -- "$all" "$mono")
+  done < <(LC_ALL=C comm -23 -- "$1" "$2")
 }
-# What the terminal font's list holds: `fixed-width` for a family and not
-# NAME, else `empty` or `proportional`.
-app_terminal_list() { ipc smoke readMatchingDescendant window vgs.fonts Select placeholderText "Your terminal's font" model | py_reply 'import json,sys; m=json.load(sys.stdin); print("empty" if not m else "proportional" if sys.argv[1] in m else "fixed-width")' "$1"; }
+# A name fontconfig lists for no fixed-width font: a family the terminal
+# font's list holds only when its filter lets a proportional font through.
+app_proportional() {
+  local all="$sandbox/appearance-fc-all" mono="$sandbox/appearance-fc-mono"
+  app_fc names >"$all" && [[ -s $all ]] || return 1
+  app_fc names :spacing=mono >"$mono" || return 1
+  app_qt_first "$all" "$mono"
+}
+# The first name of a fixed-width font that misses a printable ASCII
+# character and that no fixed-width font covering them shares: a family the
+# terminal font's list holds only when its filter lets an icon or emoji
+# font through.
+app_textless() {
+  local mono="$sandbox/appearance-fc-mono-first" text="$sandbox/appearance-fc-mono-text"
+  app_fc first :spacing=mono >"$mono" || return 1
+  app_fc first :spacing=mono:charset=20-7e >"$text" || return 1
+  app_qt_first "$mono" "$text"
+}
+# A name fontconfig lists for a font that no font has as its first name, a
+# style name such as a family's Light: a name the interface font's list
+# holds only when its filter lets a style name through.
+app_style() {
+  local all="$sandbox/appearance-fc-all" first="$sandbox/appearance-fc-first"
+  app_fc names >"$all" && [[ -s $all ]] || return 1
+  app_fc first >"$first" || return 1
+  app_qt_first "$all" "$first"
+}
+# Whether the Fonts section's select whose placeholder is PLACEHOLDER, the
+# interface font's has none, offers NAME: `absent` for a family and not
+# NAME, else `empty` or `listed`.
+app_font_list() { ipc smoke readMatchingDescendant window vgs.fonts Select placeholderText "$1" model | py_reply 'import json,sys; m=json.load(sys.stdin); print("empty" if not m else "listed" if sys.argv[1] in m else "absent")' "$2"; }
 # The lines the runner logged for a follow that ended.
 app_follows() { log_lines 'INFO qml: theme: follow='; }
 
@@ -358,13 +395,27 @@ app_click_action vgs.fonts useThemeValue
 expect_poll "Use theme value removes the interface font from the file" null app_member interfaceFont
 expect_poll "the reading text is the theme's again" '"Inter Variable"' ipc smoke themeValue text.body.family
 expect_poll "the action leaves the keys on the row's select" '["Select",""]' app_focus vgs.fonts
-# The list fills when the section's one fontconfig read ends.
+# The lists take their families when the section's one fontconfig read ends.
 if ! app_plain="$(app_proportional)"; then
   fail "fontconfig's family names are unreadable"
 elif [[ -n $app_plain ]]; then
-  expect_poll "the terminal font's list holds fixed-width families alone" fixed-width app_terminal_list "$app_plain"
+  expect_poll "the terminal font's list holds fixed-width families alone" absent app_font_list "Your terminal's font" "$app_plain"
 else
   not_measured appearance missing=proportional-family
+fi
+if ! app_icon="$(app_textless)"; then
+  fail "fontconfig's fixed-width family names are unreadable"
+elif [[ -n $app_icon ]]; then
+  expect_poll "the terminal font's list leaves out fixed-width fonts that draw no text" absent app_font_list "Your terminal's font" "$app_icon"
+else
+  not_measured appearance missing=textless-fixed-width-family
+fi
+if ! app_style_name="$(app_style)"; then
+  fail "fontconfig's first family names are unreadable"
+elif [[ -n $app_style_name ]]; then
+  expect_poll "the interface font's list holds no style name" absent app_font_list "" "$app_style_name"
+else
+  not_measured appearance missing=style-name
 fi
 app_followed="$(app_follows)" || fail "the instance log is unreadable before the section's terminal font"
 if read -r fx fy < <(app_select_point vgs.fonts 1); then
