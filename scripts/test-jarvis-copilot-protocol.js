@@ -86,8 +86,8 @@ world(() => {
         const signedIn = recorded.find(entry => entry.flow === "signed-in").line.result;
         valid("NewSessionResponse", signedIn, "recorded session");
         assert.equal(logic.sessionId(signedIn), signedIn.sessionId);
-        const auto = { value: "auto", label: "Auto", efforts: ["low", "high"], effort: "", own: true };
-        assert.deepEqual(logic.models(signedIn, ["low", "high"]), [auto, auto, auto]);
+        const auto = { value: "auto", label: "Auto", efforts: [], effort: "", own: true };
+        assert.deepEqual(logic.models(signedIn), [auto, auto, auto]);
     }
 
     const init = recorded.find(entry => entry.direction === "out" && entry.line.id === 1).line.result;
@@ -110,14 +110,14 @@ world(() => {
             { type: "select", id: "model", name: "Model", category: "model", currentValue: "b", options, ...patch }] });
         const flat = selector([{ value: "a", name: "A" }, { value: "b", name: "B" }]);
         valid("NewSessionResponse", flat, "a model selector");
-        assert.deepEqual(logic.models(flat, ["high"]), [{ value: "a", label: "A", efforts: ["high"], effort: "", own: false },
-            { value: "b", label: "B", efforts: ["high"], effort: "", own: true }]);
+        assert.deepEqual(logic.models(flat), [{ value: "a", label: "A", efforts: [], effort: "", own: false },
+            { value: "b", label: "B", efforts: [], effort: "", own: true }]);
         for (const [label, result] of [["no result", null], ["no options", { sessionId: "s" }], ["options that are no list", { sessionId: "s", configOptions: {} }],
             ["no model selector", { sessionId: "s", configOptions: flat.configOptions.slice(0, 1) }],
             ["a selector without a current value", selector([], { currentValue: null })], ["a selector without options", selector(null)],
             ["an option that is no object", selector(["a"])], ["an option without a value", selector([{ name: "A" }])],
             ["an option without a name", selector([{ value: "a" }])]])
-            refused(() => logic.models(result, []), "model-list", label);
+            refused(() => logic.models(result), "model-list", label);
         assert.equal(logic.sessionId({ sessionId: "abc" }), "abc");
         refused(() => logic.sessionId({ sessionId: "" }), "session", "an empty session id");
         for (const stop of ["end_turn", "max_tokens", "max_turn_requests", "refusal", "cancelled"]) {
@@ -210,7 +210,7 @@ world(() => {
         ["protocol-version", "result.protocolVersion !== VERSION", "false"],
         ["model-category", ' && option.category === "model") : undefined;', ") : undefined;"],
         ["model-own", "own: entry.value === selector.currentValue };", "own: false };"],
-        ["model-efforts", "label: entry.name, efforts, effort", "label: entry.name, efforts: [], effort"],
+        ["model-efforts", 'label: entry.name, efforts: [], effort: ""', 'label: entry.name, efforts: ["high"], effort: ""'],
         ["model-selector-shape", 'if (selector === undefined || !string(selector.currentValue) || !Array.isArray(selector.options)) fail("model-list");', "if (selector === undefined || !string(selector.currentValue) || !Array.isArray(selector.options)) return [];"],
         ["model-option-shape", 'if (!plain(entry) || !string(entry.value) || !string(entry.name)) fail("model-list");', ""],
         ["agent-name", "info.name !== row.agent || ", ""],

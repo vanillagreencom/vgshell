@@ -6,9 +6,10 @@ import "AccountStatus.js" as Words
 import "SetupGate.js" as Gate
 
 // One metadata reader. An accounts TUI end invalidates its old discovery.
-// It publishes the accounts, the brain choices, the selected sign-in's model
-// and effort choices and the search's outcome in the page's words; a
-// failure's safe cause goes to the log alone.
+// It publishes the accounts, the brain choices and the search's outcome in
+// the page's words; a failure's safe cause goes to the log alone. A second
+// reader, the chosen sign-in's model list, runs only while the Settings
+// window shows the Jarvis page.
 Item {
     id: root
     property var shell: null
@@ -20,16 +21,29 @@ Item {
     // The stored OpenAI keys of the last read, undefined while no read has
     // an answer: before the first one and after a failed one.
     property var voiceKeys: undefined
-    // The last read's model list and the AI model choice it was read for;
-    // `models` is undefined while no read has an answer.
-    property var offered: ({ brain: "", models: undefined })
-    // The brain the running read was started for.
-    property string probeBrain: ""
-    // The model and effort the selected sign-in runs and the page's choices
-    // for both. A list read for another sign-in offers nothing: until this
-    // one's list is read, its program runs its own model.
-    readonly property var choice: Providers.modelChoice(shell === null ? ({}) : shell.settings,
-        shell !== null && offered.brain === shell.settings.brain ? offered.models : undefined)
+    readonly property string brain: shell === null ? "" : shell.settings.brain
+    // The sign-in this reader last saw, null before its first sight of one.
+    property var seenBrain: null
+    // A model belongs to its sign-in's list: a sign-in changed on the page
+    // drops the saved model and effort, and the new list's read saves its
+    // own. The first sight of the saved sign-in is no change.
+    onBrainChanged: {
+        if (shell !== null && seenBrain !== null && shell.status.viewed) save("", "");
+        seenBrain = shell === null ? null : brain;
+    }
+    // The sign-in whose model list the page wants: the chosen one while the
+    // Jarvis page is shown, else none. Nothing else starts a list read: not
+    // the shell's start and not another setting's change.
+    readonly property string wanted: shell !== null && shell.status.viewed ? brain : ""
+    onWantedChanged: readList()
+    // The read for sign-in `brain`: `kind` is "reading" until it ends, then
+    // readOffers' answer; "none" with no read.
+    property var listed: ({ brain: "", kind: "none" })
+    // The chosen sign-in's own read: one for another sign-in counts as none.
+    readonly property var list: listed.brain === brain ? listed : ({ kind: "none" })
+    // The page's model and effort choices, and the model and effort a read
+    // list saves: Jarvis runs what is saved, with no list read.
+    readonly property var choice: Providers.modelChoice(shell === null ? ({ model: "", effort: "" }) : shell.settings, list)
     onChoiceChanged: publishChoice()
     readonly property var tuiState: shell === null ? null : shell.tui.state["accounts"]
     readonly property var keyState: shell === null ? null : shell.tui.state["add-key"]
@@ -54,10 +68,40 @@ Item {
                 throw new Error("jarvis-accounts: status=refused");
     }
 
+    function save(model, effort) {
+        if ((model !== shell.settings.model && shell.configure.set("model", model) !== "ok")
+                || (effort !== shell.settings.effort && shell.configure.set("effort", effort) !== "ok"))
+            console.warn("jarvis-accounts: model-selection=refused");
+    }
+
     function publishChoice() {
         if (shell === null) return;
         if (shell.status.set("models", choice.models) !== "ok" || shell.status.set("efforts", choice.efforts) !== "ok")
             throw new Error("jarvis-accounts: status=refused");
+        if (list.kind === "read") save(choice.model, choice.effort);
+    }
+
+    // Start the read `wanted` names. A running read is ended first and its
+    // end starts this one, so one program runs at a time and the answer of
+    // a read for an earlier sign-in, or for a page since closed, is dropped.
+    function readList() {
+        if (lister.running) {
+            lister.dropped = true;
+            lister.running = false;
+            return;
+        }
+        listed = { brain: wanted, kind: wanted === "" ? "none" : "reading" };
+        if (wanted === "") return;
+        lister.output = "";
+        lister.command = ["node", program, "--tree", Quickshell.shellDir + "/..", "models", wanted];
+        lister.running = true;
+    }
+
+    function listRead(text) {
+        let answer;
+        try { answer = JSON.parse(text); } catch (error) { answer = { kind: "failed", reason: "helper" }; }
+        if (answer.kind === "failed") console.warn("jarvis-accounts: models=" + answer.reason);
+        listed = Object.assign({ brain: listed.brain }, answer);
     }
 
     function refresh() {
@@ -68,11 +112,7 @@ Item {
         completion = { kind: "starting" };
         diagnostic = { kind: "collected", text: "" };
         output = "";
-        probeBrain = shell.settings.brain;
         probe.command = ["node", program, "--tree", Quickshell.shellDir + "/..", "presence", JSON.stringify(Providers.keyPresence(name => Quickshell.env(name)))];
-        // The saved AI model choice, whose own model list the reader reads,
-        // is the reader's last argument.
-        probe.command = probe.command.concat([probeBrain]);
         probe.running = true;
     }
     function publish() {
@@ -82,8 +122,6 @@ Item {
             const value = JSON.parse(output);
             modelAccess = Gate.accountAccess(value.accounts);
             voiceKeys = value.voiceAccounts;
-            if (value.models.kind === "failed") console.warn("jarvis-accounts: models=" + value.models.reason);
-            offered = { brain: probeBrain, models: value.models.kind === "read" ? value.models.offers : [] };
             const accounts = value.accounts.map(item => Words.accountHint(item) === "" ? { label: item.label, value: item.value }
                 : { label: item.label, value: item.value, hint: Words.accountHint(item) });
             const search = Words.searchValue({ kind: "found", found: value.search.found, partial: value.search.partial });
@@ -103,7 +141,6 @@ Item {
         } catch (error) {
             modelAccess = { kind: "checking" };
             voiceKeys = undefined;
-            offered = { brain: probeBrain, models: undefined };
             const reason = Providers.probeFailure(completion, diagnostic);
             console.warn(reason);
             const replies = [shell.status.set("accounts", []), shell.status.set("brains", []), shell.status.set("voiceAccounts", []),
@@ -136,6 +173,22 @@ Item {
             if (running) return;
             root.publish();
             if (root.pending) Qt.callLater(root.refresh);
+        }
+    }
+    Process {
+        id: lister
+        // True while its end is one readList asked for.
+        property bool dropped: false
+        property string output: ""
+        clearEnvironment: true
+        environment: probe.environment
+        stdout: StdioCollector { onStreamFinished: lister.output = text }
+        onRunningChanged: {
+            if (running) return;
+            if (dropped) {
+                dropped = false;
+                root.readList();
+            } else root.listRead(output);
         }
     }
 }

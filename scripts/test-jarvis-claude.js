@@ -733,18 +733,16 @@ world(async () => {
         const { Accounts } = require(path.join(folder, "Accounts.js"));
         const judge = new Accounts(state, env, presence);
         const chosen = judge.discover().find(row => row.source.kind === "cli" && row.source.directory === verifyAccount.directory);
-        assert.deepEqual(judge.status().models, { kind: "none" }, "no list before a read");
-        await bounded(judge.readOffers(chosen.id), "account offers");
-        assert.deepEqual(judge.status().models, { kind: "read", offers: OFFERED });
+        assert.equal(Object.hasOwn(judge.status(), "models"), false, "the account answer holds no model list");
+        assert.deepEqual(await bounded(judge.readOffers(chosen.id), "account offers"), { kind: "read", offers: OFFERED });
         const before = verifyAccount.calls().length;
         for (const id of ["", "unknown-choice"]) {
-            await judge.readOffers(id);
-            assert.deepEqual(judge.status().models, { kind: "none" }, "no sign-in, no list: " + JSON.stringify(id));
+            assert.deepEqual(await judge.readOffers(id), { kind: "none" }, "no sign-in, no list: " + JSON.stringify(id));
         }
         assert.equal(verifyAccount.calls().length, before, "no program starts for no sign-in");
         fs.writeFileSync(path.join(verifyAccount.directory, "script.json"), JSON.stringify({ tree, models: [{ value: "bad" }] }));
-        await bounded(judge.readOffers(chosen.id), "failed account offers");
-        assert.deepEqual(judge.status().models, { kind: "failed", reason: "harness-exit" }, "a failed read names its cause and offers nothing");
+        assert.deepEqual(await bounded(judge.readOffers(chosen.id), "failed account offers"), { kind: "failed", reason: "harness-exit" },
+            "a failed read names its cause and offers nothing");
     }]);
 
     const byName = name => cases.find(row => row[0] === name)[1];
@@ -857,8 +855,8 @@ world(async () => {
             ["offer-own-first", "[...kept.filter(offer => offer.own), ...kept.filter(offer => !offer.own)]", "kept", "models"]
         ]) await control(sharedFile, name, needle, replacement, row);
         for (const [name, needle, replacement] of [
-            ["offers-selected", "if (resolved === null || resolved.source.kind !== \"cli\" || !Object.hasOwn(MODEL_LISTS, resolved.provider)) return;", "if (resolved === null) { this.offered = { kind: \"read\", offers: [] }; return; }"],
-            ["offers-failed", 'this.offered = { kind: "failed", reason: key === null ? "models-failed" : key[1] };', 'this.offered = { kind: "read", offers: [] };'],
+            ["offers-selected", "if (resolved === null || resolved.source.kind !== \"cli\" || !Object.hasOwn(MODEL_LISTS, resolved.provider)) return { kind: \"none\" };", "if (resolved === null) return { kind: \"read\", offers: [] };"],
+            ["offers-failed", 'return { kind: "failed", reason: key === null ? "models-failed" : key[1] };', 'return { kind: "read", offers: [] };'],
             ["offers-claude", "const MODEL_LISTS = { claude: ClaudeCode, ", "const MODEL_LISTS = { "]
         ]) await control(accountsFile, name, needle, replacement, "models");
         await control(engineFile, "claude-driver", ', "claude-code": ClaudeCode });', " });", "engine");

@@ -221,7 +221,6 @@ class Accounts {
         this.presence = { ...presence };
         this.secrets = new Secrets(stateDirectory, this.env);
         this.accounts = [];
-        this.offered = { kind: "none" };
         this.partial = "";
         this.epoch = 0;
         this.operation = 0;
@@ -445,21 +444,20 @@ class Accounts {
      * key, a local server and a Pi choice, which names its model itself,
      * have no such list, and a signed-out or unavailable account is not
      * asked: { kind: "none" }. A failed read is { kind: "failed", reason },
-     * its program's keyed cause; the sign-in then runs its program's own
-     * model.
+     * its program's keyed cause. The Jarvis page asks while it is open; no
+     * other reader does.
      */
     async readOffers(id) {
-        this.offered = { kind: "none" };
         const resolved = this.resolve(id);
-        if (resolved === null || resolved.source.kind !== "cli" || !Object.hasOwn(MODEL_LISTS, resolved.provider)) return;
+        if (resolved === null || resolved.source.kind !== "cli" || !Object.hasOwn(MODEL_LISTS, resolved.provider)) return { kind: "none" };
         const account = this.accounts.find(item => item.id === resolved.id);
-        if (account === undefined || account.state.kind === "unavailable" || signedOut(account.source, account.state.kind)) return;
+        if (account === undefined || account.state.kind === "unavailable" || signedOut(account.source, account.state.kind)) return { kind: "none" };
         try {
             const offers = await MODEL_LISTS[resolved.provider].models({ directory: resolved.source.directory, env: this.env, runtime: this.runtime });
-            this.offered = { kind: "read", offers: offers.slice(0, MAX_ROWS) };
+            return { kind: "read", offers: offers.slice(0, MAX_ROWS) };
         } catch (error) {
             const key = /^jarvis: brain=([a-z0-9-]+)(?: |$)/.exec(error?.message ?? "");
-            this.offered = { kind: "failed", reason: key === null ? "models-failed" : key[1] };
+            return { kind: "failed", reason: key === null ? "models-failed" : key[1] };
         }
     }
 
@@ -822,9 +820,7 @@ class Accounts {
      * The page's account facts: each account's label, provider, presence and the
      * typed facts AccountStatus.js words its hint from, whether Sign in
      * serves it (a signed-out account of a provider with a sign-in),
-     * whether its Pi is older than the Pi brain's floor, the brain choices,
-     * readOffers' answer for the selected one as `models`, and the search's
-     * found count and partial reason. No
+     * whether its Pi is older than the Pi brain's floor, the brain choices, and the search's found count and partial reason. No
      * reason code leaves. A signed-out account reads signed-out. The brain
      * choices are the accounts accepted() takes, grouped by
      * provider and sorted by email: a harness with one account reads as its
@@ -867,7 +863,7 @@ class Accounts {
         const voiceAccounts = offered.filter(item => item.provider === "openai")
             .map(item => ({ value: item.id, label: ("OpenAI / " + item.label).slice(0, 60) }))
             .sort((left, right) => order(left.label, right.label) || order(left.value, right.value));
-        return { accounts, brains, voiceAccounts, models: this.offered, search: { found: accounts.length, partial: this.partial } };
+        return { accounts, brains, voiceAccounts, search: { found: accounts.length, partial: this.partial } };
     }
 }
 

@@ -77,9 +77,9 @@ function modelKeyProvider(row) {
 var PREFERRED_MODELS = ["claude-fable-5-1", "claude-opus-5-5"];
 var PREFERRED_EFFORT = "high";
 // The effort choice that hands the program no effort, where a model takes
-// levels and its program names no default among them. No program's level
-// has this name: Claude Code 2.1.289 lists low to max, Codex 0.160.0 low to
-// ultra and Copilot 1.0.91 none to max.
+// levels and its program names no default among them, as Claude Code's
+// list does for a model Jarvis does not prefer. No program's level has this
+// name: Claude Code 2.1.289 lists low to max and Codex 0.160.0 low to ultra.
 var OWN_EFFORT = "default";
 var EFFORT_LABELS = { xhigh: "Extra high" };
 
@@ -100,6 +100,13 @@ function preferredOffer(offers) {
     return null;
 }
 
+// A level as the page reads it: the program's own by name, else its word.
+function effortLabel(level) {
+    return level === OWN_EFFORT ? "Model default"
+        : Object.prototype.hasOwnProperty.call(EFFORT_LABELS, level) ? EFFORT_LABELS[level]
+        : level.charAt(0).toUpperCase() + level.slice(1);
+}
+
 // The effort levels the page offers for OFFER, the unset one first: the
 // preferred effort for a preferred model that takes it, else the level its
 // program names as its own, else OWN_EFFORT. A model that takes no level
@@ -109,26 +116,29 @@ function effortOffers(offer, preferred) {
     var first = preferred && offer.efforts.indexOf(PREFERRED_EFFORT) !== -1 ? PREFERRED_EFFORT
         : offer.efforts.indexOf(offer.effort) !== -1 ? offer.effort : OWN_EFFORT;
     return [first].concat(offer.efforts.filter(function (level) { return level !== first; })).map(function (level) {
-        var label = level === OWN_EFFORT ? "Model default"
-            : Object.prototype.hasOwnProperty.call(EFFORT_LABELS, level) ? EFFORT_LABELS[level]
-            : level.charAt(0).toUpperCase() + level.slice(1);
-        return { label: label, value: level };
+        return { label: effortLabel(level), value: level };
     });
 }
 
-// The model and effort the selected sign-in runs for SETTINGS, the
-// plugin's, and what the page offers for both. OFFERS is the account
-// reader's list for that sign-in, each { value, label, efforts, effort },
-// its program's own default first; undefined while the reader has no
-// answer, and empty for a sign-in with no list of its own, an API key or a
-// Pi choice. `models` and `efforts` are the page's choices, each led by
-// what its unset setting runs (docs/architecture/design-system.md
-// § Settings pages). `model` and `effort` go to the daemon: the saved
-// choice while the sign-in offers it, else that first choice, and "" for
-// the program's own. A value the sign-in's own list does not hold never
-// reaches its program.
-function modelChoice(settings, offers) {
-    if (offers === undefined || offers.length === 0) return { model: "", effort: "", models: [], efforts: [] };
+// What the Jarvis page offers as model and effort for SETTINGS, the
+// plugin's, and the model and effort it saves. LISTED is the page's read of
+// the chosen sign-in's own list, { kind, offers }: "read" with offers, each
+// { value, label, efforts, effort }, its program's own default first;
+// "failed" for a read its program did not answer; else no read, as while
+// the page is closed. With no list `models` and `efforts` hold the saved
+// choice alone, the model marked while its list could not be read, and
+// `model` and `effort` are the saved ones. With a list they are the page's
+// choices, each led by what its unset setting runs
+// (docs/architecture/design-system.md § Settings pages), and `model` and
+// `effort` are what the page saves: the saved choice while the sign-in
+// offers it, else that first choice, and "" for the program's own.
+function modelChoice(settings, listed) {
+    if (listed.kind !== "read")
+        return { model: settings.model, effort: settings.effort,
+            models: settings.model === "" ? [] : [{ label: settings.model + (listed.kind === "failed" ? " (list not read)" : ""), value: settings.model }],
+            efforts: settings.effort === "" ? [] : [{ label: effortLabel(settings.effort), value: settings.effort }] };
+    var offers = listed.offers;
+    if (offers.length === 0) return { model: "", effort: "", models: [], efforts: [] };
     var preferred = preferredOffer(offers);
     var ordered = preferred === null ? offers
         : [preferred].concat(offers.filter(function (offer) { return offer !== preferred; }));

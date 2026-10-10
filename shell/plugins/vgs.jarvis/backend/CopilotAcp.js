@@ -110,17 +110,17 @@ function sessionId(result) {
  * model selector, the entry of configOptions whose category is "model"
  * (ACP 1.7.0 SessionConfigOption). value is the id --model takes, and own
  * marks the selector's current value. The selector names no effort level,
- * so efforts is the caller's. Copilot 1.0.91 answered a flat selector with
+ * so a model offers none. Copilot 1.0.91 answered a flat selector with
  * "auto" three times and current (a run on 2026-10-09, the recording's
  * signed-in flow).
  */
-function models(result, efforts) {
+function models(result) {
     const selector = plain(result) && Array.isArray(result.configOptions)
         ? result.configOptions.find(option => plain(option) && option.category === "model") : undefined;
     if (selector === undefined || !string(selector.currentValue) || !Array.isArray(selector.options)) fail("model-list");
     return selector.options.map(entry => {
         if (!plain(entry) || !string(entry.value) || !string(entry.name)) fail("model-list");
-        return { value: entry.value, label: entry.name, efforts, effort: "", own: entry.value === selector.currentValue };
+        return { value: entry.value, label: entry.name, efforts: [], effort: "", own: entry.value === selector.currentValue };
     });
 }
 

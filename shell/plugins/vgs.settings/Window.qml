@@ -126,6 +126,8 @@ FocusScope {
     // one turn, such as a page's id and its tab
     // (https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method).
     onShownPageChanged: if (root.Window.window !== null && root.Window.window.visible) Qt.callLater(fitWindow)
+    // The core tells each plugin while its page is the one shown.
+    onPageChanged: shell.manager.viewPage(page)
 
     // Resize the shown window to mapHeight within the room OverlayState
     // gives the screen its client is on, the work area under the bar less
@@ -338,7 +340,7 @@ FocusScope {
         });
     }
 
-    function close() {}
+    function close() { shell.manager.viewPage(""); }
 
     function showList(reason) {
         page = "";

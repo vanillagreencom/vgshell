@@ -25,6 +25,12 @@ Singleton {
 
     readonly property var empty: Object.freeze({})
 
+    // The id of the plugin whose Settings page is shown, "" for none: the
+    // Settings window reports it (the manager's viewPage), and each plugin
+    // reads it as `shell.status.viewed`, so it reads what only its page
+    // shows while that page is open instead of on a poll.
+    property string viewed: ""
+
     // Plugin id -> { choices status key -> handler }: what each plugin runs
     // when the Settings page opens the select that key feeds, so it reads
     // its choices on demand instead of on a poll. A handler lives with the

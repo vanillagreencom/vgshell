@@ -32,7 +32,9 @@ record("cli-calls");
 // ModelInfo entries as Claude Code 2.1.289 shapes them (a run on
 // 2026-10-09): its default, Opus 5.5, then Fable 5.1 and a model that takes
 // no effort. Any other input ends the stand-in: it holds no conversation.
+// Mode "failed" ends it with no answer, a list its program does not give.
 if(args.includes("--input-format")){
+    if(mode("claude-list-mode","listed")==="failed") process.exit(9);
     const levels=["low","medium","high","xhigh","max"];
     const models=[{value:"default",resolvedModel:"claude-opus-5-5[1m]",displayName:"Default (recommended)",description:"d",supportsEffort:true,supportedEffortLevels:levels},
         {value:"opus",resolvedModel:"claude-opus-5-5[1m]",displayName:"Opus 5.5",description:"d",supportsEffort:true,supportedEffortLevels:levels},
@@ -246,6 +248,8 @@ if (require.main === module) {
     // listening local server.
     if (mode !== "none") fs.mkdirSync(path.join(env.HOME, ".claude-team"));
     fs.writeFileSync(path.join(env.XDG_STATE_HOME, "claude-mode"), ["found", "none"].includes(mode) ? "found" : "signed-in");
+    // "list-failed" is "signed-in" with a model list the program does not give.
+    if (mode === "list-failed") fs.writeFileSync(path.join(env.XDG_STATE_HOME, "claude-list-mode"), "failed");
     if (mode === "none") {
         fs.writeFileSync(path.join(env.XDG_STATE_HOME, "codex-mode"), "found");
         fs.writeFileSync(path.join(env.XDG_STATE_HOME, "ports-mode"), "absent");
@@ -284,11 +288,10 @@ if (require.main === module) {
     }
     // A sign-in's id is a hash of its folder's path, and each run's world is
     // a fresh folder, so the helper's ids differ from run to run. The shell
-    // must meet one id per sign-in, as on a real system: the helper takes
-    // the saved AI model choice by this run's id and its answer goes out
-    // with each id as "fixture:PROVIDER:FOLDER". A failed search names
-    // none. A --rev tree of scripts/sandbox-shots.sh whose reader takes no
-    // AI model choice hands this worker none, and its helper gets none.
+    // must meet one id per sign-in, as on a real system: an account answer
+    // goes out with each id as "fixture:PROVIDER:FOLDER", and a model list
+    // read, `models` and that name in place of the key presence, takes the
+    // sign-in by this run's id. A failed search names none.
     const backend = path.dirname(process.argv[2]);
     let ids = [];
     try {
@@ -297,8 +300,11 @@ if (require.main === module) {
         ids = ["claude", "codex", "copilot"].flatMap(provider => judge.signInFolders(provider))
             .map(folder => [folder.id, "fixture:" + folder.provider + ":" + path.relative(env.HOME, folder.directory)]);
     } catch (error) { if (!/^jarvis-accounts: /.test(error?.message ?? "")) throw error; }
-    const choice = process.argv.length === 6 ? [] : [ids.find(([, alias]) => alias === process.argv[6])?.[0] ?? process.argv[6]];
-    const result = cp.spawnSync("node", [process.argv[2], "--tree", process.argv[4], "presence", process.argv[5], ...choice], {
+    const verb = process.argv[5] === "models" ? ["models", ids.find(([, alias]) => alias === process.argv[6])?.[0] ?? process.argv[6]]
+        : ["presence", process.argv[5]];
+    // Each model list read leaves a line beside the mode file, for a row to count.
+    if (verb[0] === "models") fs.appendFileSync(path.join(path.dirname(process.argv[3]), "model-reads"), process.argv[6] + "\n");
+    const result = cp.spawnSync("node", [process.argv[2], "--tree", process.argv[4], ...verb], {
         env, stdio: ["inherit", "pipe", "inherit"], encoding: "utf8" });
     process.stdout.write(ids.reduce((text, [id, alias]) => text.replaceAll(JSON.stringify(id), JSON.stringify(alias)), result.stdout ?? ""));
     process.exit(result.status ?? 1);

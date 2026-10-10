@@ -86,8 +86,8 @@ world(async () => {
         let refreshed = 0;
         const initial = row.selected ?? "";
         const root = { pending: row.pending ?? false, completion: { kind: "exited", code: row.code ?? 0 },
-            diagnostic: { kind: "collected", text: "" }, probeBrain: "", offered: null,
-            output: row.invalid ? "broken" : JSON.stringify({ accounts: [], brains: [], models: { kind: "none" },
+            diagnostic: { kind: "collected", text: "" },
+            output: row.invalid ? "broken" : JSON.stringify({ accounts: [], brains: [],
                 voiceAccounts: row.choices.map(value => ({ value, label: "Fixture " + value })),
                 search: { found: row.choices.length, partial: "" } }),
             refreshed: () => refreshed++, shell: { settings: { voiceAccount: initial },
@@ -119,7 +119,7 @@ world(async () => {
         ["multiple", "value.voiceAccounts.length === 1", "value.voiceAccounts.length > 0"],
         ["explicit", 'shell.settings.voiceAccount === ""', "true"],
         ["failed", 'if (code !== 0) throw new Error("probe");', "void code;"],
-        ["invalid", "JSON.parse(output)", 'JSON.parse(output === "broken" ? JSON.stringify({accounts: [], brains: [], models: {kind: "none"}, voiceAccounts: [{value: "key-a", label: "Fixture"}], search: {found: 1, partial: ""}}) : output)'],
+        ["invalid", "JSON.parse(output)", 'JSON.parse(output === "broken" ? JSON.stringify({accounts: [], brains: [], voiceAccounts: [{value: "key-a", label: "Fixture"}], search: {found: 1, partial: ""}}) : output)'],
         ["stale", "!pending && shell.settings.voiceAccount", "true && shell.settings.voiceAccount"],
         ["stale", 'const code = completion.kind === "exited" ? completion.code : -1;', 'if (pending) return; const code = completion.kind === "exited" ? completion.code : -1;'],
         ["refused", 'console.warn("jarvis-accounts: voice-selection=refused");', "void 0;"]
@@ -1047,7 +1047,7 @@ world(async () => {
     };
     goodCli(plugin);
     const normalizedError = folder => {
-        const result = cli(folder, ["presence", privateValue, ""]);
+        const result = cli(folder, ["presence", privateValue]);
         assert.equal(result.status, 1);
         assert.equal(result.stderr, "jarvis-accounts: operation=failed\n");
         safe(result.stdout + result.stderr);

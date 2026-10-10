@@ -563,7 +563,7 @@ world(async () => {
             seen.push(await judge.verify(judge.accounts.find(item => item.provider === "pi").id, "user"));
             const helper = cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), "--tree", tree, "presence",
                 JSON.stringify(Object.fromEntries(require(path.join(folder, "AccountProviders.js")).PROVIDERS
-                    .filter(row => row.variable).map(row => [row.variable, false]))), ""],
+                    .filter(row => row.variable).map(row => [row.variable, false])))],
             { env: { ...env, XDG_RUNTIME_DIR: path.dirname(path.dirname(runtime)) }, encoding: "utf8", timeout: 20000 });
             assert.equal(helper.status, 0, helper.stderr);
             assert.ok(JSON.parse(helper.stdout).brains.some(choice => choice.label === "Pi / stub/stub-1"), "the helper read the leaking Pi");
@@ -632,8 +632,8 @@ world(async () => {
             ["stderr-dropped", "backend/HarnessProgram.js", [["child.stderr.resume();", "child.stderr.on(\"data\", chunk => process.stderr.write(chunk));"]], "credential"],
             ["environment-scrub", "backend/HarnessProgram.js", [["env: { ...childEnvironment(env), ...extra }", "env: { ...env, ...extra }"]], "credential"],
             ["models-state", A, [['item.state = { kind: item.models.length === 0 ? "found" : "signed-in" };', ""]], "accounts"],
-            ["models-read", "backend/accounts.js", [["await Promise.all([judge.readEmails(), judge.readModels(), judge.readOffers(args[2])]);\n        value = judge.status();",
-                "await Promise.all([judge.readEmails(), judge.readOffers(args[2])]);\n        value = judge.status();"]], "credential"],
+            ["models-read", "backend/accounts.js", [["await Promise.all([judge.readEmails(), judge.readModels()]);\n        value = judge.status();",
+                "await judge.readEmails();\n        value = judge.status();"]], "credential"],
             ["choice-model", A, [['const model = candidate.provider === "pi" && id.startsWith(account + "/") ? piModel(id.slice(account.length + 1)) : "";',
                 'const model = "";']], "accounts"],
             ["choice-label", A, [['" / " + PiRpc.reference(model)).slice(0, 60)', '" / " + model.id).slice(0, 60)']], "accounts"],

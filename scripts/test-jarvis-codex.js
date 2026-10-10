@@ -617,15 +617,12 @@ world(async () => {
             const judge = new Accounts(directory, env, undefined, runtime);
             const codex = judge.discover().find(item => item.provider === "codex" && item.source.directory === account);
             scenario({});
-            await judge.readOffers(codex.id);
-            assert.deepEqual(judge.status().models, { kind: "read", offers });
+            assert.deepEqual(await judge.readOffers(codex.id), { kind: "read", offers });
             scenario({ refuse: "model/list" });
-            await judge.readOffers(codex.id);
-            assert.deepEqual(judge.status().models, { kind: "failed", reason: "codex-refused" });
+            assert.deepEqual(await judge.readOffers(codex.id), { kind: "failed", reason: "codex-refused" });
             // The page's choices ceiling bounds a longer list.
             scenario({ models: { data: Array.from({ length: 33 }, (_, index) => entry("m" + index)) } });
-            await judge.readOffers(codex.id);
-            assert.deepEqual(judge.status().models.offers.map(offer => offer.value), Array.from({ length: 32 }, (_, index) => "m" + index));
+            assert.deepEqual((await judge.readOffers(codex.id)).offers.map(offer => offer.value), Array.from({ length: 32 }, (_, index) => "m" + index));
         },
         // Account Verify's handoff: one turn on a thread with no tools.
         async probe(folder) {

@@ -348,7 +348,13 @@ function service(sourceTree, tree, root) {
         JSON.stringify(path.join(sourceTree, "scripts/fixtures/jarvis/accounts-world.js")) + ', program, ' +
         JSON.stringify(path.join(root, "account-mode")) + ', Quickshell.shellDir + "/..", JSON.stringify(Providers.keyPresence(name => Quickshell.env(name)))];';
     if (!fs.existsSync(path.join(root, "account-mode"))) fs.writeFileSync(path.join(root, "account-mode"), "signed-in\n");
-    fs.writeFileSync(accounts, accountsSource.replace(accountsNeedle, accountsCommand));
+    // The page's model list read goes through the same world. A --rev tree
+    // of scripts/sandbox-shots.sh older than that read holds no such line.
+    const listNeedle = 'lister.command = ["node", program, "--tree", Quickshell.shellDir + "/..", "models", wanted];';
+    assert.ok(accountsSource.split(listNeedle).length - 1 <= 1, "model list instrumentation match");
+    const listCommand = accountsCommand.replace("probe.command", "lister.command")
+        .replace("JSON.stringify(Providers.keyPresence(name => Quickshell.env(name)))", '"models", wanted');
+    fs.writeFileSync(accounts, accountsSource.replace(accountsNeedle, accountsCommand).replace(listNeedle, listCommand));
 }
 
 module.exports = { freshSuite, seedTaskEvents, shellState };

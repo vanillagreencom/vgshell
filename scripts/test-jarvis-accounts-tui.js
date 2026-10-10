@@ -352,8 +352,16 @@ if(outcome==="failure-signed-in") process.exit(7);
             const account = accounts.find(item => item.source.directory === target);
             assert.equal(account.state.kind, vendor === "copilot" ? "unchecked" : "signed-in");
             const presence = Object.fromEntries(PROVIDERS.filter(row => row.variable).map(row => [row.variable, false]));
-            const shown = JSON.parse(cli(folder, "presence", JSON.stringify(presence), ""));
+            const listsBefore = records().filter(item => item.args.includes("--input-format")).length;
+            const shown = JSON.parse(cli(folder, "presence", JSON.stringify(presence)));
             assert.ok(shown.brains.some(item => item.value === account.id), "signed-in account offered as AI model");
+            // The account answer starts no model list read: the Jarvis page
+            // asks for the chosen sign-in's list in a request of its own.
+            assert.equal(records().filter(item => item.args.includes("--input-format")).length, listsBefore, "no list read in the account answer");
+            if (vendor === "claude") {
+                assert.equal(JSON.parse(cli(folder, "models", account.id)).kind, "read");
+                assert.equal(records().filter(item => item.args.includes("--input-format")).length, listsBefore + 1, "one list read for the request");
+            }
           }
         }
     };
@@ -538,6 +546,8 @@ if(outcome==="failure-signed-in") process.exit(7);
         'sign-in "$selected" "$HOME" "$label"', successfulSignIn);
     await control("backend/Accounts.js", "sign-in-default-folder", 'folders.length === 0 ? "" : "-" + label',
         '"-" + label', successfulSignIn);
+    await control("backend/accounts.js", "presence-list-read", "await Promise.all([judge.readEmails(), judge.readModels()]);\n        value = judge.status();",
+        "await Promise.all([judge.readEmails(), judge.readModels(), ...judge.accounts.map(item => judge.readOffers(item.id))]);\n        value = judge.status();", successfulSignIn);
     await control("backend/Accounts.js", "sign-in-additional-folder", 'folders.length === 0 ? "" : "-" + label',
         '""', successfulSignIn);
     await control("backend/Accounts.js", "sign-in-existing-folder", 'directory: entry.directory, label: entry.label };',

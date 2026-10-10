@@ -102,7 +102,10 @@ Item {
     QtObject {
         id: fakeManager
         property var plugins: root.fewRows
+        // The page the window reported shown, each report in order.
+        property var viewed: []
         function rescan() { return "ok"; }
+        function viewPage(id) { viewed = viewed.concat([id]); }
     }
 
     QtObject {
@@ -182,6 +185,7 @@ Item {
 
         function init() {
             fakeManager.plugins = root.fewRows;
+            fakeManager.viewed = [];
             fakeCompositor.reads = [];
             fakeCompositor.calls = [];
             fakeCompositor.sync = null;
@@ -217,6 +221,18 @@ Item {
         // Room below the shown tab's content, and none past it.
         function fits(scroll) {
             return scroll.height >= scroll.contentHeight && scroll.height - scroll.contentHeight < 1;
+        }
+
+        // The core tells a plugin while its page is shown: the window
+        // reports the page it shows, the list as none, and none as it closes.
+        function test_the_window_reports_the_page_it_shows() {
+            const window = opened(JSON.stringify({ plugin: "acme.short" }));
+            compare(fakeManager.viewed, ["acme.short"], "an opened page is reported");
+            window.showList(Qt.OtherFocusReason);
+            compare(fakeManager.viewed, ["acme.short", ""], "the list shows no plugin's page");
+            window.show("acme.long", Qt.OtherFocusReason);
+            window.close();
+            compare(fakeManager.viewed, ["acme.short", "", "acme.long", ""], "a closing window shows none");
         }
 
         function test_a_short_page_takes_its_content_height() {

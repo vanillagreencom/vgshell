@@ -170,6 +170,7 @@ Singleton {
             rescan: () => Registry.rescan().answer,
             act: (id, key) => root.managerAct(id, key),
             refreshChoices: (id, key) => PluginStatus.refresh(id, key),
+            viewPage: id => { PluginStatus.viewed = id; },
             open: id => root.managerOpen(id),
             openPane: id => root.managerOpenPane(id),
             openTui: (id, name) => root.managerOpenTui(id, name),
@@ -200,13 +201,15 @@ Singleton {
         // own Status rows as the Settings page draws them, so its surfaces
         // take each entry's tone and offered action from the one owner.
         // `handleRefresh` registers what the plugin runs when Settings opens
-        // the select one of its `choices` entries feeds.
+        // the select one of its `choices` entries feeds. `viewed` holds
+        // while the Settings window shows the plugin's page.
         status: ctx => ({
             set: (key, value) => PluginStatus.set(ctx, key, value),
             handleRefresh: (key, handler) => PluginStatus.handleRefresh(ctx, key, handler),
             act: key => root.managerAct(ctx.id, key),
             get rows() { return Logic.statusRows(Registry.manifests[ctx.id], PluginStatus.valuesOf(ctx.id), Notices.missingOf(ctx.id)); },
             get values() { return PluginStatus.valuesOf(ctx.id); },
+            get viewed() { return PluginStatus.viewed === ctx.id; },
             get revision() { return PluginStatus.revisionOf(ctx.id); }
         }),
         theme: themes.provider,
