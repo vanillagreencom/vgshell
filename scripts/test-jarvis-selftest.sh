@@ -349,7 +349,7 @@ make_folder() {
   ln -s AGENTS.md "$folder/CLAUDE.md"
 }
 home_untouched() {
-  local before copy="$sandbox/jarvis-home"
+  local before copy="$sandbox/home/jarvis-home"
   make_folder
   before="$(call selftest_tree_sum "$folder")" || return 1
   starts --home "$folder" || return 1
@@ -359,6 +359,7 @@ home_untouched() {
 }
 holds "a write under the home copy's state/ leaves the named folder byte for byte unchanged" home_untouched
 control plant "a runner whose home copy is the folder itself" '  cp -a -- "$1" "$2"' '  ln -s -- "$1" "$2"' home_untouched
+control plant "a runner whose home copy lies outside the sandbox's HOME" '  home_copy="$home/jarvis-home"' '  home_copy="$sandbox/jarvis-home"' home_untouched
 control plant "a runner whose settings name the folder itself" '"$devices_voice_feed_source" "$home_copy" "$voice"' '"$devices_voice_feed_source" "$home_source" "$voice"' home_untouched
 # The checksum is the instrument: each kind of change must move it.
 make_folder

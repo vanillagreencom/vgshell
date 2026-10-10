@@ -40,7 +40,7 @@
 # nothing else: no other bus name and no unlock, so a locked keyring fails
 # the lookup and shows no prompt. Before Jarvis starts, the run reads
 # through that filter whether each key is there and unlocked.
-# --home PATH copies that folder into the run's scratch and names the copy
+# --home PATH copies that folder into the sandbox's HOME and names the copy
 # as the Jarvis home folder; the folder itself is read twice, for its
 # checksums before and after, and never written.
 # --confirm key confirms each request Jarvis shows as its Confirm key does,
@@ -568,7 +568,9 @@ fi
 home_copy=""
 home_sum=""
 if [[ -n $home_source ]]; then
-  home_copy="$sandbox/jarvis-home"
+  # Jarvis holds a home folder only inside the user's home directory
+  # (Home.js resolve), so the copy lies in the sandbox's HOME.
+  home_copy="$home/jarvis-home"
   home_sum="$(selftest_tree_sum "$home_source")" || stopped home-unread
   selftest_home_copy "$home_source" "$home_copy" || stopped home-not-copied
 fi
