@@ -315,7 +315,7 @@ theme_row() { ipc smoke itemTexts panel vgs.themes ThemeRow | py_reply 'import j
 # its chip count and whether a chip draws COLOUR, as `#rrggbbaa`.
 theme_swatch() {
   local texts colours
-  texts="$(ipc smoke itemTexts panel vgs.themes ThemeRow)" && colours="$(ipc smoke itemColours panel vgs.themes ThemeRow Surface)" || return
+  texts="$(ipc smoke itemTexts panel vgs.themes ThemeRow)" && colours="$(ipc smoke itemColours panel vgs.themes ThemeSwatch QQuickRectangle)" || return
   python3 -c 'import json,sys; t,c=json.loads(sys.argv[1]),json.loads(sys.argv[2]); m=[c[i] for i,r in enumerate(t) if r[:2]==sys.argv[3:5]]; print(json.dumps([len(m[0]), sys.argv[5] in m[0]]) if len(m)==1 else "rows=%d" % len(m))' "$texts" "$colours" "$1" "$2" "$3"
 }
 # The unanchored layer starts below the reserved bar. Qt reports an

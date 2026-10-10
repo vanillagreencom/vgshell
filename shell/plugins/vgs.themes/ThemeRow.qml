@@ -141,22 +141,7 @@ Column {
                         spacing: Theme.space.xxs
                         KeyCaps { shortcut: "ALT+D" }
                     }
-                    Row {
-                        visible: root.swatch !== null
-                        spacing: Theme.stack.row
-                        Repeater {
-                            model: root.swatch === null ? [] : Object.keys(root.swatch)
-                            Rectangle {
-                                required property string modelData
-                                width: Theme.icon.size.sm
-                                height: Theme.icon.size.sm
-                                radius: Theme.radius.sm
-                                color: root.swatch[modelData]
-                                border.width: Theme.surface.border
-                                border.color: Theme.surface.level.base.border
-                            }
-                        }
-                    }
+                    ThemeSwatch { swatch: root.swatch }
                 }
                 // keyboard-path: the owning list runs this secondary action with Alt+D on the selected row
                 RowAction {
