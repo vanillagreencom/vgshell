@@ -94,23 +94,26 @@ T.MenuItem {
     }
 
     // The check mark stands in the right padding, which grows to hold it
-    // while the entry is checked.
+    // while the entry is checked. Its ink, not its box, ends a side padding
+    // from the end, as the text's starts a side padding from the start: a
+    // Lucide glyph's ink sits inside its box by an amount each shape sets.
     indicator: Icon {
         name: "check"
         visible: root.checked && !root.opensSubmenu
         size: Theme.menu.item.icon
         color: Theme.menu.item.check
-        x: root.width - root.sidePadding - root.barRoom - width
+        x: root.width - root.sidePadding - root.barRoom - painted[2]
         y: Math.round((root.height - height) / 2)
     }
 
-    // The submenu's chevron stands where the check mark would.
+    // The submenu's chevron stands where the check mark would, its own ink
+    // ending where the check mark's does.
     Icon {
         name: "chevron-right"
         visible: root.opensSubmenu
         size: Theme.menu.item.icon
         color: Theme.menu.item.shortcut
-        x: root.indicator.x
+        x: root.indicator.x + root.indicator.painted[2] - painted[2]
         y: root.indicator.y
     }
 

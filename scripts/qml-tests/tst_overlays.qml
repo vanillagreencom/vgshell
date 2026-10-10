@@ -340,7 +340,7 @@ Item {
             compare(item.indicator.visible, true);
             compare(item.indicator.name, "check");
             compare(item.rightPadding, Theme.menu.item.paddingX + Theme.scrollArea.gutter + Theme.menu.item.icon + item.spacing);
-            compare(item.indicator.x + item.indicator.width, item.width - item.sidePadding - item.barRoom, "the check mark ends a side padding before the bar");
+            compare(item.indicator.x + item.indicator.painted[2], item.width - item.sidePadding - item.barRoom, "the check mark's ink ends a side padding before the bar");
             compare(long.items()[0].indicator.visible, false);
             compare(long.items()[0].rightPadding, Theme.menu.item.paddingX + Theme.scrollArea.gutter);
             long.close();
@@ -452,7 +452,15 @@ Item {
             const chevron = entry => entry.children.find(child => child.name === "chevron-right");
             nested.open();
             compare(chevron(submenuEntry).visible, true);
-            compare(chevron(submenuEntry).x + chevron(submenuEntry).width, submenuEntry.width - submenuEntry.sidePadding - submenuEntry.barRoom, "the chevron ends a side padding before the bar");
+            compare(chevron(submenuEntry).x + chevron(submenuEntry).painted[2], submenuEntry.width - submenuEntry.sidePadding - submenuEntry.barRoom, "the chevron's ink ends a side padding before the bar");
+            // The chevron's ink ends as far from the window's right edge as
+            // the text's ink starts from its left edge.
+            const window = windowOf(nested);
+            tryCompare(submenuEntry, "width", window.width - 2 * Theme.border.thin);
+            const title = submenuEntry.contentItem.children[1];
+            const textLeft = Theme.border.thin + submenuEntry.contentItem.x + title.x + itemMetrics.tightBoundingRect(title.text).x;
+            const inkRight = window.width - (Theme.border.thin + chevron(submenuEntry).x + chevron(submenuEntry).painted[2]);
+            verify(Math.abs(inkRight - textLeft) <= 1, "the chevron's ink gap " + inkRight + " matches the text's " + textLeft);
             compare(uncheckedSubmenu.rightPadding, uncheckedSubmenu.sidePadding + uncheckedSubmenu.barRoom + Theme.menu.item.icon + uncheckedSubmenu.spacing, "the chevron takes the check mark's room");
             compare(chevron(uncheckedSubmenu).visible, true);
             compare(submenuEntry.indicator.visible, false, "a checked submenu entry draws its chevron, not its check mark");
