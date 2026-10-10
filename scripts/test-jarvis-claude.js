@@ -885,8 +885,8 @@ world(async () => {
             ["offers-claude", "const MODEL_LISTS = { claude: ClaudeCode, ", "const MODEL_LISTS = { "]
         ]) await control(accountsFile, name, needle, replacement, "models");
         await control(engineFile, "claude-driver", ', "claude-code": ClaudeCode });', " });", "engine");
-        await control(engineFile, "engine-model", "model: own ? account.model : settings.model,", "model: account.model,", "engine");
-        await control(engineFile, "engine-effort", 'effort: own ? "" : settings.effort,', 'effort: "",', "engine");
+        await control(engineFile, "engine-model", ": unlistedChoice(settings, account.provider);", ": { model: account.model, effort: settings.effort };", "engine");
+        await control(engineFile, "engine-effort", 'effort: chosen.effort,', 'effort: "",', "engine");
         await control(engineFile, "engine-effort-handed", "model: c.plan.brain.model, effort: c.plan.brain.effort,", "model: c.plan.brain.model,", "engine");
         await mutant(path.join(backend, "ToolBridge.js"), "fresh-bridge-tools",
             'const offers = structuredClone(tools);', 'const offers = structuredClone(router.offer());',

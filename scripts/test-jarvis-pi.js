@@ -649,7 +649,7 @@ world(async () => {
             ["choice-floor", A, [["try { PiHarness.version(this.env, CHOOSE_STATUS_MS); } catch (error) {", "try { } catch (error) {"]], "floor"],
             ["choice-update", A, [["if (/^jarvis: brain=pi-update /.test(error.message)) return", "if (true) return"]], "floor"],
             ["account-update", A, [['update: item.state.kind === "unavailable" && item.state.reason === "pi-update" }', "update: false }"]], "floor"],
-            ["engine-own-model", "backend/ChainedEngine.js", [["model: own ? account.model : settings.model,", "model: settings.model,"]], "limit"]
+            ["engine-own-model", "backend/ChainedEngine.js", [["account.model !== \"\" ? { model: account.model,", "false ? { model: account.model,"]], "limit"]
         ]) {
             await variant(relative, edits, folder => CASES[row](folder));
             controls++;
