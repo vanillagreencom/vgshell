@@ -84,9 +84,10 @@ world("jg", root => {
                 { message: "jarvis: guidance=layer file=core.md cause=" + cause });
         }); controls++;
     }
-    // The user's home folder: its AGENTS.md follows the shipped layers for
-    // every consumer, a brain also gets the index of its skills, and a text
-    // over its bound refuses whole. The folder is made by hand, as a user's is.
+    // The user's home folder: a brain gets its AGENTS.md after the shipped
+    // layers and the index of its skills, the voice model gets none, and a
+    // text over its bound refuses whole. The folder is made by hand, as a
+    // user's is.
     const tree = path.resolve(backend, "../../../..");
     const home = (name, agents, skills = {}) => {
         const folder = path.join(root, "home-" + name);
@@ -108,15 +109,19 @@ world("jg", root => {
         require(path.join(copy, "Core.js")).use(tree);
         for (const row of fixtures) {
             const plain = logic.compose(row.engine, row.class, row.language);
+            if (row.class === "duplex") {
+                assert.throws(() => logic.compose(row.engine, row.class, row.language, full), { message: "jarvis: guidance=consumer" },
+                    "the voice that reads the brain's words aloud takes no home text");
+                continue;
+            }
             const value = logic.compose(row.engine, row.class, row.language, full);
-            const brain = row.class !== "duplex";
             assert.equal(value.instructions.startsWith(plain.instructions + "\n\n"), true, "the shipped layers lead, unchanged");
             const added = value.instructions.slice(plain.instructions.length);
             assert.equal(added.includes("HOME-MARKER persona"), true, row.class + ": the home's AGENTS.md");
-            assert.deepEqual(["- base/gamma: Gamma line", "- own/alpha: Alpha skill"].map(line => added.split("\n").includes(line)), [brain, brain],
-                row.class + ": the skill index, name and first line, for a brain alone");
+            assert.deepEqual(["- base/gamma: Gamma line", "- own/alpha: Alpha skill"].map(line => added.split("\n").includes(line)), [true, true],
+                row.class + ": the skill index, name and first line");
             assert.equal(added.includes("ALPHA-BODY"), false, "a skill body is read on demand, never composed");
-            assert.deepEqual(value.layers, [...row.layers, "home/AGENTS.md", ...(brain ? ["home/skills"] : [])]);
+            assert.deepEqual(value.layers, [...row.layers, "home/AGENTS.md", "home/skills"]);
             assert.equal(value.afterToolResult, plain.afterToolResult, "the home text is not repeated after a tool result");
             assert.equal(plain.withHome(full).instructions, value.instructions, "a composed guidance reads the home again");
             assert.equal(logic.compose(row.engine, row.class, row.language, bare).instructions, plain.instructions, "an empty home adds nothing");
@@ -124,10 +129,8 @@ world("jg", root => {
         }
         assert.equal(logic.compose("chained", "text", "en", edge).instructions.endsWith("x".repeat(8192)), true, "a persona of exactly the bound is whole");
         assert.throws(() => logic.compose("chained", "text", "en", oversize), { message: "jarvis: guidance=home-too-large" });
-        assert.throws(() => logic.compose("duplex", "duplex", "en", oversize), { message: "jarvis: guidance=home-too-large" });
         for (const folder of [crowded, many])
             assert.throws(() => logic.compose("chained", "local", "en", folder), { message: "jarvis: guidance=home-skills-too-large" });
-        assert.doesNotThrow(() => logic.compose("duplex", "duplex", "en", crowded), "the voice model lists no skill");
         assert.throws(() => logic.compose("chained", "text", "en", linked), { message: "jarvis: home=link" });
     }
     homeText(Guidance);
@@ -136,7 +139,7 @@ world("jg", root => {
         ["home-layer", "        content.push(text);\n", ""],
         ["home-order", "        content.push(text);\n", "        content.unshift(text);\n"],
         ["home-empty", 'if (agents.text.trim() !== "")', "if (true)"],
-        ["voice-index", 'if (brainClass === "duplex") return out;', ""],
+        ["voice-home", 'if (home !== null && brainClass === "duplex") throw new Error("jarvis: guidance=consumer");', ""],
         ["skills-bound", "if (!listed.complete || Buffer.byteLength(index) > MAX_LAYER_BYTES)", "if (!listed.complete)"],
         ["skills-complete", "if (!listed.complete || Buffer.byteLength(index) > MAX_LAYER_BYTES)", "if (Buffer.byteLength(index) > MAX_LAYER_BYTES)"],
         ["skill-line", '(skill.line === "" ? "" : ": " + skill.line)', '""'],

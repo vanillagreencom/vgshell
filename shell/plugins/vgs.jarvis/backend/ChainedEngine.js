@@ -272,7 +272,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         try {
             if (plan.speech.id === "openai-realtime") {
                 c.live = Realtime.create({ provider: plan.speech.provider, clock, captionLimit,
-                    log, conversation: e => ({ net, key: plan.speech.key, language: LANGUAGE, home: homePath(),
+                    log, conversation: e => ({ net, key: plan.speech.key, language: LANGUAGE,
                         grants: () => c.grants, transfer: (item, start) => transfer(c, e, item, start) }) });
                 c.speech = { close: () => c.live.port.release() };
             } else {

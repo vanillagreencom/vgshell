@@ -201,19 +201,12 @@ world(async () => {
             fs.writeFileSync(path.join(table, name), source.replace(needle, replacement));
         }
         const load = name => require(path.join(table, name));
-        // Home.js reads the home folder through the core's anchored walk.
-        load("Core.js").use(tree);
         return { folder: table, Live: load("Realtime.js"), Policy: load("Policy.js"), Net: load("net.js"), Providers: load("Providers.js"),
             Secrets: load("Secrets.js"), Runner: load("session-runner.js"), Guidance: load("Guidance.js"), Session: Protocol.Session };
     }
 
-    // A Jarvis home folder whose AGENTS.md holds a marker found nowhere else.
-    const liveHome = path.join(fs.realpathSync(process.env.HOME), "live-home");
-    fs.mkdirSync(liveHome);
-    fs.writeFileSync(path.join(liveHome, "AGENTS.md"), "LIVE-HOME-MARKER\n");
-
     // thinking keeps each brain turn open: its port never reports done.
-    function rig(kit, { key = "own", mode = "hold", synchronousClose = false, redirect = false, thinking = false, home = null } = {}) {
+    function rig(kit, { key = "own", mode = "hold", synchronousClose = false, redirect = false, thinking = false } = {}) {
         const clock = manual();
         const w = { id: ++conversations, kit, clock, played: [], flushes: 0, transcripts: [], logs: [], collected: [], sink: null,
             source: null, handed: [], backlog: null, delegations: [], tools: 0, starts: 0, judged: [], approvals: [],
@@ -245,7 +238,7 @@ world(async () => {
         } };
         const engine = kit.Live.create({ provider: kit.Providers.select("openai-realtime"), clock,
             captionLimit: Protocol.TRANSCRIPT_CHARS, log: line => w.logs.push(line),
-            conversation: () => ({ net, key: key === null ? null : { secrets, reference }, language: "", home,
+            conversation: () => ({ net, key: key === null ? null : { secrets, reference }, language: "",
                 transfer: (item, start) => { w.judged.push(item); return start(); }, grants: () => [] }) });
         w.engine = engine;
         const ports = kit.Runner.unavailable();
@@ -364,7 +357,7 @@ world(async () => {
     }
 
     async function roundTrip(kit) {
-        const w = rig(kit, { home: liveHome });
+        const w = rig(kit);
         const looked = lookups();
         w.dispatch("talk-down");
         assert.equal(lookups(), looked + 1, "the key is looked up when the session first needs it");
@@ -408,9 +401,8 @@ world(async () => {
         const spoken = await conn.event(SPEAK);
         assert.deepEqual([spoken.response.conversation, spoken.response.output_modalities], ["none", ["audio"]]);
         assert.equal(spoken.response.instructions,
-            kit.Guidance.compose("duplex", "duplex", "", liveHome).instructions + "\n\n" + JSON.stringify("It is noon."),
+            kit.Guidance.compose("duplex", "duplex", "").instructions + "\n\n" + JSON.stringify("It is noon."),
             "the frame carries the voice's guidance, then the sentence as a JSON string");
-        assert.equal(spoken.response.instructions.includes("LIVE-HOME-MARKER"), true, "the voice's guidance carries the home's AGENTS.md");
         conn.play("reply-old");
         await until(() => bytes(w, 0x11) === 1440, "the reply reaches playback");
         assert.equal(w.phase, "speaking");
@@ -1214,7 +1206,7 @@ world(async () => {
         let releaseReply;
         const heldReply = new Promise(resolve => { releaseReply = resolve; });
         try {
-            send({ type: "hello", settings: { home: "~/live-home", sounds: false, mode: "hold", microphone: "", speaker: "", brain, taskTerminal: "auto",
+            send({ type: "hello", settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain, taskTerminal: "auto",
                 cloudVision: "ask", privateWindows: "", voiceProvider: "realtime", voiceAccount: live }, directories, locked: false,
                 keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } });
             await wait(() => last()?.gate.kind === "up", "the configured Realtime voice raises the daemon gate");
@@ -1271,8 +1263,6 @@ world(async () => {
                 const observed = fs.readFileSync(frameAudits, "utf8").trim().split("\n").map(JSON.parse)
                     .filter(value => value.frame.type === SPEAK);
                 const commentary = conn.events.filter(value => value.type === SPEAK);
-                assert.ok(commentary.every(value => value.response.instructions.includes("LIVE-HOME-MARKER")),
-                    "the daemon's voice gets the home's AGENTS.md");
                 assert.ok(commentary.every(value => !words(value).includes("https://") && !words(value).includes("**")));
                 assert.ok(commentary.map(words).join(" ").includes("Completed."));
                 assert.ok(rows().some(row => row.kind === "action" && row.effect === "destructive" && row.confirmed === "physical"));
@@ -1483,7 +1473,6 @@ world(async () => {
             ["start-timeout", 'clock.set(() => failed(session, "live=start-timeout"), START_WAIT_MS)', "null", as("startTimeout")],
             ["response-timeout", 'clock.set(() => failed(session, "live=response-timeout"), RESPONSE_WAIT_MS)', "null", as("responseTimeout")],
             ["response-wait-end", 'clear(session, "words");', "", as("idle")],
-            ["home-text", 'Guidance.compose("duplex", "duplex", language, home).instructions', 'Guidance.compose("duplex", "duplex", language).instructions', as("roundTrip")],
             ["key-first", "Net.assertKeyTarget(provider.base, key.reference.origin);", "", as("keys")],
             ["key-zero", "} finally { secret.fill(0); }", "} finally { void secret; }", as("roundTrip")],
             ["pending", "session.pending.push(Buffer.from(pcm));", "", as("roundTrip")],
@@ -1523,7 +1512,6 @@ world(async () => {
         for (const [name, needle, replacement, scenario] of [
             ["daemon-live-selection", 'if (settings.voiceProvider === "realtime") {', "if (false) {", "action"],
             ["daemon-commentary", "c.live.commentary(turn.delegation, item);", "void item;", "action"],
-            ["daemon-live-home", "language: LANGUAGE, home: homePath(),", "language: LANGUAGE, home: null,", "action"],
             ["daemon-router-tools", "tools: router.offer()", "tools: []", "action"],
             ["daemon-router-approval", "router.route(call, { gen: turn.gen, op: turn.op });", "void call;", "action"],
             ["daemon-speakable", "for (const sentence of text.push(event.text))", "for (const sentence of [event.text])", "action"],

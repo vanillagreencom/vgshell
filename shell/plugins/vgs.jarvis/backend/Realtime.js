@@ -129,10 +129,9 @@ function eventOf(data) {
 /**
  * create({provider, clock, conversation, captionLimit, log}) returns
  * {port, captureSink, playbackSource, played, commentary, heard}. provider is the Providers.select
- * "openai-realtime" row. conversation(e) answers {net, key, language, home, transfer, grants} for a
+ * "openai-realtime" row. conversation(e) answers {net, key, language, transfer, grants} for a
  * speech-open effect: the session's net owner, null or {secrets, reference},
- * the speech language, the user's home folder or null, audited transfer and
- * current release grants. captionLimit
+ * the speech language, audited transfer and current release grants. captionLimit
  * is the wire's transcript bound. log receives keyed diagnostic lines. One
  * session at a time is live.
  */
@@ -406,13 +405,13 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             }
         } catch (error) { failed(session, reasonOf(error)); }
     }
-    function connect(session, { net, key, language, home, transfer, grants }) {
+    function connect(session, { net, key, language, transfer, grants }) {
         session.transfer = transfer;
         session.grants = grants;
         session.language = language;
         if (key === null) fail("no-key");
         Net.assertKeyTarget(provider.base, key.reference.origin);
-        session.reader = Guidance.compose("duplex", "duplex", language, home).instructions;
+        session.reader = Guidance.compose("duplex", "duplex", language).instructions;
         // No tools, and create_response false: the voice has no function to
         // call and never answers a turn on its own.
         session.update = { type: "session.update", session: { type: "realtime", output_modalities: ["audio"], tools: [],

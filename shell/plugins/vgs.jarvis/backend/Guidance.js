@@ -3,9 +3,10 @@
 // afterToolResult, withHome }. Engines are "chained" or "duplex"; classes are "duplex"
 // (the voice model), "text" or "local" (a brain). The local chained consumer
 // appends afterToolResult as instructions after EACH tool result. home is
-// the user's Jarvis home folder or null: its AGENTS.md follows the shipped
-// layers for every consumer, and a brain also gets the index of its skills,
-// each read on demand through the help tool (D105).
+// the user's Jarvis home folder or null: a brain gets its AGENTS.md after the
+// shipped layers and the index of its skills, each read on demand through the
+// help tool. The voice model only reads the brain's words aloud and gets no
+// home text (D105).
 // Read failures and bounds throw keyed errors. No cache or session store.
 "use strict";
 const fs = require("node:fs");
@@ -42,14 +43,12 @@ function layer(name) {
 // The home's layers as [name, text] pairs. An AGENTS.md or a skill index
 // over the layer bound refuses whole: a cut persona would read as the
 // user's own words.
-function homeLayers(home, brainClass) {
+function homeLayers(home) {
     const out = [];
     const agents = Home.read(home, "AGENTS.md", MAX_LAYER_BYTES);
     if (agents.kind !== "text") throw new Error("jarvis: guidance=home-too-large");
     if (agents.text.trim() !== "")
         out.push(["home/AGENTS.md", "The user's own instructions for you, from their Jarvis home folder:\n\n" + agents.text.trim()]);
-    // The voice model has no help tool to read a skill with.
-    if (brainClass === "duplex") return out;
     const listed = Home.skills(home);
     const index = listed.skills.map(skill => "- " + skill.topic + (skill.line === "" ? "" : ": " + skill.line)).join("\n");
     if (!listed.complete || Buffer.byteLength(index) > MAX_LAYER_BYTES) throw new Error("jarvis: guidance=home-skills-too-large");
@@ -63,6 +62,7 @@ function compose(engine, brainClass, language, home = null) {
     if (engine !== "chained" && engine !== "duplex") throw new Error("jarvis: guidance=engine");
     if (!["duplex", "text", "local"].includes(brainClass)) throw new Error("jarvis: guidance=class");
     if (engine === "chained" && brainClass === "duplex") throw new Error("jarvis: guidance=consumer");
+    if (home !== null && brainClass === "duplex") throw new Error("jarvis: guidance=consumer");
     const code = languageCode(language);
     let names;
     if (engine === "duplex") {
@@ -74,7 +74,7 @@ function compose(engine, brainClass, language, home = null) {
         names.push("lang/" + code + ".md");
     }
     const content = names.map(layer);
-    for (const [name, text] of home === null ? [] : homeLayers(home, brainClass)) {
+    for (const [name, text] of home === null ? [] : homeLayers(home)) {
         names.push(name);
         content.push(text);
     }
