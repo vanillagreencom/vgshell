@@ -36,8 +36,11 @@ FocusScope {
 
     function close() {}
 
+    // The bar's state line, with the action of a state that needs one.
     function stateText() {
-        return WidgetView.view(values).tooltip;
+        const view = WidgetView.view(values, WidgetView.spelledKeys(shell === null ? null : shell.shortcut.keys, KeyNavLogic.keyCaps),
+            shell === null ? "hold" : shell.settings.mode);
+        return view.state === "problem" || view.state === "off" ? view.tooltip + ". " + view.tooltipDetails[0] : view.tooltip;
     }
 
     function rows() {

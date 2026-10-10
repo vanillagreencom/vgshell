@@ -13,23 +13,14 @@ import "WidgetView.js" as View
 BarWidget {
     id: root
 
-    // Core/Plugins.qml createWidget assigns shell.settings to this bar-widget.
-    // Session settings arrive only after daemon hello, so the widget reads the
-    // truthful talk mode from shell.settings. The keys and the mode are read
-    // inside this one binding: as separate properties, the nested smoke
-    // (2026-10-10, diagnostics row) saw this binding run first and hand the
-    // view an undefined key map at creation.
-    readonly property var view: shell === null ? View.view({}, spelledKeys(null), "hold")
-        : View.view(shell.status.values, spelledKeys(shell.shortcut.keys), shell.settings.mode)
+    // Core/Plugins.qml createWidget hands this widget the plugin's shell,
+    // whose settings hold the talk mode from the first frame; the Session's
+    // own settings arrive only after the daemon's hello.
+    readonly property var view: shell === null ? View.view({}, View.spelledKeys(null, KeyNavLogic.keyCaps), "hold")
+        : View.view(shell.status.values, View.spelledKeys(shell.shortcut.keys, KeyNavLogic.keyCaps), shell.settings.mode)
 
     implicitWidth: item.implicitWidth
     implicitHeight: barSize
-
-    // KEYS, shell.shortcut.keys or null, as people read each key the view names.
-    function spelledKeys(keys) {
-        const spell = name => keys === null || keys[name] === null ? null : KeyNavLogic.keyCaps(keys[name]).join("+");
-        return { talk: spell("talk"), mute: spell("mute"), stop: spell("stop"), confirm: spell("confirm") };
-    }
 
     function toneColor(tone) {
         switch (tone) {

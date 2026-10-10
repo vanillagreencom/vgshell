@@ -23,6 +23,9 @@ const dir = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis");
 const Session = load(path.join(dir, "Session.js"));
 const SetupGate = load(path.join(dir, "SetupGate.js"));
 const Lucide = load(path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js"));
+const KeyNavLogic = load(path.join(__dirname, "..", "shell", "Ui", "foundation", "KeyNavLogic.js"));
+const MANIFEST_KEYS = Object.fromEntries(JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "manifest.json"), "utf8"))
+    .hyprland.binds.map(bind => [bind.shortcut, bind.key]));
 const copy = value => JSON.parse(JSON.stringify(value));
 const KEYS = { talk: "Super+Right Alt", mute: "Super+Shift+Right Alt", stop: "Super+Alt+Period", confirm: "Super+Alt+Y" };
 const UNBOUND = { talk: null, mute: null, stop: null, confirm: null };
@@ -199,6 +202,15 @@ function verify(view) {
         "Confirm on screen, or set Confirm key in Settings > Jarvis.", "Click, or set Mute key in Settings > Jarvis, to unmute."],
         "unbound keys tell the user to set that key");
 
+    // The keys as the widget and the console hand them in: the manifest's
+    // default binds spelled by the shell's own KeyNavLogic.
+    assert.deepEqual(copy(view.spelledKeys(MANIFEST_KEYS, KeyNavLogic.keyCaps)), KEYS, "the default keys spell as people read them");
+    assert.deepEqual(copy(view.spelledKeys(null, KeyNavLogic.keyCaps)), UNBOUND, "no shell reads as no key");
+    assert.deepEqual(view.spelledKeys({ ...MANIFEST_KEYS, stop: null }, KeyNavLogic.keyCaps).stop, null, "an unbound key stays unbound");
+    const { confirm, ...undeclared } = MANIFEST_KEYS;
+    assert.throws(() => view.view(up({}), view.spelledKeys(undeclared, KeyNavLogic.keyCaps), "hold"),
+        error => /^jarvis widget: keys=/.test(error.message), "an undeclared key is refused, not spelled empty");
+
     assert.equal(view.approvalPrompt(null), null);
     for (const tool of ["files.delete", "apps.open", "harness.files", "filesOther", "fixture"]) {
         for (const purpose of ["action", "release"]) {
@@ -298,6 +310,8 @@ const CONTROLS = [
     ["a step done reads as to do", 'return step.action === true || typeof step.action === "string";', "return step.action !== undefined;"],
     ["a named action reads as none", ' || typeof step.action === "string";', ";"],
     ["the AI model reads before local voice", "function unconfiguredText(values) {\n    for (var i = 0; i < SETUP_TEXT.length; i++) {", "function unconfiguredText(values) {\n    for (var i = SETUP_TEXT.length - 1; i >= 0; i--) {"],
+    ["keys are not spelled", 'key === null || key === undefined ? key : caps(key).join("+");', 'key;'],
+    ["an undeclared key spells empty", 'key === null || key === undefined ? key : caps(key).join("+");', 'key === null ? key : caps(key).join("+");'],
     ["shared icons are accepted", '"working": { icon: "brain", tone: "info" }', '"working": { icon: "loader", tone: "info" }'],
     ["toggle mode reads like hold", 'if (mode === "toggle") return keys.talk === null ? keySetting("Talk") : "Press " + keys.talk + " to start talking.";', 'if (mode === "toggle") return keys.talk === null ? keySetting("Talk") : "Hold " + keys.talk + " and speak.";'],
     ["unbound talk key names no setting", 'if (mode === "hold") return keys.talk === null ? keySetting("Talk") : "Hold " + keys.talk + " and speak.";', 'if (mode === "hold") return keys.talk === null ? "Hold Talk and speak." : "Hold " + keys.talk + " and speak.";'],

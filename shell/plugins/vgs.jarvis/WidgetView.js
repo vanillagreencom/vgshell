@@ -106,6 +106,19 @@ function report(name, value, tones) {
     return value;
 }
 
+// KEYS, shell.shortcut.keys or null, as people read each key a tooltip
+// names; CAPS is KeyNavLogic.keyCaps, which the callers' qs.Ui import holds.
+// An undeclared name stays undefined, which shortcutKeys refuses.
+function spelledKeys(keys, caps) {
+    var out = {};
+    var names = ["talk", "mute", "stop", "confirm"];
+    for (var i = 0; i < names.length; i++) {
+        var key = keys === null ? null : keys[names[i]];
+        out[names[i]] = key === null || key === undefined ? key : caps(key).join("+");
+    }
+    return out;
+}
+
 function shortcutKeys(value) {
     if (value === null || typeof value !== "object" || Array.isArray(value)) refuse("keys", value);
     var names = ["talk", "mute", "stop", "confirm"];
