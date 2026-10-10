@@ -8,10 +8,13 @@
 set -euo pipefail
 
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
-for tool in script setsid flock timeout; do
+for tool in script setsid flock timeout gum; do
   command -v "$tool" >/dev/null || { echo "test-tui: status=not-measured missing=$tool"; exit 77; }
 done
 lib="$repo/bin/lib/tui.sh"
+# The header width rows draw with the host's gum, on a PATH of its own.
+mkdir -p "$tmp/real-gum"
+ln -s "$(command -v gum)" "$tmp/real-gum/gum"
 stubs="$tmp/stubs"; rt="$tmp/rt"
 mkdir -p "$stubs" "$rt"
 stub() { printf '#!/bin/sh\n%s\n' "$2" >"$stubs/$1"; chmod +x "$stubs/$1"; } # NAME BODY
@@ -321,6 +324,38 @@ columns_row() {
   [[ $(cat "$tmp/captured") == $'80\n132' ]]
 }
 check "the width is the terminal's, 80 when it reports none" columns_row
+# The header in a terminal COLS wide, drawn by the host's gum: every row,
+# SGR stripped, no wider than COLS, one unbroken border, and every character
+# of the lines in order; gum breaks a line at a space or after a hyphen. A
+# box that fits keeps its own width, narrower than COLS.
+long_line="Review: paru checks 6 third-party packages: 1password, agent-browser-bin, vsys-git, vgshell-git, visual-studio-code-bin, and 1 more"
+header_row() { # COLS FITS|FILLS
+  rm -f -- "${tmp:?}/captured"
+  local snippet='vgs_tui_header "Update everything" "" "$LONG" "" "Log: ~/.local/state/vgshell/updates/2026-10-10T00-45-23.log"'
+  [[ $2 == FITS ]] && snippet='vgs_tui_header "Short" "a line"'
+  "${lib_env[@]}" PATH="$tmp/real-gum:$base_path" LONG="$long_line" CAPTURE="$tmp/captured" \
+    script -qec "$(printf '%q ' "$BASH" -c "set -euo pipefail; source $(printf '%q' "$LIB"); stty cols $1 </dev/tty; $snippet >\"\$CAPTURE\"")" /dev/null \
+    </dev/null >"$tmp/out" 2>&1 || return 1
+  python3 - "$tmp/captured" "$1" "$2" "$long_line" <<'PY'
+import re, sys
+text = re.sub(r"\x1b\[[0-9;:]*m", "", open(sys.argv[1], encoding="utf-8").read())
+cols, mode, long_line = int(sys.argv[2]), sys.argv[3], sys.argv[4]
+rows = text.split("\n")[1:-1]
+if len(rows) < 3 or len({len(r) for r in rows}) != 1 or len(rows[0]) > cols:
+    sys.exit(1)
+if not (rows[0][0] + rows[0][-1] == "┌┐" and rows[-1][0] + rows[-1][-1] == "└┘"
+        and all(r[0] + r[-1] == "││" for r in rows[1:-1])):
+    sys.exit(1)
+text = "".join("".join(r[1:-1].split()) for r in rows[1:-1])
+want = "".join(("Short a line" if mode == "FITS" else
+                "Update everything " + long_line + " Log: ~/.local/state/vgshell/updates/2026-10-10T00-45-23.log").split())
+sys.exit(0 if text == want and (len(rows[0]) < cols) == (mode == "FITS") else 1)
+PY
+}
+for cols in 60 80 100; do
+  check "a header wider than $cols columns wraps inside its border" header_row "$cols" FILLS
+done
+check "a header that fits 100 columns keeps its own width" header_row 100 FITS
 # gum's words: each exported colour or bold variable gum reads, an empty
 # colour, gum's no colour, included, and TERM and COLORTERM, value for
 # value; never a gum behaviour option, a VGS_TUI_
@@ -426,6 +461,10 @@ check "the unguarded mutant fails a guard row" test "$(guard_rows quiet && echo 
 control no-header-blank "_vgs_tui_header_gap() { printf '\\n'; }" "_vgs_tui_header_gap() { :; }"
 run 'vgs_tui_header "-Title" "a line"'
 check "the no-header-blank mutant fails the header blank row" test "$(starts_one_blank "$tmp/out" && echo green || echo red)" == red
+control no-header-width '"${width[@]}" -- "$@"' '-- "$@"'
+check "the no-header-width mutant breaks the border at 60 columns" test "$(header_row 60 FILLS && echo green || echo red)" == red
+control header-always-fills '(( ${#line} + 6 > columns ))' 'true'
+check "the header-always-fills mutant fails the fitting header row" test "$(header_row 100 FITS && echo green || echo red)" == red
 control no-prompt-blank "_vgs_tui_prompt_gap() { printf '\\n' >&2; }" "_vgs_tui_prompt_gap() { :; }"
 on_tty 'vgs_tui_confirm "Remove it?"'
 check "the no-prompt-blank mutant fails the prompt blank row" test "$(starts_one_blank "$tmp/out" && echo green || echo red)" == red

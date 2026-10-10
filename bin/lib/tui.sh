@@ -11,7 +11,8 @@
 # missing terminal or a bad argument, 75 for a held lock, 1 otherwise.
 #
 #   vgs_tui_header TITLE [LINE...]   one blank line, then a bordered box:
-#                                    TITLE, then each LINE
+#                                    TITLE, then each LINE, wrapped to fit
+#                                    the terminal
 #   vgs_tui_step TEXT                a bold accent line after a blank line
 #   vgs_tui_success TEXT             a success line after a blank line
 #   vgs_tui_warn TEXT                a warning line on stderr
@@ -98,9 +99,19 @@ _vgs_tui_terminal() { # KEY
 _vgs_tui_prompt_gap() { printf '\n' >&2; }
 _vgs_tui_header_gap() { printf '\n'; }
 
+# gum sizes the box to its longest line, and the terminal wraps a row wider
+# than itself, which breaks the border on every row. A line that does not fit
+# beside the border and padding, 6 columns, gives the box the terminal's
+# width: gum 2.0.2 counts the border and padding inside --width and wraps the
+# lines at word boundaries within it. A box that fits keeps its own width.
 vgs_tui_header() { # TITLE [LINE...]
+  local columns line width=()
+  columns="$(vgs_tui_columns)"
+  for line; do
+    if (( ${#line} + 6 > columns )); then width=(--width "$columns"); break; fi
+  done
   _vgs_tui_header_gap
-  gum style --border normal --padding "1 2" -- "$@"
+  gum style --border normal --padding "1 2" "${width[@]}" -- "$@"
 }
 
 vgs_tui_step() { # TEXT
