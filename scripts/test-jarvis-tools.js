@@ -12,7 +12,8 @@ world(() => {
     const toolsSource = fs.readFileSync(file, "utf8");
     const cases = [
         ["help", { topic: "files" }, "read"],
-        ["memory.read", { path: "facts/My team.md" }, "read", "home"],
+        ["memory.search", { query: "team" }, "read", "home"],
+        ["memory.read", { ids: ["facts/My team.md"] }, "read", "home"],
         ["master.request", { text: "Rebase the lanes.\nThen report." }, "exec"],
         ["windows.list", {}, "read"], ["windows.focus", { window }, "reversible"],
         ["windows.reveal", { window }, "reversible"],
@@ -67,6 +68,7 @@ world(() => {
             ["call", effect, source, input], id);
     };
     for (const row of cases) check(Tools, row);
+    check(Tools, ["memory.search", { query: "team", title: "Facts", alias: "crew", since: "2026-01-01", until: "2026-12-31" }, "read", "home"]);
     check(Tools, ["task.start", { goal: "task", cwd: project, agent: "claude", account: "work" }, "exec", "agent"]);
     assert.doesNotThrow(() => JSON.parse(JSON.stringify(Tools.TABLE)));
     assert.doesNotThrow(() => JSON.parse(JSON.stringify(Tools.BROWSER)));
@@ -96,7 +98,10 @@ world(() => {
         ["files.read", { path: target + "\n" }], ["files.write", { path: target }],
         ["media.volume", { value: 1.01 }], ["media.volume", { value: NaN }],
         ["media.brightness", { value: 0 }], ["media.brightness", { value: 101 }], ["media.brightness", { value: 1.5 }],
-        ["browser", { command: "read", args: [] }]
+        ["browser", { command: "read", args: [] }],
+        ["memory.search", { query: "team", since: "2026-1-01" }],
+        ["memory.read", { ids: [] }],
+        ["memory.read", { ids: ["facts/a.md", "facts/b.md", "facts/c.md", "facts/d.md", "facts/e.md", "facts/f.md"] }]
     ];
     for (const [id, args] of badArgs) bad(Tools, { id, args }, "argument-shape");
     bad(Tools, { id: "files.read", args: Object.create({ path: target }) }, "call-shape");
@@ -240,7 +245,7 @@ world(() => {
         ["length", topicLine.replace("{0,47}", "{0,48}"), "own/" + "a".repeat(49)],
         ["reference", topicLine.replace("(/[A-Za-z0-9][A-Za-z0-9_-]{0,47})?", "(/.*)?"), "own/a/../b"]])
         control("help-topic-" + name, topicLine, replacement, logic => bad(logic, { id: "help", args: { topic } }, "argument-shape"));
-    // memory.read: a note below the home's memory/ by its path, at most 255
+    // memory.read: notes below the home's memory/ by path, at most 255
     // characters; a path that leaves memory/, names a dot entry or no
     // Markdown file, or lies under inbox/, is refused before an executor
     // sees it. Each control drops one rule and admits that rule's path.
@@ -253,13 +258,13 @@ world(() => {
         ["bound", "a".repeat(253) + ".md", line => line.replace("{1,255}", "{1,256}")],
         ["markdown", "facts/team.txt", line => line.replace('\\\\.md"', '"')]
     ];
-    check(Tools, ["memory.read", { path: "a".repeat(252) + ".md" }, "read", "home"]);
+    check(Tools, ["memory.read", { ids: ["a".repeat(252) + ".md"] }, "read", "home"]);
     for (const path of [...noteRules.map(rule => rule[1]), "facts/../../AGENTS.md", "./a.md", "facts/.hidden.md", "facts//a.md", "facts/", "a.md\n", ""])
-        bad(Tools, { id: "memory.read", args: { path } }, "argument-shape");
+        bad(Tools, { id: "memory.read", args: { ids: [path] } }, "argument-shape");
     assert.deepEqual(["facts/team.md", "inbox.md", "notes/inbox/a.md", "inbox/pending.md", "../a.md", 7].map(value => Tools.memoryNote(value)),
         [true, true, true, false, false, false]);
     for (const [name, path, change] of noteRules)
-        control("memory-note-" + name, noteLine, change(noteLine), logic => bad(logic, { id: "memory.read", args: { path } }, "argument-shape"));
+        control("memory-note-" + name, noteLine, change(noteLine), logic => bad(logic, { id: "memory.read", args: { ids: [path] } }, "argument-shape"));
     control("memory-note-judge", "new RegExp(notePath.pattern).test(value)", "true", logic => assert.equal(logic.memoryNote("inbox/pending.md"), false));
     const referenceLine = toolsSource.split("\n").find(line => line.startsWith("const reference ="));
     control("browser-reference", referenceLine, referenceLine.replace(/pattern: "(?:\\.|[^"])*"/, 'pattern: ".*"'),

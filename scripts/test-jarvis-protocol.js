@@ -21,6 +21,7 @@ const shown = { v: 1, type: "shown", gen: 0, revision: hello.revision, id };
 const indicator = { v: 1, type: "indicator", gen: 0, revision: hello.revision, shown: true };
 const status = { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready", causes: [] };
 const shellStatus = { v: 1, type: "shell-status", gen: 0, revision: hello.revision, availability: { kind: "available" } };
+const memory = { v: 1, type: "memory", gen: 0, revision: hello.revision, available: false, cause: "memory=sqlite" };
 const state = { v: 1, type: "state", gen: 0, revision: hello.revision, seq: 1,
     state: JSON.parse(JSON.stringify(Protocol.Session.initial())), phase: "down" };
 const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
@@ -114,6 +115,10 @@ const cases = [
     ["shell-availability", changed(shellStatus, { availability: { kind: "ready" } }), "daemon", "shell-availability"],
     ["shell-availability-shape", changed(shellStatus, { availability: { kind: "available", reason: "extra" } }), "daemon", "shape-shell-availability"],
     ["shell-reason", changed(shellStatus, { availability: { kind: "unavailable", reason: "" } }), "daemon", "shell-reason"],
+    ["memory-direction", JSON.stringify(memory), "shell", "direction-memory"],
+    ["memory-shape", changed(memory, { extra: true }), "daemon", "shape-memory"],
+    ["memory-available", changed(memory, { available: 0 }), "daemon", "memory"],
+    ["memory-cause", changed(memory, { cause: "sqlite" }), "daemon", "memory-cause"],
     ["audio-fault-direction", JSON.stringify(audioFault), "shell", "direction-audio-fault"],
     ["audio-fault", changed(audioFault, { reason: "" }), "daemon", "audio-fault"],
     ["device-setting", changed(hello, { settings: { ...hello.settings, microphone: 1 } }), "shell", "device-setting"],
@@ -284,7 +289,7 @@ assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, mod
     keys: { talk: null, mute: null, stop: null, confirm: null, console: null } }), "shell").settings.mode, "toggle");
 assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, mode: "always" },
     keys: { talk: null, mute: null, stop: null, confirm: null, console: null } }), "shell").settings.mode, "always");
-for (const message of [devices, level, audioFault, taskRequest, tasks, taskAnswer, taskPrompts, taskResponse, { ...tasks, count: 0 },
+for (const message of [devices, level, audioFault, memory, { ...memory, available: true, cause: undefined }, taskRequest, tasks, taskAnswer, taskPrompts, taskResponse, { ...tasks, count: 0 },
     transcript, { ...transcript, role: "assistant", stage: "final", text: "a".repeat(4096), rev: 2 },
     shellStatus, { ...shellStatus, availability: { kind: "checking" } },
     { ...shellStatus, availability: { kind: "unavailable", reason: "bwrap-missing" } }])
@@ -397,6 +402,12 @@ try {
         ["shell-availability-shape", 'keys(availability, availability.kind === "unavailable" ? ["kind", "reason"] : ["kind"], "shell-availability");',
             'if (false) keys(availability, ["kind"], "shell-availability");', "shell-availability-shape"],
         ["shell-reason", 'fail("shell-reason");', ';', "shell-reason"],
+        ["memory-direction", 'if (direction !== "daemon") fail("direction-memory");', 'if (false) fail("direction-memory");', "memory-direction"],
+        ["memory-shape", 'keys(message, message.available ? ["v", "type", "gen", "revision", "available"]\n            : ["v", "type", "gen", "revision", "available", "cause"], "memory");',
+            'if (false) keys(message, [], "memory");', "memory-shape"],
+        ["memory-available", 'if (typeof message.available !== "boolean") fail("memory");', 'if (false) fail("memory");', "memory-available"],
+        ["memory-cause", 'if (!message.available && message.cause !== "memory=sqlite") fail("memory-cause");',
+            'if (false) fail("memory-cause");', "memory-cause"],
         ["approval-id", 'if (!approvalId(message.id)) fail("approval-id");',
             'if (false) fail("approval-id");', "confirm-id", 3],
         ["approval-digest", 'if (typeof message.digest !== "string" || !/^[0-9a-f]{64}$/.test(message.digest)) fail("approval-digest");',

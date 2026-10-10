@@ -39,6 +39,11 @@ const OPEN = "state";
 const SETS = Object.freeze(["base", "own"]);
 // Entries read from one skill set before the listing answers incomplete.
 const SET_ENTRIES = 256;
+// A memory search call walks personal notes on demand. These recovery
+// ceilings refuse an unexpectedly large tree instead of publishing a partial
+// index as complete.
+const NOTE_ENTRIES = 10000;
+const NOTE_DEPTH = 16;
 // The head of a skill file its index line is read from, and that line's
 // bound in characters.
 const HEAD_BYTES = 4096;
@@ -396,6 +401,52 @@ function note(home, entry) {
     return read(home, "memory/" + entry, null).text;
 }
 
+/**
+ * The memory notes the search index may read: Markdown files below memory/,
+ * never inbox/, dot entries, links or non-regular files. Each row carries the
+ * opened file's stat facts, so the index owner can reconcile without trusting
+ * a pathname it has not re-opened through Home.note.
+ */
+function notes(home) {
+    return within(home, "memory", O_RDONLY | O_DIRECTORY, fd => {
+        const found = [];
+        const child = Core.anchored().child;
+        function walk(parent, prefix, depth) {
+            if (depth > NOTE_DEPTH) fail("notes-too-many");
+            const directory = fs.opendirSync("/proc/self/fd/" + parent);
+            try {
+                for (let entry = directory.readSync(); entry !== null; entry = directory.readSync()) {
+                    if (entry.name.startsWith(".")) continue;
+                    if (prefix === "" && entry.name === "inbox") continue;
+                    const id = prefix + entry.name;
+                    let stat;
+                    try { stat = fs.lstatSync(child(parent, entry.name), { bigint: true }); }
+                    catch (error) { if (error.code === "ENOENT") continue; throw error; }
+                    if (stat.isSymbolicLink()) continue;
+                    if (stat.isDirectory()) {
+                        const held = fs.openSync(child(parent, entry.name), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+                        try { walk(held, id + "/", depth + 1); }
+                        finally { fs.closeSync(held); }
+                        continue;
+                    }
+                    if (!stat.isFile() || !entry.name.endsWith(".md") || !Tools.memoryNote(id)) continue;
+                    const held = fs.openSync(child(parent, entry.name), O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+                    try {
+                        const opened = fs.fstatSync(held, { bigint: true });
+                        if (!opened.isFile()) continue;
+                        found.push({ id, size: opened.size, mtimeNs: opened.mtimeNs,
+                            ctimeNs: opened.ctimeNs, ino: opened.ino });
+                        if (found.length > NOTE_ENTRIES) fail("notes-too-many");
+                    } finally { fs.closeSync(held); }
+                }
+            } finally { directory.closeSync(); }
+        }
+        walk(fd, "", 0);
+        found.sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+        return found;
+    });
+}
+
 /** Whether the home holds the master session's mailbox folder, no link on the way. */
 function mailbox(home) {
     try { return within(home, MAILBOX, O_RDONLY | O_DIRECTORY, () => true); }
@@ -468,4 +519,4 @@ function hand(home, text, now = Date.now()) {
     });
 }
 
-module.exports = { PACKAGE, resolve, layout, guard, read, skills, skill, note, mailbox, hand };
+module.exports = { PACKAGE, resolve, layout, guard, read, skills, skill, note, notes, mailbox, hand };

@@ -69,7 +69,8 @@ function create({ router, state, audit, directory, release, clock = { set: setTi
         const names = Tools.wireNames(offers.map(offer => offer.id));
         if (names === null) fail("tool-name");
         const offered = { names, tools: [...names.keys()].map((name, index) => ({
-            name, description: offers[index].description, inputSchema: offers[index].parameters })) };
+            name, description: offers[index].description, inputSchema: offers[index].parameters,
+            annotations: Mcp.toolAnnotations(offers[index].id) })) };
         const current = { gen, recipients, offered, digest: digest(token), connections: new Set(), server: null };
         current.server = net.createServer(socket => accept(current, socket));
         session = current;

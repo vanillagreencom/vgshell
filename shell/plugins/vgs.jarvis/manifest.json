@@ -66,7 +66,7 @@
     ]
   },
   "requirements": [
-    { "command": "node", "packages": { "pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs" }, "optional": false, "purpose": "Runs the Jarvis daemon, which requires Node 22 or later" },
+    { "command": "node", "packages": { "pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs" }, "optional": false, "purpose": "Runs the Jarvis daemon; memory search requires Node 22.13 or later" },
     { "command": "secret-tool", "packages": { "pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "nix": "libsecret" }, "optional": false, "purpose": "Stores and reads provider keys in the desktop keyring" },
     { "command": "busctl", "packages": { "pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd" }, "optional": false, "purpose": "Checks key presence without reading secrets or unlocking the keyring" },
     { "command": "gum", "packages": { "pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum" }, "optional": false, "purpose": "Draws headers and choices in Jarvis terminal flows" },
@@ -139,6 +139,7 @@
     "setupVoice": { "type": "state", "label": "Voice", "group": "Setup", "hint": "Jarvis uses the selected voice provider to hear you and speak.", "action": { "label": "Set up local voice", "tui": "setup-local" } },
     "setupBrowser": { "type": "state", "label": "Browser", "group": "Setup", "hint": "Set up the browser so Jarvis can use websites for you.", "action": { "label": "Set up browser", "tui": "setup-browser" } },
     "setupInput": { "type": "state", "label": "Input", "group": "Setup", "hint": "Check input so Jarvis can type and click for you.", "action": { "label": "Check input", "tui": "setup-input" } },
+    "memory": { "type": "state", "label": "Memory search", "group": "Setup" },
     "copilotMemory": { "type": "state", "label": "Copilot Memory", "group": "Setup",
       "hint": "Open GitHub Copilot settings and set Copilot Memory to Disabled. GitHub keeps this memory in your account, where only you can turn it off.",
       "link": { "text": "GitHub Copilot settings", "url": "https://github.com/settings/copilot/features" } }

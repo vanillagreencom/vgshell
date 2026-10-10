@@ -2,6 +2,7 @@
 // the initialization-era protocol and builds every answer the bridge writes.
 // No other file parses MCP. Contract: docs/architecture/jarvis.md § Adapters.
 "use strict";
+const Tools = require("./Tools.js");
 
 // The newest first: an unsupported request is answered with VERSIONS[0].
 const VERSIONS = Object.freeze(["2025-11-25", "2025-06-18"]);
@@ -47,6 +48,13 @@ function content(id, text, isError, image = null) {
     if (image !== null) blocks.push(image.kind === "image" ? { type: "image", data: image.data, mimeType: image.mimeType }
         : { type: "text", text: image.text });
     return result(id, { content: blocks, isError });
+}
+
+function toolAnnotations(id) {
+    const row = Tools.TABLE[id];
+    if (row === undefined) throw new Error("jarvis: mcp=tool");
+    const effect = id === "browser" ? null : row.effect;
+    return { readOnlyHint: effect === "read", destructiveHint: effect === "destructive" };
 }
 
 /**
@@ -98,4 +106,4 @@ function accept(line, phase) {
     }
 }
 
-module.exports = { VERSIONS, CODES, accept, result, error, content };
+module.exports = { VERSIONS, CODES, accept, result, error, content, toolAnnotations };

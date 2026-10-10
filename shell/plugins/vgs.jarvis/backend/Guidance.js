@@ -49,7 +49,7 @@ function layer(name) {
 }
 
 // The home's layers as [name, text] pairs: the persona, then the user's
-// AGENTS.md, which may refine it, the skill index and the memory index. A
+// AGENTS.md, which may refine it, the skill index and the memory layer. A
 // text over its bound refuses whole: a cut persona would read as the user's
 // own words, and a cut memory index would hide the notes below the cut.
 function homeLayers(home) {
@@ -69,7 +69,7 @@ function homeLayers(home) {
     const memory = Home.read(home, "memory/MEMORY.md", MAX_MEMORY_BYTES);
     if (memory.kind !== "text") throw new Error("jarvis: guidance=home-memory-too-large");
     if (memory.text.trim() !== "")
-        out.push(["home/MEMORY.md", "The user's memory notes. Before each answer from a note, read the note with the memory read tool, by its path below memory/, because a note can change between turns, and say which note the answer came from. The index of the notes, memory/MEMORY.md in the user's Jarvis home folder:\n\n" + memory.text.trim()]);
+        out.push(["home/MEMORY.md", "The user's memory notes. Search notes with the memory search tool before you answer from memory. Read notes with the memory read tool by id, the path below memory/. Read several ids in one call when needed. A note can change between turns. Say which note the answer came from. The memory/MEMORY.md bootstrap in the user's Jarvis home folder:\n\n" + memory.text.trim()]);
     return out;
 }
 

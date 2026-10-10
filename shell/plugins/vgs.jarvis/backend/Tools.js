@@ -26,6 +26,7 @@ const reference = { type: "string", pattern: "^@e[1-9][0-9]*$(?![\\s\\S])" };
 const objectValue = { type: "object" };
 const absolutes = { type: "array", minItems: 0, items: absolute };
 const anyText = { type: "string", minLength: 0, pattern: "^[^\\u0000]*$" };
+const date = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" };
 // The help files VGS ships, and a skill of the user's home folder as
 // "<set>/<name>", or a folder skill's reference as "<set>/<name>/<reference>"
 // (Home.js lists them). The router offers a brain the topics
@@ -39,12 +40,14 @@ const helpTopic = { type: "string", pattern: "^(?:" + HELP_TOPICS.join("|") + "|
 // confirmed (Home.js reads the note).
 const MEMORY_NOTE = "(?!inbox/)(?=[^\\u0000-\\u001f\\u007f]{1,255}$)(?:[^./][^/]*/)*[^./][^/]*\\.md";
 const notePath = { type: "string", pattern: "^" + MEMORY_NOTE + "$(?![\\s\\S])" };
+const MEMORY_BATCH = 5;
 
 // Each row owns its argument shape, effect, executor, requirement and output
 // source. Executors may add a row only with a test and a real consumer.
 const TABLE = {
     "help": { sentence: "Read help for {topic}", effect: "read", executor: "guidance", command: null, schema: { topic: helpTopic } },
-    "memory.read": { sentence: "Read memory note {path}", effect: "read", executor: "guidance", command: null, schema: { path: notePath }, source: "home" },
+    "memory.search": { sentence: "Search memory notes for {query}", effect: "read", executor: "memory", command: null, schema: { query: text, title: text, alias: text, since: date, until: date }, optional: ["title", "alias", "since", "until"], source: "home", labelled: true },
+    "memory.read": { sentence: "Read memory notes {ids}", effect: "read", executor: "memory", command: null, schema: { ids: { type: "array", minItems: 1, maxItems: MEMORY_BATCH, items: notePath } }, source: "home", labelled: true },
     // The master session runs the user's agent fleet and reads the home's
     // mailbox, where Home.js appends the request. once: the router admits
     // one a turn. A request starts work elsewhere, as a task does.
@@ -150,7 +153,9 @@ function valid(value, rule) {
         return true;
     case "boolean": return typeof value === "boolean";
     case "array":
-        return Array.isArray(value) && value.length >= rule.minItems && value.every(item => valid(item, rule.items));
+        return Array.isArray(value) && value.length >= rule.minItems
+            && (rule.maxItems === undefined || value.length <= rule.maxItems)
+            && value.every(item => valid(item, rule.items));
     case "object":
         if (!object(value)) return false;
         if (rule.properties === undefined) return true;
@@ -193,7 +198,7 @@ function refine(call) {
     if (call.id === "help" && homeTopic(call.args.topic) !== null) refined = { ...row, source: "home" };
     return { kind: "call", call: freeze(structuredClone(call)), effect, executor: row.executor,
         command: row.command, alternatives: row.alternatives || [], paths: row.paths || [], input: refined.input || null, source: refined.source || null,
-        unconfined: row.unconfined === true };
+        labelled: refined.labelled === true, unconfined: row.unconfined === true };
 }
 
 /**

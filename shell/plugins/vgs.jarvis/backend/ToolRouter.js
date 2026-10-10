@@ -84,23 +84,22 @@ function create({ session, state, dispatch, context, audit, result }) {
     }
 
     // One result item shape for every answer a brain receives for a call. A
-    // home skill or memory note passes whole: the user wrote it for the brain
-    // to read. Only the help row on a home topic (Tools.refine) and the
-    // memory.read row carry that source.
-    function answer(content, source) {
+    // home skill or labelled memory result passes whole: the user wrote it
+    // for the brain to read. Only a refined home source gets that treatment.
+    function answer(content, labels) {
         const bytes = Buffer.from(content);
-        const bounded = source === "home" || bytes.length <= RESULT_BYTES ? content
+        const bounded = labels.includes("home") || bytes.length <= RESULT_BYTES ? content
             : new TextDecoder().decode(bytes.subarray(0, RESULT_BYTES - 32), { stream: true }) + "\n[result clipped]";
-        return Policy.item(bounded, [source ?? "desktop"]);
+        return Policy.item(bounded, labels.length === 0 ? ["desktop"] : labels);
     }
 
     // final is false only while Session still holds a timed-out action, whose
     // actual completion delivers again under the same call id.
-    function deliver(value, outcome, content, source = null, final = true, image = undefined) {
+    function deliver(value, outcome, content, labels = [], final = true, image = undefined) {
         const s = state();
-        if (source !== null && s.gen === value.turn.gen && s.turn.kind === "thinking" && s.turn.op === value.turn.op)
-            taint = Policy.observe(taint, source);
-        const item = answer(content, source);
+        if (s.gen === value.turn.gen && s.turn.kind === "thinking" && s.turn.op === value.turn.op)
+            for (const label of labels) taint = Policy.observe(taint, label);
+        const item = answer(content, labels);
         result({ gen: value.turn.gen, op: value.turn.op, outcome, final, kind: "tool-results",
             results: [{ id: value.request, item, ...(image === undefined ? {}
                 : { image: Object.freeze({ type: image.type, item: Policy.item(image.bytes, item.labels) }) }) }] });
@@ -122,13 +121,13 @@ function create({ session, state, dispatch, context, audit, result }) {
      */
     function interrupted(request, progress) {
         if (progress !== "not-started" && progress !== "running") throw new Error("jarvis: router=interrupted");
-        return { id: request.id, item: answer(JSON.stringify({ kind: "interrupted", outcome: progress }), null) };
+        return { id: request.id, item: answer(JSON.stringify({ kind: "interrupted", outcome: progress }), []) };
     }
 
     function refuse(value, reason, final = true) {
         const written = record(value, "refuse", "cancelled");
         const refusal = { kind: "refuse", reason: written.kind === "refuse" ? written.reason : reason };
-        deliver(value, "cancelled", JSON.stringify(refusal), null, final);
+        deliver(value, "cancelled", JSON.stringify(refusal), [], final);
         return refusal;
     }
 
@@ -151,11 +150,10 @@ function create({ session, state, dispatch, context, audit, result }) {
      * Input executors supply observe(call) for fresh trusted target/key facts.
      * They call synchronous authorize(input) after preparation replies and
      * immediately before delivery. Other executors need no preparation callback.
-     * Optional available() must return literal true at offer, route and start.
+     * optional available() must return literal true at offer, route and start.
      * The guidance executor's optional topics() lists the help topics it can
      * read now, each one the help row's own rule admits, and its optional
-     * notes() must return literal true at offer for the memory.read row, as
-     * its optional mailbox() must for the master.request row.
+     * mailbox() must return literal true at offer for the master.request row.
      */
     function register(id, executor) {
         if (closed || registry.has(id) || !Object.values(Tools.TABLE).some(row => row.executor === id)
@@ -182,10 +180,8 @@ function create({ session, state, dispatch, context, audit, result }) {
     // master.request row while the home holds no mailbox of the master's.
     function offer() {
         if (closed) return [];
-        const notes = registry.get("guidance")?.notes;
         const mailbox = registry.get("guidance")?.mailbox;
         return Object.entries(Tools.TABLE).filter(([id, row]) => row.proposer === undefined && available(row) !== null
-                && (id !== "memory.read" || notes === undefined || notes() === true)
                 && (id !== "master.request" || mailbox === undefined || mailbox() === true))
             .map(([id, row]) => {
                 const parameters = structuredClone(row.schema);
@@ -323,6 +319,7 @@ function create({ session, state, dispatch, context, audit, result }) {
                 value.executor.start(value.call, answer => {
                     if (closed) return;
                     if (!answer || !["completed", "failed", "unknown"].includes(answer.outcome) || typeof answer.content !== "string"
+                            || (answer.labels !== undefined && (!Array.isArray(answer.labels) || !answer.labels.every(label => typeof label === "string")))
                             || (answer.image !== undefined && (answer.outcome !== "completed" || answer.image === null
                                 || answer.image.type !== "image/png" || !(answer.image.bytes instanceof Uint8Array))))
                         throw new Error("jarvis: router=outcome");
@@ -356,8 +353,14 @@ function create({ session, state, dispatch, context, audit, result }) {
             if (Tools.TABLE[value.call.id].once === true && e.outcome !== "failed")
                 spent.add(value.turn.gen + ":" + value.turn.op + ":" + value.call.id);
             const written = record(value, value.decision.kind, e.outcome);
+            let labels = value.refined.source === null ? [] : [value.refined.source];
+            if (written.kind !== "refuse" && value.answer?.labels !== undefined) {
+                if (value.refined.labelled !== true) throw new Error("jarvis: router=labels");
+                labels = Policy.labels(value.answer.labels);
+                if (!labels.includes(value.refined.source)) throw new Error("jarvis: router=labels");
+            }
             deliver(value, e.outcome, written.kind === "refuse" ? JSON.stringify(written)
-                : value.answer?.content ?? "tool-outcome:" + e.outcome, value.refined.source, final,
+                : value.answer?.content ?? "tool-outcome:" + e.outcome, labels, final,
                 written.kind === "refuse" ? undefined : value.answer?.image);
         }
         if (final) pending = null;

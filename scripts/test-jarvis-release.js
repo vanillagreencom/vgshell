@@ -67,6 +67,10 @@ world(() => {
     for (const profile of ["cautious", "standard", "trusted"])
         assert.deepEqual(Policy.release(homeText, select(Policy, profile)), { kind: "send", content: "home persona", labels: ["home"] }, profile);
     assert.deepEqual(Policy.release(Policy.summary("mixed", [homeText, fileText]), selected).needed, ["file"]);
+    const webMemory = Policy.item("memory from web", ["home", "web"]);
+    assert.deepEqual(Policy.release(webMemory, selected),
+        { kind: "ask", content: "[withheld: home content, web content]", labels: ["home", "web"], needed: ["web"] });
+    assert.equal(Policy.release(webMemory, selected, [{ recipients: selected, labels: ["web"] }]).kind, "send");
     const bytes = Buffer.from("PRIVATE image");
     const labelled = Policy.item(bytes, ["screen"]);
     bytes.fill(0);

@@ -93,7 +93,7 @@ Choose a folder under Home folder. Jarvis adds the entries the folder lacks and 
 | `CLAUDE.md` | One line that points Claude Code at `AGENTS.md`, for your own Claude Code session in this folder. |
 | `skills/base/jarvis/` | The Jarvis skill VGS provides: `SKILL.md`, `persona.md`, `README.md` and `references/` with `accounts-and-secrets.md`, `browser.md`, `communication.md`, `computer-use.md`, `decisions.md`, `long-session.md`, `memory.md`, `research.md` and `verification.md`. Every AI model gets `persona.md` before `AGENTS.md`, and reads the skill and each reference when it needs it. When this folder differs from the copy VGS installed, after an update or an edit, Jarvis replaces `skills/base/` with that copy and removes anything else in it. Keep your changes in `AGENTS.md` and `skills/own/`. |
 | `skills/own/` | Your own skills. A skill is a Markdown file, or a folder with a `SKILL.md` file. Its name is the file name without `.md`, or the folder name: it starts with a letter or a digit and has only letters, digits, `_` and `-`, at most 48 characters. Jarvis skips a skill with any other name. A folder skill's `references/` holds more Markdown files, each a skill named `<skill>/<file name without .md>` by the same rule. Every AI model gets each skill's name and first line, or its `description`, and reads the skill itself when it needs it. A skill has no size limit. |
-| `memory/` | Your memory notes. `MEMORY.md` is their index: write one line for each note, with the note's path in this folder. Every AI model gets `MEMORY.md` at the start of a conversation, and reads a note when it needs it. Keep `MEMORY.md` under 4 KB. A note is a Markdown file whose name ends in `.md`. Jarvis reads no note whose name or folder name starts with a dot, and nothing in `inbox/`: keep a note there until you have checked it. |
+| `memory/` | Your memory notes. `MEMORY.md` is their bootstrap: write one line for each note, with the note's path in this folder. Every AI model gets `MEMORY.md` at the start of a conversation, searches notes when it needs memory, and reads notes by id. Keep `MEMORY.md` under 4 KB. A note is a Markdown file whose name ends in `.md`. Jarvis reads no note whose name or folder name starts with a dot, and nothing in `inbox/`: keep a note there until you have checked it. |
 | `state/` | Work in progress. This is the one part of the folder that Jarvis's file tools can read or change. They refuse every other path in the folder, a file of your own that this table does not name included. |
 | `.claude/settings.json`, `.codex/config.toml` | Settings that turn off Claude Code's and Codex's own memory for your own session in this folder. |
 
@@ -102,5 +102,17 @@ A size limit applies only to what every conversation starts with: `AGENTS.md`, a
 The folder gives Jarvis knowledge, never permission. A skill that says an action needs no question changes nothing: Jarvis still asks before it deletes a file, runs a command or sends something.
 
 The AI models never run inside this folder. A setting, hook or server that you keep there for your own tools does not run in Jarvis. Each app's own memory is off while Jarvis uses the app.
+
+### Memory add-ons
+
+Jarvis searches notes in `memory/`. Its search index is private Jarvis state and rebuilds itself when it is missing.
+
+Optional add-ons can write the notes. Install them yourself and point them at `memory/` as read-only when Jarvis reads the folder.
+
+- Basic Memory can use the folder. Basic Memory is AGPL software. VGS never bundles it.
+- Obsidian can use the folder as a vault.
+- QMD can use the folder for Markdown notes.
+
+Semantic search is not built yet. VGS adds it only after measured search misses show that keyword search is not enough.
 
 Jarvis asks the Realtime voice to speak each sentence of a result exactly. Jarvis counts formatting violations in the transcript of what the voice said. This check does not control the audio OpenAI makes.

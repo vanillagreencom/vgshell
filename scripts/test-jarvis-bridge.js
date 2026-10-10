@@ -213,6 +213,8 @@ world(async () => {
             for (const [index, entry] of list.tools.entries()) {
                 assert.deepEqual(entry.inputSchema, JSON.parse(JSON.stringify(Tools.TABLE[expected[index]].schema)));
                 assert.equal(entry.description, Tools.TABLE[expected[index]].sentence);
+                assert.deepEqual(entry.annotations, { readOnlyHint: Tools.TABLE[expected[index]].effect === "read",
+                    destructiveHint: Tools.TABLE[expected[index]].effect === "destructive" });
             }
             const previous = w.shim();
             previous.send(initialize(1, "2025-06-18"));
@@ -586,6 +588,7 @@ world(async () => {
         for (const [name, needle, replacement, row] of [
             ["fresh-call-names", 'const { names } = current.offered;',
                 'const names = Tools.wireNames(router.offer().map(tool => tool.id));', "frozen-admission"],
+            ["tool-annotations", "inputSchema: offers[index].parameters,\n            annotations: Mcp.toolAnnotations(offers[index].id)", "inputSchema: offers[index].parameters", "lifecycle"],
             ["token", "!crypto.timingSafeEqual(digest(message.token), current.digest)", "false", "tokens"],
             ["hello-shape", 'Object.keys(message).sort().join(",") !== "token,type,v"', "false", "tokens"],
             ["router-gate", "router.route({ kind: \"tool-call\", id, tool: names.get(act.name), arguments: act.arguments },\n            { gen: s.turn.gen, op: s.turn.op });",

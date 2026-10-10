@@ -1,6 +1,6 @@
 // One on-demand owner for help: the computer-family files VGS installs, one
 // regular Markdown file per family, and the skills of the user's Jarvis home
-// folder and its memory notes, read through Home.js. Browser readiness adds
+// folder, read through Home.js. Browser readiness adds
 // its provider to this same owner. As the one executor that holds the home,
 // it also hands a request to the master session's mailbox there. Its answer
 // states what was read back, the row in the mailbox: nothing here shows that
@@ -13,7 +13,7 @@ const Home = require("./Home.js");
 const ROOT = path.join(__dirname, "skills/computer");
 const LIMIT = 8192;
 // The key a failed call's cause follows, by row; a help read's otherwise.
-const FAILED = { "memory.read": "memory-read:", "master.request": "master-request:" };
+const FAILED = { "master.request": "master-request:" };
 /**
  * create(root, browser, home) builds the guidance executor. home() answers
  * the home folder's path, or null while none is usable.
@@ -36,8 +36,6 @@ function create(root = ROOT, browser = null, home = () => null) {
     return { commands: [], timeoutMs: browser === null ? 2000 : browser.timeoutMs, cancellable: false,
         // Read at each offer: the user adds a skill without a restart.
         topics: () => shipped.concat(skills(home())),
-        // Read at each offer too: a note is read only from a chosen home.
-        notes: () => home() !== null,
         // And the mailbox at each offer: the master session makes it.
         mailbox() {
             const folder = home();
@@ -51,14 +49,6 @@ function create(root = ROOT, browser = null, home = () => null) {
         start(call, done) {
             let fd;
             try {
-                if (call.id === "memory.read") {
-                    const folder = home();
-                    if (folder === null) throw new Error("home-unchosen");
-                    const text = Home.note(folder, call.args.path).trim();
-                    if (text === "") throw new Error("note-empty");
-                    done({ outcome: "completed", content: text });
-                    return;
-                }
                 if (call.id === "master.request") {
                     const chosen = home();
                     if (chosen === null) throw new Error("home-unchosen");

@@ -55,7 +55,8 @@ async function inside() {
             const shell = frames.filter(frame => frame.type === "shell-status");
             assert.deepEqual(shell, expected.length || (typeof reason === "string" && reason.startsWith("jarvis: mute=")) ? [{ v: 1, type: "shell-status", gen: hello.gen,
                 revision: hello.revision, availability: { kind: "checking" } }] : []);
-            assert.deepEqual(frames.filter(frame => frame.type !== "shell-status"), expected);
+            const keepMemory = expected.some(frame => frame.type === "memory");
+            assert.deepEqual(frames.filter(frame => frame.type !== "shell-status" && (keepMemory || frame.type !== "memory")), expected);
             cases++;
         } finally { clearTimeout(timeout); if (child.exitCode === null) child.kill("SIGKILL"); }
     }
@@ -64,7 +65,7 @@ async function inside() {
         causes: ["speech=local-not-set-up", "brain=unselected"] });
     function states(locks) {
         let seq = 0;
-        const lines = [];
+        const lines = [{ v: 1, type: "memory", gen: 0, revision: hello.revision, available: true }];
         for (const locked of locks) {
             lines.push(reply(locked, seq === 0 ? 0 : 1));
             lines.push({ v: 1, type: "state", gen: 1, revision: hello.revision,
@@ -90,7 +91,7 @@ async function inside() {
         id: "11111111-1111-4111-8111-111111111111", digest: "a".repeat(64), source: "key" };
     function refusalFrames() {
         const frames = states([false]);
-        const refused = structuredClone(frames[1]);
+        const refused = structuredClone(frames.find(frame => frame.type === "state"));
         refused.seq = 2;
         refused.state.nextOp = 2;
         return [...frames, refused];

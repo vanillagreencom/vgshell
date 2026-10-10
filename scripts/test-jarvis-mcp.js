@@ -82,6 +82,12 @@ world(() => {
         }
     };
     results(Mcp);
+    const annotations = logic => {
+        assert.deepEqual(logic.toolAnnotations("windows.list"), { readOnlyHint: true, destructiveHint: false });
+        assert.deepEqual(logic.toolAnnotations("files.delete"), { readOnlyHint: false, destructiveHint: true });
+        assert.deepEqual(logic.toolAnnotations("browser"), { readOnlyHint: false, destructiveHint: false });
+    };
+    annotations(Mcp);
 
     let controls = 0;
     for (const [name, needle, replacement] of [
@@ -111,6 +117,14 @@ world(() => {
         ["image-kept", "if (image !== null) blocks.push(", "if (false) blocks.push("]
     ]) {
         mutant(file, name, needle, replacement, results);
+        controls++;
+    }
+    for (const [name, needle, replacement] of [
+        ["annotations-read", 'readOnlyHint: effect === "read"', 'readOnlyHint: false'],
+        ["annotations-destructive", 'destructiveHint: effect === "destructive"', 'destructiveHint: false'],
+        ["annotations-browser", 'const effect = id === "browser" ? null : row.effect;', 'const effect = "destructive";']
+    ]) {
+        mutant(file, name, needle, replacement, annotations);
         controls++;
     }
     console.log("test-jarvis-mcp: ok rows=" + rows.length + " controls=" + controls);

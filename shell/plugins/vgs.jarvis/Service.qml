@@ -165,6 +165,8 @@ Item {
         taskResponse = null;
         const idle = shell.status.set("tasks", 0);
         if (idle !== "ok") throw new Error("jarvis: " + idle);
+        const memory = shell.status.set("memory", { hidden: true });
+        if (memory !== "ok") throw new Error("jarvis: " + memory);
         const silent = shell.status.set("transcript", null);
         if (silent !== "ok") throw new Error("jarvis: " + silent);
         conversationLog = Conversation.start();
@@ -512,6 +514,14 @@ Item {
                 }
                 if (message.type === "shell-status") {
                     shellStatus(message.availability);
+                    continue;
+                }
+                if (message.type === "memory") {
+                    const value = message.available ? { hidden: true }
+                        : { tone: "warning", text: "Off",
+                            hint: "jarvis: memory=sqlite. Memory search needs Node 22.13 or later with SQLite. Jarvis still answers without it." };
+                    const reply = shell.status.set("memory", value);
+                    if (reply !== "ok") throw new Error("jarvis: " + reply);
                     continue;
                 }
                 if (message.type === "tasks") {

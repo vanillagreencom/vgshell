@@ -316,6 +316,34 @@ world(() => {
             for (const entry of ["linked.md", "linked-folder/secret.md", "waiting/pending.md"])
                 keyed(() => Home.note(folder, entry), "link", entry);
         },
+        // The memory search walker lists only confirmed Markdown notes and
+        // returns the stat facts the index reconciles by. It skips inbox,
+        // dot entries, links and non-Markdown files, and refuses a tree past
+        // its declared count bound rather than cutting it.
+        notesList(Home) {
+            const folder = fresh();
+            Home.layout(folder);
+            const write = (name, text = "note\n") => {
+                fs.mkdirSync(path.dirname(path.join(folder, name)), { recursive: true });
+                fs.writeFileSync(path.join(folder, name), text);
+            };
+            write("memory/facts/a.md");
+            write("memory/facts/b.md");
+            write("memory/inbox/pending.md");
+            write("memory/.hidden.md");
+            write("memory/facts/team.txt");
+            const secret = path.join(path.dirname(folder), "secret.md");
+            fs.writeFileSync(secret, "secret\n");
+            fs.symlinkSync(secret, path.join(folder, "memory/linked.md"));
+            fs.symlinkSync(path.dirname(secret), path.join(folder, "memory/linked-folder"));
+            const listed = Home.notes(folder);
+            assert.deepEqual(listed.map(row => row.id), ["MEMORY.md", "facts/a.md", "facts/b.md"]);
+            for (const row of listed) assert.equal(["size", "mtimeNs", "ctimeNs", "ino"].every(key => typeof row[key] === "bigint"), true, row.id);
+            const crowded = fresh();
+            Home.layout(crowded);
+            for (let n = 0; n < 10001; n++) fs.writeFileSync(path.join(crowded, "memory", "n" + n + ".md"), "note\n");
+            keyed(() => Home.notes(crowded), "notes-too-many");
+        },
         // A request handed to the master session is one lane-mail row at the
         // end of its mailbox file, which is made when absent: the id of
         // lane-mail's form, the owner as its sender, the stamp to the second
@@ -473,6 +501,8 @@ world(() => {
         ["note-folder", 'return read(home, "memory/" + entry, null).text;', "return read(home, entry, null).text;", "notes"],
         ["note-whole", 'return read(home, "memory/" + entry, null).text;', 'return read(home, "memory/" + entry, 16384).text;', "notes"],
         ["note-inbox", "(?!inbox/)", "", "notes", path.join(path.dirname(file), "Tools.js")],
+        ["notes-list-kind", 'if (!stat.isFile() || !entry.name.endsWith(".md") || !Tools.memoryNote(id)) continue;', 'if (!stat.isFile()) continue;', "notesList"],
+        ["notes-list-bound", 'if (found.length > NOTE_ENTRIES) fail("notes-too-many");', "", "notesList"],
         ["hand-terminated", 'text: text.toWellFormed() }) + "\\n");', "text: text.toWellFormed() }));", "hands"],
         ["hand-sender", 'from: "owner", text: text', 'from: "jarvis", text: text', "hands"],
         ["hand-stamp", '.replace(".000Z", "Z")', "", "hands"],

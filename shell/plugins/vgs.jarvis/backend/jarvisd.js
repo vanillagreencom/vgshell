@@ -36,6 +36,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     const Executors = require("./Executors.js");
     const Input = require("./Input.js");
     const Browser = require("./Browser.js");
+    const Memory = require("./Memory.js");
     const Files = require("./Files.js");
     const Shell = require("./Shell.js");
     const TaskRunner = require("./TaskRunner.js");
@@ -66,6 +67,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     let executors = null;
     let input = null;
     let browser = null;
+    let memory = null;
     let files = null;
     let shell = null;
     let requirementsScan = -1;
@@ -130,6 +132,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
             try { browser.close(); }
             catch (error) { process.stderr.write(error.message + "\n"); process.exitCode = 74; }
         }
+        if (memory !== null) memory.close();
         if (requests !== null) requests.close();
         if (audit !== null) audit.close();
         if (tasks !== null) tasks.close();
@@ -450,6 +453,15 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     browser = Browser.install({ router, environment: process.env,
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });
                     files = Files.install({ router, denied, clock });
+                    memory = Memory.install({ router, directory: path.join(context.directories.state, "memory"),
+                        home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null,
+                        log: line => process.stderr.write(line + "\n") });
+                    if (memory.kind === "refused") {
+                        process.stderr.write("jarvis: " + memory.cause + "\n");
+                        write({ v: 1, type: "memory", gen: runner.state.gen, revision: context.revision,
+                            available: false, cause: memory.cause });
+                        memory = null;
+                    } else write({ v: 1, type: "memory", gen: runner.state.gen, revision: context.revision, available: true });
                     const routerSync = runner.ports.tools.sync;
                     runner.ports.tools.sync = state => {
                         routerSync(state);
