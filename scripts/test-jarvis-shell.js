@@ -122,6 +122,14 @@ world(async () => {
     assert.equal(pwd.value.outcome, "completed");
     assert.deepEqual(pwd.answer, { kind: "exited", code: 0, stdout: w.project + "\n", stderr: "" });
     assert.deepEqual(pwd.value.results[0].item.labels, ["command"]);
+    // No cwd reaches the sandbox as no cwd: it runs in its own empty folder.
+    const folderless = async s => {
+        const f = make(s); await f.shell.ready;
+        assert.deepEqual((await f.run("shell.argv", { argv: ["pwd"], network: false })).answer,
+            { kind: "exited", code: 0, stdout: "/tmp/jarvis-command\n", stderr: "" });
+        f.close();
+    };
+    await folderless(Shell);
     console.log("case=help");
     const help = h.next(); h.turn();
     assert.equal(h.call("help", { topic: "shell" }).kind, "proposed");
@@ -257,6 +265,7 @@ world(async () => {
         assert.equal((await f.run("shell.line", { cwd: w.project, network: false, line: "printf exact" })).answer.stdout, "exact");
         f.close();
     });
+    await control("folderless", "Shell.js", [['...(Object.hasOwn(call.args, "cwd") ? { cwd: call.args.cwd } : {})', "cwd: call.args.cwd"]], folderless);
     await control("failed-exit", "Shell.js", [["result.code === 0 ? \"completed\" : \"failed\"", "\"completed\""]], async s => {
         const f = make(s); await f.shell.ready;
         assert.equal((await f.run("shell.argv", { ...a, argv: js("process.exit(42)") })).value.outcome, "failed");

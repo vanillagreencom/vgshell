@@ -207,11 +207,29 @@ world(() => {
     };
     harnessCases(Policy);
 
+    // A command that names no folder carries no path: the gate decides it by
+    // its effect alone. A named folder is judged as before, so the brain's
+    // own private working folder and HOME, which holds every credential
+    // root, stay refused, while a file folder inside HOME stays readable.
+    const brainFolder = path.join(roots.runtime, "vgshell", "jarvis", "claude-synthetic", "cwd");
+    fs.mkdirSync(brainFolder, { recursive: true });
+    const folderCases = logic => {
+        for (const [id, args] of [["shell.argv", { argv: ["date"], network: false }], ["shell.line", { line: "date", network: false }]]) {
+            assert.deepEqual(logic.decide(call(id, args), context), { kind: "confirm", effect: "exec", physical: false }, id);
+            assert.deepEqual(logic.decide(call(id, args), { ...context, profile: "trusted" }), { kind: "allow", effect: "exec" }, id);
+            for (const cwd of [brainFolder, home]) refuse(logic, call(id, { ...args, cwd }), context, "protected-path");
+        }
+        assert.deepEqual(logic.decide(call("files.list", { path: project }), context), { kind: "allow", effect: "read" });
+        for (const folder of [brainFolder, path.join(home, ".ssh")]) refuse(logic, call("files.list", { path: folder }), context, "protected-path");
+    };
+    folderCases(Policy);
+
     let controls = 0;
     function control(name, needle, replacement, assertion) {
         mutant(file, name, needle, replacement, assertion);
         controls++;
     }
+    control("absent-path-field", ".filter(([field]) => Object.hasOwn(refined.call.args, field))", "", folderCases);
     const source = fs.readFileSync(file, "utf8");
     for (const [profile, rules] of profiles) {
         const line = source.split("\n").find(line => line.trim().startsWith(profile + ": {"));

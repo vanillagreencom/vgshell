@@ -244,6 +244,15 @@ world(async () => {
             assert.equal(w.runner.state.approval.text, "Type this exact text:\n" + exact);
             assert.equal(w.runner.state.approval.physical, true);
         }],
+        ["folderless-sentence", implementation => {
+            // The user confirms where a command runs; a named folder is shown as it is.
+            const w = make(implementation);
+            w.call("shell.argv", { argv: ["date"], network: false });
+            assert.equal(w.runner.state.approval.text, 'Run ["date"] in a new empty folder, network false');
+            const named = make(implementation);
+            named.call("shell.line", { line: "date", cwd: fixtures.project, network: false });
+            assert.equal(named.runner.state.approval.text, "Run shell text date in " + fixtures.project + ", network false");
+        }],
         ["approval-size", implementation => {
             const w = make(implementation, Session, { profile: "trusted" });
             w.target({ kind: "terminal", id: "terminal" });
@@ -706,6 +715,7 @@ world(async () => {
             ["held-harness-kind", "id, tool: value.call.id,", 'id, tool: "harness.command",', "harness-approval"],
             ["held-harness-path", 'value.call.id + "\\n" + canonical(value.call.args)', 'value.call.id + "\\n" + canonical({...value.call.args, write: []})', "harness-approval"],
             ["sentence", 'sentence(value.call, decision.scope)', '"model text"', "typed-sentence"],
+            ["folderless-label", 'field === "cwd" && Tools.TABLE[call.id].executor === "sandbox" ? "a new empty folder" : "default"', '"default"', "folderless-sentence"],
             ["approval-size", "Buffer.byteLength(text) > RESULT_BYTES", "false", "approval-size"],
             ["result-size", "bytes.length <= RESULT_BYTES", "true", "result-size"],
             ["home-whole", 'source === "home" || bytes.length <= RESULT_BYTES', "bytes.length <= RESULT_BYTES", "home-help"],

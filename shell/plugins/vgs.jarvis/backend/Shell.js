@@ -46,8 +46,9 @@ function install({ router, roots: currentRoots, status, failed, clock }) {
             let request, trusted;
             try {
                 trusted = currentRoots();
-                request = { cwd: call.args.cwd, network: call.args.network,
-                    argv: call.id === "shell.line" ? ["/bin/sh", "-c", call.args.line] : call.args.argv };
+                request = { network: call.args.network,
+                    argv: call.id === "shell.line" ? ["/bin/sh", "-c", call.args.line] : call.args.argv,
+                    ...(Object.hasOwn(call.args, "cwd") ? { cwd: call.args.cwd } : {}) };
             } catch (error) {
                 active = null;
                 done(answer({ kind: "error", reason: "protected-roots", error: error.code || error.message }));

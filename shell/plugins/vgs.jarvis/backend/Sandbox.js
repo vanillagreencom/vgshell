@@ -9,6 +9,9 @@ const Tools = require("./Tools.js");
 
 const LIMIT = 64 * 1024;
 const DEADLINE = 120000;
+// A command that names no folder starts here, inside the sandbox's own /tmp,
+// so the folder is empty at the start and gone with the sandbox.
+const SCRATCH = "/tmp/jarvis-command";
 const within = (file, root) => file === root || file.startsWith(root + "/");
 
 function socketFilter() {
@@ -132,7 +135,9 @@ function mounts(args, masks, home, cwd) {
     }
     if (home !== null) {
         mount(args, home, masks, null);
-        args.push("--bind", cwd, cwd, "--chdir", cwd, "--setenv", "HOME", home);
+        if (cwd === null) args.push("--dir", SCRATCH, "--chdir", SCRATCH);
+        else args.push("--bind", cwd, cwd, "--chdir", cwd);
+        args.push("--setenv", "HOME", home);
     }
 }
 
@@ -202,8 +207,10 @@ async function available(options = {}) {
 }
 
 /**
- * J49 supplies argv (a line becomes /bin/sh -c), cwd and network from its
- * immutable request, plus service-owned Denied roots and optional abort signal.
+ * J49 supplies argv (a line becomes /bin/sh -c), network and an optional cwd
+ * from its immutable request, plus service-owned Denied roots and optional
+ * abort signal. A request without cwd binds no host folder writable: it runs
+ * in SCRATCH, with HOME read-only and masked as for any command.
  * Rebuild Denied immediately before launch. This API grants no policy approval.
  * Results: exited(code), refused(reason), unavailable(reason), error(reason)
  * or stopped(reason). Every result must be matched by kind, never truthiness.
@@ -216,15 +223,19 @@ async function run(request, roots, options = {}) {
     let args;
     try {
         const denied = Denied.create(roots);
-        const target = denied.inspect(refined.call.args.cwd, "workspace");
-        if (target.kind === "refuse") return { kind: "refused", reason: target.reason };
-        if (!target.exists || !fs.statSync(target.path).isDirectory()) return { kind: "refused", reason: "cwd-not-directory" };
         const home = fs.realpathSync.native(roots.home);
         const privateRuntime = fs.realpathSync.native(roots.runtime);
-        if (within(target.path, privateRuntime) || within(privateRuntime, target.path))
-            return { kind: "refused", reason: "runtime-workspace" };
+        let cwd = null;
+        if (Object.hasOwn(refined.call.args, "cwd")) {
+            const target = denied.inspect(refined.call.args.cwd, "workspace");
+            if (target.kind === "refuse") return { kind: "refused", reason: target.reason };
+            if (!target.exists || !fs.statSync(target.path).isDirectory()) return { kind: "refused", reason: "cwd-not-directory" };
+            if (within(target.path, privateRuntime) || within(privateRuntime, target.path))
+                return { kind: "refused", reason: "runtime-workspace" };
+            cwd = target.path;
+        }
         args = runtime(refined.call.args.network);
-        mounts(args, [...denied.masks, roots.runtime, privateRuntime], home, target.path);
+        mounts(args, [...denied.masks, roots.runtime, privateRuntime], home, cwd);
     } catch (error) { return { kind: "error", reason: "filesystem", error: error.code || error.message }; }
     const binary = executable();
     if (binary === null) return { kind: "unavailable", reason: "bwrap-missing" };

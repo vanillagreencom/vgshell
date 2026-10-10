@@ -43,6 +43,9 @@ world(() => {
         ["files.delete", { path: target }, "destructive"],
         ["shell.argv", { argv: ["echo", "literal"], cwd: project, network: false }, "exec", "command"],
         ["shell.line", { line: "echo literal", cwd: project, network: false }, "exec", "command"],
+        // A command may name no folder; the sandbox then makes an empty one.
+        ["shell.argv", { argv: ["date"], network: false }, "exec", "command"],
+        ["shell.line", { line: "date", network: false }, "exec", "command"],
         ["vision.screen", {}, "read", "screen"], ["vision.monitor", { monitor: "DP-1" }, "read", "screen"],
         ["vision.window", { window }, "read", "screen"],
         ["vision.region", { x: 0, y: 0, width: 1, height: 1 }, "read", "screen"],
@@ -84,6 +87,8 @@ world(() => {
         ["workspaces.special", { name: "magic space" }], ["workspaces.special", { name: "special:magic" }],
         ["shell.argv", { argv: ["echo", null], cwd: project, network: false }],
         ["shell.argv", { argv: [], cwd: project, network: false }],
+        ["shell.argv", { argv: ["date"], cwd: "relative", network: false }],
+        ["task.start", { goal: "synthetic task" }], ["harness.command", { command: "ls" }],
         ["files.read", { path: target, effect: "read" }],
         ["files.read", { path: target + "\n" }], ["files.write", { path: target }],
         ["media.volume", { value: 1.01 }], ["media.volume", { value: NaN }],
@@ -285,6 +290,11 @@ world(() => {
     control("wire-name-spelling", 'id.replaceAll(".", "_")', "id", names);
     control("unconfined-row", "proposer: \"harness\", unconfined: true,", "proposer: \"harness\",", unconfined);
     control("unconfined-flag", "unconfined: row.unconfined === true", "unconfined: false", unconfined);
+    for (const id of ["shell.argv", "shell.line"]) {
+        const row = cases.find(([name, args]) => name === id && !Object.hasOwn(args, "cwd"));
+        const needle = toolsSource.split("\n").find(line => line.trim().startsWith(`"${id}": {`));
+        control("optional-cwd-" + id, needle, needle.replace(' optional: ["cwd"],', ""), logic => check(logic, row));
+    }
     control("immutable-call", "call: freeze(structuredClone(call))", "call: structuredClone(call)", frozen);
     console.log("test-jarvis-tools: ok calls=" + cases.length + " controls=" + controls);
 });

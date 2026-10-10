@@ -172,7 +172,9 @@ function decide(call, context) {
         if (!denied || typeof denied.inspectPaths !== "function")
             return { kind: "refuse", reason: "path-context" };
         // A field holds one path, or a list a harness program proposes at once.
-        const pairs = refined.paths.flatMap(([field, role]) => [refined.call.args[field]].flat().map(file => [file, role]));
+        // An optional path field left out names no path to judge.
+        const pairs = refined.paths.filter(([field]) => Object.hasOwn(refined.call.args, field))
+            .flatMap(([field, role]) => [refined.call.args[field]].flat().map(file => [file, role]));
         const judged = denied.inspectPaths(pairs);
         if (judged.kind === "refuse") {
             const { file: _file, ...refusal } = judged;

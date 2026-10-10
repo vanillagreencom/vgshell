@@ -18,7 +18,9 @@ function canonical(value) {
 function sentence(call, scope) {
     let text = Tools.TABLE[call.id].sentence.replace(/\{(\w+)\}/g, (_, field) => {
         const value = call.args[field];
-        return value === undefined ? "default" : typeof value === "string" ? value : canonical(value);
+        // Without cwd the sandbox runs the command in a new empty folder (Sandbox.js run).
+        if (value === undefined) return field === "cwd" && Tools.TABLE[call.id].executor === "sandbox" ? "a new empty folder" : "default";
+        return typeof value === "string" ? value : canonical(value);
     });
     const args = call.args;
     const name = file => path.basename(file) || file;

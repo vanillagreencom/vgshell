@@ -302,6 +302,24 @@ async function main() {
         { kind: "refused", reason: "cwd-not-directory" });
     assert.deepEqual(await Sandbox.run(request(["pwd"], w.home + "/ordinary"), w.roots),
         { kind: "refused", reason: "cwd-not-directory" });
+    // A command that names no folder starts in a new empty folder and binds
+    // no host folder writable; what it leaves there is gone with it. HOME is
+    // read-only and masked as for any command.
+    const scratch = async sandbox => {
+        const folderless = argv => sandbox.run({ argv, network: false }, w.roots);
+        const first = await folderless(js(`const f=require("node:fs");f.writeFileSync("left","x");`
+            + `process.stdout.write(process.cwd()+" "+f.readdirSync(".").join(","))`));
+        exited(first, 0);
+        assert.equal(first.stdout, "/tmp/jarvis-command left");
+        const second = await folderless(js(`process.stdout.write(require("node:fs").readdirSync(".").join(","))`));
+        exited(second, 0);
+        assert.equal(second.stdout, "");
+        exited(await folderless(access(w.home + "/ordinary", "read")), 0);
+        for (const file of [w.home + "/ordinary", w.project + "/folderless", w.home + "/.ssh/sentinel"])
+            exited(await folderless(access(file, "write")), 42);
+        exited(await folderless(access(w.home + "/.ssh/sentinel", "read")), 42);
+    };
+    await scratch(Sandbox);
     const elevation = await run(js(`const fs=require("node:fs");const s=fs.readFileSync("/proc/self/status","utf8");process.exit(/^NoNewPrivs:\\s+1$/m.test(s)?42:0)`));
     exited(elevation, 42);
     // NNP belongs to bwrap itself, not editable Sandbox behavior. No production
@@ -346,8 +364,8 @@ async function main() {
     } finally { tcp.close(); unix.close(); abstract.close(); }
     await control("home-readonly", 'file === writable ? "--bind" : "--ro-bind"', 'file.startsWith(' + quoted(w.home) + ') ? "--bind" : "--ro-bind"',
         s => forbidden(s, w, w.home + "/ordinary", "write"));
-    const maskCall = "mounts(args, [...denied.masks, roots.runtime, privateRuntime], home, target.path)";
-    const omitMask = file => "mounts(args, [...denied.masks.filter(p => p !== " + quoted(file) + "), roots.runtime, privateRuntime], home, target.path)";
+    const maskCall = "mounts(args, [...denied.masks, roots.runtime, privateRuntime], home, cwd)";
+    const omitMask = file => "mounts(args, [...denied.masks.filter(p => p !== " + quoted(file) + "), roots.runtime, privateRuntime], home, cwd)";
     await control("credential-mask", maskCall, omitMask(w.home + "/.ssh"),
         s => forbidden(s, w, w.home + "/.ssh/sentinel", "read"));
     await control("policy-mask", maskCall, omitMask(w.roots.config + "/vgshell"),
@@ -363,6 +381,8 @@ async function main() {
     await control("cwd-rejudge", 'denied.inspect(refined.call.args.cwd, "workspace")',
         '({kind:"path",path:refined.call.args.cwd,exists:true})', async s =>
             assert.deepEqual(await s.run(request(["pwd"], w.home), w.roots), { kind: "refused", reason: "protected-path" }));
+    await control("scratch-cwd", 'args.push("--dir", SCRATCH, "--chdir", SCRATCH)',
+        'args.push("--bind", home + "/project", home + "/project", "--chdir", home + "/project")', scratch);
     await control("new-session", '"--new-session", ', "", async s => exited(await s.run(request(session, w.project), w.roots), 42));
     // Device control exposes only a synthetic regular uinput file.
     const dev = w.home + "/device-fixture";
@@ -451,8 +471,8 @@ async function main() {
     const alternate = { ...w.roots, runtime: homeRuntime };
     const hiddenRuntime = async s => exited(await s.run(request(access(homeRuntime + "/sentinel", "read"), w.project), alternate), 42);
     await hiddenRuntime(Sandbox);
-    await control("home-runtime", "mounts(args, [...denied.masks, roots.runtime, privateRuntime], home, target.path)",
-        "mounts(args, denied.masks, home, target.path)", hiddenRuntime);
+    await control("home-runtime", "mounts(args, [...denied.masks, roots.runtime, privateRuntime], home, cwd)",
+        "mounts(args, denied.masks, home, cwd)", hiddenRuntime);
     const runtimeCwd = homeRuntime + "/workspace";
     fs.mkdirSync(runtimeCwd);
     assert.deepEqual(await Sandbox.run(request(["pwd"], runtimeCwd), alternate), { kind: "refused", reason: "runtime-workspace" });
