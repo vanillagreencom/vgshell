@@ -422,14 +422,27 @@ function motionLines(theme) {
     return lines;
 }
 
+// The blur behind the shell's own glass while every surface draws it
+// (ThemeLogic's `surfaceBlur`): the layers its hosts name, `vgs:` and a
+// summoned kind other than `window` (SummonLayer.qml), the plugins'
+// passive layers (LayerHost.qml), the requirement notice (NoticeHost.qml)
+// and the shared dialog (ModalDialog.qml), and every popup, which has no
+// namespace. A pixel at or under `ignoreAlpha` is not blurred: a scrim's
+// 0.6 (Tokens.js `color.scrim`) and the transparent rest of a layer that
+// covers its screen, while the shared glass fill is above it (Glass.js).
+var SURFACE_BLUR = { namespace: "^vgs:(panel|menu|overlay|layer|notice|dialog)$", ignoreAlpha: 0.6 };
+
 // Window glass, VGlass for Hyprland's own windows: the blur behind them,
 // their opacity while focused and while not, and their drop shadow, from
 // Theme.glass.window. Hyprland 0.56.2 draws no sheen without a shader, so
 // none is written. It comes after the borders group, so its shadow colour
-// is the one in force while both are written.
+// is the one in force while both are written. While every surface draws
+// glass, the blur also reaches popups (SURFACE_BLUR); render writes the
+// layers' rule.
 function glassLines(theme) {
     var glass = theme.glass;
-    return [
+    var surfaces = theme.groups.surfaceBlur === true;
+    var lines = [
         "-- Theme appearance: window glass.",
         "hl.config({",
         "    decoration = {",
@@ -438,7 +451,11 @@ function glassLines(theme) {
         "        blur = {",
         "            enabled = true,",
         "            size = " + luaNumber(glass.blurSize) + ",",
-        "            passes = " + luaNumber(glass.blurPasses) + ",",
+        "            passes = " + luaNumber(glass.blurPasses) + ","
+    ];
+    if (surfaces)
+        lines.push("            popups = true,", "            popups_ignorealpha = " + luaNumber(SURFACE_BLUR.ignoreAlpha) + ",");
+    lines = lines.concat([
         "        },",
         "        shadow = {",
         "            enabled = true,",
@@ -448,6 +465,17 @@ function glassLines(theme) {
         "        },",
         "    },",
         "})"
+    ]);
+    return lines;
+}
+
+// The layer rule of SURFACE_BLUR, written beside the application window's
+// rule while every surface draws glass, which writes the glass group too
+// (ThemeLogic `surfaceBlur`).
+function surfaceBlurLines() {
+    return [
+        "-- The shell's own layers take the blur while every surface draws glass.",
+        "hl.layer_rule({ name = \"vgs:glass\", match = { namespace = \"" + SURFACE_BLUR.namespace + "\" }, blur = true, ignore_alpha = " + luaNumber(SURFACE_BLUR.ignoreAlpha) + " })"
     ];
 }
 
@@ -1308,6 +1336,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     if (switches.groups.noGaps.enabled) groups = groups.concat(noGapsLines());
     else groups.push(disabledGroupLine("noGaps", switches.groups.noGaps.setting));
     var lines = [""].concat(groups, [""], tuiWindowLines(theme.tuiMargins), [""], appWindowLines());
+    if (theme.groups.surfaceBlur === true) lines = lines.concat([""], surfaceBlurLines());
     if (tapTrackerWanted(plan)) lines = lines.concat([""], tapTrackerLines());
     lines = lines.concat([""], userBindLines(), [""], overlayCaptureLines(plan), [""], keyPassthroughLines(), [""], sessionLockLines());
     var written = Object.create(null);

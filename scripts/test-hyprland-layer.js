@@ -1457,6 +1457,13 @@ function verifyAppearanceLayer(layer) {
     assert.ok(shippedOut.text.split("\n").includes(UNWRITTEN.glass), "with no Appearance value the user's own window decoration stays");
     same(glassLines(render({ windowGlass: true })), WINDOW_GLASS, "the windows' own glass writes Glass.js's window values");
     same(glassLines(render({ glass: "on" })), WINDOW_GLASS, "glass on everywhere writes window glass");
+    // Glass on everywhere also blurs popups and the shell's own layers,
+    // below a pixel alpha of 0.6; the windows' own glass alone does not.
+    const SURFACE_RULE = "hl.layer_rule({ name = \"vgs:glass\", match = { namespace = \"^vgs:(panel|menu|overlay|layer|notice|dialog)$\" }, blur = true, ignore_alpha = 0.6 })";
+    const surfaceLines = out => block(out).filter(line => /popups/.test(line)).concat(out.text.split("\n").filter(line => line === SURFACE_RULE));
+    same(surfaceLines(render({ glass: "on" })), ["            popups = true,", "            popups_ignorealpha = 0.6,", SURFACE_RULE], "glass on everywhere blurs popups and, at the top level, the shell's own layers");
+    same(surfaceLines(render({ windowGlass: true })), [], "the windows' own glass blurs no popup and no shell layer");
+    same(surfaceLines(render({ glass: "off", windowGlass: true })), [], "glass off everywhere blurs no popup and no shell layer");
     const offEverywhere = render({ glass: "off", windowGlass: true });
     same([glassLines(offEverywhere), offEverywhere.text.split("\n").includes(UNWRITTEN.glass)], [[], true], "glass off everywhere leaves window decoration to the user, whatever the windows' own choice");
     // Window glow from the shipped Tokens.js, written only while window
@@ -1597,6 +1604,10 @@ const CONTROLS = [
     [layerFile, "a written glass group reports the opacity it wrote", "case \"glass\": return theme.glass.opacity;", "case \"glass\": return theme.glass.inactiveOpacity;"],
     [layerFile, "window glow is an applied group", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\", \"glass\", \"glow\"];", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\", \"glass\"];"],
     [layerFile, "window glow follows window glass", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\", \"glass\", \"glow\"];", "var APPLIED_GROUPS = [\"borders\", \"radius\", \"motion\", \"glow\", \"glass\"];"],
+    [layerFile, "glass on everywhere blurs popups", "if (surfaces)\n        lines.push(\"            popups = true,\"", "if (false)\n        lines.push(\"            popups = true,\""],
+    [layerFile, "glass on everywhere blurs the shell's layers", "if (theme.groups.surfaceBlur === true) lines", "if (false) lines"],
+    [layerFile, "the windows' own glass blurs no shell layer", "if (theme.groups.surfaceBlur === true) lines", "if (theme.groups.glass) lines"],
+    [layerFile, "the windows' own glass leaves popups and shell layers", "var surfaces = theme.groups.surfaceBlur === true;", "var surfaces = true;"],
     [layerFile, "window glow reads its switch as a bool", "glow: { path: \"decoration.glow.enabled\", type: \"bool\", member: \"windowGlow\" }", "glow: { path: \"decoration.glow.enabled\", type: \"int\", member: \"windowGlow\" }"],
     [layerFile, "window glow reads its switch", "glow: { path: \"decoration.glow.enabled\", type: \"bool\", member: \"windowGlow\" }", "glow: { path: \"decoration.glow.range\", type: \"bool\", member: \"windowGlow\" }"],
     [layerFile, "window glow enables the glow", "\"            enabled = true,\",\n        \"            range = \" + luaNumber(glow.range)", "\"            enabled = false,\",\n        \"            range = \" + luaNumber(glow.range)"],

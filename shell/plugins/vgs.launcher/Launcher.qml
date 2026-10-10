@@ -1187,7 +1187,7 @@ Item {
         id: edgeLight
         look: root.look
         follow: card
-        visible: card.on
+        visible: card.drawn
         active: root.searching
     }
 
