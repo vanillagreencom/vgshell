@@ -204,7 +204,23 @@ Scope {
             id: entry
 
             required property string modelData
-            readonly property var request: host.requests[modelData]
+            // An entry is dropped once it loses its request, and never
+            // builds again. Quickshell deletes an entry its model dropped
+            // on a later turn of the event loop (Variants::updateVariants
+            // calls deleteLater, src/core/variants.cpp), so until then it
+            // still reads `requests`. A summon of its id handled before
+            // that turn, such as a shortcut pressed again while drop() ran,
+            // would hand it the new request, and it would build a second
+            // surface beside the new entry's (read in the notifications-keys
+            // smoke row, on a host without the latch). The latch is set from
+            // `held`, whose binding does not read it: set from a handler of
+            // `request`, it would update that binding inside its own
+            // update, which Qt logs as a binding loop (read in the same
+            // row's shell log).
+            property bool dropped: false
+            readonly property var held: host.requests[modelData]
+            onHeldChanged: if (held === undefined) dropped = true
+            readonly property var request: dropped ? undefined : held
             readonly property bool live: Registry.slotKey(modelData) !== ""
             onLiveChanged: if (!live) Qt.callLater(() => host.drop(entry.modelData))
 

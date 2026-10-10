@@ -19,6 +19,14 @@
 # panelMaxHeight, where the list takes what is under the header; their
 # control is a Panel.qml copy whose list keeps its whole height, which runs
 # the list past the panel's bottom (clipped=list) on all eight opens.
+# Super+N typed twice in one wtype call on the open long inbox, five
+# rounds: the second press reaches the shell while the first still closes
+# the inbox, and opens it again as one panel, which the service knows as
+# its inbox. The key marker behind the two presses says the shell took
+# both before the reading. Its control is the shell started from a copy
+# whose SummonHost.qml entry reads its request without the `dropped` latch:
+# the dropped entry builds a second panel, whose close() leaves the service
+# with no panel while the inbox stands.
 # One more open shows the list at the panel bottom at both scroll ends.
 # A copy with a reserved bottom gap must fail the same reading.
 # The room shrinks under the open long inbox, its last card selected: the
@@ -29,7 +37,7 @@
 # No latency is measured; each reading polls every 200 ms for up to 5 s.
 # A press that reaches nothing changes nothing to poll for, so the
 # controls read after a native key marker on the same virtual keyboard.
-# inputs: shell/plugins/vgs.notifications/* shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js scripts/smoke/toplevel/* scripts/smoke/rows/notifications.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.notifications/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js scripts/smoke/toplevel/* scripts/smoke/rows/notifications.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 nk_hypr_lua="$home/.config/hypr/hyprland.lua"
@@ -178,6 +186,11 @@ long_inbox_rows() {
   done
   echo "$shown"
 }
+# nk_layer_gone: 0 once the compositor lists no panel layer, else 1.
+nk_layer_gone() {
+  for _ in $(seq 1 25); do [[ $(layer_count vgs:panel) == 0 ]] && return 0; sleep 0.2; done
+  return 1
+}
 # long_inbox_shown: `shown` once the open panel lists the long inbox's
 # newest row and has drawn, else `unlisted` or `not-drawn`.
 long_inbox_shown() {
@@ -215,7 +228,8 @@ long_inbox_settled() {
 # long_inbox_shown. Prints the one reading every open gave, such as `fits`
 # or `cut-top=card in-gutter=card under-header=card`, `mixed` when the opens differ, or
 # `open=<n> <failure>` at the first open the instrument could not read:
-# long_inbox_shown's failure, `unread`, or a toggle that failed. Each
+# long_inbox_shown's failure, `unread`, or a toggle that failed, and
+# `close=<n> still-open` at the first close that left the panel's layer. Each
 # open's reading goes to $sandbox/long-inbox.txt, which long_inbox_readings
 # prints.
 long_inbox_cut() {
@@ -229,7 +243,7 @@ long_inbox_cut() {
     [[ $reading == unread* ]] && { echo "open=$n unread"; return; }
     readings+=("$reading")
     "$@" >/dev/null || { echo "close=$n toggle-failed"; return; }
-    for _ in $(seq 1 25); do [[ $(layer_count vgs:panel) == 0 ]] && break; sleep 0.2; done
+    nk_layer_gone || { echo "close=$n still-open"; return; }
   done
   for n in "${!readings[@]}"; do printf 'open=%d %s; ' "$((n + 1))" "${readings[n]}"; done >"$sandbox/long-inbox.txt"
   first="${readings[0]}"
@@ -249,8 +263,7 @@ long_inbox_warm() {
   "$@" >/dev/null || return
   summon_drawn panel vgs.notifications || return
   "$@" >/dev/null || return
-  for _ in $(seq 1 25); do [[ $(layer_count vgs:panel) == 0 ]] && return 0; sleep 0.2; done
-  return 1
+  nk_layer_gone
 }
 # One open, read at the list top and at the full scroll travel. The end
 # reading checks the bottom without requiring the first card in view.
@@ -272,7 +285,7 @@ long_inbox_ends() {
   end="$(panel_fit bottom)"
   read -r x y < <(nk_panel_outside_point) && hover "$x" "$y"
   "$@" >/dev/null || { echo close-toggle-failed; return; }
-  for _ in $(seq 1 25); do [[ $(layer_count vgs:panel) == 0 ]] && break; sleep 0.2; done
+  nk_layer_gone || { echo close-still-open; return; }
   echo "top=$top end=$end"
 }
 # nk_view_settled: the long inbox's view, the probe's viewHolding reading,
@@ -342,8 +355,50 @@ nk_room_shrink() {
   reading="$(panel_fit selected)" || reading=unread
   printf 'before=%s after=%s reading=%s' "$before" "$after" "$reading" >"$sandbox/room-shrink.txt"
   nk_press >/dev/null || { echo close-failed; return; }
-  for _ in $(seq 1 25); do [[ $(layer_count vgs:panel) == 0 ]] && break; sleep 0.2; done
+  nk_layer_gone || { echo close-still-open; return; }
   python3 -c 'import json,sys; before,after=map(json.loads,sys.argv[1:3]); print(sys.argv[3] if after["height"] < before["height"] else "view-not-shorter")' "$before" "$after" "$reading"
+}
+# nk_second_press: five rounds of the open long inbox taking Super+N twice
+# from one wtype call, with the key marker behind them. Prints `kept` when
+# every round read one drawn panel and the service's inbox mode once the
+# marker came, else `round=<n>` with the step that failed or the two
+# readings. An Escape, which closes whatever panel stands, ends each
+# round, read with inbox_closed (rows/notifications.sh).
+nk_second_press() {
+  local n shown marker_before marker inbox mode
+  for n in 1 2 3 4 5; do
+    nk_press >/dev/null || { echo "round=$n open-failed"; return; }
+    shown="$(long_inbox_shown)"
+    [[ $shown == shown ]] || { echo "round=$n $shown"; return; }
+    marker_before="$(ipc smoke holdMarkerCount)" || { echo "round=$n marker-unread"; return; }
+    type_keys -M logo -k n -m logo -M logo -k n -m logo -k F9 || { echo "round=$n presses-failed"; return; }
+    marker=unmarked
+    for _ in $(seq 1 25); do
+      marker="$(nk_key_marker_after "$marker_before")" || marker=unread
+      [[ $marker == marked ]] && break
+      sleep 0.2
+    done
+    [[ $marker == marked ]] || { echo "round=$n marker=$marker"; return; }
+    inbox=unread
+    for _ in $(seq 1 25); do
+      inbox="$(inbox_shown)" || inbox=unread
+      [[ $inbox == open ]] && break
+      sleep 0.2
+    done
+    mode="$(read_notes panelMode)" || mode=unread
+    type_keys -k Escape || { echo "round=$n escape-failed"; return; }
+    inbox_closed || { echo "round=$n escape-left-open"; return; }
+    [[ $inbox == open && $mode == '"inbox"' ]] || { echo "round=$n inbox=$inbox service=$mode"; return; }
+  done
+  echo kept
+}
+# nk_second_press_unlatched: nk_second_press on a host without the latch.
+# Prints `second-panel-closed` for the reading that host gives in any
+# round, one drawn panel and a service with no panel mode, else the reading.
+nk_second_press_unlatched() {
+  local reading
+  reading="$(nk_second_press)" || return
+  if [[ $reading =~ ^round=[1-5]\ inbox=open\ service=\"\"$ ]]; then echo second-panel-closed; else echo "$reading"; fi
 }
 nk_room_shrink_readings() { if [[ -f $sandbox/room-shrink.txt ]]; then cat -- "$sandbox/room-shrink.txt"; else echo "none read"; fi; }
 # PRESSES LABEL: five presses from a closed inbox, each read before the next.
@@ -410,6 +465,7 @@ expect "the long inbox's toasts leave the screen" 0 long_inbox_rows
 expect_poll "the long inbox holds its forty cards alone" 40 note_status history
 geometry expect "a long inbox opened by the key eight times shows its first card whole each time" fits long_inbox_cut nk_press
 ok "long inbox readings: $(long_inbox_readings)"
+expect "a second Super+N that reaches the shell while the first closes the long inbox opens it again as one panel the service knows" kept nk_second_press
 geometry expect "the long inbox list reaches the panel bottom at both scroll ends" "top=fits end=fits" long_inbox_ends nk_press
 nk_panel="$repo/shell/plugins/vgs.notifications/Panel.qml"
 # Control: a real list with a reserved bottom gap fails both scroll ends.
@@ -587,5 +643,29 @@ expect "disabling the retained-action control is allowed" ok ipc shell setPlugin
 cp -- "$sandbox/Panel.qml.focus-kept" "$nk_panel"
 rescan "a rescan restores the shipped reopen focus owner"
 expect "the observer releases the notifications key ordering marker" ok ipc smoke holdMarkerStop
+# Control: a host whose dropped entry still reads its request. The shell
+# runs from a copy with that one binding changed, with the key marker and
+# the long inbox again, and the shipped shell comes back after it.
+if copy_tree unlatched-host \
+  && edit_tree unlatched-host shell/Hosts/SummonHost.qml 'readonly property var request: dropped ? undefined : held' 'readonly property var request: held'; then
+  stop_shell
+  start_shell "$sandbox/tree-unlatched-host" "$sandbox/unlatched-host.log" || fail "the unlatched host shell starts"
+  expect "the unlatched host's observer provides the key ordering marker" ok ipc smoke holdMarkerStart
+  expect "enabling the notifications on the unlatched host is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+  expect_poll "the notification service is built on the unlatched host" True record_exists vgs.notifications
+  expect_poll "the compositor lists the inbox shortcut on the unlatched host" 1 note_shortcuts
+  notes dismiss-all >/dev/null # `none` once every toast's clock ran out
+  expect "clearing the history before the unlatched host's long inbox is allowed" ok notes clear-history
+  expect_poll "the history is empty before the unlatched host's long inbox" 0 note_status history
+  expect "the unlatched host's long inbox toasts leave the screen" 0 long_inbox_rows
+  expect_poll "the unlatched host's long inbox holds its forty cards alone" 40 note_status history
+  expect "control: on a host whose dropped entry still reads its request, the second Super+N leaves the service with no panel while the inbox stands" second-panel-closed nk_second_press_unlatched
+  notes dismiss-all >/dev/null # `none` once every toast's clock ran out
+  expect "clearing the unlatched host's history is allowed" ok notes clear-history
+  expect "disabling the notifications on the unlatched host is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+  expect "the unlatched host's observer releases the key ordering marker" ok ipc smoke holdMarkerStop
+  stop_shell
+  start_shell "$repo" "$sandbox/notifications-keys-restored.log" || fail "the shell starts after the unlatched host control"
+fi
 hypr_lua_restore notifications-keys || fail "the key rows put the harness hyprland.lua back"
 expect "the nested instance reloads the harness hyprland.lua after the key rows" ok hypr reload config-only
