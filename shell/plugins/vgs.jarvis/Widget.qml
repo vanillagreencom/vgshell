@@ -15,22 +15,20 @@ BarWidget {
 
     // Core/Plugins.qml createWidget assigns shell.settings to this bar-widget.
     // Session settings arrive only after daemon hello, so the widget reads the
-    // truthful talk mode from shell.settings.
-    readonly property string talkMode: shell === null ? "hold" : String(shell.settings.mode)
-    readonly property var spelledKeys: ({
-        talk: spellKey("talk"),
-        mute: spellKey("mute"),
-        stop: spellKey("stop"),
-        confirm: spellKey("confirm")
-    })
-    readonly property var view: View.view(shell === null ? ({}) : shell.status.values, spelledKeys, talkMode)
+    // truthful talk mode from shell.settings. The keys and the mode are read
+    // inside this one binding: as separate properties, the nested smoke
+    // (2026-10-10, diagnostics row) saw this binding run first and hand the
+    // view an undefined key map at creation.
+    readonly property var view: shell === null ? View.view({}, spelledKeys(null), "hold")
+        : View.view(shell.status.values, spelledKeys(shell.shortcut.keys), shell.settings.mode)
 
     implicitWidth: item.implicitWidth
     implicitHeight: barSize
 
-    function spellKey(name) {
-        if (shell === null || shell.shortcut === undefined || (shell.shortcut.keys[name] === undefined || shell.shortcut.keys[name] === null)) return null;
-        return KeyNavLogic.keyCaps(shell.shortcut.keys[name]).join("+");
+    // KEYS, shell.shortcut.keys or null, as people read each key the view names.
+    function spelledKeys(keys) {
+        const spell = name => keys === null || keys[name] === null ? null : KeyNavLogic.keyCaps(keys[name]).join("+");
+        return { talk: spell("talk"), mute: spell("mute"), stop: spell("stop"), confirm: spell("confirm") };
     }
 
     function toneColor(tone) {
