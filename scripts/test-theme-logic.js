@@ -919,6 +919,7 @@ function verify(judge) {
 // beside the looks that hand them.
 const GLASS = load(path.join(repo, "shell", "Commons", "Glass.js"));
 const LAUNCHER = load(path.join(repo, "shell", "plugins", "vgs.launcher", "Appearance.js"));
+const NOTIFICATIONS = load(path.join(repo, "shell", "plugins", "vgs.notifications", "Appearance.js"));
 function verifyGlass(judge, glass = GLASS) {
     const shipped = judge.defaults(TOKENS).values;
     for (const [mode, shadow] of [["dark", "#00000073"], ["light", "#00000029"]]) {
@@ -1028,6 +1029,12 @@ function verifyAppearance(judge) {
     lookFollowsInterfaceFont(judge, LAUNCHER.TOKENS, LAUNCHER.LIGHT, overMono);
     const fixedLauncher = Object.assign({}, LAUNCHER.TOKENS, { font: { family: { type: "family", value: "JetBrains Mono" } } });
     assert.throws(() => lookFollowsInterfaceFont(judge, fixedLauncher, LAUNCHER.LIGHT, fonts), /follows the interface font/, "control: the launcher's fixed JetBrains Mono");
+    // The notifications' look draws its text in it; its control is the look
+    // with its old fixed family back.
+    lookFollowsInterfaceFont(judge, NOTIFICATIONS.TOKENS, NOTIFICATIONS.LIGHT, fonts);
+    lookFollowsInterfaceFont(judge, NOTIFICATIONS.TOKENS, NOTIFICATIONS.LIGHT, overMono);
+    const fixedNotifications = Object.assign({}, NOTIFICATIONS.TOKENS, { font: { family: { type: "family", value: "Liberation Sans" } } });
+    assert.throws(() => lookFollowsInterfaceFont(judge, fixedNotifications, NOTIFICATIONS.LIGHT, fonts), /follows the interface font/, "control: the notifications' fixed Liberation Sans");
     const terminal = over(shipped, { terminalFont: "Fira Code" });
     assert.deepEqual(plain(terminal.values), plain(shipped.values), "the terminal font sets no token");
     assert.deepEqual([terminal.appearance.values.terminalFont, terminal.appearance.sources.terminalFont, Object.hasOwn(terminal.appearance.theme, "terminalFont")], ["Fira Code", "user", false], "and is the user's value, with none of the theme's to show");

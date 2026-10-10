@@ -52,7 +52,7 @@ Item {
         tint: slot.look.face.chip
         chip: slot.look.face.chip
         foreground: slot.look.text.foreground
-        fontFamily: slot.look.font.family
+        fontFamily: slot.look.font.family.sans
         initialsShare: slot.look.face.initials
         initialsWeight: slot.look.face.initialsWeight
     }

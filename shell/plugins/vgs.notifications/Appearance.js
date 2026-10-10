@@ -11,8 +11,9 @@
 // the Style.font steps at the 12 px base (bodySmall 11, title 14) and the
 // subtitle role is caption plus one, 11. The theme's foreground the hook
 // wrote is the hook's own neutral here. The active theme reaches this table
-// through two inputs alone, `palette.accent` and `motion.scale`, plus its
-// `scheme.mode`, which applies LIGHT; no other theme value can.
+// through three inputs alone, `palette.accent`, `motion.scale` and
+// `font.family.sans`, plus its `scheme.mode`, which applies LIGHT; no other
+// theme value can.
 
 function color(value) { return { type: "color", value: value }; }
 function length(value) { return { type: "length", value: value }; }
@@ -64,8 +65,10 @@ var TOKENS = {
         settle: wait(40)
     },
 
+    // The interface font replaces this default, the shipped theme's own
+    // (shell/Commons/Tokens.js). Every text of the plugin draws in it.
     font: {
-        family: family("Liberation Sans")
+        family: { sans: family("Inter Variable") }
     },
 
     text: {
@@ -156,7 +159,12 @@ var TOKENS = {
         gapIcon: length(12),
         // The stroke of the Lucide icon an x-vgs-icon hint names, in pixels.
         glyphStroke: length(2),
-        lineGap: length(2),
+        // Under the summary. At 1 a card in the shipped family shows three
+        // body lines at maxHeight: 94 less twice `pad`, the 17 px summary
+        // line and this gap leaves 48, three 16 px lines (the hhea line
+        // heights of shell/assets/fonts/InterVariable.ttf at 14 and 13 px,
+        // read with fontTools).
+        lineGap: length(1),
         summaryLines: number(2, 1, 8),
         exitScale: share(0.3)
     },

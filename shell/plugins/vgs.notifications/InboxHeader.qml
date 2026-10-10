@@ -56,7 +56,7 @@ Item {
             textFormat: Text.PlainText
             text: header.history ? "History" : "Notifications"
             color: header.look.text.foreground
-            font.family: header.look.font.family
+            font.family: header.look.font.family.sans
             font.pixelSize: header.look.text.title.size
             font.weight: header.look.text.title.weight
             style: Text.Raised
@@ -68,7 +68,7 @@ Item {
             visible: text.length > 0
             text: header.subtitle
             color: header.look.text.subtitle.color
-            font.family: header.look.font.family
+            font.family: header.look.font.family.sans
             font.pixelSize: header.look.text.subtitle.size
         }
     }
@@ -99,7 +99,7 @@ Item {
                 text: "Silence"
                 color: header.look.text.foreground
                 opacity: header.look.text.label.opacity
-                font.family: header.look.font.family
+                font.family: header.look.font.family.sans
                 font.pixelSize: header.look.text.label.size
             }
             Toggle {

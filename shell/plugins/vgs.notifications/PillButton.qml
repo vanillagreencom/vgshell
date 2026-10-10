@@ -28,7 +28,7 @@ T.Button {
         text: pill.text
         color: pill.look.text.foreground
         opacity: pill.hovered || pill.emphasized || pill.visualFocus || pill.focusPreview ? 1 : pill.look.pill.idle
-        font.family: pill.look.font.family
+        font.family: pill.look.font.family.sans
         font.pixelSize: pill.look.text.label.size
         font.weight: pill.look.text.label.weight
         horizontalAlignment: Text.AlignHCenter

@@ -209,7 +209,7 @@ Item {
                     Layout.fillWidth: true
                     text: card.title
                     color: card.look.text.foreground
-                    font.family: card.look.font.family
+                    font.family: card.look.font.family.sans
                     font.pixelSize: card.look.text.title.size
                     font.weight: card.look.text.title.weight
                     style: Text.Raised
@@ -245,7 +245,7 @@ Item {
                 // full strength.
                 segments: card.bodySegments
                 color: card.look.text.body.color
-                font: Qt.font({ family: card.look.font.family, pixelSize: card.look.text.body.size })
+                font: Qt.font({ family: card.look.font.family.sans, pixelSize: card.look.text.body.size })
                 maximumLineCount: Math.max(1, Math.floor(room / bodyMetrics.height))
             }
 

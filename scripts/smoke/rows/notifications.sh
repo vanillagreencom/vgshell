@@ -2419,8 +2419,8 @@ expect "the nested compositor removes that monitor" ok hypr output remove "$note
 expect_poll "the removed monitor's stack is gone" "$monitors" layer_count vgs:layer
 expect "the toast outlived the removed monitor" True has_row live "Everywhere"
 
-# The look: the theme reaches it through its mode, accent and motion scale
-# alone.
+# The look: the theme reaches it through its mode, accent, motion scale and
+# interface font alone.
 theme="$home/.config/vgshell/theme.json"
 write_theme() { printf '%s\n' "$1" >"$theme.tmp" && mv -T -- "$theme.tmp" "$theme"; }
 edge_values() { ipc smoke layerItems vgs.notifications EdgeLight "$1" | py_reply 'import json,sys; print(json.dumps(sorted(set(json.dumps(v[sys.argv[1]]) for s, r, v in json.load(sys.stdin)))))' "$1"; }
@@ -2429,8 +2429,10 @@ write_theme '{ "schemaVersion": 1, "name": "unrelated", "tokens": { "palette": {
 expect_poll "the unrelated theme is accepted" unrelated ipc smoke themeName
 expect "an unrelated theme leaves the glass" '"#cc101010"' look_at card.fill
 expect "an unrelated theme leaves the text" '"#ffe8e8e8"' look_at text.foreground
-expect "an unrelated theme leaves the type" '"Liberation Sans"' look_at font.family
+expect "an unrelated theme leaves the type" '"Inter Variable"' look_at font.family.sans
 expect "an unrelated theme leaves the card width" "$note_card_width" look_at card.width
+write_theme '{ "schemaVersion": 1, "name": "typeface", "tokens": { "font": { "family": { "sans": "JetBrains Mono" } } } }'
+expect_poll "the interface font reaches the notifications" '"JetBrains Mono"' look_at font.family.sans
 write_theme '{ "schemaVersion": 1, "name": "accent", "tokens": { "palette": { "accent": "#7aa2f7" } } }'
 expect_poll "the accent reaches the notifications" '"#ff7aa2f7"' look_at palette.accent
 expect "the accent reaches the edge light" '["\"#7aa2f7\""]' edge_values accent
